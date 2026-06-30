@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://flashlight_001"]
+
+[ext_resource type="Script" path="res://scripts/world/Flashlight.gd" id="1_flashlight"]
+
+[sub_resource type="CapsuleShape3D" id="shape_001"]
+radius = 0.055
+height = 0.28
+
+[node name="Flashlight" type="RigidBody3D"]
+script = ExtResource("1_flashlight")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0, 0)
+rotation_degrees = Vector3(0, 0, 0)
+shape = SubResource("shape_001")

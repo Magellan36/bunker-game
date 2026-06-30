@@ -1,0 +1,91 @@
+[gd_scene format=3 uid="uid://cxxbgstudgwck"]
+
+[ext_resource type="Script" uid="uid://dw3sxn0q60k8r" path="res://scripts/world/MainWorld.gd" id="1_lb6jv"]
+[ext_resource type="Script" uid="uid://df5doosgevb01" path="res://scripts/core/GameCamera.gd" id="3_yawxq"]
+[ext_resource type="PackedScene" uid="uid://bvoj2bsoe5j7k" path="res://scenes/ui/HUD.tscn" id="4_m1c1d"]
+[ext_resource type="PackedScene" uid="uid://crsshgentw3x0" path="res://scenes/player/Player.tscn" id="4_yawxq"]
+[ext_resource type="MeshLibrary" uid="uid://5ipa5mlo72rf" path="res://assets/bunker_tiles.meshlib" id="5_w26i4"]
+[ext_resource type="Script" uid="uid://dpb8ovwljrocm" path="res://scripts/world/BunkerLayout.gd" id="6_hyoe7"]
+[ext_resource type="PackedScene" path="res://scenes/world/TestCrate.tscn" id="7_hyoe7"]
+[ext_resource type="Script" uid="uid://c2p4arjynkf1d" path="res://scripts/world/PlayerStats.gd" id="8_p7b5b"]
+[ext_resource type="PackedScene" uid="uid://bn7hoc2y5pv2v" path="res://scenes/world/Bed.tscn" id="8_ucaxc"]
+[ext_resource type="PackedScene" path="res://scenes/ui/SleepOverlay.tscn" id="10_o0cc0"]
+[ext_resource type="PackedScene" uid="uid://bjlvglf3wsro4" path="res://tile_set.tscn" id="11_o0cc0"]
+[ext_resource type="PackedScene" path="res://scenes/ui/InteractPrompt.tscn" id="12_sp2fq"]
+[ext_resource type="PackedScene" uid="uid://dg8v10e04k60e" path="res://scenes/world/WaterCase.tscn" id="13_jq3pf"]
+[ext_resource type="PackedScene" uid="uid://c7johuud8s3lm" path="res://scenes/world/CanCase.tscn" id="14_b88p2"]
+[ext_resource type="Script" uid="uid://b25d20cm5hjmy" path="res://scripts/ui/InventoryManager.gd" id="15_hwvcu"]
+[ext_resource type="Script" uid="uid://brf57rojeegns" path="res://scripts/world/RockSurround.gd" id="16_ecro3"]
+
+[sub_resource type="Environment" id="Environment_w26i4"]
+background_mode = 2
+
+[node name="MainWorld" type="Node3D" unique_id=757564977 groups=["world"]]
+script = ExtResource("1_lb6jv")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=621745786]
+environment = SubResource("Environment_w26i4")
+
+[node name="GameCamera" type="Camera3D" parent="." unique_id=1544880287]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -7.914642, 6.276236)
+script = ExtResource("3_yawxq")
+target_path = NodePath("../Player")
+
+[node name="CanvasLayer" parent="GameCamera" unique_id=1298130016 instance=ExtResource("4_m1c1d")]
+
+[node name="CanvasLayer" parent="." unique_id=1859846649 instance=ExtResource("4_m1c1d")]
+
+[node name="Player" parent="." unique_id=431542057 groups=["Player"] instance=ExtResource("4_yawxq")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.62035275, 1.3431025, 7.105051)
+
+[node name="BunkerLayout" type="GridMap" parent="." unique_id=47536350 groups=["gridmap"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+mesh_library = ExtResource("5_w26i4")
+cell_size = Vector3(1, 0.1, 1)
+bake_navigation = true
+script = ExtResource("6_hyoe7")
+metadata/_editor_floor_ = Vector3(0, -10, 0)
+
+[node name="TestCrate" parent="." unique_id=403391416 instance=ExtResource("7_hyoe7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.4199386, 1.2792261, 6.354368)
+
+[node name="TestCrate2" parent="." unique_id=1217058405 instance=ExtResource("7_hyoe7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.2895627, 2.0754392, 9.643324)
+
+[node name="TestCrate3" parent="." unique_id=225141603 instance=ExtResource("7_hyoe7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.2783616, 1.8624859, 10.118909)
+
+[node name="Bed" parent="." unique_id=1752025624 instance=ExtResource("8_ucaxc")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.9681697, 0.7, 5.0227137)
+
+[node name="HUD" parent="." unique_id=635934083 groups=["HUD"] instance=ExtResource("4_m1c1d")]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=2036720291]
+transform = Transform3D(0.7071068, -0.5416752, 0.4545195, 0, 0.64278764, 0.76604444, -0.7071068, -0.5416752, 0.4545195, 0, -7.914642, 6.276236)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="PlayerStats" type="Node" parent="." unique_id=1757411289]
+script = ExtResource("8_p7b5b")
+
+[node name="SleepOverlay" parent="." unique_id=300491594 instance=ExtResource("10_o0cc0")]
+
+[node name="TileSet" parent="." unique_id=2133615370 instance=ExtResource("11_o0cc0")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -5.9794693, 0)
+visible = false
+
+[node name="InteractPrompt" parent="." unique_id=2143683521 instance=ExtResource("12_sp2fq")]
+
+[node name="WaterCase" parent="." unique_id=1917208067 instance=ExtResource("13_jq3pf")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.898078, 1.0583196, 6.6327133)
+
+[node name="CanCase" parent="." unique_id=1125724952 instance=ExtResource("14_b88p2")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5438236, 0.9118345, 8.593805)
+item_name = "Can Case"
+
+[node name="InventoryManager" type="Node" parent="." unique_id=2072364134]
+script = ExtResource("15_hwvcu")
+
+[node name="RockSurround" type="Node3D" parent="." unique_id=1614123247]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, -1)
+script = ExtResource("16_ecro3")

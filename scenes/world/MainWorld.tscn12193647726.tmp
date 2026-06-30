@@ -1,0 +1,67 @@
+[gd_scene format=3 uid="uid://cxxbgstudgwck"]
+
+[ext_resource type="Script" uid="uid://c5i0jgmiqymok" path="res://scripts/world/MainWorld.gd" id="1_lb6jv"]
+[ext_resource type="Script" uid="uid://df5doosgevb01" path="res://scripts/core/GameCamera.gd" id="3_yawxq"]
+[ext_resource type="PackedScene" uid="uid://bvoj2bsoe5j7k" path="res://scenes/ui/HUD.tscn" id="4_m1c1d"]
+[ext_resource type="PackedScene" uid="uid://crsshgentw3x0" path="res://scenes/player/Player.tscn" id="4_yawxq"]
+[ext_resource type="MeshLibrary" uid="uid://5ipa5mlo72rf" path="res://assets/bunker_tiles.meshlib" id="5_w26i4"]
+[ext_resource type="Script" uid="uid://dpb8ovwljrocm" path="res://scripts/world/BunkerLayout.gd" id="6_hyoe7"]
+[ext_resource type="PackedScene" uid="uid://sl5mgjlq8hhp" path="res://scenes/world/TestCrate.tscn" id="7_hyoe7"]
+
+[sub_resource type="Environment" id="Environment_w26i4"]
+background_mode = 2
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_hyoe7"]
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_m1c1d"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_yawxq"]
+
+[node name="MainWorld" type="Node3D" unique_id=757564977 groups=["world"]]
+script = ExtResource("1_lb6jv")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=621745786]
+environment = SubResource("Environment_w26i4")
+
+[node name="GameCamera" type="Camera3D" parent="." unique_id=1544880287]
+script = ExtResource("3_yawxq")
+target_path = NodePath("../Player")
+
+[node name="CanvasLayer" parent="GameCamera" unique_id=1298130016 instance=ExtResource("4_m1c1d")]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1758665154]
+transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, 0, 0, 0)
+visible = false
+mesh = SubResource("PlaneMesh_hyoe7")
+
+[node name="CanvasLayer" parent="." unique_id=1859846649 instance=ExtResource("4_m1c1d")]
+
+[node name="StaticBody3D" type="StaticBody3D" parent="." unique_id=378711660]
+visible = false
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StaticBody3D" unique_id=815145681]
+transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, 0, 0, 0)
+mesh = SubResource("PlaneMesh_m1c1d")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StaticBody3D" unique_id=118374088]
+shape = SubResource("BoxShape3D_yawxq")
+
+[node name="Player" parent="." unique_id=431542057 instance=ExtResource("4_yawxq")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 1, 10)
+
+[node name="BunkerLayout" type="GridMap" parent="." unique_id=47536350]
+mesh_library = ExtResource("5_w26i4")
+cell_size = Vector3(1, 1, 1)
+bake_navigation = true
+script = ExtResource("6_hyoe7")
+
+[node name="TestCrate" parent="." unique_id=403391416 instance=ExtResource("7_hyoe7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.68, 3, 11.167)
+
+[node name="TestCrate2" parent="." unique_id=1217058405 instance=ExtResource("7_hyoe7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16.244, 3, 8.593)
+
+[node name="TestCrate3" parent="." unique_id=225141603 instance=ExtResource("7_hyoe7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15.14, 3, 11.448)
+
+[node name="HUD" parent="." unique_id=635934083 groups=["HUD"] instance=ExtResource("4_m1c1d")]

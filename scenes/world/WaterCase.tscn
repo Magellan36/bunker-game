@@ -1,0 +1,29 @@
+[gd_scene format=3 uid="uid://dg8v10e04k60e"]
+
+[ext_resource type="Script" uid="uid://dtdxnbhfq83y5" path="res://scripts/world/WaterCase.gd" id="1_u1lem"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gw7ud"]
+albedo_color = Color(0, 0.56078434, 1, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_tgw3k"]
+material = SubResource("StandardMaterial3D_gw7ud")
+size = Vector3(0.6, 0.3, 0.3)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wahlu"]
+size = Vector3(0.6, 0.3, 0.3)
+
+[node name="WaterCase" type="RigidBody3D" unique_id=403391416 groups=["pickup"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+mass = 5.0
+continuous_cd = true
+contact_monitor = true
+script = ExtResource("1_u1lem")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1956982096]
+mesh = SubResource("BoxMesh_tgw3k")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=87744957]
+shape = SubResource("BoxShape3D_wahlu")
+
+[node name="SpawnPoint" type="Node3D" parent="." unique_id=295681397]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.4)
