@@ -1,0 +1,27 @@
+[gd_scene format=3 uid="uid://crate_plastic_001"]
+
+[ext_resource type="Script" path="res://scripts/world/TestCrate.gd" id="1_testcrate"]
+[ext_resource type="PackedScene" path="res://assets/models/plastic_crate.glb" id="2_plasticcrate"]
+
+;; BoxShape3D sized to match the visual mesh EXACTLY.
+;; GLB native dims: 0.298 x 0.2642 x 0.408 m (Y origin at bottom)
+;; Child model scale: 0.6  →  visual mesh: 0.179 x 0.159 x 0.245 (pre-root-scale)
+;; Root node scale set in TestCrate.gd: 3.0
+;; CollisionShape lives under root so its local size is pre-root-scale.
+[sub_resource type="BoxShape3D" id="shape_crate"]
+size = Vector3(0.179, 0.159, 0.245)
+
+[node name="TestCrate" type="RigidBody3D"]
+script = ExtResource("1_testcrate")
+
+[node name="PlasticCrateModel" type="Node3D" parent="."]
+
+[node name="plastic_crate_01" parent="PlasticCrateModel" instance=ExtResource("2_plasticcrate")]
+position = Vector3(0, 0, 0)
+scale = Vector3(0.6, 0.6, 0.6)
+
+;; CollisionShape3D raised by half mesh height (0.2642*0.6/2 = 0.079)
+;; so the box sits flush with the mesh bottom rather than clipping through the floor.
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.079, 0)
+shape = SubResource("shape_crate")

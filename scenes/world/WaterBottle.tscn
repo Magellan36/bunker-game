@@ -1,0 +1,21 @@
+[gd_scene format=3 uid="uid://water_bottle_001"]
+
+[ext_resource type="Script" path="res://scripts/world/WaterBottle.gd" id="1_wbottle"]
+
+[sub_resource type="CapsuleMesh" id="mesh_001"]
+radius = 0.06
+height = 0.22
+
+[sub_resource type="CapsuleShape3D" id="shape_001"]
+radius = 0.06
+height = 0.22
+
+[node name="WaterBottle" type="RigidBody3D"]
+script = ExtResource("1_wbottle")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("mesh_001")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("shape_001")
+

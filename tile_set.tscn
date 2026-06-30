@@ -1,0 +1,52 @@
+[gd_scene format=3 uid="uid://bjlvglf3wsro4"]
+
+[ext_resource type="Material" uid="uid://bn2jykiqiqlbn" path="res://new_standard_material_3d.tres" id="1_6ksk5"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_6ksk5"]
+size = Vector3(2, 0.1, 2)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_6ksk5"]
+size = Vector3(2, 0.1, 2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_ai7bx"]
+size = Vector3(0.3, 3, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_5r8jb"]
+size = Vector3(0.3, 3, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_ihidy"]
+size = Vector3(1, 3, 1)
+
+[sub_resource type="ConcavePolygonShape3D" id="ConcavePolygonShape3D_ai7bx"]
+data = PackedVector3Array(-0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, -0.5)
+
+[node name="TileSet" type="Node3D" unique_id=2133615370]
+
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=1520474748]
+mesh = SubResource("BoxMesh_6ksk5")
+surface_material_override/0 = ExtResource("1_6ksk5")
+
+[node name="StaticBody3D" type="StaticBody3D" parent="Floor" unique_id=1098139792]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor/StaticBody3D" unique_id=1046697769]
+shape = SubResource("BoxShape3D_6ksk5")
+
+[node name="Wall" type="MeshInstance3D" parent="." unique_id=1353046929]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
+mesh = SubResource("BoxMesh_ai7bx")
+surface_material_override/0 = ExtResource("1_6ksk5")
+
+[node name="StaticBody3D" type="StaticBody3D" parent="Wall" unique_id=1020744293]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Wall/StaticBody3D" unique_id=319564629]
+shape = SubResource("BoxShape3D_5r8jb")
+
+[node name="Pillar" type="MeshInstance3D" parent="." unique_id=241520076]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
+mesh = SubResource("BoxMesh_ihidy")
+surface_material_override/0 = ExtResource("1_6ksk5")
+
+[node name="StaticBody3D" type="StaticBody3D" parent="Pillar" unique_id=894896467]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Pillar/StaticBody3D" unique_id=1778879087]
+shape = SubResource("ConcavePolygonShape3D_ai7bx")

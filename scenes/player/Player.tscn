@@ -1,0 +1,46 @@
+[gd_scene format=3 uid="uid://crsshgentw3x0"]
+
+[ext_resource type="Script" uid="uid://uj0st7fog8y1" path="res://scripts/player/Player.gd" id="1_wr5hl"]
+[ext_resource type="Script" uid="uid://ii3myfl6drek" path="res://scripts/player/InteractionSystem.gd" id="2_4kuee"]
+[ext_resource type="Script" uid="uid://cr1112kv3ow48" path="res://scripts/world/PlacementIndicator.gd" id="3_524rm"]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_o8nba"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_wr5hl"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_gfjak"]
+radius = 1.2
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_4kuee"]
+radius = 1.8
+
+[node name="Player" type="CharacterBody3D" unique_id=431542057]
+script = ExtResource("1_wr5hl")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=251095850 groups=["Player"]]
+mesh = SubResource("CapsuleMesh_o8nba")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1528080123 groups=["Player"]]
+shape = SubResource("CapsuleShape3D_wr5hl")
+
+[node name="InteractionArea" type="Area3D" parent="." unique_id=252923001 groups=["Player"]]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="InteractionArea" unique_id=58864610]
+shape = SubResource("SphereShape3D_gfjak")
+
+[node name="InteractionSystem" type="Node3D" parent="." unique_id=766958469]
+script = ExtResource("2_4kuee")
+
+[node name="HoldPoint" type="Node3D" parent="InteractionSystem" unique_id=1610875171]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1)
+
+[node name="PlacementIndicator" type="Node3D" parent="InteractionSystem" unique_id=1191654071]
+script = ExtResource("3_524rm")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="InteractionSystem/PlacementIndicator" unique_id=985623219]
+
+[node name="DetectArea" type="Area3D" parent="InteractionSystem" unique_id=1188015658]
+collision_layer = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="InteractionSystem/DetectArea" unique_id=1735192436]
+shape = SubResource("SphereShape3D_4kuee")

@@ -1,0 +1,16 @@
+[gd_resource type="Theme" load_steps=6 format=3]
+
+[ext_resource type="FontFile" path="res://assets/fonts/IosevkaCharon-Regular.ttf" id="1_regular"]
+[ext_resource type="FontFile" path="res://assets/fonts/IosevkaCharon-Bold.ttf" id="2_bold"]
+[ext_resource type="FontFile" path="res://assets/fonts/IosevkaCharon-Light.ttf" id="3_light"]
+[ext_resource type="FontFile" path="res://assets/fonts/IosevkaCharon-Medium.ttf" id="4_medium"]
+[ext_resource type="FontFile" path="res://assets/fonts/IosevkaCharon-Italic.ttf" id="5_italic"]
+
+[resource]
+default_font = ExtResource("1_regular")
+default_font_size = 14
+Label/fonts/font = ExtResource("1_regular")
+Button/fonts/font = ExtResource("1_regular")
+Label/fonts/bold_font = ExtResource("2_bold")
+Label/fonts/italics_font = ExtResource("5_italic")
+Label/fonts/bold_italics_font = ExtResource("2_bold")

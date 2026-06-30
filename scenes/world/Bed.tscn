@@ -1,0 +1,22 @@
+[gd_scene format=3 uid="uid://bn7hoc2y5pv2v"]
+
+[ext_resource type="Script" uid="uid://drmme62nu3svg" path="res://scripts/world/Bed.gd" id="1_wt5tx"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_urcn2"]
+albedo_color = Color(0.007843138, 0.39215687, 0.3647059, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_ly6mr"]
+material = SubResource("StandardMaterial3D_urcn2")
+size = Vector3(2, 0.5, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_pyfif"]
+size = Vector3(2, 0.5, 1)
+
+[node name="Bed" type="StaticBody3D" unique_id=1752025624]
+script = ExtResource("1_wt5tx")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1051349187]
+mesh = SubResource("BoxMesh_ly6mr")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1958321759]
+shape = SubResource("BoxShape3D_pyfif")
