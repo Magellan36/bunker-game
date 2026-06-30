@@ -348,7 +348,10 @@ func _clear_ghost() -> void:
 	if _dot_dst != null:
 		_dot_dst.queue_free()
 		_dot_dst = null
-	_update_hover_label({})
+	## NOTE: hover label is NOT cleared here — _process manages it directly.
+	## Calling _update_hover_label({}) here resets _hover_key every frame,
+	## causing a new Label3D to be created and destroyed each frame →
+	## GPU resource churn → RID=0 free → D3D12 DEVICE_REMOVED crash.
 
 # ─── Hover label ──────────────────────────────────────────────────────────────
 ## Show/hide a billboard Label3D above a snappable node.
@@ -388,9 +391,11 @@ func _update_hover_label(node_data: Dictionary) -> void:
 	label.pixel_size       = 0.005
 	label.outline_size     = 6
 	label.outline_modulate = Color(0.0, 0.0, 0.0, 0.85)
-	label.global_position  = pos + Vector3(0.0, 0.85, 0.0)
-
+	## add_child BEFORE setting global_position — node must be in the tree
+	## so get_global_transform() is valid; setting position before add_child
+	## triggers a "!is_inside_tree()" error and returns identity transform.
 	_get_scene_root().add_child(label)
+	label.global_position  = pos + Vector3(0.0, 0.85, 0.0)
 	_hover_label = label
 	_hover_key   = key
 
