@@ -1,0 +1,14 @@
+[github_app]
+# Trigger Qodo whenever a PR is created or updated
+handle_pr_actions = ['opened', 'reopened', 'ready_for_review']
+
+# Run these specific tools instantly without manual intervention
+pr_commands = [
+    "/describe",
+    "/review",
+    "/improve"
+]
+
+[pr_reviewer]
+# Add custom instruction modifiers for your codebase
+extra_instructions = "Ensure all error messages follow our corporate logging format."
