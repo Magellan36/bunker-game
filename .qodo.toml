@@ -9,6 +9,9 @@ pr_commands = [
     "/improve"
 ]
 
+[config]
+max_model_tokens = 64000  # Expand token limit for large context windows
+
 [pr_reviewer]
 # Add custom instruction modifiers for your codebase
 extra_instructions = "Ensure all error messages follow our corporate logging format."
