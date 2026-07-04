@@ -300,10 +300,10 @@ func _on_draw() -> void:
 	var title_y: float = py + 24.0
 	_draw_string_at("⚡ POWER TERMINAL", Vector2(px + SECTION_PAD, title_y), HEADER_COLOR, FONT_SIZE_H)
 
-	var grid_state: int   = snap.get("grid_state", 0)
-	var state_str: String = _grid_state_name(grid_state)
-	var state_col: Color  = _grid_state_color(grid_state)
-	_draw_string_at("STATE: %s" % state_str, Vector2(px + 210.0, title_y), state_col, FONT_SIZE_H)
+	## "STATE: ONLINE" removed per user feedback — confusing since it read as
+	## the terminal itself being online/powered, when it actually reflected
+	## overall grid_state. The per-zone state is still shown further down in
+	## the WIRE ZONES / THIS ZONE section, which is the meaningful signal.
 
 	var total_draw: float = snap.get("total_draw_watts", 0.0)
 	var total_cap:  float = snap.get("total_capacity_watts", 0.0)
