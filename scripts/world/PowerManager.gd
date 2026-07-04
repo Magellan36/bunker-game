@@ -1976,9 +1976,46 @@ func set_consumer_priority(id: String, priority: int) -> void:
 		return
 	_consumers[id]["priority"] = clamped
 	consumer_priority_changed.emit(id, clamped)
+	## Clear shed/powered state for every consumer sharing this component BEFORE
+	## re-solving.  Without this, the solver's HEALTHY branch only ever tries to
+	## UN-shed items (see _partial_unshed_component) — it never re-sheds an
+	## already-powered item.  If two consumers swap priorities (A: pri2→pri3,
+	## B: pri3→pri2) the post-swap net_deficit can still read <=0 against the
+	## STALE shed/powered flags, so the solver thinks nothing needs to change
+	## and the wrong item stays shed.  Wiping the whole component's shed state
+	## forces a clean full-draw shed pass that re-evaluates by CURRENT priority.
+	_reset_shed_for_consumer_component(id)
 	## Re-solve so the new tier is honoured right away — an item raised to a
 	## safer tier may un-shed, or one lowered may be shed if the zone is tight.
 	_solve_network()
+
+
+## ─── Reset shed/powered state across a consumer's whole electrical component ──
+## Finds the wire node for `id`, floods the full connected component via
+## _flood_component_keys (same BFS used by the sustained-brownout path), then
+## clears shed=false / powered=false on EVERY consumer whose wire node falls
+## inside that component.  This does NOT apply any power to the nodes itself —
+## it just wipes stale flags so the next _solve_network() re-sheds from a clean
+## slate instead of trusting flags computed under the old priority ordering.
+func _reset_shed_for_consumer_component(id: String) -> void:
+	var seed_key: String = ""
+	for wn: Dictionary in _wire_nodes.values():
+		if wn.get("role", "") == "consumer" and wn.get("device_id", "") == id:
+			seed_key = wn.get("key", "")
+			break
+	if seed_key.is_empty():
+		return
+	var component_keys: Dictionary = _flood_component_keys({seed_key: true})
+	for c: Dictionary in _consumers.values():
+		var in_component: bool = false
+		for wn2: Dictionary in _wire_nodes.values():
+			if wn2.get("role", "") == "consumer" and wn2.get("device_id", "") == c.get("id", ""):
+				if component_keys.has(wn2.get("key", "")):
+					in_component = true
+				break
+		if in_component:
+			c["shed"] = false
+			c["powered"] = false
 
 
 ## Returns true if the consumer is currently switched on (drawing/attempting).
