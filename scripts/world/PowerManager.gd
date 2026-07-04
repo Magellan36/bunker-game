@@ -3958,6 +3958,36 @@ func _flood_component_keys(seed_keys: Dictionary) -> Dictionary:
 	return visited
 
 
+## ─── Flood-fill the GENERATOR-sharing component (pass_generator=true only) ──
+## Same BFS as _flood_component_keys() but walks _adjacency_gen instead of
+## _adjacency — i.e. it crosses untripped breakers with pass_generator=true,
+## and is blocked by tripped breakers or pass_generator=false breakers (same
+## rules the rest of the system already uses for generator BFS seeding and
+## cross-zone capacity sharing in _evaluate_per_component's PASS 2).
+##
+## Used by _tick_batteries()'s charge path so a battery correctly sees
+## generator capacity/load from a NEIGHBORING zone connected via a
+## pass_generator=true breaker, instead of being scoped to only its own
+## breaker-partitioned zone (which was the root cause of batteries never
+## charging across a shared-generator breaker connection).
+func _flood_gen_component_keys(seed_keys: Dictionary) -> Dictionary:
+	var visited: Dictionary = {}
+	var queue: Array[String] = []
+	for sk: String in seed_keys.keys():
+		if not visited.has(sk):
+			visited[sk] = true
+			queue.append(sk)
+	while not queue.is_empty():
+		var cur: String = queue.pop_front()
+		if not _adjacency_gen.has(cur):
+			continue
+		for nb: String in (_adjacency_gen[cur] as Array):
+			if not visited.has(nb):
+				visited[nb] = true
+				queue.append(nb)
+	return visited
+
+
 ## ─── Sustained brownout (cross-zone exhaustion) ──────────────────────────────
 ## Forces EVERY consumer in the component to the SHED (dim-orange) visual —
 ## including tier-1 critical, because there is genuinely no source left (gens
@@ -5205,32 +5235,40 @@ func _tick_batteries(delta: float) -> void:
 				_notify_battery_node(bat["id"])
 			continue
 
-		## ZONE-LOCAL capacity: find which breaker-partitioned zone this battery
-		## sits in, then only count generators and consumers in that same zone.
-		## This prevents a Z0 battery from seeing Z1's generator capacity and
-		## charging when it should be idle or discharging.
-		## Use the cache — calling get_wire_zones() every frame per battery tanks FPS.
-		var bat_zone_set: Dictionary = get_zone_node_set_for_key_cached(bkey)
+		## CROSS-ZONE-AWARE capacity: flood the GENERATOR-sharing component from
+		## this battery's wire node via _adjacency_gen (crosses untripped
+		## pass_generator=true breakers, blocked by tripped/pass_generator=false
+		## breakers) — NOT the single breaker-partitioned zone.  Previously this
+		## used get_zone_node_set_for_key_cached() which scoped strictly to the
+		## battery's own zone and never saw a generator sitting one breaker hop
+		## away even with pass_generator=true, so a battery on a load-only zone
+		## sharing a neighbor's generator never charged.  Mirrors the same
+		## _adjacency_gen traversal _run_bfs() and PASS 2 sharing already use.
+		var bat_gen_component: Dictionary = _flood_gen_component_keys({bkey: true})
 
-		## If battery wire node isn't in any zone (isolated), skip.
-		if bat_zone_set.is_empty():
+		## If battery wire node isn't reachable to anything (isolated), skip.
+		if bat_gen_component.is_empty():
 			if bat.get("charging", false):
 				bat["charging"] = false
 				_notify_battery_mode(bat["id"])
 				_notify_battery_node(bat["id"])
 			continue
 
-		## Local capacity = running generators whose wire node is in this zone.
+		## Capacity = running generators anywhere in the shared gen-component
+		## (own zone OR a neighbor zone reachable via pass_generator=true breakers).
 		var local_capacity: float = 0.0
 		for wn: Dictionary in _wire_nodes.values():
-			if wn.get("role", "") == "generator" and bat_zone_set.has(wn.get("key", "")):
+			if wn.get("role", "") == "generator" and bat_gen_component.has(wn.get("key", "")):
 				var gid: String = wn.get("device_id", "")
 				if not gid.is_empty() and _generators.has(gid):
 					var gen: Dictionary = _generators[gid]
 					if gen.get("running", false):
 						local_capacity += float(gen.get("watts", 0.0))
 
-		## Local consumer draw = powered consumers whose wire node is in this zone.
+		## Draw = powered consumers anywhere in that same shared gen-component,
+		## so a neighbor zone's own load is correctly subtracted before any
+		## surplus is offered to this battery (own-load-first, same rule the
+		## rest of the cross-zone sharing system already follows).
 		## OPTIMISATION: avoid O(consumers × wire_nodes) scan every frame per battery.
 		## Build consumer_id → wire_key map once and reuse (lazy-init per _tick_batteries call).
 		if _charge_consumer_wire_key_cache.is_empty() and not _consumers.is_empty():
@@ -5242,7 +5280,7 @@ func _tick_batteries(delta: float) -> void:
 		var local_draw: float = 0.0
 		for c: Dictionary in _consumers.values():
 			var cwk: String = _charge_consumer_wire_key_cache.get(c["id"], "")
-			if cwk.is_empty() or not bat_zone_set.has(cwk):
+			if cwk.is_empty() or not bat_gen_component.has(cwk):
 				continue
 			if c.get("powered", false):
 				local_draw += float(c.get("watts", 0.0))
