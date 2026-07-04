@@ -1285,14 +1285,36 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 		const WIRE_COST_PER_M_F: float = 8.0    ## mirrors BuildModeController.WIRE_COST_PER_M
 		const CULL_SNAP: float = 0.65            ## same tolerance used elsewhere for wire snapping
 
-		## Build flat XZ list of surviving boundary node positions from _auto_wire_nodes.
-		## (Y is not relevant for boundary proximity — all wires share the same WIRE_Y.)
+		## Build flat XZ list of surviving wire node positions.
+		##
+		## BUG FIX: previously this ONLY included _auto_wire_nodes (pure
+		## boundary/joint positions) — generator, battery, and breaker nodes are
+		## DELIBERATELY excluded from _auto_wire_nodes (they manage their own
+		## lifetime, see _SKIP_ROLES above). That meant ANY player wire whose
+		## endpoint was a generator/battery/breaker could never pass
+		## _near_boundary — it was unconditionally marked dead and refunded on
+		## EVERY chunk rebuild, even though the device node was still completely
+		## valid and untouched in PM. This is why players saw their generator/
+		## battery/breaker-connected wires vanish + refund after any expansion.
+		##
+		## FIX: also include every CURRENT PM wire node position (joints AND
+		## device roles) via pm.get_wire_nodes(). This is safe now — Pass0(incr)
+		## above already actively unregisters genuinely-stale nodes from PM
+		## BEFORE this check runs, so PM's live registry is trustworthy ground
+		## truth. (The old "why not has_wire_node_at_pos" concern in the comment
+		## below was written for the prior full-teardown architecture, where
+		## stale nodes could survive in PM without being cleaned up — that does
+		## not apply to the current incremental Pass0 design.)
 		var surviving_xz: Array[Vector2] = []
 		for ck: String in _auto_wire_nodes:
 			var parts: PackedStringArray = ck.split("_")
 			## parts[0]=x, parts[1]=y, parts[2]=z  (all as "%.3f" strings)
 			if parts.size() >= 3:
 				surviving_xz.append(Vector2(float(parts[0]), float(parts[2])))
+		if pm.has_method("get_wire_nodes"):
+			for wn: Dictionary in (pm.call("get_wire_nodes") as Array):
+				var wpos2: Vector3 = wn.get("pos", Vector3.ZERO)
+				surviving_xz.append(Vector2(wpos2.x, wpos2.z))
 
 		## Helper: is position p within CULL_SNAP of any surviving boundary node?
 		var _near_boundary: Callable = func(p: Vector3) -> bool:
