@@ -46,6 +46,7 @@ const CATEGORIES: Dictionary = {
 		{ "tile_id": 10, "name": "Terminal",  "price": 2500  },
 		{ "tile_id": 11, "name": "Load Test", "price": 0     },
 		{ "tile_id": 12, "name": "Breaker",   "price": 80    },
+		{ "tile_id": 16, "name": "Breaker (Smart)", "price": 240 },
 		{ "tile_id": 13, "name": "Battery S", "price": 150   },
 		{ "tile_id": 14, "name": "Battery M", "price": 350   },
 		{ "tile_id": 15, "name": "Battery L", "price": 600   },
