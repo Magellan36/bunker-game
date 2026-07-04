@@ -48,6 +48,7 @@ const TILE_BREAKER:    int = 12  ## Circuit breaker — trips/resets with E key
 const TILE_BATTERY_S:  int = 13  ## Battery Bank Small  — 100 Wh, $150
 const TILE_BATTERY_M:  int = 14  ## Battery Bank Medium — 300 Wh, $350
 const TILE_BATTERY_L:  int = 15  ## Battery Bank Large  — 600 Wh, $600
+const TILE_BREAKER_SMART: int = 16  ## Upgraded/"smart" breaker — self-trips to isolate on cross-zone exhaustion
 
 ## Y height at which player-placed objects sit (world units).
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with
@@ -635,8 +636,8 @@ func _rebuild_ghost_mesh() -> void:
 			_ghost.set_surface_override_material(s, _mat_valid)
 		return
 
-	# ── Circuit breaker ghost: small wall box ─────────────────────────────────
-	if _selected_tile == TILE_BREAKER:
+	# ── Circuit breaker ghost: small wall box (standard + upgraded/smart) ─────
+	if _selected_tile == TILE_BREAKER or _selected_tile == TILE_BREAKER_SMART:
 		var brk_box: BoxMesh = BoxMesh.new()
 		brk_box.size = Vector3(0.36, 0.44, 0.14)
 		_ghost.mesh     = brk_box
@@ -813,9 +814,10 @@ func _update_ghost() -> void:
 	elif _selected_tile == TILE_WIRE or _selected_tile == TILE_TERMINAL \
 			or _selected_tile == TILE_HEAVY:
 		snap_pos.y = PLACEMENT_Y
-	elif _selected_tile == TILE_BREAKER:
+	elif _selected_tile == TILE_BREAKER or _selected_tile == TILE_BREAKER_SMART:
 		snap_pos.y = PLACEMENT_Y
 		## Wall-snap: attempt to stick the breaker to the nearest interior wall.
+		## Shared by both breaker variants — identical snap geometry.
 		var brk_snapped: Dictionary = _snap_breaker_to_wall(snap_pos)
 		if not brk_snapped.is_empty():
 			snap_pos           = brk_snapped["pos"]
@@ -1009,7 +1011,7 @@ func _try_construct() -> void:
 	## If this is a connectable tile, add its dot immediately (no full refresh needed).
 	const CONNECTABLE_TILES_QUICK: Array[int] = [
 		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT, TILE_HEAVY,
-		TILE_BREAKER, TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L
+		TILE_BREAKER, TILE_BREAKER_SMART, TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L
 	]
 	if _selected_tile in CONNECTABLE_TILES_QUICK:
 		_refresh_connectable_dots()
@@ -1017,8 +1019,10 @@ func _try_construct() -> void:
 	## Snapshot zone colors BEFORE breaker placement mutates zone topology.
 	## This snapshot is stored in the undo entry and restored on undo so wire
 	## colors revert exactly to their pre-placement state.
+	## Applies to BOTH breaker variants — an upgraded breaker splits zones
+	## identically to a standard one at placement time.
 	var pre_place_color_snap: Dictionary = {}
-	if _selected_tile == TILE_BREAKER:
+	if _selected_tile == TILE_BREAKER or _selected_tile == TILE_BREAKER_SMART:
 		var pm_snap: Node = get_tree().get_first_node_in_group("power_manager")
 		if pm_snap != null and pm_snap.has_method("snapshot_zone_colors"):
 			pre_place_color_snap = pm_snap.call("snapshot_zone_colors")
@@ -1034,7 +1038,9 @@ func _try_construct() -> void:
 	## (which runs call_deferred from add_child).  Since call_deferred is FIFO and
 	## the breaker node's deferred was queued at add_child time (earlier this frame),
 	## our deferred here fires after it — correct ordering guaranteed.
-	if _selected_tile == TILE_BREAKER:
+	## Applies to BOTH breaker variants (UpgradedBreakerBox extends BreakerBox
+	## and its own _register_wire_deferred() calls super() first, same ordering).
+	if _selected_tile == TILE_BREAKER or _selected_tile == TILE_BREAKER_SMART:
 		var snap_for_recolor: Dictionary = pre_place_color_snap.duplicate()
 		call_deferred("_restore_then_recolor", snap_for_recolor)
 
@@ -1175,7 +1181,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		hc_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return hc_node
 
-	## ── Circuit breaker ────────────────────────────────────────────────────────
+	## ── Circuit breaker (standard) ─────────────────────────────────────────────
 	if tile_id == TILE_BREAKER:
 		var brk_script: GDScript = load("res://scripts/world/BreakerBox.gd")
 		var brk_node: StaticBody3D = StaticBody3D.new()
@@ -1187,6 +1193,22 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		brk_node.global_position  = pos
 		brk_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return brk_node
+
+	## ── Circuit breaker (upgraded / "smart") ────────────────────────────────────
+	## Identical spawn pattern to the standard breaker — only the script differs.
+	## UpgradedBreakerBox.gd extends BreakerBox.gd and marks itself "upgraded"
+	## with PowerManager once its deferred wire registration completes.
+	if tile_id == TILE_BREAKER_SMART:
+		var ubrk_script: GDScript = load("res://scripts/world/UpgradedBreakerBox.gd")
+		var ubrk_node: StaticBody3D = StaticBody3D.new()
+		if ubrk_script != null:
+			ubrk_node.set_script(ubrk_script)
+		ubrk_node.set_meta("tile_id", TILE_BREAKER_SMART)
+		var ubrk_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		ubrk_par.add_child(ubrk_node)
+		ubrk_node.global_position  = pos
+		ubrk_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return ubrk_node
 
 	## ── Battery bank (all three tiers) ────────────────────────────────────────
 	if tile_id == TILE_BATTERY_S or tile_id == TILE_BATTERY_M \
@@ -1341,8 +1363,9 @@ func _try_deconstruct() -> void:
 				pm.call("unregister_consumer", hid)
 			if pm.has_method("unregister_wire_node"):
 				pm.call("unregister_wire_node", hid)
-	elif entry["tile_id"] == TILE_BREAKER:
-		## BreakerBox._exit_tree() self-unregisters via its own _exit_tree().
+	elif entry["tile_id"] == TILE_BREAKER or entry["tile_id"] == TILE_BREAKER_SMART:
+		## BreakerBox._exit_tree() self-unregisters via its own _exit_tree()
+		## (UpgradedBreakerBox inherits it unmodified — same cleanup applies).
 		## No explicit PM call needed here — script handles cleanup.
 		pass
 	elif entry["tile_id"] == TILE_BATTERY_S or entry["tile_id"] == TILE_BATTERY_M \
@@ -1364,7 +1387,7 @@ func _try_deconstruct() -> void:
 	## Connect to tree_exited so _recolor fires AFTER _exit_tree() has finished
 	## calling unregister_breaker (which re-stitches the wire edge).  Using
 	## call_deferred races against _exit_tree and produces stale colors.
-	if deconstructed_tile == TILE_BREAKER:
+	if deconstructed_tile == TILE_BREAKER or deconstructed_tile == TILE_BREAKER_SMART:
 		body.tree_exited.connect(_recolor_wire_zones, CONNECT_ONE_SHOT)
 
 	if refund > 0 and world_node != null:
@@ -1679,7 +1702,8 @@ func _update_move_ghost() -> void:
 		snap_pos.y = GEN_PLACEMENT_Y
 	elif mv_tile == TILE_WIRE or mv_tile == TILE_HEAVY:
 		snap_pos.y = PLACEMENT_Y
-	elif mv_tile == TILE_BREAKER or mv_tile == TILE_BATTERY_S \
+	elif mv_tile == TILE_BREAKER or mv_tile == TILE_BREAKER_SMART \
+			or mv_tile == TILE_BATTERY_S \
 			or mv_tile == TILE_BATTERY_M or mv_tile == TILE_BATTERY_L:
 		snap_pos.y = PLACEMENT_Y
 	else:
@@ -1822,7 +1846,7 @@ func _undo() -> void:
 						pm.call("unregister_consumer", hid)
 					if pm.has_method("unregister_wire_node"):
 						pm.call("unregister_wire_node", hid)
-			## TILE_BREAKER and TILE_BATTERY_* self-unregister in _exit_tree().
+			## TILE_BREAKER, TILE_BREAKER_SMART, and TILE_BATTERY_* self-unregister in _exit_tree().
 			body.queue_free()
 
 		## After freeing a breaker, restore zone color registry to the snapshot
@@ -1831,7 +1855,8 @@ func _undo() -> void:
 		## Connect to tree_exited (one-shot) so _recolor fires AFTER _exit_tree()
 		## finishes unregister_breaker (re-stitching the edge).  call_deferred
 		## races against _exit_tree and would recolor against stale topology.
-		if undo_tid == TILE_BREAKER and is_instance_valid(body):
+		## Applies to BOTH breaker variants.
+		if (undo_tid == TILE_BREAKER or undo_tid == TILE_BREAKER_SMART) and is_instance_valid(body):
 			var pm_brk: Node = get_tree().get_first_node_in_group("power_manager")
 			var snap_brk: Dictionary = entry.get("zone_color_snap", {})
 			if not snap_brk.is_empty() and pm_brk != null \
@@ -1971,12 +1996,13 @@ func _push_undo_move(body: Node3D, reg_entry: Dictionary, old_pos: Vector3) -> v
 		_undo_stack.pop_front()
 
 ## Called by WireDrawMode after a wire is placed — both endpoints and their
-## world positions. Notifies any WallLight or BreakerBox near either endpoint
-## so they can retroactively link to the wire (objects placed before wire drawn).
+## world positions. Notifies any WallLight or BreakerBox (incl. the upgraded
+## variant) near either endpoint so they can retroactively link to the wire
+## (objects placed before wire drawn).
 func _on_wire_nodes_connected(key_a: String, pos_a: Vector3, key_b: String, pos_b: Vector3) -> void:
 	for entry: Dictionary in _placed_objects:
 		var tid: int = entry.get("tile_id", -1)
-		if tid != TILE_LIGHT and tid != TILE_BREAKER:
+		if tid != TILE_LIGHT and tid != TILE_BREAKER and tid != TILE_BREAKER_SMART:
 			continue
 		var obj_node: Node3D = entry.get("node", null) as Node3D
 		if obj_node == null or not is_instance_valid(obj_node):
@@ -2216,7 +2242,8 @@ func remove_breakers_in_bounds(x_min: float, x_max: float, z_min: float, z_max: 
 	var to_remove: Array[int] = []
 	for i: int in _placed_objects.size():
 		var entry: Dictionary = _placed_objects[i]
-		if entry.get("tile_id", -1) != TILE_BREAKER:
+		var rb_tid: int = entry.get("tile_id", -1)
+		if rb_tid != TILE_BREAKER and rb_tid != TILE_BREAKER_SMART:
 			continue
 		var p: Vector3 = entry["world_pos"]
 		if p.x >= x_min and p.x <= x_max and p.z >= z_min and p.z <= z_max:
