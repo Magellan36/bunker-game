@@ -3,8 +3,19 @@ extends StaticBody3D
 ## Buildable power dashboard terminal. TILE_TERMINAL = 10.
 ##
 ## A wall-mounted panel that opens PowerTerminalUI on interact.
-## Draws 40W — a real shed-able consumer with its own adjustable priority.
-## Registers as a wire node so wires can be routed to it (for visual completeness).
+## Registers as a wire node so it participates in the wire graph and can be
+## routed to visually — but it draws ZERO watts, so it is never actually a
+## load on the grid. It only needs to be CONNECTED (reachable via wires) to
+## light its screen; being POWERED is no longer required to open/use it.
+##
+## IMPLEMENTATION NOTE: still registered as a "consumer" (role + register_
+## consumer call) with watts=0.0 and priority=1 (critical/never-shed) rather
+## than introducing a brand-new passive node type. This reuses PowerManager's
+## existing reachability BFS + set_powered() callback machinery as-is (zero
+## PowerManager changes needed) — with 0 watts it contributes nothing to any
+## zone's draw/capacity/shedding math, so functionally it behaves exactly
+## like a passive grid element (BreakerBox-style), it just rides the existing
+## consumer pipe for its cosmetic "is this zone alive" signal.
 ##
 ## Self-registration via call_deferred() so global_position is settled after
 ## BuildModeController.add_child() fires.
@@ -14,11 +25,14 @@ const PANEL_H: float = 0.9
 const PANEL_D: float = 0.08
 
 ## Power grid settings
-var power_watts:    float  = 40.0   ## Terminal screen + UI draw (shed-able)
-var power_priority: int    = 2      ## High — shed before luxuries, keep before lights
+## power_watts is intentionally 0.0 — the terminal is a passive grid element,
+## never a real load. power_priority=1 (critical) is belt-and-suspenders on
+## top of that (0 watts already makes shedding irrelevant either way).
+var power_watts:    float  = 0.0
+var power_priority: int    = 1
 var power_zone:     String = "main"
 var _pm_node_key:   String = ""
-var _is_powered:    bool   = false  ## Tracked so interact can gate on power
+var _is_connected:  bool   = false  ## True when reachable via the wire graph (cosmetic only now)
 
 ## Internal refs
 var _screen_mesh:  MeshInstance3D = null
@@ -53,29 +67,31 @@ func _exit_tree() -> void:
 		pm.unregister_consumer(str(get_instance_id()))
 
 # ─── Power API (called by PowerManager) ───────────────────────────────────────
+## PowerManager still calls this (the terminal is registered with 0 watts, so
+## it's technically still a "consumer" in the registry — see _register_deferred
+## for why). It now represents COSMETIC grid-connectivity, not real power —
+## the screen dims when the terminal's local zone is dead, but the terminal
+## remains fully usable regardless.
 func set_powered(on: bool) -> void:
-	_is_powered = on
-	## Screen dims when unpowered.
+	_is_connected = on
+	## Screen dims when the surrounding grid segment has no power flowing —
+	## purely visual, does not affect on_interact()/get_interact_prompt().
 	if _screen_mesh != null:
 		var mat: StandardMaterial3D = _screen_mesh.get_surface_override_material(0)
 		if mat != null:
 			mat.emission_enabled = on
-			mat.emission_energy_multiplier = 1.0 if on else 0.0
-	## Close UI immediately if power cut while open.
-	if not on and _ui_open:
-		_close_terminal_ui()
+			mat.emission_energy_multiplier = 1.0 if on else 0.35
 
 # ─── Interaction ─────────────────────────────────────────────────────────────
 ## Called by InteractionSystem when player presses E near this node.
+## No longer gated on power — only needs to exist/be built to be usable.
+## (Being wired into the grid is still required for the UI to show live zone
+## data; an unwired terminal shows "no zone data" inside the UI itself.)
 func on_interact() -> void:
-	if not _is_powered:
-		return   ## No power — silently ignore; prompt will say "No Power"
 	_open_terminal_ui()
 
 ## InteractionSystem reads this to build the prompt line.
 func get_interact_prompt() -> String:
-	if not _is_powered:
-		return "[E] Power Terminal  (No Power)"
 	return "[E] Open Power Terminal"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -141,13 +157,16 @@ func _register_deferred() -> void:
 	## Register consumer FIRST — PowerManager comment says "register consumer before
 	## wire node" because register_wire_node triggers _solve_network immediately.
 	## If the consumer isn't in the dict yet, the solve sees 0 draw and skips it.
+	## power_watts=0.0 means this never actually contributes draw/shedding math —
+	## it's a passive grid element riding the consumer pipe purely so PowerManager's
+	## existing reachability BFS drives the cosmetic screen-glow via set_powered().
 	if pm.has_method("register_consumer"):
 		pm.register_consumer(
 			dev_id,
 			power_watts,
 			self,
 			"terminal",    ## type
-			power_priority, ## priority (2 = high)
+			power_priority, ## priority (1 = critical/never-shed — moot at 0 watts)
 			true)           ## active immediately
 
 	## Wire node registered AFTER consumer so the solve fired here sees the full
