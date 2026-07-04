@@ -883,6 +883,15 @@ func register_breaker(wire_node_key: String, scene_node: Node = null) -> String:
 		"upgraded":      false,  ## smart breaker — self-trips to isolate on cross-zone
 		                         ## exhaustion instead of allowing the standard shared
 		                         ## sustained-brownout (see set_breaker_upgraded()).
+		"trip_group_key": "",    ## non-empty while self-tripped as part of a group —
+		                         ## lets reset_breaker() find + reset every breaker that
+		                         ## isolated the SAME exhaustion event together, instead
+		                         ## of leaving siblings stuck tripped. See
+		                         ## _reset_upgraded_breaker_group().
+		"pretrip_pass_battery":  true,  ## pass_battery value at the moment of self-trip —
+		                                ## restored on group reset instead of leaving the
+		                                ## forced-off value in place.
+		"pretrip_pass_generator": true, ## same, for pass_generator.
 	}
 	## Update the wire node's role so adjacency builder knows it's a breaker point.
 	_wire_nodes[wire_node_key]["role"] = "breaker"
@@ -1427,7 +1436,28 @@ func trip_breaker(breaker_id: String) -> void:
 	_solve_network()
 
 
-## Reset a circuit breaker (player interacts at the physical breaker).
+## Reset a circuit breaker (player interacts at the physical breaker, or
+## clicks RESTART on an upgraded/smart breaker's panel).
+##
+## If this breaker self-tripped as part of an upgraded-breaker exhaustion
+## event (trip_group_key non-empty), resetting it resets the WHOLE GROUP —
+## every other breaker that isolated the same event together — and restores
+## each breaker's pre-trip pass_battery/pass_generator values instead of
+## leaving them forced off. See _reset_upgraded_breaker_group().
+##
+## After the group (or single breaker) is un-tripped, ONE _solve_network()
+## runs. The solver is fully stateless per-solve for the upgraded-breaker
+## path (unlike the standard breaker's _exhausted_brownout_keys latch, which
+## this path never touches) — so _evaluate_per_component() naturally
+## re-derives fresh from CURRENT draw/capacity:
+##   - If the zones can now healthily share (load dropped, or capacity grew),
+##     the cross-zone branch simply won't hit the exhausted-deficit path and
+##     power resumes normally.
+##   - If the offending zone is STILL overpowering the shared component, the
+##     exact same cross-zone-exhausted detection fires again next solve and
+##     _find_upgraded_breakers_in_component() finds this breaker (now
+##     untripped + passing again) and re-trips it with a fresh trip_group_key
+##     — i.e. it re-trips itself automatically, no extra code needed here.
 func reset_breaker(breaker_id: String) -> void:
 	if not _breakers.has(breaker_id):
 		return
@@ -1435,10 +1465,48 @@ func reset_breaker(breaker_id: String) -> void:
 		push_warning("PowerManager: reset_breaker called while grid is %s — reset main first."
 			% GridState.keys()[grid_state])
 		return
-	_breakers[breaker_id]["tripped"] = false
-	_notify_breaker_node(breaker_id, false)
-	breaker_reset.emit(breaker_id)
+	var group_key: String = str(_breakers[breaker_id].get("trip_group_key", ""))
+	if not group_key.is_empty():
+		_reset_upgraded_breaker_group(group_key)
+	else:
+		## Standard path — untouched. Also covers an upgraded breaker that was
+		## tripped some other way (e.g. via Power Terminal) with no group.
+		_breakers[breaker_id]["tripped"] = false
+		_notify_breaker_node(breaker_id, false)
+		breaker_reset.emit(breaker_id)
 	_solve_network()
+
+
+## ─── Group reset for self-tripped upgraded breakers ──────────────────────────
+## Finds every breaker whose trip_group_key matches the given key (all of them
+## self-tripped together from the SAME cross-zone exhaustion event — see the
+## trip_group_key assignment in _evaluate_per_component's upgraded-breaker
+## branch) and resets them as one unit:
+##   - tripped -> false
+##   - pass_battery/pass_generator restored to their PRE-TRIP values (what the
+##     player had set before the self-trip forced them off), not left at false.
+##   - trip_group_key cleared back to "".
+## Notifies each breaker's scene node + emits breaker_reset per breaker so the
+## UI (TRIPPED banner, LED, pass-through pill states) updates for every one of
+## them, not just the breaker the player physically clicked RESTART on.
+## Does NOT call _solve_network() itself — reset_breaker() does that once,
+## after this returns, so a group of N breakers only triggers one solve.
+func _reset_upgraded_breaker_group(group_key: String) -> void:
+	var reset_ids: Array[String] = []
+	for bid: String in _breakers:
+		var brk: Dictionary = _breakers[bid]
+		if str(brk.get("trip_group_key", "")) != group_key:
+			continue
+		brk["tripped"]        = false
+		brk["pass_battery"]   = bool(brk.get("pretrip_pass_battery", true))
+		brk["pass_generator"] = bool(brk.get("pretrip_pass_generator", true))
+		brk["trip_group_key"] = ""
+		_notify_breaker_node(bid, false)
+		reset_ids.append(bid)
+	for rid: String in reset_ids:
+		breaker_reset.emit(rid)
+	_pmdbg("[PM:BREAKER] _reset_upgraded_breaker_group(%s) reset %d breaker(s): %s" % [
+		group_key, reset_ids.size(), str(reset_ids)])
 
 
 ## Reset the whole-bunker main breaker (player at main breaker panel).
@@ -3978,15 +4046,35 @@ func _find_upgraded_breakers_in_component(component_keys: Dictionary) -> Array[S
 ## FORCES both pass-throughs off (locked — the player can't re-enable sharing
 ## until the breaker is manually reset), notifies the scene node for the LED /
 ## TRIPPED banner, and emits breaker_tripped so any listening UI updates.
+##
+## group_key identifies the exhaustion EVENT this breaker tripped alongside —
+## every upgraded breaker that self-trips from the same
+## _find_upgraded_breakers_in_component() call shares the same group_key
+## (the component signature). reset_breaker() uses this to find and reset
+## every sibling breaker from the same event together (see
+## _reset_upgraded_breaker_group()), instead of leaving some tripped while
+## only one gets manually reset.
+##
+## Also snapshots the pre-trip pass_battery/pass_generator values so a group
+## reset can restore the player's ORIGINAL sharing intent rather than leaving
+## both pass-throughs forced off after reset (which would silently disable
+## sharing the player explicitly enabled, with no way to tell from the UI
+## alone why it stopped working).
+##
 ## Deliberately does NOT call _solve_network() itself — the caller is already
 ## mid-solve (_evaluate_per_component) and sets _needs_resolve=true so the
 ## severed topology is picked up cleanly on the next frame's solve, exactly
 ## like the _tick_batteries() -> _needs_resolve -> _process() pattern already
 ## used elsewhere in this file.
-func _self_trip_upgraded_breaker(breaker_id: String) -> void:
+func _self_trip_upgraded_breaker(breaker_id: String, group_key: String) -> void:
 	if not _breakers.has(breaker_id):
 		return
 	var brk: Dictionary = _breakers[breaker_id]
+	## Preserve whatever the player had set BEFORE forcing both off, so a
+	## later group reset can restore intent instead of leaving them off.
+	brk["pretrip_pass_battery"]   = brk.get("pass_battery", true)
+	brk["pretrip_pass_generator"] = brk.get("pass_generator", true)
+	brk["trip_group_key"] = group_key
 	brk["tripped"]       = true
 	brk["pass_battery"]  = false
 	brk["pass_generator"] = false
@@ -4400,9 +4488,14 @@ func _evaluate_per_component() -> void:
 					## breaker isolated.
 					var upgraded_ids: Array[String] = _find_upgraded_breakers_in_component(comp_keys)
 					if not upgraded_ids.is_empty():
-						_pmdbg("[PM:EVAL]   zone %d: CROSS-ZONE EXHAUSTED -> UPGRADED breaker(s) %s self-trip, isolating (imp=%.1f exp=%.1f)" % [zi, str(upgraded_ids), imported_w, exported_w])
+						## Group key ties every sibling breaker that self-tripped
+						## FROM THIS SAME EXHAUSTION EVENT together, so a group
+						## reset (see _reset_upgraded_breaker_group) can find and
+						## reset all of them at once instead of leaving some stuck.
+						var trip_group_key: String = _component_sig_key(comp_keys)
+						_pmdbg("[PM:EVAL]   zone %d: CROSS-ZONE EXHAUSTED -> UPGRADED breaker(s) %s self-trip, isolating (imp=%.1f exp=%.1f) group=%s" % [zi, str(upgraded_ids), imported_w, exported_w, trip_group_key])
 						for ubid: String in upgraded_ids:
-							_self_trip_upgraded_breaker(ubid)
+							_self_trip_upgraded_breaker(ubid, trip_group_key)
 						_cut_consumers_in_zone(zone_keys)
 						any_offline = true
 						zones_offline += 1
