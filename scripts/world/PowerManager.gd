@@ -880,6 +880,9 @@ func register_breaker(wire_node_key: String, scene_node: Node = null) -> String:
 		"node":          scene_node,
 		"pass_battery":  true,   ## allow battery current through (player-toggled)
 		"pass_generator": true,  ## allow generator current through (player-toggled)
+		"upgraded":      false,  ## smart breaker — self-trips to isolate on cross-zone
+		                         ## exhaustion instead of allowing the standard shared
+		                         ## sustained-brownout (see set_breaker_upgraded()).
 	}
 	## Update the wire node's role so adjacency builder knows it's a breaker point.
 	_wire_nodes[wire_node_key]["role"] = "breaker"
@@ -1476,6 +1479,26 @@ func set_breaker_passthrough(breaker_id: String, pass_battery: bool, pass_genera
 	_breakers[breaker_id]["pass_battery"]   = pass_battery
 	_breakers[breaker_id]["pass_generator"] = pass_generator
 	_solve_network()
+
+
+## ─── Upgraded ("smart") breaker flag ─────────────────────────────────────────
+## Marks a breaker as the upgraded/smart variant.  Does NOT change adjacency or
+## trip state by itself — it only changes what happens at the cross-zone
+## exhaustion decision point in _evaluate_per_component(): an upgraded breaker
+## self-trips to ISOLATE its two bordering zones instead of allowing the
+## standard multi-zone sustained brownout.  See _find_upgraded_breaker_for_component().
+## Called by the (future) UpgradedBreakerBox scene in _ready(), or by debug
+## tooling to test the behavior on an existing standard breaker.
+func set_breaker_upgraded(breaker_id: String, upgraded: bool) -> void:
+	if not _breakers.has(breaker_id):
+		return
+	_breakers[breaker_id]["upgraded"] = upgraded
+	_solve_network()
+
+
+## Returns true if the given breaker is the upgraded/smart variant.
+func get_breaker_upgraded(breaker_id: String) -> bool:
+	return bool(_breakers.get(breaker_id, {}).get("upgraded", false))
 
 
 ## ─── Battery enable / disable API ────────────────────────────────────────────
@@ -3923,6 +3946,54 @@ func clear_exhausted_brownout() -> void:
 	_needs_resolve = true
 
 
+## ─── Upgraded breaker: find + self-trip ──────────────────────────────────────
+## Returns the breaker_id of every UPGRADED breaker whose node_key falls inside
+## component_keys, is currently untripped, AND is currently passing power
+## (pass_battery or pass_generator true — a locked/already-tripped upgraded
+## breaker has already done its job and shouldn't re-trigger).  In practice a
+## single upgraded breaker sits on the boundary between the donor and deficit
+## zones, but this returns an Array so multiple bridging upgraded breakers in
+## a longer chain all trip together and fully isolate the deficit side.
+func _find_upgraded_breakers_in_component(component_keys: Dictionary) -> Array[String]:
+	var found: Array[String] = []
+	for bid: String in _breakers:
+		var brk: Dictionary = _breakers[bid]
+		if not bool(brk.get("upgraded", false)):
+			continue
+		if bool(brk.get("tripped", false)):
+			continue   ## already tripped — nothing new to do
+		var bk: String = brk.get("node_key", "")
+		if bk.is_empty() or not component_keys.has(bk):
+			continue
+		## Only relevant if it's actually passing something right now — a
+		## breaker with both pass-throughs already off isn't contributing to
+		## the share and doesn't need to self-trip.
+		if not bool(brk.get("pass_battery", true)) and not bool(brk.get("pass_generator", true)):
+			continue
+		found.append(bid)
+	return found
+
+
+## Self-trip an upgraded breaker on cross-zone exhaustion: sets tripped=true,
+## FORCES both pass-throughs off (locked — the player can't re-enable sharing
+## until the breaker is manually reset), notifies the scene node for the LED /
+## TRIPPED banner, and emits breaker_tripped so any listening UI updates.
+## Deliberately does NOT call _solve_network() itself — the caller is already
+## mid-solve (_evaluate_per_component) and sets _needs_resolve=true so the
+## severed topology is picked up cleanly on the next frame's solve, exactly
+## like the _tick_batteries() -> _needs_resolve -> _process() pattern already
+## used elsewhere in this file.
+func _self_trip_upgraded_breaker(breaker_id: String) -> void:
+	if not _breakers.has(breaker_id):
+		return
+	var brk: Dictionary = _breakers[breaker_id]
+	brk["tripped"]       = true
+	brk["pass_battery"]  = false
+	brk["pass_generator"] = false
+	_notify_breaker_node(breaker_id, true)
+	breaker_tripped.emit(breaker_id)
+
+
 ## ─── Main per-zone evaluation ────────────────────────────────────────────────
 ## Three-pass zone solver with cross-zone generator sharing.
 ##
@@ -4315,9 +4386,31 @@ func _evaluate_per_component() -> void:
 					## the exporter's generator (in a DIFFERENT zone) actually
 					## trips and ALL shared zones brown out together.
 					var comp_keys: Dictionary = _flood_component_keys(zone_keys)
-					_pmdbg("[PM:EVAL]   zone %d: CROSS-ZONE EXHAUSTED -> sustained brownout FULL component (%d nodes, imp=%.1f exp=%.1f)" % [zi, comp_keys.size(), imported_w, exported_w])
-					_sustained_brownout_component(comp_keys)
-					any_overloaded = true   ## brownout, not offline
+					## ── Upgraded ("smart") breaker pre-empt ────────────────────
+					## If an UPGRADED breaker sits in this component, untripped,
+					## and currently passing power, it self-trips to ISOLATE the
+					## two sides instead of the standard multi-zone sustained
+					## brownout.  The generator side keeps running (untouched);
+					## only THIS deficit zone (which has no gen/battery of its
+					## own — it was piggybacking) goes OFFLINE, same as a
+					## standalone zone with no source.  The severed adjacency
+					## only takes effect on the NEXT solve (this pass already
+					## computed sharing with the old topology), so we flag
+					## _needs_resolve to re-evaluate cleanly next frame with the
+					## breaker isolated.
+					var upgraded_ids: Array[String] = _find_upgraded_breakers_in_component(comp_keys)
+					if not upgraded_ids.is_empty():
+						_pmdbg("[PM:EVAL]   zone %d: CROSS-ZONE EXHAUSTED -> UPGRADED breaker(s) %s self-trip, isolating (imp=%.1f exp=%.1f)" % [zi, str(upgraded_ids), imported_w, exported_w])
+						for ubid: String in upgraded_ids:
+							_self_trip_upgraded_breaker(ubid)
+						_cut_consumers_in_zone(zone_keys)
+						any_offline = true
+						zones_offline += 1
+						_needs_resolve = true   ## re-solve next frame with breaker isolated
+					else:
+						_pmdbg("[PM:EVAL]   zone %d: CROSS-ZONE EXHAUSTED -> sustained brownout FULL component (%d nodes, imp=%.1f exp=%.1f)" % [zi, comp_keys.size(), imported_w, exported_w])
+						_sustained_brownout_component(comp_keys)
+						any_overloaded = true   ## brownout, not offline
 				else:
 					_cut_consumers_in_zone(zone_keys)
 					any_offline = true
