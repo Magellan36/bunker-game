@@ -1,4 +1,5 @@
 extends StaticBody3D
+class_name PowerTerminal
 ## PowerTerminal.gd
 ## Buildable power dashboard terminal. TILE_TERMINAL = 10.
 ##

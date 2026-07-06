@@ -1,4 +1,5 @@
 extends Node
+class_name PowerManager
 ## PowerManager.gd  —  v3.1
 ## Central electricity grid controller for the bunker.
 ##

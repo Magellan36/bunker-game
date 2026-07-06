@@ -1,4 +1,5 @@
-extends "res://scripts/world/BreakerBox.gd"
+extends BreakerBox
+class_name UpgradedBreakerBox
 ## UpgradedBreakerBox.gd  — v1.0
 ## "Smart" breaker variant. Inherits 100% of BreakerBox's mesh, wire-snapping,
 ## registration, and settings-panel mechanics unmodified — this script only

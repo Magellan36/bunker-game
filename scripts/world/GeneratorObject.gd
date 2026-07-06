@@ -1,4 +1,5 @@
 extends StaticBody3D
+class_name GeneratorObject
 ## GeneratorObject.gd
 ## Procedural generator mesh (gray box). Sized by tier.
 ## Registers itself with PowerManager on _ready, unregisters on _exit_tree.
