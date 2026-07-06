@@ -1,4 +1,5 @@
 extends StaticBody3D
+class_name BatteryBank
 ## BatteryBank.gd  — v2.0
 ## Wall/floor-mounted battery bank.  Three tiers: Small / Medium / Large.
 ## Stores energy when generators have surplus, discharges when generators fail.

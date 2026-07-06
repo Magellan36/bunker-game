@@ -1,4 +1,5 @@
 extends StaticBody3D
+class_name BreakerBox
 ## BreakerBox.gd  — v2.0
 ## A circuit breaker placed on the wire graph.
 ##
