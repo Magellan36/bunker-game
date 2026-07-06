@@ -54,39 +54,36 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
-	if not _pm_node_key.is_empty() and pm.has_method("unregister_wire_node"):
+	if not _pm_node_key.is_empty():
 		pm.unregister_wire_node(_pm_node_key)
-	if pm.has_method("unregister_consumer"):
-		pm.unregister_consumer(str(get_instance_id()))
+	pm.unregister_consumer(str(get_instance_id()))
 
 
 # ─── PowerManager registration ────────────────────────────────────────────────
 func _register_deferred() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		push_warning("HeavyConsumerTest: PowerManager not found — will have no power.")
 		return
 
 	## Wire node first — this is the graph snap point.
-	if pm.has_method("register_wire_node"):
-		_pm_node_key = pm.register_wire_node(
-			global_position,
-			"consumer",
-			str(get_instance_id()))
+	_pm_node_key = pm.register_wire_node(
+		global_position,
+		"consumer",
+		str(get_instance_id()))
 
 	## Consumer second. Type = "heavy_appliance" — NOT in LIGHT_TYPES,
 	## so it is never shed. Priority 2 = important but not life-support.
-	if pm.has_method("register_consumer"):
-		pm.register_consumer(
-			str(get_instance_id()),
-			WATTS,
-			self,
-			"heavy_appliance",
-			2,       ## priority
-			true)    ## active from the start
+	pm.register_consumer(
+		str(get_instance_id()),
+		WATTS,
+		self,
+		"heavy_appliance",
+		2,       ## priority
+		true)    ## active from the start
 
 
 # ─── Required interface — called by PowerManager ──────────────────────────────
@@ -142,8 +139,8 @@ func _on_prio_closed() -> void:
 
 func _on_prio_load_toggled(_id: String, on: bool) -> void:
 	_load_active = on
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("set_consumer_active"):
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
 		pm.set_consumer_active(str(get_instance_id()), _load_active)
 	_refresh_label()
 

@@ -78,13 +78,12 @@ func _exit_tree() -> void:
 	## Unregister from the power graph when removed from the scene.
 	## Wire node FIRST — that triggers the network re-solve.
 	## Consumer SECOND — graph no longer references this device.
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
-	if _pm_node_key != "" and pm.has_method("unregister_wire_node"):
+	if _pm_node_key != "":
 		pm.unregister_wire_node(_pm_node_key)
-	if pm.has_method("unregister_consumer"):
-		pm.unregister_consumer(str(get_instance_id()))
+	pm.unregister_consumer(str(get_instance_id()))
 
 # ─── Power grid API ──────────────────────────────────────────────────────────
 
@@ -153,9 +152,9 @@ func on_priority_interact() -> void:
 		_prio_ui.call("open", str(get_instance_id()), "Wall Light", false)
 
 func get_priority_prompt() -> String:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	var prio: int = power_priority
-	if pm != null and pm.has_method("get_consumer_priority"):
+	if pm != null:
 		prio = pm.get_consumer_priority(str(get_instance_id()))
 	var state: String = "Powered" if _is_powered else ("Shed" if _is_shed else "No Power")
 	return "[E] Wall Light  —  Priority %d  (%s)" % [prio, state]
@@ -199,39 +198,35 @@ func _register_wire_deferred() -> void:
 func _auto_connect_deferred() -> void:
 	if _pm_node_key == "":
 		return  ## registration didn't complete — skip silently
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm != null:
 		_auto_connect_to_nearby_wires(pm)
 
 func _register_with_power_manager() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		push_warning("WallLight id=%d: PowerManager not found in group 'power_manager' — skipping registration. global_pos=%s" % [
 			get_instance_id(), str(global_position)])
 		return
-	var pm_status: Dictionary = {}
-	if pm.has_method("get_status"):
-		pm_status = pm.get_status()
+	var pm_status: Dictionary = pm.get_status()
 	_wdbg("[LIGHT] _register_with_power_manager — id=%d pos=%s pm_wire_nodes=%d pm_edges=%d" % [
 		get_instance_id(), str(global_position),
 		pm_status.get("wire_nodes", -1), pm_status.get("wire_edges", -1)])
 
 	## 1. Register a wire node at this light's world position.
-	if pm.has_method("register_wire_node"):
-		_pm_node_key = pm.register_wire_node(
-			global_position,
-			"consumer",
-			str(get_instance_id()))
+	_pm_node_key = pm.register_wire_node(
+		global_position,
+		"consumer",
+		str(get_instance_id()))
 
 	## 2. Register as a consumer. No zone parameter in v3.x.
-	if pm.has_method("register_consumer"):
-		pm.register_consumer(
-			str(get_instance_id()),
-			power_watts,
-			self,
-			"wall_light",
-			power_priority,
-			true)
+	pm.register_consumer(
+		str(get_instance_id()),
+		power_watts,
+		self,
+		"wall_light",
+		power_priority,
+		true)
 
 	## 3. Auto-connect: scan all existing wire nodes for any within 0.75 m XZ.
 	_auto_connect_to_nearby_wires(pm)
@@ -240,8 +235,8 @@ func _register_with_power_manager() -> void:
 ## AUTO_CONNECT_RADIUS that is already an edge endpoint (a live graph node).
 ## Falls back to any nearby node if no edge-endpoint is found.
 ## Safe to call multiple times — PM deduplicates edges internally.
-func _auto_connect_to_nearby_wires(pm: Node) -> void:
-	if _pm_node_key == "" or not pm.has_method("get_wire_nodes") or not pm.has_method("register_wire_edge"):
+func _auto_connect_to_nearby_wires(pm: PowerManager) -> void:
+	if _pm_node_key == "":
 		return
 	const AUTO_CONNECT_RADIUS: float = 0.75
 	## Use the wire-node's registered position (Y-normalised to 1.0) for XZ comparison,
@@ -253,13 +248,12 @@ func _auto_connect_to_nearby_wires(pm: Node) -> void:
 	## connecting to them without the edge-split guarantee can leave the light
 	## in an isolated 2-node zone.
 	var edge_endpoint_keys: Dictionary = {}
-	if pm.has_method("get_wire_edges"):
-		var edges: Array[Dictionary] = pm.get_wire_edges()
-		for ed: Dictionary in edges:
-			var na: String = ed.get("node_a", "")
-			var nb: String = ed.get("node_b", "")
-			if not na.is_empty(): edge_endpoint_keys[na] = true
-			if not nb.is_empty(): edge_endpoint_keys[nb] = true
+	var edges: Array[Dictionary] = pm.get_wire_edges()
+	for ed: Dictionary in edges:
+		var na: String = ed.get("node_a", "")
+		var nb: String = ed.get("node_b", "")
+		if not na.is_empty(): edge_endpoint_keys[na] = true
+		if not nb.is_empty(): edge_endpoint_keys[nb] = true
 
 	## Two-pass search: pass 1 = connected endpoint nodes, pass 2 = any node.
 	## We prefer the nearest endpoint node; only fall back to orphans if the
@@ -296,8 +290,7 @@ func _auto_connect_to_nearby_wires(pm: Node) -> void:
 			get_instance_id(), best_key, best_dist])
 		var ac_eid: String = pm.register_wire_edge(_pm_node_key, best_key, null, true)
 		## Stamp no_visual even if the edge already existed (pre-flag sessions).
-		if pm.has_method("set_wire_edge_no_visual"):
-			pm.call("set_wire_edge_no_visual", ac_eid)
+		pm.set_wire_edge_no_visual(ac_eid)
 	else:
 		push_warning("[LIGHT] auto-connect id=%d: no node within %.2fm (wire_nodes=%d)" % [
 			get_instance_id(), AUTO_CONNECT_RADIUS, pm.get_wire_nodes().size()])
@@ -306,8 +299,8 @@ func _auto_connect_to_nearby_wires(pm: Node) -> void:
 func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 	if _pm_node_key == "":
 		return
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm == null or not pm.has_method("register_wire_edge"):
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
 		return
 	const AUTO_CONNECT_RADIUS: float = 0.75
 	var my_pos: Vector3 = global_position
@@ -315,8 +308,7 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 	var dz: float = wn_pos.z - my_pos.z
 	if sqrt(dx * dx + dz * dz) <= AUTO_CONNECT_RADIUS:
 		var nw_eid: String = pm.register_wire_edge(_pm_node_key, wn_key, null, true)
-		if pm.has_method("set_wire_edge_no_visual"):
-			pm.call("set_wire_edge_no_visual", nw_eid)
+		pm.set_wire_edge_no_visual(nw_eid)
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _build_fixture() -> void:
