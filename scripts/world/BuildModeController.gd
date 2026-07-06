@@ -1023,9 +1023,9 @@ func _try_construct() -> void:
 	## identically to a standard one at placement time.
 	var pre_place_color_snap: Dictionary = {}
 	if _selected_tile == TILE_BREAKER or _selected_tile == TILE_BREAKER_SMART:
-		var pm_snap: Node = get_tree().get_first_node_in_group("power_manager")
-		if pm_snap != null and pm_snap.has_method("snapshot_zone_colors"):
-			pre_place_color_snap = pm_snap.call("snapshot_zone_colors")
+		var pm_snap: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+		if pm_snap != null:
+			pre_place_color_snap = pm_snap.snapshot_zone_colors()
 
 	_push_undo_place(body, _selected_tile, _selected_tile_price, placed_pos, pre_place_color_snap)
 	_spawn_float_label_at_pos(placed_pos, _selected_tile_price, false)
@@ -1340,29 +1340,25 @@ func _try_deconstruct() -> void:
 
 	## Unregister from power grid before freeing
 	if entry["tile_id"] == TILE_LIGHT:
-		var pm: Node = get_tree().get_first_node_in_group("power_manager")
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 		if pm != null:
-			pm.call("unregister_consumer", str(body.get_instance_id()))
+			pm.unregister_consumer(str(body.get_instance_id()))
 	elif entry["tile_id"] == TILE_GEN_S or entry["tile_id"] == TILE_GEN_M \
 			or entry["tile_id"] == TILE_GEN_L:
 		## GeneratorObject._exit_tree() handles its own unregister_generator +
 		## unregister_wire_node calls, but we can also call explicitly for safety.
-		var pm: Node = get_tree().get_first_node_in_group("power_manager")
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 		if pm != null:
 			var gid: String = str(body.get_instance_id())
-			if pm.has_method("unregister_generator"):
-				pm.call("unregister_generator", gid)
-			if pm.has_method("unregister_wire_node"):
-				pm.call("unregister_wire_node", gid)
+			pm.unregister_generator(gid)
+			pm.unregister_wire_node(gid)
 	elif entry["tile_id"] == TILE_HEAVY:
 		## HeavyConsumerTest._exit_tree() self-unregisters, but call explicitly too.
-		var pm: Node = get_tree().get_first_node_in_group("power_manager")
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 		if pm != null:
 			var hid: String = str(body.get_instance_id())
-			if pm.has_method("unregister_consumer"):
-				pm.call("unregister_consumer", hid)
-			if pm.has_method("unregister_wire_node"):
-				pm.call("unregister_wire_node", hid)
+			pm.unregister_consumer(hid)
+			pm.unregister_wire_node(hid)
 	elif entry["tile_id"] == TILE_BREAKER or entry["tile_id"] == TILE_BREAKER_SMART:
 		## BreakerBox._exit_tree() self-unregisters via its own _exit_tree()
 		## (UpgradedBreakerBox inherits it unmodified — same cleanup applies).
@@ -1470,7 +1466,7 @@ func _try_deconstruct_wire(ws: Node3D) -> void:
 	if ws.has_meta("_is_pregen"):
 		return
 
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 
 	## Calculate refund from segment length × cost-per-metre
 	var edge_id: String = ws.get("edge_id") if ws.get("edge_id") != null else ""
@@ -1480,8 +1476,8 @@ func _try_deconstruct_wire(ws: Node3D) -> void:
 	var refund: int     = int(length * WIRE_COST_PER_M)
 
 	## Unregister from PowerManager
-	if pm != null and not edge_id.is_empty() and pm.has_method("unregister_wire_edge"):
-		pm.call("unregister_wire_edge", edge_id)
+	if pm != null and not edge_id.is_empty():
+		pm.unregister_wire_edge(edge_id)
 
 	## Refund and float label
 	if refund > 0 and world_node != null:
@@ -1500,7 +1496,7 @@ func _try_deconstruct_wire(ws: Node3D) -> void:
 ## After an object is deconstructed, scan for wire segments whose PM edges no
 ## longer exist (the object's wire node was just unregistered) and free them.
 func _remove_dangling_wire_segments() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
 
@@ -1827,25 +1823,21 @@ func _undo() -> void:
 					break
 			## Unregister from power grid before freeing (undo-place path)
 			if undo_tid == TILE_LIGHT:
-				var pm: Node = get_tree().get_first_node_in_group("power_manager")
+				var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 				if pm != null:
-					pm.call("unregister_consumer", str(body.get_instance_id()))
+					pm.unregister_consumer(str(body.get_instance_id()))
 			elif undo_tid == TILE_GEN_S or undo_tid == TILE_GEN_M or undo_tid == TILE_GEN_L:
-				var pm: Node = get_tree().get_first_node_in_group("power_manager")
+				var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 				if pm != null:
 					var gid: String = str(body.get_instance_id())
-					if pm.has_method("unregister_generator"):
-						pm.call("unregister_generator", gid)
-					if pm.has_method("unregister_wire_node"):
-						pm.call("unregister_wire_node", gid)
+					pm.unregister_generator(gid)
+					pm.unregister_wire_node(gid)
 			elif undo_tid == TILE_HEAVY:
-				var pm: Node = get_tree().get_first_node_in_group("power_manager")
+				var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 				if pm != null:
 					var hid: String = str(body.get_instance_id())
-					if pm.has_method("unregister_consumer"):
-						pm.call("unregister_consumer", hid)
-					if pm.has_method("unregister_wire_node"):
-						pm.call("unregister_wire_node", hid)
+					pm.unregister_consumer(hid)
+					pm.unregister_wire_node(hid)
 			## TILE_BREAKER, TILE_BREAKER_SMART, and TILE_BATTERY_* self-unregister in _exit_tree().
 			body.queue_free()
 
@@ -1857,11 +1849,10 @@ func _undo() -> void:
 		## races against _exit_tree and would recolor against stale topology.
 		## Applies to BOTH breaker variants.
 		if (undo_tid == TILE_BREAKER or undo_tid == TILE_BREAKER_SMART) and is_instance_valid(body):
-			var pm_brk: Node = get_tree().get_first_node_in_group("power_manager")
+			var pm_brk: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 			var snap_brk: Dictionary = entry.get("zone_color_snap", {})
-			if not snap_brk.is_empty() and pm_brk != null \
-					and pm_brk.has_method("restore_zone_colors"):
-				pm_brk.call("restore_zone_colors", snap_brk)
+			if not snap_brk.is_empty() and pm_brk != null:
+				pm_brk.restore_zone_colors(snap_brk)
 				_wdbg("[Undo] Breaker removed — zone color registry restored (%d entries)" \
 						% snap_brk.size())
 			body.tree_exited.connect(_recolor_wire_zones, CONNECT_ONE_SHOT)
@@ -1935,9 +1926,9 @@ func _undo() -> void:
 			edge_id = entry.get("edge_id", "")   ## fallback to stored id
 		if seg_node != null:
 			seg_node.queue_free()
-		var pm: Node = get_tree().get_first_node_in_group("power_manager")
-		if edge_id != "" and pm != null and pm.has_method("unregister_wire_edge"):
-			pm.call("unregister_wire_edge", edge_id)
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+		if edge_id != "" and pm != null:
+			pm.unregister_wire_edge(edge_id)
 		var wire_cost: int = entry.get("cost", 0)
 		if wire_cost > 0 and world_node != null:
 			world_node.add_cash(wire_cost)
@@ -1946,8 +1937,8 @@ func _undo() -> void:
 		## was placed.  This undoes any zone absorption that happened when the wire
 		## bridged two previously-separate grids, restoring both grids' original colors.
 		var snap: Dictionary = entry.get("zone_color_snap", {})
-		if not snap.is_empty() and pm != null and pm.has_method("restore_zone_colors"):
-			pm.call("restore_zone_colors", snap)
+		if not snap.is_empty() and pm != null:
+			pm.restore_zone_colors(snap)
 			_wdbg("[Undo] Zone color registry restored from snapshot (%d entries)" % snap.size())
 		## Recompute zone topology and push restored colors to all WireSegment nodes.
 		_recolor_wire_zones()
@@ -2037,17 +2028,15 @@ func _on_wire_nodes_connected(key_a: String, pos_a: Vector3, key_b: String, pos_
 ## is available to get_wire_zones_with_colors() when it re-assigns colors.
 func _restore_then_recolor(snap: Dictionary) -> void:
 	if not snap.is_empty():
-		var pm: Node = get_tree().get_first_node_in_group("power_manager")
-		if pm != null and pm.has_method("restore_zone_colors"):
-			pm.call("restore_zone_colors", snap)
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+		if pm != null:
+			pm.restore_zone_colors(snap)
 	_recolor_wire_zones()
 
 
 func _recolor_wire_zones() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
-		return
-	if not pm.has_method("get_wire_zones") or not pm.has_method("get_wire_edges"):
 		return
 
 	## ── 0. RECONCILE GEOMETRY FIRST ──────────────────────────────────────────
@@ -2056,8 +2045,7 @@ func _recolor_wire_zones() -> void:
 	## power graph — a zone seam can never drift from the breaker, because the
 	## mesh is re-derived from the graph on every grid change.  (One-mesh-per-
 	## edge + orphan cleanup is enforced inside reconcile_wire_visuals.)
-	if pm.has_method("reconcile_wire_visuals"):
-		pm.call("reconcile_wire_visuals")
+	pm.reconcile_wire_visuals()
 
 	## ── 0b. SHOW reconciled/spawned tubes (build-mode parity) ────────────────
 	## reconcile_wire_visuals() may have spawned fresh tubes (which default to
@@ -2073,24 +2061,21 @@ func _recolor_wire_zones() -> void:
 
 	## Palette comes from PowerManager (single source of truth) at alpha 0.60.
 	## Use pm.zone_color_at(index) — no local palette copy.
-	var _has_pm_palette: bool = pm.has_method("zone_color_at")
 
 	## ── 1. Build PM edge map ─────────────────────────────────────────────────
 	var all_pm_edges: Dictionary = {}   ## edge_id → edge dict
-	for edge: Dictionary in (pm.call("get_wire_edges") as Array):
+	for edge: Dictionary in (pm.get_wire_edges() as Array):
 		all_pm_edges[edge.get("id", "")] = edge
 
 	## ── 2. Build edge_id → Color map from zones ──────────────────────────────
 	var edge_color_map: Dictionary = {}   ## edge_id (+ reverse alias) → Color
 
-	var zones: Array[Dictionary] = pm.call("get_wire_zones_with_colors") \
-		if pm.has_method("get_wire_zones_with_colors") else pm.call("get_wire_zones")
+	var zones: Array[Dictionary] = pm.get_wire_zones_with_colors()
 
 	for zone: Dictionary in zones:
 		var cidx: int   = zone.get("color_index", zone.get("index", 0))
 		var eids: Array = zone.get("edge_ids", [])
-		var col: Color  = pm.call("zone_color_at", cidx, 0.60) if _has_pm_palette \
-			else Color(0.35, 0.80, 1.00, 0.60)
+		var col: Color  = pm.zone_color_at(cidx, 0.60)
 		for eid: String in eids:
 			edge_color_map[eid] = col
 			## Reverse-direction alias so b__a lookups also resolve.
@@ -2126,7 +2111,7 @@ func _recolor_wire_zones() -> void:
 			wn.call("set_zone_color", Color.TRANSPARENT)
 
 	## ── 4. Fallback: color PM edges whose node isn't in the group yet ────────
-	for edge: Dictionary in (pm.call("get_wire_edges") as Array):
+	for edge: Dictionary in (pm.get_wire_edges() as Array):
 		var eid2: String  = edge.get("id", "")
 		var raw2: Variant = edge.get("node", null)
 		if raw2 == null or not is_instance_valid(raw2):
@@ -2150,9 +2135,9 @@ func _recolor_wire_zones() -> void:
 func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vector3) -> void:
 	## Capture color state BEFORE this wire's placement causes a zone-merge/recolor.
 	var zone_color_snap: Dictionary = {}
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("snapshot_zone_colors"):
-		zone_color_snap = pm.call("snapshot_zone_colors")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
+		zone_color_snap = pm.snapshot_zone_colors()
 
 	_undo_stack.append({
 		"type":            "wire",
@@ -2214,9 +2199,9 @@ func _remove_unsupported_lights_near(wall_pos: Vector3) -> void:
 		_placed_objects.remove_at(idx)
 		if is_instance_valid(node):
 			## Unregister from power grid before freeing (_remove_unsupported_lights_near)
-			var pm: Node = get_tree().get_first_node_in_group("power_manager")
+			var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 			if pm != null:
-				pm.call("unregister_consumer", str(node.get_instance_id()))
+				pm.unregister_consumer(str(node.get_instance_id()))
 			node.queue_free()
 		if refund > 0 and world_node != null:
 			world_node.add_cash(refund)
@@ -2295,9 +2280,9 @@ func remove_lights_in_bounds(x_min: float, x_max: float, z_min: float, z_max: fl
 		_placed_objects.remove_at(idx)
 		if is_instance_valid(node):
 			## Unregister from power grid before freeing (remove_lights_in_bounds)
-			var pm: Node = get_tree().get_first_node_in_group("power_manager")
+			var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 			if pm != null:
-				pm.call("unregister_consumer", str(node.get_instance_id()))
+				pm.unregister_consumer(str(node.get_instance_id()))
 			node.queue_free()
 
 		if refund > 0 and world_node != null:
