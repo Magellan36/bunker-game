@@ -225,8 +225,8 @@ func _try_pick_source() -> bool:
 			else:
 				_source_key = _make_free_key(grid_pos)
 				_source_pos = grid_pos
-				var pm: Node = _get_pm()
-				if pm != null and pm.has_method("register_wire_node"):
+				var pm: PowerManager = _get_pm()
+				if pm != null:
 					pm.register_wire_node(grid_pos, "joint", "")
 				_wdbg("[WireDrawMode] Phase0: free joint at grid_pos=%s key=%s" % [grid_pos, _source_key])
 
@@ -268,8 +268,8 @@ func _try_pick_dest() -> bool:
 			else:
 				dest_key = _make_free_key(grid_pos)
 				dest_pos = grid_pos
-				var pm2: Node = _get_pm()
-				if pm2 != null and pm2.has_method("register_wire_node"):
+				var pm2: PowerManager = _get_pm()
+				if pm2 != null:
 					pm2.register_wire_node(grid_pos, "joint", "")
 				_wdbg("[WireDrawMode] Phase1: free dest joint at grid_pos=%s key=%s" % [grid_pos, dest_key])
 
@@ -279,7 +279,7 @@ func _try_pick_dest() -> bool:
 
 	## ── Duplicate wire check ──────────────────────────────────────────────
 	## Build the same canonical edge_id PM would produce and check if it exists.
-	var pm_check: Node = _get_pm()
+	var pm_check: PowerManager = _get_pm()
 	if pm_check != null:
 		var parts_check: Array[String] = [_source_key, dest_key]
 		parts_check.sort()
@@ -304,9 +304,9 @@ func _try_pick_dest() -> bool:
 		world_node.spend_cash(cost)
 
 	# Register edge in PowerManager — no capacity_w arg in v3.1
-	var pm: Node        = _get_pm()
+	var pm: PowerManager = _get_pm()
 	var edge_id: String = ""
-	if pm != null and pm.has_method("register_wire_edge"):
+	if pm != null:
 		edge_id = pm.register_wire_edge(_source_key, dest_key)
 
 	# Spawn permanent WireSegment
@@ -409,9 +409,9 @@ func _get_hover_text(node_data: Dictionary) -> String:
 		## Query PowerManager for watt draw if this is a consumer node.
 		var watts_str: String = ""
 		if role == "consumer":
-			var pm: Node = _get_pm()
-			if pm != null and pm.has_method("get_consumer_watts"):
-				var w: float = pm.call("get_consumer_watts", device_id)
+			var pm: PowerManager = _get_pm()
+			if pm != null:
+				var w: float = pm.get_consumer_watts(device_id)
 				if w > 0.0:
 					watts_str = "  (%dW)" % int(w)
 
@@ -552,8 +552,8 @@ func _get_cursor_world_pos() -> Vector3:
 
 # ─── Wire node query ─────────────────────────────────────────────────────────
 func _get_nearest_wire_node(world_pos: Vector3, exclude_key: String) -> Dictionary:
-	var pm: Node = _get_pm()
-	if pm == null or not pm.has_method("get_wire_nodes"):
+	var pm: PowerManager = _get_pm()
+	if pm == null:
 		return {}
 
 	var nodes: Array = pm.get_wire_nodes()
@@ -575,8 +575,8 @@ func _get_nearest_wire_node(world_pos: Vector3, exclude_key: String) -> Dictiona
 ## Wider search — same as _get_nearest_wire_node but uses a custom radius
 ## instead of SNAP_RADIUS. Used for forced-snap / anti-orphan checks.
 func _get_nearest_wire_node_wide(world_pos: Vector3, exclude_key: String, radius: float) -> Dictionary:
-	var pm: Node = _get_pm()
-	if pm == null or not pm.has_method("get_wire_nodes"):
+	var pm: PowerManager = _get_pm()
+	if pm == null:
 		return {}
 
 	var nodes: Array = pm.get_wire_nodes()
@@ -596,8 +596,8 @@ func _get_nearest_wire_node_wide(world_pos: Vector3, exclude_key: String, radius
 	return best
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
-func _get_pm() -> Node:
-	return get_tree().get_first_node_in_group("power_manager")
+func _get_pm() -> PowerManager:
+	return get_tree().get_first_node_in_group("power_manager") as PowerManager
 
 func _get_scene_root() -> Node3D:
 	var root: Node = get_tree().get_root()
@@ -656,12 +656,12 @@ func _make_free_key(pos: Vector3) -> String:
 ## disconnected free joint at a different Y level.
 ## Returns {} if no match found.
 func _find_existing_node_at_xz(pos: Vector3) -> Dictionary:
-	var pm: Node = _get_pm()
-	if pm == null or not pm.has_method("get_wire_nodes"):
+	var pm: PowerManager = _get_pm()
+	if pm == null:
 		return {}
 	var snap_x: float = roundf(pos.x / _WIRE_GRID) * _WIRE_GRID
 	var snap_z: float = roundf(pos.z / _WIRE_GRID) * _WIRE_GRID
-	for node_data: Dictionary in (pm.call("get_wire_nodes") as Array):
+	for node_data: Dictionary in (pm.get_wire_nodes() as Array):
 		var np: Vector3 = node_data.get("pos", Vector3.ZERO)
 		if absf(np.x - snap_x) < _WIRE_GRID * 0.5 and absf(np.z - snap_z) < _WIRE_GRID * 0.5:
 			return node_data
