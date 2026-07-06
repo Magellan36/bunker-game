@@ -119,12 +119,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		## Reset Grid / Zone button
 		if _reset_grid_rect.size.x > 0 and _reset_grid_rect.has_point(mpos):
-			var pm: Node = _get_pm()
+			var pm: PowerManager = _get_pm()
 			if pm != null:
-				if connected_zone_index >= 0 and pm.has_method("reset_zone_by_index"):
-					pm.call("reset_zone_by_index", connected_zone_index)
-				elif pm.has_method("reset_main_breaker"):
-					pm.call("reset_main_breaker")
+				if connected_zone_index >= 0:
+					pm.reset_zone_by_index(connected_zone_index)
+				else:
+					pm.reset_main_breaker()
 			get_viewport().set_input_as_handled()
 			return
 		## Per-consumer priority arrows (◄ / ►). Adjust then re-solve grid.
@@ -133,11 +133,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			if hr.size.x > 0 and hr.has_point(mpos):
 				var cid: String = str(hit.get("id", ""))
 				var delta: int  = int(hit.get("delta", 0))
-				var pm2: Node = _get_pm()
-				if pm2 != null and pm2.has_method("set_consumer_priority") \
-						and pm2.has_method("get_consumer_priority"):
-					var cur: int = int(pm2.call("get_consumer_priority", cid))
-					pm2.call("set_consumer_priority", cid, cur + delta)
+				var pm2: PowerManager = _get_pm()
+				if pm2 != null:
+					var cur: int = int(pm2.get_consumer_priority(cid))
+					pm2.set_consumer_priority(cid, cur + delta)
 					_canvas.queue_redraw()
 				get_viewport().set_input_as_handled()
 				return
@@ -154,8 +153,8 @@ func _process(delta: float) -> void:
 	_sample_timer += delta
 	if _sample_timer >= SAMPLE_INTERVAL:
 		_sample_timer = 0.0
-		var pm: Node = _get_pm()
-		if pm != null and pm.has_method("get_debug_snapshot"):
+		var pm: PowerManager = _get_pm()
+		if pm != null:
 			var s: Dictionary = pm.get_debug_snapshot()
 			_draw_history.append(s.get("total_draw_watts", 0.0))
 			_cap_history.append(s.get("total_capacity_watts", 0.0))
@@ -182,20 +181,18 @@ func _on_draw() -> void:
 	_canvas.draw_rect(panel, BG_COLOR, true)
 	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
 
-	var pm: Node = _get_pm()
+	var pm: PowerManager = _get_pm()
 	if pm == null:
 		_draw_string_at("POWER MANAGER NOT FOUND", Vector2(px + 20.0, py + 40.0), CRIT_COLOR, FONT_SIZE_H)
 		return
 
-	var snap: Dictionary = {}
-	if pm.has_method("get_debug_snapshot"):
-		snap = pm.get_debug_snapshot()
+	var snap: Dictionary = pm.get_debug_snapshot()
 
 	## ── Zone-scoped filtering ────────────────────────────────────────────────
 	## If we have a valid zone index, narrow everything to that zone using
 	## get_zone_snapshot() — this is the proper zone-aware path that respects
 	## breaker boundaries. Falls back to the legacy BFS key path when zone_index=-1.
-	if connected_zone_index >= 0 and pm.has_method("get_zone_snapshot"):
+	if connected_zone_index >= 0:
 		var all_zones: Array = pm.get_zone_snapshot()
 		## Find the matching zone entry.
 		var my_zone: Dictionary = {}
@@ -251,9 +248,9 @@ func _on_draw() -> void:
 			## Stamp the zone state string into snap so the header shows it.
 			snap["_zone_state_str"] = my_zone.get("state_str", "ONLINE")
 
-	elif not connected_grid_key.is_empty() and pm.has_method("get_reachable_device_ids"):
+	elif not connected_grid_key.is_empty():
 		## Legacy fallback: BFS through breakers (shows wider scope than a zone).
-		var reachable: Array = pm.call("get_reachable_device_ids", connected_grid_key)
+		var reachable: Array = pm.get_reachable_device_ids(connected_grid_key)
 		var reachable_set: Dictionary = {}
 		for rid: String in reachable:
 			reachable_set[rid] = true
@@ -440,8 +437,8 @@ func _draw_batteries_section(snap: Dictionary, x: float, y: float, w: float) -> 
 	## BFS-reachable via pass_battery=true breakers — i.e. this zone can pull
 	## from them (or charge them) across the breaker boundary.
 	if connected_zone_index >= 0:
-		var pm: Node = _get_pm()
-		if pm != null and pm.has_method("get_zone_snapshot"):
+		var pm: PowerManager = _get_pm()
+		if pm != null:
 			var all_zones: Array = pm.get_zone_snapshot()
 			var cross_bat_ids: Array = []
 			for zd: Dictionary in all_zones:
@@ -450,7 +447,7 @@ func _draw_batteries_section(snap: Dictionary, x: float, y: float, w: float) -> 
 					break
 
 			## Build a lookup of all battery data by id.
-			var pm_snap: Dictionary = pm.get_debug_snapshot() if pm.has_method("get_debug_snapshot") else {}
+			var pm_snap: Dictionary = pm.get_debug_snapshot()
 			var all_bats_by_id: Dictionary = {}
 			for b2: Dictionary in pm_snap.get("batteries", []):
 				all_bats_by_id[b2.get("id", "")] = b2
@@ -521,9 +518,9 @@ func _draw_wire_section(snap: Dictionary, x: float, y: float, _w: float) -> floa
 	## Data comes from get_zone_snapshot() surplus_w + neighbor_zones fields.
 	_draw_string_at("  ZONE FLOW", Vector2(x, y), DIM_COLOR, FONT_SIZE_S)
 	y += 14.0
-	var pm: Node = _get_pm()
-	if pm != null and pm.has_method("get_zone_snapshot"):
-		var zones: Array = pm.call("get_zone_snapshot")
+	var pm: PowerManager = _get_pm()
+	if pm != null:
+		var zones: Array = pm.get_zone_snapshot()
 		if zones.size() >= 2:
 			## Build zone_index → snapshot dict and zone_index → color_index map.
 			var zone_map: Dictionary = {}
@@ -734,8 +731,8 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 	## Only shown when this terminal is scoped to a zone AND that zone exports
 	## gen power to other zones (pass_generator=true breaker links).
 	if connected_zone_index >= 0:
-		var pm: Node = _get_pm()
-		if pm != null and pm.has_method("get_zone_snapshot"):
+		var pm: PowerManager = _get_pm()
+		if pm != null:
 			var all_zones: Array = pm.get_zone_snapshot()
 			## Find our zone's cross_consumer_ids.
 			var cross_con_ids: Array = []
@@ -745,7 +742,7 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 					break
 
 			## Build a lookup of all consumer data keyed by id.
-			var pm_snap: Dictionary = pm.get_debug_snapshot() if pm.has_method("get_debug_snapshot") else {}
+			var pm_snap: Dictionary = pm.get_debug_snapshot()
 			var all_cons_by_id: Dictionary = {}
 			for c2: Dictionary in pm_snap.get("consumers", []):
 				all_cons_by_id[c2.get("id", "")] = c2
@@ -828,9 +825,9 @@ const ZONE_PALETTE: Array[Color] = [
 ## Canonical zone colour at alpha 1.0, sourced from PowerManager.
 ## Falls back to the local ZONE_PALETTE mirror only if PM is unreachable.
 func _zone_col(color_index: int) -> Color:
-	var pm: Node = _get_pm()
-	if pm != null and pm.has_method("zone_color_at"):
-		return pm.call("zone_color_at", color_index, 1.0)
+	var pm: PowerManager = _get_pm()
+	if pm != null:
+		return pm.zone_color_at(color_index, 1.0)
 	return ZONE_PALETTE[color_index % ZONE_PALETTE.size()]
 
 ## Hit rect for the Reset Grid button (built during draw, used in input).
@@ -842,7 +839,7 @@ var _priority_hit_rects: Array[Dictionary] = []
 
 # ─── Zones section (replaces old ZONE BREAKERS) ───────────────────────────────
 func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> float:
-	var pm: Node = _get_pm()
+	var pm: PowerManager = _get_pm()
 
 	## ── Reset button ─────────────────────────────────────────────────────────
 	var btn_w: float  = w - SECTION_PAD
@@ -880,7 +877,7 @@ func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> f
 	y += 20.0
 
 	var zone_snap: Array = []
-	if pm != null and pm.has_method("get_zone_snapshot"):
+	if pm != null:
 		zone_snap = pm.get_zone_snapshot()
 
 	## Filter to just this terminal's zone when scoped.
@@ -1006,5 +1003,5 @@ func _grid_state_color(state: int) -> Color:
 		4: return CRIT_COLOR
 	return TEXT_COLOR
 
-func _get_pm() -> Node:
-	return get_tree().get_first_node_in_group("power_manager")
+func _get_pm() -> PowerManager:
+	return get_tree().get_first_node_in_group("power_manager") as PowerManager

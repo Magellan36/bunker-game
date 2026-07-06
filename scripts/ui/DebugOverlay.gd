@@ -9,7 +9,7 @@ extends CanvasLayer
 # ─── Injected refs ────────────────────────────────────────────────────────────
 var player_ref:       Node3D = null   ## Player node — for position display
 var world_ref:        Node   = null   ## MainWorld — get_cash()
-var power_manager_ref: Node  = null   ## PowerManager node
+var power_manager_ref: PowerManager  = null   ## PowerManager node
 
 # ─── Internal ─────────────────────────────────────────────────────────────────
 var _visible_state: bool   = false
@@ -133,18 +133,16 @@ func _collect_lines() -> Array[Dictionary]:
 	out.append(_sep())
 
 	# ── Power grid ────────────────────────────────────────────────────────────
-	var pm: Node = power_manager_ref
+	var pm: PowerManager = power_manager_ref
 	if pm == null:
-		pm = get_tree().get_first_node_in_group("power_manager")
+		pm = get_tree().get_first_node_in_group("power_manager") as PowerManager
 
 	if pm == null:
 		out.append(_warn("POWER MANAGER NOT FOUND"))
 		return out
 
 	# Single snapshot call — avoids accessing private PM vars directly
-	var snap: Dictionary = {}
-	if pm.has_method("get_debug_snapshot"):
-		snap = pm.get_debug_snapshot()
+	var snap: Dictionary = pm.get_debug_snapshot()
 
 	out.append(_h("── POWER GRID ──────────────────────────────"))
 
@@ -226,11 +224,11 @@ func _collect_lines() -> Array[Dictionary]:
 	out.append(_sep())
 	out.append(_h("── WIRE ZONES ──────────────────────────────"))
 
-	var pm2: Node = power_manager_ref
+	var pm2: PowerManager = power_manager_ref
 	if pm2 == null:
-		pm2 = get_tree().get_first_node_in_group("power_manager")
+		pm2 = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	var zone_snap: Array = []
-	if pm2 != null and pm2.has_method("get_zone_snapshot"):
+	if pm2 != null:
 		zone_snap = pm2.get_zone_snapshot()
 
 	if zone_snap.is_empty():
