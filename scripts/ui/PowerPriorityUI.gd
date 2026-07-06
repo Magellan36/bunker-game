@@ -188,10 +188,8 @@ func is_open() -> bool:
 ## Reads the current consumer state straight from PowerManager so the panel is
 ## always accurate (priority can change shedding which changes status instantly).
 func _pull_status() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null or _device_id.is_empty():
-		return
-	if not pm.has_method("get_consumer_status"):
 		return
 	var s: Dictionary = pm.get_consumer_status(_device_id)
 	if not bool(s.get("registered", false)):
@@ -257,8 +255,8 @@ func _apply_priority(new_value: int) -> void:
 	_priority = clamped
 	## Push to PowerManager directly so behaviour is identical no matter which
 	## device opened us, then also emit for any device-specific bookkeeping.
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("set_consumer_priority") and not _device_id.is_empty():
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null and not _device_id.is_empty():
 		pm.set_consumer_priority(_device_id, clamped)
 	priority_changed.emit(_device_id, clamped)
 	_pull_status()
