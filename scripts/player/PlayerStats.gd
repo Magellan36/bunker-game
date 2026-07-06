@@ -133,3 +133,38 @@ func replenish_sleep(amount: float) -> void:
 func replenish_health(amount: float) -> void:
 	health = minf(100.0, health + amount)
 	health_changed.emit(health)
+
+## Recomputes and returns the current "H:MM AM/PM" display string on demand —
+## does not rely on the cached _last_hour/_last_minute guard used by
+## _tick_clock(), so it's safe to call anytime (e.g. for save-slot metadata)
+## without disturbing the signal-emit cache.
+func get_time_display() -> String:
+	var total_game_minutes: int = int(_elapsed / (day_duration_seconds / 1440.0)) % 1440
+	var game_hour:   int = total_game_minutes / 60
+	var game_minute: int = total_game_minutes % 60
+	var is_pm:   bool   = game_hour >= 12
+	var hour_12: int    = game_hour % 12
+	if hour_12 == 0:
+		hour_12 = 12
+	var suffix: String = "PM" if is_pm else "AM"
+	return "%d:%02d %s" % [hour_12, game_minute, suffix]
+
+# ─── Save/Load support ────────────────────────────────────────────────────────
+## Returns raw elapsed real-seconds since game start — the single source of
+## truth _tick_clock()/_tick_needs() derive hour/minute/day from. Saving this
+## one float is sufficient to restore the exact game-clock moment; day/hour/
+## minute are recomputed automatically next frame.
+func get_elapsed() -> float:
+	return _elapsed
+
+## Restores elapsed time (e.g. from a save file) and immediately recomputes the
+## cached clock/day so the HUD updates on the same frame instead of waiting for
+## the next _process tick to notice the jump.
+func set_elapsed(value: float) -> void:
+	_elapsed = maxf(0.0, value)
+	## Force the cached-clock guard to recompute even if hour/minute happen to
+	## match what they were before the load.
+	_last_hour   = -1
+	_last_minute = -1
+	_last_day    = -1
+	_tick_clock()

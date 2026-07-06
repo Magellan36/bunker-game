@@ -34,6 +34,17 @@ var _sprint_locked: bool = false  ## true when exhausted, blocks sprint until th
 ## or use it standalone — HUD reads it via set_stamina().
 var stamina: float = 100.0
 
+## Set true while the pause menu (or any other full-screen modal) is open —
+## blocks movement/interaction input without pausing the SceneTree, so the
+## rest of the game (power grid, generators, etc.) keeps running per the
+## "game continues while paused" decision. Velocity is zeroed on lock so the
+## player doesn't keep sliding on residual momentum while the menu is open.
+var _movement_locked: bool = false
+func set_movement_locked(locked: bool) -> void:
+	_movement_locked = locked
+	if locked:
+		velocity = Vector3.ZERO
+
 # ─── Signals ──────────────────────────────────────────────────────────────────
 signal interacted()
 signal stamina_changed(new_value: float)   ## Emit so HUD / PlayerStats can react
@@ -44,6 +55,16 @@ func _ready() -> void:
 	add_to_group("player")
 
 func _physics_process(delta: float) -> void:
+	if _movement_locked:
+		## Still apply gravity/move_and_slide so the player doesn't float or
+		## clip through the floor while the menu is open — just skip WASD/
+		## sprint/interact input handling.
+		if not is_on_floor():
+			velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
+		velocity.x = 0.0
+		velocity.z = 0.0
+		move_and_slide()
+		return
 	_handle_movement(delta)
 	_handle_interaction_input()
 
