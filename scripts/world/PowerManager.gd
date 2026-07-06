@@ -4166,19 +4166,88 @@ func _evaluate_per_component() -> void:
 			d[nk] = true
 		zone_node_sets.append(d)
 
-	## ──────────────────────────────────────────────────────────────────────────
-	## PASS 1 — raw per-zone surplus/deficit with local gens only.
-	## ──────────────────────────────────────────────────────────────────────────
-	## zone_info[zi] dict:
-	##   "local_cap"   float — running gen watts physically inside this zone
-	##   "local_draw"  float — consumer draw inside this zone
-	##   "surplus"     float — local_cap - local_draw  (neg = deficit)
-	##   "exported_w"  float — watts committed to export (filled in pass 2)
-	##   "imported_w"  float — watts imported from neighbors (filled in pass 2)
-	##   "import_from" Array[int] — zone indices we import from
-	##   "export_to"   Array[int] — zone indices we export to
-	##   "has_device"  bool  — any non-joint node inside zone
+	## Each labeled pass below is its own function (Stage 4 refactor — no
+	## behavior change, pure extraction). zone_info is a mutable Array of
+	## Dictionaries; Pass 2 mutates entries in place (imported_w/exported_w/
+	## import_from/export_to), which Pass 3 then reads.
+	var zone_info: Array[Dictionary] = _evaluate_pass1_local_surplus(n_zones, zone_node_sets)
+	_evaluate_pass2_cross_zone_sharing(wire_zones, n_zones, zone_info)
+	var pass3_result: Dictionary = _evaluate_pass3_zone_resolution(n_zones, zone_node_sets, zone_info)
 
+	var any_overloaded: bool      = pass3_result["any_overloaded"]
+	var any_offline: bool         = pass3_result["any_offline"]
+	var zones_with_device: int    = pass3_result["zones_with_device"]
+	var zones_offline: int        = pass3_result["zones_offline"]
+
+	## ── Recalculate global draw after potential shedding ─────────────────────
+	active_draw_watts = 0.0
+	for c: Dictionary in _consumers.values():
+		if not _is_consumer_reachable(c["id"]):
+			continue
+		if c.get("powered", false):
+			active_draw_watts += float(c.get("watts", 0.0))
+		elif c.get("shed", false) and c.get("active", false):
+			active_draw_watts += _shed_residual_watts(c)
+	for bat: Dictionary in _batteries.values():
+		if bat.get("charging", false) \
+				and float(bat.get("charge_wh", 0.0)) < float(bat.get("capacity_wh", 0.0)):
+			active_draw_watts += BATTERY_CHARGE_WATTS
+
+	## ── Post-loop: stop battery discharge if no zone needs coverage ──────────
+	if not any_overloaded and not any_offline:
+		for bat: Dictionary in _batteries.values():
+			if bat.get("discharging", false):
+				bat["discharging"] = false
+				bat["charging"]    = false
+				battery_state_changed.emit(bat["id"], false)
+				_notify_battery_mode(bat["id"])
+				_notify_battery_node(bat["id"])
+
+	## ── Global grid state machine ─────────────────────────────────────────────
+	var old_state: GridState = grid_state
+
+	if any_offline:
+		if zones_offline >= zones_with_device and not _flickering:
+			if grid_state != GridState.OFFLINE:
+				_go_offline()
+			return
+		any_overloaded = true   ## partial offline → treat as overloaded for HUD
+
+	if any_overloaded:
+		if grid_state != GridState.OVERLOADED:
+			grid_state = GridState.OVERLOADED
+			_overload_timer = 0.0
+			grid_state_changed.emit(grid_state, old_state)
+			overloaded_started.emit()
+	else:
+		match grid_state:
+			GridState.OVERLOADED:
+				grid_state = GridState.ONLINE
+				_overload_timer = 0.0
+				grid_state_changed.emit(grid_state, old_state)
+				overloaded_ended.emit()
+			GridState.BROWNOUT:
+				grid_state = GridState.ONLINE
+				_overload_timer = 0.0
+				grid_state_changed.emit(grid_state, old_state)
+
+
+## ──────────────────────────────────────────────────────────────────────────
+## PASS 1 — raw per-zone surplus/deficit with local gens only.
+## ──────────────────────────────────────────────────────────────────────────
+## Returns zone_info: Array[Dictionary], one entry per zone (index = zone
+## index zi), each dict:
+##   "local_cap"   float — running gen watts physically inside this zone
+##   "local_draw"  float — consumer draw inside this zone
+##   "surplus"     float — local_cap - local_draw  (neg = deficit)
+##   "exported_w"  float — watts committed to export (filled in pass 2)
+##   "imported_w"  float — watts imported from neighbors (filled in pass 2)
+##   "import_from" Array[int] — zone indices we import from
+##   "export_to"   Array[int] — zone indices we export to
+##   "has_device"  bool  — any non-joint node inside zone
+func _evaluate_pass1_local_surplus(
+		n_zones: int,
+		zone_node_sets: Array[Dictionary]) -> Array[Dictionary]:
 	var zone_info: Array[Dictionary] = []
 	for zi: int in n_zones:
 		var zone_keys: Dictionary = zone_node_sets[zi]
@@ -4201,24 +4270,31 @@ func _evaluate_per_component() -> void:
 			"export_to":   [],
 			"has_device":  has_device,
 		})
+	return zone_info
 
 
-	## ──────────────────────────────────────────────────────────────────────────
-	## ──────────────────────────────────────────────────────────────────────────
-	## PASS 2 — cross-zone generator sharing via BFS pool flood fill.
-	##
-	## OLD APPROACH (broken): iterative round-based loop skipped zones with
-	## still_needed<=0. Pass-through zones (0 draw, 0 cap) were always skipped,
-	## so power never propagated beyond the first zone hop.
-	##
-	## NEW APPROACH: BFS from every generator zone simultaneously.
-	##   1. Build undirected zone adjacency from sharing_pairs (breaker links).
-	##   2. BFS flood-fill to find connected power pools (groups of zones
-	##      reachable from each other through untripped pass_generator breakers).
-	##   3. Each pool's total capacity is shared across all its member zones.
-	##      Zones with local generators donate surplus to deficit zones anywhere
-	##      in the pool regardless of hop distance or intermediate zone load.
-	## ──────────────────────────────────────────────────────────────────────────
+## ──────────────────────────────────────────────────────────────────────────
+## PASS 2 — cross-zone generator sharing via BFS pool flood fill.
+##
+## OLD APPROACH (broken): iterative round-based loop skipped zones with
+## still_needed<=0. Pass-through zones (0 draw, 0 cap) were always skipped,
+## so power never propagated beyond the first zone hop.
+##
+## NEW APPROACH: BFS from every generator zone simultaneously.
+##   1. Build undirected zone adjacency from sharing_pairs (breaker links).
+##   2. BFS flood-fill to find connected power pools (groups of zones
+##      reachable from each other through untripped pass_generator breakers).
+##   3. Each pool's total capacity is shared across all its member zones.
+##      Zones with local generators donate surplus to deficit zones anywhere
+##      in the pool regardless of hop distance or intermediate zone load.
+## ──────────────────────────────────────────────────────────────────────────
+## Mutates zone_info in place (imported_w/exported_w/import_from/export_to) —
+## Dictionaries and Arrays are passed by reference in GDScript, so callers see
+## the updates without needing a return value.
+func _evaluate_pass2_cross_zone_sharing(
+		wire_zones: Array[Dictionary],
+		n_zones: int,
+		zone_info: Array[Dictionary]) -> void:
 	var sharing_pairs: Array[Dictionary] = _get_gen_sharing_zone_pairs(wire_zones)
 
 	## Build undirected zone adjacency from sharing_pairs.
@@ -4305,8 +4381,18 @@ func _evaluate_per_component() -> void:
 				if not exp_to.has(zi):
 					exp_to.append(zi)
 
-	## PASS 3 — evaluate each zone with net watts (local ± imported/exported).
-	## ──────────────────────────────────────────────────────────────────────────
+
+## ──────────────────────────────────────────────────────────────────────────
+## PASS 3 — evaluate each zone with net watts (local ± imported/exported).
+## ──────────────────────────────────────────────────────────────────────────
+## Sets active_draw_watts / total_capacity_watts (accumulated per zone) as a
+## side effect, same as the pre-split monolith did. Returns a Dictionary with
+## the four aggregate flags/counters the caller's tail section needs:
+##   "any_overloaded", "any_offline", "zones_with_device", "zones_offline"
+func _evaluate_pass3_zone_resolution(
+		n_zones: int,
+		zone_node_sets: Array[Dictionary],
+		zone_info: Array[Dictionary]) -> Dictionary:
 	active_draw_watts    = 0.0
 	total_capacity_watts = 0.0
 
@@ -4562,57 +4648,13 @@ func _evaluate_per_component() -> void:
 			else:
 				_unshed_component(zone_keys)
 
-	## ── Recalculate global draw after potential shedding ─────────────────────
-	active_draw_watts = 0.0
-	for c: Dictionary in _consumers.values():
-		if not _is_consumer_reachable(c["id"]):
-			continue
-		if c.get("powered", false):
-			active_draw_watts += float(c.get("watts", 0.0))
-		elif c.get("shed", false) and c.get("active", false):
-			active_draw_watts += _shed_residual_watts(c)
-	for bat: Dictionary in _batteries.values():
-		if bat.get("charging", false) \
-				and float(bat.get("charge_wh", 0.0)) < float(bat.get("capacity_wh", 0.0)):
-			active_draw_watts += BATTERY_CHARGE_WATTS
+	return {
+		"any_overloaded":   any_overloaded,
+		"any_offline":      any_offline,
+		"zones_with_device": zones_with_device,
+		"zones_offline":    zones_offline,
+	}
 
-	## ── Post-loop: stop battery discharge if no zone needs coverage ──────────
-	if not any_overloaded and not any_offline:
-		for bat: Dictionary in _batteries.values():
-			if bat.get("discharging", false):
-				bat["discharging"] = false
-				bat["charging"]    = false
-				battery_state_changed.emit(bat["id"], false)
-				_notify_battery_mode(bat["id"])
-				_notify_battery_node(bat["id"])
-
-	## ── Global grid state machine ─────────────────────────────────────────────
-	var old_state: GridState = grid_state
-
-	if any_offline:
-		if zones_offline >= zones_with_device and not _flickering:
-			if grid_state != GridState.OFFLINE:
-				_go_offline()
-			return
-		any_overloaded = true   ## partial offline → treat as overloaded for HUD
-
-	if any_overloaded:
-		if grid_state != GridState.OVERLOADED:
-			grid_state = GridState.OVERLOADED
-			_overload_timer = 0.0
-			grid_state_changed.emit(grid_state, old_state)
-			overloaded_started.emit()
-	else:
-		match grid_state:
-			GridState.OVERLOADED:
-				grid_state = GridState.ONLINE
-				_overload_timer = 0.0
-				grid_state_changed.emit(grid_state, old_state)
-				overloaded_ended.emit()
-			GridState.BROWNOUT:
-				grid_state = GridState.ONLINE
-				_overload_timer = 0.0
-				grid_state_changed.emit(grid_state, old_state)
 
 
 ## ── Activate battery discharge for a component in deficit/overload ───────────
