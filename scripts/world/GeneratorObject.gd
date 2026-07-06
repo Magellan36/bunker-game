@@ -173,7 +173,7 @@ func _sync_socket() -> void:
 const _PM_MAX_RETRIES: int = 5
 
 func _register_with_pm() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	_wdbg("[GEN] _register_with_pm attempt=%d — pm_found=%s instance_id=%d" % [
 		_pm_retry_count, str(pm != null), get_instance_id()])
 	if pm == null:
@@ -188,10 +188,8 @@ func _register_with_pm() -> void:
 	_pm_id = str(get_instance_id())
 	var cfg: Dictionary = TIER_CONFIG[generator_tier]
 	_wdbg("[GEN] calling register_generator id=%s watts=%.0f" % [_pm_id, cfg["watts"]])
-	if pm.has_method("register_generator"):
-		pm.call("register_generator", _pm_id, cfg["watts"], self, false, 100.0, 100.0)
-	if pm.has_method("set_generator_running"):
-		pm.call("set_generator_running", _pm_id, true)
+	pm.register_generator(_pm_id, cfg["watts"], self, false, 100.0, 100.0)
+	pm.set_generator_running(_pm_id, true)
 	_is_running = true
 	_sync_indicator()
 	_sync_socket()
@@ -204,20 +202,19 @@ func _register_with_pm() -> void:
 	call_deferred("_register_wire_deferred")
 
 func _register_wire_deferred() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	_wdbg("[GEN] _register_wire_deferred — pm_found=%s pm_id='%s' gpos=%s" % [
 		str(pm != null), _pm_id, str(global_position)])
 	if pm == null or _pm_id.is_empty():
 		push_warning("GeneratorObject: _register_wire_deferred skipped — pm=%s pm_id='%s'" % [
 			str(pm != null), _pm_id])
 		return
-	if pm.has_method("register_wire_node"):
-		## Pass Y=1.0 explicitly so the snap key lands on the canonical wire-grid
-		## plane, matching perimeter nodes.  PowerManager also normalises this, but
-		## being explicit here keeps stored world position correct too.
-		var wire_pos: Vector3 = Vector3(global_position.x, 1.0, global_position.z)
-		_wire_key = pm.call("register_wire_node", wire_pos, "generator", _pm_id)
-		_wdbg("[GEN] wire node registered: key=%s" % _wire_key)
+	## Pass Y=1.0 explicitly so the snap key lands on the canonical wire-grid
+	## plane, matching perimeter nodes.  PowerManager also normalises this, but
+	## being explicit here keeps stored world position correct too.
+	var wire_pos: Vector3 = Vector3(global_position.x, 1.0, global_position.z)
+	_wire_key = pm.register_wire_node(wire_pos, "generator", _pm_id)
+	_wdbg("[GEN] wire node registered: key=%s" % _wire_key)
 	## Generators must be manually wired — no auto-connect.
 
 
@@ -236,13 +233,13 @@ func _on_pm_grid_tripped() -> void:
 	_sync_socket()
 	if _inspect_ui != null and is_instance_valid(_inspect_ui) \
 			and _inspect_ui.has_method("refresh"):
-		var pm: Node   = get_tree().get_first_node_in_group("power_manager")
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 		var health: float = 100.0
-		if pm != null and pm.has_method("get_generator_health"):
-			health = pm.call("get_generator_health", _pm_id)
+		if pm != null:
+			health = pm.get_generator_health(_pm_id)
 		var gs: String = "TRIPPED"
-		if pm != null and pm.has_method("get_grid_state_string"):
-			gs = pm.call("get_grid_state_string")
+		if pm != null:
+			gs = pm.get_grid_state_string()
 		_inspect_ui.call("refresh", _fuel_level, health, _is_backup, false, true, gs)
 
 
@@ -250,13 +247,13 @@ func _on_pm_grid_restored() -> void:
 	_grid_tripped = false
 	if _inspect_ui != null and is_instance_valid(_inspect_ui) \
 			and _inspect_ui.has_method("refresh"):
-		var pm: Node   = get_tree().get_first_node_in_group("power_manager")
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 		var health: float = 100.0
-		if pm != null and pm.has_method("get_generator_health"):
-			health = pm.call("get_generator_health", _pm_id)
+		if pm != null:
+			health = pm.get_generator_health(_pm_id)
 		var gs: String = "ONLINE"
-		if pm != null and pm.has_method("get_grid_state_string"):
-			gs = pm.call("get_grid_state_string")
+		if pm != null:
+			gs = pm.get_grid_state_string()
 		_inspect_ui.call("refresh", _fuel_level, health, _is_backup, _is_running, false, gs)
 
 
@@ -265,14 +262,13 @@ func on_grid_tripped() -> void:
 
 
 func _exit_tree() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null or _pm_id.is_empty():
 		return
 	## Wire node MUST be unregistered before generator to avoid dangling edges.
-	if pm.has_method("unregister_wire_node") and not _wire_key.is_empty():
-		pm.call("unregister_wire_node", _wire_key)
-	if pm.has_method("unregister_generator"):
-		pm.call("unregister_generator", _pm_id)
+	if not _wire_key.is_empty():
+		pm.unregister_wire_node(_wire_key)
+	pm.unregister_generator(_pm_id)
 
 # ─── Public API — called by PowerManager ──────────────────────────────────────
 func set_powered(_on: bool) -> void:
@@ -325,20 +321,16 @@ func on_interact() -> void:
 			_inspect_ui.power_toggled.connect(_on_power_toggled)
 
 	if _inspect_ui.has_method("open"):
-		var pm:        Node  = get_tree().get_first_node_in_group("power_manager")
+		var pm:        PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 		var fuel:      float = _fuel_level
 		var health:    float = 100.0
 		var is_backup: bool  = _is_backup
 		var gs:        String = "ONLINE"
 		if pm != null and not _pm_id.is_empty():
-			if pm.has_method("get_generator_fuel"):
-				fuel = pm.call("get_generator_fuel", _pm_id)
-			if pm.has_method("get_generator_health"):
-				health = pm.call("get_generator_health", _pm_id)
-			if pm.has_method("get_generator_is_backup"):
-				is_backup = pm.call("get_generator_is_backup", _pm_id)
-			if pm.has_method("get_grid_state_string"):
-				gs = pm.call("get_grid_state_string")
+			fuel      = pm.get_generator_fuel(_pm_id)
+			health    = pm.get_generator_health(_pm_id)
+			is_backup = pm.get_generator_is_backup(_pm_id)
+			gs        = pm.get_grid_state_string()
 		_inspect_ui.call("open", _get_display_name(),
 			TIER_CONFIG[generator_tier].get("watts", 0),
 			fuel, health, is_backup, _is_running, _grid_tripped, gs)
@@ -352,11 +344,11 @@ func _on_inspect_closed() -> void:
 
 func _on_backup_toggled(enabled: bool) -> void:
 	_is_backup = enabled
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and not _pm_id.is_empty() and pm.has_method("set_generator_backup"):
-		pm.call("set_generator_backup", _pm_id, enabled)
-	if pm != null and pm.has_method("get_generator_running"):
-		_is_running = pm.call("get_generator_running", _pm_id)
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null and not _pm_id.is_empty():
+		pm.set_generator_backup(_pm_id, enabled)
+	if pm != null:
+		_is_running = pm.get_generator_running(_pm_id)
 	_sync_indicator()
 	_sync_socket()
 	_refresh_inspect_ui()
@@ -365,7 +357,7 @@ func _on_backup_toggled(enabled: bool) -> void:
 
 
 func _on_power_toggled(desired_running: bool) -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null or _pm_id.is_empty():
 		return
 
@@ -374,14 +366,11 @@ func _on_power_toggled(desired_running: bool) -> void:
 	## per-generator restart flow — player presses Start on each generator
 	## individually to bring the grid back up.
 	if desired_running and _grid_tripped:
-		if pm.has_method("reset_main_breaker"):
-			pm.call("reset_main_breaker")
+		pm.reset_main_breaker()
 		_grid_tripped = false   ## cleared locally; PM emits grid_restored for UI
 
-	if pm.has_method("set_generator_running"):
-		pm.call("set_generator_running", _pm_id, desired_running)
-	if pm.has_method("get_generator_running"):
-		_is_running = pm.call("get_generator_running", _pm_id)
+	pm.set_generator_running(_pm_id, desired_running)
+	_is_running = pm.get_generator_running(_pm_id)
 	_sync_indicator()
 	_sync_socket()
 	_refresh_inspect_ui()
@@ -394,14 +383,12 @@ func _refresh_inspect_ui() -> void:
 		return
 	if not _inspect_ui.has_method("refresh"):
 		return
-	var pm:     Node  = get_tree().get_first_node_in_group("power_manager")
+	var pm:     PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	var health: float = 100.0
 	var gs:     String = "ONLINE"
 	if pm != null:
-		if pm.has_method("get_generator_health"):
-			health = pm.call("get_generator_health", _pm_id)
-		if pm.has_method("get_grid_state_string"):
-			gs = pm.call("get_grid_state_string")
+		health = pm.get_generator_health(_pm_id)
+		gs     = pm.get_grid_state_string()
 	_inspect_ui.call("refresh", _fuel_level, health, _is_backup, _is_running, _grid_tripped, gs)
 
 

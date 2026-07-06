@@ -44,9 +44,9 @@ func _ready() -> void:
 ## though set_breaker_upgraded() safely re-solves again if called after).
 func _register_wire_deferred() -> void:
 	super._register_wire_deferred()
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("set_breaker_upgraded") and not _breaker_id.is_empty():
-		pm.call("set_breaker_upgraded", _breaker_id, true)
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null and not _breaker_id.is_empty():
+		pm.set_breaker_upgraded(_breaker_id, true)
 		_wdbg("[UpgradedBreakerBox] marked upgraded: breaker_id=%s" % _breaker_id)
 
 
