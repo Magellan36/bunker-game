@@ -152,6 +152,9 @@ var _power_manager: Node = null
 # ─── Admin Spawn Menu ─────────────────────────────────────────────────────────
 var _admin_menu: CanvasLayer = null
 
+# ─── Pause Menu ───────────────────────────────────────────────────────────────
+var _pause_menu: CanvasLayer = null
+
 # ─── Economy ──────────────────────────────────────────────────────────────────
 var _cash: int = 50000   ## Starting cash; shown in HUD, spent during Build Mode
 
@@ -184,7 +187,30 @@ func _ready() -> void:
 	## has registered shelf group members, so injection covers pre-placed shelves.
 	_setup_shelf_ui()
 	_setup_debug_overlay()
+	_register_save_fields()
 	get_tree().process_frame.connect(_setup_build_mode, CONNECT_ONE_SHOT)
+
+## ── Save/Load field registration ──────────────────────────────────────────
+## Registers the CURRENT minimal set of persistable fields with the SaveManager
+## autoload — player position, cash, and the game clock. Deliberately does NOT
+## register power grid / inventory / placed objects yet (still evolving fast
+## per project decision); add more fields here later the same way, one
+## register_field() call per field, no changes needed in SaveManager itself.
+func _register_save_fields() -> void:
+	SaveManager.register_field(
+		"player_position",
+		func() -> Vector3: return player.global_position,
+		func(v: Vector3) -> void: player.global_position = v)
+
+	SaveManager.register_field(
+		"cash",
+		func() -> int: return get_cash(),
+		func(v: int) -> void: set_cash(v))
+
+	SaveManager.register_field(
+		"game_elapsed",
+		func() -> float: return player_stats.get_elapsed(),
+		func(v: float) -> void: player_stats.set_elapsed(v))
 
 ## Instantiates PowerManager and adds it to the "power_manager" group so
 ## WallLight nodes can find it via get_first_node_in_group().
@@ -284,10 +310,13 @@ func _ensure_inventory_manager() -> void:
 		add_child(inventory_manager)
 
 func _unhandled_input(event: InputEvent) -> void:
-	# ESC — quit game (only when not in build mode)
+	# ESC — toggle pause menu (only when not in build mode; build mode owns
+	# its own ESC handling via BuildModeHUD for closing submenus/cancelling).
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		if not _build_mode_active:
-			get_tree().quit()
+			_toggle_pause_menu()
+			get_viewport().set_input_as_handled()
+			return
 
 	# F1 — toggle Build Mode
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F1:
@@ -340,6 +369,22 @@ func _toggle_admin_spawn_menu() -> void:
 		_admin_menu.set("build_controller", _build_controller)
 	if _admin_menu.has_method("toggle"):
 		_admin_menu.toggle()
+
+func _toggle_pause_menu() -> void:
+	## Lazy-init: create only on first ESC press.
+	if _pause_menu == null:
+		var script: GDScript = load("res://scripts/ui/PauseMenuUI.gd")
+		if script == null:
+			push_warning("[PauseMenu] PauseMenuUI.gd not found")
+			return
+		_pause_menu = CanvasLayer.new()
+		_pause_menu.set_script(script)
+		_pause_menu.name = "PauseMenuUI"
+		add_child(_pause_menu)
+		_pause_menu.set("world_node", self)
+		_pause_menu.set("player",     player)
+	if _pause_menu.has_method("toggle"):
+		_pause_menu.toggle()
 
 func _dev_toggle_warp() -> void:
 	_dev_warp_active = not _dev_warp_active
@@ -573,6 +618,13 @@ func add_cash(amount: int) -> void:
 ## Read current cash balance (used by BuildModeController ghost validity check).
 func get_cash() -> int:
 	return _cash
+
+## Directly set cash balance (used by SaveManager on load — bypasses the
+## spend_cash()/add_cash() delta logic since a load is an absolute restore,
+## not a transaction).
+func set_cash(value: int) -> void:
+	_cash = value
+	hud.set_cash(_cash)
 
 ## ── Player wire tracking ─────────────────────────────────────────────────────
 ## Called when WireDrawMode successfully places a wire (via wire_nodes_connected signal).
