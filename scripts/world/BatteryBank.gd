@@ -115,13 +115,13 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
-	if not _bat_id.is_empty() and pm.has_method("unregister_battery"):
-		pm.call("unregister_battery", _bat_id)
-	if not _wire_key.is_empty() and pm.has_method("unregister_wire_node"):
-		pm.call("unregister_wire_node", _wire_key)
+	if not _bat_id.is_empty():
+		pm.unregister_battery(_bat_id)
+	if not _wire_key.is_empty():
+		pm.unregister_wire_node(_wire_key)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -129,7 +129,7 @@ func _exit_tree() -> void:
 # ══════════════════════════════════════════════════════════════════════════════
 
 func _register_with_pm() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		push_warning("BatteryBank: PowerManager not found")
 		return
@@ -139,13 +139,11 @@ func _register_with_pm() -> void:
 
 
 func _register_deferred() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
-	if pm.has_method("register_wire_node"):
-		_wire_key = pm.call("register_wire_node", global_position, "battery", _pm_id)
-	if pm.has_method("register_battery"):
-		pm.call("register_battery", _bat_id, _capacity_wh, self, 0.0)
+	_wire_key = pm.register_wire_node(global_position, "battery", _pm_id)
+	pm.register_battery(_bat_id, _capacity_wh, self, 0.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -187,9 +185,9 @@ func set_grid_connected(connected: bool) -> void:
 ## Called by the info panel toggle — routes through PM.
 func set_enabled(on: bool) -> void:
 	_enabled = on
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("set_battery_enabled") and not _bat_id.is_empty():
-		pm.call("set_battery_enabled", _bat_id, _enabled)
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null and not _bat_id.is_empty():
+		pm.set_battery_enabled(_bat_id, _enabled)
 	_sync_led()
 	if _panel_open and _panel_canvas != null:
 		_panel_canvas.queue_redraw()

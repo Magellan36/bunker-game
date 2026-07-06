@@ -59,13 +59,12 @@ func _exit_tree() -> void:
 	if _terminal_ui != null and is_instance_valid(_terminal_ui):
 		_terminal_ui.queue_free()
 		_terminal_ui = null
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
-	if _pm_node_key != "" and pm.has_method("unregister_wire_node"):
+	if _pm_node_key != "":
 		pm.unregister_wire_node(_pm_node_key)
-	if pm.has_method("unregister_consumer"):
-		pm.unregister_consumer(str(get_instance_id()))
+	pm.unregister_consumer(str(get_instance_id()))
 
 # ─── Power API (called by PowerManager) ───────────────────────────────────────
 ## PowerManager still calls this (the terminal is registered with 0 watts, so
@@ -119,10 +118,10 @@ func _open_terminal_ui() -> void:
 
 	## Resolve which wire zone this terminal belongs to and pass the index.
 	## The UI uses this to scope all displayed data to only this zone.
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	var zone_idx: int = -1
-	if pm != null and pm.has_method("get_zone_index_for_key") and _pm_node_key != "":
-		zone_idx = pm.call("get_zone_index_for_key", _pm_node_key)
+	if pm != null and _pm_node_key != "":
+		zone_idx = pm.get_zone_index_for_key(_pm_node_key)
 	if "connected_zone_index" in _terminal_ui:
 		_terminal_ui.connected_zone_index = zone_idx
 	## Keep legacy key in sync (used by UI fallback path if zone is -1).
@@ -149,7 +148,7 @@ func _on_ui_closed() -> void:
 
 # ─── Self-registration with PowerManager ──────────────────────────────────────
 func _register_deferred() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
 
@@ -161,22 +160,20 @@ func _register_deferred() -> void:
 	## power_watts=0.0 means this never actually contributes draw/shedding math —
 	## it's a passive grid element riding the consumer pipe purely so PowerManager's
 	## existing reachability BFS drives the cosmetic screen-glow via set_powered().
-	if pm.has_method("register_consumer"):
-		pm.register_consumer(
-			dev_id,
-			power_watts,
-			self,
-			"terminal",    ## type
-			power_priority, ## priority (1 = critical/never-shed — moot at 0 watts)
-			true)           ## active immediately
+	pm.register_consumer(
+		dev_id,
+		power_watts,
+		self,
+		"terminal",    ## type
+		power_priority, ## priority (1 = critical/never-shed — moot at 0 watts)
+		true)           ## active immediately
 
 	## Wire node registered AFTER consumer so the solve fired here sees the full
 	## consumer entry and correctly marks us reachable if a wire path exists.
-	if pm.has_method("register_wire_node"):
-		_pm_node_key = pm.register_wire_node(
-			global_position,
-			"consumer",    ## role must be "consumer" for _is_consumer_reachable() BFS
-			dev_id)        ## device_id links wire node → consumer dict entry
+	_pm_node_key = pm.register_wire_node(
+		global_position,
+		"consumer",    ## role must be "consumer" for _is_consumer_reachable() BFS
+		dev_id)        ## device_id links wire node → consumer dict entry
 
 # ─── Mesh ─────────────────────────────────────────────────────────────────────
 func _build_mesh() -> void:

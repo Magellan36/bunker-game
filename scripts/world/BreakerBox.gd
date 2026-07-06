@@ -51,9 +51,9 @@ const ZONE_COLORS: Array[Color] = [
 ## Zone palette colour at alpha 0.60, sourced from PowerManager.
 ## Falls back to the local ZONE_COLORS mirror only if PM is unreachable.
 func _palette_col(color_index: int) -> Color:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("zone_color_at"):
-		return pm.call("zone_color_at", color_index, 0.60)
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
+		return pm.zone_color_at(color_index, 0.60)
 	return ZONE_COLORS[color_index % ZONE_COLORS.size()]
 
 # ─── Box dimensions ───────────────────────────────────────────────────────────
@@ -140,13 +140,13 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
-	if not _breaker_id.is_empty() and pm.has_method("unregister_breaker"):
-		pm.call("unregister_breaker", _breaker_id)
-	if not _wire_key.is_empty() and pm.has_method("unregister_wire_node"):
-		pm.call("unregister_wire_node", _wire_key)
+	if not _breaker_id.is_empty():
+		pm.unregister_breaker(_breaker_id)
+	if not _wire_key.is_empty():
+		pm.unregister_wire_node(_wire_key)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -154,7 +154,7 @@ func _exit_tree() -> void:
 # ══════════════════════════════════════════════════════════════════════════════
 
 func _register_with_pm() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		push_warning("BreakerBox: PowerManager not found")
 		return
@@ -163,7 +163,7 @@ func _register_with_pm() -> void:
 
 
 func _register_wire_deferred() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null or _pm_id.is_empty():
 		return
 	_wdbg("[BreakerBox] _register_wire_deferred: global_pos=%s pm_id=%s" % [global_position, _pm_id])
@@ -193,9 +193,9 @@ func _register_wire_deferred() -> void:
 	var reg_pos: Vector3 = global_position  ## fallback: raw position
 	var snap_axis: String = ""             ## "x" or "z" — wire run axis of the chosen edge (for visual align)
 
-	if pm.has_method("get_wire_edges") and pm.has_method("get_wire_nodes"):
-		var all_edges: Array = pm.call("get_wire_edges") as Array
-		var all_nodes_arr: Array = pm.call("get_wire_nodes") as Array
+	if pm != null:
+		var all_edges: Array = pm.get_wire_edges() as Array
+		var all_nodes_arr: Array = pm.get_wire_nodes() as Array
 		## Build a quick key→pos lookup.
 		## Some nodes are auto-created with pos=Vector3.ZERO before
 		## register_wire_node() is called for them — reconstruct their
@@ -284,31 +284,30 @@ func _register_wire_deferred() -> void:
 	## the box in the wall).  NOTE: the primary zone-seam offset was a missing
 	## A→M tube in PowerManager._split_wire_edge_at() — fixed there.  This nudge
 	## handles only the residual sub-grid along-axis offset.
-	if pm.has_method("register_wire_node"):
-		_wire_key = pm.call("register_wire_node", reg_pos, "breaker", _pm_id)
-		## Move the box ONLY along the wire run axis so it sits over the cut-point.
-		## The perpendicular (wall-face) coordinate is left at global_position so
-		## the breaker stays flush against the wall and never embeds into it.
-		## snap_axis is "" in the nearest-node fallback path — skip there (no
-		## reliable run axis), preserving the breaker's raw placement.
-		if snap_axis == "x":
-			var new_gp_x: Vector3 = global_position
-			new_gp_x.x = reg_pos.x
-			global_position = new_gp_x
-			_wdbg("[BreakerBox]   visual aligned to cut-point (X-run): global_pos→%s" % new_gp_x)
-		elif snap_axis == "z":
-			var new_gp_z: Vector3 = global_position
-			new_gp_z.z = reg_pos.z
-			global_position = new_gp_z
-			_wdbg("[BreakerBox]   visual aligned to cut-point (Z-run): global_pos→%s" % new_gp_z)
+	_wire_key = pm.register_wire_node(reg_pos, "breaker", _pm_id)
+	## Move the box ONLY along the wire run axis so it sits over the cut-point.
+	## The perpendicular (wall-face) coordinate is left at global_position so
+	## the breaker stays flush against the wall and never embeds into it.
+	## snap_axis is "" in the nearest-node fallback path — skip there (no
+	## reliable run axis), preserving the breaker's raw placement.
+	if snap_axis == "x":
+		var new_gp_x: Vector3 = global_position
+		new_gp_x.x = reg_pos.x
+		global_position = new_gp_x
+		_wdbg("[BreakerBox]   visual aligned to cut-point (X-run): global_pos→%s" % new_gp_x)
+	elif snap_axis == "z":
+		var new_gp_z: Vector3 = global_position
+		new_gp_z.z = reg_pos.z
+		global_position = new_gp_z
+		_wdbg("[BreakerBox]   visual aligned to cut-point (Z-run): global_pos→%s" % new_gp_z)
 	_wdbg("[BreakerBox]   wire_key=%s  breaker_id to follow" % _wire_key)
-	if pm.has_method("register_breaker") and not _wire_key.is_empty():
-		_breaker_id = pm.call("register_breaker", _wire_key, self)
+	if not _wire_key.is_empty():
+		_breaker_id = pm.register_breaker(_wire_key, self)
 	_wdbg("[BreakerBox]   breaker_id=%s" % _breaker_id)
 	_auto_connect_to_nearby_wires(pm)
 
 
-func _auto_connect_to_nearby_wires(pm: Node) -> void:
+func _auto_connect_to_nearby_wires(pm: PowerManager) -> void:
 	## NOTE: The primary split is handled by PM._split_wire_edge_at() during
 	## register_breaker().  This function exists as a fallback for inward-facing
 	## wall breakers whose snap key may not land exactly on an existing edge.
@@ -324,20 +323,18 @@ func _auto_connect_to_nearby_wires(pm: Node) -> void:
 	## succeeded OR it landed exactly on an existing wire endpoint), skip
 	## auto-connect entirely.  Running it when the breaker already has 2+ edges
 	## creates tiny orphan stub edges that the BFS sees as separate zones.
-	if _wire_key.is_empty() or not pm.has_method("get_wire_nodes") \
-			or not pm.has_method("register_wire_edge"):
+	if _wire_key.is_empty():
 		return
 
 	## Count edges that already touch our wire node in the PM graph.
-	if pm.has_method("get_wire_edges"):
-		var existing_count: int = 0
-		for edge: Dictionary in (pm.call("get_wire_edges") as Array):
-			if edge.get("node_a", "") == _wire_key or edge.get("node_b", "") == _wire_key:
-				existing_count += 1
-		if existing_count >= 2:
-			_wdbg("[BreakerBox] _auto_connect: breaker already has %d edges — SKIPPING stub generation" % existing_count)
-			return
-		_wdbg("[BreakerBox] _auto_connect: breaker has %d edge(s) — proceeding with auto-connect" % existing_count)
+	var existing_count: int = 0
+	for edge: Dictionary in (pm.get_wire_edges() as Array):
+		if edge.get("node_a", "") == _wire_key or edge.get("node_b", "") == _wire_key:
+			existing_count += 1
+	if existing_count >= 2:
+		_wdbg("[BreakerBox] _auto_connect: breaker already has %d edges — SKIPPING stub generation" % existing_count)
+		return
+	_wdbg("[BreakerBox] _auto_connect: breaker has %d edge(s) — proceeding with auto-connect" % existing_count)
 
 	const SEARCH_RADIUS: float = 2.0   ## wide search, collinearity filter keeps it tight
 	const COLINEAR_TOL:  float = 0.15  ## max off-axis deviation to be "on same wall run"
@@ -400,14 +397,14 @@ func _auto_connect_to_nearby_wires(pm: Node) -> void:
 		var ckey: String = candidate.get("key", "")
 		if not ckey.is_empty():
 			_wdbg("[BreakerBox]   → CONNECTING dir=%s to %s (dist=%.3f)" % [dir, ckey, candidate["dist"]])
-			pm.call("register_wire_edge", _wire_key, ckey, null)
+			pm.register_wire_edge(_wire_key, ckey, null)
 
 
 func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 	if _wire_key.is_empty():
 		return
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm == null or not pm.has_method("register_wire_edge"):
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
 		return
 	## Use the PM-registered position (wire-snapped) rather than global_position
 	## so the collinearity check works even when the breaker visual is at the
@@ -416,11 +413,10 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 	const COLINEAR_TOL:  float = 0.15
 	## Resolve our actual registered position from PM.
 	var my_pos: Vector3 = global_position
-	if pm.has_method("get_wire_nodes"):
-		for wn: Dictionary in (pm.get_wire_nodes() as Array):
-			if wn.get("key", "") == _wire_key:
-				my_pos = wn.get("pos", global_position)
-				break
+	for wn: Dictionary in (pm.get_wire_nodes() as Array):
+		if wn.get("key", "") == _wire_key:
+			my_pos = wn.get("pos", global_position)
+			break
 	var dx: float = wn_pos.x - my_pos.x
 	var dz: float = wn_pos.z - my_pos.z
 	var dist: float = sqrt(dx * dx + dz * dz)
@@ -429,7 +425,7 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 	## Must be collinear: shares same X (Z-run) or same Z (X-run).
 	if absf(dz) <= COLINEAR_TOL or absf(dx) <= COLINEAR_TOL:
 		_wdbg("[BreakerBox] notify_wire_placed → connecting to %s" % wn_key)
-		pm.call("register_wire_edge", _wire_key, wn_key, null)
+		pm.register_wire_edge(_wire_key, wn_key, null)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -713,27 +709,26 @@ func _on_settings_input(event: InputEvent) -> void:
 ## pass-through they want — this matches the plan's "pass-throughs become
 ## re-toggleable again" wording (re-toggleable, not auto-restored).
 func _request_restart() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("reset_breaker") and not _breaker_id.is_empty():
-		pm.call("reset_breaker", _breaker_id)
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null and not _breaker_id.is_empty():
+		pm.reset_breaker(_breaker_id)
 		_settings_canvas.queue_redraw()
 
 
 func _send_passthrough_to_pm() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("set_breaker_passthrough") \
-			and not _breaker_id.is_empty():
-		pm.call("set_breaker_passthrough", _breaker_id, _pass_battery, _pass_generator)
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null and not _breaker_id.is_empty():
+		pm.set_breaker_passthrough(_breaker_id, _pass_battery, _pass_generator)
 
 
 ## Query PM for the wire zone index of this breaker's snap key.
 func _refresh_zone_index() -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm == null or not pm.has_method("get_zone_snapshot"):
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
 		_zone_index   = -1
 		_zone_index_b = -1
 		return
-	var zones: Array = pm.call("get_zone_snapshot")
+	var zones: Array = pm.get_zone_snapshot()
 	_zone_index   = -1
 	_zone_index_b = -1
 	## Collect up to two zone indices that list this breaker's wire key

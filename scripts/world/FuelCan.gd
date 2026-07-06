@@ -106,10 +106,10 @@ func get_use_prompt() -> String:
 	## Line 1 — action + live generator fuel%
 	## Line 2 — this can's own remaining fuel%
 	var can_pct: int = int((_fuel_remaining / FUEL_UNITS_TOTAL) * 100.0)
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("get_generator_fuel"):
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
 		var gen_id: String  = str(gen.get_instance_id())
-		var gen_fuel: float = pm.call("get_generator_fuel", gen_id)
+		var gen_fuel: float = pm.get_generator_fuel(gen_id)
 		var gen_pct: int    = int(clampf(gen_fuel, 0.0, 100.0))
 		return "[Hold E] Refuel Generator  —  %d%%\nFuel: %d%%" % [gen_pct, can_pct]
 	return "[Hold E] Refuel Generator\nFuel: %d%%" % can_pct
@@ -125,13 +125,12 @@ func refuel_tick(delta: float) -> void:
 	if gen == null:
 		return
 
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm == null or not pm.has_method("get_generator_fuel") \
-			or not pm.has_method("set_generator_fuel"):
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
 		return
 
 	var gen_id: String  = str(gen.get_instance_id())
-	var current: float  = pm.call("get_generator_fuel", gen_id)
+	var current: float  = pm.get_generator_fuel(gen_id)
 
 	if current >= 100.0:
 		return   ## Generator already full — nothing to do this tick
@@ -142,7 +141,7 @@ func refuel_tick(delta: float) -> void:
 	if transfer <= 0.0:
 		return
 
-	pm.call("set_generator_fuel", gen_id, current + transfer)
+	pm.set_generator_fuel(gen_id, current + transfer)
 
 	_fuel_remaining -= transfer
 	_fuel_remaining  = maxf(0.0, _fuel_remaining)
