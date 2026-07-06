@@ -1258,16 +1258,20 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 		removed_node_count += 1
 
 	## Free visual segments whose PM edge was cascade-deleted by node removal above.
-	## PowerManager does not expose a has_wire_edge() query (confirmed absent —
-	## flagged separately, not fixed here to avoid a silent behavior change),
-	## so this always takes the safe fallback: free every auto seg and let
-	## PassB2 re-spawn them for all surviving edges below. Player wire segs
-	## (edge_id starts with "pw_") are a separate dict, untouched by this clear.
-	for _eid: String in _auto_wire_segs:
-		var seg_raw: Variant = _auto_wire_segs[_eid]
+	## Any seg whose edge_id is no longer in PM's edge registry is now dangling.
+	## Player wire segs (edge_id starts with "pw_") are never freed here.
+	var stale_seg_ids: Array[String] = []
+	for eid: String in _auto_wire_segs:
+		if eid.begins_with("pw_"):
+			continue
+		if not pm.has_wire_edge(eid):
+			stale_seg_ids.append(eid)
+	for eid: String in stale_seg_ids:
+		var seg_raw: Variant = _auto_wire_segs[eid]
 		if is_instance_valid(seg_raw):
 			(seg_raw as Node3D).queue_free()
-	_auto_wire_segs.clear()
+		_auto_wire_segs.erase(eid)
+	_wdbg("  Pass0(incr): freed %d stale seg visuals" % stale_seg_ids.size())
 
 	_wdbg("  Pass0(incr): desired=%d  stale_removed=%d  role_skipped=%d  surviving=%d" % [
 		desired_node_keys.size(), removed_node_count,
