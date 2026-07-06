@@ -864,6 +864,13 @@ func unregister_wire_edge(edge_id: String) -> void:
 	_solve_network()
 
 
+## Pure read — does this edge_id currently exist in the wire graph?
+## Used by callers (e.g. MainWorld's incremental rebuild) to distinguish
+## still-live edges from stale ones without mutating any state.
+func has_wire_edge(edge_id: String) -> bool:
+	return _wire_edges.has(edge_id)
+
+
 ## Register a circuit breaker on an existing wire node.
 ## Returns breaker_id — store it to trip/reset/unregister later.
 ## Also splits any existing wire edge whose A→B segment passes through the
