@@ -75,16 +75,13 @@ func _dump_wire_debug() -> void:
 
 	## ── F: PowerManager graph snapshot (via dump_wire_log) ────────────────────
 	lines.append("── PowerManager graph snapshot ────────────────────────────────────")
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		lines.append("   [PM not found]")
 	else:
-		if pm.has_method("dump_wire_log"):
-			var pm_lines: Array = pm.call("dump_wire_log")
-			for pl: String in pm_lines:
-				lines.append(pl)
-		else:
-			lines.append("   [PM.dump_wire_log() not available]")
+		var pm_lines: Array = pm.dump_wire_log()
+		for pl: String in pm_lines:
+			lines.append(pl)
 
 	lines.append("══════════════════════════════════════════════════════════════════════")
 
@@ -917,12 +914,10 @@ func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
 	## deleted light.  The nested begin_bulk() inside _rebuild_auto_wires() is
 	## reference-counted — it simply increments the depth counter and the final
 	## end_bulk() there closes both windows together with ONE solve.
-	var pm_bulk: Node = get_tree().get_first_node_in_group("power_manager")
-	var _chunk_bulk: bool = pm_bulk != null \
-		and pm_bulk.has_method("begin_bulk") \
-		and pm_bulk.has_method("end_bulk")
+	var pm_bulk: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	var _chunk_bulk: bool = pm_bulk != null
 	if _chunk_bulk:
-		pm_bulk.call("begin_bulk")
+		pm_bulk.begin_bulk()
 
 	var offset_x: float = rock_surround.OFFSET_X
 	var offset_z: float = rock_surround.OFFSET_Z
@@ -1170,7 +1165,7 @@ func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
 	## (If _rebuild_auto_wires already triggered the only solve — because PM was
 	## unavailable and _chunk_bulk is false — this is a harmless no-op.)
 	if _chunk_bulk:
-		pm_bulk.call("end_bulk")
+		pm_bulk.end_bulk()
 
 	## ── Stage 1: log boundary diff ────────────────────────────────────────────
 	## Compute and log the diff between the previous boundary and the current one.
@@ -1191,9 +1186,8 @@ func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
 func _rebuild_auto_wires(boundary_edges: Dictionary,
 		pillar_positions: Dictionary = {},
 		breakers_removed: bool = false) -> void:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm == null or not pm.has_method("register_wire_node") \
-			or not pm.has_method("register_wire_edge"):
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
 		return
 
 	## ── Bulk-edit window ──────────────────────────────────────────────────────
@@ -1201,9 +1195,9 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 	## each one runs a full PowerManager._solve_network().  Wrapping the whole
 	## rebuild in begin_bulk()/end_bulk() coalesces them into ONE solve at the
 	## end.  end_bulk() is mirrored before every early return below.
-	var _pm_bulk: bool = pm.has_method("begin_bulk") and pm.has_method("end_bulk")
+	var _pm_bulk: bool = true
 	if _pm_bulk:
-		pm.call("begin_bulk")
+		pm.begin_bulk()
 
 	const WIRE_Y:   float = 1.0
 	## Two nodes are "adjacent" if their distance is ≤ this.
@@ -1217,9 +1211,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 	## PM's registry still holds the old rep keys at this point — saving it now
 	## lets get_wire_zones_with_colors() in Pass D reuse those keys after all
 	## fresh edges are re-registered.
-	var zone_color_snap: Dictionary = {}
-	if pm.has_method("snapshot_zone_colors"):
-		zone_color_snap = pm.call("snapshot_zone_colors")
+	var zone_color_snap: Dictionary = pm.snapshot_zone_colors()
 	## ── Clear log for this rebuild cycle ────────────────────────────────────
 	_wire_log.clear()
 	_wdbg("=== _rebuild_auto_wires START ===")
@@ -1255,42 +1247,27 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 	for cache_key: String in stale_cache_keys:
 		var pm_key: String = _auto_wire_nodes[cache_key]
 		## Never unregister device-owned nodes — they manage themselves.
-		if pm.has_method("get_wire_node_role"):
-			var role: String = pm.call("get_wire_node_role", pm_key)
-			if role in _SKIP_ROLES:
-				_wdbg("  Pass0(incr): SKIP %s node pm_key=%s (cache_key=%s)" % [role, pm_key, cache_key])
-				skipped_role_count += 1
-				continue
+		var role: String = pm.get_wire_node_role(pm_key)
+		if role in _SKIP_ROLES:
+			_wdbg("  Pass0(incr): SKIP %s node pm_key=%s (cache_key=%s)" % [role, pm_key, cache_key])
+			skipped_role_count += 1
+			continue
 		## Unregister: cascades to delete all auto-wire edges on this node in PM.
-		if pm.has_method("unregister_wire_node"):
-			pm.call("unregister_wire_node", pm_key)
+		pm.unregister_wire_node(pm_key)
 		_auto_wire_nodes.erase(cache_key)
 		removed_node_count += 1
 
 	## Free visual segments whose PM edge was cascade-deleted by node removal above.
-	## Any seg whose edge_id is no longer in PM's edge registry is now dangling.
-	## Player wire segs (edge_id starts with "pw_") are never freed here.
-	if pm.has_method("has_wire_edge"):
-		var stale_seg_ids: Array[String] = []
-		for eid: String in _auto_wire_segs:
-			if eid.begins_with("pw_"):
-				continue
-			if not pm.call("has_wire_edge", eid):
-				stale_seg_ids.append(eid)
-		for eid: String in stale_seg_ids:
-			var seg_raw: Variant = _auto_wire_segs[eid]
-			if is_instance_valid(seg_raw):
-				(seg_raw as Node3D).queue_free()
-			_auto_wire_segs.erase(eid)
-		_wdbg("  Pass0(incr): freed %d stale seg visuals" % stale_seg_ids.size())
-	else:
-		## PM does not expose has_wire_edge — fall back: free all auto segs.
-		## (Safe because PassB2 will re-spawn them for all surviving edges.)
-		for _eid: String in _auto_wire_segs:
-			var seg_raw: Variant = _auto_wire_segs[_eid]
-			if is_instance_valid(seg_raw):
-				(seg_raw as Node3D).queue_free()
-		_auto_wire_segs.clear()
+	## PowerManager does not expose a has_wire_edge() query (confirmed absent —
+	## flagged separately, not fixed here to avoid a silent behavior change),
+	## so this always takes the safe fallback: free every auto seg and let
+	## PassB2 re-spawn them for all surviving edges below. Player wire segs
+	## (edge_id starts with "pw_") are a separate dict, untouched by this clear.
+	for _eid: String in _auto_wire_segs:
+		var seg_raw: Variant = _auto_wire_segs[_eid]
+		if is_instance_valid(seg_raw):
+			(seg_raw as Node3D).queue_free()
+	_auto_wire_segs.clear()
 
 	_wdbg("  Pass0(incr): desired=%d  stale_removed=%d  role_skipped=%d  surviving=%d" % [
 		desired_node_keys.size(), removed_node_count,
@@ -1376,12 +1353,11 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 			## parts[0]=x, parts[1]=y, parts[2]=z  (all as "%.3f" strings)
 			if parts.size() >= 3:
 				surviving_xz.append(Vector2(float(parts[0]), float(parts[2])))
-		if pm.has_method("get_wire_nodes"):
-			for wn: Dictionary in (pm.call("get_wire_nodes") as Array):
-				if not (wn.get("role", "joint") in _RESCUE_ROLES):
-					continue   ## plain joint — must NOT rescue (see note above)
-				var wpos2: Vector3 = wn.get("pos", Vector3.ZERO)
-				surviving_xz.append(Vector2(wpos2.x, wpos2.z))
+		for wn: Dictionary in (pm.get_wire_nodes() as Array):
+			if not (wn.get("role", "joint") in _RESCUE_ROLES):
+				continue   ## plain joint — must NOT rescue (see note above)
+			var wpos2: Vector3 = wn.get("pos", Vector3.ZERO)
+			surviving_xz.append(Vector2(wpos2.x, wpos2.z))
 
 		## Helper: is position p within CULL_SNAP of any surviving boundary node?
 		var _near_boundary: Callable = func(p: Vector3) -> bool:
@@ -1438,16 +1414,15 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 			## Look up each endpoint's current PM key by world-space position,
 			## then ask PM to remove the edge between them (canonical sort handled
 			## inside unregister_wire_edge).
-			if pm.has_method("get_wire_node_key_at_pos") and pm.has_method("unregister_wire_edge"):
-				var ka: String = pm.call("get_wire_node_key_at_pos", pa)
-				var kb: String = pm.call("get_wire_node_key_at_pos", pb)
-				if ka != "" and kb != "":
-					## Must match PowerManager._wire_edges key format: "e_<small>__<large>"
-					var eid: String = "e_%s__%s" % [ka, kb] if ka < kb else "e_%s__%s" % [kb, ka]
-					pm.call("unregister_wire_edge", eid)
-					_wdbg("  PlayerWireCull: unregistered PM edge %s" % eid)
-				else:
-					_wdbg("  PlayerWireCull: PM key lookup failed  ka='%s'  kb='%s' — skipping PM unregister" % [ka, kb])
+			var ka: String = pm.get_wire_node_key_at_pos(pa)
+			var kb: String = pm.get_wire_node_key_at_pos(pb)
+			if ka != "" and kb != "":
+				## Must match PowerManager._wire_edges key format: "e_<small>__<large>"
+				var eid: String = "e_%s__%s" % [ka, kb] if ka < kb else "e_%s__%s" % [kb, ka]
+				pm.unregister_wire_edge(eid)
+				_wdbg("  PlayerWireCull: unregistered PM edge %s" % eid)
+			else:
+				_wdbg("  PlayerWireCull: PM key lookup failed  ka='%s'  kb='%s' — skipping PM unregister" % [ka, kb])
 
 			## Erase dict entry.
 			_player_wire_segs.erase(pw_key)
@@ -1465,7 +1440,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 
 	if boundary_edges.is_empty():
 		if _pm_bulk:
-			pm.call("end_bulk")
+			pm.end_bulk()
 		return
 
 	var wire_script: GDScript = load("res://scripts/world/WireSegment.gd") as GDScript
@@ -1546,7 +1521,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 
 	if node_positions.is_empty():
 		if _pm_bulk:
-			pm.call("end_bulk")
+			pm.end_bulk()
 		return
 
 	## ── Pass B: register nodes + connect adjacent pairs ──────────────────────
@@ -1567,7 +1542,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 			surviving_node_count += 1
 		else:
 			## New position — register fresh.
-			var pm_key: String = pm.call("register_wire_node", wpos, "joint", "")
+			var pm_key: String = pm.register_wire_node(wpos, "joint", "")
 			_auto_wire_nodes[cache_key] = pm_key
 			node_keys.append(pm_key)
 			new_node_count += 1
@@ -1627,10 +1602,9 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 
 	## Collect breaker nodes from PM (same as before).
 	var brk_nodes_b2: Array[Dictionary] = []   ## [{ "key": String, "pos": Vector3 }]
-	if pm.has_method("get_wire_nodes"):
-		for wn_b2: Dictionary in pm.call("get_wire_nodes"):
-			if wn_b2.get("role", "") == "breaker":
-				brk_nodes_b2.append({"key": wn_b2["key"], "pos": wn_b2["pos"]})
+	for wn_b2: Dictionary in pm.get_wire_nodes():
+		if wn_b2.get("role", "") == "breaker":
+			brk_nodes_b2.append({"key": wn_b2["key"], "pos": wn_b2["pos"]})
 	_wdbg("  PassB2(incr): %d breaker node(s)" % brk_nodes_b2.size())
 
 	## ── All-pairs B2 with visual dedup ──────────────────────────────────────
@@ -1731,7 +1705,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 					brk_on_span.append(bn)
 
 			if brk_on_span.is_empty():
-				var edge_id: String = pm.call("register_wire_edge", ka, kb, null)
+				var edge_id: String = pm.register_wire_edge(ka, kb, null)
 				if not edge_id.is_empty() and wire_script != null:
 					_wdbg("  B2 EDGE  pa=(%.3f,%.3f) pb=(%.3f,%.3f)  dist=%.3f  edge=%s" % [
 						pa.x, pa.z, pb.x, pb.z, dist, edge_id])
@@ -1756,7 +1730,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 					var sk_b: String  = chain_keys[seg_i + 1]
 					var sp_a: Vector3 = chain_pos[seg_i]
 					var sp_b: Vector3 = chain_pos[seg_i + 1]
-					var seg_edge: String = pm.call("register_wire_edge", sk_a, sk_b, null)
+					var seg_edge: String = pm.register_wire_edge(sk_a, sk_b, null)
 					if not seg_edge.is_empty() and wire_script != null:
 						_wdbg("    B2 SEG  %s→%s  edge=%s" % [sk_a, sk_b, seg_edge])
 						_spawn_auto_wire_seg(sp_a, sp_b, seg_edge, wire_script)
@@ -1815,9 +1789,8 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 	_wdbg("  Restore: breakers_removed=%s  snap_empty=%s  decision=%s  snap_keys=%s" % [
 		str(breakers_removed), str(zone_color_snap.is_empty()),
 		_restore_decision, str(zone_color_snap.keys())])
-	if not breakers_removed and not zone_color_snap.is_empty() \
-			and pm.has_method("restore_zone_colors"):
-		pm.call("restore_zone_colors", zone_color_snap)
+	if not breakers_removed and not zone_color_snap.is_empty():
+		pm.restore_zone_colors(zone_color_snap)
 	## Recolor wire visuals on the NEXT frame (via process_frame one-shot) so
 	## that all deferred BreakerBox._register_wire_deferred() calls have already
 	## fired and the zone graph is fully up-to-date before we assign colors.
@@ -1842,7 +1815,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 	## Close the bulk window — runs the single coalesced solve now that the
 	## entire wire graph has been re-registered with complete topology.
 	if _pm_bulk:
-		pm.call("end_bulk")
+		pm.end_bulk()
 
 	## Reconciler retired (Stage 5) — no notify needed.
 
@@ -1953,7 +1926,7 @@ func _compute_node_positions(boundary_edges: Dictionary,
 func _verify_graph_matches_boundary(
 		boundary_edges: Dictionary,
 		pillar_positions: Dictionary,
-		pm: Node) -> void:
+		pm: PowerManager) -> void:
 
 	const ORACLE_SNAP_DIST: float = 0.65   ## wire node vs boundary face snap tolerance (XZ only)
 
@@ -1989,8 +1962,8 @@ func _verify_graph_matches_boundary(
 		## that happen to share a cache_key format.
 		var pm_key: String = _auto_wire_nodes[cache_key]
 		var role: String = ""
-		if pm != null and pm.has_method("get_wire_node_role"):
-			role = pm.call("get_wire_node_role", pm_key)
+		if pm != null:
+			role = pm.get_wire_node_role(pm_key)
 		## Breaker nodes sit exactly on boundary edge midpoints — they count as
 		## valid coverage.  Exclude generator/battery (they're interior nodes).
 		if role == "joint" or role == "breaker" or role == "":
@@ -2034,14 +2007,14 @@ func _verify_graph_matches_boundary(
 	for cache_key: String in _auto_wire_nodes:
 		var pm_key: String = _auto_wire_nodes[cache_key]
 		var role: String = ""
-		if pm != null and pm.has_method("get_wire_node_role"):
-			role = pm.call("get_wire_node_role", pm_key)
+		if pm != null:
+			role = pm.get_wire_node_role(pm_key)
 		if role != "joint" and role != "":
 			continue   ## skip breaker / generator / battery nodes
 		## Get position from PM for accuracy (cache_key parsing can have float drift).
 		var node_pos: Vector3 = Vector3.ZERO
-		if pm != null and pm.has_method("get_wire_node_pos"):
-			node_pos = pm.call("get_wire_node_pos", pm_key)
+		if pm != null:
+			node_pos = pm.get_wire_node_pos(pm_key)
 		var nxz: Vector2 = Vector2(node_pos.x, node_pos.z)
 		if not _near_boundary.call(nxz):
 			inv2_fails += 1
@@ -2120,9 +2093,9 @@ func _spawn_auto_wire_seg(
 	## resize this visual when a breaker is placed on a pregen wire.
 	## Without this, PM's edge dict has node=null, the split can't resize the
 	## tube, and the original full-length segment stays visible as a ghost.
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm != null and pm.has_method("set_wire_edge_node"):
-		pm.call("set_wire_edge_node", edge_id, seg)
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
+		pm.set_wire_edge_node(edge_id, seg)
 
 ## ─── Rock chunk UNDO (restore) handler ──────────────────────────────────────
 ## Called when a previously-dug chunk is restored via Undo.
