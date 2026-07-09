@@ -396,6 +396,14 @@ var _wire_edges: Dictionary = {}
 ## this instance so external call sites are unaffected.
 var _graph: PowerGraph = null
 
+## PowerRegistry.gd — consumer/generator/battery registration CRUD (Stage 8
+## first slice). _consumers/_generators/_batteries above stay physically
+## owned here (see PowerRegistry.gd header comment for why); the registry
+## instance reaches into them via its own _owner back-reference. PowerManager
+## forwards its public consumer/generator/battery API to this instance so
+## external call sites are unaffected.
+var _registry: PowerRegistry = null
+
 ## Circuit breakers — live on a wire node and open the graph at that point.
 ## key: breaker_id string
 ## value:
@@ -549,6 +557,7 @@ signal breaker_reset(breaker_id: String)
 
 func _ready() -> void:
 	_graph = PowerGraph.new(self)
+	_registry = PowerRegistry.new(self)
 	pass   ## No default zone — graph starts empty.
 
 func _process(delta: float) -> void:
@@ -1362,13 +1371,14 @@ func zone_color_at(color_index: int, alpha: float = 0.60) -> Color:
 # PUBLIC API — CONSUMERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-## Register a power-consuming device.
-##   id       — str(node.get_instance_id())
-##   watts    — rated draw; use WATT_RATINGS["wall_light"]
-##   node     — scene node; must implement set_powered(bool)
-##   type     — category tag for default priority lookup
-##   priority — 1–5; pass 0 to auto-assign from type
-##   active   — true if device starts switched on
+## ─────────────────────────────────────────────────────────────────────────────
+## CONSUMERS / GENERATORS / BATTERIES — forwarded to PowerRegistry.gd
+## (Stage 8 extraction, see REVIEW_IMPLEMENTATION_PLAN.md). Signatures
+## identical to before the split — every external call site needs zero
+## changes. Solver-policy setters (set_consumer_priority, set_generator_fuel/
+## health/running/backup, set_battery_enabled) stay below, unmoved.
+## ─────────────────────────────────────────────────────────────────────────────
+
 func register_consumer(
 		id:       String,
 		watts:    float,
@@ -1376,56 +1386,17 @@ func register_consumer(
 		type:     String = "unknown",
 		priority: int    = 0,
 		active:   bool   = true) -> void:
+	_registry.register_consumer(id, watts, node, type, priority, active)
 
-	if priority == 0:
-		priority = DEFAULT_PRIORITY_BY_TYPE.get(type, 3)
-
-	if _consumers.has(id):
-		push_warning("PowerManager: duplicate consumer '%s' — updating." % id)
-
-	_consumers[id] = {
-		"id":       id,
-		"watts":    watts,
-		"active":   active,
-		"node":     node,
-		"type":     type,
-		"priority": priority,
-		"shed":     false,
-		"powered":  false,
-	}
-	consumer_registered.emit(id, watts, priority)
-
-
-## Remove a consumer.
-## NOTE: call unregister_wire_node() BEFORE this in _exit_tree() so that
-## connected wire segments are destroyed first.  If you forget, this function
-## will clean up the wire node as a fallback (safe but slightly less clean).
 func unregister_consumer(id: String) -> void:
-	if not _consumers.has(id):
-		return
-	## Safety fallback: if the wire node for this consumer still exists (device
-	## was deconstructed without calling unregister_wire_node first), remove it
-	## now — which also destroys all connected wire segments automatically.
-	for wn: Dictionary in _wire_nodes.values():
-		if wn["role"] == "consumer" and wn["device_id"] == id:
-			unregister_wire_node(wn["key"])
-			break
-	_consumers.erase(id)
-	consumer_unregistered.emit(id)
+	_registry.unregister_consumer(id)
 
-
-## Toggle device switch state (player flips a light switch, etc.)
 func set_consumer_active(id: String, active: bool) -> void:
-	if not _consumers.has(id):
-		return
-	_consumers[id]["active"] = active
-	_solve_network()
+	_registry.set_consumer_active(id, active)
 
-
-## Returns watt draw of a registered consumer, or 0.0 if unknown.
-## Used by WireDrawMode to display device cost in hover labels.
 func get_consumer_watts(id: String) -> float:
-	return float(_consumers.get(id, {}).get("watts", 0.0))
+	return _registry.get_consumer_watts(id)
+
 
 
 # ─── Power priority API ──────────────────────────────────────────────────────
@@ -1436,7 +1407,7 @@ const PRIORITY_MAX: int = 5
 
 ## Returns the current priority (1–5) of a consumer, or 3 (default) if unknown.
 func get_consumer_priority(id: String) -> int:
-	return int(_consumers.get(id, {}).get("priority", 3))
+	return _registry.get_consumer_priority(id)
 
 
 ## Set a consumer's power priority (1–5) and re-solve the grid so shedding
@@ -1494,67 +1465,21 @@ func _reset_shed_for_consumer_component(id: String) -> void:
 
 ## Returns true if the consumer is currently switched on (drawing/attempting).
 func get_consumer_active(id: String) -> bool:
-	return bool(_consumers.get(id, {}).get("active", false))
+	return _registry.get_consumer_active(id)
 
-
-## Returns true if the consumer is currently receiving full power.
 func get_consumer_powered(id: String) -> bool:
-	return bool(_consumers.get(id, {}).get("powered", false))
+	return _registry.get_consumer_powered(id)
 
-
-## Returns true if the consumer is currently load-shed (connected but cut).
 func get_consumer_shed(id: String) -> bool:
-	return bool(_consumers.get(id, {}).get("shed", false))
+	return _registry.get_consumer_shed(id)
 
-
-## One-shot status snapshot for the priority UI. Keys:
-##   "registered" bool — false if id unknown to the grid
-##   "watts"      float
-##   "priority"   int  (1–5)
-##   "active"     bool — player switch state
-##   "powered"    bool — receiving full power right now
-##   "shed"       bool — load-shed (connected but not powered)
-##   "status_str" String — "POWERED" / "SHED" / "NO POWER" / "OFF" / "UNWIRED"
 func get_consumer_status(id: String) -> Dictionary:
-	if not _consumers.has(id):
-		return {"registered": false}
-	var c: Dictionary = _consumers[id]
-	var active:  bool  = bool(c.get("active", false))
-	var powered: bool  = bool(c.get("powered", false))
-	var shed:    bool  = bool(c.get("shed", false))
-	var wired:   bool  = _consumer_is_wired(id)
-
-	var status_str: String
-	if not active:
-		status_str = "OFF"
-	elif shed:
-		status_str = "SHED"
-	elif powered:
-		status_str = "POWERED"
-	elif not wired:
-		status_str = "UNWIRED"
-	else:
-		status_str = "NO POWER"
-
-	return {
-		"registered": true,
-		"watts":      float(c.get("watts", 0.0)),
-		"priority":   int(c.get("priority", 3)),
-		"active":     active,
-		"powered":    powered,
-		"shed":       shed,
-		"wired":      wired,
-		"status_str": status_str,
-	}
-
+	return _registry.get_consumer_status(id)
 
 ## True if this consumer has a wire node that participates in any edge.
 func _consumer_is_wired(id: String) -> bool:
-	for wn: Dictionary in _wire_nodes.values():
-		if wn.get("role", "") == "consumer" and wn.get("device_id", "") == id:
-			var key: String = wn.get("key", "")
-			return _adjacency.has(key) and not (_adjacency[key] as Array).is_empty()
-	return false
+	return _registry._consumer_is_wired(id)
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1575,60 +1500,20 @@ func register_generator(
 		is_backup: bool  = false,
 		fuel:      float = 100.0,
 		health:    float = 100.0) -> void:
+	_registry.register_generator(gen_id, watts, node, is_backup, fuel, health)
 
-	_pmdbg("[PM:GEN] register_generator called — id=%s watts=%.0f backup=%s fuel=%.1f health=%.1f" % [
-		gen_id, watts, str(is_backup), fuel, health])
-	var running: bool = (not is_backup) and fuel > 0.0 and health > 0.0
-	_generators[gen_id] = {
-		"id":           gen_id,
-		"watts":        watts,
-		"node":         node,
-		"running":      running,
-		"backup":       is_backup,
-		"fuel":         clampf(fuel,   0.0, 100.0),
-		"health":       clampf(health, 0.0, 100.0),
-		"auto_started": false,
-	}
-	_pmdbg("[PM:GEN] _generators now has %d entries" % _generators.size())
-	_recalculate_capacity()
-	generator_registered.emit(gen_id, watts, is_backup)
-	if running:
-		generator_started.emit(gen_id)
-	## Trigger a network solve so consumers connected to this generator light up
-	## immediately without waiting for another topology event.
-	_solve_network()
-
-
-## Unregister a generator (sold / destroyed).
-## NOTE: call unregister_wire_node() BEFORE this in _exit_tree() so that
-## connected wire segments are destroyed first.
 func unregister_generator(gen_id: String) -> void:
-	if not _generators.has(gen_id):
-		return
-	## Safety fallback: clean up wire node and its edges if still registered.
-	for wn: Dictionary in _wire_nodes.values():
-		if wn["role"] == "generator" and wn["device_id"] == gen_id:
-			unregister_wire_node(wn["key"])
-			break
-	_generators.erase(gen_id)
-	_recalculate_capacity()
-	generator_unregistered.emit(gen_id)
-	_solve_network()
-
+	_registry.unregister_generator(gen_id)
 
 ## Returns current fuel level [0.0–100.0] for the given generator.
 ## Returns -1.0 if the gen_id is not registered.
 func get_generator_fuel(gen_id: String) -> float:
-	if not _generators.has(gen_id):
-		return -1.0
-	return _generators[gen_id]["fuel"]
+	return _registry.get_generator_fuel(gen_id)
 
 ## Returns whether the generator is currently running.
 ## Returns false if the id is unknown.
 func get_generator_running(gen_id: String) -> bool:
-	if not _generators.has(gen_id):
-		return false
-	return _generators[gen_id].get("running", false)
+	return _registry.get_generator_running(gen_id)
 
 ## Player refuels at the generator.
 func set_generator_fuel(gen_id: String, new_fuel: float) -> void:
@@ -1714,31 +1599,16 @@ func set_generator_backup(gen_id: String, is_backup: bool) -> void:
 
 ## Returns whether a generator is currently marked as a backup unit.
 func get_generator_is_backup(gen_id: String) -> bool:
-	if not _generators.has(gen_id):
-		return false
-	return _generators[gen_id].get("backup", false)
+	return _registry.get_generator_is_backup(gen_id)
 
-## Returns current health [0.0–100.0] for the given generator.
 func get_generator_health(gen_id: String) -> float:
-	if not _generators.has(gen_id):
-		return -1.0
-	return _generators[gen_id].get("health", 100.0)
+	return _registry.get_generator_health(gen_id)
 
-## Returns rated output watts for the given generator.
 func get_generator_watts(gen_id: String) -> float:
-	if not _generators.has(gen_id):
-		return 0.0
-	return _generators[gen_id].get("watts", 0.0)
+	return _registry.get_generator_watts(gen_id)
 
-## Status snapshot for HUD or save system.
 func get_generators_status() -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
-	for gen: Dictionary in _generators.values():
-		out.append({
-			"id": gen["id"], "watts": gen["watts"], "running": gen["running"],
-			"backup": gen["backup"], "fuel": gen["fuel"], "health": gen["health"],
-		})
-	return out
+	return _registry.get_generators_status()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1753,64 +1623,26 @@ func register_battery(
 		capacity_wh:    float,
 		node:           Node  = null,
 		initial_charge: float = -1.0) -> void:
-
-	var charge: float = initial_charge if initial_charge >= 0.0 else capacity_wh
-	charge = clampf(charge, 0.0, capacity_wh)
-	_batteries[bat_id] = {
-		"id":          bat_id,
-		"capacity_wh": capacity_wh,
-		"charge_wh":   charge,
-		"node":        node,
-		"discharging": false,
-		"enabled":     true,   ## player can disable via BatteryBank info panel
-	}
-	battery_registered.emit(bat_id, capacity_wh)
-	_notify_battery_node(bat_id)
-
+	_registry.register_battery(bat_id, capacity_wh, node, initial_charge)
 
 ## Unregister battery (sold / destroyed).
 ## NOTE: call unregister_wire_node() BEFORE this in _exit_tree() so that
 ## connected wire segments are destroyed first.
 func unregister_battery(bat_id: String) -> void:
-	if not _batteries.has(bat_id):
-		return
-	## Safety fallback: clean up wire node and its edges if still registered.
-	for wn: Dictionary in _wire_nodes.values():
-		if wn["role"] == "battery" and wn["device_id"] == bat_id:
-			unregister_wire_node(wn["key"])
-			break
-	_batteries.erase(bat_id)
-	battery_unregistered.emit(bat_id)
-
+	_registry.unregister_battery(bat_id)
 
 ## Force-set charge level (load from save).
 func set_battery_charge(bat_id: String, charge_wh: float) -> void:
-	if not _batteries.has(bat_id):
-		return
-	_batteries[bat_id]["charge_wh"] = clampf(
-		charge_wh, 0.0, float(_batteries[bat_id]["capacity_wh"]))
-	## Reset drained flag so battery_drained can fire again if needed.
-	if float(_batteries[bat_id]["charge_wh"]) > 0.0:
-		_batteries[bat_id]["_drained_emitted"] = false
-	_notify_battery_node(bat_id)
-
+	_registry.set_battery_charge(bat_id, charge_wh)
 
 ## Total stored energy (watt-hours) across all batteries.
 func total_battery_wh() -> float:
-	var t: float = 0.0
-	for bat: Dictionary in _batteries.values():
-		t += float(bat.get("charge_wh", 0.0))
-	return t
-
+	return _registry.total_battery_wh()
 
 ## Aggregate charge as 0.0–1.0 fraction.
 func battery_charge_ratio() -> float:
-	var cap: float = 0.0
-	var chg: float = 0.0
-	for bat: Dictionary in _batteries.values():
-		cap += float(bat.get("capacity_wh", 0.0))
-		chg += float(bat.get("charge_wh",   0.0))
-	return chg / cap if cap > 0.0 else 0.0
+	return _registry.battery_charge_ratio()
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1831,7 +1663,7 @@ func headroom_watts() -> float:
 
 ## Returns true if a consumer is currently receiving power.
 func is_consumer_powered(id: String) -> bool:
-	return _consumers.get(id, {}).get("powered", false)
+	return _registry.is_consumer_powered(id)
 
 
 ## Human-readable grid state string for UI display.
