@@ -44,6 +44,7 @@ var _is_dead:    bool  = false
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 var _spot:       SpotLight3D        = null
+var _dust:       GPUParticles3D     = null   ## beam dust motes, see DustMotes.gd
 var _body_mesh:  MeshInstance3D     = null
 var _lens_mat:   StandardMaterial3D = null
 
@@ -142,6 +143,14 @@ func _build_light() -> void:
 	_spot.visible                = false   ## off at spawn
 	_apply_graphics_settings()
 	add_child(_spot)
+
+	## Dust motes drifting through the beam — dust-mote scope was flagged for
+	## VFX priority #1 in the graphics plan. Emitting is toggled with the
+	## beam in _refresh_state(); off at spawn to match _spot.
+	_dust = DustMotes.create_beam_dust(CONE_OUTER)
+	_dust.position = Vector3(0.0, 0.0, 0.15)
+	_dust.emitting = false
+	_spot.add_child(_dust)
 	## Live-update if the player flips a toggle while holding this flashlight.
 	GraphicsSettings.settings_changed.connect(_apply_graphics_settings)
 
@@ -161,6 +170,9 @@ func _apply_graphics_settings() -> void:
 	## look be toggled off for performance without disabling ambient fog
 	## everywhere else. 0.0 skips volumetric-fog computation for this light.
 	_spot.light_volumetric_fog_energy = 1.0 if GraphicsSettings.flashlight_volumetrics else 0.0
+	## Re-run so _dust.emitting picks up a live flashlight_volumetrics change
+	## immediately instead of waiting for the next unrelated state refresh.
+	_refresh_state()
 
 ## Adds a CapsuleShape3D collision body oriented along +Z (the flashlight's length axis).
 ## Without this the RigidBody3D has no shape and Jolt physics ignores it entirely.
@@ -179,6 +191,9 @@ func _refresh_state() -> void:
 
 	if _spot != null:
 		_spot.visible = actually_on
+
+	if _dust != null:
+		_dust.emitting = actually_on and GraphicsSettings.flashlight_volumetrics
 
 	if _lens_mat != null:
 		if actually_on:
