@@ -84,3 +84,28 @@ const GENERATOR_TIERS: Array[Dictionary] = [
 	{ "name": "Mid-Range Generator",  "watts": 2000.0, "price": 3500  },
 	{ "name": "Industrial Generator", "watts": 5000.0, "price": 12000 },
 ]
+
+# ─── Status-indicator emission color convention (graphics plan Section 3) ───
+## Standardized green/amber/red convention for any device's status LED/
+## indicator: green = running/healthy, amber = warning/brownout,
+## red = fault/tripped/stopped. Intended for NEW devices going forward —
+## BreakerBox.gd/BatteryBank.gd/GeneratorObject.gd already have their own
+## tuned, independently-working `COLOR_LED_*`/`COLOR_STOPPED`/etc. constants
+## and are deliberately NOT retrofitted to this table in this pass (real
+## regression risk on the most load-bearing, heavily-tested system in the
+## project, for a pure-consistency win with no functional payoff — same
+## reasoning PROJECT_SUMMARY.md §13 already applies to the hand-drawn-UI
+## retrofit question). Point new device scripts here; leave the three
+## existing ones alone unless explicitly asked to unify them.
+const STATE_EMISSION_COLORS: Dictionary = {
+	"healthy": Color(0.15, 0.90, 0.20, 1.0),   ## green
+	"warning": Color(1.00, 0.72, 0.10, 1.0),   ## amber
+	"fault":   Color(0.95, 0.15, 0.10, 1.0),   ## red
+}
+
+
+## Looks up a status-tag color, defaulting to "fault" red for unknown tags
+## so a typo'd tag fails loud (bright red) rather than silently invisible.
+static func get_status_emission_color(tag: String) -> Color:
+	return STATE_EMISSION_COLORS.get(tag, STATE_EMISSION_COLORS["fault"])
+

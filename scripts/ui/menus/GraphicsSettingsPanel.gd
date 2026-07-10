@@ -38,6 +38,9 @@ func _ready() -> void:
 func open() -> void:
 	visible = true
 	_refresh_from_settings()
+	_panel.modulate.a = 0.0
+	var tw: Tween = create_tween()
+	tw.tween_property(_panel, "modulate:a", 1.0, 0.15)
 
 
 func close() -> void:
@@ -45,9 +48,20 @@ func close() -> void:
 
 
 func _build_ui() -> void:
+	## Reuses PauseMenuUI's proven blur-backdrop shader/pattern (this panel
+	## opens on top of the already-open, already-blurred PauseMenuUI, but
+	## PauseMenuUI's own blur only samples what was behind IT, not itself —
+	## stacking a second blur here keeps this panel readable over the pause
+	## menu's plain dark panel underneath it too).
 	var backdrop: ColorRect = ColorRect.new()
-	backdrop.color = Color(0.0, 0.0, 0.0, 0.55)
 	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var blur_shader: Shader = load("res://assets/shaders/pause_blur.gdshader")
+	if blur_shader != null:
+		var mat: ShaderMaterial = ShaderMaterial.new()
+		mat.shader = blur_shader
+		backdrop.material = mat
+	else:
+		backdrop.color = Color(0.0, 0.0, 0.0, 0.55)
 	add_child(backdrop)
 
 	_panel = Panel.new()
