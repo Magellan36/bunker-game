@@ -3,7 +3,7 @@
 or responsibilities change. This is the first thing to read in a new session —
 reference it instead of re-scanning the codebase, to keep credit usage low.
 
-**Last updated:** Friday, July 10, 2026 — repo HEAD `95e79b4`
+**Last updated:** Friday, July 10, 2026 — repo HEAD `7ecaa5f`
 **Repo:** `Magellan36/bunker-game` (GitHub, branch `main`), Godot 4.6.3, GDScript, statically typed.
 **Engine notes:** No Godot binary in the sandbox — all sandbox-side verification is
 bracket-balance checks, function-count reconciliation, and line-range diffing, never
@@ -64,9 +64,10 @@ review-implementation project); further splitting (PowerSolver) not yet done.
 
 | File | Lines | Role |
 |---|---|---|
-| `PowerManager.gd` | 4,745 | Orchestrator: public API + signals, breaker reg/trip/reset, zones/adjacency/BFS, the solver (`_evaluate_per_component` → 3 labeled-pass functions), generator/battery tick sim, grid state machine, solver-**policy** setters (`set_generator_running/backup/fuel/health`, `set_battery_enabled`, `set_consumer_priority`). Holds `_graph: PowerGraph` and `_registry: PowerRegistry` (created in `_ready()`), forwards public CRUD calls to them. |
+| `PowerManager.gd` | 3,660 | Orchestrator: public API + signals, breaker reg/trip/reset, zones/adjacency/BFS, `_solve_network()` entry point + reachability (`_build_adjacency`, `_run_bfs`, `_apply_reachability`, `_adjacency_bfs_can_reach`), generator/battery tick sim, grid state machine, solver-**policy** setters (`set_generator_running/backup/fuel/health`, `set_battery_enabled`, `set_consumer_priority`). Holds `_graph: PowerGraph`, `_registry: PowerRegistry`, `_solver: PowerSolver` (all created in `_ready()`), forwards public CRUD/solver calls to them. |
 | `PowerGraph.gd` | 872 | Wire-node/wire-edge CRUD: register/unregister nodes+edges, breaker mid-span splitting (`_split_wire_edge_at`), visual tube spawn/reuse, snap-key helpers. Reaches into PowerManager's own `_wire_nodes`/`_wire_edges`/`_breakers` dicts via an `_owner` back-reference — **dicts were NOT physically moved**, see §6.1. |
 | `PowerRegistry.gd` | 356 | Consumer/generator/battery pure CRUD (register/unregister + getters). Same `_owner` back-reference pattern into `_consumers`/`_generators`/`_batteries`. Deliberately excludes solver-policy methods (see table above) — those stay on PowerManager. |
+| `PowerSolver.gd` | 1,218 | **(Stage 8b, July 2026)** The 3-pass zone evaluator (`_evaluate_per_component` → `_evaluate_pass1_local_surplus` → `_evaluate_pass2_cross_zone_sharing` → `_evaluate_pass3_zone_resolution`), component draw/capacity accounting, load shed/unshed/partial-unshed, sustained cross-zone brownout (`_sustained_brownout_component`, `clear_exhausted_brownout`), upgraded-breaker self-trip (`_find_upgraded_breakers_in_component`, `_self_trip_upgraded_breaker`), the two solver-only component-flood BFS helpers (`_flood_component_keys`, `_flood_gen_component_keys`). Same `_owner` back-reference pattern — no dicts/consts moved. PowerManager keeps thin forwarding wrappers only for the 7 functions still called from code living there (`_evaluate_per_component`, `_find_components`, `_get_gen_sharing_zone_pairs`, `_shed_residual_watts`, `_flood_component_keys`, `_flood_gen_component_keys`, `clear_exhausted_brownout`) — every other moved function is only called from within PowerSolver itself. Deliberately excludes `_solve_network`/adjacency/BFS-reachability (kept on PowerManager, conceptually PowerGraph's future territory) and generator/battery tick sim (PowerSimClock territory, not yet extracted). |
 | `BreakerBox.gd` | 870 | Standard breaker device: E opens settings panel (pass-through toggles, zone swatches, TRIPPED banner + RESTART button). |
 | `UpgradedBreakerBox.gd` | 79 | Extends BreakerBox directly — "smart" breaker, blue accent, self-trips to isolate zones instead of shared brownout. |
 | `GeneratorObject.gd` | 422 | Generator device, registers with PowerManager, fuel/health sim. |
@@ -148,8 +149,7 @@ lines of manual layout bookkeeping. **New panels going forward should prefer rea
 Control node trees + a theme resource** to avoid repeating this.
 
 ## 10. Known architecture debt (tracked, not yet done)
-- **Stage 8b:** extract `PowerSolver.gd` (the 3-pass solver + load-shedding + brownout
-  logic) out of `PowerManager.gd` — most entangled piece, do last/carefully.
+- **Stage 8b:** ✅ DONE (July 2026) — `PowerSolver.gd` extracted, see §6 table.
 - **Stage 9:** move `WATT_RATINGS`/`DEFAULT_PRIORITY_BY_TYPE`/`GENERATOR_TIERS` into a
   `DeviceDatabase` autoload or `.tres` resources.
 - **Stage 10:** same god-object treatment for `MainWorld.gd` (extract the wire-rebuild
