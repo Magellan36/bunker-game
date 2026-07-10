@@ -337,9 +337,12 @@ see §2 for the map. Mechanics of the move:
   `scripts/world/power/`), not the old flat `scripts/world/`/`scripts/ui/`
   roots.
 
-## 15. Graphics overhaul (in progress, July 2026)
-Following `bunker-game-graphics-plan.md`'s 7-phase rollout. **Phase 1
-(Foundation) + Phase 2 groundwork (Lighting Director) done this pass.**
+## 15. Graphics overhaul (July 2026)
+Following `bunker-game-graphics-plan.md`'s 7-phase rollout. **All 7 phases
+have been touched now** — Phases 1, 2, 3, 7 are functionally complete;
+Phases 4, 5, 6 are deliberately partial (see below for exactly what was cut
+and why). Untested by Brannon as of the Phase 3-7 pass — first end-to-end
+test still pending.
 
 **New files:**
 - `scripts/core/GraphicsSettings.gd` — device-quality-preference autoload
@@ -394,13 +397,81 @@ a real per-light Light3D property, separate from the environment-wide fog
 toggle), and connects to `GraphicsSettings.settings_changed` so changing the
 toggle mid-game while holding the flashlight updates it live.
 
-**Not yet done (next graphics-overhaul session):**
-- DOF wiring into `GameCamera.gd` (`GraphicsSettings.dof_enabled` is
-  currently just persisted/stored, not applied anywhere — Godot 4 DOF is
-  per-`Camera3D` `CameraAttributes`, not `Environment`, per Phase 7 of the
-  graphics plan).
+**Phases 3–7 (July 2026, "plow through" pass) — done, with deliberate scope
+cuts on anything that needed real visual iteration or risked the power
+system's tested behavior. All of it is UNTESTED by Brannon as of writing —
+this whole pass was done in one go per his instruction, single end-of-session
+test round.**
+
+- **Phase 3 (dust/atmosphere VFX) — full:**
+  `scripts/world/environment/DustMotes.gd` (new) — reusable `GPUParticles3D`
+  factory, `create_beam_dust()` / `create_ambient_dust()`. Uses two
+  procedurally-generated placeholder textures with real alpha channels:
+  `assets/textures/vfx/soft_glow_dot.png`, `smoke_puff.png` (built with PIL,
+  NOT the image-gen tool — that tool bakes the transparency checkerboard as
+  opaque pixels, no real alpha; don't reuse it for particle textures).
+  `Flashlight.gd` gets beam dust motes as a child of `_spot`, gated on both
+  on/off state and `GraphicsSettings.flashlight_volumetrics`.
+  `MainWorld._setup_ambient_dust()` — one sparse world-space dust volume
+  sized off `rock_surround.bunker_width/bunker_depth/OFFSET_X/OFFSET_Z`.
+  Deliberately doesn't track chunk expansion/digs — fixed footprint only.
+- **Phase 4 (materials) — partial by design:** `DeviceDatabase.gd` gets a
+  new `STATE_EMISSION_COLORS` (green/amber/red) + `get_status_emission_color()`
+  — pure addition, for NEW devices only. Did **NOT** retrofit
+  `BreakerBox.gd`/`BatteryBank.gd`/`GeneratorObject.gd`'s existing tuned LED
+  color constants to it — real regression risk on the most tested system in
+  the project for a consistency-only win. Real trim-sheet/UV texture work
+  skipped entirely (needs visual iteration in-editor, can't verify blind).
+- **Phase 5 (HUD/panel polish) — partial by design:** fade-in tweens added
+  to `PowerTerminalUI.open()`, `PowerPriorityUI.open()` (purely additive,
+  `_on_draw()` layout/content untouched), and `GraphicsSettingsPanel` (which
+  also got its plain dark backdrop upgraded to the proven
+  `pause_blur.gdshader`, since it's a full-screen takeover panel built this
+  same session — safe to touch). Did **NOT** add a full-screen blur
+  backdrop to `PowerTerminalUI`/`PowerPriorityUI` — those are small
+  floating panels over still-interactive gameplay (`mouse_filter PASS`,
+  world stays visible/clickable around them), not full-screen takeovers
+  like `PauseMenuUI` — changing that is a design call, not a "simple"
+  change. `HUD.gd` already has its own working fade-in system, untouched.
+- **Phase 6 (remaining VFX) — partial by design:**
+  `BatteryBank.gd` — new `_process()` adds a low-battery flicker (emission
+  energy multiplier only, on top of `_sync_led()`/`_sync_strip()`'s
+  existing color choice — never changes what color shows or when, only
+  pulses brightness while discharging under 15% charge).
+  `BreakerBox.gd` — one-shot spark burst (self-freeing `GPUParticles3D`,
+  via the `finished` signal) on the false→true trip transition only;
+  `UpgradedBreakerBox` inherits it automatically (`extends BreakerBox`).
+  `GeneratorObject.gd` — continuous light exhaust smoke while running,
+  toggled by `set_running()`. Deliberately NOT scaled to fuel-burn/load
+  rate (would need solver draw-accounting wiring, out of scope for this
+  pass). Decals SKIPPED — needs real surface-projection work + art assets.
+- **Phase 7 (camera polish) — full:** `GameCamera.gd` gets:
+  - DOF via `CameraAttributesPractical` (`dof_focus_distance`,
+    `dof_far_blur_amount` exports), gated on `GraphicsSettings.dof_enabled`
+    AND force-disabled in build mode regardless of the setting (calls
+    `_apply_dof_setting()` from `enter_build_mode()`/`exit_build_mode()`).
+  - Trauma-based camera shake — `add_trauma(amount)` public API, quadratic
+    falloff, decays over time, purely additive on top of the existing
+    lerped position/rotation in `_follow_target()` (applied after it in a
+    new `_apply_shake()`, never replaces the base transform).
+    `MainWorld._on_grid_tripped()` now calls `camera.add_trauma(0.5)` — a
+    tripped main breaker is the single biggest "oh no" moment in the power
+    system, reusing the grid-signal hookup that already existed there for
+    the HUD floating-alert warning.
+  - FOV exposed as `GraphicsSettings.camera_fov` (default 75.0, Godot's own
+    default) — NOT part of any preset (comfort/motion-sickness preference,
+    not a quality tier), read directly by `GameCamera._apply_fov_setting()`
+    via its own `settings_changed` connection (same self-driven pattern as
+    `Flashlight.gd`). `GraphicsSettingsPanel` got an `HSlider` (60–100°) for it.
+
+**Still not done / deliberately skipped:**
 - Placing/using `emergency_light` device type (already exists in
   `DeviceDatabase.WATT_RATINGS`, 8W/priority 1) near breaker boxes —
   design/build-menu task, not code.
-- Phases 3–7 of the graphics plan (dust/atmosphere VFX, materials/trim-sheets,
-  HUD/panel polish, remaining VFX, camera polish) — not started.
+- Real trim-sheet/PBR texture + UV work (Phase 4's actual "materials" part).
+- Decals (Phase 6).
+- Retrofitting `BreakerBox.gd`/`BatteryBank.gd`/`GeneratorObject.gd`'s
+  existing LED colors onto `DeviceDatabase.STATE_EMISSION_COLORS`.
+- Full-screen blur backdrop on `PowerTerminalUI`/`PowerPriorityUI` (design
+  call, not attempted).
+- Generator exhaust smoke rate scaling to fuel-burn/load.

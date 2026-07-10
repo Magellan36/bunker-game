@@ -20,9 +20,26 @@ class_name GameCamera
 ## Yaw rotation settings
 @export var yaw_lerp_speed: float  = 6.0    ## How fast the 90° snap animates.
 
+## Depth of field (graphics plan Phase 7) — gently softens the background so
+## focus reads on whatever the flashlight/lights are hitting. Auto-disabled
+## in build mode (max placement clarity) regardless of the setting, and
+## gated on GraphicsSettings.dof_enabled otherwise.
+@export var dof_focus_distance: float = 9.0
+@export var dof_far_blur_amount: float = 0.08
+
+## Trauma-based camera shake (graphics plan Phase 7) — additive on top of
+## the existing lerped transform, does not replace/change it. Call
+## add_trauma() from gameplay events (e.g. MainWorld's grid_tripped handler).
+@export var trauma_decay_per_sec: float = 1.2
+@export var max_shake_offset: float = 0.35   ## metres
+@export var max_shake_rotation_deg: float = 2.0
+
 # ─── Internal ─────────────────────────────────────────────────────────────────
 var _target: Node3D    = null
 var _build_mode: bool  = false
+var _attributes: CameraAttributesPractical = null
+var _trauma: float = 0.0
+var _shake_seed: float = 0.0
 
 ## Current interpolated camera params (lerped each frame)
 var _cur_height:  float = 0.0
@@ -45,11 +62,42 @@ func _ready() -> void:
 	else:
 		push_warning("GameCamera: No target assigned. Set target_path in Inspector.")
 
+	_attributes = CameraAttributesPractical.new()
+	_attributes.dof_blur_far_distance   = dof_focus_distance
+	_attributes.dof_blur_far_transition = 4.0
+	_attributes.dof_blur_amount         = dof_far_blur_amount
+	attributes = _attributes
+	GraphicsSettings.settings_changed.connect(_apply_dof_setting)
+	GraphicsSettings.settings_changed.connect(_apply_fov_setting)
+	_apply_dof_setting()
+	_apply_fov_setting()
+
 func enter_build_mode() -> void:
 	_build_mode = true
+	_apply_dof_setting()   ## Forces DOF off in build mode regardless of setting
 
 func exit_build_mode() -> void:
 	_build_mode = false
+	_apply_dof_setting()
+
+## Depth of field is OFF in build mode unconditionally (max placement
+## clarity, per graphics plan Section 5), and otherwise follows
+## GraphicsSettings.dof_enabled.
+func _apply_dof_setting() -> void:
+	if _attributes == null:
+		return
+	_attributes.dof_blur_far_enabled = (not _build_mode) and GraphicsSettings.dof_enabled
+
+## FOV is a comfort/motion-sickness preference (not preset-driven, see
+## GraphicsSettings.camera_fov), applied unconditionally in both camera modes.
+func _apply_fov_setting() -> void:
+	fov = GraphicsSettings.camera_fov
+
+## Adds camera shake trauma (0–1, clamped). Call from gameplay events, e.g.
+## MainWorld's grid_tripped handler. Shake intensity scales with trauma^2 so
+## small trauma amounts stay subtle and only heavy trauma reads as violent.
+func add_trauma(amount: float) -> void:
+	_trauma = clampf(_trauma + amount, 0.0, 1.0)
 
 ## Rotate camera 90° counter-clockwise (Home key)
 func rotate_view_left() -> void:
@@ -64,6 +112,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_lerp_camera_params(delta)
 	_follow_target(delta)
+	_apply_shake(delta)
 
 func _lerp_camera_params(delta: float) -> void:
 	var t: float = transition_speed * delta
@@ -96,3 +145,21 @@ func _follow_target(delta: float) -> void:
 		rotation = Vector3(deg_to_rad(-_cur_pitch), _cur_yaw_rad, 0.0)
 	else:
 		look_at(_target.global_position, Vector3.UP)
+
+## Additive trauma-based shake, applied ON TOP of the position/rotation
+## _follow_target() just set — never replaces it, so shake decaying to zero
+## always settles back to exactly the normal lerped camera pose.
+func _apply_shake(delta: float) -> void:
+	_trauma = maxf(0.0, _trauma - trauma_decay_per_sec * delta)
+	if _trauma <= 0.0:
+		return
+	_shake_seed += delta * 25.0
+	var shake: float = _trauma * _trauma   ## quadratic falloff — small trauma stays subtle
+	## sin/cos at different, non-multiple frequencies gives a decent cheap
+	## pseudo-random jitter without needing an actual Noise resource.
+	var offset: Vector3 = Vector3(
+		sin(_shake_seed * 1.7),
+		sin(_shake_seed * 2.3),
+		0.0) * max_shake_offset * shake
+	global_position += offset
+	rotation.z += sin(_shake_seed * 3.1) * deg_to_rad(max_shake_rotation_deg) * shake

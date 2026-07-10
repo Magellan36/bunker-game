@@ -24,6 +24,7 @@ var _vbox:          VBoxContainer = null
 var _preset_option: OptionButton = null
 var _vol_check:     CheckBox = null
 var _shadow_check:  CheckBox = null
+var _fov_slider:    HSlider = null
 
 const PANEL_W: float = 320.0
 const PRESET_NAMES: Array[String] = ["Low", "Medium", "High", "Ultra"]
@@ -107,6 +108,22 @@ func _build_ui() -> void:
 	_vbox.add_child(_shadow_check)
 
 	_vbox.add_child(HSeparator.new())
+
+	var fov_row: HBoxContainer = HBoxContainer.new()
+	_vbox.add_child(fov_row)
+	var fov_lbl: Label = Label.new()
+	fov_lbl.text = "Camera FOV"
+	fov_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fov_row.add_child(fov_lbl)
+	_fov_slider = HSlider.new()
+	_fov_slider.min_value = 60.0
+	_fov_slider.max_value = 100.0
+	_fov_slider.step      = 1.0
+	_fov_slider.custom_minimum_size = Vector2(120.0, 0.0)
+	_fov_slider.value_changed.connect(_on_fov_changed)
+	fov_row.add_child(_fov_slider)
+
+	_vbox.add_child(HSeparator.new())
 	var close_btn: Button = Button.new()
 	close_btn.text = "Close"
 	close_btn.pressed.connect(close)
@@ -127,6 +144,7 @@ func _refresh_from_settings() -> void:
 		_preset_option.selected = GraphicsSettings.current_preset
 	_vol_check.button_pressed    = GraphicsSettings.flashlight_volumetrics
 	_shadow_check.button_pressed = GraphicsSettings.flashlight_shadows
+	_fov_slider.value            = GraphicsSettings.camera_fov
 
 
 func _on_preset_selected(index: int) -> void:
@@ -145,3 +163,7 @@ func _on_vol_toggled(pressed: bool) -> void:
 
 func _on_shadow_toggled(pressed: bool) -> void:
 	GraphicsSettings.set_setting("flashlight_shadows", pressed)
+
+
+func _on_fov_changed(value: float) -> void:
+	GraphicsSettings.set_setting("camera_fov", value)

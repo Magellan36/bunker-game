@@ -40,6 +40,12 @@ var glow_enabled:          bool = true
 var dof_enabled:           bool = false
 var msaa:                  int  = Viewport.MSAA_2X
 
+## Camera FOV (graphics plan Phase 7) — NOT part of any preset (a comfort/
+## motion-sickness preference, not a quality tier), read directly by
+## GameCamera.gd via its own settings_changed connection, same pattern as
+## Flashlight.gd. Godot's Camera3D default is 75.0.
+var camera_fov: float = 75.0
+
 const PRESETS: Dictionary = {
 	Preset.LOW: {
 		"sdfgi_enabled": false, "ssao_enabled": true, "ssil_enabled": false,
@@ -97,10 +103,11 @@ func set_setting(field: String, value: Variant) -> void:
 		"glow_enabled":             glow_enabled = value
 		"dof_enabled":              dof_enabled = value
 		"msaa":                     msaa = value
+		"camera_fov":               camera_fov = value
 		_:
 			push_warning("[GraphicsSettings] Unknown field: %s" % field)
 			return
-	if field != "flashlight_shadows":
+	if field != "flashlight_shadows" and field != "camera_fov":
 		current_preset = Preset.CUSTOM
 	_apply_all()
 	_save()
@@ -154,6 +161,7 @@ func _save() -> void:
 	cfg.set_value("graphics", "glow_enabled", glow_enabled)
 	cfg.set_value("graphics", "dof_enabled", dof_enabled)
 	cfg.set_value("graphics", "msaa", msaa)
+	cfg.set_value("graphics", "camera_fov", camera_fov)
 	cfg.save(CFG_PATH)
 
 
@@ -171,3 +179,4 @@ func _load() -> void:
 	glow_enabled             = cfg.get_value("graphics", "glow_enabled", glow_enabled)
 	dof_enabled              = cfg.get_value("graphics", "dof_enabled", dof_enabled)
 	msaa                     = cfg.get_value("graphics", "msaa", msaa)
+	camera_fov               = cfg.get_value("graphics", "camera_fov", camera_fov)
