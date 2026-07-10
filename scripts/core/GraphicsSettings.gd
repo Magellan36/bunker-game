@@ -134,7 +134,12 @@ func _apply_to_viewport() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null or tree.root == null:
 		return
-	tree.root.msaa_3d = msaa as Viewport.MSAA
+	## `msaa` is already stored using the raw Viewport.MSAA_* enum ints — enums
+	## are plain ints in GDScript, and `as` does NOT support enum casts (only
+	## Object/class casts). Direct assignment is correct and avoids a parse
+	## error here (this was the actual root cause of the autoload silently
+	## failing to load — see HANDOVER note).
+	tree.root.msaa_3d = msaa
 
 
 func _save() -> void:

@@ -116,7 +116,12 @@ func _refresh_from_settings() -> void:
 
 
 func _on_preset_selected(index: int) -> void:
-	GraphicsSettings.apply_preset(index as GraphicsSettings.Preset)
+	## `index` maps 1:1 to the Preset enum (LOW..ULTRA) since the OptionButton
+	## items were added in that exact order. No cast needed/possible here —
+	## `as` doesn't support enum casts, only Object/class casts (see
+	## GraphicsSettings.gd's _apply_to_viewport() comment for the bug this
+	## caused elsewhere).
+	GraphicsSettings.apply_preset(index)
 	_refresh_from_settings()
 
 
