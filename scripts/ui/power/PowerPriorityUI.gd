@@ -166,6 +166,11 @@ func open(device_id: String, display_name: String,
 	_toggle_btn.visible = show_load_toggle
 	_close_btn.visible  = true
 	_reposition_controls()
+	## Simple fade-in (graphics plan Section 6/Phase 5 "tweened transitions")
+	## — purely additive, doesn't touch _on_draw's layout/content logic at all.
+	_canvas.modulate.a = 0.0
+	var tw: Tween = create_tween()
+	tw.tween_property(_canvas, "modulate:a", 1.0, 0.15)
 	_canvas.queue_redraw()
 
 

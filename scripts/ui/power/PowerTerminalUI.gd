@@ -83,6 +83,11 @@ func _ready() -> void:
 func open() -> void:
 	_is_open = true
 	visible  = true
+	## Simple fade-in (graphics plan Section 6/Phase 5 "tweened transitions")
+	## — purely additive, doesn't touch _on_draw's layout/content logic at all.
+	_canvas.modulate.a = 0.0
+	var tw: Tween = create_tween()
+	tw.tween_property(_canvas, "modulate:a", 1.0, 0.15)
 	_canvas.queue_redraw()
 
 ## close() hides the panel but does NOT free this node.
