@@ -43,7 +43,7 @@ const SHED_COLOR:   Color = Color(1.0, 0.45, 0.0, 1.0)
 const SHED_ENERGY:  float = 0.15   ## very low — just enough to suggest the filament is warm
 
 # ─── Power grid ───────────────────────────────────────────────────────────────
-## Rated power draw in watts. Matches PowerManager.WATT_RATINGS["wall_light"].
+## Rated power draw in watts. Matches DeviceDatabase.WATT_RATINGS["wall_light"].
 var power_watts: float = 40.0
 
 ## Internal reference to the OmniLight3D — needed for set_powered() / set_shed()

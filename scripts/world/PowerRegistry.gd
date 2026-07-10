@@ -50,7 +50,7 @@ func register_consumer(
 		active:   bool   = true) -> void:
 
 	if priority == 0:
-		priority = _owner.DEFAULT_PRIORITY_BY_TYPE.get(type, 3)
+		priority = DeviceDatabase.DEFAULT_PRIORITY_BY_TYPE.get(type, 3)
 
 	if _owner._consumers.has(id):
 		push_warning("PowerManager: duplicate consumer '%s' — updating." % id)
