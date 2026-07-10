@@ -3,7 +3,7 @@
 or responsibilities change. This is the first thing to read in a new session —
 reference it instead of re-scanning the codebase, to keep credit usage low.
 
-**Last updated:** Friday, July 10, 2026 — repo HEAD `5386d5d`
+**Last updated:** Friday, July 10, 2026 — repo HEAD `e374fbc`
 **Repo:** `Magellan36/bunker-game` (GitHub, branch `main`), Godot 4.6.3, GDScript, statically typed.
 **Engine notes:** No Godot binary in the sandbox — all sandbox-side verification is
 bracket-balance checks, function-count reconciliation, and line-range diffing, never
@@ -22,14 +22,32 @@ Bunker dimensions: width=24, depth=18 (`BunkerLayout.gd`).
 ---
 
 ## 2. Directory map
+**(Reorganized July 2026 — see §14 for the full rationale/mapping.)**
 ```
 scripts/
-  core/     GameCamera.gd
-  player/   Player.gd, PlayerStats.gd, InteractionSystem.gd
-  world/    World objects, power system, build system, save system, MainWorld
-  ui/       HUD / panel scripts (mostly hand-drawn immediate-mode _draw())
+  core/          GameCamera.gd
+  player/        Player.gd, PlayerStats.gd, InteractionSystem.gd
+  world/
+    core/        MainWorld.gd, WorldManager.gd, SaveManager.gd
+    power/       PowerManager + all power-system files (15 files, see §6)
+    build/       BuildModeController + its Stage-10 extracted slices (7 files, see §8)
+    environment/ BunkerLayout.gd, BunkerPregen.gd, RockSurround.gd
+    items/       Pickup-able item scripts (CanCase, FoodCan, FuelCan, WaterBottle,
+                 WaterCase, PickupItem, TestCrate, HeavyConsumerTest, Flashlight)
+    furniture/   Bed.gd, Shelving.gd
+  ui/
+    power/       PowerTerminalUI, PowerPriorityUI, GeneratorInspectUI
+    inventory/   InventoryHUD, InventoryManager, ShelfUI
+    hud/         HUD, StatusBars, InteractPrompt, CircleFill
+    menus/       AdminSpawnMenu, PauseMenuUI, SleepOverlay
+    build/       BuildModeHUD
+    debug/       DebugOverlay
 scenes/     .tscn files, one per placeable/world object + core scenes (Player, HUD, MainWorld)
+            — NOT reorganized to match (out of scope, still flat under scenes/world|ui|player/)
 ```
+Every file below is referenced by its script name only (not full path) since
+subfolder placement is a simple lookup from the map above — ask if a path
+isn't obvious rather than guessing.
 
 ## 3. Autoloads (project.godot)
 - `WorldManager` — (small, 19 lines) global world state.
@@ -285,3 +303,28 @@ reference if ever wanted:
   review's own wording scoped this to NEW panels going forward, not a
   retrofit of existing ones (`BuildModeHUD.gd`, `PowerTerminalUI.gd`,
   `PowerPriorityUI.gd`, `GeneratorInspectUI.gd`, etc. all stay as-is).
+
+## 14. Folder reorganization (July 2026)
+`scripts/world/` (39 files) and `scripts/ui/` (15 files) were flat — too
+many files in one folder to scan quickly. Split into functional subfolders,
+see §2 for the map. Mechanics of the move:
+- Moved via `git mv` (history preserved) — `.gd` files AND their `.gd.uid`
+  sidecar files moved together.
+- Every `res://scripts/world/...` / `res://scripts/ui/...` reference updated
+  across ALL `.tscn` scene files, `project.godot` (autoload paths), and
+  internal `load()`/`preload()` calls in `.gd` files — 26 files touched.
+  Verified zero stale old-path references remain anywhere afterward.
+- `class_name`-based cross-references (the ~15 typed refs added since
+  Stage 2) are unaffected by file moves — Godot resolves those by global
+  class name, not file path, so no changes needed for those call sites.
+- Also deleted 2 orphaned `.uid` sidecar files with no matching script
+  (`PowerGridReconciler.gd.uid`, old `world/PowerTerminalUI.gd.uid`) —
+  leftovers from files deleted in the earlier review-implementation project
+  (Stages 7 and 1) that never got cleaned up.
+- **Deliberately NOT reorganized:** `scenes/` stays flat under
+  `scenes/world|ui|player/` — out of scope for this pass, only the
+  `scripts/` side was requested.
+- **New file convention going forward:** place new scripts directly into
+  the matching subfolder from the §2 map (e.g. a new power device →
+  `scripts/world/power/`), not the old flat `scripts/world/`/`scripts/ui/`
+  roots.
