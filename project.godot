@@ -19,7 +19,7 @@ config/icon="res://icon.svg"
 
 WorldManager="*uid://bs5q8ntodn0tk"
 SaveManager="*res://scripts/world/SaveManager.gd"
-DeviceDatabase="*res://scripts/world/DeviceDatabase.gd"
+DeviceDatabase="*uid://beaovkailgag2"
 
 [display]
 
