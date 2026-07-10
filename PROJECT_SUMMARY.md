@@ -386,12 +386,15 @@ overrides layer on top via `GraphicsSettings`.
 **Housekeeping done alongside:** deleted the two stray
 `MainWorld.tscn*.tmp` autosave files, added `*.tmp` to `.gitignore`.
 
+**Phase 2 flashlight wiring done (July 2026):** `Flashlight.gd._build_light()`
+now calls `_apply_graphics_settings()` (sets `shadow_enabled` from
+`GraphicsSettings.flashlight_shadows`, default stays OFF/opt-in-only as
+before, and `light_volumetric_fog_energy` from `flashlight_volumetrics` —
+a real per-light Light3D property, separate from the environment-wide fog
+toggle), and connects to `GraphicsSettings.settings_changed` so changing the
+toggle mid-game while holding the flashlight updates it live.
+
 **Not yet done (next graphics-overhaul session):**
-- Wire `GraphicsSettings.flashlight_volumetrics`/`flashlight_shadows` into
-  `Flashlight.gd`'s actual `SpotLight3D` (currently hardcodes
-  `shadow_enabled = false` with no settings hook yet).
-  `flashlight_shadows` staying default-OFF as a documented gameplay choice
-  is unchanged — this is just the toggle wiring.
 - DOF wiring into `GameCamera.gd` (`GraphicsSettings.dof_enabled` is
   currently just persisted/stored, not applied anywhere — Godot 4 DOF is
   per-`Camera3D` `CameraAttributes`, not `Environment`, per Phase 7 of the
