@@ -3,7 +3,7 @@
 or responsibilities change. This is the first thing to read in a new session —
 reference it instead of re-scanning the codebase, to keep credit usage low.
 
-**Last updated:** Friday, July 10, 2026 — repo HEAD `18df2c7`
+**Last updated:** Friday, July 10, 2026 — repo HEAD `9540b8b`
 **Repo:** `Magellan36/bunker-game` (GitHub, branch `main`), Godot 4.6.3, GDScript, statically typed.
 **Engine notes:** No Godot binary in the sandbox — all sandbox-side verification is
 bracket-balance checks, function-count reconciliation, and line-range diffing, never
@@ -161,16 +161,16 @@ Every external call site converted from `get_first_node_in_group("power_manager"
   only player movement locks + mouse frees. Visual style deliberately plain.
 
 ## 8. Build system
-- **`BuildModeController.gd`** (2,566 lines, was 3,148 pre-Stage-10) —
+- **`BuildModeController.gd`** (2,361 lines, was 3,148 pre-Stage-10) —
   placement/construction UI + logic combined: grid snapping,
-  placement/deconstruction, move/duplicate, wire-draw-mode setup. Has
-  `class_name BuildModeController` (added Stage 10). Holds
-  `_materials: BuildMaterials`, `_undo_manager: BuildUndoStack`, and
-  `_ghost_preview: GhostPreview` (all created in `_ready()`). **God-object
-  cleanup in progress** (Stage 10) — three slices done so far (materials,
-  undo, ghost preview), rest not yet split: move/duplicate and
-  wall/breaker-snap raycasting are still candidate clusters for future
-  slices.
+  placement/deconstruction, wire-draw-mode setup. Has `class_name
+  BuildModeController` (added Stage 10). Holds `_materials: BuildMaterials`,
+  `_undo_manager: BuildUndoStack`, `_ghost_preview: GhostPreview`, and
+  `_move_tool: MoveDuplicateTool` (all created in `_ready()`). **God-object
+  cleanup in progress** (Stage 10) — four slices done so far (materials,
+  undo, ghost preview, move/duplicate), rest not yet split:
+  wall/breaker-snap raycasting is still a candidate cluster for a future
+  slice.
 - **`BuildMaterials.gd`** (160 lines) — **(Stage 10 slice, July 2026)**
   ghost-preview + world-surface material builders (`_build_ghost_materials`,
   `_build_world_materials`, `_apply_world_material`,
@@ -200,6 +200,15 @@ Every external call site converted from `get_first_node_in_group("power_manager"
   `_current_angle_deg`, `_orient_index`, `_ghost_valid`,
   `_ghost_blocked_by_occupation`, `_ghost_world_pos`, `EIGHT_DIR_ANGLES`, all
   `TILE_*`/`*_PLACEMENT_Y` consts stay on BuildModeController.
+- **`MoveDuplicateTool.gd`** (286 lines) — **(Stage 10 slice, July 2026)** the
+  move/duplicate tool: `_try_duplicate`, `_pick_dupe_source` (dead stub),
+  `_try_move_click`, `_move_select`, `_spawn_move_ghost`, `_update_move_ghost`,
+  `_move_confirm`, `_cancel_move_confirm`, `_cancel_move`,
+  `_destroy_move_ghost`. Same `_owner` pattern — `_placed_objects`,
+  `_dupe_source_*`, `_move_phase`, `_move_source_*`, `_move_ghost`, `gridmap`,
+  `_mat_valid`, all `TILE_*`/`*_PLACEMENT_Y` consts stay on
+  BuildModeController. Routes `_owner._push_undo_move()` (BuildModeController's
+  own forwarding wrapper into `BuildUndoStack`).
 - **`BuildModeHUD.gd`** (1,008 lines) — hand-drawn immediate-mode UI for build mode.
 - **`PlacementIndicator.gd`**, **`Shelving.gd`** (579), **`ShelfUI.gd`** (475).
 
@@ -214,11 +223,10 @@ Control node trees + a theme resource** to avoid repeating this.
 - **Stage 8b:** ✅ DONE (July 2026) — `PowerSolver.gd` extracted, see §6 table.
 - **Stage 9:** ✅ DONE (July 2026) — `DeviceDatabase` autoload, see §3.
 - **Stage 10:** in progress (July 2026) — `WireGraphBuilder.gd` extracted from
-  `MainWorld.gd` (✅, see §4); `BuildMaterials.gd`, `BuildUndoStack.gd`, and
-  `GhostPreview.gd` extracted from `BuildModeController.gd` (✅, see §8).
-  Remaining `BuildModeController.gd` candidate clusters not yet split:
-  move/duplicate (`_try_duplicate` through `_destroy_move_ghost`,
-  ~240 lines), wall/breaker-snap raycasting
+  `MainWorld.gd` (✅, see §4); `BuildMaterials.gd`, `BuildUndoStack.gd`,
+  `GhostPreview.gd`, and `MoveDuplicateTool.gd` extracted from
+  `BuildModeController.gd` (✅, see §8). Remaining `BuildModeController.gd`
+  candidate cluster not yet split: wall/breaker-snap raycasting
   (`_snap_light_to_wall`/`_snap_breaker_to_wall`/`_is_pregen_interior_face`,
   ~500 lines).
 - No automated tests (no GUT setup) — power solver is the best candidate once split
