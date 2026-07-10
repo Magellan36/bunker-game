@@ -3,7 +3,7 @@
 or responsibilities change. This is the first thing to read in a new session —
 reference it instead of re-scanning the codebase, to keep credit usage low.
 
-**Last updated:** Friday, July 10, 2026 — repo HEAD `7ecaa5f`
+**Last updated:** Friday, July 10, 2026 — repo HEAD `9807983`
 **Repo:** `Magellan36/bunker-game` (GitHub, branch `main`), Godot 4.6.3, GDScript, statically typed.
 **Engine notes:** No Godot binary in the sandbox — all sandbox-side verification is
 bracket-balance checks, function-count reconciliation, and line-range diffing, never
@@ -34,6 +34,11 @@ scenes/     .tscn files, one per placeable/world object + core scenes (Player, H
 ## 3. Autoloads (project.godot)
 - `WorldManager` — (small, 19 lines) global world state.
 - `SaveManager` — generic save/load field-registry, see §7.
+- `DeviceDatabase` — **(Stage 9, July 2026)** pure config data: `WATT_RATINGS`,
+  `DEFAULT_PRIORITY_BY_TYPE`, `GENERATOR_TIERS` (moved verbatim out of
+  `PowerManager.gd`). Access from anywhere as `DeviceDatabase.WATT_RATINGS` etc.
+  — no PowerManager dependency needed. No `class_name` (accessed via its
+  autoload singleton name, same pattern as `SaveManager`).
 
 ## 4. Core loop / bootstrap
 - **`MainWorld.gd`** (2,319 lines) — scene bootstrapper: wires up HUD, inventory,
@@ -114,8 +119,12 @@ elsewhere needed to change.
   correctly flows across `pass_generator`/`pass_battery` breakers via BFS component
   flooding (`_flood_gen_component_keys`), not single-zone lookups.
 - **Data tables:** `WATT_RATINGS`, `DEFAULT_PRIORITY_BY_TYPE`, `GENERATOR_TIERS` —
-  currently `const Dictionary` blocks at top of `PowerManager.gd` (candidate for a
-  `DeviceDatabase` autoload — Stage 9, not started).
+  moved to the `DeviceDatabase` autoload (Stage 9, July 2026), see §3. Zero
+  other call sites for `WATT_RATINGS`/`GENERATOR_TIERS` existed at extraction
+  time (devices hardcode their own watts; BuildModeController's generator
+  tiers are a separate, not-yet-unified table); `PowerRegistry.gd`'s
+  register_consumer priority-0 fallback was the one real caller of
+  `DEFAULT_PRIORITY_BY_TYPE`, updated accordingly.
 
 ### 6.3 Typed references (no more string dispatch)
 All core power classes have `class_name` (`PowerManager`, `BreakerBox`, `GeneratorObject`,
@@ -150,8 +159,7 @@ Control node trees + a theme resource** to avoid repeating this.
 
 ## 10. Known architecture debt (tracked, not yet done)
 - **Stage 8b:** ✅ DONE (July 2026) — `PowerSolver.gd` extracted, see §6 table.
-- **Stage 9:** move `WATT_RATINGS`/`DEFAULT_PRIORITY_BY_TYPE`/`GENERATOR_TIERS` into a
-  `DeviceDatabase` autoload or `.tres` resources.
+- **Stage 9:** ✅ DONE (July 2026) — `DeviceDatabase` autoload, see §3.
 - **Stage 10:** same god-object treatment for `MainWorld.gd` (extract the wire-rebuild
   engine into its own class, e.g. `WireGraphBuilder.gd`) and a follow-up scan of
   `BuildModeController.gd`.
