@@ -307,6 +307,15 @@ Only strip prints once Brannon explicitly asks for a given stable system.
   pass. Use the same `_owner`-back-reference extraction pattern (§6.1) if a
   new file needs to reach into an existing file's state without physically
   moving heavily-referenced dicts/vars.
+- **Keep folders well-organized too (standing instruction, July 2026):**
+  same "don't wait for a cleanup pass" reasoning applies to WHERE files
+  live, not just how big they are. When adding a new file, place it in the
+  subfolder that matches its actual responsibility (see the §2 directory
+  map) rather than dropping it in a flat/convenient location — extend the
+  map with a new subfolder if a new category of file doesn't fit an
+  existing one. This is forward-looking only — no existing files were
+  moved for this (Brannon confirmed current `scenes/` flat layout and the
+  loose root-level asset/doc files stay as-is for now).
 
 ## 13. Deferred/optional (pinned, not scheduled)
 From the original code-review doc — explicitly NOT part of the numbered
