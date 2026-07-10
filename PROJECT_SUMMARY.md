@@ -57,6 +57,11 @@ isn't obvious rather than guessing.
   `PowerManager.gd`). Access from anywhere as `DeviceDatabase.WATT_RATINGS` etc.
   — no PowerManager dependency needed. No `class_name` (accessed via its
   autoload singleton name, same pattern as `SaveManager`).
+- `GraphicsSettings` (`scripts/core/GraphicsSettings.gd`) — **(Graphics overhaul
+  Phase 1, July 2026)** device-level rendering/quality preferences, separate
+  from `SaveManager`'s save-slot system. **NOT YET REGISTERED** — script exists
+  but Brannon must add it via Project Settings > Autoload himself (per the
+  known class-cache/autoload-ownership gotcha, §15 has detail). See §15.
 
 ## 4. Core loop / bootstrap
 - **`MainWorld.gd`** (895 lines, was 2,327 before Stage 10) — scene bootstrapper:
@@ -173,10 +178,13 @@ Every external call site converted from `get_first_node_in_group("power_manager"
   (`register_field(key, getter, setter)`), 3 numbered slots →
   `user://save_slot_<n>.json`. Wired fields today: `player_position`, `cash`,
   `game_elapsed`. **Not yet persisted:** power grid, inventory, placed build objects.
-- **`PauseMenuUI.gd`** (325 lines) — ESC-triggered CanvasLayer, blurred backdrop
-  shader, Continue / Save×3 / Load×3 / Settings (stub, no behavior yet) / Exit Game
-  (Yes/No confirm). Game does NOT SceneTree-pause (grid/generators keep running) —
-  only player movement locks + mouse frees. Visual style deliberately plain.
+- **`PauseMenuUI.gd`** (~335 lines) — ESC-triggered CanvasLayer, blurred backdrop
+  shader, Continue / Save×3 / Load×3 / Settings / Exit Game (Yes/No confirm).
+  Game does NOT SceneTree-pause (grid/generators keep running) — only player
+  movement locks + mouse frees. Visual style deliberately plain. **Settings
+  button no longer a stub** (Graphics overhaul Phase 1, July 2026) — opens
+  `GraphicsSettingsPanel.gd`, lazy-instantiated the same way MainWorld
+  lazy-instantiates PauseMenuUI itself. See §15.
 
 ## 8. Build system
 - **`BuildModeController.gd`** (2,013 lines, was 3,148 pre-Stage-10 — 36%
@@ -328,3 +336,68 @@ see §2 for the map. Mechanics of the move:
   the matching subfolder from the §2 map (e.g. a new power device →
   `scripts/world/power/`), not the old flat `scripts/world/`/`scripts/ui/`
   roots.
+
+## 15. Graphics overhaul (in progress, July 2026)
+Following `bunker-game-graphics-plan.md`'s 7-phase rollout. **Phase 1
+(Foundation) + Phase 2 groundwork (Lighting Director) done this pass.**
+
+**New files:**
+- `scripts/core/GraphicsSettings.gd` — device-quality-preference autoload
+  (see §3). Preset enum (LOW/MEDIUM/HIGH/ULTRA/CUSTOM), per-feature toggles,
+  persists to `user://graphics_settings.cfg`. Applies to the scene's
+  `WorldEnvironment` via the `"world_environment"` group (added to
+  `MainWorld.tscn`'s `WorldEnvironment` node) rather than a direct scene
+  path, so the autoload stays decoupled from any one scene. **Not yet
+  registered as an autoload** — Brannon adds it via Project Settings >
+  Autoload after pulling (same reasoning as the recurring class-cache
+  gotcha in `HANDOVER.md`).
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — real `Control`-tree panel
+  (per §9's "new panels should use Control trees" guidance), code-built
+  like PauseMenuUI/BuildModeHUD (no `.tscn`). Preset dropdown + the two
+  flashlight-specific opt-in toggles (`flashlight_volumetrics`,
+  `flashlight_shadows`). Opened by `PauseMenuUI._on_settings_pressed()`.
+  Depends on the `GraphicsSettings` autoload being registered first.
+- `scripts/world/environment/LightingDirector.gd` — global atmosphere
+  reactor, connects to `PowerManager.grid_state_changed`. Tints the
+  `WorldEnvironment`'s volumetric fog and flips the HUD critical vignette
+  to an alarm color on grid state changes. Instantiated by
+  `MainWorld._setup_lighting_director()` (same `Node.new()`/`set_script()`/
+  `add_child()` pattern as `_setup_power_manager()`), called right after it
+  so the `"power_manager"` group already has a member to connect to.
+  **Deliberately does NOT touch individual `Light3D` energy** — see the
+  file's own header comment: `WallLight.gd` already owns per-light energy
+  via `set_powered()`/`set_shed()` driven by PER-ZONE reachability (the
+  whole cross-zone-brownout/smart-breaker system in §6.2), and a second
+  global dimmer keyed off the single overall `grid_state` would fight that
+  and wrongly dim healthy zones during an unrelated zone's outage. Only
+  ambient fog tint + the HUD vignette are touched, since those ARE
+  legitimately global. **Verified `grid_state_changed` signal shape before
+  writing this** — it's `(new_state: GridState, old_state: GridState)`
+  (enum), not `String` as the original graphics-plan draft assumed.
+
+**Renderer/Environment baseline (`project.godot` + `MainWorld.tscn`):**
+explicit `renderer/rendering_method="forward_plus"` (+ `.mobile="mobile"`),
+and on the scene's `Environment` sub-resource: `sdfgi_enabled`,
+`ssao_enabled`, `volumetric_fog_enabled` (+density), `glow_enabled` (+
+intensity/bloom/hdr_threshold), `tonemap_mode=2` (ACES Filmic),
+`adjustment_enabled=true`. These are the fixed baseline values; per-player
+overrides layer on top via `GraphicsSettings`.
+
+**Housekeeping done alongside:** deleted the two stray
+`MainWorld.tscn*.tmp` autosave files, added `*.tmp` to `.gitignore`.
+
+**Not yet done (next graphics-overhaul session):**
+- Wire `GraphicsSettings.flashlight_volumetrics`/`flashlight_shadows` into
+  `Flashlight.gd`'s actual `SpotLight3D` (currently hardcodes
+  `shadow_enabled = false` with no settings hook yet).
+  `flashlight_shadows` staying default-OFF as a documented gameplay choice
+  is unchanged — this is just the toggle wiring.
+- DOF wiring into `GameCamera.gd` (`GraphicsSettings.dof_enabled` is
+  currently just persisted/stored, not applied anywhere — Godot 4 DOF is
+  per-`Camera3D` `CameraAttributes`, not `Environment`, per Phase 7 of the
+  graphics plan).
+- Placing/using `emergency_light` device type (already exists in
+  `DeviceDatabase.WATT_RATINGS`, 8W/priority 1) near breaker boxes —
+  design/build-menu task, not code.
+- Phases 3–7 of the graphics plan (dust/atmosphere VFX, materials/trim-sheets,
+  HUD/panel polish, remaining VFX, camera polish) — not started.
