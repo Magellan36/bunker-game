@@ -39,6 +39,7 @@ var _indicator_mi:  MeshInstance3D     = null
 var _indicator_mat: StandardMaterial3D = null
 
 var _is_running:    bool               = false
+var _exhaust:        GPUParticles3D    = null   ## exhaust smoke, see _build_exhaust()
 var _is_backup:     bool               = false
 var _pm_id:         String             = ""
 var _wire_key:      String             = ""
@@ -161,8 +162,46 @@ func _build_mesh() -> void:
 	## The centre snap dot shown in Build Mode is sufficient; the back-face sphere
 	## was a duplicate connection point that confused placement.
 
+	_build_exhaust(sz)
+
 
 ## _build_wire_socket removed — back-face socket sphere was a duplicate snap point.
+
+## Graphics plan Section 4 VFX priority #5 — continuous light exhaust smoke
+## while running. Deliberately NOT scaled to fuel-burn/load rate (would need
+## wiring into the solver's draw accounting — a bigger change than a
+## constant-rate cosmetic puff justifies for this pass); toggled fully
+## on/off with _is_running via set_running() instead.
+func _build_exhaust(sz: Vector3) -> void:
+	_exhaust = GPUParticles3D.new()
+	_exhaust.amount       = 10
+	_exhaust.lifetime     = 2.0
+	_exhaust.local_coords = true
+	_exhaust.position     = Vector3(0.0, sz.y + 0.05, -sz.z * 0.35)
+	_exhaust.emitting     = false
+
+	var mesh: QuadMesh = QuadMesh.new()
+	mesh.size = Vector2(0.10, 0.10)
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_texture   = load("res://assets/textures/vfx/smoke_puff.png")
+	mat.albedo_color     = Color(0.55, 0.55, 0.55, 0.45)
+	mat.shading_mode     = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency     = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.billboard_mode   = BaseMaterial3D.BILLBOARD_PARTICLES
+	mesh.material = mat
+	_exhaust.draw_pass_1 = mesh
+
+	var pmat: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	pmat.direction            = Vector3(0.0, 1.0, 0.0)
+	pmat.spread               = 25.0
+	pmat.initial_velocity_min = 0.15
+	pmat.initial_velocity_max = 0.35
+	pmat.gravity              = Vector3(0.0, 0.05, 0.0)
+	pmat.scale_min            = 1.0
+	pmat.scale_max            = 2.2
+	_exhaust.process_material = pmat
+
+	add_child(_exhaust)
 ## Wire node is registered at global_position (generator centre). _sync_socket
 ## is a no-op kept for call-site compatibility.
 func _sync_socket() -> void:
@@ -278,6 +317,8 @@ func set_running(on: bool) -> void:
 	_is_running = on
 	_sync_indicator()
 	_sync_socket()
+	if _exhaust != null:
+		_exhaust.emitting = on
 
 func set_fuel(level: float) -> void:
 	_fuel_level = clampf(level, 0.0, 100.0)

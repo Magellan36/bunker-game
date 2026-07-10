@@ -41,6 +41,15 @@ const COLOR_LED_CHARGE:    Color = Color(0.10, 0.90, 0.30, 1.0)
 const COLOR_LED_DISCHARGE: Color = Color(1.00, 0.75, 0.10, 1.0)
 const COLOR_LED_IDLE:      Color = Color(0.30, 0.30, 0.30, 1.0)
 
+## Low-battery flicker (graphics plan Section 4 VFX priority #3) — purely a
+## post-process on top of _sync_led()/_sync_strip()'s existing color choice,
+## does not change what color is shown, only pulses its emission energy when
+## discharging under this threshold. Base multipliers (1.5 for LED, 1.0 for
+## strip) match the constants already used in _build_mesh()/_build_banner().
+const LOW_BATTERY_FLICKER_THRESHOLD: float = 0.15
+const LED_BASE_ENERGY:    float = 1.5
+const STRIP_BASE_ENERGY:  float = 1.0
+
 # ─── Exports ──────────────────────────────────────────────────────────────────
 @export var battery_tier: int = 0   ## 0=Small  1=Medium  2=Large
 
@@ -55,6 +64,7 @@ var _enabled:       bool  = true    ## player-toggleable via info panel
 var _pm_id:    String = ""
 var _wire_key: String = ""
 var _bat_id:   String = ""
+var _flicker_t: float = 0.0   ## low-battery flicker phase, see _process()
 
 # ─── Mesh refs ────────────────────────────────────────────────────────────────
 var _strip_mat:   StandardMaterial3D = null
@@ -110,6 +120,7 @@ func _ready() -> void:
 		_font = ThemeDB.fallback_font
 	_build_mesh()
 	_build_banner()
+	set_process(true)
 	_build_panel()
 	_register_with_pm()
 
@@ -541,6 +552,32 @@ func _sync_strip() -> void:
 		(COLOR_STRIP_LOW if ratio > 0.0 else COLOR_STRIP_EMPTY)
 	_strip_mat.albedo_color = col
 	_strip_mat.emission     = col
+
+
+## Low-battery flicker — runs continuously but is a no-op above the
+## threshold, so it only costs a percent check per frame in the common case.
+## Never touches _sync_led()/_sync_strip()'s color logic, only the emission
+## energy multiplier, so a normal/charging/idle battery looks identical to
+## before this was added.
+func _process(delta: float) -> void:
+	if _capacity_wh <= 0.0:
+		return
+	var pct: float = clampf(_charge_wh / _capacity_wh, 0.0, 1.0)
+	var flickering: bool = _enabled and _discharging and pct < LOW_BATTERY_FLICKER_THRESHOLD
+	if not flickering:
+		if _led_mat != null:
+			_led_mat.emission_energy_multiplier = LED_BASE_ENERGY
+		if _strip_mat != null:
+			_strip_mat.emission_energy_multiplier = STRIP_BASE_ENERGY
+		return
+	_flicker_t += delta * 9.0
+	## Irregular flicker (two sines at different rates) rather than a clean
+	## pulse — reads as "failing" instead of "breathing".
+	var flick: float = 0.6 + 0.4 * sin(_flicker_t) * sin(_flicker_t * 2.7)
+	if _led_mat != null:
+		_led_mat.emission_energy_multiplier = LED_BASE_ENERGY * flick
+	if _strip_mat != null:
+		_strip_mat.emission_energy_multiplier = STRIP_BASE_ENERGY * flick
 
 
 func _sync_led() -> void:
