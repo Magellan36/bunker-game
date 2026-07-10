@@ -295,6 +295,18 @@ Only strip prints once Brannon explicitly asks for a given stable system.
   the approach rather than repeating the same fix.
 - Response format for code changes: Core Approach → Node Setup → Code → How it Works
   & Customization (loosen for small/obvious fixes).
+- **No "god files" (standing instruction, July 2026):** don't let files
+  accumulate too many unrelated responsibilities/functions. When adding a
+  new feature, prefer creating a new, separate file for it (and calling
+  into it) if the functionality is individual/self-contained enough,
+  rather than bolting it onto an existing large file. This is the same
+  reasoning already behind the Stage 8b/9/10 `PowerManager`/`MainWorld`/
+  `BuildModeController` extractions (see §6/§8) and the `scripts/world`↔
+  `scripts/ui` folder reorg (§14) — apply it proactively at write-time now,
+  don't wait for a file to grow large enough to need a dedicated cleanup
+  pass. Use the same `_owner`-back-reference extraction pattern (§6.1) if a
+  new file needs to reach into an existing file's state without physically
+  moving heavily-referenced dicts/vars.
 
 ## 13. Deferred/optional (pinned, not scheduled)
 From the original code-review doc — explicitly NOT part of the numbered
