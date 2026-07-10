@@ -199,11 +199,16 @@ var _undo_manager: BuildUndoStack = null
 ## No state physically moved here; see GhostPreview.gd header comment.
 var _ghost_preview: GhostPreview = null
 
+## MoveDuplicateTool.gd — move/duplicate tool logic (Stage 10 slice). No
+## state physically moved here; see MoveDuplicateTool.gd header comment.
+var _move_tool: MoveDuplicateTool = null
+
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	_materials = BuildMaterials.new(self)
 	_undo_manager = BuildUndoStack.new(self)
 	_ghost_preview = GhostPreview.new(self)
+	_move_tool = MoveDuplicateTool.new(self)
 	_build_ghost_materials()
 	_build_world_materials()
 	_setup_wire_draw_mode()
@@ -1242,246 +1247,36 @@ func _get_hovered_rock_chunk() -> Vector2i:
 	return chunk_id
 
 # ─── Duplicate ────────────────────────────────────────────────────────────────
+# ─── Forwarded to MoveDuplicateTool.gd (Stage 10 slice) ───────────────────────
+## These 6 are still called from elsewhere in this file (_try_duplicate/
+## _pick_dupe_source/_try_move_click from input handling; _update_move_ghost
+## from _process(); _cancel_move_confirm/_cancel_move from tool-switch/exit/
+## undo-request paths). _move_select, _spawn_move_ghost, _move_confirm, and
+## _destroy_move_ghost are only called within MoveDuplicateTool itself, so
+## need no wrapper. See MoveDuplicateTool.gd for the full cluster.
 func _try_duplicate() -> void:
-	var body: Node3D = _get_hovered_placed_body()
-	if body == null:
-		return
-	for entry: Dictionary in _placed_objects:
-		if entry["node"] == body:
-			# Guard: level-placed objects cannot be duplicated
-			if not entry.get("player_placed", true):
-				_show_hud_warning("Cannot modify level structure")
-				return
-			_dupe_source_tile  = entry["tile_id"]
-			_dupe_source_angle = entry["angle_deg"]
-			_dupe_source_price = entry["price"]
-			var snapped_angle: float = entry["angle_deg"]
-			for i: int in EIGHT_DIR_ANGLES.size():
-				if absf(EIGHT_DIR_ANGLES[i] - snapped_angle) < 1.0:
-					_orient_index      = i
-					_current_angle_deg = EIGHT_DIR_ANGLES[i]
-					break
-			_on_construct_item_chosen(_dupe_source_tile)
-			if build_hud != null:
-				build_hud.set_active_tool(0)
-			return
+	_move_tool._try_duplicate()
+
 
 func _pick_dupe_source() -> void:
-	pass
+	_move_tool._pick_dupe_source()
 
-# ─── Move tool ────────────────────────────────────────────────────────────────
-## Called on left-click while tool 3 (Move) is active.
-## Phase 0 → click selects hovered object → Phase 1
-## Phase 1 → click confirms new position → back to Phase 0
+
 func _try_move_click() -> void:
-	if _move_phase == 0:
-		_move_select()
-	elif _move_phase == 1:
-		_move_confirm()
+	_move_tool._try_move_click()
 
-func _move_select() -> void:
-	## Phase 0: select the hovered placed object for moving
-	var body: Node3D = _get_hovered_placed_body()
-	if body == null:
-		return
-
-	# Find its registry entry
-	for entry: Dictionary in _placed_objects:
-		if entry["node"] == body:
-			# Guard: level-placed objects cannot be moved
-			if not entry.get("player_placed", true):
-				_show_hud_warning("Cannot modify level structure")
-				return
-			_move_source_body  = body
-			_move_source_entry = entry
-			_move_source_pos   = entry["world_pos"]
-
-			# Hide original object while placing — it stays alive for physics
-			body.visible = false
-			# Also hide any child mesh instances so ghost doesn't double-render
-			for child in body.get_children():
-				if child is MeshInstance3D:
-					child.visible = false
-
-			# Spawn move ghost (clone of source mesh with green material)
-			_spawn_move_ghost(entry["tile_id"])
-			_move_phase = 1
-			_clear_hover_glow()
-			return
-
-func _spawn_move_ghost(tile_id: int) -> void:
-	_destroy_move_ghost()
-	_move_ghost = MeshInstance3D.new()
-
-	if tile_id == TILE_SHELVING:
-		var shelving_script: GDScript = load("res://scripts/world/Shelving.gd")
-		if shelving_script != null and shelving_script.has_method("build_ghost_mesh"):
-			var m: Mesh = shelving_script.build_ghost_mesh()
-			if m != null:
-				_move_ghost.mesh = m
-				for s: int in m.get_surface_count():
-					_move_ghost.set_surface_override_material(s, _mat_valid)
-	elif tile_id == TILE_LIGHT:
-		var light_script: GDScript = load("res://scripts/world/WallLight.gd")
-		if light_script != null and light_script.has_method("build_ghost_mesh"):
-			var m: Mesh = light_script.build_ghost_mesh()
-			if m != null:
-				_move_ghost.mesh = m
-				_move_ghost.position = Vector3(0.0, 1.5, 0.0)  ## Match lamp height offset
-				for s: int in m.get_surface_count():
-					_move_ghost.set_surface_override_material(s, _mat_valid)
-	elif tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
-		const MG_SIZES: Array = [
-			Vector3(0.85, 0.85, 0.85),
-			Vector3(0.85, 0.85, 1.85),
-			Vector3(1.85, 0.85, 1.85),
-		]
-		var tier: int = 0
-		if tile_id == TILE_GEN_M: tier = 1
-		elif tile_id == TILE_GEN_L: tier = 2
-		var box: BoxMesh = BoxMesh.new()
-		box.size = MG_SIZES[tier]
-		_move_ghost.mesh = box
-		_move_ghost.position = Vector3(0.0, MG_SIZES[tier].y * 0.5, 0.0)
-		for s: int in box.get_surface_count():
-			_move_ghost.set_surface_override_material(s, _mat_valid)
-	elif tile_id == TILE_WIRE:
-		var wire_box: BoxMesh = BoxMesh.new()
-		wire_box.size = Vector3(0.90, 0.06, 0.08)
-		_move_ghost.mesh = wire_box
-		_move_ghost.position = Vector3(0.0, 0.03, 0.0)
-		for s: int in wire_box.get_surface_count():
-			_move_ghost.set_surface_override_material(s, _mat_valid)
-	elif tile_id == TILE_HEAVY:
-		var hc_box: BoxMesh = BoxMesh.new()
-		hc_box.size = Vector3(0.60, 0.60, 0.60)
-		_move_ghost.mesh = hc_box
-		_move_ghost.position = Vector3(0.0, 0.30, 0.0)
-		for s: int in hc_box.get_surface_count():
-			_move_ghost.set_surface_override_material(s, _mat_valid)
-	else:
-		if gridmap != null and gridmap.mesh_library != null:
-			var m: Mesh = gridmap.mesh_library.get_item_mesh(tile_id)
-			if m != null:
-				_move_ghost.mesh = m
-				for s: int in m.get_surface_count():
-					_move_ghost.set_surface_override_material(s, _mat_valid)
-
-	var parent: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
-	parent.add_child(_move_ghost)
-	_move_ghost.visible = false
 
 func _update_move_ghost() -> void:
-	if _move_ghost == null or _move_source_entry.is_empty():
-		return
+	_move_tool._update_move_ghost()
 
-	var result: Dictionary = _raycast_to_grid()
-	if result.is_empty():
-		_move_ghost.visible = false
-		return
-
-	var snap_pos: Vector3 = _snap_to_grid(result["position"])
-	var mv_tile: int = _move_source_entry.get("tile_id", TILE_WALL)
-	if mv_tile == TILE_SHELVING or mv_tile == TILE_BED:
-		snap_pos.y = SHELF_PLACEMENT_Y
-	elif mv_tile == TILE_LIGHT:
-		snap_pos.y = LIGHT_PLACEMENT_Y
-	elif mv_tile == TILE_GEN_S or mv_tile == TILE_GEN_M \
-			or mv_tile == TILE_GEN_L:
-		snap_pos.y = GEN_PLACEMENT_Y
-	elif mv_tile == TILE_WIRE or mv_tile == TILE_HEAVY:
-		snap_pos.y = PLACEMENT_Y
-	elif mv_tile == TILE_BREAKER or mv_tile == TILE_BREAKER_SMART \
-			or mv_tile == TILE_BATTERY_S \
-			or mv_tile == TILE_BATTERY_M or mv_tile == TILE_BATTERY_L:
-		snap_pos.y = PLACEMENT_Y
-	else:
-		snap_pos.y = PLACEMENT_Y
-
-	_move_ghost.global_position = snap_pos
-	_move_ghost.rotation_degrees = Vector3(0.0, _move_source_entry.get("angle_deg", 0.0), 0.0)
-	_move_ghost.visible = true
-	# Keep ghost green — reuse _mat_valid which is already applied
-
-func _move_confirm() -> void:
-	if _move_ghost == null or _move_source_body == null:
-		_cancel_move()
-		return
-
-	var new_pos: Vector3 = _move_ghost.global_position
-	var tile_id: int = _move_source_entry.get("tile_id", TILE_WALL)
-
-	# Don't allow placing on top of another object (other than self)
-	_move_source_body.visible = true  ## Temporarily make visible for overlap check
-	for child in _move_source_body.get_children():
-		if child is MeshInstance3D:
-			child.visible = true
-	## Exclude self from overlap check by temporarily disabling collision
-	## (Only CollisionObject3D subclasses have collision_layer; Node3D e.g. WallLight does not)
-	if _move_source_body is CollisionObject3D:
-		(_move_source_body as CollisionObject3D).collision_layer = 0
-
-	var occupied: bool = _is_position_occupied_for_tile(new_pos, tile_id)
-
-	## Restore full layer (1=player collide, 4=build hover raycast) — NOT just 4
-	if _move_source_body is CollisionObject3D:
-		(_move_source_body as CollisionObject3D).collision_layer = 5
-	_move_source_body.visible = false
-	for child in _move_source_body.get_children():
-		if child is MeshInstance3D:
-			child.visible = false
-
-	if occupied:
-		_show_hud_warning("Space is already occupied")
-		return
-
-	# Push undo entry for the move before committing
-	_push_undo_move(_move_source_body, _move_source_entry, _move_source_pos)
-
-	# Commit the move — calculate delta so stored items move with shelf
-	var old_pos: Vector3 = _move_source_entry["world_pos"]
-	var delta: Vector3   = new_pos - old_pos
-
-	_move_source_body.global_position = new_pos
-	_move_source_entry["world_pos"] = new_pos
-	_move_source_body.visible = true
-	for child in _move_source_body.get_children():
-		if child is MeshInstance3D:
-			child.visible = true
-
-	# Move stored shelf items with the shelf
-	if _move_source_body.has_method("get") and "slots" in _move_source_body:
-		var shelf_slots: Array = _move_source_body.slots
-		for slot_stack: Array in shelf_slots:
-			for item: RigidBody3D in slot_stack:
-				if item != null and is_instance_valid(item):
-					item.global_position += delta
-
-	_destroy_move_ghost()
-	_move_phase       = 0
-	_move_source_body  = null
-	_move_source_entry = {}
 
 func _cancel_move_confirm() -> void:
-	## Cancel while in phase 1 — restore original visibility, back to phase 0
-	if _move_source_body != null and is_instance_valid(_move_source_body):
-		_move_source_body.visible = true
-		for child in _move_source_body.get_children():
-			if child is MeshInstance3D:
-				child.visible = true
-	_destroy_move_ghost()
-	_move_phase        = 0
-	_move_source_body  = null
-	_move_source_entry = {}
+	_move_tool._cancel_move_confirm()
+
 
 func _cancel_move() -> void:
-	## Full cancel — also used on tool switch / exit
-	_cancel_move_confirm()
+	_move_tool._cancel_move()
 
-func _destroy_move_ghost() -> void:
-	if _move_ghost != null:
-		_move_ghost.queue_free()
-		_move_ghost = null
 
 # ─── Rotation of ghost ────────────────────────────────────────────────────────
 func _rotate_cw() -> void:
