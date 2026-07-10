@@ -269,3 +269,19 @@ Only strip prints once Brannon explicitly asks for a given stable system.
   the approach rather than repeating the same fix.
 - Response format for code changes: Core Approach → Node Setup → Code → How it Works
   & Customization (loosen for small/obvious fixes).
+
+## 13. Deferred/optional (pinned, not scheduled)
+From the original code-review doc — explicitly NOT part of the numbered
+Stage 1–10 plan (that plan is 100% complete), just pinned here for later
+reference if ever wanted:
+- **GUT automated tests** for the now-isolated `PowerSolver.gd` — the review's
+  suggestion once the solver was split out into pure-value-in/out form
+  (done, Stage 8b). No test framework in the repo currently.
+- **Consolidate debug logging** into one project-wide toggle instead of the
+  current per-file `WIRE_DEBUG`/`_pmdbg`/`_wdbg` consts. Cuts against
+  Brannon's standing "keep all debug prints as-is" instruction, so left
+  alone — only revisit if he explicitly asks.
+- **Migrate hand-drawn immediate-mode UI to real `Control` nodes.** The
+  review's own wording scoped this to NEW panels going forward, not a
+  retrofit of existing ones (`BuildModeHUD.gd`, `PowerTerminalUI.gd`,
+  `PowerPriorityUI.gd`, `GeneratorInspectUI.gd`, etc. all stay as-is).
