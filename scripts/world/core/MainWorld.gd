@@ -187,6 +187,7 @@ func _ready() -> void:
 	_setup_power_manager()   ## Must be first — lights self-register in _ready()
 	_setup_lighting()
 	_setup_lighting_director()   ## Needs "power_manager" group populated above
+	_setup_ambient_dust()
 	_connect_hud()
 	_connect_bed()
 	_ensure_inventory_manager()
@@ -442,6 +443,26 @@ func _setup_lighting_director() -> void:
 	_lighting_director.set("world_env", world_env)
 	_lighting_director.set("hud_vignette", hud.get_node_or_null("HUDRoot/CriticalVignette"))
 	add_child(_lighting_director)
+
+## Ambient dark-room dust drift (graphics plan Section 4 VFX priority #2) —
+## a single sparse, world-space GPUParticles3D covering the bunker interior.
+## Sized off rock_surround's own bunker_width/bunker_depth/OFFSET_X/OFFSET_Z
+## (same values RockSurround/BuildModeController use), so it automatically
+## matches whatever the actual instance-level bunker dimensions are set to.
+## Deliberately simple — does NOT track chunk expansion/digs; a single fixed
+## volume sized to the starting bunker footprint is enough atmosphere value
+## for the cost, per the "keep it simple, don't over-engineer" mandate.
+func _setup_ambient_dust() -> void:
+	if rock_surround == null:
+		return
+	var depth: float    = float(rock_surround.bunker_depth)   ## maps to world X, see RockSurround.gd
+	var width: float    = float(rock_surround.bunker_width)   ## maps to world Z, see RockSurround.gd
+	var offset_x: float = rock_surround.OFFSET_X
+	var offset_z: float = rock_surround.OFFSET_Z
+	var dust: GPUParticles3D = DustMotes.create_ambient_dust(Vector3(depth, 3.0, width))
+	dust.position = Vector3(offset_x + depth * 0.5, 1.5, offset_z + width * 0.5)
+	dust.name = "AmbientDust"
+	add_child(dust)
 
 func _connect_hud() -> void:
 	hud.set_health(100.0)
