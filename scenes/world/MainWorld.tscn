@@ -19,11 +19,21 @@
 
 [sub_resource type="Environment" id="Environment_w26i4"]
 background_mode = 2
+glow_enabled = true
+glow_intensity = 0.55
+glow_bloom = 0.04
+glow_hdr_threshold = 1.0
+tonemap_mode = 2
+adjustment_enabled = true
+ssao_enabled = true
+sdfgi_enabled = true
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.035
 
 [node name="MainWorld" type="Node3D" unique_id=757564977 groups=["world"]]
 script = ExtResource("1_lb6jv")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=621745786]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=621745786 groups=["world_environment"]]
 environment = SubResource("Environment_w26i4")
 
 [node name="GameCamera" type="Camera3D" parent="." unique_id=1544880287]

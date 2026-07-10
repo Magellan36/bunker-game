@@ -145,6 +145,7 @@ var _shelf_ui: Node = null
 
 # ─── Power Grid ───────────────────────────────────────────────────────────────
 var _power_manager: Node = null
+var _lighting_director: Node = null   ## LightingDirector.gd, built via Node.new()+set_script() same as _power_manager
 ## _reconciler removed (Stage 5) — reconciler fully retired.
 
 # ─── Admin Spawn Menu ─────────────────────────────────────────────────────────
@@ -185,6 +186,7 @@ func _ready() -> void:
 	add_to_group("main_world")   ## Lets PowerManager find us as fallback wire parent
 	_setup_power_manager()   ## Must be first — lights self-register in _ready()
 	_setup_lighting()
+	_setup_lighting_director()   ## Needs "power_manager" group populated above
 	_connect_hud()
 	_connect_bed()
 	_ensure_inventory_manager()
@@ -423,6 +425,23 @@ func _setup_lighting() -> void:
 	dir_light.light_color      = Color(0.72, 0.80, 1.0, 1.0)  ## cool blue-white
 	dir_light.light_energy     = 0.06
 	dir_light.shadow_enabled   = false
+
+## Instantiates LightingDirector (global fog-tint/vignette-alarm reactor —
+## see LightingDirector.gd's header for why it does NOT touch individual
+## Light3D energy) and injects the WorldEnvironment + HUD vignette refs it
+## needs. Must run AFTER _setup_power_manager() so the "power_manager" group
+## already has a member for it to connect grid_state_changed to.
+func _setup_lighting_director() -> void:
+	var script: GDScript = load("res://scripts/world/environment/LightingDirector.gd")
+	if script == null:
+		push_warning("[MainWorld] LightingDirector.gd not found")
+		return
+	_lighting_director = Node.new()
+	_lighting_director.set_script(script)
+	_lighting_director.name = "LightingDirector"
+	_lighting_director.set("world_env", world_env)
+	_lighting_director.set("hud_vignette", hud.get_node_or_null("HUDRoot/CriticalVignette"))
+	add_child(_lighting_director)
 
 func _connect_hud() -> void:
 	hud.set_health(100.0)

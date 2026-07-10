@@ -27,6 +27,7 @@ var _blur_rect:   ColorRect = null
 var _panel:       Panel     = null
 var _vbox:        VBoxContainer = null
 var _confirm_layer: CanvasLayer = null   ## separate top layer for the exit-confirm dialog
+var _settings_panel: CanvasLayer = null  ## lazy-instantiated GraphicsSettingsPanel, same pattern as MainWorld's own lazy PauseMenuUI instantiation
 
 # ─── Slot button refs (so we can refresh labels on open) ─────────────────────
 var _save_slot_buttons: Array[Button] = []
@@ -247,9 +248,20 @@ func _on_load_slot_pressed(slot: int) -> void:
 	close()
 
 func _on_settings_pressed() -> void:
-	## Stub — intentionally does nothing yet, per user request. Settings menu
-	## content/behavior to be defined in a future pass.
-	pass
+	if _settings_panel == null:
+		var script: GDScript = load("res://scripts/ui/menus/GraphicsSettingsPanel.gd")
+		if script == null:
+			push_warning("[PauseMenu] GraphicsSettingsPanel.gd not found")
+			return
+		_settings_panel = CanvasLayer.new()
+		_settings_panel.set_script(script)
+		_settings_panel.name = "GraphicsSettingsPanel"
+		## Added as a sibling of this menu (both are children of MainWorld,
+		## the same parent PauseMenuUI itself was added to) rather than a
+		## child of PauseMenuUI, so its own `layer` ordering applies cleanly.
+		get_parent().add_child(_settings_panel)
+	if _settings_panel.has_method("open"):
+		_settings_panel.open()
 
 func _on_exit_pressed() -> void:
 	_open_confirm_dialog(
