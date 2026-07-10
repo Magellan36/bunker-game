@@ -397,7 +397,7 @@ func _spawn_or_reuse_wire_visual(edge_id: String, p_from: Vector3, p_to: Vector3
 		parent = _owner.get_tree().get_current_scene()
 	if parent == null:
 		return null
-	var wire_script: GDScript = load("res://scripts/world/WireSegment.gd")
+	var wire_script: GDScript = load("res://scripts/world/power/WireSegment.gd")
 	if wire_script == null:
 		return null
 	var seg: Node3D = Node3D.new()
@@ -627,7 +627,7 @@ func _split_wire_edge_at(mid_key: String) -> void:
 						if fallback_parent == null:
 							fallback_parent = _owner.get_tree().get_current_scene()
 						if fallback_parent != null:
-							var wire_script_fb: GDScript = load("res://scripts/world/WireSegment.gd")
+							var wire_script_fb: GDScript = load("res://scripts/world/power/WireSegment.gd")
 							if wire_script_fb != null:
 								var fb_seg: Node3D = Node3D.new()
 								fb_seg.set_script(wire_script_fb)
@@ -674,7 +674,7 @@ func _split_wire_edge_at(mid_key: String) -> void:
 						mb_node = existing_mb2
 						_owner._pmdbg("[SPLIT]   M→B: reused EXISTING WireSegment (no duplicate spawned)  edge_id=%s" % new_id_mb)
 					else:
-						var wire_script: GDScript = load("res://scripts/world/WireSegment.gd")
+						var wire_script: GDScript = load("res://scripts/world/power/WireSegment.gd")
 						if wire_script != null:
 							var new_seg: Node3D = Node3D.new()
 							new_seg.set_script(wire_script)

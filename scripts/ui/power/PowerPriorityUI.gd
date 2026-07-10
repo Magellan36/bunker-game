@@ -25,7 +25,7 @@ extends CanvasLayer
 ## USAGE (from a device's on_interact):
 ##   if _prio_ui == null or not is_instance_valid(_prio_ui):
 ##       _prio_ui = CanvasLayer.new()
-##       _prio_ui.set_script(load("res://scripts/ui/PowerPriorityUI.gd"))
+##       _prio_ui.set_script(load("res://scripts/ui/power/PowerPriorityUI.gd"))
 ##       get_tree().get_root().add_child(_prio_ui)
 ##       _prio_ui.closed.connect(_on_prio_closed)
 ##       _prio_ui.priority_changed.connect(_on_prio_changed)

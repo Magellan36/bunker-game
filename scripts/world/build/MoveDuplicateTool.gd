@@ -115,7 +115,7 @@ func _spawn_move_ghost(tile_id: int) -> void:
 	_owner._move_ghost = MeshInstance3D.new()
 
 	if tile_id == _owner.TILE_SHELVING:
-		var shelving_script: GDScript = load("res://scripts/world/Shelving.gd")
+		var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
 		if shelving_script != null and shelving_script.has_method("build_ghost_mesh"):
 			var m: Mesh = shelving_script.build_ghost_mesh()
 			if m != null:
@@ -123,7 +123,7 @@ func _spawn_move_ghost(tile_id: int) -> void:
 				for s: int in m.get_surface_count():
 					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
 	elif tile_id == _owner.TILE_LIGHT:
-		var light_script: GDScript = load("res://scripts/world/WallLight.gd")
+		var light_script: GDScript = load("res://scripts/world/power/WallLight.gd")
 		if light_script != null and light_script.has_method("build_ghost_mesh"):
 			var m: Mesh = light_script.build_ghost_mesh()
 			if m != null:

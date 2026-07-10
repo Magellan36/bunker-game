@@ -1,11 +1,11 @@
 [gd_scene format=3 uid="uid://cxxbgstudgwck"]
 
-[ext_resource type="Script" uid="uid://dw3sxn0q60k8r" path="res://scripts/world/MainWorld.gd" id="1_lb6jv"]
+[ext_resource type="Script" uid="uid://dw3sxn0q60k8r" path="res://scripts/world/core/MainWorld.gd" id="1_lb6jv"]
 [ext_resource type="Script" uid="uid://df5doosgevb01" path="res://scripts/core/GameCamera.gd" id="3_yawxq"]
 [ext_resource type="PackedScene" uid="uid://bvoj2bsoe5j7k" path="res://scenes/ui/HUD.tscn" id="4_m1c1d"]
 [ext_resource type="PackedScene" uid="uid://crsshgentw3x0" path="res://scenes/player/Player.tscn" id="4_yawxq"]
 [ext_resource type="MeshLibrary" uid="uid://5ipa5mlo72rf" path="res://assets/bunker_tiles.meshlib" id="5_w26i4"]
-[ext_resource type="Script" uid="uid://dpb8ovwljrocm" path="res://scripts/world/BunkerLayout.gd" id="6_hyoe7"]
+[ext_resource type="Script" uid="uid://dpb8ovwljrocm" path="res://scripts/world/environment/BunkerLayout.gd" id="6_hyoe7"]
 [ext_resource type="PackedScene" path="res://scenes/world/TestCrate.tscn" id="7_hyoe7"]
 [ext_resource type="Script" uid="uid://c2p4arjynkf1d" path="res://scripts/world/PlayerStats.gd" id="8_p7b5b"]
 [ext_resource type="PackedScene" uid="uid://bn7hoc2y5pv2v" path="res://scenes/world/Bed.tscn" id="8_ucaxc"]
@@ -14,8 +14,8 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/InteractPrompt.tscn" id="12_sp2fq"]
 [ext_resource type="PackedScene" uid="uid://dg8v10e04k60e" path="res://scenes/world/WaterCase.tscn" id="13_jq3pf"]
 [ext_resource type="PackedScene" uid="uid://c7johuud8s3lm" path="res://scenes/world/CanCase.tscn" id="14_b88p2"]
-[ext_resource type="Script" uid="uid://b25d20cm5hjmy" path="res://scripts/ui/InventoryManager.gd" id="15_hwvcu"]
-[ext_resource type="Script" uid="uid://brf57rojeegns" path="res://scripts/world/RockSurround.gd" id="16_ecro3"]
+[ext_resource type="Script" uid="uid://b25d20cm5hjmy" path="res://scripts/ui/inventory/InventoryManager.gd" id="15_hwvcu"]
+[ext_resource type="Script" uid="uid://brf57rojeegns" path="res://scripts/world/environment/RockSurround.gd" id="16_ecro3"]
 
 [sub_resource type="Environment" id="Environment_w26i4"]
 background_mode = 2

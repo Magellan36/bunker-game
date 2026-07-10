@@ -135,7 +135,7 @@ func on_priority_interact() -> void:
 		is_node.build_mode_active = true
 
 	if _prio_ui == null or not is_instance_valid(_prio_ui):
-		var ui_script: GDScript = load("res://scripts/ui/PowerPriorityUI.gd")
+		var ui_script: GDScript = load("res://scripts/ui/power/PowerPriorityUI.gd")
 		if ui_script == null:
 			push_warning("WallLight: PowerPriorityUI.gd not found")
 			return
@@ -355,7 +355,7 @@ func _build_fixture() -> void:
 	## WallLight is a plain Node3D (no body), so we attach a small StaticBody3D
 	## proxy that the InteractionSystem can pick up. It forwards on_interact()
 	## back to this light's on_priority_interact().
-	var proxy_script: GDScript = load("res://scripts/world/PowerPriorityInteractable.gd")
+	var proxy_script: GDScript = load("res://scripts/world/power/PowerPriorityInteractable.gd")
 	if proxy_script != null:
 		var proxy: StaticBody3D = StaticBody3D.new()
 		proxy.set_script(proxy_script)

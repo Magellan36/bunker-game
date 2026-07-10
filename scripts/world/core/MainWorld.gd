@@ -223,7 +223,7 @@ func _register_save_fields() -> void:
 ## WallLight nodes can find it via get_first_node_in_group().
 ## Must run before any child _ready() that self-registers (i.e. pre-placed lights).
 func _setup_power_manager() -> void:
-	var pm_script: GDScript = load("res://scripts/world/PowerManager.gd")
+	var pm_script: GDScript = load("res://scripts/world/power/PowerManager.gd")
 	if pm_script == null:
 		push_warning("MainWorld: PowerManager.gd not found — power grid disabled")
 		return
@@ -270,7 +270,7 @@ func _on_grid_offline() -> void:
 		hud.show_soft_warning("✗ POWER GRID OFFLINE — no generators or batteries")
 
 func _setup_debug_overlay() -> void:
-	var script: GDScript = load("res://scripts/ui/DebugOverlay.gd")
+	var script: GDScript = load("res://scripts/ui/debug/DebugOverlay.gd")
 	if script == null:
 		return
 	var overlay: CanvasLayer = CanvasLayer.new()
@@ -283,7 +283,7 @@ func _setup_debug_overlay() -> void:
 	overlay.set("power_manager_ref", _power_manager)
 
 func _setup_shelf_ui() -> void:
-	var shelf_ui_script: Script = load("res://scripts/ui/ShelfUI.gd")
+	var shelf_ui_script: Script = load("res://scripts/ui/inventory/ShelfUI.gd")
 	_shelf_ui = CanvasLayer.new()
 	_shelf_ui.set_script(shelf_ui_script)
 	_shelf_ui.name = "ShelfUI"
@@ -310,7 +310,7 @@ func _ensure_inventory_manager() -> void:
 	# Use scene node if it exists, otherwise create one at runtime
 	inventory_manager = get_node_or_null("InventoryManager")
 	if inventory_manager == null:
-		var script: Script = load("res://scripts/ui/InventoryManager.gd")
+		var script: Script = load("res://scripts/ui/inventory/InventoryManager.gd")
 		inventory_manager = Node.new()
 		inventory_manager.name = "InventoryManager"
 		inventory_manager.set_script(script)
@@ -362,7 +362,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _toggle_admin_spawn_menu() -> void:
 	## Lazy-init: create only on first F10 press.
 	if _admin_menu == null:
-		var script: GDScript = load("res://scripts/ui/AdminSpawnMenu.gd")
+		var script: GDScript = load("res://scripts/ui/menus/AdminSpawnMenu.gd")
 		if script == null:
 			push_warning("[DEV] AdminSpawnMenu.gd not found")
 			return
@@ -380,7 +380,7 @@ func _toggle_admin_spawn_menu() -> void:
 func _toggle_pause_menu() -> void:
 	## Lazy-init: create only on first ESC press.
 	if _pause_menu == null:
-		var script: GDScript = load("res://scripts/ui/PauseMenuUI.gd")
+		var script: GDScript = load("res://scripts/ui/menus/PauseMenuUI.gd")
 		if script == null:
 			push_warning("[PauseMenu] PauseMenuUI.gd not found")
 			return
@@ -516,7 +516,7 @@ func _connect_inventory() -> void:
 
 func _setup_build_mode() -> void:  ## coroutine — called via process_frame one-shot signal
 	# ── Build Mode HUD (CanvasLayer overlay) ──
-	var hud_script: Script = load("res://scripts/ui/BuildModeHUD.gd")
+	var hud_script: Script = load("res://scripts/ui/build/BuildModeHUD.gd")
 	_build_hud = CanvasLayer.new()
 	_build_hud.set_script(hud_script)
 	_build_hud.name = "BuildModeHUD"
@@ -524,7 +524,7 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	_build_hud.visible = false
 
 	# ── Build Mode Controller (lives under Player) ──
-	var ctrl_script: Script = load("res://scripts/world/BuildModeController.gd")
+	var ctrl_script: Script = load("res://scripts/world/build/BuildModeController.gd")
 	_build_controller = Node3D.new()
 	_build_controller.set_script(ctrl_script)
 	_build_controller.name = "BuildModeController"
@@ -805,7 +805,7 @@ func _run_pregen(gm: GridMap) -> void:
 	await get_tree().process_frame
 
 	## Run the pre-gen script
-	var pregen_script: Script = load("res://scripts/world/BunkerPregen.gd")
+	var pregen_script: Script = load("res://scripts/world/environment/BunkerPregen.gd")
 	var pregen: Node3D = Node3D.new()
 	pregen.set_script(pregen_script)
 	pregen.name = "BunkerPregen"

@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://fuel_can_001"]
 
-[ext_resource type="Script" path="res://scripts/world/FuelCan.gd" id="1_fuelcan"]
+[ext_resource type="Script" path="res://scripts/world/items/FuelCan.gd" id="1_fuelcan"]
 [ext_resource type="PackedScene" path="res://assets/models/metal_jerrycan.glb" id="2_jerrycan"]
 
 [sub_resource type="BoxShape3D" id="shape_001"]

@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://sleep_overlay_001"]
 
-[ext_resource type="Script" path="res://scripts/ui/SleepOverlay.gd" id="1_sleepov"]
+[ext_resource type="Script" path="res://scripts/ui/menus/SleepOverlay.gd" id="1_sleepov"]
 [ext_resource type="Theme" path="res://assets/fonts/BunkerTheme.tres" id="2_theme"]
 
 [node name="SleepOverlay" type="CanvasLayer"]

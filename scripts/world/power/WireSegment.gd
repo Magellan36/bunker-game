@@ -201,7 +201,7 @@ func _update_color() -> void:
 ## Caller must free it when done.
 static func make_ghost_wire(parent: Node, a: Vector3, b: Vector3) -> Node3D:
 	var ws: Node3D = Node3D.new()
-	var script: GDScript = load("res://scripts/world/WireSegment.gd")
+	var script: GDScript = load("res://scripts/world/power/WireSegment.gd")
 	if script != null:
 		ws.set_script(script)
 	## Set is_ghost BEFORE add_child so _ready() skips group registration

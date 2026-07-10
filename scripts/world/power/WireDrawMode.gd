@@ -511,7 +511,7 @@ func _make_dot(color: Color) -> MeshInstance3D:
 
 # ─── Permanent wire segment ───────────────────────────────────────────────────
 func _spawn_wire_segment(from: Vector3, to: Vector3, edge_id: String) -> Node3D:
-	var wire_script: GDScript = load("res://scripts/world/WireSegment.gd")
+	var wire_script: GDScript = load("res://scripts/world/power/WireSegment.gd")
 	var seg: Node3D = Node3D.new()
 	if wire_script != null:
 		seg.set_script(wire_script)

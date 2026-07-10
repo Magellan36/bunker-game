@@ -102,7 +102,7 @@ func _open_terminal_ui() -> void:
 
 	## Lazy-create the UI node once; reuse on subsequent opens so history persists.
 	if _terminal_ui == null or not is_instance_valid(_terminal_ui):
-		var ui_script: GDScript = load("res://scripts/ui/PowerTerminalUI.gd")
+		var ui_script: GDScript = load("res://scripts/ui/power/PowerTerminalUI.gd")
 		if ui_script == null:
 			push_warning("[PowerTerminal] PowerTerminalUI.gd not found")
 			return

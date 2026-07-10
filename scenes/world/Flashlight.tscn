@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://flashlight_001"]
 
-[ext_resource type="Script" path="res://scripts/world/Flashlight.gd" id="1_flashlight"]
+[ext_resource type="Script" path="res://scripts/world/items/Flashlight.gd" id="1_flashlight"]
 
 [sub_resource type="CapsuleShape3D" id="shape_001"]
 radius = 0.055
