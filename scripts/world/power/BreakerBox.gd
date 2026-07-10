@@ -434,12 +434,57 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 
 ## Called by PM when trip state changes (LED + banner update only).
 func set_tripped(on: bool) -> void:
+	var was_tripped: bool = _tripped
 	_tripped = on
 	_sync_led()
 	_sync_banner()
+	## One-shot spark burst, only on the false→true transition (not on
+	## resets, and not re-triggered by redundant same-state calls).
+	## Purely cosmetic — doesn't touch any trip/reset logic above.
+	if on and not was_tripped:
+		_spawn_trip_sparks()
 	## If settings panel is open, refresh it.
 	if _settings_open and _settings_canvas != null:
 		_settings_canvas.queue_redraw()
+
+
+## Graphics plan Section 4 VFX priority #4 — one-shot spark burst at the LED
+## when this breaker trips. Self-contained GPUParticles3D, frees itself via
+## the `finished` signal once the (short, one_shot) burst completes.
+func _spawn_trip_sparks() -> void:
+	var p: GPUParticles3D = GPUParticles3D.new()
+	p.amount        = 14
+	p.lifetime      = 0.5
+	p.one_shot      = true
+	p.explosiveness = 0.9
+	p.local_coords  = true
+	p.position      = Vector3(0.0, BOX_SIZE.y * 0.5 + BOX_SIZE.y * 0.15, BOX_SIZE.z * 0.5 + 0.05)
+
+	var mesh: QuadMesh = QuadMesh.new()
+	mesh.size = Vector2(0.02, 0.02)
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_texture = load("res://assets/textures/vfx/soft_glow_dot.png")
+	mat.albedo_color   = Color(1.0, 0.85, 0.3, 1.0)
+	mat.shading_mode   = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency   = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode     = BaseMaterial3D.BLEND_MODE_ADD
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	mesh.material = mat
+	p.draw_pass_1 = mesh
+
+	var pmat: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	pmat.direction            = Vector3(0.0, 1.0, 0.0)
+	pmat.spread               = 60.0
+	pmat.initial_velocity_min = 0.6
+	pmat.initial_velocity_max = 1.6
+	pmat.gravity              = Vector3(0.0, -3.0, 0.0)
+	pmat.scale_min            = 0.5
+	pmat.scale_max            = 1.0
+	p.process_material = pmat
+
+	add_child(p)
+	p.emitting = true
+	p.finished.connect(p.queue_free)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
