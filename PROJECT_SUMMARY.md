@@ -3,7 +3,7 @@
 or responsibilities change. This is the first thing to read in a new session —
 reference it instead of re-scanning the codebase, to keep credit usage low.
 
-**Last updated:** Friday, July 10, 2026 — repo HEAD `996e7e5`
+**Last updated:** Friday, July 10, 2026 — repo HEAD `13db180`
 **Repo:** `Magellan36/bunker-game` (GitHub, branch `main`), Godot 4.6.3, GDScript, statically typed.
 **Engine notes:** No Godot binary in the sandbox — all sandbox-side verification is
 bracket-balance checks, function-count reconciliation, and line-range diffing, never
@@ -161,9 +161,22 @@ Every external call site converted from `get_first_node_in_group("power_manager"
   only player movement locks + mouse frees. Visual style deliberately plain.
 
 ## 8. Build system
-- **`BuildModeController.gd`** (3,148 lines) — placement/construction UI + logic
-  combined. **God-object candidate, not yet split** (Stage 10 target, same treatment
-  as PowerManager: separate placement-logic from UI-drawing from data tables).
+- **`BuildModeController.gd`** (3,054 lines, was 3,148) — placement/construction
+  UI + logic combined: ghost preview, grid snapping, placement/deconstruction,
+  undo stack, move/duplicate, wire-draw-mode setup. Has `class_name
+  BuildModeController` (added Stage 10). Holds `_materials: BuildMaterials`
+  (created in `_ready()`). **God-object cleanup in progress** (Stage 10) — one
+  slice done so far (materials), rest not yet split: undo system, ghost
+  preview, move/duplicate, and wall/breaker-snap raycasting are all still
+  candidate clusters for future slices.
+- **`BuildMaterials.gd`** (160 lines) — **(Stage 10 slice, July 2026)**
+  ghost-preview + world-surface material builders (`_build_ghost_materials`,
+  `_build_world_materials`, `_apply_world_material`,
+  `_apply_wall_material_recursive`). Same `_owner` back-reference pattern —
+  `_mat_valid`/`_mat_invalid`/`_mat_hover`/`_mat_wall`/`_mat_floor`/`TILE_FLOOR`
+  all stay on BuildModeController. Confirmed zero external callers before
+  extraction. Deliberately excludes `_apply_material_recursive` (hover-glow
+  swap — different feature, stays on BuildModeController).
 - **`BuildModeHUD.gd`** (1,008 lines) — hand-drawn immediate-mode UI for build mode.
 - **`PlacementIndicator.gd`**, **`Shelving.gd`** (579), **`ShelfUI.gd`** (475).
 
@@ -177,9 +190,15 @@ Control node trees + a theme resource** to avoid repeating this.
 ## 10. Known architecture debt (tracked, not yet done)
 - **Stage 8b:** ✅ DONE (July 2026) — `PowerSolver.gd` extracted, see §6 table.
 - **Stage 9:** ✅ DONE (July 2026) — `DeviceDatabase` autoload, see §3.
-- **Stage 10 (first slice):** ✅ DONE (July 2026) — `WireGraphBuilder.gd` extracted
-  from `MainWorld.gd`, see §4. Follow-up scan of `BuildModeController.gd`
-  (3,148 lines, its own god-object) not yet started.
+- **Stage 10:** in progress (July 2026) — `WireGraphBuilder.gd` extracted from
+  `MainWorld.gd` (✅, see §4); `BuildMaterials.gd` extracted from
+  `BuildModeController.gd` as its first slice (✅, see §8). Remaining
+  `BuildModeController.gd` candidate clusters not yet split: undo system
+  (`_undo` + `_push_undo_*`, ~250 lines), ghost preview (`_spawn_ghost`
+  through `_update_ghost`, ~340 lines), move/duplicate (`_try_duplicate`
+  through `_destroy_move_ghost`, ~240 lines), wall/breaker-snap raycasting
+  (`_snap_light_to_wall`/`_snap_breaker_to_wall`/`_is_pregen_interior_face`,
+  ~500 lines).
 - No automated tests (no GUT setup) — power solver is the best candidate once split
   out into pure-value-in/out form.
 
