@@ -680,7 +680,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 			pm.end_bulk()
 		return
 
-	var wire_script: GDScript = load("res://scripts/world/WireSegment.gd") as GDScript
+	var wire_script: GDScript = load("res://scripts/world/power/WireSegment.gd") as GDScript
 
 	## ── Pass A: collect wire node positions ───────────────────────────────────
 	##

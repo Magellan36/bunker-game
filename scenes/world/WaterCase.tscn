@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://dg8v10e04k60e"]
 
-[ext_resource type="Script" uid="uid://dtdxnbhfq83y5" path="res://scripts/world/WaterCase.gd" id="1_u1lem"]
+[ext_resource type="Script" uid="uid://dtdxnbhfq83y5" path="res://scripts/world/items/WaterCase.gd" id="1_u1lem"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gw7ud"]
 albedo_color = Color(0, 0.56078434, 1, 1)

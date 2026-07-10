@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://bn7hoc2y5pv2v"]
 
-[ext_resource type="Script" uid="uid://drmme62nu3svg" path="res://scripts/world/Bed.gd" id="1_wt5tx"]
+[ext_resource type="Script" uid="uid://drmme62nu3svg" path="res://scripts/world/furniture/Bed.gd" id="1_wt5tx"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_urcn2"]
 albedo_color = Color(0.007843138, 0.39215687, 0.3647059, 1)

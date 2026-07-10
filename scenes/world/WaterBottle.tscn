@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://water_bottle_001"]
 
-[ext_resource type="Script" path="res://scripts/world/WaterBottle.gd" id="1_wbottle"]
+[ext_resource type="Script" path="res://scripts/world/items/WaterBottle.gd" id="1_wbottle"]
 
 [sub_resource type="CapsuleMesh" id="mesh_001"]
 radius = 0.06

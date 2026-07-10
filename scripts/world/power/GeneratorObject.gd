@@ -305,7 +305,7 @@ func on_interact() -> void:
 		is_node.build_mode_active = true
 
 	if _inspect_ui == null or not is_instance_valid(_inspect_ui):
-		var ui_script: GDScript = load("res://scripts/ui/GeneratorInspectUI.gd")
+		var ui_script: GDScript = load("res://scripts/ui/power/GeneratorInspectUI.gd")
 		if ui_script == null:
 			push_warning("GeneratorObject: GeneratorInspectUI.gd not found")
 			return

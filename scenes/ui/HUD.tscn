@@ -1,13 +1,13 @@
 [gd_scene format=3 uid="uid://bvoj2bsoe5j7k"]
 
-[ext_resource type="Script" uid="uid://hh6wju88854m" path="res://scripts/ui/HUD.gd" id="1_82wuy"]
-[ext_resource type="Script" uid="uid://bgdf30uinutu4" path="res://scripts/ui/StatusBars.gd" id="2_6ll6g"]
-[ext_resource type="Script" uid="uid://b3eip6ehbam5j" path="res://scripts/ui/CircleFill.gd" id="3_ig75s"]
+[ext_resource type="Script" uid="uid://hh6wju88854m" path="res://scripts/ui/hud/HUD.gd" id="1_82wuy"]
+[ext_resource type="Script" uid="uid://bgdf30uinutu4" path="res://scripts/ui/hud/StatusBars.gd" id="2_6ll6g"]
+[ext_resource type="Script" uid="uid://b3eip6ehbam5j" path="res://scripts/ui/hud/CircleFill.gd" id="3_ig75s"]
 [ext_resource type="Texture2D" uid="uid://dip2tnwq1vfcj" path="res://assets/icons/steak.svg" id="4_rnyu1"]
 [ext_resource type="Texture2D" uid="uid://b2p5jgiry2c2s" path="res://assets/icons/water-drop.svg" id="5_jlufg"]
 [ext_resource type="Texture2D" uid="uid://3mx136dffymq" path="res://assets/icons/night-sleep.svg" id="6_l20r4"]
 [ext_resource type="Shader" path="res://assets/shaders/vignette.gdshader" id="7_vign1"]
-[ext_resource type="Script" path="res://scripts/ui/InventoryHUD.gd" id="8_invhud"]
+[ext_resource type="Script" path="res://scripts/ui/inventory/InventoryHUD.gd" id="8_invhud"]
 [ext_resource type="Theme" path="res://assets/fonts/BunkerTheme.tres" id="9_theme"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_vignette"]

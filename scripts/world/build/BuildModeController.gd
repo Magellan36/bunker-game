@@ -602,7 +602,7 @@ func _update_ghost() -> void:
 
 # ─── Wire Draw Mode setup ─────────────────────────────────────────────────────
 func _setup_wire_draw_mode() -> void:
-	var wire_script: GDScript = load("res://scripts/world/WireDrawMode.gd")
+	var wire_script: GDScript = load("res://scripts/world/power/WireDrawMode.gd")
 	if wire_script == null:
 		push_warning("[BuildModeController] WireDrawMode.gd not found")
 		return
@@ -753,7 +753,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 	# ── Bed: scene-based node ──────────────────────────────────────────────────
 	if tile_id == TILE_BED:
 		var bed_scene_path: String = "res://scenes/world/Bed.tscn"
-		var bed_script_path: String = "res://scripts/world/Bed.gd"
+		var bed_script_path: String = "res://scripts/world/furniture/Bed.gd"
 		var bed_node: StaticBody3D
 
 		# Try loading a Bed scene first; fall back to procedural box
@@ -793,7 +793,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 
 	# ── Shelving: script-based procedural node ─────────────────────────────────
 	if tile_id == TILE_SHELVING:
-		var shelving_script: GDScript = load("res://scripts/world/Shelving.gd")
+		var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
 		var shelf_node: StaticBody3D  = StaticBody3D.new()
 		shelf_node.set_script(shelving_script)
 		shelf_node.set_meta("tile_id", tile_id)
@@ -817,7 +817,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 
 	# ── Wall light: script-based node (Node3D — no collision) ────────────────
 	if tile_id == TILE_LIGHT:
-		var light_script: GDScript = load("res://scripts/world/WallLight.gd")
+		var light_script: GDScript = load("res://scripts/world/power/WallLight.gd")
 		if light_script == null:
 			push_error("BuildModeController: WallLight.gd failed to load — light will not register with PowerManager!")
 		var light_node: Node3D = Node3D.new()
@@ -841,7 +841,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 
 	# ── Generators: script-based procedural node ─────────────────────────────
 	if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
-		var gen_script: GDScript = load("res://scripts/world/GeneratorObject.gd")
+		var gen_script: GDScript = load("res://scripts/world/power/GeneratorObject.gd")
 		if gen_script == null:
 			push_error("BuildModeController: GeneratorObject.gd failed to load — generator will not register with PowerManager!")
 		var gen_node: StaticBody3D = StaticBody3D.new()
@@ -860,7 +860,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 
 	# ── Power Terminal: wall-mounted dashboard panel ──────────────────────────
 	if tile_id == TILE_TERMINAL:
-		var term_script: GDScript = load("res://scripts/world/PowerTerminal.gd")
+		var term_script: GDScript = load("res://scripts/world/power/PowerTerminal.gd")
 		var term_node: StaticBody3D = StaticBody3D.new()
 		if term_script != null:
 			term_node.set_script(term_script)
@@ -873,7 +873,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 
 	## ── Heavy load test consumer ──────────────────────────────────────────────
 	if tile_id == TILE_HEAVY:
-		var hc_script: GDScript = load("res://scripts/world/HeavyConsumerTest.gd")
+		var hc_script: GDScript = load("res://scripts/world/items/HeavyConsumerTest.gd")
 		var hc_node: StaticBody3D = StaticBody3D.new()
 		if hc_script != null:
 			hc_node.set_script(hc_script)
@@ -886,7 +886,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 
 	## ── Circuit breaker (standard) ─────────────────────────────────────────────
 	if tile_id == TILE_BREAKER:
-		var brk_script: GDScript = load("res://scripts/world/BreakerBox.gd")
+		var brk_script: GDScript = load("res://scripts/world/power/BreakerBox.gd")
 		var brk_node: StaticBody3D = StaticBody3D.new()
 		if brk_script != null:
 			brk_node.set_script(brk_script)
@@ -902,7 +902,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 	## UpgradedBreakerBox.gd extends BreakerBox.gd and marks itself "upgraded"
 	## with PowerManager once its deferred wire registration completes.
 	if tile_id == TILE_BREAKER_SMART:
-		var ubrk_script: GDScript = load("res://scripts/world/UpgradedBreakerBox.gd")
+		var ubrk_script: GDScript = load("res://scripts/world/power/UpgradedBreakerBox.gd")
 		var ubrk_node: StaticBody3D = StaticBody3D.new()
 		if ubrk_script != null:
 			ubrk_node.set_script(ubrk_script)
@@ -919,7 +919,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		var bat_tier: int = 0
 		if tile_id == TILE_BATTERY_M: bat_tier = 1
 		elif tile_id == TILE_BATTERY_L: bat_tier = 2
-		var bat_script: GDScript = load("res://scripts/world/BatteryBank.gd")
+		var bat_script: GDScript = load("res://scripts/world/power/BatteryBank.gd")
 		var bat_node: StaticBody3D = StaticBody3D.new()
 		if bat_script != null:
 			bat_node.set_script(bat_script)

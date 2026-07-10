@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://food_can_001"]
 
-[ext_resource type="Script" path="res://scripts/world/FoodCan.gd" id="1_foodcan"]
+[ext_resource type="Script" path="res://scripts/world/items/FoodCan.gd" id="1_foodcan"]
 
 [sub_resource type="CylinderMesh" id="mesh_001"]
 top_radius = 0.04

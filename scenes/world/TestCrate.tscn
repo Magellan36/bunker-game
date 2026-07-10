@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://crate_plastic_001"]
 
-[ext_resource type="Script" path="res://scripts/world/TestCrate.gd" id="1_testcrate"]
+[ext_resource type="Script" path="res://scripts/world/items/TestCrate.gd" id="1_testcrate"]
 [ext_resource type="PackedScene" path="res://assets/models/plastic_crate.glb" id="2_plasticcrate"]
 
 ;; BoxShape3D sized to match the visual mesh EXACTLY.

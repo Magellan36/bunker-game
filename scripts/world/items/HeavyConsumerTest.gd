@@ -113,7 +113,7 @@ func on_interact() -> void:
 		is_node.build_mode_active = true
 
 	if _prio_ui == null or not is_instance_valid(_prio_ui):
-		var ui_script: GDScript = load("res://scripts/ui/PowerPriorityUI.gd")
+		var ui_script: GDScript = load("res://scripts/ui/power/PowerPriorityUI.gd")
 		if ui_script == null:
 			push_warning("HeavyConsumerTest: PowerPriorityUI.gd not found")
 			return

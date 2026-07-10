@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://uj0st7fog8y1" path="res://scripts/player/Player.gd" id="1_wr5hl"]
 [ext_resource type="Script" uid="uid://ii3myfl6drek" path="res://scripts/player/InteractionSystem.gd" id="2_4kuee"]
-[ext_resource type="Script" uid="uid://cr1112kv3ow48" path="res://scripts/world/PlacementIndicator.gd" id="3_524rm"]
+[ext_resource type="Script" uid="uid://cr1112kv3ow48" path="res://scripts/world/build/PlacementIndicator.gd" id="3_524rm"]
 
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_o8nba"]
 
