@@ -3,7 +3,7 @@
 or responsibilities change. This is the first thing to read in a new session —
 reference it instead of re-scanning the codebase, to keep credit usage low.
 
-**Last updated:** Friday, July 10, 2026 — repo HEAD `9540b8b`
+**Last updated:** Friday, July 10, 2026 — repo HEAD `5386d5d`
 **Repo:** `Magellan36/bunker-game` (GitHub, branch `main`), Godot 4.6.3, GDScript, statically typed.
 **Engine notes:** No Godot binary in the sandbox — all sandbox-side verification is
 bracket-balance checks, function-count reconciliation, and line-range diffing, never
@@ -161,16 +161,18 @@ Every external call site converted from `get_first_node_in_group("power_manager"
   only player movement locks + mouse frees. Visual style deliberately plain.
 
 ## 8. Build system
-- **`BuildModeController.gd`** (2,361 lines, was 3,148 pre-Stage-10) —
-  placement/construction UI + logic combined: grid snapping,
-  placement/deconstruction, wire-draw-mode setup. Has `class_name
-  BuildModeController` (added Stage 10). Holds `_materials: BuildMaterials`,
-  `_undo_manager: BuildUndoStack`, `_ghost_preview: GhostPreview`, and
-  `_move_tool: MoveDuplicateTool` (all created in `_ready()`). **God-object
-  cleanup in progress** (Stage 10) — four slices done so far (materials,
-  undo, ghost preview, move/duplicate), rest not yet split:
-  wall/breaker-snap raycasting is still a candidate cluster for a future
-  slice.
+- **`BuildModeController.gd`** (2,013 lines, was 3,148 pre-Stage-10 — 36%
+  reduction across 5 slices) — placement/construction UI + logic combined:
+  grid snapping, placement/deconstruction, wire-draw-mode setup, tile
+  footprint/occupancy data. Has `class_name BuildModeController` (added
+  Stage 10). Holds `_materials: BuildMaterials`, `_undo_manager:
+  BuildUndoStack`, `_ghost_preview: GhostPreview`, `_move_tool:
+  MoveDuplicateTool`, and `_wall_snap: WallSnapHelpers` (all created in
+  `_ready()`). **Stage 10 god-object cleanup COMPLETE ✅** (July 2026) —
+  all 5 planned slices done (materials, undo, ghost preview, move/duplicate,
+  wall/breaker-snap). Static `_tile_half_extents()` (tile footprint-size
+  lookup) deliberately left in place — unrelated data, not part of any
+  slice's scope.
 - **`BuildMaterials.gd`** (160 lines) — **(Stage 10 slice, July 2026)**
   ghost-preview + world-surface material builders (`_build_ghost_materials`,
   `_build_world_materials`, `_apply_world_material`,
@@ -209,6 +211,16 @@ Every external call site converted from `get_first_node_in_group("power_manager"
   `_mat_valid`, all `TILE_*`/`*_PLACEMENT_Y` consts stay on
   BuildModeController. Routes `_owner._push_undo_move()` (BuildModeController's
   own forwarding wrapper into `BuildUndoStack`).
+- **`WallSnapHelpers.gd`** (409 lines) — **(Stage 10 slice, July 2026, final
+  one)** wall/breaker-snap raycasting: `_snap_light_to_wall`,
+  `_snap_breaker_to_wall` (four-ray cardinal cast to the nearest interior
+  wall surface), `_is_pregen_interior_face` (the pregen-boundary
+  correctness check both snap functions depend on). Same `_owner` pattern —
+  `LIGHT_WALL_SNAP_RANGE`, `LIGHT_WALL_HALF_THICKNESS`, `TILE_WALL`,
+  `TILE_PILLAR`, `grid_size`, `rock_surround` stay on BuildModeController.
+  `_snap_light_to_wall`/`_snap_breaker_to_wall` are called externally from
+  `GhostPreview.gd` via `_owner.<name>()` — BuildModeController keeps
+  forwarding wrappers for both so that cross-file call path is unaffected.
 - **`BuildModeHUD.gd`** (1,008 lines) — hand-drawn immediate-mode UI for build mode.
 - **`PlacementIndicator.gd`**, **`Shelving.gd`** (579), **`ShelfUI.gd`** (475).
 
@@ -222,13 +234,14 @@ Control node trees + a theme resource** to avoid repeating this.
 ## 10. Known architecture debt (tracked, not yet done)
 - **Stage 8b:** ✅ DONE (July 2026) — `PowerSolver.gd` extracted, see §6 table.
 - **Stage 9:** ✅ DONE (July 2026) — `DeviceDatabase` autoload, see §3.
-- **Stage 10:** in progress (July 2026) — `WireGraphBuilder.gd` extracted from
-  `MainWorld.gd` (✅, see §4); `BuildMaterials.gd`, `BuildUndoStack.gd`,
-  `GhostPreview.gd`, and `MoveDuplicateTool.gd` extracted from
-  `BuildModeController.gd` (✅, see §8). Remaining `BuildModeController.gd`
-  candidate cluster not yet split: wall/breaker-snap raycasting
-  (`_snap_light_to_wall`/`_snap_breaker_to_wall`/`_is_pregen_interior_face`,
-  ~500 lines).
+- **Stage 10:** ✅ COMPLETE (July 2026) — `WireGraphBuilder.gd` extracted from
+  `MainWorld.gd` (see §4); `BuildMaterials.gd`, `BuildUndoStack.gd`,
+  `GhostPreview.gd`, `MoveDuplicateTool.gd`, and `WallSnapHelpers.gd`
+  extracted from `BuildModeController.gd` (see §8). `BuildModeController.gd`
+  went 3,148 → 2,013 lines (36% reduction) across the 5 slices.
+  `BuildModeHUD.gd` (1,008 lines, hand-drawn immediate-mode UI) is a
+  possible future god-object candidate if further cleanup is wanted, but
+  is not part of any current plan.
 - No automated tests (no GUT setup) — power solver is the best candidate once split
   out into pure-value-in/out form.
 
