@@ -263,6 +263,10 @@ func _connect_power_hud_signals() -> void:
 func _on_grid_tripped() -> void:
 	if hud != null and hud.has_method("show_soft_warning"):
 		hud.show_soft_warning("⚡ POWER GRID TRIPPED — reduce load, then restart generators")
+	## Camera shake (graphics plan Phase 7) — a tripped main breaker is the
+	## single biggest "oh no" moment in the power system, worth a jolt.
+	if camera != null:
+		camera.add_trauma(0.5)
 
 func _on_grid_restored() -> void:
 	if hud != null and hud.has_method("show_soft_warning"):
