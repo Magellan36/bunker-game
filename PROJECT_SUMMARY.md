@@ -3,7 +3,7 @@
 or responsibilities change. This is the first thing to read in a new session —
 reference it instead of re-scanning the codebase, to keep credit usage low.
 
-**Last updated:** Friday, July 10, 2026 — repo HEAD `9807983`
+**Last updated:** Friday, July 10, 2026 — repo HEAD `996e7e5`
 **Repo:** `Magellan36/bunker-game` (GitHub, branch `main`), Godot 4.6.3, GDScript, statically typed.
 **Engine notes:** No Godot binary in the sandbox — all sandbox-side verification is
 bracket-balance checks, function-count reconciliation, and line-range diffing, never
@@ -41,11 +41,28 @@ scenes/     .tscn files, one per placeable/world object + core scenes (Player, H
   autoload singleton name, same pattern as `SaveManager`).
 
 ## 4. Core loop / bootstrap
-- **`MainWorld.gd`** (2,319 lines) — scene bootstrapper: wires up HUD, inventory,
-  bed, build mode, dev/admin menus, lighting, world pregen. **Also owns the wire-graph
-  incremental rebuild** (`_rebuild_auto_wires()`, boundary-diff, `_verify_graph_matches_boundary()`
-  oracle) — this is really power-system logic living in a scene-setup file (flagged as
-  a god-object candidate, Stage 10, not yet split out).
+- **`MainWorld.gd`** (895 lines, was 2,327 before Stage 10) — scene bootstrapper:
+  wires up HUD, inventory, bed, build mode, dev/admin menus, lighting, world
+  pregen. Has `class_name MainWorld` (added Stage 10 so `WireGraphBuilder` can
+  hold a typed back-reference). Holds `_wire_builder: WireGraphBuilder`
+  (created in `_ready()`), forwards the 3 externally-triggered entry points to
+  it: `_compute_and_rebuild_wires()` (startup), `_on_chunk_deconstructed()` /
+  `_on_chunk_restored()` (RockSurround's `chunk_deconstructed`/`chunk_restored`
+  signals).
+- **`WireGraphBuilder.gd`** (1,506 lines) — **(Stage 10, July 2026)** the
+  auto-wire perimeter rebuild engine: `_rebuild_auto_wires()` (incremental
+  node/edge diff + breaker-aware ring routing + player-wire culling),
+  `_compute_boundary_diff()`, `_compute_node_positions()`,
+  `_verify_graph_matches_boundary()` (the Stage-0 correctness oracle),
+  `_point_on_span()`, `_spawn_auto_wire_seg()`. Same `_owner` back-reference
+  pattern as the PowerManager extractions — no MainWorld state physically
+  moved (`_cleared_cells`, `_autofill_nodes`, `_auto_wire_nodes`,
+  `_auto_wire_segs`, `_player_wire_segs`, `_boundary_edges_prev`, `_wire_log`,
+  `_build_controller`, `rock_surround`, `WIRE_DEBUG` all stay on MainWorld).
+  Routes `_owner._wdbg()`, `_owner._wkey()`, `_owner.add_cash()`,
+  `_owner.get_tree()`, `_owner.add_child()` since it's `RefCounted` (no scene
+  tree access of its own). Confirmed zero external callers anywhere else in
+  the repo before extraction — self-contained cluster, same as PowerSolver.
 - **`BunkerPregen.gd`** / **`RockSurround.gd`** — procedural bunker carving + rock
   surround alignment (uses `wall_left/right/top/bottom` = `OFFSET_X`/`OFFSET_X+depth`
   directly, not cell-index math; `OFFSET_X=-12.5, OFFSET_Z=4.5`).
@@ -160,9 +177,9 @@ Control node trees + a theme resource** to avoid repeating this.
 ## 10. Known architecture debt (tracked, not yet done)
 - **Stage 8b:** ✅ DONE (July 2026) — `PowerSolver.gd` extracted, see §6 table.
 - **Stage 9:** ✅ DONE (July 2026) — `DeviceDatabase` autoload, see §3.
-- **Stage 10:** same god-object treatment for `MainWorld.gd` (extract the wire-rebuild
-  engine into its own class, e.g. `WireGraphBuilder.gd`) and a follow-up scan of
-  `BuildModeController.gd`.
+- **Stage 10 (first slice):** ✅ DONE (July 2026) — `WireGraphBuilder.gd` extracted
+  from `MainWorld.gd`, see §4. Follow-up scan of `BuildModeController.gd`
+  (3,148 lines, its own god-object) not yet started.
 - No automated tests (no GUT setup) — power solver is the best candidate once split
   out into pure-value-in/out form.
 
