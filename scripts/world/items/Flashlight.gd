@@ -139,9 +139,28 @@ func _build_light() -> void:
 	_spot.spot_range             = LIGHT_RANGE
 	_spot.light_energy           = LIGHT_ENERGY
 	_spot.light_color            = COL_ON
-	_spot.shadow_enabled         = false   ## handheld — shadow would block the center of the cone
 	_spot.visible                = false   ## off at spawn
+	_apply_graphics_settings()
 	add_child(_spot)
+	## Live-update if the player flips a toggle while holding this flashlight.
+	GraphicsSettings.settings_changed.connect(_apply_graphics_settings)
+
+## Applies the player's GraphicsSettings toggles to this flashlight's
+## SpotLight3D. Called once at build time and again on every
+## GraphicsSettings.settings_changed (preset switch or individual toggle).
+func _apply_graphics_settings() -> void:
+	if _spot == null:
+		return
+	## Shadow casting stays default OFF as a documented gameplay choice —
+	## handheld shadow would block the center of the cone. Explicit opt-in
+	## only, never preset-driven (GraphicsSettings.flashlight_shadows is
+	## excluded from every preset's dictionary for this exact reason).
+	_spot.shadow_enabled = GraphicsSettings.flashlight_shadows
+	## Per-light volumetric-fog contribution (Light3D property, independent
+	## of Environment.volumetric_fog_enabled) — lets the dust-mote beam-shaft
+	## look be toggled off for performance without disabling ambient fog
+	## everywhere else. 0.0 skips volumetric-fog computation for this light.
+	_spot.light_volumetric_fog_energy = 1.0 if GraphicsSettings.flashlight_volumetrics else 0.0
 
 ## Adds a CapsuleShape3D collision body oriented along +Z (the flashlight's length axis).
 ## Without this the RigidBody3D has no shape and Jolt physics ignores it entirely.
