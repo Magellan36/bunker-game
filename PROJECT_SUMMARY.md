@@ -398,8 +398,36 @@ see §2 for the map. Mechanics of the move:
 Following `bunker-game-graphics-plan.md`'s 7-phase rollout. **All 7 phases
 have been touched now** — Phases 1, 2, 3, 7 are functionally complete;
 Phases 4, 5, 6 are deliberately partial (see below for exactly what was cut
-and why). Untested by Brannon as of the Phase 3-7 pass — first end-to-end
-test still pending.
+and why). Autoload registered and Phase 1/2 confirmed working by Brannon;
+Phase 3-7 pass reviewed against an external implementation-review doc and
+3 real issues fixed (below) — full end-to-end test still pending.
+
+**Post-implementation-review fixes (July 2026):**
+- `GraphicsSettingsPanel.gd`'s FOV slider was calling `GraphicsSettings.
+  set_setting()` on every `value_changed` tick — up to ~40 synchronous
+  `ConfigFile.save()` disk writes per single drag. Split
+  `GraphicsSettings.gd` into `set_setting_live()` (mutate + apply, no disk
+  write — used on every `value_changed`) + `save_now()` (just the
+  `ConfigFile.save()` — wired to the slider's `drag_ended` signal, fires
+  once per completed drag). `set_setting()` still exists, now just calls
+  both (used by the checkboxes, which are discrete clicks so no throttling
+  needed there).
+- `LightingDirector.ALARM_VIGNETTE_COLOR` was `Color(0.7, 0.05, 0.0, 1.0)` —
+  nearly indistinguishable from `NORMAL_VIGNETTE_COLOR`'s `Color(0.6, 0.0,
+  0.0, 1.0)`, undercutting the design goal of a tripped grid reading as a
+  visually distinct alarm from "survival stat critical." Changed to a hot
+  amber-orange `Color(0.85, 0.35, 0.0, 1.0)` — same edge-vignette/pulse
+  behavior, clearly separable hue+value now, reads as "electrical fault"
+  rather than "health danger."
+- `GraphicsSettings.apply_preset()` took a typed `Preset` enum parameter
+  but its only caller (`GraphicsSettingsPanel._on_preset_selected`) hands
+  back a bare `int` from `OptionButton.item_selected` — flagged as a
+  known-risk pattern given this exact file already hit a real enum/`as`
+  bug once (see the `_apply_to_viewport()` `msaa` fix, above). Retyped
+  `apply_preset(preset: int)` and `current_preset` to plain `int`,
+  sidestepping the int/enum boundary question entirely rather than relying
+  on implicit conversion. Dictionary keys/comparisons against `Preset.*`
+  constants are unaffected since enum values are still just ints.
 
 **New files:**
 - `scripts/core/GraphicsSettings.gd` — device-quality-preference autoload
