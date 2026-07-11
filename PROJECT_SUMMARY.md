@@ -149,6 +149,27 @@ elsewhere needed to change.
 - **Load shedding:** priority 1 (critical, never shed) → 5 (luxury, shed first).
   `DEFAULT_PRIORITY_BY_TYPE` gives per-type defaults, player-adjustable via
   `PowerPriorityUI.gd`.
+- **Priority-change grace period (July 2026):** `set_consumer_priority()` no
+  longer resets shed state + resolves immediately — it queues the change
+  (`_pending_priority_reset_ids`) and a `PRIORITY_CHANGE_GRACE_SECS` (0.5s)
+  timer in `PowerManager._process()`; the actual `_reset_shed_for_consumer_
+  component()` + `_solve_network()` only fires once the timer elapses.
+  Multiple priority changes within the window collapse into one resolve.
+  Added because a priority change's immediate reset+resolve could visibly
+  flash the grid through a transient state before settling. The displayed
+  priority value itself (`_consumers[id]["priority"]`) still updates
+  instantly for UI purposes — only the grid-affecting reset+resolve is
+  delayed.
+  **Known separate issue (unconfirmed root cause, not fixed by the grace
+  period):** debug-dump evidence from a clean isolated repro showed a
+  priority change applied to the WRONG consumer id — not the object the
+  player was standing at/interacting with. Two `HeavyConsumerTest.gd`
+  instances each keep their own private `PowerPriorityUI` panel instance
+  (same per-instance-panel pattern as `GeneratorObject._inspect_ui`) rather
+  than sharing one — suspected but NOT confirmed as the cause; could also be
+  an `InteractionSystem` proximity-target mixup given the two test objects
+  were placed close together. Needs further investigation if it recurs.
+
 - **Standard breaker exhaustion:** ALL feeding generators trip, BOTH shared zones go
   sustained-brownout. Recovery = manual generator restart only (`_exhausted_brownout_keys` latch).
 - **Smart/upgraded breaker exhaustion:** self-trips REACTIVELY to isolate zones —
