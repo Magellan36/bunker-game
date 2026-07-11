@@ -160,15 +160,14 @@ elsewhere needed to change.
   priority value itself (`_consumers[id]["priority"]`) still updates
   instantly for UI purposes — only the grid-affecting reset+resolve is
   delayed.
-  **Known separate issue (unconfirmed root cause, not fixed by the grace
-  period):** debug-dump evidence from a clean isolated repro showed a
-  priority change applied to the WRONG consumer id — not the object the
-  player was standing at/interacting with. Two `HeavyConsumerTest.gd`
-  instances each keep their own private `PowerPriorityUI` panel instance
-  (same per-instance-panel pattern as `GeneratorObject._inspect_ui`) rather
-  than sharing one — suspected but NOT confirmed as the cause; could also be
-  an `InteractionSystem` proximity-target mixup given the two test objects
-  were placed close together. Needs further investigation if it recurs.
+  **Resolved (July 2026):** what looked like a priority change landing on the
+  wrong consumer id was actually WallLight's old default priority (3) — with
+  wall lights sharing tier 3 with the load-test object, the observed
+  shed/overload behavior was the system working as designed, not a routing
+  bug. Explained once WallLight's default moved to priority 1 (see the
+  `WallLight.gd` row in §6 above). No bug in `HeavyConsumerTest.gd`'s
+  per-instance panel pattern or `InteractionSystem` targeting after all —
+  not worth revisiting unless a similar symptom shows up again on its own.
 
 - **Standard breaker exhaustion:** ALL feeding generators trip, BOTH shared zones go
   sustained-brownout. Recovery = manual generator restart only (`_exhausted_brownout_keys` latch).
