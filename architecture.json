@@ -1,0 +1,4078 @@
+{
+  "generated_at": "2026-07-11T22:06:52.065309+00:00",
+  "generator": "tools/gen_architecture.py",
+  "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
+  "script_count": 63,
+  "total_lines": 26284,
+  "autoloads_referenced_repo_wide": [
+    "DeviceDatabase",
+    "GraphicsSettings",
+    "SaveManager",
+    "WorldManager"
+  ],
+  "scripts": [
+    {
+      "path": "res://scripts/core/GameCamera.gd",
+      "line_count": 165,
+      "class_name": "GameCamera",
+      "extends": "Camera3D",
+      "exports": [
+        {
+          "name": "follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "height",
+          "type": "float"
+        },
+        {
+          "name": "pitch_degrees",
+          "type": "float"
+        },
+        {
+          "name": "z_offset",
+          "type": "float"
+        },
+        {
+          "name": "target_path",
+          "type": "NodePath"
+        },
+        {
+          "name": "build_height",
+          "type": "float"
+        },
+        {
+          "name": "build_z_offset",
+          "type": "float"
+        },
+        {
+          "name": "transition_speed",
+          "type": "float"
+        },
+        {
+          "name": "yaw_lerp_speed",
+          "type": "float"
+        },
+        {
+          "name": "dof_focus_distance",
+          "type": "float"
+        },
+        {
+          "name": "dof_far_blur_amount",
+          "type": "float"
+        },
+        {
+          "name": "trauma_decay_per_sec",
+          "type": "float"
+        },
+        {
+          "name": "max_shake_offset",
+          "type": "float"
+        },
+        {
+          "name": "max_shake_rotation_deg",
+          "type": "float"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "GraphicsSettings",
+          "signal": "settings_changed"
+        },
+        {
+          "target_expr": "GraphicsSettings",
+          "signal": "settings_changed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "enter_build_mode",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "exit_build_mode",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "add_trauma",
+          "args": "amount: float",
+          "returns": "void"
+        },
+        {
+          "name": "rotate_view_left",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "rotate_view_right",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 7,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [
+        "GraphicsSettings"
+      ],
+      "complexity_score": 182
+    },
+    {
+      "path": "res://scripts/core/GraphicsSettings.gd",
+      "line_count": 207,
+      "class_name": null,
+      "extends": "Node",
+      "exports": [],
+      "signals": [
+        {
+          "name": "settings_changed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "apply_preset",
+          "args": "preset: int",
+          "returns": "void"
+        },
+        {
+          "name": "set_setting",
+          "args": "field: String, value: Variant",
+          "returns": "void"
+        },
+        {
+          "name": "set_setting_live",
+          "args": "field: String, value: Variant",
+          "returns": "void"
+        },
+        {
+          "name": "save_now",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 6,
+      "preloads": [],
+      "group_lookups": [
+        "world_environment"
+      ],
+      "autoload_references": [
+        "GraphicsSettings"
+      ],
+      "complexity_score": 221
+    },
+    {
+      "path": "res://scripts/player/InteractionSystem.gd",
+      "line_count": 688,
+      "class_name": "InteractionSystem",
+      "extends": "Node3D",
+      "exports": [
+        {
+          "name": "hold_height",
+          "type": "float"
+        },
+        {
+          "name": "store_hold_time",
+          "type": "float"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "detect_area",
+          "signal": "body_entered"
+        },
+        {
+          "target_expr": "detect_area",
+          "signal": "body_exited"
+        },
+        {
+          "target_expr": "held_item",
+          "signal": "knocked_out"
+        },
+        {
+          "target_expr": "held_item",
+          "signal": "knocked_out"
+        }
+      ],
+      "public_functions": [],
+      "private_function_count": 21,
+      "preloads": [],
+      "group_lookups": [
+        "world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 709
+    },
+    {
+      "path": "res://scripts/player/Player.gd",
+      "line_count": 118,
+      "class_name": "Player",
+      "extends": "CharacterBody3D",
+      "exports": [
+        {
+          "name": "move_speed",
+          "type": "float"
+        },
+        {
+          "name": "sprint_speed",
+          "type": "float"
+        },
+        {
+          "name": "acceleration",
+          "type": "float"
+        },
+        {
+          "name": "friction",
+          "type": "float"
+        },
+        {
+          "name": "sprint_stamina_drain",
+          "type": "float"
+        },
+        {
+          "name": "stamina_regen",
+          "type": "float"
+        },
+        {
+          "name": "sprint_recover_threshold",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "interacted",
+          "params": "()"
+        },
+        {
+          "name": "stamina_changed",
+          "params": "(new_value: float)"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_movement_locked",
+          "args": "locked: bool",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [
+        "player"
+      ],
+      "autoload_references": [],
+      "complexity_score": 124
+    },
+    {
+      "path": "res://scripts/player/PlayerStats.gd",
+      "line_count": 170,
+      "class_name": "PlayerStats",
+      "extends": "Node",
+      "exports": [
+        {
+          "name": "day_duration_seconds",
+          "type": "float"
+        },
+        {
+          "name": "start_hour",
+          "type": "int"
+        },
+        {
+          "name": "start_minute",
+          "type": "int"
+        },
+        {
+          "name": "food_drain_per_game_hour",
+          "type": "float"
+        },
+        {
+          "name": "water_drain_per_game_hour",
+          "type": "float"
+        },
+        {
+          "name": "sleep_drain_per_game_hour",
+          "type": "float"
+        },
+        {
+          "name": "starvation_drain_per_game_hour",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "food_changed",
+          "params": "(value: float)"
+        },
+        {
+          "name": "water_changed",
+          "params": "(value: float)"
+        },
+        {
+          "name": "sleep_changed",
+          "params": "(value: float)"
+        },
+        {
+          "name": "health_changed",
+          "params": "(value: float)"
+        },
+        {
+          "name": "time_changed",
+          "params": "(hour: int, minute: int, is_pm: bool, display: String)"
+        },
+        {
+          "name": "day_changed",
+          "params": "(day: int)"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "replenish_food",
+          "args": "amount: float",
+          "returns": "void"
+        },
+        {
+          "name": "replenish_water",
+          "args": "amount: float",
+          "returns": "void"
+        },
+        {
+          "name": "replenish_sleep",
+          "args": "amount: float",
+          "returns": "void"
+        },
+        {
+          "name": "replenish_health",
+          "args": "amount: float",
+          "returns": "void"
+        },
+        {
+          "name": "get_time_display",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_elapsed",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "set_elapsed",
+          "args": "value: float",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 188
+    },
+    {
+      "path": "res://scripts/ui/build/BuildModeHUD.gd",
+      "line_count": 1010,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "tool_selected",
+          "params": "(tool_id: int)"
+        },
+        {
+          "name": "construct_item_chosen",
+          "params": "(tile_id: int)"
+        },
+        {
+          "name": "cancel_requested",
+          "params": "()"
+        },
+        {
+          "name": "undo_requested",
+          "params": "()"
+        },
+        {
+          "name": "dig_confirmed",
+          "params": "()"
+        },
+        {
+          "name": "dig_cancelled",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "draw_ctrl",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "btn",
+          "signal": "draw"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "get_item_price",
+          "args": "tile_id: int",
+          "returns": "int"
+        },
+        {
+          "name": "show_hud",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "hide_hud",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "set_active_tool",
+          "args": "tool_id: int",
+          "returns": "void"
+        },
+        {
+          "name": "set_ghost_active",
+          "args": "active: bool",
+          "returns": "void"
+        },
+        {
+          "name": "open_construct_menu",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "close_construct_menu",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "open_dig_confirm",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "close_dig_confirm",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 28,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 1056
+    },
+    {
+      "path": "res://scripts/ui/common/UIFade.gd",
+      "line_count": 31,
+      "class_name": "UIFade",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 31
+    },
+    {
+      "path": "res://scripts/ui/debug/DebugOverlay.gd",
+      "line_count": 306,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        }
+      ],
+      "public_functions": [],
+      "private_function_count": 12,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 318
+    },
+    {
+      "path": "res://scripts/ui/hud/CircleFill.gd",
+      "line_count": 78,
+      "class_name": null,
+      "extends": "Control",
+      "exports": [
+        {
+          "name": "radius",
+          "type": "float"
+        },
+        {
+          "name": "thickness",
+          "type": "float"
+        },
+        {
+          "name": "bg_color",
+          "type": "Color"
+        },
+        {
+          "name": "icon",
+          "type": "Texture2D"
+        },
+        {
+          "name": "icon_size",
+          "type": "float"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_fill",
+          "args": "value: float",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 84
+    },
+    {
+      "path": "res://scripts/ui/hud/HUD.gd",
+      "line_count": 279,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_health",
+          "args": "value: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_stamina",
+          "args": "value: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_food",
+          "args": "value: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_water",
+          "args": "value: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_sleep",
+          "args": "value: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_cash",
+          "args": "amount: int",
+          "returns": "void"
+        },
+        {
+          "name": "set_clock",
+          "args": "display: String",
+          "returns": "void"
+        },
+        {
+          "name": "set_day",
+          "args": "day: int",
+          "returns": "void"
+        },
+        {
+          "name": "set_build_mode",
+          "args": "enabled: bool",
+          "returns": "void"
+        },
+        {
+          "name": "spawn_float_label",
+          "args": "screen_pos: Vector2, amount: int, positive: bool",
+          "returns": "void"
+        },
+        {
+          "name": "show_cash_delta",
+          "args": "amount: int, positive: bool",
+          "returns": "void"
+        },
+        {
+          "name": "show_soft_warning",
+          "args": "text: String",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 307
+    },
+    {
+      "path": "res://scripts/ui/hud/InteractPrompt.gd",
+      "line_count": 106,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_prompts",
+          "args": "new_entries: Array",
+          "returns": "void"
+        },
+        {
+          "name": "show_prompt",
+          "args": "text: String, world_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "hide_prompt",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 114
+    },
+    {
+      "path": "res://scripts/ui/hud/StatusBars.gd",
+      "line_count": 49,
+      "class_name": null,
+      "extends": "VBoxContainer",
+      "exports": [
+        {
+          "name": "bar_width",
+          "type": "float"
+        },
+        {
+          "name": "bar_height",
+          "type": "float"
+        },
+        {
+          "name": "bar_gap",
+          "type": "float"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_health",
+          "args": "v: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_stamina",
+          "args": "v: float",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 3,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 56
+    },
+    {
+      "path": "res://scripts/ui/inventory/InventoryHUD.gd",
+      "line_count": 349,
+      "class_name": null,
+      "extends": "Control",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "item",
+          "signal": "charge_changed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "show_error_message",
+          "args": "text: String",
+          "returns": "void"
+        },
+        {
+          "name": "set_selected",
+          "args": "slot: int",
+          "returns": "void"
+        },
+        {
+          "name": "refresh_previews",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "draw_rect_with_corners",
+          "args": "rect: Rect2, col: Color",
+          "returns": "void"
+        },
+        {
+          "name": "draw_rect_with_corners_outline",
+          "args": "rect: Rect2, col: Color, width: float",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 9,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 368
+    },
+    {
+      "path": "res://scripts/ui/inventory/InventoryManager.gd",
+      "line_count": 156,
+      "class_name": null,
+      "extends": "Node",
+      "exports": [],
+      "signals": [
+        {
+          "name": "inventory_changed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "is_full",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "has_item",
+          "args": "item: Node",
+          "returns": "bool"
+        },
+        {
+          "name": "first_empty_slot",
+          "args": "",
+          "returns": "int"
+        },
+        {
+          "name": "slot_of",
+          "args": "item: Node",
+          "returns": "int"
+        },
+        {
+          "name": "add_item",
+          "args": "item: RigidBody3D",
+          "returns": "int"
+        },
+        {
+          "name": "add_item_to_slot",
+          "args": "item: RigidBody3D, slot: int",
+          "returns": "bool"
+        },
+        {
+          "name": "activate_item",
+          "args": "slot: int",
+          "returns": "RigidBody3D"
+        },
+        {
+          "name": "deactivate_item",
+          "args": "slot: int",
+          "returns": "void"
+        },
+        {
+          "name": "retrieve_item",
+          "args": "slot: int",
+          "returns": "RigidBody3D"
+        },
+        {
+          "name": "remove_item",
+          "args": "slot: int, drop_position: Vector3",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [
+        "world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 178
+    },
+    {
+      "path": "res://scripts/ui/inventory/ShelfUI.gd",
+      "line_count": 477,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "backdrop",
+          "signal": "gui_input"
+        },
+        {
+          "target_expr": "btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "shelf: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 16,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 497
+    },
+    {
+      "path": "res://scripts/ui/menus/AdminSpawnMenu.gd",
+      "line_count": 216,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "toggle",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 7,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 225
+    },
+    {
+      "path": "res://scripts/ui/menus/GraphicsSettingsPanel.gd",
+      "line_count": 178,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_preset_option",
+          "signal": "item_selected"
+        },
+        {
+          "target_expr": "_fov_slider",
+          "signal": "value_changed"
+        },
+        {
+          "target_expr": "_fov_slider",
+          "signal": "drag_ended"
+        },
+        {
+          "target_expr": "close_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "box",
+          "signal": "toggled"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 9,
+      "preloads": [
+        "res://assets/shaders/pause_blur.gdshader"
+      ],
+      "group_lookups": [],
+      "autoload_references": [
+        "GraphicsSettings"
+      ],
+      "complexity_score": 191
+    },
+    {
+      "path": "res://scripts/ui/menus/PauseMenuUI.gd",
+      "line_count": 340,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "toggle",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "open",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "is_open",
+          "args": "",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 13,
+      "preloads": [
+        "res://scripts/ui/menus/GraphicsSettingsPanel.gd"
+      ],
+      "group_lookups": [],
+      "autoload_references": [
+        "SaveManager"
+      ],
+      "complexity_score": 361
+    },
+    {
+      "path": "res://scripts/ui/menus/SleepOverlay.gd",
+      "line_count": 143,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "sleep_started",
+          "params": "()"
+        },
+        {
+          "name": "sleep_ended",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "begin_sleep",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "request_wake",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 6,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 153
+    },
+    {
+      "path": "res://scripts/ui/power/GeneratorInspectUI.gd",
+      "line_count": 434,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "closed",
+          "params": "()"
+        },
+        {
+          "name": "backup_toggled",
+          "params": "(enabled: bool)"
+        },
+        {
+          "name": "power_toggled",
+          "params": "(running: bool)"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "_toggle_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_power_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_close_btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "display_name: String, watts: float, fuel: float,\n\t\thealth: float, is_backup: bool, is_running: bool,\n\t\tgrid_tripped: bool = false,\n\t\tgrid_state_str: String = \"ONLINE\"",
+          "returns": "void"
+        },
+        {
+          "name": "refresh",
+          "args": "fuel: float, health: float, is_backup: bool, is_running: bool,\n\t\tgrid_tripped: bool = false,\n\t\tgrid_state_str: String = \"ONLINE\"",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 12,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 452
+    },
+    {
+      "path": "res://scripts/ui/power/PowerPriorityUI.gd",
+      "line_count": 495,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "closed",
+          "params": "()"
+        },
+        {
+          "name": "priority_changed",
+          "params": "(id: String, value: int)"
+        },
+        {
+          "name": "load_toggled",
+          "params": "(id: String, on: bool)"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_prio_ui",
+          "signal": "closed"
+        },
+        {
+          "target_expr": "_prio_ui",
+          "signal": "priority_changed"
+        },
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "_dec_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_inc_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_toggle_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_close_btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "device_id: String, display_name: String,\n\t\tshow_load_toggle: bool = false",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "is_open",
+          "args": "",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 17,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf",
+        "res://scripts/ui/power/PowerPriorityUI.gd"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 518
+    },
+    {
+      "path": "res://scripts/ui/power/PowerTerminalUI.gd",
+      "line_count": 1011,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "closed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 16,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 1031
+    },
+    {
+      "path": "res://scripts/world/build/BuildMaterials.gd",
+      "line_count": 160,
+      "class_name": "BuildMaterials",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 5,
+      "preloads": [
+        "res://assets/textures/concrete_floor.jpg",
+        "res://assets/textures/concrete_wall.jpg"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 165
+    },
+    {
+      "path": "res://scripts/world/build/BuildModeController.gd",
+      "line_count": 2013,
+      "class_name": "BuildModeController",
+      "extends": "Node3D",
+      "exports": [
+        {
+          "name": "build_reach",
+          "type": "float"
+        },
+        {
+          "name": "ray_length",
+          "type": "float"
+        },
+        {
+          "name": "grid_size",
+          "type": "float"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "build_hud",
+          "signal": "tool_selected"
+        },
+        {
+          "target_expr": "build_hud",
+          "signal": "construct_item_chosen"
+        },
+        {
+          "target_expr": "build_hud",
+          "signal": "cancel_requested"
+        },
+        {
+          "target_expr": "build_hud",
+          "signal": "undo_requested"
+        },
+        {
+          "target_expr": "build_hud",
+          "signal": "dig_confirmed"
+        },
+        {
+          "target_expr": "build_hud",
+          "signal": "dig_cancelled"
+        },
+        {
+          "target_expr": "_wire_draw_mode",
+          "signal": "wire_placed"
+        },
+        {
+          "target_expr": "_wire_draw_mode",
+          "signal": "wire_nodes_connected"
+        },
+        {
+          "target_expr": "_wire_draw_mode",
+          "signal": "wire_tool_exit_requested"
+        },
+        {
+          "target_expr": "body",
+          "signal": "tree_exited"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "enter_build_mode",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "exit_build_mode",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "spawn_structure",
+          "args": "tile_id: int, pos: Vector3, angle_deg: float",
+          "returns": "Node3D"
+        },
+        {
+          "name": "remove_placed_object",
+          "args": "node: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "remove_breakers_in_bounds",
+          "args": "x_min: float, x_max: float, z_min: float, z_max: float",
+          "returns": "bool"
+        },
+        {
+          "name": "remove_lights_in_bounds",
+          "args": "x_min: float, x_max: float, z_min: float, z_max: float",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 64,
+      "preloads": [
+        "res://scripts/world/furniture/Shelving.gd",
+        "res://scripts/world/items/HeavyConsumerTest.gd",
+        "res://scripts/world/power/BatteryBank.gd",
+        "res://scripts/world/power/BreakerBox.gd",
+        "res://scripts/world/power/GeneratorObject.gd",
+        "res://scripts/world/power/PowerTerminal.gd",
+        "res://scripts/world/power/UpgradedBreakerBox.gd",
+        "res://scripts/world/power/WallLight.gd",
+        "res://scripts/world/power/WireDrawMode.gd"
+      ],
+      "group_lookups": [
+        "power_manager",
+        "world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 2089
+    },
+    {
+      "path": "res://scripts/world/build/BuildUndoStack.gd",
+      "line_count": 245,
+      "class_name": "BuildUndoStack",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "body",
+          "signal": "tree_exited"
+        }
+      ],
+      "public_functions": [],
+      "private_function_count": 7,
+      "preloads": [],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 252
+    },
+    {
+      "path": "res://scripts/world/build/GhostPreview.gd",
+      "line_count": 390,
+      "class_name": "GhostPreview",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 6,
+      "preloads": [
+        "res://scripts/world/furniture/Shelving.gd",
+        "res://scripts/world/power/WallLight.gd"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 396
+    },
+    {
+      "path": "res://scripts/world/build/MoveDuplicateTool.gd",
+      "line_count": 286,
+      "class_name": "MoveDuplicateTool",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 11,
+      "preloads": [
+        "res://scripts/world/furniture/Shelving.gd",
+        "res://scripts/world/power/WallLight.gd"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 297
+    },
+    {
+      "path": "res://scripts/world/build/PlacementIndicator.gd",
+      "line_count": 38,
+      "class_name": null,
+      "extends": "Node3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 3,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 41
+    },
+    {
+      "path": "res://scripts/world/build/WallSnapHelpers.gd",
+      "line_count": 409,
+      "class_name": "WallSnapHelpers",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 413
+    },
+    {
+      "path": "res://scripts/world/core/MainWorld.gd",
+      "line_count": 939,
+      "class_name": "MainWorld",
+      "extends": "Node3D",
+      "exports": [
+        {
+          "name": "bed_path",
+          "type": "NodePath"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_power_manager",
+          "signal": "grid_tripped"
+        },
+        {
+          "target_expr": "_power_manager",
+          "signal": "grid_restored"
+        },
+        {
+          "target_expr": "_power_manager",
+          "signal": "grid_offline"
+        },
+        {
+          "target_expr": "player",
+          "signal": "stamina_changed"
+        },
+        {
+          "target_expr": "player_stats",
+          "signal": "food_changed"
+        },
+        {
+          "target_expr": "player_stats",
+          "signal": "water_changed"
+        },
+        {
+          "target_expr": "player_stats",
+          "signal": "sleep_changed"
+        },
+        {
+          "target_expr": "player_stats",
+          "signal": "health_changed"
+        },
+        {
+          "target_expr": "player_stats",
+          "signal": "time_changed"
+        },
+        {
+          "target_expr": "player_stats",
+          "signal": "day_changed"
+        },
+        {
+          "target_expr": "sleep_overlay",
+          "signal": "sleep_ended"
+        },
+        {
+          "target_expr": "bed",
+          "signal": "sleep_requested"
+        },
+        {
+          "target_expr": "bed",
+          "signal": "wake_requested"
+        },
+        {
+          "target_expr": "inventory_manager",
+          "signal": "inventory_changed"
+        },
+        {
+          "target_expr": "rock_surround",
+          "signal": "chunk_deconstructed"
+        },
+        {
+          "target_expr": "rock_surround",
+          "signal": "chunk_restored"
+        },
+        {
+          "target_expr": "wdm",
+          "signal": "wire_placed"
+        },
+        {
+          "target_expr": "wdm",
+          "signal": "wire_nodes_connected"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "spend_cash",
+          "args": "amount: int",
+          "returns": "bool"
+        },
+        {
+          "name": "add_cash",
+          "args": "amount: int",
+          "returns": "void"
+        },
+        {
+          "name": "get_cash",
+          "args": "",
+          "returns": "int"
+        },
+        {
+          "name": "set_cash",
+          "args": "value: int",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 39,
+      "preloads": [
+        "res://assets/textures/concrete_floor.jpg",
+        "res://scripts/ui/build/BuildModeHUD.gd",
+        "res://scripts/ui/debug/DebugOverlay.gd",
+        "res://scripts/ui/inventory/InventoryManager.gd",
+        "res://scripts/ui/inventory/ShelfUI.gd",
+        "res://scripts/ui/menus/AdminSpawnMenu.gd",
+        "res://scripts/ui/menus/PauseMenuUI.gd",
+        "res://scripts/world/build/BuildModeController.gd",
+        "res://scripts/world/environment/BunkerPregen.gd",
+        "res://scripts/world/environment/LightingDirector.gd",
+        "res://scripts/world/power/PowerManager.gd"
+      ],
+      "group_lookups": [
+        "gridmap",
+        "power_manager"
+      ],
+      "autoload_references": [
+        "SaveManager"
+      ],
+      "complexity_score": 986
+    },
+    {
+      "path": "res://scripts/world/core/SaveManager.gd",
+      "line_count": 156,
+      "class_name": null,
+      "extends": "Node",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "register_field",
+          "args": "key: String, getter: Callable, setter: Callable",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_field",
+          "args": "key: String",
+          "returns": "void"
+        },
+        {
+          "name": "slot_exists",
+          "args": "slot: int",
+          "returns": "bool"
+        },
+        {
+          "name": "get_slot_info",
+          "args": "slot: int",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "save_game",
+          "args": "slot: int",
+          "returns": "bool"
+        },
+        {
+          "name": "load_game",
+          "args": "slot: int",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [
+        "player_stats"
+      ],
+      "autoload_references": [
+        "SaveManager"
+      ],
+      "complexity_score": 170
+    },
+    {
+      "path": "res://scripts/world/core/WorldManager.gd",
+      "line_count": 19,
+      "class_name": null,
+      "extends": "Node",
+      "exports": [],
+      "signals": [
+        {
+          "name": "scene_changed",
+          "params": "(scene_name: String)"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "change_scene",
+          "args": "path: String",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [
+        "WorldManager"
+      ],
+      "complexity_score": 21
+    },
+    {
+      "path": "res://scripts/world/environment/BunkerLayout.gd",
+      "line_count": 37,
+      "class_name": null,
+      "extends": "GridMap",
+      "exports": [
+        {
+          "name": "bunker_width",
+          "type": "int"
+        },
+        {
+          "name": "bunker_depth",
+          "type": "int"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 1,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 38
+    },
+    {
+      "path": "res://scripts/world/environment/BunkerPregen.gd",
+      "line_count": 377,
+      "class_name": null,
+      "extends": "Node3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "generate",
+          "args": "",
+          "returns": "Dictionary"
+        }
+      ],
+      "private_function_count": 9,
+      "preloads": [
+        "res://scenes/world/Flashlight.tscn",
+        "res://scenes/world/FuelCan.tscn"
+      ],
+      "group_lookups": [
+        "inventory_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 388
+    },
+    {
+      "path": "res://scripts/world/environment/DustMotes.gd",
+      "line_count": 76,
+      "class_name": "DustMotes",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 76
+    },
+    {
+      "path": "res://scripts/world/environment/LightingDirector.gd",
+      "line_count": 89,
+      "class_name": "LightingDirector",
+      "extends": "Node",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_pm",
+          "signal": "grid_state_changed"
+        }
+      ],
+      "public_functions": [],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 93
+    },
+    {
+      "path": "res://scripts/world/environment/RockSurround.gd",
+      "line_count": 336,
+      "class_name": null,
+      "extends": "Node3D",
+      "exports": [
+        {
+          "name": "bunker_width",
+          "type": "int"
+        },
+        {
+          "name": "bunker_depth",
+          "type": "int"
+        },
+        {
+          "name": "dig_margin",
+          "type": "int"
+        },
+        {
+          "name": "chunk_size",
+          "type": "int"
+        }
+      ],
+      "signals": [
+        {
+          "name": "chunk_deconstructed",
+          "params": "(chunk_origin: Vector2i)"
+        },
+        {
+          "name": "chunk_restored",
+          "params": "(chunk_origin: Vector2i)"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_chunk_at_world_pos",
+          "args": "world_pos: Vector3",
+          "returns": "Vector2i"
+        },
+        {
+          "name": "is_chunk_active",
+          "args": "chunk_id: Vector2i",
+          "returns": "bool"
+        },
+        {
+          "name": "get_chunk_center",
+          "args": "chunk_id: Vector2i",
+          "returns": "Vector3"
+        },
+        {
+          "name": "deconstruct_chunk",
+          "args": "chunk_id: Vector2i",
+          "returns": "void"
+        },
+        {
+          "name": "restore_chunk",
+          "args": "chunk_id: Vector2i",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 8,
+      "preloads": [
+        "res://assets/textures/rocks_ground_dark.jpg"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 354
+    },
+    {
+      "path": "res://scripts/world/furniture/Bed.gd",
+      "line_count": 39,
+      "class_name": null,
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [
+        {
+          "name": "sleep_requested",
+          "params": "()"
+        },
+        {
+          "name": "wake_requested",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "set_player_in_range",
+          "args": "in_range: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_sleeping",
+          "args": "sleeping: bool",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 1,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 48
+    },
+    {
+      "path": "res://scripts/world/furniture/Shelving.gd",
+      "line_count": 579,
+      "class_name": "Shelving",
+      "extends": "StaticBody3D",
+      "exports": [
+        {
+          "name": "unit_w",
+          "type": "float"
+        },
+        {
+          "name": "unit_h",
+          "type": "float"
+        },
+        {
+          "name": "unit_d",
+          "type": "float"
+        },
+        {
+          "name": "shelf_y",
+          "type": "Array[float]"
+        },
+        {
+          "name": "slot_offset_x",
+          "type": "float"
+        },
+        {
+          "name": "slot_lift",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "item_placed",
+          "params": "(slot_index: int, item: RigidBody3D)"
+        },
+        {
+          "name": "item_retrieved",
+          "params": "(slot_index: int, item: RigidBody3D)"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "item",
+          "signal": "knocked_out"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "set_player_in_range",
+          "args": "in_range: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_f_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_e_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_world_pos",
+          "args": "",
+          "returns": "Vector3"
+        },
+        {
+          "name": "on_f_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "on_e_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "retrieve_to_carry",
+          "args": "slot_idx: int, isys: Node",
+          "returns": "void"
+        },
+        {
+          "name": "retrieve_to_inventory",
+          "args": "slot_idx: int, inv: Node",
+          "returns": "void"
+        },
+        {
+          "name": "eject_all_items",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "is_slot_full_for",
+          "args": "item: RigidBody3D",
+          "returns": "bool"
+        },
+        {
+          "name": "slot_count",
+          "args": "slot_idx: int",
+          "returns": "int"
+        },
+        {
+          "name": "slot_top_item",
+          "args": "slot_idx: int",
+          "returns": "RigidBody3D"
+        },
+        {
+          "name": "slot_is_empty",
+          "args": "slot_idx: int",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 14,
+      "preloads": [],
+      "group_lookups": [
+        "world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 623
+    },
+    {
+      "path": "res://scripts/world/items/CanCase.gd",
+      "line_count": 170,
+      "class_name": null,
+      "extends": "RigidBody3D",
+      "exports": [
+        {
+          "name": "item_name",
+          "type": "String"
+        },
+        {
+          "name": "can_count",
+          "type": "int"
+        },
+        {
+          "name": "follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "inv_follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "pickup_grace",
+          "type": "float"
+        },
+        {
+          "name": "knock_distance",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "picked_up",
+          "params": "()"
+        },
+        {
+          "name": "dropped",
+          "params": "()"
+        },
+        {
+          "name": "knocked_out",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "pickup",
+          "args": "hold_point: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "drop",
+          "args": "world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "world_parent: Node3D, place_position: Vector3, place_rotation: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [
+        "player_stats",
+        "world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 186
+    },
+    {
+      "path": "res://scripts/world/items/Flashlight.gd",
+      "line_count": 351,
+      "class_name": null,
+      "extends": "RigidBody3D",
+      "exports": [
+        {
+          "name": "follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "inv_follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "pickup_grace",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "picked_up",
+          "params": "()"
+        },
+        {
+          "name": "dropped",
+          "params": "()"
+        },
+        {
+          "name": "knocked_out",
+          "params": "()"
+        },
+        {
+          "name": "charge_changed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "GraphicsSettings",
+          "signal": "settings_changed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "get_charge_info",
+          "args": "",
+          "returns": "Array"
+        },
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "set_player",
+          "args": "p: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "pickup",
+          "args": "hold_point: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "drop",
+          "args": "_world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 10,
+      "preloads": [],
+      "group_lookups": [
+        "player"
+      ],
+      "autoload_references": [
+        "GraphicsSettings"
+      ],
+      "complexity_score": 379
+    },
+    {
+      "path": "res://scripts/world/items/FoodCan.gd",
+      "line_count": 165,
+      "class_name": null,
+      "extends": "RigidBody3D",
+      "exports": [
+        {
+          "name": "follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "inv_follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "pickup_grace",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "picked_up",
+          "params": "()"
+        },
+        {
+          "name": "dropped",
+          "params": "()"
+        },
+        {
+          "name": "knocked_out",
+          "params": "()"
+        },
+        {
+          "name": "charge_changed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "pickup",
+          "args": "hold_point: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "drop",
+          "args": "_world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 5,
+      "preloads": [],
+      "group_lookups": [
+        "player_stats"
+      ],
+      "autoload_references": [],
+      "complexity_score": 184
+    },
+    {
+      "path": "res://scripts/world/items/FuelCan.gd",
+      "line_count": 222,
+      "class_name": null,
+      "extends": "RigidBody3D",
+      "exports": [
+        {
+          "name": "follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "inv_follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "pickup_grace",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "picked_up",
+          "params": "()"
+        },
+        {
+          "name": "dropped",
+          "params": "()"
+        },
+        {
+          "name": "knocked_out",
+          "params": "()"
+        },
+        {
+          "name": "charge_changed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "can_store",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "set_player_in_range",
+          "args": "in_range: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "refuel_tick",
+          "args": "delta: float",
+          "returns": "void"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "pickup",
+          "args": "hold_point: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "drop",
+          "args": "_world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 7,
+      "preloads": [],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 249
+    },
+    {
+      "path": "res://scripts/world/items/HeavyConsumerTest.gd",
+      "line_count": 251,
+      "class_name": null,
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_prio_ui",
+          "signal": "closed"
+        },
+        {
+          "target_expr": "_prio_ui",
+          "signal": "load_toggled"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "set_powered",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_shed",
+          "args": "shed_on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        }
+      ],
+      "private_function_count": 10,
+      "preloads": [
+        "res://scripts/ui/power/PowerPriorityUI.gd"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 269
+    },
+    {
+      "path": "res://scripts/world/items/PickupItem.gd",
+      "line_count": 77,
+      "class_name": null,
+      "extends": "RigidBody3D",
+      "exports": [
+        {
+          "name": "item_name",
+          "type": "String"
+        },
+        {
+          "name": "carry_offset",
+          "type": "Vector3"
+        },
+        {
+          "name": "tween_speed",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "picked_up",
+          "params": "()"
+        },
+        {
+          "name": "dropped",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "pickup",
+          "args": "hold_point: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "drop",
+          "args": "world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "world_parent: Node3D, place_position: Vector3, place_rotation: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 83
+    },
+    {
+      "path": "res://scripts/world/items/TestCrate.gd",
+      "line_count": 130,
+      "class_name": null,
+      "extends": "RigidBody3D",
+      "exports": [
+        {
+          "name": "item_name",
+          "type": "String"
+        },
+        {
+          "name": "knock_distance",
+          "type": "float"
+        },
+        {
+          "name": "follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "inv_follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "pickup_grace",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "picked_up",
+          "params": "()"
+        },
+        {
+          "name": "dropped",
+          "params": "()"
+        },
+        {
+          "name": "knocked_out",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "pickup",
+          "args": "hold_point: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "drop",
+          "args": "world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "world_parent: Node3D, place_position: Vector3, place_rotation: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [
+        "world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 142
+    },
+    {
+      "path": "res://scripts/world/items/WaterBottle.gd",
+      "line_count": 167,
+      "class_name": null,
+      "extends": "RigidBody3D",
+      "exports": [
+        {
+          "name": "follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "inv_follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "pickup_grace",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "picked_up",
+          "params": "()"
+        },
+        {
+          "name": "dropped",
+          "params": "()"
+        },
+        {
+          "name": "knocked_out",
+          "params": "()"
+        },
+        {
+          "name": "charge_changed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "pickup",
+          "args": "hold_point: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "drop",
+          "args": "_world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 5,
+      "preloads": [],
+      "group_lookups": [
+        "player_stats"
+      ],
+      "autoload_references": [],
+      "complexity_score": 186
+    },
+    {
+      "path": "res://scripts/world/items/WaterCase.gd",
+      "line_count": 175,
+      "class_name": null,
+      "extends": "RigidBody3D",
+      "exports": [
+        {
+          "name": "item_name",
+          "type": "String"
+        },
+        {
+          "name": "bottle_count",
+          "type": "int"
+        },
+        {
+          "name": "follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "inv_follow_speed",
+          "type": "float"
+        },
+        {
+          "name": "pickup_grace",
+          "type": "float"
+        },
+        {
+          "name": "knock_distance",
+          "type": "float"
+        }
+      ],
+      "signals": [
+        {
+          "name": "picked_up",
+          "params": "()"
+        },
+        {
+          "name": "dropped",
+          "params": "()"
+        },
+        {
+          "name": "knocked_out",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "pickup",
+          "args": "hold_point: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "drop",
+          "args": "world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "world_parent: Node3D, place_position: Vector3, place_rotation: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [
+        "player_stats",
+        "world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 191
+    },
+    {
+      "path": "res://scripts/world/power/BatteryBank.gd",
+      "line_count": 625,
+      "class_name": "BatteryBank",
+      "extends": "StaticBody3D",
+      "exports": [
+        {
+          "name": "battery_tier",
+          "type": "int"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_panel_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "_panel_canvas",
+          "signal": "gui_input"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "set_charge_display",
+          "args": "wh: float, cap: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_battery_mode",
+          "args": "charging: bool, discharging: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_grid_connected",
+          "args": "connected: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_enabled",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "set_player_in_range",
+          "args": "in_range: bool",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 20,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 659
+    },
+    {
+      "path": "res://scripts/world/power/BreakerBox.gd",
+      "line_count": 918,
+      "class_name": "BreakerBox",
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "p",
+          "signal": "finished"
+        },
+        {
+          "target_expr": "_settings_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "_settings_canvas",
+          "signal": "gui_input"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "notify_wire_placed",
+          "args": "wn_key: String, wn_pos: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "set_tripped",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "set_player_in_range",
+          "args": "in_range: bool",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 24,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf",
+        "res://assets/textures/vfx/soft_glow_dot.png"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 952
+    },
+    {
+      "path": "res://scripts/world/power/DeviceDatabase.gd",
+      "line_count": 111,
+      "class_name": null,
+      "extends": "Node",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [
+        "DeviceDatabase"
+      ],
+      "complexity_score": 111
+    },
+    {
+      "path": "res://scripts/world/power/GeneratorObject.gd",
+      "line_count": 463,
+      "class_name": "GeneratorObject",
+      "extends": "StaticBody3D",
+      "exports": [
+        {
+          "name": "generator_tier",
+          "type": "int"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "pm",
+          "signal": "generator_fuel_low"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "grid_tripped"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "grid_restored"
+        },
+        {
+          "target_expr": "_inspect_ui",
+          "signal": "closed"
+        },
+        {
+          "target_expr": "_inspect_ui",
+          "signal": "backup_toggled"
+        },
+        {
+          "target_expr": "_inspect_ui",
+          "signal": "power_toggled"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "set_player_in_range",
+          "args": "in_range: bool",
+          "returns": "void"
+        },
+        {
+          "name": "on_grid_tripped",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "set_powered",
+          "args": "_on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_running",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_fuel",
+          "args": "level: float",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 21,
+      "preloads": [
+        "res://assets/textures/vfx/smoke_puff.png",
+        "res://scripts/ui/power/GeneratorInspectUI.gd"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 498
+    },
+    {
+      "path": "res://scripts/world/power/PowerGraph.gd",
+      "line_count": 872,
+      "class_name": "PowerGraph",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "register_wire_node",
+          "args": "pos: Vector3, role: String, device_id: String = \"\"",
+          "returns": "String"
+        },
+        {
+          "name": "get_wire_node_role",
+          "args": "node_key: String",
+          "returns": "String"
+        },
+        {
+          "name": "get_wire_node_pos",
+          "args": "node_key: String",
+          "returns": "Vector3"
+        },
+        {
+          "name": "get_wire_node_key_at_pos",
+          "args": "pos: Vector3",
+          "returns": "String"
+        },
+        {
+          "name": "has_wire_node_at_pos",
+          "args": "pos: Vector3",
+          "returns": "bool"
+        },
+        {
+          "name": "unregister_wire_node",
+          "args": "node_key: String",
+          "returns": "void"
+        },
+        {
+          "name": "register_wire_edge",
+          "args": "node_a_id:  String,\n\t\tnode_b_id:  String,\n\t\tscene_node: Node  = null,\n\t\tno_visual:  bool  = false",
+          "returns": "String"
+        },
+        {
+          "name": "unregister_wire_edge",
+          "args": "edge_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "has_wire_edge",
+          "args": "edge_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "resplit_breaker",
+          "args": "node_key: String",
+          "returns": "void"
+        },
+        {
+          "name": "get_wire_nodes",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "get_wire_edges",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        }
+      ],
+      "private_function_count": 9,
+      "preloads": [
+        "res://scripts/world/power/WireSegment.gd"
+      ],
+      "group_lookups": [
+        "main_world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 905
+    },
+    {
+      "path": "res://scripts/world/power/PowerManager.gd",
+      "line_count": 3624,
+      "class_name": "PowerManager",
+      "extends": "Node",
+      "exports": [],
+      "signals": [
+        {
+          "name": "grid_state_changed",
+          "params": "(new_state: GridState, old_state: GridState)"
+        },
+        {
+          "name": "draw_changed",
+          "params": "(active_watts: float, capacity_watts: float, battery_pct: float)"
+        },
+        {
+          "name": "grid_tripped",
+          "params": "()"
+        },
+        {
+          "name": "grid_restored",
+          "params": "()"
+        },
+        {
+          "name": "grid_offline",
+          "params": "()"
+        },
+        {
+          "name": "overloaded_started",
+          "params": "()"
+        },
+        {
+          "name": "overloaded_ended",
+          "params": "()"
+        },
+        {
+          "name": "consumer_registered",
+          "params": "(id: String, watts: float, priority: int)"
+        },
+        {
+          "name": "consumer_unregistered",
+          "params": "(id: String)"
+        },
+        {
+          "name": "consumer_priority_changed",
+          "params": "(id: String, priority: int)"
+        },
+        {
+          "name": "generator_registered",
+          "params": "(gen_id: String, watts: float, is_backup: bool)"
+        },
+        {
+          "name": "generator_unregistered",
+          "params": "(gen_id: String)"
+        },
+        {
+          "name": "generator_started",
+          "params": "(gen_id: String)"
+        },
+        {
+          "name": "generator_stopped",
+          "params": "(gen_id: String, reason: String)"
+        },
+        {
+          "name": "generator_fuel_low",
+          "params": "(gen_id: String, fuel_pct: float)"
+        },
+        {
+          "name": "battery_registered",
+          "params": "(bat_id: String, capacity_wh: float)"
+        },
+        {
+          "name": "battery_unregistered",
+          "params": "(bat_id: String)"
+        },
+        {
+          "name": "battery_low",
+          "params": "(bat_id: String, charge_pct: float)"
+        },
+        {
+          "name": "battery_state_changed",
+          "params": "(bat_id: String, discharging: bool)"
+        },
+        {
+          "name": "battery_drained",
+          "params": "(bat_id: String)"
+        },
+        {
+          "name": "wire_edge_registered",
+          "params": "(edge_id: String)"
+        },
+        {
+          "name": "wire_edge_unregistered",
+          "params": "(edge_id: String)"
+        },
+        {
+          "name": "wire_node_registered",
+          "params": "(node_key: String)"
+        },
+        {
+          "name": "wire_node_unregistered",
+          "params": "(node_key: String)"
+        },
+        {
+          "name": "breaker_tripped",
+          "params": "(breaker_id: String)"
+        },
+        {
+          "name": "breaker_reset",
+          "params": "(breaker_id: String)"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "dump_wire_log",
+          "args": "",
+          "returns": "Array"
+        },
+        {
+          "name": "register_wire_node",
+          "args": "pos: Vector3, role: String, device_id: String = \"\"",
+          "returns": "String"
+        },
+        {
+          "name": "get_wire_node_role",
+          "args": "node_key: String",
+          "returns": "String"
+        },
+        {
+          "name": "get_wire_node_pos",
+          "args": "node_key: String",
+          "returns": "Vector3"
+        },
+        {
+          "name": "get_wire_node_key_at_pos",
+          "args": "pos: Vector3",
+          "returns": "String"
+        },
+        {
+          "name": "has_wire_node_at_pos",
+          "args": "pos: Vector3",
+          "returns": "bool"
+        },
+        {
+          "name": "unregister_wire_node",
+          "args": "node_key: String",
+          "returns": "void"
+        },
+        {
+          "name": "register_wire_edge",
+          "args": "node_a_id:  String,\n\t\tnode_b_id:  String,\n\t\tscene_node: Node  = null,\n\t\tno_visual:  bool  = false",
+          "returns": "String"
+        },
+        {
+          "name": "unregister_wire_edge",
+          "args": "edge_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "has_wire_edge",
+          "args": "edge_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "register_breaker",
+          "args": "wire_node_key: String, scene_node: Node = null",
+          "returns": "String"
+        },
+        {
+          "name": "resplit_breaker",
+          "args": "node_key: String",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_breaker",
+          "args": "breaker_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "trip_breaker",
+          "args": "breaker_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "reset_breaker",
+          "args": "breaker_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "reset_main_breaker",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "set_breaker_passthrough",
+          "args": "breaker_id: String, pass_battery: bool, pass_generator: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_breaker_upgraded",
+          "args": "breaker_id: String, upgraded: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_breaker_upgraded",
+          "args": "breaker_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "set_battery_enabled",
+          "args": "bat_id: String, enabled: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_zone_snapshot",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "zone_color_at",
+          "args": "color_index: int, alpha: float = 0.60",
+          "returns": "Color"
+        },
+        {
+          "name": "register_consumer",
+          "args": "id:       String,\n\t\twatts:    float,\n\t\tnode:     Node,\n\t\ttype:     String = \"unknown\",\n\t\tpriority: int    = 0,\n\t\tactive:   bool   = true",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_consumer",
+          "args": "id: String",
+          "returns": "void"
+        },
+        {
+          "name": "set_consumer_active",
+          "args": "id: String, active: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_consumer_watts",
+          "args": "id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_consumer_priority",
+          "args": "id: String",
+          "returns": "int"
+        },
+        {
+          "name": "set_consumer_priority",
+          "args": "id: String, priority: int",
+          "returns": "void"
+        },
+        {
+          "name": "get_consumer_active",
+          "args": "id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_consumer_powered",
+          "args": "id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_consumer_shed",
+          "args": "id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_consumer_status",
+          "args": "id: String",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "register_generator",
+          "args": "gen_id:    String,\n\t\twatts:     float,\n\t\tnode:      Node  = null,\n\t\tis_backup: bool  = false,\n\t\tfuel:      float = 100.0,\n\t\thealth:    float = 100.0",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_generator",
+          "args": "gen_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "get_generator_fuel",
+          "args": "gen_id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_generator_running",
+          "args": "gen_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "set_generator_fuel",
+          "args": "gen_id: String, new_fuel: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_generator_health",
+          "args": "gen_id: String, new_health: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_generator_running",
+          "args": "gen_id: String, running: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_generator_backup",
+          "args": "gen_id: String, is_backup: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_generator_is_backup",
+          "args": "gen_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_generator_health",
+          "args": "gen_id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_generator_watts",
+          "args": "gen_id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_generators_status",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "register_battery",
+          "args": "bat_id:         String,\n\t\tcapacity_wh:    float,\n\t\tnode:           Node  = null,\n\t\tinitial_charge: float = -1.0",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_battery",
+          "args": "bat_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "set_battery_charge",
+          "args": "bat_id: String, charge_wh: float",
+          "returns": "void"
+        },
+        {
+          "name": "total_battery_wh",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "battery_charge_ratio",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "load_ratio",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "headroom_watts",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "is_consumer_powered",
+          "args": "id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_grid_state_string",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_debug_snapshot",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "get_reachable_device_ids",
+          "args": "start_key: String",
+          "returns": "Array[String]"
+        },
+        {
+          "name": "get_zone_index_for_key",
+          "args": "node_key: String",
+          "returns": "int"
+        },
+        {
+          "name": "reset_zone_by_index",
+          "args": "zone_index: int",
+          "returns": "void"
+        },
+        {
+          "name": "get_wire_nodes",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "patch_wire_edge_node",
+          "args": "edge_id: String, node: Node",
+          "returns": "void"
+        },
+        {
+          "name": "snapshot_zone_colors",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "restore_zone_colors",
+          "args": "snapshot: Dictionary",
+          "returns": "void"
+        },
+        {
+          "name": "get_wire_zones_with_colors",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "get_wire_zones",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "get_wire_zones_cached",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "get_zone_node_set_for_key_cached",
+          "args": "node_key: String",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "get_edge_world_endpoints",
+          "args": "edge_id: String",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "reconcile_wire_visuals",
+          "args": "",
+          "returns": "int"
+        },
+        {
+          "name": "get_wire_edges",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "set_wire_edge_node",
+          "args": "edge_id: String, scene_node: Node",
+          "returns": "void"
+        },
+        {
+          "name": "set_wire_edge_no_visual",
+          "args": "edge_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "get_breakers",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "get_status",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "get_edge_load",
+          "args": "edge_id: String",
+          "returns": "float"
+        },
+        {
+          "name": "begin_bulk",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "end_bulk",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "request_solve",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "clear_exhausted_brownout",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 50,
+      "preloads": [],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [
+        "DeviceDatabase"
+      ],
+      "complexity_score": 3828
+    },
+    {
+      "path": "res://scripts/world/power/PowerPriorityInteractable.gd",
+      "line_count": 54,
+      "class_name": null,
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 60
+    },
+    {
+      "path": "res://scripts/world/power/PowerRegistry.gd",
+      "line_count": 356,
+      "class_name": "PowerRegistry",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "register_consumer",
+          "args": "id:       String,\n\t\twatts:    float,\n\t\tnode:     Node,\n\t\ttype:     String = \"unknown\",\n\t\tpriority: int    = 0,\n\t\tactive:   bool   = true",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_consumer",
+          "args": "id: String",
+          "returns": "void"
+        },
+        {
+          "name": "set_consumer_active",
+          "args": "id: String, active: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_consumer_watts",
+          "args": "id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_consumer_priority",
+          "args": "id: String",
+          "returns": "int"
+        },
+        {
+          "name": "get_consumer_active",
+          "args": "id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_consumer_powered",
+          "args": "id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_consumer_shed",
+          "args": "id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_consumer_status",
+          "args": "id: String",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "register_generator",
+          "args": "gen_id:    String,\n\t\twatts:     float,\n\t\tnode:      Node  = null,\n\t\tis_backup: bool  = false,\n\t\tfuel:      float = 100.0,\n\t\thealth:    float = 100.0",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_generator",
+          "args": "gen_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "get_generator_fuel",
+          "args": "gen_id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_generator_running",
+          "args": "gen_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_generator_is_backup",
+          "args": "gen_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_generator_health",
+          "args": "gen_id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_generator_watts",
+          "args": "gen_id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_generators_status",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "register_battery",
+          "args": "bat_id:         String,\n\t\tcapacity_wh:    float,\n\t\tnode:           Node  = null,\n\t\tinitial_charge: float = -1.0",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_battery",
+          "args": "bat_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "set_battery_charge",
+          "args": "bat_id: String, charge_wh: float",
+          "returns": "void"
+        },
+        {
+          "name": "total_battery_wh",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "battery_charge_ratio",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "is_consumer_powered",
+          "args": "id: String",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [
+        "DeviceDatabase"
+      ],
+      "complexity_score": 404
+    },
+    {
+      "path": "res://scripts/world/power/PowerSolver.gd",
+      "line_count": 1218,
+      "class_name": "PowerSolver",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "clear_exhausted_brownout",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 25,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 1245
+    },
+    {
+      "path": "res://scripts/world/power/PowerTerminal.gd",
+      "line_count": 248,
+      "class_name": "PowerTerminal",
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_terminal_ui",
+          "signal": "closed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "set_powered",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        }
+      ],
+      "private_function_count": 7,
+      "preloads": [
+        "res://scripts/ui/power/PowerTerminalUI.gd"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 261
+    },
+    {
+      "path": "res://scripts/world/power/UpgradedBreakerBox.gd",
+      "line_count": 79,
+      "class_name": "UpgradedBreakerBox",
+      "extends": "BreakerBox",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        }
+      ],
+      "private_function_count": 3,
+      "preloads": [],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 84
+    },
+    {
+      "path": "res://scripts/world/power/WallLight.gd",
+      "line_count": 427,
+      "class_name": null,
+      "extends": "Node3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_prio_ui",
+          "signal": "closed"
+        },
+        {
+          "target_expr": "_prio_ui",
+          "signal": "priority_changed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "set_powered",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_shed",
+          "args": "shed_on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "on_priority_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_priority_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "notify_wire_placed",
+          "args": "wn_key: String, wn_pos: Vector3",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 13,
+      "preloads": [
+        "res://scripts/ui/power/PowerPriorityUI.gd",
+        "res://scripts/world/power/PowerPriorityInteractable.gd"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [
+        "DeviceDatabase"
+      ],
+      "complexity_score": 450
+    },
+    {
+      "path": "res://scripts/world/power/WireDrawMode.gd",
+      "line_count": 668,
+      "class_name": null,
+      "extends": "Node",
+      "exports": [],
+      "signals": [
+        {
+          "name": "wire_placed",
+          "params": "(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vector3)"
+        },
+        {
+          "name": "wire_nodes_connected",
+          "params": "(key_a: String, pos_a: Vector3, key_b: String, pos_b: Vector3)"
+        },
+        {
+          "name": "wire_tool_exit_requested",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "activate",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "deactivate",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "handle_input",
+          "args": "event: InputEvent",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 24,
+      "preloads": [
+        "res://scripts/world/power/WireSegment.gd"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 698
+    },
+    {
+      "path": "res://scripts/world/power/WireGraphBuilder.gd",
+      "line_count": 1506,
+      "class_name": "WireGraphBuilder",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 10,
+      "preloads": [
+        "res://scripts/world/power/WireSegment.gd"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 1516
+    },
+    {
+      "path": "res://scripts/world/power/WireSegment.gd",
+      "line_count": 213,
+      "class_name": "WireSegment",
+      "extends": "Node3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_endpoints",
+          "args": "a: Vector3, b: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "set_powered",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_burnt",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_overloaded",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_zone_color",
+          "args": "color: Color",
+          "returns": "void"
+        },
+        {
+          "name": "set_highlight_delete",
+          "args": "on: bool",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 3,
+      "preloads": [
+        "res://scripts/world/power/WireSegment.gd"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 228
+    }
+  ],
+  "dependency_edges": [
+    {
+      "from": "res://scripts/ui/menus/PauseMenuUI.gd",
+      "to": "res://scripts/ui/menus/GraphicsSettingsPanel.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/furniture/Shelving.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/items/HeavyConsumerTest.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/power/BatteryBank.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/power/BreakerBox.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/power/GeneratorObject.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/power/PowerTerminal.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/power/UpgradedBreakerBox.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/power/WallLight.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/power/WireDrawMode.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/GhostPreview.gd",
+      "to": "res://scripts/world/furniture/Shelving.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/GhostPreview.gd",
+      "to": "res://scripts/world/power/WallLight.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/MoveDuplicateTool.gd",
+      "to": "res://scripts/world/furniture/Shelving.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/MoveDuplicateTool.gd",
+      "to": "res://scripts/world/power/WallLight.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/ui/build/BuildModeHUD.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/ui/debug/DebugOverlay.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/ui/inventory/InventoryManager.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/ui/inventory/ShelfUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/ui/menus/AdminSpawnMenu.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/ui/menus/PauseMenuUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/world/build/BuildModeController.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/world/environment/BunkerPregen.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/world/environment/LightingDirector.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/world/power/PowerManager.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/items/HeavyConsumerTest.gd",
+      "to": "res://scripts/ui/power/PowerPriorityUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/power/GeneratorObject.gd",
+      "to": "res://scripts/ui/power/GeneratorInspectUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/power/PowerGraph.gd",
+      "to": "res://scripts/world/power/WireSegment.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/power/PowerTerminal.gd",
+      "to": "res://scripts/ui/power/PowerTerminalUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/power/WallLight.gd",
+      "to": "res://scripts/ui/power/PowerPriorityUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/power/WallLight.gd",
+      "to": "res://scripts/world/power/PowerPriorityInteractable.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/power/WireDrawMode.gd",
+      "to": "res://scripts/world/power/WireSegment.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/power/WireGraphBuilder.gd",
+      "to": "res://scripts/world/power/WireSegment.gd",
+      "via": "preload"
+    }
+  ],
+  "circular_reference_candidates": []
+}
