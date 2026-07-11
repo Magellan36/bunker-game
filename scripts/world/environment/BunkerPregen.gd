@@ -45,6 +45,16 @@ const TILE_WALL:   int = 1
 const TILE_PILLAR: int = 2
 const TILE_LIGHT:  int = 5
 
+## Darkening tint applied to the pregen GridMap's floor/wall/pillar meshlib
+## items at runtime (July 2026 lighting fix) — matches BuildMaterials.gd's
+## DARK=0.667 factor used on player-placed walls/floors in Build Mode.
+## bunker_tiles.meshlib is a completely separate asset from that build-mode
+## material system (the GridMap references it directly), so its baked
+## materials were never touched by that tint and read noticeably brighter/
+## more cream-colored than everything else. See _retint_meshlib().
+const RETINT_DARK: float = 0.667
+var _meshlib_retinted: bool = false
+
 const ANGLE_LEFT:   float = 180.0
 const ANGLE_RIGHT:  float =   0.0
 const ANGLE_TOP:    float =  90.0
@@ -53,10 +63,50 @@ const ANGLE_BOTTOM: float = 270.0
 
 ## Returns a Dictionary of all spawned wall/pillar nodes keyed by "%.2f,%.2f"
 ## world position so MainWorld can register them in _autofill_nodes.
+## Duplicates gridmap's MeshLibrary (never mutates the shared .meshlib
+## resource on disk) and darkens the FLOOR/WALL/PILLAR items' existing
+## surface materials by RETINT_DARK, in place, preserving whatever texture/
+## material each item already had — mirrors the "darkening factor applied
+## via albedo_color tint" approach BuildMaterials.gd uses for build-mode
+## walls/floors. Idempotent (_meshlib_retinted guard) since generate() could
+## in principle run more than once.
+func _retint_meshlib() -> void:
+	if _meshlib_retinted or gridmap == null or gridmap.mesh_library == null:
+		return
+	_meshlib_retinted = true
+
+	var lib: MeshLibrary = gridmap.mesh_library.duplicate(true) as MeshLibrary
+	if lib == null:
+		return
+
+	for item_id: int in [TILE_FLOOR, TILE_WALL, TILE_PILLAR]:
+		if not lib.has_item(item_id):
+			continue
+		var mesh: Mesh = lib.get_item_mesh(item_id)
+		if mesh == null:
+			continue
+		var new_mesh: ArrayMesh = mesh.duplicate(true) as ArrayMesh
+		if new_mesh == null:
+			continue   ## Not an ArrayMesh (e.g. a primitive) — leave untouched rather than guess.
+		for surf: int in new_mesh.get_surface_count():
+			var existing: Material = new_mesh.surface_get_material(surf)
+			var mat: StandardMaterial3D = (
+				existing.duplicate() as StandardMaterial3D
+				if existing is StandardMaterial3D
+				else StandardMaterial3D.new())
+			mat.albedo_color = Color(RETINT_DARK, RETINT_DARK, RETINT_DARK, 1.0) * mat.albedo_color
+			new_mesh.surface_set_material(surf, mat)
+		lib.set_item_mesh(item_id, new_mesh)
+
+	gridmap.mesh_library = lib
+
+
 func generate() -> Dictionary:
 	if build_controller == null or rock_surround == null:
 		push_error("BunkerPregen: build_controller or rock_surround not set")
 		return {}
+
+	_retint_meshlib()
 
 	var offset_x: float = rock_surround.OFFSET_X
 	var offset_z: float = rock_surround.OFFSET_Z

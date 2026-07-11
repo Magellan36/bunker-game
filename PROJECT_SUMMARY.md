@@ -431,18 +431,32 @@ settings (external review doc), not one bug. Fixed, in order:
    every lit surface into a soft bloom halo; raised so glow is reserved for
    genuinely bright sources.
 
-**Deliberately deferred** (per the review doc's own sequencing —
-these are final taste-level dials, meant to be tuned only after 1-5 above
-are visually confirmed in-editor, not guessed at the same time): `adjustment_
-brightness`/`adjustment_saturation` (wired via `adjustment_enabled = true`
-but still neutral at 1.0), `sdfgi_energy` (still Godot default). Also
-deferred: the bunker's interior floor/wall material albedo color (reads
-cream/tan in the screenshot) — flagged as a Phase 4 (materials) task, not a
-lighting fix; a genuinely dark room needs both darker light sources AND
-darker surfaces for GI to have less to bounce off, but that's a separate pass.
-**Untested by Brannon as of this fix** — needs an in-editor visual check
-before deciding whether further tuning (the deferred items above, or
-revisiting 1-5's exact values) is needed.
+**Taste pass + floor/wall material fix (July 2026, follow-up to the blowout
+fix above — confirmed working by Brannon before this round):**
+- `MainWorld.tscn` Environment: `adjustment_brightness = 0.87`,
+  `adjustment_saturation = 0.9` (was neutral 1.0/1.0 — `adjustment_enabled`
+  was already `true` but doing nothing), `sdfgi_energy = 0.7` (was Godot
+  default). Starting values per the original review doc's suggested ranges
+  — untested in-editor as of this commit, expect further eyeball tuning.
+- **Pregen bunker floor/wall/pillar tint** — root-caused: the cream/tan look
+  was the STARTING bunker's GridMap tiles specifically (`bunker_tiles.
+  meshlib`, referenced directly by the GridMap node in `MainWorld.tscn`),
+  a completely separate asset from Build Mode's player-placed walls/floors
+  (which already get a `DARK = 0.667` albedo tint via `BuildMaterials.gd`'s
+  `_apply_world_material()`). The pregen GridMap's baked meshlib materials
+  were never touched by that tint, so the two looked inconsistent — the
+  starting room read noticeably brighter than anything built afterward.
+  Fixed in `BunkerPregen.gd`'s new `_retint_meshlib()` (called once at the
+  top of `generate()`): duplicates `gridmap.mesh_library` (never mutates
+  the shared `.meshlib` file on disk — can't safely hand-edit that binary
+  resource anyway), then for the `TILE_FLOOR`/`TILE_WALL`/`TILE_PILLAR`
+  item IDs, duplicates each item's mesh and multiplies every surface's
+  existing material's `albedo_color` by the same `RETINT_DARK = 0.667`
+  factor `BuildMaterials.gd` uses — preserves whatever texture/material
+  each item already had rather than guessing a replacement.
+**Untested by Brannon as of this round** — needs an in-editor visual check
+(both the taste-pass values and the meshlib retint) before deciding whether
+further tuning is needed.
 
 3 real issues fixed (below) — full end-to-end test still pending.
 
