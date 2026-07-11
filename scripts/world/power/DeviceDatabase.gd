@@ -64,7 +64,7 @@ const DEFAULT_PRIORITY_BY_TYPE: Dictionary = {
 	"blast_door_motor":     2,
 	"security_camera":      2,
 	"water_purifier":       3,
-	"wall_light":           3,
+	"wall_light":           1,   ## kept in sync with WallLight.gd's own power_priority default
 	"ventilation_unit":     3,
 	"refrigerator":         3,
 	"radio":                4,

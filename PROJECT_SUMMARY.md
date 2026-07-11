@@ -121,7 +121,7 @@ review-implementation project); further splitting (PowerSolver) not yet done.
 | `PowerTerminalUI.gd` (world, dead) | — | **Deleted** in Stage 1 cleanup — was an orphaned duplicate, only `ui/` copy was ever loaded. |
 | `PowerPriorityInteractable.gd` + `PowerPriorityUI.gd` | 54 + 492 | Priority-adjustment device + panel (◄ N ► arrows, 1=critical…5=first-shed). |
 | `WireSegment.gd` / `WireDrawMode.gd` | 213 / 668 | Wire visuals + player wire-drawing tool. |
-| `WallLight.gd` | 409 | A consumer device (sets `power_zone`/`power_priority` before `_ready()` registers). |
+| `WallLight.gd` | 409 | A consumer device (sets `power_zone`/`power_priority` before `_ready()` registers). `power_priority` defaults to **1** (critical/never-shed, changed from 3 in July 2026) — covers both pregen level-start lights and player-placed lights since both use this same scene/script. Player can still override per-instance via the priority panel. `DeviceDatabase.DEFAULT_PRIORITY_BY_TYPE["wall_light"]` kept in sync at 1. |
 | `GeneratorInspectUI.gd` | 432 | Generator detail panel. |
 | `PowerGridReconciler.gd` | — | **Deleted** (Stage 7) — was a polling safety-net re-injecting player wires after rebuilds; made obsolete by the June 2026 incremental-wire-graph refactor. |
 

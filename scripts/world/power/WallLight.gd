@@ -49,8 +49,12 @@ var power_watts: float = 40.0
 ## Internal reference to the OmniLight3D — needed for set_powered() / set_shed()
 var _omni: OmniLight3D = null
 
-## Priority tier: 1 (critical) … 5 (luxury). Lights are standard (3).
-var power_priority: int = 3
+## Priority tier: 1 (critical) … 5 (luxury). Wall lights default to 1
+## (critical/never-shed) — both pregen level-start lights and player-placed
+## lights use this same default since they're the same WallLight.gd scene
+## either way. Player can still change it per-instance via the priority
+## panel (E to interact) same as any other consumer.
+var power_priority: int = 1
 
 ## Snap key returned by PowerManager.register_wire_node() — needed to
 ## unregister the wire node in _exit_tree(). Empty until registered.
