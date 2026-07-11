@@ -207,6 +207,8 @@ func _process(delta: float) -> void:
 # ─── Public API ───────────────────────────────────────────────────────────────
 func show_hud() -> void:
 	visible = true
+	## Standing convention (July 2026) — see UIFade.gd.
+	UIFade.fade_in(_canvas)
 	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
 	# Rebuild submenu viewports now that gridmap should be set
 	_refresh_submenu_previews()

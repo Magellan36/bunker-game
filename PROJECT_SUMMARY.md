@@ -39,9 +39,10 @@ scripts/
     power/       PowerTerminalUI, PowerPriorityUI, GeneratorInspectUI
     inventory/   InventoryHUD, InventoryManager, ShelfUI
     hud/         HUD, StatusBars, InteractPrompt, CircleFill
-    menus/       AdminSpawnMenu, PauseMenuUI, SleepOverlay
+    menus/       AdminSpawnMenu, PauseMenuUI, SleepOverlay, GraphicsSettingsPanel
     build/       BuildModeHUD
     debug/       DebugOverlay
+    common/      UIFade (shared cross-panel UI utilities, e.g. fade-in — see §9)
 scenes/     .tscn files, one per placeable/world object + core scenes (Player, HUD, MainWorld)
             — NOT reorganized to match (out of scope, still flat under scenes/world|ui|player/)
 ```
@@ -276,6 +277,21 @@ Most panels are **hand-rolled immediate-mode** (`_draw()` + `draw_string`/`draw_
 reason several files (PowerTerminalUI, BuildModeHUD, PowerPriorityUI) are 500–1000+
 lines of manual layout bookkeeping. **New panels going forward should prefer real
 Control node trees + a theme resource** to avoid repeating this.
+
+**Fade-in on open (standing convention, July 2026):** every panel that opens
+via player interaction fades in via `scripts/ui/common/UIFade.gd`
+(`UIFade.fade_in(target, duration := 0.15)`, a tiny shared static-function
+utility — call it right after `visible = true` in `open()`/`toggle()`).
+Applied to ALL current panels: `PowerTerminalUI`, `PowerPriorityUI`,
+`GeneratorInspectUI`, `BreakerBox` (covers `UpgradedBreakerBox` for free via
+inheritance), `BatteryBank`, `ShelfUI`, `AdminSpawnMenu`, `PauseMenuUI`,
+`GraphicsSettingsPanel`, `BuildModeHUD`. **Every new panel going forward
+should call this too.** Deliberately NOT applied to `HUD.gd` (already has
+its own working fade-in system) or `SleepOverlay.gd` (its own custom
+zzz-fade, not an interaction-opened panel) — don't add a second fade on top
+of either. `target` must be a `CanvasItem` (a `Control`/`Panel`, e.g. each
+panel's `_canvas`/`_panel`/`_root`), never the `CanvasLayer` itself (no
+`modulate` property there).
 
 ## 10. Known architecture debt (tracked, not yet done)
 - **Stage 8b:** ✅ DONE (July 2026) — `PowerSolver.gd` extracted, see §6 table.

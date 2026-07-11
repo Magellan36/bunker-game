@@ -56,6 +56,8 @@ func toggle() -> void:
 	_visible_state = not _visible_state
 	visible = _visible_state
 	if _visible_state:
+		## Standing convention (July 2026) — see UIFade.gd.
+		UIFade.fade_in(_panel)
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	else:
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)

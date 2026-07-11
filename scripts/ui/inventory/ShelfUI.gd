@@ -214,6 +214,8 @@ func open(shelf: Node3D) -> void:
 	visible = true
 	_layout_panel()
 	_populate_slots()
+	## Standing convention (July 2026) — see UIFade.gd.
+	UIFade.fade_in(_root)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 func close() -> void:

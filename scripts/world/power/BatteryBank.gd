@@ -252,6 +252,8 @@ func _build_panel() -> void:
 func _open_panel() -> void:
 	_panel_open = true
 	_panel_layer.visible = true
+	## Standing convention (July 2026) — see UIFade.gd.
+	UIFade.fade_in(_panel_canvas)
 	_panel_canvas.queue_redraw()
 
 
