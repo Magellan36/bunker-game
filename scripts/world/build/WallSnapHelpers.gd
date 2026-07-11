@@ -34,6 +34,21 @@ class_name WallSnapHelpers
 ## `_snap_light_to_wall()`/`_snap_breaker_to_wall()` with identical signatures
 ## (both called from GhostPreview as described above). `_is_pregen_interior_face()`
 ## is only called from within this same cluster, so needs no wrapper.
+##
+## `_is_true_pregen` VS `_is_pregen` (July 2026 fix — expanded-area wall snap bug):
+## `_is_pregen` (set unconditionally by `BuildModeController.spawn_structure()`)
+## means "level structure, not a player object" — it's shared by BOTH the
+## original 4 pregen boundary walls AND autofill walls spawned by the dig
+## solver (`WireGraphBuilder.gd`) along expanded-area boundaries. Other systems
+## (deconstruct-hover suppression, wire-deletion protection, placement-
+## occupancy skip) correctly treat both the same way and are UNCHANGED here.
+## `_is_true_pregen` is a narrower tag, set ONLY by `BunkerPregen.gd`'s
+## `_wall()`/`_pillar()` calls, meaning "one of the original 4 boundary walls
+## specifically". Only true-pregen walls are routed through the strict
+## `_is_pregen_interior_face()` original-rectangle math below — autofill walls
+## are accepted the same simple way player-placed walls are, since the dig
+## solver already only places them on real interior-facing boundary edges.
+## See `_is_pregen_interior_face()`'s own comment for the bug this replaced.
 
 var _owner: BuildModeController = null
 
@@ -68,7 +83,7 @@ func _snap_light_to_wall(base_pos: Vector3) -> Dictionary:
 	var player: Node3D = _owner.get_parent()
 	var best_dist: float       = _owner.LIGHT_WALL_SNAP_RANGE
 	var best_result: Dictionary = {}
-	var best_is_player_wall: bool = false   ## true = player _owner.TILE_WALL/_owner.TILE_PILLAR hit
+	var best_is_true_pregen: bool = false   ## true = ORIGINAL 4 pregen boundary walls only
 
 	for d: Dictionary in directions:
 		var dir: Vector3 = d["dir"] as Vector3
@@ -96,30 +111,36 @@ func _snap_light_to_wall(base_pos: Vector3) -> Dictionary:
 			continue  ## Not an interior-facing surface — skip
 
 		# Confirm the hit is actually a wall/pillar or GridMap geometry.
-		# Also track whether it's a player-placed interior wall vs GridMap perimeter.
+		# Also track whether it's specifically one of the ORIGINAL 4 pregen
+		# boundary walls (_is_true_pregen) — NOT merely "any level structure"
+		# (_is_pregen, which autofill walls also carry). Only the true-pregen
+		# ones are valid inputs to the strict original-rectangle math in
+		# _is_pregen_interior_face(); autofill walls (dig solver, already
+		# computed against the real cleared-cell boundary) are accepted the
+		# same simple way player-placed walls are — see this file's header.
 		var is_wall: bool = false
-		var is_player_wall: bool = false
+		var is_true_pregen: bool = false
 		var node: Node = hit.get("collider")
 		while node != null:
 			if node.has_meta("tile_id"):
 				var tid: int = node.get_meta("tile_id")
 				if tid == _owner.TILE_WALL or tid == _owner.TILE_PILLAR:
 					is_wall = true
-					## Only treat as player wall if it is NOT a pregen/autofill structure.
-					## Pregen walls have _is_pregen meta and must pass the interior-face
-					## check — they are NOT freely placeable by the player.
-					is_player_wall = not node.has_meta("_is_pregen")
+					is_true_pregen = node.has_meta("_is_true_pregen")
 				break
 			if node is GridMap:
 				is_wall = true
+				is_true_pregen = true   ## raw GridMap perimeter geometry — always true-pregen
 				break
 			node = node.get_parent()
 		if not is_wall:
 			continue
 
-		## For pregen/autofill walls and GridMap: reject side faces and exterior faces.
-		## Only the interior-facing surface of each boundary wall is valid.
-		if not is_player_wall and _owner.rock_surround != null:
+		## Only the ORIGINAL 4 pregen boundary walls need the strict
+		## interior-face revalidation — reject side/exterior faces on those.
+		## Autofill walls skip this: the dig solver already only ever places
+		## them on true interior-facing boundary edges.
+		if is_true_pregen and _owner.rock_surround != null:
 			if not _is_pregen_interior_face(hit["position"], hit_normal):
 				continue
 
@@ -133,12 +154,11 @@ func _snap_light_to_wall(base_pos: Vector3) -> Dictionary:
 				"pos":       Vector3(snapped_xz.x, base_pos.y, snapped_xz.z),
 				"angle_deg": d["angle_deg"],
 			}
-			best_is_player_wall = is_player_wall
+			best_is_true_pregen = is_true_pregen
 
 	# Discard the result if the snap position is invalid.
-	# For GridMap perimeter walls we apply strict interior-boundary filtering so lights
-	# can't be placed on outer rock faces or exterior wall surfaces.
-	if not best_result.is_empty() and _owner.rock_surround != null and not best_is_player_wall:
+	# Only re-validated against the original bunker rectangle for true-pregen walls.
+	if not best_result.is_empty() and _owner.rock_surround != null and best_is_true_pregen:
 		if not _owner._is_inside_bunker(best_result["pos"]):
 			return {}
 
@@ -170,7 +190,7 @@ func _snap_breaker_to_wall(base_pos: Vector3) -> Dictionary:
 	var player: Node3D = _owner.get_parent()
 	var best_dist: float        = _owner.LIGHT_WALL_SNAP_RANGE
 	var best_result: Dictionary = {}
-	var best_is_player_wall: bool = false
+	var best_is_true_pregen: bool = false   ## true = ORIGINAL 4 pregen boundary walls only
 
 	for d: Dictionary in directions:
 		var dir: Vector3   = d["dir"] as Vector3
@@ -191,32 +211,36 @@ func _snap_breaker_to_wall(base_pos: Vector3) -> Dictionary:
 			continue
 
 		## Walk up collider tree to classify the hit surface.
-		var is_wall: bool        = false
-		var is_player_wall: bool = false
-		var is_pregen: bool      = false
-		var hit_tile_id: int     = -1
+		## _is_true_pregen (ONLY the original 4 boundary walls) is distinct from
+		## the broader _is_pregen tag (also carried by autofill walls — see
+		## this file's header + BuildModeController.spawn_structure()).
+		var is_wall: bool         = false
+		var is_true_pregen: bool  = false
+		var hit_tile_id: int      = -1
 		var node: Node = hit.get("collider")
 		var walk_node: Node = node
 		while walk_node != null:
-			if walk_node.has_meta("_is_pregen"):
-				is_pregen = true
+			if walk_node.has_meta("_is_true_pregen"):
+				is_true_pregen = true
 			if walk_node.has_meta("tile_id"):
 				hit_tile_id = walk_node.get_meta("tile_id") as int
 				if hit_tile_id == _owner.TILE_WALL or hit_tile_id == _owner.TILE_PILLAR:
 					is_wall = true
-					## Player wall = has tile_id but NOT pregen tag
-					is_player_wall = not is_pregen
 				break
 			if walk_node is GridMap:
 				is_wall = true
+				is_true_pregen = true   ## raw GridMap perimeter geometry — always true-pregen
 				break
 			walk_node = walk_node.get_parent()
 
 		if not is_wall:
 			continue
 
-		## Pregen walls (and raw GridMap) must pass the interior-face check.
-		if not is_player_wall and _owner.rock_surround != null:
+		## Only the ORIGINAL 4 pregen boundary walls (and raw GridMap) need the
+		## strict interior-face revalidation. Autofill walls skip this — the
+		## dig solver already only ever places them on true interior-facing
+		## boundary edges (see this file's header).
+		if is_true_pregen and _owner.rock_surround != null:
 			if not _is_pregen_interior_face(hit["position"], hit_normal):
 				continue
 
@@ -262,9 +286,9 @@ func _snap_breaker_to_wall(base_pos: Vector3) -> Dictionary:
 				"pos":       Vector3(final_x, base_pos.y, final_z),
 				"angle_deg": d["angle_deg"],
 			}
-			best_is_player_wall = is_player_wall
+			best_is_true_pregen = is_true_pregen
 
-	if not best_result.is_empty() and _owner.rock_surround != null and not best_is_player_wall:
+	if not best_result.is_empty() and _owner.rock_surround != null and best_is_true_pregen:
 		var inside: bool = _owner._is_inside_bunker(best_result["pos"])
 		if not inside:
 			return {}
@@ -347,63 +371,22 @@ func _is_pregen_interior_face(hit_pos: Vector3, hit_normal: Vector3) -> bool:
 		## Accept only if the hit normal aligns with the inward direction.
 		return hit_normal.dot(best_normal) >= NORMAL_DOT_MIN
 
-	## ── Pass 2: exposed faces of deconstructed rock chunks ────────────────
-	## When a chunk is dug out, its 4 axis-aligned faces become valid snap
-	## surfaces.  A face is valid when it borders a SOLID (non-deconstructed)
-	## chunk or lies on the original bunker rectangle boundary.
+	## No boundary within tolerance — this function is now ONLY ever called
+	## for _is_true_pregen walls (the original 4 boundary walls + raw GridMap
+	## geometry), which always lie exactly on one of the 4 planes above. If we
+	## get here, something is wrong (or rock_surround's bunker_depth/width
+	## don't match the actual pregen rectangle) — reject rather than guess.
 	##
-	## Strategy: find which chunk the hit point sits in, confirm it is
-	## deconstructed, then check whether the hit normal points AWAY from a
-	## solid neighbour (i.e. the solid side is in the direction -hit_normal).
-	if _owner.rock_surround.has_method("get_chunk_at_world_pos") and \
-	   _owner.rock_surround.has_method("is_chunk_active"):
-
-		var chunk_id: Vector2i = _owner.rock_surround.get_chunk_at_world_pos(hit_pos)
-		if chunk_id == Vector2i(-9999, -9999):
-			return false   ## Hit not within any known chunk
-
-		## The hit must be inside a deconstructed (dug) chunk — the rock face
-		## we're hitting is the exposed wall of that excavation.
-		if _owner.rock_surround.is_chunk_active(chunk_id):
-			return false   ## Chunk still has rock — don't allow snap here
-
-		## The normal must be nearly axis-aligned.
-		if absf(hit_normal.x) < NORMAL_DOT_MIN and absf(hit_normal.z) < NORMAL_DOT_MIN:
-			return false
-
-		## The face is valid only if the chunk in the direction of the hit normal
-		## is SOLID (active) — meaning this face borders rock or original wall.
-		## Direction toward the solid side = hit_normal (the normal points INTO
-		## the dug space, i.e. away from the solid rock).
-		var cs: int = _owner.rock_surround.chunk_size
-
-		## Dominant axis of hit_normal determines which neighbour to check.
-		var nx: int = 0
-		var nz: int = 0
-		if absf(hit_normal.x) >= NORMAL_DOT_MIN:
-			nx = 1 if hit_normal.x > 0.0 else -1
-		else:
-			nz = 1 if hit_normal.z > 0.0 else -1
-
-		var neighbour_id: Vector2i = Vector2i(chunk_id.x + nx, chunk_id.y + nz)
-
-		## Neighbour is solid if it is an active chunk, or if it doesn't exist at
-		## all (means it's outside the rock ring entirely — i.e. original perimeter).
-		var neighbour_solid: bool = false
-		if not _owner.rock_surround.has_method("get_chunk_at_world_pos"):
-			neighbour_solid = true   ## Fallback — allow
-		else:
-			## Build world pos of neighbour centre to look it up.
-			var nb_world_x: float = ox + float(neighbour_id.x * cs) + float(cs) * 0.5
-			var nb_world_z: float = oz + float(neighbour_id.y * cs) + float(cs) * 0.5
-			var nb_id: Vector2i = _owner.rock_surround.get_chunk_at_world_pos(
-				Vector3(nb_world_x, hit_pos.y, nb_world_z))
-			if nb_id == Vector2i(-9999, -9999):
-				## No chunk there — original perimeter wall or outside ring.
-				neighbour_solid = true
-			elif _owner.rock_surround.is_chunk_active(nb_id):
-				neighbour_solid = true   ## Active rock chunk = solid neighbour
-
-		return neighbour_solid
-
+	## HISTORY: this used to fall through to a second pass here that walked
+	## RockSurround's 4×4-cell chunk grid to validate autofill/expanded-area
+	## walls (any wall NOT on the original 4 planes). That heuristic assumed
+	## every expanded wall's solid neighbour sat exactly one chunk-width away,
+	## which breaks for excavations deeper than one chunk and has the same
+	## corner axis-ambiguity Pass 1 above was fixed for — producing the
+	## "some expanded walls don't snap, or snap 90° rotated" bug (July 2026).
+	## Fix: autofill walls no longer route through this function at all (see
+	## _snap_light_to_wall/_snap_breaker_to_wall's is_true_pregen gate above,
+	## and BuildModeController.spawn_structure()'s is_true_pregen param) — they
+	## rely on the dig solver (WireGraphBuilder.gd) having already placed them
+	## correctly, same as player-placed walls do.
 	return false

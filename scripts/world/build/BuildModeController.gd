@@ -1470,13 +1470,24 @@ func _recolor_wire_zones() -> void:
 ## This snapshot is used by the undo handler to restore colors to their exact
 ## pre-placement state when the wire is removed.
 # ─── Public: auto-fill spawn ─────────────────────────────────────────────────
-func spawn_structure(tile_id: int, pos: Vector3, angle_deg: float) -> Node3D:
+## `is_true_pregen` distinguishes the ORIGINAL 4 pregen boundary walls/pillars
+## (spawned once by BunkerPregen.generate()) from autofill walls/pillars spawned
+## by the dig solver (WireGraphBuilder.gd) along expanded-area boundaries.
+## Both still get `_is_pregen` (level structure — not deletable, doesn't block
+## placement, protected from wire deletion — see all `has_meta("_is_pregen")`
+## call sites in this file) so NONE of that existing behavior changes.
+## `_is_true_pregen` is ONLY read by WallSnapHelpers._is_pregen_interior_face()
+## to gate the strict original-rectangle math to the walls it's actually valid
+## for — see WallSnapHelpers.gd header comment for the full bug this fixes.
+func spawn_structure(tile_id: int, pos: Vector3, angle_deg: float, is_true_pregen: bool = false) -> Node3D:
 	if gridmap == null:
 		return null
 	var body: Node3D = _spawn_placed_object(tile_id, pos, angle_deg)
 	## Tag the node so Deconstruct-mode hover can skip it without a _placed_objects lookup.
 	if body != null:
 		body.set_meta("_is_pregen", true)
+		if is_true_pregen:
+			body.set_meta("_is_true_pregen", true)
 	_placed_objects.append({
 		"node":          body,
 		"tile_id":       tile_id,

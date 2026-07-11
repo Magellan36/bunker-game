@@ -367,11 +367,16 @@ func _give_flashlight_to_player() -> void:
 func _wkey(v: float) -> String:
 	return "%.2f" % v
 
+## `is_true_pregen = true` — these are the ORIGINAL 4 boundary walls/pillars,
+## the only ones WallSnapHelpers' strict original-rectangle math is valid for.
+## Autofill walls/pillars spawned later by the dig solver (WireGraphBuilder.gd)
+## call spawn_structure() without this flag. See spawn_structure()'s header
+## comment in BuildModeController.gd for the full picture.
 func _wall(wx: float, wz: float, angle: float) -> Node3D:
-	return build_controller.spawn_structure(TILE_WALL, Vector3(wx, PLACEMENT_Y, wz), angle)
+	return build_controller.spawn_structure(TILE_WALL, Vector3(wx, PLACEMENT_Y, wz), angle, true)
 
 func _pillar(wx: float, wz: float) -> Node3D:
-	return build_controller.spawn_structure(TILE_PILLAR, Vector3(wx, PLACEMENT_Y, wz), 0.0)
+	return build_controller.spawn_structure(TILE_PILLAR, Vector3(wx, PLACEMENT_Y, wz), 0.0, true)
 
 func _light(wx: float, wy: float, wz: float, angle: float) -> Node3D:
 	return build_controller.spawn_structure(TILE_LIGHT, Vector3(wx, wy, wz), angle)
