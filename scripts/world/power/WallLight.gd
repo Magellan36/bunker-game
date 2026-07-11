@@ -35,8 +35,21 @@ const LAMP_Y_OFFSET: float = 1.5
 # ─── OmniLight constants ──────────────────────────────────────────────────────
 ## Warm industrial amber — noticeably warm, not clinical white
 const LIGHT_COLOR:  Color = Color(1.0, 0.82, 0.50, 1.0)
-const LIGHT_ENERGY: float = 4.5
+## Lowered from 4.5 (July 2026 lighting-blowout fix) — 4.5 was tuned before
+## glow/SDFGI/volumetric fog existed in the project; once those post-process
+## systems came online they amplified the same raw value well past what
+## looked right originally. Let glow/bloom sell "bright at the source"
+## instead of flooding the whole room via raw light energy.
+const LIGHT_ENERGY: float = 2.0
 const LIGHT_RANGE:  float = 10.0
+## Per-light volumetric-fog contribution (July 2026 lighting-blowout fix).
+## Godot's default is 1.0 (full contribution) — left at default, every wall
+## light was scattering its full warm glow through the whole fog volume,
+## turning "distinct pools of light with dark corners between" into
+## "uniformly hazy room." Reserves the visible fog-shaft look specifically
+## for the flashlight (the intended showcase per the graphics plan's design
+## thesis), not ambient room lights.
+const LIGHT_VOLUMETRIC_FOG_ENERGY: float = 0.2
 
 ## Shed (overloaded grid) state — faint orange glow, barely visible
 const SHED_COLOR:   Color = Color(1.0, 0.45, 0.0, 1.0)
@@ -348,6 +361,7 @@ func _build_fixture() -> void:
 	omni.omni_range            = LIGHT_RANGE
 	omni.omni_attenuation      = 0.6
 	omni.light_indirect_energy = 1.0
+	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
 	omni.shadow_enabled        = false
 	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.5)
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
