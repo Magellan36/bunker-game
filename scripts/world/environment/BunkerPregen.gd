@@ -79,8 +79,9 @@ func _retint_meshlib() -> void:
 	if lib == null:
 		return
 
+	var valid_ids: PackedInt32Array = lib.get_item_list()
 	for item_id: int in [TILE_FLOOR, TILE_WALL, TILE_PILLAR]:
-		if not lib.has_item(item_id):
+		if not valid_ids.has(item_id):
 			continue
 		var mesh: Mesh = lib.get_item_mesh(item_id)
 		if mesh == null:
