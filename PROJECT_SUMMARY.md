@@ -454,11 +454,11 @@ fix above — confirmed working by Brannon before this round):**
   existing material's `albedo_color` by the same `RETINT_DARK = 0.667`
   factor `BuildMaterials.gd` uses — preserves whatever texture/material
   each item already had rather than guessing a replacement.
-**Untested by Brannon as of this round** — needs an in-editor visual check
-(both the taste-pass values and the meshlib retint) before deciding whether
-further tuning is needed.
-
-3 real issues fixed (below) — full end-to-end test still pending.
+**Confirmed working by Brannon (July 2026)** — meshlib retint, taste-pass
+values, and the `has_item()` → `get_item_list()` fix all hold up in-editor.
+Graphics overhaul is now fully stable across all 7 phases at their
+documented scope (see "deliberately partial" phases 4/5/6 above/below for
+exactly what's still cut and why).
 
 **Post-implementation-review fixes (July 2026):**
 - `GraphicsSettingsPanel.gd`'s FOV slider was calling `GraphicsSettings.
