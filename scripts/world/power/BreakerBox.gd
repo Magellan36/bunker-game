@@ -536,6 +536,9 @@ func _open_settings() -> void:
 		return
 	_settings_open = true
 	_settings_layer.visible = true
+	## Standing convention (July 2026) — see UIFade.gd. Also covers
+	## UpgradedBreakerBox automatically (extends BreakerBox, same panel code).
+	UIFade.fade_in(_settings_canvas)
 	_settings_canvas.queue_redraw()
 
 

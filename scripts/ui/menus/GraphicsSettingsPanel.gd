@@ -39,9 +39,8 @@ func _ready() -> void:
 func open() -> void:
 	visible = true
 	_refresh_from_settings()
-	_panel.modulate.a = 0.0
-	var tw: Tween = create_tween()
-	tw.tween_property(_panel, "modulate:a", 1.0, 0.15)
+	## Standing convention (July 2026) — see UIFade.gd.
+	UIFade.fade_in(_panel)
 
 
 func close() -> void:

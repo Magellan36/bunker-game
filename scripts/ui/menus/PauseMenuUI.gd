@@ -56,6 +56,9 @@ func open() -> void:
 		return
 	_visible_state = true
 	visible = true
+	## Standing convention (July 2026) — see UIFade.gd. _blur_rect stays
+	## instant (blurring in would look odd); only the panel content fades.
+	UIFade.fade_in(_panel)
 	_refresh_slot_labels()
 	_prev_mouse_mode = Input.mouse_mode
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

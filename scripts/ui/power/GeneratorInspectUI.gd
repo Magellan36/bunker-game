@@ -191,6 +191,8 @@ func open(display_name: String, watts: float, fuel: float,
 	_toggle_btn.visible = true
 	_power_btn.visible  = true
 	_close_btn.visible  = true
+	## Standing convention (July 2026) — see UIFade.gd.
+	UIFade.fade_in(_canvas)
 	_canvas.queue_redraw()
 
 ## Refresh live state without closing/reopening the panel.
