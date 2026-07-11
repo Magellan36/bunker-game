@@ -1,6 +1,6 @@
 # BunkerGame — Agent Handover Doc
 
-**Last updated:** repo HEAD `b9d6ef8`
+**Last updated:** repo HEAD `00938b5`
 
 Paste this whole file into a new chat to resume work with full context,
 without carrying forward the old chat's history.
@@ -71,29 +71,25 @@ a bug.
   every session, then follow its §2 system index straight to the relevant
   `docs/systems/*/README.md`. Update both whenever a system's shape changes.
 
-## Verifying changes — real headless Godot check now available
-**As of July 2026, a real Godot 4.6.3 headless binary + check script exist**
-— this replaces the old "no compiler, only bracket-balance checks" era.
+## Verifying changes — real headless Godot check available
+A real Godot 4.6.3 headless binary + check script exist — no more relying
+only on bracket-balance checks.
 - Binary: download once per sandbox from
   `https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip`
   (matches Brannon's editor version exactly). Not committed to the repo
-  (it's a 130MB+ engine binary) — re-download into the sandbox each fresh
-  session, e.g. to `/home/user/godot-bin/`.
+  (130MB+ engine binary) — re-download into the sandbox each fresh session,
+  e.g. to `/home/user/godot-bin/`.
 - Check script: `tools/godot_check.sh <path-to-godot-binary>` — runs
   `--headless --import` then `--headless --quit` against the real project,
   greps for `SCRIPT ERROR`/`Parse Error`/`Compile Error`/`Failed to load
-  script`. Auto-patches in the locally-registered `GraphicsSettings`
-  autoload for the run only (see gotcha below), restores `project.godot`
-  exactly afterward — never commits that patch. See
-  `PROJECT_SUMMARY.md` §16 for full detail.
-- **Run this before reporting any fix as done.** It catches script
-  parse/type errors and broken autoload/`class_name` references — the
-  exact class of bug that used to only surface when Brannon pulled and hit
-  it in his own editor.
-- **What it still can't catch:** actual gameplay/runtime logic bugs (e.g.
-  "the zone shed the wrong item") and anything GPU-visual (no
-  render/screenshot capability headless, no GPU in this sandbox either) —
-  those still need Brannon's own in-editor test pass and report-back.
+  script`. See `PROJECT_SUMMARY.md` §16 for full detail.
+- **Run this before reporting any fix as done.** Catches script parse/type
+  errors and broken autoload/`class_name` references — the exact class of
+  bug that used to only surface when Brannon pulled and hit it in his own
+  editor.
+- **What it still can't catch:** actual gameplay/runtime logic bugs and
+  anything GPU-visual (no render/screenshot capability headless, no GPU in
+  this sandbox) — those still need Brannon's own in-editor test pass.
 
 ## Debug logging — keep ALL of it, do not strip
 Every debug print preserved (system still stabilizing): `[PM:*]`, `_pmdbg`
@@ -112,14 +108,40 @@ via git, never opened/saved in the Godot editor) sometimes isn't recognized
 Project**. Fix that has worked every time: **fully quit Godot, delete the
 local `.godot/` cache folder (gitignored, safe, auto-regenerates), reopen
 the project.** `tools/godot_check.sh` now catches this specific symptom
-ahead of time for anything already pushed (see above).
+ahead of time for anything already pushed.
 
-**New autoloads specifically:** a real autoload-pattern script (e.g.
-`GraphicsSettings.gd`) is sometimes **NOT yet registered by name** in
-`project.godot`'s `[autoload]` section — per this same gotcha, Brannon adds
-new autoloads himself via Project Settings → Autoload in the editor, rather
-than the agent hand-editing `project.godot`'s autoload list directly (the
-editor owns that section and can silently overwrite hand-edits).
+**New autoloads specifically:** `project.godot`'s `[autoload]` section is
+owned by the Godot editor — hand-editing it via git while Godot has the
+project open can get silently overwritten back to stale in-memory state on
+next save/close. **Default rule:** Brannon adds new autoloads himself via
+Project Settings → Autoload in the editor, not the agent hand-editing
+`project.godot` directly.
+**Exception made once (repo HEAD `00938b5`):** `GraphicsSettings` was
+committed directly into `project.godot`'s `[autoload]` list because Brannon
+hit trouble adding it manually — verified with a clean headless boot before
+pushing. This is a one-off exception, not a new standing rule; still follow
+the default (editor-side registration) for any *future* new autoload unless
+Brannon explicitly asks for the same workaround again. If a future
+`project.godot` edit does get silently reverted by the editor, that's the
+signal to fall back to walking Brannon through the manual editor steps
+instead of re-pushing the same hand-edit.
+
+## Windows-side pull gotcha (new, this session)
+Brannon hit a git-pull failure on Windows/PowerShell: newly-committed
+`.uid`/`.import` files (generated locally by his own editor, untracked)
+collided with the same files now landing from a push. Fixed via:
+```powershell
+git stash -u
+git pull
+git stash pop
+```
+Separately, `git stash -u` itself once failed with `Unlink of file ...
+failed` on an unrelated locked `.dll` (Windows file-lock/AV scan issue, nota
+git bug) — resolved by closing Godot fully / retrying. Worth remembering if
+similar Windows-side lock errors show up again: usually means a running
+process (often Godot itself, sometimes AV) has a handle open on the file
+git is trying to touch — close Godot, retry, escalate to closing AV or
+running PowerShell as admin if it persists.
 
 ## GDScript gotchas hit for real this project (don't repeat these)
 Full list + detail: `PROJECT_SUMMARY.md` §10. Headlines: `as` does NOT
@@ -138,13 +160,25 @@ correctness check instead of manual bracket-counting.
 ---
 
 ## Where everything else is now
-As of the July 2026 docs restructure, per-system detail (Power, World Core,
-UI — with more systems migrating incrementally as they're touched) lives in
-`docs/systems/*/README.md`, NOT in this file. Do not re-add system-specific
-status writeups here — they belong in the relevant system's README (add a
-`## History` subsection there if genuinely historical detail is worth
-keeping). This file stays role/workflow/gotchas only, so it doesn't regrow
-to its old ~620-line length.
+Per-system detail (Power, World Core, UI — with more systems migrating
+incrementally as they're touched) lives in `docs/systems/*/README.md`, NOT
+in this file. Do not re-add system-specific status writeups here — they
+belong in the relevant system's README (add a `## History` subsection there
+if genuinely historical detail is worth keeping). This file stays
+role/workflow/gotchas only, so it doesn't regrow to its old ~620-line
+length.
+
+## Current status
+- Docs restructure (per-system `docs/systems/*/README.md` +
+  `architecture.json` + slimmed `PROJECT_SUMMARY.md`/`HANDOVER.md`):
+  **complete**, confirmed working.
+- Headless Godot compile-check tool (`tools/godot_check.sh`): **complete**,
+  confirmed working, catching real issues.
+- `GraphicsSettings` autoload: **now registered directly in
+  `project.godot`** (repo HEAD `00938b5`) — Brannon still needs to confirm
+  in his own editor that it resolves cleanly after pulling (class-cache
+  gotcha may still require a quit + delete `.godot/` + reopen on first
+  pull of this change).
 
 ## Next up (nothing currently in progress — ask Brannon)
 See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the current list
@@ -152,3 +186,5 @@ See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the current list
 exhaust smoke scaling, remaining graphics-overhaul deferred items). Also 5
 systems still pending doc migration (`PROJECT_SUMMARY.md` §2) — migrate
 opportunistically per §0's rule, not as a dedicated pass unless asked.
+Immediate next step: confirm Brannon successfully pulled `00938b5` and that
+`GraphicsSettings` resolves without errors in his editor.

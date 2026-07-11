@@ -134,9 +134,11 @@ flat/convenient location.
 - `DeviceDatabase` — pure config data (`WATT_RATINGS`, `DEFAULT_PRIORITY_BY_TYPE`,
   `GENERATOR_TIERS`, `STATE_EMISSION_COLORS`). See `docs/systems/power/README.md`.
 - `GraphicsSettings` (`scripts/core/GraphicsSettings.gd`) — device rendering/
-  quality preferences. **NOT YET REGISTERED** in committed `project.godot` —
-  Brannon adds it locally via Project Settings > Autoload (see §9 gotcha).
-  Not yet migrated to a `docs/systems/` doc.
+  quality preferences. **Registered directly in committed `project.godot`**
+  (as of repo HEAD `00938b5`) — an exception to the usual "Brannon adds new
+  autoloads locally" rule, done because he hit trouble adding it manually
+  in the editor. See §9 gotcha for why new autoloads normally aren't
+  hand-committed. Not yet migrated to a `docs/systems/` doc.
 
 ## 5. Architecture debt / open items (repo-wide, not one system's)
 - No automated tests (no GUT setup anywhere in the repo).
