@@ -176,6 +176,13 @@ const WIRE_DEBUG: bool = true
 ## Seconds of grace between BROWNOUT and a full grid trip.
 ## Near-instant: flicker sequence is short, this just guards against edge cases.
 const OVERLOAD_GRACE_SECS: float = 0.5
+## Priority-change grace period (standing decision, July 2026): a priority
+## change doesn't touch the grid immediately — it's queued and only takes
+## effect (reset shed state + full re-solve) after this many seconds. Keeps
+## a rapid tier change from visibly flashing the grid through a transient
+## state before things settle. Multiple changes within the window collapse
+## into a single resolve using whatever priorities are current when it fires.
+const PRIORITY_CHANGE_GRACE_SECS: float = 0.5
 
 ## Seconds before the main breaker auto-resets after a trip.
 ## -1 = manual only (requires player interaction at the breaker panel).
@@ -242,6 +249,11 @@ var grid_state: GridState = GridState.ONLINE
 
 ## Timers
 var _overload_timer:    float = 0.0
+## -1.0 = no pending priority-change resolve queued. >= 0.0 = counting down.
+var _priority_grace_timer: float = -1.0
+## Consumer ids whose component needs _reset_shed_for_consumer_component()
+## once the grace timer above elapses. Cleared after each resolve.
+var _pending_priority_reset_ids: Dictionary = {}
 var _main_reset_timer:  float = 0.0
 
 ## Flicker sequence state.
@@ -519,6 +531,18 @@ func _process(delta: float) -> void:
 	if _needs_resolve:
 		_needs_resolve = false
 		_solve_network()
+
+	## Priority-change grace period — fire the deferred reset+resolve once the
+	## timer elapses (see set_consumer_priority()). Runs regardless of
+	## _flickering below; _solve_network() already no-ops safely mid-flicker.
+	if _priority_grace_timer >= 0.0:
+		_priority_grace_timer -= delta
+		if _priority_grace_timer <= 0.0:
+			_priority_grace_timer = -1.0
+			for pending_id: String in _pending_priority_reset_ids.keys():
+				_reset_shed_for_consumer_component(pending_id)
+			_pending_priority_reset_ids.clear()
+			_solve_network()
 
 	## Flicker sequence overrides everything else.
 	if _flickering:
@@ -1371,18 +1395,16 @@ func set_consumer_priority(id: String, priority: int) -> void:
 		return
 	_consumers[id]["priority"] = clamped
 	consumer_priority_changed.emit(id, clamped)
-	## Clear shed/powered state for every consumer sharing this component BEFORE
-	## re-solving.  Without this, the solver's HEALTHY branch only ever tries to
-	## UN-shed items (see _partial_unshed_component) — it never re-sheds an
-	## already-powered item.  If two consumers swap priorities (A: pri2→pri3,
-	## B: pri3→pri2) the post-swap net_deficit can still read <=0 against the
-	## STALE shed/powered flags, so the solver thinks nothing needs to change
-	## and the wrong item stays shed.  Wiping the whole component's shed state
-	## forces a clean full-draw shed pass that re-evaluates by CURRENT priority.
-	_reset_shed_for_consumer_component(id)
-	## Re-solve so the new tier is honoured right away — an item raised to a
-	## safer tier may un-shed, or one lowered may be shed if the zone is tight.
-	_solve_network()
+	## Grace period (standing decision, July 2026) — do NOT reset shed state
+	## or re-solve right now. Queue this consumer's component for a clean
+	## reset+resolve once PRIORITY_CHANGE_GRACE_SECS elapses (see _process()).
+	## The grid keeps running on its last-solved state in the meantime, so a
+	## tier change can't visibly flash the grid through a transient overload
+	## before things settle. Rapid repeated changes within the window all
+	## collapse into that single resolve.
+	_pending_priority_reset_ids[id] = true
+	if _priority_grace_timer < 0.0:
+		_priority_grace_timer = PRIORITY_CHANGE_GRACE_SECS
 
 
 ## ─── Reset shed/powered state across a consumer's whole electrical component ──
