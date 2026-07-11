@@ -74,6 +74,16 @@ var _pass_generator: bool = true
 var _zone_index:  int = -1   ## primary (first found) — kept for compat
 var _zone_index_b: int = -1  ## secondary zone on the other side
 
+## Zone keys (stable identity, see ZoneCustomization.gd) + display names for
+## each side, refreshed alongside _zone_index/_zone_index_b in
+## _refresh_zone_index(). Used so this breaker's swatches/labels reflect a
+## player's zone rename/recolor (done via that zone's Power Terminal)
+## immediately, matching the world-wire tubes and the terminal UI.
+var _zone_key:    String = ""
+var _zone_key_b:  String = ""
+var _zone_name:   String = ""
+var _zone_name_b: String = ""
+
 # ─── Mesh refs ────────────────────────────────────────────────────────────────
 var _led_mat: StandardMaterial3D = null
 
@@ -600,7 +610,7 @@ func _on_settings_draw() -> void:
 	var swatch_a_rect: Rect2 = Rect2(swatch_start_x, swatch_y, swatch_size, swatch_size)
 	_settings_canvas.draw_rect(swatch_a_rect, swatch_a_col, true)
 	_settings_canvas.draw_rect(swatch_a_rect, UI_BORDER, false, 1.5)
-	var lbl_a: String = "Z%d" % maxi(0, _zone_index)
+	var lbl_a: String = _zone_name if not _zone_name.is_empty() else ("Z%d" % maxi(0, _zone_index))
 	_ds(lbl_a, Vector2(swatch_a_rect.position.x + 1.0, swatch_y + swatch_size + 3.0), UI_DIM, 8)
 
 	## Zone B swatch (only when breaker borders a second zone)
@@ -610,7 +620,7 @@ func _on_settings_draw() -> void:
 		var swatch_b_rect: Rect2 = Rect2(swatch_start_x + swatch_size + swatch_gap, swatch_y, swatch_size, swatch_size)
 		_settings_canvas.draw_rect(swatch_b_rect, swatch_b_col, true)
 		_settings_canvas.draw_rect(swatch_b_rect, UI_BORDER, false, 1.5)
-		var lbl_b: String = "Z%d" % _zone_index_b
+		var lbl_b: String = _zone_name_b if not _zone_name_b.is_empty() else ("Z%d" % _zone_index_b)
 		_ds(lbl_b, Vector2(swatch_b_rect.position.x + 1.0, swatch_y + swatch_size + 3.0), UI_DIM, 8)
 		## Small divider pip between the two
 		var mid_x: float = swatch_start_x + swatch_size + swatch_gap * 0.5
@@ -775,33 +785,51 @@ func _refresh_zone_index() -> void:
 	if pm == null:
 		_zone_index   = -1
 		_zone_index_b = -1
+		_zone_key     = ""
+		_zone_key_b   = ""
+		_zone_name    = ""
+		_zone_name_b  = ""
 		return
 	var zones: Array = pm.get_zone_snapshot()
 	_zone_index   = -1
 	_zone_index_b = -1
-	## Collect up to two zone indices that list this breaker's wire key
+	_zone_key     = ""
+	_zone_key_b   = ""
+	_zone_name    = ""
+	_zone_name_b  = ""
+	## Collect up to two zone dicts that list this breaker's wire key
 	## in their breaker_keys array (one zone per side of the breaker).
-	var found: Array[int] = []
+	var found: Array[Dictionary] = []
 	for zd: Dictionary in zones:
 		var brk_keys: Array = zd.get("breaker_keys", [])
 		for bk: String in brk_keys:
 			if bk == _wire_key:
-				found.append(int(zd.get("zone_index", 0)))
+				found.append(zd)
 				break   ## One match per zone is enough.
 	if found.size() >= 1:
-		_zone_index = found[0]
+		_zone_index = int(found[0].get("zone_index", 0))
+		_zone_key   = String(found[0].get("zone_key", ""))
+		_zone_name  = String(found[0].get("zone_name", "Z%d" % _zone_index))
 	if found.size() >= 2:
-		_zone_index_b = found[1]
+		_zone_index_b = int(found[1].get("zone_index", 0))
+		_zone_key_b   = String(found[1].get("zone_key", ""))
+		_zone_name_b  = String(found[1].get("zone_name", "Z%d" % _zone_index_b))
 
 
 func _zone_color() -> Color:
 	if _zone_index < 0:
 		return Color(0.50, 0.50, 0.50, 0.60)   ## grey = unassigned
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
+		return pm.zone_display_color(_zone_key, _zone_index, 0.60)
 	return _palette_col(_zone_index)
 
 func _zone_color_b() -> Color:
 	if _zone_index_b < 0:
 		return Color(0.50, 0.50, 0.50, 0.60)
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
+		return pm.zone_display_color(_zone_key_b, _zone_index_b, 0.60)
 	return _palette_col(_zone_index_b)
 
 

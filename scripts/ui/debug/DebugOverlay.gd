@@ -249,6 +249,9 @@ func _collect_lines() -> Array[Dictionary]:
 		]
 		for zd: Dictionary in zone_snap:
 			var z_idx:      int    = int(zd.get("zone_index", 0))
+			var z_key:      String = String(zd.get("zone_key", ""))
+			## Player-set display name if set (see ZoneCustomization.gd), else "Z%d".
+			var z_name:     String = String(zd.get("zone_name", "Z%d" % z_idx))
 			## Use color_index from the snapshot (set by get_wire_zones_with_colors)
 			## so this matches the ACTUAL painted color on the wire, not z_idx % 6.
 			var z_cidx:     int    = int(zd.get("color_index", z_idx % ZC.size()))
@@ -258,15 +261,19 @@ func _collect_lines() -> Array[Dictionary]:
 			var z_bats:     int    = (zd.get("battery_ids", []) as Array).size()
 			var z_draw:     float  = float(zd.get("draw_w", 0.0))
 			var z_cap:      float  = float(zd.get("capacity_w", 0.0))
-			var z_col:      Color  = ZC[z_cidx % ZC.size()]
+			## Prefer the live override-aware color (pm2 != null here — checked above
+			## to reach this branch) over the local ZC mirror, so a player-recolored
+			## zone shows its real color in the debug overlay too.
+			var z_col:      Color  = pm2.zone_display_color(z_key, z_cidx, 1.0) \
+				if pm2 != null else ZC[z_cidx % ZC.size()]
 			var z_col_name: String = ZC_NAMES[z_cidx % ZC_NAMES.size()]
 			var z_state_col: Color
 			match z_state:
 				"ONLINE":   z_state_col = z_col
 				"OVERLOADED": z_state_col = W_COL
 				_:          z_state_col = C_COL
-			out.append({"text": "  Z%d  [%s]  color:%s(ci=%d)  %.0fW/%.0fW  cons:%d  gen:%d  bat:%d" % [
-				z_idx, z_state, z_col_name, z_cidx, z_draw, z_cap, z_cons, z_gens, z_bats],
+			out.append({"text": "  %s  [%s]  color:%s(ci=%d)  %.0fW/%.0fW  cons:%d  gen:%d  bat:%d" % [
+				z_name, z_state, z_col_name, z_cidx, z_draw, z_cap, z_cons, z_gens, z_bats],
 				"color": z_state_col, "size": FONT_S, "indent": 1})
 
 	return out
