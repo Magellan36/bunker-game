@@ -31,7 +31,15 @@ var _pm: PowerManager = null
 const STABLE_FOG_TINT:   Color = Color(0.5, 0.55, 0.6)
 const DEGRADED_FOG_TINT: Color = Color(0.4, 0.37, 0.3)
 const DARK_FOG_TINT:     Color = Color(0.08, 0.08, 0.1)
-const ALARM_VIGNETTE_COLOR:  Color = Color(0.7, 0.05, 0.0, 1.0)
+## Hot amber-orange, deliberately far from NORMAL_VIGNETTE_COLOR's dark red
+## in both hue and value — a tripped grid needs to read as visually DISTINCT
+## from "your food/water/sleep is critical," not just a deeper shade of the
+## same warning. Amber also reads as "electrical fault" rather than
+## "health danger," reinforcing that it's a different kind of problem.
+## (Was Color(0.7, 0.05, 0.0, 1.0) — nearly indistinguishable from
+## NORMAL_VIGNETTE_COLOR at a glance, especially under the shader's alpha
+## pulse; fixed per graphics-implementation-review, July 2026.)
+const ALARM_VIGNETTE_COLOR:  Color = Color(0.85, 0.35, 0.0, 1.0)
 ## HUD.gd's own default critical-stat pulse color (vignette.gdshader's
 ## `vignette_color` uniform default) — restored once the grid is healthy
 ## again so a resolved power fault doesn't leave the vignette alarm-red

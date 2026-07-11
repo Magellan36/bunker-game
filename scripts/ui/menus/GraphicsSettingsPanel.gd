@@ -120,6 +120,10 @@ func _build_ui() -> void:
 	_fov_slider.step      = 1.0
 	_fov_slider.custom_minimum_size = Vector2(120.0, 0.0)
 	_fov_slider.value_changed.connect(_on_fov_changed)
+	## drag_ended fires once when the drag completes -- persist to disk only
+	## then, not on every intermediate tick (Slider.value_changed can fire
+	## ~40 times over a single drag; see GraphicsSettings.set_setting_live()).
+	_fov_slider.drag_ended.connect(_on_fov_drag_ended)
 	fov_row.add_child(_fov_slider)
 
 	_vbox.add_child(HSeparator.new())
@@ -165,4 +169,10 @@ func _on_shadow_toggled(pressed: bool) -> void:
 
 
 func _on_fov_changed(value: float) -> void:
-	GraphicsSettings.set_setting("camera_fov", value)
+	## Live preview only while dragging -- no disk write per tick.
+	GraphicsSettings.set_setting_live("camera_fov", value)
+
+
+func _on_fov_drag_ended(_value_changed: bool) -> void:
+	## Persist once, when the drag actually completes.
+	GraphicsSettings.save_now()

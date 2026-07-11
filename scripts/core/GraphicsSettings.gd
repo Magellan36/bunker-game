@@ -20,7 +20,9 @@ enum Preset { LOW, MEDIUM, HIGH, ULTRA, CUSTOM }
 
 const CFG_PATH: String = "user://graphics_settings.cfg"
 
-var current_preset: Preset = Preset.MEDIUM
+## Plain `int` rather than `Preset` — see apply_preset()'s header comment for
+## why (avoids any int/enum ambiguity at the call boundary entirely).
+var current_preset: int = Preset.MEDIUM
 
 # ─── Individual toggles ────────────────────────────────────────────────────
 ## Mirrors the preset table from the graphics plan (Section 8). Defaults
@@ -75,10 +77,17 @@ func _ready() -> void:
 	_apply_all()
 
 
-## Applies a named preset. flashlight_shadows is intentionally untouched here
-## — it never resets when switching presets, per the "opt-in only, never
-## preset-driven" decision.
-func apply_preset(preset: Preset) -> void:
+## Applies a named preset. Takes a plain `int` rather than `Preset` — the
+## dropdown that calls this (`GraphicsSettingsPanel._on_preset_selected`)
+## hands back a bare `int` from `OptionButton.item_selected`, and GDScript's
+## `as` doesn't support enum casts (see `_apply_to_viewport()` below for the
+## bug that already bit this file once from that exact class of mistake).
+## Taking `int` here and comparing/indexing against the int-backed `Preset`
+## enum values directly sidesteps the whole question instead of relying on
+## implicit int→enum parameter passing. flashlight_shadows is intentionally
+## untouched here — it never resets when switching presets, per the
+## "opt-in only, never preset-driven" decision.
+func apply_preset(preset: int) -> void:
 	if preset == Preset.CUSTOM or not PRESETS.has(preset):
 		return
 	var vals: Dictionary = PRESETS[preset]
@@ -93,6 +102,17 @@ func apply_preset(preset: Preset) -> void:
 ## checkboxes. Flips current_preset to CUSTOM (except for flashlight_shadows,
 ## which doesn't participate in preset matching at all).
 func set_setting(field: String, value: Variant) -> void:
+	set_setting_live(field, value)
+	_save()
+
+
+## Same as set_setting() but does NOT persist to disk — mutates + applies
+## live only. For UI controls that fire continuously while being dragged
+## (e.g. Slider.value_changed can fire ~40 times over one drag); pair with a
+## call to save_now() once the interaction completes (e.g. Slider's
+## drag_ended signal) so the settings file is only written once per
+## interaction instead of on every intermediate tick.
+func set_setting_live(field: String, value: Variant) -> void:
 	match field:
 		"sdfgi_enabled":            sdfgi_enabled = value
 		"ssao_enabled":             ssao_enabled = value
@@ -110,6 +130,11 @@ func set_setting(field: String, value: Variant) -> void:
 	if field != "flashlight_shadows" and field != "camera_fov":
 		current_preset = Preset.CUSTOM
 	_apply_all()
+
+
+## Persists current settings to disk. Call after a batch of set_setting_live()
+## calls once the user's interaction is actually done (see set_setting_live()).
+func save_now() -> void:
 	_save()
 
 
