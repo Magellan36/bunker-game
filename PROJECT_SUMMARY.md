@@ -400,6 +400,50 @@ have been touched now** — Phases 1, 2, 3, 7 are functionally complete;
 Phases 4, 5, 6 are deliberately partial (see below for exactly what was cut
 and why). Autoload registered and Phase 1/2 confirmed working by Brannon;
 Phase 3-7 pass reviewed against an external implementation-review doc and
+
+**Lighting blowout fix (July 2026):** Brannon reported the bunker reading
+bright/washed-out (warm yellow rooms, big soft halos, cream walls) instead
+of the intended dark/gloomy/eerie tone. Root-caused as 5 compounding
+settings (external review doc), not one bug. Fixed, in order:
+1. `MainWorld.tscn`'s `Environment_w26i4`: `tonemap_white` was never set
+   (Godot's low default is the #1 documented cause of blown highlights) —
+   set to `5.0`.
+2. `tonemap_mode` was `2` (Filmic) despite a code comment saying "ACES
+   Filmic" — actually `3` is ACES. Filmic and ACES apply a 2.0x/1.8x
+   brightness multiplier respectively vs Linear (Godot's own documented
+   behavior), so the mismatch meant nothing was tuned to account for
+   either. Switched to true ACES (`tonemap_mode = 3`) — desaturates toward
+   white at high brightness (a warm light blows out to "harsh white," not
+   "sickly yellow glow"), which suits the eerie tone better than Filmic.
+3. `WallLight.gd`: every wall light was scattering its FULL light through
+   volumetric fog (`light_volumetric_fog_energy` left at Godot's default of
+   `1.0`) — turning "distinct pools of light, dark corners between" into
+   "uniformly hazy room." Added `LIGHT_VOLUMETRIC_FOG_ENERGY = 0.2`, set
+   once at construction (not power-state-dependent, so one set site is
+   sufficient — only `light_color`/`light_energy` need re-applying across
+   `set_powered()`/`set_shed()`/build). Reserves the visible fog-shaft
+   effect for the flashlight specifically (the design thesis's intended
+   showcase moment), not ambient room lights.
+4. `WallLight.LIGHT_ENERGY`: `4.5 → 2.0`. Was tuned before glow/SDFGI/
+   volumetric fog existed in the project; once those post-process systems
+   came online they amplified the same raw value well past the original look.
+5. `MainWorld.tscn`: `glow_hdr_threshold` `1.0 → 1.4` — was catching nearly
+   every lit surface into a soft bloom halo; raised so glow is reserved for
+   genuinely bright sources.
+
+**Deliberately deferred** (per the review doc's own sequencing —
+these are final taste-level dials, meant to be tuned only after 1-5 above
+are visually confirmed in-editor, not guessed at the same time): `adjustment_
+brightness`/`adjustment_saturation` (wired via `adjustment_enabled = true`
+but still neutral at 1.0), `sdfgi_energy` (still Godot default). Also
+deferred: the bunker's interior floor/wall material albedo color (reads
+cream/tan in the screenshot) — flagged as a Phase 4 (materials) task, not a
+lighting fix; a genuinely dark room needs both darker light sources AND
+darker surfaces for GI to have less to bounce off, but that's a separate pass.
+**Untested by Brannon as of this fix** — needs an in-editor visual check
+before deciding whether further tuning (the deferred items above, or
+revisiting 1-5's exact values) is needed.
+
 3 real issues fixed (below) — full end-to-end test still pending.
 
 **Post-implementation-review fixes (July 2026):**
