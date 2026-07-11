@@ -365,6 +365,13 @@ var _registry: PowerRegistry = null
 ## only called internally within PowerSolver itself).
 var _solver: PowerSolver = null
 
+## ZoneCustomization.gd — player-set zone name/color overrides (July 2026, new
+## self-contained feature, NOT an extraction). See that file's header for the
+## zone_key identity scheme. PowerManager forwards get_zone_display_name()/
+## set_zone_name()/get_zone_color_override()/set_zone_color_override()/
+## zone_display_color() to it.
+var _zone_custom: ZoneCustomization = null
+
 ## Circuit breakers — live on a wire node and open the graph at that point.
 ## key: breaker_id string
 ## value:
@@ -511,6 +518,14 @@ signal wire_node_unregistered(node_key: String)
 signal breaker_tripped(breaker_id: String)
 signal breaker_reset(breaker_id: String)
 
+## Zone customization (July 2026) — fired by set_zone_color_override()/
+## set_zone_name() so any interested listener (BuildModeController repaints
+## world wire tubes; PowerTerminalUI/BreakerBox/DebugOverlay just re-read live
+## data on their own next redraw, so they don't strictly need this signal, but
+## it's here for any future listener) can react immediately without polling.
+signal zone_color_changed(zone_key: String)
+signal zone_name_changed(zone_key: String)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # LIFECYCLE
@@ -520,6 +535,7 @@ func _ready() -> void:
 	_graph = PowerGraph.new(self)
 	_registry = PowerRegistry.new(self)
 	_solver = PowerSolver.new(self)
+	_zone_custom = ZoneCustomization.new(self)
 	pass   ## No default zone — graph starts empty.
 
 func _process(delta: float) -> void:
@@ -1002,6 +1018,7 @@ func get_zone_snapshot() -> Array[Dictionary]:
 
 	for zone: Dictionary in wire_zones:
 		var z_idx: int    = int(zone.get("index", 0))
+		var z_key: String = String(zone.get("zone_key", ""))
 		var edge_ids: Array = zone.get("edge_ids", [])
 
 		## Collect all snap keys in this zone (from its edges).
@@ -1097,6 +1114,11 @@ func get_zone_snapshot() -> Array[Dictionary]:
 
 		out.append({
 			"zone_index":    z_idx,
+			## zone_key — stable zone identity (see ZoneCustomization.gd),
+			## used by callers to look up player name/color overrides.
+			"zone_key":      z_key,
+			## zone_name — player override if set, else the default "Z%d" label.
+			"zone_name":     get_zone_display_name(z_key, "Z%d" % z_idx),
 			## color_index comes from get_wire_zones_with_colors() above —
 			## this is the actual registry-assigned palette index, NOT z_idx % 6.
 			"color_index":   int(zone.get("color_index", z_idx % ZONE_COLORS.size())),
@@ -1335,10 +1357,63 @@ const ZONE_COLORS: Array[Color] = [
 ## Return palette colour for a zone color_index at the requested alpha.
 ## Wraps the palette (repeating) for arbitrary zone counts.
 ## Callers: BuildModeController (alpha 0.60), PowerTerminalUI (alpha 1.0).
+## NOTE: this is the pure ALGORITHMIC palette lookup — it does NOT know about
+## player color overrides. Use zone_display_color() below wherever a zone_key
+## is available (i.e. everywhere except inside the graph-coloring algorithm
+## itself, which must stay override-agnostic to keep coloring adjacent zones
+## distinct).
 func zone_color_at(color_index: int, alpha: float = 0.60) -> Color:
 	var c: Color = ZONE_COLORS[color_index % ZONE_COLORS.size()]
 	c.a = alpha
 	return c
+
+
+## ════════════════════════════════════════════════════════════════════════════
+## ZONE CUSTOMIZATION (player-set name/color overrides) — Public API
+## ════════════════════════════════════════════════════════════════════════════
+## See ZoneCustomization.gd for the zone_key identity scheme and persistence
+## guarantees. All zone_key values here come from get_wire_zones_with_colors()/
+## get_zone_snapshot()'s "zone_key" field.
+
+## Returns the zone's display name — the player override if one is set,
+## otherwise `default_name` (callers pass "Z%d" % zone_index).
+func get_zone_display_name(zone_key: String, default_name: String) -> String:
+	var override_name: String = _zone_custom.get_name_override(zone_key)
+	return override_name if not override_name.is_empty() else default_name
+
+## Sets (or clears, if blank) the player's display-name override for a zone.
+## Called by PowerTerminal's rename UI. Takes effect immediately — the next
+## get_zone_snapshot()/get_zone_display_name() call reflects it.
+func set_zone_name(zone_key: String, new_name: String) -> void:
+	_zone_custom.set_name_override(zone_key, new_name)
+	zone_name_changed.emit(zone_key)
+
+## Returns the player's color override for a zone, or null if none is set.
+func get_zone_color_override(zone_key: String) -> Variant:
+	if _zone_custom.has_color_override(zone_key):
+		return _zone_custom.get_color_override(zone_key)
+	return null
+
+## Sets the player's color override for a zone. ALWAYS persists once set —
+## does not re-check the graph-coloring adjacency rule, per design (the
+## player's choice always wins, even if it happens to match/clash with a
+## bordering zone). Called by PowerTerminal's color-picker UI.
+func set_zone_color_override(zone_key: String, new_color: Color) -> void:
+	_zone_custom.set_color_override(zone_key, new_color)
+	zone_color_changed.emit(zone_key)
+
+## Zone color for DISPLAY — checks the player override FIRST, falls back to
+## the auto-assigned algorithmic palette color otherwise. This is what every
+## UI/world-wire render site should call once it has a zone_key (world wires
+## via BuildModeController, PowerTerminalUI, BreakerBox zone swatches,
+## DebugOverlay). zone_color_at() itself stays pure/override-agnostic since
+## the greedy graph-coloring algorithm internally depends on it being so.
+func zone_display_color(zone_key: String, color_index: int, alpha: float = 0.60) -> Color:
+	if _zone_custom.has_color_override(zone_key):
+		var c: Color = _zone_custom.get_color_override(zone_key)
+		c.a = alpha
+		return c
+	return zone_color_at(color_index, alpha)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2072,6 +2147,11 @@ func get_wire_zones_with_colors() -> Array[Dictionary]:
 	for zi: int in raw_zones.size():
 		var z: Dictionary = raw_zones[zi].duplicate()
 		z["color_index"] = int(zi_to_color.get(zi, 0))
+		## "zone_key" — the stable zone identity used by _zone_color_registry
+		## above. Exposed so callers (get_zone_snapshot(), UI, world-wire
+		## coloring) can look up player overrides via zone_display_color()/
+		## get_zone_display_name() without recomputing this key themselves.
+		z["zone_key"] = zone_sort_key[zi]
 		out.append(z)
 
 	return out

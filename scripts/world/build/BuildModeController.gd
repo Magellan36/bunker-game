@@ -218,6 +218,17 @@ func _ready() -> void:
 	_build_world_materials()
 	_setup_wire_draw_mode()
 
+	## Repaint world wire tubes the instant a player recolors a zone via its
+	## Power Terminal (PowerManager.set_zone_color_override()) — without this,
+	## world wires would only pick up the new color on the NEXT wire/breaker
+	## placement (whenever _recolor_wire_zones() next runs on its own).
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null and not pm.zone_color_changed.is_connected(_on_zone_color_changed):
+		pm.zone_color_changed.connect(_on_zone_color_changed)
+
+func _on_zone_color_changed(_zone_key: String) -> void:
+	_recolor_wire_zones()
+
 # ─── Activation ───────────────────────────────────────────────────────────────
 func enter_build_mode() -> void:
 	is_active = true
@@ -1411,8 +1422,12 @@ func _recolor_wire_zones() -> void:
 
 	for zone: Dictionary in zones:
 		var cidx: int   = zone.get("color_index", zone.get("index", 0))
+		var zkey: String = String(zone.get("zone_key", ""))
 		var eids: Array = zone.get("edge_ids", [])
-		var col: Color  = pm.zone_color_at(cidx, 0.60)
+		## zone_display_color() checks the player's color override (set via a
+		## Power Terminal's color-picker UI) before falling back to the
+		## algorithmic palette — world wires must match the terminal's swatch.
+		var col: Color  = pm.zone_display_color(zkey, cidx, 0.60)
 		for eid: String in eids:
 			edge_color_map[eid] = col
 			## Reverse-direction alias so b__a lookups also resolve.

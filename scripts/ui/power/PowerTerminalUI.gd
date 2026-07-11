@@ -131,6 +131,16 @@ func _unhandled_input(event: InputEvent) -> void:
 					pm.reset_main_breaker()
 			get_viewport().set_input_as_handled()
 			return
+		## Rename Zone button — only live when scoped to this terminal's own zone.
+		if _rename_zone_rect.size.x > 0 and _rename_zone_rect.has_point(mpos):
+			_open_zone_rename()
+			get_viewport().set_input_as_handled()
+			return
+		## Color Zone button — same scoping.
+		if _recolor_zone_rect.size.x > 0 and _recolor_zone_rect.has_point(mpos):
+			_open_zone_color_picker()
+			get_viewport().set_input_as_handled()
+			return
 		## Per-consumer priority arrows (◄ / ►). Adjust then re-solve grid.
 		for hit: Dictionary in _priority_hit_rects:
 			var hr: Rect2 = hit.get("rect", Rect2())
@@ -466,9 +476,11 @@ func _draw_batteries_section(snap: Dictionary, x: float, y: float, w: float) -> 
 			## Also build zone_index → color_index for correct palette lookup.
 			var bat_to_zone_idx: Dictionary = {}
 			var bat_zi_to_ci: Dictionary    = {}
+			var bat_zi_to_zk: Dictionary    = {}
 			for zd2: Dictionary in all_zones:
 				var other_zi: int = int(zd2.get("zone_index", -1))
 				bat_zi_to_ci[other_zi] = int(zd2.get("color_index", other_zi))
+				bat_zi_to_zk[other_zi] = String(zd2.get("zone_key", ""))
 				if other_zi == connected_zone_index:
 					continue
 				for bid2: String in (zd2.get("battery_ids", []) as Array):
@@ -491,7 +503,8 @@ func _draw_batteries_section(snap: Dictionary, x: float, y: float, w: float) -> 
 					var rbid: String  = rb.get("id", "")
 					var rb_zi: int    = int(bat_to_zone_idx.get(rbid, -1))
 					var rb_cidx: int  = bat_zi_to_ci.get(rb_zi, rb_zi)
-					var rb_col: Color = _zone_col(rb_cidx) \
+					var rb_zk: String = String(bat_zi_to_zk.get(rb_zi, ""))
+					var rb_col: Color = _zone_col(rb_zk, rb_cidx) \
 						if rb_zi >= 0 else Color(0.30, 0.68, 1.00, 1.0)
 					_draw_bat_row.call(rb, "    ", rb_col)
 
@@ -526,13 +539,18 @@ func _draw_wire_section(snap: Dictionary, x: float, y: float, _w: float) -> floa
 	if pm != null:
 		var zones: Array = pm.get_zone_snapshot()
 		if zones.size() >= 2:
-			## Build zone_index → snapshot dict and zone_index → color_index map.
+			## Build zone_index → snapshot dict and zone_index → color_index/
+			## zone_key/zone_name maps.
 			var zone_map: Dictionary = {}
 			var zi_to_ci_wg: Dictionary = {}
+			var zi_to_zk_wg: Dictionary = {}
+			var zi_to_name_wg: Dictionary = {}
 			for z: Dictionary in zones:
 				var zi: int = z.get("zone_index", -1)
 				zone_map[zi] = z
 				zi_to_ci_wg[zi] = int(z.get("color_index", zi))
+				zi_to_zk_wg[zi] = String(z.get("zone_key", ""))
+				zi_to_name_wg[zi] = String(z.get("zone_name", "Z%d" % zi))
 
 			var any_flow: bool = false
 			for z: Dictionary in zones:
@@ -542,7 +560,7 @@ func _draw_wire_section(snap: Dictionary, x: float, y: float, _w: float) -> floa
 				if neighbors.is_empty():
 					continue
 
-				var z_col: Color = _zone_col(zi_to_ci_wg.get(z_idx, z_idx))
+				var z_col: Color = _zone_col(zi_to_zk_wg.get(z_idx, ""), zi_to_ci_wg.get(z_idx, z_idx))
 
 				for nb_idx: int in neighbors:
 					## Only draw each pair once (lower index draws the line).
@@ -552,7 +570,7 @@ func _draw_wire_section(snap: Dictionary, x: float, y: float, _w: float) -> floa
 
 					var nb: Dictionary = zone_map.get(nb_idx, {})
 					var nb_surplus: float = nb.get("surplus_w", 0.0)
-					var nb_col: Color     = _zone_col(zi_to_ci_wg.get(nb_idx, nb_idx))
+					var nb_col: Color     = _zone_col(zi_to_zk_wg.get(nb_idx, ""), zi_to_ci_wg.get(nb_idx, nb_idx))
 
 					## Determine direction: who is exporting to whom.
 					## If both have surplus or both have deficit, no net flow.
@@ -580,19 +598,21 @@ func _draw_wire_section(snap: Dictionary, x: float, y: float, _w: float) -> floa
 						from_col = DIM_COLOR
 						to_col   = DIM_COLOR
 
-					## Draw zone index labels in zone colors; arrow+watts in flow color.
+					## Draw zone display-name labels in zone colors; arrow+watts in flow color.
+					## Truncated to 6 chars here (this is a tight one-line layout) —
+					## the full name is always shown in the zone list below.
 					var flow_col: Color = OK_COLOR if flow_w > 0.0 else DIM_COLOR
 					var indent: float = x + 8.0
 					var cx: float = indent
-					## "Z0" in from_col
-					_draw_string_at("Z%d" % z_idx, Vector2(cx, y), from_col, FONT_SIZE_S)
-					cx += 20.0
+					var z_label: String  = String(zi_to_name_wg.get(z_idx, "Z%d" % z_idx)).substr(0, 6)
+					var nb_label: String = String(zi_to_name_wg.get(nb_idx, "Z%d" % nb_idx)).substr(0, 6)
+					_draw_string_at(z_label, Vector2(cx, y), from_col, FONT_SIZE_S)
+					cx += maxf(20.0, z_label.length() * 6.5)
 					## arrow in flow_col
 					_draw_string_at(arrow, Vector2(cx, y), flow_col, FONT_SIZE_S)
 					cx += 14.0
-					## "Z1" in to_col
-					_draw_string_at("Z%d" % nb_idx, Vector2(cx, y), to_col, FONT_SIZE_S)
-					cx += 22.0
+					_draw_string_at(nb_label, Vector2(cx, y), to_col, FONT_SIZE_S)
+					cx += maxf(22.0, nb_label.length() * 6.5)
 					## watts or balanced
 					if flow_w > 0.0:
 						_draw_string_at("%.0fW" % flow_w, Vector2(cx, y), flow_col, FONT_SIZE_S)
@@ -758,11 +778,13 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 					remote_cons.append(all_cons_by_id[rcid])
 
 			if not remote_cons.is_empty():
-				## Build zone_index → color_index map from snapshot.
+				## Build zone_index → color_index/zone_key map from snapshot.
 				var zi_to_ci_rc: Dictionary = {}
+				var zi_to_zk_rc: Dictionary = {}
 				for zd_rc: Dictionary in all_zones:
 					var rc_zi: int = int(zd_rc.get("zone_index", 0))
 					zi_to_ci_rc[rc_zi] = int(zd_rc.get("color_index", rc_zi))
+					zi_to_zk_rc[rc_zi] = String(zd_rc.get("zone_key", ""))
 
 				## Find source zone index color for each remote consumer.
 				## They live in the zones listed in this zone's export_to array.
@@ -776,7 +798,8 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 				if export_to_zones.size() > 0:
 					var dst_zi: int = int(export_to_zones[0])
 					var dst_cidx: int = zi_to_ci_rc.get(dst_zi, dst_zi)
-					remote_col = _zone_col(dst_cidx)
+					var dst_zk: String = String(zi_to_zk_rc.get(dst_zi, ""))
+					remote_col = _zone_col(dst_zk, dst_cidx)
 
 				## Sub-header.
 				y += 4.0
@@ -827,15 +850,27 @@ const ZONE_PALETTE: Array[Color] = [
 ]
 
 ## Canonical zone colour at alpha 1.0, sourced from PowerManager.
-## Falls back to the local ZONE_PALETTE mirror only if PM is unreachable.
-func _zone_col(color_index: int) -> Color:
+## Checks the player's per-zone color override first (zone_display_color())
+## so a recolored zone's swatches/labels update everywhere in this UI
+## instantly — falls back to the local ZONE_PALETTE mirror only if PM is
+## unreachable (zone_key is meaningless without PM anyway in that case).
+func _zone_col(zone_key: String, color_index: int) -> Color:
 	var pm: PowerManager = _get_pm()
 	if pm != null:
-		return pm.zone_color_at(color_index, 1.0)
+		return pm.zone_display_color(zone_key, color_index, 1.0)
 	return ZONE_PALETTE[color_index % ZONE_PALETTE.size()]
 
 ## Hit rect for the Reset Grid button (built during draw, used in input).
 var _reset_grid_rect: Rect2 = Rect2()
+
+## Hit rects for the RENAME / COLOR zone buttons — only non-empty (size.x > 0)
+## while this terminal is scoped to its own zone (see _draw_breakers_section).
+var _rename_zone_rect:  Rect2 = Rect2()
+var _recolor_zone_rect: Rect2 = Rect2()
+
+## Lazily-created reusable popup for the rename/recolor UIs (see
+## ZoneCustomizeUI.gd). Spawned once, added to the scene root, never freed.
+var _zone_customize_ui: CanvasLayer = null
 
 ## Hit rects for per-consumer priority arrows, rebuilt every draw.
 ## Each entry: { "rect": Rect2, "id": String, "delta": int (+1 or -1) }
@@ -844,6 +879,25 @@ var _priority_hit_rects: Array[Dictionary] = []
 # ─── Zones section (replaces old ZONE BREAKERS) ───────────────────────────────
 func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> float:
 	var pm: PowerManager = _get_pm()
+
+	## ── Fetch + filter zone data up front (also needed for the Reset button's
+	## label and the new RENAME/COLOR buttons below, not just the list). ──────
+	var zone_snap: Array = []
+	if pm != null:
+		zone_snap = pm.get_zone_snapshot()
+
+	var my_zone: Dictionary = {}   ## this terminal's own zone dict, if scoped.
+	if connected_zone_index >= 0:
+		var filtered_zones: Array = []
+		for zd2: Dictionary in zone_snap:
+			if int(zd2.get("zone_index", -1)) == connected_zone_index:
+				filtered_zones.append(zd2)
+				my_zone = zd2
+				break
+		zone_snap = filtered_zones
+
+	var my_zone_key:  String = String(my_zone.get("zone_key", ""))
+	var my_zone_name: String = String(my_zone.get("zone_name", "Z%d" % connected_zone_index))
 
 	## ── Reset button ─────────────────────────────────────────────────────────
 	var btn_w: float  = w - SECTION_PAD
@@ -867,12 +921,33 @@ func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> f
 	_canvas.draw_rect(_reset_grid_rect, btn_col * Color(1,1,1,0.70), false, 1.5)
 	var btn_label: String
 	if connected_zone_index >= 0:
-		btn_label = "⟳  RESET ZONE %d" % connected_zone_index if btn_active \
-			else "RESET ZONE %d  (OK)" % connected_zone_index
+		btn_label = "⟳  RESET %s" % my_zone_name if btn_active \
+			else "RESET %s  (OK)" % my_zone_name
 	else:
 		btn_label = "⟳  RESET GRID" if btn_active else "RESET GRID  (grid OK)"
 	_draw_string_at(btn_label, Vector2(x + 8.0, y + 14.0), btn_col, FONT_SIZE_S)
 	y += btn_h + 8.0
+
+	## ── Rename / Color buttons — ONLY for this terminal's OWN zone ──────────
+	## Player can only customize the zone this specific terminal is wired
+	## into (see PowerTerminal.gd's connected_zone_index scoping) — there is
+	## no path to open these for any other zone from this UI.
+	_rename_zone_rect = Rect2()
+	_recolor_zone_rect = Rect2()
+	if connected_zone_index >= 0 and not my_zone_key.is_empty():
+		var half_w: float = (btn_w - 6.0) * 0.5
+		_rename_zone_rect  = Rect2(x, y, half_w, btn_h)
+		_recolor_zone_rect = Rect2(x + half_w + 6.0, y, half_w, btn_h)
+
+		_canvas.draw_rect(_rename_zone_rect, Color(0.10, 0.16, 0.10, 0.85), true)
+		_canvas.draw_rect(_rename_zone_rect, TEXT_COLOR * Color(1,1,1,0.6), false, 1.5)
+		_draw_string_at("✎  RENAME", Vector2(_rename_zone_rect.position.x + 8.0, y + 14.0), TEXT_COLOR, FONT_SIZE_S)
+
+		_canvas.draw_rect(_recolor_zone_rect, Color(0.10, 0.16, 0.10, 0.85), true)
+		_canvas.draw_rect(_recolor_zone_rect, TEXT_COLOR * Color(1,1,1,0.6), false, 1.5)
+		_draw_string_at("◍  COLOR", Vector2(_recolor_zone_rect.position.x + 8.0, y + 14.0), TEXT_COLOR, FONT_SIZE_S)
+
+		y += btn_h + 8.0
 
 	## ── Wire Zones ────────────────────────────────────────────────────────────
 	## If zone-scoped, only show this terminal's own zone. Otherwise show all.
@@ -880,42 +955,35 @@ func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> f
 	_draw_section_header(section_title, x, y)
 	y += 20.0
 
-	var zone_snap: Array = []
-	if pm != null:
-		zone_snap = pm.get_zone_snapshot()
-
-	## Filter to just this terminal's zone when scoped.
-	if connected_zone_index >= 0:
-		var filtered_zones: Array = []
-		for zd2: Dictionary in zone_snap:
-			if int(zd2.get("zone_index", -1)) == connected_zone_index:
-				filtered_zones.append(zd2)
-				break
-		zone_snap = filtered_zones
-
 	if zone_snap.is_empty():
 		_draw_string_at("  No zone data", Vector2(x, y), DIM_COLOR, FONT_SIZE_S)
 		_draw_string_at("  (wire this terminal into an enclosed zone)", Vector2(x, y + 12.0), DIM_COLOR, FONT_SIZE_S)
 		return y + 30.0
 
-	## Build zone_index → color_index map so UI swatches match in-world wire hues.
-	## color_index is assigned by PowerManager and may differ from zone_index
-	## (e.g. zone 0 might have color_index 2 if colors were shuffled by merges).
-	var zi_to_ci: Dictionary = {}
+	## Build zone_index → color_index/zone_key/zone_name maps so UI swatches
+	## and labels match in-world wire hues + names. color_index is assigned
+	## by PowerManager and may differ from zone_index (e.g. zone 0 might have
+	## color_index 2 if colors were shuffled by merges).
+	var zi_to_ci:   Dictionary = {}
+	var zi_to_zk:   Dictionary = {}
+	var zi_to_name: Dictionary = {}
 	for zd_all: Dictionary in zone_snap:
 		var zi: int = int(zd_all.get("zone_index", 0))
-		var ci: int = int(zd_all.get("color_index", zi))
-		zi_to_ci[zi] = ci
+		zi_to_ci[zi]   = int(zd_all.get("color_index", zi))
+		zi_to_zk[zi]   = String(zd_all.get("zone_key", ""))
+		zi_to_name[zi] = String(zd_all.get("zone_name", "Z%d" % zi))
 
 	for zd: Dictionary in zone_snap:
 		var z_idx:   int    = int(zd.get("zone_index", 0))
 		var z_cidx:  int    = zi_to_ci.get(z_idx, z_idx)
+		var z_key:   String = String(zi_to_zk.get(z_idx, ""))
+		var z_name:  String = String(zi_to_name.get(z_idx, "Z%d" % z_idx))
 		var z_state: String = zd.get("state_str", "ONLINE")
 		var z_cons:  Array  = zd.get("consumer_ids", [])
 		var z_gens:  Array  = zd.get("generator_ids", [])
 		var z_bats:  Array  = zd.get("battery_ids", [])
 
-		var z_col: Color = _zone_col(z_cidx)
+		var z_col: Color = _zone_col(z_key, z_cidx)
 		var z_state_col: Color
 		match z_state:
 			"ONLINE":   z_state_col = z_col
@@ -926,7 +994,7 @@ func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> f
 		var swatch_rect: Rect2 = Rect2(x, y - 9.0, 10.0, 10.0)
 		_canvas.draw_rect(swatch_rect, z_col, true)
 		_canvas.draw_rect(swatch_rect, z_col * Color(1,1,1,0.6), false, 1.0)
-		_draw_string_at("  Z%d  [%s]" % [z_idx, z_state],
+		_draw_string_at("  %s  [%s]" % [z_name, z_state],
 			Vector2(x + 12.0, y), z_state_col, FONT_SIZE_S)
 		y += 13.0
 
@@ -945,24 +1013,28 @@ func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> f
 		var exported_w: float  = float(zd.get("exported_w", 0.0))
 
 		if not import_from.is_empty() and imported_w > 0.0:
-			## Show one "← from ZN" line per source zone.
+			## Show one "← from <name>" line per source zone.
 			var per_zone_import: float = imported_w / float(import_from.size())
 			for src_zi: int in import_from:
 				var src_cidx: int  = zi_to_ci.get(src_zi, src_zi)
-				var src_col: Color = _zone_col(src_cidx)
+				var src_key: String = String(zi_to_zk.get(src_zi, ""))
+				var src_col: Color = _zone_col(src_key, src_cidx)
+				var src_name: String = String(zi_to_name.get(src_zi, "Z%d" % src_zi))
 				_draw_string_at(
-					"    ← %.0fW  from Z%d" % [per_zone_import, src_zi],
+					"    ← %.0fW  from %s" % [per_zone_import, src_name],
 					Vector2(x, y), src_col, FONT_SIZE_S)
 				y += 11.0
 
 		if not export_to.is_empty() and exported_w > 0.0:
-			## Show one "→ to ZN" line per destination zone.
+			## Show one "→ to <name>" line per destination zone.
 			var per_zone_export: float = exported_w / float(export_to.size())
 			for dst_zi: int in export_to:
 				var dst_cidx: int  = zi_to_ci.get(dst_zi, dst_zi)
-				var dst_col: Color = _zone_col(dst_cidx)
+				var dst_key: String = String(zi_to_zk.get(dst_zi, ""))
+				var dst_col: Color = _zone_col(dst_key, dst_cidx)
+				var dst_name: String = String(zi_to_name.get(dst_zi, "Z%d" % dst_zi))
 				_draw_string_at(
-					"    → %.0fW  to Z%d" % [per_zone_export, dst_zi],
+					"    → %.0fW  to %s" % [per_zone_export, dst_name],
 					Vector2(x, y), dst_col, FONT_SIZE_S)
 				y += 11.0
 
@@ -1009,3 +1081,100 @@ func _grid_state_color(state: int) -> Color:
 
 func _get_pm() -> PowerManager:
 	return get_tree().get_first_node_in_group("power_manager") as PowerManager
+
+# ─── Zone rename / recolor (July 2026) ────────────────────────────────────────
+## Lazily creates the reusable ZoneCustomizeUI popup (spawn-once/reuse pattern,
+## same as PowerPriorityUI/GeneratorInspectUI). Only ever opened for THIS
+## terminal's own connected_zone_index — the RENAME/COLOR buttons themselves
+## only exist (non-empty hit rects) while connected_zone_index >= 0, so there
+## is no code path here that can target any other zone.
+func _ensure_zone_customize_ui() -> CanvasLayer:
+	if _zone_customize_ui != null and is_instance_valid(_zone_customize_ui):
+		return _zone_customize_ui
+
+	var ui_script: GDScript = load("res://scripts/ui/power/ZoneCustomizeUI.gd")
+	if ui_script == null:
+		push_warning("[PowerTerminalUI] ZoneCustomizeUI.gd not found")
+		return null
+
+	_zone_customize_ui = CanvasLayer.new()
+	_zone_customize_ui.set_script(ui_script)
+	_zone_customize_ui.name = "ZoneCustomizeUI"
+	get_tree().get_root().add_child(_zone_customize_ui)
+
+	if _zone_customize_ui.has_signal("name_changed"):
+		_zone_customize_ui.name_changed.connect(_on_zone_name_changed)
+	if _zone_customize_ui.has_signal("color_changed"):
+		_zone_customize_ui.color_changed.connect(_on_zone_color_changed)
+
+	return _zone_customize_ui
+
+
+func _open_zone_rename() -> void:
+	var pm: PowerManager = _get_pm()
+	if pm == null:
+		return
+	var zone_key: String = _current_zone_key(pm)
+	if zone_key.is_empty():
+		return
+	var ui: CanvasLayer = _ensure_zone_customize_ui()
+	if ui == null:
+		return
+	var current_name: String = pm.get_zone_display_name(zone_key, "Z%d" % connected_zone_index)
+	ui.call("open_rename", zone_key, current_name)
+
+
+func _open_zone_color_picker() -> void:
+	var pm: PowerManager = _get_pm()
+	if pm == null:
+		return
+	var zone_key: String = _current_zone_key(pm)
+	if zone_key.is_empty():
+		return
+	var ui: CanvasLayer = _ensure_zone_customize_ui()
+	if ui == null:
+		return
+	## Look up this zone's current color_index so we can find its displayed
+	## color at alpha 1.0 (matching the ZONE_PLAYER_COLOR_CHOICES alpha) for
+	## the picker's "highlight the currently-active swatch" behavior.
+	var zones: Array = pm.get_zone_snapshot()
+	var color_index: int = 0
+	for zd: Dictionary in zones:
+		if int(zd.get("zone_index", -1)) == connected_zone_index:
+			color_index = int(zd.get("color_index", 0))
+			break
+	var current_color: Color = pm.zone_display_color(zone_key, color_index, 1.0)
+	ui.call("open_color", zone_key, current_color)
+
+
+## Resolves connected_zone_index → its zone_key via get_zone_snapshot(). Both
+## RENAME and COLOR only ever act on connected_zone_index — this is the single
+## place that does the lookup so they can't drift out of sync with each other.
+func _current_zone_key(pm: PowerManager) -> String:
+	if connected_zone_index < 0:
+		return ""
+	var zones: Array = pm.get_zone_snapshot()
+	for zd: Dictionary in zones:
+		if int(zd.get("zone_index", -1)) == connected_zone_index:
+			return String(zd.get("zone_key", ""))
+	return ""
+
+
+func _on_zone_name_changed(zone_key: String, new_name: String) -> void:
+	var pm: PowerManager = _get_pm()
+	if pm != null:
+		pm.set_zone_name(zone_key, new_name)
+	## Instant visual refresh — no need to wait for the next _process tick.
+	_canvas.queue_redraw()
+
+
+func _on_zone_color_changed(zone_key: String, new_color: Color) -> void:
+	var pm: PowerManager = _get_pm()
+	if pm != null:
+		## Emits PowerManager.zone_color_changed, which BuildModeController is
+		## connected to (see its _ready()) and repaints world wire tubes from —
+		## so this single call updates the terminal UI, world wires, and every
+		## other zone-color display (BreakerBox, DebugOverlay) all at once,
+		## since they all read live from PowerManager on their own next redraw.
+		pm.set_zone_color_override(zone_key, new_color)
+	_canvas.queue_redraw()

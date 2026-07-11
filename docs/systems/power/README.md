@@ -57,10 +57,13 @@ every electrical device in the game.
 | `WireDrawMode.gd` | ~670 | Player wire-drawing tool (build mode only) | inline below |
 | `WallLight.gd` | ~430 | Consumer device — sets `power_zone`/`power_priority` before `_ready()` registers; default priority **1** (critical) | inline below |
 | `WireGraphBuilder.gd` | ~1510 | Auto-wire perimeter rebuild engine (incremental node/edge diff on chunk dig/expand). Owned/instantiated by `MainWorld`, not part of the PowerManager cluster — see `docs/systems/world-core/README.md` | inline below |
-| `DeviceDatabase.gd` | ~110 | **Autoload.** Pure config data: `WATT_RATINGS`, `DEFAULT_PRIORITY_BY_TYPE`, `GENERATOR_TIERS`, `STATE_EMISSION_COLORS` | inline below |
+| `DeviceDatabase.gd` | ~150 | **Autoload.** Pure config data: `WATT_RATINGS`, `DEFAULT_PRIORITY_BY_TYPE`, `GENERATOR_TIERS`, `STATE_EMISSION_COLORS`, `ZONE_PLAYER_COLOR_CHOICES` (16-swatch zone-recolor picker palette) | inline below |
+| `ZoneCustomization.gd` | ~90 | Player-set zone name/color overrides (July 2026) — small `zone_key`→value store, `_owner`-pattern instance owned by `PowerManager` as `_zone_custom` | inline below |
 
 UI panels for this system live in `scripts/ui/power/` (`PowerTerminalUI.gd`,
-`PowerPriorityUI.gd`, `GeneratorInspectUI.gd`) — see `docs/systems/ui/README.md`.
+`PowerPriorityUI.gd`, `GeneratorInspectUI.gd`, `ZoneCustomizeUI.gd` — rename/
+recolor popup opened from `PowerTerminalUI`'s RENAME/COLOR buttons) — see
+`docs/systems/ui/README.md`.
 
 ## Public API (call these from other systems; everything else is internal)
 Get the instance via `get_tree().get_first_node_in_group("power_manager")` cast
@@ -104,6 +107,21 @@ pass_generator)`, `set_breaker_upgraded/get_breaker_upgraded(id)`,
 solve until `end_bulk()`), `request_solve()` (force a solve; defers if
 `_bulk_depth > 0`).
 
+**Zone customization (July 2026):** `get_zone_display_name(zone_key,
+default_name)`, `set_zone_name(zone_key, new_name)`,
+`get_zone_color_override(zone_key)` (returns `Color` or `null`),
+`set_zone_color_override(zone_key, new_color)` (ALWAYS persists — never
+re-validated against the graph-coloring adjacency rule, by design),
+`zone_display_color(zone_key, color_index, alpha)` (override-aware —
+prefer this over `zone_color_at()` in any new code that has a `zone_key`
+available; `zone_color_at()` itself must stay override-agnostic since the
+greedy graph-coloring algorithm depends on it being pure). `zone_key` comes
+from the `"zone_key"` field on `get_wire_zones_with_colors()`/
+`get_zone_snapshot()` entries — see `ZoneCustomization.gd` for the identity
+scheme and persistence guarantees (survives wire topology changes the same
+way auto-assigned zone colors do; can be orphaned by a zone merge/split,
+same known tradeoff the base color registry already accepts).
+
 ## Signals produced (all on `PowerManager`)
 | Signal | Params | Fires when |
 |---|---|---|
@@ -117,6 +135,7 @@ solve until `end_bulk()`), `request_solve()` (force a solve; defers if
 | `battery_registered/unregistered/low/state_changed/drained` | various | Battery lifecycle + low-charge/discharge-state changes |
 | `wire_edge_registered/unregistered`, `wire_node_registered/unregistered` | ids | Wire graph mutations |
 | `breaker_tripped/reset` | `breaker_id` | Breaker trip/reset |
+| `zone_color_changed` / `zone_name_changed` | `zone_key` | Player renamed/recolored a zone via its Power Terminal — `BuildModeController` listens to `zone_color_changed` to repaint world wire tubes instantly (see its `_ready()`) |
 
 ## Signals/events consumed
 - `WireDrawMode.wire_placed` / `wire_nodes_connected` — `MainWorld` listens,
@@ -129,17 +148,21 @@ solve until `end_bulk()`), `request_solve()` (force a solve; defers if
 `PowerManager` is instantiated by `MainWorld._setup_power_manager()`
 (`Node.new()` + `set_script()` + `add_child()`, added to group
 `"power_manager"` — not an autoload). It internally creates and owns
-`PowerGraph`, `PowerRegistry`, `PowerSolver` instances in its own `_ready()`
-(all three take an `_owner: PowerManager` back-reference — see Extension
-points). Every device (`BreakerBox`, `GeneratorObject`, `BatteryBank`,
-`WallLight`, etc.) finds the manager via
+`PowerGraph`, `PowerRegistry`, `PowerSolver`, `ZoneCustomization` instances in
+its own `_ready()` (all take an `_owner: PowerManager` back-reference — see
+Extension points). Every device (`BreakerBox`, `GeneratorObject`,
+`BatteryBank`, `WallLight`, etc.) finds the manager via
 `get_tree().get_first_node_in_group("power_manager")` and registers itself
 in its own `_ready()`.
 
 ## Persistence
 **None currently.** Grid/generator/battery/consumer/wire state is NOT saved
 via `SaveManager` — a fresh load starts the grid from scratch. Tracked as a
-known gap, not scheduled (see Known tradeoffs).
+known gap, not scheduled (see Known tradeoffs). This includes zone name/color
+overrides (`ZoneCustomization.gd`) — they persist in-memory across wire
+topology changes/expansion for the current play session (that's the
+"persistence" the feature is about — surviving digs/rebuilds, not a save
+game), but are lost on a fresh load along with everything else in this list.
 
 ## Call graph (brief)
 ```

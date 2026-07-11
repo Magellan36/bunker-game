@@ -109,3 +109,33 @@ const STATE_EMISSION_COLORS: Dictionary = {
 static func get_status_emission_color(tag: String) -> Color:
 	return STATE_EMISSION_COLORS.get(tag, STATE_EMISSION_COLORS["fault"])
 
+
+# ─── Player zone-color picker palette (July 2026) ────────────────────────────
+## The fixed set of 16 swatches ZoneCustomizeUI.gd's color picker offers the
+## player when recoloring a wire zone via its Power Terminal. Deliberately
+## SEPARATE from PowerManager.ZONE_COLORS (the smaller, auto-assigned
+## graph-coloring palette) — this is a much larger, purely player-facing
+## choice set and has no adjacency-distinctness constraint to satisfy (a
+## player's chosen zone color is allowed to match a neighboring zone; see
+## PowerManager.set_zone_color_override()). 16 hues evenly spaced around the
+## color wheel at fixed high saturation/value so all 16 read as clearly
+## distinct swatches in the picker grid.
+const ZONE_PLAYER_COLOR_CHOICES: Array[Color] = [
+	Color(0.95, 0.14, 0.14, 1.0),   ##  0 red
+	Color(0.95, 0.45, 0.14, 1.0),   ##  1 orange
+	Color(0.95, 0.75, 0.14, 1.0),   ##  2 amber/gold
+	Color(0.85, 0.95, 0.14, 1.0),   ##  3 yellow-green
+	Color(0.55, 0.95, 0.14, 1.0),   ##  4 lime
+	Color(0.24, 0.95, 0.14, 1.0),   ##  5 green
+	Color(0.14, 0.95, 0.34, 1.0),   ##  6 spring green
+	Color(0.14, 0.95, 0.65, 1.0),   ##  7 teal-green
+	Color(0.14, 0.95, 0.95, 1.0),   ##  8 cyan
+	Color(0.14, 0.65, 0.95, 1.0),   ##  9 sky blue
+	Color(0.14, 0.34, 0.95, 1.0),   ## 10 blue
+	Color(0.24, 0.14, 0.95, 1.0),   ## 11 indigo
+	Color(0.55, 0.14, 0.95, 1.0),   ## 12 violet
+	Color(0.85, 0.14, 0.95, 1.0),   ## 13 magenta
+	Color(0.95, 0.14, 0.75, 1.0),   ## 14 pink
+	Color(0.95, 0.14, 0.45, 1.0),   ## 15 rose
+]
+
