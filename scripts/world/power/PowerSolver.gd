@@ -696,8 +696,18 @@ func _evaluate_per_component() -> void:
 
 	if any_offline:
 		if zones_offline >= zones_with_device and not _owner._flickering:
-			if _owner.grid_state != _owner.GridState.OFFLINE:
-				_owner._go_offline()
+			## Total grid failure (every zone with a device is offline).
+			## Trigger the flicker→BROWNOUT warning sequence instead of
+			## jumping straight to a hard state — this was previously the
+			## dead-code trail documented in
+			## bunker-game-power-critical-finding.md: _start_flicker_offline()
+			## had zero call sites anywhere, so BROWNOUT/TRIPPED were
+			## structurally unreachable and players got zero warning before
+			## an instant blackout. _tick_flicker() (already fully
+			## implemented) takes it from here once the flicker completes.
+			if _owner.grid_state != _owner.GridState.OFFLINE \
+					and _owner.grid_state != _owner.GridState.TRIPPED:
+				_owner._start_flicker_offline()
 			return
 		any_overloaded = true   ## partial offline → treat as overloaded for HUD
 
