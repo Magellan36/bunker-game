@@ -617,6 +617,13 @@ func _show_warning(msg: String) -> void:
 func _cancel() -> void:
 	_clear_ghost()
 	_clear_cost_label()
+	## Clear any floating hover label too — without this, exiting wire mode
+	## (or build mode entirely) while the cursor is still hovering a wire
+	## node/generator/wall light left its Label3D permanently orphaned in
+	## the scene (nothing ever calls _update_hover_label() again once
+	## deactivated, so it never got the chance to free itself). Reusing the
+	## same "empty dict clears" path _process() already uses every frame.
+	_update_hover_label({})
 	_phase      = 0
 	_source_key = ""
 
