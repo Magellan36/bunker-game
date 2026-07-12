@@ -103,14 +103,19 @@ func _build_ui() -> void:
 	_blur_rect = ColorRect.new()
 	_blur_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_blur_rect.mouse_filter = Control.MOUSE_FILTER_STOP   ## eat clicks so world doesn't get them
+	## ALWAYS set a sane dim base color first (ColorRect defaults to opaque
+	## WHITE otherwise). If the shader below fails to render for any reason
+	## (GPU/driver-specific — the shader loading successfully as a Resource
+	## does NOT guarantee it compiles/executes correctly on every machine),
+	## this dim color is what actually shows instead of a solid white screen.
+	_blur_rect.color = Color(0.0, 0.0, 0.0, 0.55)
 	var blur_shader: Shader = load(BLUR_SHADER_PATH)
 	if blur_shader != null:
 		var mat: ShaderMaterial = ShaderMaterial.new()
 		mat.shader = blur_shader
 		_blur_rect.material = mat
-	else:
-		## Fallback if the shader failed to load: plain dim overlay.
-		_blur_rect.color = Color(0.0, 0.0, 0.0, 0.55)
+	## else: no material assigned at all — the dim .color set above already
+	## covers this case, so the old separate fallback assignment is gone.
 	add_child(_blur_rect)
 
 	## Center panel.
