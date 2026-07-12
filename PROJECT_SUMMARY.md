@@ -62,6 +62,11 @@ avoid over-engineering.
 
 **Roadmap priorities (nothing currently in progress — confirm with Brannon
 before starting any of these):**
+- Water system Phase 2 — see `docs/systems/water/README.md` Known
+  tradeoffs/Extension points: upgrade `WaterPipeDrawMode` to the full
+  continuous-paint interaction model (Phase 1 shipped with the plan's own
+  pre-approved segment-at-a-time fallback instead), then water purifiers/
+  pumps/real consumption simulation/dashboard UI/T-splits.
 - Main Menu scene, Death/game-over state — mentioned early in the project,
   never started, no trace in the repo currently.
 - Placing `emergency_light` device instances near breaker boxes (device
@@ -84,8 +89,9 @@ before starting any of these):**
 | Environment (BunkerLayout, BunkerPregen, RockSurround, LightingDirector, DustMotes) | `docs/systems/environment/README.md` | migrated |
 | Graphics/Camera (GameCamera, GraphicsSettings) | `docs/systems/graphics/README.md` | migrated |
 | Furniture/Items (Bed, Shelving, pickup item scripts) | `docs/systems/furniture-items/README.md` | migrated |
+| Water (Phase 1 groundwork: hookup + pipe placement, standalone from Power) | `docs/systems/water/README.md` | migrated |
 
-**All 8 systems now migrated (July 2026).** §6, §7, §8 below are now
+**All 9 systems now migrated (July 2026, Water added later that month).** §6, §7, §8 below are now
 historical/superseded by the linked READMEs above — kept only for the
 graphics-overhaul history subsection (§8) that hasn't been moved into
 `docs/systems/environment/README.md`/`docs/systems/graphics/README.md` yet;
@@ -112,6 +118,8 @@ scripts/
                  LightingDirector.gd, DustMotes.gd               [migrated, §2]
     items/       Pickup-able item scripts incl. Flashlight.gd   [migrated, §2]
     furniture/   Bed.gd, Shelving.gd                            [migrated, §2]
+    water/       WaterManager + WaterGraph + WaterHookup + pipe [migrated, §2]
+                 tool/visuals + WaterTestSink (Phase 1 groundwork)
   ui/
     power/       PowerTerminalUI, PowerPriorityUI, GeneratorInspectUI  [migrated, §2]
     inventory/   InventoryHUD, InventoryManager, ShelfUI               [migrated, §2]
@@ -148,7 +156,7 @@ flat/convenient location.
 ## 5. Architecture debt / open items (repo-wide, not one system's)
 - No automated tests (no GUT setup anywhere in the repo).
 - `scenes/` stays flat — reorganization was scoped to `scripts/` only.
-- All 8 systems now have a migrated `docs/systems/*/README.md` (§2) — no
+- All 9 systems now have a migrated `docs/systems/*/README.md` (§2) — no
   pending doc migration remains as of July 2026.
 
 ---

@@ -23,6 +23,7 @@ const TOOL_DUPLICATE:   int = 2
 const TOOL_MOVE:        int = 3
 const TOOL_UNDO:        int = 4
 const TOOL_WIRE:        int = 5   ## Wire draw — click A → click B to place wire
+const TOOL_WATER_PIPE:  int = 6   ## Water pipe draw (July 2026 groundwork pass) — click A → click B, auto-elbow at corners
 
 # ─── Construct-able items — organised by category ─────────────────────────────
 ## Two-level menu: pick category → pick item.
@@ -50,6 +51,12 @@ const CATEGORIES: Dictionary = {
 		{ "tile_id": 13, "name": "Battery S", "price": 150   },
 		{ "tile_id": 14, "name": "Battery M", "price": 350   },
 		{ "tile_id": 15, "name": "Battery L", "price": 600   },
+	],
+	"Water": [
+		## July 2026 groundwork pass. Prices are placeholders (plan does not
+		## specify economics for this pass — flagged for a future balance pass).
+		{ "tile_id": 17, "name": "Hookup",    "price": 200 },
+		{ "tile_id": 18, "name": "Test Sink", "price": 0   },
 	],
 }
 ## Flat list used only for legacy compat (3D preview viewports, etc.)
@@ -81,8 +88,8 @@ const COLOR_BG:     Color = Color(0.10, 0.10, 0.10, 0.82)
 const COLOR_BORDER: Color = Color(0.25, 0.25, 0.25, 0.90)
 const COLOR_SEL:    Color = Color(0.42, 0.87, 0.15, 1.0)
 const COLOR_TEXT:   Color = Color(0.80, 0.78, 0.72, 0.95)
-const TOOL_LABELS:  Array = ["Construct", "Deconstruct", "Duplicate", "Move", "Undo", "Wire"]
-const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌"]
+const TOOL_LABELS:  Array = ["Construct", "Deconstruct", "Duplicate", "Move", "Undo", "Wire", "Pipe"]
+const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌", "🚰"]
 
 ## Submenu
 const SUB_W:        float = 160.0
@@ -364,6 +371,16 @@ func _on_toolbar_click(slot: int) -> void:
 		else:
 			active_tool = TOOL_WIRE
 			tool_selected.emit(TOOL_WIRE)
+	elif slot == TOOL_WATER_PIPE:
+		## Water pipe draw tool (July 2026) — same toggle-on/off shape as Wire above.
+		_close_submenu()
+		cancel_requested.emit()
+		if active_tool == TOOL_WATER_PIPE:
+			active_tool = TOOL_CONSTRUCT
+			tool_selected.emit(TOOL_CONSTRUCT)
+		else:
+			active_tool = TOOL_WATER_PIPE
+			tool_selected.emit(TOOL_WATER_PIPE)
 	else:
 		# Any other tool: close submenu, cancel ghost, switch tool
 		_close_submenu()

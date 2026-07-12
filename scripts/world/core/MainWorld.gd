@@ -145,6 +145,11 @@ var _shelf_ui: Node = null
 
 # ─── Power Grid ───────────────────────────────────────────────────────────────
 var _power_manager: Node = null
+
+## Water system groundwork (July 2026) — instantiated the same way
+## _power_manager is: added to scene tree, tagged "water_manager" group, NOT
+## an autoload (per-world-instance state). See scripts/world/water/WaterManager.gd.
+var _water_manager: Node = null
 var _lighting_director: Node = null   ## LightingDirector.gd, built via Node.new()+set_script() same as _power_manager
 ## _reconciler removed (Stage 5) — reconciler fully retired.
 
@@ -185,6 +190,7 @@ func _ready() -> void:
 	_wire_builder = WireGraphBuilder.new(self)
 	add_to_group("main_world")   ## Lets PowerManager find us as fallback wire parent
 	_setup_power_manager()   ## Must be first — lights self-register in _ready()
+	_setup_water_manager()
 	_setup_lighting()
 	_setup_lighting_director()   ## Needs "power_manager" group populated above
 	_setup_ambient_dust()
@@ -244,6 +250,21 @@ func _setup_power_manager() -> void:
 	## Connect grid-event signals to HUD notifications.
 	## Deferred so HUD is guaranteed ready before the signal fires.
 	call_deferred("_connect_power_hud_signals")
+
+## Water system groundwork (July 2026) — mirrors _setup_power_manager()'s
+## shape exactly. Standalone system (see docs/systems referenced in
+## WaterManager.gd's header) — no HUD/signal wiring needed yet (Phase 1 has
+## no dashboard/terminal UI).
+func _setup_water_manager() -> void:
+	var wm_script: GDScript = load("res://scripts/world/water/WaterManager.gd")
+	if wm_script == null:
+		push_warning("MainWorld: WaterManager.gd not found — water system disabled")
+		return
+	_water_manager = Node.new()
+	_water_manager.set_script(wm_script)
+	_water_manager.name = "WaterManager"
+	_water_manager.add_to_group("water_manager")
+	add_child(_water_manager)
 
 ## Connects PowerManager signals to HUD floating alerts.
 ## Called deferred from _setup_power_manager() to ensure HUD is ready.
@@ -885,10 +906,18 @@ func _compute_and_rebuild_wires() -> void:
 
 func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
 	_wire_builder._on_chunk_deconstructed(chunk_origin)
+	## Water system groundwork (July 2026) — reuses this SAME boundary-change
+	## event for the water hookup's outer-wall auto-tracking, rather than
+	## polling or re-deriving boundary detection independently. See
+	## WaterManager._on_chunk_deconstructed()/WaterHookup.reposition_to_outer_wall().
+	if _water_manager != null and _water_manager.has_method("_on_chunk_deconstructed"):
+		_water_manager._on_chunk_deconstructed(chunk_origin)
 
 
 func _on_chunk_restored(chunk_origin: Vector2i) -> void:
 	_wire_builder._on_chunk_restored(chunk_origin)
+	if _water_manager != null and _water_manager.has_method("_on_chunk_restored"):
+		_water_manager._on_chunk_restored(chunk_origin)
 
 
 

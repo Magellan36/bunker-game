@@ -105,6 +105,27 @@ func _rebuild_ghost_mesh() -> void:
 					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
+	# ── Water hookup (July 2026 groundwork pass): ghost from static helper ────
+	if _owner._selected_tile == _owner.TILE_WATER_HOOKUP:
+		var hookup_script: GDScript = load("res://scripts/world/water/WaterHookup.gd")
+		if hookup_script != null and hookup_script.has_method("build_ghost_mesh"):
+			var wh_mesh: Mesh = hookup_script.build_ghost_mesh()
+			if wh_mesh != null:
+				_owner._ghost.mesh = wh_mesh
+				for s: int in wh_mesh.get_surface_count():
+					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
+	# ── Water test sink (July 2026 groundwork pass): grey box, mirrors TILE_HEAVY ──
+	if _owner._selected_tile == _owner.TILE_WATER_SINK:
+		var ws_box: BoxMesh = BoxMesh.new()
+		ws_box.size = Vector3(0.35, 0.30, 0.35)
+		_owner._ghost.mesh     = ws_box
+		_owner._ghost.position = Vector3(0.0, 0.15, 0.0)
+		for s: int in ws_box.get_surface_count():
+			_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
 	# ── Shelving: procedural ghost from static helper ──────────────────────────
 	if _owner._selected_tile == _owner.TILE_SHELVING:
 		var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
@@ -322,6 +343,25 @@ func _update_ghost() -> void:
 			_owner._ghost.visible = false
 			_owner._ghost_valid   = false
 			return
+	elif _owner._selected_tile == _owner.TILE_WATER_HOOKUP:
+		## Water hookup (July 2026 groundwork pass) — mandatory wall-snap,
+		## same "hide ghost if no wall found" strictness as the breaker above.
+		## cast_y_offset/pullback_dist mirror WaterHookup's own constants.
+		snap_pos.y = _owner.PLACEMENT_Y
+		var wh_snapped: Dictionary = _owner._snap_to_nearest_wall(snap_pos, 0.0, 0.05, 1.5)
+		if not wh_snapped.is_empty():
+			snap_pos = wh_snapped["pos"]
+			_owner._current_angle_deg = wh_snapped["angle_deg"]
+			for i: int in _owner.EIGHT_DIR_ANGLES.size():
+				if absf(_owner.EIGHT_DIR_ANGLES[i] - _owner._current_angle_deg) < 1.0:
+					_owner._orient_index = i
+					break
+		else:
+			_owner._ghost.visible = false
+			_owner._ghost_valid   = false
+			return
+	elif _owner._selected_tile == _owner.TILE_WATER_SINK:
+		snap_pos.y = _owner.PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_BATTERY_S or _owner._selected_tile == _owner.TILE_BATTERY_M \
 			or _owner._selected_tile == _owner.TILE_BATTERY_L:
 		snap_pos.y = _owner.PLACEMENT_Y

@@ -223,6 +223,38 @@ length.
   node/generator/wall light left its floating `Label3D` orphaned in the
   scene permanently, and repeated build-mode entry/exit while hovering
   could stack up multiple stuck labels.
+- **Water system Phase 1 groundwork: built, headless-compile-clean, NOT YET
+  TESTED IN-EDITOR (July 2026).** New standalone `scripts/world/water/`
+  system per the groundwork plan — `WaterGraph`/`WaterManager` (data model +
+  BFS connectivity, mirrors `PowerGraph`/`PowerManager`'s split from day one),
+  `WaterHookup` (wall-mounted source, never deletable, auto-tracks the
+  outermost wall in its facing direction via the SAME
+  `RockSurround.chunk_deconstructed/restored` boundary-change event
+  `WireGraphBuilder` already uses), `WaterPipeSegment`/`WaterPipeElbow`
+  (always-visible pipe visuals, corners are real graph nodes),
+  `WaterPipeDrawMode` (placement tool), `WaterTestSink` (end-to-end
+  acceptance test device). New tile IDs `TILE_WATER_HOOKUP=17`/
+  `TILE_WATER_SINK=18`, new tool `TOOL_WATER_PIPE=6` — wired into
+  `BuildModeController`/`BuildModeHUD`/`MainWorld`. Also added a generic
+  `WallSnapHelpers._snap_to_nearest_wall()` (purely additive — the two
+  existing snap functions were NOT modified) and fixed the real
+  Move-tool-doesn't-wall-snap gap the plan called out for `TILE_LIGHT`/
+  `TILE_BREAKER`/`TILE_BREAKER_SMART` too (previously moving any of these
+  just re-snapped to the flat grid, never re-checking for a wall — now
+  reuses the existing proven `_snap_light_to_wall`/`_snap_breaker_to_wall`
+  during a move, zero risk to their initial-placement behavior).
+  **Full detail: `docs/systems/water/README.md`.**
+  **Flagged deliberately per the plan's own pre-approved fallback:**
+  `WaterPipeDrawMode` ships with the segment-at-a-time + auto-elbow
+  interaction model, NOT the full single-drag continuous-paint experience —
+  see that doc's Known tradeoffs for the exact reasoning and upgrade path.
+  **Verification status:** `tools/godot_check.sh` passes clean (one real bug
+  caught and fixed by it: `WaterManager.has_node()` collided with `Node`'s
+  own built-in method — renamed to `has_water_node()`). Zero in-editor
+  testing has been done — Brannon needs to pull and verify: hookup
+  placement/wall-snap/move/never-deletable, pipe placement around at least
+  one corner, the test sink turning green, and the hookup correctly
+  following an expanded dig boundary.
 
 - **Doc migration (July 2026): complete.** All 8 systems now have a
   `docs/systems/*/README.md` (Player, Furniture/Items, Build Mode,
@@ -236,11 +268,16 @@ length.
   itself (low-risk, cosmetic-only, fix opportunistically next time that
   file is touched for something else).
 
-## Next up (nothing currently in progress — ask Brannon)
-See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the current list
-(Main Menu, Death/game-over state, emergency_light placement, generator
-exhaust smoke scaling, remaining graphics-overhaul deferred items). No
-systems pending doc migration anymore (all 8 done as of July 2026).
+## Next up
+**Immediate:** Brannon needs to pull and test the water system groundwork
+pass in-editor (see the water system bullet above for the exact test list) —
+nothing further should be built on top of it until that's confirmed working.
+
+See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the rest of the list
+(water system Phase 2, Main Menu, Death/game-over state, emergency_light
+placement, generator exhaust smoke scaling, remaining graphics-overhaul
+deferred items). No systems pending doc migration anymore (all 9 — including
+the new Water system — done as of July 2026).
 
 Two specific follow-up investigations flagged during recent work (both
 noted in `docs/systems/power/README.md` Known tradeoffs, neither started):

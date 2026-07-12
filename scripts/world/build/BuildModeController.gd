@@ -50,6 +50,8 @@ const TILE_BATTERY_S:  int = 13  ## Battery Bank Small  — 100 Wh, $150
 const TILE_BATTERY_M:  int = 14  ## Battery Bank Medium — 300 Wh, $350
 const TILE_BATTERY_L:  int = 15  ## Battery Bank Large  — 600 Wh, $600
 const TILE_BREAKER_SMART: int = 16  ## Upgraded/"smart" breaker — self-trips to isolate on cross-zone exhaustion
+const TILE_WATER_HOOKUP: int  = 17  ## Water system groundwork (July 2026) — wall-mounted source, wall-snapped, never deletable
+const TILE_WATER_SINK: int    = 18  ## Water system groundwork — rudimentary test endpoint, mirrors TILE_HEAVY, price $0
 
 ## Y height at which player-placed objects sit (world units).
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with
@@ -162,6 +164,13 @@ var _move_ghost:        MeshInstance3D  = null   ## Green ghost following cursor
 const TOOL_WIRE: int = 5   ## Wire draw tool (not a construct item)
 var _wire_draw_mode: Node = null   ## WireDrawMode sub-controller
 
+# ─── Water Pipe Draw Mode (July 2026 groundwork pass) ────────────────────────
+## Mirrors the Wire Draw Mode setup immediately above — same instantiate-as-
+## child-node, same forward-refs-every-frame, same delegate-all-input pattern.
+## See scripts/world/water/WaterPipeDrawMode.gd for the tool itself.
+const TOOL_WATER_PIPE: int = 6   ## Water pipe draw tool (not a construct item)
+var _water_pipe_draw_mode: Node = null   ## WaterPipeDrawMode sub-controller
+
 # ─── Ghost materials ──────────────────────────────────────────────────────────
 var _mat_valid:   StandardMaterial3D = null
 var _mat_invalid: StandardMaterial3D = null
@@ -217,6 +226,7 @@ func _ready() -> void:
 	_build_ghost_materials()
 	_build_world_materials()
 	_setup_wire_draw_mode()
+	_setup_water_pipe_draw_mode()
 
 	## Repaint world wire tubes the instant a player recolors a zone via its
 	## Power Terminal (PowerManager.set_zone_color_override()) — without this,
@@ -253,6 +263,7 @@ func enter_build_mode() -> void:
 
 	# Sync WireDrawMode refs (camera/world_node may have been set after _ready)
 	_update_wire_draw_refs()
+	_update_water_pipe_draw_refs()
 
 	set_process(true)
 
@@ -271,6 +282,8 @@ func exit_build_mode() -> void:
 
 	if _active_tool == TOOL_WIRE and _wire_draw_mode != null:
 		_wire_draw_mode.deactivate()
+	if _active_tool == TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
+		_water_pipe_draw_mode.deactivate()
 
 	if build_hud != null:
 		build_hud.hide_hud()
@@ -323,6 +336,9 @@ func _on_tool_selected(tool_id: int) -> void:
 	# Deactivate wire draw mode if switching away
 	if _active_tool == TOOL_WIRE and tool_id != TOOL_WIRE and _wire_draw_mode != null:
 		_wire_draw_mode.deactivate()
+	# Deactivate water pipe draw mode if switching away
+	if _active_tool == TOOL_WATER_PIPE and tool_id != TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
+		_water_pipe_draw_mode.deactivate()
 
 	_active_tool = tool_id
 	_cancel_ghost()
@@ -332,11 +348,17 @@ func _on_tool_selected(tool_id: int) -> void:
 	# Activate wire draw mode when switching to it
 	if tool_id == TOOL_WIRE and _wire_draw_mode != null:
 		_wire_draw_mode.activate()
+	# Activate water pipe draw mode when switching to it
+	if tool_id == TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
+		_water_pipe_draw_mode.activate()
 
 func _on_construct_item_chosen(tile_id: int) -> void:
 	## Exit wire draw mode if it was active when the player picks a construct item
 	if _active_tool == TOOL_WIRE and _wire_draw_mode != null:
 		_wire_draw_mode.deactivate()
+	## Exit water pipe draw mode if it was active when the player picks a construct item
+	if _active_tool == TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
+		_water_pipe_draw_mode.deactivate()
 
 	_selected_tile = tile_id
 	_selected_tile_price = 0
@@ -559,6 +581,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 
+	# ── Water pipe tool: delegate ALL input to WaterPipeDrawMode ─────────────
+	if _active_tool == TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
+		if _water_pipe_draw_mode.handle_input(event):
+			get_viewport().set_input_as_handled()
+			return
+
 	if event is InputEventMouseButton and event.pressed:
 		match event.button_index:
 			MOUSE_BUTTON_LEFT:
@@ -647,6 +675,35 @@ func _update_wire_draw_refs() -> void:
 	_wire_draw_mode.set("world_node", world_node)
 	_wire_draw_mode.set("build_hud",  build_hud)
 	_wire_draw_mode.set("ray_length", ray_length)
+
+# ─── Water Pipe Draw Mode setup (July 2026 groundwork pass) ─────────────────
+## Identical shape to _setup_wire_draw_mode() immediately above.
+func _setup_water_pipe_draw_mode() -> void:
+	var pipe_script: GDScript = load("res://scripts/world/water/WaterPipeDrawMode.gd")
+	if pipe_script == null:
+		push_warning("[BuildModeController] WaterPipeDrawMode.gd not found")
+		return
+	_water_pipe_draw_mode = Node.new()
+	_water_pipe_draw_mode.set_script(pipe_script)
+	_water_pipe_draw_mode.name = "WaterPipeDrawMode"
+	add_child(_water_pipe_draw_mode)
+	if _water_pipe_draw_mode.has_signal("pipe_tool_exit_requested"):
+		_water_pipe_draw_mode.pipe_tool_exit_requested.connect(_on_water_pipe_tool_exit_requested)
+
+## Mirrors _on_wire_tool_exit_requested() — exits the pipe tool and returns to
+## construct tool (tool_id 0) so cursor control is restored.
+func _on_water_pipe_tool_exit_requested() -> void:
+	_on_tool_selected(0)
+	if build_hud != null and build_hud.has_method("set_active_tool"):
+		build_hud.set_active_tool(0)
+
+func _update_water_pipe_draw_refs() -> void:
+	if _water_pipe_draw_mode == null:
+		return
+	_water_pipe_draw_mode.set("camera",     camera)
+	_water_pipe_draw_mode.set("world_node", world_node)
+	_water_pipe_draw_mode.set("build_hud",  build_hud)
+	_water_pipe_draw_mode.set("ray_length", ray_length)
 
 # ─── Bunker bounds check ──────────────────────────────────────────────────────
 ## Returns true if world-space XZ position is inside the valid placeable area:
@@ -895,6 +952,32 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		hc_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return hc_node
 
+	## ── Water hookup (July 2026 groundwork pass) — wall-mounted source ───────
+	if tile_id == TILE_WATER_HOOKUP:
+		var wh_script: GDScript = load("res://scripts/world/water/WaterHookup.gd")
+		var wh_node: StaticBody3D = StaticBody3D.new()
+		if wh_script != null:
+			wh_node.set_script(wh_script)
+		wh_node.set_meta("tile_id", TILE_WATER_HOOKUP)
+		var whpar: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		whpar.add_child(wh_node)
+		wh_node.global_position  = pos
+		wh_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return wh_node
+
+	## ── Water test sink (July 2026 groundwork pass) — rudimentary endpoint ───
+	if tile_id == TILE_WATER_SINK:
+		var ws_script: GDScript = load("res://scripts/world/water/WaterTestSink.gd")
+		var ws_node: StaticBody3D = StaticBody3D.new()
+		if ws_script != null:
+			ws_node.set_script(ws_script)
+		ws_node.set_meta("tile_id", TILE_WATER_SINK)
+		var wspar: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		wspar.add_child(ws_node)
+		ws_node.global_position  = pos
+		ws_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return ws_node
+
 	## ── Circuit breaker (standard) ─────────────────────────────────────────────
 	if tile_id == TILE_BREAKER:
 		var brk_script: GDScript = load("res://scripts/world/power/BreakerBox.gd")
@@ -1044,6 +1127,14 @@ func _try_deconstruct() -> void:
 	if not entry.get("player_placed", true):
 		_show_hud_warning("Cannot modify level structure")
 		return
+
+	# Guard: the water hookup can never be removed, only relocated (Move tool).
+	# See scripts/world/water/WaterHookup.gd file header — no "return to
+	# inventory" flow exists for it by design.
+	if entry.get("tile_id", -1) == TILE_WATER_HOOKUP:
+		_show_hud_warning("Water hookup cannot be removed — use Move instead")
+		return
+
 	var refund: int         = entry["price"]
 	var placed_pos: Vector3 = entry["world_pos"]
 
@@ -1906,6 +1997,15 @@ func _snap_light_to_wall(base_pos: Vector3) -> Dictionary:
 
 func _snap_breaker_to_wall(base_pos: Vector3) -> Dictionary:
 	return _wall_snap._snap_breaker_to_wall(base_pos)
+
+
+## Forwarded to WallSnapHelpers._snap_to_nearest_wall() (generic version added
+## July 2026 for the water-system groundwork pass) — called from
+## GhostPreview.gd for TILE_WATER_HOOKUP initial placement and from
+## MoveDuplicateTool.gd for TILE_WATER_HOOKUP moves. See WallSnapHelpers.gd.
+func _snap_to_nearest_wall(base_pos: Vector3, cast_y_offset: float,
+		pullback_dist: float, snap_range: float) -> Dictionary:
+	return _wall_snap._snap_to_nearest_wall(base_pos, cast_y_offset, pullback_dist, snap_range)
 
 
 

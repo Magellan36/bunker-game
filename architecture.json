@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-11T22:06:52.065309+00:00",
+  "generated_at": "2026-07-12T21:47:29.752846+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 63,
-  "total_lines": 26284,
+  "script_count": 72,
+  "total_lines": 28496,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -376,7 +376,7 @@
     },
     {
       "path": "res://scripts/ui/build/BuildModeHUD.gd",
-      "line_count": 1010,
+      "line_count": 1027,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -473,7 +473,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 1056
+      "complexity_score": 1073
     },
     {
       "path": "res://scripts/ui/common/UIFade.gd",
@@ -492,7 +492,7 @@
     },
     {
       "path": "res://scripts/ui/debug/DebugOverlay.gd",
-      "line_count": 306,
+      "line_count": 313,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -512,7 +512,7 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 318
+      "complexity_score": 325
     },
     {
       "path": "res://scripts/ui/hud/CircleFill.gd",
@@ -892,7 +892,7 @@
     },
     {
       "path": "res://scripts/ui/menus/GraphicsSettingsPanel.gd",
-      "line_count": 178,
+      "line_count": 181,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -939,11 +939,11 @@
       "autoload_references": [
         "GraphicsSettings"
       ],
-      "complexity_score": 191
+      "complexity_score": 194
     },
     {
       "path": "res://scripts/ui/menus/PauseMenuUI.gd",
-      "line_count": 340,
+      "line_count": 345,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -984,7 +984,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 361
+      "complexity_score": 366
     },
     {
       "path": "res://scripts/ui/menus/SleepOverlay.gd",
@@ -1164,7 +1164,7 @@
     },
     {
       "path": "res://scripts/ui/power/PowerTerminalUI.gd",
-      "line_count": 1011,
+      "line_count": 1176,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1178,6 +1178,14 @@
         {
           "target_expr": "_canvas",
           "signal": "draw"
+        },
+        {
+          "target_expr": "_zone_customize_ui",
+          "signal": "name_changed"
+        },
+        {
+          "target_expr": "_zone_customize_ui",
+          "signal": "color_changed"
         }
       ],
       "public_functions": [
@@ -1192,15 +1200,79 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 16,
+      "private_function_count": 22,
       "preloads": [
-        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+        "res://assets/fonts/IosevkaCharon-Regular.ttf",
+        "res://scripts/ui/power/ZoneCustomizeUI.gd"
       ],
       "group_lookups": [
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 1031
+      "complexity_score": 1202
+    },
+    {
+      "path": "res://scripts/ui/power/ZoneCustomizeUI.gd",
+      "line_count": 221,
+      "class_name": "ZoneCustomizeUI",
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "closed",
+          "params": "()"
+        },
+        {
+          "name": "name_changed",
+          "params": "(zone_key: String, new_name: String)"
+        },
+        {
+          "name": "color_changed",
+          "params": "(zone_key: String, new_color: Color)"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_name_edit",
+          "signal": "text_submitted"
+        },
+        {
+          "target_expr": "apply_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "close_btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open_rename",
+          "args": "zone_key: String, current_name: String",
+          "returns": "void"
+        },
+        {
+          "name": "open_color",
+          "args": "zone_key: String, current_display_color: Color",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 6,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [
+        "DeviceDatabase"
+      ],
+      "complexity_score": 233
     },
     {
       "path": "res://scripts/world/build/BuildMaterials.gd",
@@ -1222,7 +1294,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2013,
+      "line_count": 2139,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -1241,6 +1313,10 @@
       ],
       "signals": [],
       "connect_call_sites": [
+        {
+          "target_expr": "pm",
+          "signal": "zone_color_changed"
+        },
         {
           "target_expr": "build_hud",
           "signal": "tool_selected"
@@ -1278,6 +1354,10 @@
           "signal": "wire_tool_exit_requested"
         },
         {
+          "target_expr": "_water_pipe_draw_mode",
+          "signal": "pipe_tool_exit_requested"
+        },
+        {
           "target_expr": "body",
           "signal": "tree_exited"
         }
@@ -1295,7 +1375,7 @@
         },
         {
           "name": "spawn_structure",
-          "args": "tile_id: int, pos: Vector3, angle_deg: float",
+          "args": "tile_id: int, pos: Vector3, angle_deg: float, is_true_pregen: bool = false",
           "returns": "Node3D"
         },
         {
@@ -1314,7 +1394,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 64,
+      "private_function_count": 69,
       "preloads": [
         "res://scripts/world/furniture/Shelving.gd",
         "res://scripts/world/items/HeavyConsumerTest.gd",
@@ -1324,14 +1404,17 @@
         "res://scripts/world/power/PowerTerminal.gd",
         "res://scripts/world/power/UpgradedBreakerBox.gd",
         "res://scripts/world/power/WallLight.gd",
-        "res://scripts/world/power/WireDrawMode.gd"
+        "res://scripts/world/power/WireDrawMode.gd",
+        "res://scripts/world/water/WaterHookup.gd",
+        "res://scripts/world/water/WaterPipeDrawMode.gd",
+        "res://scripts/world/water/WaterTestSink.gd"
       ],
       "group_lookups": [
         "power_manager",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 2089
+      "complexity_score": 2220
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
@@ -1357,7 +1440,7 @@
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
-      "line_count": 390,
+      "line_count": 430,
       "class_name": "GhostPreview",
       "extends": "RefCounted",
       "exports": [],
@@ -1367,15 +1450,16 @@
       "private_function_count": 6,
       "preloads": [
         "res://scripts/world/furniture/Shelving.gd",
-        "res://scripts/world/power/WallLight.gd"
+        "res://scripts/world/power/WallLight.gd",
+        "res://scripts/world/water/WaterHookup.gd"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 396
+      "complexity_score": 436
     },
     {
       "path": "res://scripts/world/build/MoveDuplicateTool.gd",
-      "line_count": 286,
+      "line_count": 369,
       "class_name": "MoveDuplicateTool",
       "extends": "RefCounted",
       "exports": [],
@@ -1385,11 +1469,12 @@
       "private_function_count": 11,
       "preloads": [
         "res://scripts/world/furniture/Shelving.gd",
-        "res://scripts/world/power/WallLight.gd"
+        "res://scripts/world/power/WallLight.gd",
+        "res://scripts/world/water/WaterHookup.gd"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 297
+      "complexity_score": 380
     },
     {
       "path": "res://scripts/world/build/PlacementIndicator.gd",
@@ -1408,22 +1493,22 @@
     },
     {
       "path": "res://scripts/world/build/WallSnapHelpers.gd",
-      "line_count": 409,
+      "line_count": 493,
       "class_name": "WallSnapHelpers",
       "extends": "RefCounted",
       "exports": [],
       "signals": [],
       "connect_call_sites": [],
       "public_functions": [],
-      "private_function_count": 4,
+      "private_function_count": 5,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 413
+      "complexity_score": 498
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 939,
+      "line_count": 968,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -1529,7 +1614,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 39,
+      "private_function_count": 40,
       "preloads": [
         "res://assets/textures/concrete_floor.jpg",
         "res://scripts/ui/build/BuildModeHUD.gd",
@@ -1541,7 +1626,8 @@
         "res://scripts/world/build/BuildModeController.gd",
         "res://scripts/world/environment/BunkerPregen.gd",
         "res://scripts/world/environment/LightingDirector.gd",
-        "res://scripts/world/power/PowerManager.gd"
+        "res://scripts/world/power/PowerManager.gd",
+        "res://scripts/world/water/WaterManager.gd"
       ],
       "group_lookups": [
         "gridmap",
@@ -1550,7 +1636,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 986
+      "complexity_score": 1016
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",
@@ -1656,7 +1742,7 @@
     },
     {
       "path": "res://scripts/world/environment/BunkerPregen.gd",
-      "line_count": 377,
+      "line_count": 382,
       "class_name": null,
       "extends": "Node3D",
       "exports": [],
@@ -1678,7 +1764,7 @@
         "inventory_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 388
+      "complexity_score": 393
     },
     {
       "path": "res://scripts/world/environment/DustMotes.gd",
@@ -2746,7 +2832,7 @@
     },
     {
       "path": "res://scripts/world/power/BreakerBox.gd",
-      "line_count": 918,
+      "line_count": 946,
       "class_name": "BreakerBox",
       "extends": "StaticBody3D",
       "exports": [],
@@ -2801,11 +2887,11 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 952
+      "complexity_score": 980
     },
     {
       "path": "res://scripts/world/power/DeviceDatabase.gd",
-      "line_count": 111,
+      "line_count": 141,
       "class_name": null,
       "extends": "Node",
       "exports": [],
@@ -2818,7 +2904,7 @@
       "autoload_references": [
         "DeviceDatabase"
       ],
-      "complexity_score": 111
+      "complexity_score": 141
     },
     {
       "path": "res://scripts/world/power/GeneratorObject.gd",
@@ -2988,7 +3074,7 @@
     },
     {
       "path": "res://scripts/world/power/PowerManager.gd",
-      "line_count": 3624,
+      "line_count": 3715,
       "class_name": "PowerManager",
       "extends": "Node",
       "exports": [],
@@ -3096,6 +3182,14 @@
         {
           "name": "breaker_reset",
           "params": "(breaker_id: String)"
+        },
+        {
+          "name": "zone_color_changed",
+          "params": "(zone_key: String)"
+        },
+        {
+          "name": "zone_name_changed",
+          "params": "(zone_key: String)"
         }
       ],
       "connect_call_sites": [],
@@ -3208,6 +3302,31 @@
         {
           "name": "zone_color_at",
           "args": "color_index: int, alpha: float = 0.60",
+          "returns": "Color"
+        },
+        {
+          "name": "get_zone_display_name",
+          "args": "zone_key: String, default_name: String",
+          "returns": "String"
+        },
+        {
+          "name": "set_zone_name",
+          "args": "zone_key: String, new_name: String",
+          "returns": "void"
+        },
+        {
+          "name": "get_zone_color_override",
+          "args": "zone_key: String",
+          "returns": "Variant"
+        },
+        {
+          "name": "set_zone_color_override",
+          "args": "zone_key: String, new_color: Color",
+          "returns": "void"
+        },
+        {
+          "name": "zone_display_color",
+          "args": "zone_key: String, color_index: int, alpha: float = 0.60",
           "returns": "Color"
         },
         {
@@ -3494,7 +3613,7 @@
       "autoload_references": [
         "DeviceDatabase"
       ],
-      "complexity_score": 3828
+      "complexity_score": 3929
     },
     {
       "path": "res://scripts/world/power/PowerPriorityInteractable.gd",
@@ -3657,7 +3776,7 @@
     },
     {
       "path": "res://scripts/world/power/PowerSolver.gd",
-      "line_count": 1218,
+      "line_count": 1228,
       "class_name": "PowerSolver",
       "extends": "RefCounted",
       "exports": [],
@@ -3674,7 +3793,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 1245
+      "complexity_score": 1255
     },
     {
       "path": "res://scripts/world/power/PowerTerminal.gd",
@@ -3798,7 +3917,7 @@
     },
     {
       "path": "res://scripts/world/power/WireDrawMode.gd",
-      "line_count": 668,
+      "line_count": 675,
       "class_name": null,
       "extends": "Node",
       "exports": [],
@@ -3842,7 +3961,7 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 698
+      "complexity_score": 705
     },
     {
       "path": "res://scripts/world/power/WireGraphBuilder.gd",
@@ -3910,12 +4029,354 @@
       "group_lookups": [],
       "autoload_references": [],
       "complexity_score": 228
+    },
+    {
+      "path": "res://scripts/world/power/ZoneCustomization.gd",
+      "line_count": 94,
+      "class_name": "ZoneCustomization",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_name_override",
+          "args": "zone_key: String",
+          "returns": "String"
+        },
+        {
+          "name": "set_name_override",
+          "args": "zone_key: String, new_name: String",
+          "returns": "void"
+        },
+        {
+          "name": "has_color_override",
+          "args": "zone_key: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_color_override",
+          "args": "zone_key: String",
+          "returns": "Color"
+        },
+        {
+          "name": "set_color_override",
+          "args": "zone_key: String, new_color: Color",
+          "returns": "void"
+        },
+        {
+          "name": "snapshot",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "restore",
+          "args": "snap: Dictionary",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 1,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 109
+    },
+    {
+      "path": "res://scripts/world/water/WaterGraph.gd",
+      "line_count": 160,
+      "class_name": "WaterGraph",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "register_node",
+          "args": "pos: Vector3, role: String",
+          "returns": "String"
+        },
+        {
+          "name": "unregister_node",
+          "args": "key: String",
+          "returns": "void"
+        },
+        {
+          "name": "has_node",
+          "args": "key: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_node",
+          "args": "key: String",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "get_nodes",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "register_edge",
+          "args": "key_a: String, key_b: String",
+          "returns": "String"
+        },
+        {
+          "name": "unregister_edge",
+          "args": "edge_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "has_edge",
+          "args": "edge_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_edges",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "is_reachable_from_hookup",
+          "args": "node_key: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_hookup_keys",
+          "args": "",
+          "returns": "Array[String]"
+        }
+      ],
+      "private_function_count": 1,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 183
+    },
+    {
+      "path": "res://scripts/world/water/WaterHookup.gd",
+      "line_count": 258,
+      "class_name": "WaterHookup",
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_facing_dir",
+          "args": "",
+          "returns": "Vector3"
+        },
+        {
+          "name": "reposition_to_outer_wall",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "update_graph_node_position",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 268
+    },
+    {
+      "path": "res://scripts/world/water/WaterManager.gd",
+      "line_count": 103,
+      "class_name": "WaterManager",
+      "extends": "Node",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "register_node",
+          "args": "pos: Vector3, role: String",
+          "returns": "String"
+        },
+        {
+          "name": "unregister_node",
+          "args": "key: String",
+          "returns": "void"
+        },
+        {
+          "name": "has_water_node",
+          "args": "key: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_node_data",
+          "args": "key: String",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "register_edge",
+          "args": "key_a: String, key_b: String",
+          "returns": "String"
+        },
+        {
+          "name": "unregister_edge",
+          "args": "edge_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "has_edge",
+          "args": "edge_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "get_nodes",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "get_edges",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "is_reachable_from_hookup",
+          "args": "node_key: String",
+          "returns": "bool"
+        },
+        {
+          "name": "register_hookup",
+          "args": "hookup: Node3D",
+          "returns": "void"
+        },
+        {
+          "name": "unregister_hookup",
+          "args": "hookup: Node3D",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 131
+    },
+    {
+      "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
+      "line_count": 373,
+      "class_name": "WaterPipeDrawMode",
+      "extends": "Node",
+      "exports": [],
+      "signals": [
+        {
+          "name": "pipe_placed",
+          "params": "(seg_nodes: Array, edge_ids: Array, cost: int)"
+        },
+        {
+          "name": "pipe_tool_exit_requested",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "activate",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "deactivate",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "handle_input",
+          "args": "event: InputEvent",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 14,
+      "preloads": [],
+      "group_lookups": [
+        "water_manager",
+        "world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 393
+    },
+    {
+      "path": "res://scripts/world/water/WaterPipeElbow.gd",
+      "line_count": 41,
+      "class_name": "WaterPipeElbow",
+      "extends": "Node3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 43
+    },
+    {
+      "path": "res://scripts/world/water/WaterPipeSegment.gd",
+      "line_count": 109,
+      "class_name": "WaterPipeSegment",
+      "extends": "Node3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_endpoints",
+          "args": "a: Vector3, b: Vector3",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [
+        "res://scripts/world/water/WaterPipeSegment.gd"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 113
+    },
+    {
+      "path": "res://scripts/world/water/WaterTestSink.gd",
+      "line_count": 123,
+      "class_name": "WaterTestSink",
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        }
+      ],
+      "private_function_count": 8,
+      "preloads": [],
+      "group_lookups": [
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 133
     }
   ],
   "dependency_edges": [
     {
       "from": "res://scripts/ui/menus/PauseMenuUI.gd",
       "to": "res://scripts/ui/menus/GraphicsSettingsPanel.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/ui/power/PowerTerminalUI.gd",
+      "to": "res://scripts/ui/power/ZoneCustomizeUI.gd",
       "via": "preload"
     },
     {
@@ -3964,6 +4425,21 @@
       "via": "preload"
     },
     {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/water/WaterHookup.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/water/WaterPipeDrawMode.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/water/WaterTestSink.gd",
+      "via": "preload"
+    },
+    {
       "from": "res://scripts/world/build/GhostPreview.gd",
       "to": "res://scripts/world/furniture/Shelving.gd",
       "via": "preload"
@@ -3974,6 +4450,11 @@
       "via": "preload"
     },
     {
+      "from": "res://scripts/world/build/GhostPreview.gd",
+      "to": "res://scripts/world/water/WaterHookup.gd",
+      "via": "preload"
+    },
+    {
       "from": "res://scripts/world/build/MoveDuplicateTool.gd",
       "to": "res://scripts/world/furniture/Shelving.gd",
       "via": "preload"
@@ -3981,6 +4462,11 @@
     {
       "from": "res://scripts/world/build/MoveDuplicateTool.gd",
       "to": "res://scripts/world/power/WallLight.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/MoveDuplicateTool.gd",
+      "to": "res://scripts/world/water/WaterHookup.gd",
       "via": "preload"
     },
     {
@@ -4031,6 +4517,11 @@
     {
       "from": "res://scripts/world/core/MainWorld.gd",
       "to": "res://scripts/world/power/PowerManager.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/world/water/WaterManager.gd",
       "via": "preload"
     },
     {
