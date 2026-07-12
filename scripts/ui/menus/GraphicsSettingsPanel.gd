@@ -55,13 +55,16 @@ func _build_ui() -> void:
 	## menu's plain dark panel underneath it too).
 	var backdrop: ColorRect = ColorRect.new()
 	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	## ALWAYS set a sane dim base color first — see PauseMenuUI.gd's
+	## _build_ui() for why (ColorRect defaults to opaque WHITE otherwise,
+	## and a Shader loading successfully as a Resource doesn't guarantee it
+	## renders correctly on every machine).
+	backdrop.color = Color(0.0, 0.0, 0.0, 0.55)
 	var blur_shader: Shader = load("res://assets/shaders/pause_blur.gdshader")
 	if blur_shader != null:
 		var mat: ShaderMaterial = ShaderMaterial.new()
 		mat.shader = blur_shader
 		backdrop.material = mat
-	else:
-		backdrop.color = Color(0.0, 0.0, 0.0, 0.55)
 	add_child(backdrop)
 
 	_panel = Panel.new()
