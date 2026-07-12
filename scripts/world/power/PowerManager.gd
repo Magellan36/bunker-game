@@ -567,10 +567,17 @@ func _process(delta: float) -> void:
 
 	match grid_state:
 		GridState.BROWNOUT:
-			## BROWNOUT → instant trip (no grace period).
-			## This state is only reached when even battery coverage failed,
-			## so we go straight to TRIPPED without waiting.
-			_trip_main_grid("overload")
+			## NOTE: this arm is structurally unreachable and intentionally
+			## left as a defensive no-op, not deleted. grid_state can only
+			## ever become BROWNOUT inside _start_flicker_offline(), which
+			## always sets _flickering = true in that same call — so by the
+			## time any _process() tick observes grid_state == BROWNOUT,
+			## the "if _flickering: ...; return" guard above this match has
+			## already returned early. The real BROWNOUT → TRIPPED
+			## transition happens via _tick_flicker() completing and calling
+			## _go_offline(), which calls _trip_main_grid() when there's no
+			## local battery left to fall back on (see that function).
+			pass
 		GridState.TRIPPED:
 			if MAIN_AUTO_RESET_SECS > 0.0:
 				_main_reset_timer += delta
@@ -3079,14 +3086,18 @@ func _go_offline() -> void:
 
 		return
 
-	## No local batteries with charge → true blackout.
-	_flickering = false
-	var old: GridState = grid_state
-	grid_state = GridState.OFFLINE
-	grid_state_changed.emit(grid_state, old)
-	grid_offline.emit()
-	grid_tripped.emit()
-	_cut_all_consumers()
+	## No local batteries with charge to fall back on. This is the
+	## self-protective TRIP the design doc describes: recoverable via
+	## reset_main_breaker() + manually restarting repaired/refueled
+	## generators — NOT the separate, more permanent GridState.OFFLINE
+	## (reserved for "no generators + no battery exist anywhere in the
+	## bunker at all", a distinct and rarer condition — see
+	## reset_main_breaker()'s own guard, which explicitly refuses to run
+	## while grid_state == OFFLINE but allows it from TRIPPED).
+	## _trip_main_grid() already does everything needed here: stops all
+	## generators, cuts all consumers, sets GridState.TRIPPED, emits
+	## grid_tripped.
+	_trip_main_grid("battery_exhausted")
 
 
 

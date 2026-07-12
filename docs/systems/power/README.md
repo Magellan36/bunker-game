@@ -232,6 +232,38 @@ UI panel.open() ← player interacts with device → reads PowerManager getters,
   actual grid reset+resolve exists specifically to stop a priority change
   from visibly flashing the grid through a transient state — the displayed
   priority value itself still updates instantly for UI purposes.
+- **FIXED (July 2026):** `GridState.BROWNOUT`/`TRIPPED` were structurally
+  unreachable — `_start_flicker_offline()` had zero call sites, so total
+  grid failure jumped straight from OVERLOADED to a hard `OFFLINE` cut with
+  no warning, and the player-facing "breaker tripped, go reset it" beat
+  the design doc describes never fired. Now wired: `PowerSolver`'s total-
+  failure branch calls `_start_flicker_offline()` (BROWNOUT + visible
+  flicker) instead of jumping straight to `_go_offline()`; `_go_offline()`'s
+  own "no local battery to fall back on" tail now calls the already-fully-
+  implemented `_trip_main_grid()` (TRIPPED — recoverable via
+  `reset_main_breaker()` + manually restarting generators) instead of
+  hard-setting `GridState.OFFLINE` directly. True `OFFLINE` remains
+  reserved for wherever else it's independently set (a genuinely rarer,
+  more-permanent condition, distinct from a single sub-grid's local battery
+  running out).
+- **Known, NOT yet fixed:** `_go_offline_true()` (intended as the true
+  "no generators + no batteries exist anywhere" global blackout, per its
+  own docstring) has ZERO call sites anywhere in the codebase — same class
+  of dead-code trail as the BROWNOUT/TRIPPED finding above, discovered
+  while fixing it but out of scope for that pass (its trigger context is
+  the separate per-battery-group drain loop around
+  `PowerManager.gd:3343`/`3385`, which explicitly comments "do NOT call
+  _go_offline_true() here" and defers the real decision to
+  `_evaluate_per_component() → _go_offline()`). Whether `_go_offline_true()`
+  is still needed at all, or is fully superseded by `_go_offline()`'s
+  per-sub-grid local-battery check, needs its own dedicated investigation
+  pass before touching it.
+- **Not yet audited:** the PER-ZONE "sustained brownout" system
+  (`PowerSolver._sustained_brownout_component()`, latched via
+  `_exhausted_brownout_keys` — the "standard breaker exhaustion → both
+  zones sustained-brownout → manual generator restart" scenario) uses a
+  different trigger mechanism than the one just fixed and was NOT re-checked
+  for a similar orphaned-trigger problem. Worth a dedicated pass.
 
 ## Extension points
 - **New solver pass:** add it as a 4th `_evaluate_passN_*` function in
