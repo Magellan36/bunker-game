@@ -69,9 +69,8 @@ before starting any of these):**
 - Generator exhaust smoke scaled to fuel-burn/load (design worked out,
   never committed — see `docs/systems/power/README.md` Known tradeoffs).
 - Real trim-sheet/PBR materials + UV work, decals (graphics overhaul
-  Phases 4/6, deliberately partial — see `docs/systems/power/README.md`
-  peers' equivalents once a `docs/systems/environment/` or `graphics/` doc
-  exists; not yet migrated).
+  Phases 4/6, deliberately partial — see `docs/systems/environment/README.md`
+  and `docs/systems/graphics/README.md` Known tradeoffs).
 
 ## 2. System index
 
@@ -80,11 +79,17 @@ before starting any of these):**
 | Power (grid, generators, batteries, breakers, wires, devices) | `docs/systems/power/README.md` (+ `PowerManager.md`) | migrated |
 | World Core (MainWorld bootstrap, WireGraphBuilder, WorldManager, SaveManager) | `docs/systems/world-core/README.md` | migrated |
 | UI (all panels, HUD, menus, build HUD, debug overlay) | `docs/systems/ui/README.md` | migrated |
-| Player (Player, PlayerStats, InteractionSystem, item scripts) | not yet migrated — see §6 below | pending |
-| Build Mode (BuildModeController + its extracted slices) | not yet migrated — see §7 below | pending |
-| Environment (BunkerLayout, BunkerPregen, RockSurround, LightingDirector, DustMotes) | not yet migrated — see §8 below | pending |
-| Graphics/Camera (GameCamera, GraphicsSettings, GraphicsSettingsPanel) | not yet migrated — see §8 below | pending |
-| Furniture/Items (Bed, Shelving, pickup item scripts) | not yet migrated — see §6 below | pending |
+| Player (Player, PlayerStats, InteractionSystem) | `docs/systems/player/README.md` | migrated |
+| Build Mode (BuildModeController + its extracted slices) | `docs/systems/build/README.md` | migrated |
+| Environment (BunkerLayout, BunkerPregen, RockSurround, LightingDirector, DustMotes) | `docs/systems/environment/README.md` | migrated |
+| Graphics/Camera (GameCamera, GraphicsSettings) | `docs/systems/graphics/README.md` | migrated |
+| Furniture/Items (Bed, Shelving, pickup item scripts) | `docs/systems/furniture-items/README.md` | migrated |
+
+**All 8 systems now migrated (July 2026).** §6, §7, §8 below are now
+historical/superseded by the linked READMEs above — kept only for the
+graphics-overhaul history subsection (§8) that hasn't been moved into
+`docs/systems/environment/README.md`/`docs/systems/graphics/README.md` yet;
+everything else in §6–§8 is now duplicate content living in both places.
 
 Migrate a "pending" system to its own `docs/systems/<name>/README.md` the
 first time you make a nontrivial change to it (see §0 rule 6) — use the
@@ -96,17 +101,17 @@ edits/Forbidden edits/Known tradeoffs/Extension points).
 ## 3. Directory map
 ```
 scripts/
-  core/          GameCamera.gd, GraphicsSettings.gd (autoload, not yet
-                 registered by name in project.godot — see §9 gotcha)
-  player/        Player.gd, PlayerStats.gd, InteractionSystem.gd
+  core/          GameCamera.gd, GraphicsSettings.gd (autoload, registered
+                 directly in project.godot — see §4)             [migrated, §2]
+  player/        Player.gd, PlayerStats.gd, InteractionSystem.gd [migrated, §2]
   world/
     core/        MainWorld.gd, WorldManager.gd, SaveManager.gd  [migrated, §2]
     power/       PowerManager + 15 more power-system files      [migrated, §2]
-    build/       BuildModeController + its Stage-10 extracted slices
+    build/       BuildModeController + its Stage-10 extracted slices [migrated, §2]
     environment/ BunkerLayout.gd, BunkerPregen.gd, RockSurround.gd,
-                 LightingDirector.gd, DustMotes.gd
-    items/       Pickup-able item scripts incl. Flashlight.gd
-    furniture/   Bed.gd, Shelving.gd
+                 LightingDirector.gd, DustMotes.gd               [migrated, §2]
+    items/       Pickup-able item scripts incl. Flashlight.gd   [migrated, §2]
+    furniture/   Bed.gd, Shelving.gd                            [migrated, §2]
   ui/
     power/       PowerTerminalUI, PowerPriorityUI, GeneratorInspectUI  [migrated, §2]
     inventory/   InventoryHUD, InventoryManager, ShelfUI               [migrated, §2]
@@ -138,54 +143,43 @@ flat/convenient location.
   (as of repo HEAD `00938b5`) — an exception to the usual "Brannon adds new
   autoloads locally" rule, done because he hit trouble adding it manually
   in the editor. See §9 gotcha for why new autoloads normally aren't
-  hand-committed. Not yet migrated to a `docs/systems/` doc.
+  hand-committed. See `docs/systems/graphics/README.md`.
 
 ## 5. Architecture debt / open items (repo-wide, not one system's)
 - No automated tests (no GUT setup anywhere in the repo).
 - `scenes/` stays flat — reorganization was scoped to `scripts/` only.
-- 5 systems still pending doc migration (§2) — migrate opportunistically
-  per §0 rule 6, don't do it as a dedicated pass unless asked.
+- All 8 systems now have a migrated `docs/systems/*/README.md` (§2) — no
+  pending doc migration remains as of July 2026.
 
 ---
 
-## 6. Player / Furniture-Items (not yet migrated)
-`Player.gd` (WASD + sprint, stamina, signals `stamina_changed`/`interacted`),
-`PlayerStats.gd` (food/water/sleep/health, game clock, `time_multiplier`
-debug warp), `InteractionSystem.gd` (~690 lines, owns ALL pickup/drop/store/
-scroll — `_held_from_slot=-1` means world pickup, dual follow-speeds 18
-world/40 inventory, `KNOCK_LINGER_TIME=0.35`, `pickup_grace=0.6`). Item
-scripts (WaterBottle, FoodCan, TestCrate, WaterCase, CanCase, FuelCan,
-Flashlight, PickupItem base) share the from_inventory/dual-speed/culling
-pattern. `Bed.gd`, `Shelving.gd` in `scripts/world/furniture/`.
-*(Write `docs/systems/player/README.md` on first nontrivial change.)*
+## 6. Player / Furniture-Items — see `docs/systems/player/README.md` and
+`docs/systems/furniture-items/README.md`
+Both fully migrated. Quick pointers only: `InteractionSystem.gd` (~690
+lines) owns ALL pickup/drop/store/scroll — `_held_from_slot=-1` means world
+pickup, dual follow-speeds 18 world/40 inventory. Item scripts (WaterBottle,
+FoodCan, TestCrate, WaterCase, CanCase, FuelCan, Flashlight, PickupItem base)
+share the from_inventory/dual-speed/culling pattern — see the linked docs for
+full detail, don't duplicate it back into this file.
 
-## 7. Build Mode (not yet migrated)
-`BuildModeController.gd` (~2,013 lines, `class_name BuildModeController`) —
-placement/construction UI+logic: grid snapping, placement/deconstruction,
-wire-draw-mode setup, tile footprint/occupancy. Holds `_materials:
-BuildMaterials`, `_undo_manager: BuildUndoStack`, `_ghost_preview:
-GhostPreview`, `_move_tool: MoveDuplicateTool`, `_wall_snap: WallSnapHelpers`
-(all `_owner`-back-reference extractions, Stage 10, July 2026 — same pattern
-as the power system's PowerGraph/PowerRegistry/PowerSolver split, see
-`docs/systems/power/README.md` §"Forbidden edits" for why dicts stay on the
-original owner). `PlacementIndicator.gd`. UI: `BuildModeHUD.gd` (already
-migrated, see `docs/systems/ui/README.md`).
-*(Write `docs/systems/build/README.md` on first nontrivial change.)*
+## 7. Build Mode — see `docs/systems/build/README.md`
+Fully migrated. Quick pointer only: `BuildModeController.gd` (~2,013 lines)
+holds `_materials: BuildMaterials`, `_undo_manager: BuildUndoStack`,
+`_ghost_preview: GhostPreview`, `_move_tool: MoveDuplicateTool`, `_wall_snap:
+WallSnapHelpers` (all `_owner`-back-reference extractions, Stage 10, July
+2026 — same pattern as the power system's PowerGraph/PowerRegistry/
+PowerSolver split). Full detail in the linked doc, don't duplicate it here.
 
-## 8. Environment / Graphics (not yet migrated)
-`BunkerLayout.gd` (exports `bunker_width=24`, `bunker_depth=18`),
-`BunkerPregen.gd`/`RockSurround.gd` (procedural carving + rock alignment,
-`wall_left/right/top/bottom` direct, not cell-index math; `OFFSET_X=-12.5,
-OFFSET_Z=4.5`), `LightingDirector.gd` (global fog/vignette reactor off
-`PowerManager.grid_state_changed` — deliberately does NOT touch individual
-`Light3D` energy, see `docs/systems/power/README.md`/`world-core/README.md`
-for why), `DustMotes.gd` (GPUParticles3D factory for beam/ambient dust).
-`GameCamera.gd` (DOF/shake/FOV, see graphics overhaul detail below),
-`GraphicsSettings.gd` (autoload, see §4), `GraphicsSettingsPanel.gd` (first
-panel built with real Control nodes, see `docs/systems/ui/README.md`
-conventions).
-*(Write `docs/systems/environment/README.md` on first nontrivial change —
-the July 2026 graphics-overhaul history below should move into it then.)*
+## 8. Environment / Graphics — see `docs/systems/environment/README.md` and
+`docs/systems/graphics/README.md`
+Both fully migrated. Quick pointers only: `BunkerLayout.gd` (exports
+`bunker_width=24`, `bunker_depth=18`), `RockSurround.gd`'s
+`OFFSET_X=-12.5`/`OFFSET_Z=4.5`, `LightingDirector.gd`'s global-only
+fog/vignette reactor (deliberately does NOT touch individual `Light3D`
+energy), `GraphicsSettings.gd` (autoload, see §4). Full detail — including
+the graphics-overhaul history below, which still lives here as the
+authoritative historical record rather than being duplicated into the two
+linked docs — stays in this section.
 
 ### Graphics overhaul history (July 2026) — COMPLETE + STABILIZED
 Full 7-phase overhaul (`bunker-game-graphics-plan.md`), confirmed working by

@@ -185,8 +185,7 @@ length.
   broader `_is_pregen` tag so only the ORIGINAL 4 boundary walls get the
   strict original-rectangle interior-face check; autofill walls in
   expanded/dug areas now snap the same simple way player-placed walls do).
-  See `docs/systems/build/README.md` if/when Build Mode gets migrated —
-  not yet, still pending (§2 below).
+  See `docs/systems/build/README.md` (Build Mode is now migrated).
 - **Zone rename + recolor (July 2026): shipped and confirmed working.**
   Power Terminal can rename/recolor the single zone it's wired into
   (`ZoneCustomization.gd`, `ZoneCustomizeUI.gd`, `DeviceDatabase.
@@ -225,12 +224,23 @@ length.
   scene permanently, and repeated build-mode entry/exit while hovering
   could stack up multiple stuck labels.
 
+- **Doc migration (July 2026): complete.** All 8 systems now have a
+  `docs/systems/*/README.md` (Player, Furniture/Items, Build Mode,
+  Environment, Graphics/Camera joined the existing Power/World Core/UI).
+  `PROJECT_SUMMARY.md` §2/§3/§5 and §6/§7/§8 updated to point at the new
+  docs instead of duplicating content. One doc-drift bug caught and noted
+  while writing the Graphics doc: `GraphicsSettings.gd`'s own header
+  comment still says "NOT YET REGISTERED AS AN AUTOLOAD" even though it IS
+  registered in the committed `project.godot` (repo HEAD `00938b5`) — flagged
+  in `docs/systems/graphics/README.md`, not yet fixed in the source comment
+  itself (low-risk, cosmetic-only, fix opportunistically next time that
+  file is touched for something else).
+
 ## Next up (nothing currently in progress — ask Brannon)
 See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the current list
 (Main Menu, Death/game-over state, emergency_light placement, generator
-exhaust smoke scaling, remaining graphics-overhaul deferred items). Also 5
-systems still pending doc migration (`PROJECT_SUMMARY.md` §2) — migrate
-opportunistically per §0's rule, not as a dedicated pass unless asked.
+exhaust smoke scaling, remaining graphics-overhaul deferred items). No
+systems pending doc migration anymore (all 8 done as of July 2026).
 
 Two specific follow-up investigations flagged during recent work (both
 noted in `docs/systems/power/README.md` Known tradeoffs, neither started):
