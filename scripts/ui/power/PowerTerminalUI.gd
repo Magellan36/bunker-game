@@ -572,46 +572,42 @@ func _draw_wire_section(snap: Dictionary, x: float, y: float, _w: float) -> floa
 					var nb_surplus: float = nb.get("surplus_w", 0.0)
 					var nb_col: Color     = _zone_col(zi_to_zk_wg.get(nb_idx, ""), zi_to_ci_wg.get(nb_idx, nb_idx))
 
-					## Determine direction: who is exporting to whom.
-					## If both have surplus or both have deficit, no net flow.
+					## Determine direction: who is exporting to whom (for the arrow
+					## glyph + wattage only). Each zone's LABEL always shows that
+					## zone's own true color regardless of flow direction — see
+					## z_col/nb_col (computed once per zone above).
 					var flow_w: float
 					var arrow: String
-					var from_col: Color
-					var to_col: Color
 
 					if surplus > 0.0 and nb_surplus <= 0.0:
 						## Zone z exports to nb
-						flow_w   = minf(surplus, absf(nb_surplus))
-						arrow    = "→"
-						from_col = z_col
-						to_col   = nb_col
+						flow_w = minf(surplus, absf(nb_surplus))
+						arrow  = "→"
 					elif nb_surplus > 0.0 and surplus <= 0.0:
 						## Zone nb exports to z
-						flow_w   = minf(nb_surplus, absf(surplus))
-						arrow    = "←"
-						from_col = nb_col
-						to_col   = z_col
+						flow_w = minf(nb_surplus, absf(surplus))
+						arrow  = "←"
 					else:
 						## Both surplus or both deficit — no net cross-zone flow
-						flow_w   = 0.0
-						arrow    = "—"
-						from_col = DIM_COLOR
-						to_col   = DIM_COLOR
+						flow_w = 0.0
+						arrow  = "—"
 
-					## Draw zone display-name labels in zone colors; arrow+watts in flow color.
-					## Truncated to 6 chars here (this is a tight one-line layout) —
-					## the full name is always shown in the zone list below.
+					## Draw zone display-name labels in EACH ZONE'S OWN color (z_label
+					## always in z_col, nb_label always in nb_col) — arrow+watts use
+					## flow_col to indicate flow strength. Truncated to 6 chars here
+					## (this is a tight one-line layout) — the full name is always
+					## shown in the zone list below.
 					var flow_col: Color = OK_COLOR if flow_w > 0.0 else DIM_COLOR
 					var indent: float = x + 8.0
 					var cx: float = indent
 					var z_label: String  = String(zi_to_name_wg.get(z_idx, "Z%d" % z_idx)).substr(0, 6)
 					var nb_label: String = String(zi_to_name_wg.get(nb_idx, "Z%d" % nb_idx)).substr(0, 6)
-					_draw_string_at(z_label, Vector2(cx, y), from_col, FONT_SIZE_S)
+					_draw_string_at(z_label, Vector2(cx, y), z_col, FONT_SIZE_S)
 					cx += maxf(20.0, z_label.length() * 6.5)
 					## arrow in flow_col
 					_draw_string_at(arrow, Vector2(cx, y), flow_col, FONT_SIZE_S)
 					cx += 14.0
-					_draw_string_at(nb_label, Vector2(cx, y), to_col, FONT_SIZE_S)
+					_draw_string_at(nb_label, Vector2(cx, y), nb_col, FONT_SIZE_S)
 					cx += maxf(22.0, nb_label.length() * 6.5)
 					## watts or balanced
 					if flow_w > 0.0:
