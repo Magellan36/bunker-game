@@ -16,8 +16,9 @@ later; the placement tool doesn't build it yet).
 - The wall-mounted hookup device, including auto-tracking whichever wall is
   currently the outermost in its recorded facing direction as the player digs
   further out — `WaterHookup.gd`.
-- The pipe placement tool (wall-hugging, magnetic-but-resistible wall snap,
-  auto-elbow-insertion at corners) — `WaterPipeDrawMode.gd`.
+- The pipe placement tool — strictly axis-aligned (Manhattan/90°-only)
+  routing along a fixed near-ceiling height, with a final vertical drop into
+  any floor-standing connectable device — `WaterPipeDrawMode.gd`.
 - Static pipe/corner visuals, always visible (never hidden outside build
   mode, unlike wires) — `WaterPipeSegment.gd`/`WaterPipeElbow.gd`.
 - A rudimentary test endpoint that proves the plumbing works end to end —
@@ -42,11 +43,12 @@ later; the placement tool doesn't build it yet).
 - **Does not reuse `WallSnapHelpers.gd`'s existing snap functions directly**
   (`_snap_light_to_wall`/`_snap_breaker_to_wall` stay build-mode-only,
   untouched) — the water system either calls the new generic
-  `WallSnapHelpers._snap_to_nearest_wall()` (added alongside, for
-  hookup placement/move, which DOES go through `BuildModeController`) or
-  raycasts independently (`WaterHookup.reposition_to_outer_wall()`,
-  `WaterPipeDrawMode._find_wall_hug_point()` — deliberately self-contained,
-  no build-mode dependency, so the water system stays standalone).
+  `WallSnapHelpers._snap_to_nearest_wall()` (added alongside, for hookup
+  placement/move, which DOES go through `BuildModeController`) or raycasts
+  independently (`WaterHookup.reposition_to_outer_wall()` — deliberately
+  self-contained, no build-mode dependency, so the water system stays
+  standalone). Pipe routing itself (`WaterPipeDrawMode`) does no wall
+  raycasting at all as of the July 2026 routing rewrite — see Common edits.
 
 ## Files
 | File | Role |
@@ -56,7 +58,7 @@ later; the placement tool doesn't build it yet).
 | `WaterHookup.gd` | The wall-mounted source device. Wall-snapped placement, never deletable, auto-tracks the outermost wall in its facing direction as the bunker expands. |
 | `WaterPipeSegment.gd` | Visual for one straight placed pipe. **Always visible** (see Known tradeoffs). |
 | `WaterPipeElbow.gd` | Corner-joint visual, spawned automatically at a corner crossing. A REAL graph node (role `"corner"`), not just cosmetic — see Extension points. |
-| `WaterPipeDrawMode.gd` | The placement tool. **Uses the plan's own pre-approved FALLBACK interaction model, not the full single-drag paint — see its own file-header comment and Known tradeoffs below.** |
+| `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **Uses the plan's own pre-approved FALLBACK interaction model (one confirm per click), not the full single-drag paint — see its own file-header comment and Known tradeoffs below.** |
 | `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). |
 
 ## Public API
@@ -135,15 +137,26 @@ Player uses Pipe tool (TOOL_WATER_PIPE)
 ## Common edits
 - **New pipe-connectable device (beyond the test sink):** register a
   `"endpoint"` (or other) role node via `WaterManager.register_node()` in
-  `_ready()` (deferred, same pattern `WaterTestSink`/`WaterHookup` use) —
-  `WaterPipeDrawMode._get_nearest_water_node()` will find it automatically
-  as a valid source/destination, no registry to update.
+  `_ready()` (deferred, same pattern `WaterTestSink`/`WaterHookup` use) — but
+  register it at the device's actual physical connection point (e.g. the
+  TOP of a floor-standing box, see `WaterTestSink`'s own comment), not its
+  origin/base. `WaterPipeDrawMode._get_nearest_water_node_xz()` will find it
+  automatically as a valid source/destination, no registry to update. Also
+  add its tile ID to `BuildModeController`'s `CONNECTABLE_TILES`/
+  `CONNECTABLE_TILES_QUICK` arrays so it gets the blue "connectable" dot
+  overlay in build mode, same as lights/generators/the hookup/the test sink.
+- **Changing pipe/hookup visual diameter:** `WaterHookup.STUB_RADIUS`,
+  `WaterPipeSegment.PIPE_RADIUS`, and `WaterPipeElbow.JOINT_RADIUS` are kept
+  in sync MANUALLY (no shared constant) so they visually read as one
+  continuous pipe — update all three together (elbow radius should stay
+  slightly larger than the pipe radius so corners read as a fitting).
 - **Real water-consuming device (`water_purifier`/`water_pump`):** follow the
   `DeviceDatabase`-driven pattern the power system uses (both already have
   wattage/priority entries in `DeviceDatabase.gd`, unused) — hold independent
   `PowerManager`/`WaterManager` refs, don't couple the two managers.
 - **T-split branching:** since corners/joints are already real graph nodes,
-  this is "let `WaterPipeDrawMode._try_pick_source()` start a new run from an
+  this is "let `WaterPipeDrawMode._try_pick_source()`/`_resolve_destination()`
+  start or end a run at an
   existing mid-chain node" — it already does this for ANY existing node
   (hookup, joint, or corner), so a T-split may already partially work by
   simply drawing a second pipe from an existing joint; verify before
@@ -167,15 +180,15 @@ Player uses Pipe tool (TOOL_WATER_PIPE)
 
 ## Known tradeoffs / tech debt
 - **`WaterPipeDrawMode` uses the plan's own pre-approved FALLBACK
-  interaction model** (one wall-hugging segment per click, up to the next
-  corner, with auto-elbow-insertion), not the full single continuous-drag
-  "paint the whole run in one click" experience the plan describes as its
-  primary vision. Flagged explicitly per the plan's own instructions — full
-  multi-segment live-preview-and-confirm was judged too complex to
-  responsibly build and verify with zero in-editor testing available this
-  pass (headless compile-check only). **Upgrading to the full paint
-  experience is the clear, expected next step for this tool** — not
-  currently scheduled, do it as its own isolated pass.
+  interaction model** (one confirm per click, up to the next destination,
+  with auto-elbow-insertion at every bend), not the full single
+  continuous-drag "paint the whole run in one click" experience the plan
+  describes as its primary vision. Flagged explicitly per the plan's own
+  instructions — full multi-segment live-preview-and-confirm was judged too
+  complex to responsibly build and verify with zero in-editor testing
+  available this pass (headless compile-check only). **Upgrading to the
+  full paint experience is the clear, expected next step for this tool** —
+  not currently scheduled, do it as its own isolated pass.
 - **No pricing was specified by the groundwork plan** for the hookup or
   pipes — `BuildModeHUD.CATEGORIES["Water"]`'s hookup price ($200) and
   `WaterPipeDrawMode.COST_PER_M` ($5/m) are deliberately conservative
@@ -183,21 +196,30 @@ Player uses Pipe tool (TOOL_WATER_PIPE)
 - **No automated tests** (matches the rest of the project).
 - **No persistence** (matches the rest of the project — see Persistence).
 - **Reconnecting a hookup's pipe network across a reposition event is
-  untested/theoretical for this phase** — `WaterHookup.update_graph_node_position()`
-  re-keys the hookup's own graph node on reposition, but since no pipes exist
-  yet in this pass that could be attached to a hookup when it moves, whether
-  existing pipe edges correctly follow the hookup to its new node key across
-  a boundary-change reposition has NOT been exercised by any test. Flagged
-  for whoever builds on top of this — verify this specifically once pipes
-  routinely exist alongside hookup repositioning.
-- **`WaterPipeDrawMode`'s wall-hug raycast (`_find_wall_hug_point()`) and
-  `WaterHookup`'s outer-wall raycast (`reposition_to_outer_wall()`) are each
-  independently implemented** rather than sharing one helper — a deliberate
-  choice to keep this system's build-mode-adjacent code (the pipe tool,
-  which DOES run inside `BuildModeController`) separate from its fully
-  standalone code (the hookup's boundary-tracking, which does NOT touch
-  `BuildModeController`/`WallSnapHelpers` at all). Revisit if this duplication
-  becomes a real maintenance burden once Phase 2 work begins.
+  lightly tested at best for this phase** — `WaterHookup.update_graph_node_position()`
+  re-keys the hookup's own graph node on reposition, and existing pipe edges
+  DO follow it (edges reference node keys, not positions, in `WaterGraph`) —
+  but whether the visual `WaterPipeSegment`s attached to that edge also
+  re-draw to the hookup's new position after a boundary-tracking move has
+  NOT been exercised by any test. Flagged for whoever builds on top of this.
+- **Routing model rewrite (July 2026, playtest feedback):** pipes originally
+  used a "wall-hugging" magnetic-snap model (see plan §5) — this was
+  replaced with the current strictly-axis-aligned, fixed-ceiling-height
+  Manhattan routing after playtesting showed the wall-hugging model produced
+  diagonal-looking runs and didn't match the intended "pipes run along the
+  ceiling, bend at exactly 90°" look. `WaterPipeDrawMode._find_wall_hug_point()`
+  and its wall-snap constants no longer exist — routing is now pure
+  geometry (`_build_manhattan_path()`), no raycasting at all. If a future
+  pass wants pipes to hug actual wall geometry again (rather than a flat
+  ceiling plane), that's a bigger redesign, not a tweak to the current code.
+- **Every connectable device must register its `WaterGraph` node at its own
+  real physical connection point**, not an arbitrary reference position —
+  this is how `WaterPipeDrawMode` decides whether a final vertical drop
+  segment is needed (compares the node's registered Y against
+  `WATER_CEILING_Y`) with zero per-device-type special-casing. `WaterTestSink`
+  registers at `global_position + Vector3(0, BOX_SIZE.y, 0)` (the TOP of its
+  box) for exactly this reason — copy this convention for any new
+  connectable device rather than registering at the object's origin/base.
 
 ## Extension points
 - **Flow/pressure simulation:** add a `WaterSolver.gd` mirroring

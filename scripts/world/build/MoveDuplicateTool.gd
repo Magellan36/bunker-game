@@ -240,7 +240,7 @@ func _update_move_ghost() -> void:
 			_owner._move_ghost.visible = false
 			return
 	elif mv_tile == _owner.TILE_WATER_HOOKUP:
-		snap_pos.y = _owner.PLACEMENT_Y
+		snap_pos.y = _owner.WATER_HOOKUP_PLACEMENT_Y   ## near-ceiling, see BuildModeController's own comment
 		## Water hookup move (July 2026 groundwork pass) — the plan requires
 		## this to accept ANY valid wall, any orientation (not just its
 		## original one), and to update its recorded facing direction to

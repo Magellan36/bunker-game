@@ -17,21 +17,15 @@ class_name WaterPipeSegment
 ##   seg.edge_id = edge_id   ## so the draw mode can unregister it later
 
 # ─── Visual constants ─────────────────────────────────────────────────────────
-const PIPE_RADIUS:   float = 0.045          ## slightly thicker than a wire — physical plumbing
+## Matches WaterHookup.STUB_RADIUS exactly (playtest feedback — pipes and the
+## hookup's own stub must visually read as the same pipe, same diameter).
+const PIPE_RADIUS:   float = 0.09
 const PIPE_SEGMENTS: int   = 10
 
 ## Standing pipe colour — galvanized grey. No powered/burnt/overloaded state
 ## variants like WireSegment has (no flow/pressure sim this phase — see
 ## WaterGraph.gd header) — just one constant material.
 const COLOR_PIPE: Color = Color(0.45, 0.47, 0.49, 1.0)
-
-## Slight offset off the wall plane so the pipe visibly hugs the wall it's
-## snapped to, rather than floating in open room space — mirrors how
-## BreakerBox/WallLight sit slightly proud of the wall surface. Applied by
-## WaterPipeDrawMode when it computes wall-hugging endpoints, NOT by this
-## file — this file only draws a straight tube between whatever two points
-## it's given.
-const WALL_HUG_OFFSET: float = 0.06
 
 # ─── State ────────────────────────────────────────────────────────────────────
 ## WaterGraph edge ID — stored so the draw mode can unregister it on deconstruct.
