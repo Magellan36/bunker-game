@@ -160,6 +160,23 @@ func _spawn_move_ghost(tile_id: int) -> void:
 		_owner._move_ghost.position = Vector3(0.0, 0.30, 0.0)
 		for s: int in hc_box.get_surface_count():
 			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
+	elif tile_id == _owner.TILE_WATER_HOOKUP:
+		## Water hookup (July 2026 groundwork pass) — reuse its own ghost-mesh
+		## static helper, same convention WallLight/Shelving use.
+		var hookup_script: GDScript = load("res://scripts/world/water/WaterHookup.gd")
+		if hookup_script != null and hookup_script.has_method("build_ghost_mesh"):
+			var wh_m: Mesh = hookup_script.build_ghost_mesh()
+			if wh_m != null:
+				_owner._move_ghost.mesh = wh_m
+				for s: int in wh_m.get_surface_count():
+					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
+	elif tile_id == _owner.TILE_WATER_SINK:
+		var ws_box: BoxMesh = BoxMesh.new()
+		ws_box.size = Vector3(0.35, 0.30, 0.35)
+		_owner._move_ghost.mesh = ws_box
+		_owner._move_ghost.position = Vector3(0.0, 0.15, 0.0)
+		for s: int in ws_box.get_surface_count():
+			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
 	else:
 		if _owner.gridmap != null and _owner.gridmap.mesh_library != null:
 			var m: Mesh = _owner.gridmap.mesh_library.get_item_mesh(tile_id)
@@ -183,24 +200,68 @@ func _update_move_ghost() -> void:
 
 	var snap_pos: Vector3 = _owner._snap_to_grid(result["position"])
 	var mv_tile: int = _owner._move_source_entry.get("tile_id", _owner.TILE_WALL)
+	## Ghost rotation defaults to whatever the object's current angle is —
+	## overridden below only for the wall-snapped tile types, whose snap
+	## result may put them on a DIFFERENT wall (and therefore a different
+	## angle) than they started with.
+	var ghost_angle_deg: float = _owner._move_source_entry.get("angle_deg", 0.0)
+
 	if mv_tile == _owner.TILE_SHELVING or mv_tile == _owner.TILE_BED:
 		snap_pos.y = _owner.SHELF_PLACEMENT_Y
 	elif mv_tile == _owner.TILE_LIGHT:
 		snap_pos.y = _owner.LIGHT_PLACEMENT_Y
+		## July 2026 fix: moving a light previously never re-ran wall-snap —
+		## it just re-snapped to the flat grid, inconsistent with how it was
+		## originally placed (see WallSnapHelpers.gd / GhostPreview.gd, which
+		## both correctly wall-snap on INITIAL placement already). Reuse the
+		## same proven _snap_light_to_wall() call GhostPreview uses — zero new
+		## risk, this function is pure/read-only w.r.t. game state.
+		var light_snapped: Dictionary = _owner._snap_light_to_wall(snap_pos)
+		if not light_snapped.is_empty():
+			snap_pos        = light_snapped["pos"]
+			ghost_angle_deg = light_snapped["angle_deg"]
+		else:
+			_owner._move_ghost.visible = false
+			return
 	elif mv_tile == _owner.TILE_GEN_S or mv_tile == _owner.TILE_GEN_M \
 			or mv_tile == _owner.TILE_GEN_L:
 		snap_pos.y = _owner.GEN_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_WIRE or mv_tile == _owner.TILE_HEAVY:
+	elif mv_tile == _owner.TILE_WIRE or mv_tile == _owner.TILE_HEAVY or mv_tile == _owner.TILE_WATER_SINK:
 		snap_pos.y = _owner.PLACEMENT_Y
-	elif mv_tile == _owner.TILE_BREAKER or mv_tile == _owner.TILE_BREAKER_SMART \
-			or mv_tile == _owner.TILE_BATTERY_S \
+	elif mv_tile == _owner.TILE_BREAKER or mv_tile == _owner.TILE_BREAKER_SMART:
+		snap_pos.y = _owner.PLACEMENT_Y
+		## Same July 2026 fix as TILE_LIGHT above, reusing the existing proven
+		## _snap_breaker_to_wall() — shared by both breaker variants already.
+		var brk_snapped: Dictionary = _owner._snap_breaker_to_wall(snap_pos)
+		if not brk_snapped.is_empty():
+			snap_pos        = brk_snapped["pos"]
+			ghost_angle_deg = brk_snapped["angle_deg"]
+		else:
+			_owner._move_ghost.visible = false
+			return
+	elif mv_tile == _owner.TILE_WATER_HOOKUP:
+		snap_pos.y = _owner.PLACEMENT_Y
+		## Water hookup move (July 2026 groundwork pass) — the plan requires
+		## this to accept ANY valid wall, any orientation (not just its
+		## original one), and to update its recorded facing direction to
+		## match whatever wall it lands on. Reuses the new generic
+		## _snap_to_nearest_wall() helper — same mandatory-wall strictness as
+		## initial placement (GhostPreview's TILE_WATER_HOOKUP branch above).
+		var wh_snapped: Dictionary = _owner._snap_to_nearest_wall(snap_pos, 0.0, 0.05, 1.5)
+		if not wh_snapped.is_empty():
+			snap_pos        = wh_snapped["pos"]
+			ghost_angle_deg = wh_snapped["angle_deg"]
+		else:
+			_owner._move_ghost.visible = false
+			return
+	elif mv_tile == _owner.TILE_BATTERY_S \
 			or mv_tile == _owner.TILE_BATTERY_M or mv_tile == _owner.TILE_BATTERY_L:
 		snap_pos.y = _owner.PLACEMENT_Y
 	else:
 		snap_pos.y = _owner.PLACEMENT_Y
 
 	_owner._move_ghost.global_position = snap_pos
-	_owner._move_ghost.rotation_degrees = Vector3(0.0, _owner._move_source_entry.get("angle_deg", 0.0), 0.0)
+	_owner._move_ghost.rotation_degrees = Vector3(0.0, ghost_angle_deg, 0.0)
 	_owner._move_ghost.visible = true
 	# Keep ghost green — reuse _owner._mat_valid which is already applied
 
@@ -211,6 +272,13 @@ func _move_confirm() -> void:
 
 	var new_pos: Vector3 = _owner._move_ghost.global_position
 	var tile_id: int = _owner._move_source_entry.get("tile_id", _owner.TILE_WALL)
+	## Captured here (before _destroy_move_ghost() below frees the ghost) so
+	## wall-snapped tile types commit their possibly-new angle — see the
+	## July 2026 wall-snap-on-move fix in _update_move_ghost() above. Previously
+	## NO tile type committed a rotation change on move at all; this is
+	## additive for the 3 wall-snapped types only, zero behavior change for
+	## every other tile (their angle_deg simply round-trips unchanged).
+	var new_angle_deg: float = _owner._move_ghost.rotation_degrees.y
 
 	# Don't allow placing on top of another object (other than self)
 	_owner._move_source_body.visible = true  ## Temporarily make visible for overlap check
@@ -245,6 +313,21 @@ func _move_confirm() -> void:
 
 	_owner._move_source_body.global_position = new_pos
 	_owner._move_source_entry["world_pos"] = new_pos
+
+	## Commit rotation for the wall-snapped tile types only (see captured
+	## new_angle_deg above) — everything else keeps its existing behavior of
+	## never touching rotation on move.
+	if tile_id == _owner.TILE_LIGHT or tile_id == _owner.TILE_BREAKER \
+			or tile_id == _owner.TILE_BREAKER_SMART or tile_id == _owner.TILE_WATER_HOOKUP:
+		_owner._move_source_body.rotation_degrees = Vector3(0.0, new_angle_deg, 0.0)
+		_owner._move_source_entry["angle_deg"] = new_angle_deg
+
+	## Water hookup: its WaterGraph node is keyed by position, so a manual
+	## move needs the same re-registration reposition_to_outer_wall() does
+	## after an automatic boundary-tracking move (see WaterHookup.gd).
+	if tile_id == _owner.TILE_WATER_HOOKUP and _owner._move_source_body.has_method("update_graph_node_position"):
+		_owner._move_source_body.call("update_graph_node_position")
+
 	_owner._move_source_body.visible = true
 	for child in _owner._move_source_body.get_children():
 		if child is MeshInstance3D:
