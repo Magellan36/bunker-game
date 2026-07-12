@@ -1,6 +1,6 @@
 # BunkerGame — Agent Handover Doc
 
-**Last updated:** repo HEAD `00938b5`
+**Last updated:** repo HEAD `032dbfe`
 
 Paste this whole file into a new chat to resume work with full context,
 without carrying forward the old chat's history.
@@ -173,12 +173,57 @@ length.
   `architecture.json` + slimmed `PROJECT_SUMMARY.md`/`HANDOVER.md`):
   **complete**, confirmed working.
 - Headless Godot compile-check tool (`tools/godot_check.sh`): **complete**,
-  confirmed working, catching real issues.
-- `GraphicsSettings` autoload: **now registered directly in
-  `project.godot`** (repo HEAD `00938b5`) — Brannon still needs to confirm
-  in his own editor that it resolves cleanly after pulling (class-cache
-  gotcha may still require a quit + delete `.godot/` + reopen on first
-  pull of this change).
+  confirmed working, catching real issues. Re-download the Godot 4.6.3
+  binary into `/home/user/godot-bin/` at the start of every fresh sandbox
+  (not committed — 130MB+ engine binary, see §16 in `PROJECT_SUMMARY.md`).
+- `GraphicsSettings` autoload: **confirmed working** in Brannon's editor
+  after pulling `00938b5` (resolved cleanly, no class-cache issue that
+  time).
+- **Expanded-area wall/breaker snap bug: fixed and confirmed working**
+  (`WallSnapHelpers.gd` + `BuildModeController.spawn_structure()` +
+  `BunkerPregen.gd` — added an `_is_true_pregen` tag distinct from the
+  broader `_is_pregen` tag so only the ORIGINAL 4 boundary walls get the
+  strict original-rectangle interior-face check; autofill walls in
+  expanded/dug areas now snap the same simple way player-placed walls do).
+  See `docs/systems/build/README.md` if/when Build Mode gets migrated —
+  not yet, still pending (§2 below).
+- **Zone rename + recolor (July 2026): shipped and confirmed working.**
+  Power Terminal can rename/recolor the single zone it's wired into
+  (`ZoneCustomization.gd`, `ZoneCustomizeUI.gd`, `DeviceDatabase.
+  ZONE_PLAYER_COLOR_CHOICES`, `PowerManager.zone_display_color()` — see
+  `docs/systems/power/README.md` Public API section). One follow-up bug
+  found + fixed during testing: the "ZONE FLOW" line in `PowerTerminalUI.gd`
+  had a pre-existing from/to label-color swap (a zone's own recolor showed
+  up on its NEIGHBOR's label instead) — fixed, each zone's label now always
+  shows that zone's own true color.
+- **Pause menu / graphics panel blurred backdrop: fixed and confirmed
+  working.** Both `PauseMenuUI.gd` and `GraphicsSettingsPanel.gd`'s backdrop
+  `ColorRect` now always sets a dim `Color(0,0,0,0.55)` base before layering
+  the blur shader material on top — previously only set in the "shader
+  failed to LOAD" branch, so a shader that loaded fine but failed to
+  actually RENDER (GPU/driver-specific) showed solid opaque white instead
+  of any kind of overlay.
+- **`GridState.BROWNOUT`/`TRIPPED` unreachable-state bug: fixed and
+  confirmed working.** `_start_flicker_offline()` had zero call sites, so
+  total grid failure jumped straight from OVERLOADED to a hard OFFLINE cut
+  with zero warning — no flicker, no "breaker tripped" moment, even though
+  `LightingDirector.gd`/HUD were already fully wired to react to those
+  states. Now: `PowerSolver.gd`'s total-failure branch triggers
+  `_start_flicker_offline()`, and `_go_offline()`'s "no local battery left"
+  tail now calls the already-complete `_trip_main_grid()` (→ `TRIPPED`,
+  recoverable via `reset_main_breaker()`) instead of hard-setting
+  `GridState.OFFLINE`. See `docs/systems/power/README.md` Known
+  tradeoffs — **two related follow-up items were found but deliberately
+  NOT fixed** (out of scope for that pass, noted there for a future one):
+  `_go_offline_true()` has the same "zero call sites" shape, and the
+  per-zone "sustained brownout" system was never re-audited for a similar
+  orphaned trigger.
+- **Wire-mode stale hover-label leak: fixed and confirmed working.**
+  `WireDrawMode._cancel()` (called on every wire-mode/build-mode exit) now
+  also clears `_hover_label` — previously, exiting while hovering a wire
+  node/generator/wall light left its floating `Label3D` orphaned in the
+  scene permanently, and repeated build-mode entry/exit while hovering
+  could stack up multiple stuck labels.
 
 ## Next up (nothing currently in progress — ask Brannon)
 See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the current list
@@ -186,5 +231,17 @@ See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the current list
 exhaust smoke scaling, remaining graphics-overhaul deferred items). Also 5
 systems still pending doc migration (`PROJECT_SUMMARY.md` §2) — migrate
 opportunistically per §0's rule, not as a dedicated pass unless asked.
-Immediate next step: confirm Brannon successfully pulled `00938b5` and that
-`GraphicsSettings` resolves without errors in his editor.
+
+Two specific follow-up investigations flagged during recent work (both
+noted in `docs/systems/power/README.md` Known tradeoffs, neither started):
+- `_go_offline_true()` (`PowerManager.gd`) has zero call sites anywhere —
+  same dead-code shape as the just-fixed BROWNOUT/TRIPPED bug. Its
+  intended trigger context (`PowerManager.gd` ~line 3343/3385, the
+  per-battery-group drain loop) explicitly comments "do NOT call
+  `_go_offline_true()` here", so this needs its own investigation of
+  whether it's still needed at all or fully superseded by `_go_offline()`'s
+  per-sub-grid local-battery check — don't assume, confirm first.
+- The per-zone "sustained brownout" system
+  (`PowerSolver._sustained_brownout_component()`, `_exhausted_brownout_keys`)
+  uses a different trigger mechanism than the one just fixed and was never
+  re-checked for a similar orphaned-trigger problem.
