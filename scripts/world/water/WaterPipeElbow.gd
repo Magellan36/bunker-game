@@ -12,7 +12,10 @@ class_name WaterPipeElbow
 ## corner, matching WaterPipeSegment's pipe radius/material so the run reads
 ## as one continuous fixture.
 
-const JOINT_RADIUS: float = 0.07   ## slightly larger than the pipe radius so the corner reads as a fitting, not a kink
+## Slightly larger than WaterPipeSegment.PIPE_RADIUS (0.09) so the corner
+## reads as a fitting, not a kink — kept in sync manually, same as
+## WaterHookup.STUB_RADIUS/WaterPipeSegment.PIPE_RADIUS already are.
+const JOINT_RADIUS: float = 0.105
 const JOINT_SEGMENTS: int = 10
 
 const COLOR_JOINT: Color = Color(0.40, 0.42, 0.44, 1.0)   ## matches WaterPipeSegment.COLOR_PIPE family, slightly darker

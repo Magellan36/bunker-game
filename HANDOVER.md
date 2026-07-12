@@ -255,6 +255,32 @@ length.
   placement/wall-snap/move/never-deletable, pipe placement around at least
   one corner, the test sink turning green, and the hookup correctly
   following an expanded dig boundary.
+- **Water system playtest-feedback pass (July 2026, NOT YET TESTED
+  IN-EDITOR — this is a response to Brannon's first round of in-editor
+  testing, itself unverified so far):** 4 fixes/changes on top of the
+  groundwork above, all headless-compile-clean: (1) `WaterPipeSegment.PIPE_RADIUS` raised to match
+  `WaterHookup.STUB_RADIUS` (0.09) so pipes and the hookup read as one
+  continuous pipe — `WaterPipeElbow.JOINT_RADIUS` bumped to 0.105 to match;
+  (2) **pipe routing model rewritten** from the original wall-hugging
+  magnetic-snap to strictly axis-aligned (90°-only) Manhattan routing along
+  a fixed near-ceiling height (`WaterPipeDrawMode.WATER_CEILING_Y = 2.8`) —
+  `_find_wall_hug_point()` and the wall-snap constants are gone entirely,
+  replaced by pure-geometry `_build_manhattan_path()`; a destination that
+  snaps onto an existing lower graph node (e.g. a sink) gets one final
+  vertical drop segment automatically; (3) `WaterHookup`'s placement height
+  raised near the ceiling (`BuildModeController.WATER_HOOKUP_PLACEMENT_Y =
+  2.8`, kept in manual sync with `WaterPipeDrawMode.WATER_CEILING_Y`),
+  above wall-light height, so the hookup and its pipes visually run along
+  the ceiling; (4) `TILE_WATER_HOOKUP`/`TILE_WATER_SINK` added to
+  `BuildModeController`'s connectable-dot system (`CONNECTABLE_TILES`/
+  `CONNECTABLE_TILES_QUICK`) — same blue dot overlay lights/generators
+  already get in build mode. Also: `WaterTestSink` now registers its graph
+  node at the TOP of its box (its real physical connection point) instead
+  of its base — this is what makes pipe-to-sink connections (and the
+  sink's CONNECTED/NOT CONNECTED label) actually work; previously
+  `_resolve_destination()` never checked for nearby existing nodes at all,
+  so a pipe could never actually reach the sink. Full detail:
+  `docs/systems/water/README.md` (updated throughout).
 
 - **Doc migration (July 2026): complete.** All 8 systems now have a
   `docs/systems/*/README.md` (Player, Furniture/Items, Build Mode,
@@ -269,9 +295,11 @@ length.
   file is touched for something else).
 
 ## Next up
-**Immediate:** Brannon needs to pull and test the water system groundwork
-pass in-editor (see the water system bullet above for the exact test list) —
-nothing further should be built on top of it until that's confirmed working.
+**Immediate:** Brannon needs to pull and test the water system
+playtest-feedback pass (pipe/hookup diameter match, 90°-only ceiling
+routing, pipe-to-sink connection + CONNECTED label, connectable dots on
+hookup/sink) — nothing further should be built on top of the water system
+until this round is confirmed working.
 
 See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the rest of the list
 (water system Phase 2, Main Menu, Death/game-over state, emergency_light

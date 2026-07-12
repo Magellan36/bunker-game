@@ -57,7 +57,13 @@ func _register_deferred() -> void:
 	if wm == null:
 		push_warning("WaterTestSink: WaterManager not found — will always show NOT CONNECTED.")
 		return
-	_node_key = wm.register_node(global_position, "endpoint")
+	## Registered at the TOP of the box, not its base — this is the actual
+	## physical point a pipe connects to (see WaterPipeDrawMode's vertical-
+	## drop-into-the-object logic, which compares a node's registered Y
+	## against ceiling height to decide whether a final vertical segment is
+	## needed; no per-device special-casing required as long as every
+	## connectable device registers its node at its real connection point).
+	_node_key = wm.register_node(global_position + Vector3(0.0, BOX_SIZE.y, 0.0), "endpoint")
 	_refresh_connectivity()
 
 func _refresh_connectivity() -> void:
@@ -66,11 +72,11 @@ func _refresh_connectivity() -> void:
 		_update_label(false)
 		return
 	## Registering an "endpoint" node alone doesn't create any pipe edges to
-	## it — the player must route a pipe from the hookup TO this sink's exact
-	## position with WaterPipeDrawMode (which will find/snap to this node the
-	## same way it snaps to any other existing graph node — see
-	## WaterPipeDrawMode._get_nearest_water_node()). Once a pipe edge reaches
-	## this node, BFS reports true.
+	## it — the player must route a pipe from the hookup TO this sink with
+	## WaterPipeDrawMode, which will snap onto this node the same way it
+	## snaps onto any other existing graph node — see
+	## WaterPipeDrawMode._get_nearest_water_node_xz()/_resolve_destination().
+	## Once a pipe edge reaches this node, BFS reports true.
 	var connected: bool = wm.is_reachable_from_hookup(_node_key)
 	_update_label(connected)
 

@@ -66,6 +66,16 @@ const SHELF_PLACEMENT_Y: float = 0.8
 ## its mesh and SpotLight to 3/4 height internally.
 const LIGHT_PLACEMENT_Y: float = 1.0
 
+## Water hookup (July 2026 groundwork pass, raised per playtest feedback) —
+## mounted near the ceiling (walls are 3.0m tall — see tile_set.tscn), above
+## wall-light height (2.5m), so its pipes read as running along the "ceiling"
+## rather than through the room at head height. WaterHookup has no internal
+## self-offset (unlike WallLight) — this IS its visual height directly.
+## WaterPipeDrawMode.WATER_CEILING_Y must be kept equal to this (see that
+## file's own comment — two independent constants, same value, since the
+## water system stays standalone/no cross-file dependency on BuildModeController).
+const WATER_HOOKUP_PLACEMENT_Y: float = 2.8
+
 ## Generator sits on the floor; lowered by TestCrate rendered height (0.477m) so
 ## it visually rests flush with the ground plane.  1.0 - 0.477 ≈ 0.523.
 const GEN_PLACEMENT_Y: float = 0.523
@@ -419,9 +429,10 @@ func _cancel_ghost() -> void:
 func _refresh_connectable_dots() -> void:
 	_clear_connectable_dots()
 
-	## Connectable tile IDs — generators, terminal, wall lights
+	## Connectable tile IDs — generators, terminal, wall lights, water hookup/sink
 	const CONNECTABLE_TILES: Array[int] = [
-		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT
+		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT,
+		TILE_WATER_HOOKUP, TILE_WATER_SINK
 	]
 
 	## Dot material — light blue, billboard, always-on-top
@@ -455,7 +466,15 @@ func _refresh_connectable_dots() -> void:
 		dot_mi.extra_cull_margin = 10.0
 		## Position above the object. Lights are wall-mounted at ~1.5m — dot goes at 1.0
 		## so it hovers at a natural height rather than sitting on the floor.
-		var dot_y: float = 1.0 if tile_id == TILE_LIGHT else 0.30
+		## Water hookup sits near-ceiling already (see WATER_HOOKUP_PLACEMENT_Y) —
+		## a small offset is enough. Water sink is a short ground box (~0.30m tall).
+		var dot_y: float = 0.30
+		if tile_id == TILE_LIGHT:
+			dot_y = 1.0
+		elif tile_id == TILE_WATER_HOOKUP:
+			dot_y = 0.20
+		elif tile_id == TILE_WATER_SINK:
+			dot_y = 0.45
 		dot_mi.position = Vector3(0.0, dot_y, 0.0)
 		obj.add_child(dot_mi)
 		_connectable_dots[obj] = dot_mi
@@ -782,7 +801,8 @@ func _try_construct() -> void:
 	## If this is a connectable tile, add its dot immediately (no full refresh needed).
 	const CONNECTABLE_TILES_QUICK: Array[int] = [
 		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT, TILE_HEAVY,
-		TILE_BREAKER, TILE_BREAKER_SMART, TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L
+		TILE_BREAKER, TILE_BREAKER_SMART, TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L,
+		TILE_WATER_HOOKUP, TILE_WATER_SINK
 	]
 	if _selected_tile in CONNECTABLE_TILES_QUICK:
 		_refresh_connectable_dots()

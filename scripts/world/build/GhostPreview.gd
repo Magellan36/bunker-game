@@ -346,8 +346,8 @@ func _update_ghost() -> void:
 	elif _owner._selected_tile == _owner.TILE_WATER_HOOKUP:
 		## Water hookup (July 2026 groundwork pass) — mandatory wall-snap,
 		## same "hide ghost if no wall found" strictness as the breaker above.
-		## cast_y_offset/pullback_dist mirror WaterHookup's own constants.
-		snap_pos.y = _owner.PLACEMENT_Y
+		## Raised near-ceiling per playtest feedback (see WATER_HOOKUP_PLACEMENT_Y).
+		snap_pos.y = _owner.WATER_HOOKUP_PLACEMENT_Y
 		var wh_snapped: Dictionary = _owner._snap_to_nearest_wall(snap_pos, 0.0, 0.05, 1.5)
 		if not wh_snapped.is_empty():
 			snap_pos = wh_snapped["pos"]

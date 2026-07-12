@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-12T21:47:29.752846+00:00",
+  "generated_at": "2026-07-12T22:15:44.256073+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 72,
-  "total_lines": 28496,
+  "total_lines": 28510,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -1294,7 +1294,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2139,
+      "line_count": 2159,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -1414,7 +1414,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 2220
+      "complexity_score": 2240
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
@@ -4265,7 +4265,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 373,
+      "line_count": 364,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4304,11 +4304,11 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 393
+      "complexity_score": 384
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",
-      "line_count": 41,
+      "line_count": 44,
       "class_name": "WaterPipeElbow",
       "extends": "Node3D",
       "exports": [],
@@ -4319,11 +4319,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 43
+      "complexity_score": 46
     },
     {
       "path": "res://scripts/world/water/WaterPipeSegment.gd",
-      "line_count": 109,
+      "line_count": 103,
       "class_name": "WaterPipeSegment",
       "extends": "Node3D",
       "exports": [],
@@ -4342,11 +4342,11 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 113
+      "complexity_score": 107
     },
     {
       "path": "res://scripts/world/water/WaterTestSink.gd",
-      "line_count": 123,
+      "line_count": 129,
       "class_name": "WaterTestSink",
       "extends": "StaticBody3D",
       "exports": [],
@@ -4365,7 +4365,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 133
+      "complexity_score": 139
     }
   ],
   "dependency_edges": [
