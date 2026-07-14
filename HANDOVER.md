@@ -1,6 +1,6 @@
 # BunkerGame — Agent Handover Doc
 
-**Last updated:** repo HEAD `032dbfe`
+**Last updated:** repo HEAD `b08c116`
 
 Paste this whole file into a new chat to resume work with full context,
 without carrying forward the old chat's history.
@@ -176,123 +176,36 @@ length.
   confirmed working, catching real issues. Re-download the Godot 4.6.3
   binary into `/home/user/godot-bin/` at the start of every fresh sandbox
   (not committed — 130MB+ engine binary, see §16 in `PROJECT_SUMMARY.md`).
-- `GraphicsSettings` autoload: **confirmed working** in Brannon's editor
-  after pulling `00938b5` (resolved cleanly, no class-cache issue that
-  time).
-- **Expanded-area wall/breaker snap bug: fixed and confirmed working**
-  (`WallSnapHelpers.gd` + `BuildModeController.spawn_structure()` +
-  `BunkerPregen.gd` — added an `_is_true_pregen` tag distinct from the
-  broader `_is_pregen` tag so only the ORIGINAL 4 boundary walls get the
-  strict original-rectangle interior-face check; autofill walls in
-  expanded/dug areas now snap the same simple way player-placed walls do).
-  See `docs/systems/build/README.md` (Build Mode is now migrated).
-- **Zone rename + recolor (July 2026): shipped and confirmed working.**
-  Power Terminal can rename/recolor the single zone it's wired into
-  (`ZoneCustomization.gd`, `ZoneCustomizeUI.gd`, `DeviceDatabase.
-  ZONE_PLAYER_COLOR_CHOICES`, `PowerManager.zone_display_color()` — see
-  `docs/systems/power/README.md` Public API section). One follow-up bug
-  found + fixed during testing: the "ZONE FLOW" line in `PowerTerminalUI.gd`
-  had a pre-existing from/to label-color swap (a zone's own recolor showed
-  up on its NEIGHBOR's label instead) — fixed, each zone's label now always
-  shows that zone's own true color.
-- **Pause menu / graphics panel blurred backdrop: fixed and confirmed
-  working.** Both `PauseMenuUI.gd` and `GraphicsSettingsPanel.gd`'s backdrop
-  `ColorRect` now always sets a dim `Color(0,0,0,0.55)` base before layering
-  the blur shader material on top — previously only set in the "shader
-  failed to LOAD" branch, so a shader that loaded fine but failed to
-  actually RENDER (GPU/driver-specific) showed solid opaque white instead
-  of any kind of overlay.
-- **`GridState.BROWNOUT`/`TRIPPED` unreachable-state bug: fixed and
-  confirmed working.** `_start_flicker_offline()` had zero call sites, so
-  total grid failure jumped straight from OVERLOADED to a hard OFFLINE cut
-  with zero warning — no flicker, no "breaker tripped" moment, even though
-  `LightingDirector.gd`/HUD were already fully wired to react to those
-  states. Now: `PowerSolver.gd`'s total-failure branch triggers
-  `_start_flicker_offline()`, and `_go_offline()`'s "no local battery left"
-  tail now calls the already-complete `_trip_main_grid()` (→ `TRIPPED`,
-  recoverable via `reset_main_breaker()`) instead of hard-setting
-  `GridState.OFFLINE`. See `docs/systems/power/README.md` Known
-  tradeoffs — **two related follow-up items were found but deliberately
-  NOT fixed** (out of scope for that pass, noted there for a future one):
-  `_go_offline_true()` has the same "zero call sites" shape, and the
-  per-zone "sustained brownout" system was never re-audited for a similar
-  orphaned trigger.
-- **Wire-mode stale hover-label leak: fixed and confirmed working.**
-  `WireDrawMode._cancel()` (called on every wire-mode/build-mode exit) now
-  also clears `_hover_label` — previously, exiting while hovering a wire
-  node/generator/wall light left its floating `Label3D` orphaned in the
-  scene permanently, and repeated build-mode entry/exit while hovering
-  could stack up multiple stuck labels.
-- **Water system Phase 1 groundwork: built, headless-compile-clean, NOT YET
-  TESTED IN-EDITOR (July 2026).** New standalone `scripts/world/water/`
-  system per the groundwork plan — `WaterGraph`/`WaterManager` (data model +
-  BFS connectivity, mirrors `PowerGraph`/`PowerManager`'s split from day one),
-  `WaterHookup` (wall-mounted source, never deletable, auto-tracks the
-  outermost wall in its facing direction via the SAME
-  `RockSurround.chunk_deconstructed/restored` boundary-change event
-  `WireGraphBuilder` already uses), `WaterPipeSegment`/`WaterPipeElbow`
-  (always-visible pipe visuals, corners are real graph nodes),
-  `WaterPipeDrawMode` (placement tool), `WaterTestSink` (end-to-end
-  acceptance test device). New tile IDs `TILE_WATER_HOOKUP=17`/
-  `TILE_WATER_SINK=18`, new tool `TOOL_WATER_PIPE=6` — wired into
-  `BuildModeController`/`BuildModeHUD`/`MainWorld`. Also added a generic
-  `WallSnapHelpers._snap_to_nearest_wall()` (purely additive — the two
-  existing snap functions were NOT modified) and fixed the real
-  Move-tool-doesn't-wall-snap gap the plan called out for `TILE_LIGHT`/
-  `TILE_BREAKER`/`TILE_BREAKER_SMART` too (previously moving any of these
-  just re-snapped to the flat grid, never re-checking for a wall — now
-  reuses the existing proven `_snap_light_to_wall`/`_snap_breaker_to_wall`
-  during a move, zero risk to their initial-placement behavior).
-  **Full detail: `docs/systems/water/README.md`.**
-  **Flagged deliberately per the plan's own pre-approved fallback:**
-  `WaterPipeDrawMode` ships with the segment-at-a-time + auto-elbow
-  interaction model, NOT the full single-drag continuous-paint experience —
-  see that doc's Known tradeoffs for the exact reasoning and upgrade path.
-  **Verification status:** `tools/godot_check.sh` passes clean (one real bug
-  caught and fixed by it: `WaterManager.has_node()` collided with `Node`'s
-  own built-in method — renamed to `has_water_node()`). Zero in-editor
-  testing has been done — Brannon needs to pull and verify: hookup
-  placement/wall-snap/move/never-deletable, pipe placement around at least
-  one corner, the test sink turning green, and the hookup correctly
-  following an expanded dig boundary.
-- **Water system playtest-feedback pass (July 2026, NOT YET TESTED
-  IN-EDITOR — this is a response to Brannon's first round of in-editor
-  testing, itself unverified so far):** 4 fixes/changes on top of the
-  groundwork above, all headless-compile-clean: (1) `WaterPipeSegment.PIPE_RADIUS` raised to match
-  `WaterHookup.STUB_RADIUS` (0.09) so pipes and the hookup read as one
-  continuous pipe — `WaterPipeElbow.JOINT_RADIUS` bumped to 0.105 to match;
-  (2) **pipe routing model rewritten** from the original wall-hugging
-  magnetic-snap to strictly axis-aligned (90°-only) Manhattan routing along
-  a fixed near-ceiling height (`WaterPipeDrawMode.WATER_CEILING_Y = 2.8`) —
-  `_find_wall_hug_point()` and the wall-snap constants are gone entirely,
-  replaced by pure-geometry `_build_manhattan_path()`; a destination that
-  snaps onto an existing lower graph node (e.g. a sink) gets one final
-  vertical drop segment automatically; (3) `WaterHookup`'s placement height
-  raised near the ceiling (`BuildModeController.WATER_HOOKUP_PLACEMENT_Y =
-  2.8`, kept in manual sync with `WaterPipeDrawMode.WATER_CEILING_Y`),
-  above wall-light height, so the hookup and its pipes visually run along
-  the ceiling; (4) `TILE_WATER_HOOKUP`/`TILE_WATER_SINK` added to
-  `BuildModeController`'s connectable-dot system (`CONNECTABLE_TILES`/
-  `CONNECTABLE_TILES_QUICK`) — same blue dot overlay lights/generators
-  already get in build mode. Also: `WaterTestSink` now registers its graph
-  node at the TOP of its box (its real physical connection point) instead
-  of its base — this is what makes pipe-to-sink connections (and the
-  sink's CONNECTED/NOT CONNECTED label) actually work; previously
-  `_resolve_destination()` never checked for nearby existing nodes at all,
-  so a pipe could never actually reach the sink. Full detail:
-  `docs/systems/water/README.md` (updated throughout).
-
-- **Doc migration (July 2026): complete.** All 8 systems now have a
-  `docs/systems/*/README.md` (Player, Furniture/Items, Build Mode,
-  Environment, Graphics/Camera joined the existing Power/World Core/UI).
-  `PROJECT_SUMMARY.md` §2/§3/§5 and §6/§7/§8 updated to point at the new
-  docs instead of duplicating content. One doc-drift bug caught and noted
-  while writing the Graphics doc: `GraphicsSettings.gd`'s own header
-  comment still says "NOT YET REGISTERED AS AN AUTOLOAD" even though it IS
-  registered in the committed `project.godot` (repo HEAD `00938b5`) — flagged
-  in `docs/systems/graphics/README.md`, not yet fixed in the source comment
-  itself (low-risk, cosmetic-only, fix opportunistically next time that
-  file is touched for something else).
+- **Doc migration: complete.** All 9 systems (Power, World Core, UI, Player,
+  Furniture/Items, Build Mode, Environment, Graphics/Camera, Water) have a
+  `docs/systems/*/README.md` — read those first, not this section, for any
+  system-specific history/detail. This section only tracks what's actively
+  in-flight or needs Brannon's attention next.
+- **Recently shipped, confirmed working by Brannon, full detail in the
+  linked system doc — nothing pending here:** `GraphicsSettings` autoload
+  registration (`docs/systems/graphics/README.md`); expanded-area wall/
+  breaker snap fix, `_is_true_pregen` tag (`docs/systems/build/README.md`);
+  zone rename/recolor + the "ZONE FLOW" label-color swap fix
+  (`docs/systems/power/README.md`); pause menu / graphics panel blurred
+  backdrop fix; `GridState.BROWNOUT`/`TRIPPED` unreachable-state fix
+  (`docs/systems/power/README.md` Known tradeoffs — 2 related follow-up
+  items flagged there, not started: `_go_offline_true()` dead-code audit,
+  per-zone sustained-brownout orphaned-trigger re-check); wire-mode stale
+  hover-label leak (`WireDrawMode._cancel()`).
+- **Water system — Phase 1 groundwork + a playtest-feedback pass, BOTH
+  headless-compile-clean, NEITHER confirmed in-editor yet (July 2026).**
+  New standalone `scripts/world/water/` system: hookup + pipe placement,
+  standalone from `PowerManager` by design. Full detail, current routing
+  model, and every known tradeoff: **`docs/systems/water/README.md`**. One
+  real bug caught by `tools/godot_check.sh` during this work:
+  `WaterManager.has_node()` collided with `Node`'s own built-in method —
+  renamed to `has_water_node()`.
+  **Brannon needs to pull and test the SECOND (playtest-feedback) pass
+  specifically** — pipe/hookup diameter match, strictly-90°
+  ceiling-height routing (no more wall-hugging), pipe-to-sink connection +
+  the sink's CONNECTED/NOT CONNECTED label, blue connectable dots on the
+  hookup/sink, and the hookup's new near-ceiling placement height. Do not
+  build further on the water system until this round is confirmed.
 
 ## Next up
 **Immediate:** Brannon needs to pull and test the water system
