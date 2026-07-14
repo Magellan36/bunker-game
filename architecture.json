@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-14T22:16:46.054197+00:00",
+  "generated_at": "2026-07-14T23:35:14.852109+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 73,
-  "total_lines": 29304,
+  "total_lines": 29379,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -4132,7 +4132,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterGraph.gd",
-      "line_count": 208,
+      "line_count": 223,
       "class_name": "WaterGraph",
       "extends": "RefCounted",
       "exports": [],
@@ -4185,6 +4185,11 @@
           "returns": "Dictionary"
         },
         {
+          "name": "get_edges_touching",
+          "args": "key: String",
+          "returns": "Array"
+        },
+        {
           "name": "is_reachable_from_hookup",
           "args": "node_key: String",
           "returns": "bool"
@@ -4209,11 +4214,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 235
+      "complexity_score": 252
     },
     {
       "path": "res://scripts/world/water/WaterHookup.gd",
-      "line_count": 329,
+      "line_count": 377,
       "class_name": "WaterHookup",
       "extends": "StaticBody3D",
       "exports": [],
@@ -4266,7 +4271,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 5,
+      "private_function_count": 6,
       "preloads": [
         "res://scripts/ui/water/WaterInfoUI.gd"
       ],
@@ -4274,11 +4279,11 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 350
+      "complexity_score": 399
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
-      "line_count": 206,
+      "line_count": 211,
       "class_name": "WaterManager",
       "extends": "Node",
       "exports": [],
@@ -4331,6 +4336,11 @@
           "returns": "Dictionary"
         },
         {
+          "name": "get_edges_touching",
+          "args": "key: String",
+          "returns": "Array"
+        },
+        {
           "name": "is_reachable_from_hookup",
           "args": "node_key: String",
           "returns": "bool"
@@ -4367,7 +4377,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 241
+      "complexity_score": 248
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
@@ -4429,7 +4439,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeSegment.gd",
-      "line_count": 103,
+      "line_count": 110,
       "class_name": "WaterPipeSegment",
       "extends": "Node3D",
       "exports": [],
@@ -4448,7 +4458,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 107
+      "complexity_score": 114
     },
     {
       "path": "res://scripts/world/water/WaterTestSink.gd",

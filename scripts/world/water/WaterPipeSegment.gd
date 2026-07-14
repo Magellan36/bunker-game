@@ -38,9 +38,16 @@ var _mesh_instance: MeshInstance3D = null
 var _material: StandardMaterial3D  = null
 
 func _ready() -> void:
-	## Always visible — see file header. No group registration, no
-	## build-mode-driven show/hide.
+	## Always visible — see file header. No group registration for the
+	## WireSegment hide-on-exit-build-mode pattern (explicitly forbidden,
+	## see docs/systems/water/README.md Forbidden edits).
+	## "water_pipe_visual" is a DIFFERENT, additive-only group — pure
+	## findability so WaterHookup.update_graph_node_position() can locate and
+	## redraw the specific segment attached to the hookup after a
+	## reposition event (Step 2 verification pass, July 2026) — never used
+	## for show/hide.
 	visible = true
+	add_to_group("water_pipe_visual")
 
 func set_endpoints(a: Vector3, b: Vector3) -> void:
 	if not is_inside_tree():

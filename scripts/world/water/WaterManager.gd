@@ -61,6 +61,11 @@ func get_nodes() -> Dictionary:
 func get_edges() -> Dictionary:
 	return _graph.get_edges()
 
+## Forwards to WaterGraph.get_edges_touching() — see that function's own
+## comment (Step 2 verification pass, July 2026).
+func get_edges_touching(key: String) -> Array:
+	return _graph.get_edges_touching(key)
+
 ## The one piece of "simulation" this phase needs — BFS from every registered
 ## hookup. This is what WaterTestSink.gd uses to prove a run is properly
 ## connected end to end (the acceptance test for this whole phase).
