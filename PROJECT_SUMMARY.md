@@ -60,6 +60,9 @@ dark/gloomy/eerie, not bright. Bunker dimensions: width=24, depth=18
 (`BunkerLayout.gd`). Solo dev project — keep everything modular/reusable,
 avoid over-engineering.
 
+For design-philosophy/feature-evaluation guidance (human/design reference
+only, not part of the standard per-task doc chain), see `GAME_PHILOSOPHY.md`.
+
 **Roadmap priorities (nothing currently in progress — confirm with Brannon
 before starting any of these):**
 - Water system Phase 2 — see `docs/systems/water/README.md` Known
