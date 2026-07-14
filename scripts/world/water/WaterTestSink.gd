@@ -31,6 +31,10 @@ var _node_key: String = ""
 var _state_label: Label3D = null
 var _check_timer: float = 0.0
 
+## Info panel (Step 2, July 2026) — lazy-instantiated, reused across opens,
+## same lifecycle pattern as PowerTerminal._terminal_ui / WaterHookup._info_ui.
+var _info_ui: CanvasLayer = null
+
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
@@ -40,6 +44,9 @@ func _ready() -> void:
 	call_deferred("_register_deferred")
 
 func _exit_tree() -> void:
+	if _info_ui != null and is_instance_valid(_info_ui):
+		_info_ui.queue_free()
+		_info_ui = null
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
 		return
@@ -81,7 +88,36 @@ func _refresh_connectivity() -> void:
 	_update_label(connected)
 
 func get_interact_prompt() -> String:
-	return "Water Test Sink"
+	return "[E] Check Sink"
+
+## NOTE: does NOT toggle open/closed — mirrors GeneratorObject.on_interact()'s
+## simpler "always (re)open" pattern (see WaterHookup.on_interact()'s own
+## comment for why this is safe with WaterInfoUI's own E/Escape-to-close).
+func on_interact() -> void:
+	if _info_ui == null or not is_instance_valid(_info_ui):
+		var ui_script: GDScript = load("res://scripts/ui/water/WaterInfoUI.gd")
+		if ui_script == null:
+			push_warning("WaterTestSink: WaterInfoUI.gd not found")
+			return
+		_info_ui = CanvasLayer.new()
+		_info_ui.set_script(ui_script)
+		_info_ui.name = "WaterInfoUI"
+		get_tree().get_root().add_child(_info_ui)
+		if _info_ui.has_signal("closed"):
+			_info_ui.closed.connect(_on_ui_closed)
+
+	if _info_ui.has_method("open"):
+		_info_ui.open("Water Test Sink", false, self)
+
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+## Public accessor for this sink's WaterGraph node key — needed by
+## WaterManager's flow-split trace-back and by WaterInfoUI (Step 2, July 2026).
+func get_node_key() -> String:
+	return _node_key
+
+func _on_ui_closed() -> void:
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 func _build_mesh() -> void:
 	var mi:   MeshInstance3D = MeshInstance3D.new()

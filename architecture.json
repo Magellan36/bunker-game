@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-14T15:11:41.976530+00:00",
+  "generated_at": "2026-07-14T22:16:46.054197+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 72,
-  "total_lines": 28771,
+  "script_count": 73,
+  "total_lines": 29304,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -376,7 +376,7 @@
     },
     {
       "path": "res://scripts/ui/build/BuildModeHUD.gd",
-      "line_count": 1027,
+      "line_count": 1031,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -473,7 +473,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 1073
+      "complexity_score": 1077
     },
     {
       "path": "res://scripts/ui/common/UIFade.gd",
@@ -1273,6 +1273,50 @@
         "DeviceDatabase"
       ],
       "complexity_score": 233
+    },
+    {
+      "path": "res://scripts/ui/water/WaterInfoUI.gd",
+      "line_count": 249,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "closed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "_close_btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "display_name: String, is_source: bool, device_ref: Node",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 9,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 262
     },
     {
       "path": "res://scripts/world/build/BuildMaterials.gd",
@@ -4088,7 +4132,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterGraph.gd",
-      "line_count": 160,
+      "line_count": 208,
       "class_name": "WaterGraph",
       "extends": "RefCounted",
       "exports": [],
@@ -4149,23 +4193,63 @@
           "name": "get_hookup_keys",
           "args": "",
           "returns": "Array[String]"
+        },
+        {
+          "name": "count_reachable_endpoints",
+          "args": "hookup_key: String",
+          "returns": "int"
+        },
+        {
+          "name": "find_reachable_hookup_key",
+          "args": "from_key: String",
+          "returns": "String"
         }
       ],
       "private_function_count": 1,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 183
+      "complexity_score": 235
     },
     {
       "path": "res://scripts/world/water/WaterHookup.gd",
-      "line_count": 258,
+      "line_count": 329,
       "class_name": "WaterHookup",
       "extends": "StaticBody3D",
       "exports": [],
       "signals": [],
-      "connect_call_sites": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_info_ui",
+          "signal": "closed"
+        }
+      ],
       "public_functions": [
+        {
+          "name": "get_daily_output_mL",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "get_per_minute_output_mL",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "get_node_key",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
         {
           "name": "get_facing_dir",
           "args": "",
@@ -4182,17 +4266,19 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 4,
-      "preloads": [],
+      "private_function_count": 5,
+      "preloads": [
+        "res://scripts/ui/water/WaterInfoUI.gd"
+      ],
       "group_lookups": [
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 268
+      "complexity_score": 350
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
-      "line_count": 123,
+      "line_count": 206,
       "class_name": "WaterManager",
       "extends": "Node",
       "exports": [],
@@ -4258,6 +4344,21 @@
           "name": "unregister_hookup",
           "args": "hookup: Node3D",
           "returns": "void"
+        },
+        {
+          "name": "get_connected_consumer_count",
+          "args": "hookup: WaterHookup",
+          "returns": "int"
+        },
+        {
+          "name": "get_per_consumer_rate_mL_per_day",
+          "args": "hookup: WaterHookup",
+          "returns": "float"
+        },
+        {
+          "name": "get_received_rate_mL",
+          "args": "consumer_node_key: String",
+          "returns": "Dictionary"
         }
       ],
       "private_function_count": 5,
@@ -4266,11 +4367,11 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 152
+      "complexity_score": 241
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 477,
+      "line_count": 519,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4309,7 +4410,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 502
+      "complexity_score": 544
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",
@@ -4351,26 +4452,43 @@
     },
     {
       "path": "res://scripts/world/water/WaterTestSink.gd",
-      "line_count": 129,
+      "line_count": 165,
       "class_name": "WaterTestSink",
       "extends": "StaticBody3D",
       "exports": [],
       "signals": [],
-      "connect_call_sites": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_info_ui",
+          "signal": "closed"
+        }
+      ],
       "public_functions": [
         {
           "name": "get_interact_prompt",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_node_key",
+          "args": "",
+          "returns": "String"
         }
       ],
-      "private_function_count": 8,
-      "preloads": [],
+      "private_function_count": 9,
+      "preloads": [
+        "res://scripts/ui/water/WaterInfoUI.gd"
+      ],
       "group_lookups": [
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 139
+      "complexity_score": 180
     }
   ],
   "dependency_edges": [
@@ -4567,6 +4685,16 @@
     {
       "from": "res://scripts/world/power/WireGraphBuilder.gd",
       "to": "res://scripts/world/power/WireSegment.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/water/WaterHookup.gd",
+      "to": "res://scripts/ui/water/WaterInfoUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/water/WaterTestSink.gd",
+      "to": "res://scripts/ui/water/WaterInfoUI.gd",
       "via": "preload"
     }
   ],

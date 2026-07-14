@@ -176,14 +176,14 @@ func handle_input(event: InputEvent) -> bool:
 				elif _phase == 1:
 					return _try_pick_dest()
 			MOUSE_BUTTON_RIGHT:
-				if _phase > 0:
-					## Mid-draw cancel — go back to phase 0 (ready for next wire)
-					_cancel()
-					return true
-				else:
-					## Phase 0 RMB — exit wire tool entirely, return cursor to player
-					wire_tool_exit_requested.emit()
-					return true
+				## RMB always exits the tool entirely now, regardless of phase —
+				## matches E/Escape (July 2026 playtest pass: player should be
+				## able to press E, RMB, or Escape to exit wire/pipe mode,
+				## consistently, with no "first RMB just cancels the current
+				## drag" intermediate state to learn).
+				_cancel()
+				wire_tool_exit_requested.emit()
+				return true
 	return false
 
 # ─── Phase 0: pick source node ───────────────────────────────────────────────

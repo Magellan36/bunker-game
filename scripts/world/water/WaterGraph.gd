@@ -158,3 +158,51 @@ func get_hookup_keys() -> Array[String]:
 		if _water_nodes[key].get("role", "") == "hookup":
 			out.append(key)
 	return out
+
+
+# ─── Live flow-split (Step 2, July 2026) ─────────────────────────────────────
+## BFS from `hookup_key`, counting every reachable node with role ==
+## "endpoint" (real connectable devices only — corners/pipe_joints/the
+## hookup itself never count). Mirrors is_reachable_from_hookup()'s exact BFS
+## shape, just collecting every match across the whole component instead of
+## stopping at the first hit.
+func count_reachable_endpoints(hookup_key: String) -> int:
+	if not _water_nodes.has(hookup_key):
+		return 0
+	var visited: Dictionary = { hookup_key: true }
+	var queue: Array = [hookup_key]
+	var count: int = 0
+	while not queue.is_empty():
+		var current: String = queue.pop_front()
+		for neighbor: String in _adjacency.get(current, []):
+			if visited.has(neighbor):
+				continue
+			visited[neighbor] = true
+			if _water_nodes.has(neighbor) and _water_nodes[neighbor].get("role", "") == "endpoint":
+				count += 1
+			queue.append(neighbor)
+	return count
+
+## BFS from `from_key` outward, returning the node_key of the first "hookup"
+## role node reached — there should only ever be one real hookup in this
+## game (see WaterManager.register_hookup()'s defensive guard), so "first
+## reached" and "the" hookup are the same thing in practice. Returns "" if no
+## hookup is reachable. Mirrors is_reachable_from_hookup()'s exact walk, just
+## returning the key instead of a bool.
+func find_reachable_hookup_key(from_key: String) -> String:
+	if not _water_nodes.has(from_key):
+		return ""
+	if _water_nodes[from_key].get("role", "") == "hookup":
+		return from_key
+	var visited: Dictionary = { from_key: true }
+	var queue: Array = [from_key]
+	while not queue.is_empty():
+		var current: String = queue.pop_front()
+		for neighbor: String in _adjacency.get(current, []):
+			if visited.has(neighbor):
+				continue
+			visited[neighbor] = true
+			if _water_nodes.has(neighbor) and _water_nodes[neighbor].get("role", "") == "hookup":
+				return neighbor
+			queue.append(neighbor)
+	return ""

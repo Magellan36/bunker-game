@@ -74,7 +74,7 @@ const LIGHT_PLACEMENT_Y: float = 1.0
 ## WaterPipeDrawMode.WATER_CEILING_Y must be kept equal to this (see that
 ## file's own comment — two independent constants, same value, since the
 ## water system stays standalone/no cross-file dependency on BuildModeController).
-const WATER_HOOKUP_PLACEMENT_Y: float = 2.8
+const WATER_HOOKUP_PLACEMENT_Y: float = 2.9
 
 ## Generator sits on the floor; lowered by TestCrate rendered height (0.477m) so
 ## it visually rests flush with the ground plane.  1.0 - 0.477 ≈ 0.523.
