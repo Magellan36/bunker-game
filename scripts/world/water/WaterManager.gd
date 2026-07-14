@@ -77,6 +77,14 @@ static func make_node_key(pos: Vector3) -> String:
 ## hookup's own reposition method directly.
 func register_hookup(hookup: Node3D) -> void:
 	if not _hookups.has(hookup):
+		## Defensive guard only (Step 2, July 2026) — exactly one hookup is
+		## ever expected to exist (auto-placed at game start, see
+		## MainWorld._spawn_initial_water_hookup(); the build menu no longer
+		## offers a purchasable hookup — see BuildModeHUD.CATEGORIES["Water"]).
+		## Not a supported feature to have more than one; this is purely a
+		## guard against a future bug reintroducing multi-hookup placement.
+		if _hookups.size() >= 1:
+			push_warning("WaterManager: a second WaterHookup was registered — only one hookup is supported per game; flow-split math assumes exactly one and will behave unpredictably with more.")
 		_hookups.append(hookup)
 
 func unregister_hookup(hookup: Node3D) -> void:
@@ -121,3 +129,78 @@ func _reposition_all_hookups() -> void:
 	for hookup: Node3D in _hookups:
 		if is_instance_valid(hookup) and hookup.has_method("reposition_to_outer_wall"):
 			hookup.reposition_to_outer_wall()
+
+
+# ─── Live flow-split (Step 2, July 2026) ─────────────────────────────────────
+## This is deliberately still minimal: an equal live split of the hookup's
+## total tiered output across whatever's currently connected — no priority
+## weighting, no time-based depletion, no caching (recomputed on demand every
+## call, matching this system's existing "compute live, no persistence"
+## pattern from Phase 1). A real WaterSolver.gd for pressure/priority/
+## depletion is a future Extension point, not this — see
+## docs/systems/water/README.md.
+
+## Counts nodes with role == "endpoint" reachable from `hookup` via BFS —
+## real connectable devices only, corners/pipe joints don't count. Forwards
+## to WaterGraph.count_reachable_endpoints() using the hookup's own graph key.
+func get_connected_consumer_count(hookup: WaterHookup) -> int:
+	if hookup == null:
+		return 0
+	var key: String = hookup.get_node_key()
+	if key.is_empty():
+		return 0
+	return _graph.count_reachable_endpoints(key)
+
+## The live per-consumer share: hookup's own tiered output ÷ current consumer
+## count. Returns 0 if nothing is connected yet (also the natural "not
+## connected to anything" case for the hookup's own info panel).
+func get_per_consumer_rate_mL_per_day(hookup: WaterHookup) -> float:
+	if hookup == null:
+		return 0.0
+	var count: int = get_connected_consumer_count(hookup)
+	if count == 0:
+		return 0.0
+	return hookup.get_daily_output_mL() / float(count)
+
+## Traces back from a consumer's graph node key to whichever hookup feeds it
+## (there's only ever one real hookup — see register_hookup()'s guard) and
+## returns the effective rate it's actually receiving, plus that hookup's
+## water quality (quality shown at a sink is always the SOURCE hookup's
+## quality — water doesn't gain/lose quality in transit through pipes in
+## this pass, see docs/systems/water/README.md).
+## Returns { "connected": bool, "mL_per_day": float, "mL_per_minute": float,
+##           "quality": float }.
+func get_received_rate_mL(consumer_node_key: String) -> Dictionary:
+	var out: Dictionary = {
+		"connected":     false,
+		"mL_per_day":    0.0,
+		"mL_per_minute": 0.0,
+		"quality":       0.0,
+	}
+	if consumer_node_key.is_empty():
+		return out
+
+	var hookup_key: String = _graph.find_reachable_hookup_key(consumer_node_key)
+	if hookup_key.is_empty():
+		return out
+
+	## _hookups is a plain node-ref list (see file header) — match by
+	## re-deriving each registered hookup's own graph key rather than storing
+	## a second key->node map, since there's only ever one to check in
+	## practice (see register_hookup()'s guard).
+	for h: Node3D in _hookups:
+		if not is_instance_valid(h):
+			continue
+		if not h.has_method("get_node_key") or h.get_node_key() != hookup_key:
+			continue
+		var count: int = _graph.count_reachable_endpoints(hookup_key)
+		if count == 0:
+			return out   ## Shouldn't happen (we ARE a reachable endpoint) — guard anyway.
+		var rate_day: float = h.get_daily_output_mL() / float(count)
+		out["connected"]     = true
+		out["mL_per_day"]    = rate_day
+		out["mL_per_minute"] = rate_day / 1440.0
+		out["quality"]       = h.water_quality
+		return out
+
+	return out

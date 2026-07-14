@@ -43,7 +43,7 @@ signal pipe_tool_exit_requested()
 ## equal to BuildModeController.WATER_HOOKUP_PLACEMENT_Y (see that constant's
 ## own comment) — two independent constants, same value, since this system
 ## stays standalone with zero dependency on BuildModeController's internals.
-const WATER_CEILING_Y: float = 2.8
+const WATER_CEILING_Y: float = 2.9
 
 ## Snap radius for picking an existing graph node (hookup/joint/corner) as the
 ## run's SOURCE point (phase 0) — mirrors WireDrawMode.SNAP_RADIUS.
@@ -131,17 +131,21 @@ func handle_input(event: InputEvent) -> bool:
 				_try_confirm_segment()
 			return true
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			if _phase == 1:
-				## Cancel the current drag, stay in the tool.
-				_phase = 0
-				_source_key = ""
-				_clear_ghost()
-			else:
-				pipe_tool_exit_requested.emit()
+			## RMB always exits the tool entirely now, regardless of phase —
+			## matches E/Escape (July 2026 playtest pass: player should be
+			## able to press E, RMB, or Escape to exit wire/pipe mode,
+			## consistently, mirrors the identical WireDrawMode change).
+			_phase = 0
+			_source_key = ""
+			_clear_ghost()
+			pipe_tool_exit_requested.emit()
 			return true
 
 	if event is InputEventKey and event.pressed:
-		if event.keycode == KEY_ESCAPE:
+		if event.keycode == KEY_ESCAPE or event.keycode == KEY_E:
+			_phase = 0
+			_source_key = ""
+			_clear_ghost()
 			pipe_tool_exit_requested.emit()
 			return true
 
@@ -303,10 +307,25 @@ func _build_manhattan_path(from_pos: Vector3, to_pos: Vector3) -> Array:
 	var dx: float = absf(ceiling_to.x - start.x)
 	var dz: float = absf(ceiling_to.z - start.z)
 	if dx > MIN_POINT_GAP and dz > MIN_POINT_GAP:
-		## Longer-axis-first heuristic — produces the most natural-looking
-		## L-bend (the "long leg" runs first, short leg last).
+		## Shorter-axis-first heuristic (July 2026 playtest pass — flipped
+		## from the original "longer leg first"). Rationale: the source is
+		## usually the wall-mounted hookup (or a run chained from it), where
+		## the axis PERPENDICULAR to the wall (into the room) is typically
+		## the larger of the two distances to a far destination, and the
+		## axis PARALLEL to the wall is typically the smaller one. Long-leg-
+		## first therefore put the perpendicular "jut straight out into the
+		## room" leg FIRST most of the time — exactly the "hangs outward"
+		## look Brannon flagged. Short-leg-first instead runs the (usually
+		## small, usually wall-parallel) leg first and saves the long
+		## (usually wall-perpendicular) leg for last, so the run hugs close
+		## to the source wall for as long as possible before cutting across
+		## the room. No explicit wall-orientation data needed — this is a
+		## generic heuristic that happens to match the common case; it's
+		## never wrong (still a valid 90°-only Manhattan path either way),
+		## just a different aesthetic default when the source isn't
+		## wall-mounted (e.g. chaining from a mid-room corner/joint).
 		var corner: Vector3
-		if dx >= dz:
+		if dx <= dz:
 			corner = Vector3(ceiling_to.x, WATER_CEILING_Y, start.z)
 		else:
 			corner = Vector3(start.x, WATER_CEILING_Y, ceiling_to.z)
@@ -437,15 +456,38 @@ func _spawn_float_label(world_pos: Vector3, amount: int, positive: bool) -> void
 
 # ─── Placement validity (July 2026 playtest pass) ────────────────────────────
 ## True if EVERY point in `path` lies within the bunker's valid placeable
-## area (pre-built interior + any dug rock extension) — same bounds check
-## walls/lights/etc already use (BuildModeController._is_inside_bunker()),
-## just checked per-point along the pipe's route rather than once for a
-## single tile. Y is ignored by that function (X/Z bounds only), so this
-## works unmodified even though every path point sits at ceiling height.
+## area, tightened inward by one full grid tile (_PIPE_GRID = 0.25m) versus
+## the shared BuildModeController._is_inside_bunker() check.
+## WHY the extra inset: _is_inside_bunker()'s own MARGIN is only 0.1m (less
+## than half a grid cell) — fine for walls/lights which sit flush against the
+## boundary by design, but it let a pipe run land right at/through the wall
+## plane itself, reading as "placeable 1 tile too far out" (reported during
+## playtest). Rather than loosen/change _is_inside_bunker() itself (many other
+## placement systems depend on its exact current tuning), pipes get their own
+## tighter rectangle check first; a point inside the tightened rectangle is
+## always valid, and a point outside it still falls back to the shared
+## dug-chunk check (expanded areas) since we can't cheaply apply the same
+## per-tile inset to arbitrary dug-chunk shapes.
+const _BOUNDS_INSET: float = _PIPE_GRID
+
 func _is_path_in_bounds(path: Array) -> bool:
-	if build_controller == null:
+	if build_controller == null or build_controller.rock_surround == null:
 		return true   ## No bounds data available — fail open, matches _is_inside_bunker()'s own fallback.
+	var rs: Node = build_controller.rock_surround
+	var ox: float = rs.OFFSET_X
+	var oz: float = rs.OFFSET_Z
+	var depth: int = rs.bunker_depth
+	var width: int = rs.bunker_width
+	var min_x: float = ox + _BOUNDS_INSET
+	var max_x: float = ox + float(depth) - _BOUNDS_INSET
+	var min_z: float = oz + _BOUNDS_INSET
+	var max_z: float = oz + float(width) - _BOUNDS_INSET
+
 	for p: Vector3 in path:
+		if p.x >= min_x and p.x <= max_x and p.z >= min_z and p.z <= max_z:
+			continue   ## Inside the tightened base rectangle — valid.
+		## Outside the tightened rectangle — fall back to the shared, looser
+		## check (handles dug/expanded chunks beyond the original rectangle).
 		if not build_controller._is_inside_bunker(p):
 			return false
 	return true

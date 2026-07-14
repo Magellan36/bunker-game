@@ -53,9 +53,13 @@ const CATEGORIES: Dictionary = {
 		{ "tile_id": 15, "name": "Battery L", "price": 600   },
 	],
 	"Water": [
-		## July 2026 groundwork pass. Prices are placeholders (plan does not
-		## specify economics for this pass — flagged for a future balance pass).
-		{ "tile_id": 17, "name": "Hookup",    "price": 200 },
+		## July 2026 groundwork pass. Test Sink price is a placeholder (plan
+		## does not specify economics for this pass — flagged for a future
+		## balance pass). Hookup (tile_id 17) intentionally NOT listed here —
+		## exactly one hookup exists per game (auto-placed at start by
+		## MainWorld._spawn_initial_water_hookup(), see docs/systems/water/
+		## README.md) and is relocatable only via the Move tool, never
+		## re-purchasable from this menu (Step 2 plan, July 2026).
 		{ "tile_id": 18, "name": "Test Sink", "price": 0   },
 	],
 }

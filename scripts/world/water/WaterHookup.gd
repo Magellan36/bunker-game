@@ -54,20 +54,91 @@ const MAX_REPOSITION_RANGE: float = 300.0
 ## Graph node key this hookup is registered under in WaterManager/WaterGraph.
 var _node_key: String = ""
 
+## Step 2 (July 2026) — tier/output/quality data model.
+## Tier index → daily output in mL. Index 0 = starting/"low-grade" hookup.
+## A future upgrade mechanic will raise `tier`, not replace this table.
+const TIER_DAILY_ML: Array[float] = [3000.0, 6000.0, 12000.0, 24000.0]
+
+## Plain tunable int for now — nothing sets this except a future upgrade
+## mechanic (not this pass, no purchase/upgrade UI exists yet). Kept here now
+## rather than introduced later so that future pass doesn't need a second
+## data-model refactor.
+var tier: int = 0
+
+## 0-100. Static for this pass — a future pass will decay this over time.
+## The sink's displayed quality is always THIS value (traced back via
+## WaterManager.get_received_rate_mL()) — water doesn't gain/lose quality
+## travelling through pipes in this pass.
+var water_quality: float = 100.0
+
+## Info panel (Step 2) — lazy-instantiated, reused across opens, same
+## lifecycle pattern as PowerTerminal._terminal_ui.
+var _info_ui: CanvasLayer = null
+
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
-	add_to_group("interactable")   ## Reserved for a future info prompt — no behavior yet (Phase 1 scope).
+	add_to_group("interactable")
 	_build_mesh()
 	call_deferred("_register_deferred")
 
 func _exit_tree() -> void:
+	if _info_ui != null and is_instance_valid(_info_ui):
+		_info_ui.queue_free()
+		_info_ui = null
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
 		return
 	if not _node_key.is_empty():
 		wm.unregister_node(_node_key)
 	wm.unregister_hookup(self)
+
+
+# ─── Output getters (Step 2) ──────────────────────────────────────────────────
+func get_daily_output_mL() -> float:
+	return TIER_DAILY_ML[tier]
+
+func get_per_minute_output_mL() -> float:
+	return get_daily_output_mL() / 1440.0   ## 1440 minutes/day
+
+## Public accessor for this hookup's WaterGraph node key — needed by
+## WaterManager's flow-split methods and by WaterInfoUI (Step 2, July 2026).
+## Every other WaterGraph-facing method on this class kept _node_key private;
+## this is the one deliberate read-only exception.
+func get_node_key() -> String:
+	return _node_key
+
+
+# ─── Interaction (Step 2) ──────────────────────────────────────────────────────
+## NOTE: does NOT toggle open/closed like PowerTerminal does — mirrors
+## GeneratorObject.on_interact()'s simpler "always (re)open" pattern instead.
+## WaterInfoUI closes itself on E/Escape via its own _unhandled_input (same
+## as GeneratorInspectUI) — if the panel is already open, that consumes the
+## E press first (set_input_as_handled()) before InteractionSystem ever
+## calls on_interact() again, so there's no double-toggle race either way.
+func get_interact_prompt() -> String:
+	return "[E] Check Hookup"
+
+func on_interact() -> void:
+	if _info_ui == null or not is_instance_valid(_info_ui):
+		var ui_script: GDScript = load("res://scripts/ui/water/WaterInfoUI.gd")
+		if ui_script == null:
+			push_warning("WaterHookup: WaterInfoUI.gd not found")
+			return
+		_info_ui = CanvasLayer.new()
+		_info_ui.set_script(ui_script)
+		_info_ui.name = "WaterInfoUI"
+		get_tree().get_root().add_child(_info_ui)
+		if _info_ui.has_signal("closed"):
+			_info_ui.closed.connect(_on_ui_closed)
+
+	if _info_ui.has_method("open"):
+		_info_ui.open("Water Hookup", true, self)
+
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+func _on_ui_closed() -> void:
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 
 # ─── WaterManager registration ────────────────────────────────────────────────
