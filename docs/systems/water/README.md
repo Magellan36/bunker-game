@@ -245,6 +245,33 @@ Player uses Pipe tool (TOOL_WATER_PIPE)
   tool can find it) — free of charge, no undo entry (not a player action).
   Called right after `_run_pregen()` in `_setup_build_mode()`, before wire
   connection — walls already exist by then.
+- **Starting hookup spawn bug FIXED (July 2026, second playtest round):**
+  the hookup silently failed to appear at game start. ROOT CAUSE: same class
+  of bug as the expansion-lag fix above — `MainWorld._spawn_initial_water_hookup()`
+  raycasted for a wall immediately after pregen's synchronous wall-spawning
+  finished, in the same frame, before the physics server had processed the
+  new colliders. FIX: await two physics frames before raycasting there too
+  (mirrors `_reposition_all_hookups_after_physics_settles()`).
+- **Floating "-$X"/"+$X" cost labels added to BOTH pipes and wires (July
+  2026, second playtest round):** placing a pipe or wire now shows a "-$X"
+  screen-space float label at the moment cash is spent
+  (`WaterPipeDrawMode._spawn_float_label()`/`WireDrawMode._spawn_float_label()`,
+  both duplicate small helpers rather than share one — matches this file's
+  standalone-system convention). This closes a real parity gap: wires
+  previously only showed the "+$X" refund label on undo, never a "-$X" label
+  on placement. Both systems now show the full +/- pair.
+- **Pipe placement validity check added (July 2026, second playtest round):**
+  `WaterPipeDrawMode` now rejects (red ghost preview + a "cannot place"
+  warning popup, no cash spent) a pipe run that either (a) leaves the
+  bunker's valid placeable area (`_is_path_in_bounds()`, reuses
+  `BuildModeController._is_inside_bunker()` via a new `build_controller`
+  back-reference) or (b) exactly re-traces an already-placed pipe edge
+  (`_path_overlaps_existing()`, a pure lookup against `WaterGraph`'s static
+  key/id functions — doesn't require the positions to already be registered
+  nodes). **Known limitation:** overlap detection only catches an exact
+  endpoint-to-endpoint duplicate: a new pipe crossing an existing one at a
+  perpendicular mid-span point is NOT detected (would need real segment-
+  intersection math — out of scope for this pass, flagged for later).
 - **Every connectable device must register its `WaterGraph` node at its own
   real physical connection point**, not an arbitrary reference position —
   this is how `WaterPipeDrawMode` decides whether a final vertical drop

@@ -314,6 +314,11 @@ func _try_pick_dest() -> bool:
 
 	# Notify BuildModeController
 	var midpoint: Vector3 = (_source_pos + dest_pos) * 0.5
+	## Floating "-$X" label at the moment of spend (July 2026 playtest pass,
+	## added for parity with the "+$X" refund label BuildUndoStack's "wire"
+	## case already shows on undo) — pipes now show the equivalent pair too,
+	## see WaterPipeDrawMode._spawn_float_label().
+	_spawn_float_label(midpoint, cost, false)
 	wire_placed.emit(seg, edge_id, cost, midpoint)
 	wire_nodes_connected.emit(_source_key, _source_pos, dest_key, dest_pos)
 
@@ -613,6 +618,17 @@ func _show_warning(msg: String) -> void:
 			main_hud.show_soft_warning(msg)
 			return
 	push_warning("[WireDrawMode] " + msg)
+
+## Floating "+$X"/"-$X" screen-space label — same HUD.spawn_float_label()
+## call BuildModeController._spawn_float_label_at_pos() uses for tile
+## place/remove. positive=true → green refund, false → red spend.
+func _spawn_float_label(world_pos: Vector3, amount: int, positive: bool) -> void:
+	if camera == null or amount == 0 or world_node == null:
+		return
+	var screen_pos: Vector2 = camera.unproject_position(world_pos)
+	var main_hud: Node = world_node.get_node_or_null("HUD")
+	if main_hud != null and main_hud.has_method("spawn_float_label"):
+		main_hud.spawn_float_label(screen_pos, amount, positive)
 
 func _cancel() -> void:
 	_clear_ghost()
