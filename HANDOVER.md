@@ -169,28 +169,21 @@ role/workflow/gotchas only, so it doesn't regrow to its old ~620-line
 length.
 
 ## Current status
-- Docs restructure (per-system `docs/systems/*/README.md` +
-  `architecture.json` + slimmed `PROJECT_SUMMARY.md`/`HANDOVER.md`):
-  **complete**, confirmed working.
-- Headless Godot compile-check tool (`tools/godot_check.sh`): **complete**,
-  confirmed working, catching real issues. Re-download the Godot 4.6.3
-  binary into `/home/user/godot-bin/` at the start of every fresh sandbox
-  (not committed — 130MB+ engine binary, see §16 in `PROJECT_SUMMARY.md`).
 - **Doc migration: complete.** All 9 systems (Power, World Core, UI, Player,
   Furniture/Items, Build Mode, Environment, Graphics/Camera, Water) have a
   `docs/systems/*/README.md` — read those first, not this section, for any
   system-specific history/detail. This section only tracks what's actively
   in-flight or needs Brannon's attention next.
 - **Recently shipped, confirmed working by Brannon, full detail in the
-  linked system doc — nothing pending here:** `GraphicsSettings` autoload
-  registration (`docs/systems/graphics/README.md`); expanded-area wall/
-  breaker snap fix, `_is_true_pregen` tag (`docs/systems/build/README.md`);
-  zone rename/recolor + the "ZONE FLOW" label-color swap fix
+  linked system doc — nothing pending here:** expanded-area wall/breaker
+  snap fix, `_is_true_pregen` tag (`docs/systems/build/README.md`); zone
+  rename/recolor + the "ZONE FLOW" label-color swap fix
   (`docs/systems/power/README.md`); pause menu / graphics panel blurred
-  backdrop fix; `GridState.BROWNOUT`/`TRIPPED` unreachable-state fix
-  (`docs/systems/power/README.md` Known tradeoffs — 2 related follow-up
-  items flagged there, not started: `_go_offline_true()` dead-code audit,
-  per-zone sustained-brownout orphaned-trigger re-check); wire-mode stale
+  backdrop fix; `GridState.BROWNOUT`/`TRIPPED` unreachable-state fix — see
+  `docs/systems/power/README.md` Known tradeoffs for the 2 related
+  follow-up items still open there (`_go_offline_true()` dead-code audit,
+  per-zone sustained-brownout orphaned-trigger re-check — kept as ONE
+  canonical copy in that doc, not duplicated here); wire-mode stale
   hover-label leak (`WireDrawMode._cancel()`).
 - **Water system — Phase 1 groundwork + a playtest-feedback pass, BOTH
   headless-compile-clean, NEITHER confirmed in-editor yet (July 2026).**
@@ -220,16 +213,7 @@ placement, generator exhaust smoke scaling, remaining graphics-overhaul
 deferred items). No systems pending doc migration anymore (all 9 — including
 the new Water system — done as of July 2026).
 
-Two specific follow-up investigations flagged during recent work (both
-noted in `docs/systems/power/README.md` Known tradeoffs, neither started):
-- `_go_offline_true()` (`PowerManager.gd`) has zero call sites anywhere —
-  same dead-code shape as the just-fixed BROWNOUT/TRIPPED bug. Its
-  intended trigger context (`PowerManager.gd` ~line 3343/3385, the
-  per-battery-group drain loop) explicitly comments "do NOT call
-  `_go_offline_true()` here", so this needs its own investigation of
-  whether it's still needed at all or fully superseded by `_go_offline()`'s
-  per-sub-grid local-battery check — don't assume, confirm first.
-- The per-zone "sustained brownout" system
-  (`PowerSolver._sustained_brownout_component()`, `_exhausted_brownout_keys`)
-  uses a different trigger mechanism than the one just fixed and was never
-  re-checked for a similar orphaned-trigger problem.
+Two specific power-system follow-up investigations remain open — full
+detail lives ONLY in `docs/systems/power/README.md` Known tradeoffs (one
+canonical copy, not duplicated here — see `_go_offline_true()` and the
+per-zone "sustained brownout" orphaned-trigger re-check).
