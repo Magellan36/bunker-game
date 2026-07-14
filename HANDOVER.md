@@ -169,36 +169,21 @@ role/workflow/gotchas only, so it doesn't regrow to its old ~620-line
 length.
 
 ## Current status
-- **Doc migration: complete.** All 9 systems (Power, World Core, UI, Player,
-  Furniture/Items, Build Mode, Environment, Graphics/Camera, Water) have a
-  `docs/systems/*/README.md` — read those first, not this section, for any
-  system-specific history/detail. This section only tracks what's actively
-  in-flight or needs Brannon's attention next.
-- **Recently shipped, confirmed working by Brannon, full detail in the
-  linked system doc — nothing pending here:** expanded-area wall/breaker
-  snap fix, `_is_true_pregen` tag (`docs/systems/build/README.md`); zone
-  rename/recolor + the "ZONE FLOW" label-color swap fix
-  (`docs/systems/power/README.md`); pause menu / graphics panel blurred
-  backdrop fix; `GridState.BROWNOUT`/`TRIPPED` unreachable-state fix — see
-  `docs/systems/power/README.md` Known tradeoffs for the 2 related
-  follow-up items still open there (`_go_offline_true()` dead-code audit,
-  per-zone sustained-brownout orphaned-trigger re-check — kept as ONE
-  canonical copy in that doc, not duplicated here); wire-mode stale
-  hover-label leak (`WireDrawMode._cancel()`).
-- **Water system — Phase 1 groundwork + a playtest-feedback pass, BOTH
-  headless-compile-clean, NEITHER confirmed in-editor yet (July 2026).**
-  New standalone `scripts/world/water/` system: hookup + pipe placement,
-  standalone from `PowerManager` by design. Full detail, current routing
-  model, and every known tradeoff: **`docs/systems/water/README.md`**. One
-  real bug caught by `tools/godot_check.sh` during this work:
-  `WaterManager.has_node()` collided with `Node`'s own built-in method —
-  renamed to `has_water_node()`.
-  **Brannon needs to pull and test the SECOND (playtest-feedback) pass
-  specifically** — pipe/hookup diameter match, strictly-90°
-  ceiling-height routing (no more wall-hugging), pipe-to-sink connection +
-  the sink's CONNECTED/NOT CONNECTED label, blue connectable dots on the
-  hookup/sink, and the hookup's new near-ceiling placement height. Do not
-  build further on the water system until this round is confirmed.
+- **Doc migration: complete.** All 9 systems have a `docs/systems/*/README.md`
+  — read those first, not this section, for any system-specific
+  history/detail. This section only tracks what's actively in-flight or
+  needs Brannon's attention next.
+- Recently shipped items (wall/breaker snap fix, zone rename/recolor +
+  label-color swap, pause menu/graphics-panel blur backdrop, BROWNOUT/TRIPPED
+  unreachable-state fix, wire-mode stale hover-label leak) — all confirmed
+  working, full detail lives only in their system's README, nothing pending
+  here.
+- **Water system Phase 1 + playtest-feedback pass — shipped, headless-clean,
+  NOT yet confirmed in-editor.** Full detail: `docs/systems/water/README.md`.
+  **Brannon needs to pull and test the playtest-feedback pass specifically**
+  (pipe/hookup diameter match, 90°-only ceiling routing, pipe-to-sink
+  CONNECTED label, connectable dots, hookup placement height). Don't build
+  further on water until confirmed.
 
 ## Next up
 **Immediate:** Brannon needs to pull and test the water system
