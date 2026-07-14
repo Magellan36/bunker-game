@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-14T02:05:28.521259+00:00",
+  "generated_at": "2026-07-14T15:11:41.976530+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 72,
-  "total_lines": 28646,
+  "total_lines": 28771,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -1294,7 +1294,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2169,
+      "line_count": 2172,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -1418,7 +1418,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 2251
+      "complexity_score": 2254
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
@@ -1513,7 +1513,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 1009,
+      "line_count": 1027,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -1641,7 +1641,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1058
+      "complexity_score": 1076
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",
@@ -3922,7 +3922,7 @@
     },
     {
       "path": "res://scripts/world/power/WireDrawMode.gd",
-      "line_count": 675,
+      "line_count": 691,
       "class_name": null,
       "extends": "Node",
       "exports": [],
@@ -3958,7 +3958,7 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 24,
+      "private_function_count": 25,
       "preloads": [
         "res://scripts/world/power/WireSegment.gd"
       ],
@@ -3966,7 +3966,7 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 705
+      "complexity_score": 722
     },
     {
       "path": "res://scripts/world/power/WireGraphBuilder.gd",
@@ -4270,7 +4270,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 389,
+      "line_count": 477,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4302,14 +4302,14 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 15,
+      "private_function_count": 19,
       "preloads": [],
       "group_lookups": [
         "water_manager",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 410
+      "complexity_score": 502
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",

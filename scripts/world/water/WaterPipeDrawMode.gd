@@ -68,11 +68,23 @@ const MIN_POINT_GAP: float = 0.05
 ## water system stays standalone with zero cross-file dependency).
 const COST_PER_M: float = 24.0
 
+## Ghost preview colours (July 2026 playtest pass) — mirrors
+## BuildModeController._mat_valid/_mat_invalid's red-for-invalid convention.
+## Applied to WaterPipeSegment's own `_material` (accessed via `.get()`, same
+## way WireDrawMode._update_ghost_wire() swaps its ghost material's color).
+const GHOST_COLOR_VALID:   Color = Color(0.55, 0.80, 0.90, 1.0)  ## light blue — normal preview
+const GHOST_COLOR_INVALID: Color = Color(0.90, 0.20, 0.15, 1.0)  ## red — out of bounds / overlaps an existing pipe
+
 # ─── External refs (set by BuildModeController, mirrors WireDrawMode) ────────
 var camera:     Camera3D = null
 var world_node: Node     = null
 var build_hud:  CanvasLayer = null
 var ray_length: float    = 50.0
+## Back-reference to the owning BuildModeController — needed for
+## _is_inside_bunker() (bounds check, July 2026 playtest pass). Set by
+## BuildModeController._update_water_pipe_draw_refs(). Distinct from
+## world_node (MainWorld) — this is the build controller itself.
+var build_controller: BuildModeController = null
 
 # ─── State ────────────────────────────────────────────────────────────────────
 var _active:     bool    = false
@@ -166,8 +178,16 @@ func _update_ghost_preview() -> void:
 	var path: Array = _build_manhattan_path(_source_pos, dest["pos"])
 	if path.size() < 2:
 		return
+
+	## Validity check (July 2026 playtest pass) — red preview + blocked
+	## confirm if the path leaves the bunker or re-traces an existing pipe.
+	var valid: bool = _is_path_valid(_get_wm(), path)
+
 	for i in range(path.size() - 1):
 		var seg: Node3D = WaterPipeSegment.make_ghost_pipe(_get_scene_root(), path[i], path[i + 1])
+		var mat: StandardMaterial3D = seg.get("_material")
+		if mat != null:
+			mat.albedo_color = GHOST_COLOR_VALID if valid else GHOST_COLOR_INVALID
 		_ghost_segs.append(seg)
 
 func _try_confirm_segment() -> void:
@@ -185,6 +205,16 @@ func _try_confirm_segment() -> void:
 	var path: Array = _build_manhattan_path(_source_pos, dest_pos)
 	if path.size() < 2:
 		_show_warning("Pipe segment too short")
+		return
+
+	## Validity check (July 2026 playtest pass) — same test the ghost preview
+	## uses (see _update_ghost_preview()), re-run here so a confirm click
+	## can't slip through on a stale/last-good-frame ghost.
+	if not _is_path_in_bounds(path):
+		_show_warning("Cannot place pipe outside the bunker")
+		return
+	if _path_overlaps_existing(wm, path):
+		_show_warning("A pipe is already placed there")
 		return
 
 	var total_length: float = 0.0
@@ -235,6 +265,10 @@ func _try_confirm_segment() -> void:
 		edge_ids.append(edge_id)
 
 	var undo_midpoint: Vector3 = (path[0] + path[path.size() - 1]) * 0.5
+	## Floating "-$X" label at the moment of spend — mirrors the "+$X" refund
+	## label BuildUndoStack's "pipe" case already shows on undo (July 2026
+	## playtest pass; see docs/systems/water/README.md).
+	_spawn_float_label(undo_midpoint, cost, false)
 	pipe_placed.emit(seg_nodes, edge_ids, cost, elbow_nodes, undo_midpoint)
 
 	## Chain the next segment from this destination — matches the "click
@@ -387,3 +421,57 @@ func _show_warning(msg: String) -> void:
 			main_hud.show_soft_warning(msg)
 			return
 	push_warning("[WaterPipeDrawMode] " + msg)
+
+## Floating "+$X"/"-$X" screen-space label — same HUD.spawn_float_label()
+## call BuildModeController._spawn_float_label_at_pos() uses for tile
+## place/remove, duplicated here rather than referenced (water system stays
+## standalone from BuildModeController's internals, same reasoning as
+## _show_warning() above). positive=true → green refund, false → red spend.
+func _spawn_float_label(world_pos: Vector3, amount: int, positive: bool) -> void:
+	if camera == null or amount == 0 or world_node == null:
+		return
+	var screen_pos: Vector2 = camera.unproject_position(world_pos)
+	var main_hud: Node = world_node.get_node_or_null("HUD")
+	if main_hud != null and main_hud.has_method("spawn_float_label"):
+		main_hud.spawn_float_label(screen_pos, amount, positive)
+
+# ─── Placement validity (July 2026 playtest pass) ────────────────────────────
+## True if EVERY point in `path` lies within the bunker's valid placeable
+## area (pre-built interior + any dug rock extension) — same bounds check
+## walls/lights/etc already use (BuildModeController._is_inside_bunker()),
+## just checked per-point along the pipe's route rather than once for a
+## single tile. Y is ignored by that function (X/Z bounds only), so this
+## works unmodified even though every path point sits at ceiling height.
+func _is_path_in_bounds(path: Array) -> bool:
+	if build_controller == null:
+		return true   ## No bounds data available — fail open, matches _is_inside_bunker()'s own fallback.
+	for p: Vector3 in path:
+		if not build_controller._is_inside_bunker(p):
+			return false
+	return true
+
+## True if any leg of `path` exactly re-traces an already-registered pipe
+## edge. Computed via WaterGraph's own static key/id functions directly on
+## raw positions — deliberately does NOT require the positions to already be
+## registered graph nodes, so this works as a pure preview-time lookup.
+## KNOWN LIMITATION: only catches an exact endpoint-to-endpoint duplicate
+## (re-tracing the same run) — a new pipe crossing an existing one at a
+## perpendicular mid-span point is not detected (would need real segment-
+## intersection math, out of scope for this pass).
+func _path_overlaps_existing(wm: WaterManager, path: Array) -> bool:
+	if wm == null:
+		return false
+	for i in range(path.size() - 1):
+		var key_a: String = WaterGraph.make_node_key(path[i])
+		var key_b: String = WaterGraph.make_node_key(path[i + 1])
+		var candidate_id: String = WaterGraph.make_edge_id(key_a, key_b)
+		if wm.has_edge(candidate_id):
+			return true
+	return false
+
+func _is_path_valid(wm: WaterManager, path: Array) -> bool:
+	if not _is_path_in_bounds(path):
+		return false
+	if _path_overlaps_existing(wm, path):
+		return false
+	return true

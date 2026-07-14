@@ -629,7 +629,11 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	await _run_pregen(gm)
 
 	## Starting water hookup — see _spawn_initial_water_hookup() below.
-	_spawn_initial_water_hookup()
+	## Awaited: the function itself waits out two physics frames before
+	## raycasting (same fix as WaterManager's reposition-lag bug — pregen's
+	## walls were just spawned this frame and their colliders aren't
+	## registered with the physics server yet).
+	await _spawn_initial_water_hookup()
 
 	## Apply concrete floor texture to the GridMap's floor tile mesh.
 	## We override the material on the MeshLibrary item directly so all
@@ -920,6 +924,20 @@ func _spawn_initial_water_hookup() -> void:
 	if bc == null or rock_surround == null:
 		push_warning("MainWorld: _spawn_initial_water_hookup skipped — BuildModeController/rock_surround not ready.")
 		return
+
+	## BUG FIX (July 2026 playtest pass) — the hookup silently failed to
+	## spawn (no wall found, push_warning only visible in the console) the
+	## first time this ran. ROOT CAUSE: pregen's walls were built earlier
+	## THIS SAME FRAME (_run_pregen() -> BunkerPregen.generate() ->
+	## spawn_structure(), all synchronous) — Godot's physics server doesn't
+	## register a newly added StaticBody3D collider for raycast queries
+	## until it has actually stepped at least once. _snap_to_nearest_wall()'s
+	## raycast ran before that ever happened, found nothing, and this
+	## function returned early. Same exact class of bug as
+	## WaterManager._on_chunk_deconstructed()'s reposition-lag fix — same
+	## fix here too.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 
 	var base_pos: Vector3 = Vector3(
 		rock_surround.OFFSET_X + 1.0,

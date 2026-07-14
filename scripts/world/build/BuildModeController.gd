@@ -727,6 +727,9 @@ func _update_water_pipe_draw_refs() -> void:
 	_water_pipe_draw_mode.set("world_node", world_node)
 	_water_pipe_draw_mode.set("build_hud",  build_hud)
 	_water_pipe_draw_mode.set("ray_length", ray_length)
+	## build_controller back-ref (July 2026 playtest pass) — needed for
+	## _is_inside_bunker() bounds checking, see WaterPipeDrawMode.gd.
+	_water_pipe_draw_mode.set("build_controller", self)
 
 # ─── Bunker bounds check ──────────────────────────────────────────────────────
 ## Returns true if world-space XZ position is inside the valid placeable area:
