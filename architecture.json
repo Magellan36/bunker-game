@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-12T22:15:44.256073+00:00",
+  "generated_at": "2026-07-14T02:05:28.521259+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 72,
-  "total_lines": 28510,
+  "total_lines": 28646,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -1294,7 +1294,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2159,
+      "line_count": 2169,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -1355,6 +1355,10 @@
         },
         {
           "target_expr": "_water_pipe_draw_mode",
+          "signal": "pipe_placed"
+        },
+        {
+          "target_expr": "_water_pipe_draw_mode",
           "signal": "pipe_tool_exit_requested"
         },
         {
@@ -1394,7 +1398,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 69,
+      "private_function_count": 70,
       "preloads": [
         "res://scripts/world/furniture/Shelving.gd",
         "res://scripts/world/items/HeavyConsumerTest.gd",
@@ -1414,11 +1418,11 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 2240
+      "complexity_score": 2251
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
-      "line_count": 245,
+      "line_count": 285,
       "class_name": "BuildUndoStack",
       "extends": "RefCounted",
       "exports": [],
@@ -1430,13 +1434,14 @@
         }
       ],
       "public_functions": [],
-      "private_function_count": 7,
+      "private_function_count": 8,
       "preloads": [],
       "group_lookups": [
-        "power_manager"
+        "power_manager",
+        "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 252
+      "complexity_score": 293
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
@@ -1508,7 +1513,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 968,
+      "line_count": 1009,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -1614,7 +1619,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 40,
+      "private_function_count": 41,
       "preloads": [
         "res://assets/textures/concrete_floor.jpg",
         "res://scripts/ui/build/BuildModeHUD.gd",
@@ -1636,7 +1641,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1016
+      "complexity_score": 1058
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",
@@ -4187,7 +4192,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
-      "line_count": 103,
+      "line_count": 123,
       "class_name": "WaterManager",
       "extends": "Node",
       "exports": [],
@@ -4255,24 +4260,24 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 4,
+      "private_function_count": 5,
       "preloads": [],
       "group_lookups": [
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 131
+      "complexity_score": 152
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 364,
+      "line_count": 389,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
       "signals": [
         {
           "name": "pipe_placed",
-          "params": "(seg_nodes: Array, edge_ids: Array, cost: int)"
+          "params": "(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: Array, midpoint: Vector3)"
         },
         {
           "name": "pipe_tool_exit_requested",
@@ -4297,14 +4302,14 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 14,
+      "private_function_count": 15,
       "preloads": [],
       "group_lookups": [
         "water_manager",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 384
+      "complexity_score": 410
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",

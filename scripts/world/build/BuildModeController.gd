@@ -706,6 +706,10 @@ func _setup_water_pipe_draw_mode() -> void:
 	_water_pipe_draw_mode.set_script(pipe_script)
 	_water_pipe_draw_mode.name = "WaterPipeDrawMode"
 	add_child(_water_pipe_draw_mode)
+	## Connect pipe_placed so we can push an undo entry for every pipe run laid
+	## — mirrors _setup_wire_draw_mode()'s wire_placed connection above.
+	if _water_pipe_draw_mode.has_signal("pipe_placed"):
+		_water_pipe_draw_mode.pipe_placed.connect(_push_undo_pipe)
 	if _water_pipe_draw_mode.has_signal("pipe_tool_exit_requested"):
 		_water_pipe_draw_mode.pipe_tool_exit_requested.connect(_on_water_pipe_tool_exit_requested)
 
@@ -1442,6 +1446,12 @@ func _push_undo_move(body: Node3D, reg_entry: Dictionary, old_pos: Vector3) -> v
 
 func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vector3) -> void:
 	_undo_manager._push_undo_wire(seg_node, edge_id, cost, midpoint)
+
+
+## Mirrors _push_undo_wire() immediately above — connected to
+## WaterPipeDrawMode.pipe_placed in _setup_water_pipe_draw_mode().
+func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: Array, midpoint: Vector3) -> void:
+	_undo_manager._push_undo_pipe(seg_nodes, edge_ids, cost, elbow_nodes, midpoint)
 
 
 

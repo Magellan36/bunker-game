@@ -30,7 +30,11 @@ class_name WaterPipeDrawMode
 ## experience remains flagged follow-up work — see docs/systems/water/README.md.
 ## ══════════════════════════════════════════════════════════════════════════
 
-signal pipe_placed(seg_nodes: Array, edge_ids: Array, cost: int)
+## elbow_nodes: every WaterPipeElbow spawned for this confirmed segment (NOT
+## included in seg_nodes, which is WaterPipeSegment only) — undo needs both
+## lists to fully clean up the run. midpoint: for the undo refund float label
+## (mirrors WireDrawMode.wire_placed's own midpoint arg).
+signal pipe_placed(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: Array, midpoint: Vector3)
 signal pipe_tool_exit_requested()
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -57,10 +61,12 @@ const DEST_SNAP_RADIUS: float = 1.2
 ## noise or a click landing exactly on the source.
 const MIN_POINT_GAP: float = 0.05
 
-## Placeholder economics — the groundwork plan does not specify pipe/hookup
-## pricing (out of scope for this pass); these are deliberately conservative
-## placeholders for a future balance pass, not a considered game-design cost.
-const COST_PER_M: float = 5.0
+## Pricing (July 2026 playtest pass): 3x WireDrawMode.COST_PER_M ($8/m) per
+## Brannon's explicit request — pipes are the pricier utility to run.
+## Keep in sync manually if WireDrawMode.COST_PER_M ever changes (two
+## independent constants, same reasoning as WATER_CEILING_Y above — the
+## water system stays standalone with zero cross-file dependency).
+const COST_PER_M: float = 24.0
 
 # ─── External refs (set by BuildModeController, mirrors WireDrawMode) ────────
 var camera:     Camera3D = null
@@ -198,6 +204,7 @@ func _try_confirm_segment() -> void:
 	## node's key if the destination snapped onto one (see
 	## _resolve_destination()), otherwise a fresh "pipe_joint".
 	var keys: Array[String] = [_source_key]
+	var elbow_nodes: Array = []
 	for i in range(1, path.size()):
 		var is_last: bool = (i == path.size() - 1)
 		if is_last and not dest.get("existing_key", "").is_empty():
@@ -211,6 +218,7 @@ func _try_confirm_segment() -> void:
 			elbow.global_position = path[i]
 			elbow.node_key = corner_key
 			keys.append(corner_key)
+			elbow_nodes.append(elbow)
 
 	## ── Register edges + spawn real segments for each leg of the path ──
 	var seg_nodes: Array = []
@@ -226,7 +234,8 @@ func _try_confirm_segment() -> void:
 		seg_nodes.append(seg)
 		edge_ids.append(edge_id)
 
-	pipe_placed.emit(seg_nodes, edge_ids, cost)
+	var undo_midpoint: Vector3 = (path[0] + path[path.size() - 1]) * 0.5
+	pipe_placed.emit(seg_nodes, edge_ids, cost, elbow_nodes, undo_midpoint)
 
 	## Chain the next segment from this destination — matches the "click
 	## again to keep extending the run" flow implied by the fallback model.
@@ -297,8 +306,24 @@ func _resolve_destination(cursor_pos: Vector3) -> Dictionary:
 	if not nearest.is_empty() and nearest["key"] != _source_key:
 		return { "pos": nearest["pos"], "existing_key": nearest["key"] }
 
-	return { "pos": cursor_xz }
+	return { "pos": _grid_snap_xz(cursor_xz) }
 
+
+## Same 0.25 m grid every other placeable in the game snaps to
+## (BuildModeController.grid_size / PowerManager.SNAP_GRID / WireDrawMode's
+## own _WIRE_GRID) — kept as its own constant here rather than a cross-file
+## reference, matching how WATER_CEILING_Y/COST_PER_M are already handled
+## in this file (water system stays standalone, values kept in sync by hand).
+## Only X/Z are snapped — Y is always WATER_CEILING_Y already, set by the
+## caller before this runs.
+const _PIPE_GRID: float = 0.25
+
+func _grid_snap_xz(pos: Vector3) -> Vector3:
+	return Vector3(
+		roundf(pos.x / _PIPE_GRID) * _PIPE_GRID,
+		pos.y,
+		roundf(pos.z / _PIPE_GRID) * _PIPE_GRID
+	)
 
 ## Finds the nearest registered water graph node (any role) within `radius`
 ## of `pos`, compared in the XZ plane only (ignores Y) — ground-level
