@@ -189,10 +189,24 @@ Player uses Pipe tool (TOOL_WATER_PIPE)
   available this pass (headless compile-check only). **Upgrading to the
   full paint experience is the clear, expected next step for this tool** —
   not currently scheduled, do it as its own isolated pass.
-- **No pricing was specified by the groundwork plan** for the hookup or
-  pipes — `BuildModeHUD.CATEGORIES["Water"]`'s hookup price ($200) and
-  `WaterPipeDrawMode.COST_PER_M` ($5/m) are deliberately conservative
-  placeholders for a future balance pass, not a considered game-design cost.
+- **Pipe pricing set (July 2026 playtest pass):** `WaterPipeDrawMode.COST_PER_M`
+  is now $24/m — 3x `WireDrawMode.COST_PER_M` ($8/m), per Brannon's explicit
+  request. Kept as its own constant (water system stays standalone) — update
+  both by hand if wire pricing ever changes. Hookup price
+  (`BuildModeHUD.CATEGORIES["Water"]`, $200) is still an unreviewed placeholder.
+- **Pipe placement now snaps to the same 0.25m grid as everything else**
+  (`WaterPipeDrawMode._grid_snap_xz()`, matches
+  `BuildModeController.grid_size`/`PowerManager.SNAP_GRID`/`WireDrawMode`'s own
+  `_WIRE_GRID`) — only applied to fresh mid-air waypoints in
+  `_resolve_destination()`; snapping onto an existing node is unaffected.
+- **Pipe undo implemented (July 2026):** `WaterPipeDrawMode.pipe_placed` now
+  also emits `elbow_nodes` (every `WaterPipeElbow` spawned for that confirmed
+  segment — previously untracked, meaning undo would have left corner visuals
+  orphaned) and `midpoint` (for the refund float label). `BuildUndoStack`'s new
+  `"pipe"` case frees every segment + elbow node, unregisters each edge via
+  `WaterManager.unregister_edge()`, and refunds cash — mirrors the `"wire"`
+  case exactly, minus zone-color snapshot/restore (the water system has no
+  zones/breakers).
 - **No automated tests** (matches the rest of the project).
 - **No persistence** (matches the rest of the project — see Persistence).
 - **Reconnecting a hookup's pipe network across a reposition event is
@@ -212,6 +226,25 @@ Player uses Pipe tool (TOOL_WATER_PIPE)
   geometry (`_build_manhattan_path()`), no raycasting at all. If a future
   pass wants pipes to hug actual wall geometry again (rather than a flat
   ceiling plane), that's a bigger redesign, not a tweak to the current code.
+- **Hookup expansion-lag bug FIXED (July 2026 playtest pass):** the hookup
+  used to lag exactly one expansion behind and end up floating in open air.
+  ROOT CAUSE: `WaterManager._on_chunk_deconstructed/_restored` used a single
+  `call_deferred("_reposition_all_hookups")`, which only waits for the rest
+  of the current frame — not enough, since Godot's physics server doesn't
+  register a newly added/freed `StaticBody3D` collider for raycast queries
+  until it has actually stepped at least once after the node entered/left
+  the tree. The next reposition raycast still saw the OLD collider layout,
+  one expansion behind. FIX: `_reposition_all_hookups_after_physics_settles()`
+  awaits `get_tree().physics_frame` twice before raycasting, replacing the
+  single `call_deferred`.
+- **Starting hookup (July 2026):** `MainWorld._spawn_initial_water_hookup()`
+  places one `WaterHookup` at game start on the west wall (-X,
+  `RockSurround.OFFSET_X`), near the -Z end, placed exactly the way a player
+  would (reuses `BuildModeController._snap_to_nearest_wall()` +
+  `_spawn_placed_object()`, registered into `_placed_objects` so the Move
+  tool can find it) — free of charge, no undo entry (not a player action).
+  Called right after `_run_pregen()` in `_setup_build_mode()`, before wire
+  connection — walls already exist by then.
 - **Every connectable device must register its `WaterGraph` node at its own
   real physical connection point**, not an arbitrary reference position —
   this is how `WaterPipeDrawMode` decides whether a final vertical drop

@@ -628,6 +628,9 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	## coroutine completes before _setup_build_mode returns.
 	await _run_pregen(gm)
 
+	## Starting water hookup — see _spawn_initial_water_hookup() below.
+	_spawn_initial_water_hookup()
+
 	## Apply concrete floor texture to the GridMap's floor tile mesh.
 	## We override the material on the MeshLibrary item directly so all
 	## GridMap-stamped floor tiles pick it up immediately.
@@ -902,6 +905,44 @@ func _run_pregen(gm: GridMap) -> void:
 ## WireGraphBuilder itself now — see that file for the full cluster.
 func _compute_and_rebuild_wires() -> void:
 	_wire_builder._compute_and_rebuild_wires()
+
+
+## Starting water hookup (July 2026 playtest pass) — placed at game start
+## exactly the way a player would place one via the build menu: reuses
+## BuildModeController's own wall-snap helper + spawn function, just
+## triggered programmatically instead of by a click. Per Brannon's explicit
+## request: west wall (-X, RockSurround.OFFSET_X), near the -Z end.
+## One cell in from both walls on the base_pos so the 4-direction wall-snap
+## raycast (_snap_to_nearest_wall(), 1.5m range) cleanly finds the west wall
+## without the south wall/corner pillar interfering.
+func _spawn_initial_water_hookup() -> void:
+	var bc: BuildModeController = _build_controller as BuildModeController
+	if bc == null or rock_surround == null:
+		push_warning("MainWorld: _spawn_initial_water_hookup skipped — BuildModeController/rock_surround not ready.")
+		return
+
+	var base_pos: Vector3 = Vector3(
+		rock_surround.OFFSET_X + 1.0,
+		bc.WATER_HOOKUP_PLACEMENT_Y,
+		rock_surround.OFFSET_Z + 2.0
+	)
+	var snapped: Dictionary = bc._snap_to_nearest_wall(base_pos, 0.0, 0.05, 1.5)
+	if snapped.is_empty():
+		push_warning("MainWorld: starting water hookup could not wall-snap — no wall found near the expected west-wall position.")
+		return
+
+	var body: Node3D = bc._spawn_placed_object(bc.TILE_WATER_HOOKUP, snapped["pos"], snapped["angle_deg"])
+	## Register into _placed_objects (free of charge, no undo entry — this
+	## isn't a player action) so MoveDuplicateTool can find it later, same
+	## as every player-placed object.
+	bc._placed_objects.append({
+		"node":          body,
+		"tile_id":       bc.TILE_WATER_HOOKUP,
+		"price":         0,
+		"world_pos":     snapped["pos"],
+		"angle_deg":     snapped["angle_deg"],
+		"player_placed": true,
+	})
 
 
 func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:

@@ -183,6 +183,31 @@ func _undo() -> void:
 		## Recompute zone topology and push restored colors to all WireSegment nodes.
 		_owner._recolor_wire_zones()
 
+	elif type == "pipe":
+		## Undo a pipe run: free every placed segment + elbow node, unregister
+		## each WaterManager edge, refund cash. Mirrors the "wire" case above
+		## (WaterPipeDrawMode/WireDrawMode are twin systems) — no zone-color
+		## machinery here since the water system has no zones/breakers (see
+		## docs/systems/water/README.md Non-responsibilities).
+		var seg_nodes: Array = entry.get("seg_nodes", [])
+		for n: Variant in seg_nodes:
+			if n != null and is_instance_valid(n):
+				(n as Node3D).queue_free()
+		var elbow_nodes: Array = entry.get("elbow_nodes", [])
+		for n: Variant in elbow_nodes:
+			if n != null and is_instance_valid(n):
+				(n as Node3D).queue_free()
+		var wm: WaterManager = _owner.get_tree().get_first_node_in_group("water_manager") as WaterManager
+		var edge_ids: Array = entry.get("edge_ids", [])
+		if wm != null:
+			for eid: Variant in edge_ids:
+				if eid != null and (eid as String) != "":
+					wm.unregister_edge(eid as String)
+		var pipe_cost: int = entry.get("cost", 0)
+		if pipe_cost > 0 and _owner.world_node != null:
+			_owner.world_node.add_cash(pipe_cost)
+		_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), pipe_cost, true)
+
 func _push_undo_place(body: Node3D, tile_id: int, price: int, pos: Vector3,
 		zone_color_snap: Dictionary = {}) -> void:
 	_owner._undo_stack.append({
@@ -239,6 +264,21 @@ func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vec
 		"cost":            cost,
 		"world_pos":       midpoint,
 		"zone_color_snap": zone_color_snap,   ## restore on undo
+	})
+	if _owner._undo_stack.size() > _owner.MAX_UNDO:
+		_owner._undo_stack.pop_front()
+
+## Mirrors _push_undo_wire() immediately above. No zone-color snapshot —
+## the water system has no zones/breakers to preserve (see
+## docs/systems/water/README.md Non-responsibilities).
+func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: Array, midpoint: Vector3) -> void:
+	_owner._undo_stack.append({
+		"type":        "pipe",
+		"seg_nodes":   seg_nodes,
+		"edge_ids":    edge_ids,
+		"elbow_nodes": elbow_nodes,
+		"cost":        cost,
+		"world_pos":   midpoint,
 	})
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()

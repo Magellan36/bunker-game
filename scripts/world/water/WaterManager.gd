@@ -88,14 +88,34 @@ func unregister_hookup(hookup: Node3D) -> void:
 ## docs/systems/world-core/README.md). We deliberately reuse this existing
 ## event rather than polling or re-deriving boundary detection independently.
 ##
-## Deferred one frame: the dig/expand solver (WireGraphBuilder) needs to
-## finish spawning/removing wall colliders first, since hookup repositioning
-## raycasts against those exact colliders (see WaterHookup.reposition_to_outer_wall()).
+## BUG FIX (July 2026 playtest pass) — the hookup used to lag exactly one
+## expansion behind and end up floating in open air. ROOT CAUSE: a single
+## call_deferred("_reposition_all_hookups") only waits for the REST of the
+## current frame (after WireGraphBuilder synchronously spawns/removes the new
+## wall's StaticBody3D + collider via spawn_structure(), called earlier in
+## the same MainWorld._on_chunk_deconstructed()/_on_chunk_restored() chain).
+## That's not enough — Godot's physics server doesn't register a newly added
+## (or freed) collider for raycast queries until it has actually STEPPED at
+## least once after the node entered/left the tree. So the very next
+## reposition raycast still saw the OLD collider layout: expansion #1's
+## raycast found nothing new (silently left the hookup in place — matches
+## "expand once, doesn't move"), then expansion #2's raycast finally saw
+## expansion #1's now-physics-registered wall and snapped there — one
+## expansion behind, and that spot is open air once expansion #2 clears
+## past it (matches "moves back one expansion, still floating").
+## FIX: await two physics frames (standard safety margin for this exact
+## Godot collider-registration gotcha) before raycasting, instead of a
+## single same-frame call_deferred.
 func _on_chunk_deconstructed(_chunk_origin: Vector2i) -> void:
-	call_deferred("_reposition_all_hookups")
+	_reposition_all_hookups_after_physics_settles()
 
 func _on_chunk_restored(_chunk_origin: Vector2i) -> void:
-	call_deferred("_reposition_all_hookups")
+	_reposition_all_hookups_after_physics_settles()
+
+func _reposition_all_hookups_after_physics_settles() -> void:
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_reposition_all_hookups()
 
 func _reposition_all_hookups() -> void:
 	for hookup: Node3D in _hookups:
