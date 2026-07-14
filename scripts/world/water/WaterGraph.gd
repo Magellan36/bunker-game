@@ -129,6 +129,21 @@ func has_edge(edge_id: String) -> bool:
 func get_edges() -> Dictionary:
 	return _water_edges
 
+## Returns [{ "edge_id": String, "other_key": String }] for every edge
+## touching `key` — used by WaterHookup.update_graph_node_position() (Step 2
+## verification pass, July 2026) to preserve and redraw pipe edges across a
+## reposition event instead of silently orphaning their visuals when the old
+## node (and its edges, via unregister_node()'s cascade) gets torn down.
+func get_edges_touching(key: String) -> Array:
+	var out: Array = []
+	for edge_id: String in _water_edges:
+		var e: Dictionary = _water_edges[edge_id]
+		if e["a"] == key:
+			out.append({ "edge_id": edge_id, "other_key": e["b"] })
+		elif e["b"] == key:
+			out.append({ "edge_id": edge_id, "other_key": e["a"] })
+	return out
+
 
 ## BFS reachability check — true if `node_key` is connected via an unbroken
 ## chain of edges to ANY node with role == "hookup".

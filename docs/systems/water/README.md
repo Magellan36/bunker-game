@@ -67,7 +67,7 @@ already partially work (untested, flagged as a follow-up).
 | `WaterGraph.gd` | Node/edge registry + BFS connectivity. `RefCounted`, `_owner: WaterManager` back-reference (same pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver` — see `docs/systems/power/README.md`). |
 | `WaterManager.gd` | Orchestrator + public API. Forwards to `WaterGraph`. Also holds the hookup registry + dispatches boundary-change reposition events. |
 | `WaterHookup.gd` | The wall-mounted source device. Wall-snapped placement, never deletable, auto-tracks the outermost wall in its facing direction as the bunker expands. |
-| `WaterPipeSegment.gd` | Visual for one straight placed pipe. **Always visible** (see Known tradeoffs). |
+| `WaterPipeSegment.gd` | Visual for one straight placed pipe. **Always visible** (see Known tradeoffs). Joins group `"water_pipe_visual"` on `_ready()` (Step 2, July 2026) — pure findability for `WaterHookup._redraw_pipe_segment()`, NOT the `WireSegment` hide-on-exit-build-mode pattern. |
 | `WaterPipeElbow.gd` | Corner-joint visual, spawned automatically at a corner crossing. A REAL graph node (role `"corner"`), not just cosmetic — see Extension points. |
 | `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **Uses the plan's own pre-approved FALLBACK interaction model (one confirm per click), not the full single-drag paint — see its own file-header comment and Known tradeoffs below.** |
 | `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). Interactable (Step 2) — see `WaterInfoUI.gd`. |
@@ -124,6 +124,17 @@ value (water doesn't gain/lose quality in transit through pipes this pass).
 `WaterGraph.find_reachable_hookup_key(from_key) -> String` — the two new BFS
 primitives Step 2's `WaterManager` methods above forward to; both mirror
 `is_reachable_from_hookup()`'s exact walk shape.
+
+`WaterGraph.get_edges_touching(key) -> Array` (`[{"edge_id": String,
+"other_key": String}, ...]`) / `WaterManager.get_edges_touching(key) ->
+Array` (thin forward) — added for the hookup-reposition pipe-redraw fix (see
+Known tradeoffs), reusable by anything else that ever needs to know which
+edges touch a given node before tearing it down.
+
+`WaterHookup._redraw_pipe_segment(old_edge_id, new_edge_id, hookup_pos,
+other_pos)` — internal helper, not called from outside this class; finds
+the live `WaterPipeSegment` via the `"water_pipe_visual"` group (see Files)
+and updates it in place.
 
 ## Signals produced
 `WaterPipeDrawMode` produces `pipe_placed(seg_nodes, edge_ids, cost,
@@ -211,14 +222,18 @@ Player presses E on WaterHookup/WaterTestSink (Step 2)
   `DeviceDatabase`-driven pattern the power system uses (both already have
   wattage/priority entries in `DeviceDatabase.gd`, unused) — hold independent
   `PowerManager`/`WaterManager` refs, don't couple the two managers.
-- **T-split branching:** since corners/joints are already real graph nodes,
-  this is "let `WaterPipeDrawMode._try_pick_source()`/`_resolve_destination()`
-  start or end a run at an
-  existing mid-chain node" — it already does this for ANY existing node
-  (hookup, joint, or corner), so a T-split may already partially work by
-  simply drawing a second pipe from an existing joint; verify before
-  assuming new code is needed. **Still unverified as of Step 2** — kept
-  separate from Step 2's scope on purpose (see Known tradeoffs).
+- **T-split branching — VERIFIED working by design (July 2026 pass):**
+  confirmed via code trace (no automated tests exist in this project, so
+  this is static verification, not a live playtest — worth a quick
+  in-editor sanity check regardless). `WaterPipeDrawMode._try_pick_source()`
+  calls `_get_nearest_water_node_xz()`, which scans ALL registered nodes via
+  `WaterManager.get_nodes()` regardless of `role` — so a new run can start
+  from an existing corner/joint/endpoint exactly the same way it starts from
+  the hookup. `WaterGraph.register_edge()` has no limit on how many edges
+  touch a single node (a real graph, not a linked list — see file header),
+  and `is_reachable_from_hookup()`'s BFS walks `_adjacency` generically, so
+  a branching (3+ neighbor) node is reachable/traversed with zero special-
+  casing. No code changes were needed — this was already correct.
 - **Pipe height (July 2026, Step 2 pass):** `WATER_HOOKUP_PLACEMENT_Y`/
   `WATER_CEILING_Y` raised from 2.8 → 2.9 (walls are 3.0m tall) — per
   Brannon's explicit request to sit slightly higher, between wall-light
@@ -323,13 +338,25 @@ Player presses E on WaterHookup/WaterTestSink (Step 2)
   system's standalone-from-`BuildModeController`-internals convention.
 - **No automated tests** (matches the rest of the project).
 - **No persistence** (matches the rest of the project — see Persistence).
-- **Reconnecting a hookup's pipe network across a reposition event is
-  lightly tested at best for this phase** — `WaterHookup.update_graph_node_position()`
-  re-keys the hookup's own graph node on reposition, and existing pipe edges
-  DO follow it (edges reference node keys, not positions, in `WaterGraph`) —
-  but whether the visual `WaterPipeSegment`s attached to that edge also
-  re-draw to the hookup's new position after a boundary-tracking move has
-  NOT been exercised by any test. Flagged for whoever builds on top of this.
+- **Pipe redraw across a hookup reposition — WAS A REAL BUG, FIXED (July
+  2026 pass):** this was flagged as "lightly tested at best" and turned out
+  to actually be broken once traced through code, not just untested.
+  ROOT CAUSE: `WaterHookup.update_graph_node_position()` re-keys the
+  hookup's graph node via `unregister_node()` + `register_node()` on every
+  reposition; `unregister_node()` cascades to remove every edge touching the
+  old key (see `WaterGraph.unregister_node()`) — but nothing ever told the
+  corresponding `WaterPipeSegment` visual(s) to move or free themselves, so
+  they stayed floating at the OLD position, silently disconnected from the
+  (now-repaired) graph. FIX: `update_graph_node_position()` now captures
+  every edge touching the old key first (`WaterGraph.get_edges_touching()`),
+  re-creates the same edges against the new key once registered, and
+  redraws each affected segment in place (`WaterHookup._redraw_pipe_segment()`,
+  found via a new `"water_pipe_visual"` group every `WaterPipeSegment` joins
+  on `_ready()` — purely for findability, a DIFFERENT group from
+  `WireSegment`'s hide-on-exit-build-mode pattern, never used for show/hide
+  here). Corners/elbows further down a run are untouched by this fix — their
+  own positions never depended on the hookup's, only the FIRST segment
+  leaving the hookup does.
 - **Routing model rewrite (July 2026, playtest feedback):** pipes originally
   used a "wall-hugging" magnetic-snap model (see plan §5) — this was
   replaced with the current strictly-axis-aligned, fixed-ceiling-height

@@ -250,18 +250,66 @@ func reposition_to_outer_wall() -> void:
 
 ## Re-registers this hookup's graph node at its (possibly new) position.
 ## WaterGraph nodes are keyed by position, so a reposition needs a fresh
-## register — any pipe edges attached to the OLD node key would be orphaned
-## by this in Phase 1 (no pipes exist yet to attach to a hookup — pipes are
-## always placed starting FROM the hookup's current position, so this is a
-## non-issue for this pass; flagged here for whoever builds pipe-to-hookup
-## reconnection logic once pipes exist across a reposition event).
+## register.
+##
+## FIXED (Step 2 verification pass, July 2026 — this was exactly the
+## untested risk flagged in docs/systems/water/README.md Known tradeoffs):
+## unregister_node() cascades to remove every edge touching the old key,
+## which used to silently orphan any pipe(s) already routed from the hookup
+## — the graph edge vanished, but nobody ever told the WaterPipeSegment
+## visual to free or move itself, so it stayed floating at the OLD position
+## forever, no longer part of the (now broken) network. Confirmed by
+## tracing WaterGraph.unregister_node()/register_edge() — this was a REAL
+## bug, not just "untested," once pipes existed to attach to the hookup.
+## FIX: capture every edge touching the old key BEFORE tearing it down,
+## re-create the same edges against the NEW key once it's registered, and
+## redraw each affected WaterPipeSegment in place (see
+## _redraw_pipe_segment()) rather than letting them vanish. Corners/elbows
+## further down each run are untouched — their own positions don't depend
+## on the hookup's, only the FIRST segment leaving the hookup does.
 func update_graph_node_position() -> void:
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
 		return
-	if not _node_key.is_empty():
-		wm.unregister_node(_node_key)
+
+	if _node_key.is_empty():
+		_node_key = wm.register_node(global_position, "hookup")
+		return
+
+	var old_key:  String = _node_key
+	var touching: Array  = wm.get_edges_touching(old_key)
+
+	wm.unregister_node(old_key)
 	_node_key = wm.register_node(global_position, "hookup")
+
+	for entry: Dictionary in touching:
+		var other_key: String = entry["other_key"]
+		if not wm.has_water_node(other_key):
+			continue   ## Defensive — the neighbor wasn't touched by this reposition, shouldn't happen.
+		var new_edge_id: String = wm.register_edge(_node_key, other_key)
+		if new_edge_id.is_empty():
+			continue
+		var other_pos: Vector3 = wm.get_node_data(other_key).get("pos", Vector3.ZERO)
+		_redraw_pipe_segment(entry["edge_id"], new_edge_id, global_position, other_pos)
+
+## Finds the live WaterPipeSegment visual for `old_edge_id` (via the
+## "water_pipe_visual" group every WaterPipeSegment joins on _ready() purely
+## for findability — a DIFFERENT, additive-only group from WireSegment's
+## hide-on-exit-build-mode pattern, never used for show/hide here — see that
+## file's own comment) and updates it in place: new edge_id, redrawn between
+## the hookup's new position and the unchanged neighbor position. Silently
+## no-ops if no matching segment is found (defensive — shouldn't happen for
+## a hookup's own direct edges).
+func _redraw_pipe_segment(old_edge_id: String, new_edge_id: String, hookup_pos: Vector3, other_pos: Vector3) -> void:
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if not is_instance_valid(node) or not (node is WaterPipeSegment):
+			continue
+		var seg: WaterPipeSegment = node as WaterPipeSegment
+		if seg.edge_id != old_edge_id:
+			continue
+		seg.edge_id = new_edge_id
+		seg.set_endpoints(hookup_pos, other_pos)
+		return
 
 
 # ─── Visual build ─────────────────────────────────────────────────────────────
