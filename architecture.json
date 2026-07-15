@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-14T23:35:14.852109+00:00",
+  "generated_at": "2026-07-15T18:19:02.118484+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 73,
-  "total_lines": 29379,
+  "total_lines": 29759,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -3966,7 +3966,7 @@
     },
     {
       "path": "res://scripts/world/power/WireDrawMode.gd",
-      "line_count": 691,
+      "line_count": 693,
       "class_name": null,
       "extends": "Node",
       "exports": [],
@@ -4010,7 +4010,7 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 722
+      "complexity_score": 724
     },
     {
       "path": "res://scripts/world/power/WireGraphBuilder.gd",
@@ -4381,7 +4381,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 519,
+      "line_count": 897,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4413,14 +4413,14 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 19,
+      "private_function_count": 28,
       "preloads": [],
       "group_lookups": [
         "water_manager",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 544
+      "complexity_score": 931
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",

@@ -164,8 +164,14 @@ func handle_input(event: InputEvent) -> bool:
 	## ── Keyboard: E or Escape always exit the wire tool entirely ─────────────
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_E or event.keycode == KEY_ESCAPE:
+			## Cancels the in-progress placement and stays IN the wire tool
+			## (July 2026 correction — a prior pass wrongly made this exit
+			## all the way back to Construct tool; Brannon flagged that E
+			## "isn't working" because it was really just leaving wire mode
+			## entirely, which was never the ask). Does NOT emit
+			## wire_tool_exit_requested — that signal now only fires from
+			## an actual tool-switch elsewhere (toolbar button).
 			_cancel()
-			wire_tool_exit_requested.emit()
 			return true
 
 	if event is InputEventMouseButton and event.pressed:
@@ -176,13 +182,9 @@ func handle_input(event: InputEvent) -> bool:
 				elif _phase == 1:
 					return _try_pick_dest()
 			MOUSE_BUTTON_RIGHT:
-				## RMB always exits the tool entirely now, regardless of phase —
-				## matches E/Escape (July 2026 playtest pass: player should be
-				## able to press E, RMB, or Escape to exit wire/pipe mode,
-				## consistently, with no "first RMB just cancels the current
-				## drag" intermediate state to learn).
+				## Same correction as E/Escape above — cancels the current
+				## drag/placement, stays in the wire tool. No tool-exit.
 				_cancel()
-				wire_tool_exit_requested.emit()
 				return true
 	return false
 
@@ -462,7 +464,7 @@ func _role_fallback(role: String) -> String:
 func _update_cost_label(midpoint: Vector3, cost: int) -> void:
 	if _cost_label == null:
 		var lbl: Label3D = Label3D.new()
-		lbl.font_size        = 28
+		lbl.font_size        = 56   ## 2x (was 28) — per Brannon's "a bit small" feedback, July 2026
 		lbl.billboard        = BaseMaterial3D.BILLBOARD_ENABLED
 		lbl.no_depth_test    = true
 		lbl.render_priority  = 5
