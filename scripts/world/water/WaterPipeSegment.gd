@@ -37,17 +37,37 @@ var point_b: Vector3 = Vector3.ZERO
 var _mesh_instance: MeshInstance3D = null
 var _material: StandardMaterial3D  = null
 
+## True for a temporary ghost/preview instance (see make_ghost_pipe()) — set
+## BEFORE add_child() so _ready() can skip group registration for it.
+##
+## BUG FIX (July 2026, fourth playtest pass): ghost segments used to join
+## "water_pipe_visual" unconditionally, same as real placed pipes — but
+## WaterPipeDrawMode's avoidance/crossing logic (_avoid_existing_pipes()/
+## _insert_crossings()) scans that exact group to mean "real, already-placed
+## pipes to route around." _clear_ghost()'s queue_free() is deferred to the
+## END of the frame, so the PREVIOUS frame's ghost segments were still alive
+## (and still in the group) when the NEXT frame's _update_ghost_preview()
+## ran its avoidance scan — the preview was detecting its OWN leftover ghost
+## from a moment ago as a "conflict" and rerouting around it, then the next
+## frame's ghost became the "conflict" for the frame after that, and so on —
+## an oscillating feedback loop between two different reroutes every single
+## frame. Symptoms exactly matched what was reported: rapidly changing
+## "weird loop" layouts and a flickering cost label. FIX: ghost instances
+## never join "water_pipe_visual" at all now.
+var is_ghost: bool = false
+
 func _ready() -> void:
 	## Always visible — see file header. No group registration for the
 	## WireSegment hide-on-exit-build-mode pattern (explicitly forbidden,
 	## see docs/systems/water/README.md Forbidden edits).
 	## "water_pipe_visual" is a DIFFERENT, additive-only group — pure
-	## findability so WaterHookup.update_graph_node_position() can locate and
-	## redraw the specific segment attached to the hookup after a
-	## reposition event (Step 2 verification pass, July 2026) — never used
-	## for show/hide.
+	## findability so WaterHookup.update_graph_node_position() and
+	## WaterPipeDrawMode's avoidance/crossing logic can find REAL, placed
+	## pipes — never used for show/hide, and (see is_ghost above) never
+	## joined by a ghost/preview instance.
 	visible = true
-	add_to_group("water_pipe_visual")
+	if not is_ghost:
+		add_to_group("water_pipe_visual")
 
 func set_endpoints(a: Vector3, b: Vector3) -> void:
 	if not is_inside_tree():
@@ -104,6 +124,10 @@ static func make_ghost_pipe(parent: Node, a: Vector3, b: Vector3) -> Node3D:
 	var script: GDScript = load("res://scripts/world/water/WaterPipeSegment.gd")
 	if script != null:
 		seg.set_script(script)
+	## MUST be set before add_child() — _ready() (which fires synchronously
+	## during add_child()) reads this to decide whether to join
+	## "water_pipe_visual". See is_ghost's own comment for the bug this fixes.
+	seg.set("is_ghost", true)
 	parent.add_child(seg)
 	if seg.has_method("set_endpoints"):
 		seg.call("set_endpoints", a, b)

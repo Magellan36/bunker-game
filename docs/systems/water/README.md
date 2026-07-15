@@ -351,6 +351,22 @@ Player presses E on WaterHookup/WaterTestSink (Step 2)
     (source, an existing-node/split destination, or a crossing joint) is
     reused as-is; every other point gets a fresh `"corner"`/`"pipe_joint"`
     registration exactly as before.
+- **Ghost/preview pipes were polluting the avoidance scan — WAS A REAL BUG,
+  FIXED (July 2026, fourth playtest pass):** the no-overlap routing above
+  shipped with a real feedback-loop bug. ROOT CAUSE: `WaterPipeSegment._ready()`
+  unconditionally joined `"water_pipe_visual"` — including for TEMPORARY
+  ghost instances from `make_ghost_pipe()`, which use the exact same script/
+  class as real placed pipes. `_clear_ghost()`'s `queue_free()` is deferred
+  to end-of-frame, so the PREVIOUS frame's ghost was still alive (and still
+  in the group) when the NEXT frame's `_update_ghost_preview()` ran its
+  avoidance/crossing scan — the preview detected its own leftover ghost as a
+  "conflict" and rerouted around it, then that new ghost became the
+  "conflict" for the following frame, oscillating between two different
+  reroutes every single frame. Matched the reported symptoms exactly:
+  rapidly changing "weird loop" layouts and a flickering cost label. FIX:
+  added `WaterPipeSegment.is_ghost` (set by `make_ghost_pipe()` BEFORE
+  `add_child()`, so `_ready()` sees it in time) — ghost instances never join
+  `"water_pipe_visual"` at all now.
 - **Pipe undo implemented (July 2026):** `WaterPipeDrawMode.pipe_placed` now
   also emits `elbow_nodes` (every `WaterPipeElbow` spawned for that confirmed
   segment — previously untracked, meaning undo would have left corner visuals

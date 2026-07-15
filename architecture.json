@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-15T18:19:02.118484+00:00",
+  "generated_at": "2026-07-15T18:26:19.129538+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 73,
-  "total_lines": 29759,
+  "total_lines": 29783,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -4439,7 +4439,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeSegment.gd",
-      "line_count": 110,
+      "line_count": 134,
       "class_name": "WaterPipeSegment",
       "extends": "Node3D",
       "exports": [],
@@ -4458,7 +4458,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 114
+      "complexity_score": 138
     },
     {
       "path": "res://scripts/world/water/WaterTestSink.gd",
