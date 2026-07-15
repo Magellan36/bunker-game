@@ -544,7 +544,17 @@ func _find_split_candidate(wm: WaterManager, cursor_pos: Vector3) -> Dictionary:
 		var seg: WaterPipeSegment = node as WaterPipeSegment
 		if absf(seg.point_a.y - seg.point_b.y) > MIN_POINT_GAP:
 			continue
-		var closest: Vector3 = _closest_point_on_segment_xz(cursor_pos, seg.point_a, seg.point_b)
+		var raw_closest: Vector3 = _closest_point_on_segment_xz(cursor_pos, seg.point_a, seg.point_b)
+		## Grid-snap the split point onto the same 0.25m grid every other
+		## pipe waypoint uses (July 2026, fourth playtest pass — per
+		## Brannon's explicit request; also fixes the "little legs" bug:
+		## an un-grid-snapped split point meant any pipe continuing from it
+		## almost never lined up with the grid, leaving a tiny sub-grid-tile
+		## jog right at the joint — see _grid_snap_split_point()'s own
+		## comment). Only the axis running ALONG the segment is snapped; the
+		## fixed lateral coordinate is copied exactly from the segment so
+		## the point stays precisely on the pipe's line.
+		var closest: Vector3 = _grid_snap_split_point(raw_closest, seg)
 		var d: float = Vector2(closest.x, closest.z).distance_to(cursor_xz)
 		if d >= best_dist:
 			continue
@@ -558,6 +568,26 @@ func _find_split_candidate(wm: WaterManager, cursor_pos: Vector3) -> Dictionary:
 		best_dist = d
 		best = candidate
 	return best
+
+## Grid-snaps a split point along `seg`'s own line to the same 0.25m grid
+## (`_PIPE_GRID`) every other pipe waypoint already uses. Only the VARYING
+## axis (the one the segment actually runs along) is snapped and then
+## clamped strictly between the segment's own two endpoints; the fixed
+## lateral coordinate is copied exactly from the segment (never
+## independently snapped) so the returned point is always precisely ON the
+## pipe's line, never off to one side.
+func _grid_snap_split_point(pos: Vector3, seg: WaterPipeSegment) -> Vector3:
+	var seg_is_x: bool = absf(seg.point_a.x - seg.point_b.x) > absf(seg.point_a.z - seg.point_b.z)
+	if seg_is_x:
+		var lo: float = minf(seg.point_a.x, seg.point_b.x)
+		var hi: float = maxf(seg.point_a.x, seg.point_b.x)
+		var snapped_x: float = clampf(roundf(pos.x / _PIPE_GRID) * _PIPE_GRID, lo, hi)
+		return Vector3(snapped_x, pos.y, seg.point_a.z)
+	else:
+		var lo2: float = minf(seg.point_a.z, seg.point_b.z)
+		var hi2: float = maxf(seg.point_a.z, seg.point_b.z)
+		var snapped_z: float = clampf(roundf(pos.z / _PIPE_GRID) * _PIPE_GRID, lo2, hi2)
+		return Vector3(seg.point_a.x, pos.y, snapped_z)
 
 ## MUTATES the graph: splits an existing pipe edge at `candidate["pos"]`
 ## (assumed already precisely ON the segment's line). Tears down the old

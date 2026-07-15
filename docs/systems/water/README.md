@@ -367,6 +367,28 @@ Player presses E on WaterHookup/WaterTestSink (Step 2)
   added `WaterPipeSegment.is_ghost` (set by `make_ghost_pipe()` BEFORE
   `add_child()`, so `_ready()` sees it in time) — ghost instances never join
   `"water_pipe_visual"` at all now.
+- **T-split points now grid-snap, fixing a "little legs" visual bug (July
+  2026, fifth playtest pass):** `_find_split_candidate()`'s split point
+  (from `_closest_point_on_segment_xz()`) used to be an arbitrary,
+  un-grid-snapped position along the existing pipe's line — unlike every
+  other waypoint in the system (fresh mid-air waypoints go through
+  `_grid_snap_xz()`, and node positions ultimately trace back to a
+  grid-snapped waypoint too, except the hookup's own wall-snap position —
+  see below). Any pipe continuing from an off-grid split point almost never
+  lined up with the 0.25m grid on its next bend, leaving a tiny sub-grid-
+  tile jog right at the joint — reported as small stray "legs" sticking out
+  at bend points that should have been clean, empty space. FIX:
+  `_grid_snap_split_point()` snaps the axis running ALONG the segment to the
+  nearest 0.25m grid line (clamped strictly between the segment's own two
+  endpoints); the fixed lateral coordinate is copied exactly from the
+  segment, never independently snapped, so the point stays precisely ON the
+  pipe's line. **Known remaining edge case:** `WaterHookup`'s own position
+  comes from `WallSnapHelpers._snap_to_nearest_wall()`'s raycast hit point,
+  not the 0.25m grid — a pipe's very FIRST bend leaving the hookup can still
+  show the same tiny-jog artifact if the hookup itself happens to sit
+  slightly off-grid. Not fixed in this pass (out of the reported scope,
+  which was specifically about T-splits) — flagged here in case it's ever
+  reported separately.
 - **Pipe undo implemented (July 2026):** `WaterPipeDrawMode.pipe_placed` now
   also emits `elbow_nodes` (every `WaterPipeElbow` spawned for that confirmed
   segment — previously untracked, meaning undo would have left corner visuals
