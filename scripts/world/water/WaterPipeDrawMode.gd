@@ -73,7 +73,23 @@ const COST_PER_M: float = 24.0
 ## Applied to WaterPipeSegment's own `_material` (accessed via `.get()`, same
 ## way WireDrawMode._update_ghost_wire() swaps its ghost material's color).
 const GHOST_COLOR_VALID:   Color = Color(0.55, 0.80, 0.90, 1.0)  ## light blue — normal preview
-const GHOST_COLOR_INVALID: Color = Color(0.90, 0.20, 0.15, 1.0)  ## red — out of bounds / overlaps an existing pipe
+const GHOST_COLOR_INVALID: Color = Color(0.90, 0.20, 0.15, 1.0)  ## red — out of bounds
+
+## T-split-anywhere + no-overlap routing (July 2026, third playtest pass).
+## Radius for snapping to a POINT along an existing pipe's mid-span (not
+## just its two endpoints) when picking a source or destination — lets a
+## player start/end a run anywhere on a placed pipe, not only at a
+## registered node. Tighter than DEST_SNAP_RADIUS so it doesn't compete with
+## real node snapping.
+const SPLIT_SNAP_RADIUS: float = 0.6
+## A mid-span candidate this close to either of the segment's own endpoints
+## is treated as "that endpoint" instead — real node-snapping already
+## handles that case, no need to split right next to an existing node.
+const SPLIT_ENDPOINT_EXCLUDE: float = 0.2
+## Sidestep distance when routing around a collinear/overlapping existing
+## pipe (see _avoid_existing_pipes()) — one full grid tile plus a bit, so
+## the detour reads as a deliberate loop, not a graze.
+const DETOUR_OFFSET: float = 0.5
 
 # ─── External refs (set by BuildModeController, mirrors WireDrawMode) ────────
 var camera:     Camera3D = null
@@ -94,6 +110,12 @@ var _source_pos: Vector3 = Vector3.ZERO
 
 var _ghost_segs: Array[Node3D] = []   ## ghost WaterPipeSegments for the current preview
 
+## Live cost label — Label3D floating at path midpoint during phase 1 drag.
+## Mirrors WireDrawMode._cost_label exactly (same reuse-not-recreate
+## pattern) — added July 2026 per Brannon's request for pipes to get the
+## same live cost preview wires already have.
+var _cost_label: Label3D = null
+
 func _ready() -> void:
 	set_process(false)
 	set_process_unhandled_input(false)
@@ -109,6 +131,7 @@ func deactivate() -> void:
 	_phase  = 0
 	_source_key = ""
 	_clear_ghost()
+	_clear_cost_label()
 
 func _process(_delta: float) -> void:
 	if not _active:
@@ -131,22 +154,27 @@ func handle_input(event: InputEvent) -> bool:
 				_try_confirm_segment()
 			return true
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			## RMB always exits the tool entirely now, regardless of phase —
-			## matches E/Escape (July 2026 playtest pass: player should be
-			## able to press E, RMB, or Escape to exit wire/pipe mode,
-			## consistently, mirrors the identical WireDrawMode change).
+			## Cancels the in-progress placement and stays IN the pipe tool
+			## (July 2026 correction — a prior pass wrongly made this exit
+			## all the way back to Construct tool; Brannon flagged that E
+			## "isn't working" because it was really just leaving pipe mode
+			## entirely, which was never the ask). Does NOT emit
+			## pipe_tool_exit_requested — that signal now only fires from
+			## an actual tool-switch elsewhere (toolbar button).
 			_phase = 0
 			_source_key = ""
 			_clear_ghost()
-			pipe_tool_exit_requested.emit()
+			_clear_cost_label()
 			return true
 
 	if event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE or event.keycode == KEY_E:
+			## Same correction as RMB above — cancels the current
+			## drag/placement, stays in the pipe tool. No tool-exit.
 			_phase = 0
 			_source_key = ""
 			_clear_ghost()
-			pipe_tool_exit_requested.emit()
+			_clear_cost_label()
 			return true
 
 	return false
@@ -160,14 +188,29 @@ func _try_pick_source() -> bool:
 
 	var cursor_pos: Vector3 = _get_cursor_world_pos()
 	var nearest: Dictionary = _get_nearest_water_node_xz(wm, cursor_pos, SOURCE_SNAP_RADIUS)
-	if nearest.is_empty():
-		_show_warning("Must start a pipe from the hookup or an existing pipe run")
-		return false
+	if not nearest.is_empty():
+		_source_key = nearest["key"]
+		_source_pos = nearest["pos"]
+		_phase = 1
+		return true
 
-	_source_key = nearest["key"]
-	_source_pos = nearest["pos"]
-	_phase = 1
-	return true
+	## T-split anywhere (July 2026, third playtest pass): no existing NODE
+	## nearby, but the cursor might be hovering an existing pipe's mid-span
+	## — split it right there and start the new branch from that point.
+	## Extends the pre-existing "start from any existing node (hookup/
+	## joint/corner)" T-split support to "start from any POINT on a placed
+	## pipe run" per Brannon's explicit request.
+	var split: Dictionary = _find_split_candidate(wm, cursor_pos)
+	if not split.is_empty():
+		var new_key: String = _split_pipe_at(wm, split)
+		if not new_key.is_empty():
+			_source_key = new_key
+			_source_pos = split["pos"]
+			_phase = 1
+			return true
+
+	_show_warning("Must start a pipe from the hookup or an existing pipe run")
+	return false
 
 
 # ─── Phase 1: drag + confirm ───────────────────────────────────────────────────
@@ -177,15 +220,25 @@ func _update_ghost_preview() -> void:
 	var cursor_pos: Vector3 = _get_cursor_world_pos()
 	var dest: Dictionary = _resolve_destination(cursor_pos)
 	if dest.is_empty():
+		_clear_cost_label()
 		return
 
-	var path: Array = _build_manhattan_path(_source_pos, dest["pos"])
-	if path.size() < 2:
+	var raw_path: Array = _build_manhattan_path(_source_pos, dest["pos"])
+	if raw_path.size() < 2:
+		_clear_cost_label()
 		return
 
-	## Validity check (July 2026 playtest pass) — red preview + blocked
-	## confirm if the path leaves the bunker or re-traces an existing pipe.
-	var valid: bool = _is_path_valid(_get_wm(), path)
+	## No-overlap routing (July 2026, third playtest pass): reroute around
+	## any existing pipe this path would otherwise run collinear on top of —
+	## see _avoid_existing_pipes(). Perpendicular crossings are NOT rerouted
+	## (explicitly allowed — see _insert_crossings(), applied at confirm
+	## time only, since it mutates the graph).
+	var path: Array = _avoid_existing_pipes(raw_path)
+
+	## Validity check — red preview + blocked confirm only for out-of-bounds
+	## now; collinear overlap is no longer a rejection case, it's rerouted
+	## above instead (see docs/systems/water/README.md Known tradeoffs).
+	var valid: bool = _is_path_in_bounds(path)
 
 	for i in range(path.size() - 1):
 		var seg: Node3D = WaterPipeSegment.make_ghost_pipe(_get_scene_root(), path[i], path[i + 1])
@@ -193,6 +246,15 @@ func _update_ghost_preview() -> void:
 		if mat != null:
 			mat.albedo_color = GHOST_COLOR_VALID if valid else GHOST_COLOR_INVALID
 		_ghost_segs.append(seg)
+
+	## Live cost preview (July 2026) — mirrors WireDrawMode's own live "$X"
+	## label during drag, per Brannon's explicit request for parity.
+	var total_length: float = 0.0
+	for i in range(path.size() - 1):
+		total_length += path[i].distance_to(path[i + 1])
+	var cost: int = int(ceil(total_length * COST_PER_M))
+	var midpoint: Vector3 = (path[0] + path[path.size() - 1]) * 0.5
+	_update_cost_label(midpoint, cost)
 
 func _try_confirm_segment() -> void:
 	var wm: WaterManager = _get_wm()
@@ -205,20 +267,33 @@ func _try_confirm_segment() -> void:
 		_show_warning("No valid pipe destination here")
 		return
 
+	## T-split anywhere (July 2026, third playtest pass): the destination
+	## landed on an existing pipe's mid-span (detected read-only by
+	## _resolve_destination()) — perform the actual split NOW, then treat
+	## the new joint exactly like any other existing-node destination.
+	if dest.has("split_candidate"):
+		var split_key: String = _split_pipe_at(wm, dest["split_candidate"])
+		if split_key.is_empty():
+			_show_warning("Could not split pipe here")
+			return
+		dest = { "pos": dest["pos"], "existing_key": split_key }
+
 	var dest_pos: Vector3 = dest["pos"]
-	var path: Array = _build_manhattan_path(_source_pos, dest_pos)
-	if path.size() < 2:
+	var raw_path: Array = _build_manhattan_path(_source_pos, dest_pos)
+	if raw_path.size() < 2:
 		_show_warning("Pipe segment too short")
 		return
 
-	## Validity check (July 2026 playtest pass) — same test the ghost preview
-	## uses (see _update_ghost_preview()), re-run here so a confirm click
-	## can't slip through on a stale/last-good-frame ghost.
+	## No-overlap routing — same reroute the ghost preview already showed
+	## (see _update_ghost_preview()/_avoid_existing_pipes()), re-run here so
+	## a confirm click always matches what was previewed.
+	var path: Array = _avoid_existing_pipes(raw_path)
+
+	## Validity check — out-of-bounds only now; collinear overlap is
+	## rerouted above rather than rejected (see docs/systems/water/README.md
+	## Known tradeoffs).
 	if not _is_path_in_bounds(path):
 		_show_warning("Cannot place pipe outside the bunker")
-		return
-	if _path_overlaps_existing(wm, path):
-		_show_warning("A pipe is already placed there")
 		return
 
 	var total_length: float = 0.0
@@ -231,25 +306,34 @@ func _try_confirm_segment() -> void:
 			_show_warning("Not enough cash for this pipe run")
 			return
 
-	## ── Register a graph node for every intermediate bend + the final point ──
-	## Every point in `path` except the first (the source, already has a key)
-	## becomes a node: intermediate points are always "corner" bends (a
-	## WaterPipeElbow is spawned for each); the LAST point re-uses an existing
-	## node's key if the destination snapped onto one (see
-	## _resolve_destination()), otherwise a fresh "pipe_joint".
-	var keys: Array[String] = [_source_key]
+	## Perpendicular "+"" crossings against existing pipes (July 2026, third
+	## playtest pass) — explicitly ALLOWED, splits the crossed pipe and
+	## shares a real joint node at the crossing point. MUTATES the graph —
+	## only ever called here (confirm time), never from the read-only ghost
+	## preview. See _insert_crossings()'s own comment for the full shape.
+	var points: Array = _insert_crossings(wm, path, dest.get("existing_key", ""))
+
+	## ── Register a graph node for every point that doesn't already have a
+	## key (crossings/source/an existing-node destination all arrive with
+	## one already — see _insert_crossings()); everything else is a fresh
+	## corner bend (gets a WaterPipeElbow) or, for the final point only, a
+	## fresh "pipe_joint".
+	var keys: Array[String] = []
 	var elbow_nodes: Array = []
-	for i in range(1, path.size()):
-		var is_last: bool = (i == path.size() - 1)
-		if is_last and not dest.get("existing_key", "").is_empty():
-			keys.append(dest["existing_key"])
-		elif is_last:
-			keys.append(wm.register_node(path[i], "pipe_joint"))
+	for i in range(points.size()):
+		var pt: Dictionary = points[i]
+		var existing: String = pt.get("existing_key", "")
+		if not existing.is_empty():
+			keys.append(existing)
+			continue
+		var is_last: bool = (i == points.size() - 1)
+		if is_last:
+			keys.append(wm.register_node(pt["pos"], "pipe_joint"))
 		else:
-			var corner_key: String = wm.register_node(path[i], "corner")
+			var corner_key: String = wm.register_node(pt["pos"], "corner")
 			var elbow: WaterPipeElbow = WaterPipeElbow.new()
 			_get_scene_root().add_child(elbow)
-			elbow.global_position = path[i]
+			elbow.global_position = pt["pos"]
 			elbow.node_key = corner_key
 			keys.append(corner_key)
 			elbow_nodes.append(elbow)
@@ -264,11 +348,11 @@ func _try_confirm_segment() -> void:
 		var seg: WaterPipeSegment = WaterPipeSegment.new()
 		_get_scene_root().add_child(seg)
 		seg.edge_id = edge_id
-		seg.set_endpoints(path[i], path[i + 1])
+		seg.set_endpoints(points[i]["pos"], points[i + 1]["pos"])
 		seg_nodes.append(seg)
 		edge_ids.append(edge_id)
 
-	var undo_midpoint: Vector3 = (path[0] + path[path.size() - 1]) * 0.5
+	var undo_midpoint: Vector3 = (points[0]["pos"] + points[points.size() - 1]["pos"]) * 0.5
 	## Floating "-$X" label at the moment of spend — mirrors the "+$X" refund
 	## label BuildUndoStack's "pipe" case already shows on undo (July 2026
 	## playtest pass; see docs/systems/water/README.md).
@@ -281,7 +365,7 @@ func _try_confirm_segment() -> void:
 	## sink's top), further extension isn't really meaningful — but there's
 	## no harm allowing it (mirrors a real plumbing T-off point).
 	_source_key = keys[keys.size() - 1]
-	_source_pos = path[path.size() - 1]
+	_source_pos = points[points.size() - 1]["pos"]
 	_clear_ghost()
 
 
@@ -359,6 +443,15 @@ func _resolve_destination(cursor_pos: Vector3) -> Dictionary:
 	if not nearest.is_empty() and nearest["key"] != _source_key:
 		return { "pos": nearest["pos"], "existing_key": nearest["key"] }
 
+	## T-split anywhere (July 2026, third playtest pass): destination might
+	## land on an existing pipe's mid-span. READ-ONLY here (this runs every
+	## frame during the ghost preview) — do NOT mutate the graph yet, just
+	## report the candidate so the ghost can route to it; the actual split
+	## only happens in _try_confirm_segment() once the player clicks.
+	var split: Dictionary = _find_split_candidate(wm, cursor_xz)
+	if not split.is_empty():
+		return { "pos": split["pos"], "split_candidate": split }
+
 	return { "pos": _grid_snap_xz(cursor_xz) }
 
 
@@ -397,12 +490,317 @@ func _get_nearest_water_node_xz(wm: WaterManager, pos: Vector3, radius: float) -
 	return best
 
 
+# ─── T-split anywhere + no-overlap routing (July 2026, third playtest pass) ──
+## Closest point to `p` on the line segment [a, b], compared in the XZ plane
+## only (Y taken from `a` — callers only use this for horizontal, ceiling-
+## height segments, see the "vertical drop" guards in the functions below).
+func _closest_point_on_segment_xz(p: Vector3, a: Vector3, b: Vector3) -> Vector3:
+	var az: Vector2 = Vector2(a.x, a.z)
+	var bz: Vector2 = Vector2(b.x, b.z)
+	var pz: Vector2 = Vector2(p.x, p.z)
+	var ab: Vector2 = bz - az
+	var len_sq: float = ab.length_squared()
+	if len_sq < 0.0001:
+		return a
+	var t: float = clampf((pz - az).dot(ab) / len_sq, 0.0, 1.0)
+	var closest_xz: Vector2 = az + ab * t
+	return Vector3(closest_xz.x, a.y, closest_xz.y)
+
+## Builds the {"pos","edge_id","seg_node","key_a","key_b"} shape
+## _split_pipe_at() needs, from an already-known segment + point on it.
+## Shared by _find_split_candidate() (search by proximity) and
+## _insert_crossings() (already knows exactly which segment/point).
+func _split_candidate_for_segment(wm: WaterManager, seg: WaterPipeSegment, pos: Vector3) -> Dictionary:
+	if seg.edge_id.is_empty() or not wm.has_edge(seg.edge_id):
+		return {}
+	var edge_data: Dictionary = wm.get_edges().get(seg.edge_id, {})
+	if edge_data.is_empty():
+		return {}
+	return {
+		"pos":      pos,
+		"edge_id":  seg.edge_id,
+		"seg_node": seg,
+		"key_a":    edge_data.get("a", ""),
+		"key_b":    edge_data.get("b", ""),
+	}
+
+## Searches every live WaterPipeSegment (via the "water_pipe_visual" group —
+## see that file's own comment) for the closest mid-span point to `cursor_pos`
+## within SPLIT_SNAP_RADIUS, excluding points too close to either endpoint
+## (SPLIT_ENDPOINT_EXCLUDE — real node-snapping already covers that case).
+## Only horizontal (ceiling-height) segments are considered — a vertical
+## drop into a floor device has no meaningful "mid-air branch point" on the
+## ceiling plane the cursor is projected onto. READ-ONLY — does not mutate
+## anything; see _split_pipe_at() for the actual mutating step.
+func _find_split_candidate(wm: WaterManager, cursor_pos: Vector3) -> Dictionary:
+	if wm == null:
+		return {}
+	var cursor_xz: Vector2 = Vector2(cursor_pos.x, cursor_pos.z)
+	var best_dist: float = SPLIT_SNAP_RADIUS
+	var best: Dictionary = {}
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if not is_instance_valid(node) or not (node is WaterPipeSegment):
+			continue
+		var seg: WaterPipeSegment = node as WaterPipeSegment
+		if absf(seg.point_a.y - seg.point_b.y) > MIN_POINT_GAP:
+			continue
+		var closest: Vector3 = _closest_point_on_segment_xz(cursor_pos, seg.point_a, seg.point_b)
+		var d: float = Vector2(closest.x, closest.z).distance_to(cursor_xz)
+		if d >= best_dist:
+			continue
+		if closest.distance_to(seg.point_a) < SPLIT_ENDPOINT_EXCLUDE:
+			continue
+		if closest.distance_to(seg.point_b) < SPLIT_ENDPOINT_EXCLUDE:
+			continue
+		var candidate: Dictionary = _split_candidate_for_segment(wm, seg, closest)
+		if candidate.is_empty():
+			continue
+		best_dist = d
+		best = candidate
+	return best
+
+## MUTATES the graph: splits an existing pipe edge at `candidate["pos"]`
+## (assumed already precisely ON the segment's line). Tears down the old
+## edge + its one WaterPipeSegment visual, registers a new "corner" node at
+## the split point (+ a WaterPipeElbow, same as any other corner bend), and
+## re-creates two edges (old_a<->new, new<->old_b) with two new
+## WaterPipeSegments. Returns the new node's key, or "" on failure
+## (defensive — shouldn't happen for a candidate this function's own callers
+## already validated).
+func _split_pipe_at(wm: WaterManager, candidate: Dictionary) -> String:
+	var old_edge_id: String  = candidate["edge_id"]
+	var key_a:       String  = candidate["key_a"]
+	var key_b:       String  = candidate["key_b"]
+	var seg_node:    WaterPipeSegment = candidate["seg_node"]
+	var split_pos:   Vector3 = candidate["pos"]
+
+	if not (wm.has_water_node(key_a) and wm.has_water_node(key_b)):
+		return ""
+
+	var pos_a: Vector3 = wm.get_node_data(key_a).get("pos", Vector3.ZERO)
+	var pos_b: Vector3 = wm.get_node_data(key_b).get("pos", Vector3.ZERO)
+
+	wm.unregister_edge(old_edge_id)
+	if is_instance_valid(seg_node):
+		seg_node.queue_free()
+
+	var new_key: String = wm.register_node(split_pos, "corner")
+	var elbow: WaterPipeElbow = WaterPipeElbow.new()
+	_get_scene_root().add_child(elbow)
+	elbow.global_position = split_pos
+	elbow.node_key = new_key
+
+	var edge_a: String = wm.register_edge(key_a, new_key)
+	if not edge_a.is_empty():
+		var seg_a: WaterPipeSegment = WaterPipeSegment.new()
+		_get_scene_root().add_child(seg_a)
+		seg_a.edge_id = edge_a
+		seg_a.set_endpoints(pos_a, split_pos)
+
+	var edge_b: String = wm.register_edge(new_key, key_b)
+	if not edge_b.is_empty():
+		var seg_b: WaterPipeSegment = WaterPipeSegment.new()
+		_get_scene_root().add_child(seg_b)
+		seg_b.edge_id = edge_b
+		seg_b.set_endpoints(split_pos, pos_b)
+
+	return new_key
+
+## True if leg [a,b] runs COLLINEAR with `seg` (same axis, same lateral
+## coordinate) AND their ranges overlap along that axis — i.e. the new leg
+## would literally run on top of the existing pipe. Perpendicular crossings
+## are a SEPARATE, explicitly ALLOWED case — see _find_perpendicular_crossing().
+func _leg_collinear_overlaps(a: Vector3, b: Vector3, seg: WaterPipeSegment) -> bool:
+	if absf(seg.point_a.y - seg.point_b.y) > MIN_POINT_GAP:
+		return false   ## Vertical drop — not a ceiling-height run, ignore.
+	if absf(a.y - b.y) > MIN_POINT_GAP:
+		return false
+
+	var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
+	var seg_is_x: bool = absf(seg.point_a.x - seg.point_b.x) > absf(seg.point_a.z - seg.point_b.z)
+	if leg_is_x != seg_is_x:
+		return false   ## Different axis — perpendicular or non-interacting, not an overlap.
+
+	if leg_is_x:
+		if absf(a.z - seg.point_a.z) > MIN_POINT_GAP:
+			return false   ## Different lateral offset — parallel, not the same line.
+		var lo: float  = minf(a.x, b.x)
+		var hi: float  = maxf(a.x, b.x)
+		var slo: float = minf(seg.point_a.x, seg.point_b.x)
+		var shi: float = maxf(seg.point_a.x, seg.point_b.x)
+		return lo < shi and hi > slo
+	else:
+		if absf(a.x - seg.point_a.x) > MIN_POINT_GAP:
+			return false
+		var lo2: float  = minf(a.z, b.z)
+		var hi2: float  = maxf(a.z, b.z)
+		var slo2: float = minf(seg.point_a.z, seg.point_b.z)
+		var shi2: float = maxf(seg.point_a.z, seg.point_b.z)
+		return lo2 < shi2 and hi2 > slo2
+
+func _find_collinear_conflict(a: Vector3, b: Vector3) -> WaterPipeSegment:
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if not is_instance_valid(node) or not (node is WaterPipeSegment):
+			continue
+		var seg: WaterPipeSegment = node as WaterPipeSegment
+		if _leg_collinear_overlaps(a, b, seg):
+			return seg
+	return null
+
+## Post-processes a Manhattan path (from _build_manhattan_path()) so no leg
+## ever runs collinear/overlapping on top of an already-placed pipe — per
+## Brannon's explicit "pipes should never double over" request. Any leg
+## found to collinear-overlap an existing WaterPipeSegment is replaced with
+## a 3-point detour: jog sideways by DETOUR_OFFSET, run parallel past the
+## conflict, jog back — a real loop around the obstruction, not a rejection.
+## Perpendicular crossings are UNCHANGED here — they're allowed, and handled
+## separately at confirm time by _insert_crossings().
+## KNOWN LIMITATIONS (documented rather than over-engineered away):
+## - Detours around the FULL leg span, not just the overlapping sub-range —
+##   simpler/safer than precise partial-overlap geometry; occasionally a
+##   slightly wider detour than strictly necessary, never wrong.
+## - Single avoidance pass — doesn't recursively re-check the detour itself
+##   against yet another pipe. A rare nested-conflict case; workable by the
+##   player routing around it manually if it ever comes up.
+## - Fixed sidestep direction (+Z for an X-axis leg, +X for a Z-axis leg) —
+##   doesn't check which side actually has clearance. A future pass could
+##   pick the side with more room; not attempted here to keep this
+##   contained.
+func _avoid_existing_pipes(path: Array) -> Array:
+	var out: Array = [path[0]]
+	for i in range(path.size() - 1):
+		var a: Vector3 = path[i]
+		var b: Vector3 = path[i + 1]
+		var conflict: WaterPipeSegment = _find_collinear_conflict(a, b)
+		if conflict == null:
+			out.append(b)
+			continue
+
+		var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
+		var offset: Vector3 = Vector3(0.0, 0.0, DETOUR_OFFSET) if leg_is_x else Vector3(DETOUR_OFFSET, 0.0, 0.0)
+		out.append(a + offset)
+		out.append(b + offset)
+		out.append(b)
+	return out
+
+## Finds the single interior crossing point (if any) between leg [a,b] and
+## `seg`, when they're PERPENDICULAR (different axis) and both ranges
+## actually include that coordinate — a true "+" intersection, explicitly
+## ALLOWED per Brannon's request (unlike a collinear overlap). Returns
+## Vector3.INF if there's no such crossing.
+func _find_perpendicular_crossing(a: Vector3, b: Vector3, seg: WaterPipeSegment) -> Vector3:
+	if absf(seg.point_a.y - seg.point_b.y) > MIN_POINT_GAP:
+		return Vector3.INF
+	if absf(a.y - b.y) > MIN_POINT_GAP:
+		return Vector3.INF
+
+	var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
+	var seg_is_x: bool = absf(seg.point_a.x - seg.point_b.x) > absf(seg.point_a.z - seg.point_b.z)
+	if leg_is_x == seg_is_x:
+		return Vector3.INF   ## Same axis — that's _leg_collinear_overlaps()'s job, never a "crossing" here.
+
+	var cross: Vector3
+	if leg_is_x:
+		cross = Vector3(seg.point_a.x, a.y, a.z)
+		if cross.x < minf(a.x, b.x) - MIN_POINT_GAP or cross.x > maxf(a.x, b.x) + MIN_POINT_GAP:
+			return Vector3.INF
+		if cross.z < minf(seg.point_a.z, seg.point_b.z) - MIN_POINT_GAP or cross.z > maxf(seg.point_a.z, seg.point_b.z) + MIN_POINT_GAP:
+			return Vector3.INF
+	else:
+		cross = Vector3(a.x, a.y, seg.point_a.z)
+		if cross.z < minf(a.z, b.z) - MIN_POINT_GAP or cross.z > maxf(a.z, b.z) + MIN_POINT_GAP:
+			return Vector3.INF
+		if cross.x < minf(seg.point_a.x, seg.point_b.x) - MIN_POINT_GAP or cross.x > maxf(seg.point_a.x, seg.point_b.x) + MIN_POINT_GAP:
+			return Vector3.INF
+
+	## Exclude crossings essentially AT one of the leg's own endpoints —
+	## that's just a normal node join, not a mid-span "+" crossing.
+	if cross.distance_to(a) < SPLIT_ENDPOINT_EXCLUDE or cross.distance_to(b) < SPLIT_ENDPOINT_EXCLUDE:
+		return Vector3.INF
+	return cross
+
+## MUTATES the graph — called only from _try_confirm_segment(), never from
+## the read-only ghost preview. Walks the (already detour-avoided) `path`
+## leg by leg; for each leg, finds every existing pipe it perpendicularly
+## crosses, splits that existing pipe at the crossing (_split_pipe_at() —
+## creates a real shared joint, exactly the "+"" formation Brannon asked to
+## allow), and inserts the crossing as a waypoint carrying that joint's key.
+## Multiple crossings on one leg are ordered along the leg before insertion.
+## Returns Array[Dictionary] of {"pos": Vector3, "existing_key": String} for
+## EVERY point in the (possibly longer) path — index 0 always carries
+## `_source_key`, the last point carries `dest_existing_key` (may be empty,
+## meaning "register a fresh pipe_joint there").
+func _insert_crossings(wm: WaterManager, path: Array, dest_existing_key: String) -> Array:
+	var points: Array = [{ "pos": path[0], "existing_key": _source_key }]
+	for i in range(path.size() - 1):
+		var a: Vector3 = path[i]
+		var b: Vector3 = path[i + 1]
+
+		var crossings: Array = []
+		for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+			if not is_instance_valid(node) or not (node is WaterPipeSegment):
+				continue
+			var seg: WaterPipeSegment = node as WaterPipeSegment
+			var cross: Vector3 = _find_perpendicular_crossing(a, b, seg)
+			if cross == Vector3.INF:
+				continue
+			crossings.append({ "pos": cross, "t": a.distance_to(cross), "seg": seg })
+		crossings.sort_custom(func(x, y): return x["t"] < y["t"])
+
+		for c: Dictionary in crossings:
+			var candidate: Dictionary = _split_candidate_for_segment(wm, c["seg"] as WaterPipeSegment, c["pos"])
+			if candidate.is_empty():
+				continue
+			var new_key: String = _split_pipe_at(wm, candidate)
+			if new_key.is_empty():
+				continue
+			points.append({ "pos": c["pos"], "existing_key": new_key })
+
+		var is_last_leg: bool = (i == path.size() - 2)
+		points.append({ "pos": b, "existing_key": dest_existing_key if is_last_leg else "" })
+	return points
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 func _clear_ghost() -> void:
 	for seg: Node3D in _ghost_segs:
 		if is_instance_valid(seg):
 			seg.queue_free()
 	_ghost_segs.clear()
+
+## Shows a floating "$X" label at the path midpoint during phase 1 drag.
+## Updated every frame — same create-once/reuse pattern as
+## WireDrawMode._update_cost_label() (see that function's own comment).
+## font_size=56 is 2x WireDrawMode's own (also bumped to 56 in this pass) —
+## per Brannon's "a bit small" feedback, July 2026.
+func _update_cost_label(midpoint: Vector3, cost: int) -> void:
+	if _cost_label == null:
+		var lbl: Label3D = Label3D.new()
+		lbl.font_size        = 56
+		lbl.billboard        = BaseMaterial3D.BILLBOARD_ENABLED
+		lbl.no_depth_test    = true
+		lbl.render_priority  = 5
+		lbl.double_sided     = true
+		lbl.fixed_size       = false
+		lbl.pixel_size       = 0.005
+		lbl.outline_size     = 6
+		lbl.outline_modulate = Color(0.0, 0.0, 0.0, 0.90)
+		lbl.modulate         = Color(1.0, 0.88, 0.15, 1.0)   ## bright yellow — matches WireDrawMode
+		var parent: Node = world_node if world_node != null else _get_scene_root()
+		parent.add_child(lbl)
+		_cost_label = lbl
+
+	_cost_label.text            = "$%d" % cost
+	## Raise above midpoint so it clears the pipe/ceiling and any floor
+	## geometry — pipes sit higher than wires (WATER_CEILING_Y vs WIRE_Y),
+	## so this offset is smaller than WireDrawMode's 0.70m equivalent.
+	_cost_label.global_position = midpoint + Vector3(0.0, 0.30, 0.0)
+	_cost_label.visible         = true
+
+func _clear_cost_label() -> void:
+	if _cost_label != null:
+		_cost_label.queue_free()
+		_cost_label = null
 
 func _get_wm() -> WaterManager:
 	return get_tree().get_first_node_in_group("water_manager") as WaterManager
@@ -492,28 +890,8 @@ func _is_path_in_bounds(path: Array) -> bool:
 			return false
 	return true
 
-## True if any leg of `path` exactly re-traces an already-registered pipe
-## edge. Computed via WaterGraph's own static key/id functions directly on
-## raw positions — deliberately does NOT require the positions to already be
-## registered graph nodes, so this works as a pure preview-time lookup.
-## KNOWN LIMITATION: only catches an exact endpoint-to-endpoint duplicate
-## (re-tracing the same run) — a new pipe crossing an existing one at a
-## perpendicular mid-span point is not detected (would need real segment-
-## intersection math, out of scope for this pass).
-func _path_overlaps_existing(wm: WaterManager, path: Array) -> bool:
-	if wm == null:
-		return false
-	for i in range(path.size() - 1):
-		var key_a: String = WaterGraph.make_node_key(path[i])
-		var key_b: String = WaterGraph.make_node_key(path[i + 1])
-		var candidate_id: String = WaterGraph.make_edge_id(key_a, key_b)
-		if wm.has_edge(candidate_id):
-			return true
-	return false
-
-func _is_path_valid(wm: WaterManager, path: Array) -> bool:
-	if not _is_path_in_bounds(path):
-		return false
-	if _path_overlaps_existing(wm, path):
-		return false
-	return true
+## NOTE (July 2026, third playtest pass): the old exact-duplicate-edge
+## rejection (_path_overlaps_existing()/_is_path_valid()) was removed —
+## overlapping an existing pipe is no longer a rejection case, it's rerouted
+## around instead (see _avoid_existing_pipes()). Bounds-checking
+## (_is_path_in_bounds() above) is the only remaining validity gate.

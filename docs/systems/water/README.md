@@ -239,13 +239,18 @@ Player presses E on WaterHookup/WaterTestSink (Step 2)
   Brannon's explicit request to sit slightly higher, between wall-light
   height (2.5m) and the ceiling. Keep both constants equal by hand if either
   ever changes (two independent constants, water system stays standalone).
-- **Wire/pipe tool exit (July 2026, Step 2 pass):** E, RMB, and Escape now
-  ALL fully exit `WireDrawMode`/`WaterPipeDrawMode` immediately, regardless
-  of phase — previously RMB only cancelled an in-progress drag on its first
-  press (silent two-step exit) and pipes didn't respond to E at all. Both
-  tools' `handle_input()` now `_cancel()`/clear-ghost + emit their
-  `*_tool_exit_requested` signal on any of the three inputs, no staged
-  cancel-then-exit behavior left.
+- **Wire/pipe "exit placing" corrected (July 2026, third playtest pass —
+  supersedes a wrong fix from the Step 2 pass):** the Step 2 pass made E/
+  RMB/Escape fully exit `WireDrawMode`/`WaterPipeDrawMode` back to Construct
+  tool — Brannon flagged this as exactly wrong: pressing E "wasn't working"
+  because it was leaving wire/pipe mode entirely (switching to Construct,
+  which visually reads as an unwanted mode-switch) instead of just cancelling
+  the in-progress placement. **Corrected behavior:** E, RMB, and Escape now
+  cancel the current phase-1 drag (clear ghost + cost label, reset to
+  phase 0) and STAY in the wire/pipe tool — no `*_tool_exit_requested` signal
+  fires from any of the three anymore; the only way to leave the tool
+  entirely is re-clicking its own toolbar button (pre-existing toggle
+  behavior, unchanged).
 - **Pipe routing now hugs the source wall (July 2026, Step 2 pass):**
   `_build_manhattan_path()`'s corner-choice heuristic flipped from
   "longer axis first" to "shorter axis first" — the hookup (or a chained
@@ -293,6 +298,59 @@ Player presses E on WaterHookup/WaterTestSink (Step 2)
   `BuildModeController.grid_size`/`PowerManager.SNAP_GRID`/`WireDrawMode`'s own
   `_WIRE_GRID`) — only applied to fresh mid-air waypoints in
   `_resolve_destination()`; snapping onto an existing node is unaffected.
+- **Live cost preview added to pipes, both previews doubled in size (July
+  2026, third playtest pass):** `WaterPipeDrawMode` now shows a floating
+  "$X" `Label3D` at the path midpoint during phase-1 drag, updated every
+  frame — same create-once/reuse pattern as `WireDrawMode._update_cost_label()`.
+  Per Brannon's "a bit small" feedback, both tools' live cost label
+  `font_size` doubled (28 → 56).
+- **T-splits now work from ANY point on a placed pipe, not just registered
+  nodes (July 2026, third playtest pass):** the pre-existing "start/end a
+  run at any existing node (hookup/joint/corner)" T-split support already
+  worked (see the entry below) — this extends it to any POINT along an
+  existing pipe's mid-span. `WaterPipeDrawMode._find_split_candidate()`
+  (read-only, safe every frame for the ghost preview) finds the closest
+  mid-span point within `SPLIT_SNAP_RADIUS` (0.6m, excluding points too
+  close to either endpoint — real node-snapping already covers that);
+  `_split_pipe_at()` (mutating, only called from an actual click — phase-0
+  source pick or phase-1 confirm) tears down the old edge + its one
+  `WaterPipeSegment` visual, registers a new `"corner"` node + `WaterPipeElbow`
+  at the split point, and re-creates two edges/segments in its place.
+- **Pipes never overlap each other — collinear runs are rerouted, not
+  rejected; perpendicular "+" crossings ARE allowed and create a shared
+  joint (July 2026, third playtest pass):** replaces the old exact-
+  duplicate-edge rejection (`_path_overlaps_existing()`/`_is_path_valid()`,
+  removed). Two separate cases, both computed on the (already wall-hugging)
+  Manhattan path:
+  - **Collinear overlap** (`_leg_collinear_overlaps()`/`_avoid_existing_pipes()`):
+    same axis, same lateral offset, overlapping range — the new leg would
+    literally run on top of an existing pipe. Rerouted with a 3-point
+    sidestep detour (`DETOUR_OFFSET` = 0.5m: jog out, run parallel past the
+    conflict, jog back) rather than blocked — a real loop around the
+    obstruction. Applied identically in the ghost preview and at confirm
+    time (`_update_ghost_preview()`/`_try_confirm_segment()` both call
+    `_avoid_existing_pipes()`) so what's previewed is exactly what gets
+    placed. **Known limitations** (documented rather than over-engineered
+    away): detours around the FULL leg span, not just the overlapping
+    sub-range; only one avoidance pass (doesn't recursively re-check the
+    detour itself against yet another pipe); fixed sidestep direction (+Z
+    for an X-axis leg, +X for a Z-axis leg) rather than picking whichever
+    side has more clearance.
+  - **Perpendicular crossing** (`_find_perpendicular_crossing()`/
+    `_insert_crossings()`): different axis, ranges actually intersect at one
+    interior point — an explicitly ALLOWED "+" formation. MUTATES the graph
+    (splits the crossed existing pipe at the crossing point via
+    `_split_pipe_at()`, inserts the crossing as a shared joint waypoint) —
+    only ever runs at confirm time (`_try_confirm_segment()`), never from
+    the read-only ghost preview, since it's not safe to mutate every frame
+    during a drag. Multiple crossings on one leg are ordered along the leg
+    before insertion.
+  - `_try_confirm_segment()`'s node/edge-registration loop was rewritten
+    around a unified `Array[Dictionary]` point list (`{"pos", "existing_key"}`)
+    produced by `_insert_crossings()` — every point that already has a key
+    (source, an existing-node/split destination, or a crossing joint) is
+    reused as-is; every other point gets a fresh `"corner"`/`"pipe_joint"`
+    registration exactly as before.
 - **Pipe undo implemented (July 2026):** `WaterPipeDrawMode.pipe_placed` now
   also emits `elbow_nodes` (every `WaterPipeElbow` spawned for that confirmed
   segment — previously untracked, meaning undo would have left corner visuals
