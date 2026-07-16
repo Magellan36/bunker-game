@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-16T21:37:48.139845+00:00",
+  "generated_at": "2026-07-16T21:47:59.711705+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 73,
-  "total_lines": 29876,
+  "total_lines": 29965,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -4381,7 +4381,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 946,
+      "line_count": 1035,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4413,14 +4413,14 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 29,
+      "private_function_count": 31,
       "preloads": [],
       "group_lookups": [
         "water_manager",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 981
+      "complexity_score": 1072
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",

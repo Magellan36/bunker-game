@@ -277,6 +277,31 @@ Player presses E on WaterHookup/WaterTestSink (Step 2)
   is fine (`RefCounted`, no clash) — only the `WaterManager` forwarding
   wrapper needed the different name.
 
+## Debug logging (July 2026, seventh playtest pass)
+`WaterPipeDrawMode.PIPE_DEBUG` (`const`, currently `true`) gates a full
+`[PipeDebug]` trace — mirrors the project's standing `WIRE_DEBUG` convention
+(see `WireDrawMode.gd`/`BuildModeController.gd`). Added specifically to
+diagnose pipes still routing/placing oddly after the hookup-grid-snap fix.
+- `_try_pick_source()` and `_try_confirm_segment()` each dump the full
+  current `"water_pipe_visual"` network (`_dump_pipe_network()`) plus every
+  intermediate value: resolved destination, raw Manhattan path, avoided
+  path (and whether a detour was inserted), the exact point that fails
+  `_is_path_in_bounds()` if any, final cost, and every registered
+  key/edge/segment actually placed.
+- `_leg_collinear_overlaps()`/`_find_collinear_conflict()`/
+  `_avoid_existing_pipes()` take a `debug: bool = false` param — MUST stay
+  `false` for the per-frame ghost preview call (`_update_ghost_preview()`)
+  or `PIPE_DEBUG` would flood the console at 60fps while dragging; only the
+  confirm-click call (`_try_confirm_segment()`) passes `true`, logging the
+  exact reason (different axis / different height / lateral offset exceeds
+  tolerance / no range overlap) each existing segment was or wasn't treated
+  as a conflict.
+- `_find_split_candidate()` logs the raw (pre-grid-snap) closest point
+  alongside the grid-snapped result, so a debug session can directly
+  confirm whether the grid-snap fix is actually taking effect.
+Only strip these prints once Brannon explicitly asks for this system
+stable (matches the project's standing debug-logging discipline).
+
 ## Known tradeoffs / tech debt
 - **`WaterPipeDrawMode` uses the plan's own pre-approved FALLBACK
   interaction model** (one confirm per click, up to the next destination,
