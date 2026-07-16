@@ -789,8 +789,15 @@ func _find_collinear_conflict(a: Vector3, b: Vector3, debug: bool = false) -> Wa
 ## ever runs collinear/overlapping on top of an already-placed pipe — per
 ## Brannon's explicit "pipes should never double over" request. Any leg
 ## found to collinear-overlap an existing WaterPipeSegment is replaced with
-## a 3-point detour: jog sideways by DETOUR_OFFSET, run parallel past the
-## conflict, jog back — a real loop around the obstruction, not a rejection.
+## a detour: jog sideways by DETOUR_OFFSET, run parallel past the conflict —
+## a real loop around the obstruction, not a rejection. The detoured point
+## only jogs back to the exact original coordinate when it's the path's
+## FINAL point (has to land precisely on the real destination anchor —
+## an existing hookup/sink/pipe node). Every other point is a free-floating
+## corner (see _try_confirm_segment()), so mid-route detours just carry the
+## offset forward instead of jogging back to the un-offset corner — jogging
+## back there too used to spawn a pointless zero-purpose extra stub/"leg"
+## at the corner (fixed July 2026, seventh playtest pass).
 ## Perpendicular crossings are UNCHANGED here — they're allowed, and handled
 ## separately at confirm time by _insert_crossings().
 ## KNOWN LIMITATIONS (documented rather than over-engineered away):
@@ -810,22 +817,44 @@ func _find_collinear_conflict(a: Vector3, b: Vector3, debug: bool = false) -> Wa
 ## doesn't flood the console at 60fps while dragging.
 func _avoid_existing_pipes(path: Array, debug: bool = false) -> Array:
 	var out: Array = [path[0]]
+	## Running "current" point — starts as path[0] but, once a mid-route leg
+	## gets detoured, carries the OFFSET point forward instead of the raw
+	## path[i] coordinate. This matters because every point in the final
+	## path except the very last becomes a free-floating "corner" node (see
+	## _try_confirm_segment()) — nothing downstream needs a mid-route bend
+	## to sit at its original un-offset coordinate. Only the path's true
+	## final point has to land exactly on the real destination anchor
+	## (an existing hookup/sink/pipe node), so that's the only case that
+	## still jogs back to the exact original `b` below.
+	var current: Vector3 = path[0]
 	for i in range(path.size() - 1):
-		var a: Vector3 = path[i]
+		var a: Vector3 = current
 		var b: Vector3 = path[i + 1]
+		var is_last_leg: bool = (i == path.size() - 2)
 		if debug: _pdbg("[PipeDebug] _avoid_existing_pipes: checking leg %d [%s -> %s]" % [i, a, b])
 		var conflict: WaterPipeSegment = _find_collinear_conflict(a, b, debug)
 		if conflict == null:
 			if debug: _pdbg("[PipeDebug]   no conflict for this leg")
 			out.append(b)
+			current = b
 			continue
 
 		var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
 		var offset: Vector3 = Vector3(0.0, 0.0, DETOUR_OFFSET) if leg_is_x else Vector3(DETOUR_OFFSET, 0.0, 0.0)
-		if debug: _pdbg("[PipeDebug]   CONFLICT vs edge_id=%s -> detour offset=%s (leg_is_x=%s)" % [conflict.edge_id, offset, leg_is_x])
+		if debug: _pdbg("[PipeDebug]   CONFLICT vs edge_id=%s -> detour offset=%s (leg_is_x=%s) is_last_leg=%s" % [conflict.edge_id, offset, leg_is_x, is_last_leg])
 		out.append(a + offset)
-		out.append(b + offset)
-		out.append(b)
+		if is_last_leg:
+			## Must still land exactly on the real destination — jog back.
+			out.append(b + offset)
+			out.append(b)
+			current = b
+		else:
+			## Mid-route corner — no anchor to preserve, so just keep
+			## running from the offset point. Skips the pointless
+			## "jog back to the un-offset corner" that produced the small
+			## stub/extra-leg artifact Brannon flagged.
+			out.append(b + offset)
+			current = b + offset
 	return out
 
 ## Finds the single interior crossing point (if any) between leg [a,b] and
