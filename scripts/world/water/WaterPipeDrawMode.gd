@@ -90,6 +90,17 @@ const SPLIT_ENDPOINT_EXCLUDE: float = 0.2
 ## pipe (see _avoid_existing_pipes()) — one full grid tile plus a bit, so
 ## the detour reads as a deliberate loop, not a graze.
 const DETOUR_OFFSET: float = 0.5
+## Lateral tolerance for "same line" in _leg_collinear_overlaps() (July
+## 2026, sixth playtest pass) — widened from the old MIN_POINT_GAP (0.05m)
+## to 2x the pipe's own physical radius (WaterPipeSegment.PIPE_RADIUS).
+## Two pipes laterally offset by less than this still visually touch/clip
+## into each other given their real tube thickness, even when they're not
+## on the mathematically EXACT same line — the old tight tolerance let a
+## new pipe run right alongside (and visually cross) an existing one that
+## was off by just a few centimeters, most commonly traced back to the
+## hookup's own non-grid-aligned wall-snap position propagating a slightly
+## off-grid line (see WaterHookup._grid_snap_along_wall(), added this pass).
+const COLLINEAR_LATERAL_TOLERANCE: float = WaterPipeSegment.PIPE_RADIUS * 2.0
 
 # ─── External refs (set by BuildModeController, mirrors WireDrawMode) ────────
 var camera:     Camera3D = null
@@ -645,6 +656,14 @@ func _leg_collinear_overlaps(a: Vector3, b: Vector3, seg: WaterPipeSegment) -> b
 		return false   ## Vertical drop — not a ceiling-height run, ignore.
 	if absf(a.y - b.y) > MIN_POINT_GAP:
 		return false
+	## Both individually horizontal, but at DIFFERENT heights from each
+	## other (July 2026, sixth playtest pass — a real gap: this was never
+	## checked before). Different Y means no real 3D overlap regardless of
+	## XZ alignment — e.g. an older pipe placed before WATER_CEILING_Y was
+	## raised from 2.8 to 2.9 sitting right below a new one; they'd look
+	## coincident from directly above but aren't actually the same line.
+	if absf(a.y - seg.point_a.y) > MIN_POINT_GAP:
+		return false
 
 	var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
 	var seg_is_x: bool = absf(seg.point_a.x - seg.point_b.x) > absf(seg.point_a.z - seg.point_b.z)
@@ -652,7 +671,7 @@ func _leg_collinear_overlaps(a: Vector3, b: Vector3, seg: WaterPipeSegment) -> b
 		return false   ## Different axis — perpendicular or non-interacting, not an overlap.
 
 	if leg_is_x:
-		if absf(a.z - seg.point_a.z) > MIN_POINT_GAP:
+		if absf(a.z - seg.point_a.z) > COLLINEAR_LATERAL_TOLERANCE:
 			return false   ## Different lateral offset — parallel, not the same line.
 		var lo: float  = minf(a.x, b.x)
 		var hi: float  = maxf(a.x, b.x)
@@ -660,7 +679,7 @@ func _leg_collinear_overlaps(a: Vector3, b: Vector3, seg: WaterPipeSegment) -> b
 		var shi: float = maxf(seg.point_a.x, seg.point_b.x)
 		return lo < shi and hi > slo
 	else:
-		if absf(a.x - seg.point_a.x) > MIN_POINT_GAP:
+		if absf(a.x - seg.point_a.x) > COLLINEAR_LATERAL_TOLERANCE:
 			return false
 		var lo2: float  = minf(a.z, b.z)
 		var hi2: float  = maxf(a.z, b.z)

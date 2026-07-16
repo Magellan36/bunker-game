@@ -382,13 +382,42 @@ Player presses E on WaterHookup/WaterTestSink (Step 2)
   nearest 0.25m grid line (clamped strictly between the segment's own two
   endpoints); the fixed lateral coordinate is copied exactly from the
   segment, never independently snapped, so the point stays precisely ON the
-  pipe's line. **Known remaining edge case:** `WaterHookup`'s own position
-  comes from `WallSnapHelpers._snap_to_nearest_wall()`'s raycast hit point,
-  not the 0.25m grid — a pipe's very FIRST bend leaving the hookup can still
-  show the same tiny-jog artifact if the hookup itself happens to sit
-  slightly off-grid. Not fixed in this pass (out of the reported scope,
-  which was specifically about T-splits) — flagged here in case it's ever
-  reported separately.
+  pipe's line. **Known remaining edge case (CLOSED — see next entry):**
+  `WaterHookup`'s own position comes from
+  `WallSnapHelpers._snap_to_nearest_wall()`'s raycast hit point, not the
+  0.25m grid — a pipe's very FIRST bend leaving the hookup could still show
+  the same tiny-jog artifact if the hookup itself happened to sit slightly
+  off-grid.
+- **Hookup position now grid-snapped along the wall too, fixing pipes that
+  visually crossed through each other (July 2026, sixth playtest pass):**
+  this was the "known remaining edge case" flagged above, and turned out to
+  be worse than a cosmetic jog — it could let a NEW pipe run right through
+  an EXISTING one without the collinear-overlap check ever catching it.
+  ROOT CAUSE: the existing pipe's line traced back to the hookup's
+  non-grid-aligned position, so its fixed lateral coordinate was off the
+  grid by a few centimeters; a fresh destination elsewhere is always
+  exactly grid-aligned via `_grid_snap_xz()`, so the two lines' lateral
+  coordinates differed by just enough to fail the old strict
+  `_leg_collinear_overlaps()` tolerance (`MIN_POINT_GAP` = 0.05m) even
+  though the pipes' physical tubes (radius 0.09m each) visually clipped
+  into each other. TWO fixes, both needed:
+  - `WaterHookup._grid_snap_along_wall()` (new) snaps the hookup's
+    along-the-wall coordinate to the same 0.25m grid as everything else —
+    called from both `_register_deferred()` (initial placement) and
+    `update_graph_node_position()` (covers both the boundary-tracking
+    reposition and the Move tool in one place). The perpendicular
+    into-the-wall coordinate is left untouched so the hookup stays flush
+    against the actual wall face.
+  - `WaterPipeDrawMode.COLLINEAR_LATERAL_TOLERANCE` (new) widens the
+    "same line" lateral tolerance in `_leg_collinear_overlaps()` from
+    `MIN_POINT_GAP` (0.05m) to 2x `WaterPipeSegment.PIPE_RADIUS` (~0.18m) —
+    two pipes visually touching/clipping given their real tube thickness
+    now count as needing avoidance even when not on the mathematically
+    EXACT same line. Also added a missing Y-equality check between the two
+    segments in the same function (previously only checked each was
+    individually horizontal, never that they were at the SAME height —
+    harmless in practice once every pipe is on `WATER_CEILING_Y`, but a
+    real gap if an older run was ever placed at a stale height value).
 - **Pipe undo implemented (July 2026):** `WaterPipeDrawMode.pipe_placed` now
   also emits `elbow_nodes` (every `WaterPipeElbow` spawned for that confirmed
   segment — previously untracked, meaning undo would have left corner visuals
