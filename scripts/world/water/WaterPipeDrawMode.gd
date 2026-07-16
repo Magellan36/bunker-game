@@ -840,7 +840,26 @@ func _avoid_existing_pipes(path: Array, debug: bool = false) -> Array:
 			continue
 
 		var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
-		var offset: Vector3 = Vector3(0.0, 0.0, DETOUR_OFFSET) if leg_is_x else Vector3(DETOUR_OFFSET, 0.0, 0.0)
+		## Sidestep DIRECTION (July 2026, eighth playtest pass): used to be a
+		## fixed +Z (for an X-axis leg) / +X (for a Z-axis leg) regardless of
+		## which way the route actually continues — so detouring toward a
+		## destination on the "wrong" side made the pipe visibly backtrack
+		## (e.g. dip south before finally turning north). Fixed by looking
+		## ahead to the point AFTER this corner (path[i+2], the real next
+		## waypoint) and sidestepping toward it instead. Falls back to the
+		## old fixed +1 direction only when there's no lookahead point (the
+		## conflicting leg is the path's very last leg — it jogs back to the
+		## exact destination afterward regardless, so the initial bulge
+		## direction there is cosmetic only).
+		var sign_val: float = 1.0
+		if i + 2 < path.size():
+			var lookahead: Vector3 = path[i + 2]
+			var diff: float = (lookahead.z - b.z) if leg_is_x else (lookahead.x - b.x)
+			if diff < 0.0:
+				sign_val = -1.0
+			elif diff > 0.0:
+				sign_val = 1.0
+		var offset: Vector3 = Vector3(0.0, 0.0, DETOUR_OFFSET * sign_val) if leg_is_x else Vector3(DETOUR_OFFSET * sign_val, 0.0, 0.0)
 		if debug: _pdbg("[PipeDebug]   CONFLICT vs edge_id=%s -> detour offset=%s (leg_is_x=%s) is_last_leg=%s" % [conflict.edge_id, offset, leg_is_x, is_last_leg])
 		out.append(a + offset)
 		if is_last_leg:
