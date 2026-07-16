@@ -147,6 +147,11 @@ func _register_deferred() -> void:
 	if wm == null:
 		push_warning("WaterHookup: WaterManager not found — will not register into the water graph.")
 		return
+	## Grid-snap along-wall coordinate at registration time too, so this
+	## applies regardless of how the hookup arrived at its position (initial
+	## build-mode placement, or MainWorld's game-start auto-spawn) — see
+	## _grid_snap_along_wall()'s own comment.
+	global_position = _grid_snap_along_wall(global_position, get_facing_dir())
 	_node_key = wm.register_node(global_position, "hookup")
 	wm.register_hookup(self)
 
@@ -167,6 +172,39 @@ func get_facing_dir() -> Vector3:
 	var fx: float = roundf(sin(rad))
 	var fz: float = roundf(cos(rad))
 	return Vector3(fx, 0.0, fz)
+
+
+## Grid-snaps the ALONG-WALL coordinate of `pos` to the same 0.25m grid
+## every pipe waypoint uses (`WaterPipeDrawMode._PIPE_GRID`, kept as its own
+## constant here — independent value, water system stays standalone).
+##
+## WHY (July 2026, sixth playtest pass): the hookup's position comes from
+## `WallSnapHelpers._snap_to_nearest_wall()`'s raw raycast hit point — never
+## grid-aligned. Every pipe waypoint elsewhere in the system IS grid-aligned
+## (fresh destinations via `_grid_snap_xz()`, T-split points via
+## `_grid_snap_split_point()`), so a hookup sitting a few centimeters off the
+## grid meant the very FIRST leg of any pipe network traced back to a
+## slightly-off-grid line — which then either produced a tiny visible
+## "little leg" jog at the next bend, or (worse) let a LATER pipe run right
+## alongside without the collinear-overlap check ever detecting it as the
+## same line (see `WaterPipeDrawMode.COLLINEAR_LATERAL_TOLERANCE`, widened
+## in the same pass this was fixed). Flagged as a known remaining edge case
+## when T-split points were grid-snapped; closing it here for real.
+##
+## The perpendicular INTO-the-wall coordinate is left untouched — it must
+## stay exactly at the wall-snap/pullback result, or the hookup would
+## visually detach from the wall face.
+const _ALONG_WALL_GRID: float = 0.25
+
+func _grid_snap_along_wall(pos: Vector3, facing_dir: Vector3) -> Vector3:
+	var snapped: Vector3 = pos
+	if absf(facing_dir.x) > 0.5:
+		## Facing along X (east/west wall) — the wall runs along Z.
+		snapped.z = roundf(pos.z / _ALONG_WALL_GRID) * _ALONG_WALL_GRID
+	else:
+		## Facing along Z (north/south wall) — the wall runs along X.
+		snapped.x = roundf(pos.x / _ALONG_WALL_GRID) * _ALONG_WALL_GRID
+	return snapped
 
 
 # ─── Auto-tracking the outermost wall ──────────────────────────────────────────
@@ -271,6 +309,12 @@ func update_graph_node_position() -> void:
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
 		return
+
+	## Grid-snap along-wall coordinate here too (July 2026) — covers BOTH
+	## callers of this function (reposition_to_outer_wall()'s boundary-
+	## tracking move, and MoveDuplicateTool's manual Move) in one place. See
+	## _grid_snap_along_wall()'s own comment for the bug this closes.
+	global_position = _grid_snap_along_wall(global_position, get_facing_dir())
 
 	if _node_key.is_empty():
 		_node_key = wm.register_node(global_position, "hookup")
