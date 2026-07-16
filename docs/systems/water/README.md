@@ -69,13 +69,26 @@ work (untested, flagged as a follow-up).
   constant, see `WaterHookup.TIER_DAILY_ML`), no caching (recomputed fresh
   on every call, matching this system's existing "compute live, no
   persistence" pattern).
-- **`scripts/ui/water/` now holds two panels** — `WaterInfoUI.gd` (Step 2,
-  read-only hookup/sink stats, hand-drawn `_draw()`) and
-  `WaterDispenserUI.gd` (Jul 2026, a real interactive `Control`/`HSlider`/
-  `CheckBox` tree — mirrors `GraphicsSettingsPanel.gd`'s precedent, NOT
-  `WaterInfoUI`'s `_draw()` pattern, since a rate slider + toggle is a
-  meaningfully different shape than a static stat display). Still no full
-  dashboard/terminal UI in the `PowerTerminalUI` sense.
+- **`scripts/ui/water/` now holds two panels, both hand-drawn `_draw()`
+  panels** — `WaterInfoUI.gd` (Step 2, read-only hookup/sink stats) and
+  `WaterDispenserUI.gd` (Jul 2026, interactive rate slider + on/off + demand
+  priority). `WaterDispenserUI.gd` was originally built as a stock
+  `Panel`/`VBoxContainer`/`CheckBox` tree mirroring `GraphicsSettingsPanel.gd`
+  (default Godot theme throughout); restyled the same day to match
+  `WaterInfoUI`/`PowerPriorityUI`'s look instead — a `Control` + `_on_draw()`
+  background/border/text pass with real `HSlider`/`Button` nodes (styled,
+  not stock-themed) overlaid and repositioned every frame, same pattern
+  `PowerPriorityUI.gd` already used for its ◄ N ► priority changer. Still no
+  full dashboard/terminal UI in the `PowerTerminalUI` sense.
+- **Demand priority is now player-adjustable from both device panels**
+  (Jul 2026) — `WaterInfoUI.gd`'s sink branch and `WaterDispenserUI.gd` both
+  draw the same ◄ N ► chip+pip-strip layout as `PowerPriorityUI.gd` (same
+  `PRIO_COLORS` green→red legend, reused verbatim — universal tier meaning,
+  not a power-vs-water palette). Priority is set directly on the device
+  (`sink.priority` / `dispenser.priority`) rather than through a manager
+  setter call — `WaterSolver.gd` already reads `priority` live off
+  `consumer_ref` every solve (see `_read_priority()`), so no explicit
+  "apply" step is needed; the very next solve picks up the change.
 - **Does not reuse `WallSnapHelpers.gd`'s existing snap functions directly**
   (`_snap_light_to_wall`/`_snap_breaker_to_wall` stay build-mode-only,
   untouched) — the water system either calls the new generic
@@ -96,10 +109,10 @@ work (untested, flagged as a follow-up).
 | `WaterPipeElbow.gd` | Corner-joint visual, spawned automatically at a corner crossing. A REAL graph node (role `"corner"`), not just cosmetic — see Extension points. |
 | `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **Uses the plan's own pre-approved FALLBACK interaction model (one confirm per click), not the full single-drag paint — see its own file-header comment and Known tradeoffs below.** |
 | `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). Interactable (Step 2) — see `WaterInfoUI.gd`. Jul 2026: `priority: int` (1-5) + `fixed_demand_mL_per_day: float` exports, implements `get_current_demand_mL_per_day()` for `WaterSolver.gd`. |
-| `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026. ONE shared info panel for both `WaterHookup` and `WaterTestSink` (`is_source` flag distinguishes them) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. Hookup-side stats rewritten Jul 2026 (see Non-responsibilities). |
+| `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026. ONE shared info panel for both `WaterHookup` and `WaterTestSink` (`is_source` flag distinguishes them) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. Hookup-side stats rewritten Jul 2026 (see Non-responsibilities). Sink branch gained a `PowerPriorityUI`-style ◄ N ► demand-priority changer Jul 2026 (dynamic panel height: `PANEL_H_SOURCE`/`PANEL_H_SINK`). |
 | `WaterSolver.gd` | Jul 2026. Priority-tier demand waterfall — `RefCounted`, `_graph: WaterGraph` back-reference (same split pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver`). Pure read-only queries, no state held between calls. |
 | `WaterDispenser.gd` | Jul 2026. The first real water-consuming device — 5000mL storage, on/off, player-tunable requested rate, fill tick driven by the solver's actual grant. `TILE_WATER_DISPENSER` in `BuildModeController`, ground-placed like the test sink. |
-| `WaterDispenserUI.gd` (`scripts/ui/water/`) | Jul 2026. Real `Control`/`HSlider`/`CheckBox` interactive panel — fill level, rate slider (0 to the live dynamic max), effective (actually received) rate, on/off toggle, water-quality placeholder. |
+| `WaterDispenserUI.gd` (`scripts/ui/water/`) | Jul 2026, restyled same day. Hand-drawn `_draw()` panel (matches `WaterInfoUI`/`PowerPriorityUI`) with real `HSlider`/`Button` controls overlaid — fill level, rate slider (0 to the live dynamic max), effective (actually received) rate, on/off pill toggle, ◄ N ► demand-priority changer, water-quality placeholder. |
 
 ## Public API
 Get the instance via
@@ -673,13 +686,13 @@ stable (matches the project's standing debug-logging discipline).
   what it's received). Both fields already exist and are already wired into
   their respective UI displays, so a future decay/mixing system only needs
   to mutate the values, not introduce them or their UI.
-- **Priority adjustment UI for `WaterTestSink`/`WaterDispenser`:** both
-  devices' `priority` field is currently Inspector-only (`WaterTestSink`) or
-  slider-panel-adjacent but not directly exposed (`WaterDispenser` — its
-  `WaterDispenserUI.gd` shows/uses the `priority` value for the dynamic-max
-  query but has no UI control to CHANGE it yet). Mirroring
-  `PowerPriorityUI.gd`'s ◄ N ► pattern for both is a natural next step,
-  flagged in the original plan as recommended-but-deferred.
+- ~~Priority adjustment UI for `WaterTestSink`/`WaterDispenser`~~ — **DONE
+  (Jul 2026, same day).** Both devices now have a `PowerPriorityUI.gd`-style
+  ◄ N ► changer: `WaterTestSink`'s lives in `WaterInfoUI.gd`'s sink branch,
+  `WaterDispenser`'s lives directly in `WaterDispenserUI.gd`. Both set
+  `priority` straight on the device node (no manager setter call needed —
+  `WaterSolver._read_priority()` already reads it live off `consumer_ref`
+  every solve).
 - **New pipe-drawing UX (the full continuous-paint upgrade):** replace
   `WaterPipeDrawMode`'s per-click confirm loop with a live multi-segment path
   preview that walks around however many corners the cursor's projected
