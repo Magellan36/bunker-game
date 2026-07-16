@@ -102,6 +102,32 @@ const DETOUR_OFFSET: float = 0.5
 ## off-grid line (see WaterHookup._grid_snap_along_wall(), added this pass).
 const COLLINEAR_LATERAL_TOLERANCE: float = WaterPipeSegment.PIPE_RADIUS * 2.0
 
+# ─── Debug (July 2026, seventh playtest pass) ────────────────────────────────
+## Flip false to silence all [PipeDebug] prints. Kept ON per Brannon's
+## explicit request to nail down why pipes are still being routed/placed
+## oddly after the last fix — matches the project's standing WIRE_DEBUG
+## convention (see WireDrawMode.gd/BuildModeController.gd), don't strip
+## until he explicitly asks for this stable.
+const PIPE_DEBUG: bool = true
+func _pdbg(msg: String) -> void:
+	if PIPE_DEBUG:
+		print(msg)
+
+## Dumps every currently-registered REAL pipe segment (via "water_pipe_visual"
+## — ghosts never join that group, see WaterPipeSegment.is_ghost) so a debug
+## session has full context on what the tool thinks already exists,
+## alongside a fresh placement attempt's own log lines.
+func _dump_pipe_network() -> void:
+	_pdbg("[PipeDebug] ── current water_pipe_visual network ──")
+	var count: int = 0
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if not is_instance_valid(node) or not (node is WaterPipeSegment):
+			continue
+		var seg: WaterPipeSegment = node as WaterPipeSegment
+		count += 1
+		_pdbg("[PipeDebug]   seg edge_id=%s  a=%s  b=%s" % [seg.edge_id, seg.point_a, seg.point_b])
+	_pdbg("[PipeDebug] ── %d real segment(s) total ──" % count)
+
 # ─── External refs (set by BuildModeController, mirrors WireDrawMode) ────────
 var camera:     Camera3D = null
 var world_node: Node     = null
@@ -198,11 +224,14 @@ func _try_pick_source() -> bool:
 		return false
 
 	var cursor_pos: Vector3 = _get_cursor_world_pos()
+	_pdbg("[PipeDebug] ══════ pick source ══════  cursor_pos=%s" % cursor_pos)
+	_dump_pipe_network()
 	var nearest: Dictionary = _get_nearest_water_node_xz(wm, cursor_pos, SOURCE_SNAP_RADIUS)
 	if not nearest.is_empty():
 		_source_key = nearest["key"]
 		_source_pos = nearest["pos"]
 		_phase = 1
+		_pdbg("[PipeDebug] source = existing node key=%s pos=%s" % [_source_key, _source_pos])
 		return true
 
 	## T-split anywhere (July 2026, third playtest pass): no existing NODE
@@ -214,12 +243,14 @@ func _try_pick_source() -> bool:
 	var split: Dictionary = _find_split_candidate(wm, cursor_pos)
 	if not split.is_empty():
 		var new_key: String = _split_pipe_at(wm, split)
+		_pdbg("[PipeDebug] source = split at %s -> new_key=%s" % [split.get("pos", Vector3.ZERO), new_key])
 		if not new_key.is_empty():
 			_source_key = new_key
 			_source_pos = split["pos"]
 			_phase = 1
 			return true
 
+	_pdbg("[PipeDebug] source pick FAILED — no node or splittable pipe within range")
 	_show_warning("Must start a pipe from the hookup or an existing pipe run")
 	return false
 
@@ -273,8 +304,14 @@ func _try_confirm_segment() -> void:
 		return
 
 	var cursor_pos: Vector3 = _get_cursor_world_pos()
+	_pdbg("[PipeDebug] ══════ confirm attempt ══════")
+	_pdbg("[PipeDebug] cursor_pos=%s  source_key=%s  source_pos=%s" % [cursor_pos, _source_key, _source_pos])
+	_dump_pipe_network()
+
 	var dest: Dictionary = _resolve_destination(cursor_pos)
+	_pdbg("[PipeDebug] resolve_destination -> %s" % [dest])
 	if dest.is_empty():
+		_pdbg("[PipeDebug] ABORT: dest empty")
 		_show_warning("No valid pipe destination here")
 		return
 
@@ -284,26 +321,38 @@ func _try_confirm_segment() -> void:
 	## the new joint exactly like any other existing-node destination.
 	if dest.has("split_candidate"):
 		var split_key: String = _split_pipe_at(wm, dest["split_candidate"])
+		_pdbg("[PipeDebug] split_candidate present -> _split_pipe_at() returned key=%s" % split_key)
 		if split_key.is_empty():
+			_pdbg("[PipeDebug] ABORT: split failed")
 			_show_warning("Could not split pipe here")
 			return
 		dest = { "pos": dest["pos"], "existing_key": split_key }
 
 	var dest_pos: Vector3 = dest["pos"]
 	var raw_path: Array = _build_manhattan_path(_source_pos, dest_pos)
+	_pdbg("[PipeDebug] dest_pos=%s  raw_path=%s" % [dest_pos, raw_path])
 	if raw_path.size() < 2:
+		_pdbg("[PipeDebug] ABORT: raw_path too short (size=%d)" % raw_path.size())
 		_show_warning("Pipe segment too short")
 		return
 
 	## No-overlap routing — same reroute the ghost preview already showed
 	## (see _update_ghost_preview()/_avoid_existing_pipes()), re-run here so
-	## a confirm click always matches what was previewed.
-	var path: Array = _avoid_existing_pipes(raw_path)
+	## a confirm click always matches what was previewed. debug=true here
+	## (unlike the preview's own call) — this is a one-off click, not a
+	## 60fps per-frame call, so full verbose logging is safe.
+	var path: Array = _avoid_existing_pipes(raw_path, true)
+	_pdbg("[PipeDebug] avoided_path=%s  (%d point(s), raw had %d — %s)" %
+		[path, path.size(), raw_path.size(),
+		("DETOUR INSERTED" if path.size() != raw_path.size() else "no detour")])
 
 	## Validity check — out-of-bounds only now; collinear overlap is
 	## rerouted above rather than rejected (see docs/systems/water/README.md
 	## Known tradeoffs).
-	if not _is_path_in_bounds(path):
+	var bounds_ok: bool = _is_path_in_bounds(path)
+	_pdbg("[PipeDebug] _is_path_in_bounds -> %s" % bounds_ok)
+	if not bounds_ok:
+		_pdbg("[PipeDebug] ABORT: out of bounds. Full path was: %s" % [path])
 		_show_warning("Cannot place pipe outside the bunker")
 		return
 
@@ -311,9 +360,11 @@ func _try_confirm_segment() -> void:
 	for i in range(path.size() - 1):
 		total_length += path[i].distance_to(path[i + 1])
 	var cost: int = int(ceil(total_length * COST_PER_M))
+	_pdbg("[PipeDebug] total_length=%.3f  cost=%d" % [total_length, cost])
 
 	if world_node != null:
 		if not world_node.spend_cash(cost):
+			_pdbg("[PipeDebug] ABORT: not enough cash")
 			_show_warning("Not enough cash for this pipe run")
 			return
 
@@ -323,6 +374,7 @@ func _try_confirm_segment() -> void:
 	## only ever called here (confirm time), never from the read-only ghost
 	## preview. See _insert_crossings()'s own comment for the full shape.
 	var points: Array = _insert_crossings(wm, path, dest.get("existing_key", ""))
+	_pdbg("[PipeDebug] points after _insert_crossings=%s" % [points])
 
 	## ── Register a graph node for every point that doesn't already have a
 	## key (crossings/source/an existing-node destination all arrive with
@@ -348,6 +400,7 @@ func _try_confirm_segment() -> void:
 			elbow.node_key = corner_key
 			keys.append(corner_key)
 			elbow_nodes.append(elbow)
+	_pdbg("[PipeDebug] final keys=%s" % [keys])
 
 	## ── Register edges + spawn real segments for each leg of the path ──
 	var seg_nodes: Array = []
@@ -362,6 +415,7 @@ func _try_confirm_segment() -> void:
 		seg.set_endpoints(points[i]["pos"], points[i + 1]["pos"])
 		seg_nodes.append(seg)
 		edge_ids.append(edge_id)
+		_pdbg("[PipeDebug] PLACED segment edge_id=%s  a=%s  b=%s" % [edge_id, points[i]["pos"], points[i + 1]["pos"]])
 
 	var undo_midpoint: Vector3 = (points[0]["pos"] + points[points.size() - 1]["pos"]) * 0.5
 	## Floating "-$X" label at the moment of spend — mirrors the "+$X" refund
@@ -578,6 +632,8 @@ func _find_split_candidate(wm: WaterManager, cursor_pos: Vector3) -> Dictionary:
 			continue
 		best_dist = d
 		best = candidate
+		_pdbg("[PipeDebug] _find_split_candidate: raw_closest=%s -> grid_snapped=%s (seg edge_id=%s a=%s b=%s)" %
+			[raw_closest, closest, seg.edge_id, seg.point_a, seg.point_b])
 	return best
 
 ## Grid-snaps a split point along `seg`'s own line to the same 0.25m grid
@@ -651,10 +707,16 @@ func _split_pipe_at(wm: WaterManager, candidate: Dictionary) -> String:
 ## coordinate) AND their ranges overlap along that axis — i.e. the new leg
 ## would literally run on top of the existing pipe. Perpendicular crossings
 ## are a SEPARATE, explicitly ALLOWED case — see _find_perpendicular_crossing().
-func _leg_collinear_overlaps(a: Vector3, b: Vector3, seg: WaterPipeSegment) -> bool:
+## `debug` gates the verbose per-check prints — MUST be false for the
+## per-frame ghost preview call (else PIPE_DEBUG would flood the console at
+## 60fps) and true only for the actual confirm-click call, see
+## _avoid_existing_pipes()'s own `debug` param.
+func _leg_collinear_overlaps(a: Vector3, b: Vector3, seg: WaterPipeSegment, debug: bool = false) -> bool:
 	if absf(seg.point_a.y - seg.point_b.y) > MIN_POINT_GAP:
+		if debug: _pdbg("[PipeDebug]     -> false: seg is a vertical drop (seg.point_a.y=%.3f seg.point_b.y=%.3f)" % [seg.point_a.y, seg.point_b.y])
 		return false   ## Vertical drop — not a ceiling-height run, ignore.
 	if absf(a.y - b.y) > MIN_POINT_GAP:
+		if debug: _pdbg("[PipeDebug]     -> false: leg itself is a vertical drop (a.y=%.3f b.y=%.3f)" % [a.y, b.y])
 		return false
 	## Both individually horizontal, but at DIFFERENT heights from each
 	## other (July 2026, sixth playtest pass — a real gap: this was never
@@ -663,36 +725,54 @@ func _leg_collinear_overlaps(a: Vector3, b: Vector3, seg: WaterPipeSegment) -> b
 	## raised from 2.8 to 2.9 sitting right below a new one; they'd look
 	## coincident from directly above but aren't actually the same line.
 	if absf(a.y - seg.point_a.y) > MIN_POINT_GAP:
+		if debug: _pdbg("[PipeDebug]     -> false: different height (leg.y=%.3f seg.y=%.3f, diff=%.4f)" % [a.y, seg.point_a.y, absf(a.y - seg.point_a.y)])
 		return false
 
 	var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
 	var seg_is_x: bool = absf(seg.point_a.x - seg.point_b.x) > absf(seg.point_a.z - seg.point_b.z)
 	if leg_is_x != seg_is_x:
+		if debug: _pdbg("[PipeDebug]     -> false: different axis (leg_is_x=%s seg_is_x=%s)" % [leg_is_x, seg_is_x])
 		return false   ## Different axis — perpendicular or non-interacting, not an overlap.
 
 	if leg_is_x:
-		if absf(a.z - seg.point_a.z) > COLLINEAR_LATERAL_TOLERANCE:
+		var lateral_diff: float = absf(a.z - seg.point_a.z)
+		if lateral_diff > COLLINEAR_LATERAL_TOLERANCE:
+			if debug: _pdbg("[PipeDebug]     -> false: lateral offset %.4f exceeds tolerance %.4f (leg.z=%.3f seg.z=%.3f)" %
+				[lateral_diff, COLLINEAR_LATERAL_TOLERANCE, a.z, seg.point_a.z])
 			return false   ## Different lateral offset — parallel, not the same line.
 		var lo: float  = minf(a.x, b.x)
 		var hi: float  = maxf(a.x, b.x)
 		var slo: float = minf(seg.point_a.x, seg.point_b.x)
 		var shi: float = maxf(seg.point_a.x, seg.point_b.x)
-		return lo < shi and hi > slo
+		var range_overlap: bool = lo < shi and hi > slo
+		if debug: _pdbg("[PipeDebug]     -> X-axis, lateral_diff=%.4f (ok), leg_x=[%.3f,%.3f] seg_x=[%.3f,%.3f] range_overlap=%s" %
+			[lateral_diff, lo, hi, slo, shi, range_overlap])
+		return range_overlap
 	else:
-		if absf(a.x - seg.point_a.x) > COLLINEAR_LATERAL_TOLERANCE:
+		var lateral_diff2: float = absf(a.x - seg.point_a.x)
+		if lateral_diff2 > COLLINEAR_LATERAL_TOLERANCE:
+			if debug: _pdbg("[PipeDebug]     -> false: lateral offset %.4f exceeds tolerance %.4f (leg.x=%.3f seg.x=%.3f)" %
+				[lateral_diff2, COLLINEAR_LATERAL_TOLERANCE, a.x, seg.point_a.x])
 			return false
 		var lo2: float  = minf(a.z, b.z)
 		var hi2: float  = maxf(a.z, b.z)
 		var slo2: float = minf(seg.point_a.z, seg.point_b.z)
 		var shi2: float = maxf(seg.point_a.z, seg.point_b.z)
-		return lo2 < shi2 and hi2 > slo2
+		var range_overlap2: bool = lo2 < shi2 and hi2 > slo2
+		if debug: _pdbg("[PipeDebug]     -> Z-axis, lateral_diff=%.4f (ok), leg_z=[%.3f,%.3f] seg_z=[%.3f,%.3f] range_overlap=%s" %
+			[lateral_diff2, lo2, hi2, slo2, shi2, range_overlap2])
+		return range_overlap2
 
-func _find_collinear_conflict(a: Vector3, b: Vector3) -> WaterPipeSegment:
+func _find_collinear_conflict(a: Vector3, b: Vector3, debug: bool = false) -> WaterPipeSegment:
 	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
 		if not is_instance_valid(node) or not (node is WaterPipeSegment):
 			continue
 		var seg: WaterPipeSegment = node as WaterPipeSegment
-		if _leg_collinear_overlaps(a, b, seg):
+		var overlaps: bool = _leg_collinear_overlaps(a, b, seg, debug)
+		if debug:
+			_pdbg("[PipeDebug]   collinear-check leg[%s -> %s] vs seg edge_id=%s a=%s b=%s => %s" %
+				[a, b, seg.edge_id, seg.point_a, seg.point_b, overlaps])
+		if overlaps:
 			return seg
 	return null
 
@@ -715,18 +795,25 @@ func _find_collinear_conflict(a: Vector3, b: Vector3) -> WaterPipeSegment:
 ##   doesn't check which side actually has clearance. A future pass could
 ##   pick the side with more room; not attempted here to keep this
 ##   contained.
-func _avoid_existing_pipes(path: Array) -> Array:
+## `debug` gates verbose per-leg/per-segment prints — pass true only from
+## the actual confirm-click path (_try_confirm_segment()), false (default)
+## from the per-frame ghost preview (_update_ghost_preview()) so PIPE_DEBUG
+## doesn't flood the console at 60fps while dragging.
+func _avoid_existing_pipes(path: Array, debug: bool = false) -> Array:
 	var out: Array = [path[0]]
 	for i in range(path.size() - 1):
 		var a: Vector3 = path[i]
 		var b: Vector3 = path[i + 1]
-		var conflict: WaterPipeSegment = _find_collinear_conflict(a, b)
+		if debug: _pdbg("[PipeDebug] _avoid_existing_pipes: checking leg %d [%s -> %s]" % [i, a, b])
+		var conflict: WaterPipeSegment = _find_collinear_conflict(a, b, debug)
 		if conflict == null:
+			if debug: _pdbg("[PipeDebug]   no conflict for this leg")
 			out.append(b)
 			continue
 
 		var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
 		var offset: Vector3 = Vector3(0.0, 0.0, DETOUR_OFFSET) if leg_is_x else Vector3(DETOUR_OFFSET, 0.0, 0.0)
+		if debug: _pdbg("[PipeDebug]   CONFLICT vs edge_id=%s -> detour offset=%s (leg_is_x=%s)" % [conflict.edge_id, offset, leg_is_x])
 		out.append(a + offset)
 		out.append(b + offset)
 		out.append(b)
@@ -936,6 +1023,8 @@ func _is_path_in_bounds(path: Array) -> bool:
 		## Outside the tightened rectangle — fall back to the shared, looser
 		## check (handles dug/expanded chunks beyond the original rectangle).
 		if not build_controller._is_inside_bunker(p):
+			_pdbg("[PipeDebug] _is_path_in_bounds: FAILED at point %s (tightened rect x=[%.3f,%.3f] z=[%.3f,%.3f], and _is_inside_bunker() also said false)" %
+				[p, min_x, max_x, min_z, max_z])
 			return false
 	return true
 
