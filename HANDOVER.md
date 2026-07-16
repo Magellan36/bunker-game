@@ -1,9 +1,17 @@
 # BunkerGame — Agent Handover Doc
 
-**Last updated:** repo HEAD `209b0ab`
+**Last updated:** repo HEAD `0ab566a`
 
 Paste this whole file into a new chat to resume work with full context,
 without carrying forward the old chat's history.
+
+## Standing directive: read `AI_CONTEXT.md` first, every session
+**Before doing anything else, check the repo root for `AI_CONTEXT.md` and
+read it if present.** This is a permanent instruction for this file and
+every future rewrite of it — do not drop this section in later handovers.
+(As of this writing `AI_CONTEXT.md` does not exist yet at repo root — if
+that's still the case when you read this, skip it and mention to Brannon
+that it's still missing rather than silently ignoring the directive.)
 
 ---
 
@@ -181,39 +189,41 @@ length.
 - **Water system Phase 1 groundwork + Step 2 (interactable hookup/sink,
   live flow-split) — both shipped and confirmed working.** Full detail:
   `docs/systems/water/README.md`.
-- **Water pipe tool — multiple playtest rounds of fixes, ONE bug still
-  open (active investigation).** Since Step 2 landed, pipes have gone
-  through several rounds of real fixes: pipe height/exit-keys/wall-hugging
-  routing/tightened bounds, T-splits-anywhere (branch off any point on a
-  placed pipe, not just registered nodes), no-overlap routing (collinear
-  overlaps reroute with a sidestep detour, perpendicular "+" crossings are
-  allowed and create a shared joint), a hookup-position grid-snap fix, and
-  a `[PipeDebug]` diagnostic logging system (`WaterPipeDrawMode.PIPE_DEBUG`).
-  **Still open:** Brannon reports pipes occasionally still cross/overlap
-  visually. The last debug log he sent had a real bug in the LOGGING itself
-  (two functions weren't gated behind the `debug` param, flooding the
-  console every frame during the live ghost preview — now fixed) which
-  buried the signal; the actual routing/placement decisions recorded in
-  that log were all correct (clean placement + correct out-of-bounds
-  rejections). **Need a fresh, readable `[PipeDebug]` log from a session
-  where a pipe actually LANDS overlapping another** (not just a rejected
-  attempt) to keep diagnosing — see `docs/systems/water/README.md` Debug
-  logging section for what the trace shows.
+- **Water pipe tool overlap/routing bugs — RESOLVED.** The `[PipeDebug]`
+  logging-spam bug was fixed, then the real routing bugs (detour sidestep
+  causing visible backtrack, extra stub/leg left at mid-route corners) were
+  found and fixed in follow-up commits. No open pipe-routing bug as of this
+  writing.
+- **Water demand-based priority-tier allocation — shipped and confirmed
+  working (latest commit `0ab566a`).** `WaterSolver.gd` now does a real
+  priority-tier (1-5) demand waterfall instead of Step 2's equal-split;
+  `WaterTestSink`/`WaterDispenser` each have a tunable `priority` +
+  live demand. Both device UI panels (`WaterInfoUI.gd` sink branch,
+  `WaterDispenserUI.gd`) got a `PowerPriorityUI`-style ◄ N ► demand-priority
+  chip+pip-strip changer, and `WaterDispenserUI.gd` was restyled from a
+  stock Godot panel to match the hand-drawn `_draw()` theme used by
+  `WaterInfoUI`/`PowerPriorityUI`. Full detail (including the still-open
+  "not real flow/pressure sim yet" caveat):
+  `docs/systems/water/README.md`.
 
 ## Next up
-**Immediate:** waiting on Brannon for a clean `[PipeDebug]` console log
-capturing an actual bad pipe placement (visually overlapping/crossing
-another pipe), now that the logging-spam bug is fixed. Don't change the
-pipe routing/avoidance logic again without that log — the last two rounds
-of guessing-then-fixing plausible root causes (hookup grid-snap, lateral
-tolerance) didn't fully resolve it, so this needs real data before the next
-change, not another speculative fix (matches the standing "if multiple
-sessions fail to fix a bug, step back" directive above).
+**This session's task: the save/load system.**
+- Read `docs/systems/world-core/README.md` first (covers `SaveManager.gd`'s
+  generic field-registry pattern) and `scripts/world/core/SaveManager.gd`
+  itself (~155 lines) before making changes.
+- Current state per that doc/system memory: `SaveManager` is an autoload,
+  any system plugs a getter/setter pair into it under a string key, saves
+  to `user://save_slot_1/2/3.json`, load skips unregistered keys. Pause
+  menu (ESC) already has Save/Load UI wired to 3 slots.
+- Brannon hasn't specified the exact scope of this session's save/load work
+  yet — ask him what's missing/broken/wanted (e.g. which systems still
+  aren't registered with `SaveManager`, whether slot UI needs polish, save
+  versioning/migration, etc.) before writing code.
 
-See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the rest of the list
-(water system Phase 2 — real flow/pressure sim, quality decay, Main Menu,
-Death/game-over state, emergency_light placement, generator exhaust smoke
-scaling, remaining graphics-overhaul deferred items, upgrading
+See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the rest of the
+backlog (water system Phase 2 — real flow/pressure sim, quality decay, Main
+Menu, Death/game-over state, emergency_light placement, generator exhaust
+smoke scaling, remaining graphics-overhaul deferred items, upgrading
 `WaterPipeDrawMode` to the full continuous-paint UX). No systems pending doc
 migration anymore (all 9 done as of July 2026).
 
