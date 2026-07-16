@@ -290,21 +290,23 @@ func reposition_to_outer_wall() -> void:
 ## WaterGraph nodes are keyed by position, so a reposition needs a fresh
 ## register.
 ##
-## FIXED (Step 2 verification pass, July 2026 — this was exactly the
-## untested risk flagged in docs/systems/water/README.md Known tradeoffs):
-## unregister_node() cascades to remove every edge touching the old key,
-## which used to silently orphan any pipe(s) already routed from the hookup
-## — the graph edge vanished, but nobody ever told the WaterPipeSegment
-## visual to free or move itself, so it stayed floating at the OLD position
-## forever, no longer part of the (now broken) network. Confirmed by
-## tracing WaterGraph.unregister_node()/register_edge() — this was a REAL
-## bug, not just "untested," once pipes existed to attach to the hookup.
-## FIX: capture every edge touching the old key BEFORE tearing it down,
-## re-create the same edges against the NEW key once it's registered, and
-## redraw each affected WaterPipeSegment in place (see
-## _redraw_pipe_segment()) rather than letting them vanish. Corners/elbows
-## further down each run are untouched — their own positions don't depend
-## on the hookup's, only the FIRST segment leaving the hookup does.
+## CORRECTED (July 2026 — supersedes the auto-redraw fix from the previous
+## pass): silently re-stretching the directly-connected segment to the
+## hookup's new position fixed the "floating orphan visual" bug but reopened
+## it as an economy exploit — pipes cost per meter (see COST_PER_M), so a
+## free auto-redraw on every reposition let a player dig outward repeatedly
+## and get arbitrarily long pipe runs without ever paying for the added
+## length. CORRECT BEHAVIOR: delete + refund every edge that was directly
+## touching the hookup's OLD position (same treatment as a normal undo, not
+## a silent stretch) and reconnect nothing automatically — whatever that
+## segment used to connect to (a corner, a T-split joint, further pipe run)
+## stays exactly where it is, still registered in the graph, just no longer
+## reachable from the hookup until the player manually places a new segment
+## from the hookup's new position, at normal cost, same as any other
+## placement. Applies uniformly to BOTH callers of this function
+## (reposition_to_outer_wall()'s boundary-tracking move, and
+## MoveDuplicateTool's manual Move) — deliberately not caller-specific, so a
+## player can't dodge the fix by relocating via the Move tool instead.
 func update_graph_node_position() -> void:
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
@@ -326,34 +328,55 @@ func update_graph_node_position() -> void:
 	wm.unregister_node(old_key)
 	_node_key = wm.register_node(global_position, "hookup")
 
+	## Do NOT re-create edges or redraw segments. Delete + refund every
+	## edge that touched the hookup directly — corners/joints further down
+	## each run are untouched, they stay registered, they just lose their
+	## link back to the hookup until the player manually reconnects.
 	for entry: Dictionary in touching:
-		var other_key: String = entry["other_key"]
-		if not wm.has_water_node(other_key):
-			continue   ## Defensive — the neighbor wasn't touched by this reposition, shouldn't happen.
-		var new_edge_id: String = wm.register_edge(_node_key, other_key)
-		if new_edge_id.is_empty():
-			continue
-		var other_pos: Vector3 = wm.get_node_data(other_key).get("pos", Vector3.ZERO)
-		_redraw_pipe_segment(entry["edge_id"], new_edge_id, global_position, other_pos)
+		_delete_and_refund_edge(entry["edge_id"], wm)
 
-## Finds the live WaterPipeSegment visual for `old_edge_id` (via the
-## "water_pipe_visual" group every WaterPipeSegment joins on _ready() purely
-## for findability — a DIFFERENT, additive-only group from WireSegment's
-## hide-on-exit-build-mode pattern, never used for show/hide here — see that
-## file's own comment) and updates it in place: new edge_id, redrawn between
-## the hookup's new position and the unchanged neighbor position. Silently
-## no-ops if no matching segment is found (defensive — shouldn't happen for
-## a hookup's own direct edges).
-func _redraw_pipe_segment(old_edge_id: String, new_edge_id: String, hookup_pos: Vector3, other_pos: Vector3) -> void:
-	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
-		if not is_instance_valid(node) or not (node is WaterPipeSegment):
-			continue
-		var seg: WaterPipeSegment = node as WaterPipeSegment
-		if seg.edge_id != old_edge_id:
-			continue
-		seg.edge_id = new_edge_id
-		seg.set_endpoints(hookup_pos, other_pos)
+## Deletes one edge the hookup used to own and refunds whatever its visual
+## segment cost to place (WaterPipeSegment.placement_cost — see that var's
+## own comment). Mirrors BuildUndoStack's existing pipe-undo refund pattern
+## (add_cash + floating "+$X" label) so this doesn't feel silently different
+## from every other refund in the game.
+func _delete_and_refund_edge(edge_id: String, wm: WaterManager) -> void:
+	var seg: WaterPipeSegment = _find_pipe_visual(edge_id)
+	var refund: int = 0
+	var refund_pos: Vector3 = global_position
+	if seg != null:
+		refund = seg.placement_cost
+		refund_pos = (seg.point_a + seg.point_b) * 0.5
+		seg.queue_free()
+	wm.unregister_edge(edge_id)
+	if refund > 0:
+		var world_node: Node = get_tree().get_first_node_in_group("main_world")
+		if world_node != null and world_node.has_method("add_cash"):
+			world_node.add_cash(refund)
+			_spawn_float_label(world_node, refund_pos, refund)
+
+## Floating "+$X" refund label — same HUD.spawn_float_label() call
+## WaterPipeDrawMode._spawn_float_label() uses, duplicated here for the same
+## reason that function gives (water system stays standalone). Always a
+## refund (positive=true) — this function only ever runs on deletion.
+func _spawn_float_label(world_node: Node, world_pos: Vector3, amount: int) -> void:
+	if amount == 0:
 		return
+	var camera: Camera3D = get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var screen_pos: Vector2 = camera.unproject_position(world_pos)
+	var main_hud: Node = world_node.get_node_or_null("HUD")
+	if main_hud != null and main_hud.has_method("spawn_float_label"):
+		main_hud.spawn_float_label(screen_pos, amount, true)
+
+## Finds the live WaterPipeSegment visual for `edge_id` — same
+## "water_pipe_visual" group lookup the previous redraw path used.
+func _find_pipe_visual(edge_id: String) -> WaterPipeSegment:
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if is_instance_valid(node) and node is WaterPipeSegment and (node as WaterPipeSegment).edge_id == edge_id:
+			return node as WaterPipeSegment
+	return null
 
 
 # ─── Visual build ─────────────────────────────────────────────────────────────

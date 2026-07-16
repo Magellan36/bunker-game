@@ -67,7 +67,7 @@ already partially work (untested, flagged as a follow-up).
 | `WaterGraph.gd` | Node/edge registry + BFS connectivity. `RefCounted`, `_owner: WaterManager` back-reference (same pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver` — see `docs/systems/power/README.md`). |
 | `WaterManager.gd` | Orchestrator + public API. Forwards to `WaterGraph`. Also holds the hookup registry + dispatches boundary-change reposition events. |
 | `WaterHookup.gd` | The wall-mounted source device. Wall-snapped placement, never deletable, auto-tracks the outermost wall in its facing direction as the bunker expands. |
-| `WaterPipeSegment.gd` | Visual for one straight placed pipe. **Always visible** (see Known tradeoffs). Joins group `"water_pipe_visual"` on `_ready()` (Step 2, July 2026) — pure findability for `WaterHookup._redraw_pipe_segment()`, NOT the `WireSegment` hide-on-exit-build-mode pattern. |
+| `WaterPipeSegment.gd` | Visual for one straight placed pipe. **Always visible** (see Known tradeoffs). Joins group `"water_pipe_visual"` on `_ready()` (Step 2, July 2026) — pure findability for `WaterHookup._delete_and_refund_edge()`, NOT the `WireSegment` hide-on-exit-build-mode pattern. Also carries `placement_cost` (July 2026) — per-leg cost stashed at spawn time, source of truth for that same refund path. |
 | `WaterPipeElbow.gd` | Corner-joint visual, spawned automatically at a corner crossing. A REAL graph node (role `"corner"`), not just cosmetic — see Extension points. |
 | `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **Uses the plan's own pre-approved FALLBACK interaction model (one confirm per click), not the full single-drag paint — see its own file-header comment and Known tradeoffs below.** |
 | `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). Interactable (Step 2) — see `WaterInfoUI.gd`. |
@@ -127,14 +127,15 @@ primitives Step 2's `WaterManager` methods above forward to; both mirror
 
 `WaterGraph.get_edges_touching(key) -> Array` (`[{"edge_id": String,
 "other_key": String}, ...]`) / `WaterManager.get_edges_touching(key) ->
-Array` (thin forward) — added for the hookup-reposition pipe-redraw fix (see
-Known tradeoffs), reusable by anything else that ever needs to know which
-edges touch a given node before tearing it down.
+Array` (thin forward) — added for the hookup-reposition delete-and-refund
+fix (see Known tradeoffs), reusable by anything else that ever needs to know
+which edges touch a given node before tearing it down.
 
-`WaterHookup._redraw_pipe_segment(old_edge_id, new_edge_id, hookup_pos,
-other_pos)` — internal helper, not called from outside this class; finds
-the live `WaterPipeSegment` via the `"water_pipe_visual"` group (see Files)
-and updates it in place.
+`WaterHookup._delete_and_refund_edge(edge_id, wm)` / `_find_pipe_visual(edge_id)`
+— internal helpers, not called from outside this class; delete the edge's
+graph registration and its `WaterPipeSegment` visual (found via the
+`"water_pipe_visual"` group, see Files), refunding `placement_cost` to the
+player.
 
 ## Signals produced
 `WaterPipeDrawMode` produces `pipe_placed(seg_nodes, edge_ids, cost,
@@ -501,25 +502,40 @@ stable (matches the project's standing debug-logging discipline).
   system's standalone-from-`BuildModeController`-internals convention.
 - **No automated tests** (matches the rest of the project).
 - **No persistence** (matches the rest of the project — see Persistence).
-- **Pipe redraw across a hookup reposition — WAS A REAL BUG, FIXED (July
-  2026 pass):** this was flagged as "lightly tested at best" and turned out
-  to actually be broken once traced through code, not just untested.
-  ROOT CAUSE: `WaterHookup.update_graph_node_position()` re-keys the
-  hookup's graph node via `unregister_node()` + `register_node()` on every
-  reposition; `unregister_node()` cascades to remove every edge touching the
-  old key (see `WaterGraph.unregister_node()`) — but nothing ever told the
-  corresponding `WaterPipeSegment` visual(s) to move or free themselves, so
-  they stayed floating at the OLD position, silently disconnected from the
-  (now-repaired) graph. FIX: `update_graph_node_position()` now captures
-  every edge touching the old key first (`WaterGraph.get_edges_touching()`),
-  re-creates the same edges against the new key once registered, and
-  redraws each affected segment in place (`WaterHookup._redraw_pipe_segment()`,
-  found via a new `"water_pipe_visual"` group every `WaterPipeSegment` joins
-  on `_ready()` — purely for findability, a DIFFERENT group from
-  `WireSegment`'s hide-on-exit-build-mode pattern, never used for show/hide
-  here). Corners/elbows further down a run are untouched by this fix — their
-  own positions never depended on the hookup's, only the FIRST segment
-  leaving the hookup does.
+- **Pipe redraw across a hookup reposition — CORRECTED to delete-and-refund
+  (July 2026, supersedes the auto-redraw fix from the previous pass):** the
+  original bug was real — `unregister_node()` cascades to remove every edge
+  touching the hookup's old key (see `WaterGraph.unregister_node()`), but
+  nothing told the corresponding `WaterPipeSegment` visual to move or free
+  itself, so it stayed floating at the OLD position, silently disconnected.
+  The FIRST fix made `update_graph_node_position()` auto-redraw the directly-
+  touching segment(s) to the hookup's new position, keeping the connection
+  alive. **That fix was itself wrong** — it fixed the visual bug but reopened
+  it as an economy exploit: pipes cost per meter (`COST_PER_M`), and a free
+  auto-redraw on every reposition let a player dig outward repeatedly and get
+  arbitrarily long pipe runs without ever paying for the added length, since
+  wall expansion (`reposition_to_outer_wall()`) fires on every dig. CORRECTED
+  BEHAVIOR: `update_graph_node_position()` now captures every edge touching
+  the old key (`WaterGraph.get_edges_touching()`), then **deletes and
+  refunds** each one via `_delete_and_refund_edge()` — same treatment as a
+  normal undo (refunds `WaterPipeSegment.placement_cost`, shows the same
+  "+$X" float label) — rather than re-creating or redrawing anything.
+  Nothing reconnects automatically: whatever the deleted segment used to
+  connect to (a corner, a T-split joint, further pipe run) stays exactly
+  where it is, still registered in the graph, just no longer reachable from
+  the hookup until the player manually places a new segment from the
+  hookup's new position, at normal cost. Applies uniformly to BOTH callers
+  of `update_graph_node_position()` — `reposition_to_outer_wall()` (wall
+  expansion) and `MoveDuplicateTool`'s manual Move — deliberately not
+  caller-specific, so a player can't dodge the fix by relocating via the
+  Move tool instead. `WaterPipeSegment.placement_cost` (new field, set at
+  spawn time by `WaterPipeDrawMode._try_confirm_segment()` from that leg's
+  own length × `COST_PER_M`) is the source of truth for the refund amount —
+  removes the need to re-derive/assume the pricing formula at refund time.
+  `_redraw_pipe_segment()` is deleted entirely; nothing calls it anymore.
+  Corners/elbows further down a run are untouched by this fix — their own
+  positions never depended on the hookup's, only the FIRST segment leaving
+  the hookup does.
 - **Routing model rewrite (July 2026, playtest feedback):** pipes originally
   used a "wall-hugging" magnetic-snap model (see plan §5) — this was
   replaced with the current strictly-axis-aligned, fixed-ceiling-height

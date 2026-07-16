@@ -413,6 +413,14 @@ func _try_confirm_segment() -> void:
 		_get_scene_root().add_child(seg)
 		seg.edge_id = edge_id
 		seg.set_endpoints(points[i]["pos"], points[i + 1]["pos"])
+		## Per-leg cost stashed directly on the segment (July 2026) — source
+		## of truth for WaterHookup._delete_and_refund_edge() so a reposition
+		## refund never has to re-derive/assume the pricing formula. Derived
+		## from this segment's own length rather than splitting the combined
+		## `cost` above, so it stays correct even if a future change makes
+		## per-leg pricing non-uniform.
+		var leg_length: float = points[i]["pos"].distance_to(points[i + 1]["pos"])
+		seg.placement_cost = int(ceil(leg_length * COST_PER_M))
 		seg_nodes.append(seg)
 		edge_ids.append(edge_id)
 		_pdbg("[PipeDebug] PLACED segment edge_id=%s  a=%s  b=%s" % [edge_id, points[i]["pos"], points[i + 1]["pos"]])

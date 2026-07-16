@@ -31,6 +31,15 @@ const COLOR_PIPE: Color = Color(0.45, 0.47, 0.49, 1.0)
 ## WaterGraph edge ID — stored so the draw mode can unregister it on deconstruct.
 var edge_id: String = ""
 
+## Cost paid to place THIS segment specifically (set at spawn time by
+## WaterPipeDrawMode._try_confirm_segment(), same per-leg value derived from
+## this segment's own length × COST_PER_M). Source of truth for any refund
+## path that needs to know "what did this segment cost" outside of
+## BuildUndoStack's own transient per-entry dict — e.g.
+## WaterHookup._delete_and_refund_edge() on reposition (see
+## docs/systems/water/README.md Known tradeoffs, July 2026).
+var placement_cost: int = 0
+
 var point_a: Vector3 = Vector3.ZERO
 var point_b: Vector3 = Vector3.ZERO
 
