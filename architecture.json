@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-16T23:33:00.392415+00:00",
+  "generated_at": "2026-07-16T23:44:24.681538+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 76,
-  "total_lines": 30833,
+  "total_lines": 31251,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -1276,7 +1276,7 @@
     },
     {
       "path": "res://scripts/ui/water/WaterDispenserUI.gd",
-      "line_count": 245,
+      "line_count": 490,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1288,15 +1288,27 @@
       ],
       "connect_call_sites": [
         {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
           "target_expr": "_rate_slider",
           "signal": "value_changed"
         },
         {
-          "target_expr": "_on_check",
-          "signal": "toggled"
+          "target_expr": "_toggle_btn",
+          "signal": "pressed"
         },
         {
-          "target_expr": "close_btn",
+          "target_expr": "_dec_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_inc_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_close_btn",
           "signal": "pressed"
         }
       ],
@@ -1317,17 +1329,19 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 7,
-      "preloads": [],
+      "private_function_count": 16,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
       "group_lookups": [
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 258
+      "complexity_score": 512
     },
     {
       "path": "res://scripts/ui/water/WaterInfoUI.gd",
-      "line_count": 254,
+      "line_count": 427,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1345,6 +1359,14 @@
         {
           "target_expr": "_close_btn",
           "signal": "pressed"
+        },
+        {
+          "target_expr": "_dec_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_inc_btn",
+          "signal": "pressed"
         }
       ],
       "public_functions": [
@@ -1359,7 +1381,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 9,
+      "private_function_count": 16,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
@@ -1367,7 +1389,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 267
+      "complexity_score": 447
     },
     {
       "path": "res://scripts/world/build/BuildMaterials.gd",
