@@ -23,6 +23,15 @@ const COLOR_BODY: Color = Color(0.30, 0.32, 0.34, 1.0)
 const COLOR_CONNECTED:     Color = Color(0.30, 1.00, 0.40, 1.0)   ## green
 const COLOR_NOT_CONNECTED: Color = Color(1.00, 0.28, 0.18, 1.0)   ## red
 
+## Demand/priority (Jul 2026, WaterSolver groundwork) — exported rather than
+## hardcoded specifically so different playtest scenarios can be set up by
+## just changing Inspector values on placed instances, no code changes
+## needed to verify WaterSolver.gd against different configurations. Same
+## 1-5 tier convention as the power system (1 = highest priority / served
+## first, 5 = lowest / starved first when the hookup is oversubscribed).
+@export var priority: int = 3
+@export var fixed_demand_mL_per_day: float = 1000.0
+
 ## How often to re-check connectivity — rudimentary polling is enough for a
 ## test/debug device with no real gameplay behind it (see file header).
 const CHECK_INTERVAL_SECS: float = 1.0
@@ -70,8 +79,13 @@ func _register_deferred() -> void:
 	## against ceiling height to decide whether a final vertical segment is
 	## needed; no per-device special-casing required as long as every
 	## connectable device registers its node at its real connection point).
-	_node_key = wm.register_node(global_position + Vector3(0.0, BOX_SIZE.y, 0.0), "endpoint")
+	_node_key = wm.register_node(global_position + Vector3(0.0, BOX_SIZE.y, 0.0), "endpoint", self)
 	_refresh_connectivity()
+
+## WaterSolver.gd's duck-typed demand contract (see WaterGraph._water_nodes'
+## own comment) — a fixed, always-on demand for this test/debug device.
+func get_current_demand_mL_per_day() -> float:
+	return fixed_demand_mL_per_day
 
 func _refresh_connectivity() -> void:
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager

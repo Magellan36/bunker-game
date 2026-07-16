@@ -52,6 +52,7 @@ const TILE_BATTERY_L:  int = 15  ## Battery Bank Large  — 600 Wh, $600
 const TILE_BREAKER_SMART: int = 16  ## Upgraded/"smart" breaker — self-trips to isolate on cross-zone exhaustion
 const TILE_WATER_HOOKUP: int  = 17  ## Water system groundwork (July 2026) — wall-mounted source, wall-snapped, never deletable
 const TILE_WATER_SINK: int    = 18  ## Water system groundwork — rudimentary test endpoint, mirrors TILE_HEAVY, price $0
+const TILE_WATER_DISPENSER: int = 19  ## Water demand/priority pass (Jul 2026) — first real water-consuming device, ground-placed like TILE_WATER_SINK
 
 ## Y height at which player-placed objects sit (world units).
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with
@@ -429,10 +430,10 @@ func _cancel_ghost() -> void:
 func _refresh_connectable_dots() -> void:
 	_clear_connectable_dots()
 
-	## Connectable tile IDs — generators, terminal, wall lights, water hookup/sink
+	## Connectable tile IDs — generators, terminal, wall lights, water hookup/sink/dispenser
 	const CONNECTABLE_TILES: Array[int] = [
 		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT,
-		TILE_WATER_HOOKUP, TILE_WATER_SINK
+		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER
 	]
 
 	## Dot material — light blue, billboard, always-on-top
@@ -475,6 +476,8 @@ func _refresh_connectable_dots() -> void:
 			dot_y = 0.20
 		elif tile_id == TILE_WATER_SINK:
 			dot_y = 0.45
+		elif tile_id == TILE_WATER_DISPENSER:
+			dot_y = 0.65
 		dot_mi.position = Vector3(0.0, dot_y, 0.0)
 		obj.add_child(dot_mi)
 		_connectable_dots[obj] = dot_mi
@@ -809,7 +812,7 @@ func _try_construct() -> void:
 	const CONNECTABLE_TILES_QUICK: Array[int] = [
 		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT, TILE_HEAVY,
 		TILE_BREAKER, TILE_BREAKER_SMART, TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L,
-		TILE_WATER_HOOKUP, TILE_WATER_SINK
+		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER
 	]
 	if _selected_tile in CONNECTABLE_TILES_QUICK:
 		_refresh_connectable_dots()
@@ -1004,6 +1007,20 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		ws_node.global_position  = pos
 		ws_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return ws_node
+
+	## ── Water dispenser (Jul 2026, demand/priority pass) — rudimentary endpoint,
+	## ground-placed like the test sink ────────────────────────────────────────
+	if tile_id == TILE_WATER_DISPENSER:
+		var wd_script: GDScript = load("res://scripts/world/water/WaterDispenser.gd")
+		var wd_node: StaticBody3D = StaticBody3D.new()
+		if wd_script != null:
+			wd_node.set_script(wd_script)
+		wd_node.set_meta("tile_id", TILE_WATER_DISPENSER)
+		var wdpar: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		wdpar.add_child(wd_node)
+		wd_node.global_position  = pos
+		wd_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return wd_node
 
 	## ── Circuit breaker (standard) ─────────────────────────────────────────────
 	if tile_id == TILE_BREAKER:
