@@ -240,7 +240,7 @@ func _try_pick_source() -> bool:
 	## Extends the pre-existing "start from any existing node (hookup/
 	## joint/corner)" T-split support to "start from any POINT on a placed
 	## pipe run" per Brannon's explicit request.
-	var split: Dictionary = _find_split_candidate(wm, cursor_pos)
+	var split: Dictionary = _find_split_candidate(wm, cursor_pos, true)
 	if not split.is_empty():
 		var new_key: String = _split_pipe_at(wm, split)
 		_pdbg("[PipeDebug] source = split at %s -> new_key=%s" % [split.get("pos", Vector3.ZERO), new_key])
@@ -308,7 +308,7 @@ func _try_confirm_segment() -> void:
 	_pdbg("[PipeDebug] cursor_pos=%s  source_key=%s  source_pos=%s" % [cursor_pos, _source_key, _source_pos])
 	_dump_pipe_network()
 
-	var dest: Dictionary = _resolve_destination(cursor_pos)
+	var dest: Dictionary = _resolve_destination(cursor_pos, true)
 	_pdbg("[PipeDebug] resolve_destination -> %s" % [dest])
 	if dest.is_empty():
 		_pdbg("[PipeDebug] ABORT: dest empty")
@@ -349,7 +349,7 @@ func _try_confirm_segment() -> void:
 	## Validity check — out-of-bounds only now; collinear overlap is
 	## rerouted above rather than rejected (see docs/systems/water/README.md
 	## Known tradeoffs).
-	var bounds_ok: bool = _is_path_in_bounds(path)
+	var bounds_ok: bool = _is_path_in_bounds(path, true)
 	_pdbg("[PipeDebug] _is_path_in_bounds -> %s" % bounds_ok)
 	if not bounds_ok:
 		_pdbg("[PipeDebug] ABORT: out of bounds. Full path was: %s" % [path])
@@ -498,7 +498,11 @@ func _append_if_distinct(path: Array, p: Vector3) -> void:
 ## the cursor at ceiling height. No wall detection, no freehand/Shift
 ## override — every destination this phase produces is reachable via a
 ## strictly axis-aligned path (see _build_manhattan_path()).
-func _resolve_destination(cursor_pos: Vector3) -> Dictionary:
+## `debug` gates verbose split-candidate logging — MUST be false for the
+## per-frame ghost preview call (_update_ghost_preview()) or PIPE_DEBUG
+## would flood the console at 60fps; only _try_confirm_segment() (a one-off
+## click) passes true. See _find_split_candidate()'s own comment.
+func _resolve_destination(cursor_pos: Vector3, debug: bool = false) -> Dictionary:
 	var wm: WaterManager = _get_wm()
 	if wm == null:
 		return {}
@@ -513,7 +517,7 @@ func _resolve_destination(cursor_pos: Vector3) -> Dictionary:
 	## frame during the ghost preview) — do NOT mutate the graph yet, just
 	## report the candidate so the ghost can route to it; the actual split
 	## only happens in _try_confirm_segment() once the player clicks.
-	var split: Dictionary = _find_split_candidate(wm, cursor_xz)
+	var split: Dictionary = _find_split_candidate(wm, cursor_xz, debug)
 	if not split.is_empty():
 		return { "pos": split["pos"], "split_candidate": split }
 
@@ -597,7 +601,12 @@ func _split_candidate_for_segment(wm: WaterManager, seg: WaterPipeSegment, pos: 
 ## drop into a floor device has no meaningful "mid-air branch point" on the
 ## ceiling plane the cursor is projected onto. READ-ONLY — does not mutate
 ## anything; see _split_pipe_at() for the actual mutating step.
-func _find_split_candidate(wm: WaterManager, cursor_pos: Vector3) -> Dictionary:
+## `debug` gates the verbose per-candidate print — MUST be false for the
+## per-frame ghost preview / _resolve_destination() call, else PIPE_DEBUG
+## would flood the console at 60fps while dragging (this was a real bug —
+## see docs/systems/water/README.md Known tradeoffs "debug logging spam").
+## Only _try_pick_source() (a one-off click) passes true.
+func _find_split_candidate(wm: WaterManager, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
 	if wm == null:
 		return {}
 	var cursor_xz: Vector2 = Vector2(cursor_pos.x, cursor_pos.z)
@@ -632,7 +641,7 @@ func _find_split_candidate(wm: WaterManager, cursor_pos: Vector3) -> Dictionary:
 			continue
 		best_dist = d
 		best = candidate
-		_pdbg("[PipeDebug] _find_split_candidate: raw_closest=%s -> grid_snapped=%s (seg edge_id=%s a=%s b=%s)" %
+		if debug: _pdbg("[PipeDebug] _find_split_candidate: raw_closest=%s -> grid_snapped=%s (seg edge_id=%s a=%s b=%s)" %
 			[raw_closest, closest, seg.edge_id, seg.point_a, seg.point_b])
 	return best
 
@@ -1004,7 +1013,12 @@ func _spawn_float_label(world_pos: Vector3, amount: int, positive: bool) -> void
 ## per-tile inset to arbitrary dug-chunk shapes.
 const _BOUNDS_INSET: float = _PIPE_GRID
 
-func _is_path_in_bounds(path: Array) -> bool:
+## `debug` gates the verbose failure print — MUST be false for the
+## per-frame ghost preview call, else PIPE_DEBUG would flood the console at
+## 60fps while dragging (this was a real bug, see docs/systems/water/
+## README.md Known tradeoffs "debug logging spam"). Only
+## _try_confirm_segment() (a one-off click) passes true.
+func _is_path_in_bounds(path: Array, debug: bool = false) -> bool:
 	if build_controller == null or build_controller.rock_surround == null:
 		return true   ## No bounds data available — fail open, matches _is_inside_bunker()'s own fallback.
 	var rs: Node = build_controller.rock_surround
@@ -1023,7 +1037,7 @@ func _is_path_in_bounds(path: Array) -> bool:
 		## Outside the tightened rectangle — fall back to the shared, looser
 		## check (handles dug/expanded chunks beyond the original rectangle).
 		if not build_controller._is_inside_bunker(p):
-			_pdbg("[PipeDebug] _is_path_in_bounds: FAILED at point %s (tightened rect x=[%.3f,%.3f] z=[%.3f,%.3f], and _is_inside_bunker() also said false)" %
+			if debug: _pdbg("[PipeDebug] _is_path_in_bounds: FAILED at point %s (tightened rect x=[%.3f,%.3f] z=[%.3f,%.3f], and _is_inside_bunker() also said false)" %
 				[p, min_x, max_x, min_z, max_z])
 			return false
 	return true
