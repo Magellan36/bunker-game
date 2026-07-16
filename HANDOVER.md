@@ -1,6 +1,6 @@
 # BunkerGame — Agent Handover Doc
 
-**Last updated:** repo HEAD `b08c116`
+**Last updated:** repo HEAD `209b0ab`
 
 Paste this whole file into a new chat to resume work with full context,
 without carrying forward the old chat's history.
@@ -178,25 +178,44 @@ length.
   unreachable-state fix, wire-mode stale hover-label leak) — all confirmed
   working, full detail lives only in their system's README, nothing pending
   here.
-- **Water system Phase 1 + playtest-feedback pass — shipped, headless-clean,
-  NOT yet confirmed in-editor.** Full detail: `docs/systems/water/README.md`.
-  **Brannon needs to pull and test the playtest-feedback pass specifically**
-  (pipe/hookup diameter match, 90°-only ceiling routing, pipe-to-sink
-  CONNECTED label, connectable dots, hookup placement height). Don't build
-  further on water until confirmed.
+- **Water system Phase 1 groundwork + Step 2 (interactable hookup/sink,
+  live flow-split) — both shipped and confirmed working.** Full detail:
+  `docs/systems/water/README.md`.
+- **Water pipe tool — multiple playtest rounds of fixes, ONE bug still
+  open (active investigation).** Since Step 2 landed, pipes have gone
+  through several rounds of real fixes: pipe height/exit-keys/wall-hugging
+  routing/tightened bounds, T-splits-anywhere (branch off any point on a
+  placed pipe, not just registered nodes), no-overlap routing (collinear
+  overlaps reroute with a sidestep detour, perpendicular "+" crossings are
+  allowed and create a shared joint), a hookup-position grid-snap fix, and
+  a `[PipeDebug]` diagnostic logging system (`WaterPipeDrawMode.PIPE_DEBUG`).
+  **Still open:** Brannon reports pipes occasionally still cross/overlap
+  visually. The last debug log he sent had a real bug in the LOGGING itself
+  (two functions weren't gated behind the `debug` param, flooding the
+  console every frame during the live ghost preview — now fixed) which
+  buried the signal; the actual routing/placement decisions recorded in
+  that log were all correct (clean placement + correct out-of-bounds
+  rejections). **Need a fresh, readable `[PipeDebug]` log from a session
+  where a pipe actually LANDS overlapping another** (not just a rejected
+  attempt) to keep diagnosing — see `docs/systems/water/README.md` Debug
+  logging section for what the trace shows.
 
 ## Next up
-**Immediate:** Brannon needs to pull and test the water system
-playtest-feedback pass (pipe/hookup diameter match, 90°-only ceiling
-routing, pipe-to-sink connection + CONNECTED label, connectable dots on
-hookup/sink) — nothing further should be built on top of the water system
-until this round is confirmed working.
+**Immediate:** waiting on Brannon for a clean `[PipeDebug]` console log
+capturing an actual bad pipe placement (visually overlapping/crossing
+another pipe), now that the logging-spam bug is fixed. Don't change the
+pipe routing/avoidance logic again without that log — the last two rounds
+of guessing-then-fixing plausible root causes (hookup grid-snap, lateral
+tolerance) didn't fully resolve it, so this needs real data before the next
+change, not another speculative fix (matches the standing "if multiple
+sessions fail to fix a bug, step back" directive above).
 
 See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the rest of the list
-(water system Phase 2, Main Menu, Death/game-over state, emergency_light
-placement, generator exhaust smoke scaling, remaining graphics-overhaul
-deferred items). No systems pending doc migration anymore (all 9 — including
-the new Water system — done as of July 2026).
+(water system Phase 2 — real flow/pressure sim, quality decay, Main Menu,
+Death/game-over state, emergency_light placement, generator exhaust smoke
+scaling, remaining graphics-overhaul deferred items, upgrading
+`WaterPipeDrawMode` to the full continuous-paint UX). No systems pending doc
+migration anymore (all 9 done as of July 2026).
 
 Two specific power-system follow-up investigations remain open — full
 detail lives ONLY in `docs/systems/power/README.md` Known tradeoffs (one
