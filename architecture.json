@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-16T22:02:42.892935+00:00",
+  "generated_at": "2026-07-16T22:33:50.643777+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 73,
-  "total_lines": 29979,
+  "total_lines": 30067,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -4218,7 +4218,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterHookup.gd",
-      "line_count": 421,
+      "line_count": 444,
       "class_name": "WaterHookup",
       "extends": "StaticBody3D",
       "exports": [],
@@ -4271,15 +4271,16 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 7,
+      "private_function_count": 9,
       "preloads": [
         "res://scripts/ui/water/WaterInfoUI.gd"
       ],
       "group_lookups": [
+        "main_world",
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 444
+      "complexity_score": 469
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
@@ -4381,7 +4382,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 1049,
+      "line_count": 1105,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4420,7 +4421,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 1086
+      "complexity_score": 1142
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",
@@ -4439,7 +4440,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeSegment.gd",
-      "line_count": 134,
+      "line_count": 143,
       "class_name": "WaterPipeSegment",
       "extends": "Node3D",
       "exports": [],
@@ -4458,7 +4459,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 138
+      "complexity_score": 147
     },
     {
       "path": "res://scripts/world/water/WaterTestSink.gd",
