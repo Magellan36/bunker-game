@@ -296,6 +296,19 @@ diagnose pipes still routing/placing oddly after the hookup-grid-snap fix.
   exact reason (different axis / different height / lateral offset exceeds
   tolerance / no range overlap) each existing segment was or wasn't treated
   as a conflict.
+- **Debug logging spam — WAS A REAL BUG, FIXED (July 2026, eighth playtest
+  pass):** `_is_path_in_bounds()` and `_find_split_candidate()` were
+  accidentally left un-gated when the `debug` param pattern above was
+  introduced — both are called every frame from the read-only ghost
+  preview (`_update_ghost_preview()`/`_resolve_destination()`), so they
+  flooded the console with hundreds of near-duplicate lines per second
+  while the player merely held the cursor still, reported as "the debug
+  output format was incorrect." FIX: both now take the same
+  `debug: bool = false` param as the collinear-check functions above —
+  `_resolve_destination()` also gained the same param so it can thread
+  `debug` through to `_find_split_candidate()` from whichever caller needs
+  it. Only `_try_pick_source()`/`_try_confirm_segment()` (one-off clicks)
+  pass `true`; the ghost preview's own calls stay at the silent default.
 - `_find_split_candidate()` logs the raw (pre-grid-snap) closest point
   alongside the grid-snapped result, so a debug session can directly
   confirm whether the grid-snap fix is actually taking effect.
