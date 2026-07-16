@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-16T22:33:50.643777+00:00",
+  "generated_at": "2026-07-16T23:33:00.392415+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 73,
-  "total_lines": 30067,
+  "script_count": 76,
+  "total_lines": 30833,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -376,7 +376,7 @@
     },
     {
       "path": "res://scripts/ui/build/BuildModeHUD.gd",
-      "line_count": 1031,
+      "line_count": 1036,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -473,7 +473,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 1077
+      "complexity_score": 1082
     },
     {
       "path": "res://scripts/ui/common/UIFade.gd",
@@ -1275,8 +1275,59 @@
       "complexity_score": 233
     },
     {
+      "path": "res://scripts/ui/water/WaterDispenserUI.gd",
+      "line_count": 245,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "closed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_rate_slider",
+          "signal": "value_changed"
+        },
+        {
+          "target_expr": "_on_check",
+          "signal": "toggled"
+        },
+        {
+          "target_expr": "close_btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "dispenser: WaterDispenser",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "is_open",
+          "args": "",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 7,
+      "preloads": [],
+      "group_lookups": [
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 258
+    },
+    {
       "path": "res://scripts/ui/water/WaterInfoUI.gd",
-      "line_count": 249,
+      "line_count": 254,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1316,7 +1367,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 262
+      "complexity_score": 267
     },
     {
       "path": "res://scripts/world/build/BuildMaterials.gd",
@@ -1338,7 +1389,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2172,
+      "line_count": 2189,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -1453,6 +1504,7 @@
         "res://scripts/world/power/UpgradedBreakerBox.gd",
         "res://scripts/world/power/WallLight.gd",
         "res://scripts/world/power/WireDrawMode.gd",
+        "res://scripts/world/water/WaterDispenser.gd",
         "res://scripts/world/water/WaterHookup.gd",
         "res://scripts/world/water/WaterPipeDrawMode.gd",
         "res://scripts/world/water/WaterTestSink.gd"
@@ -1462,7 +1514,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 2254
+      "complexity_score": 2271
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
@@ -1489,7 +1541,7 @@
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
-      "line_count": 430,
+      "line_count": 445,
       "class_name": "GhostPreview",
       "extends": "RefCounted",
       "exports": [],
@@ -1500,15 +1552,16 @@
       "preloads": [
         "res://scripts/world/furniture/Shelving.gd",
         "res://scripts/world/power/WallLight.gd",
+        "res://scripts/world/water/WaterDispenser.gd",
         "res://scripts/world/water/WaterHookup.gd"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 436
+      "complexity_score": 451
     },
     {
       "path": "res://scripts/world/build/MoveDuplicateTool.gd",
-      "line_count": 369,
+      "line_count": 379,
       "class_name": "MoveDuplicateTool",
       "extends": "RefCounted",
       "exports": [],
@@ -1519,11 +1572,12 @@
       "preloads": [
         "res://scripts/world/furniture/Shelving.gd",
         "res://scripts/world/power/WallLight.gd",
+        "res://scripts/world/water/WaterDispenser.gd",
         "res://scripts/world/water/WaterHookup.gd"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 380
+      "complexity_score": 390
     },
     {
       "path": "res://scripts/world/build/PlacementIndicator.gd",
@@ -4131,8 +4185,68 @@
       "complexity_score": 109
     },
     {
+      "path": "res://scripts/world/water/WaterDispenser.gd",
+      "line_count": 200,
+      "class_name": "WaterDispenser",
+      "extends": "StaticBody3D",
+      "exports": [
+        {
+          "name": "priority",
+          "type": "int"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_dispenser_ui",
+          "signal": "closed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "get_current_demand_mL_per_day",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "get_node_key",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "set_on",
+          "args": "value: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_requested_rate",
+          "args": "value: float",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 6,
+      "preloads": [
+        "res://scripts/ui/water/WaterDispenserUI.gd"
+      ],
+      "group_lookups": [
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 218
+    },
+    {
       "path": "res://scripts/world/water/WaterGraph.gd",
-      "line_count": 223,
+      "line_count": 269,
       "class_name": "WaterGraph",
       "extends": "RefCounted",
       "exports": [],
@@ -4141,8 +4255,13 @@
       "public_functions": [
         {
           "name": "register_node",
-          "args": "pos: Vector3, role: String",
+          "args": "pos: Vector3, role: String, consumer_ref: Node = null",
           "returns": "String"
+        },
+        {
+          "name": "get_consumer_ref",
+          "args": "key: String",
+          "returns": "Node"
         },
         {
           "name": "unregister_node",
@@ -4195,6 +4314,11 @@
           "returns": "bool"
         },
         {
+          "name": "get_reachable_endpoint_keys",
+          "args": "hookup_key: String",
+          "returns": "Array[String]"
+        },
+        {
           "name": "get_hookup_keys",
           "args": "",
           "returns": "Array[String]"
@@ -4214,7 +4338,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 252
+      "complexity_score": 302
     },
     {
       "path": "res://scripts/world/water/WaterHookup.gd",
@@ -4284,7 +4408,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
-      "line_count": 211,
+      "line_count": 253,
       "class_name": "WaterManager",
       "extends": "Node",
       "exports": [],
@@ -4293,8 +4417,13 @@
       "public_functions": [
         {
           "name": "register_node",
-          "args": "pos: Vector3, role: String",
+          "args": "pos: Vector3, role: String, consumer_ref: Node = null",
           "returns": "String"
+        },
+        {
+          "name": "get_consumer_ref",
+          "args": "key: String",
+          "returns": "Node"
         },
         {
           "name": "unregister_node",
@@ -4362,7 +4491,7 @@
           "returns": "int"
         },
         {
-          "name": "get_per_consumer_rate_mL_per_day",
+          "name": "get_total_requested_demand_mL",
           "args": "hookup: WaterHookup",
           "returns": "float"
         },
@@ -4370,15 +4499,20 @@
           "name": "get_received_rate_mL",
           "args": "consumer_node_key: String",
           "returns": "Dictionary"
+        },
+        {
+          "name": "get_dynamic_max_mL_per_day",
+          "args": "consumer_node_key: String, device_priority: int",
+          "returns": "float"
         }
       ],
-      "private_function_count": 5,
+      "private_function_count": 6,
       "preloads": [],
       "group_lookups": [
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 248
+      "complexity_score": 295
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
@@ -4462,11 +4596,46 @@
       "complexity_score": 147
     },
     {
+      "path": "res://scripts/world/water/WaterSolver.gd",
+      "line_count": 167,
+      "class_name": "WaterSolver",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "solve_for_hookup",
+          "args": "hookup_key: String, total_supply_mL_per_day: float",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "get_dynamic_max_for_device",
+          "args": "hookup_key: String, total_supply_mL_per_day: float,\n\t\tdevice_key: String, device_priority: int",
+          "returns": "float"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 175
+    },
+    {
       "path": "res://scripts/world/water/WaterTestSink.gd",
-      "line_count": 165,
+      "line_count": 179,
       "class_name": "WaterTestSink",
       "extends": "StaticBody3D",
-      "exports": [],
+      "exports": [
+        {
+          "name": "priority",
+          "type": "int"
+        },
+        {
+          "name": "fixed_demand_mL_per_day",
+          "type": "float"
+        }
+      ],
       "signals": [],
       "connect_call_sites": [
         {
@@ -4475,6 +4644,11 @@
         }
       ],
       "public_functions": [
+        {
+          "name": "get_current_demand_mL_per_day",
+          "args": "",
+          "returns": "float"
+        },
         {
           "name": "get_interact_prompt",
           "args": "",
@@ -4499,7 +4673,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 180
+      "complexity_score": 196
     }
   ],
   "dependency_edges": [
@@ -4560,6 +4734,11 @@
     },
     {
       "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/water/WaterDispenser.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
       "to": "res://scripts/world/water/WaterHookup.gd",
       "via": "preload"
     },
@@ -4585,6 +4764,11 @@
     },
     {
       "from": "res://scripts/world/build/GhostPreview.gd",
+      "to": "res://scripts/world/water/WaterDispenser.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/GhostPreview.gd",
       "to": "res://scripts/world/water/WaterHookup.gd",
       "via": "preload"
     },
@@ -4596,6 +4780,11 @@
     {
       "from": "res://scripts/world/build/MoveDuplicateTool.gd",
       "to": "res://scripts/world/power/WallLight.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/MoveDuplicateTool.gd",
+      "to": "res://scripts/world/water/WaterDispenser.gd",
       "via": "preload"
     },
     {
@@ -4696,6 +4885,11 @@
     {
       "from": "res://scripts/world/power/WireGraphBuilder.gd",
       "to": "res://scripts/world/power/WireSegment.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/water/WaterDispenser.gd",
+      "to": "res://scripts/ui/water/WaterDispenserUI.gd",
       "via": "preload"
     },
     {

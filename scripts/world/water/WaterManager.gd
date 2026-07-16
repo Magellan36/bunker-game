@@ -20,18 +20,31 @@ class_name WaterManager
 
 var _graph: WaterGraph = null
 
+## Priority-tier demand waterfall (Jul 2026) — see WaterSolver.gd. Built
+## alongside _graph in _ready(), same lifecycle as PowerManager's own
+## solver/graph split.
+var _solver: WaterSolver = null
+
 ## Registered hookup nodes (WaterHookup instances) — kept here (not just in
 ## the graph) so boundary-change events can call back into each hookup's own
 ## reposition logic. See _on_chunk_deconstructed/_on_chunk_restored below.
 var _hookups: Array[Node3D] = []
 
 func _ready() -> void:
-	_graph = WaterGraph.new(self)
+	_graph  = WaterGraph.new(self)
+	_solver = WaterSolver.new(_graph)
 
 
 # ─── Node/edge registration (forwards to WaterGraph) ──────────────────────────
-func register_node(pos: Vector3, role: String) -> String:
-	return _graph.register_node(pos, role)
+## `consumer_ref` (Jul 2026, WaterSolver groundwork) — optional back-reference
+## to a device implementing the demand/priority duck-typed contract (see
+## WaterGraph.register_node()'s own comment). Only meaningful for role ==
+## "endpoint"; every other caller can omit it.
+func register_node(pos: Vector3, role: String, consumer_ref: Node = null) -> String:
+	return _graph.register_node(pos, role, consumer_ref)
+
+func get_consumer_ref(key: String) -> Node:
+	return _graph.get_consumer_ref(key)
 
 func unregister_node(key: String) -> void:
 	_graph.unregister_node(key)
@@ -136,14 +149,12 @@ func _reposition_all_hookups() -> void:
 			hookup.reposition_to_outer_wall()
 
 
-# ─── Live flow-split (Step 2, July 2026) ─────────────────────────────────────
-## This is deliberately still minimal: an equal live split of the hookup's
-## total tiered output across whatever's currently connected — no priority
-## weighting, no time-based depletion, no caching (recomputed on demand every
-## call, matching this system's existing "compute live, no persistence"
-## pattern from Phase 1). A real WaterSolver.gd for pressure/priority/
-## depletion is a future Extension point, not this — see
-## docs/systems/water/README.md.
+# ─── Demand-based priority-tier allocation (Jul 2026) ────────────────────────
+## Supersedes the old Step 2 equal-split logic entirely — every registered
+## endpoint now has its own tunable priority + live demand (WaterTestSink,
+## WaterDispenser), routed through WaterSolver.gd's waterfall. See that file
+## for the full algorithm. Still "compute live, no persistence" — every call
+## re-solves from scratch, matching this system's existing pattern.
 
 ## Counts nodes with role == "endpoint" reachable from `hookup` via BFS —
 ## real connectable devices only, corners/pipe joints don't count. Forwards
@@ -156,23 +167,45 @@ func get_connected_consumer_count(hookup: WaterHookup) -> int:
 		return 0
 	return _graph.count_reachable_endpoints(key)
 
-## The live per-consumer share: hookup's own tiered output ÷ current consumer
-## count. Returns 0 if nothing is connected yet (also the natural "not
-## connected to anything" case for the hookup's own info panel).
-func get_per_consumer_rate_mL_per_day(hookup: WaterHookup) -> float:
+## Sum of every reachable endpoint's CURRENT requested demand (not what
+## they'll actually receive — see WaterSolver.solve_for_hookup() for that).
+## Used by the hookup's own info panel to show total requested load vs.
+## capacity now that the split is no longer equal.
+func get_total_requested_demand_mL(hookup: WaterHookup) -> float:
 	if hookup == null:
 		return 0.0
-	var count: int = get_connected_consumer_count(hookup)
-	if count == 0:
+	var key: String = hookup.get_node_key()
+	if key.is_empty():
 		return 0.0
-	return hookup.get_daily_output_mL() / float(count)
+	var total: float = 0.0
+	for endpoint_key: String in _graph.get_reachable_endpoint_keys(key):
+		var ref: Node = _graph.get_consumer_ref(endpoint_key)
+		if ref != null and is_instance_valid(ref) and ref.has_method("get_current_demand_mL_per_day"):
+			total += maxf(0.0, float(ref.get_current_demand_mL_per_day()))
+	return total
+
+## Finds the WaterHookup instance registered under `hookup_key` — _hookups is
+## a plain node-ref list (see file header), so this re-derives each
+## registered hookup's own graph key rather than storing a second key->node
+## map, since there's only ever one to check in practice (see
+## register_hookup()'s guard).
+func _find_hookup_by_key(hookup_key: String) -> WaterHookup:
+	for h: Node3D in _hookups:
+		if not is_instance_valid(h):
+			continue
+		if h.has_method("get_node_key") and h.get_node_key() == hookup_key:
+			return h as WaterHookup
+	return null
 
 ## Traces back from a consumer's graph node key to whichever hookup feeds it
-## (there's only ever one real hookup — see register_hookup()'s guard) and
-## returns the effective rate it's actually receiving, plus that hookup's
-## water quality (quality shown at a sink is always the SOURCE hookup's
-## quality — water doesn't gain/lose quality in transit through pipes in
-## this pass, see docs/systems/water/README.md).
+## (there's only ever one real hookup — see register_hookup()'s guard),
+## solves the WHOLE hookup's priority-tier waterfall, and returns this
+## specific consumer's actual RECEIVED share (which can be less than what it
+## requested, if its tier is oversubscribed or a higher tier consumed
+## everything) plus that hookup's water quality (quality shown at a sink/
+## dispenser is always the SOURCE hookup's quality — water doesn't gain/lose
+## quality in transit through pipes in this pass, see docs/systems/water/
+## README.md).
 ## Returns { "connected": bool, "mL_per_day": float, "mL_per_minute": float,
 ##           "quality": float }.
 func get_received_rate_mL(consumer_node_key: String) -> Dictionary:
@@ -189,23 +222,32 @@ func get_received_rate_mL(consumer_node_key: String) -> Dictionary:
 	if hookup_key.is_empty():
 		return out
 
-	## _hookups is a plain node-ref list (see file header) — match by
-	## re-deriving each registered hookup's own graph key rather than storing
-	## a second key->node map, since there's only ever one to check in
-	## practice (see register_hookup()'s guard).
-	for h: Node3D in _hookups:
-		if not is_instance_valid(h):
-			continue
-		if not h.has_method("get_node_key") or h.get_node_key() != hookup_key:
-			continue
-		var count: int = _graph.count_reachable_endpoints(hookup_key)
-		if count == 0:
-			return out   ## Shouldn't happen (we ARE a reachable endpoint) — guard anyway.
-		var rate_day: float = h.get_daily_output_mL() / float(count)
-		out["connected"]     = true
-		out["mL_per_day"]    = rate_day
-		out["mL_per_minute"] = rate_day / 1440.0
-		out["quality"]       = h.water_quality
+	var hookup: WaterHookup = _find_hookup_by_key(hookup_key)
+	if hookup == null:
 		return out
 
+	var received_map: Dictionary = _solver.solve_for_hookup(hookup_key, hookup.get_daily_output_mL())
+	var rate_day: float = float(received_map.get(consumer_node_key, 0.0))
+
+	out["connected"]     = true
+	out["mL_per_day"]    = rate_day
+	out["mL_per_minute"] = rate_day / 1440.0
+	out["quality"]       = hookup.water_quality
 	return out
+
+## A device's dynamic slider maximum (see WaterSolver.get_dynamic_max_for_device()
+## for the exact algorithm). Returns 0.0 if the device isn't connected to any
+## hookup. `device_priority` is passed in rather than read off consumer_ref
+## directly so the UI can preview a not-yet-applied priority change if it
+## ever wants to (not used that way currently, but keeps the API honest).
+func get_dynamic_max_mL_per_day(consumer_node_key: String, device_priority: int) -> float:
+	if consumer_node_key.is_empty():
+		return 0.0
+	var hookup_key: String = _graph.find_reachable_hookup_key(consumer_node_key)
+	if hookup_key.is_empty():
+		return 0.0
+	var hookup: WaterHookup = _find_hookup_by_key(hookup_key)
+	if hookup == null:
+		return 0.0
+	return _solver.get_dynamic_max_for_device(hookup_key, hookup.get_daily_output_mL(),
+			consumer_node_key, device_priority)

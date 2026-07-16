@@ -126,6 +126,19 @@ func _rebuild_ghost_mesh() -> void:
 			_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
+	# ── Water dispenser (Jul 2026, demand/priority pass): ghost from its own
+	## static helper, same convention WallLight/Shelving/WaterHookup use ──────
+	if _owner._selected_tile == _owner.TILE_WATER_DISPENSER:
+		var wd_script: GDScript = load("res://scripts/world/water/WaterDispenser.gd")
+		if wd_script != null and wd_script.has_method("build_ghost_mesh"):
+			var wd_mesh: Mesh = wd_script.build_ghost_mesh()
+			if wd_mesh != null:
+				_owner._ghost.mesh     = wd_mesh
+				_owner._ghost.position = Vector3(0.0, 0.275, 0.0)   ## BOX_SIZE.y * 0.5
+				for s: int in wd_mesh.get_surface_count():
+					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
 	# ── Shelving: procedural ghost from static helper ──────────────────────────
 	if _owner._selected_tile == _owner.TILE_SHELVING:
 		var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
@@ -361,6 +374,8 @@ func _update_ghost() -> void:
 			_owner._ghost_valid   = false
 			return
 	elif _owner._selected_tile == _owner.TILE_WATER_SINK:
+		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_WATER_DISPENSER:
 		snap_pos.y = _owner.PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_BATTERY_S or _owner._selected_tile == _owner.TILE_BATTERY_M \
 			or _owner._selected_tile == _owner.TILE_BATTERY_L:

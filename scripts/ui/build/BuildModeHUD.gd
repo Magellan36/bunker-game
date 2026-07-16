@@ -61,6 +61,11 @@ const CATEGORIES: Dictionary = {
 		## README.md) and is relocatable only via the Move tool, never
 		## re-purchasable from this menu (Step 2 plan, July 2026).
 		{ "tile_id": 18, "name": "Test Sink", "price": 0   },
+		## Water Dispenser (Jul 2026, demand/priority pass) — the first real
+		## water-consuming device. Price is a placeholder (plan does not
+		## specify economics for this pass, same caveat as Test Sink above) —
+		## flagged for a future balance pass.
+		{ "tile_id": 19, "name": "Dispenser", "price": 250 },
 	],
 }
 ## Flat list used only for legacy compat (3D preview viewports, etc.)

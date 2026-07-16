@@ -177,6 +177,15 @@ func _spawn_move_ghost(tile_id: int) -> void:
 		_owner._move_ghost.position = Vector3(0.0, 0.15, 0.0)
 		for s: int in ws_box.get_surface_count():
 			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
+	elif tile_id == _owner.TILE_WATER_DISPENSER:
+		var wd_script: GDScript = load("res://scripts/world/water/WaterDispenser.gd")
+		if wd_script != null and wd_script.has_method("build_ghost_mesh"):
+			var wd_m: Mesh = wd_script.build_ghost_mesh()
+			if wd_m != null:
+				_owner._move_ghost.mesh     = wd_m
+				_owner._move_ghost.position = Vector3(0.0, 0.275, 0.0)
+				for s: int in wd_m.get_surface_count():
+					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
 	else:
 		if _owner.gridmap != null and _owner.gridmap.mesh_library != null:
 			var m: Mesh = _owner.gridmap.mesh_library.get_item_mesh(tile_id)
@@ -226,7 +235,8 @@ func _update_move_ghost() -> void:
 	elif mv_tile == _owner.TILE_GEN_S or mv_tile == _owner.TILE_GEN_M \
 			or mv_tile == _owner.TILE_GEN_L:
 		snap_pos.y = _owner.GEN_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_WIRE or mv_tile == _owner.TILE_HEAVY or mv_tile == _owner.TILE_WATER_SINK:
+	elif mv_tile == _owner.TILE_WIRE or mv_tile == _owner.TILE_HEAVY or mv_tile == _owner.TILE_WATER_SINK \
+			or mv_tile == _owner.TILE_WATER_DISPENSER:
 		snap_pos.y = _owner.PLACEMENT_Y
 	elif mv_tile == _owner.TILE_BREAKER or mv_tile == _owner.TILE_BREAKER_SMART:
 		snap_pos.y = _owner.PLACEMENT_Y

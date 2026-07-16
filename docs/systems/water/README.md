@@ -1,17 +1,23 @@
-# Water System (Phase 1 groundwork + Step 2: interactable hookup/sink, live flow-split)
+# Water System (Phase 1 groundwork + Step 2 interactable hookup/sink + demand/priority allocation)
 
 **Read this before opening any `scripts/world/water/*` file.** Only open the
 actual source for the specific function you're changing.
 
 ## Purpose
-The wall-mounted water hookup and the pipe-placement/routing tool, plus
-(Step 2, July 2026) both devices being interactable (press E) with a shared
-info panel showing tiered output, a live equal flow-split across whatever's
-connected, and water quality. **Still explicitly NOT in scope**: water
-purifiers, pumps, quality decay over time, priority-weighted flow (like the
-power system's shedding), or upgrading `WaterPipeDrawMode` to the full
-continuous-drag paint UX (see Known tradeoffs) — T-split branching may
-already partially work (untested, flagged as a follow-up).
+The wall-mounted water hookup, the pipe-placement/routing tool, both devices
+being interactable (press E) with a shared info panel (Step 2), and (Jul
+2026) a REAL demand-based, priority-tier allocation system
+(`WaterSolver.gd`) plus the water system's first real consuming device,
+`WaterDispenser.gd`. Every registered consumer (`WaterTestSink`,
+`WaterDispenser`) now has its own tunable priority (1-5, same convention as
+the power system's shedding tiers) and live demand; a hookup's total daily
+output is allocated tier-by-tier (see `WaterSolver.gd`'s own header for the
+full waterfall algorithm), replacing the old Step 2 equal-split placeholder
+entirely. **Still explicitly NOT in scope**: water purifiers, pumps, quality
+decay/mixing over time (`stored_water_quality`/`water_quality` stay static
+placeholders), or upgrading `WaterPipeDrawMode` to the full continuous-drag
+paint UX (see Known tradeoffs) — T-split branching may already partially
+work (untested, flagged as a follow-up).
 
 ## Responsibilities
 - Own the water plumbing graph (nodes/edges) and connectivity (BFS
@@ -25,10 +31,25 @@ already partially work (untested, flagged as a follow-up).
 - Static pipe/corner visuals, always visible (never hidden outside build
   mode, unlike wires) — `WaterPipeSegment.gd`/`WaterPipeElbow.gd`.
 - A rudimentary test endpoint that proves the plumbing works end to end —
-  `WaterTestSink.gd`.
+  `WaterTestSink.gd` — now with a tunable `priority`/`fixed_demand_mL_per_day`
+  (Jul 2026) for exercising `WaterSolver.gd` against different playtest
+  configurations.
 - Both `WaterHookup` and `WaterTestSink` being interactable (press E),
   opening a shared info panel (`WaterInfoUI.gd`) showing tiered output /
-  live flow-split / water quality — Step 2, July 2026.
+  connected demand vs. capacity / water quality — Step 2, July 2026 (wording
+  updated Jul 2026 once allocation stopped being equal-split).
+- **Demand-based priority-tier water allocation** (`WaterSolver.gd`, Jul
+  2026) — the real solver this system was always going to need (flagged as
+  an Extension point since Phase 1). Groups every registered consumer
+  reachable from a hookup by priority tier, processes tiers 1→5, fully
+  serving a tier if under supply or proportionally scaling it down if
+  oversubscribed (see that file's own header for the exact algorithm and
+  worked examples).
+- `WaterDispenser.gd` — the system's first real, gameplay-relevant
+  water-consuming device (Jul 2026): 5000mL storage, a player-tunable
+  requested rate (slider, `WaterDispenserUI.gd`), on/off toggle, and a fill
+  tick driven by the solver's actual per-tick GRANT, never the raw
+  requested rate.
 
 ## Non-responsibilities
 - **Not wired into PowerManager/PowerGraph in any way.** This is a separate,
@@ -39,18 +60,22 @@ already partially work (untested, flagged as a follow-up).
   systems (e.g. `water_purifier`, which draws electricity AND water) should
   hold independent references to both managers — neither manager should ever
   reference the other.
-- **Minimal flow-splitting only, still not real flow/pressure simulation**
-  (Step 2, July 2026 — this line replaces the old "no flow/pressure
-  simulation" claim, which stopped being accurate once Step 2 landed real
-  arithmetic on top of pure connectivity): total hookup output ÷ count of
-  connected `"endpoint"`-role consumer nodes, computed live on every call, no
-  priority weighting, no time-based depletion, no caching. A real
-  `WaterSolver.gd` (mirroring `PowerSolver.gd`) for real pressure/priority/
-  depletion simulation is still a future Extension point, not this.
-- **`scripts/ui/water/` is no longer empty** — `WaterInfoUI.gd` (Step 2) is
-  the system's first real UI panel. Still no full dashboard/terminal UI in
-  the `PowerTerminalUI` sense — add one only once a real water-consuming
-  device justifies that much complexity.
+- **Priority-tier demand allocation, still not real flow/pressure simulation**
+  (Jul 2026 — supersedes the old Step 2 "equal flow-split" claim entirely):
+  `WaterSolver.gd` allocates a hookup's total daily output tier-by-tier based
+  on each consumer's live requested demand and 1-5 priority — no actual
+  fluid pressure/pipe-diameter/distance-loss physics, no time-based
+  depletion of the SOURCE (the hookup's own tiered output is still a flat
+  constant, see `WaterHookup.TIER_DAILY_ML`), no caching (recomputed fresh
+  on every call, matching this system's existing "compute live, no
+  persistence" pattern).
+- **`scripts/ui/water/` now holds two panels** — `WaterInfoUI.gd` (Step 2,
+  read-only hookup/sink stats, hand-drawn `_draw()`) and
+  `WaterDispenserUI.gd` (Jul 2026, a real interactive `Control`/`HSlider`/
+  `CheckBox` tree — mirrors `GraphicsSettingsPanel.gd`'s precedent, NOT
+  `WaterInfoUI`'s `_draw()` pattern, since a rate slider + toggle is a
+  meaningfully different shape than a static stat display). Still no full
+  dashboard/terminal UI in the `PowerTerminalUI` sense.
 - **Does not reuse `WallSnapHelpers.gd`'s existing snap functions directly**
   (`_snap_light_to_wall`/`_snap_breaker_to_wall` stay build-mode-only,
   untouched) — the water system either calls the new generic
@@ -70,22 +95,29 @@ already partially work (untested, flagged as a follow-up).
 | `WaterPipeSegment.gd` | Visual for one straight placed pipe. **Always visible** (see Known tradeoffs). Joins group `"water_pipe_visual"` on `_ready()` (Step 2, July 2026) — pure findability for `WaterHookup._delete_and_refund_edge()`, NOT the `WireSegment` hide-on-exit-build-mode pattern. Also carries `placement_cost` (July 2026) — per-leg cost stashed at spawn time, source of truth for that same refund path. |
 | `WaterPipeElbow.gd` | Corner-joint visual, spawned automatically at a corner crossing. A REAL graph node (role `"corner"`), not just cosmetic — see Extension points. |
 | `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **Uses the plan's own pre-approved FALLBACK interaction model (one confirm per click), not the full single-drag paint — see its own file-header comment and Known tradeoffs below.** |
-| `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). Interactable (Step 2) — see `WaterInfoUI.gd`. |
-| `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026. ONE shared info panel for both `WaterHookup` and `WaterTestSink` (`is_source` flag distinguishes them) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. |
+| `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). Interactable (Step 2) — see `WaterInfoUI.gd`. Jul 2026: `priority: int` (1-5) + `fixed_demand_mL_per_day: float` exports, implements `get_current_demand_mL_per_day()` for `WaterSolver.gd`. |
+| `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026. ONE shared info panel for both `WaterHookup` and `WaterTestSink` (`is_source` flag distinguishes them) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. Hookup-side stats rewritten Jul 2026 (see Non-responsibilities). |
+| `WaterSolver.gd` | Jul 2026. Priority-tier demand waterfall — `RefCounted`, `_graph: WaterGraph` back-reference (same split pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver`). Pure read-only queries, no state held between calls. |
+| `WaterDispenser.gd` | Jul 2026. The first real water-consuming device — 5000mL storage, on/off, player-tunable requested rate, fill tick driven by the solver's actual grant. `TILE_WATER_DISPENSER` in `BuildModeController`, ground-placed like the test sink. |
+| `WaterDispenserUI.gd` (`scripts/ui/water/`) | Jul 2026. Real `Control`/`HSlider`/`CheckBox` interactive panel — fill level, rate slider (0 to the live dynamic max), effective (actually received) rate, on/off toggle, water-quality placeholder. |
 
 ## Public API
 Get the instance via
 `get_tree().get_first_node_in_group("water_manager")` cast to `WaterManager`.
 
-`register_node(pos, role) -> String` / `unregister_node(key)` /
-`has_water_node(key) -> bool` (NOT `has_node` — that name collides with
-`Node`'s own built-in method since `WaterManager extends Node`; this was
-caught by the headless compile check during this pass, see Known
-tradeoffs) / `get_node_data(key) -> Dictionary` / `register_edge(key_a,
+`register_node(pos, role, consumer_ref: Node = null) -> String` (Jul 2026:
+gained the optional `consumer_ref` param — the back-reference `WaterSolver.gd`
+reads priority/demand off of; only meaningful for role `"endpoint"`) /
+`unregister_node(key)` / `has_water_node(key) -> bool` (NOT `has_node` — that
+name collides with `Node`'s own built-in method since `WaterManager extends
+Node`; this was caught by the headless compile check during this pass, see
+Known tradeoffs) / `get_node_data(key) -> Dictionary` / `get_consumer_ref(key)
+-> Node` (Jul 2026, forwards to `WaterGraph`) / `register_edge(key_a,
 key_b) -> String` / `unregister_edge(edge_id)` / `has_edge(edge_id) -> bool` /
 `get_nodes() -> Dictionary` / `get_edges() -> Dictionary` /
-`is_reachable_from_hookup(node_key) -> bool` (the one piece of "simulation"
-this phase needs) / `WaterManager.make_node_key(pos) -> String` (static).
+`is_reachable_from_hookup(node_key) -> bool` (the one piece of pure
+connectivity "simulation" this phase needs) / `WaterManager.make_node_key(pos)
+-> String` (static).
 
 `register_hookup(hookup)` / `unregister_hookup(hookup)` — plain node-ref
 list (separate from the graph registry above) so boundary-change events can
@@ -99,7 +131,7 @@ see Known tradeoffs "only one hookup").
 position change — called by both the boundary-tracking reposition AND a
 manual Move).
 
-### Step 2 additions (July 2026) — live flow-split
+### Step 2 additions (July 2026)
 `WaterHookup.get_daily_output_mL() -> float` / `get_per_minute_output_mL() ->
 float` (tiered via `TIER_DAILY_ML`/`tier`) / `get_node_key() -> String` (the
 one deliberate read-only exception to `_node_key` staying private) /
@@ -110,20 +142,63 @@ this pass). `WaterTestSink.get_node_key() -> String` (same reasoning).
 BFS count of `"endpoint"`-role nodes reachable from the hookup (forwards to
 `WaterGraph.count_reachable_endpoints()`).
 
-`WaterManager.get_per_consumer_rate_mL_per_day(hookup: WaterHookup) -> float`
-— hookup's tiered output ÷ current consumer count, 0 if nothing connected.
+`WaterGraph.count_reachable_endpoints(hookup_key) -> int` /
+`WaterGraph.find_reachable_hookup_key(from_key) -> String` — the two BFS
+primitives Step 2's `WaterManager` methods forward to; both mirror
+`is_reachable_from_hookup()`'s exact walk shape.
+
+### Demand/priority-tier allocation additions (July 2026) — supersedes Step 2's equal-split
+`WaterGraph.get_consumer_ref(key) -> Node` — reads the `consumer_ref` stored
+by `register_node()`; null for non-`"endpoint"` roles or if unset.
+`WaterGraph.get_reachable_endpoint_keys(hookup_key) -> Array[String]` — same
+BFS walk as `count_reachable_endpoints()`, returns keys instead of a count
+(what `WaterSolver.gd` iterates over).
+
+`WaterSolver.new(graph: WaterGraph)` / `solve_for_hookup(hookup_key: String,
+total_supply_mL_per_day: float) -> Dictionary` — the core waterfall, returns
+`{ node_key(String) -> received_mL_per_day(float) }` for every endpoint
+reachable from the hookup (a missing key means 0 received, same as an
+explicit 0.0 entry) / `get_dynamic_max_for_device(hookup_key, total_supply,
+device_key, device_priority) -> float` — a specific device's live slider
+ceiling (waterfalls every tier strictly above the device's own, then
+subtracts every OTHER same-tier device's current demand from what's left,
+floored at 0). Both fully recomputed on every call, no caching, no state
+held on the solver instance between calls.
+
+`WaterManager.get_total_requested_demand_mL(hookup: WaterHookup) -> float`
+— sum of every reachable endpoint's CURRENT requested demand (not what
+they'll actually receive) — used by the hookup's own info panel now that
+the split is no longer equal.
 
 `WaterManager.get_received_rate_mL(consumer_node_key: String) -> Dictionary`
 — traces back to whichever hookup feeds this consumer
-(`WaterGraph.find_reachable_hookup_key()`) and returns `{"connected": bool,
-"mL_per_day": float, "mL_per_minute": float, "quality": float}` — `quality`
+(`WaterGraph.find_reachable_hookup_key()`), runs the WHOLE hookup's
+`WaterSolver.solve_for_hookup()`, and returns `{"connected": bool,
+"mL_per_day": float, "mL_per_minute": float, "quality": float}` for THIS
+consumer's actual received share (can be less than requested) — `quality`
 is always the SOURCE hookup's `water_quality`, never a separate per-consumer
 value (water doesn't gain/lose quality in transit through pipes this pass).
+**Rewritten Jul 2026** — previously an equal hookup-output ÷ consumer-count
+split; now solver-backed.
 
-`WaterGraph.count_reachable_endpoints(hookup_key) -> int` /
-`WaterGraph.find_reachable_hookup_key(from_key) -> String` — the two new BFS
-primitives Step 2's `WaterManager` methods above forward to; both mirror
-`is_reachable_from_hookup()`'s exact walk shape.
+`WaterManager.get_dynamic_max_mL_per_day(consumer_node_key: String,
+device_priority: int) -> float` — thin forward to
+`WaterSolver.get_dynamic_max_for_device()`, resolving the hookup + its
+output for the caller. What `WaterDispenser`/`WaterDispenserUI` query every
+frame for the slider ceiling.
+
+`WaterDispenser.get_current_demand_mL_per_day() -> float` /
+`get_node_key() -> String` / `set_on(value: bool)` / `set_requested_rate(value:
+float)` — the duck-typed demand contract + the small mutator API
+`WaterDispenserUI.gd` drives. `WaterDispenser.priority: int` (1-5, same
+convention), `requested_rate_mL_per_day: float` (the slider's stored value,
+untouched by `set_on()`), `is_on: bool`, `current_fill_mL: float`,
+`stored_water_quality: float` (0-100, unread/undecayed placeholder, same
+treatment as `WaterHookup.water_quality`).
+
+**REMOVED (Jul 2026):** `WaterManager.get_per_consumer_rate_mL_per_day()` —
+the old equal-split method. No longer meaningful once allocation is
+priority-tiered; nothing calls it anymore.
 
 `WaterGraph.get_edges_touching(key) -> Array` (`[{"edge_id": String,
 "other_key": String}, ...]`) / `WaterManager.get_edges_touching(key) ->
@@ -141,8 +216,9 @@ player.
 `WaterPipeDrawMode` produces `pipe_placed(seg_nodes, edge_ids, cost,
 elbow_nodes, midpoint)` and `pipe_tool_exit_requested()` (mirrors
 `WireDrawMode`'s shape), consumed by `BuildModeController`. `WaterInfoUI`
-(Step 2) produces `closed` — consumed by whichever device spawned it
-(`WaterHookup`/`WaterTestSink`), same spawn-once-reuse pattern as
+(Step 2) and `WaterDispenserUI` (Jul 2026) both produce `closed` — consumed
+by whichever device spawned them (`WaterHookup`/`WaterTestSink`/
+`WaterDispenser`), same spawn-once-reuse pattern as
 `GeneratorInspectUI`/`PowerTerminalUI`.
 
 ## Signals/events consumed
@@ -199,21 +275,39 @@ Player uses Pipe tool (TOOL_WATER_PIPE)
 Player presses E on WaterHookup/WaterTestSink (Step 2)
   → on_interact() → lazy-spawns/reuses WaterInfoUI → open(display_name,
     is_source, device_ref) → _on_draw() queries WaterManager live every
-    redraw (get_connected_consumer_count/get_per_consumer_rate_mL_per_day
-    for the hookup, get_received_rate_mL for the sink)
+    redraw (get_connected_consumer_count/get_total_requested_demand_mL
+    for the hookup, get_received_rate_mL for the sink — solver-backed
+    since Jul 2026)
+
+Player presses E on WaterDispenser (Jul 2026)
+  → on_interact() → lazy-spawns/reuses WaterDispenserUI → open(self)
+    → _process()/_pull_live() every frame: WaterManager.get_dynamic_max_mL_per_day()
+    (slider ceiling) + get_received_rate_mL() (effective/actually-received
+    rate) — both re-solve the whole hookup's WaterSolver waterfall live
+  → WaterDispenser._process() independently reclamps requested_rate_mL_per_day
+    to the same dynamic max every frame (not just while the panel is open)
+    and fills current_fill_mL off get_received_rate_mL()'s GRANT, never the
+    raw requested rate
 ```
 
 ## Common edits
-- **New pipe-connectable device (beyond the test sink):** register a
-  `"endpoint"` (or other) role node via `WaterManager.register_node()` in
-  `_ready()` (deferred, same pattern `WaterTestSink`/`WaterHookup` use) — but
-  register it at the device's actual physical connection point (e.g. the
-  TOP of a floor-standing box, see `WaterTestSink`'s own comment), not its
-  origin/base. `WaterPipeDrawMode._get_nearest_water_node_xz()` will find it
+- **New pipe-connectable device (beyond the test sink/dispenser):** register
+  a `"endpoint"` (or other) role node via `WaterManager.register_node()` in
+  `_ready()` (deferred, same pattern `WaterTestSink`/`WaterHookup`/
+  `WaterDispenser` use) — but register it at the device's actual physical
+  connection point (e.g. the TOP of a floor-standing box, see
+  `WaterTestSink`'s own comment), not its origin/base. Pass `self` as the
+  new `consumer_ref` param if the device is a real consumer (implements
+  `get_current_demand_mL_per_day()` + a `priority: int` field) so
+  `WaterSolver.gd` picks it up automatically — `WaterDispenser.gd` is the
+  reference example for a full real-consumer implementation.
+  `WaterPipeDrawMode._get_nearest_water_node_xz()` will find the new node
   automatically as a valid source/destination, no registry to update. Also
   add its tile ID to `BuildModeController`'s `CONNECTABLE_TILES`/
-  `CONNECTABLE_TILES_QUICK` arrays so it gets the blue "connectable" dot
-  overlay in build mode, same as lights/generators/the hookup/the test sink.
+  `CONNECTABLE_TILES_QUICK` arrays (+ `GhostPreview.gd`/`MoveDuplicateTool.gd`
+  ghost-mesh branches, + a `BuildModeHUD.CATEGORIES["Water"]` entry if
+  player-placeable) so it gets the blue "connectable" dot overlay in build
+  mode, same as lights/generators/the hookup/the test sink/the dispenser.
 - **Changing pipe/hookup visual diameter:** `WaterHookup.STUB_RADIUS`,
   `WaterPipeSegment.PIPE_RADIUS`, and `WaterPipeElbow.JOINT_RADIUS` are kept
   in sync MANUALLY (no shared constant) so they visually read as one
@@ -564,22 +658,28 @@ stable (matches the project's standing debug-logging discipline).
   connectable device rather than registering at the object's origin/base.
 
 ## Extension points
-- **Real flow/pressure simulation:** add a `WaterSolver.gd` mirroring
-  `PowerSolver.gd`'s extraction — `WaterGraph`/`WaterManager` are already
-  split apart specifically so this slots in later without another
-  mid-project refactor (see `docs/systems/power/README.md`'s own history of
-  why that split was expensive when done late). Step 2's live equal
-  flow-split (`get_connected_consumer_count()`/`get_per_consumer_rate_mL_per_day()`)
-  is a deliberately minimal placeholder for this, not a first version of it.
-- **Water quality decay over time:** `WaterHookup.water_quality` is a static
-  0-100 value this pass (Step 2) — a future pass would tick it down over
-  time (and/or let events/disasters affect it). The field already exists
-  and is already wired into both info-panel displays, so a future decay
-  system only needs to mutate the value, not introduce it or its UI.
-- **Priority-weighted flow / real consumer devices:** Step 2's split is
-  strictly equal-across-all-connected-endpoints, no priority tiers like the
-  power system's shedding. A real consumer device (vs. the test sink) and
-  priority weighting are both explicitly out of scope for Step 2.
+- **Real flow/pressure simulation:** `WaterSolver.gd` (Jul 2026) allocates by
+  priority tier + live demand, but is still NOT real fluid pressure/pipe-
+  diameter/distance-loss physics — that's a bigger future simulation layer,
+  not this. `WaterGraph`/`WaterManager`/`WaterSolver` are already split apart
+  the same way `PowerGraph`/`PowerRegistry`/`PowerSolver` are specifically so
+  a real physics layer can slot in later without another mid-project
+  refactor (see `docs/systems/power/README.md`'s own history of why that
+  split was expensive when done late).
+- **Water quality decay/mixing over time:** `WaterHookup.water_quality` and
+  `WaterDispenser.stored_water_quality` are both static placeholder values
+  this pass — a future pass would tick them down over time and/or model
+  mixing (e.g. a dispenser's stored water reflecting a running average of
+  what it's received). Both fields already exist and are already wired into
+  their respective UI displays, so a future decay/mixing system only needs
+  to mutate the values, not introduce them or their UI.
+- **Priority adjustment UI for `WaterTestSink`/`WaterDispenser`:** both
+  devices' `priority` field is currently Inspector-only (`WaterTestSink`) or
+  slider-panel-adjacent but not directly exposed (`WaterDispenser` — its
+  `WaterDispenserUI.gd` shows/uses the `priority` value for the dynamic-max
+  query but has no UI control to CHANGE it yet). Mirroring
+  `PowerPriorityUI.gd`'s ◄ N ► pattern for both is a natural next step,
+  flagged in the original plan as recommended-but-deferred.
 - **New pipe-drawing UX (the full continuous-paint upgrade):** replace
   `WaterPipeDrawMode`'s per-click confirm loop with a live multi-segment path
   preview that walks around however many corners the cursor's projected

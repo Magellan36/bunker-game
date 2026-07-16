@@ -32,8 +32,19 @@ func _init(owner: WaterManager) -> void:
 const SNAP_GRID: float = 0.25
 
 ## _water_nodes: node_key(String) -> {
-##   "role":     String    -- "hookup" | "pipe_joint" | "corner" | "endpoint"
-##   "pos":      Vector3
+##   "role":         String    -- "hookup" | "pipe_joint" | "corner" | "endpoint"
+##   "pos":          Vector3
+##   "consumer_ref": Node      -- OPTIONAL, "endpoint" nodes only (WaterSolver.gd,
+##                                Jul 2026). Duck-typed contract: the referenced
+##                                node implements get_current_demand_mL_per_day()
+##                                -> float and exposes a priority: int (1-5)
+##                                field. WaterSolver never needs to know or care
+##                                which concrete script (WaterTestSink,
+##                                WaterDispenser, ...) it's talking to -- same
+##                                composition-over-inheritance pattern the power
+##                                system's registries already use. null for
+##                                every non-endpoint role (hookup/pipe_joint/
+##                                corner never carry a consumer_ref).
 ## }
 var _water_nodes: Dictionary = {}
 
@@ -69,13 +80,27 @@ static func make_edge_id(key_a: String, key_b: String) -> String:
 
 
 ## Registers a node at `pos` with the given role. Returns its node_key.
-## Idempotent — registering the same position twice just updates role/pos.
-func register_node(pos: Vector3, role: String) -> String:
+## Idempotent — registering the same position twice just updates role/pos
+## (and consumer_ref, if provided).
+## `consumer_ref` (Jul 2026, WaterSolver groundwork) — optional back-reference
+## to the device implementing the demand/priority duck-typed contract (see
+## _water_nodes' own comment above). Only meaningful for role == "endpoint";
+## harmless to pass null for every other role.
+func register_node(pos: Vector3, role: String, consumer_ref: Node = null) -> String:
 	var key: String = make_node_key(pos)
-	_water_nodes[key] = { "role": role, "pos": pos }
+	_water_nodes[key] = { "role": role, "pos": pos, "consumer_ref": consumer_ref }
 	if not _adjacency.has(key):
 		_adjacency[key] = []
 	return key
+
+## Returns the consumer_ref stored at `key`, or null if unregistered / not set
+## / no longer a valid instance (freed nodes are NOT auto-scrubbed from the
+## dict — callers must is_instance_valid() check, same as every other
+## Node-ref cache in this codebase, e.g. WaterManager._hookups).
+func get_consumer_ref(key: String) -> Node:
+	if not _water_nodes.has(key):
+		return null
+	return _water_nodes[key].get("consumer_ref", null)
 
 func unregister_node(key: String) -> void:
 	if not _water_nodes.has(key):
@@ -165,6 +190,27 @@ func is_reachable_from_hookup(node_key: String) -> bool:
 				return true
 			queue.append(neighbor)
 	return false
+
+## Returns the node_key of every "endpoint" node reachable from `hookup_key`
+## via BFS. Mirrors count_reachable_endpoints()'s exact walk, just collecting
+## keys instead of counting — used by WaterSolver.gd (Jul 2026) to gather the
+## live consumer set for its priority-tier waterfall.
+func get_reachable_endpoint_keys(hookup_key: String) -> Array[String]:
+	var out: Array[String] = []
+	if not _water_nodes.has(hookup_key):
+		return out
+	var visited: Dictionary = { hookup_key: true }
+	var queue: Array = [hookup_key]
+	while not queue.is_empty():
+		var current: String = queue.pop_front()
+		for neighbor: String in _adjacency.get(current, []):
+			if visited.has(neighbor):
+				continue
+			visited[neighbor] = true
+			if _water_nodes.has(neighbor) and _water_nodes[neighbor].get("role", "") == "endpoint":
+				out.append(neighbor)
+			queue.append(neighbor)
+	return out
 
 ## Returns the node_key of every registered hookup (role == "hookup").
 func get_hookup_keys() -> Array[String]:

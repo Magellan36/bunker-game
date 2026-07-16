@@ -166,7 +166,12 @@ func _on_draw() -> void:
 
 	_draw_str("[ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), DIM_COLOR, 9)
 
-## Hookup's own panel: tier output + live per-consumer split + quality.
+## Hookup's own panel: tier output + aggregate priority-tier demand + quality.
+## PER-CONSUMER SPLIT wording retired (Jul 2026) — allocation is no longer
+## equal, it's a priority-tier waterfall (WaterSolver.gd); a single "each
+## device gets X" number no longer means anything, so this now shows total
+## REQUESTED demand vs. capacity instead (color-flags oversubscription,
+## which is exactly when the waterfall starts scaling/starving lower tiers).
 func _draw_source_stats(cx: float, cy: float) -> float:
 	var hookup: WaterHookup = _device_ref as WaterHookup
 	if hookup == null:
@@ -177,23 +182,23 @@ func _draw_source_stats(cx: float, cy: float) -> float:
 	var daily:   float = hookup.get_daily_output_mL()
 	var per_min: float = hookup.get_per_minute_output_mL()
 	var count:   int   = 0
-	var per_consumer_day: float = 0.0
+	var requested_total: float = 0.0
 	if wm != null:
-		count            = wm.get_connected_consumer_count(hookup)
-		per_consumer_day = wm.get_per_consumer_rate_mL_per_day(hookup)
+		count           = wm.get_connected_consumer_count(hookup)
+		requested_total = wm.get_total_requested_demand_mL(hookup)
 
 	_draw_str("TIER OUTPUT", Vector2(cx, cy), DIM_COLOR, 10)
 	_draw_str("%.0f mL/day  (%.2f mL/min)" % [daily, per_min], Vector2(cx, cy + 14.0), TEXT_COLOR, 13)
 	cy += 40.0
 
-	_draw_str("PER-CONSUMER SPLIT", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("CONNECTED DEMAND", Vector2(cx, cy), DIM_COLOR, 10)
 	if count == 0:
 		_draw_str("Not connected to any pipes", Vector2(cx, cy + 14.0), WARN_COLOR, 13)
 	else:
-		var per_min_each: float = per_consumer_day / 1440.0
 		var plural: String = "device" if count == 1 else "devices"
-		_draw_str("%d %s connected — %.0f mL/day (%.2f mL/min) each" %
-			[count, plural, per_consumer_day, per_min_each], Vector2(cx, cy + 14.0), OK_COLOR, 12)
+		var demand_col: Color = OK_COLOR if requested_total <= daily else WARN_COLOR
+		_draw_str("%d %s connected — requesting %.0f / %.0f mL/day" %
+			[count, plural, requested_total, daily], Vector2(cx, cy + 14.0), demand_col, 12)
 	cy += 40.0
 
 	cy = _draw_quality_row(hookup.water_quality, cx, cy)
