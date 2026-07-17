@@ -313,6 +313,10 @@ var _consumers: Dictionary = {}
 ## }
 var _generators: Dictionary = {}
 
+## Wire node key for the F8 admin-cheat generator (admin_add_power()) — empty
+## string when no admin power has been added yet. See admin_add_power().
+var _admin_gen_wire_key: String = ""
+
 # ─── Battery registry ─────────────────────────────────────────────────────────
 ## id → { "id", "capacity_wh", "charge_wh", "node", "discharging" }
 var _batteries: Dictionary = {}
@@ -1553,11 +1557,62 @@ func register_generator(
 		node:      Node  = null,
 		is_backup: bool  = false,
 		fuel:      float = 100.0,
-		health:    float = 100.0) -> void:
-	_registry.register_generator(gen_id, watts, node, is_backup, fuel, health)
+		health:    float = 100.0,
+		infinite:  bool  = false) -> void:
+	_registry.register_generator(gen_id, watts, node, is_backup, fuel, health, infinite)
 
 func unregister_generator(gen_id: String) -> void:
 	_registry.unregister_generator(gen_id)
+
+
+## ── ADMIN CHEAT (F8 menu, Jul 2026) ──────────────────────────────────────────
+## Adds (positive delta) or removes (negative delta) `delta_watts` of power
+## from the grid, as if a fictional infinitely-fueled generator were wired
+## straight into the network. Stackable: repeated calls accumulate onto the
+## SAME hidden generator (ADMIN_GEN_ID) rather than spawning a new one each
+## time. Wattage is clamped to >= 0; hitting exactly 0 fully unregisters the
+## generator and its wire node again, leaving no trace.
+##
+## Wiring approach: the hidden generator needs a wire-graph node to actually
+## count toward a zone's reachable capacity (not just the flat
+## total_capacity_watts sum) — a bare register_generator() call alone is not
+## enough. It attaches via a "no_visual" (logical-only, no rendered tube)
+## edge to whatever wire node happens to be first in get_wire_nodes() — any
+## already-connected node works since the whole point is "infinitely
+## connected to the system," not a specific physical location. The admin
+## node itself sits one snap-grid cell (PowerGraph.SNAP_GRID) away from that
+## anchor so register_wire_edge() never walks its automatic intermediate-
+## joint-generation loop across a huge distance (that loop steps every
+## SNAP_GRID metres between the two endpoints — fine at 0.25m, but a distant
+## sentinel position would generate thousands of joints and stall the game).
+const ADMIN_GEN_ID: String = "admin_cheat_gen"
+
+func admin_add_power(delta_watts: float) -> void:
+	var cur_watts: float = 0.0
+	if _generators.has(ADMIN_GEN_ID):
+		cur_watts = float(_generators[ADMIN_GEN_ID].get("watts", 0.0))
+	var new_watts: float = maxf(0.0, cur_watts + delta_watts)
+
+	if new_watts <= 0.0:
+		if _generators.has(ADMIN_GEN_ID):
+			unregister_generator(ADMIN_GEN_ID)
+		if not _admin_gen_wire_key.is_empty():
+			unregister_wire_node(_admin_gen_wire_key)
+			_admin_gen_wire_key = ""
+		return
+
+	register_generator(ADMIN_GEN_ID, new_watts, null, false, 100.0, 100.0, true)
+
+	if _admin_gen_wire_key.is_empty():
+		var nodes: Array[Dictionary] = get_wire_nodes()
+		if nodes.is_empty():
+			push_warning("PowerManager: admin_add_power() found no existing wire node to attach to yet — try again once the grid has any wiring.")
+			return
+		var anchor: Dictionary = nodes[0]
+		var anchor_pos: Vector3 = anchor.get("pos", Vector3.ZERO)
+		var admin_pos: Vector3 = anchor_pos + Vector3(PowerGraph.SNAP_GRID, 0.0, 0.0)
+		_admin_gen_wire_key = register_wire_node(admin_pos, "generator", ADMIN_GEN_ID)
+		register_wire_edge(_admin_gen_wire_key, anchor["key"], null, true)
 
 ## Returns current fuel level [0.0–100.0] for the given generator.
 ## Returns -1.0 if the gen_id is not registered.
@@ -3235,6 +3290,12 @@ func _tick_generators(delta: float) -> void:
 		## Only drain running generators that are actually contributing watts.
 		## If all generators are stopped (battery takeover), nothing runs here.
 		if not gen.get("running", false):
+			continue
+
+		## Admin/cheat generators (F8 menu, PowerManager.admin_add_power())
+		## never drain — they represent an infinite external supply, not a
+		## physical fuel-burning unit.
+		if gen.get("infinite", false):
 			continue
 
 		var gen_w:    float = maxf(float(gen.get("watts", 0.0)), 1.0)

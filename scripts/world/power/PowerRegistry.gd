@@ -180,16 +180,21 @@ func _consumer_is_wired(id: String) -> bool:
 ##   is_backup — if true, idles until all primaries fail
 ##   fuel      — 0–100
 ##   health    — 0–100
+## `infinite` (added Jul 2026, F8 admin power cheat) — when true, _tick_generators()
+## never drains this generator's fuel, so it runs forever without a fuel_low
+## warning or eventual auto-stop. Used only by PowerManager.admin_add_power();
+## real GeneratorObject instances never pass this.
 func register_generator(
 		gen_id:    String,
 		watts:     float,
 		node:      Node  = null,
 		is_backup: bool  = false,
 		fuel:      float = 100.0,
-		health:    float = 100.0) -> void:
+		health:    float = 100.0,
+		infinite:  bool  = false) -> void:
 
-	_owner._pmdbg("[PM:GEN] register_generator called — id=%s watts=%.0f backup=%s fuel=%.1f health=%.1f" % [
-		gen_id, watts, str(is_backup), fuel, health])
+	_owner._pmdbg("[PM:GEN] register_generator called — id=%s watts=%.0f backup=%s fuel=%.1f health=%.1f infinite=%s" % [
+		gen_id, watts, str(is_backup), fuel, health, str(infinite)])
 	var running: bool = (not is_backup) and fuel > 0.0 and health > 0.0
 	_owner._generators[gen_id] = {
 		"id":           gen_id,
@@ -200,6 +205,7 @@ func register_generator(
 		"fuel":         clampf(fuel,   0.0, 100.0),
 		"health":       clampf(health, 0.0, 100.0),
 		"auto_started": false,
+		"infinite":     infinite,
 	}
 	_owner._pmdbg("[PM:GEN] _generators now has %d entries" % _owner._generators.size())
 	_owner._recalculate_capacity()
