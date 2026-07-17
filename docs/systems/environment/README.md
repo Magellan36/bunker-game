@@ -118,10 +118,17 @@ needs `rock_surround`/`build_controller` refs assigned before it's called).
 wherever a dust effect is needed (no ownership at all).
 
 ## Persistence
-**None.** Dug/restored chunk state, pregen bunker contents (loot spawn
-positions), and lighting state are not saved — a fresh load always starts
-from the same original pregen layout with no chunks dug (tracked gap, same
-as the rest of the project — see `docs/systems/world-core/README.md`).
+**Jul 2026 — dug chunk state now saved.** `RockSurround.get_dug_chunk_ids_for_save()`/
+`restore_dug_chunks()` (SaveManager phase 0, applied first — everything else
+that gets restored may depend on the bunker's dug shape). Handles a
+mid-session Load correctly too: `restore_dug_chunks()` first restores every
+currently-dug chunk back to intact rock, then re-digs exactly the saved set,
+reusing `restore_chunk()`/`deconstruct_chunk()` as-is so `chunk_deconstructed`/
+`chunk_restored` fire normally and `WireGraphBuilder`/`WaterManager`'s
+incremental rebuild reacts exactly as it would to manual digging. **Still
+not saved:** pregen bunker contents (loot spawn positions) and lighting
+state — a fresh load always starts those from the same original pregen
+layout (tracked gap, not scheduled).
 
 ## Call graph (brief)
 ```
@@ -171,7 +178,7 @@ Player digs / expands (via BuildModeController dig-confirm flow)
 
 ## Known tradeoffs / tech debt
 - No automated tests.
-- Environment/chunk state isn't saved (see Persistence).
+- Pregen loot spawn positions and lighting state aren't saved (see Persistence).
 - `bunker_width`/`bunker_depth` are declared as separate `@export` vars on
   BOTH `BunkerLayout.gd` AND `RockSurround.gd` rather than one being the
   single source of truth the other reads — a manual-sync footgun if the

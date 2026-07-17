@@ -193,6 +193,16 @@ func set_grid_connected(connected: bool) -> void:
 		_panel_canvas.queue_redraw()
 
 
+## Save/Load (Jul 2026) — public read accessors for this battery's mutable
+## runtime state. No setter counterpart needed here: restore goes through
+## PowerManager.set_battery_charge()/set_battery_enabled() (same path the
+## solver/info-panel already use), not a direct instance var write.
+func get_charge_wh() -> float:
+	return _charge_wh
+
+func get_enabled() -> bool:
+	return _enabled
+
 ## Called by the info panel toggle — routes through PM.
 func set_enabled(on: bool) -> void:
 	_enabled = on

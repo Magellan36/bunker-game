@@ -132,10 +132,17 @@ slices in its own `_ready()`. `WireDrawMode` is created as a child `Node` at
 runtime (script loaded and attached dynamically, not a static scene child).
 
 ## Persistence
-**None.** `_placed_objects`/`_undo_stack` are pure in-memory session state —
-a fresh load has no player-built structures (tracked gap, same as
-power/environment/furniture systems — see
-`docs/systems/world-core/README.md` Persistence).
+**Jul 2026 — `_placed_objects` now saved** via
+`get_placed_objects_for_save()`/`restore_placed_objects()` (SaveManager
+phase 1) — see `docs/systems/world-core/README.md` Persistence for the full
+phase order and the per-device `extra` state shape. `restore_placed_objects()`
+calls `clear_all_player_placed()` first (mid-session Load safety — a fresh
+boot has nothing to clear) then reuses `_spawn_placed_object()` (the exact
+same function `_try_construct()` calls) for every saved entry, so a restored
+object goes through an identical code path to a normal purchase, just
+without spending cash or pushing an undo entry. `_undo_stack` is still pure
+in-memory session state — undo history does not survive a save/load and
+is not intended to.
 
 ## Call graph (brief)
 ```
@@ -192,7 +199,7 @@ Player enters build mode (BuildModeHUD tool_selected / enter_build_mode())
 
 ## Known tradeoffs / tech debt
 - No automated tests.
-- Build-mode state isn't saved (see Persistence).
+- `_undo_stack` doesn't survive save/load (see Persistence — by design).
 - `BuildModeController.gd` at ~2,013 lines is still the largest single file
   in the repo even after the Stage 10 extraction — a plausible future
   candidate for further slicing (e.g. extracting the dig-confirm flow or the

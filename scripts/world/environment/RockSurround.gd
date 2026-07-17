@@ -334,3 +334,33 @@ func restore_chunk(chunk_id: Vector2i) -> void:
 		chunk_id.y * chunk_size
 	)
 	chunk_restored.emit(origin)
+
+
+# ─── Save/Load (Jul 2026) ──────────────────────────────────────────────────────
+## Returns every currently-dug chunk id as plain {x,z} dicts (JSON-friendly —
+## Vector2i isn't natively serializable). Registered as SaveManager's phase-0
+## field so dug chunks exist before anything else on load tries to build on
+## top of them (placed objects, wires, pipes).
+func get_dug_chunk_ids_for_save() -> Array:
+	var ids: Array = []
+	for chunk_id: Vector2i in _chunks:
+		if _chunks[chunk_id]["deconstructed"]:
+			ids.append({"x": chunk_id.x, "z": chunk_id.y})
+	return ids
+
+## Reconstructs dug-chunk state from get_dug_chunk_ids_for_save()'s output.
+## Handles BOTH a fresh boot (no chunks dug yet) and a mid-session Load
+## (some chunks already dug from the current playthrough) by first restoring
+## every currently-dug chunk back to intact rock, then re-digging exactly the
+## saved set. Reuses restore_chunk()/deconstruct_chunk() as-is — no new
+## teardown logic — so the existing chunk_deconstructed/chunk_restored
+## signals fire normally and WireGraphBuilder/WaterManager's incremental
+## perimeter rebuild reacts exactly as it would to manual digging.
+func restore_dug_chunks(ids: Array) -> void:
+	for chunk_id: Vector2i in _chunks.keys():
+		if _chunks[chunk_id]["deconstructed"]:
+			restore_chunk(chunk_id)
+	for entry: Dictionary in ids:
+		var cid: Vector2i = Vector2i(int(entry.get("x", 0)), int(entry.get("z", 0)))
+		if _chunks.has(cid):
+			deconstruct_chunk(cid)

@@ -146,7 +146,9 @@ flat/convenient location.
 
 ## 4. Autoloads (project.godot)
 - `WorldManager` — global scene/player state. See `docs/systems/world-core/README.md`.
-- `SaveManager` — generic save/load field-registry. See `docs/systems/world-core/README.md`.
+- `SaveManager` — generic save/load field-registry with phase-ordered load
+  (dug chunks → placed objects+extra state → player wires → water pipes →
+  player/cash/clock). See `docs/systems/world-core/README.md` Persistence.
 - `DeviceDatabase` — pure config data (`WATT_RATINGS`, `DEFAULT_PRIORITY_BY_TYPE`,
   `GENERATOR_TIERS`, `STATE_EMISSION_COLORS`). See `docs/systems/power/README.md`.
 - `GraphicsSettings` (`scripts/core/GraphicsSettings.gd`) — device rendering/

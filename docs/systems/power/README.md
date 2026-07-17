@@ -156,13 +156,18 @@ Extension points). Every device (`BreakerBox`, `GeneratorObject`,
 in its own `_ready()`.
 
 ## Persistence
-**None currently.** Grid/generator/battery/consumer/wire state is NOT saved
-via `SaveManager` — a fresh load starts the grid from scratch. Tracked as a
-known gap, not scheduled (see Known tradeoffs). This includes zone name/color
-overrides (`ZoneCustomization.gd`) — they persist in-memory across wire
-topology changes/expansion for the current play session (that's the
-"persistence" the feature is about — surviving digs/rebuilds, not a save
-game), but are lost on a fresh load along with everything else in this list.
+**Jul 2026 — now saved.** Generators/batteries/breakers/consumers are
+persisted via `BuildModeController.get_placed_objects_for_save()`'s embedded
+per-device `extra` dict (phase 1), and player-placed wires via
+`MainWorld.get_player_wires_for_save()`/`restore_player_wires()` (phase 2,
+endpoint positions only — auto-perimeter wiring regenerates from restored
+dug chunks, not persisted separately). See
+`docs/systems/world-core/README.md` Persistence for the full phase order and
+per-device `extra` field list. **Known gap:** zone name/color overrides
+(`ZoneCustomization.gd`) are best-effort only — not explicitly re-verified
+across a save/load round trip this pass (they were already designed to
+survive wire topology changes/expansion within a session; save/load is a
+different code path and hasn't been separately confirmed).
 
 ## Call graph (brief)
 ```
@@ -216,7 +221,7 @@ UI panel.open() ← player interacts with device → reads PowerManager getters,
   `WireGraphBuilder._rebuild_auto_wires()`'s diff logic, not a new poller.
 
 ## Known tradeoffs / tech debt
-- No save/load persistence for any power-system state (see Persistence).
+- Zone name/color overrides not explicitly re-verified across save/load (see Persistence).
 - No automated tests — `PowerSolver.gd` is the best candidate once/if a test
   framework (GUT) is ever added, since it was extracted specifically into
   pure value-in/out form.

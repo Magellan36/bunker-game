@@ -81,13 +81,41 @@ the chunk-signal handlers `_on_chunk_deconstructed(origin)` /
   into `WireGraphBuilder`.
 
 ## Persistence
-`SaveManager` currently has exactly 3 fields registered: `player_position`,
-`cash`, `game_elapsed` (game clock). Saves to
-`user://save_slot_<1|2|3>.json`. Loading a save silently skips any key that
-isn't currently registered (safe for adding new fields later — no migration
-needed for old saves, they just won't have the new key populated).
-**Not yet persisted:** power grid state, inventory, placed build objects —
-tracked as a known gap, not scheduled.
+`SaveManager` has 7 fields registered, applied on load in ascending **phase**
+order (`register_field(key, getter, setter, phase)` — world reconstruction is
+order-dependent, e.g. placed objects must exist before wires try to
+reconnect to them):
+- Phase 0 — `dug_chunks` (`RockSurround.get_dug_chunk_ids_for_save()`/
+  `restore_dug_chunks()`)
+- Phase 1 — `placed_objects` (`BuildModeController.get_placed_objects_for_save()`/
+  `restore_placed_objects()`) — every player-placed device, each entry
+  carrying `tile_id`/`pos`/`angle_deg`/`price` PLUS an embedded per-device
+  `extra` dict (generator fuel/health/backup/running, battery charge/enabled,
+  breaker tripped/pass-through, consumer priority/active, water sink/
+  dispenser priority/rate/fill/on). Devices apply their `extra` state via a
+  `call_deferred` after spawning, since PM/WM registration itself is deferred
+  one level inside each device's own `_ready()`.
+- Phase 2 — `player_wires` (`MainWorld.get_player_wires_for_save()`/
+  `restore_player_wires()`) — player-placed power wire endpoints only; the
+  auto-generated perimeter wiring regenerates itself once `dug_chunks`
+  restores (phase 0), so it is deliberately NOT persisted separately.
+- Phase 3 — `water_pipes` (`WaterManager.get_pipe_network_for_save()`/
+  `restore_pipe_network()`) — pipe-owned graph nodes (`corner`/`pipe_joint`)
+  and edges only; `hookup`/`endpoint` nodes belong to devices restored in
+  phase 1.
+- Phase 4 (last) — `player_position`, `cash`, `game_elapsed` — applied once
+  the whole world above already exists.
+
+Saves to `user://save_slot_<1|2|3>.json`. Loading a save silently skips any
+key that isn't currently registered (safe for adding new fields later — no
+migration needed for old saves, they just won't have the new key populated).
+Mid-session Load (not just fresh-boot Load) is supported: `restore_placed_objects()`
+calls `clear_all_player_placed()` first and `restore_pipe_network()` calls
+`clear_water_pipes()` first, so a Load while devices/pipes already exist from
+the current session tears them down before rebuilding from the save.
+**Known gap:** zone name/color overrides (`ZoneCustomization.gd`) are
+best-effort only — not explicitly re-verified across a save/load round trip
+this pass.
 
 ## Call graph (brief)
 ```
@@ -132,7 +160,8 @@ RockSurround.chunk_deconstructed/restored
 
 ## Known tradeoffs / tech debt
 - No automated tests.
-- Power grid/inventory/build-object state isn't saved yet (see Persistence).
+- Zone name/color overrides (`ZoneCustomization.gd`) aren't explicitly
+  re-verified across save/load (see Persistence known gap).
 - `BuildModeController.gd` (2000+ lines) is a possible future extraction
   candidate but not part of any current plan — see `PROJECT_SUMMARY.md`.
 
