@@ -254,8 +254,19 @@ device. `WaterPipeDrawMode` is instantiated as a child `Node` of
 `WireDrawMode`.
 
 ## Persistence
-**None.** Same known gap as every other system in this project — see
-`docs/systems/world-core/README.md` Persistence.
+**Jul 2026 — now saved.** `WaterManager.get_pipe_network_for_save()`/
+`restore_pipe_network()` (SaveManager phase 3) persists every pipe-owned
+graph node (`corner`/`pipe_joint`) and edge (world-space endpoint positions +
+per-segment `placement_cost`, for `WaterHookup._delete_and_refund_edge()`
+refund accuracy after a later reposition). `WaterHookup`/`WaterTestSink`/
+`WaterDispenser` themselves are NOT saved here — they're ordinary
+`BuildModeController` placed objects (phase 1), each with a device-specific
+`extra` dict (sink: priority/fixed_demand; dispenser: priority/requested
+rate/on/current fill). See `docs/systems/world-core/README.md` Persistence
+for the full phase order. Mid-session Load clears existing pipe nodes/
+visuals first via `clear_water_pipes()`. **Not persisted:** `WaterHookup.tier`/
+`water_quality` — no upgrade mechanic exists yet to ever change `tier` away
+from its default 0, so this is low-risk, not scheduled.
 
 ## Call graph (brief)
 ```
@@ -608,7 +619,7 @@ stable (matches the project's standing debug-logging discipline).
   duplicates its own small helper rather than sharing one — matches this
   system's standalone-from-`BuildModeController`-internals convention.
 - **No automated tests** (matches the rest of the project).
-- **No persistence** (matches the rest of the project — see Persistence).
+- `WaterHookup.tier`/`water_quality` not persisted (see Persistence — low risk, no upgrade mechanic exists yet).
 - **Pipe redraw across a hookup reposition — CORRECTED to delete-and-refund
   (July 2026, supersedes the auto-redraw fix from the previous pass):** the
   original bug was real — `unregister_node()` cascades to remove every edge

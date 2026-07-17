@@ -213,20 +213,122 @@ func _ready() -> void:
 ## per project decision); add more fields here later the same way, one
 ## register_field() call per field, no changes needed in SaveManager itself.
 func _register_save_fields() -> void:
+	## Phase 0 — dug rock chunks. Must exist before anything below is restored
+	## onto/around them (placed objects, wires, pipes).
+	SaveManager.register_field(
+		"dug_chunks",
+		func() -> Array: return rock_surround.get_dug_chunk_ids_for_save() if rock_surround != null else [],
+		func(v: Array) -> void:
+			if rock_surround != null:
+				rock_surround.restore_dug_chunks(v),
+		0)
+
+	## Phase 1 — placed objects (devices, each with embedded per-device extra
+	## state — fuel/health/priority/tripped/etc). Must exist before wires/
+	## pipes below try to reconnect to them.
+	SaveManager.register_field(
+		"placed_objects",
+		func() -> Array: return _build_controller.get_placed_objects_for_save() if _build_controller != null else [],
+		func(v: Array) -> void:
+			if _build_controller != null:
+				_build_controller.restore_placed_objects(v),
+		1)
+
+	## Phase 2 — player-placed power wires.
+	SaveManager.register_field(
+		"player_wires",
+		func() -> Array: return get_player_wires_for_save(),
+		func(v: Array) -> void: restore_player_wires(v),
+		2)
+
+	## Phase 3 — water pipe network (corners/joints + segments).
+	SaveManager.register_field(
+		"water_pipes",
+		func() -> Dictionary: return _water_manager.get_pipe_network_for_save() if _water_manager != null else {},
+		func(v: Dictionary) -> void:
+			if _water_manager != null:
+				_water_manager.restore_pipe_network(v),
+		3)
+
+	## Phase 4 — player position / cash / game clock. Applied last, once the
+	## whole world (chunks, devices, wires, pipes) already exists.
 	SaveManager.register_field(
 		"player_position",
 		func() -> Vector3: return player.global_position,
-		func(v: Vector3) -> void: player.global_position = v)
+		func(v: Vector3) -> void: player.global_position = v,
+		4)
 
 	SaveManager.register_field(
 		"cash",
 		func() -> int: return get_cash(),
-		func(v: int) -> void: set_cash(v))
+		func(v: int) -> void: set_cash(v),
+		4)
 
 	SaveManager.register_field(
 		"game_elapsed",
 		func() -> float: return player_stats.get_elapsed(),
-		func(v: float) -> void: player_stats.set_elapsed(v))
+		func(v: float) -> void: player_stats.set_elapsed(v),
+		4)
+
+## ── Player wire save/restore (Jul 2026) ─────────────────────────────────────
+## Returns every player-placed wire as a JSON-friendly array of endpoint
+## position pairs. Positions (not PM keys) are the stable identity here —
+## keys can be remapped by _split_wire_edge_at() over a session's lifetime,
+## same reasoning _on_wire_nodes_connected()'s own comment gives for why
+## _player_wire_segs stores pos_a/pos_b instead of keys.
+func get_player_wires_for_save() -> Array:
+	var out: Array = []
+	for entry: Dictionary in _player_wire_segs.values():
+		out.append({
+			"pos_a": SaveManager.vec3_to_dict(entry["pos_a"]),
+			"pos_b": SaveManager.vec3_to_dict(entry["pos_b"]),
+		})
+	return out
+
+## Rebuilds every player-placed wire from get_player_wires_for_save()'s
+## output. Registering a "joint" wire node at a position that already holds a
+## device node (generator/battery/breaker, restored in the earlier
+## placed_objects phase) is a documented no-op in PowerGraph.register_wire_node
+## (it refuses to overwrite breaker/generator/battery roles) — so this is safe
+## to call for every saved wire regardless of which end is a device.
+## NOTE: does not attempt to clear pre-existing player wires first — on a
+## normal fresh boot there are none, and a mid-session Load is expected to run
+## after clear_all_player_placed() has already torn down every device (which
+## cascades wire-node cleanup for device-owned nodes) — any leftover bare
+## "joint" wires from the pre-load session are a known gap, flagged in
+## docs/systems/world-core/README.md, not yet auto-cleared here.
+func restore_player_wires(data: Array) -> void:
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
+		return
+	for saved: Dictionary in data:
+		var pos_a: Vector3 = SaveManager.dict_to_vec3(saved.get("pos_a", {}))
+		var pos_b: Vector3 = SaveManager.dict_to_vec3(saved.get("pos_b", {}))
+		var key_a: String = pm.register_wire_node(pos_a, "joint", "")
+		var key_b: String = pm.register_wire_node(pos_b, "joint", "")
+		var edge_id: String = pm.register_wire_edge(key_a, key_b)
+		if edge_id.is_empty():
+			continue
+		var wire_script: GDScript = load("res://scripts/world/power/WireSegment.gd")
+		var seg: Node3D = Node3D.new()
+		if wire_script != null:
+			seg.set_script(wire_script)
+		seg.name = "WireSegment"
+		add_child(seg)
+		if seg.has_method("set_endpoints"):
+			seg.set_endpoints(pos_a, pos_b)
+		if "edge_id" in seg:
+			seg.edge_id = edge_id
+		seg.visible = true
+
+		var stable_key: String = "pw_%s_%s" % [key_a, key_b]
+		_player_wire_segs[stable_key] = {
+			"pos_a":      pos_a,
+			"pos_b":      pos_b,
+			"seg_node":   seg,
+			"pm_edge_id": edge_id,
+			"stable_key": stable_key,
+		}
 
 ## Instantiates PowerManager and adds it to the "power_manager" group so
 ## WallLight nodes can find it via get_first_node_in_group().

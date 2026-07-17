@@ -32,15 +32,30 @@ extends Node
 const SAVE_SLOT_COUNT: int = 3
 const SAVE_PATH_FORMAT: String = "user://save_slot_%d.json"
 
-## key -> { "get": Callable, "set": Callable }
+## key -> { "get": Callable, "set": Callable, "phase": int }
 var _fields: Dictionary = {}
 
 ## Register a persistable field. Call once per field, typically from
 ## MainWorld._ready() (or any system's own _ready()) once the underlying node
 ## exists. Re-registering the same key overwrites the previous callbacks —
 ## safe to call again after a scene reload.
-func register_field(key: String, getter: Callable, setter: Callable) -> void:
-	_fields[key] = {"get": getter, "set": setter}
+##
+## `phase` (added Jul 2026, save/load world-state expansion) — controls the
+## ORDER setters are applied on load_game() (ascending, ties broken by
+## dictionary iteration order). save_game() is unaffected — every field's
+## getter always runs, order doesn't matter for writing.
+## World reconstruction is order-dependent: dug rock chunks must exist before
+## placed objects can be restored onto them, devices must exist before wires/
+## pipes can reconnect to them, etc. Default phase 0 is safe for anything with
+## no ordering dependency.
+##   Phase 0 — dug rock chunks
+##   Phase 1 — placed objects (devices, with embedded per-device extra state)
+##   Phase 2 — player-placed wires
+##   Phase 3 — water pipes
+##   Phase 4 — player_position/cash/game_elapsed (must come after the world
+##             above exists, e.g. player shouldn't land inside undug rock)
+func register_field(key: String, getter: Callable, setter: Callable, phase: int = 0) -> void:
+	_fields[key] = {"get": getter, "set": setter, "phase": phase}
 
 ## Remove a field registration (e.g. if its owning node is being freed).
 func unregister_field(key: String) -> void:
@@ -124,15 +139,38 @@ func load_game(slot: int) -> bool:
 		return false
 
 	var data: Dictionary = parsed as Dictionary
+
+	## Apply setters in ascending phase order — world reconstruction is
+	## order-dependent (see register_field()'s own comment on phases).
+	## Stable sort by phase; ties keep Dictionary.keys() iteration order.
+	var keys: Array = []
 	for key: String in data:
-		if key == "_meta":
-			continue
+		if key != "_meta":
+			keys.append(key)
+	keys.sort_custom(func(a: String, b: String) -> bool:
+		var pa: int = int(_fields.get(a, {}).get("phase", 0))
+		var pb: int = int(_fields.get(b, {}).get("phase", 0))
+		return pa < pb)
+
+	for key: String in keys:
 		if not _fields.has(key):
 			continue   ## field not registered (removed feature, or older/newer version) — skip
 		var cb: Callable = _fields[key]["set"]
 		if cb.is_valid():
 			cb.call(_from_json_value(data[key]))
 	return true
+
+## Public helpers — JSON can't natively carry Vector3, and custom fields
+## (placed_objects, player_wires, water_pipes...) need to encode Vector3
+## values NESTED inside arrays/dictionaries, where the automatic top-level
+## _to_json_value()/_from_json_value() conversion below doesn't reach. Any
+## system's getter/setter can call these directly instead of hand-rolling
+## its own {x,y,z} dict shape.
+func vec3_to_dict(v: Vector3) -> Dictionary:
+	return {"x": v.x, "y": v.y, "z": v.z}
+
+func dict_to_vec3(d: Dictionary) -> Vector3:
+	return Vector3(float(d.get("x", 0.0)), float(d.get("y", 0.0)), float(d.get("z", 0.0)))
 
 ## JSON can't natively represent Vector3/Vector2 — encode as a small dict with
 ## a type tag so _from_json_value can reconstruct the correct Godot type.

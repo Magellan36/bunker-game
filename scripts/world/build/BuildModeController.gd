@@ -1136,6 +1136,213 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 
 	return body
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SAVE / LOAD — placed objects (Jul 2026)
+# ══════════════════════════════════════════════════════════════════════════════
+## Tiles whose devices carry mutable runtime state beyond tile_id/pos/angle —
+## every other tile (walls, pillars, beds, shelving, wire) round-trips fine
+## with just those four fields.
+const _EXTRA_STATE_TILES: Array[int] = [
+	TILE_LIGHT, TILE_GEN_S, TILE_GEN_M, TILE_GEN_L,
+	TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L,
+	TILE_BREAKER, TILE_BREAKER_SMART, TILE_HEAVY,
+	TILE_WATER_SINK, TILE_WATER_DISPENSER,
+]
+
+## Returns every player-placed object as a JSON-friendly array. Excludes
+## TILE_WATER_HOOKUP defensively (it's an auto-spawned singleton, never
+## purchasable/placed through this controller, so it should never actually
+## appear in _placed_objects — but skip it here too in case that ever
+## changes, rather than silently double-spawning a hookup on load).
+func get_placed_objects_for_save() -> Array:
+	var out: Array = []
+	for entry: Dictionary in _placed_objects:
+		if not entry.get("player_placed", false):
+			continue
+		var tile_id: int = entry.get("tile_id", -1)
+		if tile_id == TILE_WATER_HOOKUP:
+			continue
+		var node: Node3D = entry.get("node")
+		if node == null or not is_instance_valid(node):
+			continue
+		out.append({
+			"tile_id":   tile_id,
+			"price":     entry.get("price", 0),
+			"pos":       SaveManager.vec3_to_dict(entry.get("world_pos", node.global_position)),
+			"angle_deg": entry.get("angle_deg", 0.0),
+			"extra":     _get_device_extra(node, tile_id),
+		})
+	return out
+
+## Removes every currently player-placed object from the world (mid-session
+## Load case — a fresh boot has none). Devices unregister themselves from
+## PowerManager/WaterManager via their own _exit_tree() the moment queue_free()
+## actually frees them, same as normal deconstruct — no duplicate teardown
+## logic needed here.
+func clear_all_player_placed() -> void:
+	for i: int in range(_placed_objects.size() - 1, -1, -1):
+		var entry: Dictionary = _placed_objects[i]
+		if not entry.get("player_placed", false):
+			continue
+		var node: Node = entry.get("node")
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+		_placed_objects.remove_at(i)
+
+## Rebuilds every player-placed object from get_placed_objects_for_save()'s
+## output. Clears existing player-placed objects first (safe no-op on a
+## fresh boot). Reuses _spawn_placed_object() — the exact same function
+## _try_construct() calls — so restored objects go through an identical
+## code path to a normal purchase, just without spending cash / pushing an
+## undo entry.
+func restore_placed_objects(data: Array) -> void:
+	clear_all_player_placed()
+	for saved: Dictionary in data:
+		var tile_id: int = saved.get("tile_id", -1)
+		var pos: Vector3 = SaveManager.dict_to_vec3(saved.get("pos", {}))
+		var angle_deg: float = saved.get("angle_deg", 0.0)
+		var body: Node3D = _spawn_placed_object(tile_id, pos, angle_deg)
+		if body == null:
+			continue
+		_placed_objects.append({
+			"node":          body,
+			"tile_id":       tile_id,
+			"price":         saved.get("price", 0),
+			"world_pos":     pos,
+			"angle_deg":     angle_deg,
+			"player_placed": true,
+		})
+		var extra: Dictionary = saved.get("extra", {})
+		if tile_id in _EXTRA_STATE_TILES and not extra.is_empty():
+			## Deferred: every device's own PowerManager/WaterManager
+			## registration is itself scheduled via call_deferred from its
+			## _ready() (fired synchronously inside add_child() above), so a
+			## call_deferred queued here runs AFTER that registration
+			## completes in the same flush (Godot processes newly-queued
+			## deferred calls within the same flush pass) — pm_id/breaker_id/
+			## bat_id are guaranteed assigned by the time this runs.
+			call_deferred("_apply_device_extra_deferred", body, tile_id, extra)
+
+	_refresh_connectable_dots()
+
+## Reads back whatever this device's own runtime state is, via its own public
+## getters (or the owning PowerManager's, for devices that store state
+## PM-side). Returns {} for tiles with no extra state.
+func _get_device_extra(node: Node3D, tile_id: int) -> Dictionary:
+	match tile_id:
+		TILE_LIGHT:
+			if "power_priority" in node:
+				return {"power_priority": node.get("power_priority")}
+		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L:
+			var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+			if pm != null:
+				var gen_id: String = str(node.get_instance_id())
+				return {
+					"is_backup": pm.get_generator_is_backup(gen_id),
+					"fuel":      pm.get_generator_fuel(gen_id),
+					"health":    pm.get_generator_health(gen_id),
+					"running":   pm.get_generator_running(gen_id),
+				}
+		TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L:
+			if node.has_method("get_charge_wh"):
+				return {
+					"charge_wh": node.get_charge_wh(),
+					"enabled":   node.get_enabled(),
+				}
+		TILE_BREAKER, TILE_BREAKER_SMART:
+			if node.has_method("get_tripped"):
+				return {
+					"tripped":        node.get_tripped(),
+					"pass_battery":   node.get_pass_battery(),
+					"pass_generator": node.get_pass_generator(),
+				}
+		TILE_HEAVY:
+			var pm2: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+			if pm2 != null:
+				var cid: String = str(node.get_instance_id())
+				return {
+					"priority": pm2.get_consumer_priority(cid),
+					"active":   pm2.get_consumer_active(cid),
+				}
+		TILE_WATER_SINK:
+			if "priority" in node and "fixed_demand_mL_per_day" in node:
+				return {
+					"priority":                node.get("priority"),
+					"fixed_demand_mL_per_day": node.get("fixed_demand_mL_per_day"),
+				}
+		TILE_WATER_DISPENSER:
+			if "priority" in node:
+				return {
+					"priority":                 node.get("priority"),
+					"requested_rate_mL_per_day": node.get("requested_rate_mL_per_day"),
+					"is_on":                     node.get("is_on"),
+					"current_fill_mL":           node.get("current_fill_mL"),
+				}
+	return {}
+
+## Applies saved extra state back onto a freshly-restored device. Called via
+## call_deferred from restore_placed_objects() (see its own comment on why
+## deferring is required for the PM-backed devices).
+func _apply_device_extra_deferred(node: Node3D, tile_id: int, extra: Dictionary) -> void:
+	if not is_instance_valid(node):
+		return
+	match tile_id:
+		TILE_LIGHT:
+			var pm0: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+			if pm0 != null and extra.has("power_priority"):
+				pm0.set_consumer_priority(str(node.get_instance_id()), int(extra["power_priority"]))
+		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L:
+			var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+			if pm != null:
+				var gen_id: String = str(node.get_instance_id())
+				pm.set_generator_fuel(gen_id, float(extra.get("fuel", 100.0)))
+				pm.set_generator_health(gen_id, float(extra.get("health", 100.0)))
+				pm.set_generator_backup(gen_id, bool(extra.get("is_backup", false)))
+				pm.set_generator_running(gen_id, bool(extra.get("running", true)))
+		TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L:
+			var pm3: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+			if pm3 != null:
+				var bat_id: String = str(node.get_instance_id())
+				pm3.set_battery_charge(bat_id, float(extra.get("charge_wh", 0.0)))
+				pm3.set_battery_enabled(bat_id, bool(extra.get("enabled", true)))
+		TILE_BREAKER, TILE_BREAKER_SMART:
+			var pm4: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+			if pm4 != null and node.has_method("get_breaker_id"):
+				## PM's breaker_id is "brk_<wire_node_key>", NOT the node's
+				## instance id — must read it back from the node itself
+				## (assigned during its own deferred wire registration, which
+				## has already completed by the time this runs — see
+				## restore_placed_objects()'s comment on deferral ordering).
+				var breaker_id_str: String = node.get_breaker_id()
+				if not breaker_id_str.is_empty():
+					pm4.set_breaker_passthrough(
+						breaker_id_str,
+						bool(extra.get("pass_battery", true)),
+						bool(extra.get("pass_generator", true)))
+					if bool(extra.get("tripped", false)):
+						pm4.trip_breaker(breaker_id_str)
+		TILE_HEAVY:
+			var pm5: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+			if pm5 != null:
+				var cid: String = str(node.get_instance_id())
+				pm5.set_consumer_priority(cid, int(extra.get("priority", 2)))
+				pm5.set_consumer_active(cid, bool(extra.get("active", true)))
+		TILE_WATER_SINK:
+			if extra.has("priority"):
+				node.set("priority", int(extra["priority"]))
+			if extra.has("fixed_demand_mL_per_day"):
+				node.set("fixed_demand_mL_per_day", float(extra["fixed_demand_mL_per_day"]))
+		TILE_WATER_DISPENSER:
+			if extra.has("priority"):
+				node.set("priority", int(extra["priority"]))
+			if node.has_method("set_requested_rate") and extra.has("requested_rate_mL_per_day"):
+				node.set_requested_rate(float(extra["requested_rate_mL_per_day"]))
+			if node.has_method("set_on") and extra.has("is_on"):
+				node.set_on(bool(extra["is_on"]))
+			if node.has_method("set_fill") and extra.has("current_fill_mL"):
+				node.set_fill(float(extra["current_fill_mL"]))
+
 # ─── Deconstruct ──────────────────────────────────────────────────────────────
 func _try_deconstruct() -> void:
 	# ── Attempt rock chunk dig first ──

@@ -128,6 +128,15 @@ func set_on(value: bool) -> void:
 func set_requested_rate(value: float) -> void:
 	requested_rate_mL_per_day = maxf(0.0, value)
 
+## Save/Load (Jul 2026) — restores stored fill volume directly. No other
+## caller needs this (normal gameplay only ever grows current_fill_mL via the
+## _process() fill tick), so a plain setter is enough — no signal/UI refresh
+## needed like set_on()/set_requested_rate() (those are called live from the
+## open panel; this one only runs once, at load time, before the panel could
+## possibly be open).
+func set_fill(value: float) -> void:
+	current_fill_mL = clampf(value, 0.0, MAX_STORAGE_ML)
+
 
 # ─── Interaction ──────────────────────────────────────────────────────────────
 func get_interact_prompt() -> String:

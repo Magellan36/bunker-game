@@ -442,6 +442,26 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 # POWERMANAGER INTERFACE
 # ══════════════════════════════════════════════════════════════════════════════
 
+## Save/Load (Jul 2026) — public read accessors for this breaker's mutable
+## state. Restore goes through PowerManager.trip_breaker()/
+## set_breaker_passthrough() (same paths the settings panel/PM already use),
+## not a direct instance var write.
+func get_tripped() -> bool:
+	return _tripped
+
+func get_pass_battery() -> bool:
+	return _pass_battery
+
+func get_pass_generator() -> bool:
+	return _pass_generator
+
+## PM-assigned breaker id ("brk_<wire_node_key>") — needed by anything
+## outside this node that wants to call PowerManager.trip_breaker()/
+## set_breaker_passthrough() on THIS breaker specifically (e.g. save/load
+## restore in BuildModeController). Empty until wire registration completes.
+func get_breaker_id() -> String:
+	return _breaker_id
+
 ## Called by PM when trip state changes (LED + banner update only).
 func set_tripped(on: bool) -> void:
 	var was_tripped: bool = _tripped

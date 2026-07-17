@@ -25,6 +25,10 @@ var node_key: String = ""
 
 func _ready() -> void:
 	visible = true   ## Always visible — same reasoning as WaterPipeSegment, see its file header.
+	## Findability group (Jul 2026, save/load) — mirrors WaterPipeSegment's
+	## "water_pipe_visual" group so WaterManager.clear_water_pipes() (mid-
+	## session Load) can find and free every elbow without a scene-tree walk.
+	add_to_group("water_pipe_elbow")
 	_build_mesh()
 
 func _build_mesh() -> void:

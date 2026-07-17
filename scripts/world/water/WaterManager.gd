@@ -89,6 +89,117 @@ static func make_node_key(pos: Vector3) -> String:
 	return WaterGraph.make_node_key(pos)
 
 
+# ─── Save/Load — pipe network (Jul 2026) ───────────────────────────────────────
+## Returns the player-placed pipe network as a JSON-friendly dictionary:
+##   { "nodes": [{pos:{x,y,z}, role}],  "edges": [{pos_a, pos_b, cost}] }
+## Deliberately excludes "hookup"/"endpoint" roles — those nodes belong to
+## WaterHookup/WaterTestSink/WaterDispenser and are recreated by THEIR OWN
+## restore (BuildModeController.restore_placed_objects(), phase 1, which runs
+## before this — phase 3). Only "corner" and "pipe_joint" nodes (pipe-owned)
+## are included here.
+func get_pipe_network_for_save() -> Dictionary:
+	var nodes_out: Array = []
+	for key: String in _graph.get_nodes():
+		var n: Dictionary = _graph.get_nodes()[key]
+		var role: String = n.get("role", "")
+		if role != "corner" and role != "pipe_joint":
+			continue
+		nodes_out.append({
+			"pos":  SaveManager.vec3_to_dict(n.get("pos", Vector3.ZERO)),
+			"role": role,
+		})
+
+	var edges_out: Array = []
+	var visuals: Dictionary = {}   ## edge_id -> WaterPipeSegment, for cost lookup
+	for seg: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if seg is WaterPipeSegment:
+			visuals[(seg as WaterPipeSegment).edge_id] = seg
+	for edge_id: String in _graph.get_edges():
+		var e: Dictionary = _graph.get_edges()[edge_id]
+		var na: Dictionary = _graph.get_node(e.get("a", ""))
+		var nb: Dictionary = _graph.get_node(e.get("b", ""))
+		if na.is_empty() or nb.is_empty():
+			continue
+		var cost: int = 0
+		if visuals.has(edge_id):
+			cost = (visuals[edge_id] as WaterPipeSegment).placement_cost
+		edges_out.append({
+			"pos_a": SaveManager.vec3_to_dict(na.get("pos", Vector3.ZERO)),
+			"pos_b": SaveManager.vec3_to_dict(nb.get("pos", Vector3.ZERO)),
+			"cost":  cost,
+		})
+
+	return {"nodes": nodes_out, "edges": edges_out}
+
+## Removes every pipe-owned node (role "corner"/"pipe_joint") + edge from the
+## graph, and frees every pipe/elbow visual. Leaves "hookup"/"endpoint" nodes
+## (owned by WaterHookup/WaterTestSink/WaterDispenser) untouched — those are
+## torn down by BuildModeController.clear_all_player_placed() instead, via
+## each device's own _exit_tree(). Mid-session Load only (fresh boot is a
+## no-op — nothing to clear).
+func clear_water_pipes() -> void:
+	for seg: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if is_instance_valid(seg):
+			seg.queue_free()
+	for elbow: Node in get_tree().get_nodes_in_group("water_pipe_elbow"):
+		if is_instance_valid(elbow):
+			elbow.queue_free()
+	var keys_to_remove: Array = []
+	for key: String in _graph.get_nodes():
+		var role: String = _graph.get_nodes()[key].get("role", "")
+		if role == "corner" or role == "pipe_joint":
+			keys_to_remove.append(key)
+	for key: String in keys_to_remove:
+		_graph.unregister_node(key)   ## also removes touching edges
+
+## Rebuilds the pipe network from get_pipe_network_for_save()'s output.
+## Clears any existing pipe-owned nodes/visuals first (safe no-op on a fresh
+## boot). Node identity is POSITION, not saved key — WaterGraph.register_node()
+## has NO overwrite guard (unlike PowerGraph's), so re-registering at a
+## position already held by a hookup/endpoint node would silently steal its
+## role and wipe its consumer_ref. We avoid that entirely by checking
+## has_water_node() first and skipping registration when a node (device-owned
+## or otherwise) already exists at that exact snapped position.
+func restore_pipe_network(data: Dictionary) -> void:
+	clear_water_pipes()
+	var scene_root: Node = get_tree().get_first_node_in_group("main_world")
+	if scene_root == null:
+		scene_root = get_tree().get_root()
+
+	for saved: Dictionary in data.get("nodes", []):
+		var pos: Vector3 = SaveManager.dict_to_vec3(saved.get("pos", {}))
+		var role: String = saved.get("role", "pipe_joint")
+		var key: String = WaterGraph.make_node_key(pos)
+		if has_water_node(key):
+			continue   ## already exists (e.g. a device's own node) — don't overwrite
+		register_node(pos, role)
+		if role == "corner":
+			var elbow_script: GDScript = load("res://scripts/world/water/WaterPipeElbow.gd")
+			var elbow: Node3D = Node3D.new()
+			if elbow_script != null:
+				elbow.set_script(elbow_script)
+			scene_root.add_child(elbow)
+			elbow.global_position = pos
+			elbow.set("node_key", key)
+
+	for saved: Dictionary in data.get("edges", []):
+		var pos_a: Vector3 = SaveManager.dict_to_vec3(saved.get("pos_a", {}))
+		var pos_b: Vector3 = SaveManager.dict_to_vec3(saved.get("pos_b", {}))
+		var key_a: String = WaterGraph.make_node_key(pos_a)
+		var key_b: String = WaterGraph.make_node_key(pos_b)
+		var edge_id: String = register_edge(key_a, key_b)
+		if edge_id.is_empty():
+			continue
+		var seg_script: GDScript = load("res://scripts/world/water/WaterPipeSegment.gd")
+		var seg: Node3D = Node3D.new()
+		if seg_script != null:
+			seg.set_script(seg_script)
+		scene_root.add_child(seg)
+		seg.set("edge_id", edge_id)
+		seg.call("set_endpoints", pos_a, pos_b)
+		seg.set("placement_cost", int(saved.get("cost", 0)))
+
+
 # ─── Hookup registry + boundary-change reposition dispatch ───────────────────
 ## Called by WaterHookup._ready(). Not part of the graph node registry above —
 ## this is a plain node reference list so boundary-change events can call each
