@@ -281,8 +281,20 @@ func reposition_to_outer_wall() -> void:
 
 	var new_pos: Vector3 = hit["position"] - facing_dir * WALL_PULLBACK
 	new_pos.y = global_position.y
-	global_position = new_pos
 
+	## FIX (Jul 2026) — this function runs on EVERY chunk dig/restore
+	## anywhere in the bunker (see WaterManager._on_chunk_deconstructed/
+	## _on_chunk_restored), not just ones that touch this hookup's own wall.
+	## Most of those calls re-hit the exact same wall this hookup is already
+	## mounted on — nothing actually moved. Previously update_graph_node_
+	## position() (delete+refund the touching pipe edge) ran unconditionally
+	## below, so ANY dig anywhere silently nuked the hookup's pipe connection.
+	## Only treat this as a real reposition — and only then pay the delete+
+	## refund cost — when the wall genuinely moved.
+	if new_pos.distance_to(global_position) < 0.01:
+		return
+
+	global_position = new_pos
 	update_graph_node_position()
 
 
