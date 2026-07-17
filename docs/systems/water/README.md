@@ -288,7 +288,10 @@ Player digs/expands (RockSurround.chunk_deconstructed/chunk_restored)
   → MainWorld._on_chunk_deconstructed/_restored (existing _wire_builder forward, UNCHANGED)
   → NEW: WaterManager._on_chunk_deconstructed/_restored → _reposition_all_hookups_after_physics_settles()
     (awaits two physics frames, NOT a single call_deferred — see Known tradeoffs)
-  → each WaterHookup.reposition_to_outer_wall() → raycast along facing_dir → update_graph_node_position()
+  → each WaterHookup.reposition_to_outer_wall() → raycast along facing_dir →
+    update_graph_node_position() ONLY IF the raycast hit position actually
+    differs from the current position (fix, Jul 2026 — see Known tradeoffs
+    "reposition fires on every dig, not just ones touching this wall")
 
 Player uses Pipe tool (TOOL_WATER_PIPE)
   → WaterPipeDrawMode.handle_input() → _try_pick_source() (phase 0) →
@@ -654,6 +657,23 @@ stable (matches the project's standing debug-logging discipline).
   Corners/elbows further down a run are untouched by this fix — their own
   positions never depended on the hookup's, only the FIRST segment leaving
   the hookup does.
+- **Reposition fires on every dig, not just ones touching this wall (fixed,
+  July 2026):** `WaterManager._on_chunk_deconstructed/_restored` calls
+  `reposition_to_outer_wall()` on every registered hookup for EVERY chunk
+  dig/restore anywhere in the bunker, not just digs on the hookup's own
+  wall — that's intentional, it's how the hookup notices its wall moved.
+  The bug: `reposition_to_outer_wall()` used to call
+  `update_graph_node_position()` (delete+refund the touching pipe edge,
+  see above) unconditionally at the end, even when the raycast landed on
+  the exact same wall the hookup was already mounted on (i.e. an unrelated
+  dig elsewhere). Net effect: expanding ANYWHERE in the bunker silently
+  deleted the hookup's pipe connection, even with zero actual movement.
+  FIX: `reposition_to_outer_wall()` now compares the raycast-derived
+  position against the hookup's current position first and returns early
+  (no position change, no `update_graph_node_position()` call, no
+  delete/refund) when they match. Only a genuine reposition — the wall
+  actually moved further out, or the Move tool relocated it — reaches
+  `update_graph_node_position()`.
 - **Routing model rewrite (July 2026, playtest feedback):** pipes originally
   used a "wall-hugging" magnetic-snap model (see plan §5) — this was
   replaced with the current strictly-axis-aligned, fixed-ceiling-height
