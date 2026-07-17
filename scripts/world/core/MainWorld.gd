@@ -6,8 +6,10 @@ class_name MainWorld
 # ─── Dev Tools ────────────────────────────────────────────────────────────────
 ## F12 — toggle x50 time warp (speeds up clock + all stat drain)
 ## F11 — spawn a TestCrate in front of the player
-## F1  — toggle Build Mode
+## F10 — admin spawn menu (place any built object without Build Mode)
 ## F9  — dump wire debug log (only useful when WIRE_DEBUG = true below)
+## F8  — admin controls menu (system cheats, e.g. +/-1000w power)
+## F1  — toggle Build Mode
 const DEV_TIME_SCALE: float  = 50.0
 const CRATE_SCENE: String    = "res://scenes/world/TestCrate.tscn"
 var _dev_warp_active: bool   = false
@@ -155,6 +157,7 @@ var _lighting_director: Node = null   ## LightingDirector.gd, built via Node.new
 
 # ─── Admin Spawn Menu ─────────────────────────────────────────────────────────
 var _admin_menu: CanvasLayer = null
+var _admin_cheat_menu: CanvasLayer = null
 
 # ─── Pause Menu ───────────────────────────────────────────────────────────────
 var _pause_menu: CanvasLayer = null
@@ -487,6 +490,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 
+	# F8 — Admin controls menu (system cheats, distinct from F10's spawn menu)
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F8:
+		_toggle_admin_cheat_menu()
+		get_viewport().set_input_as_handled()
+		return
+
 	# F11 is now owned by DebugOverlay — do NOT handle here
 
 func _toggle_admin_spawn_menu() -> void:
@@ -506,6 +515,21 @@ func _toggle_admin_spawn_menu() -> void:
 		_admin_menu.set("build_controller", _build_controller)
 	if _admin_menu.has_method("toggle"):
 		_admin_menu.toggle()
+
+func _toggle_admin_cheat_menu() -> void:
+	## Lazy-init: create only on first F8 press.
+	if _admin_cheat_menu == null:
+		var script: GDScript = load("res://scripts/ui/menus/AdminMenu.gd")
+		if script == null:
+			push_warning("[DEV] AdminMenu.gd not found")
+			return
+		_admin_cheat_menu = CanvasLayer.new()
+		_admin_cheat_menu.set_script(script)
+		_admin_cheat_menu.name = "AdminMenu"
+		add_child(_admin_cheat_menu)
+		_admin_cheat_menu.set("world_node", self)
+	if _admin_cheat_menu.has_method("toggle"):
+		_admin_cheat_menu.toggle()
 
 func _toggle_pause_menu() -> void:
 	## Lazy-init: create only on first ESC press.
