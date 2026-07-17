@@ -1,233 +1,91 @@
-# BunkerGame — Agent Handover Doc
+# Handover — BunkerGame
 
-**Last updated:** repo HEAD `0ab566a`
+**Read `AI_CONTEXT.md` in this repo first, then `PROJECT_SUMMARY.md`, then this file.**
 
-Paste this whole file into a new chat to resume work with full context,
-without carrying forward the old chat's history.
+## What just shipped (this session)
+F8 admin controls menu — a cheat/debug tool distinct from the existing F10
+`AdminSpawnMenu`. Two stackable buttons: **+1000w Power** and **-1000w
+Power**, simulating an infinitely-fueled generator wired into the grid.
 
-## Standing directive: read `AI_CONTEXT.md` first, every session
-**Before doing anything else, check the repo root for `AI_CONTEXT.md` and
-read it if present.** This is a permanent instruction for this file and
-every future rewrite of it — do not drop this section in later handovers.
-(As of this writing `AI_CONTEXT.md` does not exist yet at repo root — if
-that's still the case when you read this, skip it and mention to Brannon
-that it's still missing rather than silently ignoring the directive.)
+### How it works
+- `PowerRegistry.register_generator()` gained an `infinite: bool = false`
+  param (stored on the generator dict).
+- `PowerManager.register_generator()` passes it through; `_tick_generators()`
+  skips fuel drain entirely when `gen.infinite == true`.
+- `PowerManager.admin_add_power(delta_watts: float)` — new public method.
+  Finds-or-creates one hidden generator (`ADMIN_GEN_ID =
+  "admin_cheat_gen"`, `infinite=true`) and attaches it to the wire graph via
+  a `no_visual` logical-only edge, offset by exactly `PowerGraph.SNAP_GRID`
+  (0.25m) from the first node returned by `get_wire_nodes()`. This
+  deliberately avoids `register_wire_edge()`'s automatic intermediate-joint
+  stepping loop blowing up over distance if a far sentinel position were
+  used instead. Watts accumulate on the single generator (clicking +1000w
+  twice = +2000w total) rather than spawning a new generator per click;
+  clamped to >= 0, fully unregisters (generator + wire node) at exactly 0.
+- `scripts/ui/menus/AdminMenu.gd` (new file) — F8 CanvasLayer panel,
+  mirrors `AdminSpawnMenu.gd`'s lifecycle/styling (`layer=128`, lazy init,
+  `UIFade.fade_in()`, brutalist Panel/StyleBoxFlat theme).
+- `MainWorld.gd` — F8 `_unhandled_input` handler +
+  `_toggle_admin_cheat_menu()` (lazy-init, same pattern as F10's toggle),
+  `_admin_cheat_menu` var, dev-tools header comment updated to list F8/F10.
 
----
+### Verified
+- `tools/godot_check.sh /tmp/Godot_v4.6.3-stable_linux.x86_64` → **PASS**,
+  no parse/compile errors, run after all edits.
+- Docs updated same commit: `docs/systems/power/README.md` (Public API
+  section: `register_generator()` `infinite` param note, new Known
+  tradeoffs bullet on the admin-gen wire-attach approach and its one known
+  gap — see below), `PROJECT_SUMMARY.md` (menus/ folder listing now shows
+  `AdminMenu (F8 power cheat)`).
+- Committed and pushed to `main` (`5aa622a`). Not yet tested in-editor by
+  Brannon.
 
-## Your role
-Senior dev / expert GDScript co-programmer, architectural advisor, and
-debugger for this Godot project. User (Brannon) is a vibe-coder novice —
-explain non-obvious things, potential roadblocks, and tradeoffs as you go,
-without being condescending about it. Act as the primary technical
-authority; keep scalable, professional game-dev practices in mind and
-proactively suggest/guide the project accordingly.
+### Known gap (documented, not yet handled)
+If the wire graph is completely empty (player hasn't placed/dug any wires
+yet), `admin_add_power()` has no node to attach to and the admin generator
+stays unconnected — no power actually flows even though the generator
+exists. Low priority (only affects a fresh, wire-free save), flagged in the
+README's Known tradeoffs, not fixed this pass.
 
-## Standing directive: minimize token/context usage, every session
-**`PROJECT_SUMMARY.md` §0 is the authoritative version of this rule — read
-it, it's short.** Summary: read `PROJECT_SUMMARY.md`'s system index →
-go straight to the relevant `docs/systems/*/README.md` → consult
-`architecture.json` for shape (dependencies/signals/API) → only THEN open
-real source, and only the specific file/function involved. Never re-scan
-the whole repo for a targeted change. If a doc is missing something you had
-to find in source, add it back to the doc in the same commit — doc drift is
-a bug.
+## Next up for Brannon to test
+1. Pull latest `main`.
+2. Press **F8** in-editor — confirm panel opens (distinct from F10's spawn
+   menu).
+3. Click **+1000w Power** twice — check `total_capacity_watts`/HUD draw
+   reflects +2000w total (should power previously-shed items if capacity
+   was the bottleneck).
+4. Click **-1000w Power** down to 0 — confirm the hidden generator fully
+   unregisters (no lingering phantom wire node/generator) and load drops
+   back to pre-cheat baseline.
+5. Confirm no regression to F10 `AdminSpawnMenu` or any existing real
+   generator's registration/fuel behavior.
+6. Report back any bugs (especially: does it behave correctly on a
+   fresh/no-wires save — the known gap above).
 
-## Working style Brannon wants
-- Ask clarifying questions before big/ambiguous work — batch them into one
-  round via a form, don't guess broadly.
-- If multiple sessions fail to fix a bug, step back and consider a different
-  root cause/approach rather than repeating the same fix.
-- Confirm root cause before writing a fix. One change at a time when the
-  system is complex (power grid especially). Prompt Brannon to test + report
-  back rather than stacking unverified changes.
-- Response format for code changes: Core Approach → Node Setup → Code → How
-  it Works & Customization (loosen this for small/obvious fixes).
-- Solo dev — keep things modular/reusable, avoid over-engineering.
-- **No "god files":** don't let files accumulate too many unrelated
-  responsibilities. Prefer a new, separate file for a self-contained new
-  feature over bolting it onto an existing large file. Extends to folders
-  too — place new files in the subfolder matching their responsibility (see
-  `PROJECT_SUMMARY.md` §3), extending it with a new subfolder if nothing
-  fits. Apply proactively at write-time, not as a later cleanup pass.
+## Then: Save/Load system
+Per Brannon's direction, next planned work area is the **save/load system**
+(`SaveManager` autoload — currently: generic field-registry pattern, any
+system registers getter/setter under a string key, wired fields so far are
+player position, cash, game clock elapsed seconds; saves to
+`user://save_slot_1/2/3.json`, load skips unregistered keys).
 
----
+Before starting: **read `docs/systems/world-core/README.md`** (SaveManager
+lives there) and re-familiarize with the field-registry pattern, plus check
+whether any newer systems shipped since (Water, Power priority overrides,
+zone rename/color, admin cheat generator — this one is intentionally NOT a
+save/load candidate, it's a debug tool) need their own registered
+save/load fields. Ask Brannon which fields/systems he wants persisted next
+before writing code — don't assume scope.
 
-## Project basics
-- **Company:** Magellan Apps, magellan-apps.com (NOT magellanapps.com),
-  support@magellan-apps.com
-- **Game:** BunkerGame — bunker survival/simulator + bunker design game. Two
-  phases: Pre-Apocalypse (spend cash, build/buy) → Post-Apocalypse (survive
-  on what you built). Tone: grim but not horror, brutalist/concrete
-  aesthetic, military UI — dark/gloomy/eerie. Full vision/direction detail:
-  `PROJECT_SUMMARY.md` §1.
-- **Godot version:** 4.6.3. Strict Godot 4 syntax only (no deprecated G3),
-  statically typed GDScript, clean/commented code. Jolt physics for 3D.
-- **Bunker dimensions:** width=24, depth=18 (`BunkerLayout.gd` exports).
-
-## Repo / workflow — CRITICAL, do not deviate
-- **GitHub only.** Repo: `Magellan36/bunker-game`, branch `main`. ALL file
-  operations go: read from repo → edit in sandbox → commit + push to repo →
-  Brannon pulls in Godot. **No zip downloads, ever**, for this project.
-- Clone fresh each new sandbox (e.g. `/home/user/bunker-game-repo-src`). A
-  GitHub Personal Access Token is supplied via `ask_secrets` into a `.env`
-  file, used directly with `git` over HTTPS:
-  `https://x-access-token:$TOKEN@github.com/Magellan36/bunker-game.git`.
-  Don't use the GitHub pipedream plugin for file edits (no delete-file
-  action) — use raw `git`/bash.
-- **`PROJECT_SUMMARY.md`** (repo root) is the living index — read it FIRST
-  every session, then follow its §2 system index straight to the relevant
-  `docs/systems/*/README.md`. Update both whenever a system's shape changes.
-
-## Verifying changes — real headless Godot check available
-A real Godot 4.6.3 headless binary + check script exist — no more relying
-only on bracket-balance checks.
-- Binary: download once per sandbox from
-  `https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip`
-  (matches Brannon's editor version exactly). Not committed to the repo
-  (130MB+ engine binary) — re-download into the sandbox each fresh session,
-  e.g. to `/home/user/godot-bin/`.
-- Check script: `tools/godot_check.sh <path-to-godot-binary>` — runs
-  `--headless --import` then `--headless --quit` against the real project,
-  greps for `SCRIPT ERROR`/`Parse Error`/`Compile Error`/`Failed to load
-  script`. See `PROJECT_SUMMARY.md` §16 for full detail.
-- **Run this before reporting any fix as done.** Catches script parse/type
-  errors and broken autoload/`class_name` references — the exact class of
-  bug that used to only surface when Brannon pulled and hit it in his own
-  editor.
-- **What it still can't catch:** actual gameplay/runtime logic bugs and
-  anything GPU-visual (no render/screenshot capability headless, no GPU in
-  this sandbox) — those still need Brannon's own in-editor test pass.
-
-## Debug logging — keep ALL of it, do not strip
-Every debug print preserved (system still stabilizing): `[PM:*]`, `_pmdbg`
-in PowerManager, `_wdbg`/`[BreakerBox]`/`[MW:DIAG]`/`[SPLIT]` in various
-files, `WIRE_DEBUG` toggles. F9 in-game dumps full wire/zone/PM state to
-`user://wire_debug.txt`. Always ask for this dump + console output when
-debugging power/wire issues. Only strip prints once Brannon explicitly asks
-for a given stable system.
-
----
-
-## Recurring gotcha — Godot class-cache / .uid staleness
-Hit repeatedly this project: a brand-new script with `class_name` (created
-via git, never opened/saved in the Godot editor) sometimes isn't recognized
-("Could not find type X") even after a soft **Project → Reload Current
-Project**. Fix that has worked every time: **fully quit Godot, delete the
-local `.godot/` cache folder (gitignored, safe, auto-regenerates), reopen
-the project.** `tools/godot_check.sh` now catches this specific symptom
-ahead of time for anything already pushed.
-
-**New autoloads specifically:** `project.godot`'s `[autoload]` section is
-owned by the Godot editor — hand-editing it via git while Godot has the
-project open can get silently overwritten back to stale in-memory state on
-next save/close. **Default rule:** Brannon adds new autoloads himself via
-Project Settings → Autoload in the editor, not the agent hand-editing
-`project.godot` directly.
-**Exception made once (repo HEAD `00938b5`):** `GraphicsSettings` was
-committed directly into `project.godot`'s `[autoload]` list because Brannon
-hit trouble adding it manually — verified with a clean headless boot before
-pushing. This is a one-off exception, not a new standing rule; still follow
-the default (editor-side registration) for any *future* new autoload unless
-Brannon explicitly asks for the same workaround again. If a future
-`project.godot` edit does get silently reverted by the editor, that's the
-signal to fall back to walking Brannon through the manual editor steps
-instead of re-pushing the same hand-edit.
-
-## Windows-side pull gotcha (new, this session)
-Brannon hit a git-pull failure on Windows/PowerShell: newly-committed
-`.uid`/`.import` files (generated locally by his own editor, untracked)
-collided with the same files now landing from a push. Fixed via:
-```powershell
-git stash -u
-git pull
-git stash pop
-```
-Separately, `git stash -u` itself once failed with `Unlink of file ...
-failed` on an unrelated locked `.dll` (Windows file-lock/AV scan issue, nota
-git bug) — resolved by closing Godot fully / retrying. Worth remembering if
-similar Windows-side lock errors show up again: usually means a running
-process (often Godot itself, sometimes AV) has a handle open on the file
-git is trying to touch — close Godot, retry, escalate to closing AV or
-running PowerShell as admin if it persists.
-
-## GDScript gotchas hit for real this project (don't repeat these)
-Full list + detail: `PROJECT_SUMMARY.md` §10. Headlines: `as` does NOT
-support enum casts (retype to plain `int` instead); `MeshLibrary` has no
-`has_item()` (use `get_item_list()` + `.has(id)`); the image-gen tool bakes
-transparency as opaque pixels for VFX textures (use PIL directly instead).
-
-## Extraction methodology — reusable playbook for any future file split
-Full detail: `PROJECT_SUMMARY.md` §12. Summary: map dependencies first,
-never move a heavily-referenced dict (use an `_owner` back-reference
-instead), slice function bodies verbatim (never retype from memory), keep
-forwarding wrapper methods for every moved public function, verify zero
-external callers before extracting, run `tools/godot_check.sh` as the final
-correctness check instead of manual bracket-counting.
-
----
-
-## Where everything else is now
-Per-system detail (Power, World Core, UI — with more systems migrating
-incrementally as they're touched) lives in `docs/systems/*/README.md`, NOT
-in this file. Do not re-add system-specific status writeups here — they
-belong in the relevant system's README (add a `## History` subsection there
-if genuinely historical detail is worth keeping). This file stays
-role/workflow/gotchas only, so it doesn't regrow to its old ~620-line
-length.
-
-## Current status
-- **Doc migration: complete.** All 9 systems have a `docs/systems/*/README.md`
-  — read those first, not this section, for any system-specific
-  history/detail. This section only tracks what's actively in-flight or
-  needs Brannon's attention next.
-- Recently shipped items (wall/breaker snap fix, zone rename/recolor +
-  label-color swap, pause menu/graphics-panel blur backdrop, BROWNOUT/TRIPPED
-  unreachable-state fix, wire-mode stale hover-label leak) — all confirmed
-  working, full detail lives only in their system's README, nothing pending
-  here.
-- **Water system Phase 1 groundwork + Step 2 (interactable hookup/sink,
-  live flow-split) — both shipped and confirmed working.** Full detail:
-  `docs/systems/water/README.md`.
-- **Water pipe tool overlap/routing bugs — RESOLVED.** The `[PipeDebug]`
-  logging-spam bug was fixed, then the real routing bugs (detour sidestep
-  causing visible backtrack, extra stub/leg left at mid-route corners) were
-  found and fixed in follow-up commits. No open pipe-routing bug as of this
-  writing.
-- **Water demand-based priority-tier allocation — shipped and confirmed
-  working (latest commit `0ab566a`).** `WaterSolver.gd` now does a real
-  priority-tier (1-5) demand waterfall instead of Step 2's equal-split;
-  `WaterTestSink`/`WaterDispenser` each have a tunable `priority` +
-  live demand. Both device UI panels (`WaterInfoUI.gd` sink branch,
-  `WaterDispenserUI.gd`) got a `PowerPriorityUI`-style ◄ N ► demand-priority
-  chip+pip-strip changer, and `WaterDispenserUI.gd` was restyled from a
-  stock Godot panel to match the hand-drawn `_draw()` theme used by
-  `WaterInfoUI`/`PowerPriorityUI`. Full detail (including the still-open
-  "not real flow/pressure sim yet" caveat):
-  `docs/systems/water/README.md`.
-
-## Next up
-**This session's task: the save/load system.**
-- Read `docs/systems/world-core/README.md` first (covers `SaveManager.gd`'s
-  generic field-registry pattern) and `scripts/world/core/SaveManager.gd`
-  itself (~155 lines) before making changes.
-- Current state per that doc/system memory: `SaveManager` is an autoload,
-  any system plugs a getter/setter pair into it under a string key, saves
-  to `user://save_slot_1/2/3.json`, load skips unregistered keys. Pause
-  menu (ESC) already has Save/Load UI wired to 3 slots.
-- Brannon hasn't specified the exact scope of this session's save/load work
-  yet — ask him what's missing/broken/wanted (e.g. which systems still
-  aren't registered with `SaveManager`, whether slot UI needs polish, save
-  versioning/migration, etc.) before writing code.
-
-See `PROJECT_SUMMARY.md` §1 "Roadmap priorities" for the rest of the
-backlog (water system Phase 2 — real flow/pressure sim, quality decay, Main
-Menu, Death/game-over state, emergency_light placement, generator exhaust
-smoke scaling, remaining graphics-overhaul deferred items, upgrading
-`WaterPipeDrawMode` to the full continuous-paint UX). No systems pending doc
-migration anymore (all 9 done as of July 2026).
-
-Two specific power-system follow-up investigations remain open — full
-detail lives ONLY in `docs/systems/power/README.md` Known tradeoffs (one
-canonical copy, not duplicated here — see `_go_offline_true()` and the
-per-zone "sustained brownout" orphaned-trigger re-check).
+## Standing conventions (don't relitigate)
+- All file ops via GitHub HTTPS only (token in `.env`) — read repo → edit
+  sandbox → push → Brannon pulls in Godot. No zip downloads.
+- Godot 4.6.3 strict syntax, statically typed GDScript, no deprecated G3.
+- No compiler in sandbox — always run `tools/godot_check.sh` before
+  reporting a fix/feature done.
+- Doc-update discipline: system README + `PROJECT_SUMMARY.md` updates go in
+  the *same commit* as the code change — never drifts.
+- No god files — new self-contained features get their own file/folder.
+- Credit-efficient sessions: read `PROJECT_SUMMARY.md` + relevant
+  `docs/systems/*/README.md` first; only open source files that are
+  actually relevant to the surgical change at hand.
