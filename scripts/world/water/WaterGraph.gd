@@ -344,6 +344,22 @@ func compute_flow_directions(hookup_key: String) -> Dictionary:
 			a_is_upstream[edge_id] = distances[key_a] <= distances[key_b]
 			continue
 
+		if lca == hookup_key:
+			## The loop wraps all the way back through the hookup itself —
+			## this is a real ring-main topology, not an interior loop. The
+			## hookup is a pure source and must NEVER receive an inflow, so
+			## its two branches always keep their natural hookup-outward
+			## direction (never reversed), exactly like a real ring main
+			## being fed from one point and flowing both ways around the
+			## ring. The two flows meeting on the far side of the ring is
+			## correct physical behavior here, not the convergence bug this
+			## pass exists to fix (that bug is specifically about INTERIOR
+			## loops that don't touch the hookup — see lca != hookup_key
+			## branch below). Only the closing edge's own direction is
+			## decided, by the same dominance rule, purely cosmetic here.
+			a_is_upstream[edge_id] = distances[key_a] <= distances[key_b]
+			continue
+
 		var branch_a_len: float = distances[key_a] - distances[lca]
 		var branch_b_len: float = distances[key_b] - distances[lca]
 		var a_is_dominant: bool
