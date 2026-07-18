@@ -95,9 +95,8 @@ func get_display_name() -> String:
 	return "Water Bottle"
 
 func get_prompt_text() -> String:
-	if _is_empty():
-		return "[F] Pick up  Water Bottle (Empty)"
-	return "[F] Pick up  Water Bottle"
+	var pct: int = int((current_fill_mL / MAX_FILL_ML) * 100.0)
+	return "[F] Pick up  Water Bottle (%d%%)" % pct
 
 func get_use_prompt() -> String:
 	var dispenser: WaterDispenser = _find_nearest_dispenser()
