@@ -37,6 +37,13 @@ var requested_rate_mL_per_day: float = 0.0
 var is_on: bool = true
 var current_fill_mL: float = 0.0
 
+## Cached PlayerStats ref, same lazy-lookup/cache pattern WaterHookup.gd uses
+## for its own quality-decay tick — needed to convert "mL/day" into an actual
+## fill-per-real-second rate using the COMPRESSED in-game day length
+## (day_duration_seconds, default 1440 real seconds = 24 real minutes), not
+## a literal real-world 24-hour day. See _process() below.
+var _player_stats: Node = null
+
 ## Placeholder only — nothing reads or decays this yet (Jul 2026 pass
 ## deliberately leaves water quality mixing/decay logic for a future pass,
 ## same treatment as WaterHookup.water_quality got in Step 2). Kept present
@@ -110,9 +117,23 @@ func _process(delta: float) -> void:
 	if not bool(info.get("connected", false)):
 		return
 
+	## Fixed prior bug: this used to divide by a literal 86400 (real seconds
+	## in an actual 24-hour day), running ~60x slower than every other timed
+	## system in the game — PlayerStats' own thirst/hunger/sleep drain is
+	## scaled to the COMPRESSED in-game day (day_duration_seconds, default
+	## 1440 real seconds = 24 real minutes per game day). "mL/day" now means
+	## per GAME day consistently across the whole water system, matching
+	## WaterHookup's quality-decay tick (same _player_stats/
+	## _seconds_per_game_hour lookup/cache pattern).
+	if _player_stats == null:
+		_player_stats = get_tree().get_first_node_in_group("player_stats")
+	var seconds_per_game_day: float = 86400.0   ## real-day fallback if PlayerStats isn't found yet
+	if _player_stats != null and _player_stats._seconds_per_game_hour > 0.0:
+		seconds_per_game_day = _player_stats._seconds_per_game_hour * 24.0
+
 	var received_mL_per_day: float = float(info.get("mL_per_day", 0.0))
 	var incoming_quality: float    = float(info.get("quality", 100.0))
-	var received_mL_per_sec: float = received_mL_per_day / 86400.0
+	var received_mL_per_sec: float = received_mL_per_day / seconds_per_game_day
 
 	## Volume-weighted quality blend (Jul 2026, Purifier pass):
 	## new_avg = (old_volume*old_avg + added_volume*added_quality) / (old_volume+added_volume).
