@@ -451,12 +451,19 @@ func recompute_flow_directions() -> void:
 			continue
 		var seg: WaterPipeSegment = node as WaterPipeSegment
 		if not directions.has(seg.edge_id):
+			## Not reachable from any hookup — dead/orphaned pipe run, no
+			## water in it. No arrow animation at all (July 2026 fix; see
+			## pipe_flow.gdshader's has_flow uniform).
+			if seg.has_method("set_has_flow"):
+				seg.set_has_flow(false)
 			continue
 		var edge_flow: Dictionary = directions[seg.edge_id]
 		if seg.has_method("set_flow_sign"):
 			seg.set_flow_sign(bool(edge_flow.get("a_is_upstream", true)))
 		if seg.has_method("set_phase_offset"):
 			seg.set_phase_offset(float(edge_flow.get("phase_offset", 0.0)))
+		if seg.has_method("set_has_flow"):
+			seg.set_has_flow(true)
 
 
 ## A device's dynamic slider maximum (see WaterSolver.get_dynamic_max_for_device()
