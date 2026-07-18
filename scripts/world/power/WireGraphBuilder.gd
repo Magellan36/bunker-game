@@ -129,6 +129,7 @@ func _compute_and_rebuild_wires() -> void:
 				var pkey: String = _owner._wkey(px) + "," + _owner._wkey(pz)
 				pillar_positions[pkey] = Vector3(px, PLACEMENT_Y, pz)
 
+	_push_pillar_registry(pillar_positions)
 	_rebuild_auto_wires(boundary_edges, pillar_positions, false)
 
 ## ─── Global perimeter solver ─────────────────────────────────────────────────
@@ -389,6 +390,7 @@ func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
 	## a single clean ring around the current full boundary_edges perimeter.
 	## Pillar positions included so corner wire nodes are not skipped.
 	## Stale pregen perimeter nodes (now interior) are also removed here.
+	_push_pillar_registry(pillar_positions)
 	_rebuild_auto_wires(boundary_edges, pillar_positions, breakers_removed)
 
 	## ── Close outer bulk window (Fix A) ──────────────────────────────────────
@@ -1501,6 +1503,24 @@ func _on_chunk_restored(chunk_origin: Vector2i) -> void:
 	## call handles both: Stage2 removal prunes nodes whose positions are no
 	## longer in the desired set; PassB2 stitches the surviving ring closed.
 	## No separate bespoke undo rebuild needed.
+	_push_pillar_registry(pillar_positions)
 	_rebuild_auto_wires(boundary_edges, pillar_positions, false)
 	## Update _owner._boundary_edges_prev so the next diff is correct.
 	_compute_boundary_diff(boundary_edges)
+
+
+## ── Part A (structure refactor, Jul 2026) ────────────────────────────────────
+## Pushes the freshly-computed pillar position set into the MainWorld-owned
+## PillarRegistry (found via group "pillar_registry", same lookup pattern as
+## PowerManager/WaterManager). Called from all three solve entry points right
+## after each one finishes building its own local `pillar_positions` dict, so
+## the registry is always current after any pregen solve / dig / undo.
+## No-op (with a one-time push_warning) if the registry hasn't been set up —
+## keeps this purely additive, never a hard dependency for the wire/perimeter
+## engine itself.
+func _push_pillar_registry(pillar_positions: Dictionary) -> void:
+	var registry: Node = _owner.get_tree().get_first_node_in_group("pillar_registry")
+	if registry == null:
+		push_warning("WireGraphBuilder: PillarRegistry not found — pillar clearance data not updated")
+		return
+	registry.set_all(pillar_positions)

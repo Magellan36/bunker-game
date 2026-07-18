@@ -281,11 +281,12 @@ func reposition_to_outer_wall() -> void:
 	while node != null:
 		if node.has_meta("tile_id"):
 			var tid: int = node.get_meta("tile_id")
-			## TILE_WALL/TILE_PILLAR constants live on BuildModeController;
-			## this file stays standalone (no build-mode dependency), so the
-			## values are inlined here with a comment rather than referenced
-			## directly — keep in sync if those constants ever change.
-			if tid == 1 or tid == 2:   ## TILE_WALL, TILE_PILLAR
+			## BunkerStructure.is_wall_or_pillar() (Part A, Jul 2026) replaces
+			## the old inlined "tid == 1 or tid == 2" magic numbers — this
+			## file stays standalone (no build-mode dependency), but
+			## BunkerStructure itself is a stateless static utility so it's
+			## safe to reference directly without pulling in BuildModeController.
+			if BunkerStructure.is_wall_or_pillar(tid):
 				is_wall = true
 			break
 		if node is GridMap:
