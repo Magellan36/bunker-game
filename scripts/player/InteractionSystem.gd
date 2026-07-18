@@ -82,6 +82,7 @@ func _process(delta: float) -> void:
 			prompt.hide_prompt()
 		return
 	_tick_continuous_refuel(delta)
+	_tick_continuous_bottle_refill(delta)
 	_update_prompt()
 
 ## Continuously transfers fuel while the player holds E with a fuel can in hand.
@@ -95,6 +96,19 @@ func _tick_continuous_refuel(delta: float) -> void:
 	if not held_item.has_method("refuel_tick"):
 		return
 	held_item.refuel_tick(delta)
+
+## Continuously refills a water bottle while the player holds E with it near a
+## WaterDispenser. Mirrors _tick_continuous_refuel() exactly — fires every
+## frame E is held; WaterBottle.bottle_refill_tick() handles the actual
+## transfer + nearest-dispenser lookup (Jul 2026 bottle rework).
+func _tick_continuous_bottle_refill(delta: float) -> void:
+	if not _is_holding_e:
+		return
+	if held_item == null:
+		return
+	if not held_item.has_method("bottle_refill_tick"):
+		return
+	held_item.bottle_refill_tick(delta)
 
 ## Returns true if the shelf UI overlay is open
 func _shelf_ui_open() -> bool:

@@ -16,7 +16,7 @@ together by `MainWorld`).
 - `PlayerStats.gd`: food/water/sleep/health drain over a real-time-to-game-time
   clock, starvation/dehydration health damage, the `H:MM AM/PM` game clock +
   day counter, and save/load support for elapsed time.
-- `InteractionSystem.gd` (~665 lines): the ONLY place pickup/drop/store/scroll
+- `InteractionSystem.gd` (~686 lines): the ONLY place pickup/drop/store/scroll
   logic lives. Owns `held_item`, inventory slot activation/deactivation, and
   the floating interact prompt (built each frame from whatever's held or
   nearby). E is a pure instant tap (use/interact fires on press, no hold
@@ -44,7 +44,7 @@ together by `MainWorld`).
 |---|---|---|
 | `Player.gd` | ~120 | `CharacterBody3D` — movement, sprint/stamina, facing, movement-lock |
 | `PlayerStats.gd` | ~170 | Survival needs (food/water/sleep/health) + game clock |
-| `InteractionSystem.gd` | ~665 | Pickup/drop/store/scroll, interact prompt builder |
+| `InteractionSystem.gd` | ~686 | Pickup/drop/store/scroll, interact prompt builder |
 
 ## Public API
 **`Player`** (`class_name Player`, extends `CharacterBody3D`):
@@ -139,8 +139,12 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   branch in `InteractionSystem._unhandled_input()`. E and G are both plain
   one-shot `is_action_pressed()` taps — there is no tap-vs-hold
   disambiguation anymore. If a new verb needs continuous per-frame behavior
-  while a key is held (like `FuelCan.refuel_tick()`), follow the
-  `_is_holding_e` + `_tick_continuous_refuel()` pattern instead.
+  while a key is held (like `FuelCan.refuel_tick()` or `WaterBottle.
+  bottle_refill_tick()`), follow the `_is_holding_e` +
+  `_tick_continuous_refuel()`/`_tick_continuous_bottle_refill()` pattern
+  instead (Jul 2026 — both ticks now run side by side in `_process()`; a
+  held item only reacts to whichever tick its own `has_method()` check
+  matches).
 - **Store/put-away key (Jul 2026):** store is bound to `store_item` (G), not
   E. The old "hold E to store" hold-and-progress-bar mechanic was retired
   entirely in favor of an instant, no-progress-bar G tap — see
@@ -179,7 +183,7 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
 ## Known tradeoffs / tech debt
 - No automated tests.
 - Survival stat/inventory state isn't saved (see Persistence above).
-- `InteractionSystem.gd` is a single ~690-line file covering pickup, drop,
+- `InteractionSystem.gd` is a single ~686-line file covering pickup, drop,
   store, scroll, AND prompt-building — a plausible future split candidate
   (e.g. extract prompt-building into its own `_owner`-pattern helper the same
   way `BuildModeController`'s Stage 10 extraction did) but not currently

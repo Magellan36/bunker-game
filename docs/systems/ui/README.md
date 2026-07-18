@@ -36,7 +36,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | Subfolder | Files | Role |
 |---|---|---|
 | `power/` | `PowerTerminalUI.gd` (~1010), `PowerPriorityUI.gd` (~495), `GeneratorInspectUI.gd` (~434) | Power device panels — see `docs/systems/power/README.md` for what they read/write |
-| `inventory/` | `InventoryHUD.gd` (~350), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475) | Slot HUD, inventory state, shelf storage panel |
+| `inventory/` | `InventoryHUD.gd` (~400 — badge dispatch: `WaterBottle`-style items draw a fill%/quality badge via `get_bottle_badge_info()`, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475) | Slot HUD, inventory state, shelf storage panel |
 | `hud/` | `HUD.gd` (~280), `StatusBars.gd` (~50), `InteractPrompt.gd` (~105), `CircleFill.gd` (~80) | Always-on stat bars, interact prompt, radial fill widget |
 | `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~180), `AdminSpawnMenu.gd` (~215), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, dev spawn menu, sleep fade |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI |

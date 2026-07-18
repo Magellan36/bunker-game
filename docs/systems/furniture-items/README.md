@@ -42,7 +42,7 @@ or the environment itself (`docs/systems/environment/README.md`).
 | File | Lines | Role |
 |---|---|---|
 | `items/PickupItem.gd` | ~65 | Minimal base pickup contract (`pickup`/`drop`/`place`) — some items extend behavior inline instead of subclassing this directly (see below) |
-| `items/WaterBottle.gd` | ~215 | 2-sip drinkable, `charge_changed` signal for HUD badge |
+| `items/WaterBottle.gd` | ~265 | Continuous mL-fill + blended quality drinkable (750mL cap, Jul 2026 rework — replaced the old fixed 2-sip model); also refills continuously near a `WaterDispenser` via `bottle_refill_tick(delta)` (see `InteractionSystem._tick_continuous_bottle_refill()`); `charge_changed` signal for HUD badge |
 | `items/FoodCan.gd` | ~215 | Similar to WaterBottle, food-based |
 | `items/FuelCan.gd` | ~260 | Continuous-refuel item — `refuel_tick(delta)` called every frame E is held near a generator (see `InteractionSystem._tick_continuous_refuel()`) |
 | `items/Flashlight.gd` | ~460 | Battery-powered light, `on_use()` toggles on/off, dust-mote beam VFX (see `docs/systems/environment/README.md`) |
@@ -72,7 +72,10 @@ world-held / 40 inventory-held, inventory snaps instantly through turns),
 `pickup_grace: float` (0.6s grace before knockout checks start after
 pickup). Signals: `picked_up()`, `dropped()`, `knocked_out()` (fires when
 yanked too far from the player while world-held), `charge_changed()`
-(`WaterBottle`/`FoodCan`/`Flashlight` — HUD sip/battery badge).
+(`WaterBottle`/`FoodCan`/`Flashlight` — HUD badge; `WaterBottle`'s badge is
+fill%/quality via its own `get_bottle_badge_info()` contract, `FoodCan`'s is
+the generic bites-remaining fallback — see `docs/systems/ui/README.md`'s
+`InventoryHUD._draw()` badge dispatch).
 
 **`Shelving`** (`class_name Shelving`, extends `StaticBody3D`):
 `set_player_in_range(in_range: bool)`, `get_f_prompt/get_e_prompt/
