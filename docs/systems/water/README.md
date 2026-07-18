@@ -198,6 +198,24 @@ branching may already partially work (untested, flagged as a follow-up).
   controller up and reads its live `is_active` flag (same `get("is_active")`
   pattern `WireGraphBuilder.gd` already uses) so a freshly spawned segment's
   overlay initializes visible/hidden correctly on the very first frame.
+- **"mL/day" now means per in-game day, not per real 24-hour day (Jul 2026,
+  same-day follow-up):** `WaterDispenser._process()`'s tank-fill integration
+  used to divide `received_mL_per_day` by a literal `86400.0` (real seconds
+  in an actual day) against the raw, unscaled frame `delta` — completely
+  ignoring the game's compressed clock (`PlayerStats.day_duration_seconds`,
+  default 1440 real seconds = 24 real minutes per game day). Every other
+  timed system (thirst/hunger/sleep drain, `WaterHookup`'s own quality decay)
+  already scales off that compressed clock, so dispensers were filling
+  ~60x slower than intended relative to the player's own thirst drain — a
+  "2000 mL/day" hookup took a full real 24 hours to deliver 2000mL instead
+  of one 24-real-minute game day. Fix: `WaterDispenser` now caches a
+  `_player_stats` ref (same lazy lookup/cache pattern `WaterHookup.gd` uses)
+  and divides by `_player_stats._seconds_per_game_hour * 24.0` instead of
+  `86400.0`, falling back to the real-day constant only if `PlayerStats`
+  isn't found yet. `WaterHookup.get_per_minute_output_mL()`'s `/ 1440.0` was
+  checked and left AS-IS — that's a display-only "mL/day → mL/min" label
+  conversion (literal calendar minutes-per-day), never integrated against a
+  real timer, so it carries no such bug.
 - **Known gap (save/load):** `WaterManager.get_pipe_network_for_save()` only
   persists `"corner"`/`"pipe_joint"` roled nodes — a `"purifier"` node (and
   both edges touching it) is silently dropped on save/load today. Not fixed
