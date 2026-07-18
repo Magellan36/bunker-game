@@ -244,6 +244,23 @@ branching may already partially work (untested, flagged as a follow-up).
   placed segment (dead/orphaned runs). Freshly-placed segments default to
   `has_flow = false` in `_build_arrow_overlay()` until the next
   `recompute_flow_directions()` confirms connectivity.
+- **Flow-arrow double-flip bug (Jul 2026, same-day follow-up #2):** the
+  direction fix above mirrored the glyph shape via `flow_sign`, but the
+  scroll term right below it was ALSO still multiplied by `flow_sign` (left
+  over from the original, shape-unaware fix) — so a reversed-flow segment
+  correctly flipped its chevron shape to point the true downstream way, but
+  then scrolled backwards relative to that shape (motion direction flipped
+  twice, canceling out). Confirmed in playtest: a pipe run built starting
+  from the hookup animated correctly, but a run built starting from the
+  device (same physical direction of flow, opposite draw/registration order)
+  showed arrows pointing the right way while visibly crawling backwards.
+  Root cause: direction only needs to be encoded once — the mirrored `raw_uv`
+  already advances correctly in the true downstream (away-from-hookup)
+  direction for every segment uniformly once mirrored, so the scroll no
+  longer needs (and must not have) its own `flow_sign` multiplier. Fix:
+  scroll term in `pipe_flow.gdshader` now always subtracts the same way
+  (`tex_uv.x -= TIME * (scroll_speed / tile_world_length)`, no `flow_sign`
+  factor) — direction lives solely in the mirror.
 - **"mL/day" now means per in-game day, not per real 24-hour day (Jul 2026,
   same-day follow-up):** `WaterDispenser._process()`'s tank-fill integration
   used to divide `received_mL_per_day` by a literal `86400.0` (real seconds
