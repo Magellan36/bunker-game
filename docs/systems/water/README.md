@@ -63,6 +63,13 @@ branching may already partially work (untested, flagged as a follow-up).
   `delta / _seconds_per_game_hour` each frame). One-directional: floors at
   `0.0`, nothing raises it back up at the source — that's what the Purifier
   is for, downstream.
+- **Admin cheat (F7 menu, Jul 2026):** `AdminMenu.gd`'s WATER section
+  scales the single hookup's `water_quality` by ×0.5 / ×1.5 (clamped
+  0-100) — relative to its current value, not a flat ±50 — via
+  `WaterManager.get_the_hookup()`. Same panel also has a TIME section
+  (`PlayerStats.set_elapsed()` jump of exactly `day_duration_seconds`, a
+  pure clock skip — no extra stat drain applied) alongside the existing
+  POWER cheat (see `docs/systems/power/README.md`).
 - **Purification algorithm:** a consumer's water is pure (100%) iff EVERY
   path from the hookup to it passes through at least one `"purifier"`-role
   graph node. Computed as a single filtered BFS per solve —

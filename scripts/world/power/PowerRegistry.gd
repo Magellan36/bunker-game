@@ -180,7 +180,7 @@ func _consumer_is_wired(id: String) -> bool:
 ##   is_backup — if true, idles until all primaries fail
 ##   fuel      — 0–100
 ##   health    — 0–100
-## `infinite` (added Jul 2026, F8 admin power cheat) — when true, _tick_generators()
+## `infinite` (added Jul 2026, F7 admin power cheat) — when true, _tick_generators()
 ## never drains this generator's fuel, so it runs forever without a fuel_low
 ## warning or eventual auto-stop. Used only by PowerManager.admin_add_power();
 ## real GeneratorObject instances never pass this.

@@ -81,13 +81,15 @@ infinite=false)`, `unregister_generator(gen_id)`,
 `get_generators_status()`. `infinite` (Jul 2026) skips fuel drain entirely —
 used only by `admin_add_power()` below.
 
-**Admin cheat (F8 menu, Jul 2026):** `admin_add_power(delta_watts)` — adds
+**Admin cheat (F7 menu, Jul 2026):** `admin_add_power(delta_watts)` — adds
 (positive) or removes (negative) wattage from a single hidden, infinitely-
 fueled generator (`ADMIN_GEN_ID`), wired into the graph via a no-visual edge
 to whichever wire node is first in `get_wire_nodes()`. Stackable — repeated
 calls accumulate onto the same generator; wattage clamps to >= 0 and fully
 unregisters (generator + wire node) when it reaches 0. See
-`scripts/ui/menus/AdminMenu.gd`.
+`scripts/ui/menus/AdminMenu.gd` — F7 opens the shared admin panel (power
+step, day fast-forward, hookup water-quality ±50%; see
+docs/systems/water/README.md for the water-side cheats).
 
 **Batteries:** `register_battery(id, capacity_wh, node, initial_charge)`,
 `unregister_battery(bat_id)`, `set_battery_charge(bat_id, wh)`,
@@ -273,7 +275,7 @@ UI panel.open() ← player interacts with device → reads PowerManager getters,
   is still needed at all, or is fully superseded by `_go_offline()`'s
   per-sub-grid local-battery check, needs its own dedicated investigation
   pass before touching it.
-- **F8 admin cheat generator** (`PowerManager.admin_add_power()`) attaches via
+- **F7 admin cheat generator** (`PowerManager.admin_add_power()`) attaches via
   a `no_visual` logical-only wire edge offset by exactly `PowerGraph.
   SNAP_GRID` from the first existing wire node — deliberately avoids
   `register_wire_edge()`'s automatic intermediate-joint stepping loop, which

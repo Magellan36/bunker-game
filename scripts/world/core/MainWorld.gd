@@ -8,7 +8,7 @@ class_name MainWorld
 ## F11 — spawn a TestCrate in front of the player
 ## F10 — admin spawn menu (place any built object without Build Mode)
 ## F9  — dump wire debug log (only useful when WIRE_DEBUG = true below)
-## F8  — admin controls menu (system cheats, e.g. +/-1000w power)
+## F7  — admin controls menu (system cheats: power, time, water)
 ## F1  — toggle Build Mode
 const DEV_TIME_SCALE: float  = 50.0
 const CRATE_SCENE: String    = "res://scenes/world/TestCrate.tscn"
@@ -490,8 +490,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 
-	# F8 — Admin controls menu (system cheats, distinct from F10's spawn menu)
-	if event is InputEventKey and event.pressed and event.keycode == KEY_F8:
+	# F7 — Admin controls menu (system cheats, distinct from F10's spawn menu)
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F7:
 		_toggle_admin_cheat_menu()
 		get_viewport().set_input_as_handled()
 		return
@@ -517,7 +517,7 @@ func _toggle_admin_spawn_menu() -> void:
 		_admin_menu.toggle()
 
 func _toggle_admin_cheat_menu() -> void:
-	## Lazy-init: create only on first F8 press.
+	## Lazy-init: create only on first F7 press.
 	if _admin_cheat_menu == null:
 		var script: GDScript = load("res://scripts/ui/menus/AdminMenu.gd")
 		if script == null:

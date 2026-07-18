@@ -138,7 +138,7 @@ scripts/
     power/       PowerTerminalUI, PowerPriorityUI, GeneratorInspectUI  [migrated, §2]
     inventory/   InventoryHUD, InventoryManager, ShelfUI               [migrated, §2]
     hud/         HUD, StatusBars, InteractPrompt, CircleFill           [migrated, §2]
-    menus/       AdminSpawnMenu (F10), AdminMenu (F8 power cheat),
+    menus/       AdminSpawnMenu (F10), AdminMenu (F7 — power/time/water cheats),
                  PauseMenuUI, SleepOverlay,
                  GraphicsSettingsPanel                                [migrated, §2]
     build/       BuildModeHUD                                         [migrated, §2]
