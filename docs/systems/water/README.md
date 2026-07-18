@@ -1053,3 +1053,42 @@ stable (matches the project's standing debug-logging discipline).
   preview that walks around however many corners the cursor's projected
   position crosses, confirmed all at once — see the file's own header
   comment for the exact scope of what's deferred.
+
+## Water Bottle Refill (Jul 2026 — Part C rework)
+`WaterBottle.gd` (`docs/systems/furniture-items/README.md`) is not part of
+the water graph/solver — it's a hand-carried consumable — but it now draws
+directly from `WaterDispenser.current_fill_mL`, so the two files are coupled
+enough to note here:
+- Replaced the old fixed 2-sip model (`WATER_PER_SIP`/`TOTAL_SIPS`) with a
+  continuous mL model: `MAX_FILL_ML=750.0`, `current_fill_mL` (spawns full),
+  `stored_water_quality` (spawns 100). `_is_empty()` is now a computed check
+  (`current_fill_mL <= 0.0`), not a one-way latch — refilling a drained
+  bottle un-empties it.
+- **Drinking** (tap E, `on_use()`): removes `min(STANDARD_DRINK_ML=375.0,
+  current_fill_mL)`, restoring hydration scaled proportionally
+  (`STANDARD_HYDRATION=21.5 * amount_removed / STANDARD_DRINK_ML`) — draining
+  a partly-empty bottle still gives partial hydration instead of a full dose.
+- **Refilling** (hold E near a `WaterDispenser`, `bottle_refill_tick(delta)`):
+  mirrors `FuelCan.refuel_tick()`'s shape exactly — nearest-node lookup
+  (`_find_nearest_dispenser()`, `REFILL_RANGE=2.5`, group `"water_dispenser"`
+  — `WaterDispenser._ready()` now joins this group), transfer clamped to both
+  the bottle's headroom and the dispenser's remaining volume, at
+  `REFILL_RATE_ML_PER_SEC=60.0` (derived the same way `FuelCan.FUEL_RATE` was:
+  full-capacity ÷ 12.5s). Draining `dispenser.current_fill_mL` directly
+  (bypassing `WaterSolver`) is intentional — the dispenser's own tank is
+  already the "spent" resource once it's in storage, same as a generator's
+  `set_generator_fuel()` write from `FuelCan.refuel_tick()`.
+- **Quality blend:** identical volume-weighted formula to
+  `WaterDispenser._process()`'s own hookup-blend (`new_avg = (old_volume *
+  old_avg + added_volume * added_quality) / (old_volume + added_volume)`) —
+  the bottle blends its own `stored_water_quality` against the dispenser's.
+- `InteractionSystem._tick_continuous_bottle_refill()` runs every frame
+  alongside `_tick_continuous_refuel()` (`docs/systems/player/README.md`),
+  gated the same way (`_is_holding_e` + `has_method()` duck-type check).
+- **HUD badge:** `WaterBottle.get_bottle_badge_info()` returns `{"fill_pct",
+  "quality"}`, checked by `InventoryHUD._draw()` ahead of the generic
+  charge-count fallback chain (`docs/systems/ui/README.md`). Badge shows
+  fill% coloured by quality using the same red/yellow/green thresholds as
+  `WaterDispenserUI`/`WaterInfoUI` (0-50 red, 50.01-75 yellow, 75.01-100
+  green) — duplicated per this project's existing per-file-helper
+  convention, not shared via a base class.

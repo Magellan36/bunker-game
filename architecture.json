@@ -167,7 +167,7 @@
     },
     {
       "path": "res://scripts/player/InteractionSystem.gd",
-      "line_count": 672,
+      "line_count": 686,
       "class_name": "InteractionSystem",
       "extends": "Node3D",
       "exports": [
@@ -196,7 +196,7 @@
         }
       ],
       "public_functions": [],
-      "private_function_count": 19,
+      "private_function_count": 20,
       "preloads": [],
       "group_lookups": [
         "world"
@@ -702,7 +702,7 @@
     },
     {
       "path": "res://scripts/ui/inventory/InventoryHUD.gd",
-      "line_count": 349,
+      "line_count": 402,
       "class_name": null,
       "extends": "Control",
       "exports": [],
@@ -740,7 +740,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 9,
+      "private_function_count": 11,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
@@ -2822,7 +2822,7 @@
     },
     {
       "path": "res://scripts/world/items/WaterBottle.gd",
-      "line_count": 167,
+      "line_count": 263,
       "class_name": null,
       "extends": "RigidBody3D",
       "exports": [
@@ -2885,6 +2885,16 @@
           "returns": "void"
         },
         {
+          "name": "bottle_refill_tick",
+          "args": "delta: float",
+          "returns": "void"
+        },
+        {
+          "name": "get_bottle_badge_info",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
           "name": "drop",
           "args": "_world_parent: Node3D, drop_position: Vector3",
           "returns": "void"
@@ -2895,10 +2905,11 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 5,
+      "private_function_count": 7,
       "preloads": [],
       "group_lookups": [
-        "player_stats"
+        "player_stats",
+        "water_dispenser"
       ],
       "autoload_references": [],
       "complexity_score": 186
@@ -4391,7 +4402,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterDispenser.gd",
-      "line_count": 243,
+      "line_count": 246,
       "class_name": "WaterDispenser",
       "extends": "StaticBody3D",
       "exports": [

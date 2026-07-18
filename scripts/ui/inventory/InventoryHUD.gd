@@ -21,6 +21,14 @@ const COLOR_CHARGE_FULL: Color = Color(0.75, 0.85, 0.70, 1.00)   ## greenish —
 const COLOR_CHARGE_LOW:  Color = Color(0.85, 0.55, 0.40, 1.00)   ## amber — last charge
 const COLOR_CHARGE_FONT: float = 9.0                              ## font size for badge text
 
+## Water bottle quality badge colours (Jul 2026 bottle rework) — mirrors
+## WaterDispenserUI._quality_color()'s red/yellow/green convention exactly.
+## Separate meaning from the charge badge colours above (those show
+## charges-remaining, these show water QUALITY 0-100).
+const CRIT_COLOR:         Color = Color(1.00, 0.35, 0.30, 1.00)
+const WARN_COLOR:         Color = Color(1.00, 0.72, 0.10, 1.00)
+const QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
+
 ## Set by MainWorld after ready
 var inventory: Node = null
 
@@ -223,11 +231,18 @@ func _draw() -> void:
 			num, HORIZONTAL_ALIGNMENT_LEFT, -1, 9,
 			Color(0.40, 0.40, 0.40, 0.70))
 
-		# ── Charge badge (top-right) ──
+		# ── Charge / quality badge (top-right) ──
 		if item != null:
-			var charge_info: Array = _get_charge_info(item)
-			if charge_info.size() == 2:
-				_draw_charge_badge(font, x, charge_info[0], charge_info[1])
+			## WaterBottle-style items (Jul 2026 rework) expose fill% + quality
+			## via a dedicated contract — checked first, ahead of the generic
+			## charge-count fallback chain below.
+			if item.has_method("get_bottle_badge_info"):
+				var bottle_info: Dictionary = item.get_bottle_badge_info()
+				_draw_quality_badge(font, x, float(bottle_info.get("fill_pct", 0.0)), float(bottle_info.get("quality", 100.0)))
+			else:
+				var charge_info: Array = _get_charge_info(item)
+				if charge_info.size() == 2:
+					_draw_charge_badge(font, x, charge_info[0], charge_info[1])
 
 		# ── Item name label below the slot ──
 		var label_y: float = SLOT_SIZE + LABEL_HEIGHT - 3.0
@@ -247,15 +262,13 @@ func _draw() -> void:
 # ─── Charge info ──────────────────────────────────────────────────────────────
 ## Returns [current, max] if the item exposes charge data, otherwise [].
 ## Items can implement get_charge_info() -> Array[int] for custom logic,
-## or the HUD falls back to the known variable names used by WaterBottle/FoodCan.
+## or the HUD falls back to the known variable names used by FoodCan.
+## NOTE: WaterBottle no longer uses this chain (sip-count model retired, Jul
+## 2026) — see get_bottle_badge_info() / _draw_quality_badge() above in _draw().
 func _get_charge_info(item: Node) -> Array:
 	# Preferred: item implements the interface explicitly
 	if item.has_method("get_charge_info"):
 		return item.get_charge_info()
-
-	# Fallback: WaterBottle-style (_sips_left / TOTAL_SIPS)
-	if "_sips_left" in item and "TOTAL_SIPS" in item:
-		return [item._sips_left, item.TOTAL_SIPS]
 
 	# Fallback: FoodCan-style (_bites_left / TOTAL_BITES)
 	if "_bites_left" in item and "TOTAL_BITES" in item:
@@ -297,6 +310,46 @@ func _draw_charge_badge(font: Font, slot_x: float, current: int, max_charges: in
 	draw_string(font,
 		Vector2(bx + PAD_X, by + PAD_Y + tsz.y - 2.0),
 		label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+
+## Draws the water-bottle-specific badge — same pill shape/position as
+## _draw_charge_badge() above, but the label is a fill PERCENTAGE (not a
+## charge count) and the colour follows water QUALITY, not charge state
+## (Jul 2026 bottle rework — separate, parallel contract, see
+## get_bottle_badge_info() / _bottle_quality_color() below).
+func _draw_quality_badge(font: Font, slot_x: float, fill_pct: float, quality: float) -> void:
+	var label: String = "%d%%" % int(round(fill_pct * 100.0))
+
+	var font_size: int = int(COLOR_CHARGE_FONT)
+	var tsz: Vector2  = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+
+	const PAD_X: float = 4.0
+	const PAD_Y: float = 3.0
+	var bw: float = tsz.x + PAD_X * 2.0
+	var bh: float = tsz.y + PAD_Y * 2.0
+
+	const INSET: float = 3.0
+	var bx: float = slot_x + SLOT_SIZE - bw - INSET
+	var by: float = INSET
+
+	var badge_rect: Rect2 = Rect2(bx, by, bw, bh)
+	draw_rect(badge_rect, COLOR_CHARGE_BG, true, -1.0)
+
+	var text_col: Color = _bottle_quality_color(quality)
+
+	draw_string(font,
+		Vector2(bx + PAD_X, by + PAD_Y + tsz.y - 2.0),
+		label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+
+## Water quality red/yellow/green convention — mirrored verbatim from
+## WaterDispenserUI._quality_color() (0-50 red / 50.01-75 yellow / 75.01-100
+## green, inclusive lower boundary each tier). Duplicated per this project's
+## existing per-file-helper convention for water UI colour code.
+func _bottle_quality_color(quality: float) -> Color:
+	if quality <= 50.0:
+		return CRIT_COLOR
+	elif quality <= 75.0:
+		return WARN_COLOR
+	return QUALITY_GOOD_COLOR
 
 # ─── Name prettifier ──────────────────────────────────────────────────────────
 func _prettify_name(raw: String) -> String:

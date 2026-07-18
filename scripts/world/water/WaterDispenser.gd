@@ -44,10 +44,9 @@ var current_fill_mL: float = 0.0
 ## a literal real-world 24-hour day. See _process() below.
 var _player_stats: Node = null
 
-## Placeholder only — nothing reads or decays this yet (Jul 2026 pass
-## deliberately leaves water quality mixing/decay logic for a future pass,
-## same treatment as WaterHookup.water_quality got in Step 2). Kept present
-## now so that future pass doesn't need a second data-model refactor.
+## Blended volume-weighted from incoming hookup water (see _process()) —
+## also now the SOURCE quality read by WaterBottle.bottle_refill_tick() when
+## a player refills a bottle from this dispenser (Jul 2026 bottle rework).
 var stored_water_quality: float = 100.0
 
 var _node_key: String = ""
@@ -60,6 +59,10 @@ func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
 	add_to_group("interactable")
+	## Jul 2026 (bottle refill rework): lets WaterBottle.bottle_refill_tick()
+	## find this dispenser via get_nodes_in_group(), same nearest-node lookup
+	## pattern FuelCan._find_nearest_generator() uses for the "generator" group.
+	add_to_group("water_dispenser")
 	_build_mesh()
 	call_deferred("_register_deferred")
 
