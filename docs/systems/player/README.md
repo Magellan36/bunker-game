@@ -139,6 +139,20 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   on the item/object itself (duck-typed via `has_method()`) —
   `InteractionSystem._update_prompt()` already calls these generically, no
   central registry to update.
+- **Prompt cap + E-target fix (Jul 2026):** Case 2 (empty-handed) prompts are
+  capped at `MAX_VISIBLE_PROMPTS` (3) - candidates are sorted by distance to
+  the player first, then sliced to the closest 3, so a crowded room never
+  shows more than 3 floating prompts at once. Separately, `_try_interact()`
+  now filters BOTH passes (RigidBody3D overlap + StaticBody3D group scan) to
+  only consider bodies where `has_method("on_interact")` is true before
+  comparing distances. Some items (e.g. `FuelCan`) sit in the `"interactable"`
+  group only so their `get_prompt_text()`/`get_use_prompt()` lines show up
+  while held - they have no `on_interact()` of their own. Previously they
+  could still win the closest-node comparison and silently swallow the E
+  press (nothing implements `on_interact()` on the "closest" node -> no
+  fallback to the next-closest thing that actually responds). Any new
+  interactable-only item that intentionally has no `on_interact()` will
+  correctly be skipped and never block E for something further away.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**

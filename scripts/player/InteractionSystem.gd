@@ -336,6 +336,11 @@ func _tick_store_hold(delta: float) -> void:
 ## Must match InteractPrompt.FADE_END so entries are culled exactly when alpha=0.
 const MAX_PROMPT_DIST: float = 3.2
 
+## Maximum number of interact prompts shown at once (empty-handed, Case 2 only).
+## When more interactables are in range, only the N closest to the player show —
+## keeps the screen from getting crowded/confusing with many overlapping prompts.
+const MAX_VISIBLE_PROMPTS: int = 3
+
 
 
 func _update_prompt() -> void:
@@ -496,6 +501,10 @@ func _update_prompt() -> void:
 	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return a["dist"] < b["dist"])
 
+	# Cap to the N closest so the screen never gets crowded with prompts.
+	if candidates.size() > MAX_VISIBLE_PROMPTS:
+		candidates = candidates.slice(0, MAX_VISIBLE_PROMPTS)
+
 	var entries: Array = []
 	for cand: Dictionary in candidates:
 		var body: Node3D = cand["node"] as Node3D
@@ -578,9 +587,17 @@ func _try_interact() -> void:
 	var closest: Node3D     = null
 	var closest_dist: float = INF
 
-	## Pass 1 — RigidBody3D interactables tracked via Area3D overlap.
+	## Pass 1 - RigidBody3D interactables tracked via Area3D overlap.
+	## NOTE: only bodies that actually implement on_interact() are considered.
+	## Some items (e.g. FuelCan) sit in the "interactable" group purely so their
+	## get_prompt_text()/get_use_prompt() lines show up while HELD - they have no
+	## on_interact() of their own. If those were allowed to win the closest-node
+	## comparison, pressing E while merely standing near one would silently no-op
+	## instead of falling through to the next-closest thing that can actually
+	## respond (e.g. a WaterHookup a bit further away). Filtering here keeps E
+	## always resolving to the closest thing that will actually do something.
 	for body in bodies:
-		if body.is_in_group("interactable"):
+		if body.is_in_group("interactable") and body.has_method("on_interact"):
 			## Shelved items — block direct interaction; use shelf menu (E) to retrieve
 			if body.is_in_group("shelved"):
 				continue
@@ -601,6 +618,8 @@ func _try_interact() -> void:
 			continue
 		if not (node is StaticBody3D):
 			continue
+		if not node.has_method("on_interact"):
+			continue
 		if node.is_in_group("shelved"):
 			continue
 		var n3: Node3D = node as Node3D
@@ -609,7 +628,7 @@ func _try_interact() -> void:
 			closest_dist = d
 			closest = n3
 
-	if closest != null and closest.has_method("on_interact"):
+	if closest != null:
 		closest.on_interact()
 
 # ─── Pickup from world ────────────────────────────────────────────────────────
