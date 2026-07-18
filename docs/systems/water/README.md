@@ -13,11 +13,16 @@ being interactable (press E) with a shared info panel (Step 2), and (Jul
 the power system's shedding tiers) and live demand; a hookup's total daily
 output is allocated tier-by-tier (see `WaterSolver.gd`'s own header for the
 full waterfall algorithm), replacing the old Step 2 equal-split placeholder
-entirely. **Still explicitly NOT in scope**: water purifiers, pumps, quality
-decay/mixing over time (`stored_water_quality`/`water_quality` stay static
-placeholders), or upgrading `WaterPipeDrawMode` to the full continuous-drag
-paint UX (see Known tradeoffs) — T-split branching may already partially
-work (untested, flagged as a follow-up).
+entirely. (Jul 2026, Purifier pass) Hookup water quality now genuinely
+decays over time, a `WaterPurifier` device can be attached to any pipe run to
+restore water passing through it to 100%, `WaterDispenser` blends incoming
+quality into its stored tank volume-weighted, and a build-mode-only scrolling
+arrow overlay shows flow direction on every pipe — see Purification & Quality
+below. **Still explicitly NOT in scope**: pumps, a real per-meter/per-second
+transit simulation (purification and decay are instantaneous/topological,
+not physically modeled travel time or delay), or upgrading `WaterPipeDrawMode`
+to the full continuous-drag paint UX (see Known tradeoffs) — T-split
+branching may already partially work (untested, flagged as a follow-up).
 
 ## Responsibilities
 - Own the water plumbing graph (nodes/edges) and connectivity (BFS
@@ -50,6 +55,71 @@ work (untested, flagged as a follow-up).
   requested rate (slider, `WaterDispenserUI.gd`), on/off toggle, and a fill
   tick driven by the solver's actual per-tick GRANT, never the raw
   requested rate.
+
+## Purification & Quality (Jul 2026)
+- **Decay:** `WaterHookup.water_quality` drains `1.0/24.0` (%/game-hour) —
+  i.e. -1%/game-day, matching this project's standing "units per game hour"
+  convention (`PlayerStats.gd`'s food/water/sleep drain rates, scaled via
+  `delta / _seconds_per_game_hour` each frame). One-directional: floors at
+  `0.0`, nothing raises it back up at the source — that's what the Purifier
+  is for, downstream.
+- **Purification algorithm:** a consumer's water is pure (100%) iff EVERY
+  path from the hookup to it passes through at least one `"purifier"`-role
+  graph node. Computed as a single filtered BFS per solve —
+  `WaterGraph.get_unpurified_reachable_keys(hookup_key)` returns every node
+  reachable WITHOUT traversing into a purifier node (the "contaminated
+  set"); any consumer in that set is impure, any consumer normally reachable
+  but NOT in it is pure. Self-corrects automatically on any topology change
+  (new pipe, bypass drawn around a purifier, purifier deleted) — recomputed
+  fresh every call, no invalidation logic needed.
+  `WaterManager.get_received_rate_mL()`'s `"quality"` field is the single
+  integration point: `100.0` if pure, the hookup's raw `water_quality`
+  otherwise.
+- **`WaterPurifier.gd`:** construct-menu tile (`TILE_WATER_PURIFIER=20`,
+  $240, refunded on delete), attaches directly onto an existing pipe run —
+  no floor/wall snap, placed freely wherever it lands on the pipe's line
+  (`WaterPurifierAttach.gd`). Splits one graph edge into two around a new
+  `"purifier"` node, same shape `WaterPipeElbow`'s `"corner"` split uses.
+  Read-only interact panel (`WaterInfoUI`, mode `"purifier"`) — input
+  quality (upstream raw) + output quality (always 100%), no slider/toggle/
+  priority (not a demand consumer).
+- **Deletion order:** deconstructing a purifier does NOT delete either
+  adjoining pipe edge — `WaterPurifier.revert_to_corner()` reverts its own
+  graph node's role from `"purifier"` back to `"corner"` IN PLACE (same key,
+  same edges — `register_node()` is idempotent on role) before its visual is
+  freed; the pipe stays fully intact/connected, no pipe refund. Any
+  edge-deletion path (`WaterManager.delete_and_refund_edge()` — the
+  generalized form of the old `WaterHookup._delete_and_refund_edge()`,
+  reused by both the hookup's reposition path and this pass) separately
+  REFUSES to delete an edge touching a node still marked role ==
+  `"purifier"`. That guard plus "revert first" on deconstruct is what
+  enforces "purifier must be removed before the pipe beneath it," with no
+  cascade-delete complexity.
+- **Dispenser blending:** `WaterDispenser.stored_water_quality` now blends
+  volume-weighted every tick water is actually added: `new_avg = (old_volume
+  * old_avg + added_volume * added_quality) / (old_volume + added_volume)`.
+  `added_mL` is clamped to remaining tank headroom BEFORE the blend, not
+  after, so the formula always uses the exact volume added this frame.
+- **Flow-direction arrows:** build-mode-only scrolling chevron overlay on
+  every pipe segment, showing which way water flows (downstream, away from
+  the hookup). `WaterGraph.compute_flow_directions(hookup_key)` — plain BFS
+  hop-distance from the hookup, recomputed via
+  `WaterManager.recompute_flow_directions()` after any pipe-graph mutation
+  (placement, split, purifier insert, edge delete/refund, undo) — NOT every
+  frame. Pushed to each live `WaterPipeSegment.set_flow_sign()`. Rendered by
+  `assets/shaders/pipe_flow.gdshader` (this project's first `spatial`
+  shader) on a second, additive `MeshInstance3D` layered just outside the
+  pipe's own radius — the base pipe mesh/material is never touched, stays
+  always-visible exactly as before. Visibility toggled per-segment
+  (`set_build_mode_visible()`) from `BuildModeController.enter_build_mode()`/
+  `exit_build_mode()`, mirroring `WireSegment`'s group-based show/hide
+  trigger point without altering the pipe's own always-on visibility.
+- **Known gap (save/load):** `WaterManager.get_pipe_network_for_save()` only
+  persists `"corner"`/`"pipe_joint"` roled nodes — a `"purifier"` node (and
+  both edges touching it) is silently dropped on save/load today. Not fixed
+  in this pass — full save/load integration for the water system's
+  player-placed infrastructure is the next major project (see HANDOVER.md);
+  flagged here so it isn't silently rediscovered as a new bug later.
 
 ## Non-responsibilities
 - **Not wired into PowerManager/PowerGraph in any way.** This is a separate,
@@ -109,10 +179,13 @@ work (untested, flagged as a follow-up).
 | `WaterPipeElbow.gd` | Corner-joint visual, spawned automatically at a corner crossing. A REAL graph node (role `"corner"`), not just cosmetic — see Extension points. |
 | `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **Uses the plan's own pre-approved FALLBACK interaction model (one confirm per click), not the full single-drag paint — see its own file-header comment and Known tradeoffs below.** |
 | `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). Interactable (Step 2) — see `WaterInfoUI.gd`. Jul 2026: `priority: int` (1-5) + `fixed_demand_mL_per_day: float` exports, implements `get_current_demand_mL_per_day()` for `WaterSolver.gd`. |
-| `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026. ONE shared info panel for both `WaterHookup` and `WaterTestSink` (`is_source` flag distinguishes them) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. Hookup-side stats rewritten Jul 2026 (see Non-responsibilities). Sink branch gained a `PowerPriorityUI`-style ◄ N ► demand-priority changer Jul 2026 (dynamic panel height: `PANEL_H_SOURCE`/`PANEL_H_SINK`). |
+| `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026; extended Jul 2026 (Purifier pass). ONE shared info panel for `WaterHookup`/`WaterTestSink`/`WaterPurifier`, distinguished by a `_mode: String` discriminator (`"hookup"`/`"sink"`/`"purifier"` — was a 2-way `is_source: bool`, extended to a 3rd mode rather than a second ambiguous bool) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. Purifier branch is read-only (no slider/toggle/priority) — shows input quality (upstream hookup's raw `water_quality`) and fixed output quality (always 100%). Dynamic panel height: `PANEL_H_SOURCE`/`PANEL_H_SINK`/`PANEL_H_PURIFIER`. |
 | `WaterSolver.gd` | Jul 2026. Priority-tier demand waterfall — `RefCounted`, `_graph: WaterGraph` back-reference (same split pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver`). Pure read-only queries, no state held between calls. |
-| `WaterDispenser.gd` | Jul 2026. The first real water-consuming device — 5000mL storage, on/off, player-tunable requested rate, fill tick driven by the solver's actual grant. `TILE_WATER_DISPENSER` in `BuildModeController`, ground-placed like the test sink. |
-| `WaterDispenserUI.gd` (`scripts/ui/water/`) | Jul 2026, restyled same day. Hand-drawn `_draw()` panel (matches `WaterInfoUI`/`PowerPriorityUI`) with real `HSlider`/`Button` controls overlaid — fill level, rate slider (0 to the live dynamic max), effective (actually received) rate, on/off pill toggle, ◄ N ► demand-priority changer, water-quality placeholder. |
+| `WaterDispenser.gd` | Jul 2026. The first real water-consuming device — 5000mL storage, on/off, player-tunable requested rate, fill tick driven by the solver's actual grant. `TILE_WATER_DISPENSER` in `BuildModeController`, ground-placed like the test sink. (Jul 2026, Purifier pass) `stored_water_quality` now genuinely blends volume-weighted as water arrives — see Purification & Quality below. |
+| `WaterDispenserUI.gd` (`scripts/ui/water/`) | Jul 2026, restyled same day. Hand-drawn `_draw()` panel (matches `WaterInfoUI`/`PowerPriorityUI`) with real `HSlider`/`Button` controls overlaid — fill level, rate slider (0 to the live dynamic max), effective (actually received) rate, on/off pill toggle, ◄ N ► demand-priority changer, live blended water quality. |
+| `WaterPurifier.gd` (Jul 2026) | Construct-menu tile (`TILE_WATER_PURIFIER=20`, $240, Water submenu) that attaches directly onto an existing pipe run — splits one graph edge into two around a new `"purifier"`-role node, no floor/wall snap. Read-only interact panel (`WaterInfoUI`, mode `"purifier"`). Deconstruct reverts its node's role back to `"corner"` in place (pipe stays intact, no pipe refund) rather than deleting either adjoining edge — see its own file header for the full deletion-order design. |
+| `WaterPurifierAttach.gd` (Jul 2026) | Static-only placement math for the Purifier tile — candidate-finding (`find_purifier_candidate()`) + graph insertion (`insert_purifier_at()`). Deliberately duplicates `WaterPipeDrawMode`'s split-candidate shape rather than modifying that file (documented history of subtle bugs there) — the one real difference: no grid-snap, placed freely wherever it lands on the pipe's line. Shared by both `GhostPreview.gd` (validity/position preview) and `BuildModeController._spawn_placed_object()` (actual insertion on confirm) — one copy, not duplicated a second time between those two callers. |
+| `assets/shaders/pipe_flow.gdshader` (Jul 2026) | Build-mode-only scrolling arrow overlay, applied as a second additive `MeshInstance3D` on every `WaterPipeSegment` (base pipe mesh/material untouched — still always visible). This project's first `spatial` shader. |
 
 ## Public API
 Get the instance via
@@ -710,13 +783,13 @@ stable (matches the project's standing debug-logging discipline).
   a real physics layer can slot in later without another mid-project
   refactor (see `docs/systems/power/README.md`'s own history of why that
   split was expensive when done late).
-- **Water quality decay/mixing over time:** `WaterHookup.water_quality` and
-  `WaterDispenser.stored_water_quality` are both static placeholder values
-  this pass — a future pass would tick them down over time and/or model
-  mixing (e.g. a dispenser's stored water reflecting a running average of
-  what it's received). Both fields already exist and are already wired into
-  their respective UI displays, so a future decay/mixing system only needs
-  to mutate the values, not introduce them or their UI.
+- ~~Water quality decay/mixing over time~~ — **DONE (Jul 2026, Purifier
+  pass).** `WaterHookup.water_quality` decays -1%/game-day
+  (`QUALITY_DRAIN_PER_GAME_HOUR`); `WaterDispenser.stored_water_quality`
+  blends volume-weighted as water arrives; `WaterPurifier` restores quality
+  to 100% for anything downstream of it. See Purification & Quality below.
+- **Pump / booster device:** no pressure/throughput-boosting device exists
+  yet — everything today is gravity/graph-topology only, no real physics.
 - ~~Priority adjustment UI for `WaterTestSink`/`WaterDispenser`~~ — **DONE
   (Jul 2026, same day).** Both devices now have a `PowerPriorityUI.gd`-style
   ◄ N ► changer: `WaterTestSink`'s lives in `WaterInfoUI.gd`'s sink branch,

@@ -68,8 +68,19 @@ before starting any of these):**
 - Water system Phase 2 — see `docs/systems/water/README.md` Known
   tradeoffs/Extension points: upgrade `WaterPipeDrawMode` to the full
   continuous-paint interaction model (Phase 1 shipped with the plan's own
-  pre-approved segment-at-a-time fallback instead), then water purifiers/
-  pumps/real consumption simulation/dashboard UI/T-splits.
+  pre-approved segment-at-a-time fallback instead), pumps/real consumption
+  simulation/dashboard UI. (Purifier, quality decay, dispenser blending, and
+  the build-mode flow-direction arrow overlay all shipped Jul 2026 — see
+  `docs/systems/water/README.md` Purification & Quality section. Known gap:
+  `WaterPurifier` nodes/edges are NOT yet persisted by save/load — see that
+  section's own note, deferred to the save/load project below.)
+- **Save/load system — full infrastructure carryover (next up).** Extend the
+  existing `SaveManager` field-registry (bunker expansions, exact power
+  setup incl. wiring/zones/batteries/generators, water pipe network incl.
+  purifiers) to cover everything currently built. Read
+  `docs/systems/water/README.md`'s Persistence section and Purification &
+  Quality's "Known gap" note first — the purifier save gap should likely be
+  closed as part of this pass.
 - Main Menu scene, Death/game-over state — mentioned early in the project,
   never started, no trace in the repo currently.
 - Placing `emergency_light` device instances near breaker boxes (device

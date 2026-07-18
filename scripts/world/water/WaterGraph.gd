@@ -221,6 +221,63 @@ func get_hookup_keys() -> Array[String]:
 	return out
 
 
+# ─── Purifier — contaminated-set BFS (Jul 2026) ──────────────────────────────
+## Returns every node key reachable from `hookup_key` WITHOUT ever traversing
+## INTO a node whose role == "purifier". Any consumer key in this set is
+## impure (some path from the hookup bypasses every purifier); any consumer
+## reachable via the normal unfiltered BFS (is_reachable_from_hookup()) but
+## NOT in this set is pure. Mirrors is_reachable_from_hookup()'s exact walk
+## shape, just excluding purifier nodes from traversal.
+func get_unpurified_reachable_keys(hookup_key: String) -> Dictionary:
+	var visited: Dictionary = {}
+	if not _water_nodes.has(hookup_key):
+		return visited
+	visited[hookup_key] = true
+	var queue: Array = [hookup_key]
+	while not queue.is_empty():
+		var current: String = queue.pop_front()
+		for neighbor: String in _adjacency.get(current, []):
+			if visited.has(neighbor):
+				continue
+			var node_data: Dictionary = _water_nodes.get(neighbor, {})
+			if node_data.get("role", "") == "purifier":
+				continue   ## never traverse INTO a purifier node
+			visited[neighbor] = true
+			queue.append(neighbor)
+	return visited
+
+
+# ─── Flow-direction (build-mode arrow overlay, Jul 2026) ─────────────────────
+## Returns edge_id -> bool, true if the edge's stored "a" endpoint is the
+## upstream (closer to hookup) side, false if "b" is. Consumers use this to
+## decide which direction to scroll their arrow shader (WaterPipeSegment.
+## set_flow_sign()). Computed via plain BFS hop-distance from the hookup —
+## recomputed on demand (WaterManager.recompute_flow_directions()) whenever
+## the pipe graph mutates, not every frame.
+func compute_flow_directions(hookup_key: String) -> Dictionary:
+	var distances: Dictionary = {}
+	if not _water_nodes.has(hookup_key):
+		return {}
+	distances[hookup_key] = 0
+	var queue: Array = [hookup_key]
+	while not queue.is_empty():
+		var current: String = queue.pop_front()
+		for neighbor: String in _adjacency.get(current, []):
+			if distances.has(neighbor):
+				continue
+			distances[neighbor] = distances[current] + 1
+			queue.append(neighbor)
+
+	var result: Dictionary = {}
+	for edge_id: String in _water_edges:
+		var edge_data: Dictionary = _water_edges[edge_id]
+		var key_a: String = edge_data.get("a", "")
+		var key_b: String = edge_data.get("b", "")
+		if distances.has(key_a) and distances.has(key_b):
+			result[edge_id] = distances[key_a] <= distances[key_b]
+	return result
+
+
 # ─── Live flow-split (Step 2, July 2026) ─────────────────────────────────────
 ## BFS from `hookup_key`, counting every reachable node with role ==
 ## "endpoint" (real connectable devices only — corners/pipe_joints/the

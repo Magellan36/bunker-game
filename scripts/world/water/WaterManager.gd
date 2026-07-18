@@ -340,11 +340,109 @@ func get_received_rate_mL(consumer_node_key: String) -> Dictionary:
 	var received_map: Dictionary = _solver.solve_for_hookup(hookup_key, hookup.get_daily_output_mL())
 	var rate_day: float = float(received_map.get(consumer_node_key, 0.0))
 
+	## Purifier (Jul 2026) — pure (100%) iff EVERY path from the hookup to
+	## this consumer passes through at least one "purifier" node. Computed
+	## as "reachable via the unfiltered graph, but NOT in the filtered
+	## contaminated-set" — see WaterGraph.get_unpurified_reachable_keys().
+	var is_pure: bool = not _graph.get_unpurified_reachable_keys(hookup_key).has(consumer_node_key)
+
 	out["connected"]     = true
 	out["mL_per_day"]    = rate_day
 	out["mL_per_minute"] = rate_day / 1440.0
-	out["quality"]       = hookup.water_quality
+	out["quality"]       = 100.0 if is_pure else hookup.water_quality
 	return out
+
+## Returns { "connected": bool, "quality": float } — the RAW (pre-purification)
+## quality of whichever hookup upstream-feeds `node_key`, regardless of how
+## many purifiers sit between them. Used by WaterInfoUI's purifier panel to
+## show "what's arriving before this unit treats it" — distinct from
+## get_received_rate_mL()'s "quality" field, which is the POST-purification
+## value a downstream consumer actually receives.
+func get_upstream_raw_quality(node_key: String) -> Dictionary:
+	var out: Dictionary = {"connected": false, "quality": 0.0}
+	if node_key.is_empty():
+		return out
+	var hookup_key: String = _graph.find_reachable_hookup_key(node_key)
+	if hookup_key.is_empty():
+		return out
+	var hookup: WaterHookup = _find_hookup_by_key(hookup_key)
+	if hookup == null:
+		return out
+	out["connected"] = true
+	out["quality"]   = hookup.water_quality
+	return out
+
+
+# ─── Generalized edge delete + refund (Jul 2026, Purifier pass) ──────────────
+## Deletes one pipe edge and refunds whatever its visual segment cost to
+## place (WaterPipeSegment.placement_cost). Generalized out of
+## WaterHookup._delete_and_refund_edge() so both the hookup's reposition path
+## AND purifier-adjacent deletion paths call the same, already-debugged
+## logic instead of a second copy silently drifting from the first.
+##
+## GUARD (per design decision): refuses to delete an edge touching a node
+## still marked role == "purifier" — a purifier must be deconstructed first
+## (which reverts its node role back to "corner", see WaterPurifier.gd)
+## before either of its edges can be torn down. Returns false (no-op) when
+## refused, true when the edge was actually deleted.
+func delete_and_refund_edge(edge_id: String) -> bool:
+	if not _graph.has_edge(edge_id):
+		return false
+	var edge_data: Dictionary = _graph.get_edges().get(edge_id, {})
+	var key_a: String = edge_data.get("a", "")
+	var key_b: String = edge_data.get("b", "")
+	if _graph.get_node(key_a).get("role", "") == "purifier" \
+			or _graph.get_node(key_b).get("role", "") == "purifier":
+		return false   ## refused — purifier must be removed first
+
+	var seg: WaterPipeSegment = find_pipe_visual(edge_id)
+	var refund: int = 0
+	var refund_pos: Vector3 = Vector3.ZERO
+	if seg != null:
+		refund = seg.placement_cost
+		refund_pos = (seg.point_a + seg.point_b) * 0.5
+		seg.queue_free()
+	_graph.unregister_edge(edge_id)
+	if refund > 0:
+		var world_node: Node = get_tree().get_first_node_in_group("main_world")
+		if world_node != null and world_node.has_method("add_cash"):
+			world_node.add_cash(refund)
+			var camera: Camera3D = get_viewport().get_camera_3d()
+			if camera != null:
+				var screen_pos: Vector2 = camera.unproject_position(refund_pos)
+				var main_hud: Node = world_node.get_node_or_null("HUD")
+				if main_hud != null and main_hud.has_method("spawn_float_label"):
+					main_hud.spawn_float_label(screen_pos, refund, true)
+	recompute_flow_directions()
+	return true
+
+## Finds the live WaterPipeSegment visual for `edge_id` — same
+## "water_pipe_visual" group lookup WaterHookup._find_pipe_visual() used
+## before this was generalized.
+func find_pipe_visual(edge_id: String) -> WaterPipeSegment:
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if is_instance_valid(node) and node is WaterPipeSegment and (node as WaterPipeSegment).edge_id == edge_id:
+			return node as WaterPipeSegment
+	return null
+
+
+# ─── Flow-direction arrows (build-mode only, Jul 2026) ───────────────────────
+## Recomputes flow direction for every edge reachable from the (single) real
+## hookup and pushes the result to every live WaterPipeSegment's shader via
+## set_flow_sign(). Called after any pipe-graph mutation (placement, split,
+## purifier insertion, edge delete/refund, undo) — NOT every frame.
+func recompute_flow_directions() -> void:
+	var hookup_keys: Array[String] = _graph.get_hookup_keys()
+	if hookup_keys.is_empty():
+		return
+	var directions: Dictionary = _graph.compute_flow_directions(hookup_keys[0])
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if not is_instance_valid(node) or not (node is WaterPipeSegment):
+			continue
+		var seg: WaterPipeSegment = node as WaterPipeSegment
+		if directions.has(seg.edge_id) and seg.has_method("set_flow_sign"):
+			seg.set_flow_sign(bool(directions[seg.edge_id]))
+
 
 ## A device's dynamic slider maximum (see WaterSolver.get_dynamic_max_for_device()
 ## for the exact algorithm). Returns 0.0 if the device isn't connected to any

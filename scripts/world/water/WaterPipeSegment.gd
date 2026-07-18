@@ -46,6 +46,21 @@ var point_b: Vector3 = Vector3.ZERO
 var _mesh_instance: MeshInstance3D = null
 var _material: StandardMaterial3D  = null
 
+## Flow-direction arrow overlay (Jul 2026, build-mode only) — a second, thin
+## MeshInstance3D layered on top of the pipe's own solid mesh, using
+## pipe_flow.gdshader. Purely additive — the base pipe mesh/material above
+## is NEVER touched by this (see file header "always visible" convention;
+## this overlay's own visibility is build-mode-gated via the shader's
+## build_mode_visible uniform, toggled by set_build_mode_visible(), NOT by
+## hiding this whole node — matches WireSegment's group-based show/hide
+## trigger point without altering the base pipe's own always-on visibility).
+var _arrow_mesh_instance: MeshInstance3D = null
+var _arrow_material: ShaderMaterial      = null
+const _ARROW_SHADER_PATH: String = "res://assets/shaders/pipe_flow.gdshader"
+const _ARROW_TEXTURE_PATH: String = "res://assets/textures/water/pipe_flow_arrow.png"
+const ARROW_RADIUS_SCALE: float = 1.03   ## just outside the pipe's own radius, avoids z-fighting
+const ARROW_SCROLL_SPEED: float = 1.2
+
 ## True for a temporary ghost/preview instance (see make_ghost_pipe()) — set
 ## BEFORE add_child() so _ready() can skip group registration for it.
 ##
@@ -91,6 +106,9 @@ func _rebuild_mesh() -> void:
 	if _mesh_instance != null:
 		_mesh_instance.queue_free()
 		_mesh_instance = null
+	if _arrow_mesh_instance != null:
+		_arrow_mesh_instance.queue_free()
+		_arrow_mesh_instance = null
 
 	var length: float = point_a.distance_to(point_b)
 	if length < 0.01:
@@ -124,6 +142,59 @@ func _rebuild_mesh() -> void:
 		up = Vector3.RIGHT
 	_mesh_instance.look_at(global_position + dir, up)
 	_mesh_instance.rotate_object_local(Vector3.RIGHT, PI * 0.5)
+
+	if not is_ghost:
+		_build_arrow_overlay(length)
+
+## Flow-direction arrow overlay (Jul 2026) — a thin cylinder, same length as
+## the pipe, matching orientation, drawn just outside the pipe's own radius.
+## Ghost/preview pipes never get one (see is_ghost check above).
+func _build_arrow_overlay(length: float) -> void:
+	var arrow_shader: Shader = load(_ARROW_SHADER_PATH)
+	var arrow_tex: Texture2D = load(_ARROW_TEXTURE_PATH)
+	if arrow_shader == null or arrow_tex == null:
+		return
+
+	var cyl: CylinderMesh = CylinderMesh.new()
+	cyl.top_radius    = PIPE_RADIUS * ARROW_RADIUS_SCALE
+	cyl.bottom_radius = PIPE_RADIUS * ARROW_RADIUS_SCALE
+	cyl.height        = length
+	cyl.radial_segments = PIPE_SEGMENTS
+
+	_arrow_material = ShaderMaterial.new()
+	_arrow_material.shader = arrow_shader
+	_arrow_material.set_shader_parameter("arrow_texture", arrow_tex)
+	_arrow_material.set_shader_parameter("scroll_speed", ARROW_SCROLL_SPEED)
+	_arrow_material.set_shader_parameter("flow_sign", 1.0)
+	_arrow_material.set_shader_parameter("build_mode_visible", false)
+
+	var arrow_dir: Vector3 = (point_b - point_a).normalized()
+	var arrow_up: Vector3 = Vector3.UP
+	if absf(arrow_dir.dot(arrow_up)) > 0.999:
+		arrow_up = Vector3.RIGHT
+
+	_arrow_mesh_instance = MeshInstance3D.new()
+	_arrow_mesh_instance.mesh = cyl
+	_arrow_mesh_instance.set_surface_override_material(0, _arrow_material)
+	add_child(_arrow_mesh_instance)
+	_arrow_mesh_instance.look_at(global_position + arrow_dir, arrow_up)
+	_arrow_mesh_instance.rotate_object_local(Vector3.RIGHT, PI * 0.5)
+
+## Called by WaterManager.recompute_flow_directions() after any pipe-graph
+## mutation. `a_is_upstream` true = scroll arrows from a->b (downstream),
+## false = b->a.
+func set_flow_sign(a_is_upstream: bool) -> void:
+	if _arrow_material != null:
+		_arrow_material.set_shader_parameter("flow_sign", 1.0 if a_is_upstream else -1.0)
+
+## Toggled by BuildModeController.enter_build_mode()/exit_build_mode() via
+## call_group("water_pipe_visual", "set_build_mode_visible", ...) — mirrors
+## WireSegment's group-based visibility toggle, but only ever touches this
+## overlay's shader uniform, never the base pipe mesh's own always-on
+## visibility (see file header "Forbidden edits").
+func set_build_mode_visible(value: bool) -> void:
+	if _arrow_material != null:
+		_arrow_material.set_shader_parameter("build_mode_visible", value)
 
 ## Creates a temporary visual pipe (no edge_id) for the drag/preview ghost —
 ## same static-helper convention as WireSegment.make_ghost_wire(). Caller must

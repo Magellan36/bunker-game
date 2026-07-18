@@ -75,12 +75,28 @@ var water_quality: float = 100.0
 ## lifecycle pattern as PowerTerminal._terminal_ui.
 var _info_ui: CanvasLayer = null
 
+## -1%/game-day quality decay (Jul 2026). Matches the project's standing
+## "units per game hour" convention (PlayerStats.gd's food/water/sleep drain
+## rates) — delta scaled via _seconds_per_game_hour, not a new convention.
+## One-directional: floor at 0.0, no ceiling logic (nothing raises source
+## quality back up — that's what the Purifier is for, downstream).
+const QUALITY_DRAIN_PER_GAME_HOUR: float = 1.0 / 24.0
+var _player_stats: Node = null   ## cached on first lookup, same pattern as
+                                  ## every other cross-system group lookup
+
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
 	add_to_group("interactable")
 	_build_mesh()
 	call_deferred("_register_deferred")
+
+func _process(delta: float) -> void:
+	if _player_stats == null:
+		_player_stats = get_tree().get_first_node_in_group("player_stats")
+	if _player_stats != null and _player_stats._seconds_per_game_hour > 0.0:
+		var drain_scale: float = delta / _player_stats._seconds_per_game_hour
+		water_quality = maxf(0.0, water_quality - QUALITY_DRAIN_PER_GAME_HOUR * drain_scale)
 
 func _exit_tree() -> void:
 	if _info_ui != null and is_instance_valid(_info_ui):
@@ -133,7 +149,7 @@ func on_interact() -> void:
 			_info_ui.closed.connect(_on_ui_closed)
 
 	if _info_ui.has_method("open"):
-		_info_ui.open("Water Hookup", true, self)
+		_info_ui.open("Water Hookup", "hookup", self)
 
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
@@ -348,47 +364,12 @@ func update_graph_node_position() -> void:
 		_delete_and_refund_edge(entry["edge_id"], wm)
 
 ## Deletes one edge the hookup used to own and refunds whatever its visual
-## segment cost to place (WaterPipeSegment.placement_cost — see that var's
-## own comment). Mirrors BuildUndoStack's existing pipe-undo refund pattern
-## (add_cash + floating "+$X" label) so this doesn't feel silently different
-## from every other refund in the game.
+## segment cost to place. Forwards to WaterManager.delete_and_refund_edge()
+## (Jul 2026, Purifier pass — generalized so this and purifier
+## deletion/reposition share one already-debugged implementation instead of
+## two silently-drifting copies).
 func _delete_and_refund_edge(edge_id: String, wm: WaterManager) -> void:
-	var seg: WaterPipeSegment = _find_pipe_visual(edge_id)
-	var refund: int = 0
-	var refund_pos: Vector3 = global_position
-	if seg != null:
-		refund = seg.placement_cost
-		refund_pos = (seg.point_a + seg.point_b) * 0.5
-		seg.queue_free()
-	wm.unregister_edge(edge_id)
-	if refund > 0:
-		var world_node: Node = get_tree().get_first_node_in_group("main_world")
-		if world_node != null and world_node.has_method("add_cash"):
-			world_node.add_cash(refund)
-			_spawn_float_label(world_node, refund_pos, refund)
-
-## Floating "+$X" refund label — same HUD.spawn_float_label() call
-## WaterPipeDrawMode._spawn_float_label() uses, duplicated here for the same
-## reason that function gives (water system stays standalone). Always a
-## refund (positive=true) — this function only ever runs on deletion.
-func _spawn_float_label(world_node: Node, world_pos: Vector3, amount: int) -> void:
-	if amount == 0:
-		return
-	var camera: Camera3D = get_viewport().get_camera_3d()
-	if camera == null:
-		return
-	var screen_pos: Vector2 = camera.unproject_position(world_pos)
-	var main_hud: Node = world_node.get_node_or_null("HUD")
-	if main_hud != null and main_hud.has_method("spawn_float_label"):
-		main_hud.spawn_float_label(screen_pos, amount, true)
-
-## Finds the live WaterPipeSegment visual for `edge_id` — same
-## "water_pipe_visual" group lookup the previous redraw path used.
-func _find_pipe_visual(edge_id: String) -> WaterPipeSegment:
-	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
-		if is_instance_valid(node) and node is WaterPipeSegment and (node as WaterPipeSegment).edge_id == edge_id:
-			return node as WaterPipeSegment
-	return null
+	wm.delete_and_refund_edge(edge_id)
 
 
 # ─── Visual build ─────────────────────────────────────────────────────────────

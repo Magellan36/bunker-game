@@ -79,6 +79,13 @@ func _undo() -> void:
 					pm.unregister_consumer(hid)
 					pm.unregister_wire_node(hid)
 			## _owner.TILE_BREAKER, _owner.TILE_BREAKER_SMART, and TILE_BATTERY_* self-unregister in _exit_tree().
+			elif undo_tid == _owner.TILE_WATER_PURIFIER:
+				## Undoing a just-placed purifier — revert its graph node back
+				## to "corner" (pipe stays intact) before freeing, same
+				## treatment as a normal deconstruct. See WaterPurifier.gd's
+				## own header for the full deletion-order design.
+				if body.has_method("revert_to_corner"):
+					body.revert_to_corner()
 			body.queue_free()
 
 		## After freeing a breaker, restore zone color registry to the snapshot
@@ -207,6 +214,9 @@ func _undo() -> void:
 		if pipe_cost > 0 and _owner.world_node != null:
 			_owner.world_node.add_cash(pipe_cost)
 		_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), pipe_cost, true)
+		## Flow-direction arrows (Jul 2026) — recompute after undoing a pipe run.
+		if wm != null:
+			wm.recompute_flow_directions()
 
 func _push_undo_place(body: Node3D, tile_id: int, price: int, pos: Vector3,
 		zone_color_snap: Dictionary = {}) -> void:

@@ -121,7 +121,7 @@ func on_interact() -> void:
 			_info_ui.closed.connect(_on_ui_closed)
 
 	if _info_ui.has_method("open"):
-		_info_ui.open("Water Test Sink", false, self)
+		_info_ui.open("Water Test Sink", "sink", self)
 
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 

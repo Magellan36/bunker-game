@@ -111,8 +111,21 @@ func _process(delta: float) -> void:
 		return
 
 	var received_mL_per_day: float = float(info.get("mL_per_day", 0.0))
+	var incoming_quality: float    = float(info.get("quality", 100.0))
 	var received_mL_per_sec: float = received_mL_per_day / 86400.0
-	current_fill_mL = minf(MAX_STORAGE_ML, current_fill_mL + received_mL_per_sec * delta)
+
+	## Volume-weighted quality blend (Jul 2026, Purifier pass):
+	## new_avg = (old_volume*old_avg + added_volume*added_quality) / (old_volume+added_volume).
+	## `added_mL` is clamped to the tank's remaining headroom FIRST so the
+	## blend always uses the exact volume actually added this frame — using
+	## the pre-clamp delta here would under-count old_volume's weight right
+	## at the moment the tank finishes filling.
+	var added_mL: float = minf(received_mL_per_sec * delta, MAX_STORAGE_ML - current_fill_mL)
+	if added_mL > 0.0:
+		var new_total: float = current_fill_mL + added_mL
+		if new_total > 0.0:
+			stored_water_quality = (current_fill_mL * stored_water_quality + added_mL * incoming_quality) / new_total
+		current_fill_mL = new_total
 
 
 # ─── Public API (used by WaterDispenserUI.gd) ─────────────────────────────────

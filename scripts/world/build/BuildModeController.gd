@@ -53,6 +53,7 @@ const TILE_BREAKER_SMART: int = 16  ## Upgraded/"smart" breaker — self-trips t
 const TILE_WATER_HOOKUP: int  = 17  ## Water system groundwork (July 2026) — wall-mounted source, wall-snapped, never deletable
 const TILE_WATER_SINK: int    = 18  ## Water system groundwork — rudimentary test endpoint, mirrors TILE_HEAVY, price $0
 const TILE_WATER_DISPENSER: int = 19  ## Water demand/priority pass (Jul 2026) — first real water-consuming device, ground-placed like TILE_WATER_SINK
+const TILE_WATER_PURIFIER: int = 20  ## Purifier (Jul 2026) — construct-menu tile, attaches directly onto an existing pipe run (see WaterPurifierAttach.gd), NOT a floor/wall snap
 
 ## Y height at which player-placed objects sit (world units).
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with
@@ -120,6 +121,13 @@ var _ghost_blocked_by_occupation: bool = false
 
 ## Current ghost snap position in world space (updated every frame)
 var _ghost_world_pos: Vector3 = Vector3.ZERO
+
+## Purifier-only (Jul 2026) — the exact pipe-split candidate GhostPreview
+## found this frame (see WaterPurifierAttach.find_purifier_candidate()).
+## Re-used verbatim by _spawn_placed_object()'s TILE_WATER_PURIFIER branch on
+## confirm, instead of re-searching with a possibly slightly different cursor
+## position between the ghost-preview frame and the click frame.
+var _ghost_purifier_candidate: Dictionary = {}
 
 # ─── Rock hover state ─────────────────────────────────────────────────────────
 ## Chunk currently under the cursor in Deconstruct mode (sentinel = (-9999,-9999))
@@ -269,6 +277,9 @@ func enter_build_mode() -> void:
 	# Show all wire segments while in build mode
 	get_tree().call_group("wire_segment", "set_visible", true)
 
+	# Show flow-direction arrow overlay on all pipes while in build mode (Jul 2026)
+	get_tree().call_group("water_pipe_visual", "set_build_mode_visible", true)
+
 	# Show connectable-object indicator dots
 	_refresh_connectable_dots()
 
@@ -302,6 +313,9 @@ func exit_build_mode() -> void:
 
 	## Hide all wire segments when leaving build mode.
 	get_tree().call_group("wire_segment", "set_visible", false)
+
+	## Hide flow-direction arrow overlay when leaving build mode (Jul 2026).
+	get_tree().call_group("water_pipe_visual", "set_build_mode_visible", false)
 
 	## Remove connectable-object dots.
 	_clear_connectable_dots()
@@ -1022,6 +1036,25 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		wd_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return wd_node
 
+	## ── Water purifier (Jul 2026) — attaches onto an existing pipe run.
+	## Normal purchase-confirm reuses the exact candidate GhostPreview found
+	## this frame; undo-restore / save-load restore have no ghost frame to
+	## reuse, so they fall back to a fresh candidate search at the saved
+	## position (the pipe is still there — same "recompute live, no
+	## persistence" convention this whole system follows) ──────────────────────
+	if tile_id == TILE_WATER_PURIFIER:
+		var wm_purifier: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+		if wm_purifier == null:
+			return null
+		var candidate: Dictionary = _ghost_purifier_candidate
+		if candidate.is_empty():
+			candidate = WaterPurifierAttach.find_purifier_candidate(get_tree(), wm_purifier, pos)
+		if candidate.is_empty():
+			return null
+		var wp_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		var wp_node: WaterPurifier = WaterPurifierAttach.insert_purifier_at(wp_par, wm_purifier, candidate)
+		return wp_node
+
 	## ── Circuit breaker (standard) ─────────────────────────────────────────────
 	if tile_id == TILE_BREAKER:
 		var brk_script: GDScript = load("res://scripts/world/power/BreakerBox.gd")
@@ -1424,6 +1457,14 @@ func _try_deconstruct() -> void:
 			or entry["tile_id"] == TILE_BATTERY_L:
 		## BatteryBank._exit_tree() self-unregisters.  No explicit PM call needed.
 		pass
+	elif entry["tile_id"] == TILE_WATER_PURIFIER:
+		## Deconstructing a purifier does NOT delete either adjoining pipe
+		## edge — revert_to_corner() reverts this node's graph role from
+		## "purifier" back to "corner" IN PLACE (same key, same edges) before
+		## the visual is freed, so the pipe stays fully intact/connected. See
+		## WaterPurifier.gd's own header for the full deletion-order design.
+		if body.has_method("revert_to_corner"):
+			body.revert_to_corner()
 
 	var deconstructed_tile: int = entry["tile_id"]
 	_placed_objects.remove_at(entry_idx)
@@ -1679,6 +1720,11 @@ func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vec
 ## WaterPipeDrawMode.pipe_placed in _setup_water_pipe_draw_mode().
 func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: Array, midpoint: Vector3) -> void:
 	_undo_manager._push_undo_pipe(seg_nodes, edge_ids, cost, elbow_nodes, midpoint)
+	## Flow-direction arrows (Jul 2026) — recompute after every confirmed pipe
+	## placement. Not every frame; this event-driven trigger is enough.
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	if wm != null:
+		wm.recompute_flow_directions()
 
 
 
@@ -2186,6 +2232,13 @@ func _show_hud_warning(text: String) -> void:
 ## Tile-aware wrapper: lights use a tighter overlap radius so they can sit
 ## close together along a wall without blocking each other.
 func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
+	if tile_id == TILE_WATER_PURIFIER:
+		## Deliberately attaches ON TOP OF an existing pipe's collider — a
+		## generic physics-shape occupation query would always false-positive
+		## against the very pipe it's meant to clip onto. GhostPreview's own
+		## candidate-search (SPLIT_SNAP_RADIUS/SPLIT_ENDPOINT_EXCLUDE) is
+		## already the real validity gate for this tile.
+		return false
 	if tile_id == TILE_LIGHT:
 		# Lights only check registry overlap at a tighter radius; no physics shape
 		# check needed since they have no collision.

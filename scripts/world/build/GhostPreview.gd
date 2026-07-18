@@ -139,6 +139,15 @@ func _rebuild_ghost_mesh() -> void:
 					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
+	# ── Water purifier (Jul 2026): ghost from static helper, attaches onto a
+	## pipe rather than floor/wall — position is resolved in _update_ghost() ──
+	if _owner._selected_tile == _owner.TILE_WATER_PURIFIER:
+		var wp_mesh: Mesh = WaterPurifier.build_ghost_mesh()
+		_owner._ghost.mesh = wp_mesh
+		for s: int in wp_mesh.get_surface_count():
+			_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
 	# ── Shelving: procedural ghost from static helper ──────────────────────────
 	if _owner._selected_tile == _owner.TILE_SHELVING:
 		var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
@@ -377,6 +386,21 @@ func _update_ghost() -> void:
 		snap_pos.y = _owner.PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_WATER_DISPENSER:
 		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_WATER_PURIFIER:
+		## Attaches directly onto an existing pipe run — NO grid/wall snap.
+		## Uses the cursor's raw world hit position (not the floor-grid-
+		## snapped `snap_pos`) so it can land anywhere along the pipe's line,
+		## per the explicit "placed freely, no snap grid" requirement.
+		var wm_pf: WaterManager = _owner.get_tree().get_first_node_in_group("water_manager") as WaterManager
+		var candidate: Dictionary = WaterPurifierAttach.find_purifier_candidate(_owner.get_tree(), wm_pf, world_pos)
+		if candidate.is_empty():
+			## No pipe nearby — hide the ghost entirely, same strictness as
+			## the breaker/hookup wall-snap "no wall found" case.
+			_owner._ghost.visible = false
+			_owner._ghost_valid   = false
+			return
+		snap_pos = candidate["pos"]
+		_owner._ghost_purifier_candidate = candidate
 	elif _owner._selected_tile == _owner.TILE_BATTERY_S or _owner._selected_tile == _owner.TILE_BATTERY_M \
 			or _owner._selected_tile == _owner.TILE_BATTERY_L:
 		snap_pos.y = _owner.PLACEMENT_Y
