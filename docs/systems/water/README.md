@@ -172,6 +172,32 @@ branching may already partially work (untested, flagged as a follow-up).
   rotation). Fix: removed the mesh instances' own extra rotation — they now
   inherit the parent's `orient_along()` rotation directly, with no
   additional child-local rotation needed.
+- **Purifier GHOST orientation fix (Jul 2026, same-day follow-up):** the
+  above fix corrected the PLACED Purifier but its build-mode GHOST preview
+  still rendered perpendicular. Root cause: `GhostPreview._update_ghost()`'s
+  shared tail-end rotation line (`rotation_degrees = Vector3(0, current_angle_deg, 0)`)
+  only ever expresses a floor-snap Y-axis rotation and is never touched by
+  the purifier branch earlier in the function — the ghost inherited whatever
+  angle the previously-selected floor/wall tile left behind. Fix:
+  `_update_ghost()` now special-cases `TILE_WATER_PURIFIER`, deriving the
+  candidate pipe segment's direction (`_ghost_purifier_candidate["seg_node"]`)
+  and applying the exact same `look_at()` + `rotate_object_local(RIGHT, 90°)`
+  sequence `WaterPurifier.orient_along()` uses on the real node, so the ghost
+  always matches what gets placed.
+- **Pipe flow-arrow "needs build-mode re-entry" fix (Jul 2026, same-day
+  follow-up):** newly placed pipes' scrolling flow-arrow overlay stayed dark
+  until the player exited and re-entered build mode. Root cause:
+  `WaterPipeSegment._build_arrow_overlay()` always initialized its shader's
+  `build_mode_visible` uniform to `false`; the overlay only ever turns on via
+  `BuildModeController.enter_build_mode()`'s one-shot
+  `call_group("water_pipe_visual", "set_build_mode_visible", true)` broadcast,
+  which a segment placed mid-session (build mode already active, the only
+  time pipes are ever placed) never receives until the next toggle. Fix:
+  `BuildModeController` now adds itself to a `"build_mode_controller"` group
+  in `_ready()`; new `WaterPipeSegment._is_build_mode_active()` looks that
+  controller up and reads its live `is_active` flag (same `get("is_active")`
+  pattern `WireGraphBuilder.gd` already uses) so a freshly spawned segment's
+  overlay initializes visible/hidden correctly on the very first frame.
 - **Known gap (save/load):** `WaterManager.get_pipe_network_for_save()` only
   persists `"corner"`/`"pipe_joint"` roled nodes — a `"purifier"` node (and
   both edges touching it) is silently dropped on save/load today. Not fixed

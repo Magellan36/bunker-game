@@ -166,7 +166,14 @@ func _build_arrow_overlay(length: float) -> void:
 	_arrow_material.set_shader_parameter("arrow_texture", arrow_tex)
 	_arrow_material.set_shader_parameter("scroll_speed", ARROW_SCROLL_SPEED)
 	_arrow_material.set_shader_parameter("flow_sign", 1.0)
-	_arrow_material.set_shader_parameter("build_mode_visible", false)
+	## Default to whatever build mode is doing RIGHT NOW, not always false —
+	## pipes placed while already in build mode (the only time pipes ever get
+	## placed) previously stayed dark until the player exited/re-entered build
+	## mode, because nothing re-fires enter_build_mode()'s one-time group
+	## broadcast for a segment that didn't exist yet when it fired. A fresh
+	## segment now asks the current BuildModeController state directly instead
+	## of waiting for the next broadcast.
+	_arrow_material.set_shader_parameter("build_mode_visible", _is_build_mode_active())
 
 	var arrow_dir: Vector3 = (point_b - point_a).normalized()
 	var arrow_up: Vector3 = Vector3.UP
@@ -186,6 +193,19 @@ func _build_arrow_overlay(length: float) -> void:
 func set_flow_sign(a_is_upstream: bool) -> void:
 	if _arrow_material != null:
 		_arrow_material.set_shader_parameter("flow_sign", 1.0 if a_is_upstream else -1.0)
+
+## Reads BuildModeController's live is_active flag at the moment this segment
+## spawns — same "get()" pattern WireGraphBuilder already uses for this exact
+## check (see WireGraphBuilder.gd's `bc.get("is_active")` calls). Returns
+## false (not just silently defaulting) if no controller is found so a
+## missing/renamed node fails safe rather than lighting up outside build mode.
+func _is_build_mode_active() -> bool:
+	if not is_inside_tree():
+		return false
+	var bc: Node = get_tree().get_first_node_in_group("build_mode_controller")
+	if bc == null:
+		return false
+	return bc.get("is_active") == true
 
 ## Toggled by BuildModeController.enter_build_mode()/exit_build_mode() via
 ## call_group("water_pipe_visual", "set_build_mode_visible", ...) — mirrors
