@@ -297,6 +297,25 @@ branching may already partially work (untested, flagged as a follow-up).
   or relative directness actually changes get re-evaluated (this ran on
   every full recompute, but the tie-break math itself only depends on the
   loop's own two branches, so unrelated loops are stable in practice).
+- **Ring-main-through-hookup fix (Jul 2026, same-day follow-up):** the fix
+  above reverses the recessive branch's entire spine "LCA → recessive
+  endpoint" — but when a loop wraps all the way back through the hookup
+  itself (the hookup's own two outgoing branches reconnect somewhere
+  downstream), the LCA of that closing edge IS the hookup, so "reverse the
+  whole spine back to the LCA" reversed a branch all the way back into the
+  hookup, giving it an inflow. Visually the whole loop appeared to flow
+  backward, pooling at the hookup instead of flowing away from it. The
+  hookup is a pure external water source and must never have an inflow,
+  full stop, regardless of topology. Fix: `compute_flow_directions()` now
+  special-cases `lca == hookup_key` — skip the branch-reversal step
+  entirely (both branches keep their natural hookup-outward direction) and
+  only decide the closing edge's own direction by the same dominance rule.
+  This is also the physically correct behavior for a real ring main: fed
+  from one point, water flows both directions around the ring and meets on
+  the far side — that meeting point is a normal merge, not the "two
+  independent tree-inflows converging mid-tree" bug the original fix
+  targeted (that bug is specifically about INTERIOR loops that don't touch
+  the hookup at all).
 - **"mL/day" now means per in-game day, not per real 24-hour day (Jul 2026,
   same-day follow-up):** `WaterDispenser._process()`'s tank-fill integration
   used to divide `received_mL_per_day` by a literal `86400.0` (real seconds
