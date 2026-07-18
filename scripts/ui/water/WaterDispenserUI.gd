@@ -464,7 +464,7 @@ func _on_draw() -> void:
 	cy += 12.0
 
 	# ── Quality (placeholder) ────────────────────────────────────────────────
-	_draw_str("Water Quality: %.0f%%  (placeholder — not yet simulated)" % d.stored_water_quality,
+	_draw_str("Water Quality: %.0f%%" % d.stored_water_quality,
 		Vector2(cx, cy), DIM_COLOR, 9)
 
 	_draw_str("[◄ ►]  Priority    [ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), DIM_COLOR, 9)

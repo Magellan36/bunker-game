@@ -4,7 +4,7 @@ extends CanvasLayer
 ## Step 2 (July 2026) — the water system's first real UI panel
 ## (docs/systems/water/README.md's scripts/ui/water/ subfolder was
 ## intentionally empty until now). ONE shared panel for both WaterHookup and
-## WaterTestSink, distinguished by `is_source` — matches the plan's explicit
+## WaterTestSink/WaterPurifier, distinguished by a mode string (was `is_source`, extended Jul 2026) — matches the plan
 ## instruction not to duplicate a near-identical panel for each device.
 ## Sized/complexity-matched to GeneratorInspectUI.gd (a lightweight info
 ## popup), NOT the full multi-section PowerTerminalUI dashboard — a 2-4
@@ -51,13 +51,15 @@ const PRIORITY_MAX: int = 5
 # ─── Layout ───────────────────────────────────────────────────────────────────
 const PANEL_W: float = 380.0
 ## Hookup panel has no priority row; sink panel grows to fit the ◄ N ► tier
-## changer added Jul 2026 — see _panel_height().
-const PANEL_H_SOURCE: float = 230.0
-const PANEL_H_SINK:   float = 350.0
+## changer added Jul 2026 — see _panel_height(). Purifier panel is the
+## smallest — read-only, two quality numbers, no priority row.
+const PANEL_H_SOURCE:   float = 230.0
+const PANEL_H_SINK:     float = 350.0
+const PANEL_H_PURIFIER: float = 210.0
 
 # ─── Live data (set by open()) ────────────────────────────────────────────────
 var _display_name: String = "Water Device"
-var _is_source:    bool   = false   ## true = hookup, false = sink
+var _mode: String = "sink"   ## "hookup" | "sink" | "purifier" (Jul 2026 — was a bool, extended for Purifier)
 var _device_ref:   Node   = null
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
@@ -112,7 +114,10 @@ func _ready() -> void:
 	add_child(_inc_btn)
 
 func _panel_height() -> float:
-	return PANEL_H_SOURCE if _is_source else PANEL_H_SINK
+	match _mode:
+		"hookup":   return PANEL_H_SOURCE
+		"purifier": return PANEL_H_PURIFIER
+		_:          return PANEL_H_SINK
 
 func _reposition_controls() -> void:
 	var vp: Vector2 = get_viewport().get_visible_rect().size
@@ -122,7 +127,7 @@ func _reposition_controls() -> void:
 	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 10.0)
 	_close_btn.size     = Vector2(30.0, 30.0)
 
-	if not _is_source:
+	if _mode == "sink":
 		var arrow_y: float = _arrow_row_y if _arrow_row_y > 0.0 else (py + 190.0)
 		var arrow_sz: Vector2 = Vector2(48.0, 48.0)
 		_dec_btn.size = arrow_sz
@@ -152,11 +157,12 @@ func _style_arrow_btn(btn: Button, enabled: bool) -> void:
 	btn.add_theme_color_override("font_disabled_color", fg)
 
 # ─── Open / Close ─────────────────────────────────────────────────────────────
-## is_source = true  → hookup: shows its own tier output + live per-consumer split.
-## is_source = false → sink: shows what IT is receiving (traced back to source).
-func open(display_name: String, is_source: bool, device_ref: Node) -> void:
+## mode = "hookup"   → shows its own tier output + live requested-demand split.
+## mode = "sink"     → shows what IT is receiving (traced back to source) + priority changer.
+## mode = "purifier" → read-only input/output quality, no priority row (Jul 2026).
+func open(display_name: String, mode: String, device_ref: Node) -> void:
 	_display_name = display_name
-	_is_source    = is_source
+	_mode         = mode
 	_device_ref   = device_ref
 
 	_is_open = true
@@ -164,8 +170,8 @@ func open(display_name: String, is_source: bool, device_ref: Node) -> void:
 	set_process(true)
 	_reposition_controls()
 	_close_btn.visible = true
-	_dec_btn.visible   = not _is_source
-	_inc_btn.visible   = not _is_source
+	_dec_btn.visible   = (_mode == "sink")
+	_inc_btn.visible   = (_mode == "sink")
 	## Standing convention (July 2026) — see UIFade.gd.
 	UIFade.fade_in(_canvas)
 	_canvas.queue_redraw()
@@ -206,7 +212,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			close()
 			get_viewport().set_input_as_handled()
 			return
-		if not _is_source:
+		if _mode == "sink":
 			if k == KEY_LEFT:
 				_on_dec_pressed()
 				get_viewport().set_input_as_handled()
@@ -266,13 +272,13 @@ func _on_draw() -> void:
 		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0)
 	cy += 16.0
 
-	if _is_source:
-		cy = _draw_source_stats(cx, cy)
-	else:
-		cy = _draw_sink_stats(cx, cy)
+	match _mode:
+		"hookup":   cy = _draw_source_stats(cx, cy)
+		"purifier": cy = _draw_purifier_stats(cx, cy)
+		_:          cy = _draw_sink_stats(cx, cy)
 
 	var footer_hint: String = "[ESC / E]  Close"
-	if not _is_source:
+	if _mode == "sink":
 		footer_hint = "[◄ ►]  Priority    [ESC / E]  Close"
 	_draw_str(footer_hint, Vector2(cx, py + ph - 18.0), DIM_COLOR, 9)
 
@@ -346,6 +352,36 @@ func _draw_sink_stats(cx: float, cy: float) -> float:
 
 	cy = _draw_quality_row(quality, cx, cy)
 	return _draw_priority_row(cx, cy)
+
+## Purifier's own panel (Jul 2026) — read-only. Shows the current input
+## quality (traced back to the source hookup's raw water_quality — the
+## impure value anything reaching this purifier from upstream still carries)
+## and the fixed output quality (always 100.0 — that's the entire point of
+## the device, see WaterManager.get_received_rate_mL()). No slider, no
+## toggle, no priority — this isn't a demand consumer.
+func _draw_purifier_stats(cx: float, cy: float) -> float:
+	var purifier: WaterPurifier = _device_ref as WaterPurifier
+	if purifier == null:
+		_draw_str("No purifier data available.", Vector2(cx, cy), WARN_COLOR, 11)
+		return cy + 20.0
+
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	var input_quality: float = 0.0
+	var connected: bool = false
+	if wm != null and not purifier.get_node_key().is_empty():
+		var upstream: Dictionary = wm.get_upstream_raw_quality(purifier.get_node_key())
+		connected     = bool(upstream.get("connected", false))
+		input_quality = float(upstream.get("quality", 0.0))
+
+	if not connected:
+		_draw_str("CONNECTION", Vector2(cx, cy), DIM_COLOR, 10)
+		_draw_str("Not connected to a water source", Vector2(cx, cy + 14.0), CRIT_COLOR, 13)
+		return cy + 40.0
+
+	cy = _draw_quality_row(input_quality, cx, cy)
+	_draw_str("OUTPUT QUALITY (PURIFIED)", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("100%", Vector2(cx, cy + 14.0), OK_COLOR, 13)
+	return cy + 40.0
 
 ## Priority tier changer (Jul 2026, demand-priority wiring) — mirrors
 ## PowerPriorityUI.gd's chip+pips layout so both systems read identically to

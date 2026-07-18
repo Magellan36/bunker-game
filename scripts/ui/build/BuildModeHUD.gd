@@ -66,6 +66,10 @@ const CATEGORIES: Dictionary = {
 		## specify economics for this pass, same caveat as Test Sink above) —
 		## flagged for a future balance pass.
 		{ "tile_id": 19, "name": "Dispenser", "price": 250 },
+		## Purifier (Jul 2026) — attaches directly onto an existing pipe run,
+		## no floor/wall snap (see WaterPurifierAttach.gd / GhostPreview.gd's
+		## TILE_WATER_PURIFIER branch). $240 fixed price, refunded on delete.
+		{ "tile_id": 20, "name": "Purifier",  "price": 240 },
 	],
 }
 ## Flat list used only for legacy compat (3D preview viewports, etc.)
