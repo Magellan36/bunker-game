@@ -450,8 +450,13 @@ func recompute_flow_directions() -> void:
 		if not is_instance_valid(node) or not (node is WaterPipeSegment):
 			continue
 		var seg: WaterPipeSegment = node as WaterPipeSegment
-		if directions.has(seg.edge_id) and seg.has_method("set_flow_sign"):
-			seg.set_flow_sign(bool(directions[seg.edge_id]))
+		if not directions.has(seg.edge_id):
+			continue
+		var edge_flow: Dictionary = directions[seg.edge_id]
+		if seg.has_method("set_flow_sign"):
+			seg.set_flow_sign(bool(edge_flow.get("a_is_upstream", true)))
+		if seg.has_method("set_phase_offset"):
+			seg.set_phase_offset(float(edge_flow.get("phase_offset", 0.0)))
 
 
 ## A device's dynamic slider maximum (see WaterSolver.get_dynamic_max_for_device()

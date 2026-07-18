@@ -248,24 +248,34 @@ func get_unpurified_reachable_keys(hookup_key: String) -> Dictionary:
 
 
 # ─── Flow-direction (build-mode arrow overlay, Jul 2026) ─────────────────────
-## Returns edge_id -> bool, true if the edge's stored "a" endpoint is the
-## upstream (closer to hookup) side, false if "b" is. Consumers use this to
-## decide which direction to scroll their arrow shader (WaterPipeSegment.
-## set_flow_sign()). Computed via plain BFS hop-distance from the hookup —
+## Returns edge_id -> { "a_is_upstream": bool, "phase_offset": float }.
+## `a_is_upstream` true if the edge's stored "a" endpoint is the upstream
+## (closer to hookup) side, false if "b" is — consumers use this to decide
+## which direction to scroll their arrow shader (WaterPipeSegment.
+## set_flow_sign()). `phase_offset` is the REAL-WORLD (Euclidean, not
+## hop-count) cumulative pipe distance from the hookup to the edge's upstream
+## endpoint, in world units — consumers feed this into WaterPipeSegment.
+## set_phase_offset() so the scrolling arrow texture's phase lines up
+## seamlessly across joints instead of restarting at 0 on every segment
+## (July 2026 arrow continuity fix — hop-count distance is unusable for this,
+## only real distance keeps the texture pattern spatially continuous).
+## Computed via BFS from the hookup, accumulating real segment length —
 ## recomputed on demand (WaterManager.recompute_flow_directions()) whenever
 ## the pipe graph mutates, not every frame.
 func compute_flow_directions(hookup_key: String) -> Dictionary:
-	var distances: Dictionary = {}
+	var distances: Dictionary = {}   ## node_key -> real cumulative distance (float)
 	if not _water_nodes.has(hookup_key):
 		return {}
-	distances[hookup_key] = 0
+	distances[hookup_key] = 0.0
 	var queue: Array = [hookup_key]
 	while not queue.is_empty():
 		var current: String = queue.pop_front()
+		var current_pos: Vector3 = _water_nodes.get(current, {}).get("pos", Vector3.ZERO)
 		for neighbor: String in _adjacency.get(current, []):
 			if distances.has(neighbor):
 				continue
-			distances[neighbor] = distances[current] + 1
+			var neighbor_pos: Vector3 = _water_nodes.get(neighbor, {}).get("pos", Vector3.ZERO)
+			distances[neighbor] = distances[current] + current_pos.distance_to(neighbor_pos)
 			queue.append(neighbor)
 
 	var result: Dictionary = {}
@@ -274,7 +284,9 @@ func compute_flow_directions(hookup_key: String) -> Dictionary:
 		var key_a: String = edge_data.get("a", "")
 		var key_b: String = edge_data.get("b", "")
 		if distances.has(key_a) and distances.has(key_b):
-			result[edge_id] = distances[key_a] <= distances[key_b]
+			var a_is_upstream: bool = distances[key_a] <= distances[key_b]
+			var phase_offset: float = distances[key_a] if a_is_upstream else distances[key_b]
+			result[edge_id] = { "a_is_upstream": a_is_upstream, "phase_offset": phase_offset }
 	return result
 
 
