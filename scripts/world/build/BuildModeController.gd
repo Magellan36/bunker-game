@@ -237,6 +237,10 @@ var _wall_snap: WallSnapHelpers = null
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
+	## Lets nodes spawned mid-build-mode (e.g. WaterPipeSegment) look up live
+	## is_active state directly instead of waiting for the next enter/exit
+	## group broadcast — see WaterPipeSegment._is_build_mode_active().
+	add_to_group("build_mode_controller")
 	_materials = BuildMaterials.new(self)
 	_undo_manager = BuildUndoStack.new(self)
 	_ghost_preview = GhostPreview.new(self)

@@ -459,7 +459,26 @@ func _update_ghost() -> void:
 
 	_owner._ghost_world_pos       = snap_pos
 	_owner._ghost.global_position = snap_pos
-	_owner._ghost.rotation_degrees = Vector3(0.0, _owner._current_angle_deg, 0.0)
+
+	# Purifier ghost: lie flat along the pipe run it's attaching to, exactly
+	# like WaterPurifier.orient_along() does on the real placed node — a
+	# plain Y-only rotation_degrees (below) can't express that since pipes
+	# can run along either X or Z. Mirrors orient_along()'s own look_at()+
+	# rotate_object_local(RIGHT, 90°) sequence so the ghost always matches
+	# what gets placed (was previously stuck at whatever angle the last
+	# floor/wall-snapped tile left _current_angle_deg at).
+	if _owner._selected_tile == _owner.TILE_WATER_PURIFIER and not _owner._ghost_purifier_candidate.is_empty():
+		var seg_node: WaterPipeSegment = _owner._ghost_purifier_candidate.get("seg_node", null)
+		if seg_node != null and is_instance_valid(seg_node):
+			var dir: Vector3 = (seg_node.point_b - seg_node.point_a).normalized()
+			if dir != Vector3.ZERO:
+				var up: Vector3 = Vector3.UP
+				if absf(dir.dot(up)) > 0.999:
+					up = Vector3.RIGHT
+				_owner._ghost.look_at(_owner._ghost.global_position + dir, up)
+				_owner._ghost.rotate_object_local(Vector3.RIGHT, PI * 0.5)
+	else:
+		_owner._ghost.rotation_degrees = Vector3(0.0, _owner._current_angle_deg, 0.0)
 	_owner._ghost.visible         = true
 
 	var mat: StandardMaterial3D = _owner._mat_valid if _owner._ghost_valid else _owner._mat_invalid
