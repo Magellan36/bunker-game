@@ -3,66 +3,67 @@
 **Read `AI_CONTEXT.md` in this repo first, then `PROJECT_SUMMARY.md`, then this file.**
 
 ## What just shipped (this session)
-Full "Water System — Quality Decay, Purifier, Dispenser Blending, Flow
-Indicator" pass, all 8 steps of the implementation spec, in one pass:
+Water pipe **loop flow-direction** bug, fixed in two passes:
 
-1. **Hookup quality decay** — `WaterHookup._process()` drains `water_quality`
-   at `-1%/game-day` (`QUALITY_DRAIN_PER_GAME_HOUR = 1.0/24.0`), same
-   "units per game hour" convention as `PlayerStats`. One-directional, floors
-   at 0.
-2. **Purification algorithm** — `WaterGraph.get_unpurified_reachable_keys()`
-   (filtered BFS, "contaminated set"), wired into
-   `WaterManager.get_received_rate_mL()`'s `"quality"` field (100.0 if pure,
-   else the hookup's raw quality).
-3. **`WaterPurifier.gd` + `WaterPurifierAttach.gd`** — new construct-menu
-   tile (`TILE_WATER_PURIFIER=20`, $240, Water submenu) that attaches
-   directly onto an existing pipe run (no floor/wall snap — candidate-find +
-   graph-split math duplicated from `WaterPipeDrawMode`'s shape into a new
-   file, per design decision, rather than touching that fragile original).
-   Wired through `GhostPreview`/`BuildModeController._spawn_placed_object()`/
-   `BuildUndoStack`.
-4. **Purifier interact UI** — `WaterInfoUI.gd`'s old `_is_source: bool` was
-   refactored to `_mode: String` (`"hookup"`/`"sink"`/`"purifier"`); new
-   read-only purifier branch (input/output quality, no priority row).
-5. **Deletion/refund** — `WaterPurifier.revert_to_corner()` (deconstruct
-   reverts graph role `"purifier"` → `"corner"` in place, pipe stays intact,
-   no pipe refund, only $240 device refund) + generalized
-   `WaterManager.delete_and_refund_edge()` (refuses to delete an edge
-   touching a still-`"purifier"` node — enforces "remove purifier first").
-6. **Dispenser blending** — `WaterDispenser.stored_water_quality` now blends
-   volume-weighted every tick water is actually added (clamped-to-headroom
-   `added_mL` used in the blend formula, not the pre-clamp value).
-7. **Flow-direction arrows** — `WaterGraph.compute_flow_directions()` (BFS
-   hop-distance from hookup) → `WaterManager.recompute_flow_directions()`
-   (called after every pipe/purifier mutation, not every frame) →
-   `WaterPipeSegment.set_flow_sign()`. Rendered by new
-   `assets/shaders/pipe_flow.gdshader` (this project's first spatial shader)
-   on a second, additive overlay mesh — base pipe stays always-visible,
-   untouched. Visible only in build mode
-   (`set_build_mode_visible()`, toggled from `BuildModeController.enter_
-   build_mode()`/`exit_build_mode()`).
-8. **Docs** — `docs/systems/water/README.md` gained a full "Purification &
-   Quality (Jul 2026)" section (Responsibilities, not Extension points
-   anymore) + updated file table + `PROJECT_SUMMARY.md` roadmap note.
+1. **Convergence fix (commit `9a7bfb7`)** — `WaterGraph.compute_flow_
+   directions()` used to be a plain BFS spanning tree + naive per-edge
+   distance comparison for any "closing" edge that reconnects two
+   already-visited nodes (a real loop, not just branching). That local
+   comparison pointed the closing edge into whichever endpoint was farther
+   from the hookup — but that endpoint usually already had an inflow from
+   its own tree parent, so two independent inflows converged on one node
+   (arrows visibly meeting at a point instead of circulating one way).
+   Fix: treat each closing edge as completing a fundamental cycle relative
+   to the spanning tree — find the two branches' LCA via parent-pointer
+   walk, compare real-world branch length from the LCA (shorter/more direct
+   = "dominant", keeps natural direction), **reverse** the recessive
+   branch's spine so the loop circulates one consistent way. Ties broken by
+   registration order (new `_edge_creation_order` dict, stamped once per
+   edge_id — `edge_id` itself is order-independent by design). `phase_offset`
+   (cross-joint scroll continuity) also recomputed via a second pass
+   following final resolved directions, since raw hookup-BFS distance is
+   wrong once edges are reversed.
+2. **Ring-main-through-hookup fix (commit `53db4b6`, same-day follow-up)** —
+   pass 1 above reversed a branch's *entire* spine back to its LCA. But when
+   a loop wraps all the way back through the hookup itself (the closing
+   edge's LCA IS the hookup), that reversal ran an edge backward straight
+   into the hookup — giving the source node an inflow, which is physically
+   impossible and looked like the whole loop flowing backward toward the
+   hookup instead of away from it. Fix: `compute_flow_directions()` now
+   special-cases `lca == hookup_key` — skip branch-reversal entirely (both
+   branches keep their natural hookup-outward direction), only the closing
+   edge's own direction is picked by dominance. This matches real ring-main
+   plumbing: fed from one point, flows both ways, meets on the far side —
+   a normal merge, not the interior-loop convergence bug pass 1 targeted
+   (that bug is specifically about loops that don't touch the hookup).
 
-**Verified:** `tools/godot_check.sh` (headless Godot 4.6-stable — the exact
-4.6.3 binary wasn't available in this sandbox, closest stable was used) —
-clean PASS, no parse/compile errors. Only pre-existing unrelated warnings
-(`WaterCase.tscn` UID, `ObjectDB` leak-at-exit notice).
+**Verified:** `tools/godot_check.sh` clean PASS after both commits. Brannon
+tested in-editor across multiple loop configurations (including the
+original convergence screenshot and the ring-main-through-hookup case) —
+confirmed all working correctly.
 
-### Known gap — NOT fixed this pass
-`WaterManager.get_pipe_network_for_save()` only persists `"corner"`/
-`"pipe_joint"` roled nodes. A `"purifier"` node (and both edges touching it)
-is silently dropped by save/load today — flagged in
-`docs/systems/water/README.md`'s Purification & Quality section and in
-`PROJECT_SUMMARY.md`'s roadmap, not silently left undocumented. Should
-likely be closed as part of the save/load project below.
+**Docs:** `docs/systems/water/README.md` — "Loop/cycle flow-direction fix"
+and "Ring-main-through-hookup fix" bullets under the water flow-arrow
+section, both same-commit as their code changes.
+
+## Known gaps (still open, not touched this session)
+- `WaterManager.get_pipe_network_for_save()` only persists `"corner"`/
+  `"pipe_joint"` roled nodes — a `"purifier"` node (and both edges touching
+  it) is silently dropped by save/load today. Flagged in
+  `docs/systems/water/README.md`'s Purification & Quality section and in
+  `PROJECT_SUMMARY.md`'s roadmap. Should be closed as part of the save/load
+  project below.
+- Multiple/nested/overlapping loops in `compute_flow_directions()` are
+  resolved deterministically (creation-order processing + reversed-edge
+  guard) but not exhaustively proven for every possible nesting — no known
+  bug, just not stress-tested beyond what's been manually built so far.
 
 ## Next up: Save/Load — full infrastructure carryover
-Per Brannon's request (before this water pass), the next session should
-build out full save/load coverage for everything currently playable:
-bunker expansions, exact power setup (wiring, zones, batteries, generators),
-and the water pipe network (including the purifier gap noted above).
+This is still the next planned project (carried over from before the pipe
+work above). Per Brannon's request, build out full save/load coverage for
+everything currently playable: bunker expansions, exact power setup
+(wiring, zones, batteries, generators), and the water pipe network
+(including the purifier gap noted above).
 
 **Before touching any code, read (in this order):**
 1. `AI_CONTEXT.md` (this repo's own standing rules)
@@ -72,12 +73,12 @@ and the water pipe network (including the purifier gap noted above).
    covers dug chunks → placed objects+extra state → player wires → water
    pipes → player position/cash/clock)
 4. `docs/systems/power/README.md` — Persistence section
-5. `docs/systems/water/README.md` — Persistence section + this session's
-   Purification & Quality section (esp. the purifier save gap)
+5. `docs/systems/water/README.md` — Persistence section + Purification &
+   Quality section (esp. the purifier save gap above)
 6. Every other `docs/systems/*/README.md` that's directly relevant to
    whatever specific save-gap is being closed first — do NOT re-explore the
    whole codebase; the READMEs + `architecture.json` should be enough.
 
 Ask Brannon clarifying questions before starting — confirm scope (which
-gaps to close first) and whether the purifier fix belongs in this pass or a
-follow-up.
+gaps to close first) and whether the purifier save fix belongs in this pass
+or a follow-up.
