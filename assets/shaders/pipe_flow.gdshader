@@ -86,10 +86,15 @@ void fragment() {
 	// Scroll at a constant world-units/sec rate (scroll_speed is world-units/sec,
 	// converted to tile units the same way) rather than a fixed UV-rate, so
 	// scroll speed is also constant in world-space across all pipe lengths.
-	// flow_sign here flips the direction of APPARENT MOTION to match the
-	// mirrored glyph above (both must flip together or the arrows point one
-	// way but visibly crawl the other).
-	tex_uv.x -= TIME * (scroll_speed / tile_world_length) * flow_sign;
+	// NOTE: direction is already fully encoded above by mirroring raw_uv with
+	// flow_sign — the mirrored coordinate now increases/decreases correctly
+	// in the true downstream (away-from-hookup) direction on its own, for
+	// EVERY segment uniformly. Re-multiplying this scroll term by flow_sign
+	// as well (an earlier version of this fix did) double-flips it: the
+	// glyph shape ends up pointing the right way but visibly crawls
+	// backwards. Always subtract the same way — direction lives in the
+	// mirror only, not here too.
+	tex_uv.x -= TIME * (scroll_speed / tile_world_length);
 
 	vec4 tex = texture(arrow_texture, tex_uv);
 	ALBEDO = tex.rgb;
