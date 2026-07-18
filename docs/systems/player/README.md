@@ -16,10 +16,12 @@ together by `MainWorld`).
 - `PlayerStats.gd`: food/water/sleep/health drain over a real-time-to-game-time
   clock, starvation/dehydration health damage, the `H:MM AM/PM` game clock +
   day counter, and save/load support for elapsed time.
-- `InteractionSystem.gd` (~690 lines): the ONLY place pickup/drop/store/scroll
-  logic lives. Owns `held_item`, inventory slot activation/deactivation,
-  hold-E store-vs-tap-use disambiguation, and the floating interact prompt
-  (built each frame from whatever's held or nearby).
+- `InteractionSystem.gd` (~665 lines): the ONLY place pickup/drop/store/scroll
+  logic lives. Owns `held_item`, inventory slot activation/deactivation, and
+  the floating interact prompt (built each frame from whatever's held or
+  nearby). E is a pure instant tap (use/interact fires on press, no hold
+  behavior); G is the separate instant store/put-away key (see Jul 2026 entry
+  below).
 
 ## Non-responsibilities
 - **Does not own inventory slot storage itself** — `InventoryManager.gd`
@@ -42,7 +44,7 @@ together by `MainWorld`).
 |---|---|---|
 | `Player.gd` | ~120 | `CharacterBody3D` — movement, sprint/stamina, facing, movement-lock |
 | `PlayerStats.gd` | ~170 | Survival needs (food/water/sleep/health) + game clock |
-| `InteractionSystem.gd` | ~690 | Pickup/drop/store/scroll, interact prompt builder |
+| `InteractionSystem.gd` | ~665 | Pickup/drop/store/scroll, interact prompt builder |
 
 ## Public API
 **`Player`** (`class_name Player`, extends `CharacterBody3D`):
@@ -118,7 +120,10 @@ InteractionSystem._unhandled_input()
   → scroll wheel  → _scroll_slot(dir) → _put_item_back_to_slot()/_bring_item_to_hand_from_slot()
   → F (pickup)    → _try_pickup() / _quick_drop() / shelf.on_f_interact()
   → E (tap)       → held_item.on_use() / _try_interact() (world objects: generators, breakers, etc.)
-  → E (hold)      → _tick_store_hold() → _store_item() / _put_item_back_to_slot()
+                    (fires instantly on press; `_is_holding_e` stays true only
+                    to drive per-frame continuous-hold actions like
+                    `FuelCan.refuel_tick()` — it no longer gates a store action)
+  → G (tap)       → _store_item() / _put_item_back_to_slot() (instant, no hold/progress bar)
 InteractionSystem._process() → _update_prompt() → prompt.set_prompts(...)/hide_prompt()
 
 PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation health drain
@@ -131,9 +136,15 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   `replenish_*()` method; wire `HUD.gd` to the new signal (see
   `docs/systems/ui/README.md`).
 - **New item interaction verb (beyond use/store/pickup/drop):** add the input
-  branch in `InteractionSystem._unhandled_input()`, following the existing
-  tap-vs-hold disambiguation pattern (`_use_pending`/`_is_holding_e`) if it
-  needs to distinguish a tap from a hold.
+  branch in `InteractionSystem._unhandled_input()`. E and G are both plain
+  one-shot `is_action_pressed()` taps — there is no tap-vs-hold
+  disambiguation anymore. If a new verb needs continuous per-frame behavior
+  while a key is held (like `FuelCan.refuel_tick()`), follow the
+  `_is_holding_e` + `_tick_continuous_refuel()` pattern instead.
+- **Store/put-away key (Jul 2026):** store is bound to `store_item` (G), not
+  E. The old "hold E to store" hold-and-progress-bar mechanic was retired
+  entirely in favor of an instant, no-progress-bar G tap — see
+  `_store_hold_t`/`_use_pending`/`_tick_store_hold()` removal in the source.
 - **New prompt line for an item/object:** implement
   `get_use_prompt()`/`get_interact_prompt()`/`get_f_prompt()`/`get_e_prompt()`
   on the item/object itself (duck-typed via `has_method()`) —

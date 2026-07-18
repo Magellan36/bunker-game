@@ -167,16 +167,12 @@
     },
     {
       "path": "res://scripts/player/InteractionSystem.gd",
-      "line_count": 707,
+      "line_count": 672,
       "class_name": "InteractionSystem",
       "extends": "Node3D",
       "exports": [
         {
           "name": "hold_height",
-          "type": "float"
-        },
-        {
-          "name": "store_hold_time",
           "type": "float"
         }
       ],
@@ -200,7 +196,7 @@
         }
       ],
       "public_functions": [],
-      "private_function_count": 21,
+      "private_function_count": 19,
       "preloads": [],
       "group_lookups": [
         "world"
