@@ -113,6 +113,21 @@ func _pdbg(msg: String) -> void:
 	if PIPE_DEBUG:
 		print(msg)
 
+## ─── Continuous paint-along-wall mode (Part B, combined refactor pass) ──────
+## Flip false to instantly fall back to the old "one confirm per click, one
+## leg at a time" model above (_try_confirm_segment()/_update_ghost_preview
+## body, kept fully intact and callable — see _update_ghost_preview_single_leg()
+## and the early-return in _try_confirm_full_path()). Per the original plan's
+## own explicit recommendation (§A.6) given this is the most complex change
+## in this pass — flip to false first if the paint UX has rough edges, no
+## code deletion needed to recover the old behavior.
+const PAINT_MODE_ENABLED: bool = true
+
+## Defensive cap on how many existing-node hops _trace_wall_hugging_path()
+## will chain through in one frame/click — guards against a pathological
+## graph (a long chain of tightly-packed nodes) ever hanging the tool.
+const MAX_TRACE_LEGS: int = 20
+
 ## Dumps every currently-registered REAL pipe segment (via "water_pipe_visual"
 ## — ghosts never join that group, see WaterPipeSegment.is_ghost) so a debug
 ## session has full context on what the tool thinks already exists,
@@ -188,7 +203,7 @@ func handle_input(event: InputEvent) -> bool:
 			if _phase == 0:
 				_try_pick_source()
 			else:
-				_try_confirm_segment()
+				_try_confirm_full_path()
 			return true
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			## Cancels the in-progress placement and stays IN the pipe tool
@@ -256,10 +271,169 @@ func _try_pick_source() -> bool:
 
 
 # ─── Phase 1: drag + confirm ───────────────────────────────────────────────────
+## Pure computation for ONE leg's ghost/validity data, extracted verbatim
+## from this function's old single-leg body (Part B, combined refactor
+## pass) — no behavior change versus the pre-extraction version when
+## PAINT_MODE_ENABLED is false (see _update_ghost_preview_single_leg(),
+## which still calls the exact same three functions in the exact same
+## order). `debug` forwards to _resolve_destination()/_avoid_existing_pipes()/
+## _is_path_in_bounds() — MUST stay false for any per-frame caller.
+## Returns {} on failure (no destination, or a degenerate <2-point path).
+func _resolve_single_leg(from_pos: Vector3, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
+	var dest: Dictionary = _resolve_destination(cursor_pos, debug)
+	if dest.is_empty():
+		return {}
+	var raw_path: Array = _build_manhattan_path(from_pos, dest["pos"])
+	if raw_path.size() < 2:
+		return {}
+	var path: Array = _avoid_existing_pipes(raw_path, debug)
+	var valid: bool = _is_path_in_bounds(path, debug)
+	return { "dest": dest, "path": path, "valid": valid }
+
+func _get_pillar_registry() -> PillarRegistry:
+	return get_tree().get_first_node_in_group("pillar_registry") as PillarRegistry
+
+## Pushes `point` directly away from ANY pillar whose clearance radius it
+## currently violates, out to exactly PillarRegistry.PILLAR_CLEARANCE_RADIUS
+## from that pillar's center (XZ only — pillars are floor-to-ceiling, Y is
+## untouched). Degenerate exactly-on-center case pushes an arbitrary +X
+## direction. Iterates every registered pillar (small count, cheap) so a
+## point squeezed between two pillars gets nudged clear of both in turn.
+func _adjust_for_pillar_clearance(point: Vector3, registry: PillarRegistry) -> Vector3:
+	if registry == null:
+		return point
+	var adjusted: Vector2 = Vector2(point.x, point.z)
+	for pillar_pos: Vector3 in registry.get_all_positions().values():
+		var center: Vector2 = Vector2(pillar_pos.x, pillar_pos.z)
+		var d: float = adjusted.distance_to(center)
+		if d < PillarRegistry.PILLAR_CLEARANCE_RADIUS:
+			var dir: Vector2 = (adjusted - center)
+			dir = Vector2(1.0, 0.0) if dir.length() < 0.0001 else dir.normalized()
+			adjusted = center + dir * PillarRegistry.PILLAR_CLEARANCE_RADIUS
+	return Vector3(adjusted.x, point.y, adjusted.y)
+
+## True if the straight leg [a,b] never passes within
+## PillarRegistry.PILLAR_CLEARANCE_RADIUS of any pillar's center, checked via
+## the same closest-point-on-segment math used for pipe-vs-pipe checks
+## (_closest_point_on_segment_xz). Vertical drops (into a floor device) are
+## skipped — pillars are a ceiling-height horizontal-run concern only. A mid-
+## leg clip is treated as an INVALID placement (red ghost / blocked confirm),
+## explicitly NOT a pathfind-around — see this file's Part B header note.
+func _leg_clears_all_pillars(a: Vector3, b: Vector3, registry: PillarRegistry) -> bool:
+	if registry == null:
+		return true
+	if absf(a.y - b.y) > MIN_POINT_GAP:
+		return true   ## vertical drop — not a pillar-relevant leg
+	for pillar_pos: Vector3 in registry.get_all_positions().values():
+		var closest: Vector3 = _closest_point_on_segment_xz(pillar_pos, a, b)
+		var d: float = Vector2(closest.x, closest.z).distance_to(Vector2(pillar_pos.x, pillar_pos.z))
+		if d < PillarRegistry.PILLAR_CLEARANCE_RADIUS:
+			return false
+	return true
+
+## Continuous paint-along-wall tracing (Part B). Starting from
+## `source_pos`/`source_key`, repeatedly resolves one leg toward
+## `cursor_pos` via _resolve_single_leg(), chaining through an existing
+## graph node's key when the resolved destination is itself an existing
+## node that's still short of the true cursor position (i.e. the run is
+## "hugging" through already-placed joints on the way there) — see this
+## file's Part B header for the full documented interpretation call. Stops
+## (does not chain further) as soon as a leg's destination is either a
+## fresh mid-air waypoint (existing_key empty) or already within
+## DEST_SNAP_RADIUS of the true cursor position, or after MAX_TRACE_LEGS
+## hops (defensive cap). Applies pillar clearance per new corner point and
+## per new leg (see _adjust_for_pillar_clearance()/_leg_clears_all_pillars())
+## before appending — a mid-leg pillar clip marks the whole trace invalid
+## (red ghost) rather than rerouting.
+## Returns {"waypoints":Array[Vector3], "waypoint_keys":Array[String],
+## "valid":bool, "final_key":String}. waypoint_keys[i] is "" for a fresh
+## corner, or the existing graph node key for a point that already exists
+## (index 0 is always source_key).
+func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
+	var registry: PillarRegistry = _get_pillar_registry()
+	var waypoints: Array = [source_pos]
+	var waypoint_keys: Array = [source_key]
+	var current_pos: Vector3 = source_pos
+	var current_key: String = source_key
+	var valid: bool = true
+
+	## _resolve_destination() (called inside _resolve_single_leg()) excludes
+	## whatever node currently sits in the `_source_key` member when
+	## snapping to an existing node — save/restore it since we drive that
+	## member directly as `current_key` advances through the chain.
+	var saved_source_key: String = _source_key
+	_source_key = current_key
+
+	for _i in range(MAX_TRACE_LEGS):
+		var leg: Dictionary = _resolve_single_leg(current_pos, cursor_pos, debug)
+		if leg.is_empty():
+			valid = false
+			break
+		var leg_path: Array = leg["path"]
+		if not leg["valid"]:
+			valid = false
+
+		for j in range(1, leg_path.size()):
+			var is_leg_last_point: bool = (j == leg_path.size() - 1)
+			var raw_pt: Vector3 = leg_path[j]
+			var adj_pt: Vector3 = raw_pt if is_leg_last_point else _adjust_for_pillar_clearance(raw_pt, registry)
+			var prev_pt: Vector3 = waypoints[waypoints.size() - 1]
+			if not _leg_clears_all_pillars(prev_pt, adj_pt, registry):
+				valid = false
+			waypoints.append(adj_pt)
+			waypoint_keys.append(leg["dest"].get("existing_key", "") if is_leg_last_point else "")
+
+		var dest: Dictionary = leg["dest"]
+		var existing_key: String = dest.get("existing_key", "")
+		var advanced: float = current_pos.distance_to(dest["pos"])
+		var dist_to_cursor: float = Vector2(dest["pos"].x, dest["pos"].z).distance_to(Vector2(cursor_pos.x, cursor_pos.z))
+		current_pos = dest["pos"]
+
+		if not existing_key.is_empty() and dist_to_cursor > DEST_SNAP_RADIUS and advanced > MIN_POINT_GAP:
+			current_key = existing_key
+			_source_key = current_key
+			continue
+		else:
+			current_key = existing_key
+			break
+
+	_source_key = saved_source_key
+	return { "waypoints": waypoints, "waypoint_keys": waypoint_keys, "valid": valid, "final_key": current_key }
+
 func _update_ghost_preview() -> void:
 	_clear_ghost()
-
 	var cursor_pos: Vector3 = _get_cursor_world_pos()
+
+	if not PAINT_MODE_ENABLED:
+		_update_ghost_preview_single_leg(cursor_pos)
+		return
+
+	var trace: Dictionary = _trace_wall_hugging_path(_source_pos, _source_key, cursor_pos, false)
+	var waypoints: Array = trace["waypoints"]
+	if waypoints.size() < 2:
+		_clear_cost_label()
+		return
+
+	for i in range(waypoints.size() - 1):
+		var seg: Node3D = WaterPipeSegment.make_ghost_pipe(_get_scene_root(), waypoints[i], waypoints[i + 1])
+		var mat: StandardMaterial3D = seg.get("_material")
+		if mat != null:
+			mat.albedo_color = GHOST_COLOR_VALID if trace["valid"] else GHOST_COLOR_INVALID
+		_ghost_segs.append(seg)
+
+	## Live cost preview — single total across the whole traced run, not
+	## per-leg (per plan; mirrors WireDrawMode's live "$X" label during drag).
+	var total_length: float = 0.0
+	for i in range(waypoints.size() - 1):
+		total_length += waypoints[i].distance_to(waypoints[i + 1])
+	var cost: int = int(ceil(total_length * COST_PER_M))
+	var midpoint: Vector3 = (waypoints[0] + waypoints[waypoints.size() - 1]) * 0.5
+	_update_cost_label(midpoint, cost)
+
+## Old single-leg ghost preview body, kept fully intact as the
+## PAINT_MODE_ENABLED=false fallback (Part B toggle — see that const's
+## comment).
+func _update_ghost_preview_single_leg(cursor_pos: Vector3) -> void:
 	var dest: Dictionary = _resolve_destination(cursor_pos)
 	if dest.is_empty():
 		_clear_cost_label()
@@ -270,16 +444,7 @@ func _update_ghost_preview() -> void:
 		_clear_cost_label()
 		return
 
-	## No-overlap routing (July 2026, third playtest pass): reroute around
-	## any existing pipe this path would otherwise run collinear on top of —
-	## see _avoid_existing_pipes(). Perpendicular crossings are NOT rerouted
-	## (explicitly allowed — see _insert_crossings(), applied at confirm
-	## time only, since it mutates the graph).
 	var path: Array = _avoid_existing_pipes(raw_path)
-
-	## Validity check — red preview + blocked confirm only for out-of-bounds
-	## now; collinear overlap is no longer a rejection case, it's rerouted
-	## above instead (see docs/systems/water/README.md Known tradeoffs).
 	var valid: bool = _is_path_in_bounds(path)
 
 	for i in range(path.size() - 1):
@@ -289,8 +454,6 @@ func _update_ghost_preview() -> void:
 			mat.albedo_color = GHOST_COLOR_VALID if valid else GHOST_COLOR_INVALID
 		_ghost_segs.append(seg)
 
-	## Live cost preview (July 2026) — mirrors WireDrawMode's own live "$X"
-	## label during drag, per Brannon's explicit request for parity.
 	var total_length: float = 0.0
 	for i in range(path.size() - 1):
 		total_length += path[i].distance_to(path[i + 1])
@@ -440,6 +603,120 @@ func _try_confirm_segment() -> void:
 	_source_key = keys[keys.size() - 1]
 	_source_pos = points[points.size() - 1]["pos"]
 	_clear_ghost()
+
+
+## Click handler for the continuous paint-along-wall mode (Part B) —
+## replaces _try_confirm_segment() above as the LMB confirm while
+## PAINT_MODE_ENABLED is true (_try_confirm_segment() itself is untouched
+## and still fully callable — see the early-return fallback below).
+## Traces the whole run to the cursor in one go (_trace_wall_hugging_path()),
+## spends ONE total cost up front, then walks the traced waypoints leg by
+## leg, reusing _insert_crossings()'s existing per-leg crossing-split logic
+## and the exact node/edge/segment registration shape _try_confirm_segment()
+## already used per-click (generalized to run once per leg across the whole
+## traced path instead of once per confirm). Emits a single pipe_placed
+## signal covering every leg placed this click.
+func _try_confirm_full_path() -> void:
+	var wm: WaterManager = _get_wm()
+	if wm == null:
+		return
+
+	if not PAINT_MODE_ENABLED:
+		_try_confirm_segment()
+		return
+
+	var cursor_pos: Vector3 = _get_cursor_world_pos()
+	_pdbg("[PipeDebug] ══════ confirm full path (paint mode) ══════  cursor_pos=%s source_key=%s source_pos=%s" % [cursor_pos, _source_key, _source_pos])
+	_dump_pipe_network()
+
+	var trace: Dictionary = _trace_wall_hugging_path(_source_pos, _source_key, cursor_pos, true)
+	var waypoints: Array = trace["waypoints"]
+	var waypoint_keys: Array = trace["waypoint_keys"]
+	_pdbg("[PipeDebug] trace waypoints=%s valid=%s" % [waypoints, trace["valid"]])
+
+	if waypoints.size() < 2:
+		_pdbg("[PipeDebug] ABORT: trace too short")
+		_show_warning("Pipe segment too short")
+		return
+	if not trace["valid"]:
+		_pdbg("[PipeDebug] ABORT: trace invalid (out of bounds or pillar clip)")
+		_show_warning("Cannot place pipe there")
+		return
+
+	var total_length: float = 0.0
+	for i in range(waypoints.size() - 1):
+		total_length += waypoints[i].distance_to(waypoints[i + 1])
+	var cost: int = int(ceil(total_length * COST_PER_M))
+	_pdbg("[PipeDebug] total_length=%.3f  cost=%d" % [total_length, cost])
+
+	if world_node != null:
+		if not world_node.spend_cash(cost):
+			_pdbg("[PipeDebug] ABORT: not enough cash")
+			_show_warning("Not enough cash for this pipe run")
+			return
+
+	## _insert_crossings() reads the current source point's key from the
+	## `_source_key` member directly (see that function's own comment) —
+	## drive it per-leg as `running_source_key` advances, same
+	## save/restore-free approach _trace_wall_hugging_path() uses since we
+	## own this member for the whole duration of this click.
+	var running_source_key: String = waypoint_keys[0]
+	var all_seg_nodes: Array = []
+	var all_edge_ids: Array = []
+	var all_elbow_nodes: Array = []
+
+	for leg_i in range(waypoints.size() - 1):
+		var a_pos: Vector3 = waypoints[leg_i]
+		var b_pos: Vector3 = waypoints[leg_i + 1]
+		var b_key_hint: String = waypoint_keys[leg_i + 1]
+
+		_source_key = running_source_key
+		var points: Array = _insert_crossings(wm, [a_pos, b_pos], b_key_hint)
+		_pdbg("[PipeDebug] leg %d points after _insert_crossings=%s" % [leg_i, points])
+
+		var keys: Array[String] = []
+		for i in range(points.size()):
+			var pt: Dictionary = points[i]
+			var existing: String = pt.get("existing_key", "")
+			if not existing.is_empty():
+				keys.append(existing)
+				continue
+			var is_last: bool = (i == points.size() - 1)
+			if is_last:
+				keys.append(wm.register_node(pt["pos"], "pipe_joint"))
+			else:
+				var corner_key: String = wm.register_node(pt["pos"], "corner")
+				var elbow: WaterPipeElbow = WaterPipeElbow.new()
+				_get_scene_root().add_child(elbow)
+				elbow.global_position = pt["pos"]
+				elbow.node_key = corner_key
+				keys.append(corner_key)
+				all_elbow_nodes.append(elbow)
+
+		for i in range(keys.size() - 1):
+			var edge_id: String = wm.register_edge(keys[i], keys[i + 1])
+			if edge_id.is_empty():
+				continue
+			var seg: WaterPipeSegment = WaterPipeSegment.new()
+			_get_scene_root().add_child(seg)
+			seg.edge_id = edge_id
+			seg.set_endpoints(points[i]["pos"], points[i + 1]["pos"])
+			var leg_length: float = points[i]["pos"].distance_to(points[i + 1]["pos"])
+			seg.placement_cost = int(ceil(leg_length * COST_PER_M))
+			all_seg_nodes.append(seg)
+			all_edge_ids.append(edge_id)
+			_pdbg("[PipeDebug] PLACED segment edge_id=%s  a=%s  b=%s" % [edge_id, points[i]["pos"], points[i + 1]["pos"]])
+
+		running_source_key = keys[keys.size() - 1]
+
+	var undo_midpoint: Vector3 = (waypoints[0] + waypoints[waypoints.size() - 1]) * 0.5
+	_spawn_float_label(undo_midpoint, cost, false)
+	pipe_placed.emit(all_seg_nodes, all_edge_ids, cost, all_elbow_nodes, undo_midpoint)
+
+	_source_key = running_source_key
+	_source_pos = waypoints[waypoints.size() - 1]
+	_clear_ghost()
+	_clear_cost_label()
 
 
 ## Builds the strictly-axis-aligned (90°-only) world-space point list from

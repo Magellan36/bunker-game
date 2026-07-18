@@ -18,11 +18,13 @@ decays over time, a `WaterPurifier` device can be attached to any pipe run to
 restore water passing through it to 100%, `WaterDispenser` blends incoming
 quality into its stored tank volume-weighted, and a build-mode-only scrolling
 arrow overlay shows flow direction on every pipe — see Purification & Quality
-below. **Still explicitly NOT in scope**: pumps, a real per-meter/per-second
-transit simulation (purification and decay are instantaneous/topological,
-not physically modeled travel time or delay), or upgrading `WaterPipeDrawMode`
-to the full continuous-drag paint UX (see Known tradeoffs) — T-split
-branching may already partially work (untested, flagged as a follow-up).
+below. (Jul 2026, Part B) `WaterPipeDrawMode` now traces and confirms a full
+multi-leg run in one click (continuous paint-along-wall mode), with pillar
+clearance built in — see Known tradeoffs for the exact interpretation call
+made and the `PAINT_MODE_ENABLED` fallback toggle. **Still explicitly NOT in
+scope**: pumps, a real per-meter/per-second transit simulation (purification
+and decay are instantaneous/topological, not physically modeled travel time
+or delay).
 
 ## Responsibilities
 - Own the water plumbing graph (nodes/edges) and connectivity (BFS
@@ -397,7 +399,7 @@ branching may already partially work (untested, flagged as a follow-up).
 | `WaterHookup.gd` | The wall-mounted source device. Wall-snapped placement, never deletable, auto-tracks the outermost wall in its facing direction as the bunker expands. |
 | `WaterPipeSegment.gd` | Visual for one straight placed pipe. **Always visible** (see Known tradeoffs). Joins group `"water_pipe_visual"` on `_ready()` (Step 2, July 2026) — pure findability for `WaterHookup._delete_and_refund_edge()`, NOT the `WireSegment` hide-on-exit-build-mode pattern. Also carries `placement_cost` (July 2026) — per-leg cost stashed at spawn time, source of truth for that same refund path. |
 | `WaterPipeElbow.gd` | Corner-joint visual, spawned automatically at a corner crossing. A REAL graph node (role `"corner"`), not just cosmetic — see Extension points. |
-| `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **Uses the plan's own pre-approved FALLBACK interaction model (one confirm per click), not the full single-drag paint — see its own file-header comment and Known tradeoffs below.** |
+| `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **(Jul 2026, Part B) Continuous paint-along-wall mode** — one click traces/confirms a full multi-leg run with pillar clearance built in; old one-confirm-per-click model kept intact, toggle via `PAINT_MODE_ENABLED` — see its own file-header comment and Known tradeoffs below. |
 | `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). Interactable (Step 2) — see `WaterInfoUI.gd`. Jul 2026: `priority: int` (1-5) + `fixed_demand_mL_per_day: float` exports, implements `get_current_demand_mL_per_day()` for `WaterSolver.gd`. |
 | `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026; extended Jul 2026 (Purifier pass). ONE shared info panel for `WaterHookup`/`WaterTestSink`/`WaterPurifier`, distinguished by a `_mode: String` discriminator (`"hookup"`/`"sink"`/`"purifier"` — was a 2-way `is_source: bool`, extended to a 3rd mode rather than a second ambiguous bool) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. Purifier branch is read-only (no slider/toggle/priority) — shows input quality (upstream hookup's raw `water_quality`) and fixed output quality (always 100%). Dynamic panel height: `PANEL_H_SOURCE`/`PANEL_H_SINK`/`PANEL_H_PURIFIER`. |
 | `WaterSolver.gd` | Jul 2026. Priority-tier demand waterfall — `RefCounted`, `_graph: WaterGraph` back-reference (same split pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver`). Pure read-only queries, no state held between calls. |
@@ -732,16 +734,44 @@ Only strip these prints once Brannon explicitly asks for this system
 stable (matches the project's standing debug-logging discipline).
 
 ## Known tradeoffs / tech debt
-- **`WaterPipeDrawMode` uses the plan's own pre-approved FALLBACK
-  interaction model** (one confirm per click, up to the next destination,
-  with auto-elbow-insertion at every bend), not the full single
-  continuous-drag "paint the whole run in one click" experience the plan
-  describes as its primary vision. Flagged explicitly per the plan's own
-  instructions — full multi-segment live-preview-and-confirm was judged too
-  complex to responsibly build and verify with zero in-editor testing
-  available this pass (headless compile-check only). **Upgrading to the
-  full paint experience is the clear, expected next step for this tool** —
-  not currently scheduled, do it as its own isolated pass.
+- **Continuous paint-along-wall mode implemented (Part B, combined refactor
+  pass, Jul 2026):** `WaterPipeDrawMode` now traces and confirms a FULL
+  multi-leg run in one click instead of one leg at a time. New pure
+  extraction `_resolve_single_leg(from_pos, cursor_pos)` (verbatim what the
+  old per-leg ghost preview computed: `_resolve_destination()` →
+  `_build_manhattan_path()` → `_avoid_existing_pipes()` → `_is_path_in_bounds()`).
+  `_trace_wall_hugging_path()` loops it from the drag source toward the
+  cursor, auto-chaining through already-placed graph nodes/joints that lie
+  on the way (capped at `MAX_TRACE_LEGS`=20 hops) — **documented
+  interpretation call**: "wall-hugging" here means auto-chaining through
+  EXISTING placed nodes en route to the cursor (since a real network
+  typically already hugs walls), NOT novel pathfinding around undiscovered
+  wall/room geometry the player hasn't built pipe through yet. The
+  original plan's pseudocode predates several later playtest-era rewrites
+  (T-splits, crossing-insertion, overlap detours, shorter-axis-first
+  heuristic) it never accounted for — flagged transparently, not silently
+  assumed. `_try_confirm_full_path()` replaces `_try_confirm_segment()` as
+  the LMB click handler, walking the traced waypoints leg-by-leg and
+  reusing `_insert_crossings()` + the existing node/edge/segment
+  registration shape per leg, with ONE total cost/spend/`pipe_placed` emit
+  covering the whole run instead of per-leg. **`_try_confirm_segment()` and
+  the old per-leg ghost preview body (`_update_ghost_preview_single_leg()`)
+  are kept fully intact and callable** — `PAINT_MODE_ENABLED` (const, top of
+  file) flips instantly back to the old one-confirm-per-click model if the
+  paint UX has rough edges, no code deletion needed to recover it (per the
+  original plan's own §A.6 recommendation, given this is the most complex
+  change in this pass).
+- **Pillar clearance added (Part B, same pass):** `PillarRegistry` (Part A)
+  now feeds `WaterPipeDrawMode._adjust_for_pillar_clearance()` (pushes a
+  fresh corner point directly away from any pillar it's closer to than
+  `PillarRegistry.PILLAR_CLEARANCE_RADIUS`=0.34, out to exactly that radius)
+  and `_leg_clears_all_pillars()` (mid-leg segment check via the same
+  closest-point-on-segment math already used for pipe-vs-pipe collinear
+  checks). A mid-leg pillar clip is an INVALID placement (red ghost /
+  blocked confirm) — explicitly NOT a pathfind-around, to avoid
+  over-engineering a rare case; flag to Brannon if it comes up often in
+  practice. Vertical drops into floor devices are exempt (pillars are a
+  ceiling-height horizontal-run concern only).
 - **Pipe pricing set (July 2026 playtest pass):** `WaterPipeDrawMode.COST_PER_M`
   is now $24/m — 3x `WireDrawMode.COST_PER_M` ($8/m), per Brannon's explicit
   request. Kept as its own constant (water system stays standalone) — update
