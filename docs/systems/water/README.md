@@ -261,6 +261,42 @@ branching may already partially work (untested, flagged as a follow-up).
   scroll term in `pipe_flow.gdshader` now always subtracts the same way
   (`tex_uv.x -= TIME * (scroll_speed / tile_world_length)`, no `flow_sign`
   factor) — direction lives solely in the mirror.
+- **Loop/cycle flow-direction fix (Jul 2026):** `WaterGraph.compute_flow_
+  directions()` used to be a plain BFS spanning tree from the hookup, plus a
+  naive per-edge distance comparison for any "closing" edge that reconnects
+  two already-visited nodes (i.e. a real physical loop, not just branching).
+  That local comparison always pointed the closing edge INTO whichever
+  endpoint was farther from the hookup — but that endpoint is also usually
+  the tree's own deepest node in the loop, which already receives an inflow
+  from its tree parent. Result: two independent inflows converging on one
+  node, arrows visibly meeting at a point instead of circulating. Fix —
+  treat each closing edge as completing a fundamental cycle relative to the
+  spanning tree: find the two branches' lowest common ancestor (LCA) via
+  parent-pointer walk, compare each branch's real-world path length from the
+  LCA (shorter/more direct branch is "dominant" and keeps its natural
+  tree direction), then **reverse** every tree edge along the "recessive"
+  branch's spine (LCA → recessive endpoint) so the whole loop circulates one
+  consistent way; the closing edge is oriented dominant-endpoint →
+  recessive-endpoint. Exact ties (equally direct branches) are broken by
+  **registration order** — whichever branch's LCA-adjacent segment the
+  player physically placed/connected first wins (new `_edge_creation_order`
+  dict on `WaterGraph`, stamped once per edge_id the first time it's
+  registered — edge_id itself is order-independent by design so a separate
+  counter was needed). Multiple/nested loops are resolved by processing
+  closing edges in creation order, with a `reversed_tree_edges` guard so an
+  already-flipped spine from an earlier (older) loop isn't re-flipped by a
+  later, overlapping one — the earlier loop's decision wins; heavily
+  overlapping multi-loop topologies are handled reasonably but not
+  exhaustively proven for every possible nesting. `phase_offset` (used for
+  cross-joint scroll continuity) also had to change: raw hookup-BFS distance
+  is wrong for reversed edges, so a second pass now walks the graph strictly
+  following each edge's FINAL resolved direction from the hookup outward,
+  accumulating real distance along the actual flow path, and that's what
+  feeds `phase_offset` now. Adding a new branch/connection does NOT re-flip
+  an existing, unrelated loop's direction — only cycles whose own topology
+  or relative directness actually changes get re-evaluated (this ran on
+  every full recompute, but the tie-break math itself only depends on the
+  loop's own two branches, so unrelated loops are stable in practice).
 - **"mL/day" now means per in-game day, not per real 24-hour day (Jul 2026,
   same-day follow-up):** `WaterDispenser._process()`'s tank-fill integration
   used to divide `received_mL_per_day` by a literal `86400.0` (real seconds
