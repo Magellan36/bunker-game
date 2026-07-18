@@ -15,6 +15,29 @@ uniform float flow_sign : hint_range(-1.0, 1.0) = 1.0;   // set per-segment from
                                                           // WaterPipeSegment.set_flow_sign()
 uniform bool build_mode_visible = false;   // toggled per-segment, not a global setting
 
+// ─── World-space uniform arrow scale/speed + cross-joint phase (Jul 2026) ───
+// CylinderMesh's V axis always spans exactly 0->1 across the WHOLE segment
+// regardless of its real length, so without correction the arrow pattern
+// gets stretched to fit once per segment (short pipe = compressed pattern,
+// long pipe = stretched pattern) and a fixed UV-rate scroll therefore covers
+// more physical distance/sec on longer pipes (visibly faster). Fix: scale
+// tex_uv.x by this segment's own real length ÷ the desired world-units per
+// arrow tile BEFORE scrolling, so tile size and scroll speed are constant in
+// world-space on every pipe regardless of length.
+uniform float pipe_length : hint_range(0.01, 100.0) = 1.0;   // this segment's real length (m),
+                                                              // set from WaterPipeSegment._build_arrow_overlay()
+uniform float tile_world_length : hint_range(0.05, 5.0) = 0.4;   // desired world-units per arrow tile
+
+// Local per-segment UV starting at 0 caused a phase discontinuity at every
+// joint (arrows visibly "restarting" segment to segment instead of flowing
+// through). phase_offset is each segment's upstream endpoint's cumulative
+// REAL-WORLD distance from the hookup (in world units, from
+// WaterGraph.compute_flow_directions()), converted to UV tiles here the
+// same way pipe_length is — this keeps the scrolling texture's phase
+// continuous node-to-node instead of resetting per segment.
+uniform float phase_offset : hint_range(0.0, 10000.0) = 0.0;   // world units, set from
+                                                                // WaterPipeSegment.set_phase_offset()
+
 void fragment() {
 	if (!build_mode_visible) {
 		discard;
@@ -29,7 +52,21 @@ void fragment() {
 	// texture's U must be sampled from the mesh's V (length), and the
 	// texture's V (repeat band) from the mesh's U (circumference).
 	vec2 tex_uv = vec2(UV.y, UV.x);
-	tex_uv.x -= TIME * scroll_speed * flow_sign;
+
+	// Rescale the length-axis UV from "0..1 across this whole segment" to
+	// "0..(real world tiles across this segment)" so tile size is constant
+	// in world-space regardless of segment length, then add this segment's
+	// phase offset (also in tile units) so the pattern continues seamlessly
+	// from the upstream joint instead of restarting at 0.
+	float tiles_per_segment = pipe_length / tile_world_length;
+	float phase_tiles = phase_offset / tile_world_length;
+	tex_uv.x = tex_uv.x * tiles_per_segment + phase_tiles;
+
+	// Scroll at a constant world-units/sec rate (scroll_speed is world-units/sec,
+	// converted to tile units the same way) rather than a fixed UV-rate, so
+	// scroll speed is also constant in world-space across all pipe lengths.
+	tex_uv.x -= TIME * (scroll_speed / tile_world_length) * flow_sign;
+
 	vec4 tex = texture(arrow_texture, tex_uv);
 	ALBEDO = tex.rgb;
 	ALPHA = tex.a;

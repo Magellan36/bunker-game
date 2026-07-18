@@ -59,6 +59,10 @@ var _arrow_material: ShaderMaterial      = null
 const _ARROW_SHADER_PATH: String = "res://assets/shaders/pipe_flow.gdshader"
 const _ARROW_TEXTURE_PATH: String = "res://assets/textures/water/pipe_flow_arrow.png"
 const ARROW_RADIUS_SCALE: float = 1.03   ## just outside the pipe's own radius, avoids z-fighting
+## World-units/sec (NOT a UV-rate — see pipe_flow.gdshader's July 2026
+## world-space-uniform rework: tile size and scroll speed are now both
+## constant in world-space across all pipe lengths, so this value reads as
+## "arrow travels this many meters per second" regardless of segment length).
 const ARROW_SCROLL_SPEED: float = 1.2
 
 ## True for a temporary ghost/preview instance (see make_ghost_pipe()) — set
@@ -166,6 +170,9 @@ func _build_arrow_overlay(length: float) -> void:
 	_arrow_material.set_shader_parameter("arrow_texture", arrow_tex)
 	_arrow_material.set_shader_parameter("scroll_speed", ARROW_SCROLL_SPEED)
 	_arrow_material.set_shader_parameter("flow_sign", 1.0)
+	## This segment's own real length — lets the shader keep arrow tile size
+	## constant in world-space regardless of segment length (July 2026 fix).
+	_arrow_material.set_shader_parameter("pipe_length", length)
 	## Default to whatever build mode is doing RIGHT NOW, not always false —
 	## pipes placed while already in build mode (the only time pipes ever get
 	## placed) previously stayed dark until the player exited/re-entered build
@@ -193,6 +200,16 @@ func _build_arrow_overlay(length: float) -> void:
 func set_flow_sign(a_is_upstream: bool) -> void:
 	if _arrow_material != null:
 		_arrow_material.set_shader_parameter("flow_sign", 1.0 if a_is_upstream else -1.0)
+
+## Called by WaterManager.recompute_flow_directions() alongside set_flow_sign()
+## — `value` is this segment's upstream endpoint's cumulative REAL-WORLD
+## distance from the hookup (world units, from WaterGraph.
+## compute_flow_directions()'s phase_offset). Keeps the scrolling arrow
+## texture's phase continuous across joints instead of restarting at 0 on
+## every segment (July 2026 arrow continuity fix).
+func set_phase_offset(value: float) -> void:
+	if _arrow_material != null:
+		_arrow_material.set_shader_parameter("phase_offset", value)
 
 ## Reads BuildModeController's live is_active flag at the moment this segment
 ## spawns — same "get()" pattern WireGraphBuilder already uses for this exact

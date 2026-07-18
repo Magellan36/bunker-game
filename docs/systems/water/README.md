@@ -198,6 +198,31 @@ branching may already partially work (untested, flagged as a follow-up).
   controller up and reads its live `is_active` flag (same `get("is_active")`
   pattern `WireGraphBuilder.gd` already uses) so a freshly spawned segment's
   overlay initializes visible/hidden correctly on the very first frame.
+- **Pipe flow-arrow world-space scale + cross-joint phase continuity fix
+  (Jul 2026, same-day follow-up):** two related bugs in the same overlay —
+  (1) arrows appeared stretched/compressed differently per pipe segment and
+  scrolled visibly faster on long pipes than short ones, and (2) arrow
+  animation restarted its phase at every joint instead of flowing through.
+  Root cause of (1): `pipe_flow.gdshader`'s length-axis UV always spans
+  exactly 0-1 across a CylinderMesh segment regardless of its real length,
+  so the arrow pattern was stretched to fit once per segment and a
+  fixed-UV-rate scroll covered more physical distance/sec on longer pipes.
+  Root cause of (2): each segment's UV started at 0 with no knowledge of
+  its position along the overall pipe run. Fix: `pipe_flow.gdshader` gained
+  `pipe_length`/`tile_world_length` uniforms (scales the length-axis UV by
+  real segment length ÷ desired world-units-per-tile before scrolling, and
+  scrolls by world-units/sec, not UV/sec — both tile size and scroll speed
+  now constant in world-space on every pipe) and a `phase_offset` uniform
+  (added into the scaled UV before scrolling). `WaterGraph.
+  compute_flow_directions()` was reworked from hop-count BFS to real
+  Euclidean cumulative-distance BFS (using nodes' stored `"pos"`), now
+  returning `{"a_is_upstream": bool, "phase_offset": float}` per edge instead
+  of a bare bool — `phase_offset` is the upstream endpoint's cumulative
+  real-world distance from the hookup. `WaterManager.
+  recompute_flow_directions()` reads both fields and calls both
+  `WaterPipeSegment.set_flow_sign()` and the new `set_phase_offset()`.
+  `WaterPipeSegment._build_arrow_overlay()` now also sets `pipe_length` from
+  the segment's own real length at build time.
 - **"mL/day" now means per in-game day, not per real 24-hour day (Jul 2026,
   same-day follow-up):** `WaterDispenser._process()`'s tank-fill integration
   used to divide `received_mL_per_day` by a literal `86400.0` (real seconds
