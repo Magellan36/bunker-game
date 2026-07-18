@@ -152,6 +152,9 @@ var _power_manager: Node = null
 ## _power_manager is: added to scene tree, tagged "water_manager" group, NOT
 ## an autoload (per-world-instance state). See scripts/world/water/WaterManager.gd.
 var _water_manager: Node = null
+
+## Part A (structure refactor, Jul 2026) — see scripts/world/structure/PillarRegistry.gd
+var _pillar_registry: Node = null
 var _lighting_director: Node = null   ## LightingDirector.gd, built via Node.new()+set_script() same as _power_manager
 ## _reconciler removed (Stage 5) — reconciler fully retired.
 
@@ -192,6 +195,7 @@ var _wire_builder: WireGraphBuilder = null
 func _ready() -> void:
 	_wire_builder = WireGraphBuilder.new(self)
 	add_to_group("main_world")   ## Lets PowerManager find us as fallback wire parent
+	_setup_pillar_registry()   ## Must exist before first wire/perimeter solve populates it
 	_setup_power_manager()   ## Must be first — lights self-register in _ready()
 	_setup_water_manager()
 	_setup_lighting()
@@ -370,6 +374,21 @@ func _setup_water_manager() -> void:
 	_water_manager.name = "WaterManager"
 	_water_manager.add_to_group("water_manager")
 	add_child(_water_manager)
+
+## Part A (structure refactor, Jul 2026) — mirrors _setup_water_manager()'s
+## shape exactly. Standalone registry, no signals — see PillarRegistry.gd.
+## Must run before the first wire/perimeter solve (_wire_builder calls),
+## which is why it's called before _setup_power_manager() in _ready().
+func _setup_pillar_registry() -> void:
+	var pr_script: GDScript = load("res://scripts/world/structure/PillarRegistry.gd")
+	if pr_script == null:
+		push_warning("MainWorld: PillarRegistry.gd not found — pillar clearance disabled")
+		return
+	_pillar_registry = Node.new()
+	_pillar_registry.set_script(pr_script)
+	_pillar_registry.name = "PillarRegistry"
+	_pillar_registry.add_to_group("pillar_registry")
+	add_child(_pillar_registry)
 
 ## Connects PowerManager signals to HUD floating alerts.
 ## Called deferred from _setup_power_manager() to ensure HUD is ready.

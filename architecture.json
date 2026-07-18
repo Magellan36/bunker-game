@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-16T23:44:24.681538+00:00",
+  "generated_at": "2026-07-18T13:03:58.653706+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 76,
-  "total_lines": 31251,
+  "script_count": 81,
+  "total_lines": 33320,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -167,7 +167,7 @@
     },
     {
       "path": "res://scripts/player/InteractionSystem.gd",
-      "line_count": 688,
+      "line_count": 707,
       "class_name": "InteractionSystem",
       "extends": "Node3D",
       "exports": [
@@ -206,7 +206,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 709
+      "complexity_score": 728
     },
     {
       "path": "res://scripts/player/Player.gd",
@@ -376,7 +376,7 @@
     },
     {
       "path": "res://scripts/ui/build/BuildModeHUD.gd",
-      "line_count": 1036,
+      "line_count": 1040,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -473,7 +473,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 1082
+      "complexity_score": 1086
     },
     {
       "path": "res://scripts/ui/common/UIFade.gd",
@@ -863,6 +863,61 @@
       "group_lookups": [],
       "autoload_references": [],
       "complexity_score": 497
+    },
+    {
+      "path": "res://scripts/ui/menus/AdminMenu.gd",
+      "line_count": 279,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "closed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "_close_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "toggle",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "open",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 16,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [
+        "player_stats",
+        "power_manager",
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 301
     },
     {
       "path": "res://scripts/ui/menus/AdminSpawnMenu.gd",
@@ -1276,7 +1331,7 @@
     },
     {
       "path": "res://scripts/ui/water/WaterDispenserUI.gd",
-      "line_count": 490,
+      "line_count": 511,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1329,7 +1384,7 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 16,
+      "private_function_count": 17,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
@@ -1337,11 +1392,11 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 512
+      "complexity_score": 534
     },
     {
       "path": "res://scripts/ui/water/WaterInfoUI.gd",
-      "line_count": 427,
+      "line_count": 475,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1372,7 +1427,7 @@
       "public_functions": [
         {
           "name": "open",
-          "args": "display_name: String, is_source: bool, device_ref: Node",
+          "args": "display_name: String, mode: String, device_ref: Node",
           "returns": "void"
         },
         {
@@ -1381,7 +1436,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 16,
+      "private_function_count": 17,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
@@ -1389,7 +1444,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 447
+      "complexity_score": 496
     },
     {
       "path": "res://scripts/world/build/BuildMaterials.gd",
@@ -1411,7 +1466,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2189,
+      "line_count": 2453,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -1495,6 +1550,21 @@
           "returns": "void"
         },
         {
+          "name": "get_placed_objects_for_save",
+          "args": "",
+          "returns": "Array"
+        },
+        {
+          "name": "clear_all_player_placed",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "restore_placed_objects",
+          "args": "data: Array",
+          "returns": "void"
+        },
+        {
           "name": "spawn_structure",
           "args": "tile_id: int, pos: Vector3, angle_deg: float, is_true_pregen: bool = false",
           "returns": "Node3D"
@@ -1515,7 +1585,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 70,
+      "private_function_count": 72,
       "preloads": [
         "res://scripts/world/furniture/Shelving.gd",
         "res://scripts/world/items/HeavyConsumerTest.gd",
@@ -1533,14 +1603,17 @@
       ],
       "group_lookups": [
         "power_manager",
+        "water_manager",
         "world"
       ],
-      "autoload_references": [],
-      "complexity_score": 2271
+      "autoload_references": [
+        "SaveManager"
+      ],
+      "complexity_score": 2543
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
-      "line_count": 285,
+      "line_count": 295,
       "class_name": "BuildUndoStack",
       "extends": "RefCounted",
       "exports": [],
@@ -1559,11 +1632,11 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 293
+      "complexity_score": 303
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
-      "line_count": 445,
+      "line_count": 488,
       "class_name": "GhostPreview",
       "extends": "RefCounted",
       "exports": [],
@@ -1577,9 +1650,11 @@
         "res://scripts/world/water/WaterDispenser.gd",
         "res://scripts/world/water/WaterHookup.gd"
       ],
-      "group_lookups": [],
+      "group_lookups": [
+        "water_manager"
+      ],
       "autoload_references": [],
-      "complexity_score": 451
+      "complexity_score": 494
     },
     {
       "path": "res://scripts/world/build/MoveDuplicateTool.gd",
@@ -1633,7 +1708,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 1027,
+      "line_count": 1172,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -1719,6 +1794,16 @@
       ],
       "public_functions": [
         {
+          "name": "get_player_wires_for_save",
+          "args": "",
+          "returns": "Array"
+        },
+        {
+          "name": "restore_player_wires",
+          "args": "data: Array",
+          "returns": "void"
+        },
+        {
           "name": "spend_cash",
           "args": "amount: int",
           "returns": "bool"
@@ -1739,19 +1824,22 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 41,
+      "private_function_count": 43,
       "preloads": [
         "res://assets/textures/concrete_floor.jpg",
         "res://scripts/ui/build/BuildModeHUD.gd",
         "res://scripts/ui/debug/DebugOverlay.gd",
         "res://scripts/ui/inventory/InventoryManager.gd",
         "res://scripts/ui/inventory/ShelfUI.gd",
+        "res://scripts/ui/menus/AdminMenu.gd",
         "res://scripts/ui/menus/AdminSpawnMenu.gd",
         "res://scripts/ui/menus/PauseMenuUI.gd",
         "res://scripts/world/build/BuildModeController.gd",
         "res://scripts/world/environment/BunkerPregen.gd",
         "res://scripts/world/environment/LightingDirector.gd",
         "res://scripts/world/power/PowerManager.gd",
+        "res://scripts/world/power/WireSegment.gd",
+        "res://scripts/world/structure/PillarRegistry.gd",
         "res://scripts/world/water/WaterManager.gd"
       ],
       "group_lookups": [
@@ -1761,11 +1849,11 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1076
+      "complexity_score": 1227
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",
-      "line_count": 156,
+      "line_count": 194,
       "class_name": null,
       "extends": "Node",
       "exports": [],
@@ -1774,7 +1862,7 @@
       "public_functions": [
         {
           "name": "register_field",
-          "args": "key: String, getter: Callable, setter: Callable",
+          "args": "key: String, getter: Callable, setter: Callable, phase: int = 0",
           "returns": "void"
         },
         {
@@ -1801,6 +1889,16 @@
           "name": "load_game",
           "args": "slot: int",
           "returns": "bool"
+        },
+        {
+          "name": "vec3_to_dict",
+          "args": "v: Vector3",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "dict_to_vec3",
+          "args": "d: Dictionary",
+          "returns": "Vector3"
         }
       ],
       "private_function_count": 2,
@@ -1811,7 +1909,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 170
+      "complexity_score": 212
     },
     {
       "path": "res://scripts/world/core/WorldManager.gd",
@@ -1930,7 +2028,7 @@
     },
     {
       "path": "res://scripts/world/environment/RockSurround.gd",
-      "line_count": 336,
+      "line_count": 366,
       "class_name": null,
       "extends": "Node3D",
       "exports": [
@@ -1987,6 +2085,16 @@
           "name": "restore_chunk",
           "args": "chunk_id: Vector2i",
           "returns": "void"
+        },
+        {
+          "name": "get_dug_chunk_ids_for_save",
+          "args": "",
+          "returns": "Array"
+        },
+        {
+          "name": "restore_dug_chunks",
+          "args": "ids: Array",
+          "returns": "void"
         }
       ],
       "private_function_count": 8,
@@ -1995,7 +2103,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 354
+      "complexity_score": 388
     },
     {
       "path": "res://scripts/world/furniture/Bed.gd",
@@ -2888,7 +2996,7 @@
     },
     {
       "path": "res://scripts/world/power/BatteryBank.gd",
-      "line_count": 625,
+      "line_count": 635,
       "class_name": "BatteryBank",
       "extends": "StaticBody3D",
       "exports": [
@@ -2925,6 +3033,16 @@
           "returns": "void"
         },
         {
+          "name": "get_charge_wh",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "get_enabled",
+          "args": "",
+          "returns": "bool"
+        },
+        {
           "name": "set_enabled",
           "args": "on: bool",
           "returns": "void"
@@ -2953,11 +3071,11 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 659
+      "complexity_score": 673
     },
     {
       "path": "res://scripts/world/power/BreakerBox.gd",
-      "line_count": 946,
+      "line_count": 966,
       "class_name": "BreakerBox",
       "extends": "StaticBody3D",
       "exports": [],
@@ -2981,6 +3099,26 @@
           "name": "notify_wire_placed",
           "args": "wn_key: String, wn_pos: Vector3",
           "returns": "void"
+        },
+        {
+          "name": "get_tripped",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "get_pass_battery",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "get_pass_generator",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "get_breaker_id",
+          "args": "",
+          "returns": "String"
         },
         {
           "name": "set_tripped",
@@ -3012,7 +3150,7 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 980
+      "complexity_score": 1008
     },
     {
       "path": "res://scripts/world/power/DeviceDatabase.gd",
@@ -3199,7 +3337,7 @@
     },
     {
       "path": "res://scripts/world/power/PowerManager.gd",
-      "line_count": 3715,
+      "line_count": 3776,
       "class_name": "PowerManager",
       "extends": "Node",
       "exports": [],
@@ -3506,12 +3644,17 @@
         },
         {
           "name": "register_generator",
-          "args": "gen_id:    String,\n\t\twatts:     float,\n\t\tnode:      Node  = null,\n\t\tis_backup: bool  = false,\n\t\tfuel:      float = 100.0,\n\t\thealth:    float = 100.0",
+          "args": "gen_id:    String,\n\t\twatts:     float,\n\t\tnode:      Node  = null,\n\t\tis_backup: bool  = false,\n\t\tfuel:      float = 100.0,\n\t\thealth:    float = 100.0,\n\t\tinfinite:  bool  = false",
           "returns": "void"
         },
         {
           "name": "unregister_generator",
           "args": "gen_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "admin_add_power",
+          "args": "delta_watts: float",
           "returns": "void"
         },
         {
@@ -3738,7 +3881,7 @@
       "autoload_references": [
         "DeviceDatabase"
       ],
-      "complexity_score": 3929
+      "complexity_score": 3992
     },
     {
       "path": "res://scripts/world/power/PowerPriorityInteractable.gd",
@@ -3768,7 +3911,7 @@
     },
     {
       "path": "res://scripts/world/power/PowerRegistry.gd",
-      "line_count": 356,
+      "line_count": 362,
       "class_name": "PowerRegistry",
       "extends": "RefCounted",
       "exports": [],
@@ -3822,7 +3965,7 @@
         },
         {
           "name": "register_generator",
-          "args": "gen_id:    String,\n\t\twatts:     float,\n\t\tnode:      Node  = null,\n\t\tis_backup: bool  = false,\n\t\tfuel:      float = 100.0,\n\t\thealth:    float = 100.0",
+          "args": "gen_id:    String,\n\t\twatts:     float,\n\t\tnode:      Node  = null,\n\t\tis_backup: bool  = false,\n\t\tfuel:      float = 100.0,\n\t\thealth:    float = 100.0,\n\t\tinfinite:  bool  = false",
           "returns": "void"
         },
         {
@@ -3897,7 +4040,7 @@
       "autoload_references": [
         "DeviceDatabase"
       ],
-      "complexity_score": 404
+      "complexity_score": 410
     },
     {
       "path": "res://scripts/world/power/PowerSolver.gd",
@@ -4090,22 +4233,23 @@
     },
     {
       "path": "res://scripts/world/power/WireGraphBuilder.gd",
-      "line_count": 1506,
+      "line_count": 1526,
       "class_name": "WireGraphBuilder",
       "extends": "RefCounted",
       "exports": [],
       "signals": [],
       "connect_call_sites": [],
       "public_functions": [],
-      "private_function_count": 10,
+      "private_function_count": 11,
       "preloads": [
         "res://scripts/world/power/WireSegment.gd"
       ],
       "group_lookups": [
+        "pillar_registry",
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 1516
+      "complexity_score": 1537
     },
     {
       "path": "res://scripts/world/power/WireSegment.gd",
@@ -4207,8 +4351,51 @@
       "complexity_score": 109
     },
     {
+      "path": "res://scripts/world/structure/BunkerStructure.gd",
+      "line_count": 29,
+      "class_name": "BunkerStructure",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 29
+    },
+    {
+      "path": "res://scripts/world/structure/PillarRegistry.gd",
+      "line_count": 45,
+      "class_name": "PillarRegistry",
+      "extends": "Node",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_all",
+          "args": "positions: Dictionary",
+          "returns": "void"
+        },
+        {
+          "name": "get_all_positions",
+          "args": "",
+          "returns": "Dictionary"
+        }
+      ],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [
+        "pillar_registry"
+      ],
+      "autoload_references": [],
+      "complexity_score": 49
+    },
+    {
       "path": "res://scripts/world/water/WaterDispenser.gd",
-      "line_count": 200,
+      "line_count": 243,
       "class_name": "WaterDispenser",
       "extends": "StaticBody3D",
       "exports": [
@@ -4246,6 +4433,11 @@
           "returns": "void"
         },
         {
+          "name": "set_fill",
+          "args": "value: float",
+          "returns": "void"
+        },
+        {
           "name": "get_interact_prompt",
           "args": "",
           "returns": "String"
@@ -4261,14 +4453,15 @@
         "res://scripts/ui/water/WaterDispenserUI.gd"
       ],
       "group_lookups": [
+        "player_stats",
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 218
+      "complexity_score": 263
     },
     {
       "path": "res://scripts/world/water/WaterGraph.gd",
-      "line_count": 269,
+      "line_count": 511,
       "class_name": "WaterGraph",
       "extends": "RefCounted",
       "exports": [],
@@ -4346,6 +4539,16 @@
           "returns": "Array[String]"
         },
         {
+          "name": "get_unpurified_reachable_keys",
+          "args": "hookup_key: String",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "compute_flow_directions",
+          "args": "hookup_key: String",
+          "returns": "Dictionary"
+        },
+        {
           "name": "count_reachable_endpoints",
           "args": "hookup_key: String",
           "returns": "int"
@@ -4356,15 +4559,15 @@
           "returns": "String"
         }
       ],
-      "private_function_count": 1,
+      "private_function_count": 3,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 302
+      "complexity_score": 550
     },
     {
       "path": "res://scripts/world/water/WaterHookup.gd",
-      "line_count": 444,
+      "line_count": 438,
       "class_name": "WaterHookup",
       "extends": "StaticBody3D",
       "exports": [],
@@ -4417,20 +4620,20 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 9,
+      "private_function_count": 8,
       "preloads": [
         "res://scripts/ui/water/WaterInfoUI.gd"
       ],
       "group_lookups": [
-        "main_world",
+        "player_stats",
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 469
+      "complexity_score": 462
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
-      "line_count": 253,
+      "line_count": 484,
       "class_name": "WaterManager",
       "extends": "Node",
       "exports": [],
@@ -4498,6 +4701,21 @@
           "returns": "bool"
         },
         {
+          "name": "get_pipe_network_for_save",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "clear_water_pipes",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "restore_pipe_network",
+          "args": "data: Dictionary",
+          "returns": "void"
+        },
+        {
           "name": "register_hookup",
           "args": "hookup: Node3D",
           "returns": "void"
@@ -4506,6 +4724,11 @@
           "name": "unregister_hookup",
           "args": "hookup: Node3D",
           "returns": "void"
+        },
+        {
+          "name": "get_the_hookup",
+          "args": "",
+          "returns": "WaterHookup"
         },
         {
           "name": "get_connected_consumer_count",
@@ -4523,22 +4746,48 @@
           "returns": "Dictionary"
         },
         {
+          "name": "get_upstream_raw_quality",
+          "args": "node_key: String",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "delete_and_refund_edge",
+          "args": "edge_id: String",
+          "returns": "bool"
+        },
+        {
+          "name": "find_pipe_visual",
+          "args": "edge_id: String",
+          "returns": "WaterPipeSegment"
+        },
+        {
+          "name": "recompute_flow_directions",
+          "args": "",
+          "returns": "void"
+        },
+        {
           "name": "get_dynamic_max_mL_per_day",
           "args": "consumer_node_key: String, device_priority: int",
           "returns": "float"
         }
       ],
       "private_function_count": 6,
-      "preloads": [],
+      "preloads": [
+        "res://scripts/world/water/WaterPipeElbow.gd",
+        "res://scripts/world/water/WaterPipeSegment.gd"
+      ],
       "group_lookups": [
+        "main_world",
         "water_manager"
       ],
-      "autoload_references": [],
-      "complexity_score": 295
+      "autoload_references": [
+        "SaveManager"
+      ],
+      "complexity_score": 542
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 1105,
+      "line_count": 1119,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4577,11 +4826,11 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 1142
+      "complexity_score": 1156
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",
-      "line_count": 44,
+      "line_count": 48,
       "class_name": "WaterPipeElbow",
       "extends": "Node3D",
       "exports": [],
@@ -4592,11 +4841,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 46
+      "complexity_score": 50
     },
     {
       "path": "res://scripts/world/water/WaterPipeSegment.gd",
-      "line_count": 143,
+      "line_count": 270,
       "class_name": "WaterPipeSegment",
       "extends": "Node3D",
       "exports": [],
@@ -4607,15 +4856,103 @@
           "name": "set_endpoints",
           "args": "a: Vector3, b: Vector3",
           "returns": "void"
+        },
+        {
+          "name": "set_flow_sign",
+          "args": "a_is_upstream: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_phase_offset",
+          "args": "value: float",
+          "returns": "void"
+        },
+        {
+          "name": "set_has_flow",
+          "args": "value: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_build_mode_visible",
+          "args": "value: bool",
+          "returns": "void"
         }
       ],
-      "private_function_count": 2,
+      "private_function_count": 4,
       "preloads": [
         "res://scripts/world/water/WaterPipeSegment.gd"
       ],
+      "group_lookups": [
+        "build_mode_controller"
+      ],
+      "autoload_references": [],
+      "complexity_score": 284
+    },
+    {
+      "path": "res://scripts/world/water/WaterPurifier.gd",
+      "line_count": 187,
+      "class_name": "WaterPurifier",
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_info_ui",
+          "signal": "closed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "revert_to_corner",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_node_key",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "orient_along",
+          "args": "pos_a: Vector3, pos_b: Vector3",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [
+        "res://scripts/ui/water/WaterInfoUI.gd",
+        "res://scripts/world/water/WaterPipeElbow.gd"
+      ],
+      "group_lookups": [
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 201
+    },
+    {
+      "path": "res://scripts/world/water/WaterPurifierAttach.gd",
+      "line_count": 135,
+      "class_name": "WaterPurifierAttach",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 147
+      "complexity_score": 135
     },
     {
       "path": "res://scripts/world/water/WaterSolver.gd",
@@ -4836,6 +5173,11 @@
     },
     {
       "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/ui/menus/AdminMenu.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
       "to": "res://scripts/ui/menus/AdminSpawnMenu.gd",
       "via": "preload"
     },
@@ -4862,6 +5204,16 @@
     {
       "from": "res://scripts/world/core/MainWorld.gd",
       "to": "res://scripts/world/power/PowerManager.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/world/power/WireSegment.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/world/structure/PillarRegistry.gd",
       "via": "preload"
     },
     {
@@ -4917,6 +5269,26 @@
     {
       "from": "res://scripts/world/water/WaterHookup.gd",
       "to": "res://scripts/ui/water/WaterInfoUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/water/WaterManager.gd",
+      "to": "res://scripts/world/water/WaterPipeElbow.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/water/WaterManager.gd",
+      "to": "res://scripts/world/water/WaterPipeSegment.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/water/WaterPurifier.gd",
+      "to": "res://scripts/ui/water/WaterInfoUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/water/WaterPurifier.gd",
+      "to": "res://scripts/world/water/WaterPipeElbow.gd",
       "via": "preload"
     },
     {

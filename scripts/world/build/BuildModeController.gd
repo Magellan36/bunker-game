@@ -1492,7 +1492,7 @@ func _try_deconstruct() -> void:
 
 	# If a wall or pillar was destroyed, remove any lights that were mounted on it.
 	# A light is "on" this structure if its XZ is within LIGHT_WALL_SNAP_RANGE of it.
-	if entry["tile_id"] == TILE_WALL or entry["tile_id"] == TILE_PILLAR:
+	if BunkerStructure.is_wall_or_pillar(entry["tile_id"]):
 		_remove_unsupported_lights_near(placed_pos)
 
 	_spawn_float_label_at_pos(placed_pos, refund, true)
@@ -2196,7 +2196,7 @@ func _has_wall_surface_behind(pos: Vector3, angle_deg: float) -> bool:
 	while node != null:
 		if node.has_meta("tile_id"):
 			var tid: int = node.get_meta("tile_id")
-			return tid == TILE_WALL or tid == TILE_PILLAR
+			return BunkerStructure.is_wall_or_pillar(tid)
 		node = node.get_parent()
 
 	# Also accept GridMap geometry (bunker pregen walls)
@@ -2294,7 +2294,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			var cell_z: int = roundi(pos.z)
 			for cy: int in [0, 1]:
 				var cell_item: int = gridmap.get_cell_item(Vector3i(cell_x, cy, cell_z))
-				if cell_item == TILE_WALL or cell_item == TILE_PILLAR:
+				if BunkerStructure.is_wall_or_pillar(cell_item):
 					return true
 		return false
 	return _is_position_occupied(pos, tile_id)
@@ -2377,7 +2377,7 @@ func _is_position_occupied(pos: Vector3, tile_id: int = -1) -> bool:
 		if absf(pos.x - cell_cx) < 0.55 and absf(pos.z - cell_cz) < 0.55:
 			for cy: int in [0, 1]:
 				var cell_item: int = gridmap.get_cell_item(Vector3i(cell_x, cy, cell_z))
-				if cell_item == TILE_WALL or cell_item == TILE_PILLAR:
+				if BunkerStructure.is_wall_or_pillar(cell_item):
 					return true
 
 	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state

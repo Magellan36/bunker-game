@@ -128,7 +128,7 @@ func _snap_light_to_wall(base_pos: Vector3) -> Dictionary:
 		while node != null:
 			if node.has_meta("tile_id"):
 				var tid: int = node.get_meta("tile_id")
-				if tid == _owner.TILE_WALL or tid == _owner.TILE_PILLAR:
+				if BunkerStructure.is_wall_or_pillar(tid):
 					is_wall = true
 					is_true_pregen = node.has_meta("_is_true_pregen")
 				break
@@ -228,7 +228,7 @@ func _snap_breaker_to_wall(base_pos: Vector3) -> Dictionary:
 				is_true_pregen = true
 			if walk_node.has_meta("tile_id"):
 				hit_tile_id = walk_node.get_meta("tile_id") as int
-				if hit_tile_id == _owner.TILE_WALL or hit_tile_id == _owner.TILE_PILLAR:
+				if BunkerStructure.is_wall_or_pillar(hit_tile_id):
 					is_wall = true
 				break
 			if walk_node is GridMap:
@@ -460,7 +460,7 @@ func _snap_to_nearest_wall(base_pos: Vector3, cast_y_offset: float,
 		while node != null:
 			if node.has_meta("tile_id"):
 				var tid: int = node.get_meta("tile_id")
-				if tid == _owner.TILE_WALL or tid == _owner.TILE_PILLAR:
+				if BunkerStructure.is_wall_or_pillar(tid):
 					is_wall = true
 					is_true_pregen = node.has_meta("_is_true_pregen")
 				break
