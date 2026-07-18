@@ -762,16 +762,27 @@ stable (matches the project's standing debug-logging discipline).
   original plan's own §A.6 recommendation, given this is the most complex
   change in this pass).
 - **Pillar clearance added (Part B, same pass):** `PillarRegistry` (Part A)
-  now feeds `WaterPipeDrawMode._adjust_for_pillar_clearance()` (pushes a
-  fresh corner point directly away from any pillar it's closer to than
-  `PillarRegistry.PILLAR_CLEARANCE_RADIUS`=0.34, out to exactly that radius)
-  and `_leg_clears_all_pillars()` (mid-leg segment check via the same
-  closest-point-on-segment math already used for pipe-vs-pipe collinear
-  checks). A mid-leg pillar clip is an INVALID placement (red ghost /
-  blocked confirm) — explicitly NOT a pathfind-around, to avoid
+  feeds `WaterPipeDrawMode._leg_clears_all_pillars()` (mid-leg segment check
+  via the same closest-point-on-segment math already used for pipe-vs-pipe
+  collinear checks). A mid-leg pillar clip is an INVALID placement (red
+  ghost / blocked confirm) — explicitly NOT a pathfind-around, to avoid
   over-engineering a rare case; flag to Brannon if it comes up often in
   practice. Vertical drops into floor devices are exempt (pillars are a
   ceiling-height horizontal-run concern only).
+- **Corner-pillar dogleg fix (root cause found + fixed, Jul 2026):** the
+  original corner-clearance handling (`_adjust_for_pillar_clearance()`)
+  pushed a violating elbow point radially straight away from the pillar's
+  center — moving it on BOTH axes at once, which silently broke the
+  90°-only routing guarantee right at the four pregen corner pillars
+  (visually: a short diagonal clip instead of a clean bend). Replaced with
+  `_dogleg_corner_around_pillars()`: when an elbow lands inside a pillar's
+  clearance radius, it's swapped for a small 3-point rectangular "step"
+  detour (extend the incoming leg a bit further along its own axis, jog
+  sideways one short perpendicular segment, correct back onto the outgoing
+  leg's axis) so every resulting segment stays strictly axis-aligned. Each
+  new sub-leg is still re-validated through `_leg_clears_all_pillars()`
+  exactly as before. `_PILLAR_DOGLEG_MARGIN`=0.12m is the buffer added on
+  top of `PILLAR_CLEARANCE_RADIUS` for the two jog segments.
 - **Pipe pricing set (July 2026 playtest pass):** `WaterPipeDrawMode.COST_PER_M`
   is now $24/m — 3x `WireDrawMode.COST_PER_M` ($8/m), per Brannon's explicit
   request. Kept as its own constant (water system stays standalone) — update
