@@ -91,7 +91,15 @@ func _is_empty() -> bool:
 	return current_fill_mL <= 0.0
 
 # ─── Prompt interface ─────────────────────────────────────────────────────────
+## While empty, the bottle presents itself as a distinct "Empty Water Bottle"
+## everywhere (name, ground prompt, inventory badge) instead of showing a
+## meaningless "0ml/750ml" readout. This is purely a display-state derived
+## from _is_empty() — no separate scene/class — so refilling from a dispenser
+## (current_fill_mL rising above 0) flips it straight back to a normal bottle
+## with normal readouts, same object the whole time.
 func get_display_name() -> String:
+	if _is_empty():
+		return "Empty Water Bottle"
 	return "Water Bottle"
 
 ## Water-quality colour convention — mirrored from WaterDispenserUI._quality_color()
@@ -123,6 +131,8 @@ func _fill_quality_bbcode() -> String:
 	return "[color=#%s]%dml/%dml (%d%%)[/color]" % [hex, ml, max_ml, q]
 
 func get_prompt_text() -> String:
+	if _is_empty():
+		return "[F] Pick up  Empty Water Bottle"
 	return "[F] Pick up  Water Bottle  —  " + _fill_quality_bbcode()
 
 func get_use_prompt() -> String:
@@ -130,6 +140,8 @@ func get_use_prompt() -> String:
 	if dispenser != null:
 		if current_fill_mL >= MAX_FILL_ML:
 			return ""   ## Already full — nothing to do at the dispenser
+		if _is_empty():
+			return "[Hold E] Refill Empty Water Bottle"
 		return "[Hold E] Refill Bottle  —  " + _fill_quality_bbcode()
 
 	if _is_empty():

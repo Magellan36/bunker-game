@@ -702,7 +702,7 @@
     },
     {
       "path": "res://scripts/ui/inventory/InventoryHUD.gd",
-      "line_count": 413,
+      "line_count": 444,
       "class_name": null,
       "extends": "Control",
       "exports": [],
@@ -2822,7 +2822,7 @@
     },
     {
       "path": "res://scripts/world/items/WaterBottle.gd",
-      "line_count": 289,
+      "line_count": 301,
       "class_name": null,
       "extends": "RigidBody3D",
       "exports": [

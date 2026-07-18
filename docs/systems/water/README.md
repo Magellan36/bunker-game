@@ -1092,7 +1092,17 @@ enough to note here:
   overflow the 64px slot) coloured by quality using the same red/yellow/green
   thresholds as `WaterDispenserUI`/`WaterInfoUI` (0-50 red, 50.01-75 yellow,
   75.01-100 green) — duplicated per this project's existing per-file-helper
-  convention, not shared via a base class.
+  convention, not shared via a base class. At 0mL (`fill_mL <= 0.0`) the
+  badge instead shows a single dim "EMPTY" line via
+  `InventoryHUD._draw_empty_badge()`.
+- **Empty state (Jul 2026):** no separate scene/class — purely a display
+  state derived from `_is_empty()` (`current_fill_mL <= 0.0`). While empty,
+  `get_display_name()` returns `"Empty Water Bottle"` (shown in the ground
+  prompt, held-item name, and inventory slot label) instead of the normal
+  "Water Bottle" + readout. Refilling from a dispenser (`current_fill_mL`
+  rising above 0 in `bottle_refill_tick()`) flips it straight back to a
+  normal bottle with normal mL/quality readouts everywhere — same object,
+  no state to migrate.
 - **Prompt text (Jul 2026):** ground pickup (`get_prompt_text()`), drink and
   refill lines (`get_use_prompt()`) all show the same
   `"Xml/750ml (Q%)"` fragment via `WaterBottle._fill_quality_bbcode()`,
