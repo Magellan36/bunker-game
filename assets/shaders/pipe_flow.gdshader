@@ -19,9 +19,18 @@ void fragment() {
 	if (!build_mode_visible) {
 		discard;
 	}
-	vec2 scrolled_uv = UV;
-	scrolled_uv.x -= TIME * scroll_speed * flow_sign;
-	vec4 tex = texture(arrow_texture, scrolled_uv);
+	// Godot's CylinderMesh side-surface UV wraps U around the circumference
+	// and V along the cylinder's height/length axis — confirmed by the
+	// reported bug (arrows visibly rotating AROUND the pipe rather than
+	// sliding along it: scrolling UV.x was scrolling around the
+	// circumference, not along the pipe's length). The arrow_texture image
+	// itself is drawn with its chevrons pointing along ITS OWN U axis
+	// (image-x), meant to repeat/scroll along the pipe's length — so the
+	// texture's U must be sampled from the mesh's V (length), and the
+	// texture's V (repeat band) from the mesh's U (circumference).
+	vec2 tex_uv = vec2(UV.y, UV.x);
+	tex_uv.x -= TIME * scroll_speed * flow_sign;
+	vec4 tex = texture(arrow_texture, tex_uv);
 	ALBEDO = tex.rgb;
 	ALPHA = tex.a;
 }

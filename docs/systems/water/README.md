@@ -121,6 +121,57 @@ branching may already partially work (untested, flagged as a follow-up).
   (`set_build_mode_visible()`) from `BuildModeController.enter_build_mode()`/
   `exit_build_mode()`, mirroring `WireSegment`'s group-based show/hide
   trigger point without altering the pipe's own always-on visibility.
+  **Shader fix (Jul 2026, polish pass):** the shader was scrolling `UV.x`,
+  which on a `CylinderMesh` side surface wraps AROUND the circumference, not
+  along the length — arrows visibly rotated around the pipe instead of
+  sliding along it. `arrow_texture`'s chevrons are drawn along the image's
+  own U axis, meant to repeat/scroll along the pipe's length, so the fix
+  swaps which mesh UV component feeds which texture axis (`tex_uv = vec2(UV.y,
+  UV.x)`) rather than just picking a different single component to scroll —
+  see the shader's own inline comment for the full reasoning. Direction
+  convention (`flow_sign`/`set_flow_sign()`) unchanged and still correct
+  under the fix.
+- **Water Quality colour convention:** water quality (0-100%) is always
+  shown red/yellow/green: **0-50% red, 50.01-75% yellow, 75.01-100% green**
+  (inclusive lower boundary each tier). Applies everywhere quality is
+  displayed — hookup/sink panels and the Purifier's read-only panel (all via
+  `WaterInfoUI._draw_quality_row()`), and `WaterDispenserUI`'s own Water
+  Quality line (via its local `_quality_color()`, deliberately duplicated
+  rather than shared — no `class_name` on either UI script, matches this
+  water UI system's existing per-file-helper convention). `QUALITY_GOOD_COLOR`
+  (real green) is a dedicated constant in both files — kept separate from
+  the pre-existing `OK_COLOR` (a blue used for demand/flow-rate "on target"
+  readouts, a different meaning, unchanged).
+- **Dispenser panel (Jul 2026, polish pass):** added a "WATER QUALITY" line
+  directly beneath "STORAGE" (same label/value styling, colour per the
+  convention above) — previously `stored_water_quality` was shown only as a
+  small dim placeholder line at the panel's bottom; that line is now
+  removed (replaced by the new one). "REQUESTED RATE" relabelled to "FLOW
+  RATE" (display label only — `requested_rate_mL_per_day` keeps its name,
+  it's still the value the slider writes into the solver's demand contract).
+- **Pipe placement from consumer devices (Jul 2026, polish pass):** starting
+  a pipe run was already generic at the graph level — `WaterPipeDrawMode
+  ._try_pick_source()` snaps onto ANY existing water graph node regardless
+  of role (hookup/joint/corner/endpoint), so a sink/dispenser (registered as
+  role `"endpoint"`) was already a valid pick. The actual bug was in
+  `_build_manhattan_path()`: it unconditionally collapsed the source point
+  straight to ceiling height with no rise segment, which only looked right
+  because the hookup/joints/corners it was designed against already sit at
+  ceiling height. Fixed by adding an initial vertical-rise leg, symmetric
+  with the existing final vertical-drop leg at the destination end — a
+  generic fix (works for any current or future floor-standing device), not
+  hookup- or device-specific.
+- **Purifier orientation fix (Jul 2026, polish pass):** the placed Purifier
+  model rendered perpendicular to its pipe run. Root cause: `orient_along()`
+  (called once at spawn) rotates the WHOLE `WaterPurifier` body via
+  `look_at()` + `rotate_object_local(RIGHT, 90°)` — the same sequence
+  `WaterPipeSegment.gd` uses to align its own mesh's local Y-axis along the
+  pipe — but `_build_mesh()` ALSO applied its own extra
+  `rotation_degrees = Vector3(90,0,0)` to the body/band `MeshInstance3D`
+  children, re-tipping the already-aligned cylinder onto local Z (a double
+  rotation). Fix: removed the mesh instances' own extra rotation — they now
+  inherit the parent's `orient_along()` rotation directly, with no
+  additional child-local rotation needed.
 - **Known gap (save/load):** `WaterManager.get_pipe_network_for_save()` only
   persists `"corner"`/`"pipe_joint"` roled nodes — a `"purifier"` node (and
   both edges touching it) is silently dropped on save/load today. Not fixed
@@ -286,8 +337,9 @@ float)` — the duck-typed demand contract + the small mutator API
 `WaterDispenserUI.gd` drives. `WaterDispenser.priority: int` (1-5, same
 convention), `requested_rate_mL_per_day: float` (the slider's stored value,
 untouched by `set_on()`), `is_on: bool`, `current_fill_mL: float`,
-`stored_water_quality: float` (0-100, unread/undecayed placeholder, same
-treatment as `WaterHookup.water_quality`).
+`stored_water_quality: float` (0-100, volume-weighted blend as water
+arrives — see Purification & Quality above; also drives the Dispenser UI's
+Water Quality line, see Water Quality Colour Convention below).
 
 **REMOVED (Jul 2026):** `WaterManager.get_per_consumer_rate_mL_per_day()` —
 the old equal-split method. No longer meaningful once allocation is
