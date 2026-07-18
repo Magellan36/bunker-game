@@ -238,7 +238,10 @@ func _draw() -> void:
 			## charge-count fallback chain below.
 			if item.has_method("get_bottle_badge_info"):
 				var bottle_info: Dictionary = item.get_bottle_badge_info()
-				_draw_quality_badge(font, x, float(bottle_info.get("fill_pct", 0.0)), float(bottle_info.get("quality", 100.0)))
+				_draw_quality_badge(font, x,
+					float(bottle_info.get("fill_mL", 0.0)),
+					float(bottle_info.get("max_fill_mL", 750.0)),
+					float(bottle_info.get("quality", 100.0)))
 			else:
 				var charge_info: Array = _get_charge_info(item)
 				if charge_info.size() == 2:
@@ -312,20 +315,25 @@ func _draw_charge_badge(font: Font, slot_x: float, current: int, max_charges: in
 		label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
 
 ## Draws the water-bottle-specific badge — same pill shape/position as
-## _draw_charge_badge() above, but the label is a fill PERCENTAGE (not a
-## charge count) and the colour follows water QUALITY, not charge state
+## _draw_charge_badge() above, but shows "Xml/Yml" on one line and "(Q%)" on
+## a second line beneath it, both coloured by water QUALITY (not charge state)
 ## (Jul 2026 bottle rework — separate, parallel contract, see
-## get_bottle_badge_info() / _bottle_quality_color() below).
-func _draw_quality_badge(font: Font, slot_x: float, fill_pct: float, quality: float) -> void:
-	var label: String = "%d%%" % int(round(fill_pct * 100.0))
+## get_bottle_badge_info() / _bottle_quality_color() below). Two lines instead
+## of one because "525ml/750ml (70%)" is far wider than the 64px slot — a
+## single line would overflow into the neighbouring slot's badge.
+func _draw_quality_badge(font: Font, slot_x: float, fill_mL: float, max_fill_mL: float, quality: float) -> void:
+	var line1: String = "%dml/%dml" % [int(round(fill_mL)), int(round(max_fill_mL))]
+	var line2: String = "(%d%%)" % int(round(quality))
 
 	var font_size: int = int(COLOR_CHARGE_FONT)
-	var tsz: Vector2  = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var tsz1: Vector2 = font.get_string_size(line1, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var tsz2: Vector2 = font.get_string_size(line2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
 	const PAD_X: float = 4.0
-	const PAD_Y: float = 3.0
-	var bw: float = tsz.x + PAD_X * 2.0
-	var bh: float = tsz.y + PAD_Y * 2.0
+	const PAD_Y: float = 2.0
+	const LINE_GAP: float = 1.0
+	var bw: float = maxf(tsz1.x, tsz2.x) + PAD_X * 2.0
+	var bh: float = tsz1.y + tsz2.y + LINE_GAP + PAD_Y * 2.0
 
 	const INSET: float = 3.0
 	var bx: float = slot_x + SLOT_SIZE - bw - INSET
@@ -337,8 +345,11 @@ func _draw_quality_badge(font: Font, slot_x: float, fill_pct: float, quality: fl
 	var text_col: Color = _bottle_quality_color(quality)
 
 	draw_string(font,
-		Vector2(bx + PAD_X, by + PAD_Y + tsz.y - 2.0),
-		label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+		Vector2(bx + bw - PAD_X - tsz1.x, by + PAD_Y + tsz1.y - 2.0),
+		line1, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+	draw_string(font,
+		Vector2(bx + bw - PAD_X - tsz2.x, by + PAD_Y + tsz1.y + LINE_GAP + tsz2.y - 2.0),
+		line2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
 
 ## Water quality red/yellow/green convention — mirrored verbatim from
 ## WaterDispenserUI._quality_color() (0-50 red / 50.01-75 yellow / 75.01-100

@@ -1086,9 +1086,19 @@ enough to note here:
   alongside `_tick_continuous_refuel()` (`docs/systems/player/README.md`),
   gated the same way (`_is_holding_e` + `has_method()` duck-type check).
 - **HUD badge:** `WaterBottle.get_bottle_badge_info()` returns `{"fill_pct",
-  "quality"}`, checked by `InventoryHUD._draw()` ahead of the generic
-  charge-count fallback chain (`docs/systems/ui/README.md`). Badge shows
-  fill% coloured by quality using the same red/yellow/green thresholds as
-  `WaterDispenserUI`/`WaterInfoUI` (0-50 red, 50.01-75 yellow, 75.01-100
-  green) — duplicated per this project's existing per-file-helper
+  "fill_mL", "max_fill_mL", "quality"}`, checked by `InventoryHUD._draw()`
+  ahead of the generic charge-count fallback chain (`docs/systems/ui/README.md`).
+  Badge shows a two-line "Xml/750ml" / "(Q%)" label (single line would
+  overflow the 64px slot) coloured by quality using the same red/yellow/green
+  thresholds as `WaterDispenserUI`/`WaterInfoUI` (0-50 red, 50.01-75 yellow,
+  75.01-100 green) — duplicated per this project's existing per-file-helper
   convention, not shared via a base class.
+- **Prompt text (Jul 2026):** ground pickup (`get_prompt_text()`), drink and
+  refill lines (`get_use_prompt()`) all show the same
+  `"Xml/750ml (Q%)"` fragment via `WaterBottle._fill_quality_bbcode()`,
+  colour-coded by quality using `[color=#hex]` BBCode. Requires the shared
+  world-space prompt Label (`InteractPrompt.tscn` → `Panel/Label`) to be a
+  `RichTextLabel` with `bbcode_enabled = true` (converted from a plain
+  `Label` — see `docs/systems/ui/README.md`). Other items' `[F]`/`[E]`/`[G]`
+  bracketed prompt text is unaffected: unrecognized BBCode tags render as
+  literal text in Godot 4's `RichTextLabel`.

@@ -14,7 +14,7 @@ extends CanvasLayer
 
 # ─── Template panel ───────────────────────────────────────────────────────────
 @onready var _template_panel: PanelContainer = $Panel
-@onready var _template_label: Label          = $Panel/Label
+@onready var _template_label: RichTextLabel  = $Panel/Label
 
 ## Vertical world-space offset so the panel floats above the object origin
 const WORLD_OFFSET: Vector3 = Vector3(0.0, 1.2, 0.0)
@@ -75,7 +75,7 @@ func _process(_delta: float) -> void:
 			alpha = clampf(1.0 - (dist - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0)
 
 		# Update text
-		var lbl: Label = p.get_node_or_null("Label") as Label
+		var lbl: RichTextLabel = p.get_node_or_null("Label") as RichTextLabel
 		var txt: String = entry.get("text", "")
 		if lbl != null and lbl.text != txt:
 			lbl.text = txt

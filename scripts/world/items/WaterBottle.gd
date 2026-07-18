@@ -94,22 +94,47 @@ func _is_empty() -> bool:
 func get_display_name() -> String:
 	return "Water Bottle"
 
+## Water-quality colour convention — mirrored from WaterDispenserUI._quality_color()
+## / InventoryHUD._bottle_quality_color() (0-50 red / 50.01-75 yellow / 75.01-100
+## green, inclusive lower boundary each tier). Hex values match those consts'
+## Color(...) values exactly (CRIT=1.00,0.35,0.30 / WARN=1.00,0.72,0.10 /
+## GOOD=0.30,0.85,0.35), duplicated here per this project's per-file-helper
+## convention for water UI colour code.
+const CRIT_COLOR_HEX: String = "ff594d"
+const WARN_COLOR_HEX: String = "ffb81a"
+const GOOD_COLOR_HEX: String = "4dd959"
+
+func _quality_hex(quality: float) -> String:
+	if quality <= 50.0:
+		return CRIT_COLOR_HEX
+	elif quality <= 75.0:
+		return WARN_COLOR_HEX
+	return GOOD_COLOR_HEX
+
+## BBCode "Xml/750ml (Q%)" fragment, coloured by current water quality.
+## Used by every prompt line (ground pickup / drink / refill) so the display
+## is identical everywhere. Requires the prompt Label to be a BBCode-enabled
+## RichTextLabel (see InteractPrompt.tscn / InteractPrompt.gd).
+func _fill_quality_bbcode() -> String:
+	var ml: int     = int(round(current_fill_mL))
+	var max_ml: int = int(MAX_FILL_ML)
+	var q: int      = int(round(stored_water_quality))
+	var hex: String = _quality_hex(stored_water_quality)
+	return "[color=#%s]%dml/%dml (%d%%)[/color]" % [hex, ml, max_ml, q]
+
 func get_prompt_text() -> String:
-	var pct: int = int((current_fill_mL / MAX_FILL_ML) * 100.0)
-	return "[F] Pick up  Water Bottle (%d%%)" % pct
+	return "[F] Pick up  Water Bottle  —  " + _fill_quality_bbcode()
 
 func get_use_prompt() -> String:
 	var dispenser: WaterDispenser = _find_nearest_dispenser()
 	if dispenser != null:
 		if current_fill_mL >= MAX_FILL_ML:
 			return ""   ## Already full — nothing to do at the dispenser
-		var bottle_pct: int = int((current_fill_mL / MAX_FILL_ML) * 100.0)
-		return "[Hold E] Refill Bottle  —  %d%%" % bottle_pct
+		return "[Hold E] Refill Bottle  —  " + _fill_quality_bbcode()
 
 	if _is_empty():
 		return ""   ## No use prompt when empty and not at a dispenser — can't drink it
-	var pct: int = int((current_fill_mL / MAX_FILL_ML) * 100.0)
-	return "[E] Drink  (%d%%)" % pct
+	return "[E] Drink  —  " + _fill_quality_bbcode()
 
 # ─── Pickup ───────────────────────────────────────────────────────────────────
 func pickup(hold_point: Node3D) -> void:
@@ -203,8 +228,10 @@ func _find_nearest_dispenser() -> WaterDispenser:
 ## of the old sip-count badge.
 func get_bottle_badge_info() -> Dictionary:
 	return {
-		"fill_pct": current_fill_mL / MAX_FILL_ML,
-		"quality":  stored_water_quality,
+		"fill_pct":    current_fill_mL / MAX_FILL_ML,
+		"fill_mL":     current_fill_mL,
+		"max_fill_mL": MAX_FILL_ML,
+		"quality":     stored_water_quality,
 	}
 
 # ─── Empty-state tint ─────────────────────────────────────────────────────────
