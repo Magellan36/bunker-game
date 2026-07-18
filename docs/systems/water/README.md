@@ -223,6 +223,27 @@ branching may already partially work (untested, flagged as a follow-up).
   `WaterPipeSegment.set_flow_sign()` and the new `set_phase_offset()`.
   `WaterPipeSegment._build_arrow_overlay()` now also sets `pipe_length` from
   the segment's own real length at build time.
+- **Flow-arrow speed/direction/connectivity polish (Jul 2026, same-day
+  follow-up):** three fixes on top of the above. (1) Speed: `ARROW_SCROLL_SPEED`
+  slowed to `1.2 * 0.7` (playtest feedback — original speed read too frantic
+  up close). (2) Direction: reversing `flow_sign` used to only flip the
+  scroll's apparent motion, not the baked chevron shape itself (confirmed via
+  `assets/textures/water/pipe_flow_arrow.png` — glyphs point a single fixed
+  way along +U) — so arrows on a reversed run slid backwards while still
+  visually pointing the old direction. Fix: `pipe_flow.gdshader` now mirrors
+  the raw length-axis UV (`1.0 - raw_uv`) whenever `flow_sign < 0.0`, before
+  tiling/phase/scroll, so the glyph itself flips to match the true flow
+  direction, not just its motion. (3) Connectivity: pipe runs not reachable
+  from the hookup have no water in them, so they shouldn't show flow at all.
+  Added a `has_flow` uniform (default `false`) — `pipe_flow.gdshader`
+  discards the whole overlay fragment when `!has_flow`, same as the existing
+  `build_mode_visible` gate. `WaterPipeSegment.set_has_flow()` sets it;
+  `WaterManager.recompute_flow_directions()` now calls `set_has_flow(true)`
+  only for segments present in `WaterGraph.compute_flow_directions()`'s
+  result for the live hookup, and `set_has_flow(false)` for every other
+  placed segment (dead/orphaned runs). Freshly-placed segments default to
+  `has_flow = false` in `_build_arrow_overlay()` until the next
+  `recompute_flow_directions()` confirms connectivity.
 - **"mL/day" now means per in-game day, not per real 24-hour day (Jul 2026,
   same-day follow-up):** `WaterDispenser._process()`'s tank-fill integration
   used to divide `received_mL_per_day` by a literal `86400.0` (real seconds

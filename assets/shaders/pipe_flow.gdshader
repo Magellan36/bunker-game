@@ -38,8 +38,15 @@ uniform float tile_world_length : hint_range(0.05, 5.0) = 0.4;   // desired worl
 uniform float phase_offset : hint_range(0.0, 10000.0) = 0.0;   // world units, set from
                                                                 // WaterPipeSegment.set_phase_offset()
 
+// Water only actually flows through a pipe run that's reachable from a
+// hookup (see WaterManager.recompute_flow_directions()'s July 2026 update —
+// segments NOT present in WaterGraph.compute_flow_directions()'s result for
+// the live hookup are, by definition, disconnected: no water, so no arrows
+// at all rather than an arrow animation implying flow that isn't there).
+uniform bool has_flow = false;   // set from WaterPipeSegment.set_has_flow()
+
 void fragment() {
-	if (!build_mode_visible) {
+	if (!build_mode_visible || !has_flow) {
 		discard;
 	}
 	// Godot's CylinderMesh side-surface UV wraps U around the circumference
@@ -53,6 +60,20 @@ void fragment() {
 	// texture's V (repeat band) from the mesh's U (circumference).
 	vec2 tex_uv = vec2(UV.y, UV.x);
 
+	// The arrow texture's chevrons are baked pointing in a single fixed
+	// direction along +U (confirmed against assets/textures/water/
+	// pipe_flow_arrow.png). Originally only the SCROLL direction flipped
+	// with flow_sign, which just made the glyphs slide backwards while
+	// still visibly pointing the old way — wrong the moment flow reverses.
+	// Mirroring the raw length-axis UV around the segment's own midpoint
+	// when flow_sign is negative flips the chevron shape itself (">" becomes
+	// "<"), so the arrows always visually point the way the water is
+	// actually moving, not just animate in that direction.
+	float raw_uv = tex_uv.x;
+	if (flow_sign < 0.0) {
+		raw_uv = 1.0 - raw_uv;
+	}
+
 	// Rescale the length-axis UV from "0..1 across this whole segment" to
 	// "0..(real world tiles across this segment)" so tile size is constant
 	// in world-space regardless of segment length, then add this segment's
@@ -60,11 +81,14 @@ void fragment() {
 	// from the upstream joint instead of restarting at 0.
 	float tiles_per_segment = pipe_length / tile_world_length;
 	float phase_tiles = phase_offset / tile_world_length;
-	tex_uv.x = tex_uv.x * tiles_per_segment + phase_tiles;
+	tex_uv.x = raw_uv * tiles_per_segment + phase_tiles;
 
 	// Scroll at a constant world-units/sec rate (scroll_speed is world-units/sec,
 	// converted to tile units the same way) rather than a fixed UV-rate, so
 	// scroll speed is also constant in world-space across all pipe lengths.
+	// flow_sign here flips the direction of APPARENT MOTION to match the
+	// mirrored glyph above (both must flip together or the arrows point one
+	// way but visibly crawl the other).
 	tex_uv.x -= TIME * (scroll_speed / tile_world_length) * flow_sign;
 
 	vec4 tex = texture(arrow_texture, tex_uv);
