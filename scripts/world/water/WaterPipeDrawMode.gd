@@ -293,24 +293,70 @@ func _resolve_single_leg(from_pos: Vector3, cursor_pos: Vector3, debug: bool = f
 func _get_pillar_registry() -> PillarRegistry:
 	return get_tree().get_first_node_in_group("pillar_registry") as PillarRegistry
 
-## Pushes `point` directly away from ANY pillar whose clearance radius it
-## currently violates, out to exactly PillarRegistry.PILLAR_CLEARANCE_RADIUS
-## from that pillar's center (XZ only — pillars are floor-to-ceiling, Y is
-## untouched). Degenerate exactly-on-center case pushes an arbitrary +X
-## direction. Iterates every registered pillar (small count, cheap) so a
-## point squeezed between two pillars gets nudged clear of both in turn.
-func _adjust_for_pillar_clearance(point: Vector3, registry: PillarRegistry) -> Vector3:
+## Small clearance buffer added on top of PillarRegistry.PILLAR_CLEARANCE_RADIUS
+## for the dogleg's two jog segments below — the radius alone would put a new
+## segment exactly tangent to the pillar (zero margin); this pushes it solidly
+## clear instead.
+const _PILLAR_DOGLEG_MARGIN: float = 0.12
+
+## Root-cause fix (July 2026, corner-pillar clip investigation): a wall-
+## hugging elbow that lands inside a pillar's clearance radius used to just
+## get shoved radially away from the pillar's center — but that moves BOTH
+## the incoming leg's shared axis AND the outgoing leg's shared axis at once,
+## breaking the strict 90°-only routing this tool otherwise guarantees (the
+## visible "diagonal clip" bug). Replaces that single corner with a small
+## 3-point rectangular "step" detour around the pillar instead: extend the
+## incoming leg a bit further along its own axis, jog sideways by one short
+## perpendicular segment, then correct back onto the outgoing leg's axis.
+## Every resulting segment stays axis-aligned; `prev_pt`/`next_pt` (the
+## leg's real endpoints) are never touched. Returns `[corner]` unchanged
+## when no pillar is actually violated there.
+## Assumes `corner` already sits exactly on both prev_pt's shared axis and
+## next_pt's shared axis — true for every corner _build_manhattan_path()
+## produces (see that function's header for the two cases this mirrors).
+func _dogleg_corner_around_pillars(prev_pt: Vector3, corner: Vector3, next_pt: Vector3, registry: PillarRegistry) -> Array:
 	if registry == null:
-		return point
-	var adjusted: Vector2 = Vector2(point.x, point.z)
+		return [corner]
+
+	## Find the pillar actually violated at this corner (first one found —
+	## in practice a corner sits near at most one of the four registry
+	## entries at a time given how far apart they are).
+	var violated_center: Vector2 = Vector2.ZERO
+	var found: bool = false
 	for pillar_pos: Vector3 in registry.get_all_positions().values():
 		var center: Vector2 = Vector2(pillar_pos.x, pillar_pos.z)
-		var d: float = adjusted.distance_to(center)
-		if d < PillarRegistry.PILLAR_CLEARANCE_RADIUS:
-			var dir: Vector2 = (adjusted - center)
-			dir = Vector2(1.0, 0.0) if dir.length() < 0.0001 else dir.normalized()
-			adjusted = center + dir * PillarRegistry.PILLAR_CLEARANCE_RADIUS
-	return Vector3(adjusted.x, point.y, adjusted.y)
+		if Vector2(corner.x, corner.z).distance_to(center) < PillarRegistry.PILLAR_CLEARANCE_RADIUS:
+			violated_center = center
+			found = true
+			break
+	if not found:
+		return [corner]
+
+	var offset: float = PillarRegistry.PILLAR_CLEARANCE_RADIUS + _PILLAR_DOGLEG_MARGIN
+	var dir: Vector2 = Vector2(corner.x, corner.z) - violated_center
+	dir = Vector2(1.0, 0.0) if dir.length() < 0.0001 else dir.normalized()
+	var sign_x: float = 1.0 if dir.x >= 0.0 else -1.0
+	var sign_z: float = 1.0 if dir.y >= 0.0 else -1.0
+
+	## Incoming leg is vertical (prev_pt shares corner's X) in one
+	## _build_manhattan_path() case, horizontal (prev_pt shares corner's Z)
+	## in the other — mirror the step order accordingly so the detour
+	## always ends back exactly on the axis the outgoing leg needs.
+	var incoming_is_vertical: bool = absf(prev_pt.x - corner.x) < MIN_POINT_GAP
+
+	var step1: Vector3
+	var step2: Vector3
+	var step3: Vector3
+	if incoming_is_vertical:
+		step1 = Vector3(corner.x, corner.y, corner.z + sign_z * offset)
+		step2 = Vector3(corner.x + sign_x * offset, corner.y, corner.z + sign_z * offset)
+		step3 = Vector3(corner.x + sign_x * offset, corner.y, corner.z)
+	else:
+		step1 = Vector3(corner.x + sign_x * offset, corner.y, corner.z)
+		step2 = Vector3(corner.x + sign_x * offset, corner.y, corner.z + sign_z * offset)
+		step3 = Vector3(corner.x, corner.y, corner.z + sign_z * offset)
+
+	return [step1, step2, step3]
 
 ## True if the straight leg [a,b] never passes within
 ## PillarRegistry.PILLAR_CLEARANCE_RADIUS of any pillar's center, checked via
@@ -342,7 +388,7 @@ func _leg_clears_all_pillars(a: Vector3, b: Vector3, registry: PillarRegistry) -
 ## fresh mid-air waypoint (existing_key empty) or already within
 ## DEST_SNAP_RADIUS of the true cursor position, or after MAX_TRACE_LEGS
 ## hops (defensive cap). Applies pillar clearance per new corner point and
-## per new leg (see _adjust_for_pillar_clearance()/_leg_clears_all_pillars())
+## per new leg (see _dogleg_corner_around_pillars()/_leg_clears_all_pillars())
 ## before appending — a mid-leg pillar clip marks the whole trace invalid
 ## (red ghost) rather than rerouting.
 ## Returns {"waypoints":Array[Vector3], "waypoint_keys":Array[String],
@@ -390,12 +436,28 @@ func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_po
 		for j in range(1, leg_path.size()):
 			var is_leg_last_point: bool = (j == leg_path.size() - 1)
 			var raw_pt: Vector3 = leg_path[j]
-			var adj_pt: Vector3 = raw_pt if is_leg_last_point else _adjust_for_pillar_clearance(raw_pt, registry)
 			var prev_pt: Vector3 = waypoints[waypoints.size() - 1]
-			if not _leg_clears_all_pillars(prev_pt, adj_pt, registry):
-				valid = false
-			waypoints.append(adj_pt)
-			waypoint_keys.append(leg["dest"].get("existing_key", "") if is_leg_last_point else "")
+
+			if is_leg_last_point:
+				if not _leg_clears_all_pillars(prev_pt, raw_pt, registry):
+					valid = false
+				waypoints.append(raw_pt)
+				waypoint_keys.append(leg["dest"].get("existing_key", ""))
+			else:
+				## Root-cause fix (July 2026): a violating corner now gets
+				## replaced with a small axis-aligned "step" detour instead
+				## of a single radial nudge — see _dogleg_corner_around_
+				## pillars()'s own header for why the old approach broke
+				## 90°-only routing. leg_path[j+1] always exists here since
+				## `is_leg_last_point` is false.
+				var next_pt: Vector3 = leg_path[j + 1]
+				var steps: Array = _dogleg_corner_around_pillars(prev_pt, raw_pt, next_pt, registry)
+				for step_pt: Vector3 in steps:
+					if not _leg_clears_all_pillars(prev_pt, step_pt, registry):
+						valid = false
+					waypoints.append(step_pt)
+					waypoint_keys.append("")
+					prev_pt = step_pt
 
 		var dest: Dictionary = leg["dest"]
 		var existing_key: String = dest.get("existing_key", "")

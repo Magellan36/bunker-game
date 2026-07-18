@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-18T13:13:24.064786+00:00",
+  "generated_at": "2026-07-18T18:58:16.791587+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 81,
-  "total_lines": 33597,
+  "total_lines": 33884,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -196,13 +196,13 @@
         }
       ],
       "public_functions": [],
-      "private_function_count": 20,
+      "private_function_count": 21,
       "preloads": [],
       "group_lookups": [
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 728
+      "complexity_score": 707
     },
     {
       "path": "res://scripts/player/Player.gd",
@@ -740,13 +740,13 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 11,
+      "private_function_count": 12,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 368
+      "complexity_score": 466
     },
     {
       "path": "res://scripts/ui/inventory/InventoryManager.gd",
@@ -2905,14 +2905,13 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 7,
+      "private_function_count": 9,
       "preloads": [],
       "group_lookups": [
-        "player_stats",
-        "water_dispenser"
+        "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 186
+      "complexity_score": 328
     },
     {
       "path": "res://scripts/world/items/WaterCase.gd",
@@ -4464,7 +4463,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 263
+      "complexity_score": 266
     },
     {
       "path": "res://scripts/world/water/WaterGraph.gd",
@@ -4794,7 +4793,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 1396,
+      "line_count": 1472,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4834,7 +4833,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 1440
+      "complexity_score": 1516
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",
