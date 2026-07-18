@@ -351,6 +351,20 @@ func _leg_clears_all_pillars(a: Vector3, b: Vector3, registry: PillarRegistry) -
 ## (index 0 is always source_key).
 func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
 	var registry: PillarRegistry = _get_pillar_registry()
+	if debug:
+		## TEMP diagnostic (root-cause investigation, remove once corner-pillar
+		## clip bug is confirmed/fixed) — dumps every registered pillar position
+		## and its distance from source_pos so we can see whether the corner
+		## pillars are even present in the registry with the expected radius.
+		if registry == null:
+			print("[PipeDebug] pillar registry is NULL")
+		else:
+			var all_pillars: Dictionary = registry.get_all_positions()
+			print("[PipeDebug] pillar registry has %d entries, clearance radius=%.3f" % [all_pillars.size(), PillarRegistry.PILLAR_CLEARANCE_RADIUS])
+			for pkey: String in all_pillars:
+				var ppos: Vector3 = all_pillars[pkey]
+				var dist: float = Vector2(source_pos.x, source_pos.z).distance_to(Vector2(ppos.x, ppos.z))
+				print("[PipeDebug]   pillar '%s' at %s  dist_from_source=%.3f" % [pkey, ppos, dist])
 	var waypoints: Array = [source_pos]
 	var waypoint_keys: Array = [source_key]
 	var current_pos: Vector3 = source_pos
