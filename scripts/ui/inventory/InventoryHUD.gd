@@ -321,7 +321,14 @@ func _draw_charge_badge(font: Font, slot_x: float, current: int, max_charges: in
 ## get_bottle_badge_info() / _bottle_quality_color() below). Two lines instead
 ## of one because "525ml/750ml (70%)" is far wider than the 64px slot — a
 ## single line would overflow into the neighbouring slot's badge.
+## At 0mL the bottle presents as "Empty Water Bottle" (see
+## WaterBottle.get_display_name()) — the badge mirrors that by showing a
+## single dim "EMPTY" line instead of a meaningless "0ml/750ml (Q%)" readout.
 func _draw_quality_badge(font: Font, slot_x: float, fill_mL: float, max_fill_mL: float, quality: float) -> void:
+	if fill_mL <= 0.0:
+		_draw_empty_badge(font, slot_x)
+		return
+
 	var line1: String = "%dml/%dml" % [int(round(fill_mL)), int(round(max_fill_mL))]
 	var line2: String = "(%d%%)" % int(round(quality))
 
@@ -350,6 +357,30 @@ func _draw_quality_badge(font: Font, slot_x: float, fill_mL: float, max_fill_mL:
 	draw_string(font,
 		Vector2(bx + bw - PAD_X - tsz2.x, by + PAD_Y + tsz1.y + LINE_GAP + tsz2.y - 2.0),
 		line2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+
+## Single dim "EMPTY" badge — same box styling as _draw_quality_badge()'s
+## two-line version, but one line, for an empty bottle (0mL).
+func _draw_empty_badge(font: Font, slot_x: float) -> void:
+	var label: String = "EMPTY"
+
+	var font_size: int = int(COLOR_CHARGE_FONT)
+	var tsz: Vector2 = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+
+	const PAD_X: float = 4.0
+	const PAD_Y: float = 3.0
+	var bw: float = tsz.x + PAD_X * 2.0
+	var bh: float = tsz.y + PAD_Y * 2.0
+
+	const INSET: float = 3.0
+	var bx: float = slot_x + SLOT_SIZE - bw - INSET
+	var by: float = INSET
+
+	var badge_rect: Rect2 = Rect2(bx, by, bw, bh)
+	draw_rect(badge_rect, COLOR_CHARGE_BG, true, -1.0)
+
+	draw_string(font,
+		Vector2(bx + PAD_X, by + PAD_Y + tsz.y - 2.0),
+		label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.55, 0.55, 0.55, 1.0))
 
 ## Water quality red/yellow/green convention — mirrored verbatim from
 ## WaterDispenserUI._quality_color() (0-50 red / 50.01-75 yellow / 75.01-100
