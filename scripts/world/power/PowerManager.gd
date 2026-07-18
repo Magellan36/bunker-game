@@ -313,7 +313,7 @@ var _consumers: Dictionary = {}
 ## }
 var _generators: Dictionary = {}
 
-## Wire node key for the F8 admin-cheat generator (admin_add_power()) — empty
+## Wire node key for the F7 admin-cheat generator (admin_add_power()) — empty
 ## string when no admin power has been added yet. See admin_add_power().
 var _admin_gen_wire_key: String = ""
 
@@ -1565,7 +1565,7 @@ func unregister_generator(gen_id: String) -> void:
 	_registry.unregister_generator(gen_id)
 
 
-## ── ADMIN CHEAT (F8 menu, Jul 2026) ──────────────────────────────────────────
+## ── ADMIN CHEAT (F7 menu, Jul 2026) ──────────────────────────────────────────
 ## Adds (positive delta) or removes (negative delta) `delta_watts` of power
 ## from the grid, as if a fictional infinitely-fueled generator were wired
 ## straight into the network. Stackable: repeated calls accumulate onto the
@@ -3292,7 +3292,7 @@ func _tick_generators(delta: float) -> void:
 		if not gen.get("running", false):
 			continue
 
-		## Admin/cheat generators (F8 menu, PowerManager.admin_add_power())
+		## Admin/cheat generators (F7 menu, PowerManager.admin_add_power())
 		## never drain — they represent an infinite external supply, not a
 		## physical fuel-burning unit.
 		if gen.get("infinite", false):

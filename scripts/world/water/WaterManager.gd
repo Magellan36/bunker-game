@@ -219,6 +219,16 @@ func register_hookup(hookup: Node3D) -> void:
 func unregister_hookup(hookup: Node3D) -> void:
 	_hookups.erase(hookup)
 
+## Returns the single registered WaterHookup, or null if none exists yet.
+## Only one hookup is ever supported (see register_hookup()'s guard) —
+## added for AdminMenu.gd's F7 water-quality cheat buttons (Jul 2026), which
+## need direct access to the hookup without going through a graph key.
+func get_the_hookup() -> WaterHookup:
+	for h: Node3D in _hookups:
+		if is_instance_valid(h):
+			return h as WaterHookup
+	return null
+
 ## Forwarded by MainWorld from RockSurround.chunk_deconstructed /
 ## chunk_restored — the SAME boundary-change event WireGraphBuilder already
 ## listens to for the wire graph's incremental rebuild (see

@@ -3,89 +3,81 @@
 **Read `AI_CONTEXT.md` in this repo first, then `PROJECT_SUMMARY.md`, then this file.**
 
 ## What just shipped (this session)
-F8 admin controls menu — a cheat/debug tool distinct from the existing F10
-`AdminSpawnMenu`. Two stackable buttons: **+1000w Power** and **-1000w
-Power**, simulating an infinitely-fueled generator wired into the grid.
+Full "Water System — Quality Decay, Purifier, Dispenser Blending, Flow
+Indicator" pass, all 8 steps of the implementation spec, in one pass:
 
-### How it works
-- `PowerRegistry.register_generator()` gained an `infinite: bool = false`
-  param (stored on the generator dict).
-- `PowerManager.register_generator()` passes it through; `_tick_generators()`
-  skips fuel drain entirely when `gen.infinite == true`.
-- `PowerManager.admin_add_power(delta_watts: float)` — new public method.
-  Finds-or-creates one hidden generator (`ADMIN_GEN_ID =
-  "admin_cheat_gen"`, `infinite=true`) and attaches it to the wire graph via
-  a `no_visual` logical-only edge, offset by exactly `PowerGraph.SNAP_GRID`
-  (0.25m) from the first node returned by `get_wire_nodes()`. This
-  deliberately avoids `register_wire_edge()`'s automatic intermediate-joint
-  stepping loop blowing up over distance if a far sentinel position were
-  used instead. Watts accumulate on the single generator (clicking +1000w
-  twice = +2000w total) rather than spawning a new generator per click;
-  clamped to >= 0, fully unregisters (generator + wire node) at exactly 0.
-- `scripts/ui/menus/AdminMenu.gd` (new file) — F8 CanvasLayer panel,
-  mirrors `AdminSpawnMenu.gd`'s lifecycle/styling (`layer=128`, lazy init,
-  `UIFade.fade_in()`, brutalist Panel/StyleBoxFlat theme).
-- `MainWorld.gd` — F8 `_unhandled_input` handler +
-  `_toggle_admin_cheat_menu()` (lazy-init, same pattern as F10's toggle),
-  `_admin_cheat_menu` var, dev-tools header comment updated to list F8/F10.
+1. **Hookup quality decay** — `WaterHookup._process()` drains `water_quality`
+   at `-1%/game-day` (`QUALITY_DRAIN_PER_GAME_HOUR = 1.0/24.0`), same
+   "units per game hour" convention as `PlayerStats`. One-directional, floors
+   at 0.
+2. **Purification algorithm** — `WaterGraph.get_unpurified_reachable_keys()`
+   (filtered BFS, "contaminated set"), wired into
+   `WaterManager.get_received_rate_mL()`'s `"quality"` field (100.0 if pure,
+   else the hookup's raw quality).
+3. **`WaterPurifier.gd` + `WaterPurifierAttach.gd`** — new construct-menu
+   tile (`TILE_WATER_PURIFIER=20`, $240, Water submenu) that attaches
+   directly onto an existing pipe run (no floor/wall snap — candidate-find +
+   graph-split math duplicated from `WaterPipeDrawMode`'s shape into a new
+   file, per design decision, rather than touching that fragile original).
+   Wired through `GhostPreview`/`BuildModeController._spawn_placed_object()`/
+   `BuildUndoStack`.
+4. **Purifier interact UI** — `WaterInfoUI.gd`'s old `_is_source: bool` was
+   refactored to `_mode: String` (`"hookup"`/`"sink"`/`"purifier"`); new
+   read-only purifier branch (input/output quality, no priority row).
+5. **Deletion/refund** — `WaterPurifier.revert_to_corner()` (deconstruct
+   reverts graph role `"purifier"` → `"corner"` in place, pipe stays intact,
+   no pipe refund, only $240 device refund) + generalized
+   `WaterManager.delete_and_refund_edge()` (refuses to delete an edge
+   touching a still-`"purifier"` node — enforces "remove purifier first").
+6. **Dispenser blending** — `WaterDispenser.stored_water_quality` now blends
+   volume-weighted every tick water is actually added (clamped-to-headroom
+   `added_mL` used in the blend formula, not the pre-clamp value).
+7. **Flow-direction arrows** — `WaterGraph.compute_flow_directions()` (BFS
+   hop-distance from hookup) → `WaterManager.recompute_flow_directions()`
+   (called after every pipe/purifier mutation, not every frame) →
+   `WaterPipeSegment.set_flow_sign()`. Rendered by new
+   `assets/shaders/pipe_flow.gdshader` (this project's first spatial shader)
+   on a second, additive overlay mesh — base pipe stays always-visible,
+   untouched. Visible only in build mode
+   (`set_build_mode_visible()`, toggled from `BuildModeController.enter_
+   build_mode()`/`exit_build_mode()`).
+8. **Docs** — `docs/systems/water/README.md` gained a full "Purification &
+   Quality (Jul 2026)" section (Responsibilities, not Extension points
+   anymore) + updated file table + `PROJECT_SUMMARY.md` roadmap note.
 
-### Verified
-- `tools/godot_check.sh /tmp/Godot_v4.6.3-stable_linux.x86_64` → **PASS**,
-  no parse/compile errors, run after all edits.
-- Docs updated same commit: `docs/systems/power/README.md` (Public API
-  section: `register_generator()` `infinite` param note, new Known
-  tradeoffs bullet on the admin-gen wire-attach approach and its one known
-  gap — see below), `PROJECT_SUMMARY.md` (menus/ folder listing now shows
-  `AdminMenu (F8 power cheat)`).
-- Committed and pushed to `main` (`5aa622a`). Not yet tested in-editor by
-  Brannon.
+**Verified:** `tools/godot_check.sh` (headless Godot 4.6-stable — the exact
+4.6.3 binary wasn't available in this sandbox, closest stable was used) —
+clean PASS, no parse/compile errors. Only pre-existing unrelated warnings
+(`WaterCase.tscn` UID, `ObjectDB` leak-at-exit notice).
 
-### Known gap (documented, not yet handled)
-If the wire graph is completely empty (player hasn't placed/dug any wires
-yet), `admin_add_power()` has no node to attach to and the admin generator
-stays unconnected — no power actually flows even though the generator
-exists. Low priority (only affects a fresh, wire-free save), flagged in the
-README's Known tradeoffs, not fixed this pass.
+### Known gap — NOT fixed this pass
+`WaterManager.get_pipe_network_for_save()` only persists `"corner"`/
+`"pipe_joint"` roled nodes. A `"purifier"` node (and both edges touching it)
+is silently dropped by save/load today — flagged in
+`docs/systems/water/README.md`'s Purification & Quality section and in
+`PROJECT_SUMMARY.md`'s roadmap, not silently left undocumented. Should
+likely be closed as part of the save/load project below.
 
-## Next up for Brannon to test
-1. Pull latest `main`.
-2. Press **F8** in-editor — confirm panel opens (distinct from F10's spawn
-   menu).
-3. Click **+1000w Power** twice — check `total_capacity_watts`/HUD draw
-   reflects +2000w total (should power previously-shed items if capacity
-   was the bottleneck).
-4. Click **-1000w Power** down to 0 — confirm the hidden generator fully
-   unregisters (no lingering phantom wire node/generator) and load drops
-   back to pre-cheat baseline.
-5. Confirm no regression to F10 `AdminSpawnMenu` or any existing real
-   generator's registration/fuel behavior.
-6. Report back any bugs (especially: does it behave correctly on a
-   fresh/no-wires save — the known gap above).
+## Next up: Save/Load — full infrastructure carryover
+Per Brannon's request (before this water pass), the next session should
+build out full save/load coverage for everything currently playable:
+bunker expansions, exact power setup (wiring, zones, batteries, generators),
+and the water pipe network (including the purifier gap noted above).
 
-## Then: Save/Load system
-Per Brannon's direction, next planned work area is the **save/load system**
-(`SaveManager` autoload — currently: generic field-registry pattern, any
-system registers getter/setter under a string key, wired fields so far are
-player position, cash, game clock elapsed seconds; saves to
-`user://save_slot_1/2/3.json`, load skips unregistered keys).
+**Before touching any code, read (in this order):**
+1. `AI_CONTEXT.md` (this repo's own standing rules)
+2. `PROJECT_SUMMARY.md`
+3. `docs/systems/world-core/README.md` — existing `SaveManager` field-
+   registry pattern (`register_field()`, phased ordering 0-4, currently
+   covers dug chunks → placed objects+extra state → player wires → water
+   pipes → player position/cash/clock)
+4. `docs/systems/power/README.md` — Persistence section
+5. `docs/systems/water/README.md` — Persistence section + this session's
+   Purification & Quality section (esp. the purifier save gap)
+6. Every other `docs/systems/*/README.md` that's directly relevant to
+   whatever specific save-gap is being closed first — do NOT re-explore the
+   whole codebase; the READMEs + `architecture.json` should be enough.
 
-Before starting: **read `docs/systems/world-core/README.md`** (SaveManager
-lives there) and re-familiarize with the field-registry pattern, plus check
-whether any newer systems shipped since (Water, Power priority overrides,
-zone rename/color, admin cheat generator — this one is intentionally NOT a
-save/load candidate, it's a debug tool) need their own registered
-save/load fields. Ask Brannon which fields/systems he wants persisted next
-before writing code — don't assume scope.
-
-## Standing conventions (don't relitigate)
-- All file ops via GitHub HTTPS only (token in `.env`) — read repo → edit
-  sandbox → push → Brannon pulls in Godot. No zip downloads.
-- Godot 4.6.3 strict syntax, statically typed GDScript, no deprecated G3.
-- No compiler in sandbox — always run `tools/godot_check.sh` before
-  reporting a fix/feature done.
-- Doc-update discipline: system README + `PROJECT_SUMMARY.md` updates go in
-  the *same commit* as the code change — never drifts.
-- No god files — new self-contained features get their own file/folder.
-- Credit-efficient sessions: read `PROJECT_SUMMARY.md` + relevant
-  `docs/systems/*/README.md` first; only open source files that are
-  actually relevant to the surgical change at hand.
+Ask Brannon clarifying questions before starting — confirm scope (which
+gaps to close first) and whether the purifier fix belongs in this pass or a
+follow-up.
