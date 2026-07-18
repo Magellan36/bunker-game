@@ -103,7 +103,7 @@ before starting any of these):**
 | Environment (BunkerLayout, BunkerPregen, RockSurround, LightingDirector, DustMotes) | `docs/systems/environment/README.md` | migrated |
 | Graphics/Camera (GameCamera, GraphicsSettings) | `docs/systems/graphics/README.md` | migrated |
 | Furniture/Items (Bed, Shelving, pickup item scripts) | `docs/systems/furniture-items/README.md` | migrated |
-| Water (Phase 1 groundwork: hookup + pipe placement, standalone from Power) | `docs/systems/water/README.md` | migrated |
+| Water (hookup/sink/dispenser/purifier, pipe placement, quality/flow shader) | `docs/systems/water/README.md` | migrated |
 
 **All 9 systems now migrated (July 2026, Water added later that month).** §6, §7, §8 below are now
 historical/superseded by the linked READMEs above — kept only for the

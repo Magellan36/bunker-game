@@ -146,6 +146,20 @@ func _build_mesh() -> void:
 	band_mat.roughness    = 0.60
 	band_mat.metallic     = 0.20
 
+	## NO extra local rotation on these mesh instances (Jul 2026 fix — was
+	## previously rotation_degrees = Vector3(90,0,0) on both, "CylinderMesh
+	## is Y-aligned; lie along local Z"). That comment's premise was wrong
+	## for this node specifically: orient_along() (called once at spawn,
+	## right after _build_mesh()) already rotates the WHOLE WaterPurifier
+	## body via look_at()+rotate_object_local(RIGHT, 90°) — the exact same
+	## sequence WaterPipeSegment.gd uses to align ITS OWN mesh instance's
+	## local Y-axis along the pipe direction. Since orient_along rotates
+	## this node's root (not a child mesh), the root's own local Y-axis
+	## already lies along the pipe run by the time _build_mesh() runs its
+	## course — a CylinderMesh child needs NO further rotation to inherit
+	## that alignment. The old extra 90°-around-X on the child re-tipped the
+	## already-aligned cylinder onto local Z, landing it perpendicular to
+	## the pipe — exactly the reported bug.
 	var body_mi: MeshInstance3D = MeshInstance3D.new()
 	var body_cyl: CylinderMesh  = CylinderMesh.new()
 	body_cyl.top_radius    = RADIUS
@@ -153,7 +167,6 @@ func _build_mesh() -> void:
 	body_cyl.height        = LENGTH
 	body_cyl.radial_segments = 12
 	body_mi.mesh = body_cyl
-	body_mi.rotation_degrees = Vector3(90.0, 0.0, 0.0)   ## CylinderMesh is Y-aligned; lie along local Z
 	body_mi.set_surface_override_material(0, body_mat)
 	add_child(body_mi)
 
@@ -164,7 +177,6 @@ func _build_mesh() -> void:
 	band_cyl.height        = LENGTH * 0.22
 	band_cyl.radial_segments = 12
 	band_mi.mesh = band_cyl
-	band_mi.rotation_degrees = Vector3(90.0, 0.0, 0.0)
 	band_mi.set_surface_override_material(0, band_mat)
 	add_child(band_mi)
 

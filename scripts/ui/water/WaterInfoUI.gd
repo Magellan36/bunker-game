@@ -33,6 +33,17 @@ const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
 const WARN_COLOR:   Color = Color(1.00, 0.72, 0.10, 1.00)
 const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
 
+## Water QUALITY specifically uses a dedicated red/yellow/green scheme (Jul
+## 2026, Brannon's explicit spec) — deliberately separate from OK_COLOR
+## above (a blue used for demand/flow-rate readouts elsewhere in this panel,
+## a different meaning). QUALITY_GOOD_COLOR is real green, not OK_COLOR's
+## cyan-blue. Thresholds (inclusive boundaries per spec): 0-50% red,
+## 50.01-75% yellow, 75.01-100% green. Mirrored verbatim in
+## WaterDispenserUI.gd's own _quality_color() — this water UI system
+## duplicates small per-file helpers rather than sharing a base class (no
+## class_name on either panel script), see that file's own comment.
+const QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
+
 ## Priority tier accent colours (Jul 2026 — demand-priority wiring) — same
 ## green→red universal tier legend as PowerPriorityUI.gd's PRIO_COLORS; this
 ## isn't a "power vs water" palette, it's a cross-system meaning (1=critical,
@@ -443,14 +454,15 @@ func _tier_name(p: int) -> String:
 		5: return "LUXURY"
 		_: return "STANDARD"
 
-## Shared quality readout — used by both panels. Color-coded the same way
-## the power system's fuel/HP bars are (OK/WARN/CRIT thresholds).
+## Shared quality readout — used by hookup/sink/purifier panels. Red/yellow/
+## green thresholds (Jul 2026 spec, see QUALITY_GOOD_COLOR above): 0-50% red,
+## 50.01-75% yellow, 75.01-100% green.
 func _draw_quality_row(quality: float, cx: float, cy: float) -> float:
 	_draw_str("WATER QUALITY", Vector2(cx, cy), DIM_COLOR, 10)
-	var q_col: Color = OK_COLOR
-	if quality <= 25.0:
+	var q_col: Color = QUALITY_GOOD_COLOR
+	if quality <= 50.0:
 		q_col = CRIT_COLOR
-	elif quality <= 50.0:
+	elif quality <= 75.0:
 		q_col = WARN_COLOR
 	_draw_str("%.0f%%" % quality, Vector2(cx, cy + 14.0), q_col, 13)
 	return cy + 40.0

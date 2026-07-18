@@ -443,20 +443,34 @@ func _try_confirm_segment() -> void:
 
 
 ## Builds the strictly-axis-aligned (90°-only) world-space point list from
-## `from_pos` to `to_pos`. `from_pos` is assumed to already be at
-## WATER_CEILING_Y (true for the hookup and every existing joint/corner
-## node) — clamped defensively anyway. Produces, in order:
-##   1. start (at ceiling height)
-##   2. an optional single horizontal bend, if the destination isn't already
+## `from_pos` to `to_pos`. Produces, in order:
+##   1. an optional initial vertical rise, if the source isn't already at
+##      ceiling height (i.e. it's a floor-standing connectable object like a
+##      sink/dispenser rather than the wall-mounted hookup or an existing
+##      joint/corner, which already sit at ceiling height)
+##   2. start (at ceiling height)
+##   3. an optional single horizontal bend, if the destination isn't already
 ##      directly north/south/east/west of the source
-##   3. the point directly above the destination, at ceiling height
-##   4. an optional final vertical drop, if the destination isn't itself at
+##   4. the point directly above the destination, at ceiling height
+##   5. an optional final vertical drop, if the destination isn't itself at
 ##      ceiling height (i.e. it's a floor-standing connectable object)
 ## Degenerate/coincident points are skipped via _append_if_distinct(), so a
 ## perfectly axis-aligned or already-ceiling-height destination correctly
 ## collapses to a shorter list rather than emitting zero-length segments.
 func _build_manhattan_path(from_pos: Vector3, to_pos: Vector3) -> Array:
 	var path: Array = []
+
+	## Generic vertical-rise leg (Jul 2026) — symmetric with the vertical-
+	## drop leg at the destination end below. Was previously only correct
+	## for the hookup/joint/corner nodes this function's own header assumed
+	## as the source (all already at ceiling height), so starting a run from
+	## any floor-standing consumer device (sink, dispenser, future devices —
+	## generic capability, not device-specific) collapsed straight to
+	## ceiling height with no rise segment at all. Any source not already at
+	## ceiling height now gets its real position as the first path point.
+	if absf(from_pos.y - WATER_CEILING_Y) > MIN_POINT_GAP:
+		_append_if_distinct(path, from_pos)
+
 	var start: Vector3 = Vector3(from_pos.x, WATER_CEILING_Y, from_pos.z)
 	_append_if_distinct(path, start)
 

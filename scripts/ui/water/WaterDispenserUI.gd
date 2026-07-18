@@ -34,6 +34,23 @@ const DIM_COLOR:    Color = Color(0.50, 0.58, 0.62, 0.80)
 const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
 const WARN_COLOR:   Color = Color(1.00, 0.72, 0.10, 1.00)
 const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
+
+## Water QUALITY red/yellow/green scheme (Jul 2026, Brannon's explicit spec)
+## — mirrored verbatim from WaterInfoUI.gd's own QUALITY_GOOD_COLOR/
+## _draw_quality_row() (this water UI system duplicates small per-file
+## helpers rather than sharing a base class; neither panel script has a
+## class_name). Deliberately separate from OK_COLOR above (blue, used for
+## the RECEIVING rate's "on target" state — a different meaning).
+## Thresholds (inclusive boundaries): 0-50% red, 50.01-75% yellow,
+## 75.01-100% green.
+const QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
+
+func _quality_color(quality: float) -> Color:
+	if quality <= 50.0:
+		return CRIT_COLOR
+	elif quality <= 75.0:
+		return WARN_COLOR
+	return QUALITY_GOOD_COLOR
 const OFF_COLOR:    Color = Color(0.55, 0.55, 0.55, 1.00)
 const ACCENT_TOGGLE: Color = Color(0.30, 0.68, 1.00, 1.00)
 
@@ -361,13 +378,21 @@ func _on_draw() -> void:
 		Vector2(cx, cy + 14.0), TEXT_COLOR, 13)
 	cy += 40.0
 
+	# ── Water quality (Jul 2026) — same label/value styling as STORAGE above,
+	## value colored via the shared red/yellow/green scheme (see
+	## QUALITY_GOOD_COLOR / _quality_color() above).
+	_draw_str("WATER QUALITY", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("%.0f%%" % d.stored_water_quality,
+		Vector2(cx, cy + 14.0), _quality_color(d.stored_water_quality), 13)
+	cy += 40.0
+
 	# ── Requested rate + slider ──────────────────────────────────────────────
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	var dynamic_max: float = 0.0
 	if wm != null:
 		dynamic_max = wm.get_dynamic_max_mL_per_day(d.get_node_key(), d.priority)
 
-	_draw_str("REQUESTED RATE", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("FLOW RATE", Vector2(cx, cy), DIM_COLOR, 10)
 	_draw_str("%.0f mL/day  (%.2f mL/min)" % [d.requested_rate_mL_per_day, d.requested_rate_mL_per_day / 1440.0],
 		Vector2(px + PANEL_W - 190.0, cy), TEXT_COLOR, 11)
 	cy += 16.0
@@ -462,10 +487,6 @@ func _on_draw() -> void:
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
 		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25), 1.0)
 	cy += 12.0
-
-	# ── Quality (placeholder) ────────────────────────────────────────────────
-	_draw_str("Water Quality: %.0f%%" % d.stored_water_quality,
-		Vector2(cx, cy), DIM_COLOR, 9)
 
 	_draw_str("[◄ ►]  Priority    [ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), DIM_COLOR, 9)
 
