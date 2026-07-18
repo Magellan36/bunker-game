@@ -3,7 +3,8 @@ class_name InteractionSystem
 ## InteractionSystem.gd
 ## Handles pickup, drop, world interaction, inventory storing, and slot scrolling.
 ## Scroll wheel cycles through inventory slots.
-## Hold E stores held item. Scroll auto-stores/retrieves items.
+## E is a pure instant tap-to-use/interact key. G is the instant store/put-away key.
+## Scroll auto-stores/retrieves items.
 ##
 ## KEY DESIGN: inventory items stay in their slot even while held.
 ## activate_item()   → makes item visible/physics-on, keeps it in slot
@@ -14,7 +15,6 @@ class_name InteractionSystem
 
 # ─── Exports ──────────────────────────────────────────────────────────────────
 @export var hold_height: float       = 0.8
-@export var store_hold_time: float   = 0.6   ## Seconds to hold E to store item
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 @onready var hold_point: Node3D      = $HoldPoint
@@ -42,14 +42,11 @@ var _world_root: Node3D    = null
 ## when swapping away. -1 means the item was picked up fresh from the world.
 var _held_from_slot: int = -1
 
-## Hold-E store progress
-var _store_hold_t: float  = 0.0
-var _is_holding_e: bool   = false
-
-## Tap-vs-hold disambiguation for E (use vs store).
-## When E is pressed we don't know yet whether it's a tap or hold.
-## We defer on_use() until E is released (or store threshold fires first).
-var _use_pending: bool    = false
+## True while the player is holding E down. E itself is a pure instant tap
+## (on_use/on_interact fires on press, not on release) — this flag only
+## drives per-frame continuous-hold actions on the held item, e.g.
+## FuelCan.refuel_tick(). It no longer gates any store behavior (see G).
+var _is_holding_e: bool = false
 
 ## Currently selected inventory slot (-1 = none)
 var selected_slot: int = -1
@@ -84,7 +81,6 @@ func _process(delta: float) -> void:
 		if prompt != null:
 			prompt.hide_prompt()
 		return
-	_tick_store_hold(delta)
 	_tick_continuous_refuel(delta)
 	_update_prompt()
 
@@ -98,11 +94,6 @@ func _tick_continuous_refuel(delta: float) -> void:
 	## Only act when the item supports continuous refuelling.
 	if not held_item.has_method("refuel_tick"):
 		return
-	## Suppress the standard store-hold logic for this item — fuel cans cannot
-	## be stored anyway (can_store() == false), but prevent _store_hold_t from
-	## triggering the "Inventory full" message while refuelling.
-	_store_hold_t = 0.0
-	_use_pending  = false
 	held_item.refuel_tick(delta)
 
 ## Returns true if the shelf UI overlay is open
@@ -143,30 +134,42 @@ func _unhandled_input(event: InputEvent) -> void:
 			## Empty-handed — just try world pickup (shelf menu is E)
 			_try_pickup()
 
-	# E — use held item (tap) / store (hold) / shelf open / world interact
+	# E — use held item (instant tap) / shelf open / world interact.
+	# Pure tap: fires immediately on press, no hold-to-store behavior.
 	if event.is_action_pressed("interact"):
-		## Shelf nearby → E always opens shelf UI (overrides item use/store)
+		## Shelf nearby → E always opens shelf UI (overrides item use)
 		var shelf: Node3D = _nearest_shelf()
 		if shelf != null and shelf.has_method("on_e_interact"):
 			shelf.on_e_interact()
 			get_viewport().set_input_as_handled()
 			return
 		if held_item != null:
-			_use_pending  = true
+			# _is_holding_e stays true only to drive per-frame continuous
+			# actions (e.g. FuelCan.refuel_tick / bottle refill) — it no
+			# longer gates a store action.
 			_is_holding_e = true
-			_store_hold_t = 0.0
-		elif held_item == null:
-			_try_interact()
-
-	if event.is_action_released("interact"):
-		if _use_pending and held_item != null:
 			if held_item.has_method("on_use"):
 				held_item.on_use()
 			elif held_item.has_method("on_interact"):
 				held_item.on_interact()
-		_use_pending  = false
+		else:
+			_try_interact()
+
+	if event.is_action_released("interact"):
 		_is_holding_e = false
-		_store_hold_t = 0.0
+
+	# G — store / put away held item (instant, no progress bar)
+	if event.is_action_pressed("store_item"):
+		if _shelf_ui_open():
+			get_viewport().set_input_as_handled()
+			return
+		if held_item != null:
+			_is_holding_e = false
+			if _held_from_slot != -1:
+				_put_item_back_to_slot()
+			elif inventory != null and not inventory.is_full() and _item_is_storable(held_item):
+				_store_item()
+			get_viewport().set_input_as_handled()
 
 # ─── Scroll slot logic ────────────────────────────────────────────────────────
 func _scroll_slot(direction: int) -> void:
@@ -212,7 +215,6 @@ func _put_item_back_to_slot() -> void:
 		return
 
 	_is_holding_e = false
-	_store_hold_t = 0.0
 
 	if held_item.knocked_out.is_connected(_on_item_knocked_out):
 		held_item.knocked_out.disconnect(_on_item_knocked_out)
@@ -259,14 +261,13 @@ func _bring_item_to_hand_from_slot(slot: int) -> void:
 	if held_item.has_method("set_player"):
 		held_item.set_player(player)
 
-# ─── Store held item into inventory (explicit, e.g. hold-E or scroll-to-empty) ─
+# ─── Store held item into inventory (explicit, e.g. G-tap or scroll-to-empty) ─
 ## Store a world-held item into a specific slot.
 func _store_item_to_slot(slot: int) -> void:
 	if held_item == null or inventory == null:
 		return
 
 	_is_holding_e = false
-	_store_hold_t = 0.0
 
 	if held_item.knocked_out.is_connected(_on_item_knocked_out):
 		held_item.knocked_out.disconnect(_on_item_knocked_out)
@@ -281,13 +282,12 @@ func _store_item_to_slot(slot: int) -> void:
 	held_item = null
 	_held_from_slot = -1
 
-## Store held item into inventory — first available slot (hold-E path).
+## Store held item into inventory — first available slot (G-tap path).
 func _store_item() -> void:
 	if held_item == null or inventory == null:
 		return
 
 	_is_holding_e = false
-	_store_hold_t = 0.0
 
 	if held_item.knocked_out.is_connected(_on_item_knocked_out):
 		held_item.knocked_out.disconnect(_on_item_knocked_out)
@@ -309,26 +309,6 @@ func _store_item() -> void:
 func _update_hud_selection() -> void:
 	if inventory_hud != null and inventory_hud.has_method("set_selected"):
 		inventory_hud.set_selected(selected_slot)
-
-# ─── Hold-E store tick ────────────────────────────────────────────────────────
-func _tick_store_hold(delta: float) -> void:
-	if not _is_holding_e or held_item == null:
-		_is_holding_e = false
-		_store_hold_t = 0.0
-		return
-
-	_store_hold_t += delta
-
-	if _store_hold_t >= store_hold_time:
-		# Hold threshold reached — cancel the pending tap-use
-		_use_pending = false
-		if _held_from_slot != -1:
-			# Inventory item — put it back to its slot
-			_put_item_back_to_slot()
-		elif inventory != null and not inventory.is_full() and _item_is_storable(held_item):
-			_store_item()
-		else:
-			_store_hold_t = store_hold_time
 
 # ─── Prompt ───────────────────────────────────────────────────────────────────
 
@@ -369,32 +349,20 @@ func _update_prompt() -> void:
 			var ip: String = held_item.get_interact_prompt()
 			if ip != "": item_lines.append(ip)
 
-		var has_action_lines:  bool = not item_lines.is_empty()
-		var store_in_progress: bool = _is_holding_e and _store_hold_t > 0.05
-
 		# Store / put-away hint — only add when it adds value
 		if _item_is_storable(held_item) or _held_from_slot != -1:
-			if store_in_progress:
-				var pct: int = int((_store_hold_t / store_hold_time) * 100.0)
-				if _held_from_slot != -1:
-					item_lines.append("[E] Putting away... %d%%" % pct)
-				elif inventory != null and inventory.is_full():
-					item_lines.append("[Hold E] Inventory full")
-				else:
-					item_lines.append("[E] Storing... %d%%" % pct)
-			elif has_action_lines:
-				if _held_from_slot != -1:
-					item_lines.append("[Hold E] Put away")
-				elif inventory != null and inventory.is_full():
-					item_lines.append("[Hold E] Inventory full")
-				else:
-					item_lines.append("[Hold E] Store")
+			if _held_from_slot != -1:
+				item_lines.append("[G] Put away")
+			elif inventory != null and inventory.is_full():
+				item_lines.append("[G] Inventory full")
+			else:
+				item_lines.append("[G] Store")
 
 		# Anchor prompt to hold_point position, not physics body center.
 		var item_prompt_pos: Vector3 = hold_point.global_position \
 				if hold_point != null else held_item.global_position
 
-		if not item_lines.is_empty() and (has_action_lines or store_in_progress):
+		if not item_lines.is_empty():
 			entries.append({
 				"text":      "\n".join(item_lines),
 				"world_pos": item_prompt_pos,
@@ -676,8 +644,6 @@ func _on_item_knocked_out() -> void:
 	held_item = null
 	_held_from_slot = -1
 	_is_holding_e = false
-	_store_hold_t = 0.0
-	_use_pending  = false
 	# Don't clear selected_slot — the slot still has the item, just knocked out
 	_update_hud_selection()
 
@@ -687,7 +653,6 @@ func _quick_drop() -> void:
 		return
 
 	_is_holding_e = false
-	_store_hold_t = 0.0
 
 	if held_item.knocked_out.is_connected(_on_item_knocked_out):
 		held_item.knocked_out.disconnect(_on_item_knocked_out)
