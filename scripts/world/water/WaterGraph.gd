@@ -60,6 +60,17 @@ var _water_edges: Dictionary = {}
 ## unlike the power system's wire graph which has to handle far larger churn).
 var _adjacency: Dictionary = {}
 
+## Registration-order counter for edges (Jul 2026, loop-direction fix). Godot
+## Dictionaries preserve insertion order, but edge_id is order-independent
+## (make_edge_id() sorts key_a/key_b lexicographically) so it can't itself be
+## used to tell "which of two branches did the player connect first." This
+## dict records a monotonically increasing index the FIRST time each edge_id
+## is registered (never touched again by the idempotent-existing-edge path in
+## register_edge()) — used purely as a tie-break in compute_flow_directions()
+## when two loop branches are equally direct. See docs/systems/water/README.md.
+var _edge_creation_order: Dictionary = {}   ## edge_id(String) -> int
+var _next_edge_order: int = 0
+
 
 ## Converts a world position into the shared snap-grid key format, identical
 ## in spirit to PowerManager._snap_key() / WireDrawMode._make_free_key() —
@@ -136,6 +147,8 @@ func register_edge(key_a: String, key_b: String) -> String:
 	_water_edges[edge_id] = { "a": key_a, "b": key_b }
 	_adjacency[key_a].append(key_b)
 	_adjacency[key_b].append(key_a)
+	_edge_creation_order[edge_id] = _next_edge_order
+	_next_edge_order += 1
 	return edge_id
 
 func unregister_edge(edge_id: String) -> void:
@@ -143,6 +156,7 @@ func unregister_edge(edge_id: String) -> void:
 		return
 	var e: Dictionary = _water_edges[edge_id]
 	_water_edges.erase(edge_id)
+	_edge_creation_order.erase(edge_id)
 	if _adjacency.has(e["a"]):
 		_adjacency[e["a"]].erase(e["b"])
 	if _adjacency.has(e["b"]):
@@ -263,10 +277,19 @@ func get_unpurified_reachable_keys(hookup_key: String) -> Dictionary:
 ## recomputed on demand (WaterManager.recompute_flow_directions()) whenever
 ## the pipe graph mutates, not every frame.
 func compute_flow_directions(hookup_key: String) -> Dictionary:
-	var distances: Dictionary = {}   ## node_key -> real cumulative distance (float)
 	if not _water_nodes.has(hookup_key):
 		return {}
+
+	## ── Pass 1: BFS spanning tree from the hookup ────────────────────────────
+	## distances = real cumulative hookup-distance (used for LCA/branch-length
+	## comparison below). parent/tree_edge_of record the spanning tree itself —
+	## any edge NOT in tree_edge_of's values is a "closing" edge that turns a
+	## tree branch into an actual loop.
+	var distances: Dictionary = {}    ## node_key -> float
+	var parent: Dictionary = {}       ## node_key -> node_key ("" for hookup)
+	var tree_edge_of: Dictionary = {} ## node_key -> edge_id (edge to its parent)
 	distances[hookup_key] = 0.0
+	parent[hookup_key] = ""
 	var queue: Array = [hookup_key]
 	while not queue.is_empty():
 		var current: String = queue.pop_front()
@@ -276,18 +299,152 @@ func compute_flow_directions(hookup_key: String) -> Dictionary:
 				continue
 			var neighbor_pos: Vector3 = _water_nodes.get(neighbor, {}).get("pos", Vector3.ZERO)
 			distances[neighbor] = distances[current] + current_pos.distance_to(neighbor_pos)
+			parent[neighbor] = current
+			tree_edge_of[neighbor] = make_edge_id(current, neighbor)
 			queue.append(neighbor)
 
-	var result: Dictionary = {}
+	var tree_edge_ids: Dictionary = {}   ## Set of edge_id currently used as tree edges
+	for node_key: String in tree_edge_of:
+		tree_edge_ids[tree_edge_of[node_key]] = true
+
+	## a_is_upstream (per edge_id) — natural tree direction to start with;
+	## closing edges get filled in below during cycle resolution.
+	var a_is_upstream: Dictionary = {}
+	var closing_edge_ids: Array = []
 	for edge_id: String in _water_edges:
 		var edge_data: Dictionary = _water_edges[edge_id]
 		var key_a: String = edge_data.get("a", "")
 		var key_b: String = edge_data.get("b", "")
-		if distances.has(key_a) and distances.has(key_b):
-			var a_is_upstream: bool = distances[key_a] <= distances[key_b]
-			var phase_offset: float = distances[key_a] if a_is_upstream else distances[key_b]
-			result[edge_id] = { "a_is_upstream": a_is_upstream, "phase_offset": phase_offset }
+		if not (distances.has(key_a) and distances.has(key_b)):
+			continue   ## unreachable from this hookup — no direction to assign
+		if tree_edge_ids.has(edge_id):
+			a_is_upstream[edge_id] = distances[key_a] <= distances[key_b]
+		else:
+			closing_edge_ids.append(edge_id)   ## resolved in pass 2
+
+	## ── Pass 2: fundamental-cycle resolution for each closing edge ──────────
+	## Process closing edges in creation order (deterministic) so overlapping/
+	## nested loops resolve consistently run-to-run. When a closing edge's
+	## recessive branch overlaps one already reversed by an earlier-processed
+	## (i.e. earlier-created) closing edge, the earlier loop's decision wins —
+	## `reversed_tree_edges` guards against re-flipping the same edge twice.
+	var ordered_closing: Array = closing_edge_ids.duplicate()
+	ordered_closing.sort_custom(func(x, y): return _edge_creation_order.get(x, 0) < _edge_creation_order.get(y, 0))
+
+	var reversed_tree_edges: Dictionary = {}   ## edge_id -> true, already flipped
+	for edge_id: String in ordered_closing:
+		var edge_data: Dictionary = _water_edges[edge_id]
+		var key_a: String = edge_data.get("a", "")
+		var key_b: String = edge_data.get("b", "")
+		var lca: String = _find_lca(key_a, key_b, parent)
+		if lca == "":
+			## Endpoints aren't both descendants of a common tree node reachable
+			## from this hookup (shouldn't happen given the distances guard
+			## above) — fall back to the old local comparison, no reversal.
+			a_is_upstream[edge_id] = distances[key_a] <= distances[key_b]
+			continue
+
+		var branch_a_len: float = distances[key_a] - distances[lca]
+		var branch_b_len: float = distances[key_b] - distances[lca]
+		var a_is_dominant: bool
+		if not is_equal_approx(branch_a_len, branch_b_len):
+			a_is_dominant = branch_a_len < branch_b_len
+		else:
+			## Tie — whichever branch's LCA-adjacent tree edge was placed first
+			## by the player wins (registration order), per Brannon's call.
+			var child_a: String = _direct_child_of_lca(key_a, lca, parent)
+			var child_b: String = _direct_child_of_lca(key_b, lca, parent)
+			var order_a: int = _edge_creation_order.get(tree_edge_of.get(child_a, ""), 999999999)
+			var order_b: int = _edge_creation_order.get(tree_edge_of.get(child_b, ""), 999999999)
+			a_is_dominant = order_a <= order_b
+
+		var dominant_key: String = key_a if a_is_dominant else key_b
+		var recessive_key: String = key_b if a_is_dominant else key_a
+
+		## Reverse every still-untouched tree edge on the path from the LCA
+		## down to the recessive endpoint — the whole spine now flows
+		## leaf-to-LCA instead of LCA-to-leaf. Side branches hanging off that
+		## spine (not on this path) are untouched, per design.
+		var cur: String = recessive_key
+		while cur != lca:
+			var spine_edge_id: String = tree_edge_of.get(cur, "")
+			if spine_edge_id != "" and not reversed_tree_edges.has(spine_edge_id):
+				var spine_edge_data: Dictionary = _water_edges[spine_edge_id]
+				var natural_a_is_upstream: bool = distances[spine_edge_data["a"]] <= distances[spine_edge_data["b"]]
+				a_is_upstream[spine_edge_id] = not natural_a_is_upstream
+				reversed_tree_edges[spine_edge_id] = true
+			cur = parent.get(cur, lca)
+
+		## Closing edge itself flows from the dominant endpoint into the
+		## (now-reversed) recessive endpoint, completing one continuous loop.
+		a_is_upstream[edge_id] = (dominant_key == key_a)
+
+	## ── Pass 3: phase_offset via a second pass following FINAL directions ───
+	## Raw hookup-BFS distance is wrong for reversed edges (their true
+	## "distance traveled along the actual flow path" differs once reversed).
+	## Walk the graph again, this time strictly following each edge's final
+	## upstream->downstream direction, accumulating real distance as we go.
+	var directed_adjacency: Dictionary = {}   ## upstream_key -> Array[{down, edge_id, len}]
+	for edge_id: String in a_is_upstream:
+		var edge_data: Dictionary = _water_edges[edge_id]
+		var key_a: String = edge_data.get("a", "")
+		var key_b: String = edge_data.get("b", "")
+		var up_key: String = key_a if a_is_upstream[edge_id] else key_b
+		var down_key: String = key_b if a_is_upstream[edge_id] else key_a
+		var up_pos: Vector3 = _water_nodes.get(up_key, {}).get("pos", Vector3.ZERO)
+		var down_pos: Vector3 = _water_nodes.get(down_key, {}).get("pos", Vector3.ZERO)
+		if not directed_adjacency.has(up_key):
+			directed_adjacency[up_key] = []
+		directed_adjacency[up_key].append({ "down": down_key, "edge_id": edge_id, "len": up_pos.distance_to(down_pos) })
+
+	var flow_dist: Dictionary = { hookup_key: 0.0 }
+	var dqueue: Array = [hookup_key]
+	while not dqueue.is_empty():
+		var current2: String = dqueue.pop_front()
+		for link: Dictionary in directed_adjacency.get(current2, []):
+			var down_key2: String = link["down"]
+			if flow_dist.has(down_key2):
+				continue
+			flow_dist[down_key2] = flow_dist[current2] + link["len"]
+			dqueue.append(down_key2)
+
+	var result: Dictionary = {}
+	for edge_id: String in a_is_upstream:
+		var edge_data: Dictionary = _water_edges[edge_id]
+		var key_a: String = edge_data.get("a", "")
+		var key_b: String = edge_data.get("b", "")
+		var up_key: String = key_a if a_is_upstream[edge_id] else key_b
+		## Fall back to raw hookup distance if the directed walk somehow never
+		## reached this edge's upstream node (defensive — shouldn't happen for
+		## a fully hookup-connected graph).
+		var phase_offset: float = flow_dist.get(up_key, distances.get(up_key, 0.0))
+		result[edge_id] = { "a_is_upstream": a_is_upstream[edge_id], "phase_offset": phase_offset }
 	return result
+
+## Walks parent pointers from both `node_a` and `node_b` to find their lowest
+## common ancestor in the BFS spanning tree. Returns "" if none found (should
+## only happen if one of the nodes isn't actually in the tree).
+func _find_lca(node_a: String, node_b: String, parent: Dictionary) -> String:
+	var ancestors_a: Dictionary = {}
+	var cur: String = node_a
+	while cur != "":
+		ancestors_a[cur] = true
+		cur = parent.get(cur, "")
+	cur = node_b
+	while cur != "":
+		if ancestors_a.has(cur):
+			return cur
+		cur = parent.get(cur, "")
+	return ""
+
+## Walks parent pointers up from `node` until reaching the tree-child of
+## `lca` that leads toward `node` — i.e. the first node below `lca` on that
+## branch. Used only for the registration-order tie-break.
+func _direct_child_of_lca(node: String, lca: String, parent: Dictionary) -> String:
+	var cur: String = node
+	while parent.get(cur, "") != lca and parent.get(cur, "") != "":
+		cur = parent[cur]
+	return cur
 
 
 # ─── Live flow-split (Step 2, July 2026) ─────────────────────────────────────
