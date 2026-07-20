@@ -23,7 +23,7 @@ uniform bool build_mode_visible = false;   // toggled per-segment, not a global 
 // so tile size and scroll speed are constant in world-space on every pipe.
 uniform float pipe_length : hint_range(0.01, 100.0) = 1.0;   // this segment's real length (m),
                                                               // set from WaterPipeSegment._build_arrow_overlay()
-uniform float tile_world_length : hint_range(0.05, 5.0) = 0.4;   // desired world-units per arrow tile
+uniform float tile_world_length : hint_range(0.05, 5.0) = 0.8;   // desired world-units per arrow tile (doubled Jul 2026 — arrows were too tightly packed, this halves arrow density / removes every other one)
 
 // phase_offset is each segment's upstream endpoint's cumulative REAL-WORLD
 // distance from the hookup (world units, from WaterGraph.
