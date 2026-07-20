@@ -593,6 +593,23 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 	## via _resolve_single_leg(). Any leg that STILL overlaps after this
 	## (no valid detour) is caught by _path_has_unreroutable_overlap() at
 	## confirm time in _try_confirm_full_path().
+	##
+	## Collapse to real corners FIRST (Jul 2026, diagonal-detour fix) —
+	## `raw_points` at this point still carries one waypoint per
+	## WallPerimeterRegistry wall segment (many fine-grained points along
+	## a single straight wall run), unlike _resolve_single_leg()'s
+	## `_build_manhattan_path()` output which is already just source ->
+	## one corner -> dest. Running _avoid_existing_pipes() directly on the
+	## fine-grained chain meant EVERY tiny wall-segment hop got its own
+	## independent sidestep decision (via the `path[i+2]` lookahead, only
+	## one tiny hop ahead each time) — noisy enough that the sidestep sign
+	## could flip hop-to-hop, producing a staircase of small perpendicular
+	## jogs that reads as a diagonal line at a glance. Collapsing first
+	## means _avoid_existing_pipes() only ever sees the handful of TRUE
+	## corners (same shape it already handles correctly for the freeform
+	## trace), so its lookahead is a real, far-apart corner and the
+	## sidestep direction stays consistent for the whole wall run.
+	raw_points = _collapse_collinear_points(raw_points)
 	raw_points = _avoid_existing_pipes(raw_points, debug)
 
 	## Pillar clearance per corner/leg — identical approach to
@@ -1425,6 +1442,38 @@ func _path_has_unreroutable_overlap(path: Array, debug: bool = false) -> bool:
 ## the actual confirm-click path (_try_confirm_segment()), false (default)
 ## from the per-frame ghost preview (_update_ghost_preview()) so PIPE_DEBUG
 ## doesn't flood the console at 60fps while dragging.
+## Collapses a strictly axis-aligned point chain down to just its true
+## corners — drops any interior point where the incoming and outgoing leg
+## run the exact same direction (i.e. the point sits mid-way along a
+## straight run, not an actual turn). Purely geometric, no wall/pillar
+## awareness needed — every point here is already axis-aligned (Manhattan
+## legs only), so "same direction" just means the normalized in/out vectors
+## match. Used by _trace_wall_locked_path() to shrink its fine-grained
+## WallPerimeterRegistry waypoint chain down to real corners before running
+## _avoid_existing_pipes() — see that call site's comment for why.
+func _collapse_collinear_points(points: Array) -> Array:
+	if points.size() < 3:
+		return points.duplicate()
+	var out: Array = [points[0]]
+	for i in range(1, points.size() - 1):
+		var prev: Vector3 = out[out.size() - 1]
+		var cur: Vector3 = points[i]
+		var nxt: Vector3 = points[i + 1]
+		var dir_in: Vector3 = cur - prev
+		var dir_out: Vector3 = nxt - cur
+		## Degenerate (near-duplicate) point — drop rather than keep as a
+		## fake corner; _append_if_distinct() upstream should already
+		## prevent this, but guard against it here too.
+		if dir_in.length() < MIN_POINT_GAP or dir_out.length() < MIN_POINT_GAP:
+			continue
+		var axis_in: Vector3 = dir_in.normalized()
+		var axis_out: Vector3 = dir_out.normalized()
+		if axis_in.dot(axis_out) > 0.999:
+			continue   ## Same direction in and out — not a real corner.
+		out.append(cur)
+	out.append(points[points.size() - 1])
+	return out
+
 func _avoid_existing_pipes(path: Array, debug: bool = false) -> Array:
 	var out: Array = [path[0]]
 	## Running "current" point — starts as path[0] but, once a mid-route leg
