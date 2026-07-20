@@ -1059,6 +1059,19 @@ func _build_manhattan_path(from_pos: Vector3, to_pos: Vector3) -> Array:
 	var ceiling_to: Vector3 = Vector3(to_pos.x, WATER_CEILING_Y, to_pos.z)
 	var dx: float = absf(ceiling_to.x - start.x)
 	var dz: float = absf(ceiling_to.z - start.z)
+	## Snap negligible cross-axis drift to exact alignment (Jul 2026,
+	## diagonal-detour fix round 2). When one axis delta is small enough to
+	## skip the corner-insertion branch below, `ceiling_to` still carried
+	## its RAW to_pos coordinate on that axis — a small but genuinely
+	## non-zero offset (e.g. 0.02m, from a WallPerimeterRegistry waypoint's
+	## own WALL_PIPE_OFFSET projection), which produced a real (if subtle)
+	## diagonal segment instead of a pure single-axis one. Force that
+	## negligible axis to match `start` exactly so the resulting leg is
+	## always strictly axis-aligned, never "almost".
+	if dx <= MIN_POINT_GAP and dz > MIN_POINT_GAP:
+		ceiling_to.x = start.x
+	elif dz <= MIN_POINT_GAP and dx > MIN_POINT_GAP:
+		ceiling_to.z = start.z
 	if dx > MIN_POINT_GAP and dz > MIN_POINT_GAP:
 		## Shorter-axis-first heuristic (July 2026 playtest pass — flipped
 		## from the original "longer leg first"). Rationale: the source is
@@ -1451,27 +1464,49 @@ func _path_has_unreroutable_overlap(path: Array, debug: bool = false) -> bool:
 ## match. Used by _trace_wall_locked_path() to shrink its fine-grained
 ## WallPerimeterRegistry waypoint chain down to real corners before running
 ## _avoid_existing_pipes() — see that call site's comment for why.
+##
+## Root-cause fix (Jul 2026, diagonal-detour bug round 2): the previous
+## version's degenerate-length guard `continue`d (i.e. DELETED) any point
+## whose incoming OR outgoing leg was shorter than MIN_POINT_GAP — but that
+## doesn't just drop a redundant near-duplicate, it deletes a genuine corner
+## and directly connects its two now-non-adjacent neighbors. Those neighbors
+## are essentially never on the same axis as each other (that corner is
+## exactly what kept them aligned), so the result was a real, sometimes
+## large, diagonal segment — the "A" shape / long diagonal jumps reported
+## right at hookups with a very short entry/exit leg. Fixed by deduping
+## near-duplicate CONSECUTIVE points into one FIRST (a pure spatial merge,
+## no direction logic), so every point handed to the direction-based pass
+## below always has two genuinely distinct, non-degenerate neighbors —
+## the "same direction" check can then never fire on a phantom short leg.
 func _collapse_collinear_points(points: Array) -> Array:
-	if points.size() < 3:
+	if points.size() < 2:
 		return points.duplicate()
-	var out: Array = [points[0]]
-	for i in range(1, points.size() - 1):
+
+	## Pass 1 — spatial dedupe. Merge any point within MIN_POINT_GAP of the
+	## previously kept point into that point (keep the earlier one; the gap
+	## is small enough that either is visually/functionally identical).
+	var deduped: Array = [points[0]]
+	for i in range(1, points.size()):
+		if deduped[deduped.size() - 1].distance_to(points[i]) > MIN_POINT_GAP:
+			deduped.append(points[i])
+	if deduped.size() < 3:
+		return deduped
+
+	## Pass 2 — direction-based collapse. Every consecutive pair here is
+	## now guaranteed more than MIN_POINT_GAP apart, so dir_in/dir_out are
+	## never degenerate; a point only gets dropped when it's a genuine
+	## straight pass-through, never a real turn.
+	var out: Array = [deduped[0]]
+	for i in range(1, deduped.size() - 1):
 		var prev: Vector3 = out[out.size() - 1]
-		var cur: Vector3 = points[i]
-		var nxt: Vector3 = points[i + 1]
-		var dir_in: Vector3 = cur - prev
-		var dir_out: Vector3 = nxt - cur
-		## Degenerate (near-duplicate) point — drop rather than keep as a
-		## fake corner; _append_if_distinct() upstream should already
-		## prevent this, but guard against it here too.
-		if dir_in.length() < MIN_POINT_GAP or dir_out.length() < MIN_POINT_GAP:
-			continue
-		var axis_in: Vector3 = dir_in.normalized()
-		var axis_out: Vector3 = dir_out.normalized()
+		var cur: Vector3 = deduped[i]
+		var nxt: Vector3 = deduped[i + 1]
+		var axis_in: Vector3 = (cur - prev).normalized()
+		var axis_out: Vector3 = (nxt - cur).normalized()
 		if axis_in.dot(axis_out) > 0.999:
 			continue   ## Same direction in and out — not a real corner.
 		out.append(cur)
-	out.append(points[points.size() - 1])
+	out.append(deduped[deduped.size() - 1])
 	return out
 
 func _avoid_existing_pipes(path: Array, debug: bool = false) -> Array:

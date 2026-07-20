@@ -799,6 +799,37 @@ stable (matches the project's standing debug-logging discipline).
     turn) so the detour pass only ever sees the handful of TRUE corners —
     same shape it already handled correctly for the freeform trace. Every
     resulting leg stays strictly axis-aligned; no diagonal segments.
+  - **FIXED (Jul 2026, diagonal-detour bug round 2 — real corners were
+    getting deleted):** the round-1 fix above still produced real
+    (sometimes large) diagonal segments, especially right at a hookup with
+    a very short entry/exit leg. Two separate leaks, both fixed in the same
+    pass:
+    1. `_build_manhattan_path()` skips its corner-insertion branch whenever
+       one axis delta is `<= MIN_POINT_GAP` (treated as "already aligned
+       enough") — but it then still appended the raw target point carrying
+       that small non-zero delta on the skipped axis, producing a subtle
+       but genuine diagonal leg (e.g. a 0.02m x-drift on what should've
+       been a pure z-move). Fixed by snapping that negligible axis to
+       exactly match the start point's coordinate instead of leaving the
+       raw drift in place.
+    2. `_collapse_collinear_points()`'s degenerate-length guard `continue`d
+       (i.e. DELETED) any point whose incoming OR outgoing leg was shorter
+       than `MIN_POINT_GAP` — but deleting a point doesn't just drop a
+       redundant near-duplicate, it bridges that point's two now-non-
+       adjacent neighbors directly. Those neighbors are essentially never
+       on the same axis as each other (that deleted point was exactly what
+       kept them aligned), so the result was a real diagonal jump — the
+       "A" shape / long diagonal segments reported right at hookups.
+       Fixed by restructuring into two passes: pass 1 spatially dedupes
+       near-duplicate CONSECUTIVE points into one (pure merge, no
+       direction logic, so a short leg's corner-ness is never lost); pass
+       2 then runs the same-direction collapse on the deduped list, where
+       every remaining pair is guaranteed non-degenerate so the collapse
+       can never fire on a phantom short leg.
+    Net effect: every point handed downstream to `_avoid_existing_pipes()`
+    and the pillar-dogleg loop is now guaranteed strictly axis-aligned
+    relative to its immediate neighbor, with no near-diagonal drift and no
+    silently-deleted corners.
 - **Continuous paint-along-wall mode implemented (Part B, combined refactor
   pass, Jul 2026):** `WaterPipeDrawMode` now traces and confirms a FULL
   multi-leg run in one click instead of one leg at a time. New pure
