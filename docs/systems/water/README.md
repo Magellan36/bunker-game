@@ -777,11 +777,12 @@ stable (matches the project's standing debug-logging discipline).
     applicable: registry null/empty (e.g. before the first perimeter solve
     completes), or no nearest-segment/BFS-path found (shouldn't happen for
     a connected perimeter, but fails safe).
-  - **Known limitation (explicitly out of scope this pass):** unlike the
-    freeform trace, wall-locked routing does NOT run `_avoid_existing_pipes()`
-    — a wall-locked run can still overlap an existing pipe placed along the
-    same wall run. Flag to Brannon if this comes up in practice; not fixed
-    here to keep this pass's diff small and surgical.
+  - **FIXED (Jul 2026, overlap-block pass):** wall-locked routing now runs
+    `_avoid_existing_pipes()` on its full `raw_points` chain (right before
+    the per-corner pillar-clearance loop) — same detour behavior the
+    freeform trace already got via `_resolve_single_leg()`. See "Overlap
+    block (unreroutable case)" below for what happens when even the
+    detour can't clear a conflict.
 - **Continuous paint-along-wall mode implemented (Part B, combined refactor
   pass, Jul 2026):** `WaterPipeDrawMode` now traces and confirms a FULL
   multi-leg run in one click instead of one leg at a time. New pure
@@ -879,6 +880,26 @@ stable (matches the project's standing debug-logging discipline).
     detour itself against yet another pipe); fixed sidestep direction (+Z
     for an X-axis leg, +X for a Z-axis leg) rather than picking whichever
     side has more clearance.
+  - **Overlap block (unreroutable case) — added Jul 2026, overlap-block
+    pass:** the single-pass "known limitation" directly above (no
+    recursive re-check of the detour itself) used to mean a run jammed
+    flush against a wall/corner with zero room to jog sideways would
+    silently place a pipe still doubled over an existing one. Now caught
+    at confirm time by `_path_has_unreroutable_overlap()` — re-runs
+    `_find_collinear_conflict()` over every leg of the FINAL, already-
+    detoured path (both `_try_confirm_segment()`'s single-leg path and
+    `_try_confirm_full_path()`'s paint-mode `waypoints`); if any leg still
+    overlaps after the detour, placement is blocked entirely (no spend, no
+    graph mutation) and a red fade-in/fade-out banner fires via
+    `InventoryHUD.show_error_message()` (`WaterPipeDrawMode._show_error()`
+    — same convention `ShelfUI._show_error()` already reuses, deliberately
+    kept separate from `_show_warning()`'s `HUD.show_soft_warning()` path
+    used for out-of-bounds/no-destination/no-cash). Reroutable legs never
+    reach this check — the detour already cleared them, so normal
+    auto-detour behavior is unchanged. `WaterPipeDrawMode.inventory_hud` is
+    wired in from `MainWorld._connect_water_pipe_inventory_hud()`, deferred
+    by one frame the same way `_connect_wire_draw_mode()` already is (the
+    node doesn't exist yet when `_connect_inventory()` normally runs).
   - **Perpendicular crossing** (`_find_perpendicular_crossing()`/
     `_insert_crossings()`): different axis, ranges actually intersect at one
     interior point — an explicitly ALLOWED "+" formation. MUTATES the graph
