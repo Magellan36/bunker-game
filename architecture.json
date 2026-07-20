@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-18T18:58:56.358141+00:00",
+  "generated_at": "2026-07-20T01:31:53.718973+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 81,
-  "total_lines": 33870,
+  "script_count": 82,
+  "total_lines": 34188,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -1704,7 +1704,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 1172,
+      "line_count": 1189,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -1820,7 +1820,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 43,
+      "private_function_count": 44,
       "preloads": [
         "res://assets/textures/concrete_floor.jpg",
         "res://scripts/ui/build/BuildModeHUD.gd",
@@ -1836,6 +1836,7 @@
         "res://scripts/world/power/PowerManager.gd",
         "res://scripts/world/power/WireSegment.gd",
         "res://scripts/world/structure/PillarRegistry.gd",
+        "res://scripts/world/structure/WallPerimeterRegistry.gd",
         "res://scripts/world/water/WaterManager.gd"
       ],
       "group_lookups": [
@@ -1845,7 +1846,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1227
+      "complexity_score": 1245
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",
@@ -4239,23 +4240,24 @@
     },
     {
       "path": "res://scripts/world/power/WireGraphBuilder.gd",
-      "line_count": 1526,
+      "line_count": 1547,
       "class_name": "WireGraphBuilder",
       "extends": "RefCounted",
       "exports": [],
       "signals": [],
       "connect_call_sites": [],
       "public_functions": [],
-      "private_function_count": 11,
+      "private_function_count": 12,
       "preloads": [
         "res://scripts/world/power/WireSegment.gd"
       ],
       "group_lookups": [
         "pillar_registry",
-        "power_manager"
+        "power_manager",
+        "wall_perimeter_registry"
       ],
       "autoload_references": [],
-      "complexity_score": 1537
+      "complexity_score": 1559
     },
     {
       "path": "res://scripts/world/power/WireSegment.gd",
@@ -4398,6 +4400,49 @@
       ],
       "autoload_references": [],
       "complexity_score": 49
+    },
+    {
+      "path": "res://scripts/world/structure/WallPerimeterRegistry.gd",
+      "line_count": 144,
+      "class_name": "WallPerimeterRegistry",
+      "extends": "Node",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "set_all",
+          "args": "segments: Dictionary",
+          "returns": "void"
+        },
+        {
+          "name": "get_nearest_segment_key",
+          "args": "pos: Vector3",
+          "returns": "String"
+        },
+        {
+          "name": "get_segment_pos",
+          "args": "key: String",
+          "returns": "Vector3"
+        },
+        {
+          "name": "is_empty",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "find_path_along_wall",
+          "args": "from_key: String, to_key: String",
+          "returns": "Array"
+        }
+      ],
+      "private_function_count": 1,
+      "preloads": [],
+      "group_lookups": [
+        "wall_perimeter_registry"
+      ],
+      "autoload_references": [],
+      "complexity_score": 155
     },
     {
       "path": "res://scripts/world/water/WaterDispenser.gd",
@@ -4793,7 +4838,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 1458,
+      "line_count": 1594,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4825,15 +4870,16 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 38,
+      "private_function_count": 41,
       "preloads": [],
       "group_lookups": [
         "pillar_registry",
+        "wall_perimeter_registry",
         "water_manager",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 1502
+      "complexity_score": 1641
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",
@@ -5221,6 +5267,11 @@
     {
       "from": "res://scripts/world/core/MainWorld.gd",
       "to": "res://scripts/world/structure/PillarRegistry.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/core/MainWorld.gd",
+      "to": "res://scripts/world/structure/WallPerimeterRegistry.gd",
       "via": "preload"
     },
     {

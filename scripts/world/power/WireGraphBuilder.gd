@@ -130,6 +130,7 @@ func _compute_and_rebuild_wires() -> void:
 				pillar_positions[pkey] = Vector3(px, PLACEMENT_Y, pz)
 
 	_push_pillar_registry(pillar_positions)
+	_push_wall_perimeter_registry(boundary_edges)
 	_rebuild_auto_wires(boundary_edges, pillar_positions, false)
 
 ## ─── Global perimeter solver ─────────────────────────────────────────────────
@@ -391,6 +392,7 @@ func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
 	## Pillar positions included so corner wire nodes are not skipped.
 	## Stale pregen perimeter nodes (now interior) are also removed here.
 	_push_pillar_registry(pillar_positions)
+	_push_wall_perimeter_registry(boundary_edges)
 	_rebuild_auto_wires(boundary_edges, pillar_positions, breakers_removed)
 
 	## ── Close outer bulk window (Fix A) ──────────────────────────────────────
@@ -1504,6 +1506,7 @@ func _on_chunk_restored(chunk_origin: Vector2i) -> void:
 	## longer in the desired set; PassB2 stitches the surviving ring closed.
 	## No separate bespoke undo rebuild needed.
 	_push_pillar_registry(pillar_positions)
+	_push_wall_perimeter_registry(boundary_edges)
 	_rebuild_auto_wires(boundary_edges, pillar_positions, false)
 	## Update _owner._boundary_edges_prev so the next diff is correct.
 	_compute_boundary_diff(boundary_edges)
@@ -1524,3 +1527,21 @@ func _push_pillar_registry(pillar_positions: Dictionary) -> void:
 		push_warning("WireGraphBuilder: PillarRegistry not found — pillar clearance data not updated")
 		return
 	registry.set_all(pillar_positions)
+
+
+## ── Part B (wall-locked pipe routing, Jul 2026) ──────────────────────────────
+## Pushes the freshly-computed boundary_edges set into the MainWorld-owned
+## WallPerimeterRegistry (found via group "wall_perimeter_registry", same
+## lookup pattern as PillarRegistry). Called from all three solve entry
+## points right after each one finishes building its own local
+## `boundary_edges` dict, so the registry is always current after any
+## pregen solve / dig / undo.
+## No-op (with a one-time push_warning) if the registry hasn't been set up —
+## keeps this purely additive, never a hard dependency for the wire/perimeter
+## engine itself.
+func _push_wall_perimeter_registry(boundary_edges: Dictionary) -> void:
+	var registry: Node = _owner.get_tree().get_first_node_in_group("wall_perimeter_registry")
+	if registry == null:
+		push_warning("WireGraphBuilder: WallPerimeterRegistry not found — wall-locked pipe routing data not updated")
+		return
+	registry.set_all(boundary_edges)

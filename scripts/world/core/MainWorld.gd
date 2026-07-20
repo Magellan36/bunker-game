@@ -155,6 +155,8 @@ var _water_manager: Node = null
 
 ## Part A (structure refactor, Jul 2026) — see scripts/world/structure/PillarRegistry.gd
 var _pillar_registry: Node = null
+## Wall-locked pipe routing (Jul 2026) — see scripts/world/structure/WallPerimeterRegistry.gd
+var _wall_perimeter_registry: Node = null
 var _lighting_director: Node = null   ## LightingDirector.gd, built via Node.new()+set_script() same as _power_manager
 ## _reconciler removed (Stage 5) — reconciler fully retired.
 
@@ -389,6 +391,21 @@ func _setup_pillar_registry() -> void:
 	_pillar_registry.name = "PillarRegistry"
 	_pillar_registry.add_to_group("pillar_registry")
 	add_child(_pillar_registry)
+
+## Wall-locked pipe routing (Jul 2026) — mirrors _setup_pillar_registry()'s
+## shape exactly. Standalone registry, no signals — see WallPerimeterRegistry.gd.
+## Must run before the first wire/perimeter solve (_wire_builder calls),
+## which is why it's called before _setup_power_manager() in _ready().
+func _setup_wall_perimeter_registry() -> void:
+	var wpr_script: GDScript = load("res://scripts/world/structure/WallPerimeterRegistry.gd")
+	if wpr_script == null:
+		push_warning("MainWorld: WallPerimeterRegistry.gd not found — wall-locked pipe routing disabled")
+		return
+	_wall_perimeter_registry = Node.new()
+	_wall_perimeter_registry.set_script(wpr_script)
+	_wall_perimeter_registry.name = "WallPerimeterRegistry"
+	_wall_perimeter_registry.add_to_group("wall_perimeter_registry")
+	add_child(_wall_perimeter_registry)
 
 ## Connects PowerManager signals to HUD floating alerts.
 ## Called deferred from _setup_power_manager() to ensure HUD is ready.

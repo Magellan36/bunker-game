@@ -399,7 +399,8 @@ or delay).
 | `WaterHookup.gd` | The wall-mounted source device. Wall-snapped placement, never deletable, auto-tracks the outermost wall in its facing direction as the bunker expands. |
 | `WaterPipeSegment.gd` | Visual for one straight placed pipe. **Always visible** (see Known tradeoffs). Joins group `"water_pipe_visual"` on `_ready()` (Step 2, July 2026) — pure findability for `WaterHookup._delete_and_refund_edge()`, NOT the `WireSegment` hide-on-exit-build-mode pattern. Also carries `placement_cost` (July 2026) — per-leg cost stashed at spawn time, source of truth for that same refund path. |
 | `WaterPipeElbow.gd` | Corner-joint visual, spawned automatically at a corner crossing. A REAL graph node (role `"corner"`), not just cosmetic — see Extension points. |
-| `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **(Jul 2026, Part B) Continuous paint-along-wall mode** — one click traces/confirms a full multi-leg run with pillar clearance built in; old one-confirm-per-click model kept intact, toggle via `PAINT_MODE_ENABLED` — see its own file-header comment and Known tradeoffs below. |
+| `WaterPipeDrawMode.gd` | The placement tool. Routes strictly axis-aligned (90°-only) at a fixed near-ceiling height (`WATER_CEILING_Y`), dropping vertically into any floor-standing connectable device. **(Jul 2026, Part B) Continuous paint-along-wall mode** — one click traces/confirms a full multi-leg run with pillar clearance built in; old one-confirm-per-click model kept intact, toggle via `PAINT_MODE_ENABLED` — see its own file-header comment and Known tradeoffs below. **(Jul 2026) Wall-locked routing default** — an open-floor destination now routes along the wall perimeter via `WallPerimeterRegistry`; CTRL held falls back to freeform — see Known tradeoffs. |
+| `WallPerimeterRegistry.gd` (`scripts/world/structure/`) | Jul 2026. Sibling to `PillarRegistry` — BFS-queryable wall-segment graph (`find_path_along_wall()`), populated from `WireGraphBuilder`'s `boundary_edges` at the same 3 call sites `PillarRegistry` already is. Consumed only by `WaterPipeDrawMode._trace_wall_locked_path()` — see Known tradeoffs. |
 | `WaterTestSink.gd` | Rudimentary test endpoint — the acceptance test for this whole phase (place a hookup, route a pipe around a corner, confirm the sink reports CONNECTED). Interactable (Step 2) — see `WaterInfoUI.gd`. Jul 2026: `priority: int` (1-5) + `fixed_demand_mL_per_day: float` exports, implements `get_current_demand_mL_per_day()` for `WaterSolver.gd`. |
 | `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026; extended Jul 2026 (Purifier pass). ONE shared info panel for `WaterHookup`/`WaterTestSink`/`WaterPurifier`, distinguished by a `_mode: String` discriminator (`"hookup"`/`"sink"`/`"purifier"` — was a 2-way `is_source: bool`, extended to a 3rd mode rather than a second ambiguous bool) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. Purifier branch is read-only (no slider/toggle/priority) — shows input quality (upstream hookup's raw `water_quality`) and fixed output quality (always 100%). Dynamic panel height: `PANEL_H_SOURCE`/`PANEL_H_SINK`/`PANEL_H_PURIFIER`. |
 | `WaterSolver.gd` | Jul 2026. Priority-tier demand waterfall — `RefCounted`, `_graph: WaterGraph` back-reference (same split pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver`). Pure read-only queries, no state held between calls. |
@@ -734,6 +735,53 @@ Only strip these prints once Brannon explicitly asks for this system
 stable (matches the project's standing debug-logging discipline).
 
 ## Known tradeoffs / tech debt
+- **Wall-locked pipe routing added (Jul 2026):** when a run's destination
+  resolves to open floor space (`_resolve_destination()`'s raw grid-snap
+  fallback — no existing node, no mid-span split), the default routing is
+  now `_trace_wall_locked_path()` — BFS along the bunker's wall perimeter
+  via a new sibling registry `WallPerimeterRegistry.gd`
+  (`scripts/world/structure/`, same ownership shape as Part A's
+  `PillarRegistry`: instanced once by `MainWorld._setup_wall_perimeter_registry()`,
+  found via group `"wall_perimeter_registry"`), instead of a raw diagonal-
+  shortest Manhattan cut straight across the room. Populated by
+  `WireGraphBuilder._push_wall_perimeter_registry(boundary_edges)`, called
+  at the same 3 solve entry points `_push_pillar_registry()` already is
+  (initial pregen solve + every incremental chunk dig/restore) — reuses the
+  electrical perimeter's own `boundary_edges` topology rather than
+  re-deriving wall shape from scratch. `ADJACENCY_RADIUS`=1.1m (registry
+  entries are 1.0m apart along a straight wall run, ~0.707m apart at a
+  convex corner — verified from `WireGraphBuilder`'s own pillar/boundary
+  math, NOT the 0.3m a stale planning doc assumed).
+  - **CTRL held = escape hatch back to today's freeform routing**
+    (`_trace_wall_hugging_path()`, unchanged) — see `WALL_LOCKED_ROUTING_ENABLED`
+    and the shared `_trace_active_path()` chooser both `_update_ghost_preview()`
+    and `_try_confirm_full_path()` now call instead of the freeform trace
+    directly, so ghost preview and confirm can never disagree about which
+    mode a given click used.
+  - **Anchored destinations always keep freeform routing** regardless of
+    CTRL — an existing node or a mid-span T-split is already a valid real
+    connection point, wall-locking only ever applies to a fresh open-floor
+    run.
+  - `_trace_wall_locked_path()` returns the exact same
+    `{waypoints, waypoint_keys, valid, final_key}` shape as the freeform
+    trace, so it plugs into `_try_confirm_full_path()`'s existing generic
+    node/edge/segment spawning loop with zero duplication there. Every hop
+    between consecutive raw points (source → each wall waypoint → dest) is
+    individually re-run through the existing `_build_manhattan_path()` —
+    this is what keeps the whole thing strictly axis-aligned even where two
+    consecutive registry wall-segment entries are diagonally adjacent at a
+    convex corner (not collinear). Pillar-clearance dogleg
+    (`_dogleg_corner_around_pillars()`/`_leg_clears_all_pillars()`) is
+    applied per corner exactly like the freeform trace.
+  - Falls back to freeform automatically whenever wall-locking isn't
+    applicable: registry null/empty (e.g. before the first perimeter solve
+    completes), or no nearest-segment/BFS-path found (shouldn't happen for
+    a connected perimeter, but fails safe).
+  - **Known limitation (explicitly out of scope this pass):** unlike the
+    freeform trace, wall-locked routing does NOT run `_avoid_existing_pipes()`
+    — a wall-locked run can still overlap an existing pipe placed along the
+    same wall run. Flag to Brannon if this comes up in practice; not fixed
+    here to keep this pass's diff small and surgical.
 - **Continuous paint-along-wall mode implemented (Part B, combined refactor
   pass, Jul 2026):** `WaterPipeDrawMode` now traces and confirms a FULL
   multi-leg run in one click instead of one leg at a time. New pure
