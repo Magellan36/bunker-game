@@ -198,6 +198,7 @@ func _ready() -> void:
 	_wire_builder = WireGraphBuilder.new(self)
 	add_to_group("main_world")   ## Lets PowerManager find us as fallback wire parent
 	_setup_pillar_registry()   ## Must exist before first wire/perimeter solve populates it
+	_setup_wall_perimeter_registry()   ## Must exist before first wire/perimeter solve populates it
 	_setup_power_manager()   ## Must be first — lights self-register in _ready()
 	_setup_water_manager()
 	_setup_lighting()
