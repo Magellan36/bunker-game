@@ -148,9 +148,10 @@ const WALL_LOCKED_ROUTING_ENABLED: bool = true
 ## AT the boundary/wall face (correct for flush-mounted electrical items),
 ## but a pipe has real radius (WaterPipeSegment.PIPE_RADIUS = 0.09) and
 ## visibly clips into the wall mesh if its centerline sits there too.
-## 0.15 = radius + a small margin so the tube's outer surface clears the
-## wall face with room to spare.
-const WALL_PIPE_OFFSET: float = 0.15
+## 0.22 = radius + a bigger margin (bumped from 0.15, Jul 2026 playtest —
+## 0.15 still let the tube visibly clip the wall face by a hair) so the
+## tube's outer surface clears the wall face with real room to spare.
+const WALL_PIPE_OFFSET: float = 0.22
 
 ## Dumps every currently-registered REAL pipe segment (via "water_pipe_visual"
 ## — ghosts never join that group, see WaterPipeSegment.is_ghost) so a debug
@@ -883,6 +884,24 @@ func _try_confirm_full_path() -> void:
 	var all_edge_ids: Array = []
 	var all_elbow_nodes: Array = []
 
+	## Which interior waypoints are REAL direction-change bends vs. mere
+	## collinear pass-through points (Jul 2026 fix — wall-locked routing
+	## chains through every WallPerimeterRegistry segment along a straight
+	## wall run, not just actual corners, so most leg-boundary waypoints
+	## are NOT bends). Only a genuine turn gets a "corner" node + visible
+	## WaterPipeElbow; a straight pass-through keeps the old safe
+	## "pipe_joint", no elbow — this was the previous fix's bug: it treated
+	## every leg boundary as a bend.
+	var waypoint_is_turn: Array = []
+	waypoint_is_turn.resize(waypoints.size())
+	for wi in range(1, waypoints.size() - 1):
+		var dir_in: Vector3 = waypoints[wi] - waypoints[wi - 1]
+		var dir_out: Vector3 = waypoints[wi + 1] - waypoints[wi]
+		if dir_in.length() < 0.001 or dir_out.length() < 0.001:
+			waypoint_is_turn[wi] = false
+		else:
+			waypoint_is_turn[wi] = dir_in.normalized().dot(dir_out.normalized()) < 0.999
+
 	var is_final_leg: bool = false
 	for leg_i in range(waypoints.size() - 1):
 		var a_pos: Vector3 = waypoints[leg_i]
@@ -901,16 +920,19 @@ func _try_confirm_full_path() -> void:
 			if not existing.is_empty():
 				keys.append(existing)
 				continue
-			## Only the very last point of the ENTIRE confirmed run (the final
-			## point of the final leg) is the true run endpoint and gets
-			## "pipe_joint" with no elbow. Every other bend point — including
-			## leg-boundary waypoints previously mistaken for a leg-local
-			## "last" point — is a real 90°-turn bend (e.g. a pillar dogleg or
-			## wall-locked routing corner) and gets a "corner" node + visible
-			## WaterPipeElbow, same as any mid-leg crossing insertion (Jul
-			## 2026 fix — these were being silently skipped before).
-			var is_last: bool = is_final_leg and (i == points.size() - 1)
-			if is_last:
+			## The true final point of the ENTIRE confirmed run (the final
+			## point of the final leg) is the run endpoint — "pipe_joint",
+			## no elbow. A leg-boundary point (last point of a leg's own
+			## `points`, i.e. i == points.size()-1) that ISN'T a real
+			## direction change is a straight pass-through — also
+			## "pipe_joint", no elbow. Everything else (a genuine bend, or
+			## a mid-leg crossing insertion) gets "corner" + a visible
+			## WaterPipeElbow.
+			var is_leg_boundary: bool = (i == points.size() - 1)
+			var is_run_end: bool = is_final_leg and is_leg_boundary
+			var is_real_bend: bool = is_leg_boundary and not is_run_end and bool(waypoint_is_turn[leg_i + 1])
+			var is_pass_through: bool = is_leg_boundary and not is_run_end and not is_real_bend
+			if is_run_end or is_pass_through:
 				keys.append(wm.register_node(pt["pos"], "pipe_joint"))
 			else:
 				var corner_key: String = wm.register_node(pt["pos"], "corner")

@@ -452,9 +452,17 @@ func find_pipe_visual(edge_id: String) -> WaterPipeSegment:
 ## purifier insertion, edge delete/refund, undo) — NOT every frame.
 func recompute_flow_directions() -> void:
 	var hookup_keys: Array[String] = _graph.get_hookup_keys()
+	## TEMP debug (Jul 2026, arrow-regression investigation) — remove once
+	## root cause of "arrows stopped working entirely" is found and fixed.
+	var visual_count: int = get_tree().get_nodes_in_group("water_pipe_visual").size()
+	print("[FlowDebug] recompute: hookups=%d  edges=%d  nodes=%d  visuals=%d" % [
+		hookup_keys.size(), _graph.get_edges().size(), _graph.get_nodes().size(), visual_count])
 	if hookup_keys.is_empty():
+		print("[FlowDebug] ABORT: no hookup registered")
 		return
 	var directions: Dictionary = _graph.compute_flow_directions(hookup_keys[0])
+	print("[FlowDebug] directions computed for hookup=%s -> %d edge(s) reachable" % [
+		hookup_keys[0], directions.size()])
 	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
 		if not is_instance_valid(node) or not (node is WaterPipeSegment):
 			continue
