@@ -830,6 +830,26 @@ stable (matches the project's standing debug-logging discipline).
     and the pillar-dogleg loop is now guaranteed strictly axis-aligned
     relative to its immediate neighbor, with no near-diagonal drift and no
     silently-deleted corners.
+  - **FIXED (Jul 2026, backward-jog entry-leg bug):** a wall-locked run
+    could take a small but real backward hop right at the source before
+    correctly turning toward the destination (e.g. a hookup sitting almost
+    equidistant between two consecutive `WallPerimeterRegistry` segments —
+    one behind it relative to the destination, one ahead — would jump to
+    the BEHIND one first). Root cause:
+    `_trace_wall_locked_path()` anchored onto the wall using
+    `WallPerimeterRegistry.get_nearest_segment_key()` at each end, which
+    picks the absolute-nearest segment in isolation with no awareness of
+    which direction the destination actually is — nothing stopped it
+    picking the segment on the wrong side. Fixed with a new anchor picker,
+    `_pick_shortest_wall_path()`: it gathers the small set of segments
+    near the source and near the destination
+    (`WallPerimeterRegistry.get_nearby_segment_keys()`, new method,
+    `WALL_ANCHOR_CANDIDATE_RADIUS`=1.5) and runs
+    `find_path_along_wall()` across every from/to combination, keeping
+    whichever pair produces the fewest hops. A backward pick always costs
+    at least one extra hop versus the forward-facing alternative, so the
+    shortest-path criterion reliably selects the correct-direction anchor
+    at both ends without needing any explicit direction/angle math.
 - **Continuous paint-along-wall mode implemented (Part B, combined refactor
   pass, Jul 2026):** `WaterPipeDrawMode` now traces and confirms a FULL
   multi-leg run in one click instead of one leg at a time. New pure

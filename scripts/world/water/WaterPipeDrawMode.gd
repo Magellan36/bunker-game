@@ -153,6 +153,15 @@ const WALL_LOCKED_ROUTING_ENABLED: bool = true
 ## tube's outer surface clears the wall face with real room to spare.
 const WALL_PIPE_OFFSET: float = 0.22
 
+## Radius (meters) used by _pick_shortest_wall_path() to gather candidate
+## wall segments near a wall-locked trace's source/dest point when picking
+## the entry/exit anchor (Jul 2026, backward-jog fix — see that function's
+## own comment). WallPerimeterRegistry segments on a straight run sit 1.0m
+## apart, so 1.5 reliably catches both immediate neighbors of a point
+## sitting between them without pulling in segments from unrelated,
+## further-away wall stretches.
+const WALL_ANCHOR_CANDIDATE_RADIUS: float = 1.5
+
 ## Dumps every currently-registered REAL pipe segment (via "water_pipe_visual"
 ## — ghosts never join that group, see WaterPipeSegment.is_ghost) so a debug
 ## session has full context on what the tool thinks already exists,
@@ -530,6 +539,35 @@ func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_po
 ## the freeform trace, this does NOT run _avoid_existing_pipes() — a
 ## wall-locked run can still overlap an existing pipe run along the same
 ## wall. Flagged in docs/systems/water/README.md, not fixed here.
+## Entry/exit anchor picker for _trace_wall_locked_path() (Jul 2026,
+## backward-jog fix). Gathers nearby wall-segment candidates at both
+## source_pos and dest_pos (WALL_ANCHOR_CANDIDATE_RADIUS) and returns the
+## find_path_along_wall() result with the fewest hops across every
+## from/to combination — see this function's call site for why fewest-hops
+## reliably avoids anchoring onto the wrong (behind-source) segment.
+## Candidate sets are tiny (a handful of segments within a couple meters),
+## so the O(n*m) combination scan here is cheap. Returns [] if either end
+## has no nearby candidate or no path exists between any pair (caller
+## falls back to freeform routing).
+func _pick_shortest_wall_path(registry: WallPerimeterRegistry, source_pos: Vector3, dest_pos: Vector3) -> Array:
+	var from_candidates: Array = registry.get_nearby_segment_keys(source_pos, WALL_ANCHOR_CANDIDATE_RADIUS)
+	var to_candidates: Array = registry.get_nearby_segment_keys(dest_pos, WALL_ANCHOR_CANDIDATE_RADIUS)
+	if from_candidates.is_empty() or to_candidates.is_empty():
+		return []
+
+	var best_path: Array = []
+	var best_len: int = -1
+	for from_key: String in from_candidates:
+		for to_key: String in to_candidates:
+			var path: Array = registry.find_path_along_wall(from_key, to_key)
+			if path.is_empty():
+				continue
+			if best_len == -1 or path.size() < best_len:
+				best_len = path.size()
+				best_path = path
+	return best_path
+
+
 func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
 	var dest: Dictionary = _resolve_destination(cursor_pos, debug)
 	if dest.is_empty():
@@ -545,12 +583,18 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
 
 	var dest_pos: Vector3 = dest["pos"]
-	var from_key: String = registry.get_nearest_segment_key(source_pos)
-	var to_key: String = registry.get_nearest_segment_key(dest_pos)
-	if from_key.is_empty() or to_key.is_empty():
-		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
 
-	var wall_keys: Array = registry.find_path_along_wall(from_key, to_key)
+	## Backward-jog fix (Jul 2026) — picking the single absolute-nearest
+	## segment at each end (old get_nearest_segment_key() call) can anchor
+	## onto the segment BEHIND source_pos relative to the actual direction
+	## of travel (e.g. a hookup sitting almost equidistant between two
+	## consecutive wall segments), forcing find_path_along_wall() to hop
+	## backward once before turning around toward dest_pos. Instead,
+	## gather the small set of segments near each end and pick whichever
+	## from/to combination produces the SHORTEST wall path (fewest hops) —
+	## a backward pick always costs at least one extra hop, so this always
+	## prefers the forward-facing entry/exit point.
+	var wall_keys: Array = _pick_shortest_wall_path(registry, source_pos, dest_pos)
 	if wall_keys.is_empty():
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
 
