@@ -173,6 +173,15 @@ var camera:     Camera3D = null
 var world_node: Node     = null
 var build_hud:  CanvasLayer = null
 var ray_length: float    = 50.0
+
+## InventoryHUD ref (Jul 2026, overlap-block pass) — used ONLY for
+## show_error_message() on a true unreroutable-overlap block (see
+## _path_has_unreroutable_overlap()). Wired in from MainWorld via a
+## deferred call (BuildModeController/this node don't exist yet at the
+## point MainWorld._connect_inventory() normally runs) — see
+## MainWorld._connect_water_pipe_inventory_hud(). Mirrors ShelfUI's own
+## `inventory_hud` ref + _show_error() pattern exactly.
+var inventory_hud: Node = null
 ## Back-reference to the owning BuildModeController — needed for
 ## _is_inside_bunker() (bounds check, July 2026 playtest pass). Set by
 ## BuildModeController._update_water_pipe_draw_refs(). Distinct from
@@ -576,6 +585,16 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 	if raw_points.size() < 2:
 		return { "waypoints": [source_pos], "waypoint_keys": [source_key], "valid": false, "final_key": source_key }
 
+	## Overlap avoidance (Jul 2026, overlap-block pass) — previously this
+	## wall-locked trace skipped _avoid_existing_pipes() entirely (see this
+	## function's own header "KNOWN LIMITATION"), so a wall-hugging run
+	## could silently double over an existing pipe along the same wall.
+	## Now runs the exact same detour pass the freeform trace already gets
+	## via _resolve_single_leg(). Any leg that STILL overlaps after this
+	## (no valid detour) is caught by _path_has_unreroutable_overlap() at
+	## confirm time in _try_confirm_full_path().
+	raw_points = _avoid_existing_pipes(raw_points, debug)
+
 	## Pillar clearance per corner/leg — identical approach to
 	## _trace_wall_hugging_path()'s own loop above.
 	var pillar_registry: PillarRegistry = _get_pillar_registry()
@@ -738,6 +757,15 @@ func _try_confirm_segment() -> void:
 		_show_warning("Cannot place pipe outside the bunker")
 		return
 
+	## Unreroutable-overlap gate (Jul 2026, overlap-block pass) — the detour
+	## above always inserts a jog, but never verifies it actually cleared
+	## the conflict. If it didn't (no room to detour), block here instead
+	## of silently placing a doubled-up pipe.
+	if _path_has_unreroutable_overlap(path, true):
+		_pdbg("[PipeDebug] ABORT: unreroutable overlap after detour. Full path was: %s" % [path])
+		_show_error("No room to route a pipe here — it would overlap an existing pipe")
+		return
+
 	var total_length: float = 0.0
 	for i in range(path.size() - 1):
 		total_length += path[i].distance_to(path[i + 1])
@@ -860,6 +888,16 @@ func _try_confirm_full_path() -> void:
 	if not trace["valid"]:
 		_pdbg("[PipeDebug] ABORT: trace invalid (out of bounds or pillar clip)")
 		_show_warning("Cannot place pipe there")
+		return
+
+	## Unreroutable-overlap gate (Jul 2026, overlap-block pass) — same check
+	## as _try_confirm_segment() below, run on the fully traced+detoured
+	## paint-mode path (wall-locked runs now get a detour pass too — see
+	## _trace_wall_locked_path()). Blocks only the true dead-end case;
+	## every reroutable leg was already jogged clear by the detour.
+	if _path_has_unreroutable_overlap(waypoints, true):
+		_pdbg("[PipeDebug] ABORT: unreroutable overlap after detour. Full path was: %s" % [waypoints])
+		_show_error("No room to route a pipe here — it would overlap an existing pipe")
 		return
 
 	var total_length: float = 0.0
@@ -1334,6 +1372,29 @@ func _find_collinear_conflict(a: Vector3, b: Vector3, debug: bool = false) -> Wa
 			return seg
 	return null
 
+## Dead-end-overlap gate (Jul 2026, overlap-block pass) — run AFTER
+## _avoid_existing_pipes()'s single detour pass on the FINAL path about to
+## be committed. _avoid_existing_pipes() always inserts a detour and never
+## verifies the detour itself actually cleared the conflict (documented as
+## a known limitation right on that function — "single avoidance pass —
+## doesn't recursively re-check the detour itself"). If any leg of the
+## already-detoured path STILL collinear-overlaps an existing pipe, there
+## was no valid detour available (e.g. the run is jammed flush against a
+## wall/corner with zero room to jog sideways) — this is the one case that
+## now gets BLOCKED with an error message instead of silently placing an
+## overlapping pipe. Reroutable legs never reach this (the detour already
+## cleared them), so normal auto-detour behavior is fully preserved.
+func _path_has_unreroutable_overlap(path: Array, debug: bool = false) -> bool:
+	for i in range(path.size() - 1):
+		var a: Vector3 = path[i]
+		var b: Vector3 = path[i + 1]
+		var conflict: WaterPipeSegment = _find_collinear_conflict(a, b, debug)
+		if conflict != null:
+			if debug: _pdbg("[PipeDebug] _path_has_unreroutable_overlap: leg %d [%s -> %s] still overlaps edge_id=%s after detour — no valid detour available" %
+				[i, a, b, conflict.edge_id])
+			return true
+	return false
+
 ## Post-processes a Manhattan path (from _build_manhattan_path()) so no leg
 ## ever runs collinear/overlapping on top of an already-placed pipe — per
 ## Brannon's explicit "pipes should never double over" request. Any leg
@@ -1580,6 +1641,18 @@ func _show_warning(msg: String) -> void:
 			main_hud.show_soft_warning(msg)
 			return
 	push_warning("[WaterPipeDrawMode] " + msg)
+
+## Dedicated red fade-in/fade-out banner for the unreroutable-overlap block
+## ONLY (see _path_has_unreroutable_overlap()) — deliberately separate from
+## _show_warning() above (which goes through HUD.show_soft_warning() for
+## out-of-bounds/no-destination/no-cash cases). Reuses the exact same
+## InventoryHUD.show_error_message() convention ShelfUI._show_error() already
+## calls — see that function's own comment.
+func _show_error(text: String) -> void:
+	if inventory_hud != null and inventory_hud.has_method("show_error_message"):
+		inventory_hud.show_error_message(text)
+		return
+	push_warning("[WaterPipeDrawMode] " + text)
 
 ## Floating "+$X"/"-$X" screen-space label — same HUD.spawn_float_label()
 ## call BuildModeController._spawn_float_label_at_pos() uses for tile

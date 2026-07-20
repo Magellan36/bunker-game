@@ -809,6 +809,16 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	## by one frame to guarantee WireDrawMode exists before we query for it.
 	call_deferred("_connect_wire_draw_mode")
 
+	## Push the InventoryHUD ref into WaterPipeDrawMode for its
+	## unreroutable-overlap error banner (Jul 2026, overlap-block pass) —
+	## same "not ready yet" timing gap as WireDrawMode above: WaterPipeDrawMode
+	## is added inside BuildModeController._ready() (_setup_water_pipe_draw_mode()),
+	## which fires AFTER player.add_child() returns, and _connect_inventory()
+	## (which resolves the InventoryHUD node) already ran earlier in _ready()
+	## before BuildModeController existed at all. Deferred by one frame so
+	## both sides are guaranteed to exist.
+	call_deferred("_connect_water_pipe_inventory_hud")
+
 	## Wire tubes default to visible=false in WireSegment._ready(), but pregen
 	## spawns some tubes before _ready() runs (deferred add_child timing) and
 	## others may be added synchronously.  Since build mode is NOT active at
@@ -924,6 +934,20 @@ func _connect_wire_draw_mode() -> void:
 	if wdm.has_signal("wire_nodes_connected") and not wdm.wire_nodes_connected.is_connected(_on_wire_nodes_connected):
 		wdm.wire_nodes_connected.connect(_on_wire_nodes_connected)
 		print("[MainWorld] wire_placed + wire_nodes_connected connected OK")
+
+## Mirrors _connect_wire_draw_mode() immediately above — see that function's
+## comment for the exact timing reason this has to be deferred rather than
+## called directly from _setup_build_mode().
+func _connect_water_pipe_inventory_hud() -> void:
+	if _build_controller == null:
+		push_warning("[MainWorld] _connect_water_pipe_inventory_hud: _build_controller is null")
+		return
+	var pdm: Node = _build_controller.get_node_or_null("WaterPipeDrawMode")
+	if pdm == null:
+		push_warning("[MainWorld] WaterPipeDrawMode not found — pipe overlap-block error banner won't show")
+		return
+	var inv_hud: Node = hud.get_node_or_null("HUDRoot/InventoryHUD")
+	pdm.set("inventory_hud", inv_hud)
 
 func _toggle_build_mode() -> void:
 	_build_mode_active = not _build_mode_active
