@@ -1323,10 +1323,14 @@ of one continuous crawl along the whole pipe run.
   mistake). No GDScript changes were needed —
   `flow_sign`/`phase_offset`/`pipe_length` uniforms are unchanged, only how
   the shader consumes them internally changed.
-- **Known risk flagged, not yet confirmed:** if chevrons now point backwards
-  *uniformly* on every pipe (as opposed to the old per-segment
-  inconsistency), that's a trivial one-line fix — swap the two branches of
-  the `along_uv` ternary above. Not expected, but called out up front since
-  it's the one part of this fix that depends on an assumption about
-  `CylinderMesh`'s default UV winding this pass didn't independently verify
-  by other means.
+- **Follow-up: uniform direction flip (Jul 2026).** The flagged risk above
+  came true — after the continuity fix, arrows pointed *and* scrolled
+  backwards uniformly on every pipe (not the old per-segment
+  inconsistency, so continuity itself was confirmed fixed). Root cause:
+  `v_ab_uv`'s raw 0-at-`point_a`/1-at-`point_b` sense is the opposite of
+  what the baked arrow texture + `TIME`-based scroll term assume for
+  "downstream". Fix: swapped the two branches of the `along_uv` ternary —
+  `along_uv = flow_sign > 0.0 ? (1.0 - v_ab_uv) : v_ab_uv` — exactly the
+  one-line change anticipated above. No other logic touched; `flow_sign`'s
+  meaning (set from `WaterPipeSegment.set_flow_sign()`, itself driven by
+  `WaterGraph.compute_flow_directions()`) is untouched.
