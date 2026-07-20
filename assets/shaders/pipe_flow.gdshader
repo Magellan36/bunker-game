@@ -82,7 +82,18 @@ void fragment() {
 	// coordinate feeds tiling/phase (continuity) and chevron direction
 	// (always increases toward downstream, so a single scroll direction and
 	// one fixed texture orientation both read correctly on every edge).
-	float along_uv = flow_sign > 0.0 ? v_ab_uv : (1.0 - v_ab_uv);
+	//
+	// NOTE (Jul 2026): the flow_sign>0/<0 branches below are intentionally
+	// inverted relative to the naive "flow_sign>0 => point_a is upstream =>
+	// along_uv=v_ab_uv" mapping. That naive mapping produced arrows that
+	// both pointed and scrolled backwards end-to-end (reported after the
+	// cross-joint continuity fix shipped) — the texture's own baked arrow
+	// orientation and the TIME scroll sign below are both authored assuming
+	// along_uv increases in the OPPOSITE sense from v_ab_uv's raw point_a-\>
+	// point_b direction. Flipping both ternary branches corrects direction
+	// and motion together without touching WaterGraph's upstream/downstream
+	// math or WaterPipeSegment.set_flow_sign()'s meaning at all.
+	float along_uv = flow_sign > 0.0 ? (1.0 - v_ab_uv) : v_ab_uv;
 
 	// Rescale from "0..1 across this whole segment" to "0..(real world tiles
 	// across this segment)" so tile size is constant in world-space
