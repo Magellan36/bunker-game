@@ -128,6 +128,21 @@ const PAINT_MODE_ENABLED: bool = true
 ## graph (a long chain of tightly-packed nodes) ever hanging the tool.
 const MAX_TRACE_LEGS: int = 20
 
+## ─── Wall-locked pipe routing (Jul 2026) ────────────────────────────────────
+## Default routing mode for a run whose destination resolves to open floor
+## space (see _resolve_destination() — no existing node, no mid-span split):
+## route along the bunker's wall perimeter (_trace_wall_locked_path(), via
+## WallPerimeterRegistry) instead of a raw diagonal-shortest Manhattan cut
+## across the room. Hold CTRL to fall back to the pre-existing freeform
+## routing (_trace_wall_hugging_path()) for either mode — see the two call
+## sites in _update_ghost_preview()/_try_confirm_full_path(). An anchored
+## destination (existing node / mid-span split) always keeps using the
+## freeform trace regardless of this flag — it's already a valid real
+## connection point, wall-locking only applies to fresh open-floor runs.
+## Flip to false to instantly disable wall-locking everywhere (falls back
+## to freeform unconditionally), no code deletion needed to recover.
+const WALL_LOCKED_ROUTING_ENABLED: bool = true
+
 ## Dumps every currently-registered REAL pipe segment (via "water_pipe_visual"
 ## — ghosts never join that group, see WaterPipeSegment.is_ghost) so a debug
 ## session has full context on what the tool thinks already exists,
@@ -292,6 +307,9 @@ func _resolve_single_leg(from_pos: Vector3, cursor_pos: Vector3, debug: bool = f
 
 func _get_pillar_registry() -> PillarRegistry:
 	return get_tree().get_first_node_in_group("pillar_registry") as PillarRegistry
+
+func _get_wall_perimeter_registry() -> WallPerimeterRegistry:
+	return get_tree().get_first_node_in_group("wall_perimeter_registry") as WallPerimeterRegistry
 
 ## Small clearance buffer added on top of PillarRegistry.PILLAR_CLEARANCE_RADIUS
 ## for the dogleg's two jog segments below — the radius alone would put a new
@@ -461,6 +479,124 @@ func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_po
 
 	_source_key = saved_source_key
 	return { "waypoints": waypoints, "waypoint_keys": waypoint_keys, "valid": valid, "final_key": current_key }
+
+## Wall-locked routing (Jul 2026) — the new default for a run whose
+## destination resolves to open floor space; see WALL_LOCKED_ROUTING_ENABLED's
+## own comment for when this is used vs. the freeform _trace_wall_hugging_path()
+## above. Returns the exact same dict shape so it plugs into the same
+## downstream node/edge/segment spawning loop in _try_confirm_full_path()
+## with zero duplication there.
+##
+## Shape: source_pos -> (Manhattan entry leg) -> BFS wall-perimeter path
+## (WallPerimeterRegistry.find_path_along_wall(), reprojected from the
+## registry's own electrical PLACEMENT_Y to WATER_CEILING_Y) -> (Manhattan
+## exit leg) -> dest_pos. Every hop between consecutive raw points (source,
+## each wall waypoint, dest) is individually re-run through the existing
+## _build_manhattan_path() — this is what keeps every resulting segment
+## strictly axis-aligned even where two consecutive registry wall-segment
+## entries are diagonally adjacent at a convex corner (~0.707m apart, not
+## collinear — see WallPerimeterRegistry.ADJACENCY_RADIUS's own comment);
+## _build_manhattan_path() already inserts a corner point in that case, same
+## as it does for any other diagonal source->dest pair.
+## Pillar-clearance dogleg (_dogleg_corner_around_pillars()/
+## _leg_clears_all_pillars()) is applied per corner exactly like the
+## freeform trace above.
+## Falls back to _trace_wall_hugging_path() (unchanged freeform routing)
+## whenever wall-locking isn't applicable: an anchored destination (existing
+## node / mid-span split — already a valid real connection point), no
+## registry, an empty registry (e.g. before the first perimeter solve), or
+## no nearest-segment/BFS-path found (shouldn't happen for a connected
+## perimeter, but fails safe rather than producing an invalid trace).
+## Known limitation (explicitly out of scope this pass, per plan): unlike
+## the freeform trace, this does NOT run _avoid_existing_pipes() — a
+## wall-locked run can still overlap an existing pipe run along the same
+## wall. Flagged in docs/systems/water/README.md, not fixed here.
+func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
+	var dest: Dictionary = _resolve_destination(cursor_pos, debug)
+	if dest.is_empty():
+		return { "waypoints": [], "waypoint_keys": [], "valid": false, "final_key": "" }
+
+	## Anchored destination — already a real connection point, keep using
+	## the pre-existing freeform trace (see this function's header).
+	if dest.has("existing_key") or dest.has("split_candidate"):
+		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
+
+	var registry: WallPerimeterRegistry = _get_wall_perimeter_registry()
+	if registry == null or registry.is_empty():
+		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
+
+	var dest_pos: Vector3 = dest["pos"]
+	var from_key: String = registry.get_nearest_segment_key(source_pos)
+	var to_key: String = registry.get_nearest_segment_key(dest_pos)
+	if from_key.is_empty() or to_key.is_empty():
+		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
+
+	var wall_raw: Array = registry.find_path_along_wall(from_key, to_key)
+	if wall_raw.is_empty():
+		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
+
+	var wall_pts: Array = []
+	for wp: Vector3 in wall_raw:
+		wall_pts.append(Vector3(wp.x, WATER_CEILING_Y, wp.z))
+
+	## Chain: source -> each wall waypoint in order -> dest. Re-run every
+	## hop through _build_manhattan_path() so the whole thing stays
+	## strictly axis-aligned (see header comment above).
+	var chain_points: Array = [source_pos]
+	chain_points.append_array(wall_pts)
+	chain_points.append(dest_pos)
+
+	var raw_points: Array = [source_pos]
+	for i in range(1, chain_points.size()):
+		var leg: Array = _build_manhattan_path(raw_points[raw_points.size() - 1], chain_points[i])
+		for j in range(1, leg.size()):
+			_append_if_distinct(raw_points, leg[j])
+
+	if raw_points.size() < 2:
+		return { "waypoints": [source_pos], "waypoint_keys": [source_key], "valid": false, "final_key": source_key }
+
+	## Pillar clearance per corner/leg — identical approach to
+	## _trace_wall_hugging_path()'s own loop above.
+	var pillar_registry: PillarRegistry = _get_pillar_registry()
+	var waypoints: Array = [raw_points[0]]
+	var waypoint_keys: Array = [source_key]
+	var valid: bool = true
+
+	for i in range(1, raw_points.size()):
+		var raw_pt: Vector3 = raw_points[i]
+		var prev_pt: Vector3 = waypoints[waypoints.size() - 1]
+		var is_last_point: bool = (i == raw_points.size() - 1)
+		if is_last_point:
+			if not _leg_clears_all_pillars(prev_pt, raw_pt, pillar_registry):
+				valid = false
+			waypoints.append(raw_pt)
+			waypoint_keys.append(dest.get("existing_key", ""))
+		else:
+			var next_pt: Vector3 = raw_points[i + 1]
+			var steps: Array = _dogleg_corner_around_pillars(prev_pt, raw_pt, next_pt, pillar_registry)
+			for step_pt: Vector3 in steps:
+				if not _leg_clears_all_pillars(prev_pt, step_pt, pillar_registry):
+					valid = false
+				waypoints.append(step_pt)
+				waypoint_keys.append("")
+				prev_pt = step_pt
+
+	if not _is_path_in_bounds(waypoints, debug):
+		valid = false
+
+	return { "waypoints": waypoints, "waypoint_keys": waypoint_keys, "valid": valid, "final_key": "" }
+
+## Picks freeform (_trace_wall_hugging_path()) vs. wall-locked
+## (_trace_wall_locked_path()) routing for one trace call — CTRL held, or
+## WALL_LOCKED_ROUTING_ENABLED flipped off, means freeform (today's
+## pre-existing behavior); otherwise wall-locked is the default. Single
+## shared chooser so _update_ghost_preview()'s per-frame call and
+## _try_confirm_full_path()'s confirm-time call can never disagree about
+## which mode a given click actually used.
+func _trace_active_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
+	if not WALL_LOCKED_ROUTING_ENABLED or Input.is_key_pressed(KEY_CTRL):
+		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
+	return _trace_wall_locked_path(source_pos, source_key, cursor_pos, debug)
 
 func _update_ghost_preview() -> void:
 	_clear_ghost()
@@ -691,7 +827,7 @@ func _try_confirm_full_path() -> void:
 	_pdbg("[PipeDebug] ══════ confirm full path (paint mode) ══════  cursor_pos=%s source_key=%s source_pos=%s" % [cursor_pos, _source_key, _source_pos])
 	_dump_pipe_network()
 
-	var trace: Dictionary = _trace_wall_hugging_path(_source_pos, _source_key, cursor_pos, true)
+	var trace: Dictionary = _trace_active_path(_source_pos, _source_key, cursor_pos, true)
 	var waypoints: Array = trace["waypoints"]
 	var waypoint_keys: Array = trace["waypoint_keys"]
 	_pdbg("[PipeDebug] trace waypoints=%s valid=%s" % [waypoints, trace["valid"]])
