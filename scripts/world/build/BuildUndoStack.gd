@@ -207,9 +207,25 @@ func _undo() -> void:
 		var wm: WaterManager = _owner.get_tree().get_first_node_in_group("water_manager") as WaterManager
 		var edge_ids: Array = entry.get("edge_ids", [])
 		if wm != null:
+			## Capture each edge's endpoint keys BEFORE unregistering (the edge
+			## dict disappears once unregister_edge() runs), dedup into a set,
+			## then prune every touched waypoint after all edges in this run are
+			## gone. Stops degree-0 "corner"/"pipe_joint" nodes from lingering as
+			## stale snap targets for future pipe placement (Jul 2026 fix).
+			var touched_keys: Dictionary = {}
+			for eid: Variant in edge_ids:
+				if eid == null or (eid as String) == "":
+					continue
+				var e: Dictionary = wm.get_edges().get(eid as String, {})
+				if e.has("a"):
+					touched_keys[e["a"]] = true
+				if e.has("b"):
+					touched_keys[e["b"]] = true
 			for eid: Variant in edge_ids:
 				if eid != null and (eid as String) != "":
 					wm.unregister_edge(eid as String)
+			for key: String in touched_keys:
+				wm.prune_orphan_waypoint(key)
 		var pipe_cost: int = entry.get("cost", 0)
 		if pipe_cost > 0 and _owner.world_node != null:
 			_owner.world_node.add_cash(pipe_cost)

@@ -65,6 +65,13 @@ func register_edge(key_a: String, key_b: String) -> String:
 func unregister_edge(edge_id: String) -> void:
 	_graph.unregister_edge(edge_id)
 
+## Forwards to WaterGraph.prune_orphan_waypoint() — see there for contract.
+## Call after unregister_edge() with the edge's former endpoint keys to clean
+## up degree-0 "corner"/"pipe_joint" nodes left dangling (Jul 2026 fix, stops
+## stale nodes from persisting as snap targets after a pipe is undone).
+func prune_orphan_waypoint(key: String) -> void:
+	_graph.prune_orphan_waypoint(key)
+
 func has_edge(edge_id: String) -> bool:
 	return _graph.has_edge(edge_id)
 
@@ -413,6 +420,8 @@ func delete_and_refund_edge(edge_id: String) -> bool:
 		refund_pos = (seg.point_a + seg.point_b) * 0.5
 		seg.queue_free()
 	_graph.unregister_edge(edge_id)
+	_graph.prune_orphan_waypoint(key_a)
+	_graph.prune_orphan_waypoint(key_b)
 	if refund > 0:
 		var world_node: Node = get_tree().get_first_node_in_group("main_world")
 		if world_node != null and world_node.has_method("add_cash"):

@@ -143,6 +143,15 @@ const MAX_TRACE_LEGS: int = 20
 ## to freeform unconditionally), no code deletion needed to recover.
 const WALL_LOCKED_ROUTING_ENABLED: bool = true
 
+## How far to pull a wall-locked pipe waypoint inward off the wall face
+## (Jul 2026 wall-embedding fix). WallPerimeterRegistry positions sit exactly
+## AT the boundary/wall face (correct for flush-mounted electrical items),
+## but a pipe has real radius (WaterPipeSegment.PIPE_RADIUS = 0.09) and
+## visibly clips into the wall mesh if its centerline sits there too.
+## 0.15 = radius + a small margin so the tube's outer surface clears the
+## wall face with room to spare.
+const WALL_PIPE_OFFSET: float = 0.15
+
 ## Dumps every currently-registered REAL pipe segment (via "water_pipe_visual"
 ## — ghosts never join that group, see WaterPipeSegment.is_ghost) so a debug
 ## session has full context on what the tool thinks already exists,
@@ -531,13 +540,24 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 	if from_key.is_empty() or to_key.is_empty():
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
 
-	var wall_raw: Array = registry.find_path_along_wall(from_key, to_key)
-	if wall_raw.is_empty():
+	var wall_keys: Array = registry.find_path_along_wall(from_key, to_key)
+	if wall_keys.is_empty():
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
 
+	## Pull each waypoint inward off the wall face by WALL_PIPE_OFFSET so the
+	## pipe's own radius doesn't clip into the wall mesh (Jul 2026 fix).
+	## `angle` is the wall face's outward-facing orientation in degrees (see
+	## WireGraphBuilder's DIRS table: left->180, right->0, top->90,
+	## bottom->270); the inward direction (into the room, away from the
+	## wall) is the negated outward normal.
 	var wall_pts: Array = []
-	for wp: Vector3 in wall_raw:
-		wall_pts.append(Vector3(wp.x, WATER_CEILING_Y, wp.z))
+	for key: String in wall_keys:
+		var wp: Vector3 = registry.get_segment_pos(key)
+		var angle: float = registry.get_segment_angle(key)
+		var rad: float = deg_to_rad(angle)
+		var inward_dir: Vector3 = Vector3(-cos(rad), 0.0, sin(rad))
+		var offset_pos: Vector3 = wp + inward_dir * WALL_PIPE_OFFSET
+		wall_pts.append(Vector3(offset_pos.x, WATER_CEILING_Y, offset_pos.z))
 
 	## Chain: source -> each wall waypoint in order -> dest. Re-run every
 	## hop through _build_manhattan_path() so the whole thing stays
@@ -863,10 +883,12 @@ func _try_confirm_full_path() -> void:
 	var all_edge_ids: Array = []
 	var all_elbow_nodes: Array = []
 
+	var is_final_leg: bool = false
 	for leg_i in range(waypoints.size() - 1):
 		var a_pos: Vector3 = waypoints[leg_i]
 		var b_pos: Vector3 = waypoints[leg_i + 1]
 		var b_key_hint: String = waypoint_keys[leg_i + 1]
+		is_final_leg = (leg_i == waypoints.size() - 2)
 
 		_source_key = running_source_key
 		var points: Array = _insert_crossings(wm, [a_pos, b_pos], b_key_hint)
@@ -879,7 +901,15 @@ func _try_confirm_full_path() -> void:
 			if not existing.is_empty():
 				keys.append(existing)
 				continue
-			var is_last: bool = (i == points.size() - 1)
+			## Only the very last point of the ENTIRE confirmed run (the final
+			## point of the final leg) is the true run endpoint and gets
+			## "pipe_joint" with no elbow. Every other bend point — including
+			## leg-boundary waypoints previously mistaken for a leg-local
+			## "last" point — is a real 90°-turn bend (e.g. a pillar dogleg or
+			## wall-locked routing corner) and gets a "corner" node + visible
+			## WaterPipeElbow, same as any mid-leg crossing insertion (Jul
+			## 2026 fix — these were being silently skipped before).
+			var is_last: bool = is_final_leg and (i == points.size() - 1)
 			if is_last:
 				keys.append(wm.register_node(pt["pos"], "pipe_joint"))
 			else:

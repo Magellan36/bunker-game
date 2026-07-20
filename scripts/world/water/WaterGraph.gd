@@ -168,6 +168,27 @@ func has_edge(edge_id: String) -> bool:
 func get_edges() -> Dictionary:
 	return _water_edges
 
+## Returns how many edges currently touch `key` (0 if unregistered or isolated).
+func node_degree(key: String) -> int:
+	return _adjacency.get(key, []).size()
+
+## Cleans up a waypoint node left with zero edges after an unregister_edge()
+## call. Only ever removes "corner"/"pipe_joint" roles (pipe-owned bend/split
+## points) — never touches "hookup"/"endpoint"/"purifier" roles, which have
+## their own lifetime management. No-op if the node still has edges, doesn't
+## exist, or isn't a prunable role. Prevents orphaned nodes from persisting
+## as stale snap targets after a pipe is undone/removed (Jul 2026 fix).
+func prune_orphan_waypoint(key: String) -> void:
+	if not _water_nodes.has(key):
+		return
+	var role: String = _water_nodes[key].get("role", "")
+	if role != "corner" and role != "pipe_joint":
+		return
+	if node_degree(key) > 0:
+		return
+	_water_nodes.erase(key)
+	_adjacency.erase(key)
+
 ## Returns [{ "edge_id": String, "other_key": String }] for every edge
 ## touching `key` — used by WaterHookup.update_graph_node_position() (Step 2
 ## verification pass, July 2026) to preserve and redraw pipe edges across a

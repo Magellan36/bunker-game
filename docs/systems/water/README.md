@@ -1171,3 +1171,71 @@ enough to note here:
   `Label` — see `docs/systems/ui/README.md`). Other items' `[F]`/`[E]`/`[G]`
   bracketed prompt text is unaffected: unrecognized BBCode tags render as
   literal text in Godot 4's `RichTextLabel`.
+
+## Wall-locked pipe routing — three follow-up fixes (Jul 2026)
+
+Three issues reported after the wall-locked routing feature (see "Wall-locked
+routing" under Known tradeoffs) shipped:
+
+- **Fix 1 — wall-hugging pipes clipped into the wall mesh.**
+  `WallPerimeterRegistry` positions sit exactly AT the wall/boundary face
+  (correct for flush-mounted electrical wires, which have no radius), but a
+  pipe has real thickness (`WaterPipeSegment.PIPE_RADIUS = 0.09`) and visibly
+  embedded into the wall when routed through those same positions unmodified.
+  - Added `WallPerimeterRegistry.get_segment_angle(key)` — returns the wall
+    face's outward-facing orientation in degrees, already carried (unused
+    until now) on every `boundary_edges` entry via `WireGraphBuilder`'s
+    `DIRS` table (left→180°, right→0°, top→90°, bottom→270°).
+  - `find_path_along_wall()` now returns `Array[String]` of ordered segment
+    **keys** instead of raw `Vector3` positions — its one caller,
+    `WaterPipeDrawMode._trace_wall_locked_path()`, needs both position AND
+    angle per waypoint, so handing back keys lets it call
+    `get_segment_pos()`/`get_segment_angle()` itself rather than baking a
+    position-only return shape into the registry.
+  - `_trace_wall_locked_path()` pulls each wall waypoint inward (into the
+    room, off the wall face) by a new `WALL_PIPE_OFFSET`-driven calc:
+    `inward_dir = Vector3(-cos(rad), 0, sin(rad))` where
+    `rad = deg_to_rad(angle)`, offset applied before reprojecting to
+    `WATER_CEILING_Y`. New constant `WaterPipeDrawMode.WALL_PIPE_OFFSET =
+    0.15` (radius + margin).
+- **Fix 2 — stale orphaned pipe-graph nodes after undo/delete.**
+  `WaterGraph.unregister_edge()` only ever removed the edge + adjacency
+  entries, never the now-degree-0 waypoint node itself — so `"corner"`/
+  `"pipe_joint"` nodes left behind a deleted/undone pipe run persisted
+  forever in `_water_nodes` and kept snapping new pipe placements to their
+  stale positions.
+  - Added `WaterGraph.node_degree(key)` and
+    `WaterGraph.prune_orphan_waypoint(key)` — the latter erases a node ONLY
+    if its role is `"corner"` or `"pipe_joint"` AND its degree is 0; never
+    touches `"hookup"`/`"endpoint"`/`"purifier"` roles (their own lifetimes
+    are managed elsewhere). Forwarded through `WaterManager.
+    prune_orphan_waypoint(key)`.
+  - Wired into both places that fully delete an edge:
+    `WaterManager.delete_and_refund_edge()` (hookup reposition + purifier-
+    adjacent deletion) prunes both endpoints right after `unregister_edge()`;
+    `BuildUndoStack.gd`'s `"pipe"` undo case captures every edge's `"a"`/`"b"`
+    keys (via `wm.get_edges()`) BEFORE unregistering (the edge dict is gone
+    afterward), dedups, then prunes all touched keys once every edge in the
+    run is gone. The mid-span-split path (`_split_pipe_at()`) is untouched —
+    it immediately re-attaches the same keys to new edges, so nothing is
+    ever actually orphaned there.
+- **Fix 3 — missing elbow spheres at bend/turn waypoints.**
+  `_try_confirm_full_path()`'s per-leg spawn loop determined "is this the
+  final point, so register `pipe_joint` with no elbow" by checking
+  `i == points.size() - 1` **within each leg** — so every leg-boundary
+  waypoint (a real 90°-turn bend, e.g. a pillar dogleg or a wall-locked
+  routing corner) was wrongly treated as a run endpoint and silently got no
+  `WaterPipeElbow` visual, even though the exact same crossing-insertion
+  branch elsewhere in the same loop already proved elbows work fine for mid-
+  leg bend points.
+  - Fix: track `is_final_leg = (leg_i == waypoints.size() - 2)` outside the
+    per-point loop; a point only gets `"pipe_joint"` (no elbow) when it's
+    BOTH the last point of its leg AND `is_final_leg` is true — i.e. only the
+    very last point of the entire confirmed run. Every other bend point,
+    including all leg-boundary waypoints previously skipped, now gets a
+    `"corner"` node + a spawned `WaterPipeElbow`, identical to the existing
+    crossing-insertion branch.
+  - `_try_confirm_segment()` (the older one-leg-at-a-time confirm path) was
+    checked and does NOT have this bug — it only ever traces a single leg,
+    so its existing `i == points.size() - 1` check already correctly means
+    "last point of the whole (one-leg) run." No change needed there.
