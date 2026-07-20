@@ -606,7 +606,7 @@ func _update_ghost_preview() -> void:
 		_update_ghost_preview_single_leg(cursor_pos)
 		return
 
-	var trace: Dictionary = _trace_wall_hugging_path(_source_pos, _source_key, cursor_pos, false)
+	var trace: Dictionary = _trace_active_path(_source_pos, _source_key, cursor_pos, false)
 	var waypoints: Array = trace["waypoints"]
 	if waypoints.size() < 2:
 		_clear_cost_label()
