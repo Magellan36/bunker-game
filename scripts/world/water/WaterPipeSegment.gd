@@ -64,8 +64,10 @@ const ARROW_RADIUS_SCALE: float = 1.03   ## just outside the pipe's own radius, 
 ## constant in world-space across all pipe lengths, so this value reads as
 ## "arrow travels this many meters per second" regardless of segment length).
 ## Slowed to 0.7x the original 1.2 (playtest feedback, July 2026) — the
-## original speed read as too frantic at close range.
-const ARROW_SCROLL_SPEED: float = 1.2 * 0.7
+## original speed read as too frantic at close range. Then sped back up
+## 1.5x (same-day follow-up) once direction/continuity were confirmed fixed
+## and the slower speed read as sluggish in practice.
+const ARROW_SCROLL_SPEED: float = 1.2 * 0.7 * 1.5
 
 ## True for a temporary ghost/preview instance (see make_ghost_pipe()) — set
 ## BEFORE add_child() so _ready() can skip group registration for it.
