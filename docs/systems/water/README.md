@@ -783,6 +783,22 @@ stable (matches the project's standing debug-logging discipline).
     freeform trace already got via `_resolve_single_leg()`. See "Overlap
     block (unreroutable case)" below for what happens when even the
     detour can't clear a conflict.
+  - **FIXED (Jul 2026, diagonal-detour bug):** the overlap-block pass above
+    ran `_avoid_existing_pipes()` directly on the fine-grained
+    `WallPerimeterRegistry` waypoint chain (one point per wall segment
+    along a straight run), unlike `_resolve_single_leg()`'s
+    `_build_manhattan_path()` output which is already collapsed to source
+    → one corner → dest. That meant every tiny wall-segment hop got its
+    own independent sidestep decision off a very short (`path[i+2]`, one
+    hop ahead) lookahead — noisy enough that the sidestep sign could flip
+    hop-to-hop, producing a staircase of small perpendicular jogs that
+    read as a genuinely diagonal line on screen. New
+    `_collapse_collinear_points()` runs right before
+    `_avoid_existing_pipes()` in `_trace_wall_locked_path()`, dropping any
+    interior point whose in/out leg directions match (i.e. not a real
+    turn) so the detour pass only ever sees the handful of TRUE corners —
+    same shape it already handled correctly for the freeform trace. Every
+    resulting leg stays strictly axis-aligned; no diagonal segments.
 - **Continuous paint-along-wall mode implemented (Part B, combined refactor
   pass, Jul 2026):** `WaterPipeDrawMode` now traces and confirms a FULL
   multi-leg run in one click instead of one leg at a time. New pure
