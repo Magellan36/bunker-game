@@ -159,6 +159,12 @@ func _build_arrow_overlay(length: float) -> void:
 	var arrow_shader: Shader = load(_ARROW_SHADER_PATH)
 	var arrow_tex: Texture2D = load(_ARROW_TEXTURE_PATH)
 	if arrow_shader == null or arrow_tex == null:
+		## TEMP debug (Jul 2026, arrow-regression investigation) — if this
+		## fires, _arrow_material stays null forever and every later
+		## set_has_flow()/set_flow_sign()/set_phase_offset() call silently
+		## no-ops (see their own `if _arrow_material != null` guards).
+		print("[FlowDebug] _build_arrow_overlay ABORT edge_id=%s shader_ok=%s tex_ok=%s" % [
+			edge_id, arrow_shader != null, arrow_tex != null])
 		return
 
 	var cyl: CylinderMesh = CylinderMesh.new()

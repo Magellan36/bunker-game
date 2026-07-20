@@ -1239,3 +1239,46 @@ routing" under Known tradeoffs) shipped:
     checked and does NOT have this bug — it only ever traces a single leg,
     so its existing `i == points.size() - 1` check already correctly means
     "last point of the whole (one-leg) run." No change needed there.
+
+### Follow-up pass (Jul 2026) — wall embedding tuning + elbow overcorrection
+
+The three fixes above landed real regressions of their own, reported after
+in-editor testing:
+
+- **Wall embedding tuning.** `0.15` wasn't quite enough clearance for
+  `PIPE_RADIUS = 0.09` once the tube's actual rendered thickness was seen
+  in-editor — bumped `WaterPipeDrawMode.WALL_PIPE_OFFSET` to `0.22`. Tuning
+  only; the offset formula/geometry itself (verified against
+  `WireGraphBuilder`'s `DIRS` table for all 4 wall orientations) was already
+  correct.
+- **Elbow overcorrection.** Fix 3 above (`is_final_leg`) swung too far the
+  other way: wall-locked routing chains through *every*
+  `WallPerimeterRegistry` segment along a straight wall run (~1m apart, one
+  per cleared-cell wall face), not just actual corners — so it made EVERY
+  leg-boundary waypoint a `"corner"` + visible `WaterPipeElbow`, including
+  straight pass-through points with no real direction change.
+  - Fix: `_try_confirm_full_path()` now computes a `waypoint_is_turn[]` array
+    up front — for each interior waypoint, compares the normalized
+    direction-in vs. direction-out vectors; `dot < 0.999` means a real turn.
+    The per-point role decision is restructured into `is_leg_boundary` /
+    `is_run_end` (final point of the final leg) / `is_real_bend`
+    (leg-boundary + not run-end + `waypoint_is_turn` true) /
+    `is_pass_through` (leg-boundary + not run-end + not a real bend). Only
+    `is_real_bend` points get `"corner"` + a spawned elbow; `is_run_end` and
+    `is_pass_through` both get `"pipe_joint"` with no elbow. Topology (nodes/
+    edges/adjacency) is identical either way — only the `role` string and
+    whether a decorative elbow spawns differ, so this has no effect on flow/
+    reachability/graph structure.
+- **Flow-arrow overlay reported completely broken** (not just at bends) —
+  root cause NOT YET FOUND as of this pass. Investigated and ruled out:
+  `WallPerimeterRegistry` key-vs-position return-shape change (only caller
+  already updated correctly), the elbow/role overcorrection above (topology-
+  identical either way), `prune_orphan_waypoint()`/`node_degree()` (only
+  wired into deletion paths, not fresh placement), `compute_flow_directions()`
+  / `get_hookup_keys()` / `register_edge()` / `register_node()` (read in
+  full, no bug spotted), `pipe_flow.gdshader` and `WaterPipeSegment.gd`'s
+  arrow-overlay code (untouched by the offending commit). Added temporary
+  debug prints (`[FlowDebug]` tag) to `WaterManager.recompute_flow_directions()`
+  to capture hookup count, node/edge counts, and whether the computed
+  `directions` dict comes back empty — remove once root cause is found and
+  fixed.
