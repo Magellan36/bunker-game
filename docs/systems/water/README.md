@@ -1270,15 +1270,63 @@ in-editor testing:
     whether a decorative elbow spawns differ, so this has no effect on flow/
     reachability/graph structure.
 - **Flow-arrow overlay reported completely broken** (not just at bends) —
-  root cause NOT YET FOUND as of this pass. Investigated and ruled out:
-  `WallPerimeterRegistry` key-vs-position return-shape change (only caller
-  already updated correctly), the elbow/role overcorrection above (topology-
-  identical either way), `prune_orphan_waypoint()`/`node_degree()` (only
-  wired into deletion paths, not fresh placement), `compute_flow_directions()`
-  / `get_hookup_keys()` / `register_edge()` / `register_node()` (read in
-  full, no bug spotted), `pipe_flow.gdshader` and `WaterPipeSegment.gd`'s
-  arrow-overlay code (untouched by the offending commit). Added temporary
-  debug prints (`[FlowDebug]` tag) to `WaterManager.recompute_flow_directions()`
-  to capture hookup count, node/edge counts, and whether the computed
-  `directions` dict comes back empty — remove once root cause is found and
-  fixed.
+  investigated and ruled out: `WallPerimeterRegistry` key-vs-position
+  return-shape change (only caller already updated correctly), the elbow/
+  role overcorrection above (topology-identical either way),
+  `prune_orphan_waypoint()`/`node_degree()` (only wired into deletion paths,
+  not fresh placement), `compute_flow_directions()` / `get_hookup_keys()` /
+  `register_edge()` / `register_node()` (read in full, no bug spotted),
+  `pipe_flow.gdshader` and `WaterPipeSegment.gd`'s arrow-overlay code
+  (untouched by the offending commit). Confirmed working again in-editor
+  after this pass (playtest feedback: "much better") — the exact turning
+  point isn't captured in a dedicated commit message, but no further symptom
+  was reported beyond the cross-joint continuity issue documented below, so
+  this is considered resolved. The `[FlowDebug]` tag prints added to
+  `WaterManager.recompute_flow_directions()` (hookup count, node/edge
+  counts, whether the computed `directions` dict comes back empty) are kept
+  intentionally (Brannon's explicit instruction) rather than stripped now
+  that the symptom is gone — cheap insurance if it ever regresses.
+
+### Cross-joint phase continuity fix (Jul 2026, follow-up)
+
+Arrows animated fluidly along any single segment but visibly
+"stuttered"/restarted at every joint between segments — each
+`WaterPipeSegment`'s overlay looped its own animation independently instead
+of one continuous crawl along the whole pipe run.
+
+- **Root cause:** `pipe_flow.gdshader` derived its "position along the pipe"
+  coordinate from the mesh's own `UV.y` (a `CylinderMesh` side surface's
+  standard 0-1 span along its length), and encoded flow direction by
+  mirroring that same coordinate (`1.0 - UV.y`) around **each segment's own
+  midpoint** whenever `flow_sign < 0`. That mirror is segment-local — it
+  flips correctly within one segment, but nothing ties one segment's 0-1
+  span to its neighbor's in a way that matches
+  `WaterGraph.compute_flow_directions()`'s existing "phase_offset counted
+  continuously from the hookup outward" convention. Combined with
+  `tiles_per_segment`/`phase_offset` scaling that same UV, every segment's
+  tile pattern was internally fluid but discontinuous with its neighbor at
+  every joint — a real bug independent of (and layered on top of) the
+  earlier world-space-scale fix above.
+- **Fix:** replaced the UV.y-based coordinate with a **vertex-space**
+  coordinate instead. `WaterPipeSegment._rebuild_mesh()`'s `look_at()` +
+  fixed 90°-local-X-rotation always orients each segment's local +Y axis
+  toward its own `point_b`, regardless of the segment's world orientation —
+  so a coordinate built from raw local vertex position is `0` at `point_a`
+  and `1` at `point_b` for every segment uniformly, independent of Godot's
+  `CylinderMesh` UV winding (never relied on again). `pipe_flow.gdshader`
+  gained a `vertex()` function writing a new `varying float v_ab_uv` from
+  `VERTEX.y / pipe_length + 0.5`, and a single unified coordinate —
+  `along_uv = flow_sign > 0.0 ? v_ab_uv : (1.0 - v_ab_uv)` — now drives
+  tiling, phase, scroll, AND chevron direction together, replacing the old
+  separate "mirror the UV, then also multiply the scroll" two-step that
+  could fall out of sync (see the double-flip bug above, same class of
+  mistake). No GDScript changes were needed —
+  `flow_sign`/`phase_offset`/`pipe_length` uniforms are unchanged, only how
+  the shader consumes them internally changed.
+- **Known risk flagged, not yet confirmed:** if chevrons now point backwards
+  *uniformly* on every pipe (as opposed to the old per-segment
+  inconsistency), that's a trivial one-line fix — swap the two branches of
+  the `along_uv` ternary above. Not expected, but called out up front since
+  it's the one part of this fix that depends on an assumption about
+  `CylinderMesh`'s default UV winding this pass didn't independently verify
+  by other means.
