@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-20T01:31:53.718973+00:00",
+  "generated_at": "2026-07-20T01:54:30.750353+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 82,
-  "total_lines": 34188,
+  "total_lines": 34274,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -1609,7 +1609,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
-      "line_count": 295,
+      "line_count": 311,
       "class_name": "BuildUndoStack",
       "extends": "RefCounted",
       "exports": [],
@@ -1628,7 +1628,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 303
+      "complexity_score": 319
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
@@ -1704,7 +1704,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 1189,
+      "line_count": 1190,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -1846,7 +1846,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1245
+      "complexity_score": 1246
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",
@@ -4403,7 +4403,7 @@
     },
     {
       "path": "res://scripts/world/structure/WallPerimeterRegistry.gd",
-      "line_count": 144,
+      "line_count": 153,
       "class_name": "WallPerimeterRegistry",
       "extends": "Node",
       "exports": [],
@@ -4426,6 +4426,11 @@
           "returns": "Vector3"
         },
         {
+          "name": "get_segment_angle",
+          "args": "key: String",
+          "returns": "float"
+        },
+        {
           "name": "is_empty",
           "args": "",
           "returns": "bool"
@@ -4442,7 +4447,7 @@
         "wall_perimeter_registry"
       ],
       "autoload_references": [],
-      "complexity_score": 155
+      "complexity_score": 166
     },
     {
       "path": "res://scripts/world/water/WaterDispenser.gd",
@@ -4512,7 +4517,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterGraph.gd",
-      "line_count": 511,
+      "line_count": 532,
       "class_name": "WaterGraph",
       "extends": "RefCounted",
       "exports": [],
@@ -4570,6 +4575,16 @@
           "returns": "Dictionary"
         },
         {
+          "name": "node_degree",
+          "args": "key: String",
+          "returns": "int"
+        },
+        {
+          "name": "prune_orphan_waypoint",
+          "args": "key: String",
+          "returns": "void"
+        },
+        {
           "name": "get_edges_touching",
           "args": "key: String",
           "returns": "Array"
@@ -4614,7 +4629,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 550
+      "complexity_score": 575
     },
     {
       "path": "res://scripts/world/water/WaterHookup.gd",
@@ -4684,7 +4699,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
-      "line_count": 484,
+      "line_count": 493,
       "class_name": "WaterManager",
       "extends": "Node",
       "exports": [],
@@ -4724,6 +4739,11 @@
         {
           "name": "unregister_edge",
           "args": "edge_id: String",
+          "returns": "void"
+        },
+        {
+          "name": "prune_orphan_waypoint",
+          "args": "key: String",
           "returns": "void"
         },
         {
@@ -4834,11 +4854,11 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 542
+      "complexity_score": 553
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 1594,
+      "line_count": 1624,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4879,7 +4899,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 1641
+      "complexity_score": 1671
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",

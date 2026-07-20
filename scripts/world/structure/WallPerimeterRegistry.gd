@@ -95,14 +95,26 @@ func get_segment_pos(key: String) -> Vector3:
 	return _segments.get(key, {}).get("pos", Vector3.ZERO)
 
 
+## Wall face's outward-facing orientation in degrees, straight from
+## WireGraphBuilder's DIRS table (left->180, right->0, top->90, bottom->270).
+## Used by wall-locked pipe routing to pull segments inward off the wall
+## face (see WaterPipeDrawMode._trace_wall_locked_path()) — electrical wires
+## sit flush on the wall so never needed this, pipes do.
+func get_segment_angle(key: String) -> float:
+	return _segments.get(key, {}).get("angle", 0.0)
+
+
 func is_empty() -> bool:
 	return _segments.is_empty()
 
 
 ## BFS shortest path (by hop count) along the wall perimeter, from_key to
-## to_key. Returns Array[Vector3] of waypoint positions in order (electrical
-## PLACEMENT_Y — see _segments' own comment), or an empty array if no path
-## exists — shouldn't happen for a single connected perimeter, but a
+## to_key. Returns Array[String] of ordered segment KEYS (changed from raw
+## positions, Jul 2026 wall-embedding fix — callers need both position AND
+## angle per waypoint to pull pipes inward off the wall face, so handing
+## back keys lets them call get_segment_pos()/get_segment_angle() per point
+## instead of this function baking in position-only output). Empty array if
+## no path exists — shouldn't happen for a single connected perimeter, but a
 ## disconnected/degenerate boundary_edges state should fail safely (caller
 ## falls back to direct-leg routing), not crash.
 func find_path_along_wall(from_key: String, to_key: String) -> Array:
@@ -111,7 +123,7 @@ func find_path_along_wall(from_key: String, to_key: String) -> Array:
 	if not _adjacency.has(from_key) or not _adjacency.has(to_key):
 		return []
 	if from_key == to_key:
-		return [get_segment_pos(from_key)]
+		return [from_key]
 
 	var came_from: Dictionary = {}
 	var visited: Dictionary = {from_key: true}
@@ -138,7 +150,4 @@ func find_path_along_wall(from_key: String, to_key: String) -> Array:
 		walk = came_from[walk]
 		path_keys.push_front(walk)
 
-	var waypoints: Array = []
-	for key: String in path_keys:
-		waypoints.append(get_segment_pos(key))
-	return waypoints
+	return path_keys
