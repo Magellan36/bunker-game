@@ -95,6 +95,32 @@ func get_segment_pos(key: String) -> Vector3:
 	return _segments.get(key, {}).get("pos", Vector3.ZERO)
 
 
+## All segment keys within `radius` of `pos` (XZ plane), nearest first.
+## Added Jul 2026 alongside the backward-jog entry-leg fix — a caller
+## anchoring onto the wall from an arbitrary point (e.g. a hookup sitting
+## almost equidistant between two consecutive segments) needs more than
+## just the single absolute-nearest key: picking nearest in isolation can
+## land on the segment BEHIND the caller relative to where it actually
+## wants to go, forcing a backward hop before find_path_along_wall() turns
+## around (see WaterPipeDrawMode._trace_wall_locked_path()'s use of this).
+## Returning the small nearby set lets the caller pick whichever candidate
+## actually shortens the real path, instead of guessing from position
+## alone.
+func get_nearby_segment_keys(pos: Vector3, radius: float) -> Array:
+	var flat_pos: Vector2 = Vector2(pos.x, pos.z)
+	var candidates: Array = []
+	for key: String in _segments:
+		var seg_pos: Vector3 = _segments[key]["pos"]
+		var d: float = flat_pos.distance_to(Vector2(seg_pos.x, seg_pos.z))
+		if d <= radius:
+			candidates.append({ "key": key, "dist": d })
+	candidates.sort_custom(func(a, b): return a["dist"] < b["dist"])
+	var out: Array = []
+	for c in candidates:
+		out.append(c["key"])
+	return out
+
+
 ## Wall face's outward-facing orientation in degrees, straight from
 ## WireGraphBuilder's DIRS table (left->180, right->0, top->90, bottom->270).
 ## Used by wall-locked pipe routing to pull segments inward off the wall
