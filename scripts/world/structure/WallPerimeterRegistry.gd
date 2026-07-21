@@ -146,12 +146,20 @@ func _cells_are_wall_adjacent(cell_a: Vector2i, dir_a: Vector2i, cell_b: Vector2
 	if dot == 0:
 		## Perpendicular faces on two DIFFERENT cells — only a real corner
 		## when the two cells are diagonal neighbors reached by stepping in
-		## BOTH faces' own outward-normal directions at once (the natural
-		## "wall wraps around stepping diagonally" shape for a turn that
-		## spans two cells, e.g. a notch/step corner). Any other diagonal or
-		## cardinal offset is coincidental proximity, not a real connection —
-		## this is exactly what excludes the false shortcut across a notch.
-		return cell_b == cell_a + dir_a + dir_b
+		## cell_a's own outward-normal direction and AGAINST cell_b's outward-
+		## normal direction (cell_b == cell_a + dir_a - dir_b) — verified by
+		## hand against two independent concrete examples (a peninsula's two
+		## side corners): e.g. cell_a exposes "top" (dir_a=(0,-1)) at column 9,
+		## cell_b is the peninsula cell one column over exposing "left"
+		## (dir_b=(-1,0)) — the two face positions sit ~0.707m apart (a real
+		## corner gap) and satisfy cell_b - cell_a == dir_a - dir_b == (1,-1).
+		## (`dir_a + dir_b` — the first version of this fix — computes the
+		## WRONG diagonal cell entirely and silently produces zero adjacency
+		## for every real notch/peninsula corner, which is exactly the
+		## "route skips the whole notch" symptom this fix targets — a sign
+		## bug, not a logic-shape bug.) Any other diagonal or cardinal offset
+		## is coincidental proximity, not a real connection.
+		return cell_b == cell_a + dir_a - dir_b
 
 	## dot == -1 (opposite directions, different cells) — two parallel walls
 	## facing each other across open floor (e.g. a corridor's far side one

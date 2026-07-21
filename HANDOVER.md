@@ -169,6 +169,23 @@ Also added a `[PipeDebug] wall_keys (...)` diagnostic dump in
 `_trace_wall_locked_path()` (confirm-time only, `debug`-gated) — left in as
 standing insurance.
 
+### Follow-up fix — sign bug in the diagonal-corner adjacency formula
+Brannon reported the notch/peninsula corner (his "3 corners, 5 turns"
+description — a single wall-face cell exposing 3 faces, e.g. a peninsula/
+nub, not 3 separate cells) was STILL being skipped after the adjacency
+rewrite above. Traced it by hand-verifying the adjacency formula against two
+concrete examples: the diagonal-corner case's formula was
+`cell_b == cell_a + dir_a + dir_b`, which is off by a sign — the correct
+relation is `cell_b == cell_a + dir_a - dir_b`. The `+ dir_b` version
+computed the wrong diagonal cell entirely, so it silently produced ZERO
+adjacency for every real notch/peninsula corner (not a false shortcut this
+time — a total disconnect), which made `find_path_along_wall()` return
+empty and fall back to freeform routing — reproducing the exact same
+"skips the notch/straight line" symptom the whole adjacency rewrite was
+supposed to fix. Fixed in `WallPerimeterRegistry._cells_are_wall_adjacent()`.
+See that function's own comment and `docs/systems/structure/README.md` for
+the worked examples.
+
 **Playtest checklist (needs Brannon in-editor — none of this is confirmed
 working yet):**
 1. Reproduce the exact notch/step placement from the screenshot — confirm

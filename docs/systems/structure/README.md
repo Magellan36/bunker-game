@@ -96,9 +96,13 @@ system's own narrow-scope-per-registry principle).
     never a real connection;
   - same direction, one grid-cell step apart ALONG the wall run (straight
     continuation); or
-  - perpendicular directions, different cells, where the second cell is
-    reached by stepping in BOTH directions' own outward-normal offsets at
-    once (the natural two-cell-spanning corner shape a notch/step produces).
+  - perpendicular directions, different cells, where `cell_b == cell_a +
+    dir_a - dir_b` (NOTE: an earlier version of this fix used `dir_a +
+    dir_b`, which computes the wrong diagonal cell entirely and silently
+    produced zero adjacency for every real notch/peninsula corner — a sign
+    bug that reproduced the exact "skips the notch" symptom even after that
+    first fix landed; verified by hand against two independent concrete
+    examples before correcting to `- dir_b`).
   A notch's two sides are never grid-adjacent under this rule no matter how
   close together they end up in world space, so it can't produce a shortcut
   across one — the BFS is forced through every real intermediate corner.
