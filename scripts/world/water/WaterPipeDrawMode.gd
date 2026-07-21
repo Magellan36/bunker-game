@@ -615,7 +615,14 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 	## WireGraphBuilder's DIRS table: left->180, right->0, top->90,
 	## bottom->270); the inward direction (into the room, away from the
 	## wall) is the negated outward normal.
+	##
+	## Also records whether each waypoint's own wall face is X-defining
+	## (left/right — a vertical wall running along Z, so ITS X is the
+	## trustworthy inset coordinate) or Z-defining (top/bottom — a
+	## horizontal wall running along X, so ITS Z is the trustworthy inset
+	## coordinate) — see the wall-turn corner-choice fix below.
 	var wall_pts: Array = []
+	var wall_pts_x_defining: Array = []
 	for key: String in wall_keys:
 		var wp: Vector3 = registry.get_segment_pos(key)
 		var angle: float = registry.get_segment_angle(key)
@@ -623,6 +630,9 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 		var inward_dir: Vector3 = Vector3(-cos(rad), 0.0, sin(rad))
 		var offset_pos: Vector3 = wp + inward_dir * WALL_PIPE_OFFSET
 		wall_pts.append(Vector3(offset_pos.x, WATER_CEILING_Y, offset_pos.z))
+		## angle 0/180 (right/left) -> vertical wall -> X-defining.
+		## angle 90/270 (top/bottom) -> horizontal wall -> Z-defining.
+		wall_pts_x_defining.append(is_equal_approx(fmod(angle, 180.0), 0.0))
 
 	## Chain: source -> each wall waypoint in order -> dest. Re-run every
 	## hop through _build_manhattan_path() so the whole thing stays
@@ -631,9 +641,59 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 	chain_points.append_array(wall_pts)
 	chain_points.append(dest_pos)
 
+	## Bug fix (Jul 2026, expanded-notch corner-choice bug): index into
+	## chain_points where the wall_pts run starts/ends — used below to know
+	## which consecutive pairs are BOTH real wall waypoints (as opposed to
+	## the leading source_pos/trailing dest_pos legs, which keep using
+	## _build_manhattan_path()'s generic shorter-axis-first heuristic
+	## unchanged — that heuristic is a cosmetic default for those, not a
+	## structural correctness requirement).
+	var wall_pts_start: int = 1
+	var wall_pts_end: int = wall_pts.size()   ## inclusive index of last wall_pt within chain_points
+
 	var raw_points: Array = [source_pos]
 	for i in range(1, chain_points.size()):
-		var leg: Array = _build_manhattan_path(raw_points[raw_points.size() - 1], chain_points[i])
+		var prev_is_wall: bool = i - 1 >= wall_pts_start and i - 1 <= wall_pts_end
+		var cur_is_wall: bool  = i >= wall_pts_start and i <= wall_pts_end
+		var from_pt: Vector3 = raw_points[raw_points.size() - 1]
+		var to_pt: Vector3   = chain_points[i]
+
+		if prev_is_wall and cur_is_wall:
+			## Real wall-to-wall turn (or straight continuation). At a
+			## genuine turn (both X and Z differ), the correct corner is
+			## NOT a cosmetic choice — it must reuse whichever side's own
+			## already-wall-inset coordinate is trustworthy on each axis:
+			## the X-defining waypoint's X (it's a vertical wall, its X is
+			## the real inset position) and the Z-defining waypoint's Z
+			## (it's a horizontal wall, its Z is the real inset position).
+			## Picking the OTHER combination can land the corner behind a
+			## concave notch pillar (out of bounds) — this was the actual
+			## root cause of the "expanded-area notch corner rejected"
+			## regression: the generic shorter-axis-first heuristic in
+			## _build_manhattan_path() has no idea which of the two
+			## candidate corners is structurally safe, and picked the wrong
+			## one whenever the two legs happened to be near-equal length.
+			var prev_x_defining: bool = wall_pts_x_defining[i - 1 - wall_pts_start]
+			var cur_x_defining: bool  = wall_pts_x_defining[i - wall_pts_start]
+			var snapped_to: Vector3 = to_pt
+			if prev_x_defining and not cur_x_defining:
+				_append_if_distinct(raw_points, Vector3(from_pt.x, WATER_CEILING_Y, to_pt.z))
+			elif cur_x_defining and not prev_x_defining:
+				_append_if_distinct(raw_points, Vector3(to_pt.x, WATER_CEILING_Y, from_pt.z))
+			else:
+				## Both X-defining or both Z-defining — a straight run.
+				## Snap the shared axis to match exactly (same guard
+				## _build_manhattan_path() applies) so any tiny float drift
+				## between two consecutive wall-inset positions never reads
+				## as a subtle diagonal.
+				if prev_x_defining:
+					snapped_to = Vector3(from_pt.x, WATER_CEILING_Y, to_pt.z)
+				else:
+					snapped_to = Vector3(to_pt.x, WATER_CEILING_Y, from_pt.z)
+			_append_if_distinct(raw_points, snapped_to)
+			continue
+
+		var leg: Array = _build_manhattan_path(from_pt, to_pt)
 		for j in range(1, leg.size()):
 			_append_if_distinct(raw_points, leg[j])
 

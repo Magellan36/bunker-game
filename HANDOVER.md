@@ -186,6 +186,28 @@ supposed to fix. Fixed in `WallPerimeterRegistry._cells_are_wall_adjacent()`.
 See that function's own comment and `docs/systems/structure/README.md` for
 the worked examples.
 
+### Second follow-up — expanded-notch corner rejected (wrong Manhattan-corner choice)
+After the sign-bug fix above, Brannon reported what looked like the
+ORIGINAL "pillar registration gap" symptom coming back — a room-exposed
+pillar in an EXPANDED (dug) area causing the trace to go blank/invalid.
+Debug dump (`[PipeDebug] wall_keys` + `_is_path_in_bounds: FAILED at point
+(-8.0, 2.9, 13.0)`) showed this was actually a NEW, different bug: the
+adjacency fix now correctly threads the BFS through a notch's real wall
+segments, but `_trace_wall_locked_path()`'s chaining step
+(`_build_manhattan_path()` between consecutive wall waypoints) picked the
+WRONG of the two possible corner points at one specific wall-to-wall turn —
+landing in undug rock instead of the safe corner, correctly rejected by
+`_is_path_in_bounds()` but reading exactly like a registration gap.
+
+Root cause: `_build_manhattan_path()`'s "shorter-axis-first" corner
+heuristic is a cosmetic default fine for a hookup-to-destination leg, but
+wrong for a real wall-to-wall turn where only ONE of the two candidate
+corners is structurally safe (the one built from each wall's own already-
+correct inset coordinate). Fixed by special-casing wall-to-wall transitions
+in the chaining loop to build the corner directly from each side's known
+wall orientation instead of the generic heuristic — see
+`docs/systems/water/README.md`'s matching section for full detail.
+
 **Playtest checklist (needs Brannon in-editor — none of this is confirmed
 working yet):**
 1. Reproduce the exact notch/step placement from the screenshot — confirm

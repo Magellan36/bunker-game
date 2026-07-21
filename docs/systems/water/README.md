@@ -1506,3 +1506,35 @@ confirmed stable across more playtesting.
 
 **Not yet confirmed working in-editor** — see playtest checklist in
 `HANDOVER.md`.
+
+## Expanded-notch corner rejected (out-of-bounds) — wrong Manhattan-corner choice (Jul 2026)
+
+Follow-up to the adjacency rewrite above: at a real wall turn deep inside an
+expanded/dug notch (a "bay" dug beyond the original bunker footprint),
+wall-locked routing started getting rejected as out-of-bounds again — this
+looked like the original corner-registration gap resurfacing, but the actual
+cause was different and specific to the adjacency fix's own chaining step.
+
+**Root cause:** `_trace_wall_locked_path()` chains consecutive wall
+waypoints through `_build_manhattan_path()`, which inserts one intermediate
+corner per turn using a generic "shorter-axis-first" heuristic (a cosmetic
+default, fine for a hookup-to-open-destination leg where either corner
+choice is equally valid). At a genuine wall-to-wall turn, though, the two
+candidate corners are NOT equally valid — one reuses each wall's own
+already-correct wall-inset coordinate (the real, safe corner), the other
+does not and can land behind a concave notch pillar, outside the dug
+footprint entirely. When the two legs happen to be near-equal length (common
+right at a notch corner), the heuristic's tie-break picked the unsafe corner,
+producing a waypoint in undug rock — `_is_path_in_bounds()` correctly
+rejected it (fail-closed, not a bounds-check bug), which read as "the whole
+trace is invalid" exactly like the original registration-gap symptom.
+
+**Fix:** `_trace_wall_locked_path()` now special-cases wall-to-wall
+transitions in its chaining loop — each wall waypoint already knows which
+axis its own wall face defines (X for a vertical left/right wall, Z for a
+horizontal top/bottom wall, derived from `WallPerimeterRegistry
+.get_segment_angle()`). At a real turn between an X-defining and a
+Z-defining waypoint, the corner is now built directly from each side's own
+trustworthy axis (no heuristic, no ambiguity) — the source_pos/dest_pos legs
+at the very start/end of the chain are untouched and still use
+`_build_manhattan_path()`'s existing cosmetic default.
