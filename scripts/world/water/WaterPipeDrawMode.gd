@@ -598,6 +598,17 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 	if wall_keys.is_empty():
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
 
+	## TEMP diagnostic (Jul 2026, notch/step-skip investigation) — dumps the
+	## ordered wall-segment key list the BFS actually returned, confirm-time
+	## only (debug-gated, matches PIPE_DEBUG/_pdbg() convention). Expected
+	## BEFORE the adjacency fix: a jump straight from one side of a notch to
+	## the other with nothing in between. Leaving in as standing insurance —
+	## flag to Brannon whether to strip once confirmed stable.
+	if debug:
+		_pdbg("[PipeDebug] wall_keys (%d): %s" % [wall_keys.size(), wall_keys])
+		for k: String in wall_keys:
+			_pdbg("[PipeDebug]   %s -> pos=%s" % [k, registry.get_segment_pos(k)])
+
 	## Pull each waypoint inward off the wall face by WALL_PIPE_OFFSET so the
 	## pipe's own radius doesn't clip into the wall mesh (Jul 2026 fix).
 	## `angle` is the wall face's outward-facing orientation in degrees (see

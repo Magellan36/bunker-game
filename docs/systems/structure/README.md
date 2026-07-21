@@ -64,21 +64,44 @@ adjacency, different enough data shape to keep separate (matches this
 system's own narrow-scope-per-registry principle).
 
 - `set_all(segments: Dictionary)` — replaces the full wall-segment set
-  (same `"wx_key,wz_key" -> {"pos": Vector3, ...}` shape as
-  `WireGraphBuilder`'s own `boundary_edges`) and rebuilds adjacency.
+  (`"wx_key,wz_key" -> {"pos": Vector3, "angle": float, "cell": Vector2i,
+  "dir": Vector2i}` — `"cell"`/`"dir"` added Jul 2026, see adjacency fix
+  below) and rebuilds adjacency.
 - `get_nearest_segment_key(pos: Vector3) -> String` / `get_segment_pos(key) -> Vector3`
+  / `get_segment_angle(key) -> float` / `get_nearby_segment_keys(pos, radius) -> Array`
   / `is_empty() -> bool`.
 - `find_path_along_wall(from_key: String, to_key: String) -> Array` — BFS
-  shortest hop-count path along the perimeter, returns `Array[Vector3]`
-  waypoints or `[]` if no path exists (fails safe — caller falls back to
-  freeform routing, never crashes).
-- `ADJACENCY_RADIUS: float = 1.1` — verified against `WireGraphBuilder`'s own
-  boundary-edge math: consecutive segments along a straight wall run are
-  exactly 1.0m apart; the two segments meeting at a convex corner are
-  ~0.707m apart (0.5 diagonal). 1.1 catches both with margin while staying
-  well under 2.0 (minimum gap between two unrelated walls, e.g. opposite
-  sides of a single-cell-wide corridor), so it can never wrongly bridge
-  across open floor space.
+  shortest hop-count path along the perimeter, returns `Array[String]` of
+  ordered segment keys (changed from raw positions — callers need both
+  position AND angle per waypoint) or `[]` if no path exists (fails safe —
+  caller falls back to freeform routing, never crashes).
+- **Adjacency (rewritten Jul 2026 — notch/step-skip fix):** used to be pure
+  Euclidean proximity (`ADJACENCY_RADIUS: float = 1.1`, kept only as a
+  historical/unused constant now) — any two segments within 1.1m of each
+  other in world space were linked, regardless of whether a real wall path
+  actually connected them. That let two segments on OPPOSITE sides of a
+  multi-corner notch/step get falsely linked whenever they ended up close
+  together once pulled inward, so `find_path_along_wall()`'s BFS would jump
+  straight across the notch in one hop, skipping every real corner inside
+  it.
+  Fixed by deriving adjacency from the same cleared-cell topology
+  `WireGraphBuilder` already walks to build `boundary_edges`, instead of
+  post-hoc world-space distance — see `_cells_are_wall_adjacent()`. Two
+  segments (each carrying its originating `"cell"` and outward-normal
+  `"dir"` offset, matching `WireGraphBuilder`'s `DIRS` table: left=(-1,0),
+  right=(1,0), top=(0,-1), bottom=(0,1)) are adjacent only if:
+  - same cell, perpendicular directions (a real corner turn within one
+    cell) — same-cell OPPOSITE directions (e.g. left+right) are excluded,
+    that's two walls facing each other across a single-cell corridor/pocket,
+    never a real connection;
+  - same direction, one grid-cell step apart ALONG the wall run (straight
+    continuation); or
+  - perpendicular directions, different cells, where the second cell is
+    reached by stepping in BOTH directions' own outward-normal offsets at
+    once (the natural two-cell-spanning corner shape a notch/step produces).
+  A notch's two sides are never grid-adjacent under this rule no matter how
+  close together they end up in world space, so it can't produce a shortcut
+  across one — the BFS is forced through every real intermediate corner.
 - Stored positions use `WireGraphBuilder`'s own electrical `PLACEMENT_Y`
   (2.0), NOT water's ceiling height — consumers must re-project to their own
   working height before use (see `WaterPipeDrawMode.WATER_CEILING_Y`).

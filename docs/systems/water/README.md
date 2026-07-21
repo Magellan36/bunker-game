@@ -1467,3 +1467,42 @@ of one continuous crawl along the whole pipe run.
   as the wire check (wire checked first, pipe checked only if no wire is
   hovered). Never touches the hookup device itself (separately protected,
   unrelated code path).
+
+## Wall-locked routing notch/step skip — adjacency rewrite (Jul 2026)
+
+Follow-up to the pillar-dogleg work above: a larger notch/step in the
+bunker boundary (3 real corners, 5 turns to hug properly) was being skipped
+entirely by wall-locked routing — the ghost ran a single straight leg past
+the whole notch, as if that wall section didn't exist, instead of hugging
+around it the way a simple single-pillar corner already did correctly.
+
+**Root cause:** `WallPerimeterRegistry._rebuild_adjacency()` linked any two
+wall-segment entries within `ADJACENCY_RADIUS` (1.1m) of each other in raw
+world-space distance, with no check that a real wall path actually connected
+them. At a notch, the segments on either side of the recess can end up
+within 1.1m of each other once pulled inward even though the real wall path
+between them wraps around 3 corners — a false "shortcut" edge.
+`find_path_along_wall()`'s BFS then jumped straight across the notch in one
+hop, so `_trace_wall_locked_path()` never got the intermediate waypoints
+needed for `_dogleg_corner_around_pillars()` to even have a candidate to act
+on (that function itself was never the bug — it only replaces one corner
+point at a time and was working correctly wherever it did get called).
+
+**Fix:** adjacency is now derived from cleared-cell grid topology instead of
+world-space distance — see `docs/systems/structure/README.md`'s
+`WallPerimeterRegistry.gd` entry for the full rule
+(`_cells_are_wall_adjacent()`). Each `boundary_edges` entry now also carries
+its originating `"cell"` (`Vector2i`) and outward-normal `"dir"` offset
+(`Vector2i`), plumbed through from `WireGraphBuilder`'s existing per-cell
+per-direction loop (all 3 call sites: `_compute_and_rebuild_wires()`,
+`_on_chunk_deconstructed()`, `_on_chunk_restored()`) — no change to what
+positions/angles get computed, only additional bookkeeping alongside them.
+
+A `[PipeDebug] wall_keys (...)` diagnostic dump was added in
+`_trace_wall_locked_path()` (confirm-time only, `debug`-gated) to inspect
+the actual BFS-returned segment chain — left in as standing insurance per
+this fix's own investigation plan; flag to Brannon whether to strip once
+confirmed stable across more playtesting.
+
+**Not yet confirmed working in-editor** — see playtest checklist in
+`HANDOVER.md`.
