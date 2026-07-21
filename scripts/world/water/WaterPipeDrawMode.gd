@@ -695,8 +695,17 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 ## _try_confirm_full_path()'s confirm-time call can never disagree about
 ## which mode a given click actually used.
 func _trace_active_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
+	## TEMP diagnostic (Jul 2026, ghost/placed-divergence investigation) —
+	## remove once the "two paths near an existing node" bug is confirmed
+	## fixed. Both _update_ghost_preview() and _try_confirm_full_path() go
+	## through this single chooser, so if this print ever shows different
+	## modes firing for what should be the same click, THAT's the divergence;
+	## if it always agrees, the bug is downstream (inside whichever tracer
+	## fired) — see the plan doc for the full decision tree.
 	if not WALL_LOCKED_ROUTING_ENABLED or Input.is_key_pressed(KEY_CTRL):
+		if debug: _pdbg("[PipeDebug] routing mode: freeform (wall_locked_disabled=%s ctrl_held=%s)" % [not WALL_LOCKED_ROUTING_ENABLED, Input.is_key_pressed(KEY_CTRL)])
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
+	if debug: _pdbg("[PipeDebug] routing mode: wall_locked")
 	return _trace_wall_locked_path(source_pos, source_key, cursor_pos, debug)
 
 func _update_ghost_preview() -> void:

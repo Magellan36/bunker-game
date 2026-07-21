@@ -136,6 +136,10 @@ var _hovered_rock_chunk: Vector2i = Vector2i(-9999, -9999)
 ## Wire segment currently hovered in Deconstruct mode (null = none)
 var _hovered_wire_segment: Node3D = null
 
+## Water pipe segment currently hovered in Deconstruct mode (null = none) —
+## same purpose/lifecycle as _hovered_wire_segment above, Jul 2026.
+var _hovered_pipe_segment: WaterPipeSegment = null
+
 ## Pending dig confirmation — true when the HUD confirm dialog is open
 var _pending_dig_chunk: Vector2i = Vector2i(-9999, -9999)
 
@@ -534,13 +538,16 @@ func _process(_delta: float) -> void:
 				build_hud.hovered_deconstruct_cell        = body.global_position
 				build_hud.hovered_rock_chunk_world_pos    = Vector3(-9999.0, -9999.0, -9999.0)
 				_hovered_rock_chunk   = Vector2i(-9999, -9999)
-				## If we were previously highlighting a wire segment, clear it.
+				## If we were previously highlighting a wire/pipe segment, clear it.
 				if _hovered_wire_segment != null and is_instance_valid(_hovered_wire_segment):
 					if _hovered_wire_segment.has_method("set_highlight_delete"):
 						_hovered_wire_segment.set_highlight_delete(false)
 				_hovered_wire_segment = null
+				if _hovered_pipe_segment != null and is_instance_valid(_hovered_pipe_segment):
+					_hovered_pipe_segment.set_highlight_delete(false)
+				_hovered_pipe_segment = null
 			else:
-				## Check for hovered wire segment before falling through to rock.
+				## Check for hovered wire segment before falling through to pipe/rock.
 				var new_wire: Node3D = _get_hovered_wire_segment()
 
 				## Clear highlight on previously highlighted wire if it changed.
@@ -552,8 +559,21 @@ func _process(_delta: float) -> void:
 					if _hovered_wire_segment != null and _hovered_wire_segment.has_method("set_highlight_delete"):
 						_hovered_wire_segment.set_highlight_delete(true)
 
-				if _hovered_wire_segment != null:
-					## Wire is hovered — suppress the HUD red box (the wire itself glows red).
+				## Only look for a hovered pipe when no wire is under the cursor —
+				## same priority order _try_deconstruct() uses (wire before pipe).
+				var new_pipe: WaterPipeSegment = null
+				if _hovered_wire_segment == null:
+					new_pipe = _get_hovered_pipe_segment()
+
+				if _hovered_pipe_segment != new_pipe:
+					if _hovered_pipe_segment != null and is_instance_valid(_hovered_pipe_segment):
+						_hovered_pipe_segment.set_highlight_delete(false)
+					_hovered_pipe_segment = new_pipe
+					if _hovered_pipe_segment != null:
+						_hovered_pipe_segment.set_highlight_delete(true)
+
+				if _hovered_wire_segment != null or _hovered_pipe_segment != null:
+					## Wire/pipe is hovered — suppress the HUD red box (the segment itself glows red).
 					build_hud.hovered_deconstruct_cell        = Vector3(-9999.0, -9999.0, -9999.0)
 					build_hud.hovered_rock_chunk_world_pos    = Vector3(-9999.0, -9999.0, -9999.0)
 					_hovered_rock_chunk = Vector2i(-9999, -9999)
@@ -569,11 +589,14 @@ func _process(_delta: float) -> void:
 		build_hud.hovered_deconstruct_cell        = Vector3(-9999.0, -9999.0, -9999.0)
 		build_hud.hovered_rock_chunk_world_pos    = Vector3(-9999.0, -9999.0, -9999.0)
 		_hovered_rock_chunk    = Vector2i(-9999, -9999)
-		## Clear any lingering wire highlight when leaving deconstruct mode.
+		## Clear any lingering wire/pipe highlight when leaving deconstruct mode.
 		if _hovered_wire_segment != null and is_instance_valid(_hovered_wire_segment):
 			if _hovered_wire_segment.has_method("set_highlight_delete"):
 				_hovered_wire_segment.set_highlight_delete(false)
 		_hovered_wire_segment = null
+		if _hovered_pipe_segment != null and is_instance_valid(_hovered_pipe_segment):
+			_hovered_pipe_segment.set_highlight_delete(false)
+		_hovered_pipe_segment = null
 
 	# ── Duplicate hover glow ──
 	if _active_tool == 2:
@@ -1392,6 +1415,11 @@ func _try_deconstruct() -> void:
 		_try_deconstruct_wire(_hovered_wire_segment)
 		return
 
+	# ── Water pipe segment deconstruct ──
+	if _hovered_pipe_segment != null and is_instance_valid(_hovered_pipe_segment):
+		_try_deconstruct_pipe(_hovered_pipe_segment)
+		return
+
 	# ── Standard placed-object deconstruct ──
 	var body: Node3D = _get_hovered_placed_body()
 	if body == null:
@@ -1593,6 +1621,68 @@ func _try_deconstruct_wire(ws: Node3D) -> void:
 
 	## Wire removed — zone topology changed, recolour remaining wires.
 	call_deferred("_recolor_wire_zones")
+
+# ─── Water pipe deconstruct helpers (Jul 2026) ───────────────────────────────
+## Mirrors _get_hovered_wire_segment()'s proximity-scan exactly — pipe
+## segments are Node3D with no physics body either. Scans the same
+## "water_pipe_visual" group real placed pipes already join (see
+## WaterPipeSegment._ready()), NOT a new group — ghost/preview pipes never
+## join that group so they're never accidentally hoverable here.
+func _get_hovered_pipe_segment() -> WaterPipeSegment:
+	if camera == null:
+		return null
+
+	var vp: Viewport       = get_viewport()
+	var mouse_pos: Vector2 = vp.get_mouse_position()
+	var ray_origin: Vector3 = camera.project_ray_origin(mouse_pos)
+	var ray_dir: Vector3    = camera.project_ray_normal(mouse_pos)
+
+	var best_seg: WaterPipeSegment = null
+	var best_dist: float = 0.35   ## Same max perpendicular distance as wire hover.
+
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if not is_instance_valid(node) or not (node is WaterPipeSegment):
+			continue
+		var seg: WaterPipeSegment = node as WaterPipeSegment
+		## Pregen/starting-hookup pipes aren't a thing today (only the hookup
+		## device itself is protected, separately) — no "_is_pregen" guard
+		## needed here, every placed pipe segment is deconstructible.
+		var to_seg: Vector3 = seg.global_position - ray_origin
+		var proj: float     = to_seg.dot(ray_dir)
+		if proj < 0.0 or proj > ray_length:
+			continue
+		var closest_on_ray: Vector3 = ray_origin + ray_dir * proj
+		var perp_dist: float = seg.global_position.distance_to(closest_on_ray)
+		if perp_dist < best_dist:
+			best_dist = perp_dist
+			best_seg  = seg
+
+	return best_seg
+
+## Deconstruct a specific pipe segment: refund + free via the already-shared
+## WaterManager.delete_and_refund_edge() (built earlier for the hookup
+## reposition and purifier-deletion paths) — reused here rather than
+## hand-rolling a 4th copy of refund/unregister/prune logic. That function
+## already handles the purifier guard, seg.queue_free(), unregister_edge(),
+## prune_orphan_waypoint() on both endpoints, refund + floating label, and
+## recompute_flow_directions().
+func _try_deconstruct_pipe(seg: WaterPipeSegment) -> void:
+	if not is_instance_valid(seg):
+		return
+
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	if wm == null:
+		return
+
+	var edge_id: String = seg.edge_id
+
+	## Clear the red highlight before the shared teardown frees the node —
+	## avoids stale material state / a lingering ref on a dead node.
+	seg.set_highlight_delete(false)
+	_hovered_pipe_segment = null
+
+	if not edge_id.is_empty():
+		wm.delete_and_refund_edge(edge_id)
 
 ## After an object is deconstructed, scan for wire segments whose PM edges no
 ## longer exist (the object's wire node was just unregistered) and free them.

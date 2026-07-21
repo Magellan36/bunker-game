@@ -46,6 +46,12 @@ var point_b: Vector3 = Vector3.ZERO
 var _mesh_instance: MeshInstance3D = null
 var _material: StandardMaterial3D  = null
 
+## Deconstruct-mode hover highlight (Jul 2026) — mirrors WireSegment.gd's
+## set_highlight_delete() exactly, including reusing WireSegment.COLOR_DELETE's
+## literal value (not a new, possibly-slightly-different red) so both systems'
+## delete-hover reads as the exact same shade to the player.
+var _delete_highlight: bool = false
+
 ## Flow-direction arrow overlay (Jul 2026, build-mode only) — a second, thin
 ## MeshInstance3D layered on top of the pipe's own solid mesh, using
 ## pipe_flow.gdshader. Purely additive — the base pipe mesh/material above
@@ -153,6 +159,32 @@ func _rebuild_mesh() -> void:
 
 	if not is_ghost:
 		_build_arrow_overlay(length)
+
+	## Rebuild can happen while a delete-highlight is active (shouldn't in
+	## practice — placed segments don't move — but stay consistent if it ever
+	## does) — re-apply rather than silently losing the highlight.
+	if _delete_highlight:
+		_material.albedo_color = WireSegment.COLOR_DELETE
+		_material.emission_enabled = true
+		_material.emission = WireSegment.COLOR_DELETE
+		_material.emission_energy_multiplier = 1.2
+
+## Deconstruct-mode hover highlight — set/cleared by
+## BuildModeController._process()'s deconstruct-tool hover scan, same
+## pattern as WireSegment.set_highlight_delete().
+func set_highlight_delete(on: bool) -> void:
+	_delete_highlight = on
+	if _material == null:
+		return
+	if on:
+		_material.albedo_color = WireSegment.COLOR_DELETE
+		_material.emission_enabled = true
+		_material.emission = WireSegment.COLOR_DELETE
+		_material.emission_energy_multiplier = 1.2
+	else:
+		_material.albedo_color = COLOR_PIPE
+		_material.emission_enabled = false
+		_material.emission_energy_multiplier = 0.0
 
 ## Flow-direction arrow overlay (Jul 2026) — a thin cylinder, same length as
 ## the pipe, matching orientation, drawn just outside the pipe's own radius.
