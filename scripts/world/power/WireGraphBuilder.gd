@@ -80,7 +80,8 @@ func _compute_and_rebuild_wires() -> void:
 			var wx: float    = cell_cx + float(d[3])
 			var wz: float    = cell_cz + float(d[4])
 			var ekey: String = _owner._wkey(wx) + "," + _owner._wkey(wz)
-			boundary_edges[ekey] = {"pos": Vector3(wx, PLACEMENT_Y, wz), "angle": float(d[5])}
+			boundary_edges[ekey] = {"pos": Vector3(wx, PLACEMENT_Y, wz), "angle": float(d[5]),
+				"cell": Vector2i(cx, cz), "dir": Vector2i(int(d[0]), int(d[1]))}
 
 	var pillar_positions: Dictionary = {}
 	var SX: Array = [-1, 1]
@@ -257,7 +258,8 @@ func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
 			var wz: float    = cell_cz + float(d[4])
 			var angle: float = float(d[5])
 			var ekey: String = _owner._wkey(wx) + "," + _owner._wkey(wz)
-			boundary_edges[ekey] = {"pos": Vector3(wx, PLACEMENT_Y, wz), "angle": angle}
+			boundary_edges[ekey] = {"pos": Vector3(wx, PLACEMENT_Y, wz), "angle": angle,
+				"cell": Vector2i(cx, cz), "dir": Vector2i(int(d[0]), int(d[1]))}
 
 	## ── Corner detection: find pillar positions ───────────────────────────────
 	## A pillar replaces up to 4 walls that would otherwise pile on the same
@@ -1433,7 +1435,8 @@ func _on_chunk_restored(chunk_origin: Vector2i) -> void:
 			var wx: float    = ccx + float(d[3])
 			var wz: float    = ccz + float(d[4])
 			var ekey: String = _owner._wkey(wx) + "," + _owner._wkey(wz)
-			boundary_edges[ekey] = {"pos": Vector3(wx, PLACEMENT_Y, wz), "angle": float(d[5])}
+			boundary_edges[ekey] = {"pos": Vector3(wx, PLACEMENT_Y, wz), "angle": float(d[5]),
+				"cell": Vector2i(cx, cz), "dir": Vector2i(int(d[0]), int(d[1]))}
 
 	var pillar_positions: Dictionary = {}
 	var SX: Array = [-1, 1]

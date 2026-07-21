@@ -139,6 +139,59 @@ close out).
 
 ---
 
+## Wall-locked routing notch/step skip — adjacency rewrite (this session, follow-up)
+
+After the pillar-registry/deconstruct-mode pass above shipped, Brannon
+reported the corner-pillar dogleg detour looked WORSE at a specific spot —
+turned out to be two separate things conflated in one screenshot:
+- A regular interior/dig-created pillar with 3 sides exposed, where the
+  dogleg WAS correctly firing (working as designed, just visually larger
+  than expected in a tight space).
+- The real bug: a larger notch/step in the boundary (3 corners, 5 turns to
+  hug properly) where wall-locked routing skipped the whole section with a
+  single straight leg, as if it didn't exist.
+
+Root cause + fix — see `docs/systems/structure/README.md`'s
+`WallPerimeterRegistry.gd` entry and `docs/systems/water/README.md`'s
+"Wall-locked routing notch/step skip" section for full detail:
+`WallPerimeterRegistry._rebuild_adjacency()` used pure Euclidean distance
+(`ADJACENCY_RADIUS = 1.1`), which could falsely link two wall segments on
+opposite sides of a notch whenever they ended up close together in world
+space once pulled inward — a shortcut edge with no real wall path behind
+it. Rewrote adjacency to derive from cleared-cell grid topology instead
+(each segment now carries its `"cell"`/`"dir"` — see
+`_cells_are_wall_adjacent()`) — a notch's two sides are never grid-adjacent
+regardless of world-space proximity, so the BFS can no longer shortcut
+across one. `_dogleg_corner_around_pillars()` itself was untouched (it
+wasn't the bug — see the investigation plan's Section 0).
+
+Also added a `[PipeDebug] wall_keys (...)` diagnostic dump in
+`_trace_wall_locked_path()` (confirm-time only, `debug`-gated) — left in as
+standing insurance.
+
+**Playtest checklist (needs Brannon in-editor — none of this is confirmed
+working yet):**
+1. Reproduce the exact notch/step placement from the screenshot — confirm
+   the ghost is blue/valid and visibly routes around all 3 corners (5
+   turns), hugging the wall/pillar geometry the way a simple single-pillar
+   corner already does.
+2. Confirm the route doesn't overshoot into open room space unnecessarily —
+   should read as a snug hug, not a wide detour.
+3. Click to confirm — confirm it places, costs correctly for the longer
+   real path (will cost MORE than the old straight-through skip — expected,
+   not a bug), and connects cleanly on both sides.
+4. Re-test the already-working single-pillar corner cases (including the
+   original 4 pregen corners) — confirm no regression.
+5. Test any other notch-shaped corners in the current save, if any exist.
+6. Sanity-check flow-direction arrows and water quality on the finished run.
+7. If it's still wrong, grab the `[PipeDebug] wall_keys` dump from a repro
+   click and report the key list + positions — that's the fastest way to
+   pin down whether the adjacency fix is incomplete vs. the bug having moved
+   somewhere else (e.g. `_collapse_collinear_points()` — see the
+   investigation plan's Section 3.2 fallback).
+
+---
+
 ## Water pipe routing — 3 rounds of fixes (prior session, closed out)
 All confirmed fixed by Brannon in-editor before this session started.
 

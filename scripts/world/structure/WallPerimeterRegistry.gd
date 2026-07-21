@@ -40,6 +40,39 @@ var _segments: Dictionary = {}
 ## incremental adjacency bookkeeping needed).
 var _adjacency: Dictionary = {}
 
+## Jul 2026 fix (notch/step skip bug) — adjacency used to be pure Euclidean
+## proximity (see ADJACENCY_RADIUS below, kept only as a historical
+## reference/fallback constant, no longer used to build _adjacency). That
+## let two wall-face segments on OPPOSITE sides of a multi-corner notch/step
+## get linked directly whenever they happened to end up close together in
+## world space once pulled inward — a false "shortcut" edge that doesn't
+## correspond to any real, unobstructed wall path. find_path_along_wall()'s
+## BFS would then jump straight across the notch in one hop, skipping every
+## real corner inside it (confirmed symptom: ghost pipe ran a single
+## straight leg past a 3-corner notch as if that wall section didn't exist).
+##
+## Fixed by deriving adjacency from the SAME cleared-cell topology
+## WireGraphBuilder already walks to build `boundary_edges`, instead of
+## post-hoc distance between the resulting world positions — two wall-face
+## entries are real neighbors only if they belong to the same cleared cell
+## (a real corner turn within one cell) or to cells that are themselves
+## grid-adjacent along the perimeter walk in a way that corresponds to an
+## actual wall run or turn. See _cells_are_wall_adjacent() below. A notch's
+## two sides are NOT grid-adjacent cells no matter how close they end up in
+## world space once pulled inward, so this can't produce a shortcut across
+## one.
+##
+## Each segment entry (set via set_all(), from WireGraphBuilder's
+## boundary_edges) now carries, in addition to "pos"/"angle":
+##   "cell": Vector2i  — the cleared-cell coordinate this wall face belongs to
+##   "dir":  Vector2i  — that face's outward-normal cell-step offset (matches
+##                        WireGraphBuilder's own DIRS table: left=(-1,0),
+##                        right=(1,0), top=(0,-1), bottom=(0,1))
+## Older callers that only ever pass "pos"/"angle" (there are none left in
+## this codebase, but defensively) simply produce zero adjacency for that
+## segment rather than crashing — see _rebuild_adjacency()'s `has()` guards.
+
+
 ## WireGraphBuilder places one boundary-edge entry per cleared-cell face at
 ## that cell's own center ± 0.5 — i.e. consecutive segments along a straight
 ## wall run are exactly 1.0m apart, and the two segments meeting at a convex
@@ -64,13 +97,66 @@ func _rebuild_adjacency() -> void:
 	var keys: Array = _segments.keys()
 	for key_a: String in keys:
 		_adjacency[key_a] = []
-		var pos_a: Vector3 = _segments[key_a]["pos"]
+		if not (_segments[key_a].has("cell") and _segments[key_a].has("dir")):
+			continue   ## defensive — see field-shape comment above _adjacency
+		var cell_a: Vector2i = _segments[key_a]["cell"]
+		var dir_a:  Vector2i = _segments[key_a]["dir"]
 		for key_b: String in keys:
 			if key_a == key_b:
 				continue
-			var pos_b: Vector3 = _segments[key_b]["pos"]
-			if pos_a.distance_to(pos_b) <= ADJACENCY_RADIUS:
+			if not (_segments[key_b].has("cell") and _segments[key_b].has("dir")):
+				continue
+			var cell_b: Vector2i = _segments[key_b]["cell"]
+			var dir_b:  Vector2i = _segments[key_b]["dir"]
+			if _cells_are_wall_adjacent(cell_a, dir_a, cell_b, dir_b):
 				_adjacency[key_a].append(key_b)
+
+
+## True if two cell-face entries correspond to a real, unobstructed wall
+## connection — see the design comment above _adjacency for the full
+## rationale. `dir_a`/`dir_b` are outward-normal cell-step offsets (each is
+## one of (-1,0)/(1,0)/(0,-1)/(0,1)); `dot()` between two such offsets is
+## 1 for the same direction, 0 for perpendicular, -1 for opposite.
+func _cells_are_wall_adjacent(cell_a: Vector2i, dir_a: Vector2i, cell_b: Vector2i, dir_b: Vector2i) -> bool:
+	var dot: int = dir_a.x * dir_b.x + dir_a.y * dir_b.y
+
+	if cell_a == cell_b:
+		## Same cell, two different exposed faces. Only a real corner turn
+		## when the two faces are PERPENDICULAR (e.g. top+left on a convex
+		## corner cell) — opposite faces on the same cell (left+right,
+		## top+bottom) are two walls facing each other across a single-cell-
+		## wide corridor/pocket, never a real direct connection.
+		return dot == 0
+
+	if dir_a == dir_b:
+		## Same exposed direction on two different cells — only a real
+		## straight-wall-run continuation when the other cell is exactly one
+		## step away ALONG the wall (perpendicular to the shared outward
+		## normal). For a top/bottom face (normal along Z) the run continues
+		## along X; for a left/right face (normal along X) the run continues
+		## along Z.
+		var along: Vector2i
+		if dir_a.x != 0:
+			along = Vector2i(0, 1)   ## left/right face -> run continues along Z
+		else:
+			along = Vector2i(1, 0)   ## top/bottom face -> run continues along X
+		var delta: Vector2i = cell_b - cell_a
+		return delta == along or delta == -along
+
+	if dot == 0:
+		## Perpendicular faces on two DIFFERENT cells — only a real corner
+		## when the two cells are diagonal neighbors reached by stepping in
+		## BOTH faces' own outward-normal directions at once (the natural
+		## "wall wraps around stepping diagonally" shape for a turn that
+		## spans two cells, e.g. a notch/step corner). Any other diagonal or
+		## cardinal offset is coincidental proximity, not a real connection —
+		## this is exactly what excludes the false shortcut across a notch.
+		return cell_b == cell_a + dir_a + dir_b
+
+	## dot == -1 (opposite directions, different cells) — two parallel walls
+	## facing each other across open floor (e.g. a corridor's far side one
+	## cell over). Never a real direct connection.
+	return false
 
 
 ## Nearest registered wall-segment key to an arbitrary world position
