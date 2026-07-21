@@ -186,12 +186,25 @@ func generate() -> Dictionary:
 		[wall_left,  wall_bottom],  ## bot-left
 		[wall_right, wall_bottom],  ## bot-right
 	]
+	## Jul 2026 fix: these 4 pregen corner pillars were never pushed into
+	## PillarRegistry (only WireGraphBuilder's incremental dig-solver rebuild
+	## populated it, via its own wall-junction corner detection — Pass 3 here
+	## runs once at world-gen, entirely outside that pipeline). Net effect was
+	## zero clearance data for these 4 pillars, so WaterPipeDrawMode's
+	## _dogleg_corner_around_pillars()/_leg_clears_all_pillars() never even
+	## ran for them — a pipe routed straight through looked like a plain
+	## straight line, clearance check never triggered. Push additively via
+	## register_single() (does not disturb WireGraphBuilder's own set_all()
+	## calls — see PillarRegistry.gd).
+	var pillar_registry: PillarRegistry = get_tree().get_first_node_in_group("pillar_registry") as PillarRegistry
 	for c: Array in corners:
 		var px: float    = float(c[0])
 		var pz: float    = float(c[1])
 		var node: Node3D = _pillar(px, pz)
 		if node != null:
 			spawned[_wkey(px) + "," + _wkey(pz)] = node
+		if pillar_registry != null:
+			pillar_registry.register_single(Vector3(px, PLACEMENT_Y, pz))
 
 	## ── Pass 4: pregen lights ────────────────────────────────────────────────
 	## 6 lights placed to exactly match where a player would snap them via

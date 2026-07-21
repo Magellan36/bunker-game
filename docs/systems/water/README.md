@@ -1422,3 +1422,48 @@ of one continuous crawl along the whole pipe run.
   one-line change anticipated above. No other logic touched; `flow_sign`'s
   meaning (set from `WaterPipeSegment.set_flow_sign()`, itself driven by
   `WaterGraph.compute_flow_directions()`) is untouched.
+
+## Pillar-registry gap, ghost/confirm diagnostic, pipe deconstruct mode (Jul 2026)
+
+- **Corner-pillar registry gap (additive fix):** `PillarRegistry` used to be
+  populated ONLY by `WireGraphBuilder`'s own outer-corner detection
+  (`set_all()`, called from `_compute_and_rebuild_wires()`/
+  `_on_chunk_deconstructed()`/`_on_chunk_restored()`, all of which recompute
+  `pillar_positions` from the FULL current `_cleared_cells` set — this
+  already independently re-derives the same 4 pregen corner positions every
+  solve pass, since `BunkerPregen`'s corner math and `WireGraphBuilder`'s
+  outer-corner math produce identical world coordinates for a rectangular
+  bunker). `BunkerPregen.gd` Pass 3 (the 4 starting corner pillars) never
+  called into the registry directly, though. Added
+  `PillarRegistry.register_single(pos)` (additive, doesn't touch/clear
+  `set_all()`'s own data) and wired `BunkerPregen.gd`'s Pass 3 to call it
+  right after spawning each corner pillar — closes the gap directly at the
+  source as a defensive belt-and-suspenders fix, independent of whether
+  `WireGraphBuilder`'s own recompute already covers it. See `HANDOVER.md`
+  for the full investigation writeup and the honest caveat that this may not
+  be the actual root cause of any still-reproducing corner-clip bug.
+- **Ghost/confirm routing-mode diagnostic:** `WaterPipeDrawMode
+  ._trace_active_path()` (the single shared chooser between wall-locked and
+  freeform routing, used identically by both `_update_ghost_preview()` and
+  `_try_confirm_full_path()`) now logs `[PipeDebug] routing mode: ...` on
+  confirm-time calls (gated behind the existing `debug` param, so it never
+  fires on the 60fps preview call) — added to investigate a reported "two
+  paths near an existing node" bug. Not yet confirmed/fixed — see
+  `HANDOVER.md` for the next-step repro instructions.
+- **Pipe segment deconstruct mode:** mirrors `BuildModeController
+  ._try_deconstruct_wire()`'s hover/highlight/click-refund shape exactly.
+  `WaterPipeSegment.set_highlight_delete(on)` — new method, reuses
+  `WireSegment.COLOR_DELETE`'s literal value via cross-class const access so
+  both systems' delete-hover reads as the same red. Hover scan
+  (`BuildModeController._get_hovered_pipe_segment()`) reuses the existing
+  `"water_pipe_visual"` group real placed pipes already join — no new group.
+  `_try_deconstruct_pipe(seg)` calls the already-generalized `WaterManager
+  .delete_and_refund_edge(edge_id)` (built earlier for hookup-reposition and
+  purifier-deletion) instead of a 4th hand-rolled refund/unregister/prune
+  copy — that function already handles the purifier guard, `queue_free()`,
+  `unregister_edge()`, `prune_orphan_waypoint()` on both endpoints, refund +
+  float label, and `recompute_flow_directions()`. Wired into
+  `_try_deconstruct()`'s existing dispatch chain at the same priority level
+  as the wire check (wire checked first, pipe checked only if no wire is
+  hovered). Never touches the hookup device itself (separately protected,
+  unrelated code path).

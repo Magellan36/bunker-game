@@ -4,8 +4,13 @@
 session. It is now a thin index + the game's actual direction/vision — full
 per-system detail lives in `docs/systems/*/README.md` instead of here.
 
-**Last updated:** repo HEAD `b9d6ef8` (headless Godot compile-check tool +
-`.uid` fixes). Godot 4.6.3, GDScript, statically typed.
+**Last updated:** repo HEAD after `d00ea0c` — pillar-registry additive fix
+(`PillarRegistry.register_single()`), ghost/confirm routing-mode diagnostic
+in `WaterPipeDrawMode`, pipe segment deconstruct mode (mirrors wire
+deconstruct, reuses `WaterManager.delete_and_refund_edge()`), `HANDOVER.md`/
+`handover.md` doc-drift merge (now ONE canonical `HANDOVER.md` only). See
+`docs/systems/water/README.md`'s matching Jul 2026 section for full detail.
+Godot 4.6.3, GDScript, statically typed.
 
 ---
 

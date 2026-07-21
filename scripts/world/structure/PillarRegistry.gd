@@ -37,6 +37,18 @@ var _positions: Dictionary = {}
 func set_all(positions: Dictionary) -> void:
 	_positions = positions.duplicate()
 
+## Additive single-position registration (Jul 2026) — for callers that own a
+## fixed, independent pillar (e.g. BunkerPregen.gd's 4 starting corner
+## pillars) rather than recomputing the FULL set every solve pass the way
+## WireGraphBuilder's set_all() does. Deliberately does NOT touch/clear
+## anything set_all() already wrote — the two are additive/overwrite
+## respectively and never need to coordinate on a single combined
+## dictionary. Safe to call multiple times with the same position (just
+## overwrites that one key).
+func register_single(pos: Vector3) -> void:
+	var key: String = "%.2f,%.2f" % [pos.x, pos.z]
+	_positions[key] = pos
+
 
 ## Returns the current pillar positions as key → Vector3. Callers should treat
 ## this as read-only (it's a duplicate, but don't rely on that — copy again if
