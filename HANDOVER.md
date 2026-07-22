@@ -65,11 +65,21 @@ small headless script instantiating the `ShaderMaterial` and printing any
 `SHADER ERROR` output) before assuming the bug is in masking/culling/uniform
 logic.
 
+**Follow-up (same day, round 3):** Brannon confirmed arrows now show
+centered on top as sequential pairs (redesign + shader-compile fix both
+confirmed working), but each tile showed 2 arrows squished side by side
+instead of 1. Root cause: `pipe_flow_arrow.png` bakes TWO chevrons within
+its own 0..1 UV width (confirmed via pixel inspection — verified period is
+exactly half the texture width), a leftover from the old full-circumference
+single-lane layout. Fixed by scaling `tex_u` into the texture's own `0..0.5`
+sub-range per arrow tile instead of `0..1` — no texture asset change needed.
+Pushed as `5201475`.
+
 Passed `tools/godot_check.sh` (parse/type only, not behavior) AND a targeted
 headless shader-compile check this round. See
 `docs/systems/water/README.md`'s "Quality arrow 'stuck green' fix +
 ceiling-strip arrow redesign + dispenser fill bar" section for full detail.
-`origin/main` at `5619ec0`.
+`origin/main` at `5201475`.
 
 
 **Read `AI_CONTEXT.md` in this repo first, then `PROJECT_SUMMARY.md`, then this file.**
