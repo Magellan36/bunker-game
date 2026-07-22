@@ -30,6 +30,19 @@ var _solver: WaterSolver = null
 ## reposition logic. See _on_chunk_deconstructed/_on_chunk_restored below.
 var _hookups: Array[Node3D] = []
 
+## Purifier clean-pulse + dual quality/purity arrows (Jul 2026) — per-consumer
+## purity memory across recomputes, keyed by consumer node key, so
+## recompute_flow_directions() can detect an impure->pure FLIP (as opposed to
+## just a current-state snapshot) and fire the purifier pulse VFX exactly
+## once per event. See _process_purity_and_dual_arrows().
+var _last_purity_state: Dictionary = {}   ## consumer_key (String) -> bool (true = pure)
+
+## True once _last_purity_state has been populated at least once. Guards the
+## very first recompute (fresh game start OR right after a save load) from
+## reading every already-pure consumer as a fresh "flip" and firing a false
+## burst of pulses — see _process_purity_and_dual_arrows()'s seeding branch.
+var _purity_state_seeded: bool = false
+
 func _ready() -> void:
 	_graph  = WaterGraph.new(self)
 	_solver = WaterSolver.new(_graph)
@@ -463,6 +476,18 @@ func recompute_flow_directions() -> void:
 	var directions: Dictionary = _graph.compute_flow_directions(hookup_keys[0])
 	print("[FlowDebug] directions computed for hookup=%s -> %d edge(s) reachable" % [
 		hookup_keys[0], directions.size()])
+
+	## Purifier clean-pulse + dual quality/purity arrows (Jul 2026) — computed
+	## ONCE here (not per-segment below) so the per-edge is_purified/
+	## quality_pct lookups used in the push loop right after are cheap dict
+	## reads, not repeated graph walks.
+	var edge_purity: Dictionary = _process_purity_and_dual_arrows(hookup_keys[0], directions)
+
+	var hookup_quality: float = 100.0
+	var hookup_ref: WaterHookup = _find_hookup_by_key(hookup_keys[0])
+	if hookup_ref != null:
+		hookup_quality = hookup_ref.water_quality
+
 	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
 		if not is_instance_valid(node) or not (node is WaterPipeSegment):
 			continue
@@ -481,6 +506,129 @@ func recompute_flow_directions() -> void:
 			seg.set_phase_offset(float(edge_flow.get("phase_offset", 0.0)))
 		if seg.has_method("set_has_flow"):
 			seg.set_has_flow(true)
+
+		## Dual quality/purity arrow lanes (Jul 2026) — PERMANENT default for
+		## every reachable pipe segment, not just purified ones (Brannon's
+		## confirmed answer). quality_pct is 100.0 downstream of a purifier,
+		## else the hookup's own raw decayed quality.
+		var is_purified: bool = bool(edge_purity.get(seg.edge_id, false))
+		var quality_pct: float = 100.0 if is_purified else hookup_quality
+		if seg.has_method("set_quality_color"):
+			seg.set_quality_color(WaterQualityColor.get_color(quality_pct))
+		if seg.has_method("set_purified"):
+			seg.set_purified(is_purified)
+
+
+## Purifier clean-pulse + dual quality/purity arrows (Jul 2026 — see the
+## purifier-pulse plan doc). Called once per recompute_flow_directions()
+## pass, reusing `directions` (already computed this pass by
+## WaterGraph.compute_flow_directions() — no second flow-direction
+## resolution here, just a linear pass over its already-resolved result) plus
+## WaterGraph.get_unpurified_reachable_keys() (the existing, already-correct
+## per-consumer purity check). Returns edge_id -> bool (is_purified) for the
+## push loop above to consume.
+##
+## Three things happen here, in order:
+## 1. Build a directed adjacency (upstream_key -> [{down, edge_id}]) AND its
+##    reverse (down_key -> {up, edge_id}) from `directions` + get_edges() —
+##    the same up/down split compute_flow_directions() itself derives
+##    internally, just rebuilt here from its already-resolved output rather
+##    than re-deriving flow direction from scratch.
+## 2. Forward BFS from the hookup along that directed graph computing, per
+##    edge, whether the water has already passed a "purifier" role node by
+##    the time it reaches that edge (is_purified = the edge's own upstream
+##    node's outgoing water was already purified, OR that upstream node IS a
+##    purifier). This covers every edge in one linear pass.
+## 3. Diff current per-consumer purity (via get_unpurified_reachable_keys())
+##    against _last_purity_state. For every consumer that just flipped
+##    impure->pure, walk the REVERSE adjacency from that consumer back to
+##    the hookup collecting every "purifier" node crossed (Brannon's
+##    confirmed answer: attribute to EVERY purifier on the path, not just the
+##    most-recently-placed one). Pulse each unique purifier collected across
+##    ALL flips this pass exactly once (Brannon's confirmed answer: one pulse
+##    total per recompute pass, deduped by purifier — not one pulse per
+##    consumer that happens to reference it).
+func _process_purity_and_dual_arrows(hookup_key: String, directions: Dictionary) -> Dictionary:
+	## ── Step 1: directed adjacency (forward + reverse) from `directions` ──
+	var directed_adjacency: Dictionary = {}   ## up_key -> Array[{down, edge_id}]
+	var reverse_of: Dictionary = {}           ## down_key -> {up, edge_id}
+	var all_edges: Dictionary = _graph.get_edges()
+	for edge_id: String in directions:
+		var edge_data: Dictionary = all_edges.get(edge_id, {})
+		var key_a: String = edge_data.get("a", "")
+		var key_b: String = edge_data.get("b", "")
+		if key_a.is_empty() or key_b.is_empty():
+			continue
+		var a_is_upstream: bool = bool(directions[edge_id].get("a_is_upstream", true))
+		var up_key: String = key_a if a_is_upstream else key_b
+		var down_key: String = key_b if a_is_upstream else key_a
+		if not directed_adjacency.has(up_key):
+			directed_adjacency[up_key] = []
+		directed_adjacency[up_key].append({ "down": down_key, "edge_id": edge_id })
+		reverse_of[down_key] = { "up": up_key, "edge_id": edge_id }
+
+	## ── Step 2: forward BFS computing is_purified per edge ──────────────────
+	var edge_is_purified: Dictionary = {}   ## edge_id -> bool
+	var node_out_purified: Dictionary = { hookup_key: false }   ## node_key -> bool (water LEAVING this node is purified)
+	var bfs_queue: Array = [hookup_key]
+	while not bfs_queue.is_empty():
+		var cur: String = bfs_queue.pop_front()
+		var cur_role: String = _graph.get_node(cur).get("role", "")
+		var cur_out_purified: bool = bool(node_out_purified.get(cur, false)) or cur_role == "purifier"
+		for link: Dictionary in directed_adjacency.get(cur, []):
+			edge_is_purified[link["edge_id"]] = cur_out_purified
+			var down_key: String = link["down"]
+			if not node_out_purified.has(down_key):
+				node_out_purified[down_key] = cur_out_purified
+				bfs_queue.append(down_key)
+
+	## ── Step 3: purity-flip diff + purifier pulse attribution ──────────────
+	var unpurified_keys: Dictionary = _graph.get_unpurified_reachable_keys(hookup_key)
+	var purifiers_to_pulse: Dictionary = {}   ## purifier_key -> true (set, deduped)
+
+	for node_key: String in node_out_purified:
+		if _graph.get_node(node_key).get("role", "") != "endpoint":
+			continue   ## only real consumers count for the purity-flip/pulse system
+		var current_pure: bool = not unpurified_keys.has(node_key)
+
+		if _purity_state_seeded:
+			var was_pure: bool = bool(_last_purity_state.get(node_key, false))
+			if current_pure and not was_pure:
+				## Flip event — walk backward to the hookup collecting every
+				## purifier crossed on this consumer's resolved path.
+				var walk: String = node_key
+				while walk != hookup_key and reverse_of.has(walk):
+					var up_key: String = reverse_of[walk]["up"]
+					if _graph.get_node(up_key).get("role", "") == "purifier":
+						purifiers_to_pulse[up_key] = true
+					walk = up_key
+
+		_last_purity_state[node_key] = current_pure
+
+	if not _purity_state_seeded:
+		## First-ever recompute (fresh game or right after a save load) —
+		## _last_purity_state is now populated from the current state, but no
+		## pulses fire this pass. Prevents a false burst on every already-
+		## purified consumer the instant the save finishes loading.
+		_purity_state_seeded = true
+	else:
+		for purifier_key: String in purifiers_to_pulse:
+			var purifier_node: Node = _find_purifier_by_key(purifier_key)
+			if purifier_node != null and purifier_node.has_method("play_clean_pulse"):
+				purifier_node.play_clean_pulse()
+
+	return edge_is_purified
+
+## Finds the WaterPurifier instance for a given graph node key — purifier
+## nodes are registered without a consumer_ref (see WaterPurifierAttach
+## .insert_purifier_at()), so get_consumer_ref() can't find them; scans the
+## "water_purifier" group instead, same shape as find_pipe_visual()'s
+## "water_pipe_visual" group scan.
+func _find_purifier_by_key(purifier_key: String) -> Node:
+	for node: Node in get_tree().get_nodes_in_group("water_purifier"):
+		if is_instance_valid(node) and node.get("node_key") == purifier_key:
+			return node
+	return null
 
 
 ## A device's dynamic slider maximum (see WaterSolver.get_dynamic_max_for_device()
