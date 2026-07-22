@@ -405,10 +405,10 @@ or delay).
 | `WaterInfoUI.gd` (`scripts/ui/water/`) | Step 2, July 2026; extended Jul 2026 (Purifier pass). ONE shared info panel for `WaterHookup`/`WaterTestSink`/`WaterPurifier`, distinguished by a `_mode: String` discriminator (`"hookup"`/`"sink"`/`"purifier"` — was a 2-way `is_source: bool`, extended to a 3rd mode rather than a second ambiguous bool) — sized/complexity-matched to `GeneratorInspectUI.gd`, not the full `PowerTerminalUI` dashboard. All stats recomputed live every redraw, no caching. Purifier branch is read-only (no slider/toggle/priority) — shows input quality (upstream hookup's raw `water_quality`) and fixed output quality (always 100%). Dynamic panel height: `PANEL_H_SOURCE`/`PANEL_H_SINK`/`PANEL_H_PURIFIER`. |
 | `WaterSolver.gd` | Jul 2026. Priority-tier demand waterfall — `RefCounted`, `_graph: WaterGraph` back-reference (same split pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver`). Pure read-only queries, no state held between calls. |
 | `WaterDispenser.gd` | Jul 2026. The first real water-consuming device — 5000mL storage, on/off, player-tunable requested rate, fill tick driven by the solver's actual grant. `TILE_WATER_DISPENSER` in `BuildModeController`, ground-placed like the test sink. (Jul 2026, Purifier pass) `stored_water_quality` now genuinely blends volume-weighted as water arrives — see Purification & Quality below. (Jul 2026, fill-visual pass) Body mesh uses a `ShaderMaterial` (`assets/shaders/tank_fill.gdshader`) instead of a flat color — bottom portion tints water-blue up to `current_fill_mL/MAX_STORAGE_ML`, rest stays the plain empty-tank color, thin bright waterline band at the cutoff. No new geometry (the box itself IS the gauge). Pushed every frame from `_process()` via `_update_fill_visual()`, same cadence as the existing fill tick — no new polling loop. |
-| `WaterDispenserUI.gd` (`scripts/ui/water/`) | Jul 2026, restyled same day. Hand-drawn `_draw()` panel (matches `WaterInfoUI`/`PowerPriorityUI`) with real `HSlider`/`Button` controls overlaid — fill level, rate slider (0 to the live dynamic max), effective (actually received) rate, on/off pill toggle, ◄ N ► demand-priority changer, live blended water quality. |
+| `WaterDispenserUI.gd` (`scripts/ui/water/`) | Jul 2026, restyled same day. Hand-drawn `_draw()` panel (matches `WaterInfoUI`/`PowerPriorityUI`) with real `HSlider`/`Button` controls overlaid — fill level, rate slider (0 to the live dynamic max), effective (actually received) rate, on/off pill toggle, ◄ N ► demand-priority changer, live blended water quality. (Jul 2026 fix) Added an actual drawn fill bar/gauge under the STORAGE text (previously text-only) — `PANEL_H` `430 -> 454` to fit. |
 | `WaterPurifier.gd` (Jul 2026) | Construct-menu tile (`TILE_WATER_PURIFIER=20`, $240, Water submenu) that attaches directly onto an existing pipe run — splits one graph edge into two around a new `"purifier"`-role node, no floor/wall snap. Read-only interact panel (`WaterInfoUI`, mode `"purifier"`). Deconstruct reverts its node's role back to `"corner"` in place (pipe stays intact, no pipe refund) rather than deleting either adjoining edge — see its own file header for the full deletion-order design. |
 | `WaterPurifierAttach.gd` (Jul 2026) | Static-only placement math for the Purifier tile — candidate-finding (`find_purifier_candidate()`) + graph insertion (`insert_purifier_at()`). Deliberately duplicates `WaterPipeDrawMode`'s split-candidate shape rather than modifying that file (documented history of subtle bugs there) — the one real difference: no grid-snap, placed freely wherever it lands on the pipe's line. Shared by both `GhostPreview.gd` (validity/position preview) and `BuildModeController._spawn_placed_object()` (actual insertion on confirm) — one copy, not duplicated a second time between those two callers. |
-| `assets/shaders/pipe_flow.gdshader` (Jul 2026) | Build-mode-only scrolling arrow overlay, applied as a second additive `MeshInstance3D` on every `WaterPipeSegment` (base pipe mesh/material untouched — still always visible). This project's first `spatial` shader. |
+| `assets/shaders/pipe_flow.gdshader` (Jul 2026) | Build-mode-only scrolling arrow overlay, applied as a second additive `MeshInstance3D` on every `WaterPipeSegment` (base pipe mesh/material untouched — still always visible). This project's first `spatial` shader. (Jul 2026 redesign) Both quality/purity lanes collapsed onto just the ceiling-facing strip (`v_up_dot` world-normal test, `UP_BAND_DOT=0.55`), arranged as a repeating along-pipe [quality tile][purity tile][gap] sequence (`gap_world_length` uniform) instead of a front/back circumference split — see the dedicated section below. |
 | `assets/shaders/tank_fill.gdshader` (Jul 2026) | `WaterDispenser`'s body-mesh fill-level gauge — REPLACES the box's flat `StandardMaterial3D` (not an overlay). Object-local `VERTEX.y` cutoff against a `fill_pct` uniform; water-blue below, empty-tank color above, thin waterline band at the cutoff. No new geometry. |
 
 ## Public API
@@ -1588,3 +1588,60 @@ has one resolved incoming edge (true for the common tree-like resolved
 network) — a rare diamond-merge topology with two genuinely different-purity
 incoming edges takes whichever the BFS visits first; not exhaustively
 stress-tested.
+
+## Quality arrow "stuck green" fix + ceiling-strip arrow redesign + dispenser fill bar (Jul 2026)
+
+Three fixes/changes from the same playtest pass, after Feature 1/2 above shipped:
+
+- **Quality arrow "always green" — root cause + fix.**
+  `WaterManager.set_quality_color()` was ONLY ever pushed from inside
+  `recompute_flow_directions()`, which only runs on graph MUTATIONS (place/
+  delete/undo/etc). But `WaterHookup.water_quality` decays continuously every
+  frame in `WaterHookup._process()` — so the arrow color got pushed once
+  (usually near 100%, i.e. green) right after the pipe was placed, then never
+  touched again as quality drifted down in real time, even well below the
+  75% yellow/50% red thresholds. Fix: `WaterManager` now caches the last-
+  resolved reachable-edge set + is_purified map
+  (`_last_reachable_edges`/`_last_edge_purity`/`_last_hookup_key`, written at
+  the end of `recompute_flow_directions()`), and a new lightweight
+  `_process(delta)` + `_refresh_quality_colors()` re-pushes JUST the
+  `quality_color` uniform on a `QUALITY_REFRESH_INTERVAL = 0.5s` tick using
+  the CURRENT live `hookup_quality` — no graph BFS re-run, no touching
+  `flow_sign`/`phase_offset`/`has_flow` (those still only change on an actual
+  mutation). Cheap: a flat loop over `"water_pipe_visual"` twice a second.
+- **Arrow layout redesign — both lanes onto the ceiling-facing strip.**
+  Previous layout split the scrolling arrow band into two lanes wrapped
+  around the pipe's full circumference (front half = quality, back half =
+  purity) — both always visible somewhere around the pipe depending on
+  viewing angle, with an arbitrary seam relative to world "up". Brannon's
+  request: collapse both onto just the top (ceiling-facing) strip of the
+  pipe, as a sequence running along the pipe's length — quality arrow tile
+  touching a purity arrow tile, then a blank gap, then the next pair
+  repeats. `pipe_flow.gdshader` changes:
+  - New `v_up_dot` varying (world-space normal dotted with world UP,
+    computed via `MODEL_NORMAL_MATRIX * NORMAL` in `vertex()`) — fragments
+    below `UP_BAND_DOT = 0.55` are discarded entirely; the remainder gets a
+    soft-edged `lane_v` cross-section coordinate for the arrow texture's V
+    axis (cosmetic width falloff only, not a hard seam).
+  - The old `UV.x < 0.5` half-circumference lane split is gone. Instead the
+    along-pipe world distance (`world_dist`, same continuity/phase/scroll
+    math as before) is taken `mod(period)` where `period = tile_world_length
+    * 2.0 + gap_world_length` (new uniform, default `0.5`); the first
+    `tile_world_length` of each period samples the quality tile
+    (`quality_color` tint), the next `tile_world_length` samples the purity
+    tile (`purity_color` tint) immediately touching it, and the remainder of
+    the period is a fully-discarded gap.
+  - **Known limitation:** a pipe segment running purely vertically has no
+    circumference normal that ever points "up" — no arrows render on such a
+    segment. Not raised as a requirement to fix; flagging in case a future
+    report about "vertical risers show no arrows" comes in.
+- **Dispenser UI fill bar/gauge (new, not a bug fix)** — `WaterDispenserUI.gd`
+  previously only had the numeric `"STORAGE: X / 5000 mL"` text line; no
+  actual bar/gauge graphic existed in the panel (that was easy to conflate
+  with the 3D dispenser body's own `tank_fill.gdshader` tint, a different,
+  world-space visual — see Feature 2 above). Added a drawn `_canvas.draw_rect()`
+  fill bar directly under the STORAGE text (dark background rect, `OK_COLOR`-
+  tinted fill rect scaled by `current_fill_mL / MAX_STORAGE_ML`, bordered) —
+  same "hand-drawn `_on_draw()`, no new Control node" convention as the rest
+  of this panel. `PANEL_H` bumped `430 -> 454` to make room without touching
+  any other row's spacing.

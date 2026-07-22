@@ -43,9 +43,57 @@ var _last_purity_state: Dictionary = {}   ## consumer_key (String) -> bool (true
 ## burst of pulses — see _process_purity_and_dual_arrows()'s seeding branch.
 var _purity_state_seeded: bool = false
 
+## Quality-arrow live-refresh cache (Jul 2026 fix — "arrows only show green"
+## bug). ROOT CAUSE: recompute_flow_directions() (the only place that ever
+## pushed WaterPipeSegment.set_quality_color()) only runs on graph MUTATIONS
+## (place/delete/undo/etc), but WaterHookup.water_quality decays continuously
+## every frame in WaterHookup._process() — so the arrow color was pushed once
+## (usually at/near 100%, hence "always green") and never touched again as
+## quality drifted down in real time. Fix: cache the last-resolved reachable-
+## edge set + is_purified map here, then _process() below cheaply re-pushes
+## JUST the quality_color uniform on a short interval using the CURRENT live
+## hookup_quality — no graph walk, no flow_sign/phase_offset/has_flow re-push
+## (those are still only touched by an actual mutation, unchanged).
+var _last_reachable_edges: Dictionary = {}   ## edge_id (String) -> true
+var _last_edge_purity: Dictionary = {}       ## edge_id (String) -> bool (is_purified)
+var _last_hookup_key: String = ""
+var _quality_refresh_accum: float = 0.0
+const QUALITY_REFRESH_INTERVAL: float = 0.5   ## real seconds — cheap, decay is gradual
+
 func _ready() -> void:
 	_graph  = WaterGraph.new(self)
 	_solver = WaterSolver.new(_graph)
+
+func _process(delta: float) -> void:
+	_quality_refresh_accum += delta
+	if _quality_refresh_accum < QUALITY_REFRESH_INTERVAL:
+		return
+	_quality_refresh_accum = 0.0
+	_refresh_quality_colors()
+
+## Cheap per-interval re-tint of every reachable pipe segment's quality lane
+## using the hookup's CURRENT (live-decaying) water_quality — does not touch
+## flow_sign/phase_offset/has_flow and does not re-run any graph BFS; reuses
+## the reachable-edge set + is_purified map cached by the last
+## recompute_flow_directions() pass (see its cache-write at the bottom of
+## that function). No-ops harmlessly if no recompute has run yet.
+func _refresh_quality_colors() -> void:
+	if _last_hookup_key.is_empty() or _last_reachable_edges.is_empty():
+		return
+	var hookup_ref: WaterHookup = _find_hookup_by_key(_last_hookup_key)
+	if hookup_ref == null:
+		return
+	var hookup_quality: float = hookup_ref.water_quality
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
+		if not is_instance_valid(node) or not (node is WaterPipeSegment):
+			continue
+		var seg: WaterPipeSegment = node as WaterPipeSegment
+		if not _last_reachable_edges.has(seg.edge_id):
+			continue
+		var is_purified: bool = bool(_last_edge_purity.get(seg.edge_id, false))
+		var quality_pct: float = 100.0 if is_purified else hookup_quality
+		if seg.has_method("set_quality_color"):
+			seg.set_quality_color(WaterQualityColor.get_color(quality_pct))
 
 
 # ─── Node/edge registration (forwards to WaterGraph) ──────────────────────────
@@ -488,6 +536,15 @@ func recompute_flow_directions() -> void:
 	if hookup_ref != null:
 		hookup_quality = hookup_ref.water_quality
 
+	## Refresh the live quality-color cache (Jul 2026 fix) — see
+	## _refresh_quality_colors()'s own header for why this exists. Reset here
+	## on every mutation so a deleted/rerouted edge can't linger in the cache
+	## and keep getting re-tinted by the interval refresh after it's gone.
+	_last_hookup_key       = hookup_keys[0]
+	_last_reachable_edges  = {}
+	_last_edge_purity      = edge_purity
+	_quality_refresh_accum = 0.0   ## avoid a stale-color flash before the next interval tick
+
 	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
 		if not is_instance_valid(node) or not (node is WaterPipeSegment):
 			continue
@@ -499,6 +556,7 @@ func recompute_flow_directions() -> void:
 			if seg.has_method("set_has_flow"):
 				seg.set_has_flow(false)
 			continue
+		_last_reachable_edges[seg.edge_id] = true
 		var edge_flow: Dictionary = directions[seg.edge_id]
 		if seg.has_method("set_flow_sign"):
 			seg.set_flow_sign(bool(edge_flow.get("a_is_upstream", true)))
@@ -510,7 +568,11 @@ func recompute_flow_directions() -> void:
 		## Dual quality/purity arrow lanes (Jul 2026) — PERMANENT default for
 		## every reachable pipe segment, not just purified ones (Brannon's
 		## confirmed answer). quality_pct is 100.0 downstream of a purifier,
-		## else the hookup's own raw decayed quality.
+		## else the hookup's own raw decayed quality. NOTE: this same
+		## quality_pct/set_quality_color push is ALSO done continuously by
+		## _refresh_quality_colors() (Jul 2026 fix) — kept here too so a
+		## fresh/mutated segment shows the correct color immediately instead
+		## of waiting up to QUALITY_REFRESH_INTERVAL for the next tick.
 		var is_purified: bool = bool(edge_purity.get(seg.edge_id, false))
 		var quality_pct: float = 100.0 if is_purified else hookup_quality
 		if seg.has_method("set_quality_color"):
