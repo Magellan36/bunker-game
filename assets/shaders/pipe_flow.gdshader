@@ -72,7 +72,7 @@ uniform float gap_world_length : hint_range(0.0, 5.0) = 0.5;
 // How much of the pipe's circumference (as a dot-product band around world
 // UP) counts as "ceiling-facing" — 1.0 = only the exact top line, lower =
 // wider band. Soft-edged via v_up_dot itself, no hard cutoff artifacts.
-const float UP_BAND_DOT: float = 0.55;
+const float UP_BAND_DOT = 0.55;
 
 
 // ─── Cross-joint continuity fix (Jul 2026) ──────────────────────────────────

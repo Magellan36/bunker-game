@@ -1635,18 +1635,28 @@ Three fixes/changes from the same playtest pass, after Feature 1/2 above shipped
     circumference normal that ever points "up" — no arrows render on such a
     segment. Not raised as a requirement to fix; flagging in case a future
     report about "vertical risers show no arrows" comes in.
-  - **Follow-up fix, same day — "arrows completely gone."** Shipping the
-    above with `render_mode ... cull_back` (unchanged from before) made
-    every arrow disappear entirely. Root cause: pipes are ceiling-mounted
-    and viewed from BELOW — the upward-facing polygons the new discard
-    logic wants to keep are exactly the polygons that are back-facing
-    relative to a camera looking up from underneath, so `cull_back` removed
-    them via backface culling before `fragment()`'s `discard()` ever ran.
-    Fix: `cull_back` -> `cull_disabled`. The vertex-level `v_up_dot`
-    computation (from the geometric `NORMAL`, not view-dependent) is
-    unaffected by which side renders, so `discard()` is still what decides
-    final visibility — both sides just actually reach the fragment shader
-    now.
+  - **Follow-up fix, same day — "arrows completely gone."** Two things
+    stacked here. First, an actual REAL root cause: `const float
+    UP_BAND_DOT: float = 0.55;` used GDScript's typed-const colon syntax,
+    which is NOT valid Godot shading language — the shader failed to
+    compile entirely (confirmed via a headless render harness; `tools/
+    godot_check.sh`'s script-parse check does NOT catch shader compile
+    errors, so it stayed green the whole time this was broken). Fixed to
+    `const float UP_BAND_DOT = 0.55;`. Second, a real but secondary issue:
+    `render_mode ... cull_back` (unchanged from before this redesign) would
+    ALSO have hidden the arrows even with a working shader — pipes are
+    ceiling-mounted and viewed from BELOW, so the upward-facing polygons the
+    new discard logic wants to keep are exactly the ones that are
+    back-facing relative to a camera looking up from underneath, and
+    `cull_back` removes those before `fragment()`'s `discard()` ever runs.
+    Fixed to `cull_disabled` (both sides now reach the fragment shader; the
+    vertex-level `v_up_dot`, from the geometric `NORMAL`, is unaffected by
+    which side renders, so `discard()` still decides final visibility).
+    **Lesson for this codebase going forward:** a shader-only syntax error
+    is invisible to `godot_check.sh` — if a shader edit ships and something
+    "goes completely invisible", verify the shader itself actually compiles
+    (e.g. a small headless render harness instantiating the material) before
+    assuming the bug is in masking/culling/uniform logic.
 - **Dispenser UI fill bar/gauge (new, not a bug fix)** — `WaterDispenserUI.gd`
   previously only had the numeric `"STORAGE: X / 5000 mL"` text line; no
   actual bar/gauge graphic existed in the panel (that was easy to conflate
