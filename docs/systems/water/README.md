@@ -1635,6 +1635,18 @@ Three fixes/changes from the same playtest pass, after Feature 1/2 above shipped
     circumference normal that ever points "up" — no arrows render on such a
     segment. Not raised as a requirement to fix; flagging in case a future
     report about "vertical risers show no arrows" comes in.
+  - **Follow-up fix, same day — "arrows completely gone."** Shipping the
+    above with `render_mode ... cull_back` (unchanged from before) made
+    every arrow disappear entirely. Root cause: pipes are ceiling-mounted
+    and viewed from BELOW — the upward-facing polygons the new discard
+    logic wants to keep are exactly the polygons that are back-facing
+    relative to a camera looking up from underneath, so `cull_back` removed
+    them via backface culling before `fragment()`'s `discard()` ever ran.
+    Fix: `cull_back` -> `cull_disabled`. The vertex-level `v_up_dot`
+    computation (from the geometric `NORMAL`, not view-dependent) is
+    unaffected by which side renders, so `discard()` is still what decides
+    final visibility — both sides just actually reach the fragment shader
+    now.
 - **Dispenser UI fill bar/gauge (new, not a bug fix)** — `WaterDispenserUI.gd`
   previously only had the numeric `"STORAGE: X / 5000 mL"` text line; no
   actual bar/gauge graphic existed in the panel (that was easy to conflate
