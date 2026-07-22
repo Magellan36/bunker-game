@@ -1,6 +1,63 @@
 # Handover — BunkerGame
 
-## Status (latest, Jul 2026): three fixes pushed (`255835f`), NOT YET CONFIRMED in-editor
+## Status (latest, Jul 2026): arrow-texture audit plan fully implemented (`40b9e32`), NOT YET CONFIRMED in-editor
+Brannon attached a full audit + fix plan (arrows read as kinked "M" shapes,
+and weren't touching within/between pairs). Implemented in full, as two
+separate commits per the plan's own recommendation:
+
+1. **Spacing fix (`41f442e`)** — two real sub-causes, both fixed:
+   - Texture content sub-range: `pipe_flow_arrow.png`'s two baked chevrons
+     each have heavy transparent padding within their own `0..0.5` half
+     (confirmed via direct alpha-channel pixel inspection — opaque content
+     only spans columns 15-50 of 128px, i.e. `0.1172-0.3906`). Tile-boundary
+     math was already correct; the FULL padded half was being sampled per
+     tile, so "touching" tiles still had a visible gap between the actual
+     chevron shapes. Fixed: shader now samples only the measured content
+     sub-range.
+   - `gap_world_length` (between-pair gap) default lowered `0.5 -> 0.18`,
+     now also surfaced as an explicit `WaterPipeSegment.ARROW_PAIR_GAP`
+     tunable pushed via `set_shader_parameter()`.
+2. **Kinked-arrow-shape fix (`40b9e32`)** — root cause: the ceiling-strip
+   band's cross-section coordinate was a raw normal·up dot product (a
+   COSINE of the angle, non-linear), made much worse by only ~2-3 of the
+   pipe's 10 flat faces falling within the visible band (per-vertex value
+   linearly interpolated across a couple of large flat panels). Fixed by
+   REPLACING the wrap-around CylinderMesh + up-facing discard mask with a
+   small flat ribbon mesh — perfectly linear UV by construction, no cosine
+   term, no faceting. Mounted via a plain world-space `+Y` offset above the
+   pipe, oriented with the same `look_at()`+90°-rotate trick the main pipe
+   mesh already uses. `v_up_dot`/`UP_BAND_DOT`/`MODEL_NORMAL_MATRIX` are
+   gone from the shader entirely; `cull_disabled` kept deliberately (a flat
+   ribbon's visible face depends on winding, and this shader has already
+   been bitten twice by wrong-side-culling assumptions).
+
+**Playtest checklist (see the attached plan's §2.4 for the full version):**
+1. Look at a straight pipe run from below (normal play camera) — confirm
+   each arrow is now a clean, undistorted chevron, not kinked/zigzag.
+2. Confirm quality and purity arrows within one pair sit directly adjacent,
+   no visible gap.
+3. Confirm the gap between pairs is visibly smaller than before but still
+   reads as a clear break — flag back if `0.18` needs retuning either way.
+4. Check a pipe run with at least one elbow/corner — confirm the arrow
+   overlay still follows the bend and phase/continuity across the joint
+   still reads as one continuous crawl (don't regress prior continuity fixes).
+5. **Ribbon-specific check:** confirm normal gameplay camera angles
+   (including any top-down/isometric build-mode view) still show the ribbon
+   clearly — a flat quad facing one fixed direction could theoretically read
+   worse from some angles than the old wrap-around cylinder did for free.
+6. Known unchanged limitation: purely vertical pipe risers still show no
+   arrows (not in scope, flagged only).
+
+Verified via BOTH `tools/godot_check.sh` AND a targeted headless
+render/shader-compile harness (instantiating the actual `WaterPipeSegment`,
+confirming zero `SHADER ERROR` output) for every commit this round — per the
+standing lesson from the earlier shader-compile-failure incident. See
+`docs/systems/water/README.md`'s "Arrow shape distortion (kinked 'M' shapes)
++ spacing fixes + flat ribbon rewrite" section for full detail. `origin/main`
+at `40b9e32`.
+
+## Prior status (superseded by above, kept for context)
+
 Brannon reported three issues after the purifier-pulse/dispenser-fill features
 above: (1) dispenser UI fill meter missing, (2) both arrow lanes should sit
 on the ceiling-facing strip as touching sequential pairs instead of wrapped
