@@ -100,12 +100,18 @@ const ARROW_RIBBON_CLEARANCE:  float = 0.015  ## extra world-space gap above the
 ## stale again if the ribbon's own dimensions ever change.
 const ARROW_CONTENT_ASPECT: float = 35.0 / 64.0   ## content px width / full texture px height
 ## Ratio of the gap between one quality+purity PAIR and the next, relative
-## to one arrow's own (now correctly-sized) length — reapplies the same
-## visual proportion the old fixed 0.18-next-to-0.8 numbers read as, scaled
-## down to match the corrected, much smaller arrow size instead of staying
-## a fixed absolute value that would now read as oversized next to a
-## properly-sized arrow.
-const ARROW_PAIR_GAP_RATIO: float = 0.225
+## to one arrow's own (now correctly-sized) length. Raised 0.225 -> 0.7
+## (Jul 2026, Brannon's "more space between pairs" report) — the prior
+## value read as too tight once the arrows themselves were correctly sized.
+const ARROW_PAIR_GAP_RATIO: float = 0.7
+## How much the purity tile's start is pulled EARLIER (closer to/slightly
+## overlapping the quality tile), relative to one arrow's own length — see
+## pipe_flow.gdshader's `intra_pair_gap` uniform comment for the exact
+## math. New (Jul 2026, Brannon's "make quality/purity arrows closer to
+## each other" report) — 0.0 would keep them flush (the size-fix's prior
+## behavior); a modest positive value pulls them together without fully
+## overlapping the two chevrons' opaque content.
+const ARROW_INTRA_PAIR_GAP_RATIO: float = 0.3
 ## World-units/sec (NOT a UV-rate — see pipe_flow.gdshader's July 2026
 ## world-space-uniform rework: tile size and scroll speed are now both
 ## constant in world-space across all pipe lengths, so this value reads as
@@ -331,8 +337,10 @@ func _build_arrow_overlay(length: float) -> void:
 	var ribbon_width: float = PIPE_RADIUS * ARROW_RIBBON_WIDTH_SCALE
 	var arrow_tile_length: float = ribbon_width * ARROW_CONTENT_ASPECT
 	var arrow_pair_gap: float = arrow_tile_length * ARROW_PAIR_GAP_RATIO
+	var arrow_intra_pair_gap: float = arrow_tile_length * ARROW_INTRA_PAIR_GAP_RATIO
 	_arrow_material.set_shader_parameter("tile_world_length", arrow_tile_length)
 	_arrow_material.set_shader_parameter("gap_world_length", arrow_pair_gap)
+	_arrow_material.set_shader_parameter("intra_pair_gap", arrow_intra_pair_gap)
 
 	_arrow_mesh_instance = MeshInstance3D.new()
 	_arrow_mesh_instance.mesh = ribbon_mesh

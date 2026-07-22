@@ -78,6 +78,16 @@ uniform vec4 purity_color  : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 // just a harmless fallback if the material is ever used without that push.
 uniform float gap_world_length : hint_range(0.0, 5.0) = 0.025;
 
+// World-space offset applied to the purity tile's start, relative to where
+// it would sit flush against the quality tile (Jul 2026 fix — Brannon's
+// "make quality/purity arrows closer to each other" report). Positive =
+// purity tile starts EARLIER, i.e. the two arrows sit closer together /
+// slightly overlapping; 0.0 = flush (the prior behavior). ALWAYS pushed
+// explicitly from WaterPipeSegment._build_arrow_overlay(), proportional to
+// the arrow's own corrected length via ARROW_INTRA_PAIR_GAP_RATIO — this
+// default is just a harmless fallback.
+uniform float intra_pair_gap : hint_range(-1.0, 1.0) = 0.0;
+
 
 // ─── Cross-joint continuity fix (Jul 2026) ──────────────────────────────────
 // PRIOR bug: the fragment-only version of this shader derived its "position
@@ -156,10 +166,17 @@ void fragment() {
 	float world_dist = along_uv * pipe_length + phase_offset;
 	world_dist -= TIME * scroll_speed;
 
-	// Repeating [quality tile][purity tile][gap] pattern, each pair
-	// touching (no gap between the two tiles of one pair), then a blank gap
-	// before the next pair starts (Jul 2026 redesign).
-	float period = tile_world_length * 2.0 + gap_world_length;
+	// Repeating [quality tile][purity tile][gap] pattern (Jul 2026 redesign,
+	// spacing tuned same day per Brannon's "more space between pairs, closer
+	// within a pair" report). The purity tile's start is pulled earlier by
+	// `intra_pair_gap` (0 = flush against the quality tile, >0 = overlapping
+	// closer together) — see `intra_pair_gap`'s own uniform comment. The
+	// gap AFTER the purity tile (before the next pair) is the separate,
+	// independently-tunable `gap_world_length`.
+	float quality_end = tile_world_length;
+	float purity_start = quality_end - intra_pair_gap;
+	float purity_end = purity_start + tile_world_length;
+	float period = purity_end + gap_world_length;
 	// GLSL mod() on a negative value still returns a value in [0, period) as
 	// long as period > 0, matching GLSL's floored-mod semantics — safe for
 	// world_dist going negative as TIME increases.
@@ -181,14 +198,25 @@ void fragment() {
 	// padded half, so the visible chevrons themselves sit flush.
 	const float ARROW_CONTENT_START = 0.1172;
 	const float ARROW_CONTENT_WIDTH = 0.2734;   // 0.3906 - 0.1172
-	if (local_pos < tile_world_length) {
+	// NOTE: when intra_pair_gap > 0.0 (arrows pulled closer/overlapping),
+	// the quality branch below is checked FIRST and always wins in the
+	// small overlapping zone — the quality tile's own content is never
+	// clipped, only the purity tile's LEADING edge is what actually moves
+	// closer/tucks in behind it. Simplest correct-priority choice: quality
+	// is the "front" of the pair story-wise, purity trails it, so purity
+	// yielding at the seam reads naturally rather than the reverse.
+	if (local_pos < quality_end) {
 		// Quality tile.
 		float tex_u = ARROW_CONTENT_START + (local_pos / tile_world_length) * ARROW_CONTENT_WIDTH;
 		tex = texture(arrow_texture, vec2(tex_u, lane_v));
 		tint = quality_color;
-	} else if (local_pos < tile_world_length * 2.0) {
-		// Purity tile, immediately after (touching) the quality tile.
-		float tex_u = ARROW_CONTENT_START + ((local_pos - tile_world_length) / tile_world_length) * ARROW_CONTENT_WIDTH;
+	} else if (local_pos < purity_end) {
+		// Purity tile. NOTE: mapped from `purity_start`, not `quality_end` —
+		// when intra_pair_gap > 0.0 the visible purity zone starts partway
+		// INTO the purity tile's own content (its leading edge is hidden
+		// behind the quality tile above), so tex_u must account for that
+		// offset rather than restarting at 0 here.
+		float tex_u = ARROW_CONTENT_START + ((local_pos - purity_start) / tile_world_length) * ARROW_CONTENT_WIDTH;
 		tex = texture(arrow_texture, vec2(tex_u, lane_v));
 		tint = purity_color;
 	} else {
