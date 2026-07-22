@@ -33,7 +33,9 @@ const COLOR_PIPE: Color = Color(0.45, 0.47, 0.49, 1.0)
 ## light-blue rather than green so it never reads as identical to
 ## WaterQualityColor.QUALITY_GOOD_COLOR's green in the adjacent quality lane.
 const PURITY_COLOR_RAW:       Color = Color(1.0, 1.0, 1.0, 1.0)
-const PURITY_COLOR_PURIFIED:  Color = Color(0.55, 0.85, 1.00, 1.0)
+## Darkened to a more saturated blue (Jul 2026, Brannon's explicit hex spec)
+## — the prior light-blue (0.55, 0.85, 1.00) read as too washed out.
+const PURITY_COLOR_PURIFIED:  Color = Color(0x2f / 255.0, 0x6f / 255.0, 0xd6 / 255.0, 1.0)   ## #2f6fd6
 
 # ─── State ────────────────────────────────────────────────────────────────────
 ## WaterGraph edge ID — stored so the draw mode can unregister it on deconstruct.
