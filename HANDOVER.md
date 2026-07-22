@@ -8,7 +8,67 @@
 > the canonically-cased file). Merged and deleted as of this commit; going
 > forward there is only ONE handover file: this one, `HANDOVER.md`.
 
-## Status: pillar-clip fix + pipe-deconstruct-mode pass (this session)
+## Status: Dispenser fill-level visual shipped (this session); purifier clean-pulse + dual quality/purity arrows NEXT (blocked on open questions)
+
+Per a new plan doc ("Purifier clean-pulse + dual quality/purity arrows, and
+dispenser fill animation") — Feature 2 (dispenser fill) is well-scoped and
+shipped this session. Feature 1 (purifier pulse + two-lane arrow shader) has
+real open design questions the plan itself flags as needing Brannon's
+answer before writing code — NOT implemented yet, questions pending.
+
+### Feature 2 — Dispenser fill-level animation (DONE ✅, needs in-editor confirm)
+`WaterDispenser.gd`'s body mesh now uses a `ShaderMaterial`
+(`assets/shaders/tank_fill.gdshader`) instead of a flat
+`StandardMaterial3D` — no new geometry (the box itself becomes the gauge).
+Object-local `VERTEX.y` (relative to `BOX_SIZE.y`, works regardless of
+placement/rotation) is compared against a `fill_pct` uniform: below the
+cutoff renders water-blue (`COLOR_WATER_FILL`, reused from
+`WaterInfoUI`/`WaterDispenserUI`'s existing `OK_COLOR` blue theme — no
+"pipe fluid color" constant existed anywhere to reuse instead, pipes render
+as grey metal exterior not tinted by contents), above it renders the
+existing `COLOR_BODY` teal-grey. Added a thin bright waterline band right at
+the cutoff for readability (the plan flagged this as an optional stretch —
+included it since it's cheap and clearly helps at normal camera distance,
+noting the assumption here rather than deciding silently).
+
+`_update_fill_visual()` is called unconditionally at the top of the
+existing `_process()` tick (before any early-return), pushing
+`current_fill_mL / MAX_STORAGE_ML` to the shader every frame — same cadence
+the numeric UI panel already updates on, no new polling loop.
+
+**Playtest checklist:**
+1. Fill/drain a dispenser via normal gameplay — confirm the visible level
+   tracks the numeric UI panel's value in real time.
+2. Confirm empty (0%) and full (100%) both look correct at the extremes.
+3. Confirm it reads clearly at normal camera distance/angle — if not, the
+   plan's own fallback (a dedicated semi-transparent window panel instead of
+   recoloring the whole box) is the next thing to try, flag back rather than
+   iterating on shader tuning blindly.
+
+### Feature 1 — Purifier clean-pulse + dual quality/purity arrows (NOT STARTED — questions pending)
+See the plan doc's own Section 1.1 for full reasoning; questions were asked
+of Brannon in the same turn Feature 2 shipped. Do not start until answered
+— the attribution/pulse-frequency/visual-style answers change what code
+gets written, not just how it looks. Summary of what's blocked:
+1. Purifier attribution when a flip isn't caused by one obvious purifier
+   (multi-purifier/multi-path networks).
+2. Pulse frequency — one pulse per consumer flipped, or one pulse total per
+   recompute pass (plan recommends the latter).
+3. Visual style of the pulse — particle burst vs. tweened expanding ring
+   (plan recommends the ring, optionally + a small particle accent).
+4. Confirm the two-lane arrow overlay (quality color + purity color, split
+   halves of the existing scrolling band) is meant to be the new PERMANENT
+   default for every pipe segment in every save, not just purified runs —
+   visible change to the whole game, worth confirming explicitly.
+5. Mild scope addition flagged in the plan: extracting a shared
+   `WaterQualityColor` red/yellow/green helper (currently duplicated
+   near-verbatim in `WaterInfoUI.gd` and `WaterDispenserUI.gd`) rather than
+   writing a third copy for the new pipe-arrow code — confirm before
+   touching those two already-working files.
+
+---
+
+## Prior session: pillar-clip fix + pipe-deconstruct-mode pass
 
 ### 1. Corner-pillar clipping — registry gap closed (additive fix)
 Root cause investigation (via a separate implementation-spec doc, re-checked

@@ -25,6 +25,13 @@ const BOX_SIZE: Vector3 = Vector3(0.45, 0.55, 0.35)
 const COLOR_BODY:  Color = Color(0.26, 0.42, 0.48, 1.0)   ## teal-grey, distinct from the sink's neutral grey
 const COLOR_SPOUT: Color = Color(0.18, 0.30, 0.34, 1.0)
 
+## Fill-level visual (Jul 2026, Feature 2) — reuses WaterInfoUI/
+## WaterDispenserUI's existing OK_COLOR blue theme for the water tint rather
+## than inventing a new blue (there's no separate "pipe fluid color" constant
+## anywhere in the codebase to reuse instead — pipes render as grey metal
+## exterior, not tinted by their contents). See assets/shaders/tank_fill.gdshader.
+const COLOR_WATER_FILL: Color = Color(0.35, 0.85, 1.00, 1.0)
+
 ## Adjustable — see WaterDispenserUI.gd / PowerPriorityUI.gd's equivalent for
 ## the power system. 1 = highest priority (served first), 5 = lowest.
 @export var priority: int = 3
@@ -50,6 +57,12 @@ var _player_stats: Node = null
 var stored_water_quality: float = 100.0
 
 var _node_key: String = ""
+
+## Cached shader material driving the fill-level visual (Jul 2026, Feature 2)
+## — set once in _build_mesh(), updated every frame in _process() alongside
+## the existing fill tick (no new polling loop, same cadence the numeric UI
+## readout already updates on).
+var _fill_material: ShaderMaterial = null
 
 ## UI panel (lazy-instantiated, reused across opens — same spawn-once-reuse
 ## pattern as PowerTerminal._terminal_ui / WaterHookup._info_ui).
@@ -98,6 +111,12 @@ func get_current_demand_mL_per_day() -> float:
 
 # ─── Fill tick ────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
+	## Push the fill-level visual every frame regardless of any early return
+	## below (off/full/disconnected/not-yet-registered all still have a real
+	## current_fill_mL value that should read correctly on the mesh) — same
+	## cadence the numeric UI readout already updates on, no new polling loop.
+	_update_fill_visual()
+
 	if _node_key.is_empty():
 		return
 
@@ -150,6 +169,16 @@ func _process(delta: float) -> void:
 		if new_total > 0.0:
 			stored_water_quality = (current_fill_mL * stored_water_quality + added_mL * incoming_quality) / new_total
 		current_fill_mL = new_total
+
+
+## Pushes the current fill fraction to the tank_fill shader (Jul 2026,
+## Feature 2). Reads current_fill_mL directly rather than taking a param —
+## called unconditionally from _process() every frame, same single source
+## of truth the numeric UI panel already reads.
+func _update_fill_visual() -> void:
+	if _fill_material == null:
+		return
+	_fill_material.set_shader_parameter("fill_pct", current_fill_mL / MAX_STORAGE_ML)
 
 
 # ─── Public API (used by WaterDispenserUI.gd) ─────────────────────────────────
@@ -216,11 +245,19 @@ func _build_mesh() -> void:
 	mi.mesh   = mesh
 	mi.position = Vector3(0.0, BOX_SIZE.y * 0.5, 0.0)
 
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = COLOR_BODY
-	mat.roughness    = 0.55
-	mat.metallic     = 0.30
-	mi.set_surface_override_material(0, mat)
+	## Fill-level visual (Jul 2026, Feature 2) — ShaderMaterial replaces the
+	## old flat StandardMaterial3D so the box's own color tracks stored
+	## volume (water-blue below the fill line, empty-tank teal-grey above,
+	## thin bright waterline band at the cutoff). No new geometry — see
+	## assets/shaders/tank_fill.gdshader's own header.
+	var shader: Shader = load("res://assets/shaders/tank_fill.gdshader")
+	_fill_material = ShaderMaterial.new()
+	_fill_material.shader = shader
+	_fill_material.set_shader_parameter("fill_pct", 0.0)
+	_fill_material.set_shader_parameter("tank_height", BOX_SIZE.y)
+	_fill_material.set_shader_parameter("water_color", COLOR_WATER_FILL)
+	_fill_material.set_shader_parameter("empty_color", COLOR_BODY)
+	mi.set_surface_override_material(0, _fill_material)
 	add_child(mi)
 
 	## Small spout nub near the bottom-front — purely cosmetic, no collision.
