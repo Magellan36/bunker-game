@@ -72,7 +72,23 @@ var _arrow_mesh_instance: MeshInstance3D = null
 var _arrow_material: ShaderMaterial      = null
 const _ARROW_SHADER_PATH: String = "res://assets/shaders/pipe_flow.gdshader"
 const _ARROW_TEXTURE_PATH: String = "res://assets/textures/water/pipe_flow_arrow.png"
-const ARROW_RADIUS_SCALE: float = 1.03   ## just outside the pipe's own radius, avoids z-fighting
+## Flat ribbon overlay (Jul 2026 rewrite, replaces the old wrap-around
+## CylinderMesh + up-facing discard mask) — see docs/systems/water/README.md
+## "Arrow shape distortion (kinked 'M' shapes)" section for the full
+## root-cause writeup. A thin flat quad mounted just above the pipe's top
+## surface instead of wrapped around its circumference: perfectly linear UV
+## space by construction (no cosine distortion, no low-poly cylinder
+## faceting), and cheaper to render (2 triangles vs. a 10-sided cylinder
+## with 90%+ of its fragments discarded every frame).
+const ARROW_RIBBON_WIDTH_SCALE: float = 2.2   ## ribbon width = PIPE_RADIUS * this
+const ARROW_RIBBON_CLEARANCE:  float = 0.015  ## extra world-space gap above the pipe surface, avoids z-fighting
+## Inter-pair gap (world units, pipe_flow.gdshader's gap_world_length
+## uniform) — surfaced here as an explicit, named tunable per the plan's
+## optional suggestion, rather than leaving it silently at the shader's own
+## default. Lowered 0.5 -> 0.18 (Jul 2026, Brannon's "arrows not touching,
+## want less space" report) — see pipe_flow.gdshader's own comment for the
+## other half of that same fix (texture content sub-range).
+const ARROW_PAIR_GAP: float = 0.18
 ## World-units/sec (NOT a UV-rate — see pipe_flow.gdshader's July 2026
 ## world-space-uniform rework: tile size and scroll speed are now both
 ## constant in world-space across all pipe lengths, so this value reads as
@@ -194,8 +210,24 @@ func set_highlight_delete(on: bool) -> void:
 		_material.emission_enabled = false
 		_material.emission_energy_multiplier = 0.0
 
-## Flow-direction arrow overlay (Jul 2026) — a thin cylinder, same length as
-## the pipe, matching orientation, drawn just outside the pipe's own radius.
+## Flow-direction arrow overlay (Jul 2026 rewrite — flat ribbon, not a
+## wrap-around cylinder). PRIOR approach: a thin CylinderMesh matching the
+## pipe's orientation, with a per-fragment "is this facing up" discard mask
+## in pipe_flow.gdshader restricting visibility to a ceiling-facing band.
+## That band's cross-section coordinate was a raw normal-dot-up value (a
+## COSINE of the angle around the pipe, non-linear) sampled across only ~3
+## of the cylinder's 10 flat faces (PIPE_SEGMENTS) within the visible band —
+## both effects combined to visibly warp/kink the arrow texture into a
+## zigzag "M" shape instead of a clean chevron (reported Jul 2026).
+##
+## FIX: build a small flat quad ("ribbon") instead — perfectly linear UV
+## space by construction (no cosine term, no faceting), mounted just above
+## the pipe's top surface via a plain world-space Y offset (see
+## ARROW_RIBBON_CLEARANCE), oriented along the pipe using the EXACT SAME
+## look_at()+90-degree-local-X-rotate trick as the main pipe mesh (proven
+## correct already by every prior arrow-continuity fix — same local-Y-is-
+## length-axis convention, so pipe_flow.gdshader's VERTEX.y-based tiling/
+## phase math needs zero changes for this rewrite).
 ## Ghost/preview pipes never get one (see is_ghost check above).
 func _build_arrow_overlay(length: float) -> void:
 	var arrow_shader: Shader = load(_ARROW_SHADER_PATH)
@@ -209,11 +241,37 @@ func _build_arrow_overlay(length: float) -> void:
 			edge_id, arrow_shader != null, arrow_tex != null])
 		return
 
-	var cyl: CylinderMesh = CylinderMesh.new()
-	cyl.top_radius    = PIPE_RADIUS * ARROW_RADIUS_SCALE
-	cyl.bottom_radius = PIPE_RADIUS * ARROW_RADIUS_SCALE
-	cyl.height        = length
-	cyl.radial_segments = PIPE_SEGMENTS
+	## Flat quad, built directly rather than via a PrimitiveMesh — local Y
+	## is the length axis (-length/2..+length/2, centered on origin, same
+	## convention CylinderMesh.height used before), local X is the width
+	## axis. UV.x (width) feeds pipe_flow.gdshader's lane_v directly; UV.y
+	## isn't used by the shader (the along-pipe coordinate comes from
+	## VERTEX.y, not mesh UV) but is still filled in for correctness.
+	var half_width: float = PIPE_RADIUS * ARROW_RIBBON_WIDTH_SCALE * 0.5
+	var half_len: float = length * 0.5
+	var verts: PackedVector3Array = PackedVector3Array([
+		Vector3(-half_width, -half_len, 0.0),
+		Vector3( half_width, -half_len, 0.0),
+		Vector3( half_width,  half_len, 0.0),
+		Vector3(-half_width,  half_len, 0.0),
+	])
+	var uvs: PackedVector2Array = PackedVector2Array([
+		Vector2(0.0, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(0.0, 1.0),
+	])
+	var normals: PackedVector3Array = PackedVector3Array([
+		Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 1.0),
+	])
+	var indices: PackedInt32Array = PackedInt32Array([0, 1, 2, 0, 2, 3])
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX]  = indices
+
+	var ribbon_mesh: ArrayMesh = ArrayMesh.new()
+	ribbon_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
 	_arrow_material = ShaderMaterial.new()
 	_arrow_material.shader = arrow_shader
@@ -244,17 +302,36 @@ func _build_arrow_overlay(length: float) -> void:
 	## actually resolved its quality/purity state.
 	_arrow_material.set_shader_parameter("quality_color", PURITY_COLOR_RAW)
 	_arrow_material.set_shader_parameter("purity_color", PURITY_COLOR_RAW)
+	## Explicit named tunable (Jul 2026, "arrows not touching" fix) rather
+	## than silently relying on the shader's own uniform default — see
+	## ARROW_PAIR_GAP's own comment.
+	_arrow_material.set_shader_parameter("gap_world_length", ARROW_PAIR_GAP)
+
+	_arrow_mesh_instance = MeshInstance3D.new()
+	_arrow_mesh_instance.mesh = ribbon_mesh
+	_arrow_mesh_instance.set_surface_override_material(0, _arrow_material)
+	add_child(_arrow_mesh_instance)
+
+	## Sit just above the pipe's top surface — a plain WORLD-space Y offset
+	## (not a radial one, unlike the old cylinder's uniform ARROW_RADIUS_SCALE
+	## scale-up) because this segment's own root position (`global_position`,
+	## set to the segment midpoint earlier in _rebuild_mesh()) has zero
+	## rotation — its local axes ARE world axes, just translated. A constant
+	## +Y offset here therefore sits directly above the entire straight run
+	## uniformly, correct for the horizontal pipe runs the ceiling-strip
+	## look is meant for (see known vertical-riser limitation in the README).
+	_arrow_mesh_instance.position = Vector3(0.0, PIPE_RADIUS + ARROW_RIBBON_CLEARANCE, 0.0)
 
 	var arrow_dir: Vector3 = (point_b - point_a).normalized()
 	var arrow_up: Vector3 = Vector3.UP
 	if absf(arrow_dir.dot(arrow_up)) > 0.999:
 		arrow_up = Vector3.RIGHT
-
-	_arrow_mesh_instance = MeshInstance3D.new()
-	_arrow_mesh_instance.mesh = cyl
-	_arrow_mesh_instance.set_surface_override_material(0, _arrow_material)
-	add_child(_arrow_mesh_instance)
-	_arrow_mesh_instance.look_at(global_position + arrow_dir, arrow_up)
+	## Target computed from the ribbon's OWN (already vertically-offset)
+	## global position, not the segment's — using the segment's un-offset
+	## position here would introduce a slight tilt proportional to the
+	## vertical offset, since the look_at direction wouldn't be exactly
+	## `arrow_dir` anymore.
+	_arrow_mesh_instance.look_at(_arrow_mesh_instance.global_position + arrow_dir, arrow_up)
 	_arrow_mesh_instance.rotate_object_local(Vector3.RIGHT, PI * 0.5)
 
 ## Called by WaterManager.recompute_flow_directions() after any pipe-graph

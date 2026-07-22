@@ -1668,6 +1668,79 @@ Three fixes/changes from the same playtest pass, after Feature 1/2 above shipped
     sub-range (`ARROW_TEXTURE_PERIOD = 0.5`, one full period of the baked-in
     repeat) instead of `0..1`, for both the quality and purity tile samples
     — no texture asset change needed.
+
+## Arrow shape distortion (kinked "M" shapes) + spacing fixes + flat ribbon rewrite (Jul 2026)
+
+Brannon reported two further issues after the ceiling-strip redesign above
+was confirmed visible: (1) each arrow read as a distorted, kinked "M" shape
+instead of a clean chevron, (2) the quality/purity pair wasn't sitting
+flush and the gap to the next pair was too wide. Root-caused via direct
+pixel inspection of the actual texture asset (not guesswork) rather than
+the usual debug-log-first approach — summary of what shipped:
+
+- **2.2 — Arrow spacing (shipped first, smaller/independent fix).**
+  Two separate real causes, both fixed:
+  - **Sub-cause A (arrows within a pair not touching):** the texture's two
+    baked chevrons each have heavy transparent padding around them within
+    their own `0..0.5` half — opaque content only spans pixel columns 15-50
+    of the 128px-wide texture (normalized `0.1172-0.3906`). The tile
+    boundary math itself was already correct (tiles genuinely touch at
+    `tile_world_length`), but sampling the FULL padded half per tile meant
+    the visible chevrons themselves had a real gap between them regardless.
+    Fixed: `pipe_flow.gdshader` now samples only the measured opaque
+    content sub-range (`ARROW_CONTENT_START = 0.1172`, `ARROW_CONTENT_WIDTH
+    = 0.2734`) instead of the full padded `0..0.5`.
+  - **Sub-cause B (gap between pairs too wide):** `gap_world_length`'s
+    default lowered `0.5 -> 0.18`. Also newly surfaced as an explicit named
+    tunable, `WaterPipeSegment.ARROW_PAIR_GAP`, pushed via
+    `set_shader_parameter()` in `_build_arrow_overlay()` rather than
+    silently relying on the shader uniform's own default.
+- **2.1 — Arrow shape distortion, flat ribbon rewrite.** Root cause: the
+  arrow overlay's cross-section coordinate (`lane_v`, texture V axis, i.e.
+  the arrow's WIDTH) was derived from `v_up_dot`, a raw normal·up dot
+  product — a **cosine** of the angle around the pipe's circumference, not
+  linear in physical arc-length. Made significantly worse by mesh
+  resolution: the visible ~113° ceiling-facing band (`UP_BAND_DOT = 0.55`)
+  only spanned about 2-3 of the pipe's 10 flat faces
+  (`WaterPipeSegment.PIPE_SEGMENTS`), so `v_up_dot`'s per-vertex value was
+  linearly interpolated across just a couple of large flat panels with
+  sharply different normals at their edges — combined with the cosine
+  non-linearity, this produced the visible kinked/zigzag "M" shape instead
+  of a smooth chevron.
+  - **Fix shipped: flat ribbon mesh**, replacing the CylinderMesh + up-facing
+    discard mask entirely. `WaterPipeSegment._build_arrow_overlay()` now
+    builds a small flat quad directly via `ArrayMesh`/`add_surface_from_arrays()`
+    — local Y is the length axis (`-length/2..+length/2`, same convention
+    the old `CylinderMesh.height` used, so `pipe_flow.gdshader`'s
+    `VERTEX.y`-based tiling/phase math needed ZERO changes), local X is the
+    width axis, mapped to UV.x. Width = `PIPE_RADIUS *
+    ARROW_RIBBON_WIDTH_SCALE (2.2) * 0.5`. Positioned via a plain
+    world-space `+Y` offset (`PIPE_RADIUS + ARROW_RIBBON_CLEARANCE (0.015)`)
+    from the pipe centerline — a plain offset works because the segment
+    root's own local axes ARE world axes (zero rotation, just translated to
+    the segment midpoint) — then oriented with the EXACT SAME
+    `look_at()` + 90°-local-X-rotate trick the main pipe mesh already uses
+    (proven correct by every prior arrow-continuity fix), with the look_at
+    target computed from the ribbon's OWN already-offset global position
+    (not the segment's) to avoid a slight tilt.
+  - `pipe_flow.gdshader`: `v_up_dot`, `UP_BAND_DOT`, and the
+    `MODEL_NORMAL_MATRIX`-based up-facing discard test are gone entirely.
+    `lane_v` is now simply `UV.x` — perfectly linear by construction, no
+    remapping needed. `render_mode` keeps `cull_disabled` (deliberately, NOT
+    reverted to `cull_back`) — a flat ribbon's visible face depends on
+    winding/orientation, and this shader has already been bitten twice by
+    wrong-side-culling assumptions (see the history above); `cull_disabled`
+    costs nothing extra for a 2-triangle ribbon and removes that entire
+    class of regression risk going forward.
+  - **Known limitation (unchanged from before):** a purely vertical pipe
+    riser still shows no arrows — a flat ribbon offset by world `+Y` doesn't
+    make sense for a vertical run either; not in scope, still just flagged.
+  - **Verification note:** confirmed via the same headless-harness approach
+    used for the shader-compile-failure fix above (instantiate the actual
+    `WaterPipeSegment`, call `set_endpoints()`, confirm zero `SHADER ERROR`
+    output and that `_arrow_material`/`_arrow_mesh_instance` build
+    successfully) rather than relying on `godot_check.sh` alone, per the
+    standing lesson from that earlier incident.
 - **Dispenser UI fill bar/gauge (new, not a bug fix)** — `WaterDispenserUI.gd`
   previously only had the numeric `"STORAGE: X / 5000 mL"` text line; no
   actual bar/gauge graphic existed in the panel (that was easy to conflate
