@@ -40,20 +40,36 @@ below before touching anything else in the water system.**
    text) now shows fill level, filling proportionally to STORAGE's numeric
    readout.
 
-**Follow-up (same day):** after the above shipped, Brannon reported the
-arrows/flow indicator had gone COMPLETELY invisible. Root cause: the
-ceiling-strip redesign kept `render_mode ... cull_back` — pipes are viewed
-from BELOW (ceiling-mounted), so the upward-facing polygons the new
-`discard()` logic wants to keep are exactly the back-facing ones from that
-camera angle, and `cull_back` removed them before `fragment()` ever ran.
-Fixed: `cull_back` -> `cull_disabled`. Pushed as `36b15ca`. **This needs a
-fresh playtest confirmation on top of the checklist above** — arrows should
-now actually be visible on the ceiling strip, not just non-erroring.
+**Follow-up (same day, two rounds):** Brannon reported the arrows/flow
+indicator had gone COMPLETELY invisible after the ceiling-strip redesign.
+Round 1 fix (`36b15ca`, `cull_back` -> `cull_disabled`) was real but NOT the
+actual show-stopper — Brannon confirmed "changed nothing." Round 2 found the
+REAL root cause via a headless render harness (see below): `const float
+UP_BAND_DOT: float = 0.55;` used GDScript's typed-const colon syntax, which
+is NOT valid Godot shading language — the shader failed to compile entirely,
+the whole time, silently. **`tools/godot_check.sh`'s script-parse check does
+NOT catch shader compile errors** — it stayed green through both rounds
+while the shader was actually broken. Fixed to `const float UP_BAND_DOT =
+0.55;`. Pushed as `5619ec0`. Verified this time by actually instantiating
+the `ShaderMaterial` in a headless Godot script and confirming zero
+`SHADER ERROR` output (previously reproduced the exact "Shader compilation
+failed" error this way before the fix, confirming true root cause). Both
+the cull fix and the syntax fix are needed together — please pull and
+playtest for real this time.
 
-Passed `tools/godot_check.sh` (parse/type only, not behavior). See
+**Standing lesson for future water/power shader work:** a shader-only syntax
+error is invisible to `godot_check.sh` (GDScript parse only). If a shader
+edit ships and something "goes completely invisible" with no console error
+visible in-editor either, verify the shader itself actually compiles (a
+small headless script instantiating the `ShaderMaterial` and printing any
+`SHADER ERROR` output) before assuming the bug is in masking/culling/uniform
+logic.
+
+Passed `tools/godot_check.sh` (parse/type only, not behavior) AND a targeted
+headless shader-compile check this round. See
 `docs/systems/water/README.md`'s "Quality arrow 'stuck green' fix +
 ceiling-strip arrow redesign + dispenser fill bar" section for full detail.
-`origin/main` at `36b15ca`.
+`origin/main` at `5619ec0`.
 
 
 **Read `AI_CONTEXT.md` in this repo first, then `PROJECT_SUMMARY.md`, then this file.**
