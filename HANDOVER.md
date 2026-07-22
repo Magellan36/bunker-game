@@ -1,5 +1,51 @@
 # Handover — BunkerGame
 
+## Status (latest, Jul 2026): three fixes pushed (`255835f`), NOT YET CONFIRMED in-editor
+Brannon reported three issues after the purifier-pulse/dispenser-fill features
+above: (1) dispenser UI fill meter missing, (2) both arrow lanes should sit
+on the ceiling-facing strip as touching sequential pairs instead of wrapped
+around the pipe's circumference, (3) quality arrows only ever showed green.
+All three root-caused and fixed this session — **do the playtest checklist
+below before touching anything else in the water system.**
+
+1. **Quality arrow "always green" — FIXED.** Root cause:
+   `WaterManager.set_quality_color()` was only ever pushed from inside
+   `recompute_flow_directions()` (graph-mutation-triggered only), but
+   `WaterHookup.water_quality` decays continuously every frame — the color
+   got set once near 100% and never touched again. Fix: new
+   `WaterManager._process(delta)` + `_refresh_quality_colors()`, ticking
+   every `QUALITY_REFRESH_INTERVAL=0.5s`, re-pushes just the quality tint
+   from the CURRENT live hookup quality (cheap, no graph re-walk). **Playtest:**
+   let a hookup's water quality decay below 75%/50% over real time (or use
+   the F7 admin quality cheat if faster) and confirm the pipe arrows'
+   FRONT (quality) lane actually shifts yellow/red within ~0.5s, not just at
+   the moment a pipe was placed.
+2. **Arrow layout redesign — ceiling strip, sequential pairs.** Both quality
+   and purity lanes now render ONLY on the pipe's top (ceiling-facing) strip
+   (world-normal `v_up_dot` test, `pipe_flow.gdshader`), as a repeating
+   along-pipe sequence: quality tile touching a purity tile, then a blank
+   gap, then repeat (`gap_world_length` uniform, default 0.5). **Playtest:**
+   confirm both arrow types are visible on top of the pipe only (not wrapped
+   around the sides/bottom), reading as touching pairs with a visible gap
+   before the next pair. **Known limitation, not fixed:** a purely vertical
+   pipe run (straight up/down) has no face that ever points "up" — expect NO
+   arrows on vertical risers. Flag back if this needs a different treatment.
+3. **Dispenser UI fill bar — added (was simply missing, not a regression).**
+   `WaterDispenserUI.gd`'s panel only ever had the numeric "STORAGE: X / 5000
+   mL" text — no bar/gauge graphic existed in the panel itself (separate from
+   the 3D dispenser body's own `tank_fill.gdshader` tint, which is a
+   different, world-space visual and already existed). Added a drawn fill
+   bar directly under the STORAGE text; `PANEL_H` bumped 430->454 to fit.
+   **Playtest:** open a dispenser's panel and confirm a bar/gauge (not just
+   text) now shows fill level, filling proportionally to STORAGE's numeric
+   readout.
+
+Passed `tools/godot_check.sh` (parse/type only, not behavior). See
+`docs/systems/water/README.md`'s "Quality arrow 'stuck green' fix +
+ceiling-strip arrow redesign + dispenser fill bar" section for full detail.
+`origin/main` at `255835f`.
+
+
 **Read `AI_CONTEXT.md` in this repo first, then `PROJECT_SUMMARY.md`, then this file.**
 
 ## Status: purifier clean-pulse + dual quality/purity arrows, and dispenser fill visual — SHIPPED, NOT YET CONFIRMED in-editor
