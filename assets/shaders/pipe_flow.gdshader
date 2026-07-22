@@ -1,5 +1,14 @@
 shader_type spatial;
-render_mode unshaded, blend_mix, cull_back, depth_draw_never;
+// cull_disabled (Jul 2026 fix — see "arrows completely gone" below): the
+// ceiling-strip redesign discards fragments based on world-space UP-facing
+// normal (v_up_dot), but pipes are ceiling-mounted and the player views them
+// from BELOW — the upward-facing polygons we want to keep are exactly the
+// back-facing ones from the camera's viewpoint below. With `cull_back`,
+// those polygons were removed by backface culling before the fragment
+// shader's discard() ever ran, so nothing was left to show — arrows read as
+// totally gone. `cull_disabled` renders both sides; the discard() in
+// fragment() is what actually decides visibility now, same as before.
+render_mode unshaded, blend_mix, cull_disabled, depth_draw_never;
 
 // pipe_flow.gdshader — build-mode-only scrolling arrow overlay for water
 // pipes (Jul 2026). Applied as a SECOND, additive overlay MeshInstance3D on
