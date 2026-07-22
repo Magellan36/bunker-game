@@ -40,10 +40,20 @@ below before touching anything else in the water system.**
    text) now shows fill level, filling proportionally to STORAGE's numeric
    readout.
 
+**Follow-up (same day):** after the above shipped, Brannon reported the
+arrows/flow indicator had gone COMPLETELY invisible. Root cause: the
+ceiling-strip redesign kept `render_mode ... cull_back` — pipes are viewed
+from BELOW (ceiling-mounted), so the upward-facing polygons the new
+`discard()` logic wants to keep are exactly the back-facing ones from that
+camera angle, and `cull_back` removed them before `fragment()` ever ran.
+Fixed: `cull_back` -> `cull_disabled`. Pushed as `36b15ca`. **This needs a
+fresh playtest confirmation on top of the checklist above** — arrows should
+now actually be visible on the ceiling strip, not just non-erroring.
+
 Passed `tools/godot_check.sh` (parse/type only, not behavior). See
 `docs/systems/water/README.md`'s "Quality arrow 'stuck green' fix +
 ceiling-strip arrow redesign + dispenser fill bar" section for full detail.
-`origin/main` at `255835f`.
+`origin/main` at `36b15ca`.
 
 
 **Read `AI_CONTEXT.md` in this repo first, then `PROJECT_SUMMARY.md`, then this file.**
