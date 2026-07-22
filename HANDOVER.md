@@ -56,6 +56,25 @@ standing lesson from the earlier shader-compile-failure incident. See
 + spacing fixes + flat ribbon rewrite" section for full detail. `origin/main`
 at `40b9e32`.
 
+## Follow-up (same day) — arrows stretched out lengthwise, FIXED (`5aad027`)
+After the ribbon rewrite + spacing fixes above, Brannon reported arrows
+still read as oversized/stretched along the pipe's length. Root cause: the
+earlier texture-content-sub-range fix correctly cropped each chevron to its
+real ~35px content width, but `tile_world_length` was never shrunk to
+match — it was still the old `0.8`, a leftover arbitrary value from the
+pre-redesign wrap-around-cylinder era with no relation to this texture's
+actual proportions. That narrow content was being stretched across the
+full `0.8` world-units, ~7.4x its natural size (confirmed by direct
+calculation: `0.8 / 0.108 ≈ 7.4`). Fixed by deriving `tile_world_length`
+AND `gap_world_length` from the ribbon's actual current width/aspect
+(`WaterPipeSegment.ARROW_CONTENT_ASPECT = 35/64`, `ARROW_PAIR_GAP_RATIO =
+0.225`) instead of hardcoded numbers — both now pushed explicitly via
+`set_shader_parameter()` every rebuild, so they can't silently drift out of
+sync with the ribbon's own dimensions again. Verified via the same headless
+shader-compile harness (confirmed correct computed values: `tile_world_length
+≈ 0.108`, `gap_world_length ≈ 0.024`) plus `godot_check.sh`. **Please
+pull and confirm arrows now read as correctly-sized, not stretched.**
+
 ## Prior status (superseded by above, kept for context)
 
 Brannon reported three issues after the purifier-pulse/dispenser-fill features
