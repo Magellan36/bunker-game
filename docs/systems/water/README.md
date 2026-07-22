@@ -1741,6 +1741,30 @@ the usual debug-log-first approach — summary of what shipped:
     output and that `_arrow_material`/`_arrow_mesh_instance` build
     successfully) rather than relying on `godot_check.sh` alone, per the
     standing lesson from that earlier incident.
+  - **Follow-up fix, same day — "arrows stretched out lengthwise."** Root
+    cause: the earlier texture-content-sub-range fix (sub-cause A above)
+    correctly cropped each chevron's sampled UV down to its actual ~35px-
+    wide opaque content, but nothing shrank `tile_world_length` (still the
+    old `0.8`, a leftover arbitrary value from the pre-redesign wrap-around-
+    cylinder era, unrelated to this texture's real proportions) to match —
+    that narrow content was still being stretched across the FULL
+    `tile_world_length`, about 7.4x longer than its natural size (`0.8 /
+    0.108 ≈ 7.4`, confirmed by direct calculation). Fixed by deriving both
+    `tile_world_length` and `gap_world_length` from the ribbon's ACTUAL
+    current geometry instead of hardcoded/leftover numbers:
+    `WaterPipeSegment.ARROW_CONTENT_ASPECT = 35.0/64.0` (measured content
+    width ÷ full texture height — `lane_v` maps that full 64px height across
+    the ribbon's entire physical width, so this ratio gives the correct,
+    undistorted arrow length for whatever the ribbon's current width is);
+    `arrow_tile_length = ribbon_width * ARROW_CONTENT_ASPECT`; the
+    inter-pair gap is kept proportional via `ARROW_PAIR_GAP_RATIO = 0.225`
+    (same visual ratio the old fixed `0.18`-next-to-`0.8` numbers implied,
+    reapplied to the corrected size) rather than staying a fixed absolute
+    value that would now read as oversized. Both are pushed explicitly via
+    `set_shader_parameter()` every time `_build_arrow_overlay()` runs — the
+    shader's own uniform defaults are just harmless fallbacks now, no longer
+    the real source of truth, specifically so this can't silently drift out
+    of sync with the ribbon's dimensions again if either ever changes.
 - **Dispenser UI fill bar/gauge (new, not a bug fix)** — `WaterDispenserUI.gd`
   previously only had the numeric `"STORAGE: X / 5000 mL"` text line; no
   actual bar/gauge graphic existed in the panel (that was easy to conflate

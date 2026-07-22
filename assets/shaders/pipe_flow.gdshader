@@ -31,7 +31,14 @@ uniform bool build_mode_visible = false;   // toggled per-segment, not a global 
 // so tile size and scroll speed are constant in world-space on every pipe.
 uniform float pipe_length : hint_range(0.01, 100.0) = 1.0;   // this segment's real length (m),
                                                               // set from WaterPipeSegment._build_arrow_overlay()
-uniform float tile_world_length : hint_range(0.05, 5.0) = 0.8;   // desired world-units per arrow tile (doubled Jul 2026 — arrows were too tightly packed, this halves arrow density / removes every other one)
+// ALWAYS pushed explicitly from WaterPipeSegment._build_arrow_overlay()
+// now (Jul 2026 fix — "arrows stretched out lengthwise") — derived from the
+// ribbon's actual current width/aspect so it can't silently drift out of
+// sync with the arrow texture's real proportions again (see
+// WaterPipeSegment.ARROW_CONTENT_ASPECT's own comment for the root cause).
+// This default is just a harmless fallback if the material is ever used
+// without that push.
+uniform float tile_world_length : hint_range(0.05, 5.0) = 0.11;
 
 // phase_offset is each segment's upstream endpoint's cumulative REAL-WORLD
 // distance from the hookup (world units, from WaterGraph.
@@ -63,13 +70,13 @@ uniform bool has_flow = false;   // set from WaterPipeSegment.set_has_flow()
 uniform vec4 quality_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 uniform vec4 purity_color  : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 
-// World-space gap between one quality+purity pair and the next (Jul 2026
-// redesign). Default lowered 0.5 -> 0.18 (Jul 2026 fix, Brannon's "arrows
-// not touching, want less space" report, sub-cause B) — was reading as
-// visibly wide once the padding fix below (sub-cause A) made the arrows
-// within a pair sit flush; independent of tile_world_length so pair
-// spacing can still be tuned without changing individual arrow size.
-uniform float gap_world_length : hint_range(0.0, 5.0) = 0.18;
+// World-space gap between one quality+purity pair and the next. ALWAYS
+// pushed explicitly from WaterPipeSegment._build_arrow_overlay() now (Jul
+// 2026 fix — kept proportional to the corrected, no-longer-stretched arrow
+// length via ARROW_PAIR_GAP_RATIO, rather than a fixed absolute number that
+// would read as oversized next to a properly-sized arrow). This default is
+// just a harmless fallback if the material is ever used without that push.
+uniform float gap_world_length : hint_range(0.0, 5.0) = 0.025;
 
 
 // ─── Cross-joint continuity fix (Jul 2026) ──────────────────────────────────
