@@ -75,6 +75,22 @@ shader-compile harness (confirmed correct computed values: `tile_world_length
 ≈ 0.108`, `gap_world_length ≈ 0.024`) plus `godot_check.sh`. **Please
 pull and confirm arrows now read as correctly-sized, not stretched.**
 
+## Follow-up (same day) — spacing tuned, pushed `3172537`
+Brannon asked for more space between quality/purity PAIRS, and the quality
+and purity arrows WITHIN one pair pulled closer together. Shipped:
+- `ARROW_PAIR_GAP_RATIO` (between pairs) raised `0.225 -> 0.7`.
+- New `intra_pair_gap` shader uniform + `ARROW_INTRA_PAIR_GAP_RATIO = 0.3`
+  (WaterPipeSegment.gd) — pulls the purity tile's start earlier so it
+  sits closer to / slightly overlapping the quality tile instead of just
+  flush. **One tradeoff worth knowing:** in that small overlap zone, the
+  quality tile's own content always wins (checked first in the shader) —
+  only the purity arrow's leading edge tucks in behind it. If the overlap
+  ever looks wrong (e.g. purity looks visibly clipped), that ratio is the
+  first thing to turn back down.
+Verified via the headless shader-compile harness (confirmed computed
+values: `gap_world_length ≈ 0.076`, `intra_pair_gap ≈ 0.032`) plus
+`godot_check.sh`. **Please pull and confirm the new spacing feels right.**
+
 ## Prior status (superseded by above, kept for context)
 
 Brannon reported three issues after the purifier-pulse/dispenser-fill features
