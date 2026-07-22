@@ -166,14 +166,24 @@ void fragment() {
 
 	vec4 tex = vec4(0.0);
 	vec4 tint = vec4(1.0);
+	// ARROW_TEXTURE_PERIOD (Jul 2026 fix — "2 arrows squished side by side"):
+	// pipe_flow_arrow.png bakes TWO chevrons side by side within its own
+	// 0..1 width (a leftover from the pre-redesign single-lane layout, which
+	// wrapped that same texture around the pipe's full circumference and
+	// wanted 2 repeats per loop). Sampling the full 0..1 range for what's
+	// now meant to be exactly ONE arrow tile showed both baked chevrons
+	// squished into it. Fix: scale tex_u into the texture's own 0..0.5
+	// sub-range (one full period of its baked-in repeat) instead of 0..1,
+	// so each tile shows exactly one chevron.
+	const float ARROW_TEXTURE_PERIOD = 0.5;
 	if (local_pos < tile_world_length) {
 		// Quality tile.
-		float tex_u = local_pos / tile_world_length;
+		float tex_u = (local_pos / tile_world_length) * ARROW_TEXTURE_PERIOD;
 		tex = texture(arrow_texture, vec2(tex_u, lane_v));
 		tint = quality_color;
 	} else if (local_pos < tile_world_length * 2.0) {
 		// Purity tile, immediately after (touching) the quality tile.
-		float tex_u = (local_pos - tile_world_length) / tile_world_length;
+		float tex_u = ((local_pos - tile_world_length) / tile_world_length) * ARROW_TEXTURE_PERIOD;
 		tex = texture(arrow_texture, vec2(tex_u, lane_v));
 		tint = purity_color;
 	} else {

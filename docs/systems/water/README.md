@@ -1657,6 +1657,17 @@ Three fixes/changes from the same playtest pass, after Feature 1/2 above shipped
     "goes completely invisible", verify the shader itself actually compiles
     (e.g. a small headless render harness instantiating the material) before
     assuming the bug is in masking/culling/uniform logic.
+  - **Follow-up fix, same day — "2 arrows squished side by side per tile."**
+    `assets/textures/water/pipe_flow_arrow.png` bakes TWO chevrons side by
+    side within its own 0..1 UV width (confirmed via pixel-row inspection —
+    two alpha blobs exactly half the texture width apart). That was fine for
+    the pre-redesign single full-circumference-wrap lane (which wanted 2
+    repeats per loop), but the new per-tile sampling (`tex_u` 0..1 per
+    quality/purity tile) showed both baked chevrons inside what was meant to
+    be ONE arrow. Fix: scale `tex_u` into the texture's own `0..0.5`
+    sub-range (`ARROW_TEXTURE_PERIOD = 0.5`, one full period of the baked-in
+    repeat) instead of `0..1`, for both the quality and purity tile samples
+    — no texture asset change needed.
 - **Dispenser UI fill bar/gauge (new, not a bug fix)** — `WaterDispenserUI.gd`
   previously only had the numeric `"STORAGE: X / 5000 mL"` text line; no
   actual bar/gauge graphic existed in the panel (that was easy to conflate
