@@ -456,14 +456,12 @@ func _tier_name(p: int) -> String:
 
 ## Shared quality readout — used by hookup/sink/purifier panels. Red/yellow/
 ## green thresholds (Jul 2026 spec, see QUALITY_GOOD_COLOR above): 0-50% red,
-## 50.01-75% yellow, 75.01-100% green.
+## 50.01-75% yellow, 75.01-100% green. Color lookup delegates to
+## WaterQualityColor.get_color() (Jul 2026, extracted shared helper — was a
+## local copy of the same thresholds before).
 func _draw_quality_row(quality: float, cx: float, cy: float) -> float:
 	_draw_str("WATER QUALITY", Vector2(cx, cy), DIM_COLOR, 10)
-	var q_col: Color = QUALITY_GOOD_COLOR
-	if quality <= 50.0:
-		q_col = CRIT_COLOR
-	elif quality <= 75.0:
-		q_col = WARN_COLOR
+	var q_col: Color = WaterQualityColor.get_color(quality)
 	_draw_str("%.0f%%" % quality, Vector2(cx, cy + 14.0), q_col, 13)
 	return cy + 40.0
 

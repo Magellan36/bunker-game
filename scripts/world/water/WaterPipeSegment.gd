@@ -27,6 +27,14 @@ const PIPE_SEGMENTS: int   = 10
 ## WaterGraph.gd header) — just one constant material.
 const COLOR_PIPE: Color = Color(0.45, 0.47, 0.49, 1.0)
 
+## Dual quality/purity arrow lanes (Jul 2026) — pushed to the arrow overlay
+## shader's quality_color/purity_color uniforms by WaterManager
+## ._process_purity_and_dual_arrows(). PURITY_COLOR_PURIFIED is deliberately
+## light-blue rather than green so it never reads as identical to
+## WaterQualityColor.QUALITY_GOOD_COLOR's green in the adjacent quality lane.
+const PURITY_COLOR_RAW:       Color = Color(1.0, 1.0, 1.0, 1.0)
+const PURITY_COLOR_PURIFIED:  Color = Color(0.55, 0.85, 1.00, 1.0)
+
 # ─── State ────────────────────────────────────────────────────────────────────
 ## WaterGraph edge ID — stored so the draw mode can unregister it on deconstruct.
 var edge_id: String = ""
@@ -230,6 +238,12 @@ func _build_arrow_overlay(length: float) -> void:
 	## segment now asks the current BuildModeController state directly instead
 	## of waiting for the next broadcast.
 	_arrow_material.set_shader_parameter("build_mode_visible", _is_build_mode_active())
+	## Dual quality/purity lanes default to white/white (no visible tint
+	## difference) until the first recompute_flow_directions() push — a
+	## brand-new segment shouldn't flash a color guess before the graph has
+	## actually resolved its quality/purity state.
+	_arrow_material.set_shader_parameter("quality_color", PURITY_COLOR_RAW)
+	_arrow_material.set_shader_parameter("purity_color", PURITY_COLOR_RAW)
 
 	var arrow_dir: Vector3 = (point_b - point_a).normalized()
 	var arrow_up: Vector3 = Vector3.UP
@@ -269,6 +283,23 @@ func set_phase_offset(value: float) -> void:
 func set_has_flow(value: bool) -> void:
 	if _arrow_material != null:
 		_arrow_material.set_shader_parameter("has_flow", value)
+
+## Called by WaterManager._process_purity_and_dual_arrows() (Jul 2026, dual
+## quality/purity arrow lanes) — tints the FRONT (quality) lane. `color` is
+## already resolved via WaterQualityColor.get_color() by the caller; this
+## setter doesn't re-derive it, matching the project's "managers own graph
+## state, node scripts own their own visuals" split (the manager decides
+## WHAT color, the segment just displays it).
+func set_quality_color(color: Color) -> void:
+	if _arrow_material != null:
+		_arrow_material.set_shader_parameter("quality_color", color)
+
+## Called alongside set_quality_color() — tints the BACK (purity) lane.
+## `purified` true -> PURITY_COLOR_PURIFIED (light blue), false -> raw white.
+func set_purified(purified: bool) -> void:
+	if _arrow_material != null:
+		_arrow_material.set_shader_parameter("purity_color",
+			PURITY_COLOR_PURIFIED if purified else PURITY_COLOR_RAW)
 
 ## Reads BuildModeController's live is_active flag at the moment this segment
 ## spawns — same "get()" pattern WireGraphBuilder already uses for this exact

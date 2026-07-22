@@ -8,13 +8,16 @@
 > the canonically-cased file). Merged and deleted as of this commit; going
 > forward there is only ONE handover file: this one, `HANDOVER.md`.
 
-## Status: Dispenser fill-level visual shipped (this session); purifier clean-pulse + dual quality/purity arrows NEXT (blocked on open questions)
+## Status: Both features from the purifier-pulse/dispenser-fill plan shipped this session
 
 Per a new plan doc ("Purifier clean-pulse + dual quality/purity arrows, and
-dispenser fill animation") — Feature 2 (dispenser fill) is well-scoped and
-shipped this session. Feature 1 (purifier pulse + two-lane arrow shader) has
-real open design questions the plan itself flags as needing Brannon's
-answer before writing code — NOT implemented yet, questions pending.
+dispenser fill animation") — Feature 2 (dispenser fill) shipped first, then
+Brannon answered Feature 1's open questions and it shipped too. **Neither
+had been confirmed working in-editor as of this write-up** — a prior
+session ran out of credits between implementing Feature 1 and actually
+committing/pushing it, so if a "features missing" report ever shows up
+again, check `git log` against what's actually on `origin/main` before
+assuming a code bug.
 
 ### Feature 2 — Dispenser fill-level animation (DONE ✅, needs in-editor confirm)
 `WaterDispenser.gd`'s body mesh now uses a `ShaderMaterial`
@@ -45,26 +48,48 @@ the numeric UI panel already updates on, no new polling loop.
    recoloring the whole box) is the next thing to try, flag back rather than
    iterating on shader tuning blindly.
 
-### Feature 1 — Purifier clean-pulse + dual quality/purity arrows (NOT STARTED — questions pending)
-See the plan doc's own Section 1.1 for full reasoning; questions were asked
-of Brannon in the same turn Feature 2 shipped. Do not start until answered
-— the attribution/pulse-frequency/visual-style answers change what code
-gets written, not just how it looks. Summary of what's blocked:
-1. Purifier attribution when a flip isn't caused by one obvious purifier
-   (multi-purifier/multi-path networks).
-2. Pulse frequency — one pulse per consumer flipped, or one pulse total per
-   recompute pass (plan recommends the latter).
-3. Visual style of the pulse — particle burst vs. tweened expanding ring
-   (plan recommends the ring, optionally + a small particle accent).
-4. Confirm the two-lane arrow overlay (quality color + purity color, split
-   halves of the existing scrolling band) is meant to be the new PERMANENT
-   default for every pipe segment in every save, not just purified runs —
-   visible change to the whole game, worth confirming explicitly.
-5. Mild scope addition flagged in the plan: extracting a shared
-   `WaterQualityColor` red/yellow/green helper (currently duplicated
-   near-verbatim in `WaterInfoUI.gd` and `WaterDispenserUI.gd`) rather than
-   writing a third copy for the new pipe-arrow code — confirm before
-   touching those two already-working files.
+### Feature 1 — Purifier clean-pulse + dual quality/purity arrows (DONE ✅, needs in-editor confirm)
+Questions answered by Brannon: pulse EVERY purifier on a flipped consumer's
+resolved path (not just most-recently-mutated); ONE pulse total per
+recompute pass, deduped by purifier; tweened expanding flat ring only (no
+particle accent); two-lane arrow overlay is the PERMANENT default for every
+pipe segment in every save; extract the shared `WaterQualityColor` helper.
+
+All implemented — see `docs/systems/water/README.md`'s matching "Purifier
+clean-pulse + dual quality/purity arrows" section for full detail:
+`WaterQualityColor.gd` (new shared helper), `WaterManager
+._process_purity_and_dual_arrows()` (purity-flip detection + load-safe
+seeding + per-edge is_purified), `WaterManager._find_purifier_by_key()` (new
+`"water_purifier"` group scan — purifier nodes have no `consumer_ref`),
+`WaterPurifier.play_clean_pulse()` (tweened `TorusMesh` ring), `pipe_flow
+.gdshader`'s two-lane UV split, `WaterPipeSegment.gd`'s `set_quality_color`/
+`set_purified` setters.
+
+**IMPORTANT — a fresh empty dispenser looks IDENTICAL to before Feature 2
+shipped, by design, not a bug:** `tank_fill.gdshader`'s `empty_color`
+constant is set to the exact same value as the old flat `COLOR_BODY`, so at
+`fill_pct = 0.0` there's no visible difference except a very thin (2% of
+tank height) bright waterline band right at the base — easy to miss at
+normal camera distance. **To actually see the fill visual, the dispenser
+needs to be connected to a hookup/pipe and receiving water** (or load a
+save where one already has stored volume) — an untouched, never-filled
+dispenser will look unchanged. Flag to Brannon: if this reads as "invisible"
+even once filled, the fallback (a dedicated semi-transparent window panel
+instead of recoloring the whole box, noted in the original plan) is the
+next thing to try.
+
+**Playtest checklist for Feature 1:**
+1. Place a purifier on a hookup with existing impure downstream consumers —
+   confirm a ring pulse fires once at the purifier's location (not
+   elsewhere), not once per consumer.
+2. Confirm every pipe segment shows two adjacent half-width arrow lanes;
+   front lane matches the quality red/yellow/green thresholds; back lane is
+   white upstream of any purifier, light-blue downstream.
+3. Delete the purifier (or reintroduce a bypass) — back lane reverts to
+   white, front lane resumes tracking raw decayed quality.
+4. Reload a save with an already-purified network — confirm NO false pulse
+   burst fires on the first recompute after load.
+5. Spot-check performance on a larger pipe network.
 
 ---
 

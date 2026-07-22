@@ -44,6 +44,14 @@ func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
 	add_to_group("interactable")
+	## Jul 2026 (clean-pulse VFX) — purifier nodes are registered into
+	## WaterGraph WITHOUT a consumer_ref (see WaterPurifierAttach
+	## .insert_purifier_at()'s register_node() call — role-only, no back-
+	## reference), so WaterManager can't find this instance via
+	## get_consumer_ref(). This group + node_key match is the same
+	## findability pattern find_pipe_visual() already uses for
+	## "water_pipe_visual" — see WaterManager._find_purifier_by_key().
+	add_to_group("water_purifier")
 	_build_mesh()
 
 func _exit_tree() -> void:
@@ -111,6 +119,54 @@ func _on_ui_closed() -> void:
 ## WaterInfoUI's purifier branch to trace the upstream hookup's raw quality.
 func get_node_key() -> String:
 	return node_key
+
+
+# ─── Clean-pulse VFX (Jul 2026) ───────────────────────────────────────────────
+## Tweened expanding flat ring (Brannon's confirmed pick over a particle
+## burst or particle+ring combo — reads clearly at this game's top-down
+## camera angle; a TorusMesh already lies flat in the XZ plane with no
+## rotation needed, same reasoning DustMotes.gd's factory functions use for
+## picking the cheapest primitive that reads correctly from this camera).
+## Called by WaterManager._process_purity_and_dual_arrows() — ONE call per
+## purifier per recompute pass (deduped there, regardless of how many
+## consumers' purity-flip attributed to this specific purifier), matching
+## Brannon's "one pulse total per recompute pass" answer. WaterManager only
+## decides WHEN to call this; how it looks lives entirely here, matching the
+## project's existing manager/node-script separation.
+const PULSE_COLOR:       Color = Color(0.55, 0.90, 1.00, 0.85)   ## light cyan-blue "clean" tint
+const PULSE_DURATION:    float = 0.4
+const PULSE_START_SCALE: float = 0.3
+const PULSE_END_SCALE:   float = 2.5
+
+func play_clean_pulse() -> void:
+	var parent: Node = get_parent()
+	if parent == null:
+		return
+
+	var ring_mi: MeshInstance3D = MeshInstance3D.new()
+	var torus: TorusMesh = TorusMesh.new()
+	torus.inner_radius = RADIUS * 1.5
+	torus.outer_radius = RADIUS * 2.2
+	ring_mi.mesh = torus
+
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color     = PULSE_COLOR
+	mat.shading_mode     = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency     = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.no_depth_test    = true   ## reads clearly even if it expands past nearby pipes/walls — same convention WireSegment's ghost material uses
+	ring_mi.set_surface_override_material(0, mat)
+
+	parent.add_child(ring_mi)
+	ring_mi.global_position = global_position
+	ring_mi.scale = Vector3.ONE * PULSE_START_SCALE
+
+	var tween: Tween = create_tween()
+	tween.set_parallel(true)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(ring_mi, "scale", Vector3.ONE * PULSE_END_SCALE, PULSE_DURATION)
+	tween.tween_property(mat, "albedo_color:a", 0.0, PULSE_DURATION)
+	tween.chain().tween_callback(ring_mi.queue_free)
 
 
 # ─── Orientation + mesh ───────────────────────────────────────────────────────

@@ -40,6 +40,24 @@ uniform float phase_offset : hint_range(0.0, 10000.0) = 0.0;   // world units, s
 // there.
 uniform bool has_flow = false;   // set from WaterPipeSegment.set_has_flow()
 
+// ─── Dual quality/purity lanes (Jul 2026) ───────────────────────────────────
+// The scrolling arrow band is split into two adjacent half-width lanes
+// around the pipe's circumference instead of one full band — front lane
+// (UV.x in [0, 0.5)) tints by this edge's water QUALITY (red/yellow/green,
+// same WaterQualityColor thresholds used everywhere else in the water UI);
+// back lane (UV.x in [0.5, 1)) tints by whether this edge is PURIFIED (white
+// = raw, light-blue = post-purifier). Both lanes sample the SAME scrolling
+// tile_coord so they move in lockstep — this is purely a "which color tints
+// which half" split, the tiling/phase/scroll math below is untouched. Each
+// lane remaps its own half of UV.x back to a full 0..1 range before
+// sampling, so the arrow texture reads as a complete (not squished) chevron
+// in each half-width lane — see WaterPipeSegment.gd's set_quality_color()/
+// set_purified() for how these get pushed per-segment, and
+// WaterManager._process_purity_and_dual_arrows() for how they're computed.
+uniform vec4 quality_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+uniform vec4 purity_color  : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+
+
 // ─── Cross-joint continuity fix (Jul 2026) ──────────────────────────────────
 // PRIOR bug: the fragment-only version of this shader derived its "position
 // along the pipe" coordinate from UV.y (the mesh's own side-surface V axis)
@@ -110,8 +128,15 @@ void fragment() {
 	// covers every segment with no per-edge sign needed.
 	tile_coord -= TIME * (scroll_speed / tile_world_length);
 
-	vec2 tex_uv = vec2(tile_coord, UV.x);
+	// Split the circumferential band into two adjacent half-width lanes.
+	// Each lane remaps its own half back to a full 0..1 range so the arrow
+	// texture samples as a complete chevron in each lane, not squished.
+	bool front_lane = UV.x < 0.5;
+	float lane_uv = front_lane ? (UV.x * 2.0) : ((UV.x - 0.5) * 2.0);
+
+	vec2 tex_uv = vec2(tile_coord, lane_uv);
 	vec4 tex = texture(arrow_texture, tex_uv);
-	ALBEDO = tex.rgb;
+	vec4 tint = front_lane ? quality_color : purity_color;
+	ALBEDO = tex.rgb * tint.rgb;
 	ALPHA = tex.a;
 }

@@ -45,12 +45,11 @@ const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
 ## 75.01-100% green.
 const QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
 
+## Delegates to WaterQualityColor.get_color() (Jul 2026, extracted shared
+## helper — was a local copy of the same thresholds duplicated from
+## WaterInfoUI.gd before).
 func _quality_color(quality: float) -> Color:
-	if quality <= 50.0:
-		return CRIT_COLOR
-	elif quality <= 75.0:
-		return WARN_COLOR
-	return QUALITY_GOOD_COLOR
+	return WaterQualityColor.get_color(quality)
 const OFF_COLOR:    Color = Color(0.55, 0.55, 0.55, 1.00)
 const ACCENT_TOGGLE: Color = Color(0.30, 0.68, 1.00, 1.00)
 

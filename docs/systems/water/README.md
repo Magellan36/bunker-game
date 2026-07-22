@@ -1539,3 +1539,52 @@ Z-defining waypoint, the corner is now built directly from each side's own
 trustworthy axis (no heuristic, no ambiguity) — the source_pos/dest_pos legs
 at the very start/end of the chain are untouched and still use
 `_build_manhattan_path()`'s existing cosmetic default.
+
+## Purifier clean-pulse + dual quality/purity arrows (Jul 2026 — Feature 1)
+
+Confirmed design answers (Brannon): pulse EVERY purifier on a flipped
+consumer's resolved path; ONE pulse total per recompute pass, deduped by
+purifier; tweened expanding flat ring only (no particle accent); the
+two-lane arrow overlay is the PERMANENT default for every pipe segment in
+every save, not just purified runs.
+
+- **`WaterQualityColor.gd`** (new, `scripts/world/water/`) — extracted shared
+  red/yellow/green quality-color helper (`get_color(quality: float) ->
+  Color`). `WaterInfoUI.gd` / `WaterDispenserUI.gd` both delegate here now
+  instead of keeping their own near-duplicate copy.
+- **`WaterManager._process_purity_and_dual_arrows(hookup_key, directions)`**
+  — called once per `recompute_flow_directions()` pass. Rebuilds a directed
+  adjacency (forward + reverse) from the already-resolved `directions`
+  result (no second flow-direction resolution), then: (1) forward BFS from
+  the hookup computing `is_purified` per edge; (2) diffs current
+  per-consumer purity (`WaterGraph.get_unpurified_reachable_keys()`) against
+  a new persisted `_last_purity_state` dict to detect impure->pure flips;
+  (3) walks the reverse adjacency from each flipped consumer back to the
+  hookup collecting every `"purifier"`-role node crossed into a deduped
+  set, then pulses each exactly once. `_purity_state_seeded` guards the
+  very first post-load recompute from firing a false pulse burst. Returns
+  `edge_id -> bool` (is_purified) consumed by the existing per-segment push
+  loop to also set `quality_pct` (100.0 if purified, else the hookup's raw
+  `water_quality`).
+- **`WaterManager._find_purifier_by_key(key)`** (new) — purifier nodes are
+  registered without a `consumer_ref`, so scans a new `"water_purifier"`
+  group (tagged in `WaterPurifier._ready()`) by `node_key`, same shape as
+  `find_pipe_visual()`'s `"water_pipe_visual"` scan.
+- **`WaterPurifier.play_clean_pulse()`** (new) — `TorusMesh` (lies flat in
+  XZ already), unshaded/alpha/`no_depth_test` material, tweens scale
+  `0.3->2.5` and alpha `->0.0` over 0.4s, frees itself on completion.
+- **`pipe_flow.gdshader`** — added `quality_color`/`purity_color` uniforms;
+  the scrolling arrow band splits into two adjacent half-width lanes via a
+  `UV.x < 0.5` test, each remapped to a full 0..1 range so both lanes sample
+  a complete (not squished) chevron. Same shared `tile_coord`/scroll/phase
+  math for both lanes — purely a tint-per-half change.
+- **`WaterPipeSegment.gd`** — `PURITY_COLOR_RAW` (white) /
+  `PURITY_COLOR_PURIFIED` (light blue) consts; new `set_quality_color(Color)`
+  / `set_purified(bool)` setters, same shape as the existing flow setters.
+  Both lanes default white until the first recompute push.
+
+**Known scope note:** the forward-BFS purity propagation assumes each node
+has one resolved incoming edge (true for the common tree-like resolved
+network) — a rare diamond-merge topology with two genuinely different-purity
+incoming edges takes whichever the BFS visits first; not exhaustively
+stress-tested.
