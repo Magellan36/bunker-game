@@ -1765,6 +1765,27 @@ the usual debug-log-first approach — summary of what shipped:
     shader's own uniform defaults are just harmless fallbacks now, no longer
     the real source of truth, specifically so this can't silently drift out
     of sync with the ribbon's dimensions again if either ever changes.
+  - **Follow-up fix, same day — spacing tuned (more between pairs, closer
+    within a pair).** Two independent ratio changes, plus one new concept:
+    - `WaterPipeSegment.ARROW_PAIR_GAP_RATIO` raised `0.225 -> 0.7` — the
+      gap between one quality+purity PAIR and the next now reads as
+      clearly more spaced out.
+    - New `intra_pair_gap` shader uniform (world units, can be negative,
+      though only used positive here) — pulls the purity tile's start
+      EARLIER relative to the quality tile it follows, i.e. closer
+      together / slightly overlapping, instead of the previous flush (0
+      gap) touch. Pushed from a new `WaterPipeSegment.ARROW_INTRA_PAIR_GAP_RATIO
+      = 0.3` (relative to one arrow's own corrected length, same
+      derive-from-ribbon-geometry pattern as the other spacing constants).
+    - **Priority tradeoff, worth knowing:** in the small overlapping zone
+      this creates, the quality tile's fragment-shader branch is checked
+      FIRST and always wins — the quality arrow's own content is never
+      clipped; only the purity arrow's leading edge is what's tucked in
+      behind it. Chosen because quality reads as the "front" of the pair
+      and purity trails it, so purity yielding at the seam reads more
+      naturally than the reverse. Flag back if this ever looks wrong in a
+      specific case (e.g. if the intra-pair gap ratio is pushed high enough
+      to visibly eat into the purity arrow's readable shape).
 - **Dispenser UI fill bar/gauge (new, not a bug fix)** — `WaterDispenserUI.gd`
   previously only had the numeric `"STORAGE: X / 5000 mL"` text line; no
   actual bar/gauge graphic existed in the panel (that was easy to conflate
