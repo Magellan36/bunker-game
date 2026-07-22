@@ -82,13 +82,30 @@ const _ARROW_TEXTURE_PATH: String = "res://assets/textures/water/pipe_flow_arrow
 ## with 90%+ of its fragments discarded every frame).
 const ARROW_RIBBON_WIDTH_SCALE: float = 2.2   ## ribbon width = PIPE_RADIUS * this
 const ARROW_RIBBON_CLEARANCE:  float = 0.015  ## extra world-space gap above the pipe surface, avoids z-fighting
-## Inter-pair gap (world units, pipe_flow.gdshader's gap_world_length
-## uniform) — surfaced here as an explicit, named tunable per the plan's
-## optional suggestion, rather than leaving it silently at the shader's own
-## default. Lowered 0.5 -> 0.18 (Jul 2026, Brannon's "arrows not touching,
-## want less space" report) — see pipe_flow.gdshader's own comment for the
-## other half of that same fix (texture content sub-range).
-const ARROW_PAIR_GAP: float = 0.18
+## Native content aspect ratio of pipe_flow_arrow.png's chevron drawing
+## (Jul 2026 fix — "arrows stretched out lengthwise"). ROOT CAUSE: the
+## texture-content-sub-range fix (see pipe_flow.gdshader's own comment)
+## correctly cropped out the padding around each chevron, but nothing
+## shrank `tile_world_length` to match — the arrow's actual ~35px-wide
+## content was still being stretched across the FULL `tile_world_length`
+## (a leftover arbitrary value from the old wrap-around-cylinder design,
+## unrelated to this texture's real proportions), about 7.4x too long.
+## `lane_v` (the shader's cross-width coordinate) maps the texture's FULL
+## 64px height across the ribbon's entire physical width, so 1 texture
+## pixel is worth `ribbon_width / 64` world units on EITHER axis for an
+## undistorted arrow — this constant (measured content width ÷ full
+## texture height, via direct pixel inspection) is used below to derive
+## the correct, un-stretched `tile_world_length` from the ribbon's actual
+## current width, rather than hardcoding a number that would silently go
+## stale again if the ribbon's own dimensions ever change.
+const ARROW_CONTENT_ASPECT: float = 35.0 / 64.0   ## content px width / full texture px height
+## Ratio of the gap between one quality+purity PAIR and the next, relative
+## to one arrow's own (now correctly-sized) length — reapplies the same
+## visual proportion the old fixed 0.18-next-to-0.8 numbers read as, scaled
+## down to match the corrected, much smaller arrow size instead of staying
+## a fixed absolute value that would now read as oversized next to a
+## properly-sized arrow.
+const ARROW_PAIR_GAP_RATIO: float = 0.225
 ## World-units/sec (NOT a UV-rate — see pipe_flow.gdshader's July 2026
 ## world-space-uniform rework: tile size and scroll speed are now both
 ## constant in world-space across all pipe lengths, so this value reads as
@@ -302,10 +319,20 @@ func _build_arrow_overlay(length: float) -> void:
 	## actually resolved its quality/purity state.
 	_arrow_material.set_shader_parameter("quality_color", PURITY_COLOR_RAW)
 	_arrow_material.set_shader_parameter("purity_color", PURITY_COLOR_RAW)
-	## Explicit named tunable (Jul 2026, "arrows not touching" fix) rather
-	## than silently relying on the shader's own uniform default — see
-	## ARROW_PAIR_GAP's own comment.
-	_arrow_material.set_shader_parameter("gap_world_length", ARROW_PAIR_GAP)
+	## Explicit named tunable, derived from the ribbon's ACTUAL current
+	## width (Jul 2026 fix — "arrows stretched out lengthwise"; see
+	## ARROW_CONTENT_ASPECT's own comment for the root cause). Both
+	## `tile_world_length` (one arrow's own correctly-proportioned length)
+	## and `gap_world_length` (spacing between pairs, kept proportional to
+	## that corrected length rather than a now-mismatched fixed value) are
+	## computed here instead of relying on the shader's own defaults, so
+	## they can never silently drift out of sync with the ribbon's
+	## dimensions again.
+	var ribbon_width: float = PIPE_RADIUS * ARROW_RIBBON_WIDTH_SCALE
+	var arrow_tile_length: float = ribbon_width * ARROW_CONTENT_ASPECT
+	var arrow_pair_gap: float = arrow_tile_length * ARROW_PAIR_GAP_RATIO
+	_arrow_material.set_shader_parameter("tile_world_length", arrow_tile_length)
+	_arrow_material.set_shader_parameter("gap_world_length", arrow_pair_gap)
 
 	_arrow_mesh_instance = MeshInstance3D.new()
 	_arrow_mesh_instance.mesh = ribbon_mesh
