@@ -67,7 +67,9 @@ const PRIORITY_MAX: int = 5
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
 const PANEL_W: float = 400.0
-const PANEL_H: float = 430.0
+## Jul 2026: +24 to make room for the new fill bar/gauge row added below
+## STORAGE without changing spacing anywhere else in the panel.
+const PANEL_H: float = 454.0
 
 var _dispenser: WaterDispenser = null
 var _is_open: bool = false
@@ -372,10 +374,28 @@ func _on_draw() -> void:
 	cy += 16.0
 
 	# ── Fill level ───────────────────────────────────────────────────────────
+	## Visual fill bar/gauge (Jul 2026 fix) — this panel previously only had
+	## the numeric "STORAGE: X / 5000 mL" text below; Brannon reported
+	## expecting an actual bar/gauge graphic distinct from that text line
+	## (separate from the 3D dispenser body's own tank_fill.gdshader tint —
+	## that's a different, world-space visual). Same drawn-rect convention
+	## as the demand-priority pips further down this panel — no new Control
+	## nodes, just _canvas.draw_rect() inside this existing _on_draw() pass.
 	_draw_str("STORAGE", Vector2(cx, cy), DIM_COLOR, 10)
 	_draw_str("%.0f / %.0f mL" % [d.current_fill_mL, WaterDispenser.MAX_STORAGE_ML],
 		Vector2(cx, cy + 14.0), TEXT_COLOR, 13)
-	cy += 40.0
+	cy += 32.0
+
+	var fill_frac: float = clampf(d.current_fill_mL / WaterDispenser.MAX_STORAGE_ML, 0.0, 1.0)
+	var bar_w: float = PANEL_W - 48.0
+	var bar_h: float = 14.0
+	var bar_bg: Rect2 = Rect2(cx, cy, bar_w, bar_h)
+	_canvas.draw_rect(bar_bg, Color(0.08, 0.10, 0.12, 0.85), true)
+	if fill_frac > 0.0:
+		var bar_fill: Rect2 = Rect2(cx, cy, bar_w * fill_frac, bar_h)
+		_canvas.draw_rect(bar_fill, Color(OK_COLOR.r, OK_COLOR.g, OK_COLOR.b, 0.85), true)
+	_canvas.draw_rect(bar_bg, Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55), false, 1.0)
+	cy += bar_h + 16.0
 
 	# ── Water quality (Jul 2026) — same label/value styling as STORAGE above,
 	## value colored via the shared red/yellow/green scheme (see

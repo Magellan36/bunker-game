@@ -40,22 +40,30 @@ uniform float phase_offset : hint_range(0.0, 10000.0) = 0.0;   // world units, s
 // there.
 uniform bool has_flow = false;   // set from WaterPipeSegment.set_has_flow()
 
-// ─── Dual quality/purity lanes (Jul 2026) ───────────────────────────────────
-// The scrolling arrow band is split into two adjacent half-width lanes
-// around the pipe's circumference instead of one full band — front lane
-// (UV.x in [0, 0.5)) tints by this edge's water QUALITY (red/yellow/green,
-// same WaterQualityColor thresholds used everywhere else in the water UI);
-// back lane (UV.x in [0.5, 1)) tints by whether this edge is PURIFIED (white
-// = raw, light-blue = post-purifier). Both lanes sample the SAME scrolling
-// tile_coord so they move in lockstep — this is purely a "which color tints
-// which half" split, the tiling/phase/scroll math below is untouched. Each
-// lane remaps its own half of UV.x back to a full 0..1 range before
-// sampling, so the arrow texture reads as a complete (not squished) chevron
-// in each half-width lane — see WaterPipeSegment.gd's set_quality_color()/
-// set_purified() for how these get pushed per-segment, and
-// WaterManager._process_purity_and_dual_arrows() for how they're computed.
+// ─── Dual quality/purity arrows, ceiling-facing strip only (Jul 2026 redesign) ──
+// PRIOR layout: the scrolling arrow band was split into two lanes wrapped
+// around the pipe's full circumference (front half-circumference = quality,
+// back half-circumference = purity) — both always visible somewhere around
+// the pipe depending on viewing angle, seam position arbitrary relative to
+// world "up". Brannon's explicit request: collapse BOTH onto just the
+// ceiling-facing (top) strip of the pipe, as a SEQUENCE running along the
+// pipe's length — quality arrow tile, then purity arrow tile immediately
+// touching it, then a blank gap, then the next pair repeats. Same scrolling/
+// phase/continuity math as before, just re-targeted: the along-pipe
+// coordinate now picks which tile of the repeating [quality][purity][gap]
+// pattern a fragment falls in, instead of picking a single lane's tile.
 uniform vec4 quality_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 uniform vec4 purity_color  : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+
+// World-space gap between one quality+purity pair and the next (Jul 2026
+// redesign) — independent of tile_world_length so pair spacing can be tuned
+// without changing individual arrow size.
+uniform float gap_world_length : hint_range(0.0, 5.0) = 0.5;
+
+// How much of the pipe's circumference (as a dot-product band around world
+// UP) counts as "ceiling-facing" — 1.0 = only the exact top line, lower =
+// wider band. Soft-edged via v_up_dot itself, no hard cutoff artifacts.
+const float UP_BAND_DOT: float = 0.55;
 
 
 // ─── Cross-joint continuity fix (Jul 2026) ──────────────────────────────────
@@ -73,7 +81,7 @@ uniform vec4 purity_color  : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 // continuous crawl (reported July 2026).
 //
 // FIX: build the upstream->downstream coordinate from VERTEX space instead
-// of UV, ONCE, before any scaling — WaterPipeSegment._rebuild_mesh()'s
+// of UV, ONCE, before any scaling — WaterPipeSegment.gd's _rebuild_mesh()'s
 // look_at() + fixed 90-degree local-X rotation setup always orients the
 // cylinder's local +Y axis toward point_b (provable directly from that fixed
 // rotation composition, independent of the segment's world orientation), so
@@ -85,15 +93,35 @@ uniform vec4 purity_color  : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 // separate mirror step left to fall out of sync with the phase math.
 varying float v_ab_uv;
 
+// World-space "facing up" test (Jul 2026, ceiling-strip redesign) — computed
+// once per vertex from the object's own normal transformed to world space,
+// so the visible band is stable in world orientation regardless of how this
+// segment's mesh is locally rotated to point along its pipe direction.
+varying float v_up_dot;
+
 void vertex() {
 	// 0.0 at point_a's cap, 1.0 at point_b's cap — see comment block above.
 	v_ab_uv = clamp((VERTEX.y / pipe_length) + 0.5, 0.0, 1.0);
+
+	vec3 world_normal = normalize((MODEL_NORMAL_MATRIX * NORMAL));
+	v_up_dot = dot(world_normal, vec3(0.0, 1.0, 0.0));
 }
 
 void fragment() {
 	if (!build_mode_visible || !has_flow) {
 		discard;
 	}
+
+	// Only the ceiling-facing strip of the pipe's circumference shows arrows
+	// now (Jul 2026 redesign) — everywhere else on the cylinder is fully
+	// discarded rather than tinted, so both lanes read as sitting on top of
+	// the pipe instead of wrapping around it.
+	if (v_up_dot < UP_BAND_DOT) {
+		discard;
+	}
+	// Soft-edged cross-section coordinate (0 at the band's outer edge, 1 at
+	// dead-center-top) — purely cosmetic width falloff, not a hard seam.
+	float lane_v = clamp((v_up_dot - UP_BAND_DOT) / (1.0 - UP_BAND_DOT), 0.0, 1.0);
 
 	// along_uv: 0 at THIS edge's upstream endpoint, 1 at its downstream
 	// endpoint, regardless of whether that's point_a or point_b — same
@@ -113,30 +141,37 @@ void fragment() {
 	// math or WaterPipeSegment.set_flow_sign()'s meaning at all.
 	float along_uv = flow_sign > 0.0 ? (1.0 - v_ab_uv) : v_ab_uv;
 
-	// Rescale from "0..1 across this whole segment" to "0..(real world tiles
-	// across this segment)" so tile size is constant in world-space
-	// regardless of segment length, then add this segment's phase offset
-	// (also in tile units) so the pattern continues seamlessly from the
-	// upstream joint instead of restarting at 0.
-	float tiles_per_segment = pipe_length / tile_world_length;
-	float phase_tiles = phase_offset / tile_world_length;
-	float tile_coord = along_uv * tiles_per_segment + phase_tiles;
+	// World-space distance along the whole pipe RUN (continuous across
+	// joints via phase_offset), scrolling toward downstream over time.
+	float world_dist = along_uv * pipe_length + phase_offset;
+	world_dist -= TIME * scroll_speed;
 
-	// Scroll at a constant world-units/sec rate, toward downstream — the
-	// direction is already fully encoded by along_uv increasing away from
-	// the hookup on every edge uniformly, so a single subtraction here
-	// covers every segment with no per-edge sign needed.
-	tile_coord -= TIME * (scroll_speed / tile_world_length);
+	// Repeating [quality tile][purity tile][gap] pattern, each pair
+	// touching (no gap between the two tiles of one pair), then a blank gap
+	// before the next pair starts (Jul 2026 redesign).
+	float period = tile_world_length * 2.0 + gap_world_length;
+	// GLSL mod() on a negative value still returns a value in [0, period) as
+	// long as period > 0, matching GLSL's floored-mod semantics — safe for
+	// world_dist going negative as TIME increases.
+	float local_pos = mod(world_dist, period);
 
-	// Split the circumferential band into two adjacent half-width lanes.
-	// Each lane remaps its own half back to a full 0..1 range so the arrow
-	// texture samples as a complete chevron in each lane, not squished.
-	bool front_lane = UV.x < 0.5;
-	float lane_uv = front_lane ? (UV.x * 2.0) : ((UV.x - 0.5) * 2.0);
+	vec4 tex = vec4(0.0);
+	vec4 tint = vec4(1.0);
+	if (local_pos < tile_world_length) {
+		// Quality tile.
+		float tex_u = local_pos / tile_world_length;
+		tex = texture(arrow_texture, vec2(tex_u, lane_v));
+		tint = quality_color;
+	} else if (local_pos < tile_world_length * 2.0) {
+		// Purity tile, immediately after (touching) the quality tile.
+		float tex_u = (local_pos - tile_world_length) / tile_world_length;
+		tex = texture(arrow_texture, vec2(tex_u, lane_v));
+		tint = purity_color;
+	} else {
+		// Gap between pairs — fully transparent, nothing sampled.
+		discard;
+	}
 
-	vec2 tex_uv = vec2(tile_coord, lane_uv);
-	vec4 tex = texture(arrow_texture, tex_uv);
-	vec4 tint = front_lane ? quality_color : purity_color;
 	ALBEDO = tex.rgb * tint.rgb;
 	ALPHA = tex.a;
 }
