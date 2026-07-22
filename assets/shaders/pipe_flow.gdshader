@@ -1,13 +1,12 @@
 shader_type spatial;
-// cull_disabled (Jul 2026 fix — see "arrows completely gone" below): the
-// ceiling-strip redesign discards fragments based on world-space UP-facing
-// normal (v_up_dot), but pipes are ceiling-mounted and the player views them
-// from BELOW — the upward-facing polygons we want to keep are exactly the
-// back-facing ones from the camera's viewpoint below. With `cull_back`,
-// those polygons were removed by backface culling before the fragment
-// shader's discard() ever ran, so nothing was left to show — arrows read as
-// totally gone. `cull_disabled` renders both sides; the discard() in
-// fragment() is what actually decides visibility now, same as before.
+// cull_disabled (kept deliberately, Jul 2026 ribbon rewrite): the arrow
+// overlay is now a thin flat ribbon mounted just above the pipe rather than
+// a wrap-around cylinder (see the "Arrow shape distortion" section in
+// docs/systems/water/README.md for why). A flat quad's visible face depends
+// on winding/orientation, and this project has already been bitten twice by
+// wrong-side-culling assumptions on this exact shader (see the "arrows
+// completely gone" history below) — cull_disabled costs nothing extra for a
+// 2-triangle ribbon and removes that entire class of regression risk.
 render_mode unshaded, blend_mix, cull_disabled, depth_draw_never;
 
 // pipe_flow.gdshader — build-mode-only scrolling arrow overlay for water
@@ -72,11 +71,6 @@ uniform vec4 purity_color  : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 // spacing can still be tuned without changing individual arrow size.
 uniform float gap_world_length : hint_range(0.0, 5.0) = 0.18;
 
-// How much of the pipe's circumference (as a dot-product band around world
-// UP) counts as "ceiling-facing" — 1.0 = only the exact top line, lower =
-// wider band. Soft-edged via v_up_dot itself, no hard cutoff artifacts.
-const float UP_BAND_DOT = 0.55;
-
 
 // ─── Cross-joint continuity fix (Jul 2026) ──────────────────────────────────
 // PRIOR bug: the fragment-only version of this shader derived its "position
@@ -105,18 +99,15 @@ const float UP_BAND_DOT = 0.55;
 // separate mirror step left to fall out of sync with the phase math.
 varying float v_ab_uv;
 
-// World-space "facing up" test (Jul 2026, ceiling-strip redesign) — computed
-// once per vertex from the object's own normal transformed to world space,
-// so the visible band is stable in world orientation regardless of how this
-// segment's mesh is locally rotated to point along its pipe direction.
-varying float v_up_dot;
-
 void vertex() {
 	// 0.0 at point_a's cap, 1.0 at point_b's cap — see comment block above.
+	// Still valid unchanged for the new flat ribbon mesh: WaterPipeSegment.
+	// _build_arrow_overlay()'s ribbon quad uses the exact same local-Y-is-
+	// length-axis convention the old CylinderMesh used (Y centered on
+	// origin, -pipe_length/2..+pipe_length/2), specifically so this line
+	// and everything below it (tiling/phase/scroll/direction) needs zero
+	// changes for the mesh-shape rewrite.
 	v_ab_uv = clamp((VERTEX.y / pipe_length) + 0.5, 0.0, 1.0);
-
-	vec3 world_normal = normalize((MODEL_NORMAL_MATRIX * NORMAL));
-	v_up_dot = dot(world_normal, vec3(0.0, 1.0, 0.0));
 }
 
 void fragment() {
@@ -124,16 +115,16 @@ void fragment() {
 		discard;
 	}
 
-	// Only the ceiling-facing strip of the pipe's circumference shows arrows
-	// now (Jul 2026 redesign) — everywhere else on the cylinder is fully
-	// discarded rather than tinted, so both lanes read as sitting on top of
-	// the pipe instead of wrapping around it.
-	if (v_up_dot < UP_BAND_DOT) {
-		discard;
-	}
-	// Soft-edged cross-section coordinate (0 at the band's outer edge, 1 at
-	// dead-center-top) — purely cosmetic width falloff, not a hard seam.
-	float lane_v = clamp((v_up_dot - UP_BAND_DOT) / (1.0 - UP_BAND_DOT), 0.0, 1.0);
+	// Cross-section (arrow width) coordinate (Jul 2026 ribbon rewrite): the
+	// old cylinder-based version derived this from a per-fragment world-
+	// normal dot product (v_up_dot), which is a COSINE of the angle around
+	// the pipe's circumference — non-linear, and additionally warped by the
+	// pipe mesh's low (10-sided) polygon count within the narrow visible
+	// band, producing visibly kinked/zigzag "M"-shaped chevrons. A flat
+	// ribbon quad has no circumference and no cosine term at all — UV.x is
+	// already perfectly linear across the ribbon's width by construction,
+	// so no remapping is needed here at all.
+	float lane_v = UV.x;
 
 	// along_uv: 0 at THIS edge's upstream endpoint, 1 at its downstream
 	// endpoint, regardless of whether that's point_a or point_b — same
