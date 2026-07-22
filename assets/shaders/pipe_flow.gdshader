@@ -65,9 +65,12 @@ uniform vec4 quality_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 uniform vec4 purity_color  : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 
 // World-space gap between one quality+purity pair and the next (Jul 2026
-// redesign) — independent of tile_world_length so pair spacing can be tuned
-// without changing individual arrow size.
-uniform float gap_world_length : hint_range(0.0, 5.0) = 0.5;
+// redesign). Default lowered 0.5 -> 0.18 (Jul 2026 fix, Brannon's "arrows
+// not touching, want less space" report, sub-cause B) — was reading as
+// visibly wide once the padding fix below (sub-cause A) made the arrows
+// within a pair sit flush; independent of tile_world_length so pair
+// spacing can still be tuned without changing individual arrow size.
+uniform float gap_world_length : hint_range(0.0, 5.0) = 0.18;
 
 // How much of the pipe's circumference (as a dot-product band around world
 // UP) counts as "ceiling-facing" — 1.0 = only the exact top line, lower =
@@ -166,24 +169,28 @@ void fragment() {
 
 	vec4 tex = vec4(0.0);
 	vec4 tint = vec4(1.0);
-	// ARROW_TEXTURE_PERIOD (Jul 2026 fix — "2 arrows squished side by side"):
-	// pipe_flow_arrow.png bakes TWO chevrons side by side within its own
-	// 0..1 width (a leftover from the pre-redesign single-lane layout, which
-	// wrapped that same texture around the pipe's full circumference and
-	// wanted 2 repeats per loop). Sampling the full 0..1 range for what's
-	// now meant to be exactly ONE arrow tile showed both baked chevrons
-	// squished into it. Fix: scale tex_u into the texture's own 0..0.5
-	// sub-range (one full period of its baked-in repeat) instead of 0..1,
-	// so each tile shows exactly one chevron.
-	const float ARROW_TEXTURE_PERIOD = 0.5;
+	// ARROW_CONTENT_START/WIDTH (Jul 2026 fix — "arrows not touching, want
+	// less space", sub-cause A): pipe_flow_arrow.png's two baked chevrons
+	// each have heavy transparent padding around them within their own
+	// 0..0.5 half (confirmed via direct alpha-channel column inspection —
+	// opaque content only spans pixel columns 15-50 of the texture's 128px
+	// width, i.e. normalized 0.1172-0.3906). The OLD `ARROW_TEXTURE_PERIOD =
+	// 0.5` sampled that ENTIRE padded half per tile — tile boundaries did
+	// touch exactly (that math was already correct), but because each tile
+	// sampled the full padded range, the VISIBLE gap between two "touching"
+	// chevrons worked out to a real, non-zero gap regardless. Fix: sample
+	// only the measured opaque content sub-range instead of the full
+	// padded half, so the visible chevrons themselves sit flush.
+	const float ARROW_CONTENT_START = 0.1172;
+	const float ARROW_CONTENT_WIDTH = 0.2734;   // 0.3906 - 0.1172
 	if (local_pos < tile_world_length) {
 		// Quality tile.
-		float tex_u = (local_pos / tile_world_length) * ARROW_TEXTURE_PERIOD;
+		float tex_u = ARROW_CONTENT_START + (local_pos / tile_world_length) * ARROW_CONTENT_WIDTH;
 		tex = texture(arrow_texture, vec2(tex_u, lane_v));
 		tint = quality_color;
 	} else if (local_pos < tile_world_length * 2.0) {
 		// Purity tile, immediately after (touching) the quality tile.
-		float tex_u = ((local_pos - tile_world_length) / tile_world_length) * ARROW_TEXTURE_PERIOD;
+		float tex_u = ARROW_CONTENT_START + ((local_pos - tile_world_length) / tile_world_length) * ARROW_CONTENT_WIDTH;
 		tex = texture(arrow_texture, vec2(tex_u, lane_v));
 		tint = purity_color;
 	} else {
