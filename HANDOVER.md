@@ -1,6 +1,60 @@
 # Handover — BunkerGame
 
-## Status (latest, Jul 2026): UI Kit + Notifications plan steps 1-4 DONE, plus new notification history panel (pause menu) DONE — NOT YET in-editor confirmed
+## Status (latest, Jul 2026): Toast format reworked back to old look/position — NOT YET in-editor confirmed
+
+### Toast format rework (this session — Brannon disliked the top-right domain-tinted card look)
+Brannon wanted the LIVE toast look/position reverted to the old
+pre-`NotificationManager` `HUD.show_soft_warning()` style (long rectangle
+centered above the inventory bar, filled with the severity color) — same
+underlying queue/severity logic as steps 1-4, just a visual/position
+rework, confirmed via 4 clarifying questions before writing code:
+- **Shape/position:** back to a rectangle centered above the inventory bar
+  (matches `show_soft_warning()`'s old position), NOT the old top-right
+  stack.
+- **Fill:** solid severity color, semi-transparent (not fully opaque) —
+  `TOAST_FILL_ALPHA = 0.62`, using the existing `SEVERITY_COLOR_INFO/
+  WARNING/CRITICAL` hexes directly as the fill instead of a thin accent
+  bar.
+- **Border:** every toast also gets a dark semi-transparent border —
+  `TOAST_BORDER_COLOR = rgba(0,0,0,0.55)`, `TOAST_BORDER_WIDTH = 2.0`.
+- **Stacking:** kept the real queue (not a one-at-a-time replace like the
+  old system) — stacks vertically above the inventory bar, newest toast
+  closest to the bar, older ones pushed upward.
+- Text stays the same 13px size via `UIKit.draw_shadowed_text()`, just a
+  new fixed light `TOAST_TEXT_COLOR` for contrast against the colored fill
+  (domain no longer tints the toast itself — severity is the only signal
+  a toast needs now).
+
+**Implementation (`NotificationManager.gd`):**
+- `_on_draw()` rewritten: no more `STACK_MARGIN`/top-right math. Toasts are
+  centered horizontally; vertical anchor comes from looking up
+  `get_first_node_in_group("hud")` and reading its public `inventory_hud`
+  Control's `get_global_rect().position.y` (`GAP_ABOVE_BAR = 12.0` above
+  it). Falls back to `FALLBACK_BOTTOM_MARGIN = 140.0` from the bottom of
+  the viewport if no HUD is in the current scene. Iterates `_queue` in
+  reverse (newest first) so the newest toast lands closest to the bar.
+- `HUD.gd`: added `add_to_group("hud")` in `_ready()` specifically so this
+  global autoload (outside HUD's own scene tree) can find `inventory_hud`
+  without a hardcoded node path.
+- `_draw_toast()` rewritten: draws a solid severity-color fill rect
+  (`TOAST_FILL_ALPHA`), a dark border rect, and the message text — deleted
+  the old `UIKit.draw_panel()`/domain-theme call and the thin left accent
+  bar. Removed the now-dead `_theme_with_alpha()` helper (only existed to
+  fade the old domain-tinted panel).
+- `NotificationHistoryUI.gd` (pause-menu history rows) updated to **match**
+  the new toast look — each row is now a `PanelContainer` styled with the
+  same `TOAST_FILL_ALPHA` severity fill + `TOAST_BORDER_COLOR`/
+  `TOAST_BORDER_WIDTH` border + `TOAST_TEXT_COLOR` text (constants reused
+  directly from `NotificationManager`, not redefined), replacing the old
+  thin accent-bar + domain-tinted-text row style. Removed the now-unused
+  `ACCENT_W` const.
+- Verified via `tools/godot_check.sh` → `PASS`. `docs/systems/ui/README.md`
+  updated same commit (toast look/position + history row style sections
+  rewritten).
+- **Next when resumed:** get Brannon's in-editor visual confirmation —
+  not yet tested in the actual game, only parse-verified.
+
+## Status (prior, Jul 2026): UI Kit + Notifications plan steps 1-4 DONE, plus new notification history panel (pause menu) DONE — NOT YET in-editor confirmed
 Implementing `PLAN_ui_kit_and_notifications` (shared `UIKit.gd` + central
 `NotificationManager` toast system), per the plan's own Part 3 order of
 operations. Steps 1-4 done, parse-verified via `tools/godot_check.sh`, NOT
