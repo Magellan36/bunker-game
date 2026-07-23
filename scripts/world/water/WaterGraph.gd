@@ -282,7 +282,49 @@ func get_unpurified_reachable_keys(hookup_key: String) -> Dictionary:
 	return visited
 
 
-# ─── Flow-direction (build-mode arrow overlay, Jul 2026) ─────────────────────
+## Returns every "purifier"-role node key crossed on the BFS-shortest path
+## from `hookup_key` to `target_key` (Jul 2026, Purifier Filter plan §3.3 —
+## multi-purifier output-quality resolution). Fresh, un-cached BFS every
+## call — deliberately NOT sharing/caching WaterManager's directed
+## recompute-time adjacency (a plan-suggested alternative): a purifier's
+## OWN output quality changes continuously (filter depletion ticks every
+## frame, same category of problem the "quality arrow stuck green" bug
+## already taught this project to watch for — see docs/systems/water/
+## README.md), so the call site always needs a live re-evaluation anyway;
+## keeping the TOPOLOGY lookup here uncached too avoids a second, separate
+## staleness class entirely and matches this file's own established
+## "compute on demand" convention (see get_unpurified_reachable_keys()
+## immediately above, same shape). Same graph-walk cost as that function —
+## no new expense category, just one more BFS of the same size.
+## Only the ONE resolved BFS-shortest path is considered (not every
+## possible path) — consistent with how compute_flow_directions() and
+## get_unpurified_reachable_keys() already only ever reason about one
+## resolved tree, not an exhaustive multi-path search; a rare diamond
+## topology takes whichever path BFS visits first, same known limitation
+## already documented for the purity-flip/pulse system.
+func get_purifiers_on_path(hookup_key: String, target_key: String) -> Array[String]:
+	var result: Array[String] = []
+	if not _water_nodes.has(hookup_key) or not _water_nodes.has(target_key):
+		return result
+	var visited: Dictionary = { hookup_key: true }
+	var purifiers_so_far: Dictionary = { hookup_key: [] as Array[String] }
+	var queue: Array = [hookup_key]
+	while not queue.is_empty():
+		var current: String = queue.pop_front()
+		if current == target_key:
+			return purifiers_so_far.get(current, [])
+		var current_purifiers: Array[String] = purifiers_so_far.get(current, [])
+		var current_role: String = _water_nodes.get(current, {}).get("role", "")
+		var forward_purifiers: Array[String] = current_purifiers.duplicate()
+		if current_role == "purifier" and not forward_purifiers.has(current):
+			forward_purifiers.append(current)
+		for neighbor: String in _adjacency.get(current, []):
+			if visited.has(neighbor):
+				continue
+			visited[neighbor] = true
+			purifiers_so_far[neighbor] = forward_purifiers
+			queue.append(neighbor)
+	return result
 ## Returns edge_id -> { "a_is_upstream": bool, "phase_offset": float }.
 ## `a_is_upstream` true if the edge's stored "a" endpoint is the upstream
 ## (closer to hookup) side, false if "b" is — consumers use this to decide

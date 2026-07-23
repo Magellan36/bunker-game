@@ -116,6 +116,9 @@ static func insert_purifier_at(scene_root: Node, wm: WaterManager, candidate: Di
 	purifier.global_position = split_pos
 	purifier.node_key = new_key
 	purifier.orient_along(pos_a, pos_b)
+	## Purifier Filter plan (Jul 2026) — two fresh starting filters, dropped
+	## nearby (see WaterPurifier.spawn_starting_filters()'s own comment).
+	purifier.spawn_starting_filters()
 
 	var edge_a: String = wm.register_edge(key_a, new_key)
 	if not edge_a.is_empty():

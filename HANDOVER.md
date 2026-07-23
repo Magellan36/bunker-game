@@ -75,6 +75,42 @@ shader-compile harness (confirmed correct computed values: `tile_world_length
 ≈ 0.108`, `gap_world_length ≈ 0.024`) plus `godot_check.sh`. **Please
 pull and confirm arrows now read as correctly-sized, not stretched.**
 
+## Status (latest, Jul 2026): Purifier Filter system implemented in full, NOT YET CONFIRMED in-editor
+Full attached audit/design plan implemented in one pass — new
+`PurifierFilterItem.gd` (fresh/used states, one script), `WaterPurifier.gd`
+filter depletion (10 in-game days) + `get_output_quality() = 50 +
+filter_quality*0.5` + `replace_filter()`/`spawn_starting_filters()`,
+`WaterInfoUI.gd`'s purifier panel gets a live FILTER QUALITY bar and no
+longer hardcodes output at 100%, and every place that used to flatten
+purified water to `100.0` (`WaterManager.get_received_rate_mL()`, the
+per-edge dual-arrow color push, the periodic quality-color refresh tick)
+now resolves the real graduated number via a new shared
+`_resolve_output_quality()` helper + `WaterGraph.get_purifiers_on_path()`.
+
+**Two deliberate deviations from the plan, both documented in
+`docs/systems/water/README.md`'s new Purifier Filter section:**
+1. Multi-purifier resolution uses a fresh, un-cached `WaterGraph` BFS every
+   call instead of the plan's suggested cached-directed-adjacency reuse —
+   avoids a second staleness class on top of the already-known "quality
+   arrow stuck green" lesson (a purifier's own output changes continuously,
+   independent of when the graph topology last changed).
+2. Shelf storage: checked `Shelving.gd`'s ACTUAL current code (it already
+   stores real node references, not a plain count, per the plan's own
+   instruction to verify before assuming) and found the plan's stated
+   data-loss risk doesn't apply — so BOTH fresh and Used filters are
+   shelf-storable, not just fresh ones.
+
+Verified via headless functional test harnesses (not just parse-check) —
+confirmed the exact formula values (`75.0`/`50.0`/`100.0` at filter
+`50/0/100`), `get_purifiers_on_path()` correctly finding the purifier on a
+constructed hookup->purifier->endpoint graph, `_resolve_output_quality()`
+returning the correct worst-case number, and `replace_filter()` correctly
+ejecting a Used item with the old quality, installing the new one, and
+freeing the consumed item. Plus `godot_check.sh` (parse/type only).
+**Full in-editor playtest still needed** — see the plan's §6 checklist
+(reproduced in the README section) before starting anything else on this
+system.
+
 ## Follow-up (same day) — spacing tuned, pushed `3172537`
 Brannon asked for more space between quality/purity PAIRS, and the quality
 and purity arrows WITHIN one pair pulled closer together. Shipped:
@@ -316,7 +352,10 @@ position/cash/clock) to cover:
   `WaterManager.get_pipe_network_for_save()` only persists `"corner"`/
   `"pipe_joint"` roled nodes today; a `"purifier"` node (and both edges
   touching it) is silently dropped by save/load. Close this as part of the
-  save/load pass.
+  save/load pass. **Also add (Jul 2026, Purifier Filter plan):**
+  `WaterPurifier.filter_quality` (float) and `PurifierFilterItem`'s
+  `is_used`/`filter_quality` fields — same gap category, flagged not
+  solved when the filter system shipped, per that plan's own §5.
 
 **Before starting that session, read (in order):** `AI_CONTEXT.md` →
 `PROJECT_SUMMARY.md` → `docs/systems/world-core/README.md` (existing
