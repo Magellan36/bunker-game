@@ -237,6 +237,40 @@ it's a global "show this text for a while" service reachable from any scene.
   `_connect_power_notification_signals()`), mirroring the pre-existing
   `_connect_power_hud_signals()` pattern. Guarded with `is_connected()`
   checks, safe to call more than once.
+- **Notification history panel (Jul 2026, done):** in addition to the
+  fading live toast stack (`_queue`), `NotificationManager` now keeps a
+  second, independent `_history: Array[Dictionary]` capped at
+  `MAX_HISTORY_LEN = 20` (own eviction, never touched by `_queue`'s
+  fade/expire logic). Every `notify()` call appends `{domain, severity,
+  text, fired_at_msec}` (via `Time.get_ticks_msec()`) and emits
+  `history_changed`. `get_history() -> Array[Dictionary]` returns the
+  history **newest-first** (reversed from internal append order) for
+  direct UI consumption.
+  - New panel: `scripts/ui/notifications/NotificationHistoryUI.gd`
+    (extends `Control`, real `ScrollContainer` + `VBoxContainer` of rows —
+    not hand-drawn immediate-mode, per this project's standing convention).
+    Each row: severity-colored left accent bar (reuses
+    `SEVERITY_COLOR_INFO/WARNING/CRITICAL`), domain-tinted text
+    (`UIKit.theme_for(entry.domain).header`), single-line message, and a
+    right-aligned "Xs ago"/"Xm ago"/"Xh ago" timestamp refreshed every
+    frame while the panel is `visible` (its own lightweight `_process()` —
+    safe because the pause menu does NOT set `SceneTree.paused`).
+  - Visible ONLY inside the pause menu: instantiated as a direct child of
+    `PauseMenuUI` (a `CanvasLayer`, `layer = 200`) — a **sibling** of
+    `_panel`/`_blur_rect`, not nested inside either — so it shows/hides for
+    free with that `CanvasLayer`'s own `visible` toggle in `open()`/
+    `close()`. Also gets `UIFade.fade_in()` in `open()`, matching the
+    project's standing "every panel fades in" convention.
+  - No header, no title, no close button by design — it's a passive
+    sub-panel that lives and dies with the pause menu, not its own modal.
+  - Position: anchored so its top-left sits at roughly
+    (0.75 × viewport width, 0.25 × viewport height) — "3/4 right, 3/4 up"
+    (upper-right quadrant, inset from the corner) — clamped so the
+    380×480px panel never overflows the viewport on any resolution;
+    recalculated on `size_changed`.
+  - Newest entry at the **TOP** of this list — the opposite convention
+    from the live toast stack (which appends newest at the bottom) — per
+    Brannon's explicit call for the history view.
   `grid_tripped`/`grid_restored`/`grid_offline` previously ALSO surfaced via
   `HUD.show_soft_warning()` from `MainWorld._on_grid_tripped/restored/
   offline()` — that duplicate ad-hoc text was removed from those three

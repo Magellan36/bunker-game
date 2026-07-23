@@ -45,6 +45,17 @@ enum Severity { INFO, WARNING, CRITICAL }
 
 const MAX_QUEUE_LEN: int = 20
 
+## History cap for the pause-menu notification history panel — separate
+## from MAX_QUEUE_LEN (the fading live-toast stack). Independent array, own
+## cap, own eviction, never touched by the toast fade/expire logic.
+const MAX_HISTORY_LEN: int = 20
+
+## Emitted whenever a new entry is appended to `_history` (i.e. every
+## `notify()` call). NotificationHistoryUI listens to this to refresh its
+## row list live while the pause menu is open, instead of polling every
+## frame.
+signal history_changed
+
 const TOAST_WIDTH:      float = 340.0
 const TOAST_HEIGHT:     float = 48.0
 const TOAST_GAP:        float = 8.0
@@ -66,6 +77,13 @@ const SEVERITY_COLOR_CRITICAL: Color = Color(0x94 / 255.0, 0x30 / 255.0, 0x2b / 
 ## Each entry: { domain: UIKit.Domain, severity: Severity, text: String,
 ##               duration: float, age: float }
 var _queue: Array[Dictionary] = []
+
+## History entries: { domain: UIKit.Domain, severity: Severity, text: String,
+##                     fired_at_msec: int }. Newest LAST here (append-only,
+##                     matches _queue's convention); get_history() reverses
+##                     to newest-first for the UI. Independent of _queue —
+##                     never mutated/expired, only capped at MAX_HISTORY_LEN.
+var _history: Array[Dictionary] = []
 
 var _canvas: Control = null
 
@@ -104,6 +122,24 @@ func notify(domain: UIKit.Domain, severity: Severity, text: String, duration: fl
 		_queue.pop_front()   ## drop oldest first — defensive cap, not expected in normal play
 	if _canvas != null:
 		_canvas.queue_redraw()
+
+	_history.append({
+		"domain":        domain,
+		"severity":      severity,
+		"text":          text,
+		"fired_at_msec": Time.get_ticks_msec(),
+	})
+	if _history.size() > MAX_HISTORY_LEN:
+		_history.pop_front()   ## drop oldest first, same eviction policy as _queue
+	history_changed.emit()
+
+
+## Returns the notification history, NEWEST FIRST (opposite append order of
+## the internal array) — direct consumption order for NotificationHistoryUI.
+func get_history() -> Array[Dictionary]:
+	var out: Array[Dictionary] = _history.duplicate()
+	out.reverse()
+	return out
 
 
 func _process(delta: float) -> void:

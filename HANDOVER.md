@@ -1,6 +1,6 @@
 # Handover — BunkerGame
 
-## Status (latest, Jul 2026): UI Kit + Notifications plan, steps 1-4 DONE (power signal wiring), NOT YET in-editor confirmed
+## Status (latest, Jul 2026): UI Kit + Notifications plan steps 1-4 DONE, plus new notification history panel (pause menu) DONE — NOT YET in-editor confirmed
 Implementing `PLAN_ui_kit_and_notifications` (shared `UIKit.gd` + central
 `NotificationManager` toast system), per the plan's own Part 3 order of
 operations. Steps 1-4 done, parse-verified via `tools/godot_check.sh`, NOT
@@ -55,6 +55,45 @@ commit with the full signal-mapping + duplicate-removal note.
 into Part 3 steps 5-7 (PowerTerminalUI migration, remaining WATER/POWER
 file migrations + new water alert signals, player-stats ThresholdWatcher)
 or pause again for review first.
+
+### Notification history panel (this session, follow-on feature, not part of the plan doc)
+New scrollable **notification history** window — last 20 notifications,
+minimized/condensed rows, visible ONLY inside the pause menu, positioned
+in the upper-right quadrant (~3/4 right, 3/4 up the screen).
+
+- `NotificationManager.gd`: added a second, independent
+  `_history: Array[Dictionary]` (separate from the fading `_queue`), capped
+  at `MAX_HISTORY_LEN = 20` (own eviction, `_queue`'s fade/expire logic
+  untouched). Each entry: `{domain, severity, text, fired_at_msec}` (via
+  `Time.get_ticks_msec()`, not a mutated destructive `age` like `_queue`
+  uses). `notify()` appends to both `_queue` and `_history` and emits new
+  `history_changed` signal. New `get_history() -> Array[Dictionary]`
+  accessor returns **newest-first** for direct UI consumption.
+- New file `scripts/ui/notifications/NotificationHistoryUI.gd` (extends
+  `Control`) — real `ScrollContainer` + `VBoxContainer` of rows (per this
+  project's standing "no immediate-mode for new panels" convention). Row =
+  severity-colored accent bar (reuses `SEVERITY_COLOR_*` consts) +
+  domain-tinted text (`UIKit.theme_for(domain).header`) + "Xs/Xm/Xh ago"
+  timestamp, refreshed every frame while `visible` via its own lightweight
+  `_process()` (safe — pause menu doesn't set `SceneTree.paused`). Listens
+  to `history_changed` to rebuild rows live while the pause menu is open.
+- `PauseMenuUI.gd`: instantiated as a **sibling** of `_panel`/`_blur_rect`
+  (own `_history_ui` var), added at the end of `_build_ui()` — NOT nested
+  inside either, so it shows/hides for free with the CanvasLayer's own
+  `visible` toggle. Also fades in via `UIFade.fade_in(_history_ui)` in
+  `open()`, alongside the existing `_panel` fade-in.
+- Confirmed decisions (Brannon Q&A, all 5 answered before writing code):
+  newest-at-TOP (opposite of live toast stack), live-updating while open,
+  condensed single-line rows with severity dot + timestamp, no header/
+  title/close button (closes automatically with the pause menu), ~380×480px
+  panel anchored at (0.75×vp width, 0.25×vp height) top-left, clamped to
+  viewport, cap of 20 (separate array from the toast queue).
+- Docs: `docs/systems/ui/README.md`'s NotificationManager section extended
+  with a "Notification history panel" subsection, same commit.
+- Verified via `tools/godot_check.sh` → `PASS` after these edits.
+- **Next when resumed:** get Brannon's in-editor visual confirmation
+  (position, row look, live-update behavior while pause menu is open) —
+  not yet tested in the actual editor/game, only parse-verified.
 
 1. **`UIKit.gd`** (`scripts/ui/common/UIKit.gd`, new) — shared theme/drawing
    kit for the hand-drawn immediate-mode panels. `class_name UIKit`, pure
