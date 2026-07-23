@@ -29,3 +29,16 @@ static func fade_in(target: CanvasItem, duration: float = DEFAULT_DURATION) -> v
 	target.modulate.a = 0.0
 	var tw: Tween = target.create_tween()
 	tw.tween_property(target, "modulate:a", 1.0, duration)
+
+## Fade-out counterpart (Jul 2026, added for TransientNotice.gd — the first
+## caller that needed a fade OUT rather than in; every prior panel just
+## hides instantly on close). `on_complete`, if given, runs after the tween
+## finishes — TransientNotice uses this to queue_free() itself rather than
+## leaving that to the caller.
+static func fade_out(target: CanvasItem, duration: float = DEFAULT_DURATION, on_complete: Callable = Callable()) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	var tw: Tween = target.create_tween()
+	tw.tween_property(target, "modulate:a", 0.0, duration)
+	if on_complete.is_valid():
+		tw.tween_callback(on_complete)

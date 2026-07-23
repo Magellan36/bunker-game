@@ -715,6 +715,26 @@ func _find_purifier_by_key(purifier_key: String) -> Node:
 	return null
 
 
+## Purifier QoL plan item 6 (Jul 2026) — lightweight aggregate query, not a
+## dashboard: every registered WaterPurifier at or below the SAME 50%
+## warning threshold item 4's per-purifier notice uses (Brannon's confirmed
+## thresholds note — one number, not two independently-tracked ones).
+## Group-scan-based (same "water_purifier" group every other purifier
+## lookup in this file already uses) so it stays correct automatically as
+## purifiers are added/removed — no separate registry to maintain.
+## Deliberately no dedicated UI hookup yet (plan's own recommendation,
+## flagged in docs/systems/water/README.md) — a typical base has one, maybe
+## two purifiers, and the per-purifier low-filter notice already covers the
+## common case; revisit if/when a base with enough purifiers exists for a
+## persistent "N purifiers need attention" indicator to matter in practice.
+func get_purifiers_needing_attention() -> Array:
+	var out: Array = []
+	for node: Node in get_tree().get_nodes_in_group("water_purifier"):
+		if node is WaterPurifier and (node as WaterPurifier).filter_quality <= 50.0:
+			out.append(node)
+	return out
+
+
 ## Purifier Filter plan (Jul 2026) — the ONE shared helper resolving actual
 ## delivered water quality downstream of a purifier, called from every place
 ## that used to hardcode a flat `100.0` for "purified" water (see this
