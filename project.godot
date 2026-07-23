@@ -21,6 +21,7 @@ WorldManager="*uid://bs5q8ntodn0tk"
 SaveManager="*res://scripts/world/core/SaveManager.gd"
 DeviceDatabase="*uid://beaovkailgag2"
 GraphicsSettings="*res://scripts/core/GraphicsSettings.gd"
+NotificationManager="*res://scripts/ui/notifications/NotificationManager.gd"
 
 [display]
 

@@ -25,21 +25,22 @@ extends CanvasLayer
 
 signal closed
 
-# ─── Palette (matches WaterInfoUI's blue accent — same system, same theme) ───
-const BG_COLOR:     Color = Color(0.06, 0.08, 0.10, 0.97)
-const BORDER_COLOR: Color = Color(0.35, 0.70, 0.95, 0.80)
-const HEADER_COLOR: Color = Color(0.40, 0.75, 1.00, 1.00)
-const TEXT_COLOR:   Color = Color(0.85, 0.92, 0.97, 0.95)
-const DIM_COLOR:    Color = Color(0.50, 0.58, 0.62, 0.80)
-const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
-const WARN_COLOR:   Color = Color(1.00, 0.72, 0.10, 1.00)
-const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
+# ─── Palette ──────────────────────────────────────────────────────────────────
+## Jul 2026, UI Kit migration: this panel is the reference implementation
+## (`UIKit.gd`'s §1.5 step 2 — proves the kit before anything else migrates).
+## Colors below are no longer independently defined here — they're pulled
+## from `UIKit.theme_for(UIKit.Domain.WATER)`, which copies these exact
+## values verbatim (see UIKit.gd's `_water_theme()`). Kept as local `var`
+## (not `const`) purely because `UIKit.UITheme` is a class instance, not a
+## Color literal. Look/behavior is unchanged — this is a refactor, not a
+## redesign.
+var _theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.WATER)
 
 ## Water QUALITY red/yellow/green scheme (Jul 2026, Brannon's explicit spec)
 ## — mirrored verbatim from WaterInfoUI.gd's own QUALITY_GOOD_COLOR/
 ## _draw_quality_row() (this water UI system duplicates small per-file
 ## helpers rather than sharing a base class; neither panel script has a
-## class_name). Deliberately separate from OK_COLOR above (blue, used for
+## class_name). Deliberately separate from _theme.ok above (blue, used for
 ## the RECEIVING rate's "on target" state — a different meaning).
 ## Thresholds (inclusive boundaries): 0-50% red, 50.01-75% yellow,
 ## 75.01-100% green.
@@ -94,9 +95,7 @@ func _ready() -> void:
 	visible = false
 	set_process(false)
 
-	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
-	if _font == null:
-		_font = ThemeDB.fallback_font
+	_font = UIKit.font()
 
 	_canvas = Control.new()
 	_canvas.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -155,7 +154,7 @@ func _build_controls() -> void:
 func _style_slider(slider: HSlider) -> void:
 	var groove: StyleBoxFlat = StyleBoxFlat.new()
 	groove.bg_color = Color(0.10, 0.13, 0.16, 1.0)
-	groove.border_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45)
+	groove.border_color = Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45)
 	groove.set_border_width_all(1)
 	groove.set_corner_radius_all(3)
 	groove.content_margin_top    = 6.0
@@ -163,7 +162,7 @@ func _style_slider(slider: HSlider) -> void:
 	slider.add_theme_stylebox_override("slider", groove)
 
 	var fill: StyleBoxFlat = StyleBoxFlat.new()
-	fill.bg_color = Color(OK_COLOR.r, OK_COLOR.g, OK_COLOR.b, 0.55)
+	fill.bg_color = Color(_theme.ok.r, _theme.ok.g, _theme.ok.b, 0.55)
 	fill.set_corner_radius_all(3)
 	fill.content_margin_top    = 6.0
 	fill.content_margin_bottom = 6.0
@@ -184,7 +183,7 @@ func _make_grabber_texture() -> Texture2D:
 			var dx: float = float(x) - 6.5
 			var dy: float = float(y) - 6.5
 			if dx * dx + dy * dy <= 42.0:
-				img.set_pixel(x, y, HEADER_COLOR)
+				img.set_pixel(x, y, _theme.header)
 	return ImageTexture.create_from_image(img)
 
 
@@ -318,20 +317,18 @@ func _reposition_controls() -> void:
 	_style_arrow_btn(_inc_btn, d.priority < PRIORITY_MAX)
 
 
+## Jul 2026, UI Kit migration: stylebox construction now delegates to
+## UIKit.button_stylebox() (identical bg/border/corner values, just shared
+## instead of a local copy) — only the per-state hover/enabled dispatch
+## stays here since it's specific to this button's state set.
 func _style_arrow_btn(btn: Button, enabled: bool) -> void:
 	btn.disabled = not enabled
 	if _font != null:
 		btn.add_theme_font_override("font", _font)
 	btn.add_theme_font_size_override("font_size", 22)
-	var base: Color = Color(0.08, 0.11, 0.13, 1.0) if enabled else Color(0.08, 0.09, 0.10, 1.0)
-	var fg:   Color = HEADER_COLOR if enabled else Color(0.30, 0.34, 0.36, 1.0)
+	var fg: Color = _theme.header if enabled else Color(0.30, 0.34, 0.36, 1.0)
 	for sname: String in ["normal", "hover", "pressed", "disabled", "focus"]:
-		var sb: StyleBoxFlat = StyleBoxFlat.new()
-		sb.bg_color = base if sname != "hover" else Color(0.14, 0.20, 0.24, 1.0)
-		sb.border_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55 if enabled else 0.2)
-		sb.set_border_width_all(1)
-		sb.set_corner_radius_all(4)
-		btn.add_theme_stylebox_override(sname, sb)
+		btn.add_theme_stylebox_override(sname, UIKit.button_stylebox(_theme, enabled, sname == "hover"))
 	btn.add_theme_color_override("font_color", fg)
 	btn.add_theme_color_override("font_disabled_color", fg)
 
@@ -348,29 +345,24 @@ func _on_draw() -> void:
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - PANEL_H) * 0.5
 
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
+	UIKit.draw_backdrop(_canvas, vp, 0.60)
 
 	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
-	_canvas.draw_rect(panel, BG_COLOR, true)
-	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
+	UIKit.draw_panel(_canvas, panel, _theme)
 
-	## Close button ×
-	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
-	_canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
-	_canvas.draw_rect(close_rect, CRIT_COLOR, false, 1.5)
-	var cp: Vector2 = close_rect.position
-	var cs: Vector2 = close_rect.size
-	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
-	_canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
+	## Close button × — this file's actual click handling goes through the
+	## real `_close_btn` Button node positioned in `_reposition_controls()`
+	## (unchanged), so the returned hit-rect isn't needed here.
+	UIKit.draw_close_button(_canvas, panel, _theme)
 
 	var cx: float = px + 24.0
 	var cy: float = py + 20.0
 
 	# ── Header ────────────────────────────────────────────────────────────────
-	_draw_str("WATER DISPENSER", Vector2(cx, cy), HEADER_COLOR, 16)
+	_draw_str("WATER DISPENSER", Vector2(cx, cy), _theme.header, 16)
 	cy += 28.0
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0)
+		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45), 1.0)
 	cy += 16.0
 
 	# ── Fill level ───────────────────────────────────────────────────────────
@@ -381,26 +373,21 @@ func _on_draw() -> void:
 	## that's a different, world-space visual). Same drawn-rect convention
 	## as the demand-priority pips further down this panel — no new Control
 	## nodes, just _canvas.draw_rect() inside this existing _on_draw() pass.
-	_draw_str("STORAGE", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("STORAGE", Vector2(cx, cy), _theme.dim, 10)
 	_draw_str("%.0f / %.0f mL" % [d.current_fill_mL, WaterDispenser.MAX_STORAGE_ML],
-		Vector2(cx, cy + 14.0), TEXT_COLOR, 13)
+		Vector2(cx, cy + 14.0), _theme.text, 13)
 	cy += 32.0
 
 	var fill_frac: float = clampf(d.current_fill_mL / WaterDispenser.MAX_STORAGE_ML, 0.0, 1.0)
 	var bar_w: float = PANEL_W - 48.0
 	var bar_h: float = 14.0
-	var bar_bg: Rect2 = Rect2(cx, cy, bar_w, bar_h)
-	_canvas.draw_rect(bar_bg, Color(0.08, 0.10, 0.12, 0.85), true)
-	if fill_frac > 0.0:
-		var bar_fill: Rect2 = Rect2(cx, cy, bar_w * fill_frac, bar_h)
-		_canvas.draw_rect(bar_fill, Color(OK_COLOR.r, OK_COLOR.g, OK_COLOR.b, 0.85), true)
-	_canvas.draw_rect(bar_bg, Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55), false, 1.0)
+	UIKit.draw_bar(_canvas, Rect2(cx, cy, bar_w, bar_h), fill_frac, _theme)
 	cy += bar_h + 16.0
 
 	# ── Water quality (Jul 2026) — same label/value styling as STORAGE above,
 	## value colored via the shared red/yellow/green scheme (see
 	## QUALITY_GOOD_COLOR / _quality_color() above).
-	_draw_str("WATER QUALITY", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("WATER QUALITY", Vector2(cx, cy), _theme.dim, 10)
 	_draw_str("%.0f%%" % d.stored_water_quality,
 		Vector2(cx, cy + 14.0), _quality_color(d.stored_water_quality), 13)
 	cy += 40.0
@@ -411,13 +398,13 @@ func _on_draw() -> void:
 	if wm != null:
 		dynamic_max = wm.get_dynamic_max_mL_per_day(d.get_node_key(), d.priority)
 
-	_draw_str("FLOW RATE", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("FLOW RATE", Vector2(cx, cy), _theme.dim, 10)
 	_draw_str("%.0f mL/day  (%.2f mL/min)" % [d.requested_rate_mL_per_day, d.requested_rate_mL_per_day / 1440.0],
-		Vector2(px + PANEL_W - 190.0, cy), TEXT_COLOR, 11)
+		Vector2(px + PANEL_W - 190.0, cy), _theme.text, 11)
 	cy += 16.0
 	_slider_row_y = cy
 	cy += 30.0
-	_draw_str("Network max right now: %.0f mL/day" % dynamic_max, Vector2(cx, cy), DIM_COLOR, 9)
+	_draw_str("Network max right now: %.0f mL/day" % dynamic_max, Vector2(cx, cy), _theme.dim, 9)
 	cy += 24.0
 
 	# ── Effective (actually received) rate ───────────────────────────────────
@@ -425,26 +412,26 @@ func _on_draw() -> void:
 	if wm != null and not d.get_node_key().is_empty():
 		var info: Dictionary = wm.get_received_rate_mL(d.get_node_key())
 		effective_day = float(info.get("mL_per_day", 0.0))
-	var eff_col: Color = OK_COLOR
+	var eff_col: Color = _theme.ok
 	if not d.is_on:
 		eff_col = OFF_COLOR
 	elif effective_day < d.requested_rate_mL_per_day - 1.0:
-		eff_col = WARN_COLOR
-	_draw_str("RECEIVING", Vector2(cx, cy), DIM_COLOR, 10)
+		eff_col = _theme.warn
+	_draw_str("RECEIVING", Vector2(cx, cy), _theme.dim, 10)
 	_draw_str("%.0f mL/day  (%.2f mL/min)" % [effective_day, effective_day / 1440.0],
 		Vector2(cx, cy + 14.0), eff_col, 13)
 	cy += 40.0
 
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.30), 1.0)
+		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.30), 1.0)
 	cy += 14.0
 
 	# ── On/off pill row ──────────────────────────────────────────────────────
 	_toggle_row_y = cy
 	var trow: Rect2 = Rect2(cx - 4.0, cy - 6.0, PANEL_W - 40.0, 40.0)
 	_canvas.draw_rect(trow, Color(0.10, 0.12, 0.14, 0.70), true)
-	_canvas.draw_rect(trow, Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.30), false, 1.0)
-	_draw_str("DISPENSER", Vector2(cx + 6.0, cy), TEXT_COLOR, 12)
+	_canvas.draw_rect(trow, Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.30), false, 1.0)
+	_draw_str("DISPENSER", Vector2(cx + 6.0, cy), _theme.text, 12)
 	var state_str: String = "ON" if d.is_on else "OFF"
 	var state_col: Color = ACCENT_TOGGLE if d.is_on else OFF_COLOR
 	## Pill switch
@@ -463,11 +450,11 @@ func _on_draw() -> void:
 	cy += 46.0
 
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.30), 1.0)
+		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.30), 1.0)
 	cy += 12.0
 
 	# ── Priority changer ─────────────────────────────────────────────────────
-	_draw_str("DEMAND PRIORITY", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("DEMAND PRIORITY", Vector2(cx, cy), _theme.dim, 10)
 	cy += 18.0
 	_arrow_row_y = cy
 	var row_h: float = 48.0
@@ -504,10 +491,10 @@ func _on_draw() -> void:
 	cy += 20.0
 
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25), 1.0)
+		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.25), 1.0)
 	cy += 12.0
 
-	_draw_str("[◄ ►]  Priority    [ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), DIM_COLOR, 9)
+	_draw_str("[◄ ►]  Priority    [ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), _theme.dim, 9)
 
 	_reposition_controls()
 
@@ -523,8 +510,8 @@ func _tier_name(p: int) -> String:
 
 
 # ─── String helper (matches WaterInfoUI/PowerPriorityUI style) ──────────────
+## Jul 2026, UI Kit migration: delegates to UIKit.draw_shadowed_text() —
+## identical drop-shadow-then-text drawing, now shared instead of a local
+## copy re-implemented in every panel script.
 func _draw_str(text: String, pos: Vector2, color: Color, size: int) -> void:
-	_canvas.draw_string(_font, pos + Vector2(1, 1), text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.65))
-	_canvas.draw_string(_font, pos, text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+	UIKit.draw_shadowed_text(_canvas, pos, text, size, color)

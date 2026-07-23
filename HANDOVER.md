@@ -1,6 +1,71 @@
 # Handover — BunkerGame
 
-## Status (latest, Jul 2026): arrow-texture audit plan fully implemented (`40b9e32`), NOT YET CONFIRMED in-editor
+## Status (latest, Jul 2026): UI Kit + Notifications plan, steps 1-3 DONE, PAUSED before step 4 — awaiting Brannon's go-ahead
+Implementing `PLAN_ui_kit_and_notifications` (shared `UIKit.gd` + central
+`NotificationManager` toast system), per the plan's own Part 3 order of
+operations. Steps 1-3 done this session, parse-verified, NOT yet
+in-editor/visually confirmed by Brannon. **Stopped here on purpose** — step
+4 (wiring real alert sources: `PowerManager`'s `grid_tripped`/
+`grid_restored`/etc. signals, water signals, `PlayerStats` thresholds) needs
+an explicit OK before starting.
+
+1. **`UIKit.gd`** (`scripts/ui/common/UIKit.gd`, new) — shared theme/drawing
+   kit for the hand-drawn immediate-mode panels. `class_name UIKit`, pure
+   `static func`s, `RefCounted`-style (no instance state), same convention
+   as `WaterQualityColor.gd`. `enum Domain { WATER, POWER, NEUTRAL }` +
+   `class UITheme` (bg/border/header/text/dim/ok/warn/crit `Color`s).
+   Water/power theme colors copied **verbatim** from
+   `WaterDispenserUI.gd`/`PowerTerminalUI.gd`'s old consts — refactor, not
+   redesign, zero visual drift. `NEUTRAL` (steel-gray) is new, no prior
+   precedent, used by `NotificationManager`.
+   - **Class named `UITheme`, not `Theme`** — bare `Theme` collided with
+     Godot's built-in `Theme` (Control theme resource) class and produced a
+     cross-script `"argument should be Theme but is Theme"` parse error.
+     Do not rename this back.
+   - Primitives: `font()`, `theme_for()`, `draw_backdrop()`, `draw_panel()`,
+     `draw_close_button()`, `draw_bar()`, `draw_header()`,
+     `draw_shadowed_text()`, `button_stylebox()`.
+2. **`WaterDispenserUI.gd` migration** (reference migration, must look
+   visually IDENTICAL to before) — local const palette replaced with
+   `var _theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.WATER)`; all
+   `_draw()` calls for backdrop/panel/close-button/bar/shadowed-text/arrow
+   button styling now delegate to the matching `UIKit` primitive.
+   `QUALITY_GOOD_COLOR`/`OFF_COLOR`/`ACCENT_TOGGLE`/`PRIO_COLORS`
+   deliberately stayed as local consts (domain-specific, not structural).
+   **Other hand-drawn panels (`PowerTerminalUI`, etc.) are NOT migrated
+   yet** — do the same mechanical migration next time one of those files is
+   touched, not as an unrelated drive-by.
+3. **`NotificationManager.gd`** (`scripts/ui/notifications/`, new) — real
+   project-level autoload (registered in `project.godot` after
+   `GraphicsSettings`), matching `SaveManager`/`WorldManager`/
+   `DeviceDatabase`/`GraphicsSettings`'s pattern (NOT the group-lookup
+   pattern `WaterManager`/`PowerManager`/`PlayerStats` use — a toast has no
+   save-specific world state).
+   - **No `class_name`** on this script — a `class_name` matching its own
+     autoload name causes a `"hides an autoload singleton"` parse error.
+     Same no-`class_name` convention every other autoload in this project
+     already follows.
+   - `notify(domain: UIKit.Domain, severity: Severity, text: String,
+     duration: float = 4.0)`, `enum Severity { INFO, WARNING, CRITICAL }`.
+     Queue: newest at bottom of stack, each toast fades independently over
+     its last 20% of lifetime. `MAX_QUEUE_LEN = 20` (this pass's own
+     default, not yet explicitly confirmed by Brannon). Own `CanvasLayer`
+     at `layer = 220` (above every existing panel layer, previous highest
+     was `GraphicsSettingsPanel`=210), top-right stack, drawn via
+     `UIKit.draw_panel()`.
+   - Nothing calls `notify()` automatically yet — skeleton + rendering
+     only, no signal wiring. That's step 4, paused.
+- Verified via `tools/godot_check.sh` (Godot 4.6.3 headless binary) —
+  `PASS — no script parse/compile errors` after all three steps + the two
+  parse-error fixes above.
+- Full detail in `docs/systems/ui/README.md`'s "UIKit shared kit" and
+  "NotificationManager" sections (added this session, same commit).
+- **Next step when resumed:** confirm step 4 scope/go-ahead with Brannon,
+  then wire `PowerManager`'s `grid_tripped`/`grid_restored`/`brownout_started`
+  /etc. (and water/player-stats signals per the plan's §2.3) to
+  `NotificationManager.notify()` calls.
+
+## Status (Jul 2026): arrow-texture audit plan fully implemented (`40b9e32`), NOT YET CONFIRMED in-editor
 Brannon attached a full audit + fix plan (arrows read as kinked "M" shapes,
 and weren't touching within/between pairs). Implemented in full, as two
 separate commits per the plan's own recommendation:

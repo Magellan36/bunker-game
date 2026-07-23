@@ -41,7 +41,8 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~180), `AdminSpawnMenu.gd` (~215), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, dev spawn menu, sleep fade |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
-| `common/` | `UIFade.gd` (~30) | Shared fade-in helper (see below) — put any future cross-panel UI utility here |
+| `common/` | `UIFade.gd` (~30), `UIKit.gd` (~200) | Shared fade-in helper + shared theme/drawing kit (see "UIKit shared kit" below) — put any future cross-panel UI utility here |
+| `notifications/` | `NotificationManager.gd` (~175) | Central toast/notification system (see "NotificationManager" below) |
 
 ## Public API (representative — not exhaustive, see each panel's own header)
 Every interaction panel follows the same shape: `open(...)` / `close()` /
@@ -145,7 +146,82 @@ own panel on first interact). None of these are autoloads.
 - `BuildModeHUD.gd` (~1010 lines) is a possible future god-object cleanup
   candidate, not currently scheduled.
 
+## UIKit shared kit (Jul 2026)
+`scripts/ui/common/UIKit.gd` — `class_name UIKit`, pure static-function
+`RefCounted` helper (no instance state, no autoload), same convention as
+`WaterQualityColor.gd`. Introduced to stop the hand-drawn immediate-mode
+panels (`WaterDispenserUI`, `PowerTerminalUI`, etc.) from each hand-rolling
+their own palette consts + `_draw_str()`/backdrop/panel/bar boilerplate.
+- **`enum Domain { WATER, POWER, NEUTRAL }`** — picks a color scheme.
+  `WATER`/`POWER` theme colors are copied **verbatim** from
+  `WaterDispenserUI.gd`'s/`PowerTerminalUI.gd`'s pre-existing consts (this
+  was a refactor, not a redesign — no visual drift). `NEUTRAL` (steel-gray)
+  has no prior precedent — introduced for `NotificationManager`'s
+  non-water/power toasts. All three domains reuse the same ok/warn/crit
+  status hues; only bg/border/header/text/dim vary by domain.
+- **`class UITheme`** — plain data holder (`bg`, `border`, `header`, `text`,
+  `dim`, `ok`, `warn`, `crit` — all `Color`). Named `UITheme`, not `Theme`,
+  specifically to avoid colliding with Godot's built-in `Theme` (Control
+  theme resource) class — using bare `Theme` caused a
+  `"argument should be Theme but is Theme"` parse error when referenced
+  from a different script as `UIKit.Theme`. **Never rename this back to
+  `Theme`.**
+- **Static API:** `font()`, `theme_for(domain)`, `draw_backdrop(canvas,
+  vp_size, alpha)`, `draw_panel(canvas, rect, theme, border_width)`,
+  `draw_close_button(canvas, panel_rect, theme)`, `draw_bar(canvas, rect,
+  fill_pct, theme, ...)`, `draw_header(canvas, pos, text, theme, ...)`,
+  `draw_shadowed_text(canvas, pos, text, size, color)`,
+  `button_stylebox(theme, enabled, hover)`.
+- `draw_backdrop()`'s alpha is a caller-supplied param, deliberately NOT
+  unified across callers (`WaterDispenserUI` used 0.60, `PowerTerminalUI`
+  uses 0.65) — unifying it would be an unrequested visual change.
+- **Migration status:** `WaterDispenserUI.gd` fully migrated (reference
+  migration — visually identical, only internals changed:
+  `var _theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.WATER)` replaces
+  the old local const palette; `QUALITY_GOOD_COLOR`, `OFF_COLOR`,
+  `ACCENT_TOGGLE`, `PRIO_COLORS` intentionally stayed as local file consts —
+  domain-specific, not structural, not part of the shared kit).
+  `PowerTerminalUI.gd`/other hand-drawn panels are NOT yet migrated — do it
+  the same mechanical way (replace local palette consts with
+  `UIKit.theme_for(UIKit.Domain.POWER)`, swap `_draw()` calls for the
+  matching `UIKit` primitive) when next touching one of those files, don't
+  do it as a drive-by unless asked.
+- Still applies convention #2 above: this is for the *existing*
+  hand-drawn-immediate-mode panels, not an invitation to start new panels
+  in immediate-mode — new panels still use real `Control` nodes.
+
+## NotificationManager (Jul 2026)
+`scripts/ui/notifications/NotificationManager.gd` — real project-level
+**autoload** (`project.godot` `[autoload]`, registered after
+`GraphicsSettings`), NOT the group-lookup pattern `WaterManager`/
+`PowerManager`/`PlayerStats` use — a toast has no save-specific world state,
+it's a global "show this text for a while" service reachable from any scene.
+- **No `class_name`** on this script — a `class_name` matching the autoload's
+  own name causes a `"hides an autoload singleton"` parse error. Every other
+  autoload in this project (`SaveManager`, `GraphicsSettings`, etc.) follows
+  the same no-`class_name` pattern; keep doing that for any future autoload.
+- Call `NotificationManager.notify(domain: UIKit.Domain, severity:
+  Severity, text: String, duration: float = 4.0)` from anywhere.
+  `enum Severity { INFO, WARNING, CRITICAL }` — `domain` picks WHERE it's
+  from (water/power/neutral color scheme via `UIKit`), `severity` picks HOW
+  urgent within that scheme (tints text + left accent bar: INFO→`theme.text`,
+  WARNING→`theme.warn`, CRITICAL→`theme.crit`).
+- Queue: newest toast appended at the bottom of the on-screen stack (oldest
+  at top), each toast fades independently over its own last 20%
+  (`FADE_TAIL_RATIO`) of `duration`. `MAX_QUEUE_LEN = 20` defensive cap
+  (drops oldest first) — this is this pass's own default, not yet
+  explicitly confirmed by Brannon; revisit if it ever needs tuning.
+- Rendering: own `CanvasLayer` at `layer = 220` (above every other panel
+  layer in the project — `PauseMenuUI`=200 and `GraphicsSettingsPanel`=210
+  were previously the highest), top-right stack, drawn via
+  `UIKit.draw_panel()`/`theme_for(entry.domain)` same as any other panel.
+- **Out of scope so far (paused, needs explicit go-ahead before starting):**
+  wiring real alert sources — `PowerManager`'s `grid_tripped`/
+  `grid_restored`/etc. signals, new water-system signals, `PlayerStats`
+  threshold watching. This pass is the skeleton + manual `notify()` call
+  only; nothing in the game calls it automatically yet.
+
 ## Extension points
-- Any new shared cross-panel utility (like `UIFade`) belongs in
+- Any new shared cross-panel utility (like `UIFade`, `UIKit`) belongs in
   `scripts/ui/common/`, written as a small static-function `RefCounted`
   utility — not duplicated inline per-panel.
