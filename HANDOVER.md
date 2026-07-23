@@ -75,7 +75,41 @@ shader-compile harness (confirmed correct computed values: `tile_world_length
 ≈ 0.108`, `gap_world_length ≈ 0.024`) plus `godot_check.sh`. **Please
 pull and confirm arrows now read as correctly-sized, not stretched.**
 
-## Status (latest, Jul 2026): Purifier Filter system implemented in full, NOT YET CONFIRMED in-editor
+## Status (latest, Jul 2026): Purifier QoL pass (6 items) implemented in full, NOT YET CONFIRMED in-editor
+Follow-up plan to the base Purifier Filter system below (that plan's own
+mechanics — `filter_quality`/`get_output_quality()`/`replace_filter()` —
+were a hard dependency, already shipped). All 6 items done:
+1. **Passive mesh tint** — `WaterPurifier._band_mat` (promoted to a member)
+   re-tints every `_process()` tick via `WaterQualityColor.get_color(filter_quality)`.
+2. **Prompt swap delta** — folded into item 3's prompt color-coding.
+3. **Downgrade confirmation** — new `ConfirmDialogUI.gd`
+   (`scripts/ui/common/`), a reusable parameterized Yes/No dialog modeled
+   on `BuildModeHUD`'s "EXPAND BUNKER" dialog (**that file itself was
+   deliberately left untouched — NOT migrated to the new shared component**,
+   flagged as a follow-up idea only). Downgrade swaps now require
+   Yes/No confirmation; equal-or-better swaps proceed immediately as
+   before. `PurifierFilterItem.get_use_prompt()` colors the `(X% -> Y%)`
+   suffix green/red via BBCode.
+4. **Low-filter warning at 50%** — new `TransientNotice.gd`
+   (`scripts/ui/hud/`), this project's first toast/notification component
+   (none existed before). Fires once per crossing, re-arms above 50%.
+5. **Inventory badge** — `PurifierFilterItem.get_charge_info()`, verified
+   against `InventoryHUD`'s actual size-2-array-or-nothing handling first.
+6. **Aggregate query** — `WaterManager.get_purifiers_needing_attention()`,
+   built as groundwork only; deliberately NO dedicated HUD element wired up
+   yet (plan's own recommendation — a typical base has too few purifiers
+   for it to matter yet).
+
+Verified via a functional headless test harness exercising all 6 items
+together (band tint color, warn/re-arm sequence, aggregate query
+before/after a fix, prompt color+delta text both directions, and the full
+downgrade-confirm-then-swap flow including the dialog's `confirmed` signal
+actually completing the swap) — not just parse-check. Plus
+`tools/godot_check.sh`. **Full in-editor playtest still needed** — see the
+plan's own checklist (7 items) reproduced in
+`docs/systems/water/README.md`'s new "Purifier QoL pass" section.
+
+## Status (prior, Jul 2026): Purifier Filter system implemented in full, NOT YET CONFIRMED in-editor
 Full attached audit/design plan implemented in one pass — new
 `PurifierFilterItem.gd` (fresh/used states, one script), `WaterPurifier.gd`
 filter depletion (10 in-game days) + `get_output_quality() = 50 +

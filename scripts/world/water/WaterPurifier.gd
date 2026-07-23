@@ -47,6 +47,20 @@ const FILTER_LIFESPAN_DAYS: float = 10.0
 ## WaterHookup._info_ui.
 var _info_ui: CanvasLayer = null
 
+## Band material ref (Jul 2026, Purifier QoL plan item 1) — was a local var
+## inside _build_mesh() before; promoted to a member so _refresh_band_tint()
+## can reach it after initial construction. Tinting just the band (not the
+## whole body) mirrors WaterDispenser's tank-fill approach of tinting a
+## specific part of the object rather than recoloring the whole thing — the
+## purifier still clearly reads as "a purifier" at a glance.
+var _band_mat: StandardMaterial3D = null
+
+## One-time low-filter warning trigger (Jul 2026, Purifier QoL plan item 4)
+## — fires once when filter_quality crosses from above 50% to at-or-below,
+## not every frame it stays low. Re-arms if quality goes back above 50%
+## (filter replaced), so a SECOND future depletion warns again.
+var _warned_low: bool = false
+
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
@@ -60,6 +74,7 @@ func _ready() -> void:
 	## "water_pipe_visual" — see WaterManager._find_purifier_by_key().
 	add_to_group("water_purifier")
 	_build_mesh()
+	_refresh_band_tint()
 	## Debug print (Jul 2026, Purifier Filter plan §7) — a 10-in-game-day
 	## depletion is too slow to eyeball-verify without either a fast-forward
 	## cheat or seeing the computed rate once here.
@@ -78,6 +93,40 @@ func _exit_tree() -> void:
 ## re-derived).
 func _process(delta: float) -> void:
 	filter_quality = maxf(0.0, filter_quality - _compute_depletion_per_second() * delta)
+	_refresh_band_tint()
+	_check_low_filter_warning()
+
+## Purifier QoL plan item 1 — tint the yellow warning band by the SAME
+## red/yellow/green thresholds every other quality readout in the game
+## already uses (WaterQualityColor.get_color()), not a separately-tracked
+## scale.
+func _refresh_band_tint() -> void:
+	if _band_mat == null:
+		return
+	_band_mat.albedo_color = WaterQualityColor.get_color(filter_quality)
+
+## Purifier QoL plan item 4 — one-time notice at the SAME 50% threshold
+## WaterQualityColor's own <=50.0 red cutoff uses (Brannon's confirmed
+## thresholds note: these are the same number, not two independently-
+## tracked ones).
+func _check_low_filter_warning() -> void:
+	if filter_quality <= 50.0 and not _warned_low:
+		_warned_low = true
+		_fire_low_filter_notice()
+	elif filter_quality > 50.0 and _warned_low:
+		_warned_low = false
+
+func _fire_low_filter_notice() -> void:
+	var notice_script: GDScript = load("res://scripts/ui/hud/TransientNotice.gd")
+	if notice_script == null:
+		return
+	var notice: CanvasLayer = CanvasLayer.new()
+	notice.set_script(notice_script)
+	get_tree().get_root().add_child(notice)
+	if notice.has_method("show_message"):
+		notice.call("show_message", "Purifier filter below 50%")
+
+
 
 func _compute_depletion_per_second() -> float:
 	var seconds_per_game_day: float = 86400.0   ## real-day fallback if PlayerStats isn't found yet
@@ -288,10 +337,13 @@ func _build_mesh() -> void:
 	body_mat.roughness    = 0.45
 	body_mat.metallic     = 0.55
 
-	var band_mat: StandardMaterial3D = StandardMaterial3D.new()
-	band_mat.albedo_color = COLOR_BAND
-	band_mat.roughness    = 0.60
-	band_mat.metallic     = 0.20
+	## Stored as a member (Jul 2026, Purifier QoL plan item 1), not just a
+	## local — _refresh_band_tint() re-tints this after initial construction
+	## to reflect current filter_quality via WaterQualityColor's thresholds.
+	_band_mat = StandardMaterial3D.new()
+	_band_mat.albedo_color = COLOR_BAND
+	_band_mat.roughness    = 0.60
+	_band_mat.metallic     = 0.20
 
 	## NO extra local rotation on these mesh instances (Jul 2026 fix — was
 	## previously rotation_degrees = Vector3(90,0,0) on both, "CylinderMesh
@@ -324,7 +376,7 @@ func _build_mesh() -> void:
 	band_cyl.height        = LENGTH * 0.22
 	band_cyl.radial_segments = 12
 	band_mi.mesh = band_cyl
-	band_mi.set_surface_override_material(0, band_mat)
+	band_mi.set_surface_override_material(0, _band_mat)
 	add_child(band_mi)
 
 	body_mi.create_trimesh_collision()

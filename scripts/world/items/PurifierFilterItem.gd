@@ -92,6 +92,19 @@ func _physics_process(delta: float) -> void:
 	linear_velocity  = (target - global_position) * speed
 	angular_velocity = Vector3.ZERO
 
+# ─── Inventory charge badge (Jul 2026, Purifier QoL plan item 5) ─────────────
+## InventoryHUD._get_charge_info() calls this if present, expecting
+## [current, max] — a size-2 Array triggers the badge draw
+## (_draw_charge_badge()), anything else (including this empty-Array
+## sentinel) draws no badge at all (confirmed by reading InventoryHUD's own
+## `if charge_info.size() == 2` check before assuming). Fresh filters are
+## always 100% — no useful badge info, so they return no badge at all
+## rather than a redundant "100/100".
+func get_charge_info() -> Array:
+	if not is_used:
+		return []
+	return [int(round(filter_quality)), 100]
+
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_display_name() -> String:
 	if is_used:
@@ -112,10 +125,24 @@ func _find_nearest_purifier() -> WaterPurifier:
 				best = node as WaterPurifier
 	return best
 
+## Color-coded delta (Jul 2026, Purifier QoL plan items 2/3.2) — green when
+## this filter is better-or-equal to what's currently installed, red when
+## worse. Reuses WaterBottle.GOOD_COLOR_HEX/CRIT_COLOR_HEX's exact hex
+## literals (same "duplicated per-file per this project's convention"
+## pattern the rest of the water UI already follows) rather than deriving
+## new ones. InteractPrompt already renders BBCode (confirmed by
+## WaterBottle._fill_quality_bbcode()'s existing [color=#...] usage) — same
+## mechanism, no new prompt-coloring plumbing needed.
+const GOOD_COLOR_HEX: String = "4dd959"
+const CRIT_COLOR_HEX: String = "ff594d"
+
 func get_use_prompt() -> String:
-	if _find_nearest_purifier() == null:
+	var purifier: WaterPurifier = _find_nearest_purifier()
+	if purifier == null:
 		return ""   ## No use prompt away from a purifier — matches WaterBottle's away-from-dispenser case
-	return "[E] Replace Filter"
+	var delta_color: String = GOOD_COLOR_HEX if filter_quality >= purifier.filter_quality else CRIT_COLOR_HEX
+	return "[E] Replace Filter  [color=#%s](%d%% -> %d%%)[/color]" % [
+		delta_color, int(round(purifier.filter_quality)), int(round(filter_quality))]
 
 # ─── Pickup ───────────────────────────────────────────────────────────────────
 func pickup(hold_point: Node3D) -> void:
@@ -135,10 +162,30 @@ func pickup(hold_point: Node3D) -> void:
 ## Does NOT handle the swap logic itself — filter-swap rules stay owned by
 ## WaterPurifier, matching this project's existing manager/node-owns-its-own-
 ## behavior split (WaterDispenser/WaterHookup et al. all follow this shape).
+##
+## Purifier QoL plan item 3 (Jul 2026) — swapping to a LOWER-quality filter
+## is allowed (Brannon: "there will be reasons to swap to lower filters in
+## the future"), but requires an explicit Yes/No confirmation via the new
+## shared ConfirmDialogUI (modeled on BuildModeHUD's "EXPAND BUNKER" dialog,
+## see that file's own header). Equal-or-higher quality swaps proceed
+## immediately, no confirmation — same as before this plan.
 func on_use() -> void:
 	var purifier: WaterPurifier = _find_nearest_purifier()
 	if purifier == null:
 		return
+
+	if filter_quality < purifier.filter_quality:
+		var dlg: ConfirmDialogUI = ConfirmDialogUI.new()
+		get_tree().get_root().add_child(dlg)
+		dlg.open("REPLACE WITH LOWER-QUALITY FILTER?",
+			"%d%% -> %d%%" % [int(round(purifier.filter_quality)), int(round(filter_quality))])
+		dlg.confirmed.connect(func() -> void:
+			purifier.replace_filter(self)   ## purifier reads self.filter_quality, handles the swap + ejection, then frees this instance
+			dlg.queue_free()
+		)
+		dlg.cancelled.connect(dlg.queue_free)
+		return
+
 	purifier.replace_filter(self)   ## purifier reads self.filter_quality, handles the swap + ejection, then frees this instance
 
 # ─── Used-state tint ──────────────────────────────────────────────────────────

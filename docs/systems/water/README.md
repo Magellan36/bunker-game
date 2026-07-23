@@ -1932,3 +1932,74 @@ subsequent reinsertion resumes depletion from that %; a fresh filter shelves
 like a food can and (per the shelf-storage deviation above) so does a Used
 one; a two-purifier-in-series/parallel test confirms the consumer receives
 the WORSE of the two output qualities.
+
+## Purifier QoL pass — 6 items (Jul 2026)
+
+Implemented in full from an attached follow-up plan (depends on the base
+Purifier Filter system above — `filter_quality`/`get_output_quality()`/
+`PurifierFilterItem`/`replace_filter()` all already existed). **Confirmed
+threshold (Brannon):** the warning threshold for items 4 and 6 is **50%**,
+the SAME number as `WaterQualityColor`'s own `<=50.0` red cutoff — not a
+second, independently-tracked constant.
+
+### Item 1 — Passive mesh tint
+`WaterPurifier._band_mat` (promoted from a local var in `_build_mesh()` to
+a member) is re-tinted every `_process()` tick via
+`WaterQualityColor.get_color(filter_quality)` — only the yellow warning
+BAND changes color, not the whole body (mirrors `WaterDispenser`'s
+tank-fill approach of tinting a specific part of the object).
+
+### Item 2 — Prompt shows the swap delta
+Folded into item 3's `get_use_prompt()` change below — the color-coding IS
+the delta display.
+
+### Item 3 — Downgrade confirmation dialog
+New **`ConfirmDialogUI.gd`** (`scripts/ui/common/`) — a reusable, parameterized
+Yes/No dialog (`open(title, subtitle)`, `confirmed`/`cancelled` signals),
+visually modeled on `BuildModeHUD._draw_dig_confirm()`'s "EXPAND BUNKER"
+dialog (same full-screen dim, centered rounded panel, kiwi-green border,
+button color treatment — literal `Color(...)` values reused verbatim so it
+reads as the same dialog family) but NOT hardcoded and usable outside build
+mode. **`BuildModeHUD`'s own dig-confirm was deliberately left untouched —
+not migrated to this shared component.** That's a nice-to-have cleanup
+flagged as a follow-up idea, not done here (touching an already-working
+build-mode dialog carries more regression risk than this QoL pass needs to
+take on) — a future session should NOT assume that migration already
+happened.
+
+`PurifierFilterItem.on_use()`: swapping to a LOWER-quality filter now opens
+`ConfirmDialogUI` (`"REPLACE WITH LOWER-QUALITY FILTER?"` / `"X% -> Y%"`)
+before calling `purifier.replace_filter(self)`; equal-or-higher swaps
+proceed immediately, unchanged. `get_use_prompt()` now colors the
+`(X% -> Y%)` suffix green (held filter better-or-equal) or red (worse) via
+BBCode, reusing `WaterBottle`'s exact `GOOD_COLOR_HEX`/`CRIT_COLOR_HEX`
+literals (`4dd959`/`ff594d`) rather than deriving new ones.
+
+### Item 4 — Low-filter warning at 50%
+New **`TransientNotice.gd`** (`scripts/ui/hud/`) — this codebase had no
+toast/notification system at all before this (checked: `HUD.gd` has no
+transient-message mechanism). Deliberately minimal: one string in, no
+queueing/stacking, shown ~3s then fades out (`UIFade.fade_out()`, a new
+counterpart added to `UIFade.gd` alongside this — the first caller needing
+a fade OUT rather than in) and frees itself. `WaterPurifier._warned_low`
+fires `_fire_low_filter_notice()` exactly once when `filter_quality`
+crosses from above 50% to at-or-below, and re-arms if it goes back above
+(filter replaced). Two purifiers crossing 50% at once just spawn two
+overlapping notices — an accepted rough edge, not solved here (no
+notice-queueing system, out of scope for a pass this size).
+
+### Item 5 — Inventory badge for Used Filters
+`PurifierFilterItem.get_charge_info() -> Array` — `[]` for fresh filters
+(no useful badge, matches `InventoryHUD._get_charge_info()`'s existing
+`charge_info.size() == 2` check drawing nothing for anything else),
+`[int(filter_quality), 100]` for Used ones. Verified against
+`InventoryHUD`'s actual code before wiring this in, not assumed.
+
+### Item 6 — Aggregate query, no dedicated UI (deferred, per the plan)
+`WaterManager.get_purifiers_needing_attention() -> Array` — group-scan
+(`"water_purifier"`, same pattern every other purifier lookup in this file
+uses) returning every purifier at or below 50%. Built as cheap groundwork;
+deliberately NO dedicated "N purifiers need attention" HUD element wired up
+yet — a typical base has one, maybe two purifiers, and item 4's per-purifier
+notice already covers the common case. Revisit if/when a base exists with
+enough purifiers for a persistent indicator to matter in practice.
