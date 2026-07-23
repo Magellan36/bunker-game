@@ -1,13 +1,60 @@
 # Handover — BunkerGame
 
-## Status (latest, Jul 2026): UI Kit + Notifications plan, steps 1-3 DONE, PAUSED before step 4 — awaiting Brannon's go-ahead
+## Status (latest, Jul 2026): UI Kit + Notifications plan, steps 1-4 DONE (power signal wiring), NOT YET in-editor confirmed
 Implementing `PLAN_ui_kit_and_notifications` (shared `UIKit.gd` + central
 `NotificationManager` toast system), per the plan's own Part 3 order of
-operations. Steps 1-3 done this session, parse-verified, NOT yet
-in-editor/visually confirmed by Brannon. **Stopped here on purpose** — step
-4 (wiring real alert sources: `PowerManager`'s `grid_tripped`/
-`grid_restored`/etc. signals, water signals, `PlayerStats` thresholds) needs
-an explicit OK before starting.
+operations. Steps 1-4 done, parse-verified via `tools/godot_check.sh`, NOT
+yet in-editor/visually confirmed by Brannon. Next paused checkpoint is
+still §1.5 step 5 (neutral theme sign-off, already locked in — see below)
+and remaining WATER/POWER file migrations + water signals (Part 3 steps
+5-6) — not started.
+
+### Step 4 — Power signal wiring (this session)
+`NotificationManager.connect_power_signals()` added — thin adapter, all
+detection logic stays in `PowerManager`, this just translates 10 of its
+signals into `notify()` calls:
+- CRITICAL: `grid_tripped`, `grid_offline`
+- WARNING: `overloaded_started`, `breaker_tripped`, `battery_drained`,
+  `generator_stopped`
+- INFO: `grid_restored`, `overloaded_ended`, `generator_started`,
+  `breaker_reset`, `generator_fuel_low`, `battery_low`
+Generator/battery/breaker toasts include the specific id in the text
+(e.g. `"Generator gen_2 fuel low (18%)"`), per Brannon's explicit call.
+`generator_stopped`'s free-text `reason` param is appended to the toast.
+
+**Severity colors are FIXED across all domains** (Brannon's explicit call,
+overrides the plan's original theme.warn/theme.crit approach): `INFO =
+#878787`, `WARNING = #8f940d`, `CRITICAL = #94302b` — same hex regardless
+of whether the toast is POWER/WATER/NEUTRAL. `SEVERITY_COLOR_INFO/WARNING/
+CRITICAL` consts in `NotificationManager.gd`. CRITICAL toasts use the same
+flat `DEFAULT_DURATION` as everything else — no special persistence/manual-
+dismiss behavior added (Brannon confirmed: keep it simple for now, revisit
+later if needed).
+
+Since `PowerManager` is a per-scene instance (group `"power_manager"`), not
+an autoload, `NotificationManager._ready()` (fires once at game boot) can't
+reach it. `MainWorld._setup_power_manager()` now calls
+`call_deferred("_connect_power_notification_signals")` right alongside its
+existing `_connect_power_hud_signals` deferred call — new
+`_connect_power_notification_signals()` just calls
+`NotificationManager.connect_power_signals()`. Guarded with `is_connected()`
+checks in `NotificationManager`, safe to call more than once.
+
+**Removed a duplicate notification path:** `grid_tripped`/`grid_restored`/
+`grid_offline` previously ALSO surfaced via `HUD.show_soft_warning()` from
+`MainWorld._on_grid_tripped/restored/offline()` — that text is removed from
+those three functions (camera-trauma shake on `grid_tripped` stays) so the
+toast is the only place these three events show a message now, not two
+overlapping notifications for one event.
+
+Verified via `tools/godot_check.sh` — `PASS` after this change.
+`docs/systems/ui/README.md`'s NotificationManager section updated same
+commit with the full signal-mapping + duplicate-removal note.
+
+**Next when resumed:** confirm with Brannon whether to proceed straight
+into Part 3 steps 5-7 (PowerTerminalUI migration, remaining WATER/POWER
+file migrations + new water alert signals, player-stats ThresholdWatcher)
+or pause again for review first.
 
 1. **`UIKit.gd`** (`scripts/ui/common/UIKit.gd`, new) — shared theme/drawing
    kit for the hand-drawn immediate-mode panels. `class_name UIKit`, pure
