@@ -406,8 +406,9 @@ or delay).
 | `WaterSolver.gd` | Jul 2026. Priority-tier demand waterfall — `RefCounted`, `_graph: WaterGraph` back-reference (same split pattern as `PowerGraph`/`PowerRegistry`/`PowerSolver`). Pure read-only queries, no state held between calls. |
 | `WaterDispenser.gd` | Jul 2026. The first real water-consuming device — 5000mL storage, on/off, player-tunable requested rate, fill tick driven by the solver's actual grant. `TILE_WATER_DISPENSER` in `BuildModeController`, ground-placed like the test sink. (Jul 2026, Purifier pass) `stored_water_quality` now genuinely blends volume-weighted as water arrives — see Purification & Quality below. (Jul 2026, fill-visual pass) Body mesh uses a `ShaderMaterial` (`assets/shaders/tank_fill.gdshader`) instead of a flat color — bottom portion tints water-blue up to `current_fill_mL/MAX_STORAGE_ML`, rest stays the plain empty-tank color, thin bright waterline band at the cutoff. No new geometry (the box itself IS the gauge). Pushed every frame from `_process()` via `_update_fill_visual()`, same cadence as the existing fill tick — no new polling loop. |
 | `WaterDispenserUI.gd` (`scripts/ui/water/`) | Jul 2026, restyled same day. Hand-drawn `_draw()` panel (matches `WaterInfoUI`/`PowerPriorityUI`) with real `HSlider`/`Button` controls overlaid — fill level, rate slider (0 to the live dynamic max), effective (actually received) rate, on/off pill toggle, ◄ N ► demand-priority changer, live blended water quality. (Jul 2026 fix) Added an actual drawn fill bar/gauge under the STORAGE text (previously text-only) — `PANEL_H` `430 -> 454` to fit. |
-| `WaterPurifier.gd` (Jul 2026) | Construct-menu tile (`TILE_WATER_PURIFIER=20`, $240, Water submenu) that attaches directly onto an existing pipe run — splits one graph edge into two around a new `"purifier"`-role node, no floor/wall snap. Read-only interact panel (`WaterInfoUI`, mode `"purifier"`). Deconstruct reverts its node's role back to `"corner"` in place (pipe stays intact, no pipe refund) rather than deleting either adjoining edge — see its own file header for the full deletion-order design. |
-| `WaterPurifierAttach.gd` (Jul 2026) | Static-only placement math for the Purifier tile — candidate-finding (`find_purifier_candidate()`) + graph insertion (`insert_purifier_at()`). Deliberately duplicates `WaterPipeDrawMode`'s split-candidate shape rather than modifying that file (documented history of subtle bugs there) — the one real difference: no grid-snap, placed freely wherever it lands on the pipe's line. Shared by both `GhostPreview.gd` (validity/position preview) and `BuildModeController._spawn_placed_object()` (actual insertion on confirm) — one copy, not duplicated a second time between those two callers. |
+| `WaterPurifier.gd` (Jul 2026) | Construct-menu tile (`TILE_WATER_PURIFIER=20`, $240, Water submenu) that attaches directly onto an existing pipe run — splits one graph edge into two around a new `"purifier"`-role node, no floor/wall snap. Read-only interact panel (`WaterInfoUI`, mode `"purifier"`). Deconstruct reverts its node's role back to `"corner"` in place (pipe stays intact, no pipe refund) rather than deleting either adjoining edge — see its own file header for the full deletion-order design. (Jul 2026, Purifier Filter plan) Owns `filter_quality` (0-100, depletes over `FILTER_LIFESPAN_DAYS=10` in-game days via its own `_process()`), `get_output_quality()` (`50 + filter_quality*0.5`), `replace_filter()`, `spawn_starting_filters()` — see the dedicated Purifier Filter section below. |
+| `WaterPurifierAttach.gd` (Jul 2026) | Static-only placement math for the Purifier tile — candidate-finding (`find_purifier_candidate()`) + graph insertion (`insert_purifier_at()`). Deliberately duplicates `WaterPipeDrawMode`'s split-candidate shape rather than modifying that file (documented history of subtle bugs there) — the one real difference: no grid-snap, placed freely wherever it lands on the pipe's line. Shared by both `GhostPreview.gd` (validity/position preview) and `BuildModeController._spawn_placed_object()` (actual insertion on confirm) — one copy, not duplicated a second time between those two callers. Calls `purifier.spawn_starting_filters()` right after `orient_along()` (Jul 2026, Purifier Filter plan). |
+| `PurifierFilterItem.gd` (`scripts/world/items/`, Jul 2026) | Pickupable consumable for `WaterPurifier` — ONE script for both "fresh" and "Used Purifier Filter (X%)" states, mirrors `WaterBottle.gd`'s established single-script pattern. Physics/pickup/drop/knockout copied from `FoodCan.gd`. `on_use()` finds the nearest `WaterPurifier` (group `"water_purifier"`, range `REPLACE_RANGE=2.5`, same value as `WaterBottle.REFILL_RANGE`) and calls its `replace_filter(self)` — the item itself doesn't own any swap logic. `spawn_at()` static helper (used for both the two starting filters and every ejected Used filter) drops a new instance at a small random offset near a given position, never auto-added to inventory. |
 | `assets/shaders/pipe_flow.gdshader` (Jul 2026) | Build-mode-only scrolling arrow overlay, applied as a second additive `MeshInstance3D` on every `WaterPipeSegment` (base pipe mesh/material untouched — still always visible). This project's first `spatial` shader. (Jul 2026 redesign) Both quality/purity lanes collapsed onto just the ceiling-facing strip (`v_up_dot` world-normal test, `UP_BAND_DOT=0.55`), arranged as a repeating along-pipe [quality tile][purity tile][gap] sequence (`gap_world_length` uniform) instead of a front/back circumference split — see the dedicated section below. |
 | `assets/shaders/tank_fill.gdshader` (Jul 2026) | `WaterDispenser`'s body-mesh fill-level gauge — REPLACES the box's flat `StandardMaterial3D` (not an overlay). Object-local `VERTEX.y` cutoff against a `fill_pct` uniform; water-blue below, empty-tank color above, thin waterline band at the cutoff. No new geometry. |
 
@@ -1796,3 +1797,138 @@ the usual debug-log-first approach — summary of what shipped:
   same "hand-drawn `_on_draw()`, no new Control node" convention as the rest
   of this panel. `PANEL_H` bumped `430 -> 454` to make room without touching
   any other row's spacing.
+
+## Purifier Filter item, filter-quality depletion, graduated output quality (Jul 2026)
+
+Implemented in full from an attached audit/design plan. **Confirmed design
+point (Brannon):** output water quality degrades at HALF the rate filter
+quality does — `output_quality = 50.0 + filter_quality * 0.5`. Filter 100%
+-> 100% water. Filter 50% -> 75% water. Filter 0% -> 50% water (never fully
+stops purifying, just floors at 50%). This exact formula lives in ONE place
+(`WaterPurifier.get_output_quality()`) and is never re-derived elsewhere.
+
+### New object: `PurifierFilterItem.gd`
+See its own reference-table row above. Ground/inventory display: `"Purifier
+Filter"` (fresh) or `"Used Purifier Filter (X%)"` (used, `X` = `filter_quality`
+at time of ejection) — plain text, no color-coding (that convention is
+water-quality-specific per Brannon's original spec, not assumed to extend
+here without being asked). `get_use_prompt()` shows `"[E] Replace Filter"`
+only within `REPLACE_RANGE` of a `WaterPurifier`.
+
+### `WaterPurifier.gd` — filter state + swap
+- `filter_quality: float` (0-100), depleted every frame in a new `_process()`
+  at `100.0 / (FILTER_LIFESPAN_DAYS * seconds_per_game_day)` per second —
+  same real-seconds-per-game-day conversion pattern `WaterDispenser.gd`
+  already uses (`PlayerStats._seconds_per_game_hour * 24.0`, `86400.0`
+  real-day fallback). A one-time debug print at `_ready()` shows the
+  computed `depletion_per_second` (a 10-in-game-day rate is too slow to
+  eyeball-verify otherwise).
+- `get_output_quality() -> float` — the one formula, above.
+- `replace_filter(new_filter: PurifierFilterItem)` — ejects the currently-
+  installed filter as a new Used item (`PurifierFilterItem.spawn_at()`,
+  carrying THIS purifier's `filter_quality` at the moment of ejection),
+  installs `new_filter.filter_quality` as this purifier's own, frees
+  `new_filter`, then forces `WaterManager.recompute_flow_directions()` so
+  every downstream dispenser/sink/arrow reflects the new value immediately.
+  Covers BOTH "insert a fresh 100% filter" and "reinsert a used X% filter"
+  identically — no branching needed, and reinserting a used filter
+  naturally resumes depletion from that %, nothing extra required.
+- `spawn_starting_filters()` — two fresh (100%) filters dropped near the
+  purifier's base at insertion time (`WaterPurifierAttach.insert_purifier_at()`
+  calls this right after `orient_along()`), not auto-added to inventory.
+
+### Multi-purifier resolution — `WaterGraph.get_purifiers_on_path()` (deviation from the plan, documented)
+The plan's own suggested implementation was to reuse
+`WaterManager._process_purity_and_dual_arrows()`'s already-built directed
+reverse-adjacency (cached from the last `recompute_flow_directions()` pass).
+**Deviated from that specific suggestion** after implementation: a
+purifier's own `get_output_quality()` changes CONTINUOUSLY (filter depletes
+every frame), so any call site needing the actual delivered quality always
+needs a live re-evaluation regardless of when the graph topology was last
+resolved — the exact same category of staleness bug the "quality arrow
+stuck green" fix (above) already taught this project to watch for. Caching
+the topology lookup on top of that would introduce a SECOND, separate
+staleness class for no real benefit. Instead, added `WaterGraph
+.get_purifiers_on_path(hookup_key, target_key) -> Array[String]` — a fresh,
+un-cached BFS every call (same cost/shape as `get_unpurified_reachable_keys()`
+immediately above it in the file, matching this file's own "compute on
+demand" convention stated in its header), returning every `"purifier"`-role
+node key crossed on the one BFS-resolved path. `WaterManager
+._resolve_output_quality(hookup_key, node_key, raw_hookup_quality)` is the
+ONE shared helper built on top of it: takes the WORST (minimum)
+`get_output_quality()` among every purifier returned (Brannon's confirmed
+default, same "weakest stage bottlenecks the result" principle as a real
+multi-stage filter system — the safer failure mode, never overstates water
+quality); falls back to `raw_hookup_quality` unchanged if no purifier is
+found. Only the one resolved BFS-shortest path is considered, not every
+possible path — same known limitation already documented for the purity-
+flip/pulse system (a rare diamond topology takes whichever path BFS visits
+first).
+
+**Wired into every place that used to hardcode a flat `100.0` for "purified"
+water** (this was the actual bug those hardcodes represented once filters
+existed — the arrow color was always just a visual echo of this same
+number, never the source of truth):
+1. `WaterManager.get_received_rate_mL()` — what dispensers/sinks/bottle
+   refills actually receive.
+2. `WaterManager.recompute_flow_directions()`'s per-edge dual-arrow
+   `quality_pct` push — now resolves each edge's own upstream node key
+   (cached per-edge as `_last_edge_upstream_key`, alongside the existing
+   `_last_reachable_edges`/`_last_edge_purity` caches) and calls the same
+   helper, so the arrow color and the actual delivered quality can never
+   visually disagree.
+3. `WaterManager._refresh_quality_colors()` (the periodic live-decay tick
+   from the earlier "quality arrow stuck green" fix) — same per-edge
+   resolution, on the same `QUALITY_REFRESH_INTERVAL=0.5s` cadence, so a
+   depleting filter's effect on pipe arrow color updates continuously, not
+   just at the next graph mutation.
+
+### UI — `WaterInfoUI.gd`'s purifier panel
+`OUTPUT QUALITY (PURIFIED)` no longer hardcodes `"100%"` — reads
+`purifier.get_output_quality()`, colored via the same
+`WaterQualityColor.get_color()` red/yellow/green scheme everything else in
+this panel already uses. New `FILTER QUALITY` row + drawn fill bar below it
+— copied structure directly from `WaterDispenserUI.gd`'s STORAGE bar (dark
+background rect, colored fill scaled by a 0-1 fraction, bordered), not
+re-derived. `PANEL_H_PURIFIER` grew `210 -> 270` to fit.
+
+### Shelf storage — deviation from the plan's §0.3 recommended default (documented)
+The plan flagged shelving a Used filter as a real data-loss risk, based on
+an assumption that `Shelving.gd`'s slots store a plain `[count]` per item
+type rather than real node references — and recommended Used filters opt
+OUT of shelf storage entirely as a result. **Checked against this
+codebase's actual current `Shelving.gd` before implementing** (per the
+plan's own explicit instruction to verify rather than assume): its slots
+(`var slots: Array = [[], [], ...]`) already hold REAL `RigidBody3D` node
+references — `retrieve_to_carry()`/`retrieve_to_inventory()` pop and hand
+back the exact same instance, the same mechanism that already lets
+`Flashlight`'s battery % survive G-storing today. The plan's stated
+premise doesn't hold for the code as it currently exists, so shelving a
+Used filter is safe — no data loss. Implemented accordingly: BOTH fresh and
+Used filters declare `shelf_item_type = "purifier_filter"` /
+`shelf_stack_limit = 6` (matches `FoodCan`/`WaterBottle`'s stack size) and
+share one stacking key, since each instance's own `filter_quality` is
+tracked independently regardless of shared slot/type grouping. Neither
+overrides `can_store()` — both remain G-store/carry-eligible via
+`InteractionSystem`'s default (storable unless a method says otherwise).
+
+### Persistence — flagged, not solved here (per plan §5)
+`WaterPurifier.filter_quality` and `PurifierFilterItem`'s `is_used`/
+`filter_quality` are NOT yet covered by `SaveManager` — same category of
+gap already flagged in `HANDOVER.md`'s Save/Load System Overhaul section
+(which already calls out that purifier NODES themselves are silently
+dropped by save/load today). Added to that same overhaul's scope list
+rather than building a one-off persistence path here.
+
+### Playtest checklist
+See the attached plan's §6 for the full version (unchanged, not re-derived
+here) — placement spawns 2 fresh filters nearby + `FILTER: 100%` full bar;
+filter depletion over time visibly drifts a downstream dispenser/bottle's
+actual received quality per the `50 + filter_quality*0.5` formula (not
+still flat green/100%); the dual-arrow front lane tracks the same graduated
+number; `[E] Replace Filter` only appears near a purifier and correctly
+swaps/ejects/consumes; a retrieved Used filter's `%` survives G-store and a
+subsequent reinsertion resumes depletion from that %; a fresh filter shelves
+like a food can and (per the shelf-storage deviation above) so does a Used
+one; a two-purifier-in-series/parallel test confirms the consumer receives
+the WORSE of the two output qualities.

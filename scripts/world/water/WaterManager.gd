@@ -56,6 +56,12 @@ var _purity_state_seeded: bool = false
 ## (those are still only touched by an actual mutation, unchanged).
 var _last_reachable_edges: Dictionary = {}   ## edge_id (String) -> true
 var _last_edge_purity: Dictionary = {}       ## edge_id (String) -> bool (is_purified)
+## Purifier Filter plan (Jul 2026) — edge_id -> this edge's own upstream
+## node key, so _refresh_quality_colors() can resolve a GRADUATED output
+## quality per edge (via _resolve_output_quality()) on its live interval
+## tick, not just a flat is_purified bool. Written alongside the other two
+## caches at the bottom of recompute_flow_directions(), same lifetime.
+var _last_edge_upstream_key: Dictionary = {}
 var _last_hookup_key: String = ""
 var _quality_refresh_accum: float = 0.0
 const QUALITY_REFRESH_INTERVAL: float = 0.5   ## real seconds — cheap, decay is gradual
@@ -91,7 +97,10 @@ func _refresh_quality_colors() -> void:
 		if not _last_reachable_edges.has(seg.edge_id):
 			continue
 		var is_purified: bool = bool(_last_edge_purity.get(seg.edge_id, false))
-		var quality_pct: float = 100.0 if is_purified else hookup_quality
+		var quality_pct: float = hookup_quality
+		if is_purified:
+			var up_key: String = String(_last_edge_upstream_key.get(seg.edge_id, ""))
+			quality_pct = _resolve_output_quality(_last_hookup_key, up_key, hookup_quality) if not up_key.is_empty() else 100.0
 		if seg.has_method("set_quality_color"):
 			seg.set_quality_color(WaterQualityColor.get_color(quality_pct))
 
@@ -418,16 +427,17 @@ func get_received_rate_mL(consumer_node_key: String) -> Dictionary:
 	var received_map: Dictionary = _solver.solve_for_hookup(hookup_key, hookup.get_daily_output_mL())
 	var rate_day: float = float(received_map.get(consumer_node_key, 0.0))
 
-	## Purifier (Jul 2026) — pure (100%) iff EVERY path from the hookup to
-	## this consumer passes through at least one "purifier" node. Computed
-	## as "reachable via the unfiltered graph, but NOT in the filtered
-	## contaminated-set" — see WaterGraph.get_unpurified_reachable_keys().
+	## Purifier (Jul 2026) — pure (100%... now graduated, see Purifier Filter
+	## plan) iff EVERY path from the hookup to this consumer passes through
+	## at least one "purifier" node. Computed as "reachable via the
+	## unfiltered graph, but NOT in the filtered contaminated-set" — see
+	## WaterGraph.get_unpurified_reachable_keys().
 	var is_pure: bool = not _graph.get_unpurified_reachable_keys(hookup_key).has(consumer_node_key)
 
 	out["connected"]     = true
 	out["mL_per_day"]    = rate_day
 	out["mL_per_minute"] = rate_day / 1440.0
-	out["quality"]       = 100.0 if is_pure else hookup.water_quality
+	out["quality"]       = _resolve_output_quality(hookup_key, consumer_node_key, hookup.water_quality) if is_pure else hookup.water_quality
 	return out
 
 ## Returns { "connected": bool, "quality": float } — the RAW (pre-purification)
@@ -543,7 +553,9 @@ func recompute_flow_directions() -> void:
 	_last_hookup_key       = hookup_keys[0]
 	_last_reachable_edges  = {}
 	_last_edge_purity      = edge_purity
+	_last_edge_upstream_key = {}
 	_quality_refresh_accum = 0.0   ## avoid a stale-color flash before the next interval tick
+	var all_edges_for_upstream: Dictionary = _graph.get_edges()
 
 	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
 		if not is_instance_valid(node) or not (node is WaterPipeSegment):
@@ -558,23 +570,33 @@ func recompute_flow_directions() -> void:
 			continue
 		_last_reachable_edges[seg.edge_id] = true
 		var edge_flow: Dictionary = directions[seg.edge_id]
+		var a_is_upstream: bool = bool(edge_flow.get("a_is_upstream", true))
 		if seg.has_method("set_flow_sign"):
-			seg.set_flow_sign(bool(edge_flow.get("a_is_upstream", true)))
+			seg.set_flow_sign(a_is_upstream)
 		if seg.has_method("set_phase_offset"):
 			seg.set_phase_offset(float(edge_flow.get("phase_offset", 0.0)))
 		if seg.has_method("set_has_flow"):
 			seg.set_has_flow(true)
 
+		## This edge's own upstream node key (Jul 2026, Purifier Filter
+		## plan) — cached so _refresh_quality_colors() can resolve a
+		## graduated output quality per edge on its own live interval tick
+		## without redoing this edge-data lookup every time.
+		var edge_data_for_upstream: Dictionary = all_edges_for_upstream.get(seg.edge_id, {})
+		var up_key_for_edge: String = String(edge_data_for_upstream.get("a" if a_is_upstream else "b", ""))
+		_last_edge_upstream_key[seg.edge_id] = up_key_for_edge
+
 		## Dual quality/purity arrow lanes (Jul 2026) — PERMANENT default for
 		## every reachable pipe segment, not just purified ones (Brannon's
-		## confirmed answer). quality_pct is 100.0 downstream of a purifier,
+		## confirmed answer). quality_pct is the resolved graduated purifier
+		## output (Purifier Filter plan, Jul 2026 — was a flat 100.0 before),
 		## else the hookup's own raw decayed quality. NOTE: this same
 		## quality_pct/set_quality_color push is ALSO done continuously by
 		## _refresh_quality_colors() (Jul 2026 fix) — kept here too so a
 		## fresh/mutated segment shows the correct color immediately instead
 		## of waiting up to QUALITY_REFRESH_INTERVAL for the next tick.
 		var is_purified: bool = bool(edge_purity.get(seg.edge_id, false))
-		var quality_pct: float = 100.0 if is_purified else hookup_quality
+		var quality_pct: float = _resolve_output_quality(hookup_keys[0], up_key_for_edge, hookup_quality) if is_purified else hookup_quality
 		if seg.has_method("set_quality_color"):
 			seg.set_quality_color(WaterQualityColor.get_color(quality_pct))
 		if seg.has_method("set_purified"):
@@ -691,6 +713,38 @@ func _find_purifier_by_key(purifier_key: String) -> Node:
 		if is_instance_valid(node) and node.get("node_key") == purifier_key:
 			return node
 	return null
+
+
+## Purifier Filter plan (Jul 2026) — the ONE shared helper resolving actual
+## delivered water quality downstream of a purifier, called from every place
+## that used to hardcode a flat `100.0` for "purified" water (see this
+## file's Purifier Filter section header for the historical bug that hiding
+## this behind a single helper prevents recurring). `raw_hookup_quality` is
+## passed in rather than re-looked-up so every call site can reuse a value
+## it likely already has on hand.
+##
+## Multi-purifier resolution rule (Brannon's confirmed default, plan §0.1):
+## take the WORST (minimum) `get_output_quality()` among every purifier
+## crossed on the resolved path from the hookup to `node_key` — same
+## principle as a real multi-stage filter system (the weakest stage
+## bottlenecks the result), and the safer failure mode (never overstates
+## water quality). Falls back to `raw_hookup_quality` unchanged if no
+## purifier is found on the path (shouldn't happen for a call site that
+## already confirmed `is_pure`, but fails safe rather than assuming).
+func _resolve_output_quality(hookup_key: String, node_key: String, raw_hookup_quality: float) -> float:
+	var purifier_keys: Array[String] = _graph.get_purifiers_on_path(hookup_key, node_key)
+	if purifier_keys.is_empty():
+		return raw_hookup_quality
+	var worst: float = 100.0
+	var found_any: bool = false
+	for purifier_key: String in purifier_keys:
+		var purifier_node: Node = _find_purifier_by_key(purifier_key)
+		if purifier_node != null and purifier_node.has_method("get_output_quality"):
+			worst = minf(worst, float(purifier_node.get_output_quality()))
+			found_any = true
+	if not found_any:
+		return raw_hookup_quality
+	return worst
 
 
 ## A device's dynamic slider maximum (see WaterSolver.get_dynamic_max_for_device()

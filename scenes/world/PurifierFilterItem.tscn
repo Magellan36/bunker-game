@@ -1,0 +1,18 @@
+[gd_scene format=3 uid="uid://purifier_filter_item_001"]
+
+[ext_resource type="Script" path="res://scripts/world/items/PurifierFilterItem.gd" id="1_pfilter"]
+
+[sub_resource type="BoxMesh" id="mesh_001"]
+size = Vector3(0.05, 0.05, 0.12)
+
+[sub_resource type="BoxShape3D" id="shape_001"]
+size = Vector3(0.05, 0.05, 0.12)
+
+[node name="PurifierFilterItem" type="RigidBody3D"]
+script = ExtResource("1_pfilter")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("mesh_001")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("shape_001")

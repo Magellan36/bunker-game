@@ -36,6 +36,13 @@ const COLOR_BAND: Color = Color(0.85, 0.90, 0.30, 1.0)   ## yellow warning band,
 ## after insertion.
 var node_key: String = ""
 
+## Purifier Filter plan (Jul 2026) — 0-100, current INSTALLED filter's
+## remaining life. Depletes continuously over FILTER_LIFESPAN_DAYS in-game
+## days; never fully stops purifying (floors implicitly via
+## get_output_quality()'s own formula, not a hard clamp here beyond 0).
+var filter_quality: float = 100.0
+const FILTER_LIFESPAN_DAYS: float = 10.0
+
 ## Info panel (read-only) — same lazy-instantiate/reuse pattern as
 ## WaterHookup._info_ui.
 var _info_ui: CanvasLayer = null
@@ -53,11 +60,41 @@ func _ready() -> void:
 	## "water_pipe_visual" — see WaterManager._find_purifier_by_key().
 	add_to_group("water_purifier")
 	_build_mesh()
+	## Debug print (Jul 2026, Purifier Filter plan §7) — a 10-in-game-day
+	## depletion is too slow to eyeball-verify without either a fast-forward
+	## cheat or seeing the computed rate once here.
+	print("[PurifierFilter] depletion_per_second=%.8f (FILTER_LIFESPAN_DAYS=%.1f)" % [
+		_compute_depletion_per_second(), FILTER_LIFESPAN_DAYS])
 
 func _exit_tree() -> void:
 	if _info_ui != null and is_instance_valid(_info_ui):
 		_info_ui.queue_free()
 		_info_ui = null
+
+## Filter depletion tick (Jul 2026, Purifier Filter plan §3.1) — same real-
+## seconds-per-game-day conversion WaterDispenser.gd already uses
+## (PlayerStats._seconds_per_game_hour * 24.0, with the same 86400.0 real-
+## day fallback if PlayerStats isn't found yet — copied verbatim, not
+## re-derived).
+func _process(delta: float) -> void:
+	filter_quality = maxf(0.0, filter_quality - _compute_depletion_per_second() * delta)
+
+func _compute_depletion_per_second() -> float:
+	var seconds_per_game_day: float = 86400.0   ## real-day fallback if PlayerStats isn't found yet
+	var stats: Node = get_tree().get_first_node_in_group("player_stats")
+	if stats != null and "_seconds_per_game_hour" in stats:
+		seconds_per_game_day = stats._seconds_per_game_hour * 24.0
+	return 100.0 / (FILTER_LIFESPAN_DAYS * seconds_per_game_day)
+
+## The one formula, used everywhere a downstream consumer's actual water
+## quality needs to reflect this purifier's current filter wear (Brannon's
+## confirmed spec, Purifier Filter plan header): output degrades at HALF the
+## rate filter quality does. Filter 100% -> 100% water. Filter 50% -> 75%
+## water. Filter 0% -> 50% water (never fully stops purifying, just floors
+## at 50%). Called by WaterManager._resolve_output_quality() — this is the
+## SOURCE OF TRUTH the manager reads, never re-derived elsewhere.
+func get_output_quality() -> float:
+	return 50.0 + filter_quality * 0.5
 
 
 # ─── Deconstruct — revert to a plain corner, keep the pipe intact ────────────
@@ -119,6 +156,60 @@ func _on_ui_closed() -> void:
 ## WaterInfoUI's purifier branch to trace the upstream hookup's raw quality.
 func get_node_key() -> String:
 	return node_key
+
+
+# ─── Filter swap (Jul 2026, Purifier Filter plan §3.4) ───────────────────────
+## Called by PurifierFilterItem.on_use(). Exact behavior per Brannon's spec:
+## 1. Eject whatever's currently installed as a new "Used Purifier Filter"
+##    carrying THIS purifier's filter_quality at the moment of ejection.
+## 2. Install the new filter's quality as this purifier's own.
+## 3. Consume the item that was just used.
+## 4. Force a recompute so dispensers/sinks/arrows all reflect the new value
+##    immediately, not on the next unrelated graph mutation.
+## This single method covers BOTH "insert a fresh 100% filter" and "reinsert
+## a used X% filter" identically — new_filter.filter_quality is already
+## whatever it should be in either case, so there's no branching needed for
+## which kind of filter was inserted. This also naturally implements
+## "reinserting a used filter resumes depleting from that %" — filter_quality
+## just continues ticking down in _process() from whatever this sets it to.
+## No double-eject risk: the currently-installed filter was never a live
+## world/inventory node to begin with (it's just this purifier's own float),
+## so there's nothing for `new_filter` to be confused with.
+func replace_filter(new_filter: PurifierFilterItem) -> void:
+	## 1. Eject the currently-installed filter as a new Used item, dropped
+	## at a small offset from this purifier — reuses PurifierFilterItem's
+	## own spawn helper (same drop-nearby treatment as the starting-filters
+	## spawn, see spawn_starting_filters() below).
+	var parent: Node = get_parent()
+	if parent != null:
+		PurifierFilterItem.spawn_at(parent, global_position, false, filter_quality)
+
+	## 2. Install the new filter's quality as this purifier's own.
+	filter_quality = new_filter.filter_quality
+
+	## 3. Consume the item that was just used.
+	new_filter.queue_free()
+
+	## 4. Filter quality changed -> delivered water quality changed for
+	## every downstream consumer -> force a recompute so dispensers/sinks/
+	## arrows all reflect the new value immediately.
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	if wm != null:
+		wm.recompute_flow_directions()
+
+## Spawns the two starting filters (Jul 2026, plan §2) — called once by
+## WaterPurifierAttach.insert_purifier_at() right after this purifier is
+## added to the tree and positioned. Two fresh (100%) PurifierFilterItem
+## instances dropped on the floor near this purifier's base, NOT auto-added
+## to inventory — matches how every other placed/spawned object in this
+## game ends up as a normal physical pickup rather than a silent inventory
+## grant (plan §0.2's recommended default).
+func spawn_starting_filters() -> void:
+	var parent: Node = get_parent()
+	if parent == null:
+		return
+	PurifierFilterItem.spawn_at(parent, global_position, true, 100.0)
+	PurifierFilterItem.spawn_at(parent, global_position, true, 100.0)
 
 
 # ─── Clean-pulse VFX (Jul 2026) ───────────────────────────────────────────────

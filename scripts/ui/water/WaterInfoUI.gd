@@ -66,7 +66,9 @@ const PANEL_W: float = 380.0
 ## smallest — read-only, two quality numbers, no priority row.
 const PANEL_H_SOURCE:   float = 230.0
 const PANEL_H_SINK:     float = 350.0
-const PANEL_H_PURIFIER: float = 210.0
+## Purifier panel grew (Jul 2026, Purifier Filter plan) to fit the new
+## FILTER QUALITY bar row — see _draw_purifier_stats().
+const PANEL_H_PURIFIER: float = 270.0
 
 # ─── Live data (set by open()) ────────────────────────────────────────────────
 var _display_name: String = "Water Device"
@@ -364,12 +366,15 @@ func _draw_sink_stats(cx: float, cy: float) -> float:
 	cy = _draw_quality_row(quality, cx, cy)
 	return _draw_priority_row(cx, cy)
 
-## Purifier's own panel (Jul 2026) — read-only. Shows the current input
-## quality (traced back to the source hookup's raw water_quality — the
-## impure value anything reaching this purifier from upstream still carries)
-## and the fixed output quality (always 100.0 — that's the entire point of
-## the device, see WaterManager.get_received_rate_mL()). No slider, no
-## toggle, no priority — this isn't a demand consumer.
+## Purifier's own panel (Jul 2026, updated same month for the Purifier
+## Filter plan) — read-only. Shows the current input quality (traced back
+## to the source hookup's raw water_quality — the impure value anything
+## reaching this purifier from upstream still carries), the GRADUATED
+## output quality (WaterPurifier.get_output_quality() — `50 + filter_quality
+## * 0.5`, no longer a hardcoded flat 100.0), and a new FILTER QUALITY bar/%
+## row (same drawn-bar convention as WaterDispenserUI's fill gauge, added
+## Jul 2026 — copied structure, not re-derived). No slider, no toggle, no
+## priority — this isn't a demand consumer.
 func _draw_purifier_stats(cx: float, cy: float) -> float:
 	var purifier: WaterPurifier = _device_ref as WaterPurifier
 	if purifier == null:
@@ -387,12 +392,43 @@ func _draw_purifier_stats(cx: float, cy: float) -> float:
 	if not connected:
 		_draw_str("CONNECTION", Vector2(cx, cy), DIM_COLOR, 10)
 		_draw_str("Not connected to a water source", Vector2(cx, cy + 14.0), CRIT_COLOR, 13)
-		return cy + 40.0
+		cy += 40.0
+		return _draw_filter_row(purifier, cx, cy)
 
 	cy = _draw_quality_row(input_quality, cx, cy)
 	_draw_str("OUTPUT QUALITY (PURIFIED)", Vector2(cx, cy), DIM_COLOR, 10)
-	_draw_str("100%", Vector2(cx, cy + 14.0), OK_COLOR, 13)
-	return cy + 40.0
+	var output_quality: float = purifier.get_output_quality()
+	_draw_str("%.0f%%" % output_quality, Vector2(cx, cy + 14.0), WaterQualityColor.get_color(output_quality), 13)
+	cy += 40.0
+	return _draw_filter_row(purifier, cx, cy)
+
+## FILTER QUALITY row (Jul 2026, Purifier Filter plan §4) — text readout +
+## drawn fill bar, same "_canvas.draw_rect() dark background + colored fill
+## scaled by a 0-1 fraction, bordered" pattern WaterDispenserUI.gd's STORAGE
+## bar already established. Fill tint reuses WaterQualityColor.get_color()
+## (same red/yellow/green convention every other quality-like value in this
+## panel already uses) rather than inventing a new color scheme.
+func _draw_filter_row(purifier: WaterPurifier, cx: float, cy: float) -> float:
+	_canvas.draw_line(Vector2(cx, cy), Vector2(cx + PANEL_W - 48.0, cy),
+		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.30), 1.0)
+	cy += 12.0
+	_draw_str("FILTER QUALITY", Vector2(cx, cy), DIM_COLOR, 10)
+	var fq: float = purifier.filter_quality
+	var fq_color: Color = WaterQualityColor.get_color(fq)
+	_draw_str("%.0f%%" % fq, Vector2(cx, cy + 14.0), fq_color, 13)
+	cy += 32.0
+
+	var fill_frac: float = clampf(fq / 100.0, 0.0, 1.0)
+	var bar_w: float = PANEL_W - 48.0
+	var bar_h: float = 14.0
+	var bar_bg: Rect2 = Rect2(cx, cy, bar_w, bar_h)
+	_canvas.draw_rect(bar_bg, Color(0.08, 0.10, 0.12, 0.85), true)
+	if fill_frac > 0.0:
+		var bar_fill: Rect2 = Rect2(cx, cy, bar_w * fill_frac, bar_h)
+		_canvas.draw_rect(bar_fill, Color(fq_color.r, fq_color.g, fq_color.b, 0.85), true)
+	_canvas.draw_rect(bar_bg, Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55), false, 1.0)
+	cy += bar_h + 16.0
+	return cy
 
 ## Priority tier changer (Jul 2026, demand-priority wiring) — mirrors
 ## PowerPriorityUI.gd's chip+pips layout so both systems read identically to
