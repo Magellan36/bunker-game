@@ -75,7 +75,26 @@ shader-compile harness (confirmed correct computed values: `tile_world_length
 ≈ 0.108`, `gap_world_length ≈ 0.024`) plus `godot_check.sh`. **Please
 pull and confirm arrows now read as correctly-sized, not stretched.**
 
-## Status (latest, Jul 2026): Purifier QoL pass (6 items) implemented in full, NOT YET CONFIRMED in-editor
+## Status (latest, Jul 2026): filter wear now scales with incoming water quality, pushed `f5d0886`
+Follow-up to the QoL pass below — Brannon wanted filter depletion RATE to
+vary with incoming (raw, pre-purification) water quality instead of always
+running at a fixed max: max rate at incoming quality <=50%, linear scale
+down to 25% of max at 100% incoming, and 0 (no wear at all) when the
+purifier isn't connected to any water source. New
+`WaterPurifier._compute_wear_multiplier()` (reads
+`WaterManager.get_upstream_raw_quality()` — same value the purifier's own
+info panel shows as INPUT) multiplies into the existing max-rate tick in
+`_process()`. `_ready()`'s debug print relabeled `max_depletion_per_second`
+since the live rate now varies below it.
+
+Verified via a headless functional test — confirmed clamped 1.0 at
+incoming<=50, exact linear values at 75/90/100 (0.625/0.4/0.25), and 0.0
+when disconnected — plus `tools/godot_check.sh`. **Needs in-editor
+playtest**: let a purifier run with clean (near-100%) incoming water and
+confirm its filter lasts noticeably longer than with dirty (<=50%)
+incoming water at the same elapsed time.
+
+## Status (prior, Jul 2026): Purifier QoL pass (6 items) implemented in full, NOT YET CONFIRMED in-editor
 Follow-up plan to the base Purifier Filter system below (that plan's own
 mechanics — `filter_quality`/`get_output_quality()`/`replace_filter()` —
 were a hard dependency, already shipped). All 6 items done:
