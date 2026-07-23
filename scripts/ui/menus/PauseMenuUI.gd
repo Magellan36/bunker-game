@@ -28,6 +28,7 @@ var _panel:       Panel     = null
 var _vbox:        VBoxContainer = null
 var _confirm_layer: CanvasLayer = null   ## separate top layer for the exit-confirm dialog
 var _settings_panel: CanvasLayer = null  ## lazy-instantiated GraphicsSettingsPanel, same pattern as MainWorld's own lazy PauseMenuUI instantiation
+var _history_ui: Control = null          ## NotificationHistoryUI, sibling of _panel — shows/hides for free with this CanvasLayer's own visible toggle
 
 # ─── Slot button refs (so we can refresh labels on open) ─────────────────────
 var _save_slot_buttons: Array[Button] = []
@@ -59,6 +60,8 @@ func open() -> void:
 	## Standing convention (July 2026) — see UIFade.gd. _blur_rect stays
 	## instant (blurring in would look odd); only the panel content fades.
 	UIFade.fade_in(_panel)
+	if _history_ui != null:
+		UIFade.fade_in(_history_ui)
 	_refresh_slot_labels()
 	_prev_mouse_mode = Input.mouse_mode
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -143,6 +146,18 @@ func _build_ui() -> void:
 	_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_vbox.add_theme_constant_override("separation", 10)
 	_panel.add_child(_vbox)
+
+	## Notification history — sibling of _panel (NOT nested inside it or
+	## _blur_rect), positioned independently in the upper-right quadrant.
+	## Shows/hides for free with this CanvasLayer's own `visible` toggle.
+	var history_script: GDScript = load("res://scripts/ui/notifications/NotificationHistoryUI.gd")
+	if history_script != null:
+		_history_ui = Control.new()
+		_history_ui.set_script(history_script)
+		_history_ui.name = "NotificationHistoryUI"
+		add_child(_history_ui)
+	else:
+		push_warning("[PauseMenu] NotificationHistoryUI.gd not found")
 
 	## Title.
 	var title: Label = Label.new()
