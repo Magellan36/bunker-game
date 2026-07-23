@@ -202,25 +202,43 @@ it's a global "show this text for a while" service reachable from any scene.
   the same no-`class_name` pattern; keep doing that for any future autoload.
 - Call `NotificationManager.notify(domain: UIKit.Domain, severity:
   Severity, text: String, duration: float = 4.0)` from anywhere.
-  `enum Severity { INFO, WARNING, CRITICAL }` — `domain` picks WHERE it's
-  from (water/power/neutral color scheme via `UIKit`, used for the panel
-  bg/border/header). `severity` picks HOW urgent and is rendered with
-  **fixed colors, the same across all domains** (Brannon's explicit call,
-  Jul 2026 — a WARNING toast reads identically whether it's water or
-  power): `SEVERITY_COLOR_INFO = #878787`, `SEVERITY_COLOR_WARNING =
-  #8f940d`, `SEVERITY_COLOR_CRITICAL = #94302b`. These are deliberately
-  NOT `theme.warn`/`theme.crit` (those stay domain-tinted, still used by
-  in-panel status text elsewhere) — severity color tints the toast's left
-  accent bar + message text.
-- Queue: newest toast appended at the bottom of the on-screen stack (oldest
-  at top), each toast fades independently over its own last 20%
-  (`FADE_TAIL_RATIO`) of `duration`. `MAX_QUEUE_LEN = 20` defensive cap
-  (drops oldest first) — this is this pass's own default, not yet
-  explicitly confirmed by Brannon; revisit if it ever needs tuning.
-- Rendering: own `CanvasLayer` at `layer = 220` (above every other panel
-  layer in the project — `PauseMenuUI`=200 and `GraphicsSettingsPanel`=210
-  were previously the highest), top-right stack, drawn via
-  `UIKit.draw_panel()`/`theme_for(entry.domain)` same as any other panel.
+  `enum Severity { INFO, WARNING, CRITICAL }` — `domain` still tags the
+  entry (used by `NotificationHistoryUI`'s row text/consumers, and future
+  filtering) but as of the Jul 2026 toast-format rework it no longer tints
+  the live toast itself. `severity` drives the toast's actual look via
+  **fixed colors, the same across all domains** (Brannon's explicit call —
+  a WARNING toast reads identically whether it's water or power):
+  `SEVERITY_COLOR_INFO = #878787`, `SEVERITY_COLOR_WARNING = #8f940d`,
+  `SEVERITY_COLOR_CRITICAL = #94302b`.
+- Queue: newest toast appended at the bottom of the internal `_queue`
+  array (oldest at top of the array), each toast fades independently over
+  its own last 20% (`FADE_TAIL_RATIO`) of `duration`. `MAX_QUEUE_LEN = 20`
+  defensive cap (drops oldest first) — this is this pass's own default,
+  not yet explicitly confirmed by Brannon; revisit if it ever needs tuning.
+- **Toast look/position (reworked Jul 2026 — Brannon's explicit call to go
+  back to the old pre-`NotificationManager` look):** each toast is a solid
+  rectangle filled with its severity color at partial opacity
+  (`TOAST_FILL_ALPHA = 0.62`), plus a dark semi-transparent border on
+  every toast (`TOAST_BORDER_COLOR = rgba(0,0,0,0.55)`,
+  `TOAST_BORDER_WIDTH = 2.0`) — no more domain-tinted `UIKit.draw_panel()`
+  background or thin left accent bar; text is a fixed light color
+  (`TOAST_TEXT_COLOR`) at the original 13px size via
+  `UIKit.draw_shadowed_text()`. This matches the shape/position of the
+  old `HUD.show_soft_warning()` single-message toast (see below), just
+  extended to a real stacked queue instead of one-at-a-time replace.
+  - Position: centered horizontally, stacked directly **above the
+    inventory bar** (not the old top-right corner stack) — newest toast
+    sits closest to the bar (`GAP_ABOVE_BAR = 12.0`), older toasts push
+    upward above it as more queue up. `NotificationManager` finds the bar
+    by looking up `get_first_node_in_group("hud")` (HUD.gd calls
+    `add_to_group("hud")` in its own `_ready()` specifically so this
+    global autoload — outside HUD's scene — can find it) and reading its
+    public `inventory_hud` Control's `get_global_rect()`. Falls back to a
+    fixed bottom-of-viewport margin (`FALLBACK_BOTTOM_MARGIN = 140.0`) if
+    no HUD is present in the current scene (e.g. a menu/preview context).
+  - Rendering: own `CanvasLayer` at `layer = 220` (above every other panel
+    layer in the project — `PauseMenuUI`=200 and `GraphicsSettingsPanel`=210
+    were previously the highest).
 - **Power signal wiring (Jul 2026, done):**
   `NotificationManager.connect_power_signals()` is a thin adapter —
   `PowerManager` already does all detection, this just translates 10 of
@@ -249,10 +267,13 @@ it's a global "show this text for a while" service reachable from any scene.
   - New panel: `scripts/ui/notifications/NotificationHistoryUI.gd`
     (extends `Control`, real `ScrollContainer` + `VBoxContainer` of rows —
     not hand-drawn immediate-mode, per this project's standing convention).
-    Each row: severity-colored left accent bar (reuses
-    `SEVERITY_COLOR_INFO/WARNING/CRITICAL`), domain-tinted text
-    (`UIKit.theme_for(entry.domain).header`), single-line message, and a
-    right-aligned "Xs ago"/"Xm ago"/"Xh ago" timestamp refreshed every
+    Each row is a `PanelContainer` styled to **match the live toast look**
+    (Jul 2026 rework) instead of the old thin accent bar: solid severity
+    fill at the same `NotificationManager.TOAST_FILL_ALPHA`, same dark
+    `TOAST_BORDER_COLOR`/`TOAST_BORDER_WIDTH` border, fixed light
+    `TOAST_TEXT_COLOR` text (all three constants reused directly from
+    `NotificationManager`, not redefined) — plus a single-line message and
+    a right-aligned "Xs ago"/"Xm ago"/"Xh ago" timestamp refreshed every
     frame while the panel is `visible` (its own lightweight `_process()` —
     safe because the pause menu does NOT set `SceneTree.paused`).
   - Visible ONLY inside the pause menu: instantiated as a direct child of

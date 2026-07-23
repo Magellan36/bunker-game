@@ -27,7 +27,6 @@ extends Control
 const PANEL_W: float = 380.0
 const PANEL_H: float = 480.0
 const ROW_H:   float = 34.0
-const ACCENT_W: float = 3.0
 
 var _scroll: ScrollContainer = null
 var _rows_box: VBoxContainer = null
@@ -102,17 +101,30 @@ func _rebuild_rows() -> void:
 
 
 func _make_row(entry: Dictionary) -> Control:
+	## Row chrome matches the Jul 2026 toast rework: solid severity-colored
+	## fill (same TOAST_FILL_ALPHA as the live toasts) + dark semi-transparent
+	## border, instead of the old thin accent bar + domain-tinted text.
+	var severity: NotificationManager.Severity = entry["severity"] as NotificationManager.Severity
+	var fill: Color = _severity_color(severity)
+	fill.a = NotificationManager.TOAST_FILL_ALPHA
+
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color     = fill
+	style.border_color = NotificationManager.TOAST_BORDER_COLOR
+	style.set_border_width_all(NotificationManager.TOAST_BORDER_WIDTH)
+	style.set_corner_radius_all(3)
+	style.content_margin_left   = 8.0
+	style.content_margin_right  = 8.0
+	style.content_margin_top    = 2.0
+	style.content_margin_bottom = 2.0
+
+	var row_panel: PanelContainer = PanelContainer.new()
+	row_panel.custom_minimum_size = Vector2(0.0, ROW_H)
+	row_panel.add_theme_stylebox_override("panel", style)
+
 	var row: HBoxContainer = HBoxContainer.new()
-	row.custom_minimum_size = Vector2(0.0, ROW_H)
 	row.add_theme_constant_override("separation", 8)
-
-	var accent: ColorRect = ColorRect.new()
-	accent.custom_minimum_size = Vector2(ACCENT_W, 0.0)
-	accent.color = _severity_color(entry["severity"] as NotificationManager.Severity)
-	row.add_child(accent)
-
-	var domain: UIKit.Domain = entry["domain"] as UIKit.Domain
-	var theme: UIKit.UITheme = UIKit.theme_for(domain)
+	row_panel.add_child(row)
 
 	var text_lbl: Label = Label.new()
 	text_lbl.text = str(entry["text"])
@@ -120,7 +132,7 @@ func _make_row(entry: Dictionary) -> Control:
 	text_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	text_lbl.add_theme_font_size_override("font_size", 12)
-	text_lbl.add_theme_color_override("font_color", theme.header)
+	text_lbl.add_theme_color_override("font_color", NotificationManager.TOAST_TEXT_COLOR)
 	row.add_child(text_lbl)
 
 	var time_lbl: Label = Label.new()
@@ -129,11 +141,11 @@ func _make_row(entry: Dictionary) -> Control:
 	time_lbl.custom_minimum_size = Vector2(48.0, 0.0)
 	time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	time_lbl.add_theme_font_size_override("font_size", 11)
-	time_lbl.add_theme_color_override("font_color", Color(0.55, 0.55, 0.58, 0.9))
+	time_lbl.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85, 0.85))
 	row.add_child(time_lbl)
 	_row_time_labels.append(time_lbl)
 
-	return row
+	return row_panel
 
 
 func _refresh_time_labels() -> void:

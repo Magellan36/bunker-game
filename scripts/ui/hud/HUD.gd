@@ -36,6 +36,11 @@ func _ready() -> void:
 	# Fade in via HUDRoot — CanvasLayer itself has no modulate property
 	_root.modulate.a = 0.0
 
+	# Lets NotificationManager (a global autoload, outside this scene's own
+	# node path) find the inventory bar's global rect to anchor toasts above
+	# it, without hardcoding a scene path (Jul 2026 toast-format rework).
+	add_to_group("hud")
+
 func _process(delta: float) -> void:
 	# ── Fade in on load ──
 	if _fading_in:

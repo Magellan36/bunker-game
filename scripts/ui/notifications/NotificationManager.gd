@@ -33,13 +33,16 @@ extends Node
 ##   if a different cap is wanted) so a signal storm can't leak memory;
 ##   drops the OLDEST entry first when exceeded.
 ##
-## Visual treatment reuses `UIKit` directly — each toast is a small
-## `UIKit.draw_panel()` using `UIKit.theme_for(entry.domain)`, so a power
-## alert reads green, a water alert reads blue, a neutral one reads
-## steel-gray — tying both halves of this plan together. `severity` drives
-## which color tints the toast's text/left accent bar WITHIN that domain
-## (INFO uses `theme.text`, WARNING uses `theme.warn`, CRITICAL uses
-## `theme.crit`) — domain says WHERE it's from, severity says HOW urgent.
+## Visual treatment (reworked Jul 2026, replacing the original top-right
+## domain-tinted stack): each toast is a solid severity-colored rectangle
+## (semi-transparent fill, dark semi-transparent border), stacked ABOVE the
+## inventory bar — newest toast closest to the bar, older ones pushed
+## upward — matching the look/position of the old pre-NotificationManager
+## `HUD.show_soft_warning()` single-message toast, just extended to a real
+## queue. Domain no longer tints the toast itself (that distinction now
+## only lives in NotificationHistoryUI's row text where there's room for
+## it) — severity is the one thing a toast needs to communicate at a
+## glance here.
 
 enum Severity { INFO, WARNING, CRITICAL }
 
@@ -59,17 +62,24 @@ signal history_changed
 const TOAST_WIDTH:      float = 340.0
 const TOAST_HEIGHT:     float = 48.0
 const TOAST_GAP:        float = 8.0
-const STACK_MARGIN:     Vector2 = Vector2(24.0, 24.0)   ## top-right inset
-const ACCENT_BAR_WIDTH: float = 4.0
+const GAP_ABOVE_BAR:    float = 12.0    ## gap between the nearest toast and the inventory bar
+const FALLBACK_BOTTOM_MARGIN: float = 140.0   ## used when no HUD/inventory bar is found in-scene
 const FADE_TAIL_RATIO:  float = 0.20   ## last 20% of lifetime ramps alpha -> 0
 const DEFAULT_DURATION: float = 4.0
 
-## Severity accent colors — FIXED across all domains (Brannon's explicit
-## call, Jul 2026): a WARNING toast is the same yellow-olive whether it's
-## POWER or WATER, a CRITICAL toast is always the same dark red, etc.
-## Deliberately NOT theme.warn/theme.crit (those stay domain-tinted for
-## in-panel status text elsewhere) — severity here is meant to read
-## identically regardless of which domain fired it.
+## Toast fill/border treatment (Jul 2026 rework — back to the old
+## `HUD.show_soft_warning()` look/position, extended to a real stacked
+## queue): solid severity-colored fill at partial opacity, plus a dark
+## semi-transparent border on every toast (Brannon's explicit call).
+const TOAST_FILL_ALPHA:   float = 0.62
+const TOAST_BORDER_COLOR: Color = Color(0.0, 0.0, 0.0, 0.55)
+const TOAST_BORDER_WIDTH: float = 2.0
+const TOAST_TEXT_COLOR:   Color = Color(0.96, 0.96, 0.96, 1.0)
+
+## Severity colors — FIXED across all domains (Brannon's explicit call,
+## Jul 2026): a WARNING toast is the same yellow-olive whether it's POWER
+## or WATER, a CRITICAL toast is always the same dark red, etc. Now used
+## as the toast's actual fill color (previously just a thin accent bar).
 const SEVERITY_COLOR_INFO:     Color = Color(0x87 / 255.0, 0x87 / 255.0, 0x87 / 255.0, 1.0)
 const SEVERITY_COLOR_WARNING:  Color = Color(0x8f / 255.0, 0x94 / 255.0, 0x0d / 255.0, 1.0)
 const SEVERITY_COLOR_CRITICAL: Color = Color(0x94 / 255.0, 0x30 / 255.0, 0x2b / 255.0, 1.0)
@@ -155,36 +165,53 @@ func _on_draw() -> void:
 	if _queue.is_empty():
 		return
 	var vp: Vector2 = _canvas.get_viewport().get_visible_rect().size
-	var y: float = STACK_MARGIN.y
-	for entry: Dictionary in _queue:
-		var rect: Rect2 = Rect2(vp.x - STACK_MARGIN.x - TOAST_WIDTH, y, TOAST_WIDTH, TOAST_HEIGHT)
+	var center_x: float = (vp.x - TOAST_WIDTH) * 0.5
+
+	## Anchor above the inventory bar — same reasoning as the old
+	## `HUD.show_soft_warning()` (Brannon's explicit call to bring that
+	## position/shape back). Falls back to a fixed bottom margin if no
+	## HUD is present in the current scene (e.g. a menu/preview context).
+	var bar_top: float = vp.y - FALLBACK_BOTTOM_MARGIN
+	var hud: Node = _canvas.get_tree().get_first_node_in_group("hud")
+	if hud != null and ("inventory_hud" in hud):
+		var inv: Control = hud.get("inventory_hud") as Control
+		if inv != null and is_instance_valid(inv):
+			bar_top = inv.get_global_rect().position.y
+
+	## Newest toast (last in _queue) sits closest to the bar; older
+	## entries stack upward above it — iterate newest-first.
+	var bottom_y: float = bar_top - GAP_ABOVE_BAR
+	for i: int in range(_queue.size() - 1, -1, -1):
+		var entry: Dictionary = _queue[i]
+		var rect: Rect2 = Rect2(center_x, bottom_y - TOAST_HEIGHT, TOAST_WIDTH, TOAST_HEIGHT)
 		_draw_toast(rect, entry)
-		y += TOAST_HEIGHT + TOAST_GAP
+		bottom_y -= TOAST_HEIGHT + TOAST_GAP
 
 
 func _draw_toast(rect: Rect2, entry: Dictionary) -> void:
-	var domain: UIKit.Domain     = entry["domain"]
-	var severity: Severity      = entry["severity"]
-	var text: String            = entry["text"]
-	var age: float               = float(entry["age"])
-	var duration: float          = float(entry["duration"])
+	var severity: Severity = entry["severity"]
+	var text: String       = entry["text"]
+	var age: float          = float(entry["age"])
+	var duration: float     = float(entry["duration"])
 
 	var alpha: float = _fade_alpha(age, duration)
-	var theme: UIKit.UITheme = _theme_with_alpha(UIKit.theme_for(domain), alpha)
 
-	UIKit.draw_panel(_canvas, rect, theme, 1.5)
+	## Solid severity-colored fill (semi-transparent) + dark semi-transparent
+	## border on every toast — Brannon's explicit Jul 2026 call to bring
+	## back the old show_soft_warning() look, just severity-colored instead
+	## of the old flat dark/amber panel.
+	var fill: Color = _severity_color(severity)
+	fill.a = TOAST_FILL_ALPHA * alpha
+	_canvas.draw_rect(rect, fill, true)
 
-	## Left accent bar — FIXED severity color (same hue regardless of
-	## domain, per Brannon's call), full toast height. Gives a
-	## colorblind-safer secondary cue alongside the accent text color
-	## itself (both encode the same severity).
-	var accent: Color = _severity_color(severity)
-	accent.a *= alpha
-	var accent_rect: Rect2 = Rect2(rect.position, Vector2(ACCENT_BAR_WIDTH, rect.size.y))
-	_canvas.draw_rect(accent_rect, accent, true)
+	var border: Color = TOAST_BORDER_COLOR
+	border.a *= alpha
+	_canvas.draw_rect(rect, border, false, TOAST_BORDER_WIDTH)
 
-	var text_pos: Vector2 = rect.position + Vector2(ACCENT_BAR_WIDTH + 14.0, rect.size.y * 0.5 + 5.0)
-	UIKit.draw_shadowed_text(_canvas, text_pos, text, 13, accent)
+	var text_color: Color = TOAST_TEXT_COLOR
+	text_color.a *= alpha
+	var text_pos: Vector2 = rect.position + Vector2(14.0, rect.size.y * 0.5 + 5.0)
+	UIKit.draw_shadowed_text(_canvas, text_pos, text, 13, text_color)
 
 
 func _severity_color(severity: Severity) -> Color:
@@ -302,19 +329,3 @@ func _on_pm_breaker_tripped(breaker_id: String) -> void:
 
 func _on_pm_breaker_reset(breaker_id: String) -> void:
 	notify(UIKit.Domain.POWER, Severity.INFO, "Breaker %s reset" % breaker_id)
-
-
-## Returns a copy of `theme` with every color's alpha multiplied by
-## `alpha` — lets one shared Theme fade uniformly without UIKit's drawing
-## primitives needing their own alpha parameter.
-func _theme_with_alpha(theme: UIKit.UITheme, alpha: float) -> UIKit.UITheme:
-	var t: UIKit.UITheme = UIKit.UITheme.new()
-	t.bg     = Color(theme.bg.r, theme.bg.g, theme.bg.b, theme.bg.a * alpha)
-	t.border = Color(theme.border.r, theme.border.g, theme.border.b, theme.border.a * alpha)
-	t.header = Color(theme.header.r, theme.header.g, theme.header.b, theme.header.a * alpha)
-	t.text   = Color(theme.text.r, theme.text.g, theme.text.b, theme.text.a * alpha)
-	t.dim    = Color(theme.dim.r, theme.dim.g, theme.dim.b, theme.dim.a * alpha)
-	t.ok     = Color(theme.ok.r, theme.ok.g, theme.ok.b, theme.ok.a * alpha)
-	t.warn   = Color(theme.warn.r, theme.warn.g, theme.warn.b, theme.warn.a * alpha)
-	t.crit   = Color(theme.crit.r, theme.crit.g, theme.crit.b, theme.crit.a * alpha)
-	return t
