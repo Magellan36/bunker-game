@@ -2003,3 +2003,35 @@ deliberately NO dedicated "N purifiers need attention" HUD element wired up
 yet — a typical base has one, maybe two purifiers, and item 4's per-purifier
 notice already covers the common case. Revisit if/when a base exists with
 enough purifiers for a persistent indicator to matter in practice.
+
+## Filter wear scales with incoming water quality (Jul 2026 follow-up)
+
+Brannon's confirmed spec: filter wear now varies with incoming (raw,
+pre-purification) water quality instead of always ticking at a fixed max
+rate.
+
+- `_compute_depletion_per_second()` (unchanged) is now the MAX rate — hit
+  whenever incoming water quality is **<=50%** (dirtier water works the
+  filter harder).
+- Scales DOWN linearly to **25%** of that max rate at **100%** incoming
+  quality (cleaner water barely wears it). Linear interpolation between the
+  two: `1.0 - ((incoming - 50.0) / 50.0) * 0.75`.
+- **Disconnected from any water source -> 0** (no water flowing through it
+  at all, nothing to wear the filter down with) — deliberately NOT treated
+  as the max-rate case; confirmed explicitly with Brannon rather than
+  assumed.
+- "Incoming water quality" = the upstream hookup's RAW (pre-purification)
+  `water_quality`, via `WaterManager.get_upstream_raw_quality()` — the
+  exact same value `WaterInfoUI`'s purifier panel already shows as INPUT,
+  so the wear rate always matches what the player can see in that panel.
+
+New `WaterPurifier._compute_wear_multiplier()` returns this 0.25-1.0
+multiplier; `_process()` multiplies it into the existing max-rate
+depletion tick. The `_ready()` debug print was relabeled
+`max_depletion_per_second` (was `depletion_per_second`) since the actual
+live rate now varies below it.
+
+Verified via a headless functional test (clamped 1.0 at incoming<=50,
+linear midpoint 0.625 at incoming=75, exact 0.25 at incoming=100, 0.4 at
+incoming=90, and 0.0 when disconnected/no `node_key`) plus
+`tools/godot_check.sh`.
