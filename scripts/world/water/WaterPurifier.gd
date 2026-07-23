@@ -77,8 +77,10 @@ func _ready() -> void:
 	_refresh_band_tint()
 	## Debug print (Jul 2026, Purifier Filter plan §7) — a 10-in-game-day
 	## depletion is too slow to eyeball-verify without either a fast-forward
-	## cheat or seeing the computed rate once here.
-	print("[PurifierFilter] depletion_per_second=%.8f (FILTER_LIFESPAN_DAYS=%.1f)" % [
+	## cheat or seeing the computed rate once here. This is the MAX rate
+	## (incoming water quality <=50%, see _compute_wear_multiplier()) — the
+	## LIVE rate varies below this depending on incoming water quality.
+	print("[PurifierFilter] max_depletion_per_second=%.8f (FILTER_LIFESPAN_DAYS=%.1f)" % [
 		_compute_depletion_per_second(), FILTER_LIFESPAN_DAYS])
 
 func _exit_tree() -> void:
@@ -90,9 +92,11 @@ func _exit_tree() -> void:
 ## seconds-per-game-day conversion WaterDispenser.gd already uses
 ## (PlayerStats._seconds_per_game_hour * 24.0, with the same 86400.0 real-
 ## day fallback if PlayerStats isn't found yet — copied verbatim, not
-## re-derived).
+## re-derived). Rate scaled by incoming water quality (Jul 2026 follow-up —
+## see _compute_wear_multiplier()).
 func _process(delta: float) -> void:
-	filter_quality = maxf(0.0, filter_quality - _compute_depletion_per_second() * delta)
+	var rate: float = _compute_depletion_per_second() * _compute_wear_multiplier()
+	filter_quality = maxf(0.0, filter_quality - rate * delta)
 	_refresh_band_tint()
 	_check_low_filter_warning()
 
@@ -134,6 +138,35 @@ func _compute_depletion_per_second() -> float:
 	if stats != null and "_seconds_per_game_hour" in stats:
 		seconds_per_game_day = stats._seconds_per_game_hour * 24.0
 	return 100.0 / (FILTER_LIFESPAN_DAYS * seconds_per_game_day)
+
+## Wear multiplier (Jul 2026 follow-up, Brannon's confirmed spec) — filter
+## wear now varies with INCOMING (pre-purification) water quality instead of
+## always ticking at the max rate. `_compute_depletion_per_second()`'s
+## return value is the MAX rate, hit at incoming quality <=50% (dirtier
+## water works the filter harder); the rate scales DOWN linearly to 25% of
+## that max at 100% incoming quality (cleaner water barely wears it).
+## Disconnected from any water source -> 0 (no water flowing through it at
+## all, so nothing to wear the filter down with).
+## Uses WaterManager.get_upstream_raw_quality() — the exact same value
+## WaterInfoUI's purifier panel already shows as INPUT, so this reads
+## consistently with what the player sees in that panel.
+func _compute_wear_multiplier() -> float:
+	if node_key.is_empty():
+		return 0.0
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	if wm == null:
+		return 0.0
+	var upstream: Dictionary = wm.get_upstream_raw_quality(node_key)
+	if not bool(upstream.get("connected", false)):
+		return 0.0
+	var incoming: float = float(upstream.get("quality", 100.0))
+	if incoming <= 50.0:
+		return 1.0
+	if incoming >= 100.0:
+		return 0.25
+	## Linear interpolation: 1.0 at incoming=50, 0.25 at incoming=100.
+	var t: float = (incoming - 50.0) / 50.0
+	return 1.0 - t * 0.75
 
 ## The one formula, used everywhere a downstream consumer's actual water
 ## quality needs to reflect this purifier's current filter wear (Brannon's
