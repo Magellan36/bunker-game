@@ -362,6 +362,12 @@ func _setup_power_manager() -> void:
 	## Connect grid-event signals to HUD notifications.
 	## Deferred so HUD is guaranteed ready before the signal fires.
 	call_deferred("_connect_power_hud_signals")
+	## Connect PowerManager's signals to the NotificationManager toast
+	## system (UI Kit + Notifications plan, Part 3 step 4, Jul 2026) — a
+	## thin adapter, all detection logic already lives in PowerManager.
+	## Deferred for the same reason as above (group membership must be
+	## settled before lookup).
+	call_deferred("_connect_power_notification_signals")
 
 ## Water system groundwork (July 2026) — mirrors _setup_power_manager()'s
 ## shape exactly. Standalone system (see docs/systems referenced in
@@ -423,21 +429,31 @@ func _connect_power_hud_signals() -> void:
 			and not _power_manager.grid_offline.is_connected(_on_grid_offline):
 		_power_manager.grid_offline.connect(_on_grid_offline)
 
+## Connects PowerManager signals to NotificationManager (autoload) so grid
+## events surface as toasts. Added Jul 2026 (UI Kit + Notifications plan,
+## Part 3 step 4) — see NotificationManager.connect_power_signals() for the
+## full signal->toast mapping.
+func _connect_power_notification_signals() -> void:
+	if _power_manager == null:
+		return
+	NotificationManager.connect_power_signals()
+
 func _on_grid_tripped() -> void:
-	if hud != null and hud.has_method("show_soft_warning"):
-		hud.show_soft_warning("⚡ POWER GRID TRIPPED — reduce load, then restart generators")
+	## Toast text for this event now comes from NotificationManager (see
+	## _connect_power_notification_signals()) — no longer duplicated here
+	## via hud.show_soft_warning(), so it isn't shown twice.
 	## Camera shake (graphics plan Phase 7) — a tripped main breaker is the
 	## single biggest "oh no" moment in the power system, worth a jolt.
 	if camera != null:
 		camera.add_trauma(0.5)
 
 func _on_grid_restored() -> void:
-	if hud != null and hud.has_method("show_soft_warning"):
-		hud.show_soft_warning("✓ GRID RESTORED — restart generators to restore power")
+	## Toast text now comes from NotificationManager — see _on_grid_tripped().
+	pass
 
 func _on_grid_offline() -> void:
-	if hud != null and hud.has_method("show_soft_warning"):
-		hud.show_soft_warning("✗ POWER GRID OFFLINE — no generators or batteries")
+	## Toast text now comes from NotificationManager — see _on_grid_tripped().
+	pass
 
 func _setup_debug_overlay() -> void:
 	var script: GDScript = load("res://scripts/ui/debug/DebugOverlay.gd")

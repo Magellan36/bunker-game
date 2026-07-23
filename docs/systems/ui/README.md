@@ -203,9 +203,15 @@ it's a global "show this text for a while" service reachable from any scene.
 - Call `NotificationManager.notify(domain: UIKit.Domain, severity:
   Severity, text: String, duration: float = 4.0)` from anywhere.
   `enum Severity { INFO, WARNING, CRITICAL }` — `domain` picks WHERE it's
-  from (water/power/neutral color scheme via `UIKit`), `severity` picks HOW
-  urgent within that scheme (tints text + left accent bar: INFO→`theme.text`,
-  WARNING→`theme.warn`, CRITICAL→`theme.crit`).
+  from (water/power/neutral color scheme via `UIKit`, used for the panel
+  bg/border/header). `severity` picks HOW urgent and is rendered with
+  **fixed colors, the same across all domains** (Brannon's explicit call,
+  Jul 2026 — a WARNING toast reads identically whether it's water or
+  power): `SEVERITY_COLOR_INFO = #878787`, `SEVERITY_COLOR_WARNING =
+  #8f940d`, `SEVERITY_COLOR_CRITICAL = #94302b`. These are deliberately
+  NOT `theme.warn`/`theme.crit` (those stay domain-tinted, still used by
+  in-panel status text elsewhere) — severity color tints the toast's left
+  accent bar + message text.
 - Queue: newest toast appended at the bottom of the on-screen stack (oldest
   at top), each toast fades independently over its own last 20%
   (`FADE_TAIL_RATIO`) of `duration`. `MAX_QUEUE_LEN = 20` defensive cap
@@ -215,11 +221,33 @@ it's a global "show this text for a while" service reachable from any scene.
   layer in the project — `PauseMenuUI`=200 and `GraphicsSettingsPanel`=210
   were previously the highest), top-right stack, drawn via
   `UIKit.draw_panel()`/`theme_for(entry.domain)` same as any other panel.
-- **Out of scope so far (paused, needs explicit go-ahead before starting):**
-  wiring real alert sources — `PowerManager`'s `grid_tripped`/
-  `grid_restored`/etc. signals, new water-system signals, `PlayerStats`
-  threshold watching. This pass is the skeleton + manual `notify()` call
-  only; nothing in the game calls it automatically yet.
+- **Power signal wiring (Jul 2026, done):**
+  `NotificationManager.connect_power_signals()` is a thin adapter —
+  `PowerManager` already does all detection, this just translates 10 of
+  its signals into `notify()` calls: `grid_tripped`/`grid_offline`→CRITICAL,
+  `overloaded_started`/`breaker_tripped`/`battery_drained`/
+  `generator_stopped`→WARNING, `grid_restored`/`overloaded_ended`/
+  `generator_started`/`breaker_reset`/`generator_fuel_low`/`battery_low`
+  →INFO. Generator/battery/breaker toasts include the specific id in the
+  text (e.g. `"Generator gen_2 fuel low (18%)"`). Since `PowerManager` is a
+  per-scene instance (group `"power_manager"`), not an autoload, this can't
+  be connected from `NotificationManager._ready()` — `MainWorld` calls
+  `connect_power_signals()` once, deferred, right after it creates
+  `PowerManager` for that scene (`_setup_power_manager()` →
+  `_connect_power_notification_signals()`), mirroring the pre-existing
+  `_connect_power_hud_signals()` pattern. Guarded with `is_connected()`
+  checks, safe to call more than once.
+  `grid_tripped`/`grid_restored`/`grid_offline` previously ALSO surfaced via
+  `HUD.show_soft_warning()` from `MainWorld._on_grid_tripped/restored/
+  offline()` — that duplicate ad-hoc text was removed from those three
+  functions in this same pass (the camera-trauma shake on `grid_tripped`
+  stays) so the toast is the one place these three events show a message,
+  not two overlapping notifications for one event.
+- **Still out of scope (paused, needs explicit go-ahead before starting):**
+  new water-system alert signals (`WaterPurifier`/`WaterManager`/
+  `WaterDispenser` currently expose none — see plan §2.3), and `PlayerStats`
+  threshold watching (food/water/sleep/health crossing a threshold, needs a
+  shared `ThresholdWatcher` helper per the plan, not yet built).
 
 ## Extension points
 - Any new shared cross-panel utility (like `UIFade`, `UIKit`) belongs in

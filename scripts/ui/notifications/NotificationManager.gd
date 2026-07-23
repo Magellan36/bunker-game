@@ -53,6 +53,16 @@ const ACCENT_BAR_WIDTH: float = 4.0
 const FADE_TAIL_RATIO:  float = 0.20   ## last 20% of lifetime ramps alpha -> 0
 const DEFAULT_DURATION: float = 4.0
 
+## Severity accent colors — FIXED across all domains (Brannon's explicit
+## call, Jul 2026): a WARNING toast is the same yellow-olive whether it's
+## POWER or WATER, a CRITICAL toast is always the same dark red, etc.
+## Deliberately NOT theme.warn/theme.crit (those stay domain-tinted for
+## in-panel status text elsewhere) — severity here is meant to read
+## identically regardless of which domain fired it.
+const SEVERITY_COLOR_INFO:     Color = Color(0x87 / 255.0, 0x87 / 255.0, 0x87 / 255.0, 1.0)
+const SEVERITY_COLOR_WARNING:  Color = Color(0x8f / 255.0, 0x94 / 255.0, 0x0d / 255.0, 1.0)
+const SEVERITY_COLOR_CRITICAL: Color = Color(0x94 / 255.0, 0x30 / 255.0, 0x2b / 255.0, 1.0)
+
 ## Each entry: { domain: UIKit.Domain, severity: Severity, text: String,
 ##               duration: float, age: float }
 var _queue: Array[Dictionary] = []
@@ -128,25 +138,27 @@ func _draw_toast(rect: Rect2, entry: Dictionary) -> void:
 
 	UIKit.draw_panel(_canvas, rect, theme, 1.5)
 
-	## Left accent bar — severity color, full toast height. Gives a
+	## Left accent bar — FIXED severity color (same hue regardless of
+	## domain, per Brannon's call), full toast height. Gives a
 	## colorblind-safer secondary cue alongside the accent text color
 	## itself (both encode the same severity).
-	var accent: Color = _severity_color(theme, severity)
+	var accent: Color = _severity_color(severity)
+	accent.a *= alpha
 	var accent_rect: Rect2 = Rect2(rect.position, Vector2(ACCENT_BAR_WIDTH, rect.size.y))
-	_canvas.draw_rect(accent_rect, Color(accent.r, accent.g, accent.b, accent.a), true)
+	_canvas.draw_rect(accent_rect, accent, true)
 
 	var text_pos: Vector2 = rect.position + Vector2(ACCENT_BAR_WIDTH + 14.0, rect.size.y * 0.5 + 5.0)
 	UIKit.draw_shadowed_text(_canvas, text_pos, text, 13, accent)
 
 
-func _severity_color(theme: UIKit.UITheme, severity: Severity) -> Color:
+func _severity_color(severity: Severity) -> Color:
 	match severity:
 		Severity.WARNING:
-			return theme.warn
+			return SEVERITY_COLOR_WARNING
 		Severity.CRITICAL:
-			return theme.crit
+			return SEVERITY_COLOR_CRITICAL
 		_:
-			return theme.text
+			return SEVERITY_COLOR_INFO
 
 
 ## Last FADE_TAIL_RATIO of the toast's lifetime ramps alpha 1.0 -> 0.0;
@@ -159,6 +171,101 @@ func _fade_alpha(age: float, duration: float) -> float:
 	if ratio <= fade_start:
 		return 1.0
 	return clampf(1.0 - (ratio - fade_start) / FADE_TAIL_RATIO, 0.0, 1.0)
+
+
+## ─────────────────────────────────────────────────────────────────────────────
+## Power signal wiring (Part 3 step 4 of the UI Kit + Notifications plan,
+## Jul 2026). Thin adapter only — PowerManager already does all the actual
+## detection work, this just translates its signals into notify() calls.
+##
+## PowerManager is a per-scene instance (group "power_manager"), not an
+## autoload, so it doesn't exist yet when this autoload's own _ready() runs.
+## MainWorld calls connect_power_signals() once, deferred, right after it
+## creates PowerManager for that scene (mirrors the existing
+## _connect_power_hud_signals() pattern already in MainWorld.gd). Guarded
+## with is_connected() checks so calling this more than once is harmless.
+##
+## Severity mapping (Brannon's call, Jul 2026):
+##   CRITICAL — grid_tripped, grid_offline (total outage)
+##   WARNING  — overloaded_started, breaker_tripped, battery_drained,
+##              generator_stopped (localized problems, not full outage)
+##   INFO     — grid_restored, overloaded_ended, generator_started,
+##              breaker_reset (recovery events), generator_fuel_low,
+##              battery_low (early warning thresholds)
+##
+## grid_tripped/grid_restored/grid_offline previously routed through
+## HUD.show_soft_warning() from MainWorld — that duplicate ad-hoc path is
+## removed from MainWorld in this same pass so the toast is the ONE place
+## these events surface (not two overlapping notifications for one event).
+func connect_power_signals() -> void:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return
+	var pm: Node = tree.get_first_node_in_group("power_manager")
+	if pm == null:
+		return
+
+	if pm.has_signal("grid_tripped") and not pm.grid_tripped.is_connected(_on_pm_grid_tripped):
+		pm.grid_tripped.connect(_on_pm_grid_tripped)
+	if pm.has_signal("grid_restored") and not pm.grid_restored.is_connected(_on_pm_grid_restored):
+		pm.grid_restored.connect(_on_pm_grid_restored)
+	if pm.has_signal("grid_offline") and not pm.grid_offline.is_connected(_on_pm_grid_offline):
+		pm.grid_offline.connect(_on_pm_grid_offline)
+	if pm.has_signal("overloaded_started") and not pm.overloaded_started.is_connected(_on_pm_overloaded_started):
+		pm.overloaded_started.connect(_on_pm_overloaded_started)
+	if pm.has_signal("overloaded_ended") and not pm.overloaded_ended.is_connected(_on_pm_overloaded_ended):
+		pm.overloaded_ended.connect(_on_pm_overloaded_ended)
+	if pm.has_signal("generator_started") and not pm.generator_started.is_connected(_on_pm_generator_started):
+		pm.generator_started.connect(_on_pm_generator_started)
+	if pm.has_signal("generator_stopped") and not pm.generator_stopped.is_connected(_on_pm_generator_stopped):
+		pm.generator_stopped.connect(_on_pm_generator_stopped)
+	if pm.has_signal("generator_fuel_low") and not pm.generator_fuel_low.is_connected(_on_pm_generator_fuel_low):
+		pm.generator_fuel_low.connect(_on_pm_generator_fuel_low)
+	if pm.has_signal("battery_low") and not pm.battery_low.is_connected(_on_pm_battery_low):
+		pm.battery_low.connect(_on_pm_battery_low)
+	if pm.has_signal("battery_drained") and not pm.battery_drained.is_connected(_on_pm_battery_drained):
+		pm.battery_drained.connect(_on_pm_battery_drained)
+	if pm.has_signal("breaker_tripped") and not pm.breaker_tripped.is_connected(_on_pm_breaker_tripped):
+		pm.breaker_tripped.connect(_on_pm_breaker_tripped)
+	if pm.has_signal("breaker_reset") and not pm.breaker_reset.is_connected(_on_pm_breaker_reset):
+		pm.breaker_reset.connect(_on_pm_breaker_reset)
+
+
+func _on_pm_grid_tripped() -> void:
+	notify(UIKit.Domain.POWER, Severity.CRITICAL, "⚡ POWER GRID TRIPPED — reduce load, then restart generators")
+
+func _on_pm_grid_restored() -> void:
+	notify(UIKit.Domain.POWER, Severity.INFO, "✓ GRID RESTORED — restart generators to restore power")
+
+func _on_pm_grid_offline() -> void:
+	notify(UIKit.Domain.POWER, Severity.CRITICAL, "✗ POWER GRID OFFLINE — no generators or batteries")
+
+func _on_pm_overloaded_started() -> void:
+	notify(UIKit.Domain.POWER, Severity.WARNING, "⚠ Power grid overloaded — load shedding active")
+
+func _on_pm_overloaded_ended() -> void:
+	notify(UIKit.Domain.POWER, Severity.INFO, "✓ Power grid load back to normal")
+
+func _on_pm_generator_started(gen_id: String) -> void:
+	notify(UIKit.Domain.POWER, Severity.INFO, "Generator %s started" % gen_id)
+
+func _on_pm_generator_stopped(gen_id: String, reason: String) -> void:
+	notify(UIKit.Domain.POWER, Severity.WARNING, "Generator %s stopped (%s)" % [gen_id, reason])
+
+func _on_pm_generator_fuel_low(gen_id: String, fuel_pct: float) -> void:
+	notify(UIKit.Domain.POWER, Severity.INFO, "Generator %s fuel low (%d%%)" % [gen_id, int(round(fuel_pct))])
+
+func _on_pm_battery_low(bat_id: String, charge_pct: float) -> void:
+	notify(UIKit.Domain.POWER, Severity.INFO, "Battery %s charge low (%d%%)" % [bat_id, int(round(charge_pct))])
+
+func _on_pm_battery_drained(bat_id: String) -> void:
+	notify(UIKit.Domain.POWER, Severity.WARNING, "Battery %s drained" % bat_id)
+
+func _on_pm_breaker_tripped(breaker_id: String) -> void:
+	notify(UIKit.Domain.POWER, Severity.WARNING, "Breaker %s tripped" % breaker_id)
+
+func _on_pm_breaker_reset(breaker_id: String) -> void:
+	notify(UIKit.Domain.POWER, Severity.INFO, "Breaker %s reset" % breaker_id)
 
 
 ## Returns a copy of `theme` with every color's alpha multiplied by
