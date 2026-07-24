@@ -641,10 +641,54 @@ full detail. Summary:
    the common case) — a rare diamond-merge topology with two genuinely
    different-purity incoming edges takes whichever the BFS visits first.
 
+## Farming System — implemented (Jul 2026, commit `cbde160`)
+Implemented `FARMING_SYSTEM_PLAN` sections 1–9, 11–12 in one pass. **§10
+("ten polish recommendations") deliberately excluded** — wilting tint,
+soil-fill VFX/sound, real `OmniLight3D` illumination, harvest pop tween,
+connectable-dot color consistency, low-health toast reuse, seed/bag visual
+distinction, double-tray seam, grow-light ghost floor decal, debug readout.
+None of these 10 items exist yet — pick them up as a follow-up pass if
+Brannon wants them.
+
+- **New files:** `scripts/world/farming/{FarmingTray,FarmPlant,PlantDatabase}.gd`,
+  `scripts/world/items/{BagOfSoilItem,EmptyBagItem,SeedItem,FarmProduceItem}.gd`,
+  `scripts/world/power/GrowLight.gd`, `scripts/ui/farming/{FarmingTrayUI,PlantInfoUI}.gd`,
+  `scripts/world/build/FarmingShopHelper.gd`, `docs/systems/farming/README.md`.
+- **Edited:** `BuildModeController.gd`/`BuildModeHUD.gd`/`GhostPreview.gd`/
+  `MoveDuplicateTool.gd` (new Farming construct category with single/double
+  tray tiles, 2 new grow-light tiles filed under existing Lighting category,
+  new `TOOL_FARMING` toolbar tool for buying seeds/soil), `DeviceDatabase.gd`
+  (grow_light_normal/pro watt+priority entries), plus Farming sections added
+  to `docs/systems/{water,power,build,furniture-items}/README.md` and a new
+  Farming row in `PROJECT_SUMMARY.md`'s system index (now 10 migrated
+  systems).
+- **Architecture (per plan's own mandates, followed exactly):** no central
+  `FarmingManager` — trays are independent `WaterManager` consumers, grow
+  lights are independent `PowerManager` consumers (`GrowLight.gd` mirrors
+  `HeavyConsumerTest.gd`'s direct-`PowerPriorityUI` pattern, not
+  `WallLight.gd`'s proxy pattern, since it's a `StaticBody3D` host).
+- **Confirmed decisions:** Tomato grow_days=10, Onion grow_days=20
+  (per-species table in `PlantDatabase.gd`, not hardcoded); READY plants
+  harvest instantly on E (no info-panel step first); 0% health kills the
+  plant (wasted seed, tray reverts to soil-filled/empty, no harvest);
+  water **quality** deliberately NOT wired into growth/health (design
+  choice — only water *delivery* matters, trays are demand consumers like
+  any other endpoint).
+- **Known gap (accepted, not a bug):** persistence is explicitly out of
+  scope this pass. Trays/lights save as ordinary placed objects, but
+  per-cell soil/plant state (species, grow progress, health) does NOT
+  survive a save/load cycle yet. Added to the Save/Load System Overhaul
+  scope below.
+- `tools/godot_check.sh` — **PASS**, no parse/compile/autoload errors.
+  Logic/visual behavior (grow timing, UI panels, shop flow, wire/pipe
+  auto-connect) still needs Brannon's in-editor test pass — not yet
+  confirmed working in a live session.
+
 ## Git state
 - Local clone: `/home/user/bunker-game-repo/repo`
-- `origin/main` at `562b251` (both features pushed, nothing pending).
-- Git identity used: `-c user.name="Brannon Henrie" -c user.email="brannon@magellan-apps.com"`
+- `origin/main` at `cbde160` (Farming System pushed, nothing pending).
+- Git identity used: `user.name="Magellan Agent" user.email="agent@magellan-apps.com"` (sandbox had no
+  identity configured this session; set locally before committing).
 - Push command: `export $(cat ../.env | xargs) && git push https://${GITHUB_TOKEN}@github.com/Magellan36/bunker-game.git main`
 
 ## Standing rules (unchanged, still apply)
@@ -694,6 +738,11 @@ position/cash/clock) to cover:
   `WaterPurifier.filter_quality` (float) and `PurifierFilterItem`'s
   `is_used`/`filter_quality` fields — same gap category, flagged not
   solved when the filter system shipped, per that plan's own §5.
+- Farming: per-cell soil/plant state on `FarmingTray`/`FarmPlant`
+  (species, grow progress, health) — same gap category, flagged not
+  solved when the Farming system shipped (Jul 2026). Trays/lights
+  themselves save fine as ordinary placed objects; only the growing
+  state inside them is lost on reload.
 
 **Before starting that session, read (in order):** `AI_CONTEXT.md` →
 `PROJECT_SUMMARY.md` → `docs/systems/world-core/README.md` (existing
