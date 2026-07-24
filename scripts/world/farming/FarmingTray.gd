@@ -165,14 +165,35 @@ func _cell_local_x(cell_index: int) -> float:
 
 # ─── Interaction ──────────────────────────────────────────────────────────────
 ## Bare-handed E only — InteractionSystem routes here when held_item == null.
+## Polish Plan Group 0 item 19: FarmPlant has no interactability of its own
+## anymore — this is now the single E-press entry point for the whole tray.
 func get_interact_prompt() -> String:
 	if not is_fully_soiled():
 		return "[E] Fill with Soil"
+	if _has_ready_cell():
+		return "[E] Harvest"
 	return "[E] Tray Info"
+
+func _has_ready_cell() -> bool:
+	for plant: FarmPlant in plant_refs:
+		if plant != null and is_instance_valid(plant) and plant.is_ready():
+			return true
+	return false
 
 func on_interact() -> void:
 	if not is_fully_soiled():
 		_show_error("Tray needs soil")
+		return
+
+	## Harvest every ready cell immediately, no menu — avoids stranding a
+	## second ready cell on a double tray behind an ambiguous follow-up
+	## E-press (plan's own reasoning, Group 0 item 19).
+	var harvested_any: bool = false
+	for plant: FarmPlant in plant_refs.duplicate():
+		if plant != null and is_instance_valid(plant) and plant.is_ready():
+			plant.harvest()
+			harvested_any = true
+	if harvested_any:
 		return
 
 	if _tray_ui == null or not is_instance_valid(_tray_ui):

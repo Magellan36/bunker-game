@@ -64,8 +64,15 @@ The water/power systems have managers because they solve a *shared graph*
   parent/child relationship, no registration handshake):
   `get_active_growth_speed() -> float` (0.0 unpowered/shed, 0.5 normal,
   1.0 pro). Not wall-snapped, not required to sit above a tray — placeable
-  anywhere in the bunker, fixed height `GROW_LIGHT_PLACEMENT_Y = 2.75`
-  (below the 2.9m pipe layer, above wall-light height).
+  anywhere in the bunker, fixed height `GROW_LIGHT_PLACEMENT_Y = 2.625`
+  (Polish Plan Group 0 item 20: derived as `WALL_HEIGHT_M * 7.0/8.0`, now
+  sitting slightly *below* the 2.9m pipe layer — was `2.75` pre-revision,
+  visual-only change). 4 thin unlit dark-grey `CylinderMesh` corner support
+  wires run from the fixture up to the 3.0m ceiling
+  (`WIRE_LENGTH = WALL_HEIGHT_M * 1.0/8.0 = 0.375m`, both constants live in
+  `GrowLight.gd`/`BuildModeController.gd` mirroring each other, same
+  "two independent constants, same value" pattern `WaterPipeDrawMode.
+  WATER_CEILING_Y` already documents).
 - **Items** (`scripts/world/items/`) — `BagOfSoilItem.gd` (on_use() fills
   the nearest tray's first open soil cell, drops an `EmptyBagItem.gd` near
   it), `SeedItem.gd` (one script, `seed_type` export; on_use() plants into
@@ -107,3 +114,4 @@ The water/power systems have managers because they solve a *shared graph*
   the current flatter/lighter EmptyBagItem silhouette, double-tray seam,
   grow-light ghost floor decal, `*_DEBUG` readout) — deliberately deferred
   to a later pass per the implementation plan's own §10.
+§10.
