@@ -59,7 +59,7 @@ const CONNECTION_H: float = 40.0
 const WATER_BLOCK_H: float = 70.0   ## label + value + bar + gap
 const BUBBLE_H: float = 52.0
 const BUBBLE_GAP_AFTER: float = 16.0
-const PLANT_BLOCK_H: float = 92.0
+const PLANT_BLOCK_H: float = 108.0   ## Polish Plan Group 1 item 4: +16 for the "Ready in ~X days" line
 const PLANT_BLOCK_GAP: float = 10.0
 const PRIORITY_BLOCK_H: float = 112.0
 const BOTTOM_PAD: float = 20.0
@@ -336,6 +336,23 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 
 	var growth_pct: int = int(round(plant.progress * 100.0))
 	_draw_str("Growth: %d%%" % growth_pct, Vector2(bx, by), _theme.text, 11)
+	by += 20.0
+
+	## Polish Plan Group 1 item 4 — "Ready in ~X days" countdown, using the
+	## plant's live growth rate (cached each hour tick, 0 while stalled with
+	## no light/water). Color-graded via WaterQualityColor's existing
+	## red/yellow/green step convention, fed `progress` as a 0-100 scale
+	## (a stand-in "how close to ready" value — not a water quality, but the
+	## same visual language the plan calls for).
+	if ready:
+		_draw_str("Ready now", Vector2(bx, by), READY_COLOR, 11)
+	elif plant.growth_per_hour_current <= 0.0:
+		_draw_str("Ready in: stalled", Vector2(bx, by), NOT_READY_COLOR, 11)
+	else:
+		var hours_left: float = (1.0 - plant.progress) / plant.growth_per_hour_current
+		var days_left: int = int(ceil(hours_left / 24.0))
+		var countdown_col: Color = WaterQualityColor.get_color(plant.progress * 100.0)
+		_draw_str("Ready in ~%d day%s" % [days_left, "" if days_left == 1 else "s"], Vector2(bx, by), countdown_col, 11)
 	by += 16.0
 
 	var block_bar_w: float = bar_w - 12.0
