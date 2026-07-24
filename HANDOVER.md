@@ -54,6 +54,31 @@ rework, confirmed via 4 clarifying questions before writing code:
 - **Next when resumed:** get Brannon's in-editor visual confirmation —
   not yet tested in the actual game, only parse-verified.
 
+### Toast dimensions/corners/font follow-up (this session)
+Brannon's next round of visual feedback on the reworked toast: half the
+toast height, 1.5x the width, rounded corners, and match the shared
+UI-system font — applied to both the live toast AND the pause-menu
+history rows.
+- `NotificationManager.gd`: `TOAST_WIDTH` 340 -> 510, `TOAST_HEIGHT` 48 ->
+  24, new `TOAST_CORNER_RADIUS: int = 8` const added as the single source
+  of truth for corner radius (reused by history rows too).
+- `_draw_toast()` rewritten again: plain `draw_rect()` has no
+  corner-radius support, so it now builds a `StyleBoxFlat`
+  (bg_color/border_color/border_width/corner_radius) and calls
+  `sb.draw(_canvas.get_canvas_item(), rect)` instead of the old two
+  `draw_rect()` calls.
+- `NotificationHistoryUI.gd`: added
+  `add_theme_font_override("font", UIKit.font())` to both `text_lbl` and
+  `time_lbl` (previously used the plain theme default font, unlike the
+  live toast which already went through `UIKit.draw_shadowed_text()`).
+  Row `StyleBoxFlat` corner radius changed from a hardcoded `3` to
+  `NotificationManager.TOAST_CORNER_RADIUS`.
+- Verified via `tools/godot_check.sh` -> `PASS`. `docs/systems/ui/
+  README.md` updated same commit (toast look/position bullet + history
+  row-style bullet).
+- **Next when resumed:** get Brannon's in-editor visual confirmation —
+  not yet tested in the actual game, only parse-verified.
+
 ## Status (prior, Jul 2026): UI Kit + Notifications plan steps 1-4 DONE, plus new notification history panel (pause menu) DONE — NOT YET in-editor confirmed
 Implementing `PLAN_ui_kit_and_notifications` (shared `UIKit.gd` + central
 `NotificationManager` toast system), per the plan's own Part 3 order of

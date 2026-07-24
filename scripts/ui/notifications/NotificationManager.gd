@@ -59,8 +59,8 @@ const MAX_HISTORY_LEN: int = 20
 ## frame.
 signal history_changed
 
-const TOAST_WIDTH:      float = 340.0
-const TOAST_HEIGHT:     float = 48.0
+const TOAST_WIDTH:      float = 510.0
+const TOAST_HEIGHT:     float = 24.0
 const TOAST_GAP:        float = 8.0
 const GAP_ABOVE_BAR:    float = 12.0    ## gap between the nearest toast and the inventory bar
 const FALLBACK_BOTTOM_MARGIN: float = 140.0   ## used when no HUD/inventory bar is found in-scene
@@ -75,6 +75,7 @@ const TOAST_FILL_ALPHA:   float = 0.62
 const TOAST_BORDER_COLOR: Color = Color(0.0, 0.0, 0.0, 0.55)
 const TOAST_BORDER_WIDTH: float = 2.0
 const TOAST_TEXT_COLOR:   Color = Color(0.96, 0.96, 0.96, 1.0)
+const TOAST_CORNER_RADIUS: int = 8   ## rounded rect corners (Jul 2026 follow-up)
 
 ## Severity colors — FIXED across all domains (Brannon's explicit call,
 ## Jul 2026): a WARNING toast is the same yellow-olive whether it's POWER
@@ -199,14 +200,19 @@ func _draw_toast(rect: Rect2, entry: Dictionary) -> void:
 	## Solid severity-colored fill (semi-transparent) + dark semi-transparent
 	## border on every toast — Brannon's explicit Jul 2026 call to bring
 	## back the old show_soft_warning() look, just severity-colored instead
-	## of the old flat dark/amber panel.
+	## of the old flat dark/amber panel. Rounded corners (Jul 2026 follow-up)
+	## need a real StyleBoxFlat — plain draw_rect() has no corner radius.
 	var fill: Color = _severity_color(severity)
 	fill.a = TOAST_FILL_ALPHA * alpha
-	_canvas.draw_rect(rect, fill, true)
-
 	var border: Color = TOAST_BORDER_COLOR
 	border.a *= alpha
-	_canvas.draw_rect(rect, border, false, TOAST_BORDER_WIDTH)
+
+	var sb: StyleBoxFlat = StyleBoxFlat.new()
+	sb.bg_color     = fill
+	sb.border_color = border
+	sb.set_border_width_all(TOAST_BORDER_WIDTH)
+	sb.set_corner_radius_all(TOAST_CORNER_RADIUS)
+	sb.draw(_canvas.get_canvas_item(), rect)
 
 	var text_color: Color = TOAST_TEXT_COLOR
 	text_color.a *= alpha
