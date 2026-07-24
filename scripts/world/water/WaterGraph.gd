@@ -311,13 +311,26 @@ func get_purifiers_on_path(hookup_key: String, target_key: String) -> Array[Stri
 	var queue: Array = [hookup_key]
 	while not queue.is_empty():
 		var current: String = queue.pop_front()
-		if current == target_key:
-			return purifiers_so_far.get(current, [])
 		var current_purifiers: Array[String] = purifiers_so_far.get(current, [])
 		var current_role: String = _water_nodes.get(current, {}).get("role", "")
 		var forward_purifiers: Array[String] = current_purifiers.duplicate()
 		if current_role == "purifier" and not forward_purifiers.has(current):
 			forward_purifiers.append(current)
+		## Return AFTER folding current's own purifier role in — Jul 2026 fix.
+		## ROOT CAUSE (quality arrow lagging one edge behind the purity arrow):
+		## when target_key IS the purifier node itself (the case for the edge
+		## immediately downstream of a purifier, whose upstream key is the
+		## purifier's own node_key), the old code returned
+		## `purifiers_so_far.get(current, [])` here BEFORE current's own role
+		## was folded in — so that one edge's quality resolved as if no
+		## purifier existed yet, while `_process_purity_and_dual_arrows()`'s
+		## own BFS (which folds a node's role in before tagging its outgoing
+		## edges) already marked that same edge purified. Result: the purity
+		## (blue) arrow switched at the correct spot, the quality-color arrow
+		## lagged one edge/segment downstream. Returning `forward_purifiers`
+		## here keeps both in sync.
+		if current == target_key:
+			return forward_purifiers
 		for neighbor: String in _adjacency.get(current, []):
 			if visited.has(neighbor):
 				continue
