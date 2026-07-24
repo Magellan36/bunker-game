@@ -1175,6 +1175,14 @@ stable (matches the project's standing debug-logging discipline).
   connectable device rather than registering at the object's origin/base.
 
 ## Extension points
+- ~~Farming trays as demand consumers~~ — **DONE (Jul 2026).**
+  `FarmingTray.gd` (`scripts/world/farming/`) registers as an "endpoint"
+  demand consumer exactly like `WaterTestSink`/`WaterDispenser` (fixed
+  1000/2000 mL/day, tier-adjustable priority) — zero changes needed to
+  `WaterGraph`/`WaterManager`/`WaterSolver` themselves. Water quality is
+  deliberately NOT read by Farming (a low-quality-water-to-trays strategy
+  is intentional design, not an oversight) — see
+  `docs/systems/farming/README.md`.
 - **Real flow/pressure simulation:** `WaterSolver.gd` (Jul 2026) allocates by
   priority tier + live demand, but is still NOT real fluid pressure/pipe-
   diameter/distance-loss physics — that's a bigger future simulation layer,

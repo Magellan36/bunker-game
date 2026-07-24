@@ -217,3 +217,16 @@ Player enters build mode (BuildModeHUD tool_selected / enter_build_mode())
   established, already-proven pattern in this exact folder.
 - New wall-snap-eligible device types extend `WallSnapHelpers.gd` rather than
   duplicating wall-raycast/snap logic inline in `BuildModeController`.
+- ~~A non-ghost-preview "buy → spawn near player" tool~~ — **DONE (Jul
+  2026).** The Farming toolbar tool (`TOOL_FARMING`) is the first tool that
+  skips `spawn_structure()`/ghost-preview entirely — see
+  `FarmingShopHelper.gd` (`_owner` slice pattern, same as every other file in
+  this folder) and `BuildModeHUD._current_categories()`/`_submenu_source`,
+  which generalize the existing two-level Construct submenu to also browse
+  `FARMING_SHOP_ITEMS` for a non-ghost shop flow. Reuse this pattern for any
+  future non-placement buy-and-spawn tool rather than inventing a third
+  submenu data shape. Two new Construct-menu tiles (`TILE_TRAY_SINGLE`/
+  `TILE_TRAY_DOUBLE`, category "Farming") and two new Lighting-category tiles
+  (`TILE_GROW_LIGHT_NORMAL`/`TILE_GROW_LIGHT_PRO`) went through the normal
+  ghost-preview path with no framework changes — see
+  `docs/systems/farming/README.md`.

@@ -148,6 +148,24 @@ func _rebuild_ghost_mesh() -> void:
 			_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
+	# ── Farming trays (Jul 2026): ghost from static helper ────────────────────
+	if _owner._selected_tile == _owner.TILE_TRAY_SINGLE or _owner._selected_tile == _owner.TILE_TRAY_DOUBLE:
+		var cells: int = 1 if _owner._selected_tile == _owner.TILE_TRAY_SINGLE else 2
+		var tray_mesh: Mesh = FarmingTray.build_ghost_mesh(cells)
+		_owner._ghost.mesh     = tray_mesh
+		_owner._ghost.position = Vector3(0.0, 0.425, 0.0)   ## BASIN_TOP_Y * 0.5
+		for s: int in tray_mesh.get_surface_count():
+			_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
+	# ── Grow lights (Jul 2026): ghost from static helper, 1×1 thin footprint ──
+	if _owner._selected_tile == _owner.TILE_GROW_LIGHT_NORMAL or _owner._selected_tile == _owner.TILE_GROW_LIGHT_PRO:
+		var gl_mesh: Mesh = GrowLight.build_ghost_mesh()
+		_owner._ghost.mesh = gl_mesh
+		for s: int in gl_mesh.get_surface_count():
+			_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
 	# ── Shelving: procedural ghost from static helper ──────────────────────────
 	if _owner._selected_tile == _owner.TILE_SHELVING:
 		var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
@@ -404,6 +422,13 @@ func _update_ghost() -> void:
 	elif _owner._selected_tile == _owner.TILE_BATTERY_S or _owner._selected_tile == _owner.TILE_BATTERY_M \
 			or _owner._selected_tile == _owner.TILE_BATTERY_L:
 		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_TRAY_SINGLE or _owner._selected_tile == _owner.TILE_TRAY_DOUBLE:
+		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_GROW_LIGHT_NORMAL or _owner._selected_tile == _owner.TILE_GROW_LIGHT_PRO:
+		## Not wall-snapped, not required to sit above a tray — placeable
+		## anywhere within the bunker bounds, same as every other floor-placed
+		## structure (plan §4). Height is fixed near-ceiling.
+		snap_pos.y = _owner.GROW_LIGHT_PLACEMENT_Y
 	else:
 		snap_pos.y = _owner.PLACEMENT_Y
 

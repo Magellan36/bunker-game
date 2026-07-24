@@ -152,3 +152,10 @@ the power system — see `docs/systems/world-core/README.md` Persistence).
   `refuel_tick()`) should follow that same duck-typed
   `has_method("refuel_tick")` pattern rather than adding a new special case
   to `InteractionSystem._process()`.
+- Farming System (Jul 2026) added 4 new pickup items — `BagOfSoilItem.gd`,
+  `EmptyBagItem.gd`, `SeedItem.gd`, `FarmProduceItem.gd` — all following this
+  same duck-typed contract with zero `InteractionSystem.gd` changes.
+  `FarmProduceItem.gd` deliberately does NOT copy `FoodCan.gd`'s multi-bite
+  charge system (1-charge, fully consumed in one `on_use()`); it copies only
+  `FoodCan`'s physics/pickup/drop/knockout scaffolding. See
+  `docs/systems/farming/README.md`.
