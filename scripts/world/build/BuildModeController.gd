@@ -54,6 +54,24 @@ const TILE_WATER_HOOKUP: int  = 17  ## Water system groundwork (July 2026) — w
 const TILE_WATER_SINK: int    = 18  ## Water system groundwork — rudimentary test endpoint, mirrors TILE_HEAVY, price $0
 const TILE_WATER_DISPENSER: int = 19  ## Water demand/priority pass (Jul 2026) — first real water-consuming device, ground-placed like TILE_WATER_SINK
 const TILE_WATER_PURIFIER: int = 20  ## Purifier (Jul 2026) — construct-menu tile, attaches directly onto an existing pipe run (see WaterPurifierAttach.gd), NOT a floor/wall snap
+const TILE_TRAY_SINGLE: int = 21     ## Farming System (Jul 2026) — single tray (1×1, $150), Construct → Farming
+const TILE_TRAY_DOUBLE: int = 22     ## Farming System — double tray (2×1, $275), Construct → Farming
+const TILE_GROW_LIGHT_NORMAL: int = 23  ## Farming System — grow light, normal tier, Construct → Lighting
+const TILE_GROW_LIGHT_PRO: int    = 24  ## Farming System — grow light, pro tier, Construct → Lighting
+
+## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
+## genuinely different code path: buy → spawn near player, no ghost preview,
+## no grid-snap cursor (see FarmingShopHelper.gd). Not referenced in this
+## file's own input-handling match blocks (those only special-case
+## TOOL_WIRE/TOOL_WATER_PIPE) — kept here purely for readability/parity with
+## BuildModeHUD's own constant.
+const TOOL_FARMING: int = 7
+
+## Grow lights sit "near wall-height" per the Farming System plan — high
+## enough to read as ceiling-mounted shop lighting, with clearance below the
+## 2.9m pipe layer (WATER_HOOKUP_PLACEMENT_Y) so a light and a pipe run can
+## never visually intersect.
+const GROW_LIGHT_PLACEMENT_Y: float = 2.75
 
 ## Y height at which player-placed objects sit (world units).
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with
@@ -239,6 +257,10 @@ var _move_tool: MoveDuplicateTool = null
 ## state physically moved here; see WallSnapHelpers.gd header comment.
 var _wall_snap: WallSnapHelpers = null
 
+## FarmingShopHelper.gd — Farming toolbar tool's buy→spawn logic (Farming
+## System plan §8.3). Same `_owner` slice pattern as every Stage 10 file.
+var _farming_shop: FarmingShopHelper = null
+
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	## Lets nodes spawned mid-build-mode (e.g. WaterPipeSegment) look up live
@@ -250,6 +272,7 @@ func _ready() -> void:
 	_ghost_preview = GhostPreview.new(self)
 	_move_tool = MoveDuplicateTool.new(self)
 	_wall_snap = WallSnapHelpers.new(self)
+	_farming_shop = FarmingShopHelper.new(self)
 	_build_ghost_materials()
 	_build_world_materials()
 	_setup_wire_draw_mode()
@@ -338,6 +361,8 @@ func _connect_hud_signals() -> void:
 		build_hud.tool_selected.connect(_on_tool_selected)
 	if not build_hud.construct_item_chosen.is_connected(_on_construct_item_chosen):
 		build_hud.construct_item_chosen.connect(_on_construct_item_chosen)
+	if not build_hud.farming_item_chosen.is_connected(_on_farming_item_chosen):
+		build_hud.farming_item_chosen.connect(_on_farming_item_chosen)
 	if not build_hud.cancel_requested.is_connected(_on_cancel_requested):
 		build_hud.cancel_requested.connect(_on_cancel_requested)
 	if not build_hud.undo_requested.is_connected(_on_undo_requested):
@@ -355,6 +380,8 @@ func _disconnect_hud_signals() -> void:
 		build_hud.tool_selected.disconnect(_on_tool_selected)
 	if build_hud.construct_item_chosen.is_connected(_on_construct_item_chosen):
 		build_hud.construct_item_chosen.disconnect(_on_construct_item_chosen)
+	if build_hud.farming_item_chosen.is_connected(_on_farming_item_chosen):
+		build_hud.farming_item_chosen.disconnect(_on_farming_item_chosen)
 	if build_hud.cancel_requested.is_connected(_on_cancel_requested):
 		build_hud.cancel_requested.disconnect(_on_cancel_requested)
 	if build_hud.undo_requested.is_connected(_on_undo_requested):
@@ -406,6 +433,17 @@ func _on_construct_item_chosen(tile_id: int) -> void:
 		build_hud.set_active_tool(0)
 		build_hud.set_ghost_active(true)
 
+## Farming toolbar tool (plan §8.3) — buy → spawn near player. No ghost
+## preview, no grid-snap cursor, no spawn_structure() call at all; genuinely
+## different from _on_construct_item_chosen() above. Delegates to
+## FarmingShopHelper.gd (own cash-spend + spawn logic) rather than bolting
+## this onto BuildModeController.gd directly.
+func _on_farming_item_chosen(item_id: int) -> void:
+	if _farming_shop == null:
+		return
+	if not _farming_shop.spawn_purchased_item(item_id):
+		_show_hud_warning("Not enough cash")
+
 func _on_cancel_requested() -> void:
 	_cancel_ghost()
 	# If in move phase 1, cancel returns to hover phase
@@ -455,7 +493,8 @@ func _refresh_connectable_dots() -> void:
 	## Connectable tile IDs — generators, terminal, wall lights, water hookup/sink/dispenser
 	const CONNECTABLE_TILES: Array[int] = [
 		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT,
-		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER
+		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER,
+		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO
 	]
 
 	## Dot material — light blue, billboard, always-on-top
@@ -500,6 +539,10 @@ func _refresh_connectable_dots() -> void:
 			dot_y = 0.45
 		elif tile_id == TILE_WATER_DISPENSER:
 			dot_y = 0.65
+		elif tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
+			dot_y = 0.90   ## just above the tray's basin top (BASIN_TOP_Y = 0.85)
+		elif tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
+			dot_y = 0.15   ## grow lights sit near-ceiling already; small offset is enough
 		dot_mi.position = Vector3(0.0, dot_y, 0.0)
 		obj.add_child(dot_mi)
 		_connectable_dots[obj] = dot_mi
@@ -853,7 +896,8 @@ func _try_construct() -> void:
 	const CONNECTABLE_TILES_QUICK: Array[int] = [
 		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT, TILE_HEAVY,
 		TILE_BREAKER, TILE_BREAKER_SMART, TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L,
-		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER
+		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER,
+		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO
 	]
 	if _selected_tile in CONNECTABLE_TILES_QUICK:
 		_refresh_connectable_dots()
@@ -1081,6 +1125,36 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		var wp_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
 		var wp_node: WaterPurifier = WaterPurifierAttach.insert_purifier_at(wp_par, wm_purifier, candidate)
 		return wp_node
+
+	## ── Farming trays (Jul 2026) — single/double, ground-placed like the
+	## water dispenser/test sink ────────────────────────────────────────────────
+	if tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
+		var tray_script: GDScript = load("res://scripts/world/farming/FarmingTray.gd")
+		var tray_node: StaticBody3D = StaticBody3D.new()
+		if tray_script != null:
+			tray_node.set_script(tray_script)
+		tray_node.set("cell_count", 1 if tile_id == TILE_TRAY_SINGLE else 2)
+		tray_node.set_meta("tile_id", tile_id)
+		var tray_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		tray_par.add_child(tray_node)
+		tray_node.global_position  = pos
+		tray_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return tray_node
+
+	## ── Grow lights (Jul 2026) — placed anywhere within the bunker, not
+	## wall-snapped, not required to sit above a tray (plan §4) ────────────────
+	if tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
+		var gl_script: GDScript = load("res://scripts/world/power/GrowLight.gd")
+		var gl_node: StaticBody3D = StaticBody3D.new()
+		if gl_script != null:
+			gl_node.set_script(gl_script)
+		gl_node.set("tier", "normal" if tile_id == TILE_GROW_LIGHT_NORMAL else "pro")
+		gl_node.set_meta("tile_id", tile_id)
+		var gl_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		gl_par.add_child(gl_node)
+		gl_node.global_position  = pos
+		gl_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return gl_node
 
 	## ── Circuit breaker (standard) ─────────────────────────────────────────────
 	if tile_id == TILE_BREAKER:
@@ -2428,6 +2502,9 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_GEN_L:    return Vector2(0.91, 0.91)  ## 1.85×1.85
 		TILE_TERMINAL: return Vector2(0.34, 0.04)  ## 0.7×0.08 thin panel
 		TILE_HEAVY:    return Vector2(0.29, 0.29)  ## 0.6×0.6 box
+		TILE_TRAY_SINGLE: return Vector2(0.45, 0.45)  ## 1×1
+		TILE_TRAY_DOUBLE: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_BED's proven footprint
+		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback
 
 

@@ -11,6 +11,10 @@ extends CanvasLayer
 # ─── Signals ──────────────────────────────────────────────────────────────────
 signal tool_selected(tool_id: int)
 signal construct_item_chosen(tile_id: int)   ## Emitted when player picks from submenu
+## Farming System plan §8.1 — a genuinely different toolbar tool (buy → spawn
+## near player, not ghost-preview placement). Emitted when the player picks a
+## Soil/Seeds item from the Farming shop submenu (see FARMING_SHOP_ITEMS).
+signal farming_item_chosen(item_id: int)
 signal cancel_requested()                     ## Red X or RMB — cancel active ghost
 signal undo_requested()                       ## Undo button clicked — instant action
 signal dig_confirmed()                        ## Player confirmed a rock dig
@@ -24,6 +28,7 @@ const TOOL_MOVE:        int = 3
 const TOOL_UNDO:        int = 4
 const TOOL_WIRE:        int = 5   ## Wire draw — click A → click B to place wire
 const TOOL_WATER_PIPE:  int = 6   ## Water pipe draw (July 2026 groundwork pass) — click A → click B, auto-elbow at corners
+const TOOL_FARMING:     int = 7   ## Farming shop (Jul 2026) — buy → spawn near player, no ghost preview
 
 # ─── Construct-able items — organised by category ─────────────────────────────
 ## Two-level menu: pick category → pick item.
@@ -39,6 +44,12 @@ const CATEGORIES: Dictionary = {
 	],
 	"Lighting": [
 		{ "tile_id": 5, "name": "Light",   "price": 50  },
+		## Grow lights (Jul 2026, Farming System) — structurally just another
+		## light fixture to the build system, per plan §5.1. Prices are
+		## placeholders, unreviewed — flagged for a future balance pass, same
+		## convention this project already applies to new device pricing.
+		{ "tile_id": 23, "name": "Grow Light",       "price": 180 },
+		{ "tile_id": 24, "name": "Grow Light (Pro)", "price": 350 },
 	],
 	"Power": [
 		{ "tile_id": 6,  "name": "Gen S",     "price": 1200  },
@@ -71,7 +82,35 @@ const CATEGORIES: Dictionary = {
 		## TILE_WATER_PURIFIER branch). $240 fixed price, refunded on delete.
 		{ "tile_id": 20, "name": "Purifier",  "price": 240 },
 	],
+	"Farming": [
+		## Farming System (Jul 2026) — the two tray tiles only. Grow lights
+		## live in "Lighting" above (plan §5.1); Soil/Seeds are sold through
+		## the separate Farming toolbar tool's shop (FARMING_SHOP_ITEMS below),
+		## NOT this menu — see plan §0.2's "naming collision" note.
+		{ "tile_id": 21, "name": "Tray (1x1)", "price": 150 },
+		{ "tile_id": 22, "name": "Tray (2x1)", "price": 275 },
+	],
 }
+
+## Farming toolbar tool's shop (Jul 2026, plan §8.2) — a SEPARATE dict from
+## CATEGORIES since these aren't placeable/ghost-preview tiles at all, just
+## carryable items bought and spawned near the player (see
+## FarmingShopHelper.gd). Deliberately shares the same "category → item list"
+## shape as CATEGORIES so the existing two-level submenu machinery can be
+## reused for both (see _current_categories()) — items still key off
+## "tile_id" purely for code-reuse simplicity, even though for this dict the
+## value is really an item_id (see FarmingShopHelper.SHOP_ITEM_INFO, which
+## must be kept in sync).
+const FARMING_SHOP_ITEMS: Dictionary = {
+	"Soil": [
+		{ "tile_id": 1, "name": "Bag of Soil",       "price": 100 },
+	],
+	"Seeds": [
+		{ "tile_id": 2, "name": "Tomato Seeds (x4)", "price": 25 },
+		{ "tile_id": 3, "name": "Onion Seeds (x4)",  "price": 25 },
+	],
+}
+
 ## Flat list used only for legacy compat (3D preview viewports, etc.)
 ## Generated from CATEGORIES at runtime — do NOT edit directly.
 var CONSTRUCT_ITEMS: Array = []
@@ -101,8 +140,8 @@ const COLOR_BG:     Color = Color(0.10, 0.10, 0.10, 0.82)
 const COLOR_BORDER: Color = Color(0.25, 0.25, 0.25, 0.90)
 const COLOR_SEL:    Color = Color(0.42, 0.87, 0.15, 1.0)
 const COLOR_TEXT:   Color = Color(0.80, 0.78, 0.72, 0.95)
-const TOOL_LABELS:  Array = ["Construct", "Deconstruct", "Duplicate", "Move", "Undo", "Wire", "Pipe"]
-const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌", "🚰"]
+const TOOL_LABELS:  Array = ["Construct", "Deconstruct", "Duplicate", "Move", "Undo", "Wire", "Pipe", "Farming"]
+const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌", "🚰", "🌱"]
 
 ## Submenu
 const SUB_W:        float = 160.0
@@ -145,6 +184,10 @@ var _submenu_open:    bool  = false
 ## Two-level menu state: "root" = category list, "items" = item list for _active_category
 var _submenu_level:    String = "root"
 var _active_category:  String = ""
+## Which data source the submenu is currently browsing — "construct"
+## (CATEGORIES, tile ghost-preview placement) or "farming" (FARMING_SHOP_ITEMS,
+## buy → spawn near player). See _current_categories()/_open_submenu().
+var _submenu_source:   String = "construct"
 var _pulse_t:         float = 0.0
 var _mouse_pos:       Vector2 = Vector2.ZERO
 var _cancel_hovered:  bool  = false
@@ -394,6 +437,17 @@ func _on_toolbar_click(slot: int) -> void:
 		else:
 			active_tool = TOOL_WATER_PIPE
 			tool_selected.emit(TOOL_WATER_PIPE)
+	elif slot == TOOL_FARMING:
+		## Farming shop (Jul 2026, plan §8.1) — same open/close-submenu shape
+		## as TOOL_CONSTRUCT, but browsing FARMING_SHOP_ITEMS instead of
+		## CATEGORIES, and picking an item spawns it immediately (no ghost).
+		if _submenu_open and _submenu_source == "farming":
+			_close_submenu()
+		else:
+			cancel_requested.emit()
+			active_tool = TOOL_FARMING
+			tool_selected.emit(TOOL_FARMING)
+			_open_submenu("farming")
 	else:
 		# Any other tool: close submenu, cancel ghost, switch tool
 		_close_submenu()
@@ -403,8 +457,16 @@ func _on_toolbar_click(slot: int) -> void:
 	_canvas.queue_redraw()
 
 # ─── Submenu ──────────────────────────────────────────────────────────────────
-func _open_submenu() -> void:
-	active_tool    = TOOL_CONSTRUCT
+## Returns whichever data source the submenu is currently browsing —
+## CATEGORIES (tile ghost-preview placement) or FARMING_SHOP_ITEMS
+## (buy → spawn near player). See _submenu_source.
+func _current_categories() -> Dictionary:
+	return FARMING_SHOP_ITEMS if _submenu_source == "farming" else CATEGORIES
+
+func _open_submenu(source: String = "construct") -> void:
+	_submenu_source = source
+	if source == "construct":
+		active_tool = TOOL_CONSTRUCT
 	_submenu_open  = true
 	_submenu_level = "root"
 	_active_category = ""
@@ -421,17 +483,21 @@ func _close_submenu() -> void:
 
 func _submenu_current_rows() -> int:
 	## How many rows does the current submenu level show?
+	var cats: Dictionary = _current_categories()
 	if _submenu_level == "root":
-		return CATEGORIES.size()
+		return cats.size()
 	else:
-		return CATEGORIES.get(_active_category, []).size() + 1  ## +1 for Back row
+		return cats.get(_active_category, []).size() + 1  ## +1 for Back row
 
 func _position_submenu() -> void:
-	## Position directly above the Construct toolbar slot (slot 0)
+	## Position directly above whichever toolbar slot opened this submenu —
+	## Construct (slot 0) normally, or Farming (slot TOOL_FARMING) when
+	## _submenu_source == "farming".
+	var anchor_slot: int  = TOOL_FARMING if _submenu_source == "farming" else TOOL_CONSTRUCT
 	var vp_size: Vector2  = get_viewport().get_visible_rect().size
 	var count: int        = TOOL_LABELS.size()
 	var total_w: float    = SLOT_W * count + SLOT_GAP * (count - 1)
-	var start_x: float    = (vp_size.x - total_w) * 0.5
+	var start_x: float    = (vp_size.x - total_w) * 0.5 + anchor_slot * (SLOT_W + SLOT_GAP)
 	var toolbar_y: float  = vp_size.y - SLOT_H - 20.0
 	var rows: int         = _submenu_current_rows()
 	var sub_h: float      = SUB_ITEM_H * rows + SUB_PAD * 2.0
@@ -495,9 +561,11 @@ func _on_submenu_draw(ctrl: Control) -> void:
 	ctrl.draw_rect(rect, SUB_BG, true)
 	ctrl.draw_rect(rect, SUB_BORDER, false, 1.5)
 
+	var cats: Dictionary = _current_categories()
+
 	# ── Root level: show category names ───────────────────────────────────────
 	if _submenu_level == "root":
-		var cat_keys: Array = CATEGORIES.keys()
+		var cat_keys: Array = cats.keys()
 		for i: int in cat_keys.size():
 			var cat_name: String = cat_keys[i]
 			var row_y: float     = SUB_PAD + i * SUB_ITEM_H
@@ -520,6 +588,10 @@ func _on_submenu_draw(ctrl: Control) -> void:
 				"Furniture": "🛏",
 				"Lighting":  "💡",
 				"Power":     "⚡",
+				"Water":     "🚰",
+				"Farming":   "🌱",
+				"Soil":      "🟫",
+				"Seeds":     "🌱",
 			}
 			var icon: String = CAT_ICONS.get(cat_name, "•")
 			ctrl.draw_string(font, Vector2(SUB_PAD, row_y + 30.0),
@@ -530,7 +602,7 @@ func _on_submenu_draw(ctrl: Control) -> void:
 				cat_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, COLOR_TEXT)
 
 			# Item count badge
-			var n: int = CATEGORIES[cat_name].size()
+			var n: int = cats[cat_name].size()
 			var badge: String = "%d item%s" % [n, "s" if n != 1 else ""]
 			ctrl.draw_string(font, Vector2(SUB_PAD + 28.0, row_y + 47.0),
 				badge, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.55, 0.55, 0.55, 0.9))
@@ -541,7 +613,7 @@ func _on_submenu_draw(ctrl: Control) -> void:
 
 	# ── Items level: show Back row + items in active category ─────────────────
 	else:
-		var cat_items: Array = CATEGORIES.get(_active_category, [])
+		var cat_items: Array = cats.get(_active_category, [])
 
 		# Row 0: Back button
 		var back_rect: Rect2 = Rect2(0, SUB_PAD, SUB_W, SUB_ITEM_H)
@@ -574,12 +646,18 @@ func _on_submenu_draw(ctrl: Control) -> void:
 					Vector2(SUB_W - SUB_PAD, row_y + SUB_ITEM_H),
 					Color(0.3, 0.3, 0.3, 0.6), 1.0)
 
-			# 3D preview viewport — find flat index in CONSTRUCT_ITEMS
+			# 3D preview viewport — find flat index in CONSTRUCT_ITEMS.
+			# Farming-shop items (_submenu_source == "farming") are deliberately
+			# excluded from this lookup: FARMING_SHOP_ITEMS' "tile_id" values are
+			# really item_ids (1/2/3) that collide numerically with real
+			# CONSTRUCT_ITEMS tile_ids (Wall/Pillar/Shelving) — without this guard
+			# a farming shop row would incorrectly show a wall/pillar preview mesh.
 			var flat_idx: int = -1
-			for fi: int in CONSTRUCT_ITEMS.size():
-				if CONSTRUCT_ITEMS[fi]["tile_id"] == item["tile_id"]:
-					flat_idx = fi
-					break
+			if _submenu_source == "construct":
+				for fi: int in CONSTRUCT_ITEMS.size():
+					if CONSTRUCT_ITEMS[fi]["tile_id"] == item["tile_id"]:
+						flat_idx = fi
+						break
 			if flat_idx >= 0 and flat_idx < _sub_vp_textures.size() \
 					and _sub_vp_textures[flat_idx] != null:
 				var vp_rect: Rect2 = Rect2(SUB_PAD,
@@ -647,9 +725,11 @@ func _get_submenu_item_at(pos: Vector2) -> int:
 	return -1
 
 func _on_submenu_item_selected(row: int) -> void:
+	var cats: Dictionary = _current_categories()
+
 	# ── Root level: user clicked a category ───────────────────────────────────
 	if _submenu_level == "root":
-		var cat_keys: Array = CATEGORIES.keys()
+		var cat_keys: Array = cats.keys()
 		if row >= 0 and row < cat_keys.size():
 			_active_category = cat_keys[row]
 			_submenu_level   = "items"
@@ -667,15 +747,19 @@ func _on_submenu_item_selected(row: int) -> void:
 		return
 
 	# row 1+ → item at index (row - 1)
-	var cat_items: Array = CATEGORIES.get(_active_category, [])
+	var cat_items: Array = cats.get(_active_category, [])
 	var item_idx: int    = row - 1
 	if item_idx < 0 or item_idx >= cat_items.size():
 		return
 
-	var tile_id: int = cat_items[item_idx]["tile_id"]
+	var id_val: int = cat_items[item_idx]["tile_id"]
 	_close_submenu()
-	active_tool = TOOL_CONSTRUCT
-	construct_item_chosen.emit(tile_id)
+	if _submenu_source == "farming":
+		## Buy → spawn near player — no ghost, no tool switch (plan §8.1/§8.3).
+		farming_item_chosen.emit(id_val)
+	else:
+		active_tool = TOOL_CONSTRUCT
+		construct_item_chosen.emit(id_val)
 	_canvas.queue_redraw()
 
 # ─── Cancel button ────────────────────────────────────────────────────────────
@@ -966,7 +1050,8 @@ func _draw_toolbar() -> void:
 		_draw_rounded_on(_canvas, rect, SLOT_CORNER, slot_bg)
 
 		var is_active: bool = (not is_undo) and \
-			((i == active_tool) or (i == TOOL_CONSTRUCT and _submenu_open))
+			((i == active_tool) or (i == TOOL_CONSTRUCT and _submenu_open and _submenu_source == "construct") \
+				or (i == TOOL_FARMING and _submenu_open and _submenu_source == "farming"))
 		var bcol: Color = COLOR_SEL if (is_active or undo_flash) else COLOR_BORDER
 		_draw_rounded_outline_on(_canvas, rect, SLOT_CORNER, bcol, 2.0)
 

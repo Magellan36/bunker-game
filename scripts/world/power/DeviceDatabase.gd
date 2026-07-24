@@ -28,7 +28,13 @@ const WATT_RATINGS: Dictionary = {
 	"wall_light":           40.0,
 	"bed_lamp":             15.0,
 	"emergency_light":       8.0,
-	"grow_light":           80.0,
+	## Farming (Jul 2026) — two grow-light tiers, replacing the old single
+	## unused "grow_light" placeholder entry (confirmed zero call sites before
+	## removal; GrowLight.gd carries its own TIER_WATTS table and never reads
+	## this dict directly, same as every other device script in this project —
+	## kept here purely so build-shop UI/balance tooling can read it).
+	"grow_light_normal":    75.0,
+	"grow_light_pro":      100.0,
 	## Security / Comms
 	"security_camera":      10.0,
 	"radio":                20.0,
@@ -68,7 +74,11 @@ const DEFAULT_PRIORITY_BY_TYPE: Dictionary = {
 	"ventilation_unit":     3,
 	"refrigerator":         3,
 	"radio":                4,
-	"grow_light":           4,
+	## Farming (Jul 2026) — both grow-light tiers default to priority 3
+	## ("start at 3 like usual", both player-tier-adjustable via the existing
+	## generic priority-change flow — no new UI needed for this).
+	"grow_light_normal":    3,
+	"grow_light_pro":       3,
 	"small_fan":            4,
 	"electric_stove":       4,
 	"microwave":            5,
