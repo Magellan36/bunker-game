@@ -183,6 +183,31 @@ The water/power systems have managers because they solve a *shared graph*
   convention rather than a new one. `PLANT_BLOCK_H` grew from 92 to 108 to
   fit the extra line.
 
+## Grow light illumination & placement guidance (Polish Plan Group 2, items 5–6)
+- **Item 5 — real `OmniLight3D` illumination**: `GrowLight._build_fixture()`
+  now calls `_build_omni_light()`, adding a real `OmniLight3D` child (same
+  pattern `WallLight.gd` already uses), mirrored by `_refresh_tubes()`
+  exactly following the 3 emissive tubes' powered/shed/off state. Values
+  are deliberately budget-capped from day one, **not** copied from
+  WallLight's own tuned figures (`OMNI_LIGHT_ENERGY = 1.1`,
+  `OMNI_LIGHT_RANGE = 3.0` vs. WallLight's 2.0/10.0) — a dense farm room
+  can plausibly hold far more grow lights than a base has wall lights.
+  Also sets `distance_fade_enabled` (native Godot light culling, begin=18m/
+  length=4m) proactively as a cheap perf guard for large farm layouts,
+  rather than waiting for a playtest to reveal an FPS dip first — costs
+  nothing to include now. The emissive tube mesh itself is unaffected by
+  distance fade (only the real light node fades), matching the plan's
+  explicit "keep the emissive mesh at all distances" requirement.
+- **Item 6 — ghost-preview footprint decal**: `GhostPreview.gd`'s grow-light
+  ghost branch now calls `_attach_grow_light_footprint_decal()`, adding a
+  flat, light-blue, unshaded `QuadMesh` child laid on the floor directly
+  below the ghost (dropped from `GROW_LIGHT_PLACEMENT_Y` down to
+  `PLACEMENT_Y`, same floor height every other floor object sits at). Same
+  no-depth-test/always-visible convention as the existing ghost direction
+  arrow. This is the *only* placement guidance a player gets for this tile
+  — the core plan's §4 deliberately doesn't require a light to sit above a
+  tray, so treated as required polish rather than optional.
+
 ## Known gaps (explicitly out of scope for this pass)
 - **Persistence**: trays/grow lights themselves save/restore fine as
   ordinary `BuildModeController._placed_objects` entries, but per-cell
@@ -190,10 +215,13 @@ The water/power systems have managers because they solve a *shared graph*
   into the save `extra` dict — a reload shows trays present but empty/
   unsoiled. Same category of gap this project already carries for Purifier
   filter state; add to the future save/load overhaul list.
-- **Ten polish items** (wilting tint, soil-fill VFX/sound, real
-  `OmniLight3D` grow-light illumination, harvest pop tween, connectable-dot
-  color consistency, low-health toast, seed/bag visual distinction beyond
+- **Remaining polish items** (soil-fill VFX/sound, harvest pop tween,
+  connectable-dot color consistency, seed/bag visual distinction beyond
   the current flatter/lighter EmptyBagItem silhouette, double-tray seam,
-  grow-light ghost floor decal, `*_DEBUG` readout) — deliberately deferred
-  to a later pass per the implementation plan's own §10.
-§10.
+  nearest-tray targeting highlight, double-stack grow-light guard, save
+  schema pre-shape, tray deconstruct/refund rule,
+  `get_trays_needing_attention()`) — deliberately deferred to later passes
+  (Groups 3/4/5/7) per the implementation plan's own build order. Wilting
+  tint, low-health toast, `*_DEBUG` readout (Group 1), and real
+  `OmniLight3D` illumination + ghost floor decal (Group 2) are now
+  implemented — see the sections above.
