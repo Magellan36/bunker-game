@@ -406,6 +406,23 @@ func _find_hookup_by_key(hookup_key: String) -> WaterHookup:
 ## README.md).
 ## Returns { "connected": bool, "mL_per_day": float, "mL_per_minute": float,
 ##           "quality": float }.
+## Farming Polish Plan Group 6 item 13 (perf) — returns the SAME raw
+## per-node received-mL/day map get_received_rate_mL() solves internally on
+## EVERY call, but as one shared result instead of one solve per consumer.
+## Only one hookup is ever supported (see get_the_hookup()'s header), so
+## "solve once per hookup" reduces to exactly one solve here no matter how
+## many trays call in. Farming-only, additive — every existing per-consumer
+## caller (WaterDispenser, sinks, WaterInfoUI, etc.) still goes through
+## get_received_rate_mL() unchanged, zero regression risk there.
+func solve_hookup_for_farming() -> Dictionary:
+	var hookup: WaterHookup = get_the_hookup()
+	if hookup == null:
+		return {}
+	var hookup_key: String = hookup.get_node_key()
+	if hookup_key.is_empty():
+		return {}
+	return _solver.solve_for_hookup(hookup_key, hookup.get_daily_output_mL())
+
 func get_received_rate_mL(consumer_node_key: String) -> Dictionary:
 	var out: Dictionary = {
 		"connected":     false,

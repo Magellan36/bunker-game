@@ -60,8 +60,8 @@ The water/power systems have managers because they solve a *shared graph*
   consumer device like `WallLight`) — `tier` export ("normal"/"pro"),
   75W/100W, both default priority 3. Auto-connects to the nearest wire node
   within 0.75m exactly like `WallLight._auto_connect_to_nearby_wires()`.
-  Growth contract read by `FarmPlant` via a **pure XZ position match** (no
-  parent/child relationship, no registration handshake):
+  Growth contract read by `FarmPlant` via a **nearest-light-within-radius
+  match** (no parent/child relationship, no registration handshake):
   `get_active_growth_speed() -> float` (0.0 unpowered/shed, 0.5 normal,
   1.0 pro). Not wall-snapped, not required to sit above a tray — placeable
   anywhere in the bunker, fixed height `GROW_LIGHT_PLACEMENT_Y = 2.625`
@@ -100,6 +100,37 @@ The water/power systems have managers because they solve a *shared graph*
   needed there).
 - **E on the plant itself** → harvest instantly if READY, else opens
   `PlantInfoUI`.
+
+## Performance (Polish Plan Group 6, items 13 & 14)
+- **Water lookup (item 13)** — `FarmingTray._process()` no longer calls
+  `WaterManager.get_received_rate_mL()` directly per-tray per-frame. There is
+  only ever one `WaterHookup` in this game (`WaterManager.get_the_hookup()`
+  guards registration to a single instance), so "solve once per hookup" in
+  practice means "solve once per Engine frame, shared by every tray" rather
+  than a multi-hookup grouping problem. `WaterManager.solve_hookup_for_farming()`
+  is a new additive method (existing `get_received_rate_mL()` callers —
+  `WaterDispenser`, `WaterInfoUI` — are untouched) that each `FarmingTray`
+  instance pulls from via a static per-Engine-frame cache
+  (`FarmingTray._batch_frame` / `_batch_map`, populated lazily by
+  `_get_batched_hookup_map()` on first access per frame, reused by every
+  other tray that frame). Each tray still gates on its own
+  `is_reachable_from_hookup()` (existing public method) for connectivity.
+- **Grow-light lookup (item 14)** — `FarmPlant._compute_light_speed()` no
+  longer scans every member of the `"grow_light"` group each hour tick.
+  `GrowLight.gd` keeps a static spatial-hash bucket registry
+  (`GrowLight._bucket_registry`, `CELL_BUCKET_SIZE = 0.6`) — each `GrowLight`
+  appends itself to its bucket in `_ready()`/`_register_bucket()` and erases
+  itself in `_exit_tree()`. **Important:** grow lights sit on the 0.25m
+  build grid (`BuildModeController.grid_size`), NOT a whole-meter grid, so
+  the bucket size is deliberately `>= LIGHT_MATCH_RADIUS` (0.55m, the exact
+  tolerance the old O(n) distance scan used) and the lookup
+  (`GrowLight.get_best_growth_speed_near(pos)`) scans the full 3x3
+  neighborhood of buckets around a plant's position, applying the same
+  exact distance check and `maxf()` best-speed pick the original scan used
+  — behavior is unchanged, only the search space shrinks from every grow
+  light in the game to a handful of nearby candidates. This registry's
+  bucket-array shape (not a single ref per bucket) is intentionally reused
+  by Group 7 item 15's future double-stack guard.
 
 ## Known gaps (explicitly out of scope for this pass)
 - **Persistence**: trays/grow lights themselves save/restore fine as
