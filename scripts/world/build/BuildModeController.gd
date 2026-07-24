@@ -67,11 +67,18 @@ const TILE_GROW_LIGHT_PRO: int    = 24  ## Farming System — grow light, pro ti
 ## BuildModeHUD's own constant.
 const TOOL_FARMING: int = 7
 
+## Bunker wall height (world units) — walls are 3.0m tall (see tile_set.tscn,
+## same figure WaterPipeDrawMode.WATER_CEILING_Y's own comment cites). Kept as
+## a named constant here so GROW_LIGHT_PLACEMENT_Y is derived, not a separate
+## hand-typed literal (Polish Plan Group 0 item 20).
+const WALL_HEIGHT_M: float = 3.0
+
 ## Grow lights sit "near wall-height" per the Farming System plan — high
-## enough to read as ceiling-mounted shop lighting, with clearance below the
-## 2.9m pipe layer (WATER_HOOKUP_PLACEMENT_Y) so a light and a pipe run can
-## never visually intersect.
-const GROW_LIGHT_PLACEMENT_Y: float = 2.75
+## enough to read as ceiling-mounted shop lighting. Polish Plan Group 0 item
+## 20: revised to 7/8 wall height (2.625m) — now sits slightly BELOW the
+## 2.9m pipe layer (WATER_HOOKUP_PLACEMENT_Y/WATER_CEILING_Y), a visual-only
+## change to eyeball once placed, not a functional conflict.
+const GROW_LIGHT_PLACEMENT_Y: float = WALL_HEIGHT_M * 7.0 / 8.0
 
 ## Y height at which player-placed objects sit (world units).
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with

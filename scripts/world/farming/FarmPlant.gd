@@ -188,36 +188,3 @@ func _clear_cell_and_free() -> void:
 	if _tray != null and is_instance_valid(_tray):
 		_tray.clear_cell(_cell_index)
 	queue_free()
-
-# ─── Interaction ──────────────────────────────────────────────────────────────
-func get_interact_prompt() -> String:
-	if is_ready():
-		return "[E] Harvest  %s" % PlantDatabase.get_display_name(plant_type)
-	return "[E] Inspect  %s" % PlantDatabase.get_display_name(plant_type)
-
-## Harvest takes priority the instant it's available — info-only otherwise
-## (plan §5.4's explicit resolution of the one real ambiguity in the ask).
-func on_interact() -> void:
-	if is_ready():
-		harvest()
-		return
-
-	if _info_ui == null or not is_instance_valid(_info_ui):
-		var ui_script: GDScript = load("res://scripts/ui/farming/PlantInfoUI.gd")
-		if ui_script == null:
-			push_warning("FarmPlant: PlantInfoUI.gd not found")
-			return
-		_info_ui = CanvasLayer.new()
-		_info_ui.set_script(ui_script)
-		_info_ui.name = "PlantInfoUI"
-		get_tree().get_root().add_child(_info_ui)
-		if _info_ui.has_signal("closed"):
-			_info_ui.closed.connect(_on_ui_closed)
-
-	if _info_ui.has_method("open"):
-		_info_ui.call("open", PlantDatabase.get_display_name(plant_type), health, is_ready())
-
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-
-func _on_ui_closed() -> void:
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)

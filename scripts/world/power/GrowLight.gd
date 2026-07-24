@@ -63,6 +63,19 @@ const SHED_ENERGY: float = 0.15
 
 const TUBE_ENERGY_ON: float = 2.0
 
+## Polish Plan Group 0 item 20 — 4 thin corner support wires running from the
+## cover plate up to the 3.0m ceiling directly above. WALL_HEIGHT_M mirrors
+## BuildModeController.WALL_HEIGHT_M (both cite the same tile_set.tscn 3.0m
+## figure — two independent constants, same value, same reasoning as
+## WaterPipeDrawMode.WATER_CEILING_Y already documents for that pair).
+## WIRE_LENGTH is derived, not hand-typed: since GROW_LIGHT_PLACEMENT_Y is
+## exactly 7/8 wall height, the remaining 1/8 (0.375m) is exactly the gap
+## from this node's local origin up to the ceiling.
+const WALL_HEIGHT_M: float = 3.0
+const WIRE_LENGTH: float = WALL_HEIGHT_M * (1.0 / 8.0)
+const WIRE_RADIUS: float = 0.02
+const WIRE_COLOR: Color = Color(0.05, 0.05, 0.06, 1.0)   ## unlit dark grey/black
+
 # ─── Power grid ───────────────────────────────────────────────────────────────
 var power_priority: int = 3   ## Both tiers default to priority 3 (plan §3.1)
 
@@ -338,3 +351,32 @@ func _build_fixture() -> void:
 	box.size = Vector3(0.70, 0.20, 0.70)
 	shape.shape = box
 	add_child(shape)
+
+	_build_support_wires()
+
+## 4 thin corner support wires (Polish Plan Group 0 item 20) — one per
+## fixture footprint corner (matches the cover plate's 0.66×0.66 footprint,
+## corner inset mirrors FarmingTray's own leg-corner convention), running
+## straight up from this node's local origin to the ceiling above.
+func _build_support_wires() -> void:
+	var wire_mat: StandardMaterial3D = StandardMaterial3D.new()
+	wire_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	wire_mat.albedo_color = WIRE_COLOR
+
+	var corner_positions: Array[Vector2] = [
+		Vector2(-0.28, -0.28),
+		Vector2( 0.28, -0.28),
+		Vector2(-0.28,  0.28),
+		Vector2( 0.28,  0.28),
+	]
+	for p: Vector2 in corner_positions:
+		var wire_mi:   MeshInstance3D = MeshInstance3D.new()
+		var wire_mesh: CylinderMesh   = CylinderMesh.new()
+		wire_mesh.top_radius    = WIRE_RADIUS
+		wire_mesh.bottom_radius = WIRE_RADIUS
+		wire_mesh.height        = WIRE_LENGTH
+		wire_mesh.radial_segments = 6
+		wire_mi.mesh = wire_mesh
+		wire_mi.position = Vector3(p.x, WIRE_LENGTH * 0.5, p.y)
+		wire_mi.set_surface_override_material(0, wire_mat)
+		add_child(wire_mi)
