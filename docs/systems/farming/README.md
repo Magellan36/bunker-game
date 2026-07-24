@@ -208,6 +208,61 @@ The water/power systems have managers because they solve a *shared graph*
   — the core plan's §4 deliberately doesn't require a light to sit above a
   tray, so treated as required polish rather than optional.
 
+## Action-completion cues (Polish Plan Group 3, items 7–8)
+- **Item 7 — soil-fill dust puff**: `FarmingTray.fill_first_open_soil_cell()`
+  now calls `_play_soil_fill_puff(cell_index)` on success — a dusty-brown,
+  unshaded, billboarded `QuadMesh` spawned just above the filled cell,
+  scaling `0.2 → 1.4` while fading out over 0.35s (same
+  create-tween/parallel-scale-and-fade/`queue_free` convention as
+  `WaterPurifier.play_clean_pulse()`). **VFX only, no sound** — the
+  codebase has zero audio infrastructure anywhere (no
+  `AudioStreamPlayer` usage, no `.ogg`/`.wav` assets, no audio folders),
+  and the plan's reference point ("same weight class as dig confirm,
+  filter swap") doesn't hold up — neither of those existing actions has a
+  sound cue in code either. Adding the project's first-ever audio system
+  for one polish item was judged out of proportion; flagged to Brannon as
+  a scope call, with a follow-up dedicated audio pass offered if wanted.
+- **Item 8 — harvest pop-in**: `FarmProduceItem.spawn_at()` now starts each
+  spawned item at `HARVEST_POP_START_SCALE = 0.1` and tweens to full scale
+  over 0.28s with `TRANS_BACK`/`EASE_OUT` (a slight overshoot "pop" rather
+  than a linear grow-in), applied to both of `FarmPlant.harvest()`'s two
+  spawned items independently. Same no-sound rationale as item 7 above.
+
+## Group 4 audit (items 9–11) — already satisfied, no code changes
+All three Group 4 items were found already implemented by prior work when
+audited this pass:
+- **Item 9 — priority-pip / connectable-dot color parity**: both halves
+  already shared. `FarmingTrayUI.PRIO_COLORS` is byte-identical to
+  `WaterDispenserUI.PRIO_COLORS` (both cross-reference each other in
+  comments). The connectable-dot half is even stronger than "parity" — it's
+  a *single* shared system: `BuildModeController._refresh_connectable_dots()`
+  builds one light-blue dot material and applies it to every wire-
+  connectable tile (generators, terminal, wall lights, water hookup/sink/
+  dispenser, and both farming tiles) from one `CONNECTABLE_TILES` list —
+  there's no separate farming-specific dot to drift out of sync.
+- **Item 10 — Bag of Soil vs. Empty Bag silhouette**: already distinct.
+  `BagOfSoilItem._build_placeholder_mesh()` uses a bulkier
+  `Vector3(0.26, 0.20, 0.16)` box vs. `EmptyBagItem`'s flatter
+  `Vector3(0.24, 0.04, 0.16)`, with comments on both confirming the intent.
+- **Item 11 — double-tray center seam**: already present.
+  `FarmingTray._build_mesh()` adds a raised divider wall
+  (`BASIN_WALL_H` tall, same basin material) down the exact center of the
+  footprint whenever `cell_count == 2`, making the two independent cells
+  visually obvious without any UI label.
+
+## Targeting clarity (Polish Plan Group 5, item 12)
+- **Nearest-valid-tray highlight**: `FarmingTray.set_target_highlighted(bool)`
+  toggles a translucent green (`Color(0.35, 1.0, 0.45, ...)`), unshaded,
+  no-depth-test `QuadMesh` laid flat over the tray's footprint, pulsing
+  alpha between `0.14` and `0.40` on a looping 0.6s tween while active.
+  `BagOfSoilItem` and `SeedItem` each recompute their existing "nearest in
+  range" lookup (`_find_nearest_tray_needing_soil()` /
+  `_find_nearest_plantable_tray()`) every `_physics_process` frame while
+  held, and only toggle the highlight on the two tray objects involved when
+  the nearest target actually changes (not every frame) — cleared
+  immediately on drop, knockout, or successful `on_use()` consumption so no
+  stale highlight can linger on a tray after the item holding it is gone.
+
 ## Known gaps (explicitly out of scope for this pass)
 - **Persistence**: trays/grow lights themselves save/restore fine as
   ordinary `BuildModeController._placed_objects` entries, but per-cell
@@ -215,13 +270,6 @@ The water/power systems have managers because they solve a *shared graph*
   into the save `extra` dict — a reload shows trays present but empty/
   unsoiled. Same category of gap this project already carries for Purifier
   filter state; add to the future save/load overhaul list.
-- **Remaining polish items** (soil-fill VFX/sound, harvest pop tween,
-  connectable-dot color consistency, seed/bag visual distinction beyond
-  the current flatter/lighter EmptyBagItem silhouette, double-tray seam,
-  nearest-tray targeting highlight, double-stack grow-light guard, save
-  schema pre-shape, tray deconstruct/refund rule,
-  `get_trays_needing_attention()`) — deliberately deferred to later passes
-  (Groups 3/4/5/7) per the implementation plan's own build order. Wilting
-  tint, low-health toast, `*_DEBUG` readout (Group 1), and real
-  `OmniLight3D` illumination + ghost floor decal (Group 2) are now
-  implemented — see the sections above.
+- **Group 7 items** (double-stack grow-light guard, save schema pre-shape,
+  tray deconstruct/refund rule, `get_trays_needing_attention()`) — the last
+  remaining group, not yet started.

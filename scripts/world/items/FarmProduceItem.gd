@@ -166,6 +166,13 @@ func _build_placeholder_mesh() -> void:
 	shape.position = _mesh.position
 	add_child(shape)
 
+## Harvest pop-in tween constants (Polish Plan Group 3 item 8) — cosmetic only,
+## no physics/gameplay effect. Scale-in overshoot mirrors WaterPurifier's
+## play_clean_pulse() tween convention (create_tween, EASE_OUT/TRANS_BACK for
+## the "pop" feel), just applied to the item's own scale instead of a ring.
+const HARVEST_POP_START_SCALE: float = 0.1
+const HARVEST_POP_DURATION:    float = 0.28
+
 ## Spawn helper — mirrors PurifierFilterItem.spawn_at()'s small-random-offset
 ## scatter pattern (used by FarmPlant.harvest() to spawn 2× per harvest).
 static func spawn_at(parent: Node, base_pos: Vector3, type: String) -> FarmProduceItem:
@@ -174,4 +181,14 @@ static func spawn_at(parent: Node, base_pos: Vector3, type: String) -> FarmProdu
 	var offset: Vector3 = Vector3(randf_range(-0.25, 0.25), 0.15, randf_range(-0.25, 0.25))
 	parent.add_child(item)
 	item.global_position = base_pos + offset
+
+	## Harvest pop-in (Group 3 item 8): starts tiny, scales up past full size
+	## and settles — a quick "pop" so freshly-harvested produce reads clearly
+	## instead of just appearing at full size.
+	item.scale = Vector3.ONE * HARVEST_POP_START_SCALE
+	var tween: Tween = item.create_tween()
+	tween.set_ease(Tween.EASE_OUT)
+	tween.set_trans(Tween.TRANS_BACK)
+	tween.tween_property(item, "scale", Vector3.ONE, HARVEST_POP_DURATION)
+
 	return item
