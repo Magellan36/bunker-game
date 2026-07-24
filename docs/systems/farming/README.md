@@ -132,6 +132,57 @@ The water/power systems have managers because they solve a *shared graph*
   bucket-array shape (not a single ref per bucket) is intentionally reused
   by Group 7 item 15's future double-stack guard.
 
+## Feedback & readability polish (Polish Plan Group 1, items 1–4)
+- **Item 0 cleanup carried over here** — `FarmPlant.gd` now truly
+  `extends Node3D` (no `StaticBody3D`, collider, or `interactable`/
+  `farm_plant` group membership). The original Group 0 commit only deleted
+  `on_interact()`/`get_interact_prompt()` and left the collider/groups
+  underneath in place; this pass finished that cleanup while the file was
+  already open for Group 1 work. `FarmingTray.on_interact()` already calls
+  `plant.harvest()` directly, so nothing depended on the plant itself being
+  interactable.
+- **New shared file `FarmingConstants.gd`** (`scripts/world/farming/`) —
+  plain `RefCounted`/`class_name`, const-only, same shape as
+  `WaterQualityColor.gd`/`PlantDatabase.gd`. Holds
+  `HEALTH_WILT_THRESHOLD = 40.0` (item 1's cosmetic cutoff) and
+  `HEALTH_WARNING_THRESHOLD = 25.0` (item 2's toast cutoff) so both
+  thresholds are defined exactly once.
+- **Item 1 — wilting visual**: `FarmPlant._refresh_visual()` lerps the
+  spike mesh's `StandardMaterial3D.albedo_color` from healthy green
+  (`SPIKE_COLOR`) toward wilted brown (`SPIKE_WILTED_COLOR`) as `health`
+  drops below `FarmingConstants.HEALTH_WILT_THRESHOLD`, reaching full brown
+  at `health == 0`. Purely visual — does not affect growth/harvest logic.
+- **Item 2 — low-health toast**: `FarmPlant._tick_one_game_hour()`
+  edge-triggers (via `_warned_low_health`, reset once health recovers back
+  above the threshold) a call to
+  `NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, ...)`
+  when `health` first crosses below `FarmingConstants.HEALTH_WARNING_THRESHOLD`.
+  **Deliberate deviation from the original plan doc**: the plan named the
+  older standalone `TransientNotice.gd` toast, written before
+  `NotificationManager` (the project's current central toast/history
+  system) existed. `NotificationManager` is used instead — `NEUTRAL` domain
+  since farming has no domain of its own, `WARNING` severity since this is
+  a localized per-plant problem, not a total-system failure. Note:
+  `WaterPurifier.gd`'s existing low-filter warning still uses the older
+  `TransientNotice.gd` directly — left untouched, out of scope here.
+- **Item 3 — `FARM_DEBUG` on-screen readout**: `FarmPlant.gd` follows the
+  same per-file debug-const convention as `GrowLight.WIRE_DEBUG`/
+  `WaterPipeDrawMode.PIPE_DEBUG` (no shared debug-flag file). When
+  `FARM_DEBUG = true`, a billboarded `Label3D` is built once in `_ready()`
+  and updated every hour tick with `health`, `water_fraction`,
+  `light_speed`, and `hours_without_light`.
+- **Item 4 — "Ready in ~X days" countdown**: `FarmPlant` now caches its
+  latest computed growth rate each hour tick in a public
+  (non-underscore) `growth_per_hour_current` field specifically so
+  `FarmingTrayUI` can read a live rate without recomputing it.
+  `FarmingTrayUI._draw_plant_block()` shows "Ready now" when already
+  ready, "Ready in: stalled" when the current rate is 0 (no light/water),
+  or "Ready in ~N days" otherwise (`ceil` of hours-remaining / 24),
+  color-graded via `WaterQualityColor.get_color()` fed `progress * 100.0`
+  — reusing the project's existing red/yellow/green step-function
+  convention rather than a new one. `PLANT_BLOCK_H` grew from 92 to 108 to
+  fit the extra line.
+
 ## Known gaps (explicitly out of scope for this pass)
 - **Persistence**: trays/grow lights themselves save/restore fine as
   ordinary `BuildModeController._placed_objects` entries, but per-cell
