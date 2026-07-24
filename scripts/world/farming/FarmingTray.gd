@@ -28,6 +28,18 @@ var soil_filled:  Array[bool]   = []
 var planted_type: Array[String] = []
 var plant_refs:   Array[FarmPlant] = []
 
+## Nearest-valid-tray highlight (Polish Plan Group 5 item 12) — driven
+## externally by BagOfSoilItem/SeedItem while held, mirroring their existing
+## "nearest in range" lookups. Pulses a translucent green outline over the
+## whole footprint so the target reads clearly before the player commits.
+const HIGHLIGHT_COLOR:        Color = Color(0.35, 1.0, 0.45, 0.22)
+const HIGHLIGHT_PULSE_ALPHA_LOW:  float = 0.14
+const HIGHLIGHT_PULSE_ALPHA_HIGH: float = 0.40
+const HIGHLIGHT_PULSE_PERIOD: float = 0.6
+var _highlight_mi:     MeshInstance3D = null
+var _highlight_mat:    StandardMaterial3D = null
+var _highlight_tween:  Tween = null
+
 var _node_key: String = ""
 var _water_fraction_cached: float = 0.0
 var _connected_cached: bool = false
@@ -153,8 +165,45 @@ func fill_first_open_soil_cell() -> bool:
 		if not soil_filled[i]:
 			soil_filled[i] = true
 			_refresh_soil_visual(i)
+			_play_soil_fill_puff(i)
 			return true
 	return false
+
+## Soil-fill dust-puff (Polish Plan Group 3 item 7) — cosmetic only, no sound
+## (project has no audio infrastructure yet at all; flagged as a scope call
+## in the Group 3 handover rather than introducing a first-ever audio system
+## for one polish item). Tween convention mirrors WaterPurifier's
+## play_clean_pulse(): create_tween, parallel scale+fade-out, then queue_free.
+const SOIL_PUFF_COLOR:        Color = Color(0.42, 0.30, 0.18, 0.65)   ## dusty brown, semi-transparent
+const SOIL_PUFF_START_SCALE:  float = 0.2
+const SOIL_PUFF_END_SCALE:    float = 1.4
+const SOIL_PUFF_DURATION:     float = 0.35
+
+func _play_soil_fill_puff(cell_index: int) -> void:
+	var puff_mi: MeshInstance3D = MeshInstance3D.new()
+	var quad: QuadMesh = QuadMesh.new()
+	quad.size = Vector2(0.35, 0.35)
+	puff_mi.mesh = quad
+
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color      = SOIL_PUFF_COLOR
+	mat.shading_mode      = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency      = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.no_depth_test     = true
+	mat.billboard_mode    = BaseMaterial3D.BILLBOARD_ENABLED
+	puff_mi.set_surface_override_material(0, mat)
+
+	add_child(puff_mi)
+	puff_mi.position = Vector3(_cell_local_x(cell_index), LEG_HEIGHT + BASIN_WALL_H + 0.05, 0.0)
+	puff_mi.scale = Vector3.ONE * SOIL_PUFF_START_SCALE
+
+	var tween: Tween = create_tween()
+	tween.set_parallel(true)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(puff_mi, "scale", Vector3.ONE * SOIL_PUFF_END_SCALE, SOIL_PUFF_DURATION)
+	tween.tween_property(mat, "albedo_color:a", 0.0, SOIL_PUFF_DURATION)
+	tween.chain().tween_callback(puff_mi.queue_free)
 
 ## Plants into the first open (soiled, unplanted) cell. Returns true on success.
 func plant_first_open_cell(plant_type: String) -> bool:
@@ -327,6 +376,47 @@ func _build_mesh() -> void:
 		div_mi.position = Vector3(0.0, LEG_HEIGHT + BASIN_WALL_H * 0.5, 0.0)
 		div_mi.set_surface_override_material(0, basin_mat)
 		add_child(div_mi)
+
+## Toggles the nearest-valid-target highlight (Group 5 item 12). Idempotent —
+## safe to call every frame with the same value from the held item's
+## _physics_process.
+func set_target_highlighted(active: bool) -> void:
+	if active:
+		if _highlight_mi != null:
+			return   ## already on
+		var footprint_x: float = 0.90 if cell_count == 1 else 1.90
+		var footprint_z: float = 0.90
+
+		_highlight_mi = MeshInstance3D.new()
+		var quad: QuadMesh = QuadMesh.new()
+		quad.size = Vector2(footprint_x + 0.10, footprint_z + 0.10)
+		_highlight_mi.mesh = quad
+
+		_highlight_mat = StandardMaterial3D.new()
+		_highlight_mat.albedo_color  = HIGHLIGHT_COLOR
+		_highlight_mat.shading_mode  = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_highlight_mat.transparency  = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_highlight_mat.no_depth_test = true
+		_highlight_mat.cull_mode     = BaseMaterial3D.CULL_DISABLED
+		_highlight_mi.set_surface_override_material(0, _highlight_mat)
+		_highlight_mi.rotation_degrees = Vector3(-90.0, 0.0, 0.0)   ## lay flat, quad defaults to facing +Z
+
+		add_child(_highlight_mi)
+		_highlight_mi.position = Vector3(0.0, LEG_HEIGHT + BASIN_WALL_H + 0.02, 0.0)
+
+		_highlight_tween = create_tween()
+		_highlight_tween.set_loops()
+		_highlight_tween.set_trans(Tween.TRANS_SINE)
+		_highlight_tween.tween_property(_highlight_mat, "albedo_color:a", HIGHLIGHT_PULSE_ALPHA_HIGH, HIGHLIGHT_PULSE_PERIOD * 0.5)
+		_highlight_tween.tween_property(_highlight_mat, "albedo_color:a", HIGHLIGHT_PULSE_ALPHA_LOW, HIGHLIGHT_PULSE_PERIOD * 0.5)
+	else:
+		if _highlight_tween != null and _highlight_tween.is_valid():
+			_highlight_tween.kill()
+		_highlight_tween = null
+		if _highlight_mi != null and is_instance_valid(_highlight_mi):
+			_highlight_mi.queue_free()
+		_highlight_mi  = null
+		_highlight_mat = null
 
 ## Soil-filled state (plan §5.2): a second, slightly-inset BoxMesh sits inside
 ## the basin at roughly half the basin's depth, dark brown — only exists once

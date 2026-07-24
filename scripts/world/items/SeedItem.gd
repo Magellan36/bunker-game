@@ -30,6 +30,10 @@ var shelf_item_type: String = "seed"   ## Shared slot key for both types, same
 ## reasoning PurifierFilterItem.gd uses (shared shelf_item_type, per-instance
 ## state — here seed_type — preserved by Shelving.gd's real-node-reference slots).
 
+## Nearest-valid-tray highlight (Group 5 item 12) — recomputed every physics
+## frame while held, only toggled on the tray objects when the target changes.
+var _highlighted_tray: FarmingTray = null
+
 var is_held: bool           = false
 var from_inventory: bool    = false
 var _hold_point: Node3D     = null
@@ -49,6 +53,7 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	if not is_held or _hold_point == null:
+		_update_target_highlight(null)
 		return
 
 	if _grace_timer > 0.0:
@@ -69,6 +74,19 @@ func _physics_process(delta: float) -> void:
 	var speed: float = inv_follow_speed if from_inventory else follow_speed
 	linear_velocity  = (target - global_position) * speed
 	angular_velocity = Vector3.ZERO
+
+	_update_target_highlight(_find_nearest_plantable_tray())
+
+## Group 5 item 12 — swaps the pulsing highlight to whichever tray is
+## currently the nearest valid plant target (or clears it if none/dropped).
+func _update_target_highlight(new_target: FarmingTray) -> void:
+	if new_target == _highlighted_tray:
+		return
+	if _highlighted_tray != null and is_instance_valid(_highlighted_tray):
+		_highlighted_tray.set_target_highlighted(false)
+	_highlighted_tray = new_target
+	if _highlighted_tray != null:
+		_highlighted_tray.set_target_highlighted(true)
 
 func get_display_name() -> String:
 	return "%s Seed" % PlantDatabase.get_display_name(seed_type)
@@ -104,6 +122,7 @@ func on_use() -> void:
 	if not tray.plant_first_open_cell(seed_type):
 		return
 
+	_update_target_highlight(null)
 	queue_free()
 
 func pickup(hold_point: Node3D) -> void:
