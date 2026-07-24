@@ -112,7 +112,7 @@ func _make_row(entry: Dictionary) -> Control:
 	style.bg_color     = fill
 	style.border_color = NotificationManager.TOAST_BORDER_COLOR
 	style.set_border_width_all(NotificationManager.TOAST_BORDER_WIDTH)
-	style.set_corner_radius_all(3)
+	style.set_corner_radius_all(NotificationManager.TOAST_CORNER_RADIUS)
 	style.content_margin_left   = 8.0
 	style.content_margin_right  = 8.0
 	style.content_margin_top    = 2.0
@@ -131,6 +131,7 @@ func _make_row(entry: Dictionary) -> Control:
 	text_lbl.clip_text = true
 	text_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	text_lbl.add_theme_font_override("font", UIKit.font())
 	text_lbl.add_theme_font_size_override("font_size", 12)
 	text_lbl.add_theme_color_override("font_color", NotificationManager.TOAST_TEXT_COLOR)
 	row.add_child(text_lbl)
@@ -140,6 +141,7 @@ func _make_row(entry: Dictionary) -> Control:
 	time_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	time_lbl.custom_minimum_size = Vector2(48.0, 0.0)
 	time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	time_lbl.add_theme_font_override("font", UIKit.font())
 	time_lbl.add_theme_font_size_override("font_size", 11)
 	time_lbl.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85, 0.85))
 	row.add_child(time_lbl)

@@ -216,16 +216,23 @@ it's a global "show this text for a while" service reachable from any scene.
   defensive cap (drops oldest first) — this is this pass's own default,
   not yet explicitly confirmed by Brannon; revisit if it ever needs tuning.
 - **Toast look/position (reworked Jul 2026 — Brannon's explicit call to go
-  back to the old pre-`NotificationManager` look):** each toast is a solid
-  rectangle filled with its severity color at partial opacity
-  (`TOAST_FILL_ALPHA = 0.62`), plus a dark semi-transparent border on
-  every toast (`TOAST_BORDER_COLOR = rgba(0,0,0,0.55)`,
-  `TOAST_BORDER_WIDTH = 2.0`) — no more domain-tinted `UIKit.draw_panel()`
-  background or thin left accent bar; text is a fixed light color
-  (`TOAST_TEXT_COLOR`) at the original 13px size via
-  `UIKit.draw_shadowed_text()`. This matches the shape/position of the
-  old `HUD.show_soft_warning()` single-message toast (see below), just
-  extended to a real stacked queue instead of one-at-a-time replace.
+  back to the old pre-`NotificationManager` look):** each toast is a
+  rounded rectangle (`TOAST_CORNER_RADIUS = 8`, drawn via a `StyleBoxFlat`
+  + `.draw()` rather than a plain `draw_rect()` so the corners actually
+  round — flat `draw_rect()` has no corner-radius support) filled with its
+  severity color at partial opacity (`TOAST_FILL_ALPHA = 0.62`), plus a
+  dark semi-transparent border on every toast (`TOAST_BORDER_COLOR =
+  rgba(0,0,0,0.55)`, `TOAST_BORDER_WIDTH = 2.0`) — no more domain-tinted
+  `UIKit.draw_panel()` background or thin left accent bar; text is a
+  fixed light color (`TOAST_TEXT_COLOR`) at the original 13px size via
+  `UIKit.draw_shadowed_text()` (already renders with `UIKit.font()`, so
+  toast text has always matched the shared UI font — no change needed
+  there). Size: `TOAST_WIDTH = 510` (1.5× the original 340),
+  `TOAST_HEIGHT = 24` (half the original 48) — Brannon's Jul 2026
+  follow-up call, a shorter/wider bar than the initial rework. This
+  matches the shape/position of the old `HUD.show_soft_warning()`
+  single-message toast (see below), just extended to a real stacked queue
+  instead of one-at-a-time replace.
   - Position: centered horizontally, stacked directly **above the
     inventory bar** (not the old top-right corner stack) — newest toast
     sits closest to the bar (`GAP_ABOVE_BAR = 12.0`), older toasts push
@@ -270,9 +277,12 @@ it's a global "show this text for a while" service reachable from any scene.
     Each row is a `PanelContainer` styled to **match the live toast look**
     (Jul 2026 rework) instead of the old thin accent bar: solid severity
     fill at the same `NotificationManager.TOAST_FILL_ALPHA`, same dark
-    `TOAST_BORDER_COLOR`/`TOAST_BORDER_WIDTH` border, fixed light
-    `TOAST_TEXT_COLOR` text (all three constants reused directly from
-    `NotificationManager`, not redefined) — plus a single-line message and
+    `TOAST_BORDER_COLOR`/`TOAST_BORDER_WIDTH` border, same
+    `TOAST_CORNER_RADIUS` rounded corners, fixed light `TOAST_TEXT_COLOR`
+    text, and the shared `UIKit.font()` on both the message and timestamp
+    Labels (all four constants/helper reused directly from
+    `NotificationManager`/`UIKit`, not redefined) — plus a single-line
+    message and
     a right-aligned "Xs ago"/"Xm ago"/"Xh ago" timestamp refreshed every
     frame while the panel is `visible` (its own lightweight `_process()` —
     safe because the pause menu does NOT set `SceneTree.paused`).
