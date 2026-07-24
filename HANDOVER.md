@@ -1,8 +1,8 @@
 # Handover — BunkerGame
 
-## Status (latest, Jul 2026): Water quality-arrow-lags-purifier bug FIXED — NOT YET in-editor confirmed
+## Status (latest, Jul 2026): Water quality-arrow-lags-purifier bug FIXED — CONFIRMED in-editor by Brannon
 
-### Quality arrow lagging one edge behind the purifier (this session, FIXED ✅)
+### Quality arrow lagging one edge behind the purifier (this session, FIXED ✅ CONFIRMED)
 Brannon reported: the purity (blue) arrow lane switches at the exact right
 spot right after a purifier, but the quality-color arrow lane stays
 "raw"-colored for a stretch past the purifier before catching up.
@@ -27,7 +27,7 @@ spot right after a purifier, but the quality-color arrow lane stays
 - Verified via `tools/godot_check.sh` -> `PASS`. `docs/systems/water/
   README.md` updated same commit (new bug-fix note under the "Multi-
   purifier resolution" section).
-- **Next when resumed:** get Brannon's in-editor visual confirmation —
+- **Confirmed fixed** by Brannon in-editor — no follow-up needed.
   not yet tested in the actual game, only parse-verified.
 
 ### Toast format rework (this session — Brannon disliked the top-right domain-tinted card look)
