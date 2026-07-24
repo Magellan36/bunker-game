@@ -227,12 +227,24 @@ it's a global "show this text for a while" service reachable from any scene.
   fixed light color (`TOAST_TEXT_COLOR`) at the original 13px size via
   `UIKit.draw_shadowed_text()` (already renders with `UIKit.font()`, so
   toast text has always matched the shared UI font — no change needed
-  there). Size: `TOAST_WIDTH = 510` (1.5× the original 340),
+  there), and **centered horizontally within the toast** (Jul 2026 —
+  measured via `UIKit.font().get_string_size()`; history rows stay
+  left-aligned, this only affects the live floating toast). Size:
+  `TOAST_WIDTH = 561` (510 × 1.1, itself 1.5× the original 340),
   `TOAST_HEIGHT = 24` (half the original 48) — Brannon's Jul 2026
-  follow-up call, a shorter/wider bar than the initial rework. This
+  follow-up calls, a shorter/wider bar than the initial rework. This
   matches the shape/position of the old `HUD.show_soft_warning()`
   single-message toast (see below), just extended to a real stacked queue
   instead of one-at-a-time replace.
+  - Spacing: `TOAST_GAP = 4.0` between stacked toasts (Jul 2026 — halved
+    from the original 8.0).
+  - Fadeout duration: per-severity now, not one shared default. INFO
+    still uses `DEFAULT_DURATION = 4.0`; `WARNING_DURATION = 6.0` and
+    `CRITICAL_DURATION = 8.0` (Jul 2026 — previously ALL severities used
+    the same 4.0s `DEFAULT_DURATION`). `notify()`'s `duration` param
+    defaults to `DURATION_SENTINEL = -1.0`, resolved to the right
+    per-severity constant in `_default_duration_for_severity()` unless a
+    caller passes an explicit duration.
   - Position: centered horizontally, stacked directly **above the
     inventory bar** (not the old top-right corner stack) — newest toast
     sits closest to the bar (`GAP_ABOVE_BAR = 12.0`), older toasts push
