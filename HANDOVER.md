@@ -1,6 +1,34 @@
 # Handover — BunkerGame
 
-## Status (latest, Jul 2026): Toast format reworked back to old look/position — NOT YET in-editor confirmed
+## Status (latest, Jul 2026): Water quality-arrow-lags-purifier bug FIXED — NOT YET in-editor confirmed
+
+### Quality arrow lagging one edge behind the purifier (this session, FIXED ✅)
+Brannon reported: the purity (blue) arrow lane switches at the exact right
+spot right after a purifier, but the quality-color arrow lane stays
+"raw"-colored for a stretch past the purifier before catching up.
+- ROOT CAUSE: `WaterGraph.get_purifiers_on_path(hookup_key, target_key)`'s
+  BFS returned early on `current == target_key` using
+  `purifiers_so_far.get(current, [])` — the dict entry computed by the
+  PREVIOUS node in the walk — before `current`'s own `role == "purifier"`
+  check folded `current` into `forward_purifiers`. This only bites the one
+  edge whose upstream node key IS the purifier's own node_key (the edge
+  immediately downstream of a purifier) — `WaterManager
+  ._resolve_output_quality()` called with that node_key got an EMPTY
+  purifier list back and fell back to raw hookup quality, while
+  `_process_purity_and_dual_arrows()`'s own separate BFS (which folds a
+  node's role in before tagging its outgoing edges) had already marked
+  that same edge purified. Two BFS implementations disagreeing about
+  whether "on the path to X" includes X itself when X is a purifier.
+- FIX: `get_purifiers_on_path()` now computes `forward_purifiers` (folding
+  in `current`'s own purifier role) BEFORE the `current == target_key`
+  check, and returns `forward_purifiers` instead of the stale
+  pre-fold `purifiers_so_far` entry. One-line reorder, no other logic
+  touched.
+- Verified via `tools/godot_check.sh` -> `PASS`. `docs/systems/water/
+  README.md` updated same commit (new bug-fix note under the "Multi-
+  purifier resolution" section).
+- **Next when resumed:** get Brannon's in-editor visual confirmation —
+  not yet tested in the actual game, only parse-verified.
 
 ### Toast format rework (this session — Brannon disliked the top-right domain-tinted card look)
 Brannon wanted the LIVE toast look/position reverted to the old

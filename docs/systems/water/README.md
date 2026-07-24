@@ -1883,6 +1883,24 @@ number, never the source of truth):
    depleting filter's effect on pipe arrow color updates continuously, not
    just at the next graph mutation.
 
+**Bug fix (Jul 2026) — quality-arrow lagged one edge behind the purity
+arrow:** `get_purifiers_on_path()`'s BFS returned early when
+`current == target_key` using the pre-fold `purifiers_so_far.get(current)`
+dict entry, BEFORE `current`'s own `role == "purifier"` check folded it
+into `forward_purifiers`. This only mattered for the one specific edge
+whose upstream node key IS the purifier itself (i.e. the edge immediately
+downstream of a purifier) — `_resolve_output_quality()` saw an empty
+purifier list for that edge and fell back to raw hookup quality, while
+`_process_purity_and_dual_arrows()`'s own separate BFS (which folds a
+node's role in before tagging its outgoing edges) already marked that same
+edge purified. Net effect: the purity (blue) arrow lane switched at the
+correct spot right after the purifier, but the quality-color arrow lane
+stayed "raw" for one extra edge/segment before catching up on the next
+node downstream. Fixed by folding `current`'s own role into
+`forward_purifiers` BEFORE the `current == target_key` check, so the
+returned list already includes `current` when `current` is itself the
+target purifier node.
+
 ### UI — `WaterInfoUI.gd`'s purifier panel
 `OUTPUT QUALITY (PURIFIED)` no longer hardcodes `"100%"` — reads
 `purifier.get_output_quality()`, colored via the same
