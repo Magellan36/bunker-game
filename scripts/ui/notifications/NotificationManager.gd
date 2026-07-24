@@ -59,13 +59,16 @@ const MAX_HISTORY_LEN: int = 20
 ## frame.
 signal history_changed
 
-const TOAST_WIDTH:      float = 510.0
+const TOAST_WIDTH:      float = 561.0   ## 510 * 1.1 (Jul 2026 widen pass)
 const TOAST_HEIGHT:     float = 24.0
-const TOAST_GAP:        float = 8.0
+const TOAST_GAP:        float = 4.0     ## half of the old 8.0 (Jul 2026 tighten pass)
 const GAP_ABOVE_BAR:    float = 12.0    ## gap between the nearest toast and the inventory bar
 const FALLBACK_BOTTOM_MARGIN: float = 140.0   ## used when no HUD/inventory bar is found in-scene
 const FADE_TAIL_RATIO:  float = 0.20   ## last 20% of lifetime ramps alpha -> 0
-const DEFAULT_DURATION: float = 4.0
+const DEFAULT_DURATION: float = 4.0     ## INFO toasts (unchanged) — was also the old WARNING/CRITICAL duration
+const DURATION_SENTINEL: float = -1.0   ## notify() default param — means "use per-severity default"
+const WARNING_DURATION:  float = 6.0    ## Jul 2026: was 4.0 (DEFAULT_DURATION)
+const CRITICAL_DURATION: float = 8.0    ## Jul 2026: was 4.0 (DEFAULT_DURATION)
 
 ## Toast fill/border treatment (Jul 2026 rework — back to the old
 ## `HUD.show_soft_warning()` look/position, extended to a real stacked
@@ -121,12 +124,15 @@ func _ready() -> void:
 
 ## Queues a new toast. `domain` picks the color scheme (WATER/POWER/
 ## NEUTRAL), `severity` picks the accent tint within that scheme.
-func notify(domain: UIKit.Domain, severity: Severity, text: String, duration: float = DEFAULT_DURATION) -> void:
+func notify(domain: UIKit.Domain, severity: Severity, text: String, duration: float = DURATION_SENTINEL) -> void:
+	var resolved_duration: float = duration
+	if resolved_duration == DURATION_SENTINEL:
+		resolved_duration = _default_duration_for_severity(severity)
 	_queue.append({
 		"domain":   domain,
 		"severity": severity,
 		"text":     text,
-		"duration": duration,
+		"duration": resolved_duration,
 		"age":      0.0,
 	})
 	if _queue.size() > MAX_QUEUE_LEN:
@@ -216,7 +222,11 @@ func _draw_toast(rect: Rect2, entry: Dictionary) -> void:
 
 	var text_color: Color = TOAST_TEXT_COLOR
 	text_color.a *= alpha
-	var text_pos: Vector2 = rect.position + Vector2(14.0, rect.size.y * 0.5 + 5.0)
+	## Centered horizontally within the toast (Jul 2026 — history rows stay
+	## left-aligned, this only affects the live floating toast).
+	var text_width: float = UIKit.font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	var text_x: float = rect.position.x + (rect.size.x - text_width) * 0.5
+	var text_pos: Vector2 = Vector2(text_x, rect.position.y + rect.size.y * 0.5 + 5.0)
 	UIKit.draw_shadowed_text(_canvas, text_pos, text, 13, text_color)
 
 
@@ -228,6 +238,19 @@ func _severity_color(severity: Severity) -> Color:
 			return SEVERITY_COLOR_CRITICAL
 		_:
 			return SEVERITY_COLOR_INFO
+
+
+## Per-severity fadeout duration used whenever a caller doesn't pass an
+## explicit `duration` to notify() — Jul 2026: WARNING/CRITICAL toasts now
+## linger longer than INFO (previously ALL severities shared DEFAULT_DURATION).
+func _default_duration_for_severity(severity: Severity) -> float:
+	match severity:
+		Severity.WARNING:
+			return WARNING_DURATION
+		Severity.CRITICAL:
+			return CRITICAL_DURATION
+		_:
+			return DEFAULT_DURATION
 
 
 ## Last FADE_TAIL_RATIO of the toast's lifetime ramps alpha 1.0 -> 0.0;

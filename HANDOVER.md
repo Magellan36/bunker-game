@@ -79,6 +79,33 @@ history rows.
 - **Next when resumed:** get Brannon's in-editor visual confirmation —
   not yet tested in the actual game, only parse-verified.
 
+### Toast spacing/width/centering + per-severity fadeout (this session)
+Brannon's next round: half the gap between stacked toasts, center the
+toast text (live toasts only — history rows in the pause menu stay
+left-aligned), widen toasts by 1.1x, and give WARNING/CRITICAL toasts
+longer fadeout times than INFO.
+- `NotificationManager.gd`: `TOAST_GAP` 8.0 -> 4.0 (half). `TOAST_WIDTH`
+  510 -> 561 (x1.1, on top of the prior 1.5x pass).
+- `_draw_toast()`: text now centered horizontally within the toast rect —
+  measured via `UIKit.font().get_string_size(text, HORIZONTAL_ALIGNMENT_
+  LEFT, -1, 13).x` and the x position computed from that width, instead
+  of the old fixed `+14.0` left inset. `NotificationHistoryUI.gd` rows
+  untouched — stay left-aligned per Brannon's explicit call.
+- Per-severity fadeout: previously ALL severities shared one flat
+  `DEFAULT_DURATION = 4.0`. New `WARNING_DURATION = 6.0` and
+  `CRITICAL_DURATION = 8.0` consts added; INFO keeps `DEFAULT_DURATION =
+  4.0` (unchanged). `notify()`'s `duration` param default changed from
+  `DEFAULT_DURATION` to a new `DURATION_SENTINEL = -1.0` — when a caller
+  doesn't pass an explicit duration, `_default_duration_for_severity()`
+  resolves it to the right per-severity constant. No call site in the
+  codebase currently passes an explicit duration, so this took effect
+  everywhere automatically.
+- Verified via `tools/godot_check.sh` -> `PASS`. `docs/systems/ui/
+  README.md` updated same commit (toast look/position section: spacing,
+  fadeout duration, and centered-text bullets added).
+- **Next when resumed:** get Brannon's in-editor visual confirmation —
+  not yet tested in the actual game, only parse-verified.
+
 ## Status (prior, Jul 2026): UI Kit + Notifications plan steps 1-4 DONE, plus new notification history panel (pause menu) DONE — NOT YET in-editor confirmed
 Implementing `PLAN_ui_kit_and_notifications` (shared `UIKit.gd` + central
 `NotificationManager` toast system), per the plan's own Part 3 order of
