@@ -165,11 +165,19 @@ func _build_placeholder_mesh() -> void:
 	mat.roughness    = 0.85
 	_mesh.set_surface_override_material(0, mat)
 	add_child(_mesh)
-	_mesh.create_trimesh_collision()
-	for child in _mesh.get_children():
-		if child is StaticBody3D:
-			(child as StaticBody3D).collision_layer = 5
-			(child as StaticBody3D).collision_mask  = 0
+
+	## Real collision shape on the RigidBody3D itself (NOT
+	## MeshInstance3D.create_trimesh_collision(), which nests a separate
+	## StaticBody3D under the mesh and leaves this RigidBody3D with no
+	## collider at all — it would fall through the floor forever and be
+	## invisible to the interaction system's body-detection). Mirrors
+	## PurifierFilterItem.tscn's CollisionShape3D-as-direct-child pattern.
+	var shape: CollisionShape3D = CollisionShape3D.new()
+	var box_shape: BoxShape3D = BoxShape3D.new()
+	box_shape.size = box.size
+	shape.shape = box_shape
+	shape.position = _mesh.position
+	add_child(shape)
 
 ## Spawn helper (used by FarmingShopHelper — 4 separate instances per purchase,
 ## per plan §8.2, since nothing in this codebase's item system supports
