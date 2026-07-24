@@ -164,6 +164,7 @@ func _rebuild_ghost_mesh() -> void:
 		_owner._ghost.mesh = gl_mesh
 		for s: int in gl_mesh.get_surface_count():
 			_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		_attach_grow_light_footprint_decal()
 		return
 
 	# ── Shelving: procedural ghost from static helper ──────────────────────────
@@ -282,6 +283,51 @@ func _rebuild_ghost_mesh() -> void:
 ## CylinderMesh cone-tip for the arrowhead, all white-cyan, semi-transparent.
 ##
 ## z_offset  — how far from ghost centre to start the arrow (half object depth + gap)
+## Polish Plan Group 2 item 6 — light-blue floor footprint decal shown while
+## placing a grow light. The core plan's §4 deliberately does NOT require a
+## grow light to sit above a tray, so this decal is the only placement
+## guidance the player gets for this tile type — required polish, not
+## optional. Lives as a child of the ghost (up near GROW_LIGHT_PLACEMENT_Y)
+## but offset straight down to the actual floor Y so it reads on the tile
+## the light will cover, not up at the fixture itself. Same
+## unshaded/no-depth-test/always-visible convention as the direction arrow
+## above, just a flat quad instead of an arrow shape.
+func _attach_grow_light_footprint_decal() -> void:
+	if _owner._ghost == null:
+		return
+
+	## Remove any stale decal first (mesh rebuilds call this each time).
+	for child: Node in _owner._ghost.get_children():
+		if child.name == "_GrowLightFootprintDecal":
+			child.queue_free()
+
+	var decal_mi: MeshInstance3D = MeshInstance3D.new()
+	decal_mi.name = "_GrowLightFootprintDecal"
+
+	var quad: QuadMesh = QuadMesh.new()
+	quad.size = Vector2(0.92, 0.92)   ## slightly inset from the full 1×1 cell
+	decal_mi.mesh = quad
+	## Lay flat on the floor: QuadMesh faces +Z by default, rotate -90° on X.
+	decal_mi.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	## Ghost node sits at GROW_LIGHT_PLACEMENT_Y; drop the decal down to the
+	## real floor Y (PLACEMENT_Y, same base height every other floor object
+	## sits at) plus a hair of clearance to avoid floor z-fighting.
+	decal_mi.position = Vector3(0.0, _owner.PLACEMENT_Y - _owner.GROW_LIGHT_PLACEMENT_Y + 0.02, 0.0)
+
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color               = Color(0.35, 0.70, 1.0, 0.35)
+	mat.emission_enabled           = true
+	mat.emission                   = Color(0.35, 0.70, 1.0, 1.0)
+	mat.emission_energy_multiplier = 0.5
+	mat.transparency               = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode                = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.no_depth_test               = true
+	mat.cull_mode                   = BaseMaterial3D.CULL_DISABLED
+	mat.render_priority             = 1
+	decal_mi.set_surface_override_material(0, mat)
+
+	_owner._ghost.add_child(decal_mi)
+
 func _attach_ghost_direction_arrow(z_offset: float, y_rotation_offset_deg: float = 0.0) -> void:
 	if _owner._ghost == null:
 		return

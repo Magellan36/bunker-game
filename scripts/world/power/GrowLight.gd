@@ -22,6 +22,13 @@ class_name GrowLight
 ## Growth contract read by FarmPlant.gd (plan §4, "pure XZ position match" —
 ## no parent/child relationship or registration handshake with any tray):
 ##   get_active_growth_speed() -> float   0.0 unpowered/shed, 0.5 normal, 1.0 pro
+##
+## Polish Plan Group 2 item 5 — real OmniLight3D child (WallLight's own
+## pattern), budget-capped low energy/range from the start since a dense
+## farm room can hold far more of these than a base has wall lights. See
+## OMNI_* consts below. Item 6 (ghost-preview footprint decal) lives in
+## GhostPreview.gd, not here — it only needs this class's placement Y, no
+## GrowLight-side code.
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
 const WIRE_DEBUG: bool = true
@@ -62,6 +69,28 @@ const SHED_COLOR:  Color = Color(1.0, 0.45, 0.0, 1.0)
 const SHED_ENERGY: float = 0.15
 
 const TUBE_ENERGY_ON: float = 2.0
+
+## Polish Plan Group 2 item 5 — real OmniLight3D illumination, budget-capped
+## from the start (not a follow-up pass). Deliberately NOT copying
+## WallLight's LIGHT_ENERGY(2.0)/LIGHT_RANGE(10.0) — a dense farm room can
+## plausibly hold far more grow lights in one space than a base has wall
+## lights, so both values start well below WallLight's own tuned figures.
+## Warm-white (matches TUBE_COLOR_ON) rather than WallLight's warm amber —
+## a grow light should read as "bright grow-lamp white," not "cozy room
+## light." Fog contribution reuses WallLight's same low-contribution fix
+## (avoid ambient haze buildup with many lights in one room).
+const OMNI_LIGHT_ENERGY: float = 1.1
+const OMNI_LIGHT_RANGE:  float = 3.0
+const OMNI_VOLUMETRIC_FOG_ENERGY: float = 0.15
+## Cheap perf guard for large farm rooms (plan §5's "if FPS dips, cull the
+## OmniLight3D node itself beyond some camera distance, keep the emissive
+## mesh at all distances" — built proactively via Godot's own native
+## distance-fade rather than a custom per-frame camera-distance check,
+## since it costs nothing to include now. Begin distance is generous (well
+## beyond OMNI_LIGHT_RANGE) so it never visibly pops during normal play —
+## it only caps the worst case of dozens of lights rendering at once.
+const OMNI_DISTANCE_FADE_BEGIN:  float = 18.0
+const OMNI_DISTANCE_FADE_LENGTH: float = 4.0
 
 ## Polish Plan Group 0 item 20 — 4 thin corner support wires running from the
 ## cover plate up to the 3.0m ceiling directly above. WALL_HEIGHT_M mirrors
@@ -141,6 +170,9 @@ static func get_best_growth_speed_near(pos: Vector3) -> float:
 
 ## Tube materials — one per tube so all 3 update together in set_powered()/set_shed().
 var _tube_mats: Array[StandardMaterial3D] = []
+
+## Polish Plan Group 2 item 5 — the real OmniLight3D (WallLight pattern).
+var _omni: OmniLight3D = null
 
 ## Lazily-created shared priority panel (PowerPriorityUI). Reused across opens.
 var _prio_ui: CanvasLayer = null
@@ -295,6 +327,22 @@ func _refresh_tubes() -> void:
 		mat.emission_energy_multiplier = energy
 		mat.albedo_color = col if energy > 0.0 else Color(0.25, 0.25, 0.26, 1.0)
 
+	## Polish Plan Group 2 item 5 — real OmniLight3D mirrors the tube state
+	## exactly: full white when powered, faint orange when shed, dark/off
+	## otherwise (same 3-state shape as WallLight.set_powered()/set_shed()).
+	if _omni == null:
+		return
+	if _is_powered:
+		_omni.light_color  = TUBE_COLOR_ON
+		_omni.light_energy = OMNI_LIGHT_ENERGY
+		_omni.visible      = true
+	elif _is_shed:
+		_omni.light_color  = SHED_COLOR
+		_omni.light_energy = SHED_ENERGY
+		_omni.visible      = true
+	else:
+		_omni.visible = false
+
 ## Growth contract read by FarmPlant.gd — see file header.
 func get_active_growth_speed() -> float:
 	if not _is_powered:
@@ -421,6 +469,27 @@ func _build_fixture() -> void:
 	add_child(shape)
 
 	_build_support_wires()
+	_build_omni_light()
+
+## Polish Plan Group 2 item 5 — real OmniLight3D, sits at fixture centre
+## (same as the 3 tubes it's meant to represent). Starts dark/invisible —
+## only turns on via _refresh_tubes() once PowerManager calls set_powered().
+func _build_omni_light() -> void:
+	var omni: OmniLight3D = OmniLight3D.new()
+	omni.light_color                 = TUBE_COLOR_ON
+	omni.light_energy                = OMNI_LIGHT_ENERGY
+	omni.omni_range                  = OMNI_LIGHT_RANGE
+	omni.omni_attenuation            = 0.6
+	omni.light_indirect_energy       = 1.0
+	omni.light_volumetric_fog_energy = OMNI_VOLUMETRIC_FOG_ENERGY
+	omni.shadow_enabled              = false
+	omni.distance_fade_enabled       = true
+	omni.distance_fade_begin         = OMNI_DISTANCE_FADE_BEGIN
+	omni.distance_fade_length        = OMNI_DISTANCE_FADE_LENGTH
+	omni.position                    = Vector3.ZERO
+	omni.visible                     = false
+	add_child(omni)
+	_omni = omni
 
 ## 4 thin corner support wires (Polish Plan Group 0 item 20) — one per
 ## fixture footprint corner (matches the cover plate's 0.66×0.66 footprint,
