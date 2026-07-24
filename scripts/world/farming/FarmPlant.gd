@@ -29,7 +29,6 @@ signal died()
 signal harvested()
 
 const PLANT_FULL_HEIGHT: float = 0.85   ## Matches GeneratorObject.TIER_CONFIG size.y
-const LIGHT_MATCH_RADIUS: float = 0.55  ## "Directly above this cell" XZ tolerance
 
 ## Health penalty rates (plan §6.3).
 const HEALTH_LOSS_NO_WATER_PER_HOUR: float = 5.0
@@ -122,20 +121,14 @@ func _tick_one_game_hour() -> void:
 	if health <= 0.0:
 		_die()
 
-## Pure XZ position match against every powered grow light in the world —
-## no parent/child relationship or registration handshake (plan §4).
+## Polish Plan Group 6 item 14 (perf) — spatial-hash bucket lookup replacing
+## the old per-hour, per-plant O(n) scan over every "grow_light" group
+## member. Still "nearest light within radius" (no parent/child relationship
+## or registration handshake with the light itself, plan §4) — just
+## resolved via GrowLight's static bucket registry (3x3 neighborhood scan +
+## exact distance check) instead of scanning every light in the game.
 func _compute_light_speed() -> float:
-	var best: float = 0.0
-	for node: Node in get_tree().get_nodes_in_group("grow_light"):
-		if node == null or not is_instance_valid(node) or not (node is Node3D):
-			continue
-		var n3: Node3D = node as Node3D
-		var dx: float = n3.global_position.x - global_position.x
-		var dz: float = n3.global_position.z - global_position.z
-		if sqrt(dx * dx + dz * dz) <= LIGHT_MATCH_RADIUS:
-			if node.has_method("get_active_growth_speed"):
-				best = maxf(best, float(node.call("get_active_growth_speed")))
-	return best
+	return GrowLight.get_best_growth_speed_near(global_position)
 
 func is_ready() -> bool:
 	return progress >= 1.0

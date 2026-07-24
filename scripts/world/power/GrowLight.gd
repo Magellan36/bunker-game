@@ -83,6 +83,62 @@ var _pm_node_key: String = ""
 var _is_powered:  bool   = false
 var _is_shed:     bool   = false
 
+## Farming Polish Plan Group 6 item 14 (perf) — spatial-hash bucket registry
+## replacing FarmPlant's old per-hour, per-plant O(n) scan over every
+## "grow_light" group member. Grow lights are placed on the 0.25m build grid
+## (BuildModeController.grid_size), NOT a whole-meter grid, so a naive
+## roundi()-per-axis key can put two positions within the old
+## LIGHT_MATCH_RADIUS tolerance into different buckets. Fix: bucket size is
+## deliberately >= LIGHT_MATCH_RADIUS, each bucket holds an Array (never a
+## single ref, since more than one light could in theory land in one
+## bucket), and the lookup scans the 3x3 neighborhood of buckets around the
+## query position, then applies the SAME exact distance check the old O(n)
+## scan used. This keeps behavior byte-for-byte identical to the original
+## while cutting the search space from "every grow light in the game" to "a
+## handful of nearby candidates". Registers on placement (_ready),
+## unregisters on deconstruct (_exit_tree) — the two lifecycle hooks the
+## plan calls "two signals". Static so every GrowLight instance shares one
+## registry; also used by item 15's future double-stack guard (Group 7, not
+## built yet — this shape is chosen to serve both consumers from the start,
+## per the plan's own note).
+const CELL_BUCKET_SIZE: float = 0.6   ## >= LIGHT_MATCH_RADIUS (0.55)
+const LIGHT_MATCH_RADIUS: float = 0.55   ## same tolerance FarmPlant used pre-refactor
+
+static var _bucket_registry: Dictionary = {}   ## String bucket_key -> Array[GrowLight]
+var _registered_bucket_key: String = ""
+
+## Buckets a world XZ position into a bucket key. Y is ignored — same as the
+## old distance check, which only ever compared X/Z (grow lights sit at a
+## fixed height on walls, plants on the floor).
+static func bucket_key_for(pos: Vector3) -> String:
+	return "%d_%d" % [floori(pos.x / CELL_BUCKET_SIZE), floori(pos.z / CELL_BUCKET_SIZE)]
+
+## O(a few candidates) replacement for the old
+## get_tree().get_nodes_in_group("grow_light") scan. Scans the 3x3
+## neighborhood of buckets around `pos` and returns the best (highest)
+## get_active_growth_speed() among every registered light within
+## LIGHT_MATCH_RADIUS of `pos` — identical semantics to the original O(n)
+## scan's maxf() best-speed pick. Returns 0.0 if nothing is in range.
+static func get_best_growth_speed_near(pos: Vector3) -> float:
+	var best: float = 0.0
+	var cx: int = floori(pos.x / CELL_BUCKET_SIZE)
+	var cz: int = floori(pos.z / CELL_BUCKET_SIZE)
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			var key: String = "%d_%d" % [cx + dx, cz + dz]
+			var bucket: Array = _bucket_registry.get(key, []) as Array
+			if bucket.is_empty():
+				continue
+			# Iterate backwards so erasing stale/invalid entries in-place is safe.
+			for i in range(bucket.size() - 1, -1, -1):
+				var light: GrowLight = bucket[i] as GrowLight
+				if light == null or not is_instance_valid(light):
+					bucket.remove_at(i)
+					continue
+				if light.global_position.distance_to(pos) <= LIGHT_MATCH_RADIUS:
+					best = maxf(best, light.get_active_growth_speed())
+	return best
+
 ## Tube materials — one per tube so all 3 update together in set_powered()/set_shed().
 var _tube_mats: Array[StandardMaterial3D] = []
 
@@ -97,9 +153,21 @@ func _ready() -> void:
 	add_to_group("interactable")
 	add_to_group("grow_light")
 	_build_fixture()
+	_register_bucket()
 	call_deferred("_register_deferred")
 
+## Registers into the static bucket registry (item 14) — global_position is
+## already valid here, _ready() runs after the node enters the tree.
+func _register_bucket() -> void:
+	_registered_bucket_key = GrowLight.bucket_key_for(global_position)
+	var bucket: Array = GrowLight._bucket_registry.get(_registered_bucket_key, []) as Array
+	bucket.append(self)
+	GrowLight._bucket_registry[_registered_bucket_key] = bucket
+
 func _exit_tree() -> void:
+	if not _registered_bucket_key.is_empty():
+		var bucket: Array = GrowLight._bucket_registry.get(_registered_bucket_key, []) as Array
+		bucket.erase(self)
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return

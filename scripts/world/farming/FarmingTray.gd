@@ -32,6 +32,15 @@ var _node_key: String = ""
 var _water_fraction_cached: float = 0.0
 var _connected_cached: bool = false
 
+## Farming Polish Plan Group 6 item 13 (perf) — batched per-hookup solve
+## cache, shared by EVERY FarmingTray instance (static). Only one hookup is
+## ever supported (WaterManager.get_the_hookup()), so "once per hookup"
+## reduces to "once per Engine frame" here — a room with a dozen trays now
+## triggers one WaterManager solve per frame instead of a dozen. Cache key
+## is the frame index; it invalidates itself automatically next frame.
+static var _batch_frame: int = -1
+static var _batch_map: Dictionary = {}
+
 var _soil_mesh_instances: Array = []   ## one per cell, null until filled
 var _tray_ui: CanvasLayer = null
 
@@ -83,14 +92,24 @@ func _process(_delta: float) -> void:
 		_water_fraction_cached = 0.0
 		_connected_cached = false
 		return
-	var info: Dictionary = wm.get_received_rate_mL(_node_key)
-	_connected_cached = bool(info.get("connected", false))
+	_connected_cached = wm.is_reachable_from_hookup(_node_key)
 	if not _connected_cached:
 		_water_fraction_cached = 0.0
 		return
-	var received_mL_per_day: float = float(info.get("mL_per_day", 0.0))
+	var map: Dictionary = _get_batched_hookup_map(wm)
+	var received_mL_per_day: float = float(map.get(_node_key, 0.0))
 	var demand: float = get_current_demand_mL_per_day()
 	_water_fraction_cached = clampf(received_mL_per_day / demand, 0.0, 1.0) if demand > 0.0 else 0.0
+
+## Returns this frame's shared solve result, running the (single, since only
+## one hookup exists) solve exactly once per frame no matter how many trays
+## call in — see _batch_frame/_batch_map's header above.
+func _get_batched_hookup_map(wm: WaterManager) -> Dictionary:
+	var frame: int = Engine.get_process_frames()
+	if frame != FarmingTray._batch_frame:
+		FarmingTray._batch_frame = frame
+		FarmingTray._batch_map = wm.solve_hookup_for_farming()
+	return FarmingTray._batch_map
 
 # ─── WaterSolver duck-typed demand contract ───────────────────────────────────
 ## Fixed, not player-tunable — both cells of a double tray share one
