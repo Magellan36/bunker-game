@@ -178,21 +178,21 @@ func _build_ui() -> void:
 
 	_vbox.add_child(_make_section_label("Save"))
 	var save_row: HBoxContainer = HBoxContainer.new()
+	save_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	save_row.add_theme_constant_override("separation", 8)
 	_vbox.add_child(save_row)
 	for i: int in range(1, SaveManager.SAVE_SLOT_COUNT + 1):
 		var btn: Button = _make_button("Slot %d" % i, _on_save_slot_pressed.bind(i))
-		btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		save_row.add_child(btn)
 		_save_slot_buttons.append(btn)
 
 	_vbox.add_child(_make_section_label("Load"))
 	var load_row: HBoxContainer = HBoxContainer.new()
+	load_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	load_row.add_theme_constant_override("separation", 8)
 	_vbox.add_child(load_row)
 	for i: int in range(1, SaveManager.SAVE_SLOT_COUNT + 1):
 		var btn2: Button = _make_button("Slot %d" % i, _on_load_slot_pressed.bind(i))
-		btn2.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		load_row.add_child(btn2)
 		_load_slot_buttons.append(btn2)
 
@@ -213,7 +213,7 @@ func _make_button(text: String, cb: Callable) -> Button:
 	var btn: Button = Button.new()
 	btn.text = text
 	btn.custom_minimum_size = Vector2(0.0, 32.0)
-	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.add_theme_font_size_override("font_size", 13)
 
 	var style: StyleBoxFlat = StyleBoxFlat.new()
