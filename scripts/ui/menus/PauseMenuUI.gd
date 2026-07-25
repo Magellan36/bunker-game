@@ -148,6 +148,7 @@ func _build_ui() -> void:
 	_vbox.offset_right  = -30.0
 	_vbox.offset_top    =  48.0
 	_vbox.offset_bottom = -18.0
+	_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	_vbox.add_theme_constant_override("separation", 10)
 	_panel.add_child(_vbox)
 
@@ -178,6 +179,7 @@ func _build_ui() -> void:
 
 	_vbox.add_child(_make_section_label("Save"))
 	var save_row: HBoxContainer = HBoxContainer.new()
+	save_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	save_row.add_theme_constant_override("separation", 8)
 	_vbox.add_child(save_row)
 	for i: int in range(1, SaveManager.SAVE_SLOT_COUNT + 1):
@@ -188,6 +190,7 @@ func _build_ui() -> void:
 
 	_vbox.add_child(_make_section_label("Load"))
 	var load_row: HBoxContainer = HBoxContainer.new()
+	load_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	load_row.add_theme_constant_override("separation", 8)
 	_vbox.add_child(load_row)
 	for i: int in range(1, SaveManager.SAVE_SLOT_COUNT + 1):
