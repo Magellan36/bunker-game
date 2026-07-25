@@ -175,7 +175,9 @@ func _build_ui() -> void:
 	_vbox.add_child(HSeparator.new())
 
 	## Continue.
-	_vbox.add_child(_make_button("Continue", _on_continue_pressed))
+	var continue_btn: Button = _make_button("Continue", _on_continue_pressed)
+	continue_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_vbox.add_child(continue_btn)
 
 	_vbox.add_child(_make_section_label("Save"))
 	var save_row: HBoxContainer = HBoxContainer.new()
@@ -200,10 +202,13 @@ func _build_ui() -> void:
 	_vbox.add_child(HSeparator.new())
 
 	## Settings — stub, does nothing yet.
-	_vbox.add_child(_make_button("Settings", _on_settings_pressed))
+	var settings_btn: Button = _make_button("Settings", _on_settings_pressed)
+	settings_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_vbox.add_child(settings_btn)
 
 	## Exit Game — confirm dialog first.
 	var exit_btn: Button = _make_button("Exit Game", _on_exit_pressed)
+	exit_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	exit_btn.add_theme_color_override("font_color", Color(0.95, 0.55, 0.50, 1.0))
 	_vbox.add_child(exit_btn)
 
@@ -214,7 +219,6 @@ func _make_button(text: String, cb: Callable) -> Button:
 	var btn: Button = Button.new()
 	btn.text = text
 	btn.custom_minimum_size = Vector2(0.0, 32.0)
-	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	btn.add_theme_font_size_override("font_size", 13)
 
 	var style: StyleBoxFlat = StyleBoxFlat.new()
