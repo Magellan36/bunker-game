@@ -180,7 +180,7 @@ func _build_placeholder_mesh() -> void:
 	_mesh.mesh = box
 	_mesh.position = Vector3(0.0, 0.01, 0.0)
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.85, 0.65, 0.25, 1.0) if seed_type == "tomato" else Color(0.75, 0.78, 0.55, 1.0)
+	mat.albedo_color = PlantDatabase.get_seed_packet_color(seed_type)
 	mat.roughness    = 0.85
 	_mesh.set_surface_override_material(0, mat)
 	add_child(_mesh)

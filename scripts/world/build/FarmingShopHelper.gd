@@ -30,6 +30,16 @@ const SHOP_ITEM_INFO: Dictionary = {
 	1: { "name": "Bag of Soil",       "price": 100, "kind": "soil",  "count": 1, "type": "" },
 	2: { "name": "Tomato Seeds (x4)", "price": 25,  "kind": "seed",  "count": 4, "type": "tomato" },
 	3: { "name": "Onion Seeds (x4)",  "price": 25,  "kind": "seed",  "count": 4, "type": "onion" },
+	4:  { "name": "Basil Seeds (x4)",        "price": 25, "kind": "seed", "count": 4, "type": "basil" },
+	5:  { "name": "Strawberry Seeds (x4)",   "price": 25, "kind": "seed", "count": 4, "type": "strawberry" },
+	6:  { "name": "Carrot Seeds (x4)",       "price": 25, "kind": "seed", "count": 4, "type": "carrot" },
+	7:  { "name": "Chili Pepper Seeds (x4)", "price": 25, "kind": "seed", "count": 4, "type": "chili_pepper" },
+	8:  { "name": "Bell Pepper Seeds (x4)",  "price": 25, "kind": "seed", "count": 4, "type": "bell_pepper" },
+	9:  { "name": "Garlic Seeds (x4)",       "price": 25, "kind": "seed", "count": 4, "type": "garlic" },
+	10: { "name": "Potato Seeds (x4)",       "price": 25, "kind": "seed", "count": 4, "type": "potato" },
+	11: { "name": "Blueberry Seeds (x4)",    "price": 25, "kind": "seed", "count": 4, "type": "blueberry" },
+	12: { "name": "Corn Seeds (x4)",         "price": 25, "kind": "seed", "count": 4, "type": "corn" },
+	13: { "name": "Pumpkin Seeds (x4)",      "price": 25, "kind": "seed", "count": 4, "type": "pumpkin" },
 }
 
 func get_item_price(item_id: int) -> int:

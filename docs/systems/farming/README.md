@@ -263,6 +263,38 @@ audited this pass:
   immediately on drop, knockout, or successful `on_use()` consumption so no
   stale highlight can linger on a tray after the item holding it is gone.
 
+## Species roster (10 New Plant Species pass)
+- `PlantDatabase.PLANT_CONFIG` now holds 12 species: the original Tomato/
+  Onion plus Basil, Strawberry, Carrot, Chili Pepper, Bell Pepper, Garlic,
+  Potato, Blueberry, Corn, Pumpkin — spread across a 5–30 `grow_days` range
+  and three cosmetic `category` values (Vegetable/Fruit/Herb, not read by
+  any gameplay logic).
+- Every entry also carries `seed_packet_color` now — fixes a real bug where
+  `SeedItem._build_placeholder_mesh()` used a hardcoded
+  `tomato ? color_a : color_b` ternary, so every non-tomato seed (Onion and
+  all 10 new species) rendered with the same fallback tint. `SeedItem.gd`
+  now reads `PlantDatabase.get_seed_packet_color(seed_type)` directly —
+  every species gets its own packet color automatically from the table.
+- All 10 new seed bundles are priced the same as Tomato/Onion ($25 per
+  4-seed bundle) regardless of `grow_days` — a deliberate flat default, not
+  a grow-days-scaled curve. Same for `FarmProduceItem.FOOD_RESTORE`, which
+  stays a single flat `20.0` shared by all 12 species. Both are balance
+  decisions intentionally deferred, not oversights.
+
+## Common edits — adding a new plant species
+1. Add an entry to `PlantDatabase.PLANT_CONFIG` (`display_name`,
+   `grow_days`, `category`, `produce_color`/`produce_metallic`/
+   `produce_roughness`, `seed_packet_color`). This is the single source of
+   truth — `SeedItem.gd` and `FarmProduceItem.gd` read it generically, no
+   per-species code needed anywhere else.
+2. Add a matching entry to `FarmingShopHelper.SHOP_ITEM_INFO` (next free
+   integer item_id) so it's purchasable.
+3. Mirror that same entry into `BuildModeHUD.FARMING_SHOP_ITEMS["Seeds"]`
+   so it shows up in the submenu list.
+4. That's it — no changes needed to `FarmPlant.gd`, `FarmingTray.gd`, or
+   `FarmingTrayUI.gd`; every one of those is already generic across
+   `plant_type`.
+
 ## Known gaps (explicitly out of scope for this pass)
 - **Persistence**: trays/grow lights themselves save/restore fine as
   ordinary `BuildModeController._placed_objects` entries, but per-cell

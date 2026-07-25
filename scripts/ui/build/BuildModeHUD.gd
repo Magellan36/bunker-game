@@ -108,6 +108,16 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 	"Seeds": [
 		{ "tile_id": 2, "name": "Tomato Seeds (x4)", "price": 25 },
 		{ "tile_id": 3, "name": "Onion Seeds (x4)",  "price": 25 },
+		{ "tile_id": 4,  "name": "Basil Seeds (x4)",        "price": 25 },
+		{ "tile_id": 5,  "name": "Strawberry Seeds (x4)",   "price": 25 },
+		{ "tile_id": 6,  "name": "Carrot Seeds (x4)",       "price": 25 },
+		{ "tile_id": 7,  "name": "Chili Pepper Seeds (x4)", "price": 25 },
+		{ "tile_id": 8,  "name": "Bell Pepper Seeds (x4)",  "price": 25 },
+		{ "tile_id": 9,  "name": "Garlic Seeds (x4)",       "price": 25 },
+		{ "tile_id": 10, "name": "Potato Seeds (x4)",       "price": 25 },
+		{ "tile_id": 11, "name": "Blueberry Seeds (x4)",    "price": 25 },
+		{ "tile_id": 12, "name": "Corn Seeds (x4)",         "price": 25 },
+		{ "tile_id": 13, "name": "Pumpkin Seeds (x4)",      "price": 25 },
 	],
 }
 
