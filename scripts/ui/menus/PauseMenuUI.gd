@@ -34,7 +34,7 @@ var _history_ui: Control = null          ## NotificationHistoryUI, sibling of _p
 var _save_slot_buttons: Array[Button] = []
 var _load_slot_buttons: Array[Button] = []
 
-const PANEL_W: float = 380.0
+const PANEL_W: float = 500.0
 const BLUR_SHADER_PATH: String = "res://assets/shaders/pause_blur.gdshader"
 
 
