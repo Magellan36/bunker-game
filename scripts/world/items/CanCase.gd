@@ -60,9 +60,6 @@ func on_interact() -> void:
 
 	world.add_child(can)
 	can.global_position = spawn_point.global_position
-	can.freeze = true
-	can.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-	can.call_deferred("_unfreeze_after_spawn")
 	can.linear_velocity = -global_transform.basis.z * 2.5 + Vector3(0, 1.5, 0)
 
 	can_count -= 1

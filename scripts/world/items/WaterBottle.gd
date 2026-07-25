@@ -40,9 +40,6 @@ func _ready() -> void:
 	add_to_group("inventory_item")
 	_mesh = get_node_or_null("MeshInstance3D")
 
-func _unfreeze_after_spawn() -> void:
-	freeze = false
-
 # ─── Empty check (computed, not a latch) ──────────────────────────────────────
 func _is_empty() -> bool:
 	return current_fill_mL <= 0.0

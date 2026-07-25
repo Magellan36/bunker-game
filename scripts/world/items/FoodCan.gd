@@ -24,9 +24,6 @@ func _ready() -> void:
 	add_to_group("inventory_item")
 	_mesh = get_node_or_null("MeshInstance3D")
 
-func _unfreeze_after_spawn() -> void:
-	freeze = false
-
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_display_name() -> String:
 	return "Food Can"
