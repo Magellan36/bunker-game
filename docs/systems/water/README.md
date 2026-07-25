@@ -2061,3 +2061,117 @@ Verified via a headless functional test (clamped 1.0 at incoming<=50,
 linear midpoint 0.625 at incoming=75, exact 0.25 at incoming=100, 0.4 at
 incoming=90, and 0.0 when disconnected/no `node_key`) plus
 `tools/godot_check.sh`.
+
+## Flow-Based Filter Wear & Pipe Tooling Fixes (Jul 2026)
+
+Six-part pass, built in order §3, §6, §1, §2, §5, §4. Independent except §2
+(depends on §1).
+
+### §1 — Flow-based purifier filter wear
+`WaterManager.get_flow_through_purifier_mL(purifier_key) -> float` — no new
+simulation, just aggregates two things already computed: for every
+endpoint reachable from a purifier's own hookup, if that purifier sits on
+the endpoint's resolved path (`WaterGraph.get_purifiers_on_path()`), its
+received rate (`get_received_rate_mL()`) counts toward the purifier's flow
+total. Naturally supports splitting one hookup's demand across two
+disjoint purifier branches — each branch only ever sums its own downstream
+endpoints, so parallel purifiers correctly see smaller, non-overlapping
+totals instead of double-counting.
+
+`WaterPurifier.gd`: new `current_flow_mL_per_day` field, cached once per
+frame in `_process()` alongside the existing `_compute_wear_multiplier()`
+call. New `_compute_flow_wear_multiplier(flow)` — linear from `(0, 0.0)`
+through `(2000, 0.5)` to `(4000, 1.0)`, clamped above 4000
+(`FLOW_WEAR_MIN_ML`/`FLOW_WEAR_HALF_ML`/`FLOW_WEAR_MAX_ML`). Multiplied
+into the existing quality-based multiplier (`quality_mult * flow_mult`) —
+**intentional behavior change**: a purifier fed only-dirty-water at LOW
+flow now wears slower than the old flat max-on-dirty-water rate. This is
+the actual point of the feature, not a regression.
+
+### §2 — Purifier UI: flow readout, color banding, warning bubble
+`WaterInfoUI._draw_purifier_stats()` gained a FLOW row (reads the cached
+`current_flow_mL_per_day`, tinted by fixed UI-only bands
+`FLOW_COLOR_GREEN_MAX`=2499 / `FLOW_COLOR_YELLOW_MAX`=3999 / 4000+=red —
+deliberately separate constants from §1's 2000/4000 wear thresholds, do
+not merge) and a warning bubble (same inset-notice-box visual as
+`FarmingTrayUI.gd`'s water-insufficiency bubble — a THIRD distinct
+mechanism from the existing filter<=50% toast). Two independent trigger
+lines, can both show at once:
+- Incoming (pre-purification) water quality < 50%.
+- `current_flow_mL_per_day > hookup.get_daily_output_mL() * 0.5` — hookup
+  fetched LIVE every check via new `WaterManager.get_hookup_for_node()`,
+  never cached (a hookup's tier can be upgraded later).
+
+Panel height (`_panel_height()`'s `"purifier"` branch) grows/shrinks live
+with the bubble's line count, same "recompute in both the sizing pass and
+the draw pass" convention `FarmingTrayUI._layout_metrics()` established.
+
+### §3 — Orphaned joint visuals now freed
+`WaterGraph.prune_orphan_waypoint()` changed `-> void` to `-> bool` (true
+iff it actually pruned a degree-0 corner/pipe_joint node).
+`WaterManager.prune_orphan_waypoint()` forwarder now also frees the
+matching `WaterPipeElbow` visual on a successful prune (group-scan
+`"water_pipe_elbow"` matched on `node_key`, same pattern
+`_find_purifier_by_key()` uses). `delete_and_refund_edge()`'s two prune
+calls now go through the wrapper (not `_graph` directly) so this fires.
+
+### §5 — Per-side pipe deletion around a purifier
+`delete_and_refund_edge()`'s guard refusing to delete an edge touching a
+`"purifier"`-role node is **removed** — either side of a purifier's pipe
+can now be deleted via the normal Deconstruct-mode flow. One side deleted:
+the purifier stays as a dead-end, no special handling. Both sides deleted
+(purifier node reaches degree 0): new `WaterManager._check_purifier_degree_zero()`
+hands off to new `BuildModeController.deconstruct_purifier_by_node_key()`,
+which reuses the exact same revert-to-corner + refund shape the generic
+`TILE_WATER_PURIFIER` branch of `_try_deconstruct()` already uses (rather
+than a second refund implementation), then immediately prunes the
+resulting degree-0 corner + its elbow (would otherwise become a second,
+brand-new orphaned joint).
+
+### §6 — Pipe hover-detection precision (Deconstruct mode only)
+`BuildModeController._get_hovered_pipe_segment()` was checking distance to
+`seg.global_position` (a pipe's single midpoint) instead of the true
+nearest point along its real geometry — hover only reliably fired near a
+segment's exact center. Replaced with new
+`_closest_dist_ray_to_segment()`, a standard closest-point-between-two-
+segments algorithm (ray clamped to `[0, ray_length]`, pipe clamped to
+`[point_a, point_b]`). Local to `BuildModeController.gd` — distinct from
+`WaterPurifierAttach._closest_point_on_segment_xz()`, which is an XZ-only,
+cursor-drop variant used by the pipe-drawing tool, not a fit for a 3D
+camera ray. Scope unchanged — still gated behind the existing
+Deconstruct-only hover path.
+
+### §4 — Mid-span "T-split anywhere" regression (root cause confirmed by direct read)
+`_trace_wall_hugging_path()` (the freeform tracer every routing mode
+eventually falls back to for an anchored destination) only ever carried a
+leg-boundary's `existing_key` into `waypoint_keys` — when
+`_resolve_destination()` resolved the cursor's target to a mid-span split
+point instead (`dest.has("split_candidate")`, no `existing_key`), that
+candidate was silently dropped. `_try_confirm_full_path()` (the paint-mode
+LMB confirm, the default since `PAINT_MODE_ENABLED = true`) then saw an
+empty key for the run's final waypoint and registered a brand-new,
+unconnected `"pipe_joint"` at that position instead of actually splicing
+into the existing pipe edge — the old pipe stayed one continuous unsplit
+edge, and the new run's last node just happened to share its coordinates
+without ever being wired in. Exactly the "T-split anywhere doesn't work"
+symptom.
+
+Fix: `_trace_wall_hugging_path()`/`_trace_wall_locked_path()` now both
+return a parallel `waypoint_split_candidates` array (`{}` for every
+waypoint except a possible split destination, which can only ever be the
+run's very last point). `_try_confirm_full_path()` reads it for the
+run-end point and, when non-empty, calls the pre-existing `_split_pipe_at()`
+(same mutation `_try_confirm_segment()`'s single-click path already used
+for this exact case) instead of registering a disconnected joint. Falls
+back to the old plain-joint behavior defensively if the candidate went
+stale mid-drag (e.g. the target pipe was deconstructed between ghost
+preview and the click). Still fully read-only during ghost preview — the
+`_split_pipe_at()` mutation only happens at confirm time, same convention
+`_resolve_destination()`'s own comment already documented.
+
+Ruled out by direct code reading (not guessed): `_find_split_candidate()`'s
+own proximity math (already uses a correct closest-point-on-segment test,
+not the "distance to center" bug class §6 had) and the wall-locked-routing
+commit itself (`_trace_wall_locked_path()` already deferred to the
+freeform tracer for any anchored/split destination before this fix, so it
+was never bypassing the split system).
