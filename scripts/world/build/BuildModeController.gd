@@ -1251,7 +1251,11 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 	var mi: MeshInstance3D = MeshInstance3D.new()
 	var lib: MeshLibrary   = gridmap.mesh_library
 	if lib != null:
-		var mesh: Mesh = lib.get_item_mesh(tile_id)
+		# Half/quarter walls use the same wall mesh (tile_id 1) but scaled
+		var mesh_tile_id: int = tile_id
+		if tile_id == TILE_HALF_WALL or tile_id == TILE_QUARTER_WALL:
+			mesh_tile_id = TILE_WALL
+		var mesh: Mesh = lib.get_item_mesh(mesh_tile_id)
 		if mesh != null:
 			mi.mesh = mesh
 			# Scale half/quarter walls vertically

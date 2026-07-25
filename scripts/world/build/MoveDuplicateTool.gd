@@ -200,7 +200,11 @@ func _spawn_move_ghost(tile_id: int) -> void:
 			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
 	else:
 		if _owner.gridmap != null and _owner.gridmap.mesh_library != null:
-			var m: Mesh = _owner.gridmap.mesh_library.get_item_mesh(tile_id)
+			# Half/quarter walls use the same wall mesh (tile_id 1) but scaled
+			var mesh_tile_id: int = tile_id
+			if tile_id == _owner.TILE_HALF_WALL or tile_id == _owner.TILE_QUARTER_WALL:
+				mesh_tile_id = _owner.TILE_WALL
+			var m: Mesh = _owner.gridmap.mesh_library.get_item_mesh(mesh_tile_id)
 			if m != null:
 				_owner._move_ghost.mesh = m
 				# Scale half/quarter walls vertically
