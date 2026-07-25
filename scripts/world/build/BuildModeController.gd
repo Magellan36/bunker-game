@@ -36,6 +36,8 @@ func _wdbg(msg: String) -> void:
 const TILE_FLOOR:    int = 0
 const TILE_WALL:     int = 1
 const TILE_PILLAR:   int = 2
+const TILE_HALF_WALL: int = 25   ## Half-height wall (Y=1.0)
+const TILE_QUARTER_WALL: int = 26  ## Quarter-height wall (Y=0.25)
 const TILE_SHELVING: int = 3
 const TILE_BED:      int = 4
 const TILE_LIGHT:    int = 5
@@ -84,6 +86,8 @@ const GROW_LIGHT_PLACEMENT_Y: float = WALL_HEIGHT_M * 7.0 / 8.0
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with
 ## GridMap-stamped walls visually.
 const PLACEMENT_Y: float = 2.0   ## World Y matching pregen walls/pillars (BunkerPregen, WireGraphBuilder, WallPerimeterRegistry all use 2.0)
+const HALF_WALL_PLACEMENT_Y: float = 1.0   ## Half-height wall (old pregen Y)
+const QUARTER_WALL_PLACEMENT_Y: float = 0.25  ## Quarter-height wall
 
 ## Shelving uses the same Y as walls/pillars so the physics overlap check
 ## doesn't falsely detect the floor as an obstacle.
@@ -1250,6 +1254,13 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		var mesh: Mesh = lib.get_item_mesh(tile_id)
 		if mesh != null:
 			mi.mesh = mesh
+			# Scale half/quarter walls vertically
+			if tile_id == TILE_HALF_WALL:
+				mi.scale = Vector3(1.0, 0.5, 1.0)
+				mi.position = Vector3(0.0, -0.75, 0.0)  # center at 0.75m
+			elif tile_id == TILE_QUARTER_WALL:
+				mi.scale = Vector3(1.0, 0.25, 1.0)
+				mi.position = Vector3(0.0, -1.125, 0.0)  # center at 0.375m
 			body.add_child(mi)
 			mi.create_trimesh_collision()
 			## create_trimesh_collision() spawns a child StaticBody3D inside mi.
