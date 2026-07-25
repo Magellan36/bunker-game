@@ -34,7 +34,7 @@ var _history_ui: Control = null          ## NotificationHistoryUI, sibling of _p
 var _save_slot_buttons: Array[Button] = []
 var _load_slot_buttons: Array[Button] = []
 
-const PANEL_W: float = 500.0
+const PANEL_W: float = 360.0
 const BLUR_SHADER_PATH: String = "res://assets/shaders/pause_blur.gdshader"
 
 
@@ -135,9 +135,9 @@ func _build_ui() -> void:
 	panel_style.border_color = Color(0.35, 0.35, 0.38, 0.9)
 	panel_style.set_border_width_all(1)
 	panel_style.set_corner_radius_all(4)
-	panel_style.content_margin_left   = 20.0
-	panel_style.content_margin_right  = 20.0
-	panel_style.content_margin_top    = 18.0
+	panel_style.content_margin_left   = 30.0
+	panel_style.content_margin_right  = 30.0
+	panel_style.content_margin_top    = 48.0
 	panel_style.content_margin_bottom = 18.0
 	_panel.add_theme_stylebox_override("panel", panel_style)
 	add_child(_panel)
