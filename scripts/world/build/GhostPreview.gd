@@ -270,6 +270,11 @@ func _rebuild_ghost_mesh() -> void:
 		_owner._ghost.visible = false
 		return
 	_owner._ghost.mesh = mesh
+	# Scale half/quarter walls vertically (base wall is 3m tall)
+	if _owner._selected_tile == _owner.TILE_HALF_WALL:
+		_owner._ghost.scale = Vector3(1.0, 0.5, 1.0)   ## 1.5m tall
+	elif _owner._selected_tile == _owner.TILE_QUARTER_WALL:
+		_owner._ghost.scale = Vector3(1.0, 0.25, 1.0)  ## 0.75m tall
 	for s: int in mesh.get_surface_count():
 		_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 	## Walls/pillars have no meaningful "front" in a rotation context — skip arrow.
@@ -412,6 +417,10 @@ func _update_ghost() -> void:
 	elif _owner._selected_tile == _owner.TILE_WIRE or _owner._selected_tile == _owner.TILE_TERMINAL \
 			or _owner._selected_tile == _owner.TILE_HEAVY:
 		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_HALF_WALL:
+		snap_pos.y = _owner.HALF_WALL_PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_QUARTER_WALL:
+		snap_pos.y = _owner.QUARTER_WALL_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_BREAKER or _owner._selected_tile == _owner.TILE_BREAKER_SMART:
 		snap_pos.y = _owner.PLACEMENT_Y
 		## Wall-snap: attempt to stick the breaker to the nearest interior wall.
@@ -450,6 +459,10 @@ func _update_ghost() -> void:
 		snap_pos.y = _owner.PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_WATER_DISPENSER:
 		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_HALF_WALL:
+		snap_pos.y = _owner.HALF_WALL_PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_QUARTER_WALL:
+		snap_pos.y = _owner.QUARTER_WALL_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_WATER_PURIFIER:
 		## Attaches directly onto an existing pipe run — NO grid/wall snap.
 		## Uses the cursor's raw world hit position (not the floor-grid-

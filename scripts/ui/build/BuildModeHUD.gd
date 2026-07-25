@@ -35,8 +35,10 @@ const TOOL_FARMING:     int = 7   ## Farming shop (Jul 2026) — buy → spawn n
 ## tile_id must match BuildModeController constants.
 const CATEGORIES: Dictionary = {
 	"Structure": [
-		{ "tile_id": 1, "name": "Wall",    "price": 50  },
-		{ "tile_id": 2, "name": "Pillar",  "price": 25  },
+		{ "tile_id": 1, "name": "Wall",         "price": 50  },
+		{ "tile_id": 25, "name": "Half-Wall",   "price": 30  },
+		{ "tile_id": 26, "name": "Quarter-Wall","price": 15  },
+		{ "tile_id": 2, "name": "Pillar",       "price": 25  },
 	],
 	"Furniture": [
 		{ "tile_id": 3, "name": "Shelving","price": 75  },
