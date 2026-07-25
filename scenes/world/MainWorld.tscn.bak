@@ -45,6 +45,10 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -7.914642, 6.276236)
 script = ExtResource("3_yawxq")
 target_path = NodePath("../Player")
 
+[node name="CanvasLayer" parent="GameCamera" unique_id=1298130016 instance=ExtResource("4_m1c1d")]
+
+[node name="CanvasLayer" parent="." unique_id=1859846649 instance=ExtResource("4_m1c1d")]
+
 [node name="Player" parent="." unique_id=431542057 groups=["Player"] instance=ExtResource("4_yawxq")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.62035275, 1.3431025, 7.105051)
 
