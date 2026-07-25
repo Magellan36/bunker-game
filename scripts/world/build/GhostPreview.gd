@@ -265,7 +265,11 @@ func _rebuild_ghost_mesh() -> void:
 	var lib: MeshLibrary = _owner.gridmap.mesh_library
 	if lib == null:
 		return
-	var mesh: Mesh = lib.get_item_mesh(_owner._selected_tile)
+	# Half/quarter walls use the same wall mesh (tile_id 1) but scaled
+	var mesh_tile_id: int = _owner._selected_tile
+	if _owner._selected_tile == _owner.TILE_HALF_WALL or _owner._selected_tile == _owner.TILE_QUARTER_WALL:
+		mesh_tile_id = _owner.TILE_WALL
+	var mesh: Mesh = lib.get_item_mesh(mesh_tile_id)
 	if mesh == null:
 		_owner._ghost.visible = false
 		return
