@@ -76,6 +76,11 @@ stack, and the wire-draw tool's host controller.
 | `WallSnapHelpers.gd` | ~430 | Wall-light/breaker wall-snapping + pregen interior-face check |
 | `PlacementIndicator.gd` | ~35 | Small standalone cursor/placement indicator visual |
 
+**NEW (Jul 2026): Half/Quarter Wall variants** — Added to Structure category in construct menu:
+- `TILE_HALF_WALL` (25) — 1.5m tall, uses scaled `TILE_WALL` mesh, $30
+- `TILE_QUARTER_WALL` (26) — 0.75m tall, uses scaled `TILE_WALL` mesh, $15
+Both use the same MeshLibrary wall mesh (tile_id 1) scaled vertically (0.5x / 0.25x) with origin shifted to base so bottom sits at floor level. Implemented in `BuildModeController.spawn_structure()`, `GhostPreview._rebuild_ghost_mesh()`, `MoveDuplicateTool._spawn_move_ghost()` — no new meshlib entries required.
+
 All 5 helper slices (`BuildMaterials`/`BuildUndoStack`/`GhostPreview`/
 `MoveDuplicateTool`/`WallSnapHelpers`) extend `RefCounted` with
 `class_name`, take a plain `_owner: BuildModeController` back-reference in

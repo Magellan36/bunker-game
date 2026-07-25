@@ -7,15 +7,9 @@ pipe/bottle/store-key refactor).
 
 ## What this is NOT
 
-- Not a change to the GridMap tile-ID mechanism. `TILE_WALL` (1) and
-  `TILE_PILLAR` (2) are still meaningful GridMap item indices, owned by
-  `BuildModeController.gd` (`scripts/world/build/BuildModeController.gd`).
-- Not turning walls/pillars into scripted `Node` classes. They remain plain
-  GridMap cells / MeshLibrary items with a `tile_id` meta tag on their
-  collision proxy, exactly as before.
-- Not a new Autoload. `PillarRegistry` is a plain scene-tree `Node`, owned and
-  instanced by `MainWorld.gd` like `PowerManager`/`WaterManager`, found by
-  other systems via `get_tree().get_first_node_in_group("pillar_registry")`.
+- Not a change to the GridMap tile-ID mechanism. `TILE_WALL` (1), `TILE_PILLAR` (2), **`TILE_HALF_WALL` (25), `TILE_QUARTER_WALL` (26)** are still meaningful GridMap item indices, owned by `BuildModeController.gd` (`scripts/world/build/BuildModeController.gd`).
+- Not turning walls/pillars into scripted `Node` classes. They remain plain GridMap cells / MeshLibrary items with a `tile_id` meta tag on their collision proxy, exactly as before. Half/Quarter walls reuse the `TILE_WALL` mesh (item 1) scaled vertically via `MeshInstance3D.scale.y` (0.5 / 0.25) with origin shifted to base — no new MeshLibrary entries.
+- Not a new Autoload. `PillarRegistry` is a plain scene-tree `Node`, owned and instanced by `MainWorld.gd` like `PowerManager`/`WaterManager`, found by other systems via `get_tree().get_first_node_in_group("pillar_registry")`.
 
 ## Files
 

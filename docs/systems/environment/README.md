@@ -130,6 +130,8 @@ not saved:** pregen bunker contents (loot spawn positions) and lighting
 state — a fresh load always starts those from the same original pregen
 layout (tracked gap, not scheduled).
 
+**Jul 2026 — Pregen wall/pillar height fix:** `BunkerPregen.PLACEMENT_Y` changed from `1.0` to `2.0` to match `BuildModeController.PLACEMENT_Y` (and `WireGraphBuilder.PLACEMENT_Y`, `WallPerimeterRegistry.PLACEMENT_Y`). All pregen walls/pillars now spawn at Y=2.0 (matching the 3m wall mesh centered at Y=1.5 in the MeshLibrary). Player-placed walls via `BuildModeController` already used Y=2.0. This ensures pregen and player walls align perfectly.
+
 ## Call graph (brief)
 ```
 MainWorld._ready()
