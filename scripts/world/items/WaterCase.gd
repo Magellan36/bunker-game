@@ -64,10 +64,6 @@ func on_interact() -> void:
 
 	world.add_child(bottle)
 	bottle.global_position = spawn_point.global_position
-	bottle.freeze = true
-	bottle.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-	bottle.call_deferred("_unfreeze_after_spawn")
-	# Eject forward and slightly upward
 	bottle.linear_velocity = -global_transform.basis.z * 2.5 + Vector3(0, 1.5, 0)
 
 	bottle_count -= 1
