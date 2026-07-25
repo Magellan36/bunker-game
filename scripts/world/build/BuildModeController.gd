@@ -83,7 +83,7 @@ const GROW_LIGHT_PLACEMENT_Y: float = WALL_HEIGHT_M * 7.0 / 8.0
 ## Y height at which player-placed objects sit (world units).
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with
 ## GridMap-stamped walls visually.
-const PLACEMENT_Y: float = 1.0   ## World Y matching GridMap wall cell Y=1, cell_size=1
+const PLACEMENT_Y: float = 2.0   ## World Y matching pregen walls/pillars (BunkerPregen, WireGraphBuilder, WallPerimeterRegistry all use 2.0)
 
 ## Shelving uses the same Y as walls/pillars so the physics overlap check
 ## doesn't falsely detect the floor as an obstacle.
