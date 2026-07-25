@@ -27,7 +27,9 @@ class_name FarmPlant
 ##                      GrowLight directly above this cell (pure XZ match,
 ##                      recomputed once per hour tick — not every frame).
 ##   water_fraction   = tray.get_water_fraction() — tray's demand actually met.
-##   growth_per_hour  = light_speed * water_fraction / (grow_days * 24.0)
+##   growth_per_hour  = light_speed * water_fraction * (1 + fertilizer_bonus)
+##                      / (grow_days * 24.0)
+##                      fertilizer_bonus: 0.0 none / 0.125 normal / 0.25 pro
 ##
 ## Health formula (plan §6.3): -5%/hr whenever water_fraction == 0.0, and an
 ## independent -5%/hr once unlit for more than 24 consecutive hours. Both can
@@ -80,6 +82,12 @@ const FARM_DEBUG: bool = false
 
 var progress: float = 0.0   ## 0.0 .. 1.0
 var health:   float = 100.0 ## 0.0 .. 100.0
+
+## Farming Fertilizer plan — set via apply_fertilizer(), reset per-planting
+## automatically since a fresh FarmPlant instance is created on every
+## plant_seed()/harvest cycle (no explicit reset code needed).
+var fertilizer_bonus: float = 0.0    ## 0.0 / 0.125 / 0.25
+var fertilizer_tier:  String = ""    ## "" / "normal" / "pro" — for the UI label
 
 var _tray: FarmingTray = null
 var _cell_index: int   = -1
@@ -140,7 +148,7 @@ func _tick_one_game_hour() -> void:
 	var water_fraction: float = _tray.get_water_fraction() if _tray != null and is_instance_valid(_tray) else 0.0
 	var grow_days: float = PlantDatabase.get_grow_days(plant_type)
 
-	var growth_per_hour: float = _light_speed_cached * water_fraction / (grow_days * 24.0)
+	var growth_per_hour: float = _light_speed_cached * water_fraction * (1.0 + fertilizer_bonus) / (grow_days * 24.0)
 	growth_per_hour_current = growth_per_hour
 	progress = clampf(progress + growth_per_hour, 0.0, 1.0)
 
@@ -181,6 +189,15 @@ func _compute_light_speed() -> float:
 
 func is_ready() -> bool:
 	return progress >= 1.0
+
+func is_fertilized() -> bool:
+	return fertilizer_bonus > 0.0
+
+## Called by FarmingTray.fertilize_first_open_cell() — one-time application,
+## blocked by the tray/item's own "already fertilized" check upstream.
+func apply_fertilizer(tier: String) -> void:
+	fertilizer_tier  = tier
+	fertilizer_bonus = 0.25 if tier == "pro" else 0.125
 
 # ─── Visual ───────────────────────────────────────────────────────────────────
 func _build_mesh() -> void:

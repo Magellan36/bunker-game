@@ -29,6 +29,11 @@ const KNOCK_LINGER_TIME: float = 0.35
 ## PurifierFilterItem.REPLACE_RANGE / FarmingTray.REPLACE_RANGE.
 const TRAY_RANGE: float = 2.5
 
+const MAX_CHARGES: int = 2
+var _charges: int = MAX_CHARGES
+var _max_charges: int = MAX_CHARGES   ## Matches InventoryHUD's fallback field names exactly
+signal charge_changed()
+
 var shelf_stack_limit: int  = 6
 var shelf_item_type: String = "bag_of_soil"
 
@@ -94,7 +99,7 @@ func get_display_name() -> String:
 	return "Bag of Soil"
 
 func get_prompt_text() -> String:
-	return "[F] Pick up  Bag of Soil"
+	return "[F] Pick up  Bag of Soil (%d/%d)" % [_charges, _max_charges]
 
 func _find_nearest_tray_needing_soil() -> FarmingTray:
 	var best: FarmingTray = null
@@ -124,9 +129,13 @@ func on_use() -> void:
 	if not tray.fill_first_open_soil_cell():
 		return
 
+	_charges -= 1
+	charge_changed.emit()
 	_update_target_highlight(null)
-	EmptyBagItem.spawn_at(get_parent(), tray.global_position)
-	queue_free()
+
+	if _charges <= 0:
+		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
+		queue_free()
 
 func pickup(hold_point: Node3D) -> void:
 	is_held       = true

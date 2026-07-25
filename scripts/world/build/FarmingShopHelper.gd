@@ -27,19 +27,21 @@ const SPAWN_HEIGHT_ABOVE_PLAYER: float = 1.8
 ## item_id → { name, price, kind, count, type } — kind dispatches to the
 ## right static spawn_at() helper. type is only meaningful for "seed".
 const SHOP_ITEM_INFO: Dictionary = {
-	1: { "name": "Bag of Soil",       "price": 100, "kind": "soil",  "count": 1, "type": "" },
-	2: { "name": "Tomato Seeds (x4)", "price": 25,  "kind": "seed",  "count": 4, "type": "tomato" },
-	3: { "name": "Onion Seeds (x4)",  "price": 25,  "kind": "seed",  "count": 4, "type": "onion" },
-	4:  { "name": "Basil Seeds (x4)",        "price": 25, "kind": "seed", "count": 4, "type": "basil" },
-	5:  { "name": "Strawberry Seeds (x4)",   "price": 25, "kind": "seed", "count": 4, "type": "strawberry" },
-	6:  { "name": "Carrot Seeds (x4)",       "price": 25, "kind": "seed", "count": 4, "type": "carrot" },
-	7:  { "name": "Chili Pepper Seeds (x4)", "price": 25, "kind": "seed", "count": 4, "type": "chili_pepper" },
-	8:  { "name": "Bell Pepper Seeds (x4)",  "price": 25, "kind": "seed", "count": 4, "type": "bell_pepper" },
-	9:  { "name": "Garlic Seeds (x4)",       "price": 25, "kind": "seed", "count": 4, "type": "garlic" },
-	10: { "name": "Potato Seeds (x4)",       "price": 25, "kind": "seed", "count": 4, "type": "potato" },
-	11: { "name": "Blueberry Seeds (x4)",    "price": 25, "kind": "seed", "count": 4, "type": "blueberry" },
-	12: { "name": "Corn Seeds (x4)",         "price": 25, "kind": "seed", "count": 4, "type": "corn" },
-	13: { "name": "Pumpkin Seeds (x4)",      "price": 25, "kind": "seed", "count": 4, "type": "pumpkin" },
+	1: { "name": "Bag of Soil",   "price": 100, "kind": "soil",  "count": 1, "type": "" },
+	2: { "name": "Tomato Seeds",  "price": 25,  "kind": "seed",  "count": 1, "type": "tomato" },
+	3: { "name": "Onion Seeds",   "price": 25,  "kind": "seed",  "count": 1, "type": "onion" },
+	4:  { "name": "Basil Seeds",        "price": 25, "kind": "seed", "count": 1, "type": "basil" },
+	5:  { "name": "Strawberry Seeds",   "price": 25, "kind": "seed", "count": 1, "type": "strawberry" },
+	6:  { "name": "Carrot Seeds",       "price": 25, "kind": "seed", "count": 1, "type": "carrot" },
+	7:  { "name": "Chili Pepper Seeds", "price": 25, "kind": "seed", "count": 1, "type": "chili_pepper" },
+	8:  { "name": "Bell Pepper Seeds",  "price": 25, "kind": "seed", "count": 1, "type": "bell_pepper" },
+	9:  { "name": "Garlic Seeds",       "price": 25, "kind": "seed", "count": 1, "type": "garlic" },
+	10: { "name": "Potato Seeds",       "price": 25, "kind": "seed", "count": 1, "type": "potato" },
+	11: { "name": "Blueberry Seeds",    "price": 25, "kind": "seed", "count": 1, "type": "blueberry" },
+	12: { "name": "Corn Seeds",         "price": 25, "kind": "seed", "count": 1, "type": "corn" },
+	13: { "name": "Pumpkin Seeds",      "price": 25, "kind": "seed", "count": 1, "type": "pumpkin" },
+	14: { "name": "Normal Fertilizer", "price": 300, "kind": "fertilizer", "count": 1, "type": "normal" },
+	15: { "name": "Pro Fertilizer",    "price": 400, "kind": "fertilizer", "count": 1, "type": "pro" },
 }
 
 func get_item_price(item_id: int) -> int:
@@ -69,10 +71,11 @@ func spawn_purchased_item(item_id: int) -> bool:
 		"soil":
 			BagOfSoilItem.spawn_at(parent, base_pos)
 		"seed":
-			var count: int = int(info.get("count", 1))
 			var type: String = String(info.get("type", "tomato"))
-			for i: int in range(count):
-				SeedItem.spawn_at(parent, base_pos, type)
+			SeedItem.spawn_at(parent, base_pos, type)   ## One instance, 4 charges — no more count/loop
+		"fertilizer":
+			var tier: String = String(info.get("type", "normal"))
+			FertilizerItem.spawn_at(parent, base_pos, tier)
 		_:
 			push_warning("FarmingShopHelper: unhandled kind '%s' for item_id %d" % [kind, item_id])
 			return false

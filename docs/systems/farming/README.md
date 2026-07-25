@@ -295,6 +295,49 @@ audited this pass:
    `FarmingTrayUI.gd`; every one of those is already generic across
    `plant_type`.
 
+## Fertilizer & item-charge consolidation (Jul 2026)
+- **New file `FertilizerItem.gd`** (`scripts/world/items/`) — one script,
+  both tiers via `export var tier: String` ("normal"/"pro"), 4 charges.
+  Applies to one specific growing (not-yet-ready), not-yet-fertilized plant
+  per use, using the same nearest-tray highlight-while-held pattern
+  `SeedItem`/`BagOfSoilItem` already use. Applying to an already-fertilized
+  plant is blocked with a toast ("This plant is already fertilized.")
+  rather than replacing/stacking. Growth bonus: `+12.5%` normal, `+25%`
+  pro, applied as a straight multiplier in `FarmPlant`'s growth formula
+  (`* (1.0 + fertilizer_bonus)`), permanent for that plant's remaining grow
+  cycle. Bought from the Farming shop's **Soil** submenu (same category as
+  Bag of Soil — tray inputs, not seeds): $300 Normal / $400 Pro.
+- **`FarmingTray.gd`** gained 3 query/mutate methods mirroring the existing
+  soil/seed shape exactly: `has_open_fertilizable_cell()`,
+  `has_already_fertilized_growing_cell()` (narrower query used only to
+  produce the correct toast text), `fertilize_first_open_cell(tier)`.
+- **`FarmPlant.gd`** gained `fertilizer_bonus`/`fertilizer_tier` fields +
+  `is_fertilized()`/`apply_fertilizer(tier)`. Resets to defaults for free on
+  every new planting since harvest/death already frees the old `FarmPlant`
+  instance and a fresh one is created on replant — no explicit reset code
+  needed.
+- **`FarmingTrayUI.gd`** — `_draw_plant_block()` shows a
+  "Fertilized (Pro, +25% growth)" / "Not Fertilized" line per occupied
+  cell, reusing `READY_COLOR` for the positive case. `PLANT_BLOCK_H` grew
+  from 108 to 126 to fit it.
+- **Item-charge consolidation** — `BagOfSoilItem` (2 charges) and
+  `SeedItem` (4 charges, one physical instance instead of 4 separate ones
+  per purchase) now follow `FoodCan.gd`'s existing multi-charge convention:
+  `_charges`/`_max_charges` fields + `charge_changed` signal.
+  `InventoryHUD._get_charge_info()`'s generic fallback already matched on
+  those exact field names — **zero `InventoryHUD.gd` changes needed** to
+  get the "x/y" badge on all three items. Empty Bag of Soil only drops once
+  the bag's charges actually reach 0 (was: every single use, always).
+  Seeds have no "empty packet" object — the item just `queue_free()`s at 0
+  charges. All 12 seed species' shop/submenu display names dropped the
+  `"(x4)"` suffix (`FarmingShopHelper.SHOP_ITEM_INFO` +
+  `BuildModeHUD.FARMING_SHOP_ITEMS["Seeds"]`) since it described "4 separate
+  items in this purchase," which is no longer true — the charge badge now
+  communicates that more precisely than the name string can.
+  `shelf_stack_limit = 6` was deliberately left unchanged on all three
+  items even though a stacked shelf slot now represents more total
+  plantings/fills than before — flagged, not silently tuned.
+
 ## Known gaps (explicitly out of scope for this pass)
 - **Persistence**: trays/grow lights themselves save/restore fine as
   ordinary `BuildModeController._placed_objects` entries, but per-cell

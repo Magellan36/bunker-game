@@ -205,6 +205,31 @@ func _play_soil_fill_puff(cell_index: int) -> void:
 	tween.tween_property(mat, "albedo_color:a", 0.0, SOIL_PUFF_DURATION)
 	tween.chain().tween_callback(puff_mi.queue_free)
 
+## ─── Fertilizer cell state queries (used by FertilizerItem) ──────────────────
+func has_open_fertilizable_cell() -> bool:
+	for i: int in range(cell_count):
+		var p: FarmPlant = plant_refs[i]
+		if p != null and is_instance_valid(p) and not p.is_ready() and not p.is_fertilized():
+			return true
+	return false
+
+func has_already_fertilized_growing_cell() -> bool:
+	for i: int in range(cell_count):
+		var p: FarmPlant = plant_refs[i]
+		if p != null and is_instance_valid(p) and not p.is_ready() and p.is_fertilized():
+			return true
+	return false
+
+## Applies fertilizer to the first open (growing, not-yet-fertilized) cell.
+## Returns true if a plant was fertilized.
+func fertilize_first_open_cell(tier: String) -> bool:
+	for i: int in range(cell_count):
+		var p: FarmPlant = plant_refs[i]
+		if p != null and is_instance_valid(p) and not p.is_ready() and not p.is_fertilized():
+			p.apply_fertilizer(tier)
+			return true
+	return false
+
 ## Plants into the first open (soiled, unplanted) cell. Returns true on success.
 func plant_first_open_cell(plant_type: String) -> bool:
 	for i: int in range(cell_count):
