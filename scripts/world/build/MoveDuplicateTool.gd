@@ -207,13 +207,16 @@ func _spawn_move_ghost(tile_id: int) -> void:
 			var m: Mesh = _owner.gridmap.mesh_library.get_item_mesh(mesh_tile_id)
 			if m != null:
 				_owner._move_ghost.mesh = m
-				# Scale half/quarter walls vertically
+				# Scale half/quarter walls vertically (base wall mesh is 3m tall, centered at origin)
 				if tile_id == _owner.TILE_HALF_WALL:
 					_owner._move_ghost.scale = Vector3(1.0, 0.5, 1.0)
-					_owner._move_ghost.position = Vector3(0.0, -0.75, 0.0)
+					_owner._move_ghost.position = Vector3(0.0, 0.75, 0.0)
 				elif tile_id == _owner.TILE_QUARTER_WALL:
 					_owner._move_ghost.scale = Vector3(1.0, 0.25, 1.0)
-					_owner._move_ghost.position = Vector3(0.0, -1.125, 0.0)
+					_owner._move_ghost.position = Vector3(0.0, 0.375, 0.0)
+				else:
+					_owner._move_ghost.scale = Vector3(1.0, 1.0, 1.0)
+					_owner._move_ghost.position = Vector3(0.0, 0.0, 0.0)
 				for s: int in m.get_surface_count():
 					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
 
