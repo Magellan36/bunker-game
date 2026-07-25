@@ -211,9 +211,10 @@ func _build_ui() -> void:
 ## Shared minimalist button factory — flat dark style, no icons. Restyle here
 ## later without touching any of the wiring above.
 func _make_button(text: String, cb: Callable) -> Button:
-var btn: Button = Button.new()
+	var btn: Button = Button.new()
 	btn.text = text
 	btn.custom_minimum_size = Vector2(0.0, 32.0)
+	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	btn.add_theme_font_size_override("font_size", 13)
 
 	var style: StyleBoxFlat = StyleBoxFlat.new()
