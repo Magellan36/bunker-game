@@ -28,10 +28,6 @@ const KNOCK_LINGER_TIME: float = 0.35
 @export var inv_follow_speed: float = 40.0
 @export var pickup_grace: float     = 0.6
 
-## Shelf stacking — override in subclass
-var shelf_stack_limit: int  = 6
-var shelf_item_type: String = "generic"
-
 # ─── State ───────────────────────────────────────────────────────────────────
 var is_held: bool           = false
 var from_inventory: bool    = false

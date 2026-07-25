@@ -15,19 +15,6 @@ class_name PurifierFilterItem
 ## near" reads consistently across every water-adjacent interaction.
 const REPLACE_RANGE: float = 2.5
 
-## Shelf stacking (Jul 2026 — deviation from the plan's §0.3 recommended
-## default, documented in docs/systems/water/README.md's Purifier Filter
-## section): the plan assumed Shelving.gd's slots store a plain [count],
-## which would destroy a Used filter's unique quality value on shelving.
-## Direct read of Shelving.gd's actual current code shows slots already
-## hold REAL RigidBody3D node references (retrieve_to_carry()/
-## retrieve_to_inventory() pop and hand back the exact same instance,
-## proven the same way InventoryManager's G-store slots already preserve
-## Flashlight's battery %) — so shelving a Used filter is safe, no data
-## loss. Both fresh and used filters declare the same shelf fields; they
-## share one shelf_item_type so both stack in the same slot (the game
-## already tracks each instance's own quality regardless of shared
-## stacking key).
 var shelf_stack_limit: int   = 6
 var shelf_item_type: String  = "purifier_filter"
 
