@@ -274,11 +274,16 @@ func _rebuild_ghost_mesh() -> void:
 		_owner._ghost.visible = false
 		return
 	_owner._ghost.mesh = mesh
-	# Scale half/quarter walls vertically (base wall is 3m tall)
+	# Scale half/quarter walls vertically (base wall mesh is 3m tall, centered at origin)
 	if _owner._selected_tile == _owner.TILE_HALF_WALL:
-		_owner._ghost.scale = Vector3(1.0, 0.5, 1.0)   ## 1.5m tall
+		_owner._ghost.scale = Vector3(1.0, 0.5, 1.0)
+		_owner._ghost.position = Vector3(0.0, 0.75, 0.0)
 	elif _owner._selected_tile == _owner.TILE_QUARTER_WALL:
-		_owner._ghost.scale = Vector3(1.0, 0.25, 1.0)  ## 0.75m tall
+		_owner._ghost.scale = Vector3(1.0, 0.25, 1.0)
+		_owner._ghost.position = Vector3(0.0, 0.375, 0.0)
+	else:
+		_owner._ghost.scale = Vector3(1.0, 1.0, 1.0)
+		_owner._ghost.position = Vector3(0.0, 0.0, 0.0)
 	for s: int in mesh.get_surface_count():
 		_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 	## Walls/pillars have no meaningful "front" in a rotation context — skip arrow.

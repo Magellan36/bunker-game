@@ -1258,13 +1258,13 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		var mesh: Mesh = lib.get_item_mesh(mesh_tile_id)
 		if mesh != null:
 			mi.mesh = mesh
-			# Scale half/quarter walls vertically
+			# Scale half/quarter walls vertically (base wall mesh is 3m tall, centered at origin)
 			if tile_id == TILE_HALF_WALL:
 				mi.scale = Vector3(1.0, 0.5, 1.0)
-				mi.position = Vector3(0.0, -0.75, 0.0)  # center at 0.75m
+				mi.position = Vector3(0.0, 0.75, 0.0)  # shift up so bottom at 0
 			elif tile_id == TILE_QUARTER_WALL:
 				mi.scale = Vector3(1.0, 0.25, 1.0)
-				mi.position = Vector3(0.0, -1.125, 0.0)  # center at 0.375m
+				mi.position = Vector3(0.0, 0.375, 0.0)  # shift up so bottom at 0
 			body.add_child(mi)
 			mi.create_trimesh_collision()
 			## create_trimesh_collision() spawns a child StaticBody3D inside mi.
