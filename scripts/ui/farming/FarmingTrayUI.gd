@@ -59,7 +59,7 @@ const CONNECTION_H: float = 40.0
 const WATER_BLOCK_H: float = 70.0   ## label + value + bar + gap
 const BUBBLE_H: float = 52.0
 const BUBBLE_GAP_AFTER: float = 16.0
-const PLANT_BLOCK_H: float = 108.0   ## Polish Plan Group 1 item 4: +16 for the "Ready in ~X days" line
+const PLANT_BLOCK_H: float = 126.0   ## Polish Plan Group 1 item 4: +16 for the "Ready in ~X days" line; Fertilizer plan: +18 for the fertilized-status line
 const PLANT_BLOCK_GAP: float = 10.0
 const PRIORITY_BLOCK_H: float = 112.0
 const BOTTOM_PAD: float = 20.0
@@ -358,6 +358,17 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 	var block_bar_w: float = bar_w - 12.0
 	var block_bar_h: float = 10.0
 	UIKit.draw_bar(_canvas, Rect2(bx, by, block_bar_w, block_bar_h), plant.progress, _theme, GROWTH_BAR_COLOR)
+	by += 18.0
+
+	## Fertilizer plan — fertilized-status line, one more per-cell readout
+	## reusing READY_COLOR for the positive case (visual consistency with the
+	## READY label, not a new shade).
+	if plant.is_fertilized():
+		var pct: int = int(round(plant.fertilizer_bonus * 100.0))
+		var fert_label: String = "Fertilized (%s, +%d%% growth)" % [plant.fertilizer_tier.capitalize(), pct]
+		_draw_str(fert_label, Vector2(bx, by), READY_COLOR, 11)
+	else:
+		_draw_str("Not Fertilized", Vector2(bx, by), _theme.dim, 11)
 
 	return cy + PLANT_BLOCK_H
 

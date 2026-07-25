@@ -1,79 +1,54 @@
-# Handover — Farming: 10 New Plant Species
+# Handover — Fertilizer & Item-Charge Consolidation (Jul 2026)
 
-## What happened
-Implemented `FARMING_NEW_PLANTS_PLAN` in one pass — a purely data-addition
-task (plus one real bug fix) adding 10 new farmable species on top of the
-existing Tomato/Onion. No new files, no manager class — the existing
-`PlantDatabase.gd` table-driven design absorbed all 10 species with zero
-changes needed to `FarmPlant.gd`, `FarmingTray.gd`, or `FarmingTrayUI.gd`.
+## What changed this session
+Implemented `FARMING_FERTILIZER_AND_CHARGES_PLAN` in full, one pass:
 
-Committed and pushed to `origin/main` as `158e199`:
-> Farming: add 10 new plant species (Basil, Strawberry, Carrot, Chili
-> Pepper, Bell Pepper, Garlic, Potato, Blueberry, Corn, Pumpkin)
+### New: Fertilizer item
+- `scripts/world/items/FertilizerItem.gd` — new item, two tiers (Normal +12.5% growth bonus, Pro +25%).
+- Targets one specific plant/cell in a `FarmingTray` (growing, not-yet-ready only). Already-fertilized plant is blocked with toast "This plant is already fertilized." (not replaced/stacked).
+- Bonus applied as `* (1.0 + fertilizer_bonus)` multiplier in `FarmPlant`'s growth formula.
+- Sold in the Farming shop's **Soil** submenu (not Seeds): $300 Normal / $400 Pro.
 
-`tools/godot_check.sh` ran clean (PASS, no parse/compile errors) before
-pushing.
+### FarmingTray.gd
+- Added `has_open_fertilizable_cell()`, `has_already_fertilized_growing_cell()`, `fertilize_first_open_cell(tier)`.
 
-## Files changed
-- **`scripts/world/farming/PlantDatabase.gd`** — `PLANT_CONFIG` grew from 2
-  to 12 entries. Every entry (including the original Tomato/Onion) now also
-  carries `category` (Vegetable/Fruit/Herb — cosmetic only, not read by any
-  gameplay logic) and `seed_packet_color`. Added `get_category()` and
-  `get_seed_packet_color()` static accessors.
-- **`scripts/world/items/SeedItem.gd`** — **bug fix**: `_build_placeholder_mesh()`
-  had a hardcoded `seed_type == "tomato" ? color_a : color_b` ternary, so
-  every non-tomato seed packet (Onion, and would've been all 10 new species)
-  rendered with the identical fallback tint. Now reads
-  `PlantDatabase.get_seed_packet_color(seed_type)` directly — every species
-  gets its own distinct packet color automatically.
-- **`scripts/world/build/FarmingShopHelper.gd`** — 10 new `SHOP_ITEM_INFO`
-  entries (item_ids 4–13), same $25/4-seed-bundle pricing as Tomato/Onion.
-- **`scripts/ui/build/BuildModeHUD.gd`** — mirrored the same 10 entries into
-  `FARMING_SHOP_ITEMS["Seeds"]` so they appear in the submenu list.
-- **`docs/systems/farming/README.md`** — new "Species roster" section
-  documenting the 12-species table and the seed-color bug fix, plus a new
-  "Common edits — adding a new plant species" section (4-step recipe for
-  the *next* batch of species, matching this project's per-system README
-  convention).
+### FarmPlant.gd
+- Added `fertilizer_bonus` / `fertilizer_tier` fields, `is_fertilized()` / `apply_fertilizer(tier)`.
+- Growth formula and header doc comment updated to reflect the bonus multiplier.
 
-## Species added (name / category / grow_days)
-| Species | Category | grow_days |
-|---|---|---|
-| Basil | Herb | 5 |
-| Strawberry | Fruit | 7 |
-| Carrot | Vegetable | 8 |
-| Chili Pepper | Herb | 9 |
-| Bell Pepper | Vegetable | 12 |
-| Garlic | Vegetable | 14 |
-| Potato | Vegetable | 16 |
-| Blueberry | Fruit | 18 |
-| Corn | Vegetable | 22 |
-| Pumpkin | Fruit | 30 |
+### FarmingTrayUI.gd
+- `PLANT_BLOCK_H` bumped 108→126 to fit a new fertilized-status line drawn in `_draw_plant_block()`.
 
-All 10 use the same placeholder `SphereMesh` produce convention Tomato/Onion
-already established (color/metallic/roughness only, no new mesh code).
+### Item charge consolidation (onto existing multi-charge convention — `InventoryHUD.gd` needed ZERO changes, its `_charges`/`_max_charges` fallback already renders the "x/y" badge)
+- **BagOfSoilItem.gd**: now has 2 charges. `get_prompt_text()` shows `(%d/%d)`. `on_use()` decrements charges; Empty Bag only spawns/frees when charges actually hit 0 (previously dropped an empty bag on every single use — behavior change).
+- **SeedItem.gd**: now has 4 charges, **one physical instance per purchase** (not 4 separate items). `get_prompt_text()`/`get_use_prompt()` show `(%d/%d)`. `on_use()` decrements charges and `queue_free()`s at 0 — no "empty packet" object exists.
+- All 12 seed species lost the `"(x4)"` suffix in shop/submenu display names (the charge badge now communicates count).
 
-## Deliberately deferred (flagged in the plan, not oversights)
-- **Seed bundle pricing**: all 12 species cost the same $25/4-seed bundle
-  regardless of `grow_days` (a 30-day Pumpkin costs the same as a 5-day
-  Basil). Flat default on purpose — a grow-days-scaled pricing curve is a
-  real balance decision that needs your numbers, not something to invent
-  silently.
-- **`FarmProduceItem.FOOD_RESTORE`**: still a single flat `20.0` shared by
-  all 12 species (Tomato and Pumpkin restore identical hunger today). Same
-  reasoning — open this up as its own follow-up if/when you want
-  per-species hunger values.
-- Tabbed/paginated shop UI was explicitly **not** built — 12 Seeds entries
-  is in line with the existing Power category's proven 10-item precedent,
-  not past it. Worth a one-time visual eyeball in-engine since it's a new
-  high-water mark for list length, but no code changes proposed for it now.
+### FarmingShopHelper.gd
+- `SHOP_ITEM_INFO`: all 12 seed entries changed `count: 4→1`, names lost `(x4)`. Added entries 14/15 (Normal/Pro Fertilizer, Soil submenu).
+- `spawn_purchased_item()` seed branch now spawns exactly 1 instance (loop removed). Added `"fertilizer"` match branch → `FertilizerItem.spawn_at()`.
 
-## Next steps for you
-1. Pull `origin/main` and playtest: buy each of the 10 new seed bundles from
-   the Farming shop's Seeds submenu, plant them, confirm distinct seed
-   packet colors on the shelf/floor and correct produce colors at harvest.
-2. Eyeball the 12-item Seeds submenu list for visual cramping (flagged as
-   worth checking, not a known bug).
-3. Decide whenever you're ready: differentiated seed pricing and/or
-   per-species `FOOD_RESTORE` values, both deferred above pending your
-   actual numbers.
+### BuildModeHUD.gd
+- `FARMING_SHOP_ITEMS["Soil"]` gained tile_id 14/15 (fertilizer entries). All 12 `["Seeds"]` entries renamed (dropped `(x4)`).
+
+### Docs
+- `docs/systems/farming/README.md` — new "Fertilizer & item-charge consolidation (Jul 2026)" section appended, same commit as code per doc-update discipline.
+
+## Flagged but deliberately unchanged
+- `shelf_stack_limit = 6` left unchanged on all three items (Bag of Soil, Seed, Fertilizer) — flagged per plan, not silently tuned. Revisit if shelf density feels off in playtest.
+
+## Verification done
+- `bash tools/godot_check.sh <headless Godot 4.6.3 binary>` → **PASS**, no script parse/compile/type errors across the whole repo.
+- Not yet manually playtested in-editor (no compiler/runtime in sandbox — requires an in-editor pass from Brannon).
+
+## Playtest checklist for Brannon
+1. Pull `origin/main`.
+2. Open Farming shop → Soil submenu → buy Normal and Pro Fertilizer ($300 / $400).
+3. Apply fertilizer to a growing (not-yet-ready) plant in a tray — confirm status line appears in tray UI and growth speeds up.
+4. Try applying fertilizer to an already-fertilized plant — confirm blocked with toast "This plant is already fertilized."
+5. Check inventory HUD charge badges (x/y) show correctly on Bag of Soil, Seed, and Fertilizer slots.
+6. Use Bag of Soil twice — confirm Empty Bag only drops after the 2nd use (charges hit 0), not after the 1st.
+7. Buy a seed packet — confirm exactly 1 item spawns with 4 charges (not 4 separate items), and shop/submenu names no longer show "(x4)".
+
+## Next up (not started)
+- No specific next-feature commitments from this session; awaiting Brannon's playtest feedback and next request.
