@@ -102,6 +102,7 @@ var _in_build_mode: bool = false
 ## Hides the inventory bar while in build mode and keeps it hidden.
 func set_build_mode(enabled: bool) -> void:
 	_in_build_mode = enabled
+	print("[HUD] set_build_mode(", enabled, ") inventory_hud.visible = ", inventory_hud.visible, " -> ", not enabled)
 	inventory_hud.visible = not enabled
 
 
