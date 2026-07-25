@@ -19,7 +19,7 @@ const COLOR_NAME:     Color = Color(0.80, 0.78, 0.72, 0.95)
 const COLOR_CHARGE_BG:   Color = Color(0.08, 0.08, 0.08, 0.88)
 const COLOR_CHARGE_FULL: Color = Color(0.75, 0.85, 0.70, 1.00)   ## greenish — has charges
 const COLOR_CHARGE_LOW:  Color = Color(0.85, 0.55, 0.40, 1.00)   ## amber — last charge
-const COLOR_CHARGE_FONT: float = 9.0                              ## font size for badge text
+const CHARGE_FONT_SIZE: int = 9                                   ## font size for badge text
 
 ## Water bottle quality badge colours (Jul 2026 bottle rework) — mirrors
 ## WaterDispenserUI._quality_color()'s red/yellow/green convention exactly.
@@ -288,7 +288,7 @@ func _get_charge_info(item: Node) -> Array:
 func _draw_charge_badge(font: Font, slot_x: float, current: int, max_charges: int) -> void:
 	var label: String = "%d/%d" % [current, max_charges] if max_charges > 1 else str(current)
 
-	var font_size: int = int(COLOR_CHARGE_FONT)
+	var font_size: int = CHARGE_FONT_SIZE
 	var tsz: Vector2  = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
 	# Badge rect — 4px padding each side, 3px top/bottom
@@ -332,7 +332,7 @@ func _draw_quality_badge(font: Font, slot_x: float, fill_mL: float, max_fill_mL:
 	var line1: String = "%dml/%dml" % [int(round(fill_mL)), int(round(max_fill_mL))]
 	var line2: String = "(%d%%)" % int(round(quality))
 
-	var font_size: int = int(COLOR_CHARGE_FONT)
+	var font_size: int = CHARGE_FONT_SIZE
 	var tsz1: Vector2 = font.get_string_size(line1, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 	var tsz2: Vector2 = font.get_string_size(line2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
@@ -363,7 +363,7 @@ func _draw_quality_badge(font: Font, slot_x: float, fill_mL: float, max_fill_mL:
 func _draw_empty_badge(font: Font, slot_x: float) -> void:
 	var label: String = "EMPTY"
 
-	var font_size: int = int(COLOR_CHARGE_FONT)
+	var font_size: int = CHARGE_FONT_SIZE
 	var tsz: Vector2 = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
 	const PAD_X: float = 4.0

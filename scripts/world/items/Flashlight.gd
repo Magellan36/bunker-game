@@ -1,18 +1,10 @@
-extends RigidBody3D
+extends PickupableItem
 ## Flashlight.gd
 ## Pickupable flashlight. Toggle on/off with [E] while held.
 ## Auto-aims the beam in the direction the player is facing.
 ## Battery drains over time; recharging not yet implemented.
 
-# ─── Signals ──────────────────────────────────────────────────────────────────
-signal picked_up()
-signal dropped()
-signal knocked_out()
-signal charge_changed()   ## Battery % changed — for HUD badge
-
 # ─── Config ───────────────────────────────────────────────────────────────────
-const KNOCK_DISTANCE:   float = 2.2
-const KNOCK_LINGER_TIME:float = 0.35
 const BATTERY_DRAIN:    float = 0.8    ## % per real second while on
 const CONE_ANGLE:       float = 22.0   ## SpotLight3D inner angle
 const CONE_OUTER:       float = 30.0   ## SpotLight3D outer angle
@@ -22,21 +14,12 @@ const LIGHT_ENERGY:     float = 2.8
 ## Slight downward tilt so beam hits the floor ahead, not the horizon.
 const BEAM_PITCH_DEG:   float = -12.0
 
-@export var follow_speed:     float = 18.0
-@export var inv_follow_speed: float = 40.0
-@export var pickup_grace:     float = 0.6
-
 ## Shelf config
 var shelf_stack_limit: int  = 1
 var shelf_item_type:   String = "flashlight"
 
 # ─── State ────────────────────────────────────────────────────────────────────
-var is_held:           bool   = false
-var from_inventory:    bool   = false
-var _hold_point:       Node3D = null
 var _player:           Node3D = null   ## CharacterBody3D — set on pickup
-var _grace_timer:      float  = 0.0
-var _out_of_range_time:float  = 0.0
 
 var _on:         bool  = false
 var _battery:    float = 100.0  ## 0–100
@@ -55,10 +38,8 @@ const COL_DEAD: Color = Color(0.30, 0.30, 0.32, 0.55)  ## gray
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
-	add_to_group("pickup")
+	super._ready()
 	add_to_group("inventory_item")
-	contact_monitor        = true
-	max_contacts_reported  = 4
 
 	_build_mesh()
 	_build_light()
@@ -246,27 +227,12 @@ func _physics_process(delta: float) -> void:
 	linear_velocity  = (target - global_position) * speed
 
 	## ── Aim toward player's facing direction ──────────────────────────────────
-	## The player's rotation.y is the yaw angle facing its movement direction.
-	## We lock the flashlight body to that same yaw (flat, no pitch/roll) so the
-	## mesh and spotlight always point where the player is going.
-	## angular_velocity must be zeroed AFTER setting rotation so physics doesn't
-	## fight us next frame.
 	if _player != null and is_instance_valid(_player):
-		## Track player's actual facing direction (rotation.y set by atan2 in Player._handle_movement).
-		## camera_yaw_rad is the camera's orbital yaw — NOT the player's facing direction — so
-		## using it caused the beam to rotate with the camera instead of with the player.
-		## rotation.y holds the last-moved facing angle, which is correct flashlight behaviour.
 		rotation = Vector3(0.0, _player.rotation.y, 0.0)
 	angular_velocity = Vector3.ZERO
 
-## Called deferred by BunkerPregen after global_position is set.
-func _unfreeze_after_spawn() -> void:
-	freeze = false
-
 # ─── Inventory charge badge ───────────────────────────────────────────────────
 ## InventoryHUD calls this to show the battery % badge on the slot.
-## Returns [current_int, max_int] — HUD renders "current/max" or just "current" if max==1.
-## We return integer percent so the badge shows e.g. "87/100".
 func get_charge_info() -> Array:
 	return [int(_battery), 100]
 
@@ -289,39 +255,14 @@ func set_player(p: Node3D) -> void:
 	## Called by InteractionSystem when this item is picked up.
 	_player = p
 
-func pickup(hold_point: Node3D) -> void:
-	is_held            = true
-	_hold_point        = hold_point
-	_grace_timer       = pickup_grace
-	_out_of_range_time = 0.0
-	freeze             = false
-	freeze_mode        = RigidBody3D.FREEZE_MODE_KINEMATIC
-	gravity_scale      = 0.0
-	collision_layer    = 2
-	collision_mask     = 1
+func _on_pickup_extra() -> void:
 	## Self-healing player ref: if set_player() was never called (e.g. pregen
 	## inventory path), find the player via group so facing still works.
 	if _player == null:
 		_player = get_tree().get_first_node_in_group("player")
-	_set_held_culling(true)
-	picked_up.emit()
 
-func drop(_world_parent: Node3D, drop_position: Vector3) -> void:
-	is_held         = false
-	_hold_point     = null
-	_player         = null
-	global_position = drop_position
-	gravity_scale   = 1.0
-	freeze          = false
-	collision_layer = 1
-	collision_mask  = 1
-	linear_velocity = Vector3.ZERO
-	add_to_group("pickup")
-	_set_held_culling(false)
-	dropped.emit()
-
-func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO) -> void:
-	drop(_world_parent, place_position)
+func _on_drop_extra() -> void:
+	_player = null
 
 # ─── Use: toggle light ────────────────────────────────────────────────────────
 func on_use() -> void:
@@ -329,23 +270,3 @@ func on_use() -> void:
 		return
 	_on = not _on
 	_refresh_state()
-
-# ─── Knocked out ──────────────────────────────────────────────────────────────
-func _do_knocked_out() -> void:
-	is_held         = false
-	_hold_point     = null
-	_player         = null
-	gravity_scale   = 1.0
-	freeze          = false
-	collision_layer = 1
-	collision_mask  = 1
-	linear_velocity = Vector3(randf_range(-2.0, 2.0), 2.0, randf_range(-2.0, 2.0))
-	_set_held_culling(false)
-	knocked_out.emit()
-
-# ─── Culling ─────────────────────────────────────────────────────────────────
-func _set_held_culling(held: bool) -> void:
-	var margin: float = 10.0 if held else 0.0
-	for child: Node in get_children():
-		if child is GeometryInstance3D:
-			(child as GeometryInstance3D).extra_cull_margin = margin

@@ -623,17 +623,6 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 	if wall_keys.is_empty():
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
 
-	## TEMP diagnostic (Jul 2026, notch/step-skip investigation) — dumps the
-	## ordered wall-segment key list the BFS actually returned, confirm-time
-	## only (debug-gated, matches PIPE_DEBUG/_pdbg() convention). Expected
-	## BEFORE the adjacency fix: a jump straight from one side of a notch to
-	## the other with nothing in between. Leaving in as standing insurance —
-	## flag to Brannon whether to strip once confirmed stable.
-	if debug:
-		_pdbg("[PipeDebug] wall_keys (%d): %s" % [wall_keys.size(), wall_keys])
-		for k: String in wall_keys:
-			_pdbg("[PipeDebug]   %s -> pos=%s" % [k, registry.get_segment_pos(k)])
-
 	## Pull each waypoint inward off the wall face by WALL_PIPE_OFFSET so the
 	## pipe's own radius doesn't clip into the wall mesh (Jul 2026 fix).
 	## `angle` is the wall face's outward-facing orientation in degrees (see
@@ -804,17 +793,8 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 ## _try_confirm_full_path()'s confirm-time call can never disagree about
 ## which mode a given click actually used.
 func _trace_active_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
-	## TEMP diagnostic (Jul 2026, ghost/placed-divergence investigation) —
-	## remove once the "two paths near an existing node" bug is confirmed
-	## fixed. Both _update_ghost_preview() and _try_confirm_full_path() go
-	## through this single chooser, so if this print ever shows different
-	## modes firing for what should be the same click, THAT's the divergence;
-	## if it always agrees, the bug is downstream (inside whichever tracer
-	## fired) — see the plan doc for the full decision tree.
 	if not WALL_LOCKED_ROUTING_ENABLED or Input.is_key_pressed(KEY_CTRL):
-		if debug: _pdbg("[PipeDebug] routing mode: freeform (wall_locked_disabled=%s ctrl_held=%s)" % [not WALL_LOCKED_ROUTING_ENABLED, Input.is_key_pressed(KEY_CTRL)])
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
-	if debug: _pdbg("[PipeDebug] routing mode: wall_locked")
 	return _trace_wall_locked_path(source_pos, source_key, cursor_pos, debug)
 
 func _update_ghost_preview() -> void:
