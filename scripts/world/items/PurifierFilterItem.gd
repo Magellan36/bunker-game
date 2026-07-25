@@ -1,4 +1,4 @@
-extends RigidBody3D
+extends PickupableItem
 class_name PurifierFilterItem
 ## PurifierFilterItem.gd
 ## ─────────────────────────────────────────────────────────────────────────────
@@ -8,24 +8,8 @@ class_name PurifierFilterItem
 ## derived from _is_empty() — no separate scene/class"; same call applies
 ## here): a fresh filter and a used filter are the same object, distinguished
 ## by `is_used` + `filter_quality`, not two classes.
-##
-## Physics/pickup/drop/knockout structure copied verbatim from FoodCan.gd —
-## the closest existing shape (simple carriable consumable, no light/battery
-## complexity like Flashlight).
-
-# ─── Signals ─────────────────────────────────────────────────────────────────
-signal picked_up()
-signal dropped()
-signal knocked_out()
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-const KNOCK_DISTANCE: float    = 2.2    ## World-held only
-const KNOCK_LINGER_TIME: float = 0.35
-
-@export var follow_speed: float       = 18.0
-@export var inv_follow_speed: float   = 40.0
-@export var pickup_grace: float       = 0.6
-
 ## Proximity range for "[E] Replace Filter" near a purifier — reuses
 ## WaterBottle.REFILL_RANGE's exact value (2.5) so "how close counts as
 ## near" reads consistently across every water-adjacent interaction.
@@ -51,46 +35,14 @@ var shelf_item_type: String  = "purifier_filter"
 var filter_quality: float = 100.0   ## 0-100. Fixed for a used filter, irrelevant/always-100 for a fresh one.
 var is_used: bool = false           ## true = "Used Purifier Filter", carries filter_quality at time of ejection
 
-var is_held: bool           = false
-var from_inventory: bool    = false
-var _hold_point: Node3D     = null
-var _grace_timer: float        = 0.0
-var _out_of_range_time: float  = 0.0
-
 # ─── Node refs ────────────────────────────────────────────────────────────────
 var _mesh: MeshInstance3D = null
 
 func _ready() -> void:
-	add_to_group("pickup")
+	super._ready()
 	add_to_group("inventory_item")
-	contact_monitor = true
-	max_contacts_reported = 4
 	_mesh = get_node_or_null("MeshInstance3D")
 	_update_used_tint()
-
-# ─── Physics ──────────────────────────────────────────────────────────────────
-func _physics_process(delta: float) -> void:
-	if not is_held or _hold_point == null:
-		return
-
-	if _grace_timer > 0.0:
-		_grace_timer -= delta
-
-	var target: Vector3 = _hold_point.global_position
-	var dist: float = global_position.distance_to(target)
-
-	if not from_inventory:
-		if _grace_timer <= 0.0 and dist > KNOCK_DISTANCE:
-			_out_of_range_time += delta
-			if _out_of_range_time >= KNOCK_LINGER_TIME:
-				_do_knocked_out()
-				return
-		else:
-			_out_of_range_time = 0.0
-
-	var speed: float = inv_follow_speed if from_inventory else follow_speed
-	linear_velocity  = (target - global_position) * speed
-	angular_velocity = Vector3.ZERO
 
 # ─── Inventory charge badge (Jul 2026, Purifier QoL plan item 5) ─────────────
 ## InventoryHUD._get_charge_info() calls this if present, expecting
@@ -144,20 +96,6 @@ func get_use_prompt() -> String:
 	return "[E] Replace Filter  [color=#%s](%d%% -> %d%%)[/color]" % [
 		delta_color, int(round(purifier.filter_quality)), int(round(filter_quality))]
 
-# ─── Pickup ───────────────────────────────────────────────────────────────────
-func pickup(hold_point: Node3D) -> void:
-	is_held       = true
-	_hold_point   = hold_point
-	_grace_timer       = pickup_grace
-	_out_of_range_time = 0.0
-	freeze        = false
-	freeze_mode   = RigidBody3D.FREEZE_MODE_KINEMATIC
-	gravity_scale = 0.0
-	collision_layer = 2
-	collision_mask  = 1
-	_set_held_culling(true)
-	picked_up.emit()
-
 # ─── Use / Replace ────────────────────────────────────────────────────────────
 ## Does NOT handle the swap logic itself — filter-swap rules stay owned by
 ## WaterPurifier, matching this project's existing manager/node-owns-its-own-
@@ -204,43 +142,6 @@ func _update_used_tint() -> void:
 ## immediately without waiting for _ready() (the node's already in the tree).
 func refresh_visual_state() -> void:
 	_update_used_tint()
-
-# ─── Drop ─────────────────────────────────────────────────────────────────────
-func drop(_world_parent: Node3D, drop_position: Vector3) -> void:
-	is_held         = false
-	_hold_point     = null
-	global_position = drop_position
-	gravity_scale   = 1.0
-	freeze = false
-	collision_layer = 1
-	collision_mask  = 1
-	linear_velocity = Vector3.ZERO
-	add_to_group("pickup")
-	_set_held_culling(false)
-	dropped.emit()
-
-# ─── Place ────────────────────────────────────────────────────────────────────
-func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO) -> void:
-	drop(_world_parent, place_position)
-
-# ─── Knocked out ─────────────────────────────────────────────────────────────
-func _do_knocked_out() -> void:
-	is_held         = false
-	_hold_point     = null
-	gravity_scale   = 1.0
-	freeze = false
-	collision_layer = 1
-	collision_mask  = 1
-	linear_velocity = Vector3(randf_range(-2.0, 2.0), 2.0, randf_range(-2.0, 2.0))
-	_set_held_culling(false)
-	knocked_out.emit()
-
-# ─── Culling helper ───────────────────────────────────────────────────────────
-func _set_held_culling(held: bool) -> void:
-	var margin: float = 10.0 if held else 0.0
-	for child in get_children():
-		if child is GeometryInstance3D:
-			child.extra_cull_margin = margin
 
 # ─── Spawn helper (used by WaterPurifier for starting filters + ejection) ────
 ## Spawns a loose PurifierFilterItem into the world at `base_pos` with a

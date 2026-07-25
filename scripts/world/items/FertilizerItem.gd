@@ -1,35 +1,21 @@
-extends RigidBody3D
+extends PickupableItem
 class_name FertilizerItem
 ## FertilizerItem.gd
 ## ─────────────────────────────────────────────────────────────────────────────
 ## Farming System — Fertilizer plan. ONE script for both tiers via
 ## export var tier ("normal"/"pro"), same one-script-per-item-family
 ## convention SeedItem.gd/PurifierFilterItem.gd already establish.
-## Physics/pickup/drop/knockout scaffolding copied verbatim from
-## BagOfSoilItem.gd.
 ##
 ## on_use() while held: finds the nearest FarmingTray in range with an open
 ## (growing, not-yet-fertilized) cell, applies fertilizer to it, consumes one
 ## charge. Drops an EmptyBagItem when the last charge is used, mirroring
 ## BagOfSoilItem's empty-container pattern.
 
-signal picked_up()
-signal dropped()
-signal knocked_out()
-
-const KNOCK_DISTANCE: float    = 2.2
-const KNOCK_LINGER_TIME: float = 0.35
-
-@export var follow_speed: float     = 18.0
-@export var inv_follow_speed: float = 40.0
-@export var pickup_grace: float     = 0.6
-
 @export var tier: String = "normal"   ## "normal" or "pro"
 
 const MAX_CHARGES: int = 4
 var _charges: int = MAX_CHARGES
 var _max_charges: int = MAX_CHARGES   ## Matches InventoryHUD's fallback field names exactly
-signal charge_changed()
 
 ## Proximity range for finding the nearest tray — same value as
 ## PurifierFilterItem.REPLACE_RANGE / FarmingTray.REPLACE_RANGE.
@@ -44,19 +30,11 @@ var shelf_item_type: String = "fertilizer"   ## Shared slot for both tiers — p
 ## frame while held, only toggled on the tray objects when the target changes.
 var _highlighted_tray: FarmingTray = null
 
-var is_held: bool           = false
-var from_inventory: bool    = false
-var _hold_point: Node3D     = null
-var _grace_timer: float       = 0.0
-var _out_of_range_time: float = 0.0
-
 var _mesh: MeshInstance3D = null
 
 func _ready() -> void:
-	add_to_group("pickup")
+	super._ready()
 	add_to_group("inventory_item")
-	contact_monitor = true
-	max_contacts_reported = 4
 	_mesh = get_node_or_null("MeshInstance3D")
 	if _mesh == null:
 		_build_placeholder_mesh()
@@ -66,24 +44,7 @@ func _physics_process(delta: float) -> void:
 		_update_target_highlight(null)
 		return
 
-	if _grace_timer > 0.0:
-		_grace_timer -= delta
-
-	var target: Vector3 = _hold_point.global_position
-	var dist: float = global_position.distance_to(target)
-
-	if not from_inventory:
-		if _grace_timer <= 0.0 and dist > KNOCK_DISTANCE:
-			_out_of_range_time += delta
-			if _out_of_range_time >= KNOCK_LINGER_TIME:
-				_do_knocked_out()
-				return
-		else:
-			_out_of_range_time = 0.0
-
-	var speed: float = inv_follow_speed if from_inventory else follow_speed
-	linear_velocity  = (target - global_position) * speed
-	angular_velocity = Vector3.ZERO
+	super._physics_process(delta)
 
 	_update_target_highlight(_find_nearest_fertilizable_tray())
 
@@ -97,6 +58,9 @@ func _update_target_highlight(new_target: FarmingTray) -> void:
 	_highlighted_tray = new_target
 	if _highlighted_tray != null:
 		_highlighted_tray.set_target_highlighted(true)
+
+func _on_drop_extra() -> void:
+	_update_target_highlight(null)
 
 ## Bonus values, per confirmed numbers: +12.5% normal, +25% pro.
 static func get_growth_bonus(fert_tier: String) -> float:
@@ -159,52 +123,6 @@ func on_use() -> void:
 	if _charges <= 0:
 		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
 		queue_free()
-
-func pickup(hold_point: Node3D) -> void:
-	is_held       = true
-	_hold_point   = hold_point
-	_grace_timer       = pickup_grace
-	_out_of_range_time = 0.0
-	freeze        = false
-	freeze_mode   = RigidBody3D.FREEZE_MODE_KINEMATIC
-	gravity_scale = 0.0
-	collision_layer = 2
-	collision_mask  = 1
-	_set_held_culling(true)
-	picked_up.emit()
-
-func drop(_world_parent: Node3D, drop_position: Vector3) -> void:
-	is_held         = false
-	_hold_point     = null
-	global_position = drop_position
-	gravity_scale   = 1.0
-	freeze = false
-	collision_layer = 1
-	collision_mask  = 1
-	linear_velocity = Vector3.ZERO
-	add_to_group("pickup")
-	_set_held_culling(false)
-	dropped.emit()
-
-func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO) -> void:
-	drop(_world_parent, place_position)
-
-func _do_knocked_out() -> void:
-	is_held         = false
-	_hold_point     = null
-	gravity_scale   = 1.0
-	freeze = false
-	collision_layer = 1
-	collision_mask  = 1
-	linear_velocity = Vector3(randf_range(-2.0, 2.0), 2.0, randf_range(-2.0, 2.0))
-	_set_held_culling(false)
-	knocked_out.emit()
-
-func _set_held_culling(held: bool) -> void:
-	var margin: float = 10.0 if held else 0.0
-	for child in get_children():
-		if child is GeometryInstance3D:
-			child.extra_cull_margin = margin
 
 ## Placeholder sack model, copied from BagOfSoilItem's shape/collision setup,
 ## tinted per tier so the two are visually distinguishable on a shelf/floor:

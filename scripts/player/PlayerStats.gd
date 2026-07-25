@@ -157,6 +157,23 @@ func get_time_display() -> String:
 func get_elapsed() -> float:
 	return _elapsed
 
+## Advances time by `hours` game-hours, drains food/water for that duration,
+## and fully restores sleep. Used by SleepOverlay for the sleep-time-skip.
+func skip_time(hours: float) -> void:
+	var skip_real: float = hours * _seconds_per_game_hour
+	_elapsed += skip_real
+	var drain_scale: float = skip_real / _seconds_per_game_hour
+
+	sleep = 100.0
+
+	food  = maxf(0.0, food  - food_drain_per_game_hour  * drain_scale)
+	water = maxf(0.0, water - water_drain_per_game_hour * drain_scale)
+
+	food_changed.emit(food)
+	water_changed.emit(water)
+	sleep_changed.emit(sleep)
+	_tick_clock()
+
 ## Restores elapsed time (e.g. from a save file) and immediately recomputes the
 ## cached clock/day so the HUD updates on the same frame instead of waiting for
 ## the next _process tick to notice the jump.

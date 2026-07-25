@@ -82,28 +82,7 @@ func request_wake() -> void:
 func _do_time_skip() -> void:
 	if player_stats == null:
 		return
-
-	# Advance clock by 8 game-hours
-	var skip_hours: float  = 8.0
-	var skip_real: float   = skip_hours * player_stats._seconds_per_game_hour
-	player_stats._elapsed += skip_real
-
-	var drain_scale: float = skip_real / player_stats._seconds_per_game_hour
-
-	# Fill sleep fully
-	player_stats.sleep = 100.0
-
-	# Drain food & water for 8 hours
-	player_stats.food  = maxf(0.0, player_stats.food  -
-		player_stats.food_drain_per_game_hour  * drain_scale)
-	player_stats.water = maxf(0.0, player_stats.water -
-		player_stats.water_drain_per_game_hour * drain_scale)
-
-	# Emit signals so HUD reflects the jump immediately
-	player_stats.food_changed.emit(player_stats.food)
-	player_stats.water_changed.emit(player_stats.water)
-	player_stats.sleep_changed.emit(player_stats.sleep)
-	player_stats._tick_clock()
+	player_stats.skip_time(8.0)
 
 # ─── Zzz animation ────────────────────────────────────────────────────────────
 ## Three labels pulse in a staggered wave — big, medium, small.
