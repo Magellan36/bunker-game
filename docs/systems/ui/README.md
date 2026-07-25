@@ -146,6 +146,8 @@ own panel on first interact). None of these are autoloads.
 - `BuildModeHUD.gd` (~1010 lines) is a possible future god-object cleanup
   candidate, not currently scheduled.
 
+**Jul 2026 — Duplicate HUD instances fix:** `MainWorld.tscn` had three `HUD.tscn` instances (one under `GameCamera`, one at root, one named `HUD` at root). Only the root `HUD` node is referenced via `@onready var hud = $HUD`, so `set_build_mode()` only hid the inventory on that one instance — the other two kept their inventory bars visible during build mode. Fixed by removing the two extra instances (lines 48-50 in `MainWorld.tscn`). Now a single `HUD` CanvasLayer at root is the authoritative instance.
+
 ## UIKit shared kit (Jul 2026)
 `scripts/ui/common/UIKit.gd` — `class_name UIKit`, pure static-function
 `RefCounted` helper (no instance state, no autoload), same convention as

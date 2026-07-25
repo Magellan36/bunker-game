@@ -41,13 +41,14 @@ or the environment itself (`docs/systems/environment/README.md`).
 ## Files
 | File | Lines | Role |
 |---|---|---|
-| `items/PickupItem.gd` | ~65 | Minimal base pickup contract (`pickup`/`drop`/`place`) — some items extend behavior inline instead of subclassing this directly (see below) |
+| `items/PickupableItem.gd` | ~153 | **NEW (Jul 2026)** Base class for all physics-based pickup items — eliminates ~800 lines of duplicated scaffolding (pickup/drop/place/knockout/culling/hold-follow physics) that previously lived inline in every item script. All 12 items now extend this.
+| `items/PickupItem.gd` | ~65 | Legacy minimal base pickup contract — some items extend behavior inline instead of subclassing this directly. Being phased out in favor of `PickupableItem.gd`.
 | `items/WaterBottle.gd` | ~265 | Continuous mL-fill + blended quality drinkable (750mL cap, Jul 2026 rework — replaced the old fixed 2-sip model); also refills continuously near a `WaterDispenser` via `bottle_refill_tick(delta)` (see `InteractionSystem._tick_continuous_bottle_refill()`); `charge_changed` signal for HUD badge |
 | `items/FoodCan.gd` | ~215 | Similar to WaterBottle, food-based |
 | `items/FuelCan.gd` | ~260 | Continuous-refuel item — `refuel_tick(delta)` called every frame E is held near a generator (see `InteractionSystem._tick_continuous_refuel()`) |
 | `items/Flashlight.gd` | ~460 | Battery-powered light, `on_use()` toggles on/off, dust-mote beam VFX (see `docs/systems/environment/README.md`) |
 | `items/TestCrate.gd` | ~150 | Simple non-storable pickup (always drops, never goes in inventory) |
-| `items/WaterCase.gd` / `items/CanCase.gd` | ~215 each | Multi-unit cases (shelf-stackable, see `Shelving.gd`'s case-stacking constants) |
+| `items/WaterCase.gd` / `items/CanCase.gd` | ~215 each | Multi-unit cases (shelf-stackable, see `Shelving.gd`'s case-stacking constants). **Jul 2026 fix:** Ejected items (`FoodCan`/`WaterBottle`) now spawn with `freeze=true` + `call_deferred("_unfreeze_after_spawn")` (one-frame kinematic freeze) instead of `freeze=false` + deferred `freeze=false` — prevented floor fall-through on spawn. Removed the now-dead `_unfreeze_after_spawn()` stubs from `FoodCan.gd`/`WaterBottle.gd`.
 | `items/HeavyConsumerTest.gd` | ~280 | StaticBody3D load-test device — registers/unregisters as a power consumer via `PowerManager`, not a real pickup item |
 | `furniture/Bed.gd` | ~45 | Sleep interaction trigger — `sleep_requested`/`wake_requested` signals |
 | `furniture/Shelving.gd` | ~890 | Shelf storage: slot markers, item stacking/placement, retrieval to hand or inventory |
@@ -117,6 +118,7 @@ the power system — see `docs/systems/world-core/README.md` Persistence).
   items in this repo diverge from the minimal `PickupItem.gd` base to add
   that pattern inline. Add a new file in `scripts/world/items/`, don't bolt
   it onto an existing item script.
+- **New `PickupableItem` subclass:** create `scripts/world/items/YourItem.gd` extending `PickupableItem`. Override the 7 hook methods listed above. Only add item-specific physics/state in `_ready()` — the base handles follow-physics, knockout, pickup/drop/place, culling, and group registration.
 - **New shelf-stackable item:** add its stacking offset/rotation logic to
   `Shelving._stack_offset()`/`_stack_rotation()` and a case in
   `_get_item_type()`/`_get_stack_limit()` — don't create a second shelf
