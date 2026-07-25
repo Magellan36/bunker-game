@@ -178,16 +178,21 @@ func node_degree(key: String) -> int:
 ## their own lifetime management. No-op if the node still has edges, doesn't
 ## exist, or isn't a prunable role. Prevents orphaned nodes from persisting
 ## as stale snap targets after a pipe is undone/removed (Jul 2026 fix).
-func prune_orphan_waypoint(key: String) -> void:
+## Returns true iff the node was actually pruned this call — callers (see
+## WaterManager.delete_and_refund_edge()) use this to know whether they also
+## need to free that key's WaterPipeElbow visual (Jul 2026, orphaned-joint-
+## visual fix — the graph-side prune alone never touched the scene tree).
+func prune_orphan_waypoint(key: String) -> bool:
 	if not _water_nodes.has(key):
-		return
+		return false
 	var role: String = _water_nodes[key].get("role", "")
 	if role != "corner" and role != "pipe_joint":
-		return
+		return false
 	if node_degree(key) > 0:
-		return
+		return false
 	_water_nodes.erase(key)
 	_adjacency.erase(key)
+	return true
 
 ## Returns [{ "edge_id": String, "other_key": String }] for every edge
 ## touching `key` — used by WaterHookup.update_graph_node_position() (Step 2

@@ -1728,17 +1728,69 @@ func _get_hovered_pipe_segment() -> WaterPipeSegment:
 		## Pregen/starting-hookup pipes aren't a thing today (only the hookup
 		## device itself is protected, separately) — no "_is_pregen" guard
 		## needed here, every placed pipe segment is deconstructible.
-		var to_seg: Vector3 = seg.global_position - ray_origin
-		var proj: float     = to_seg.dot(ray_dir)
-		if proj < 0.0 or proj > ray_length:
-			continue
-		var closest_on_ray: Vector3 = ray_origin + ray_dir * proj
-		var perp_dist: float = seg.global_position.distance_to(closest_on_ray)
+		##
+		## Jul 2026 fix — was checking distance to seg.global_position (the
+		## segment's single midpoint) instead of the true nearest point along
+		## its real geometry (point_a/point_b). That made hover only reliably
+		## fire near a pipe's exact center; near either end of a longer run
+		## the midpoint's perpendicular distance to the ray is much larger
+		## than the true distance to the pipe itself. Uses a proper
+		## closest-point-between-two-segments test instead (ray clamped to
+		## [0, ray_length], pipe clamped to [point_a, point_b]).
+		var perp_dist: float = _closest_dist_ray_to_segment(
+			ray_origin, ray_dir, ray_length, seg.point_a, seg.point_b)
 		if perp_dist < best_dist:
 			best_dist = perp_dist
 			best_seg  = seg
 
 	return best_seg
+
+## Closest distance between a bounded ray (origin -> origin + dir*len) and a
+## finite line segment [seg_a, seg_b] in full 3D — standard closest-point-
+## between-two-segments algorithm (Ericson, "Real-Time Collision Detection",
+## ClosestPtSegmentSegment), with the ray treated as just another bounded
+## segment. Reused by _get_hovered_pipe_segment() (§6 hover-precision fix,
+## Jul 2026) — kept local to this file rather than added to a shared water
+## helper since it's ray-specific (WaterPurifierAttach's own
+## _closest_point_on_segment_xz() is a different, XZ-only, cursor-drop
+## variant used by the pipe-drawing tool, not a fit for a 3D camera ray).
+func _closest_dist_ray_to_segment(ray_origin: Vector3, ray_dir: Vector3, ray_len: float,
+		seg_a: Vector3, seg_b: Vector3) -> float:
+	var d1: Vector3 = ray_dir * ray_len   ## p1 = ray_origin, q1 = ray_origin + d1
+	var d2: Vector3 = seg_b - seg_a       ## p2 = seg_a,      q2 = seg_b
+	var r: Vector3  = ray_origin - seg_a
+	var a: float = d1.dot(d1)
+	var e: float = d2.dot(d2)
+	var f: float = d2.dot(r)
+
+	var s: float = 0.0
+	var t: float = 0.0
+
+	if a <= 0.0001 and e <= 0.0001:
+		return ray_origin.distance_to(seg_a)
+
+	if a <= 0.0001:
+		t = clampf(f / e, 0.0, 1.0)
+	else:
+		var c: float = d1.dot(r)
+		if e <= 0.0001:
+			s = clampf(-c / a, 0.0, 1.0)
+		else:
+			var b: float     = d1.dot(d2)
+			var denom: float = a * e - b * b
+			if denom != 0.0:
+				s = clampf((b * f - c * e) / denom, 0.0, 1.0)
+			t = (b * s + f) / e
+			if t < 0.0:
+				t = 0.0
+				s = clampf(-c / a, 0.0, 1.0)
+			elif t > 1.0:
+				t = 1.0
+				s = clampf((b - c) / a, 0.0, 1.0)
+
+	var closest_on_ray: Vector3 = ray_origin + d1 * s
+	var closest_on_seg: Vector3 = seg_a + d2 * t
+	return closest_on_ray.distance_to(closest_on_seg)
 
 ## Deconstruct a specific pipe segment: refund + free via the already-shared
 ## WaterManager.delete_and_refund_edge() (built earlier for the hookup
@@ -2087,6 +2139,50 @@ func remove_placed_object(node: Node3D) -> void:
 		if _placed_objects[i]["node"] == node:
 			_placed_objects.remove_at(i)
 			return
+
+## Per-side purifier pipe deletion plan §5 (Jul 2026) — called by
+## WaterManager.delete_and_refund_edge() when deleting the SECOND of a
+## purifier's two pipe edges drops its graph node to degree 0. Routes
+## through the exact same deconstruct/refund shape the generic
+## TILE_WATER_PURIFIER branch of _try_deconstruct() already uses (revert
+## graph role + free visual + refund entry price), rather than duplicating
+## that refund math a second time — see this method's own header and
+## _try_deconstruct()'s TILE_WATER_PURIFIER comment for why revert_to_corner()
+## doesn't itself handle the refund (that's deliberately the generic
+## deconstruct path's job everywhere else it's used).
+func deconstruct_purifier_by_node_key(node_key: String) -> void:
+	for i: int in _placed_objects.size():
+		var entry: Dictionary = _placed_objects[i]
+		if entry.get("tile_id", -1) != TILE_WATER_PURIFIER:
+			continue
+		var node: Node = entry.get("node")
+		if node == null or not is_instance_valid(node):
+			continue
+		if String(node.get("node_key")) != node_key:
+			continue
+
+		var refund: int  = entry.get("price", 0) if entry.get("player_placed", true) else 0
+		var pos: Vector3 = entry.get("world_pos", (node as Node3D).global_position)
+
+		_placed_objects.remove_at(i)
+		if node.has_method("revert_to_corner"):
+			node.revert_to_corner()
+		node.queue_free()
+
+		## revert_to_corner() converts this node's role to "corner" and spawns
+		## a plain elbow visual there — but this call site is ONLY reached
+		## with zero edges left (both sides already deleted), so that corner
+		## would immediately become another orphaned floating joint. Prune it
+		## (and its just-spawned elbow) right away rather than waiting for a
+		## future edge deletion to notice.
+		var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+		if wm != null:
+			wm.prune_orphan_waypoint(node_key)
+
+		if refund > 0 and world_node != null:
+			world_node.add_cash(refund)
+			_spawn_float_label_at_pos(pos, refund, true)
+		return
 
 ## When a wall or pillar is deconstructed, remove any lights that were mounted
 ## on it. A light is considered supported by a structure if its XZ position is

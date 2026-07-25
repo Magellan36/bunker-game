@@ -61,6 +61,22 @@ var _band_mat: StandardMaterial3D = null
 ## (filter replaced), so a SECOND future depletion warns again.
 var _warned_low: bool = false
 
+## Flow-Based Filter Wear plan §1.4 (Jul 2026) — cached once per frame in
+## _process() from WaterManager.get_flow_through_purifier_mL(), mL/day.
+## UI code (WaterInfoUI._draw_purifier_stats(), §2) reads THIS field rather
+## than re-querying WaterManager itself — same "compute once per frame, UI
+## reads the cached result" convention _refresh_band_tint()/filter_quality
+## already establish.
+var current_flow_mL_per_day: float = 0.0
+
+## Flow-Based Filter Wear plan §1.2 — fixed absolute mL/day thresholds
+## (deliberately NOT the same numbers as WaterInfoUI's flow-color bands,
+## which are hookup-relative-adjacent UI thresholds, not a wear input — see
+## that file's own comment before "simplifying" these into one shared set).
+const FLOW_WEAR_MIN_ML:  float = 0.0      ## 0.0x multiplier
+const FLOW_WEAR_HALF_ML: float = 2000.0   ## 0.5x multiplier
+const FLOW_WEAR_MAX_ML:  float = 4000.0   ## 1.0x multiplier, clamped above
+
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
@@ -95,7 +111,19 @@ func _exit_tree() -> void:
 ## re-derived). Rate scaled by incoming water quality (Jul 2026 follow-up —
 ## see _compute_wear_multiplier()).
 func _process(delta: float) -> void:
-	var rate: float = _compute_depletion_per_second() * _compute_wear_multiplier()
+	## Flow-Based Filter Wear plan §1.4 (Jul 2026) — cache this frame's flow
+	## reading alongside the existing quality-based wear query, then
+	## multiply the two multipliers together. Intentional behavior change:
+	## a purifier fed only-dirty-water at LOW flow now wears slower than the
+	## old flat max-on-dirty-water rate — see plan §1.3, this is the point
+	## of the feature, not a bug to guard against.
+	if not node_key.is_empty():
+		var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+		if wm != null:
+			current_flow_mL_per_day = wm.get_flow_through_purifier_mL(node_key)
+	var quality_mult: float = _compute_wear_multiplier()
+	var flow_mult: float    = _compute_flow_wear_multiplier(current_flow_mL_per_day)
+	var rate: float = _compute_depletion_per_second() * quality_mult * flow_mult
 	filter_quality = maxf(0.0, filter_quality - rate * delta)
 	_refresh_band_tint()
 	_check_low_filter_warning()
@@ -167,6 +195,13 @@ func _compute_wear_multiplier() -> float:
 	## Linear interpolation: 1.0 at incoming=50, 0.25 at incoming=100.
 	var t: float = (incoming - 50.0) / 50.0
 	return 1.0 - t * 0.75
+
+## Flow-Based Filter Wear plan §1.2 (Jul 2026) — linear from (0 mL/day, 0.0)
+## through (2000, 0.5) to (4000, 1.0), clamped at 1.0 above 4000. One
+## straight line through the origin — `flow / FLOW_WEAR_MAX_ML` already
+## passes through (2000, 0.5) exactly, no piecewise logic needed.
+func _compute_flow_wear_multiplier(flow_mL_per_day: float) -> float:
+	return clampf(flow_mL_per_day / FLOW_WEAR_MAX_ML, 0.0, 1.0)
 
 ## The one formula, used everywhere a downstream consumer's actual water
 ## quality needs to reflect this purifier's current filter wear (Brannon's

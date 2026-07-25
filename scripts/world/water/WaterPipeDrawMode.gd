@@ -441,10 +441,29 @@ func _leg_clears_all_pillars(a: Vector3, b: Vector3, registry: PillarRegistry) -
 ## "valid":bool, "final_key":String}. waypoint_keys[i] is "" for a fresh
 ## corner, or the existing graph node key for a point that already exists
 ## (index 0 is always source_key).
+## §4 T-split-anywhere regression fix (Jul 2026) — ROOT CAUSE, confirmed by
+## direct reading: this function only ever carried a leg-boundary's
+## `existing_key` forward into `waypoint_keys`. When `_resolve_destination()`
+## resolves the CURSOR's target to a mid-span split point instead
+## (`dest.has("split_candidate")`, no `existing_key`), that candidate was
+## silently dropped — the caller (`_try_confirm_full_path()`) then saw an
+## empty key for that waypoint and registered a brand-new, unconnected
+## "pipe_joint" node sitting at the same position instead of actually
+## splicing into the existing pipe edge via `_split_pipe_at()`. The old
+## pipe stayed one continuous unsplit edge; the new run's last node just
+## happened to share its coordinates without ever being wired into it —
+## exactly the "T-split anywhere doesn't work" symptom. `waypoint_split_
+## candidates` (parallel array, `{}` for every waypoint except a possible
+## split destination) threads the candidate through so the confirm step can
+## finally act on it. Still fully READ-ONLY here (ghost preview calls this
+## every frame) — the actual `_split_pipe_at()` mutation only happens in
+## `_try_confirm_full_path()` once the player clicks, same convention
+## `_resolve_destination()`'s own comment already documents.
 func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
 	var registry: PillarRegistry = _get_pillar_registry()
 	var waypoints: Array = [source_pos]
 	var waypoint_keys: Array = [source_key]
+	var waypoint_split_candidates: Array = [{}]
 	var current_pos: Vector3 = source_pos
 	var current_key: String = source_key
 	var valid: bool = true
@@ -475,6 +494,7 @@ func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_po
 					valid = false
 				waypoints.append(raw_pt)
 				waypoint_keys.append(leg["dest"].get("existing_key", ""))
+				waypoint_split_candidates.append(leg["dest"].get("split_candidate", {}))
 			else:
 				## Root-cause fix (July 2026): a violating corner now gets
 				## replaced with a small axis-aligned "step" detour instead
@@ -489,6 +509,7 @@ func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_po
 						valid = false
 					waypoints.append(step_pt)
 					waypoint_keys.append("")
+					waypoint_split_candidates.append({})
 					prev_pt = step_pt
 
 		var dest: Dictionary = leg["dest"]
@@ -506,7 +527,11 @@ func _trace_wall_hugging_path(source_pos: Vector3, source_key: String, cursor_po
 			break
 
 	_source_key = saved_source_key
-	return { "waypoints": waypoints, "waypoint_keys": waypoint_keys, "valid": valid, "final_key": current_key }
+	return {
+		"waypoints": waypoints, "waypoint_keys": waypoint_keys,
+		"waypoint_split_candidates": waypoint_split_candidates,
+		"valid": valid, "final_key": current_key,
+	}
 
 ## Wall-locked routing (Jul 2026) — the new default for a run whose
 ## destination resolves to open floor space; see WALL_LOCKED_ROUTING_ENABLED's
@@ -571,7 +596,7 @@ func _pick_shortest_wall_path(registry: WallPerimeterRegistry, source_pos: Vecto
 func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
 	var dest: Dictionary = _resolve_destination(cursor_pos, debug)
 	if dest.is_empty():
-		return { "waypoints": [], "waypoint_keys": [], "valid": false, "final_key": "" }
+		return { "waypoints": [], "waypoint_keys": [], "waypoint_split_candidates": [], "valid": false, "final_key": "" }
 
 	## Anchored destination — already a real connection point, keep using
 	## the pre-existing freeform trace (see this function's header).
@@ -698,7 +723,7 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 			_append_if_distinct(raw_points, leg[j])
 
 	if raw_points.size() < 2:
-		return { "waypoints": [source_pos], "waypoint_keys": [source_key], "valid": false, "final_key": source_key }
+		return { "waypoints": [source_pos], "waypoint_keys": [source_key], "waypoint_split_candidates": [{}], "valid": false, "final_key": source_key }
 
 	## Overlap avoidance (Jul 2026, overlap-block pass) — previously this
 	## wall-locked trace skipped _avoid_existing_pipes() entirely (see this
@@ -732,6 +757,13 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 	var pillar_registry: PillarRegistry = _get_pillar_registry()
 	var waypoints: Array = [raw_points[0]]
 	var waypoint_keys: Array = [source_key]
+	## Wall-locked routing never reaches a split_candidate destination itself
+	## (dest.has("split_candidate") always delegates to the freeform tracer
+	## above before this point is reached) — every entry here is always {}.
+	## Still returned as a same-shape parallel array so _try_confirm_full_path()
+	## can index waypoint_split_candidates unconditionally regardless of
+	## which tracer produced the result (§4 fix, Jul 2026).
+	var waypoint_split_candidates: Array = [{}]
 	var valid: bool = true
 
 	for i in range(1, raw_points.size()):
@@ -743,6 +775,7 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 				valid = false
 			waypoints.append(raw_pt)
 			waypoint_keys.append(dest.get("existing_key", ""))
+			waypoint_split_candidates.append({})
 		else:
 			var next_pt: Vector3 = raw_points[i + 1]
 			var steps: Array = _dogleg_corner_around_pillars(prev_pt, raw_pt, next_pt, pillar_registry)
@@ -751,12 +784,17 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 					valid = false
 				waypoints.append(step_pt)
 				waypoint_keys.append("")
+				waypoint_split_candidates.append({})
 				prev_pt = step_pt
 
 	if not _is_path_in_bounds(waypoints, debug):
 		valid = false
 
-	return { "waypoints": waypoints, "waypoint_keys": waypoint_keys, "valid": valid, "final_key": "" }
+	return {
+		"waypoints": waypoints, "waypoint_keys": waypoint_keys,
+		"waypoint_split_candidates": waypoint_split_candidates,
+		"valid": valid, "final_key": "",
+	}
 
 ## Picks freeform (_trace_wall_hugging_path()) vs. wall-locked
 ## (_trace_wall_locked_path()) routing for one trace call — CTRL held, or
@@ -1020,6 +1058,10 @@ func _try_confirm_full_path() -> void:
 	var trace: Dictionary = _trace_active_path(_source_pos, _source_key, cursor_pos, true)
 	var waypoints: Array = trace["waypoints"]
 	var waypoint_keys: Array = trace["waypoint_keys"]
+	## §4 T-split-anywhere regression fix (Jul 2026) — see
+	## _trace_wall_hugging_path()'s own header for the confirmed root cause.
+	## Only ever non-empty for the very last waypoint of the whole run.
+	var waypoint_split_candidates: Array = trace.get("waypoint_split_candidates", [])
 	_pdbg("[PipeDebug] trace waypoints=%s valid=%s" % [waypoints, trace["valid"]])
 
 	if waypoints.size() < 2:
@@ -1111,7 +1153,28 @@ func _try_confirm_full_path() -> void:
 			var is_run_end: bool = is_final_leg and is_leg_boundary
 			var is_real_bend: bool = is_leg_boundary and not is_run_end and bool(waypoint_is_turn[leg_i + 1])
 			var is_pass_through: bool = is_leg_boundary and not is_run_end and not is_real_bend
-			if is_run_end or is_pass_through:
+
+			## §4 T-split-anywhere regression fix (Jul 2026) — the run's
+			## true final point can carry a mid-span split candidate (see
+			## _trace_wall_hugging_path()'s header for the confirmed root
+			## cause). Splice into the existing pipe edge via
+			## _split_pipe_at() instead of registering an unconnected
+			## "pipe_joint" that merely happens to share its coordinates.
+			var split_candidate: Dictionary = {}
+			if is_run_end and leg_i + 1 < waypoint_split_candidates.size():
+				split_candidate = waypoint_split_candidates[leg_i + 1]
+			if is_run_end and not split_candidate.is_empty():
+				var split_key: String = _split_pipe_at(wm, split_candidate)
+				_pdbg("[PipeDebug] run-end split_candidate present -> _split_pipe_at() returned key=%s" % split_key)
+				## Defensive fallback (candidate went stale between ghost
+				## preview and this click, e.g. the pipe it targeted was
+				## deconstructed mid-drag) — degrade to a plain unconnected
+				## joint rather than propagating an empty key into
+				## register_edge() below.
+				if split_key.is_empty():
+					split_key = wm.register_node(pt["pos"], "pipe_joint")
+				keys.append(split_key)
+			elif is_run_end or is_pass_through:
 				keys.append(wm.register_node(pt["pos"], "pipe_joint"))
 			else:
 				var corner_key: String = wm.register_node(pt["pos"], "corner")

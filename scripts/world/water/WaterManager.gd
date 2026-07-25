@@ -139,8 +139,20 @@ func unregister_edge(edge_id: String) -> void:
 ## Call after unregister_edge() with the edge's former endpoint keys to clean
 ## up degree-0 "corner"/"pipe_joint" nodes left dangling (Jul 2026 fix, stops
 ## stale nodes from persisting as snap targets after a pipe is undone).
-func prune_orphan_waypoint(key: String) -> void:
-	_graph.prune_orphan_waypoint(key)
+## Returns true iff a prune actually happened — also frees the matching
+## WaterPipeElbow visual in that case (Jul 2026, orphaned-joint-visual fix;
+## the graph-side prune alone never touched the scene tree, so elbow balls
+## from mid-run corners were floating forever after their last edge was
+## deleted). Group-scan-and-match on node_key, same pattern
+## _find_purifier_by_key() already uses for purifiers.
+func prune_orphan_waypoint(key: String) -> bool:
+	var pruned: bool = _graph.prune_orphan_waypoint(key)
+	if pruned:
+		for elbow: Node in get_tree().get_nodes_in_group("water_pipe_elbow"):
+			if is_instance_valid(elbow) and elbow.get("node_key") == key:
+				elbow.queue_free()
+				break
+	return pruned
 
 func has_edge(edge_id: String) -> bool:
 	return _graph.has_edge(edge_id)
@@ -395,6 +407,18 @@ func _find_hookup_by_key(hookup_key: String) -> WaterHookup:
 			return h as WaterHookup
 	return null
 
+## Public accessor (Flow-Based Filter Wear plan §2.4, Jul 2026) — resolves
+## whichever hookup feeds `node_key` and returns the live WaterHookup
+## instance itself, not just its key. WaterInfoUI's purifier bubble needs
+## the actual node so it can call get_daily_output_mL() LIVE every check
+## (never cached — see that plan section's own comment on why a cached
+## value would go stale across a future hookup tier upgrade).
+func get_hookup_for_node(node_key: String) -> WaterHookup:
+	var hookup_key: String = _graph.find_reachable_hookup_key(node_key)
+	if hookup_key.is_empty():
+		return null
+	return _find_hookup_by_key(hookup_key)
+
 ## Traces back from a consumer's graph node key to whichever hookup feeds it
 ## (there's only ever one real hookup — see register_hookup()'s guard),
 ## solves the WHOLE hookup's priority-tier waterfall, and returns this
@@ -485,20 +509,21 @@ func get_upstream_raw_quality(node_key: String) -> Dictionary:
 ## AND purifier-adjacent deletion paths call the same, already-debugged
 ## logic instead of a second copy silently drifting from the first.
 ##
-## GUARD (per design decision): refuses to delete an edge touching a node
-## still marked role == "purifier" — a purifier must be deconstructed first
-## (which reverts its node role back to "corner", see WaterPurifier.gd)
-## before either of its edges can be torn down. Returns false (no-op) when
-## refused, true when the edge was actually deleted.
+## GUARD REMOVED (Jul 2026, per-side purifier pipe deletion plan §5,
+## confirmed directly): either side of a purifier's pipe (source<->purifier
+## or purifier<->destination) can now be deleted via the normal Deconstruct-
+## mode pipe-delete flow, same as any other pipe segment. One side deleted
+## leaves the purifier fixture in place as a dead-end (no special handling
+## needed — the graph/solver already tolerates a node with fewer edges).
+## Both sides deleted (purifier node reaches degree 0) is handled below —
+## routes through the SAME purifier deconstruct/refund path a manual
+## deconstruct uses, instead of silently pruning it as a bare waypoint.
 func delete_and_refund_edge(edge_id: String) -> bool:
 	if not _graph.has_edge(edge_id):
 		return false
 	var edge_data: Dictionary = _graph.get_edges().get(edge_id, {})
 	var key_a: String = edge_data.get("a", "")
 	var key_b: String = edge_data.get("b", "")
-	if _graph.get_node(key_a).get("role", "") == "purifier" \
-			or _graph.get_node(key_b).get("role", "") == "purifier":
-		return false   ## refused — purifier must be removed first
 
 	var seg: WaterPipeSegment = find_pipe_visual(edge_id)
 	var refund: int = 0
@@ -508,8 +533,22 @@ func delete_and_refund_edge(edge_id: String) -> bool:
 		refund_pos = (seg.point_a + seg.point_b) * 0.5
 		seg.queue_free()
 	_graph.unregister_edge(edge_id)
-	_graph.prune_orphan_waypoint(key_a)
-	_graph.prune_orphan_waypoint(key_b)
+	## Use the wrapper (not _graph directly) so a successful prune also frees
+	## the matching WaterPipeElbow visual — see prune_orphan_waypoint()'s own
+	## comment (Jul 2026, orphaned-joint-visual fix). No-op on "purifier"-role
+	## keys (see WaterGraph.prune_orphan_waypoint()'s own role guard) — the
+	## degree-0 purifier case is handled separately, right below.
+	prune_orphan_waypoint(key_a)
+	prune_orphan_waypoint(key_b)
+	## Per-side purifier pipe deletion plan §5 (Jul 2026) — both sides of a
+	## purifier deleted now leaves its graph node at degree 0. Rather than
+	## silently stranding it (prune_orphan_waypoint() never touches
+	## "purifier"-role nodes on purpose), route it through the SAME
+	## deconstruct/refund path a manual purifier deconstruct already uses
+	## (BuildModeController.deconstruct_purifier_by_node_key()) instead of
+	## duplicating that refund math here.
+	_check_purifier_degree_zero(key_a)
+	_check_purifier_degree_zero(key_b)
 	if refund > 0:
 		var world_node: Node = get_tree().get_first_node_in_group("main_world")
 		if world_node != null and world_node.has_method("add_cash"):
@@ -522,6 +561,22 @@ func delete_and_refund_edge(edge_id: String) -> bool:
 					main_hud.spawn_float_label(screen_pos, refund, true)
 	recompute_flow_directions()
 	return true
+
+## Helper for delete_and_refund_edge()'s §5 both-sides-deleted case — if
+## `key` is still a "purifier"-role node that just dropped to degree 0,
+## hands off to BuildModeController's full deconstruct/refund path (same
+## group-scan lookup pattern every other cross-system call in this file
+## uses). No-op for any other role or if the node still has edges.
+func _check_purifier_degree_zero(key: String) -> void:
+	if key.is_empty() or not _graph.has_node(key):
+		return
+	if _graph.get_node(key).get("role", "") != "purifier":
+		return
+	if _graph.node_degree(key) > 0:
+		return
+	var bmc: Node = get_tree().get_first_node_in_group("build_mode_controller")
+	if bmc != null and bmc.has_method("deconstruct_purifier_by_node_key"):
+		bmc.deconstruct_purifier_by_node_key(key)
 
 ## Finds the live WaterPipeSegment visual for `edge_id` — same
 ## "water_pipe_visual" group lookup WaterHookup._find_pipe_visual() used
@@ -750,6 +805,40 @@ func get_purifiers_needing_attention() -> Array:
 		if node is WaterPurifier and (node as WaterPurifier).filter_quality <= 50.0:
 			out.append(node)
 	return out
+
+
+## Flow-Based Filter Wear plan §1.1 (Jul 2026) — "how much water is actually
+## passing through this specific purifier right now", in mL/day. No new
+## simulation: this is just an aggregation of two things WaterSolver/
+## WaterGraph already compute — for every endpoint reachable from this
+## purifier's own hookup, if `purifier_key` sits on that endpoint's resolved
+## path (WaterGraph.get_purifiers_on_path()), its received rate
+## (get_received_rate_mL()) counts toward this purifier's total flow.
+##
+## Naturally supports splitting one hookup's demand across two disjoint
+## purifier branches — each branch's endpoints only ever report the
+## purifier(s) actually on THEIR path, so two parallel purifiers correctly
+## see two smaller, non-overlapping flow totals rather than double-counting
+## the hookup's full output on both.
+##
+## Called once per frame per purifier (WaterPurifier._process()) — same
+## per-frame-per-purifier query-cost category as the existing
+## wm.get_upstream_raw_quality() call already made there; not a new
+## performance concern (see plan's own perf note).
+func get_flow_through_purifier_mL(purifier_key: String) -> float:
+	if purifier_key.is_empty():
+		return 0.0
+	var hookup_key: String = _graph.find_reachable_hookup_key(purifier_key)
+	if hookup_key.is_empty():
+		return 0.0
+
+	var total_mL: float = 0.0
+	for consumer_key: String in _graph.get_reachable_endpoint_keys(hookup_key):
+		var purifiers_on_path: Array[String] = _graph.get_purifiers_on_path(hookup_key, consumer_key)
+		if purifier_key in purifiers_on_path:
+			var received: Dictionary = get_received_rate_mL(consumer_key)
+			total_mL += float(received.get("mL_per_day", 0.0))
+	return total_mL
 
 
 ## Purifier Filter plan (Jul 2026) — the ONE shared helper resolving actual

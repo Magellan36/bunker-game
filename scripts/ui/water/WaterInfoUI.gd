@@ -59,6 +59,15 @@ const PRIO_COLORS: Array[Color] = [
 const PRIORITY_MIN: int = 1
 const PRIORITY_MAX: int = 5
 
+## Flow-Based Filter Wear plan §2.1 (Jul 2026) — purifier FLOW readout color
+## bands. Deliberately SEPARATE constants from WaterPurifier.gd's own
+## FLOW_WEAR_HALF_ML/FLOW_WEAR_MAX_ML (2000/4000) — these are UI-only
+## breakpoints (2500/4000), not the wear formula's inputs. Do not merge the
+## two sets; they're independent on purpose (per plan §2.1's explicit note).
+const FLOW_COLOR_GREEN_MAX:  float = 2499.0   ## 0 – 2499 mL/day: normal (blue, OK_COLOR)
+const FLOW_COLOR_YELLOW_MAX: float = 3999.0   ## 2500 – 3999 mL/day: yellow (WARN_COLOR)
+## 4000+ mL/day: red (CRIT_COLOR)
+
 # ─── Layout ───────────────────────────────────────────────────────────────────
 const PANEL_W: float = 380.0
 ## Hookup panel has no priority row; sink panel grows to fit the ◄ N ► tier
@@ -69,6 +78,17 @@ const PANEL_H_SINK:     float = 350.0
 ## Purifier panel grew (Jul 2026, Purifier Filter plan) to fit the new
 ## FILTER QUALITY bar row — see _draw_purifier_stats().
 const PANEL_H_PURIFIER: float = 270.0
+## Extra height added on top of PANEL_H_PURIFIER for the FLOW row (Flow-
+## Based Filter Wear plan §2) — always shown, so it's baked into the base
+## constant's growth rather than dynamic.
+const PANEL_H_PURIFIER_FLOW_ROW: float = 44.0
+## Extra height per warning-bubble line, only added when the bubble is
+## actually showing — see _panel_height()/_purifier_bubble_line_count().
+## Same "grows/shrinks with live conditions, recomputed every frame" pattern
+## FarmingTrayUI.gd's own water-warning bubble already established.
+const PURIFIER_BUBBLE_HEADER_H: float = 28.0
+const PURIFIER_BUBBLE_LINE_H:   float = 16.0
+const PURIFIER_BUBBLE_GAP_AFTER: float = 16.0
 
 # ─── Live data (set by open()) ────────────────────────────────────────────────
 var _display_name: String = "Water Device"
@@ -129,8 +149,45 @@ func _ready() -> void:
 func _panel_height() -> float:
 	match _mode:
 		"hookup":   return PANEL_H_SOURCE
-		"purifier": return PANEL_H_PURIFIER
+		"purifier":
+			var h: float = PANEL_H_PURIFIER + PANEL_H_PURIFIER_FLOW_ROW
+			var lines: int = _purifier_bubble_line_count()
+			if lines > 0:
+				h += PURIFIER_BUBBLE_HEADER_H + float(lines) * PURIFIER_BUBBLE_LINE_H + PURIFIER_BUBBLE_GAP_AFTER
+			return h
 		_:          return PANEL_H_SINK
+
+## Flow-Based Filter Wear plan §2.2/§2.3 (Jul 2026) — how many warning lines
+## the purifier panel's bubble needs to show right now, live, so
+## _panel_height() (called before drawing, to size the panel) and
+## _draw_purifier_stats() (the actual draw) always agree. Mirrors
+## FarmingTrayUI._layout_metrics()'s "recompute the same live condition in
+## both the sizing pass and the draw pass" convention — no cached state.
+func _purifier_bubble_line_count() -> int:
+	var purifier: WaterPurifier = _device_ref as WaterPurifier
+	if purifier == null:
+		return 0
+	var count: int = 0
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	if wm != null and not purifier.get_node_key().is_empty():
+		var upstream: Dictionary = wm.get_upstream_raw_quality(purifier.get_node_key())
+		if bool(upstream.get("connected", false)) and float(upstream.get("quality", 100.0)) < 50.0:
+			count += 1
+		var hookup: WaterHookup = wm.get_hookup_for_node(purifier.get_node_key())
+		if hookup != null and purifier.current_flow_mL_per_day > hookup.get_daily_output_mL() * 0.5:
+			count += 1
+	return count
+
+## Flow-Based Filter Wear plan §2.1 — tints the FLOW readout by the three
+## fixed mL/day bands (see FLOW_COLOR_GREEN_MAX/FLOW_COLOR_YELLOW_MAX above),
+## deliberately not WaterQualityColor's red/yellow/green (that scheme means
+## "how good is this water", a different axis than "how much is flowing").
+func _flow_color(flow_mL_per_day: float) -> Color:
+	if flow_mL_per_day <= FLOW_COLOR_GREEN_MAX:
+		return OK_COLOR
+	if flow_mL_per_day <= FLOW_COLOR_YELLOW_MAX:
+		return WARN_COLOR
+	return CRIT_COLOR
 
 func _reposition_controls() -> void:
 	var vp: Vector2 = get_viewport().get_visible_rect().size
@@ -393,14 +450,66 @@ func _draw_purifier_stats(cx: float, cy: float) -> float:
 		_draw_str("CONNECTION", Vector2(cx, cy), DIM_COLOR, 10)
 		_draw_str("Not connected to a water source", Vector2(cx, cy + 14.0), CRIT_COLOR, 13)
 		cy += 40.0
-		return _draw_filter_row(purifier, cx, cy)
+		cy = _draw_filter_row(purifier, cx, cy)
+		cy = _draw_flow_row(purifier, cx, cy)
+		return _draw_purifier_bubble(purifier, wm, cx, cy)
 
 	cy = _draw_quality_row(input_quality, cx, cy)
 	_draw_str("OUTPUT QUALITY (PURIFIED)", Vector2(cx, cy), DIM_COLOR, 10)
 	var output_quality: float = purifier.get_output_quality()
 	_draw_str("%.0f%%" % output_quality, Vector2(cx, cy + 14.0), WaterQualityColor.get_color(output_quality), 13)
 	cy += 40.0
-	return _draw_filter_row(purifier, cx, cy)
+	cy = _draw_filter_row(purifier, cx, cy)
+	cy = _draw_flow_row(purifier, cx, cy)
+	return _draw_purifier_bubble(purifier, wm, cx, cy)
+
+## FLOW readout row (Flow-Based Filter Wear plan §2.1, Jul 2026) — reads
+## straight off the purifier's cached current_flow_mL_per_day (set once per
+## frame in WaterPurifier._process(), see that file's own comment) — no
+## separate query here. Tinted by the three fixed mL/day bands (see
+## FLOW_COLOR_GREEN_MAX/FLOW_COLOR_YELLOW_MAX), deliberately distinct from
+## the quality/filter rows' red-yellow-green scheme.
+func _draw_flow_row(purifier: WaterPurifier, cx: float, cy: float) -> float:
+	var flow: float = purifier.current_flow_mL_per_day
+	_draw_str("FLOW", Vector2(cx, cy), DIM_COLOR, 10)
+	_draw_str("%.0f mL/day" % flow, Vector2(cx, cy + 14.0), _flow_color(flow), 13)
+	cy += 40.0
+	return cy
+
+## Warning bubble (Flow-Based Filter Wear plan §2.2/§2.3, Jul 2026) — same
+## visual treatment as FarmingTrayUI.gd's water-insufficiency bubble (an
+## inset, subtly-bordered notice box inside the panel), a THIRD distinct
+## mechanism from the existing filter<=50% TransientNotice toast and this
+## panel's own quality-row coloring — see plan §2.4 for why. Two
+## independent trigger conditions, both can show at once.
+func _draw_purifier_bubble(purifier: WaterPurifier, wm: WaterManager, cx: float, cy: float) -> float:
+	var lines: Array[String] = []
+	if wm != null and not purifier.get_node_key().is_empty():
+		var upstream: Dictionary = wm.get_upstream_raw_quality(purifier.get_node_key())
+		if bool(upstream.get("connected", false)) and float(upstream.get("quality", 100.0)) < 50.0:
+			lines.append("Incoming water quality is low — this wears filters faster.")
+		## Hookup fetched LIVE, never cached — see plan §2.4 (a cached value
+		## would silently go stale the moment a hookup gets upgraded).
+		var hookup: WaterHookup = wm.get_hookup_for_node(purifier.get_node_key())
+		if hookup != null and purifier.current_flow_mL_per_day > hookup.get_daily_output_mL() * 0.5:
+			lines.append("High water flow through this purifier — this wears filters faster.")
+
+	if lines.is_empty():
+		return cy
+
+	var bar_w: float = PANEL_W - 48.0
+	var bubble_h: float = PURIFIER_BUBBLE_HEADER_H + float(lines.size()) * PURIFIER_BUBBLE_LINE_H
+	var bubble_rect: Rect2 = Rect2(cx, cy, bar_w, bubble_h)
+	_canvas.draw_rect(bubble_rect, Color(0.14, 0.10, 0.04, 0.75), true)
+	_canvas.draw_rect(bubble_rect, Color(WARN_COLOR.r, WARN_COLOR.g, WARN_COLOR.b, 0.55), false, 1.0)
+
+	var line_y: float = cy + 8.0
+	for line: String in lines:
+		_draw_str(line, Vector2(cx + 10.0, line_y), WARN_COLOR, 10)
+		line_y += PURIFIER_BUBBLE_LINE_H
+
+	cy += bubble_h + PURIFIER_BUBBLE_GAP_AFTER
+	return cy
 
 ## FILTER QUALITY row (Jul 2026, Purifier Filter plan §4) — text readout +
 ## drawn fill bar, same "_canvas.draw_rect() dark background + colored fill
