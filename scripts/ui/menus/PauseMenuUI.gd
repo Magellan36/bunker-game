@@ -144,10 +144,6 @@ func _build_ui() -> void:
 
 	_vbox = VBoxContainer.new()
 	_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_vbox.offset_left   =  30.0
-	_vbox.offset_right  = -30.0
-	_vbox.offset_top    =  48.0
-	_vbox.offset_bottom = -18.0
 	_vbox.add_theme_constant_override("separation", 10)
 	_panel.add_child(_vbox)
 
