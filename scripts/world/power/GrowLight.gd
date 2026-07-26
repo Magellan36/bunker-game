@@ -130,8 +130,8 @@ var _is_shed:     bool   = false
 ## registry; also used by item 15's future double-stack guard (Group 7, not
 ## built yet — this shape is chosen to serve both consumers from the start,
 ## per the plan's own note).
-const CELL_BUCKET_SIZE: float = 0.3   ## >= LIGHT_MATCH_RADIUS (0.25)
-const LIGHT_MATCH_RADIUS: float = 0.25   ## One grid snap of forgiveness, XZ only
+const CELL_BUCKET_SIZE: float = 0.45   ## >= LIGHT_MATCH_RADIUS (0.40)
+const LIGHT_MATCH_RADIUS: float = 0.40   ## Increased from 0.25 to 0.40 for more forgiving horizontal placement
 
 static var _bucket_registry: Dictionary = {}   ## String bucket_key -> Array[GrowLight]
 var _registered_bucket_key: String = ""

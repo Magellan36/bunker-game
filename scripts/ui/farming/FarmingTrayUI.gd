@@ -365,15 +365,21 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 		_draw_str("Status: Stalled %s" % reason_text, Vector2(bx, by), NOT_READY_COLOR, 11)
 	else:
 		var hours_left: float = (1.0 - plant.progress) / plant.growth_per_hour_current
-		var hours_left_int: int = int(ceil(hours_left))
 		var countdown_col: Color = WaterQualityColor.get_color(plant.progress * 100.0)
-		_draw_str("Status: %d hours until harvest" % hours_left_int, Vector2(bx, by), countdown_col, 11)
+		var status_text: String
+		if hours_left >= 24.0:
+			var days_left: int = int(ceil(hours_left / 24.0))
+			status_text = "Status: %d day%s until harvest" % [days_left, "" if days_left == 1 else "s"]
+		else:
+			var hours_left_int: int = int(ceil(hours_left))
+			status_text = "Status: %d hour%s until harvest" % [hours_left_int, "" if hours_left_int == 1 else "s"]
+		_draw_str(status_text, Vector2(bx, by), countdown_col, 11)
 	by += 16.0
 
 	var block_bar_w: float = bar_w - 12.0
 	var block_bar_h: float = 10.0
 	UIKit.draw_bar(_canvas, Rect2(bx, by, block_bar_w, block_bar_h), plant.progress, _theme, GROWTH_BAR_COLOR)
-	by += 18.0
+	by += 26.0
 
 	## Fertilizer plan — fertilized-status line, one more per-cell readout
 	## reusing READY_COLOR for the positive case (visual consistency with the
