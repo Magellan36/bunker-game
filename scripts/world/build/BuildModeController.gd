@@ -528,7 +528,7 @@ func _refresh_connectable_dots() -> void:
 		if obj == null or not is_instance_valid(obj):
 			continue
 
-var dot_mi: MeshInstance3D = MeshInstance3D.new()
+		var dot_mi: MeshInstance3D = MeshInstance3D.new()
 	var sphere: SphereMesh = SphereMesh.new()
 	sphere.radius = 0.055
 	sphere.height = 0.11
