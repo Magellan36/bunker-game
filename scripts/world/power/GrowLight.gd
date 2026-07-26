@@ -130,8 +130,8 @@ var _is_shed:     bool   = false
 ## registry; also used by item 15's future double-stack guard (Group 7, not
 ## built yet — this shape is chosen to serve both consumers from the start,
 ## per the plan's own note).
-const CELL_BUCKET_SIZE: float = 0.6   ## >= LIGHT_MATCH_RADIUS (0.55)
-const LIGHT_MATCH_RADIUS: float = 0.55   ## same tolerance FarmPlant used pre-refactor
+const CELL_BUCKET_SIZE: float = 0.3   ## >= LIGHT_MATCH_RADIUS (0.25)
+const LIGHT_MATCH_RADIUS: float = 0.25   ## One grid snap of forgiveness, XZ only
 
 static var _bucket_registry: Dictionary = {}   ## String bucket_key -> Array[GrowLight]
 var _registered_bucket_key: String = ""
@@ -164,7 +164,9 @@ static func get_best_growth_speed_near(pos: Vector3) -> float:
 				if light == null or not is_instance_valid(light):
 					bucket.remove_at(i)
 					continue
-				if light.global_position.distance_to(pos) <= LIGHT_MATCH_RADIUS:
+				var light_xz: Vector2 = Vector2(light.global_position.x, light.global_position.z)
+				var pos_xz: Vector2 = Vector2(pos.x, pos.z)
+				if light_xz.distance_to(pos_xz) <= LIGHT_MATCH_RADIUS:
 					best = maxf(best, light.get_active_growth_speed())
 	return best
 
@@ -185,6 +187,10 @@ func _ready() -> void:
 	add_to_group("interactable")
 	add_to_group("grow_light")
 	_build_fixture()
+	_register_bucket()
+	## A7 safety net — guarantee fixture starts off before any PowerManager
+	## solve can potentially set it powered.
+	set_powered(false)
 	_register_bucket()
 	call_deferred("_register_deferred")
 

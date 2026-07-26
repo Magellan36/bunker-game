@@ -67,6 +67,10 @@ const HEALTH_LOSS_NO_WATER_PER_HOUR: float = 5.0
 const HEALTH_LOSS_NO_LIGHT_PER_HOUR: float = 5.0
 const NO_LIGHT_GRACE_HOURS: int = 24
 
+## Polish Plan Group 1 item 19 (A1) — light floor speed so growth never fully
+## stops in darkness. Value is a growth-speed multiplier (0.1 = 10% of normal).
+const LIGHT_FLOOR_SPEED: float = 0.1
+
 const SPIKE_BASE_RADIUS: float = 0.05
 const SPIKE_TIP_RADIUS:  float = 0.015
 const SPIKE_COLOR:        Color = Color(0.22, 0.62, 0.20, 1.0)   ## healthy green
@@ -185,7 +189,8 @@ func _tick_one_game_hour() -> void:
 ## resolved via GrowLight's static bucket registry (3x3 neighborhood scan +
 ## exact distance check) instead of scanning every light in the game.
 func _compute_light_speed() -> float:
-	return GrowLight.get_best_growth_speed_near(global_position)
+	var speed: float = GrowLight.get_best_growth_speed_near(global_position)
+	return maxf(speed, LIGHT_FLOOR_SPEED)
 
 func is_ready() -> bool:
 	return progress >= 1.0

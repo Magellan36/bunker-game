@@ -289,7 +289,12 @@ func _on_draw() -> void:
 		_canvas.draw_rect(bubble_rect, Color(WARN_COLOR.r, WARN_COLOR.g, WARN_COLOR.b, 0.55), false, 1.0)
 		var pct: int = int(round(water_fraction * 100.0))
 		var msg: String = "Water levels insufficient (%d%% of demand met) — this will slow plant growth." % pct
-		_draw_wrapped(msg, Vector2(cx + 6.0, cy + 6.0), bar_w - 12.0, WARN_COLOR, 10)
+		## A5 fix — vertically center the text in the bubble
+		var font: Font = UIKit.font()
+		var text_size: Vector2 = font.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 10)
+		var text_x: float = cx + 6.0
+		var text_y: float = bubble_rect.position.y + (bubble_rect.size.y - text_size.y) * 0.5
+		_draw_wrapped(msg, Vector2(text_x, text_y), bar_w - 12.0, WARN_COLOR, 10)
 		cy += BUBBLE_H + BUBBLE_GAP_AFTER
 
 	## 19a — one inset block per occupied cell (has a live FarmPlant).
