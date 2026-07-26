@@ -1,41 +1,48 @@
-# Handover — Fertilizer & Item-Charge Consolidation (Jul 2026)
+# Handover — Polish Batch 1 + Structure Fixes + Half/Quarter Walls + HUD Fix (Jul 2026)
 
 ## What changed this session
-Implemented `FARMING_FERTILIZER_AND_CHARGES_PLAN` in full, one pass:
 
-### New: Fertilizer item
-- `scripts/world/items/FertilizerItem.gd` — new item, two tiers (Normal +12.5% growth bonus, Pro +25%).
-- Targets one specific plant/cell in a `FarmingTray` (growing, not-yet-ready only). Already-fertilized plant is blocked with toast "This plant is already fertilized." (not replaced/stacked).
-- Bonus applied as `* (1.0 + fertilizer_bonus)` multiplier in `FarmPlant`'s growth formula.
-- Sold in the Farming shop's **Soil** submenu (not Seeds): $300 Normal / $400 Pro.
+### Polish Batch 1 (from audit items 1–5)
+- **PickupableItem base class** — new `scripts/world/items/PickupableItem.gd` (~153 lines) extracted ~800 lines of duplicated scaffolding (pickup/drop/place/knockout/culling/hold-follow physics) from all 12 item scripts. All items now extend `PickupableItem` instead of the minimal `PickupItem.gd` (legacy, ~65 lines, kept for reference).
+- **InventoryHUD type bug fix** — renamed `COLOR_CHARGE_FONT: float` → `CHARGE_FONT_SIZE: int` in `InventoryHUD.gd`; fixed `int(COLOR_CHARGE_FONT)` cast error.
+- **SleepOverlay API fix** — added `PlayerStats.skip_time(hours)` public method; `SleepOverlay.gd` now calls it instead of mutating private `_elapsed`/`_seconds_per_game_hour`.
+- **CanCase/WaterCase ejection fix** — added one-frame freeze (`freeze = true` + `call_deferred("_unfreeze_after_spawn")`) to ejected FoodCan/WaterBottle to prevent floor fall-through on spawn.
+- **Water TEMP cleanup** — removed 4 debug `TEMP` print blocks from `WaterManager.gd`, `WaterPipeDrawMode.gd` (×2), `WaterPipeSegment.gd`.
 
-### FarmingTray.gd
-- Added `has_open_fertilizable_cell()`, `has_already_fertilized_growing_cell()`, `fertilize_first_open_cell(tier)`.
+### BunkerPregen wall height alignment
+- **`BunkerPregen.gd`**: changed `PLACEMENT_Y: 1.0 → 2.0` to match `BuildModeController.PLACEMENT_Y` (2.0) and `WireGraphBuilder`/`WallPerimeterRegistry` (2.0). Pregen walls now sit at same height as player-placed walls/pillars.
 
-### FarmPlant.gd
-- Added `fertilizer_bonus` / `fertilizer_tier` fields, `is_fertilized()` / `apply_fertilizer(tier)`.
-- Growth formula and header doc comment updated to reflect the bonus multiplier.
+### Half-Wall / Quarter-Wall (Structure → Build menu)
+- New tile IDs: `TILE_HALF_WALL = 25`, `TILE_QUARTER_WALL = 26` in `BuildModeController.gd` + `BuildModeHUD.gd` ("Structure" category).
+- Both reuse the MeshLibrary wall mesh (`TILE_WALL` = 1) scaled vertically:
+  - Half-Wall: 0.5× height (1.5m), `HALF_WALL_PLACEMENT_Y = 1.0`, $30
+  - Quarter-Wall: 0.25× height (0.75m), `QUARTER_WALL_PLACEMENT_Y = 0.25`, $15
+- Scaling handled in `BuildModeController._spawn_placed_object()`, `GhostPreview._rebuild_ghost_mesh()`, `MoveDuplicateTool._spawn_move_ghost()` — origin shifted so bottom sits at Y=0.
+- No new meshlib entries; pure visual variant via scale.
 
-### FarmingTrayUI.gd
-- `PLANT_BLOCK_H` bumped 108→126 to fit a new fertilized-status line drawn in `_draw_plant_block()`.
+### Duplicate HUD fix
+- **MainWorld.tscn** had 3 HUD instances (two extra `CanvasLayer` under GameCamera and root). Only the root `HUD` node (line 75) is referenced by `$HUD`. Removed the two duplicates. `hud.set_build_mode(true)` now correctly hides the single inventory bar.
 
-### Item charge consolidation (onto existing multi-charge convention — `InventoryHUD.gd` needed ZERO changes, its `_charges`/`_max_charges` fallback already renders the "x/y" badge)
-- **BagOfSoilItem.gd**: now has 2 charges. `get_prompt_text()` shows `(%d/%d)`. `on_use()` decrements charges; Empty Bag only spawns/frees when charges actually hit 0 (previously dropped an empty bag on every single use — behavior change).
-- **SeedItem.gd**: now has 4 charges, **one physical instance per purchase** (not 4 separate items). `get_prompt_text()`/`get_use_prompt()` show `(%d/%d)`. `on_use()` decrements charges and `queue_free()`s at 0 — no "empty packet" object exists.
-- All 12 seed species lost the `"(x4)"` suffix in shop/submenu display names (the charge badge now communicates count).
+## Files added/modified
 
-### FarmingShopHelper.gd
-- `SHOP_ITEM_INFO`: all 12 seed entries changed `count: 4→1`, names lost `(x4)`. Added entries 14/15 (Normal/Pro Fertilizer, Soil submenu).
-- `spawn_purchased_item()` seed branch now spawns exactly 1 instance (loop removed). Added `"fertilizer"` match branch → `FertilizerItem.spawn_at()`.
+### New
+- `scripts/world/items/PickupableItem.gd`
 
-### BuildModeHUD.gd
-- `FARMING_SHOP_ITEMS["Soil"]` gained tile_id 14/15 (fertilizer entries). All 12 `["Seeds"]` entries renamed (dropped `(x4)`).
-
-### Docs
-- `docs/systems/farming/README.md` — new "Fertilizer & item-charge consolidation (Jul 2026)" section appended, same commit as code per doc-update discipline.
-
-## Flagged but deliberately unchanged
-- `shelf_stack_limit = 6` left unchanged on all three items (Bag of Soil, Seed, Fertilizer) — flagged per plan, not silently tuned. Revisit if shelf density feels off in playtest.
+### Modified
+- `scripts/world/items/*.gd` (12 files) — extend `PickupableItem`, removed duplicated scaffolding
+- `scripts/ui/inventory/InventoryHUD.gd` — `COLOR_CHARGE_FONT` → `CHARGE_FONT_SIZE: int`
+- `scripts/player/PlayerStats.gd` — added `skip_time(hours)`
+- `scripts/ui/menus/SleepOverlay.gd` — uses `player_stats.skip_time(8.0)`
+- `scripts/world/items/CanCase.gd`, `WaterCase.gd` — ejection freeze
+- `scripts/world/water/WaterManager.gd`, `WaterPipeDrawMode.gd` (×2), `WaterPipeSegment.gd` — TEMP prints removed
+- `scripts/world/environment/BunkerPregen.gd` — `PLACEMENT_Y = 2.0`
+- `scripts/world/build/BuildModeController.gd` — `PLACEMENT_Y = 2.0`, Half/Quarter wall constants, scaling logic, `HALF_WALL_PLACEMENT_Y`, `QUARTER_WALL_PLACEMENT_Y`
+- `scripts/ui/build/BuildModeHUD.gd` — Structure category: Half-Wall, Quarter-Wall entries
+- `scripts/ui/inventory/InventoryHUD.gd` — charge font size fix
+- `scripts/world/build/GhostPreview.gd` — ghost scaling for half/quarter walls
+- `scripts/world/build/MoveDuplicateTool.gd` — move ghost scaling for half/quarter walls
+- `scenes/world/MainWorld.tscn` — removed 2 duplicate HUD CanvasLayers
+- `scripts/world/build/BuildModeController.gd` — `PLACEMENT_Y` comment updated
 
 ## Verification done
 - `bash tools/godot_check.sh <headless Godot 4.6.3 binary>` → **PASS**, no script parse/compile/type errors across the whole repo.
@@ -43,12 +50,29 @@ Implemented `FARMING_FERTILIZER_AND_CHARGES_PLAN` in full, one pass:
 
 ## Playtest checklist for Brannon
 1. Pull `origin/main`.
-2. Open Farming shop → Soil submenu → buy Normal and Pro Fertilizer ($300 / $400).
-3. Apply fertilizer to a growing (not-yet-ready) plant in a tray — confirm status line appears in tray UI and growth speeds up.
-4. Try applying fertilizer to an already-fertilized plant — confirm blocked with toast "This plant is already fertilized."
-5. Check inventory HUD charge badges (x/y) show correctly on Bag of Soil, Seed, and Fertilizer slots.
-6. Use Bag of Soil twice — confirm Empty Bag only drops after the 2nd use (charges hit 0), not after the 1st.
-7. Buy a seed packet — confirm exactly 1 item spawns with 4 charges (not 4 separate items), and shop/submenu names no longer show "(x4)".
+2. **Pickup items** — pick up/drop/place each of the 12 items; verify no regressions in physics, knockout, culling, hold-follow.
+3. **Inventory HUD** — confirm charge badges render correctly (int font size, no cast errors).
+4. **Sleep** — sleep 8h; confirm time advances correctly without mutating private PlayerStats fields.
+5. **CanCase/WaterCase** — eject items; confirm they don't fall through floor on spawn.
+6. **Pregen walls** — verify pregen walls/pillars align vertically with player-placed walls/pillars (same top height).
+7. **Half-Wall / Quarter-Wall** — open Construct → Structure; buy/place both; confirm heights (1.5m / 0.75m), prices ($30 / $15), collision matches visual height.
+8. **Build mode** — enter build mode; confirm inventory bar hides completely (no 4 empty boxes visible).
 
 ## Next up (not started)
-- No specific next-feature commitments from this session; awaiting Brannon's playtest feedback and next request.
+- Polish audit items 6–23 (InteractPrompt jitter, Flashlight pause battery drain, FuelCan prompt, Water pipe labels, Farming tray UI alignment, Build ghost z-fighting, etc.)
+- Await Brannon's playtest feedback and next request.
+
+---
+
+## Previous session (Fertilizer & Item-Charge Consolidation — Jul 2026)
+Implemented `FARMING_FERTILIZER_AND_CHARGES_PLAN` in full:
+
+- **FertilizerItem.gd** — two tiers (Normal +12.5%, Pro +25%); targets one growing plant per tray; blocks re-fertilizing with toast; sold in Farming shop Soil submenu ($300/$400).
+- **BagOfSoilItem.gd** — 2 charges, Empty Bag drops only at 0 charges (was every use).
+- **SeedItem.gd** — 4 charges, single instance per purchase; no empty packet; shop names lost "(x4)".
+- **FarmingShopHelper.gd** / **BuildModeHUD.gd** — updated shop items and construct menu.
+- **Docs** — `docs/systems/farming/README.md` updated.
+
+**Flagged**: `shelf_stack_limit = 6` unchanged on Bag of Soil / Seed / Fertilizer.
+
+**Playtest**: buy fertilizer, apply to growing plant, verify growth speedup + status line; verify blocked re-fertilize; check HUD charge badges; verify Bag of Soil drops Empty Bag only on 2nd use; verify single seed item with 4 charges.
