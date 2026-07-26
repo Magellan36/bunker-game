@@ -900,6 +900,10 @@ func _try_construct() -> void:
 		if not world_node.spend_cash(_selected_tile_price):
 			return
 
+	# B5 debug — print tray spawn Y so we can see if it's floating
+	if _selected_tile == TILE_TRAY_SINGLE or _selected_tile == TILE_TRAY_DOUBLE:
+		print("Tray spawn pos.y = ", _ghost_world_pos.y)
+
 	var placed_pos: Vector3 = _ghost_world_pos
 
 	var body: Node3D = _spawn_placed_object(
