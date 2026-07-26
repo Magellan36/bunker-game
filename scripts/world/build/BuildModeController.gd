@@ -529,19 +529,20 @@ func _refresh_connectable_dots() -> void:
 			continue
 
 		var dot_mi: MeshInstance3D = MeshInstance3D.new()
-	var sphere: SphereMesh = SphereMesh.new()
-	sphere.radius = 0.055
-	sphere.height = 0.11
-	sphere.radial_segments = 8
-	sphere.rings = 4
-	dot_mi.mesh = sphere
-	dot_mi.set_surface_override_material(0, mat)
-	dot_mi.extra_cull_margin = 10.0
-	## Position above the object. Lights are wall-mounted at ~1.5m — dot goes at 1.0
-	## so it hovers at a natural height rather than sitting on the floor.
-	## Water hookup sits near-ceiling already (see WATER_HOOKUP_PLACEMENT_Y) —
-	## a small offset is enough. Water sink is a short ground box (~0.30m tall).
-	var dot_y: float = 0.30
+		var sphere: SphereMesh = SphereMesh.new()
+		sphere.radius = 0.055
+		sphere.height = 0.11
+		sphere.radial_segments = 8
+		sphere.rings = 4
+		dot_mi.mesh = sphere
+		dot_mi.set_surface_override_material(0, mat)
+		dot_mi.extra_cull_margin = 10.0
+		## Position above the object. Lights are wall-mounted at ~1.5m — dot goes at 1.0
+		## so it hovers at a natural height rather than sitting on the floor.
+		## Water hookup sits near-ceiling already (see WATER_HOOKUP_PLACEMENT_Y) —
+		## a small offset is enough. Water sink is a short ground box (~0.30m tall).
+		var dot_y: float = 0.30
+		var dot_x: float = 0.0
 	var dot_x: float = 0.0
 	if tile_id == TILE_LIGHT:
 		dot_y = 1.0
