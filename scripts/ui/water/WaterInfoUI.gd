@@ -503,7 +503,10 @@ func _draw_purifier_bubble(purifier: WaterPurifier, wm: WaterManager, cx: float,
 	_canvas.draw_rect(bubble_rect, Color(0.14, 0.10, 0.04, 0.75), true)
 	_canvas.draw_rect(bubble_rect, Color(WARN_COLOR.r, WARN_COLOR.g, WARN_COLOR.b, 0.55), false, 1.0)
 
-	var line_y: float = cy + 8.0
+	## A5 fix — vertically center the text block in the bubble
+	var total_text_h: float = float(lines.size()) * PURIFIER_BUBBLE_LINE_H
+	var start_y: float = cy + (bubble_h - total_text_h) * 0.5
+	var line_y: float = start_y
 	for line: String in lines:
 		_draw_str(line, Vector2(cx + 10.0, line_y), WARN_COLOR, 10)
 		line_y += PURIFIER_BUBBLE_LINE_H

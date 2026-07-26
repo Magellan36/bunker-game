@@ -28,6 +28,11 @@ var soil_filled:  Array[bool]   = []
 var planted_type: Array[String] = []
 var plant_refs:   Array[FarmPlant] = []
 
+## B1 — fertilizer can be applied to empty (unplanted) soil. "Prepped"
+## means fertilizer has been applied to empty soil; when a seed is later
+## planted there, it starts already fertilized.
+var cell_prepped_fertilizer: Array[String] = []
+
 ## Nearest-valid-tray highlight (Polish Plan Group 5 item 12) — driven
 ## externally by BagOfSoilItem/SeedItem while held, mirroring their existing
 ## "nearest in range" lookups. Pulses a translucent green outline over the
@@ -63,11 +68,13 @@ func _ready() -> void:
 	soil_filled.resize(cell_count)
 	planted_type.resize(cell_count)
 	plant_refs.resize(cell_count)
+	cell_prepped_fertilizer.resize(cell_count)
 	_soil_mesh_instances.resize(cell_count)
 	for i: int in range(cell_count):
 		soil_filled[i]  = false
 		planted_type[i] = ""
 		plant_refs[i]   = null
+		cell_prepped_fertilizer[i] = ""
 		_soil_mesh_instances[i] = null
 
 	collision_layer = 5
@@ -169,6 +176,14 @@ func fill_first_open_soil_cell() -> bool:
 			return true
 	return false
 
+## Helper used by get_prompt_world_pos() — X offset of a cell's center
+## relative to the tray's origin.
+func _cell_local_x(cell_index: int) -> float:
+	if cell_count == 1:
+		return 0.0
+	## Double tray: cells are 0.95m apart (footprint 1.9m wide)
+	return (cell_index - 0.5) * 0.95
+
 ## Soil-fill dust-puff (Polish Plan Group 3 item 7) — cosmetic only, no sound
 ## (project has no audio infrastructure yet at all; flagged as a scope call
 ## in the Group 3 handover rather than introducing a first-ever audio system
@@ -211,6 +226,8 @@ func has_open_fertilizable_cell() -> bool:
 		var p: FarmPlant = plant_refs[i]
 		if p != null and is_instance_valid(p) and not p.is_ready() and not p.is_fertilized():
 			return true
+		if p == null and soil_filled[i] and cell_prepped_fertilizer[i] == "":
+			return true
 	return false
 
 func has_already_fertilized_growing_cell() -> bool:
@@ -218,15 +235,21 @@ func has_already_fertilized_growing_cell() -> bool:
 		var p: FarmPlant = plant_refs[i]
 		if p != null and is_instance_valid(p) and not p.is_ready() and p.is_fertilized():
 			return true
+		if p == null and soil_filled[i] and cell_prepped_fertilizer[i] != "":
+			return true   ## Already-prepped empty soil counts as "already fertilized" too
 	return false
 
 ## Applies fertilizer to the first open (growing, not-yet-fertilized) cell.
-## Returns true if a plant was fertilized.
+## Also applies to empty-but-soiled cells (preps them for next planting).
+## Returns true if fertilizer was applied.
 func fertilize_first_open_cell(tier: String) -> bool:
 	for i: int in range(cell_count):
 		var p: FarmPlant = plant_refs[i]
 		if p != null and is_instance_valid(p) and not p.is_ready() and not p.is_fertilized():
 			p.apply_fertilizer(tier)
+			return true
+		if p == null and soil_filled[i] and cell_prepped_fertilizer[i] == "":
+			cell_prepped_fertilizer[i] = tier
 			return true
 	return false
 
@@ -240,6 +263,10 @@ func plant_first_open_cell(plant_type: String) -> bool:
 			plant.setup(self, i, plant_type)
 			plant.position = Vector3(_cell_local_x(i), SOIL_LAYER_Y, 0.0)
 			plant_refs[i] = plant
+			## B7 — if this cell had prepped fertilizer, apply it now and clear it
+			if cell_prepped_fertilizer[i] != "":
+				plant.apply_fertilizer(cell_prepped_fertilizer[i])
+				cell_prepped_fertilizer[i] = ""
 			return true
 	return false
 
@@ -250,6 +277,7 @@ func clear_cell(cell_index: int) -> void:
 		return
 	planted_type[cell_index] = ""
 	plant_refs[cell_index]   = null
+	cell_prepped_fertilizer[cell_index] = ""
 
 func _cell_local_x(cell_index: int) -> float:
 	if cell_count == 1:
@@ -308,6 +336,28 @@ func on_interact() -> void:
 
 func _on_ui_closed() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+## A2 — custom prompt world position so bare-handed E prompt sits above
+## the tray basin (single) or above the used side (double) instead of the
+## tray's center. InteractionSystem calls this via has_method() duck-typing.
+func get_prompt_world_pos() -> Vector3:
+	if cell_count == 1:
+		return global_position + Vector3(0.0, BASIN_TOP_Y, 0.0)
+
+	## Double tray: which cells have soil? (soil_filled OR planted counts as "used")
+	var used_count: int = 0
+	var used_index: int = -1
+	for i in range(cell_count):
+		if soil_filled[i]:
+			used_count += 1
+			used_index = i
+
+	if used_count == 1:
+		## Exactly one side used — anchor over that side
+		return global_position + Vector3(_cell_local_x(used_index), BASIN_TOP_Y, 0.0)
+
+	## Both used, or neither used — center of the tray
+	return global_position + Vector3(0.0, BASIN_TOP_Y, 0.0)
 
 ## Same lookup path WaterPipeDrawMode._show_error() uses — HUD's
 ## `inventory_hud` @onready child, InventoryHUD.show_error_message() convention

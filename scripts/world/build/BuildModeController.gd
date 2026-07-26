@@ -528,33 +528,35 @@ func _refresh_connectable_dots() -> void:
 		if obj == null or not is_instance_valid(obj):
 			continue
 
-		var dot_mi: MeshInstance3D = MeshInstance3D.new()
-		var sphere: SphereMesh = SphereMesh.new()
-		sphere.radius = 0.055
-		sphere.height = 0.11
-		sphere.radial_segments = 8
-		sphere.rings = 4
-		dot_mi.mesh = sphere
-		dot_mi.set_surface_override_material(0, mat)
-		dot_mi.extra_cull_margin = 10.0
-		## Position above the object. Lights are wall-mounted at ~1.5m — dot goes at 1.0
-		## so it hovers at a natural height rather than sitting on the floor.
-		## Water hookup sits near-ceiling already (see WATER_HOOKUP_PLACEMENT_Y) —
-		## a small offset is enough. Water sink is a short ground box (~0.30m tall).
-		var dot_y: float = 0.30
-		if tile_id == TILE_LIGHT:
-			dot_y = 1.0
-		elif tile_id == TILE_WATER_HOOKUP:
-			dot_y = 0.20
-		elif tile_id == TILE_WATER_SINK:
-			dot_y = 0.45
-		elif tile_id == TILE_WATER_DISPENSER:
-			dot_y = 0.65
-		elif tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
-			dot_y = 0.90   ## just above the tray's basin top (BASIN_TOP_Y = 0.85)
-		elif tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
-			dot_y = 0.15   ## grow lights sit near-ceiling already; small offset is enough
-		dot_mi.position = Vector3(0.0, dot_y, 0.0)
+var dot_mi: MeshInstance3D = MeshInstance3D.new()
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.055
+	sphere.height = 0.11
+	sphere.radial_segments = 8
+	sphere.rings = 4
+	dot_mi.mesh = sphere
+	dot_mi.set_surface_override_material(0, mat)
+	dot_mi.extra_cull_margin = 10.0
+	## Position above the object. Lights are wall-mounted at ~1.5m — dot goes at 1.0
+	## so it hovers at a natural height rather than sitting on the floor.
+	## Water hookup sits near-ceiling already (see WATER_HOOKUP_PLACEMENT_Y) —
+	## a small offset is enough. Water sink is a short ground box (~0.30m tall).
+	var dot_y: float = 0.30
+	var dot_x: float = 0.0
+	if tile_id == TILE_LIGHT:
+		dot_y = 1.0
+	elif tile_id == TILE_WATER_HOOKUP:
+		dot_y = 0.20
+	elif tile_id == TILE_WATER_SINK:
+		dot_y = 0.45
+	elif tile_id == TILE_WATER_DISPENSER:
+		dot_y = 0.65
+	elif tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
+		dot_y = 0.85   ## exactly BASIN_TOP_Y, matching the real registered connection point
+		dot_x = 0.45 if tile_id == TILE_TRAY_SINGLE else 0.95
+	elif tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
+		dot_y = 0.15   ## grow lights sit near-ceiling already; small offset is enough
+	dot_mi.position = Vector3(dot_x, dot_y, 0.0)
 		obj.add_child(dot_mi)
 		_connectable_dots[obj] = dot_mi
 
@@ -836,7 +838,8 @@ func _update_water_pipe_draw_refs() -> void:
 ## (Rock surround defines these exactly. Dug chunks extend the valid area, but they're
 ## inside the outer rock ring which itself lies just outside these bounds — so we give
 ## a generous outer margin of +1 cell to allow wall placement on the newly-revealed face.)
-func _is_inside_bunker(pos: Vector3) -> bool:
+## Single-point check (the old behavior) — kept as a private helper.
+func _is_point_inside_bunker(pos: Vector3) -> bool:
 	if rock_surround == null:
 		return true   ## No bounds data — allow everywhere
 
@@ -871,6 +874,20 @@ func _is_inside_bunker(pos: Vector3) -> bool:
 
 	return false
 
+## A4 — bounds check that takes object half-extent into account.
+## Checks all 4 corners of the object's footprint, not just its center point.
+func _is_inside_bunker(pos: Vector3, half_extent: Vector2 = Vector2.ZERO) -> bool:
+	var corners: Array[Vector3] = [
+		pos + Vector3( half_extent.x, 0.0,  half_extent.y),
+		pos + Vector3(-half_extent.x, 0.0,  half_extent.y),
+		pos + Vector3( half_extent.x, 0.0, -half_extent.y),
+		pos + Vector3(-half_extent.x, 0.0, -half_extent.y),
+	]
+	for corner in corners:
+		if not _is_point_inside_bunker(corner):
+			return false
+	return true
+
 # ─── Construct ────────────────────────────────────────────────────────────────
 func _try_construct() -> void:
 	if not _ghost_valid or gridmap == null:
@@ -879,7 +896,7 @@ func _try_construct() -> void:
 		return
 
 	# Bounds check — reject placement outside the bunker/dig area
-	if not _is_inside_bunker(_ghost_world_pos):
+	if not _is_inside_bunker(_ghost_world_pos, _tile_half_extents(_selected_tile)):
 		_show_hud_warning("Cannot place outside the bunker")
 		return
 

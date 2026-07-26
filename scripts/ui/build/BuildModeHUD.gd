@@ -97,12 +97,9 @@ const CATEGORIES: Dictionary = {
 ## Farming toolbar tool's shop (Jul 2026, plan §8.2) — a SEPARATE dict from
 ## CATEGORIES since these aren't placeable/ghost-preview tiles at all, just
 ## carryable items bought and spawned near the player (see
-## FarmingShopHelper.gd). Deliberately shares the same "category → item list"
-## shape as CATEGORIES so the existing two-level submenu machinery can be
-## reused for both (see _current_categories()) — items still key off
-## "tile_id" purely for code-reuse simplicity, even though for this dict the
-## value is really an item_id (see FarmingShopHelper.SHOP_ITEM_INFO, which
-## must be kept in sync).
+## Farming shop (Jul 2026) — buy → spawn near player, no ghost preview.
+## Uses same flat category structure as CATEGORIES so the existing
+## two-level submenu works unchanged.
 const FARMING_SHOP_ITEMS: Dictionary = {
 	"Soil": [
 		{ "tile_id": 1, "name": "Bag of Soil",       "price": 100 },
@@ -154,8 +151,8 @@ const COLOR_BG:     Color = Color(0.10, 0.10, 0.10, 0.82)
 const COLOR_BORDER: Color = Color(0.25, 0.25, 0.25, 0.90)
 const COLOR_SEL:    Color = Color(0.42, 0.87, 0.15, 1.0)
 const COLOR_TEXT:   Color = Color(0.80, 0.78, 0.72, 0.95)
-const TOOL_LABELS:  Array = ["Construct", "Deconstruct", "Duplicate", "Move", "Undo", "Wire", "Pipe", "Farming"]
-const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌", "🚰", "🌱"]
+const TOOL_LABELS:  Array = ["Construct", "Deconstruct", "Duplicate", "Move", "Undo", "Wire", "Pipe", "Shop"]
+const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌", "🚰", "🛒"]
 
 ## Submenu
 const SUB_W:        float = 160.0
@@ -475,7 +472,10 @@ func _on_toolbar_click(slot: int) -> void:
 ## CATEGORIES (tile ghost-preview placement) or FARMING_SHOP_ITEMS
 ## (buy → spawn near player). See _submenu_source.
 func _current_categories() -> Dictionary:
-	return FARMING_SHOP_ITEMS if _submenu_source == "farming" else CATEGORIES
+	if _submenu_source == "farming":
+		return FARMING_SHOP_ITEMS
+	else:
+		return CATEGORIES
 
 func _open_submenu(source: String = "construct") -> void:
 	_submenu_source = source
@@ -767,11 +767,11 @@ func _on_submenu_item_selected(row: int) -> void:
 		return
 
 	var id_val: int = cat_items[item_idx]["tile_id"]
-	_close_submenu()
 	if _submenu_source == "farming":
 		## Buy → spawn near player — no ghost, no tool switch (plan §8.1/§8.3).
 		farming_item_chosen.emit(id_val)
 	else:
+		_close_submenu()
 		active_tool = TOOL_CONSTRUCT
 		construct_item_chosen.emit(id_val)
 	_canvas.queue_redraw()

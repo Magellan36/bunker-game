@@ -519,9 +519,9 @@ func _update_prompt() -> void:
 		if lines.is_empty():
 			continue
 
-		var prompt_pos: Vector3 = body.global_position
-		if body.is_in_group("shelving") and body.has_method("get_prompt_world_pos"):
-			prompt_pos = body.get_prompt_world_pos()
+var prompt_pos: Vector3 = body.global_position
+	if body.has_method("get_prompt_world_pos"):
+		prompt_pos = body.get_prompt_world_pos()
 
 		entries.append({
 			"text":      "\n".join(lines),
