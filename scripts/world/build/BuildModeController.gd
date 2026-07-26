@@ -555,7 +555,7 @@ func _refresh_connectable_dots() -> void:
 			dot_y = 0.85   ## exactly BASIN_TOP_Y, matching the real registered connection point
 			dot_x = 0.45 if tile_id == TILE_TRAY_SINGLE else 0.95
 		elif tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
-dot_y = 0.15   ## grow lights sit near-ceiling already; small offset is enough
+		dot_y = 0.15   ## grow lights sit near-ceiling already; small offset is enough
 		dot_mi.position = Vector3(dot_x, dot_y, 0.0)
 		obj.add_child(dot_mi)
 		_connectable_dots[obj] = dot_mi
