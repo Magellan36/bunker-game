@@ -176,14 +176,6 @@ func fill_first_open_soil_cell() -> bool:
 			return true
 	return false
 
-## Helper used by get_prompt_world_pos() — X offset of a cell's center
-## relative to the tray's origin.
-func _cell_local_x(cell_index: int) -> float:
-	if cell_count == 1:
-		return 0.0
-	## Double tray: cells are 0.95m apart (footprint 1.9m wide)
-	return (cell_index - 0.5) * 0.95
-
 ## Soil-fill dust-puff (Polish Plan Group 3 item 7) — cosmetic only, no sound
 ## (project has no audio infrastructure yet at all; flagged as a scope call
 ## in the Group 3 handover rather than introducing a first-ever audio system
