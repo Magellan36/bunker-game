@@ -320,8 +320,6 @@ func _try_place_item(item: RigidBody3D) -> void:
 
 	## Release from InteractionSystem cleanly
 	_interaction_system._is_holding_e = false
-	_interaction_system._store_hold_t = 0.0
-	_interaction_system._use_pending  = false
 
 	if item.has_signal("knocked_out") and \
 			item.knocked_out.is_connected(_interaction_system._on_item_knocked_out):
