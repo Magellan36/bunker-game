@@ -135,6 +135,19 @@ func _process(delta: float) -> void:
 		queue_free()
 		return
 
+	## Live display refresh (instant-update fix) — recomputed every frame,
+	## independent of the once-per-game-hour simulation tick below, so the
+	## tray UI's Dormant/Stalled/Growing status and growth-rate readout react
+	## immediately to anything that changes light/water/fertilizer state
+	## (adding/removing a light, a pipe, water, or fertilizer) instead of
+	## waiting up to a full game hour to catch up. Only these three
+	## READ-ONLY cached fields move here — actual progress/health simulation
+	## still advances strictly once per game hour in _tick_one_game_hour().
+	_light_speed_cached = _compute_light_speed()
+	water_fraction = _tray.get_water_fraction() if _tray != null and is_instance_valid(_tray) else 0.0
+	var grow_days_live: float = PlantDatabase.get_grow_days(plant_type)
+	growth_per_hour_current = _light_speed_cached * water_fraction * (1.0 + fertilizer_bonus) / (grow_days_live * 24.0)
+
 	if _player_stats == null:
 		_player_stats = get_tree().get_first_node_in_group("player_stats")
 	var sec_per_hour: float = 3600.0   ## real-hour fallback if PlayerStats isn't found yet
@@ -151,14 +164,11 @@ func _process(delta: float) -> void:
 			return   ## died mid-loop
 
 func _tick_one_game_hour() -> void:
-	_light_speed_cached = _compute_light_speed()
-	var water_fraction: float = _tray.get_water_fraction() if _tray != null and is_instance_valid(_tray) else 0.0
-	self.water_fraction = water_fraction
-	var grow_days: float = PlantDatabase.get_grow_days(plant_type)
-
-	var growth_per_hour: float = _light_speed_cached * water_fraction * (1.0 + fertilizer_bonus) / (grow_days * 24.0)
-	growth_per_hour_current = growth_per_hour
-	progress = clampf(progress + growth_per_hour, 0.0, 1.0)
+	## _light_speed_cached / water_fraction / growth_per_hour_current are now
+	## kept fresh every frame by _process() above (instant-update fix) — just
+	## apply this hour's growth/health using the current values, no
+	## recompute here.
+	progress = clampf(progress + growth_per_hour_current, 0.0, 1.0)
 
 	if water_fraction == 0.0:
 		health = maxf(0.0, health - HEALTH_LOSS_NO_WATER_PER_HOUR)

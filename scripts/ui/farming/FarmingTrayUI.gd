@@ -325,7 +325,7 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 	_canvas.draw_rect(block_rect, Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45), false, 1.0)
 
 	var bx: float = cx + 6.0
-	var by: float = cy + 6.0
+	var by: float = cy + 12.0
 
 	_draw_str(PlantDatabase.get_display_name(plant.plant_type).to_upper(), Vector2(bx, by), _theme.header, 12)
 
