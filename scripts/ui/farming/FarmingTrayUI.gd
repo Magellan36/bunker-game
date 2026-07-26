@@ -350,15 +350,24 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 	## red/yellow/green step convention, fed `progress` as a 0-100 scale
 	## (a stand-in "how close to ready" value — not a water quality, but the
 	## same visual language the plan calls for).
+	## B4 — Dormant/Stalled/Ready status text
 	if ready:
-		_draw_str("Ready now", Vector2(bx, by), READY_COLOR, 11)
+		_draw_str("Status: Ready", Vector2(bx, by), READY_COLOR, 11)
+	elif plant.progress <= 0.0 and plant.water_fraction <= 0.0:
+		_draw_str("Status: Dormant", Vector2(bx, by), NOT_READY_COLOR, 11)
 	elif plant.growth_per_hour_current <= 0.0:
-		_draw_str("Ready in: stalled", Vector2(bx, by), NOT_READY_COLOR, 11)
+		var reasons: Array[String] = []
+		if plant.water_fraction <= 0.0:
+			reasons.append("No Water")
+		if plant._light_speed_cached <= FarmPlant.LIGHT_FLOOR_SPEED:
+			reasons.append("No Light")
+		var reason_text: String = "(%s)" % ", ".join(reasons)
+		_draw_str("Status: Stalled %s" % reason_text, Vector2(bx, by), NOT_READY_COLOR, 11)
 	else:
 		var hours_left: float = (1.0 - plant.progress) / plant.growth_per_hour_current
-		var days_left: int = int(ceil(hours_left / 24.0))
+		var hours_left_int: int = int(ceil(hours_left))
 		var countdown_col: Color = WaterQualityColor.get_color(plant.progress * 100.0)
-		_draw_str("Ready in ~%d day%s" % [days_left, "" if days_left == 1 else "s"], Vector2(bx, by), countdown_col, 11)
+		_draw_str("Status: %d hours until harvest" % hours_left_int, Vector2(bx, by), countdown_col, 11)
 	by += 16.0
 
 	var block_bar_w: float = bar_w - 12.0
