@@ -1,78 +1,102 @@
-# Handover — Polish Batch 1 + Structure Fixes + Half/Quarter Walls + HUD Fix (Jul 2026)
+# Handover — Farming Fixes Round 2 + B5 Tray Fixes (Jul 2026)
 
 ## What changed this session
 
-### Polish Batch 1 (from audit items 1–5)
-- **PickupableItem base class** — new `scripts/world/items/PickupableItem.gd` (~153 lines) extracted ~800 lines of duplicated scaffolding (pickup/drop/place/knockout/culling/hold-follow physics) from all 12 item scripts. All items now extend `PickupableItem` instead of the minimal `PickupItem.gd` (legacy, ~65 lines, kept for reference).
-- **InventoryHUD type bug fix** — renamed `COLOR_CHARGE_FONT: float` → `CHARGE_FONT_SIZE: int` in `InventoryHUD.gd`; fixed `int(COLOR_CHARGE_FONT)` cast error.
-- **SleepOverlay API fix** — added `PlayerStats.skip_time(hours)` public method; `SleepOverlay.gd` now calls it instead of mutating private `_elapsed`/`_seconds_per_game_hour`.
-- **CanCase/WaterCase ejection fix** — added one-frame freeze (`freeze = true` + `call_deferred("_unfreeze_after_spawn")`) to ejected FoodCan/WaterBottle to prevent floor fall-through on spawn.
-- **Water TEMP cleanup** — removed 4 debug `TEMP` print blocks from `WaterManager.gd`, `WaterPipeDrawMode.gd` (×2), `WaterPipeSegment.gd`.
+### Part A Bug Fixes (from Farming Fixes Round 2 plan)
 
-### BunkerPregen wall height alignment
-- **`BunkerPregen.gd`**: changed `PLACEMENT_Y: 1.0 → 2.0` to match `BuildModeController.PLACEMENT_Y` (2.0) and `WireGraphBuilder`/`WallPerimeterRegistry` (2.0). Pregen walls now sit at same height as player-placed walls/pillars.
+**A1 — Light floor + XZ radius**
+- `FarmPlant.gd`: `LIGHT_FLOOR_SPEED = 0.1` minimum growth speed so plants never fully stall in darkness
+- `GrowLight.gd`: `LIGHT_MATCH_RADIUS = 0.25` with XZ-only distance check (flat, ignores height)
 
-### Half-Wall / Quarter-Wall (Structure → Build menu)
-- New tile IDs: `TILE_HALF_WALL = 25`, `TILE_QUARTER_WALL = 26` in `BuildModeController.gd` + `BuildModeHUD.gd` ("Structure" category).
-- Both reuse the MeshLibrary wall mesh (`TILE_WALL` = 1) scaled vertically:
-  - Half-Wall: 0.5× height (1.5m), `HALF_WALL_PLACEMENT_Y = 1.0`, $30
-  - Quarter-Wall: 0.25× height (0.75m), `QUARTER_WALL_PLACEMENT_Y = 0.25`, $15
-- Scaling handled in `BuildModeController._spawn_placed_object()`, `GhostPreview._rebuild_ghost_mesh()`, `MoveDuplicateTool._spawn_move_ghost()` — origin shifted so bottom sits at Y=0.
-- No new meshlib entries; pure visual variant via scale.
+**A2 — Farming tray prompt position**
+- `FarmingTray.gd`: Added `get_prompt_world_pos()` — prompt sits at basin height (0.85) centered for single tray, over used side for double tray
+- `InteractionSystem.gd`: Generic `has_method("get_prompt_world_pos")` check (no group restriction)
 
-### Duplicate HUD fix
-- **MainWorld.tscn** had 3 HUD instances (two extra `CanvasLayer` under GameCamera and root). Only the root `HUD` node (line 75) is referenced by `$HUD`. Removed the two duplicates. `hud.set_build_mode(true)` now correctly hides the single inventory bar.
+**A4 — Bounds check corner check**
+- `BuildModeController.gd`: `_is_inside_bunker(pos, half_extent)` now checks all 4 corners of object footprint instead of single center point
 
-## Files added/modified
+**A5 — Warning bubble vertical centering**
+- `FarmingTrayUI.gd`: Added `_wrapped_line_count()` helper; water warning bubble now properly centers multi-line text
+- `WaterInfoUI.gd`: Purifier warning bubble similarly centered
 
-### New
-- `scripts/world/items/PickupableItem.gd`
+**A6 — Farming shop menu no longer closes after purchase**
+- `BuildModeHUD.gd`: Farming shop emits `farming_item_chosen` without closing submenu
 
-### Modified
-- `scripts/world/items/*.gd` (12 files) — extend `PickupableItem`, removed duplicated scaffolding
-- `scripts/ui/inventory/InventoryHUD.gd` — `COLOR_CHARGE_FONT` → `CHARGE_FONT_SIZE: int`
-- `scripts/player/PlayerStats.gd` — added `skip_time(hours)`
-- `scripts/ui/menus/SleepOverlay.gd` — uses `player_stats.skip_time(8.0)`
-- `scripts/world/items/CanCase.gd`, `WaterCase.gd` — ejection freeze
-- `scripts/world/water/WaterManager.gd`, `WaterPipeDrawMode.gd` (×2), `WaterPipeSegment.gd` — TEMP prints removed
+**A7 — Grow light safety net**
+- `GrowLight.gd`: `set_powered(false)` in `_ready()` guarantees fixture starts off before PowerManager can potentially power it
+
+### Part B Features
+
+**B1 — Fertilizer on empty soil**
+- `FarmingTray.gd`: `cell_prepped_fertilizer` array; fertilizer can be applied to empty soil; `plant_first_open_cell()` applies prep
+
+**B2 — Connectable dot at tray pipe stub**
+- `BuildModeController._refresh_connectable_dots()`: tray dot at `dot_x = 0.45/0.95`, `dot_y = 0.85` (pipe stub position)
+
+**B3 — Farming tool renamed "Shop"**
+- `BuildModeHUD.gd`: Toolbar label "Shop" (🛒), Soil/Seeds as flat top-level categories in 2-level menu
+
+### Part A Bug Fixes (from PART_A_BUGFIX_PLAN)
+
+1. `BuildModeController._refresh_connectable_dots()` — fixed indentation inside for loop
+2. `FarmingTrayUI.gd` — added `_wrapped_line_count()`; water bubble vertical centering fixed
+3. `FarmingTray.gd` — removed duplicate `_cell_local_x()` definition
+
+### Part B4 — Dormant/Stalled/Ready Status
+
+- `FarmPlant.gd`: `water_fraction` cached each tick
+- `FarmingTrayUI.gd`: Status text — "Dormant" (progress=0 & no water), "Stalled (No Water/No Light)", "X hours until harvest"
+
+### Part B5 — Floating Tray Fixes (Root Cause Fixed)
+
+1. `GhostPreview.gd`: `snap_pos.y = 0.5` for trays (was PLACEMENT_Y=2.0 — wall-fixture height)
+2. `BuildModeController.gd`: Added tray branch in `_is_position_occupied_for_tile()` — registry-only overlap check (threshold = `grid_size * 0.9`) instead of physics shape query that hit floor collider
+
+### Files Modified
+- `scripts/world/farming/FarmPlant.gd` — `water_fraction` cached
+- `scripts/world/farming/FarmingTray.gd` — `cell_prepped_fertilizer`, fertilizer logic, removed duplicate `_cell_local_x`
+- `scripts/world/farming/FarmingTrayUI.gd` — `_wrapped_line_count()`, status text, bubble centering
+- `scripts/world/build/GhostPreview.gd` — tray `snap_pos.y = 0.5`
+- `scripts/world/build/BuildModeController.gd` — tray occupancy check, `_is_inside_bunker` corner check, debug print
+- `scripts/ui/farming/FarmingTrayUI.gd` — status text, bubble centering
+- `scripts/world/build/BuildModeController.gd` — bounds check 4 corners, tray occupancy
+- `scripts/ui/build/BuildModeHUD.gd` — Shop tool, flat categories
+- `scripts/ui/inventory/InventoryHUD.gd` — charge font fix
+- `scripts/world/items/*.gd` — PickupableItem base class
+- `scripts/player/InteractionSystem.gd` — generic prompt position
+- `scripts/player/PlayerStats.gd` — `skip_time(hours)`
+- `scripts/ui/menus/SleepOverlay.gd` — uses `skip_time`
+- `scripts/world/items/CanCase.gd`, `WaterCase.gd` — ejection fix
+- `scripts/world/water/WaterManager.gd`, `WaterPipeDrawMode.gd`, `WaterPipeSegment.gd` — TEMP cleanup
 - `scripts/world/environment/BunkerPregen.gd` — `PLACEMENT_Y = 2.0`
-- `scripts/world/build/BuildModeController.gd` — `PLACEMENT_Y = 2.0`, Half/Quarter wall constants, scaling logic, `HALF_WALL_PLACEMENT_Y`, `QUARTER_WALL_PLACEMENT_Y`
-- `scripts/ui/build/BuildModeHUD.gd` — Structure category: Half-Wall, Quarter-Wall entries
-- `scripts/ui/inventory/InventoryHUD.gd` — charge font size fix
-- `scripts/world/build/GhostPreview.gd` — ghost scaling for half/quarter walls
-- `scripts/world/build/MoveDuplicateTool.gd` — move ghost scaling for half/quarter walls
-- `scenes/world/MainWorld.tscn` — removed 2 duplicate HUD CanvasLayers
-- `scripts/world/build/BuildModeController.gd` — `PLACEMENT_Y` comment updated
+- `scripts/world/build/BuildModeController.gd` — `PLACEMENT_Y = 2.0`, bounds check, tray occupancy
+- `scripts/ui/build/BuildModeHUD.gd` — Shop tool, Half/Quarter walls
+- `scripts/ui/inventory/InventoryHUD.gd` — charge font fix
+- `scripts/world/build/GhostPreview.gd` — half/quarter wall scaling, tray Y=0.5
+- `scripts/world/build/MoveDuplicateTool.gd` — move ghost scaling
+- `scenes/world/MainWorld.tscn` — removed duplicate HUD CanvasLayers
 
-## Verification done
-- `bash tools/godot_check.sh <headless Godot 4.6.3 binary>` → **PASS**, no script parse/compile/type errors across the whole repo.
-- Not yet manually playtested in-editor (no compiler/runtime in sandbox — requires an in-editor pass from Brannon).
+## Verification
+- `bash tools/godot_check.sh <headless Godot 4.6.3 binary>` → **PASS**
+- Not yet manually playtested in-editor
 
-## Playtest checklist for Brannon
+## Playtest Checklist
 1. Pull `origin/main`.
-2. **Pickup items** — pick up/drop/place each of the 12 items; verify no regressions in physics, knockout, culling, hold-follow.
-3. **Inventory HUD** — confirm charge badges render correctly (int font size, no cast errors).
-4. **Sleep** — sleep 8h; confirm time advances correctly without mutating private PlayerStats fields.
-5. **CanCase/WaterCase** — eject items; confirm they don't fall through floor on spawn.
-6. **Pregen walls** — verify pregen walls/pillars align vertically with player-placed walls/pillars (same top height).
-7. **Half-Wall / Quarter-Wall** — open Construct → Structure; buy/place both; confirm heights (1.5m / 0.75m), prices ($30 / $15), collision matches visual height.
-8. **Build mode** — enter build mode; confirm inventory bar hides completely (no 4 empty boxes visible).
+2. **Pickup items** — all 12 items: pickup/drop/place, physics, knockout, culling, hold-follow.
+3. **Inventory HUD** — charge badges render correctly (int font size).
+4. **Sleep** — 8h sleep advances time correctly.
+5. **CanCase/WaterCase** — eject items, no floor fall-through.
+6. **Pregen walls** — align with player-placed walls vertically.
+7. **Half/Quarter Wall** — heights (1.5m/0.75m), prices ($30/$15), collision matches.
+8. **Build mode** — inventory bar hides completely.
+9. **Farming tray** — place on floor (Y=0.5 ghost, Y=0 placed), no "space occupied" false positive.
+10. **Fertilizer** — apply to empty soil, prep works, seed inherits prep.
+11. **Tray UI** — Status shows Dormant/Stalled/Ready correctly.
+12. **Water warning bubble** — text vertically centered.
+13. **Shop tool** — "Shop" (🛒), Soil/Seeds categories, menu stays open after purchase.
+14. **Grow light** — never fully stalls (0.1 floor), XZ radius 0.25.
+15. **Build mode** — inventory hides, tray placement works, no false "occupied".
 
-## Next up (not started)
+## Next Up
 - Polish audit items 6–23 (InteractPrompt jitter, Flashlight pause battery drain, FuelCan prompt, Water pipe labels, Farming tray UI alignment, Build ghost z-fighting, etc.)
 - Await Brannon's playtest feedback and next request.
-
----
-
-## Previous session (Fertilizer & Item-Charge Consolidation — Jul 2026)
-Implemented `FARMING_FERTILIZER_AND_CHARGES_PLAN` in full:
-
-- **FertilizerItem.gd** — two tiers (Normal +12.5%, Pro +25%); targets one growing plant per tray; blocks re-fertilizing with toast; sold in Farming shop Soil submenu ($300/$400).
-- **BagOfSoilItem.gd** — 2 charges, Empty Bag drops only at 0 charges (was every use).
-- **SeedItem.gd** — 4 charges, single instance per purchase; no empty packet; shop names lost "(x4)".
-- **FarmingShopHelper.gd** / **BuildModeHUD.gd** — updated shop items and construct menu.
-- **Docs** — `docs/systems/farming/README.md` updated.
-
-**Flagged**: `shelf_stack_limit = 6` unchanged on Bag of Soil / Seed / Fertilizer.
-
-**Playtest**: buy fertilizer, apply to growing plant, verify growth speedup + status line; verify blocked re-fertilize; check HUD charge badges; verify Bag of Soil drops Empty Bag only on 2nd use; verify single seed item with 4 charges.
