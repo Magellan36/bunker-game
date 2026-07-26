@@ -289,12 +289,13 @@ func _on_draw() -> void:
 		_canvas.draw_rect(bubble_rect, Color(WARN_COLOR.r, WARN_COLOR.g, WARN_COLOR.b, 0.55), false, 1.0)
 		var pct: int = int(round(water_fraction * 100.0))
 		var msg: String = "Water levels insufficient (%d%% of demand met) — this will slow plant growth." % pct
-		## A5 fix — vertically center the text in the bubble
-		var font: Font = UIKit.font()
-		var text_size: Vector2 = font.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 10)
+		var wrap_w: float = bar_w - 12.0
+		var line_count: int = _wrapped_line_count(msg, wrap_w, 10)
+		var line_h: float = 10.0 + 5.0
+		var text_block_h: float = float(line_count) * line_h - 5.0
 		var text_x: float = cx + 6.0
-		var text_y: float = bubble_rect.position.y + (bubble_rect.size.y - text_size.y) * 0.5
-		_draw_wrapped(msg, Vector2(text_x, text_y), bar_w - 12.0, WARN_COLOR, 10)
+		var text_y: float = bubble_rect.position.y + (bubble_rect.size.y - text_block_h) * 0.5
+		_draw_wrapped(msg, Vector2(text_x, text_y), wrap_w, WARN_COLOR, 10)
 		cy += BUBBLE_H + BUBBLE_GAP_AFTER
 
 	## 19a — one inset block per occupied cell (has a live FarmPlant).
@@ -376,6 +377,24 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 		_draw_str("Not Fertilized", Vector2(bx, by), _theme.dim, 11)
 
 	return cy + PLANT_BLOCK_H
+
+## Simple word-wrap for the 19b warning bubble — same font size the caller
+## draws at, wraps to fit `max_w`, one shadowed line per row.
+func _wrapped_line_count(text: String, max_w: float, size: int) -> int:
+	var words: PackedStringArray = text.split(" ")
+	var line: String = ""
+	var count: int = 0
+	for w: String in words:
+		var candidate: String = (line + " " + w) if line != "" else w
+		var sz: Vector2 = UIKit.font().get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, size)
+		if sz.x > max_w and line != "":
+			count += 1
+			line = w
+		else:
+			line = candidate
+	if line != "":
+		count += 1
+	return count
 
 ## Simple word-wrap for the 19b warning bubble — same font size the caller
 ## draws at, wraps to fit `max_w`, one shadowed line per row.
