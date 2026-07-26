@@ -103,6 +103,9 @@ var _light_speed_cached:  float = 0.0
 ## FarmingTrayUI's countdown estimate (public, not "_"-prefixed private).
 var growth_per_hour_current: float = 0.0
 
+## B4 — water fraction cached each tick so UI can read it for status text.
+var water_fraction: float = 0.0
+
 var _hour_accum: float = 0.0
 var _player_stats: Node = null
 
@@ -150,6 +153,7 @@ func _process(delta: float) -> void:
 func _tick_one_game_hour() -> void:
 	_light_speed_cached = _compute_light_speed()
 	var water_fraction: float = _tray.get_water_fraction() if _tray != null and is_instance_valid(_tray) else 0.0
+	self.water_fraction = water_fraction
 	var grow_days: float = PlantDatabase.get_grow_days(plant_type)
 
 	var growth_per_hour: float = _light_speed_cached * water_fraction * (1.0 + fertilizer_bonus) / (grow_days * 24.0)
