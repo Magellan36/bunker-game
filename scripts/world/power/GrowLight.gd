@@ -380,13 +380,8 @@ func on_interact() -> void:
 		_prio_ui.call("open", str(get_instance_id()), display_name, false)
 
 func get_interact_prompt() -> String:
-	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	var prio: int = power_priority
-	if pm != null:
-		prio = pm.get_consumer_priority(str(get_instance_id()))
-	var state: String = "Powered" if _is_powered else ("Shed" if _is_shed else "No Power")
 	var label: String = "Grow Light" if tier == "normal" else "Grow Light (Pro)"
-	return "[E] %s  —  Priority %d  (%s)" % [label, prio, state]
+	return "[E] %s" % label
 
 func _on_prio_closed() -> void:
 	var is_node: Node = _get_interaction_system()
