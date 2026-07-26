@@ -2575,6 +2575,19 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
 				return true
 		return false
+	if tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
+		# Trays sit on the floor (Y=0), same as Beds/Shelving/Generators above —
+		# the physics shape query hits the floor collider, causing a false
+		# "space occupied" positive. Registry-only overlap check instead.
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			var et: int = entry.get("tile_id", -1)
+			if et != TILE_TRAY_SINGLE and et != TILE_TRAY_DOUBLE:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
+		return false
 	if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
 		# Generators sit on the floor (Y=0). The physics shape query hits the
 		# floor collider and the generator's own StaticBody3D, causing false
