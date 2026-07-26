@@ -541,24 +541,24 @@ func _refresh_connectable_dots() -> void:
 		## so it hovers at a natural height rather than sitting on the floor.
 		## Water hookup sits near-ceiling already (see WATER_HOOKUP_PLACEMENT_Y) —
 		## a small offset is enough. Water sink is a short ground box (~0.30m tall).
-var dot_y: float = 0.30
-	var dot_x: float = 0.0
-	if tile_id == TILE_LIGHT:
-		dot_y = 1.0
-	elif tile_id == TILE_WATER_HOOKUP:
-		dot_y = 0.20
-	elif tile_id == TILE_WATER_SINK:
-		dot_y = 0.45
-	elif tile_id == TILE_WATER_DISPENSER:
-		dot_y = 0.65
-	elif tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
-		dot_y = 0.85   ## exactly BASIN_TOP_Y, matching the real registered connection point
-		dot_x = 0.45 if tile_id == TILE_TRAY_SINGLE else 0.95
-	elif tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
-		dot_y = 0.15   ## grow lights sit near-ceiling already; small offset is enough
-	dot_mi.position = Vector3(dot_x, dot_y, 0.0)
-	obj.add_child(dot_mi)
-	_connectable_dots[obj] = dot_mi
+		var dot_y: float = 0.30
+		var dot_x: float = 0.0
+		if tile_id == TILE_LIGHT:
+			dot_y = 1.0
+		elif tile_id == TILE_WATER_HOOKUP:
+			dot_y = 0.20
+		elif tile_id == TILE_WATER_SINK:
+			dot_y = 0.45
+		elif tile_id == TILE_WATER_DISPENSER:
+			dot_y = 0.65
+		elif tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
+			dot_y = 0.85   ## exactly BASIN_TOP_Y, matching the real registered connection point
+			dot_x = 0.45 if tile_id == TILE_TRAY_SINGLE else 0.95
+		elif tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
+dot_y = 0.15   ## grow lights sit near-ceiling already; small offset is enough
+		dot_mi.position = Vector3(dot_x, dot_y, 0.0)
+		obj.add_child(dot_mi)
+		_connectable_dots[obj] = dot_mi
 
 func _clear_connectable_dots() -> void:
 	for obj in _connectable_dots.keys():
