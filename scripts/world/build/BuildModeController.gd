@@ -541,8 +541,7 @@ func _refresh_connectable_dots() -> void:
 		## so it hovers at a natural height rather than sitting on the floor.
 		## Water hookup sits near-ceiling already (see WATER_HOOKUP_PLACEMENT_Y) —
 		## a small offset is enough. Water sink is a short ground box (~0.30m tall).
-		var dot_y: float = 0.30
-		var dot_x: float = 0.0
+var dot_y: float = 0.30
 	var dot_x: float = 0.0
 	if tile_id == TILE_LIGHT:
 		dot_y = 1.0
