@@ -491,7 +491,7 @@ func _update_ghost() -> void:
 			or _owner._selected_tile == _owner.TILE_BATTERY_L:
 		snap_pos.y = _owner.PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_TRAY_SINGLE or _owner._selected_tile == _owner.TILE_TRAY_DOUBLE:
-		snap_pos.y = _owner.PLACEMENT_Y
+		snap_pos.y = 0.0   ## Floor-standing object (legs on the ground) — NOT the wall/ceiling-fixture height PLACEMENT_Y (2.0) used by wire/breakers/sinks/dispensers
 	elif _owner._selected_tile == _owner.TILE_GROW_LIGHT_NORMAL or _owner._selected_tile == _owner.TILE_GROW_LIGHT_PRO:
 		## Not wall-snapped, not required to sit above a tray — placeable
 		## anywhere within the bunker bounds, same as every other floor-placed
