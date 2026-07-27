@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-27T19:23:00.954404+00:00",
+  "generated_at": "2026-07-27T20:19:00.194306+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 102,
-  "total_lines": 39955,
+  "script_count": 104,
+  "total_lines": 40185,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -11,6 +11,89 @@
     "WorldManager"
   ],
   "scripts": [
+    {
+      "path": "res://godot_sandbox/downloader.gd",
+      "line_count": 244,
+      "class_name": null,
+      "extends": "Window",
+      "exports": [
+        {
+          "name": "cmake_status",
+          "type": "RichTextLabel"
+        },
+        {
+          "name": "make_status",
+          "type": "RichTextLabel"
+        },
+        {
+          "name": "git_status",
+          "type": "RichTextLabel"
+        },
+        {
+          "name": "zig_status",
+          "type": "RichTextLabel"
+        },
+        {
+          "name": "os_tab_container",
+          "type": "TabContainer"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "http_cmake",
+          "signal": "request_completed"
+        },
+        {
+          "target_expr": "http_zig",
+          "signal": "request_completed"
+        },
+        {
+          "target_expr": "http_ninja",
+          "signal": "request_completed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "extract_all_from_zip",
+          "args": "path: String, dest: String",
+          "returns": null
+        }
+      ],
+      "private_function_count": 9,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 255
+    },
+    {
+      "path": "res://godot_sandbox/plugin.gd",
+      "line_count": 24,
+      "class_name": null,
+      "extends": "EditorPlugin",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "popup_window",
+          "signal": "close_requested"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "show_popup",
+          "args": "",
+          "returns": null
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [
+        "res://addons/godot_sandbox/downloader.tscn"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 28
+    },
     {
       "path": "res://scripts/core/GameCamera.gd",
       "line_count": 165,
@@ -382,7 +465,7 @@
     },
     {
       "path": "res://scripts/ui/build/BuildModeHUD.gd",
-      "line_count": 1342,
+      "line_count": 1304,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -477,13 +560,13 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 31,
+      "private_function_count": 30,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 1391
+      "complexity_score": 1352
     },
     {
       "path": "res://scripts/ui/common/ConfirmDialogUI.gd",
