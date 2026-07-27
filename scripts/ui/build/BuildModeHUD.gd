@@ -106,19 +106,27 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 		{ "tile_id": 14, "name": "Normal Fertilizer", "price": 300 },
 		{ "tile_id": 15, "name": "Pro Fertilizer",    "price": 400 },
 	],
-	"Seeds": [
+"Seeds": [
 		{ "tile_id": 2, "name": "Tomato Seeds", "price": 25 },
 		{ "tile_id": 3, "name": "Onion Seeds",  "price": 25 },
 		{ "tile_id": 4,  "name": "Basil Seeds",        "price": 25 },
 		{ "tile_id": 5,  "name": "Strawberry Seeds",   "price": 25 },
 		{ "tile_id": 6,  "name": "Carrot Seeds",       "price": 25 },
-		{ "tile_id": 7,  "name": "Chili Pepper Seeds", "price": 25 },
-		{ "tile_id": 8,  "name": "Bell Pepper Seeds",  "price": 25 },
-		{ "tile_id": 9,  "name": "Garlic Seeds",       "price": 25 },
-		{ "tile_id": 10, "name": "Potato Seeds",       "price": 25 },
-		{ "tile_id": 11, "name": "Blueberry Seeds",    "price": 25 },
-		{ "tile_id": 12, "name": "Corn Seeds",         "price": 25 },
-		{ "tile_id": 13, "name": "Pumpkin Seeds",      "price": 25 },
+		{ "tile_id": 6,  "name": "Chili Pepper Seeds", "price": 25 },
+		{ "tile_id": 7,  "name": "Bell Pepper Seeds",  "price": 25 },
+		{ "tile_id": 8,  "name": "Garlic Seeds",       "price": 25 },
+		{ "tile_id": 9,  "name": "Potato Seeds",       "price": 25 },
+		{ "tile_id": 10, "name": "Blueberry Seeds",    "price": 25 },
+		{ "tile_id": 11, "name": "Corn Seeds",         "price": 25 },
+		{ "tile_id": 12, "name": "Pumpkin Seeds",      "price": 25 },
+	],
+	"Resources": [
+		{ "tile_id": 16, "name": "Water Case", "price": 80  },
+		{ "tile_id": 17, "name": "Can Case",   "price": 60  },
+		{ "tile_id": 18, "name": "Fuel Can",   "price": 120 },
+	],
+	"Miscellaneous": [
+		{ "tile_id": 19, "name": "Crate", "price": 40 },
 	],
 }
 
@@ -598,14 +606,16 @@ func _on_submenu_draw(ctrl: Control) -> void:
 
 			# Category icon prefix
 			const CAT_ICONS: Dictionary = {
-				"Structure": "🧱",
-				"Furniture": "🛏",
-				"Lighting":  "💡",
-				"Power":     "⚡",
-				"Water":     "🚰",
-				"Farming":   "🌱",
-				"Soil":      "🟫",
-				"Seeds":     "🌱",
+				"Structure":     "🧱",
+				"Furniture":     "🛏",
+				"Lighting":      "💡",
+				"Power":         "⚡",
+				"Water":         "🚰",
+				"Farming":       "🌱",
+				"Soil":          "🟫",
+				"Seeds":         "🌱",
+				"Resources":     "📦",
+				"Miscellaneous": "🗃",
 			}
 			var icon: String = CAT_ICONS.get(cat_name, "•")
 			ctrl.draw_string(font, Vector2(SUB_PAD, row_y + 30.0),
