@@ -43,7 +43,7 @@ signal pipe_tool_exit_requested()
 ## equal to BuildModeController.WATER_HOOKUP_PLACEMENT_Y (see that constant's
 ## own comment) — two independent constants, same value, since this system
 ## stays standalone with zero dependency on BuildModeController's internals.
-const WATER_CEILING_Y: float = 3.0
+const WATER_CEILING_Y: float = 3.2
 
 ## Snap radius for picking an existing graph node (hookup/joint/corner) as the
 ## run's SOURCE point (phase 0) — mirrors WireDrawMode.SNAP_RADIUS.
