@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-27T20:46:33.550576+00:00",
+  "generated_at": "2026-07-27T21:03:57.874561+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 104,
-  "total_lines": 40231,
+  "total_lines": 40296,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -2920,7 +2920,7 @@
     },
     {
       "path": "res://scripts/world/items/CanCase.gd",
-      "line_count": 65,
+      "line_count": 96,
       "class_name": null,
       "extends": "PickupableItem",
       "exports": [
@@ -2952,14 +2952,14 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 1,
+      "private_function_count": 3,
       "preloads": [],
       "group_lookups": [
         "player_stats",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 72
+      "complexity_score": 105
     },
     {
       "path": "res://scripts/world/items/EmptyBagItem.gd",
@@ -3573,7 +3573,7 @@
     },
     {
       "path": "res://scripts/world/items/WaterCase.gd",
-      "line_count": 69,
+      "line_count": 103,
       "class_name": null,
       "extends": "PickupableItem",
       "exports": [
@@ -3605,14 +3605,14 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 1,
+      "private_function_count": 3,
       "preloads": [],
       "group_lookups": [
         "player_stats",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 76
+      "complexity_score": 112
     },
     {
       "path": "res://scripts/world/power/BatteryBank.gd",
