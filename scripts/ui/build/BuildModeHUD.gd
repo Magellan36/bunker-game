@@ -609,6 +609,38 @@ func _build_submenu() -> Control:
 
 		_sub_viewports.append(vp)
 		_sub_vp_textures.append(vp.get_texture())
+		_sub_mesh_instances.append(null)
+
+	# Shop item previews (Jul 2026) — same viewport/camera/light setup as
+	# above, but the model comes from PREVIEW_SOURCES (instantiating the
+	# real item scene/script) instead of the gridmap MeshLibrary, since
+	# these aren't placeable tiles.
+	var shop_ids: Array = PREVIEW_SOURCES.keys()
+	for item_id: int in shop_ids:
+		var vp2: SubViewport = SubViewport.new()
+		vp2.size = Vector2i(SUB_VP_SIZE, SUB_VP_SIZE)
+		vp2.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+		vp2.transparent_bg  = true
+		vp2.disable_3d      = false
+		vp2.own_world_3d    = true
+		root.add_child(vp2)
+
+		var cam2: Camera3D = Camera3D.new()
+		cam2.projection = Camera3D.PROJECTION_ORTHOGONAL
+		cam2.size = 1.6
+		vp2.add_child(cam2)
+		cam2.position = Vector3(1.0, 1.2, 1.0)
+		cam2.call_deferred("look_at", Vector3.ZERO, Vector3.UP)
+
+		var light2: OmniLight3D = OmniLight3D.new()
+		light2.position = Vector3(1.0, 2.0, 1.0)
+		light2.light_energy = 3.0
+		light2.omni_range = 8.0
+		vp2.add_child(light2)
+
+		_shop_viewports.append(vp2)
+		_shop_vp_textures.append(vp2.get_texture())
+		_shop_mesh_instances.append(null)
 
 	# Draw surface for the submenu panel
 	var draw_ctrl: Control = Control.new()
