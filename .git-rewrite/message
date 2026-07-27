@@ -1,0 +1,1 @@
+Scale filter wear rate by incoming water quality: max rate <=50%% incoming, linear down to 25%% at 100%%, 0 when disconnected
