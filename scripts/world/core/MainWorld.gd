@@ -860,11 +860,24 @@ func _apply_floor_texture(gm: GridMap) -> void:
 		push_warning("[MainWorld] concrete_floor.jpg not found — floor texture skipped")
 		return
 
+	var norm_tex: Texture2D = load("res://assets/textures/concrete_floor_normal.png") as Texture2D
+	var rough_tex: Texture2D = load("res://assets/textures/concrete_floor_roughness.png") as Texture2D
+
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_texture = floor_tex
 	mat.albedo_color   = Color(1.0, 1.0, 1.0, 1.0)
-	mat.roughness      = 0.90
+	mat.roughness      = 0.88
 	mat.metallic       = 0.0
+
+	mat.uv1_triplanar           = true
+	mat.uv1_triplanar_sharpness = 3.0
+	mat.uv1_scale               = Vector3(0.041, 0.041, 0.041)
+
+	if rough_tex != null:
+		mat.roughness_texture = rough_tex
+	if norm_tex != null:
+		mat.normal_enabled = true
+		mat.normal_texture = norm_tex
 
 	for s: int in floor_mesh.get_surface_count():
 		floor_mesh.surface_set_material(s, mat)
