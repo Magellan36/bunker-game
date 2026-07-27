@@ -1,6 +1,15 @@
-tree 51d3dc6b7e9191397ea1dbdd23152d98a2e97699
-parent f6ae9242737c3e379a6601c66482b813f3fa1978
-author Brannon Henrie <brannon@magellan-apps.com> 1784831356 +0000
-committer Brannon Henrie <brannon@magellan-apps.com> 1784831356 +0000
+tree 36f69a60af8e5852aa005f71a88d555dc8dfdc34
+parent 364e455bc33ffdc1e0b41d977dd978a7e7a06eb8
+author Magellan Agent <agent@magellan-apps.com> 1784926422 +0000
+committer Magellan Agent <agent@magellan-apps.com> 1784926422 +0000
 
-Scale filter wear rate by incoming water quality: max rate <=50%% incoming, linear down to 25%% at 100%%, 0 when disconnected
+Farming Polish Plan Group 1: wilting visual, low-health toast, debug readout, ready-in countdown
+
+- New FarmingConstants.gd: shared HEALTH_WILT_THRESHOLD/HEALTH_WARNING_THRESHOLD
+- FarmPlant.gd: extends Node3D (finished Group 0's collider/group cleanup),
+  wilting albedo lerp, edge-triggered NotificationManager low-health toast
+  (deliberate substitute for the plan's older TransientNotice.gd),
+  FARM_DEBUG billboarded readout, growth_per_hour_current cache
+- FarmingTrayUI.gd: Ready in ~X days countdown line, color-graded via
+  WaterQualityColor.get_color(), PLANT_BLOCK_H 92->108
+- docs/systems/farming/README.md updated same-commit
