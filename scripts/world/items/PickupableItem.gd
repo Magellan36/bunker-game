@@ -147,3 +147,10 @@ func _set_held_culling(held: bool) -> void:
 	for child in get_children():
 		if child is GeometryInstance3D:
 			child.extra_cull_margin = margin
+
+## Shared spawn helper — see AdminSpawnMenu._spawn_scene() / FarmingShopHelper
+## for the convention: freeze this body for exactly one physics frame right
+## after spawning (so it doesn't fall through a floor that physics hasn't
+## "seen" yet), then call this deferred to unfreeze it.
+func _unfreeze_after_spawn() -> void:
+	freeze = false

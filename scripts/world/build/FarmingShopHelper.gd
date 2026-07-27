@@ -30,7 +30,7 @@ const SHOP_ITEM_INFO: Dictionary = {
 	1: { "name": "Bag of Soil",   "price": 100, "kind": "soil",  "count": 1, "type": "" },
 	2: { "name": "Tomato Seeds",  "price": 25,  "kind": "seed",  "count": 1, "type": "tomato" },
 	3: { "name": "Onion Seeds",   "price": 25,  "kind": "seed",  "count": 1, "type": "onion" },
-	4:  { "name": "Basil Seeds",        "price": 25, "kind": "seed", "count": 1, "type": "basil" },
+	4:  { "name": "Basil Seeds",        "price": 25, "kind": "seed",  "count": 1, "type": "basil" },
 	5:  { "name": "Strawberry Seeds",   "price": 25, "kind": "seed", "count": 1, "type": "strawberry" },
 	6:  { "name": "Carrot Seeds",       "price": 25, "kind": "seed", "count": 1, "type": "carrot" },
 	7:  { "name": "Chili Pepper Seeds", "price": 25, "kind": "seed", "count": 1, "type": "chili_pepper" },
@@ -42,6 +42,13 @@ const SHOP_ITEM_INFO: Dictionary = {
 	13: { "name": "Pumpkin Seeds",      "price": 25, "kind": "seed", "count": 1, "type": "pumpkin" },
 	14: { "name": "Normal Fertilizer", "price": 300, "kind": "fertilizer", "count": 1, "type": "normal" },
 	15: { "name": "Pro Fertilizer",    "price": 400, "kind": "fertilizer", "count": 1, "type": "pro" },
+	## Resources / Miscellaneous shop items (Jul 2026) — prices are
+	## placeholders, unreviewed, same convention as Grow Light/Test Sink/
+	## Dispenser pricing elsewhere in this project.
+	16: { "name": "Water Case", "price": 80,  "kind": "scene", "scene": "res://scenes/world/WaterCase.tscn" },
+	17: { "name": "Can Case",   "price": 60,  "kind": "scene", "scene": "res://scenes/world/CanCase.tscn" },
+	18: { "name": "Fuel Can",   "price": 120, "kind": "scene", "scene": "res://scenes/world/FuelCan.tscn" },
+	19: { "name": "Crate",      "price": 40,  "kind": "scene", "scene": "res://scenes/world/TestCrate.tscn" },
 }
 
 func get_item_price(item_id: int) -> int:
@@ -76,8 +83,38 @@ func spawn_purchased_item(item_id: int) -> bool:
 		"fertilizer":
 			var tier: String = String(info.get("type", "normal"))
 			FertilizerItem.spawn_at(parent, base_pos, tier)
+		"scene":
+			var scene_path: String = String(info.get("scene", ""))
+			_spawn_scene_item(scene_path, parent, base_pos)
 		_:
 			push_warning("FarmingShopHelper: unhandled kind '%s' for item_id %d" % [kind, item_id])
 			return false
 
 	return true
+
+## Generic "load a .tscn, freeze it for one frame, add it, position it,
+## unfreeze it" spawn used by the Resources/Miscellaneous shop items
+## (Water Case, Can Case, Fuel Can, Crate) — same freeze/unfreeze convention
+## as AdminSpawnMenu._spawn_scene(), plus the same small randomized
+## horizontal offset the other spawn_at() helpers in this file use.
+func _spawn_scene_item(scene_path: String, parent: Node, base_pos: Vector3) -> void:
+	if not ResourceLoader.exists(scene_path):
+		push_warning("FarmingShopHelper: scene not found: %s" % scene_path)
+		return
+	var packed: PackedScene = load(scene_path) as PackedScene
+	if packed == null:
+		push_warning("FarmingShopHelper: failed to load: %s" % scene_path)
+		return
+	var node: Node3D = packed.instantiate() as Node3D
+	if node == null:
+		push_warning("FarmingShopHelper: instantiate failed: %s" % scene_path)
+		return
+	if node is RigidBody3D:
+		var rb: RigidBody3D = node as RigidBody3D
+		rb.freeze      = true
+		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	parent.add_child(node)
+	var offset: Vector3 = Vector3(randf_range(-0.25, 0.25), 0.0, randf_range(-0.25, 0.25))
+	node.global_position = base_pos + offset
+	if node is RigidBody3D:
+		node.call_deferred("_unfreeze_after_spawn")
