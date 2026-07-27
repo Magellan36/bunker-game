@@ -784,44 +784,6 @@ func _on_submenu_draw(ctrl: Control) -> void:
 			ctrl.draw_string(font, Vector2(name_x, row_y + 44.0),
 				"$%d" % item["price"], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, PRICE_COLOR)
 
-func _refresh_submenu_previews() -> void:
-	## Load meshes from MeshLibrary into the SubViewports
-	if gridmap == null:
-		return
-	var lib: MeshLibrary = gridmap.mesh_library
-	if lib == null:
-		return
-
-	for i in CONSTRUCT_ITEMS.size():
-		if i >= _sub_viewports.size():
-			break
-		var tile_id: int  = CONSTRUCT_ITEMS[i]["tile_id"]
-		## Guard: only fetch mesh if this tile_id actually exists in the MeshLibrary.
-		## Procedural tiles (Shelving, Bed, Generators, etc.) have no MeshLibrary entry.
-		if not lib.get_item_list().has(tile_id):
-			continue
-		var mesh: Mesh    = lib.get_item_mesh(tile_id)
-		if mesh == null:
-			## Procedural tile (e.g. Shelving) — no MeshLibrary entry; skip 3D preview,
-			## the submenu row still draws with name + price as text.
-			continue
-
-		var vp: SubViewport = _sub_viewports[i]
-		# Remove any old mesh
-		for child in vp.get_children():
-			if child is MeshInstance3D:
-				child.queue_free()
-
-		var mi: MeshInstance3D = MeshInstance3D.new()
-		mi.mesh = mesh
-		mi.rotation_degrees = Vector3(0.0, 35.0, 0.0)
-		vp.add_child(mi)
-
-		# Center mesh in viewport
-		if mi.mesh != null:
-			var aabb: AABB = mi.mesh.get_aabb()
-			mi.position = -aabb.get_center()
-
 ## Returns the row index (0-based) within the current submenu level, or -1.
 func _get_submenu_item_at(pos: Vector2) -> int:
 	if not _submenu_open or not _submenu_root.visible:
