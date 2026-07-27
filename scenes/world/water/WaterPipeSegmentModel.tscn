@@ -1,0 +1,26 @@
+[gd_scene format=3]
+
+[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_diffuse.png" id="1_pipe_diff"]
+[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_roughness.png" id="2_pipe_rough"]
+[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_normal.png" id="3_pipe_norm"]
+
+[sub_resource type="StandardMaterial3D" id="mat_pipe"]
+albedo_texture = ExtResource("1_pipe_diff")
+roughness = 0.45
+roughness_texture = ExtResource("2_pipe_rough")
+metallic = 0.68
+normal_enabled = true
+normal_texture = ExtResource("3_pipe_norm")
+
+[sub_resource type="CylinderMesh" id="mesh_pipe_body"]
+top_radius = 0.09
+bottom_radius = 0.09
+height = 1.0
+radial_segments = 16
+rings = 2
+
+[node name="WaterPipeSegmentModel" type="Node3D"]
+
+[node name="PipeBody" type="MeshInstance3D" parent="."]
+mesh = SubResource("mesh_pipe_body")
+material_override = SubResource("mat_pipe")

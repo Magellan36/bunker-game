@@ -1,0 +1,96 @@
+[gd_scene format=3]
+
+[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_diffuse.png" id="1_pipe_diff"]
+[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_roughness.png" id="2_pipe_rough"]
+[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_normal.png" id="3_pipe_norm"]
+[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/bolt_diffuse.png" id="4_bolt_diff"]
+
+[sub_resource type="StandardMaterial3D" id="mat_pipe"]
+albedo_texture = ExtResource("1_pipe_diff")
+roughness = 0.45
+roughness_texture = ExtResource("2_pipe_rough")
+metallic = 0.68
+normal_enabled = true
+normal_texture = ExtResource("3_pipe_norm")
+
+[sub_resource type="StandardMaterial3D" id="mat_bolt"]
+albedo_texture = ExtResource("4_bolt_diff")
+roughness = 0.35
+metallic = 0.90
+
+[sub_resource type="CylinderMesh" id="mesh_sleeve"]
+top_radius = 0.108
+bottom_radius = 0.108
+height = 0.16
+radial_segments = 16
+rings = 2
+
+[sub_resource type="CylinderMesh" id="mesh_flange"]
+top_radius = 0.135
+bottom_radius = 0.135
+height = 0.02
+radial_segments = 20
+rings = 1
+
+[sub_resource type="CylinderMesh" id="mesh_bolt_head"]
+top_radius = 0.011
+bottom_radius = 0.011
+height = 0.012
+radial_segments = 10
+rings = 1
+
+[node name="WaterPipeCouplerModel" type="Node3D"]
+
+[node name="Sleeve" type="MeshInstance3D" parent="."]
+mesh = SubResource("mesh_sleeve")
+material_override = SubResource("mat_pipe")
+
+[node name="FlangeA" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.09, 0)
+mesh = SubResource("mesh_flange")
+material_override = SubResource("mat_pipe")
+
+[node name="FlangeB" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.09, 0)
+mesh = SubResource("mesh_flange")
+material_override = SubResource("mat_pipe")
+
+[node name="BoltA_1" type="MeshInstance3D" parent="."]
+position = Vector3(0.112, -0.09, 0)
+mesh = SubResource("mesh_bolt_head")
+material_override = SubResource("mat_bolt")
+
+[node name="BoltA_2" type="MeshInstance3D" parent="."]
+position = Vector3(-0.112, -0.09, 0)
+mesh = SubResource("mesh_bolt_head")
+material_override = SubResource("mat_bolt")
+
+[node name="BoltA_3" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.09, 0.112)
+mesh = SubResource("mesh_bolt_head")
+material_override = SubResource("mat_bolt")
+
+[node name="BoltA_4" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.09, -0.112)
+mesh = SubResource("mesh_bolt_head")
+material_override = SubResource("mat_bolt")
+
+[node name="BoltB_1" type="MeshInstance3D" parent="."]
+position = Vector3(0.112, 0.09, 0)
+mesh = SubResource("mesh_bolt_head")
+material_override = SubResource("mat_bolt")
+
+[node name="BoltB_2" type="MeshInstance3D" parent="."]
+position = Vector3(-0.112, 0.09, 0)
+mesh = SubResource("mesh_bolt_head")
+material_override = SubResource("mat_bolt")
+
+[node name="BoltB_3" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.09, 0.112)
+mesh = SubResource("mesh_bolt_head")
+material_override = SubResource("mat_bolt")
+
+[node name="BoltB_4" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.09, -0.112)
+mesh = SubResource("mesh_bolt_head")
+material_override = SubResource("mat_bolt")
