@@ -1,30 +1,51 @@
 extends PickupableItem
 ## CanCase.gd
-## A case of 16 food cans. Pickupable and carriable like a crate.
+## A case of food cans (visual model: 12 cans, 4×3 layout in VisualRoot).
+## Pickupable and carriable like a crate.
 ## While PLACED: press E to eject one can from the case.
 ## While HELD:   E does nothing (interact blocked while carrying).
+## Each ejection also hides one visible can mesh under VisualRoot so the case
+## model visually empties out in sync with can_count — see _hide_next_can_visual().
 
 # ─── Exports ─────────────────────────────────────────────────────────────────
 @export var item_name: String  = "Can Case"
-@export var can_count: int     = 16
+@export var can_count: int     = 12   ## Matches the 12 visible Can_01..Can_12 nodes in CanCase.tscn
 
 ## Shelf stacking — 4 cases lay flat per slot (2×2 grid)
 var shelf_stack_limit: int   = 4
 var shelf_item_type: String  = "can_case"
 
 const CAN_SCENE: String = "res://scenes/world/FoodCan.tscn"
+const VISUAL_CAN_PREFIX: String = "Can_"   ## VisualRoot child name prefix, e.g. "Can_01"
 
 # ─── Node refs ───────────────────────────────────────────────────────────────
 ## Add a Node3D child named "SpawnPoint" in the editor — sets where cans eject from.
 @onready var spawn_point: Node3D = $SpawnPoint
+@onready var visual_root: Node3D = get_node_or_null("VisualRoot")
 
 var _player_stats: Node = null  ## Injected by MainWorld
+var _can_visuals: Array[Node3D] = []   ## Populated in _ready(), depleted highest-numbered-first
 
 func _ready() -> void:
 	super._ready()
 	add_to_group("interactable")
 	## Scale down by 1/4
 	scale = Vector3(0.75, 0.75, 0.75)
+	_collect_can_visuals()
+
+## Builds _can_visuals in ascending name order (Can_01 .. Can_12) from VisualRoot's
+## children so _hide_next_can_visual() can pop from the end (Can_12 hidden first).
+func _collect_can_visuals() -> void:
+	_can_visuals.clear()
+	if visual_root == null:
+		push_warning("CanCase: no 'VisualRoot' node found — visual can depletion disabled.")
+		return
+	var found: Array[Node3D] = []
+	for child in visual_root.get_children():
+		if child is Node3D and String(child.name).begins_with(VISUAL_CAN_PREFIX):
+			found.append(child)
+	found.sort_custom(func(a, b): return String(a.name) < String(b.name))
+	_can_visuals = found
 
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_prompt_text() -> String:
@@ -63,3 +84,13 @@ func on_interact() -> void:
 	can.linear_velocity = -global_transform.basis.z * 2.5 + Vector3(0, 1.5, 0)
 
 	can_count -= 1
+	_hide_next_can_visual()
+
+## Hides the next remaining visible can mesh (highest-numbered first) so the
+## case model visually empties in sync with can_count. Safe no-op once
+## _can_visuals is empty (e.g. can_count configured higher than 12 elsewhere).
+func _hide_next_can_visual() -> void:
+	if _can_visuals.is_empty():
+		return
+	var next_can: Node3D = _can_visuals.pop_back()
+	next_can.visible = false
