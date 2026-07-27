@@ -99,6 +99,4 @@ inv_slot_4={
 
 [rendering]
 
-renderer/rendering_method="forward_plus"
-renderer/rendering_method.mobile="mobile"
 rendering_device/driver.windows="d3d12"
