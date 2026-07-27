@@ -798,6 +798,53 @@ func _get_submenu_item_at(pos: Vector2) -> int:
 		return row
 	return -1
 
+## Called when the player clicks a resolved row index inside the open
+## submenu (see _get_submenu_item_at()). Row meaning depends on level:
+##   - "root" level: row = index into _current_categories().keys() → drill
+##     into that category's item list.
+##   - "items" level: row 0 = "‹ Back" → return to root. row >= 1 = index
+##     (row - 1) into the active category's item array → pick that item.
+func _on_submenu_item_selected(item: int) -> void:
+	var cats: Dictionary = _current_categories()
+
+	if _submenu_level == "root":
+		var cat_keys: Array = cats.keys()
+		if item < 0 or item >= cat_keys.size():
+			return
+		_active_category = cat_keys[item]
+		_submenu_level   = "items"
+		_position_submenu()   ## row count changed — resize/reposition panel
+		_canvas.queue_redraw()
+		return
+
+	# ── "items" level ──
+	if item == 0:
+		## Back row
+		_submenu_level   = "root"
+		_active_category = ""
+		_position_submenu()
+		_canvas.queue_redraw()
+		return
+
+	var cat_items: Array = cats.get(_active_category, [])
+	var idx_in_cat: int  = item - 1   ## row 0 is Back, so shift by one
+	if idx_in_cat < 0 or idx_in_cat >= cat_items.size():
+		return
+
+	var tile_id: int = cat_items[idx_in_cat]["tile_id"]
+
+	if _submenu_source == "construct":
+		## Placeable tile — emit for BuildModeController to start a ghost,
+		## then close the submenu (picking a tile always closes it).
+		construct_item_chosen.emit(tile_id)
+		_close_submenu()
+	else:
+		## Farming/shop item — emit to spawn/buy immediately, but per the
+		## A6 fix (see HANDOVER.md) the shop submenu stays open after a
+		## purchase so the player can buy multiple items in a row.
+		farming_item_chosen.emit(tile_id)
+		_canvas.queue_redraw()
+
 func _refresh_submenu_previews() -> void:
 	## Load meshes from MeshLibrary into the SubViewports
 	if gridmap == null:
