@@ -130,6 +130,34 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 	],
 }
 
+## Item preview source per shop item_id (Jul 2026) — mirrors
+## FarmingShopHelper.SHOP_ITEM_INFO's item_ids exactly, but only needs to
+## know how to build a throwaway instance for rendering a preview, not how
+## to actually spawn/sell the item. "scene": load this .tscn. "script": call
+## .new() on this script (used for the procedurally-built items that don't
+## have their own .tscn).
+const PREVIEW_SOURCES: Dictionary = {
+	1:  { "scene": "res://scripts/world/items/BagOfSoilItem.gd", "is_script": true },
+	2:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	3:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	4:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	5:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	6:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	7:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	8:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	9:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	10: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	11: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	12: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	13: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	14: { "scene": "res://scripts/world/items/FertilizerItem.gd", "is_script": true },
+	15: { "scene": "res://scripts/world/items/FertilizerItem.gd", "is_script": true },
+	16: { "scene": "res://scenes/world/WaterCase.tscn", "is_script": false },
+	17: { "scene": "res://scenes/world/CanCase.tscn",   "is_script": false },
+	18: { "scene": "res://scenes/world/FuelCan.tscn",   "is_script": false },
+	19: { "scene": "res://scenes/world/TestCrate.tscn", "is_script": false },
+}
+
 ## Flat list used only for legacy compat (3D preview viewports, etc.)
 ## Generated from CATEGORIES at runtime — do NOT edit directly.
 var CONSTRUCT_ITEMS: Array = []
@@ -172,6 +200,13 @@ const SUB_BG:       Color = Color(0.08, 0.10, 0.07, 0.94)
 const SUB_BORDER:   Color = Color(0.42, 0.87, 0.15, 0.60)
 const PRICE_COLOR:  Color = Color(0.35, 0.95, 0.30, 1.0)
 
+## Item preview pose/animation (Jul 2026). Default resting pose: rotated
+## 45° to the left and 45° down from straight-on. While the mouse hovers a
+## row, its preview spins clockwise continuously; on hover-out it snaps
+## straight back to this same default pose (no easing).
+const PREVIEW_ROTATION_DEFAULT: Vector3 = Vector3(-45.0, -45.0, 0.0)
+const PREVIEW_HOVER_SPIN_DEG_PER_SEC: float = 90.0
+
 # ─── Node refs ────────────────────────────────────────────────────────────────
 var _canvas:       Control        = null   ## Full-screen draw surface
 var _cursor:       Label          = null   ## Hammer emoji cursor
@@ -181,8 +216,20 @@ var _cancel_btn:   Control        = null   ## Red X button
 
 ## Submenu nodes (built once, shown/hidden)
 var _submenu_root:    Control   = null
-var _sub_viewports:   Array     = []   ## SubViewport per item
+var _sub_viewports:   Array     = []   ## SubViewport per construct item
 var _sub_vp_textures: Array     = []   ## ViewportTexture handles
+var _sub_mesh_instances: Array  = []   ## MeshInstance3D per construct item (parallel to _sub_viewports) — null until _refresh_submenu_previews() fills it
+## Shop items (Soil/Seeds/Fertilizer/Resources/Miscellaneous) get their own
+## pool, built once in _ready(), since they're not MeshLibrary tiles —
+## their preview comes from instantiating the item's own scene/script.
+var _shop_viewports:      Array = []
+var _shop_vp_textures:    Array = []
+var _shop_mesh_instances: Array = []
+## Which submenu row is currently hovered — used by _process() to know
+## which preview (construct or shop pool) to spin, and to snap every other
+## one back to PREVIEW_ROTATION_DEFAULT. -1 = none hovered / not on an item row.
+var _hovered_preview_index: int = -1
+var _hovered_preview_is_shop: bool = false
 
 # ─── External refs ────────────────────────────────────────────────────────────
 ## Set by BuildModeController after _ready — used to read tile meshes
@@ -284,6 +331,7 @@ func _process(delta: float) -> void:
 		_undo_flash_t = maxf(0.0, _undo_flash_t - delta)
 	# Keep cancel X flush-right of the banner every frame
 	_reposition_cancel_btn()
+	_update_preview_hover_spin(delta)
 	_canvas.queue_redraw()
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -670,24 +718,32 @@ func _on_submenu_draw(ctrl: Control) -> void:
 					Vector2(SUB_W - SUB_PAD, row_y + SUB_ITEM_H),
 					Color(0.3, 0.3, 0.3, 0.6), 1.0)
 
-			# 3D preview viewport — find flat index in CONSTRUCT_ITEMS.
-			# Farming-shop items (_submenu_source == "farming") are deliberately
-			# excluded from this lookup: FARMING_SHOP_ITEMS' "tile_id" values are
-			# really item_ids (1/2/3) that collide numerically with real
-			# CONSTRUCT_ITEMS tile_ids (Wall/Pillar/Shelving) — without this guard
-			# a farming shop row would incorrectly show a wall/pillar preview mesh.
-			var flat_idx: int = -1
+			# 3D preview viewport — construct items look up their flat index in
+			# CONSTRUCT_ITEMS; shop items (Soil/Seeds/Fertilizer/Resources/
+			# Miscellaneous) look up their index in PREVIEW_SOURCES' key order
+			# instead, since "tile_id" there is really an item_id that collides
+			# numerically with real CONSTRUCT_ITEMS tile_ids (Wall/Pillar/
+			# Shelving) — keeping these two lookups separate avoids a farming/
+			# shop row showing the wrong preview.
+			var vp_rect: Rect2 = Rect2(SUB_PAD,
+				row_y + (SUB_ITEM_H - SUB_VP_SIZE) * 0.5,
+				SUB_VP_SIZE, SUB_VP_SIZE)
 			if _submenu_source == "construct":
-				for fi: int in CONSTRUCT_ITEMS.size():
-					if CONSTRUCT_ITEMS[fi]["tile_id"] == item["tile_id"]:
-						flat_idx = fi
-						break
-			if flat_idx >= 0 and flat_idx < _sub_vp_textures.size() \
-					and _sub_vp_textures[flat_idx] != null:
-				var vp_rect: Rect2 = Rect2(SUB_PAD,
-					row_y + (SUB_ITEM_H - SUB_VP_SIZE) * 0.5,
-					SUB_VP_SIZE, SUB_VP_SIZE)
-				ctrl.draw_texture_rect(_sub_vp_textures[flat_idx], vp_rect, false)
+				var flat_idx: int = -1
+				if _submenu_source == "construct":
+					for fi: int in CONSTRUCT_ITEMS.size():
+						if CONSTRUCT_ITEMS[fi]["tile_id"] == item["tile_id"]:
+							flat_idx = fi
+							break
+				if flat_idx >= 0 and flat_idx < _sub_vp_textures.size() \
+						and _sub_vp_textures[flat_idx] != null:
+					ctrl.draw_texture_rect(_sub_vp_textures[flat_idx], vp_rect, false)
+			else:
+				var shop_ids: Array = PREVIEW_SOURCES.keys()
+				var shop_idx: int = shop_ids.find(item["tile_id"])
+				if shop_idx >= 0 and shop_idx < _shop_vp_textures.size() \
+						and _shop_vp_textures[shop_idx] != null:
+					ctrl.draw_texture_rect(_shop_vp_textures[shop_idx], vp_rect, false)
 
 			# Name + price
 			var name_x: float = SUB_PAD + SUB_VP_SIZE + SUB_GAP
@@ -748,43 +804,107 @@ func _get_submenu_item_at(pos: Vector2) -> int:
 		return row
 	return -1
 
-func _on_submenu_item_selected(row: int) -> void:
-	var cats: Dictionary = _current_categories()
-
-	# ── Root level: user clicked a category ───────────────────────────────────
-	if _submenu_level == "root":
-		var cat_keys: Array = cats.keys()
-		if row >= 0 and row < cat_keys.size():
-			_active_category = cat_keys[row]
-			_submenu_level   = "items"
-			_position_submenu()
-			_canvas.queue_redraw()
+func _refresh_submenu_previews() -> void:
+	## Load meshes from MeshLibrary into the SubViewports
+	if gridmap == null:
+		return
+	var lib: MeshLibrary = gridmap.mesh_library
+	if lib == null:
 		return
 
-	# ── Items level ────────────────────────────────────────────────────────────
-	if row == 0:
-		# Back button — return to root
-		_submenu_level   = "root"
-		_active_category = ""
-		_position_submenu()
-		_canvas.queue_redraw()
-		return
+	for i in CONSTRUCT_ITEMS.size():
+		if i >= _sub_viewports.size():
+			break
+		var tile_id: int  = CONSTRUCT_ITEMS[i]["tile_id"]
+		## Guard: only fetch mesh if this tile_id actually exists in the MeshLibrary.
+		## Procedural tiles (Shelving, Bed, Generators, etc.) have no MeshLibrary entry.
+		if not lib.get_item_list().has(tile_id):
+			continue
+		var mesh: Mesh    = lib.get_item_mesh(tile_id)
+		if mesh == null:
+			## Procedural tile (e.g. Shelving) — no MeshLibrary entry; skip 3D preview,
+			## the submenu row still draws with name + price as text.
+			continue
 
-	# row 1+ → item at index (row - 1)
-	var cat_items: Array = cats.get(_active_category, [])
-	var item_idx: int    = row - 1
-	if item_idx < 0 or item_idx >= cat_items.size():
-		return
+		var vp: SubViewport = _sub_viewports[i]
+		# Remove any old mesh
+		for child in vp.get_children():
+			if child is MeshInstance3D:
+				child.queue_free()
 
-	var id_val: int = cat_items[item_idx]["tile_id"]
-	if _submenu_source == "farming":
-		## Buy → spawn near player — no ghost, no tool switch (plan §8.1/§8.3).
-		farming_item_chosen.emit(id_val)
-	else:
-		_close_submenu()
-		active_tool = TOOL_CONSTRUCT
-		construct_item_chosen.emit(id_val)
-	_canvas.queue_redraw()
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+		vp.add_child(mi)
+		_sub_mesh_instances[i] = mi
+
+		# Center mesh in viewport
+		if mi.mesh != null:
+			var aabb: AABB = mi.mesh.get_aabb()
+			mi.position = -aabb.get_center()
+
+	_refresh_shop_previews()
+
+## Shop item previews (Jul 2026) — instantiates the real item scene/script
+## (see PREVIEW_SOURCES) into its own SubViewport, extracts nothing special:
+## the whole node tree renders, so imported models (e.g. FuelCan's .glb)
+## work the same as procedurally-built meshes (e.g. BagOfSoilItem). The
+## instance's own game logic is disabled (set_process/set_physics_process
+## false) since it's a display-only stand-in, never actually held or used.
+func _refresh_shop_previews() -> void:
+	var shop_ids: Array = PREVIEW_SOURCES.keys()
+	for i: int in shop_ids.size():
+		if i >= _shop_viewports.size():
+			break
+		var info: Dictionary = PREVIEW_SOURCES[shop_ids[i]]
+		var vp: SubViewport = _shop_viewports[i]
+		for child in vp.get_children():
+			if child is Node3D and child is not Camera3D and child is not OmniLight3D:
+				child.queue_free()
+
+		var inst: Node3D = null
+		if bool(info.get("is_script", false)):
+			var script: GDScript = load(String(info["scene"])) as GDScript
+			if script == null:
+				continue
+			inst = script.new()
+		else:
+			var packed: PackedScene = load(String(info["scene"])) as PackedScene
+			if packed == null:
+				continue
+			inst = packed.instantiate() as Node3D
+		if inst == null:
+			continue
+
+		if inst is RigidBody3D:
+			var rb: RigidBody3D = inst as RigidBody3D
+			rb.freeze = true
+			rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		inst.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+		vp.add_child(inst)
+		inst.set_process(false)
+		inst.set_physics_process(false)
+		_shop_mesh_instances[i] = inst
+
+		# Center in viewport using the combined AABB of any MeshInstance3D
+		# children (imported models nest their mesh a level or two down, so
+		# search recursively rather than assuming a direct child).
+		var combined: AABB = AABB()
+		var found_any: bool = false
+		var stack: Array = [inst]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+				var mesh_aabb: AABB = (n as MeshInstance3D).mesh.get_aabb()
+				if not found_any:
+					combined = mesh_aabb
+					found_any = true
+				else:
+					combined = combined.merge(mesh_aabb)
+			for c in n.get_children():
+				stack.append(c)
+		if found_any:
+			inst.position = -combined.get_center()
 
 # ─── Cancel button ────────────────────────────────────────────────────────────
 func _build_cancel_button() -> Control:
@@ -809,6 +929,47 @@ func _reposition_cancel_btn() -> void:
 	var by: float = _banner.offset_top  + (_banner.size.y - _cancel_btn.size.y) * 0.5
 	_cancel_btn.offset_left = bx
 	_cancel_btn.offset_top  = by
+
+## Item preview hover animation (Jul 2026). Only meaningful while the
+## submenu is open and on the Items level (root-level category rows have
+## no preview). Spins whichever row's preview is under the mouse
+## clockwise; every other preview snaps straight back to
+## PREVIEW_ROTATION_DEFAULT with no easing, per spec.
+func _update_preview_hover_spin(delta: float) -> void:
+	var new_hover: int = -1
+	var new_is_shop: bool = false
+	if _submenu_open and _submenu_level == "items":
+		var row: int = _get_submenu_item_at(_mouse_pos)
+		if row >= 1:   ## row 0 is the Back button, never a preview
+			var cats: Dictionary = _current_categories()
+			var cat_items: Array = cats.get(_active_category, [])
+			var idx_in_cat: int = row - 1
+			if idx_in_cat >= 0 and idx_in_cat < cat_items.size():
+				var tid: int = cat_items[idx_in_cat]["tile_id"]
+				new_is_shop = _submenu_source != "construct"
+				if new_is_shop:
+					new_hover = PREVIEW_SOURCES.keys().find(tid)
+				else:
+					for fi: int in CONSTRUCT_ITEMS.size():
+						if CONSTRUCT_ITEMS[fi]["tile_id"] == tid:
+							new_hover = fi
+							break
+
+	var mesh_pool: Array = _shop_mesh_instances if new_is_shop else _sub_mesh_instances
+	if new_hover != _hovered_preview_index or new_is_shop != _hovered_preview_is_shop:
+		# Snap the PREVIOUSLY hovered preview back to its default pose.
+		var old_pool: Array = _shop_mesh_instances if _hovered_preview_is_shop else _sub_mesh_instances
+		if _hovered_preview_index >= 0 and _hovered_preview_index < old_pool.size():
+			var old_mi: Node3D = old_pool[_hovered_preview_index]
+			if old_mi != null and is_instance_valid(old_mi):
+				old_mi.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+		_hovered_preview_index  = new_hover
+		_hovered_preview_is_shop = new_is_shop
+
+	if _hovered_preview_index >= 0 and _hovered_preview_index < mesh_pool.size():
+		var mi: Node3D = mesh_pool[_hovered_preview_index]
+		if mi != null and is_instance_valid(mi):
+			mi.rotation_degrees.y += PREVIEW_HOVER_SPIN_DEG_PER_SEC * delta
 
 func _on_cancel_draw(btn: Control) -> void:
 	var r: Rect2  = Rect2(Vector2.ZERO, btn.size)
