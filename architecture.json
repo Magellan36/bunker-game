@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-27T20:19:00.194306+00:00",
+  "generated_at": "2026-07-27T20:46:33.550576+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 104,
-  "total_lines": 40185,
+  "total_lines": 40231,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -465,7 +465,7 @@
     },
     {
       "path": "res://scripts/ui/build/BuildModeHUD.gd",
-      "line_count": 1304,
+      "line_count": 1351,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -560,13 +560,13 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 30,
+      "private_function_count": 31,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 1352
+      "complexity_score": 1400
     },
     {
       "path": "res://scripts/ui/common/ConfirmDialogUI.gd",
@@ -2029,7 +2029,7 @@
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
-      "line_count": 581,
+      "line_count": 580,
       "class_name": "GhostPreview",
       "extends": "RefCounted",
       "exports": [],
@@ -2047,7 +2047,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 588
+      "complexity_score": 587
     },
     {
       "path": "res://scripts/world/build/MoveDuplicateTool.gd",
