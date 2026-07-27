@@ -1,12 +1,16 @@
 extends PickupableItem
 ## WaterCase.gd
-## A case of 24 water bottles. Can be picked up and carried like a crate.
+## A case of 24 water bottles (visual model: 24 Bottle_01..Bottle_24 nodes
+## in VisualRoot). Can be picked up and carried like a crate.
 ## While PLACED: press E to eject one bottle from the case.
 ## While HELD:   E does nothing (interact is blocked when carried).
+## Each ejection also hides one visible bottle mesh under VisualRoot so the
+## case model visually empties out in sync with bottle_count — see
+## _hide_next_bottle_visual().
 
 # ─── Exports ─────────────────────────────────────────────────────────────────
 @export var item_name: String  = "Water Case"
-@export var bottle_count: int  = 24
+@export var bottle_count: int  = 24   ## Matches the 24 visible Bottle_01..Bottle_24 nodes in WaterCase.tscn
 
 ## Shelf stacking — 4 cases lay flat per slot (2×2 grid)
 var shelf_stack_limit: int   = 4
@@ -14,18 +18,38 @@ var shelf_item_type: String  = "water_case"
 
 ## Preloaded bottle scene — must exist at this path
 const BOTTLE_SCENE: String = "res://scenes/world/WaterBottle.tscn"
+const VISUAL_BOTTLE_PREFIX: String = "Bottle_"   ## VisualRoot child name prefix, e.g. "Bottle_01"
 
 # ─── Node refs ───────────────────────────────────────────────────────────────
 ## Add a Node3D child named "SpawnPoint" in the editor; positions where bottles eject from.
 @onready var spawn_point: Node3D = $SpawnPoint
+@onready var visual_root: Node3D = get_node_or_null("VisualRoot")
 
 var _player_stats: Node = null  ## Injected by MainWorld (scans "interactable" group)
+var _bottle_visuals: Array[Node3D] = []   ## Populated in _ready(), depleted highest-numbered-first
 
 func _ready() -> void:
 	super._ready()
 	add_to_group("interactable")
 	## Scale down by 1/4
 	scale = Vector3(0.75, 0.75, 0.75)
+	_collect_bottle_visuals()
+
+## Builds _bottle_visuals in ascending name order (Bottle_01 .. Bottle_24) from
+## VisualRoot's children so _hide_next_bottle_visual() can pop from the end
+## (Bottle_24 hidden first). Note: unlike CanCase's Can_XX holder nodes, these
+## are MeshInstance3D nodes directly — no Body/Lid sub-children to worry about.
+func _collect_bottle_visuals() -> void:
+	_bottle_visuals.clear()
+	if visual_root == null:
+		push_warning("WaterCase: no 'VisualRoot' node found — visual bottle depletion disabled.")
+		return
+	var found: Array[Node3D] = []
+	for child in visual_root.get_children():
+		if child is Node3D and String(child.name).begins_with(VISUAL_BOTTLE_PREFIX):
+			found.append(child)
+	found.sort_custom(func(a, b): return String(a.name) < String(b.name))
+	_bottle_visuals = found
 
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_prompt_text() -> String:
@@ -67,3 +91,13 @@ func on_interact() -> void:
 	bottle.linear_velocity = -global_transform.basis.z * 2.5 + Vector3(0, 1.5, 0)
 
 	bottle_count -= 1
+	_hide_next_bottle_visual()
+
+## Hides the next remaining visible bottle mesh (highest-numbered first) so
+## the case model visually empties in sync with bottle_count. Safe no-op once
+## _bottle_visuals is empty (e.g. bottle_count configured higher than 24 elsewhere).
+func _hide_next_bottle_visual() -> void:
+	if _bottle_visuals.is_empty():
+		return
+	var next_bottle: Node3D = _bottle_visuals.pop_back()
+	next_bottle.visible = false

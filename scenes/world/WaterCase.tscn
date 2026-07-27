@@ -45,7 +45,7 @@ rings = 6
 [sub_resource type="BoxShape3D" id="shape_case_collision"]
 size = Vector3(0.54, 0.19, 0.42)
 
-[node name="WaterCase" type="RigidBody3D" unique_id="403391416" groups=["pickup"]]
+[node name="WaterCase" type="RigidBody3D" unique_id=403391416 groups=["pickup"]]
 mass = 5.0
 continuous_cd = true
 contact_monitor = true
@@ -53,7 +53,7 @@ script = ExtResource("1_water_case_script")
 item_name = "Water Case"
 bottle_count = 24
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id="87744957"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=87744957]
 position = Vector3(0, 0.095, 0)
 shape = SubResource("shape_case_collision")
 
@@ -209,5 +209,5 @@ position = Vector3(0.205, 0.095, 0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
 
-[node name="SpawnPoint" type="Node3D" parent="." unique_id="295681397"]
+[node name="SpawnPoint" type="Node3D" parent="." unique_id=295681397]
 position = Vector3(0, 0.11, -0.245)
