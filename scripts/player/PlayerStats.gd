@@ -177,6 +177,18 @@ func skip_time(hours: float) -> void:
 ## Restores elapsed time (e.g. from a save file) and immediately recomputes the
 ## cached clock/day so the HUD updates on the same frame instead of waiting for
 ## the next _process tick to notice the jump.
+## Advances the clock by `hours` game-hours AND applies the same food/
+## water/sleep/health drain that would happen if that time had actually
+## passed in real-time (see _tick_needs()). Distinct from skip_time() (the
+## sleep-to-morning skip), which deliberately refills sleep instead of
+## draining it — this one is for the admin "Fast-Forward" cheat, which
+## should behave like a day actually passed.
+func skip_time_with_drain(hours: float) -> void:
+	var scaled: float = hours * _seconds_per_game_hour
+	_elapsed += scaled
+	_tick_needs(scaled)
+	_tick_clock()
+
 func set_elapsed(value: float) -> void:
 	_elapsed = maxf(0.0, value)
 	## Force the cached-clock guard to recompute even if hour/minute happen to

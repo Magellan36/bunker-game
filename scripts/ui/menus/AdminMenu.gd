@@ -251,13 +251,31 @@ func _on_remove_power_pressed() -> void:
 	if pm != null:
 		pm.admin_add_power(-ADMIN_POWER_STEP_WATTS)
 
-## Jumps the game clock forward exactly one full day. Pure clock cheat — does
-## NOT also apply a day's worth of food/water/sleep drain (this is a time-skip
-## for testing day-based mechanics, not a "simulate a day passing" cheat).
+## Jumps the game clock forward exactly one full day AND actually simulates
+## that day passing (Jul 2026 fix). Each affected system's own real update
+## function is called directly with one lumped 24-game-hour delta — food/
+## water/sleep/health drain (PlayerStats), water quality decay
+## (WaterHookup), and plant growth (every FarmPlant) — instead of
+## reimplementing any of that math here, so this can't drift out of sync
+## with what 24 hours of normal play would actually do.
 func _on_fast_forward_pressed() -> void:
 	var stats: PlayerStats = _get_player_stats()
-	if stats != null:
-		stats.set_elapsed(stats.get_elapsed() + stats.day_duration_seconds)
+	if stats == null:
+		return
+	var scaled: float = 24.0 * stats._seconds_per_game_hour
+
+	stats.skip_time_with_drain(24.0)
+
+	var wm: WaterManager = _get_water_manager()
+	if wm != null:
+		var hookup: WaterHookup = wm.get_the_hookup()
+		if hookup != null:
+			hookup._process(scaled)
+
+	for tray: FarmingTray in get_tree().get_nodes_in_group("farming_tray"):
+		for plant: FarmPlant in tray.plant_refs:
+			if plant != null and is_instance_valid(plant):
+				plant._process(scaled)
 
 ## "By 50%" read as relative to the hookup's CURRENT quality value (halves /
 ## raises-by-half from wherever it currently sits), not a flat ±50 points —
