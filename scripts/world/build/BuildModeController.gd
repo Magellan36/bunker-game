@@ -78,7 +78,7 @@ const WALL_HEIGHT_M: float = 3.0
 ## Grow lights sit "near wall-height" per the Farming System plan — high
 ## enough to read as ceiling-mounted shop lighting. Polish Plan Group 0 item
 ## 20: revised to 7/8 wall height (2.625m) — now sits slightly BELOW the
-## 2.9m pipe layer (WATER_HOOKUP_PLACEMENT_Y/WATER_CEILING_Y), a visual-only
+## 3.9m pipe layer (WATER_HOOKUP_PLACEMENT_Y/WATER_CEILING_Y), a visual-only
 ## change to eyeball once placed, not a functional conflict.
 const GROW_LIGHT_PLACEMENT_Y: float = WALL_HEIGHT_M * 7.0 / 8.0
 
@@ -105,7 +105,7 @@ const LIGHT_PLACEMENT_Y: float = 1.0
 ## WaterPipeDrawMode.WATER_CEILING_Y must be kept equal to this (see that
 ## file's own comment — two independent constants, same value, since the
 ## water system stays standalone/no cross-file dependency on BuildModeController).
-const WATER_HOOKUP_PLACEMENT_Y: float = 2.9
+const WATER_HOOKUP_PLACEMENT_Y: float = 3.4
 
 ## Generator sits on the floor; lowered by TestCrate rendered height (0.477m) so
 ## it visually rests flush with the ground plane.  1.0 - 0.477 ≈ 0.523.
