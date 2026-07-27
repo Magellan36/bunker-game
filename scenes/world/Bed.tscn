@@ -69,7 +69,7 @@ rings = 2
 [sub_resource type="BoxShape3D" id="shape_bed_collision"]
 size = Vector3(2, 0.5, 1)
 
-[node name="Bed" type="StaticBody3D" unique_id="1752025624"]
+[node name="Bed" type="StaticBody3D" unique_id=1752025624]
 script = ExtResource("1_bed_script")
 
 [node name="VisualRoot" type="Node3D" parent="."]
