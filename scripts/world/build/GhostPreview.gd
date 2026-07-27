@@ -578,3 +578,4 @@ func _update_ghost() -> void:
 	if _owner._ghost.mesh != null:
 		for s: int in _owner._ghost.mesh.get_surface_count():
 			_owner._ghost.set_surface_override_material(s, mat)
+
