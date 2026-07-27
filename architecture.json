@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-20T01:54:30.750353+00:00",
+  "generated_at": "2026-07-27T19:23:00.954404+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 82,
-  "total_lines": 34274,
+  "script_count": 102,
+  "total_lines": 39955,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -267,7 +267,7 @@
     },
     {
       "path": "res://scripts/player/PlayerStats.gd",
-      "line_count": 170,
+      "line_count": 199,
       "class_name": "PlayerStats",
       "extends": "Node",
       "exports": [
@@ -359,6 +359,16 @@
           "returns": "float"
         },
         {
+          "name": "skip_time",
+          "args": "hours: float",
+          "returns": "void"
+        },
+        {
+          "name": "skip_time_with_drain",
+          "args": "hours: float",
+          "returns": "void"
+        },
+        {
           "name": "set_elapsed",
           "args": "value: float",
           "returns": "void"
@@ -368,11 +378,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 188
+      "complexity_score": 221
     },
     {
       "path": "res://scripts/ui/build/BuildModeHUD.gd",
-      "line_count": 1040,
+      "line_count": 1342,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -384,6 +394,10 @@
         {
           "name": "construct_item_chosen",
           "params": "(tile_id: int)"
+        },
+        {
+          "name": "farming_item_chosen",
+          "params": "(item_id: int)"
         },
         {
           "name": "cancel_requested",
@@ -463,17 +477,67 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 28,
+      "private_function_count": 31,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 1086
+      "complexity_score": 1391
+    },
+    {
+      "path": "res://scripts/ui/common/ConfirmDialogUI.gd",
+      "line_count": 183,
+      "class_name": "ConfirmDialogUI",
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "confirmed",
+          "params": "()"
+        },
+        {
+          "name": "cancelled",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "dlg",
+          "signal": "confirmed"
+        },
+        {
+          "target_expr": "dlg",
+          "signal": "cancelled"
+        },
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "title: String, subtitle: String",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 6,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 193
     },
     {
       "path": "res://scripts/ui/common/UIFade.gd",
-      "line_count": 31,
+      "line_count": 44,
       "class_name": "UIFade",
       "extends": "RefCounted",
       "exports": [],
@@ -484,7 +548,24 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 31
+      "complexity_score": 44
+    },
+    {
+      "path": "res://scripts/ui/common/UIKit.gd",
+      "line_count": 202,
+      "class_name": "UIKit",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 202
     },
     {
       "path": "res://scripts/ui/debug/DebugOverlay.gd",
@@ -509,6 +590,59 @@
       ],
       "autoload_references": [],
       "complexity_score": 325
+    },
+    {
+      "path": "res://scripts/ui/farming/FarmingTrayUI.gd",
+      "line_count": 433,
+      "class_name": null,
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [
+        {
+          "name": "closed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "_dec_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_inc_btn",
+          "signal": "pressed"
+        },
+        {
+          "target_expr": "_close_btn",
+          "signal": "pressed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "open",
+          "args": "tray: FarmingTray",
+          "returns": "void"
+        },
+        {
+          "name": "close",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "is_open",
+          "args": "",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 15,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 454
     },
     {
       "path": "res://scripts/ui/hud/CircleFill.gd",
@@ -554,7 +688,7 @@
     },
     {
       "path": "res://scripts/ui/hud/HUD.gd",
-      "line_count": 279,
+      "line_count": 284,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -626,7 +760,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 307
+      "complexity_score": 312
     },
     {
       "path": "res://scripts/ui/hud/InteractPrompt.gd",
@@ -699,6 +833,38 @@
       "group_lookups": [],
       "autoload_references": [],
       "complexity_score": 56
+    },
+    {
+      "path": "res://scripts/ui/hud/TransientNotice.gd",
+      "line_count": 72,
+      "class_name": "TransientNotice",
+      "extends": "CanvasLayer",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "timer",
+          "signal": "timeout"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "show_message",
+          "args": "text: String",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [
+        "res://assets/fonts/IosevkaCharon-Regular.ttf"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 76
     },
     {
       "path": "res://scripts/ui/inventory/InventoryHUD.gd",
@@ -862,7 +1028,7 @@
     },
     {
       "path": "res://scripts/ui/menus/AdminMenu.gd",
-      "line_count": 279,
+      "line_count": 297,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -913,7 +1079,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 301
+      "complexity_score": 319
     },
     {
       "path": "res://scripts/ui/menus/AdminSpawnMenu.gd",
@@ -994,9 +1160,9 @@
     },
     {
       "path": "res://scripts/ui/menus/PauseMenuUI.gd",
-      "line_count": 345,
+      "line_count": 360,
       "class_name": null,
-      "extends": "CanvasLayer",
+      "extends": null,
       "exports": [],
       "signals": [],
       "connect_call_sites": [
@@ -1029,17 +1195,18 @@
       ],
       "private_function_count": 13,
       "preloads": [
-        "res://scripts/ui/menus/GraphicsSettingsPanel.gd"
+        "res://scripts/ui/menus/GraphicsSettingsPanel.gd",
+        "res://scripts/ui/notifications/NotificationHistoryUI.gd"
       ],
       "group_lookups": [],
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 366
+      "complexity_score": 381
     },
     {
       "path": "res://scripts/ui/menus/SleepOverlay.gd",
-      "line_count": 143,
+      "line_count": 122,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1070,7 +1237,119 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 153
+      "complexity_score": 132
+    },
+    {
+      "path": "res://scripts/ui/notifications/NotificationHistoryUI.gd",
+      "line_count": 178,
+      "class_name": null,
+      "extends": "Control",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "NotificationManager",
+          "signal": "history_changed"
+        }
+      ],
+      "public_functions": [],
+      "private_function_count": 8,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 186
+    },
+    {
+      "path": "res://scripts/ui/notifications/NotificationManager.gd",
+      "line_count": 360,
+      "class_name": null,
+      "extends": "Node",
+      "exports": [],
+      "signals": [
+        {
+          "name": "history_changed",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [
+        {
+          "target_expr": "_canvas",
+          "signal": "draw"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "grid_tripped"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "grid_restored"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "grid_offline"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "overloaded_started"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "overloaded_ended"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "generator_started"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "generator_stopped"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "generator_fuel_low"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "battery_low"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "battery_drained"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "breaker_tripped"
+        },
+        {
+          "target_expr": "pm",
+          "signal": "breaker_reset"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "notify",
+          "args": "domain: UIKit.Domain, severity: Severity, text: String, duration: float = DURATION_SENTINEL",
+          "returns": "void"
+        },
+        {
+          "name": "get_history",
+          "args": "",
+          "returns": "Array[Dictionary]"
+        },
+        {
+          "name": "connect_power_signals",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 19,
+      "preloads": [],
+      "group_lookups": [
+        "hud",
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 385
     },
     {
       "path": "res://scripts/ui/power/GeneratorInspectUI.gd",
@@ -1327,7 +1606,7 @@
     },
     {
       "path": "res://scripts/ui/water/WaterDispenserUI.gd",
-      "line_count": 511,
+      "line_count": 517,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1381,18 +1660,16 @@
         }
       ],
       "private_function_count": 17,
-      "preloads": [
-        "res://assets/fonts/IosevkaCharon-Regular.ttf"
-      ],
+      "preloads": [],
       "group_lookups": [
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 534
+      "complexity_score": 540
     },
     {
       "path": "res://scripts/ui/water/WaterInfoUI.gd",
-      "line_count": 475,
+      "line_count": 621,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1432,7 +1709,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 17,
+      "private_function_count": 22,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf"
       ],
@@ -1440,7 +1717,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 496
+      "complexity_score": 647
     },
     {
       "path": "res://scripts/world/build/BuildMaterials.gd",
@@ -1462,7 +1739,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2453,
+      "line_count": 2768,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -1492,6 +1769,10 @@
         {
           "target_expr": "build_hud",
           "signal": "construct_item_chosen"
+        },
+        {
+          "target_expr": "build_hud",
+          "signal": "farming_item_chosen"
         },
         {
           "target_expr": "build_hud",
@@ -1571,6 +1852,11 @@
           "returns": "void"
         },
         {
+          "name": "deconstruct_purifier_by_node_key",
+          "args": "node_key: String",
+          "returns": "void"
+        },
+        {
           "name": "remove_breakers_in_bounds",
           "args": "x_min: float, x_max: float, z_min: float, z_max: float",
           "returns": "bool"
@@ -1581,13 +1867,15 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 72,
+      "private_function_count": 77,
       "preloads": [
+        "res://scripts/world/farming/FarmingTray.gd",
         "res://scripts/world/furniture/Shelving.gd",
         "res://scripts/world/items/HeavyConsumerTest.gd",
         "res://scripts/world/power/BatteryBank.gd",
         "res://scripts/world/power/BreakerBox.gd",
         "res://scripts/world/power/GeneratorObject.gd",
+        "res://scripts/world/power/GrowLight.gd",
         "res://scripts/world/power/PowerTerminal.gd",
         "res://scripts/world/power/UpgradedBreakerBox.gd",
         "res://scripts/world/power/WallLight.gd",
@@ -1605,7 +1893,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 2543
+      "complexity_score": 2865
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
@@ -1631,15 +1919,41 @@
       "complexity_score": 319
     },
     {
+      "path": "res://scripts/world/build/FarmingShopHelper.gd",
+      "line_count": 120,
+      "class_name": "FarmingShopHelper",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_item_price",
+          "args": "item_id: int",
+          "returns": "int"
+        },
+        {
+          "name": "spawn_purchased_item",
+          "args": "item_id: int",
+          "returns": "bool"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 126
+    },
+    {
       "path": "res://scripts/world/build/GhostPreview.gd",
-      "line_count": 488,
+      "line_count": 581,
       "class_name": "GhostPreview",
       "extends": "RefCounted",
       "exports": [],
       "signals": [],
       "connect_call_sites": [],
       "public_functions": [],
-      "private_function_count": 6,
+      "private_function_count": 7,
       "preloads": [
         "res://scripts/world/furniture/Shelving.gd",
         "res://scripts/world/power/WallLight.gd",
@@ -1650,11 +1964,11 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 494
+      "complexity_score": 588
     },
     {
       "path": "res://scripts/world/build/MoveDuplicateTool.gd",
-      "line_count": 379,
+      "line_count": 413,
       "class_name": "MoveDuplicateTool",
       "extends": "RefCounted",
       "exports": [],
@@ -1670,7 +1984,7 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 390
+      "complexity_score": 424
     },
     {
       "path": "res://scripts/world/build/PlacementIndicator.gd",
@@ -1704,7 +2018,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 1190,
+      "line_count": 1230,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -1820,7 +2134,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 44,
+      "private_function_count": 46,
       "preloads": [
         "res://assets/textures/concrete_floor.jpg",
         "res://scripts/ui/build/BuildModeHUD.gd",
@@ -1846,7 +2160,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1246
+      "complexity_score": 1288
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",
@@ -1962,7 +2276,7 @@
     },
     {
       "path": "res://scripts/world/environment/BunkerPregen.gd",
-      "line_count": 382,
+      "line_count": 395,
       "class_name": null,
       "extends": "Node3D",
       "exports": [],
@@ -1981,10 +2295,11 @@
         "res://scenes/world/FuelCan.tscn"
       ],
       "group_lookups": [
-        "inventory_manager"
+        "inventory_manager",
+        "pillar_registry"
       ],
       "autoload_references": [],
-      "complexity_score": 393
+      "complexity_score": 406
     },
     {
       "path": "res://scripts/world/environment/DustMotes.gd",
@@ -2103,6 +2418,209 @@
       "complexity_score": 388
     },
     {
+      "path": "res://scripts/world/farming/FarmPlant.gd",
+      "line_count": 297,
+      "class_name": "FarmPlant",
+      "extends": "Node3D",
+      "exports": [
+        {
+          "name": "plant_type",
+          "type": "String"
+        }
+      ],
+      "signals": [
+        {
+          "name": "died",
+          "params": "()"
+        },
+        {
+          "name": "harvested",
+          "params": "()"
+        }
+      ],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "setup",
+          "args": "tray: FarmingTray, cell_index: int, type: String",
+          "returns": "void"
+        },
+        {
+          "name": "is_ready",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "is_fertilized",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "apply_fertilizer",
+          "args": "tier: String",
+          "returns": "void"
+        },
+        {
+          "name": "harvest",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 10,
+      "preloads": [],
+      "group_lookups": [
+        "player_stats"
+      ],
+      "autoload_references": [],
+      "complexity_score": 317
+    },
+    {
+      "path": "res://scripts/world/farming/FarmingConstants.gd",
+      "line_count": 14,
+      "class_name": "FarmingConstants",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 14
+    },
+    {
+      "path": "res://scripts/world/farming/FarmingTray.gd",
+      "line_count": 511,
+      "class_name": "FarmingTray",
+      "extends": "StaticBody3D",
+      "exports": [
+        {
+          "name": "cell_count",
+          "type": "int"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_tray_ui",
+          "signal": "closed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "get_current_demand_mL_per_day",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "get_water_fraction",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "get_node_key",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "is_connected_to_water",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "has_open_soil_cell",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "has_open_plantable_cell",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "is_fully_soiled",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "fill_first_open_soil_cell",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "has_open_fertilizable_cell",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "has_already_fertilized_growing_cell",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "fertilize_first_open_cell",
+          "args": "tier: String",
+          "returns": "bool"
+        },
+        {
+          "name": "plant_first_open_cell",
+          "args": "plant_type: String",
+          "returns": "bool"
+        },
+        {
+          "name": "clear_cell",
+          "args": "cell_index: int",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_prompt_world_pos",
+          "args": "",
+          "returns": "Vector3"
+        },
+        {
+          "name": "set_target_highlighted",
+          "args": "active: bool",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 12,
+      "preloads": [
+        "res://scripts/ui/farming/FarmingTrayUI.gd"
+      ],
+      "group_lookups": [
+        "hud",
+        "water_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 557
+    },
+    {
+      "path": "res://scripts/world/farming/PlantDatabase.gd",
+      "line_count": 106,
+      "class_name": "PlantDatabase",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 106
+    },
+    {
       "path": "res://scripts/world/furniture/Bed.gd",
       "line_count": 39,
       "class_name": null,
@@ -2149,7 +2667,7 @@
     },
     {
       "path": "res://scripts/world/furniture/Shelving.gd",
-      "line_count": 579,
+      "line_count": 577,
       "class_name": "Shelving",
       "extends": "StaticBody3D",
       "exports": [
@@ -2277,13 +2795,51 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 623
+      "complexity_score": 621
+    },
+    {
+      "path": "res://scripts/world/items/BagOfSoilItem.gd",
+      "line_count": 136,
+      "class_name": "BagOfSoilItem",
+      "extends": "PickupableItem",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 6,
+      "preloads": [],
+      "group_lookups": [
+        "hud"
+      ],
+      "autoload_references": [],
+      "complexity_score": 150
     },
     {
       "path": "res://scripts/world/items/CanCase.gd",
-      "line_count": 170,
+      "line_count": 65,
       "class_name": null,
-      "extends": "RigidBody3D",
+      "extends": "PickupableItem",
       "exports": [
         {
           "name": "item_name",
@@ -2292,38 +2848,9 @@
         {
           "name": "can_count",
           "type": "int"
-        },
-        {
-          "name": "follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "inv_follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "pickup_grace",
-          "type": "float"
-        },
-        {
-          "name": "knock_distance",
-          "type": "float"
         }
       ],
-      "signals": [
-        {
-          "name": "picked_up",
-          "params": "()"
-        },
-        {
-          "name": "dropped",
-          "params": "()"
-        },
-        {
-          "name": "knocked_out",
-          "params": "()"
-        }
-      ],
+      "signals": [],
       "connect_call_sites": [],
       "public_functions": [
         {
@@ -2340,69 +2867,136 @@
           "name": "on_interact",
           "args": "",
           "returns": "void"
-        },
-        {
-          "name": "pickup",
-          "args": "hold_point: Node3D",
-          "returns": "void"
-        },
-        {
-          "name": "drop",
-          "args": "world_parent: Node3D, drop_position: Vector3",
-          "returns": "void"
-        },
-        {
-          "name": "place",
-          "args": "world_parent: Node3D, place_position: Vector3, place_rotation: Vector3 = Vector3.ZERO",
-          "returns": "void"
         }
       ],
-      "private_function_count": 4,
+      "private_function_count": 1,
       "preloads": [],
       "group_lookups": [
         "player_stats",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 186
+      "complexity_score": 72
+    },
+    {
+      "path": "res://scripts/world/items/EmptyBagItem.gd",
+      "line_count": 63,
+      "class_name": "EmptyBagItem",
+      "extends": "PickupableItem",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 69
+    },
+    {
+      "path": "res://scripts/world/items/FarmProduceItem.gd",
+      "line_count": 103,
+      "class_name": "FarmProduceItem",
+      "extends": "PickupableItem",
+      "exports": [
+        {
+          "name": "produce_type",
+          "type": "String"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 2,
+      "preloads": [],
+      "group_lookups": [
+        "player_stats"
+      ],
+      "autoload_references": [],
+      "complexity_score": 113
+    },
+    {
+      "path": "res://scripts/world/items/FertilizerItem.gd",
+      "line_count": 162,
+      "class_name": "FertilizerItem",
+      "extends": "PickupableItem",
+      "exports": [
+        {
+          "name": "tier",
+          "type": "String"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 7,
+      "preloads": [],
+      "group_lookups": [
+        "hud"
+      ],
+      "autoload_references": [],
+      "complexity_score": 177
     },
     {
       "path": "res://scripts/world/items/Flashlight.gd",
-      "line_count": 351,
+      "line_count": 272,
       "class_name": null,
-      "extends": "RigidBody3D",
-      "exports": [
-        {
-          "name": "follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "inv_follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "pickup_grace",
-          "type": "float"
-        }
-      ],
-      "signals": [
-        {
-          "name": "picked_up",
-          "params": "()"
-        },
-        {
-          "name": "dropped",
-          "params": "()"
-        },
-        {
-          "name": "knocked_out",
-          "params": "()"
-        },
-        {
-          "name": "charge_changed",
-          "params": "()"
-        }
-      ],
+      "extends": "PickupableItem",
+      "exports": [],
+      "signals": [],
       "connect_call_sites": [
         {
           "target_expr": "GraphicsSettings",
@@ -2436,27 +3030,12 @@
           "returns": "void"
         },
         {
-          "name": "pickup",
-          "args": "hold_point: Node3D",
-          "returns": "void"
-        },
-        {
-          "name": "drop",
-          "args": "_world_parent: Node3D, drop_position: Vector3",
-          "returns": "void"
-        },
-        {
-          "name": "place",
-          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
-          "returns": "void"
-        },
-        {
           "name": "on_use",
           "args": "",
           "returns": "void"
         }
       ],
-      "private_function_count": 10,
+      "private_function_count": 9,
       "preloads": [],
       "group_lookups": [
         "player"
@@ -2464,45 +3043,15 @@
       "autoload_references": [
         "GraphicsSettings"
       ],
-      "complexity_score": 379
+      "complexity_score": 293
     },
     {
       "path": "res://scripts/world/items/FoodCan.gd",
-      "line_count": 165,
+      "line_count": 69,
       "class_name": null,
-      "extends": "RigidBody3D",
-      "exports": [
-        {
-          "name": "follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "inv_follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "pickup_grace",
-          "type": "float"
-        }
-      ],
-      "signals": [
-        {
-          "name": "picked_up",
-          "params": "()"
-        },
-        {
-          "name": "dropped",
-          "params": "()"
-        },
-        {
-          "name": "knocked_out",
-          "params": "()"
-        },
-        {
-          "name": "charge_changed",
-          "params": "()"
-        }
-      ],
+      "extends": "PickupableItem",
+      "exports": [],
+      "signals": [],
       "connect_call_sites": [],
       "public_functions": [
         {
@@ -2521,71 +3070,26 @@
           "returns": "String"
         },
         {
-          "name": "pickup",
-          "args": "hold_point: Node3D",
-          "returns": "void"
-        },
-        {
           "name": "on_use",
           "args": "",
           "returns": "void"
-        },
-        {
-          "name": "drop",
-          "args": "_world_parent: Node3D, drop_position: Vector3",
-          "returns": "void"
-        },
-        {
-          "name": "place",
-          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
-          "returns": "void"
         }
       ],
-      "private_function_count": 5,
+      "private_function_count": 2,
       "preloads": [],
       "group_lookups": [
         "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 184
+      "complexity_score": 79
     },
     {
       "path": "res://scripts/world/items/FuelCan.gd",
-      "line_count": 222,
+      "line_count": 129,
       "class_name": null,
-      "extends": "RigidBody3D",
-      "exports": [
-        {
-          "name": "follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "inv_follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "pickup_grace",
-          "type": "float"
-        }
-      ],
-      "signals": [
-        {
-          "name": "picked_up",
-          "params": "()"
-        },
-        {
-          "name": "dropped",
-          "params": "()"
-        },
-        {
-          "name": "knocked_out",
-          "params": "()"
-        },
-        {
-          "name": "charge_changed",
-          "params": "()"
-        }
-      ],
+      "extends": "PickupableItem",
+      "exports": [],
+      "signals": [],
       "connect_call_sites": [],
       "public_functions": [
         {
@@ -2622,30 +3126,15 @@
           "name": "on_use",
           "args": "",
           "returns": "void"
-        },
-        {
-          "name": "pickup",
-          "args": "hold_point: Node3D",
-          "returns": "void"
-        },
-        {
-          "name": "drop",
-          "args": "_world_parent: Node3D, drop_position: Vector3",
-          "returns": "void"
-        },
-        {
-          "name": "place",
-          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
-          "returns": "void"
         }
       ],
-      "private_function_count": 7,
+      "private_function_count": 4,
       "preloads": [],
       "group_lookups": [
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 249
+      "complexity_score": 147
     },
     {
       "path": "res://scripts/world/items/HeavyConsumerTest.gd",
@@ -2750,81 +3239,9 @@
       "complexity_score": 83
     },
     {
-      "path": "res://scripts/world/items/TestCrate.gd",
-      "line_count": 130,
-      "class_name": null,
-      "extends": "RigidBody3D",
-      "exports": [
-        {
-          "name": "item_name",
-          "type": "String"
-        },
-        {
-          "name": "knock_distance",
-          "type": "float"
-        },
-        {
-          "name": "follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "inv_follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "pickup_grace",
-          "type": "float"
-        }
-      ],
-      "signals": [
-        {
-          "name": "picked_up",
-          "params": "()"
-        },
-        {
-          "name": "dropped",
-          "params": "()"
-        },
-        {
-          "name": "knocked_out",
-          "params": "()"
-        }
-      ],
-      "connect_call_sites": [],
-      "public_functions": [
-        {
-          "name": "get_prompt_text",
-          "args": "",
-          "returns": "String"
-        },
-        {
-          "name": "pickup",
-          "args": "hold_point: Node3D",
-          "returns": "void"
-        },
-        {
-          "name": "drop",
-          "args": "world_parent: Node3D, drop_position: Vector3",
-          "returns": "void"
-        },
-        {
-          "name": "place",
-          "args": "world_parent: Node3D, place_position: Vector3, place_rotation: Vector3 = Vector3.ZERO",
-          "returns": "void"
-        }
-      ],
-      "private_function_count": 4,
-      "preloads": [],
-      "group_lookups": [
-        "world"
-      ],
-      "autoload_references": [],
-      "complexity_score": 142
-    },
-    {
-      "path": "res://scripts/world/items/WaterBottle.gd",
-      "line_count": 301,
-      "class_name": null,
+      "path": "res://scripts/world/items/PickupableItem.gd",
+      "line_count": 156,
+      "class_name": "PickupableItem",
       "extends": "RigidBody3D",
       "exports": [
         {
@@ -2881,6 +3298,173 @@
           "returns": "void"
         },
         {
+          "name": "drop",
+          "args": "_world_parent: Node3D, drop_position: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "place",
+          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 7,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 175
+    },
+    {
+      "path": "res://scripts/world/items/PurifierFilterItem.gd",
+      "line_count": 152,
+      "class_name": "PurifierFilterItem",
+      "extends": "PickupableItem",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "dlg",
+          "signal": "confirmed"
+        },
+        {
+          "target_expr": "dlg",
+          "signal": "cancelled"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "get_charge_info",
+          "args": "",
+          "returns": "Array"
+        },
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "refresh_visual_state",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 3,
+      "preloads": [
+        "res://scenes/world/PurifierFilterItem.tscn"
+      ],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 167
+    },
+    {
+      "path": "res://scripts/world/items/SeedItem.gd",
+      "line_count": 138,
+      "class_name": "SeedItem",
+      "extends": "PickupableItem",
+      "exports": [
+        {
+          "name": "seed_type",
+          "type": "String"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "on_use",
+          "args": "",
+          "returns": "void"
+        }
+      ],
+      "private_function_count": 6,
+      "preloads": [],
+      "group_lookups": [
+        "hud"
+      ],
+      "autoload_references": [],
+      "complexity_score": 152
+    },
+    {
+      "path": "res://scripts/world/items/TestCrate.gd",
+      "line_count": 23,
+      "class_name": null,
+      "extends": "PickupableItem",
+      "exports": [
+        {
+          "name": "item_name",
+          "type": "String"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        }
+      ],
+      "private_function_count": 1,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 26
+    },
+    {
+      "path": "res://scripts/world/items/WaterBottle.gd",
+      "line_count": 202,
+      "class_name": null,
+      "extends": "PickupableItem",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "get_display_name",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_prompt_text",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_use_prompt",
+          "args": "",
+          "returns": "String"
+        },
+        {
           "name": "on_use",
           "args": "",
           "returns": "void"
@@ -2894,31 +3478,21 @@
           "name": "get_bottle_badge_info",
           "args": "",
           "returns": "Dictionary"
-        },
-        {
-          "name": "drop",
-          "args": "_world_parent: Node3D, drop_position: Vector3",
-          "returns": "void"
-        },
-        {
-          "name": "place",
-          "args": "_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO",
-          "returns": "void"
         }
       ],
-      "private_function_count": 9,
+      "private_function_count": 6,
       "preloads": [],
       "group_lookups": [
         "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 328
+      "complexity_score": 220
     },
     {
       "path": "res://scripts/world/items/WaterCase.gd",
-      "line_count": 175,
+      "line_count": 69,
       "class_name": null,
-      "extends": "RigidBody3D",
+      "extends": "PickupableItem",
       "exports": [
         {
           "name": "item_name",
@@ -2927,38 +3501,9 @@
         {
           "name": "bottle_count",
           "type": "int"
-        },
-        {
-          "name": "follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "inv_follow_speed",
-          "type": "float"
-        },
-        {
-          "name": "pickup_grace",
-          "type": "float"
-        },
-        {
-          "name": "knock_distance",
-          "type": "float"
         }
       ],
-      "signals": [
-        {
-          "name": "picked_up",
-          "params": "()"
-        },
-        {
-          "name": "dropped",
-          "params": "()"
-        },
-        {
-          "name": "knocked_out",
-          "params": "()"
-        }
-      ],
+      "signals": [],
       "connect_call_sites": [],
       "public_functions": [
         {
@@ -2975,31 +3520,16 @@
           "name": "on_interact",
           "args": "",
           "returns": "void"
-        },
-        {
-          "name": "pickup",
-          "args": "hold_point: Node3D",
-          "returns": "void"
-        },
-        {
-          "name": "drop",
-          "args": "world_parent: Node3D, drop_position: Vector3",
-          "returns": "void"
-        },
-        {
-          "name": "place",
-          "args": "world_parent: Node3D, place_position: Vector3, place_rotation: Vector3 = Vector3.ZERO",
-          "returns": "void"
         }
       ],
-      "private_function_count": 4,
+      "private_function_count": 1,
       "preloads": [],
       "group_lookups": [
         "player_stats",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 191
+      "complexity_score": 76
     },
     {
       "path": "res://scripts/world/power/BatteryBank.gd",
@@ -3161,7 +3691,7 @@
     },
     {
       "path": "res://scripts/world/power/DeviceDatabase.gd",
-      "line_count": 141,
+      "line_count": 151,
       "class_name": null,
       "extends": "Node",
       "exports": [],
@@ -3174,7 +3704,7 @@
       "autoload_references": [
         "DeviceDatabase"
       ],
-      "complexity_score": 141
+      "complexity_score": 151
     },
     {
       "path": "res://scripts/world/power/GeneratorObject.gd",
@@ -3261,6 +3791,70 @@
       ],
       "autoload_references": [],
       "complexity_score": 498
+    },
+    {
+      "path": "res://scripts/world/power/GrowLight.gd",
+      "line_count": 528,
+      "class_name": "GrowLight",
+      "extends": "StaticBody3D",
+      "exports": [
+        {
+          "name": "tier",
+          "type": "String"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [
+        {
+          "target_expr": "_prio_ui",
+          "signal": "closed"
+        },
+        {
+          "target_expr": "_prio_ui",
+          "signal": "priority_changed"
+        }
+      ],
+      "public_functions": [
+        {
+          "name": "notify_wire_placed",
+          "args": "wn_key: String, wn_pos: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "set_powered",
+          "args": "on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "set_shed",
+          "args": "shed_on: bool",
+          "returns": "void"
+        },
+        {
+          "name": "get_active_growth_speed",
+          "args": "",
+          "returns": "float"
+        },
+        {
+          "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_interact_prompt",
+          "args": "",
+          "returns": "String"
+        }
+      ],
+      "private_function_count": 15,
+      "preloads": [
+        "res://scripts/ui/power/PowerPriorityUI.gd"
+      ],
+      "group_lookups": [
+        "power_manager"
+      ],
+      "autoload_references": [],
+      "complexity_score": 555
     },
     {
       "path": "res://scripts/world/power/PowerGraph.gd",
@@ -4135,7 +4729,7 @@
     },
     {
       "path": "res://scripts/world/power/WallLight.gd",
-      "line_count": 427,
+      "line_count": 422,
       "class_name": null,
       "extends": "Node3D",
       "exports": [],
@@ -4188,7 +4782,7 @@
       "autoload_references": [
         "DeviceDatabase"
       ],
-      "complexity_score": 450
+      "complexity_score": 445
     },
     {
       "path": "res://scripts/world/power/WireDrawMode.gd",
@@ -4240,7 +4834,7 @@
     },
     {
       "path": "res://scripts/world/power/WireGraphBuilder.gd",
-      "line_count": 1547,
+      "line_count": 1550,
       "class_name": "WireGraphBuilder",
       "extends": "RefCounted",
       "exports": [],
@@ -4257,7 +4851,7 @@
         "wall_perimeter_registry"
       ],
       "autoload_references": [],
-      "complexity_score": 1559
+      "complexity_score": 1562
     },
     {
       "path": "res://scripts/world/power/WireSegment.gd",
@@ -4375,7 +4969,7 @@
     },
     {
       "path": "res://scripts/world/structure/PillarRegistry.gd",
-      "line_count": 45,
+      "line_count": 57,
       "class_name": "PillarRegistry",
       "extends": "Node",
       "exports": [],
@@ -4385,6 +4979,11 @@
         {
           "name": "set_all",
           "args": "positions: Dictionary",
+          "returns": "void"
+        },
+        {
+          "name": "register_single",
+          "args": "pos: Vector3",
           "returns": "void"
         },
         {
@@ -4399,11 +4998,11 @@
         "pillar_registry"
       ],
       "autoload_references": [],
-      "complexity_score": 49
+      "complexity_score": 63
     },
     {
       "path": "res://scripts/world/structure/WallPerimeterRegistry.gd",
-      "line_count": 153,
+      "line_count": 273,
       "class_name": "WallPerimeterRegistry",
       "extends": "Node",
       "exports": [],
@@ -4426,6 +5025,11 @@
           "returns": "Vector3"
         },
         {
+          "name": "get_nearby_segment_keys",
+          "args": "pos: Vector3, radius: float",
+          "returns": "Array"
+        },
+        {
           "name": "get_segment_angle",
           "args": "key: String",
           "returns": "float"
@@ -4441,17 +5045,17 @@
           "returns": "Array"
         }
       ],
-      "private_function_count": 1,
+      "private_function_count": 2,
       "preloads": [],
       "group_lookups": [
         "wall_perimeter_registry"
       ],
       "autoload_references": [],
-      "complexity_score": 166
+      "complexity_score": 289
     },
     {
       "path": "res://scripts/world/water/WaterDispenser.gd",
-      "line_count": 246,
+      "line_count": 283,
       "class_name": "WaterDispenser",
       "extends": "StaticBody3D",
       "exports": [
@@ -4504,8 +5108,9 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 6,
+      "private_function_count": 7,
       "preloads": [
+        "res://assets/shaders/tank_fill.gdshader",
         "res://scripts/ui/water/WaterDispenserUI.gd"
       ],
       "group_lookups": [
@@ -4513,11 +5118,11 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 266
+      "complexity_score": 304
     },
     {
       "path": "res://scripts/world/water/WaterGraph.gd",
-      "line_count": 532,
+      "line_count": 592,
       "class_name": "WaterGraph",
       "extends": "RefCounted",
       "exports": [],
@@ -4582,7 +5187,7 @@
         {
           "name": "prune_orphan_waypoint",
           "args": "key: String",
-          "returns": "void"
+          "returns": "bool"
         },
         {
           "name": "get_edges_touching",
@@ -4610,6 +5215,11 @@
           "returns": "Dictionary"
         },
         {
+          "name": "get_purifiers_on_path",
+          "args": "hookup_key: String, target_key: String",
+          "returns": "Array[String]"
+        },
+        {
           "name": "compute_flow_directions",
           "args": "hookup_key: String",
           "returns": "Dictionary"
@@ -4629,7 +5239,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 575
+      "complexity_score": 637
     },
     {
       "path": "res://scripts/world/water/WaterHookup.gd",
@@ -4699,7 +5309,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
-      "line_count": 493,
+      "line_count": 883,
       "class_name": "WaterManager",
       "extends": "Node",
       "exports": [],
@@ -4744,7 +5354,7 @@
         {
           "name": "prune_orphan_waypoint",
           "args": "key: String",
-          "returns": "void"
+          "returns": "bool"
         },
         {
           "name": "has_edge",
@@ -4812,6 +5422,16 @@
           "returns": "float"
         },
         {
+          "name": "get_hookup_for_node",
+          "args": "node_key: String",
+          "returns": "WaterHookup"
+        },
+        {
+          "name": "solve_hookup_for_farming",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
           "name": "get_received_rate_mL",
           "args": "consumer_node_key: String",
           "returns": "Dictionary"
@@ -4837,28 +5457,39 @@
           "returns": "void"
         },
         {
+          "name": "get_purifiers_needing_attention",
+          "args": "",
+          "returns": "Array"
+        },
+        {
+          "name": "get_flow_through_purifier_mL",
+          "args": "purifier_key: String",
+          "returns": "float"
+        },
+        {
           "name": "get_dynamic_max_mL_per_day",
           "args": "consumer_node_key: String, device_priority: int",
           "returns": "float"
         }
       ],
-      "private_function_count": 6,
+      "private_function_count": 12,
       "preloads": [
         "res://scripts/world/water/WaterPipeElbow.gd",
         "res://scripts/world/water/WaterPipeSegment.gd"
       ],
       "group_lookups": [
+        "build_mode_controller",
         "main_world",
         "water_manager"
       ],
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 553
+      "complexity_score": 957
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
-      "line_count": 1624,
+      "line_count": 1970,
       "class_name": "WaterPipeDrawMode",
       "extends": "Node",
       "exports": [],
@@ -4890,7 +5521,7 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 41,
+      "private_function_count": 45,
       "preloads": [],
       "group_lookups": [
         "pillar_registry",
@@ -4899,7 +5530,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 1671
+      "complexity_score": 2021
     },
     {
       "path": "res://scripts/world/water/WaterPipeElbow.gd",
@@ -4918,7 +5549,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterPipeSegment.gd",
-      "line_count": 270,
+      "line_count": 449,
       "class_name": "WaterPipeSegment",
       "extends": "Node3D",
       "exports": [],
@@ -4928,6 +5559,11 @@
         {
           "name": "set_endpoints",
           "args": "a: Vector3, b: Vector3",
+          "returns": "void"
+        },
+        {
+          "name": "set_highlight_delete",
+          "args": "on: bool",
           "returns": "void"
         },
         {
@@ -4946,6 +5582,16 @@
           "returns": "void"
         },
         {
+          "name": "set_quality_color",
+          "args": "color: Color",
+          "returns": "void"
+        },
+        {
+          "name": "set_purified",
+          "args": "purified: bool",
+          "returns": "void"
+        },
+        {
           "name": "set_build_mode_visible",
           "args": "value: bool",
           "returns": "void"
@@ -4959,11 +5605,11 @@
         "build_mode_controller"
       ],
       "autoload_references": [],
-      "complexity_score": 284
+      "complexity_score": 469
     },
     {
       "path": "res://scripts/world/water/WaterPurifier.gd",
-      "line_count": 187,
+      "line_count": 454,
       "class_name": "WaterPurifier",
       "extends": "StaticBody3D",
       "exports": [],
@@ -4975,6 +5621,11 @@
         }
       ],
       "public_functions": [
+        {
+          "name": "get_output_quality",
+          "args": "",
+          "returns": "float"
+        },
         {
           "name": "revert_to_corner",
           "args": "",
@@ -4996,25 +5647,42 @@
           "returns": "String"
         },
         {
+          "name": "replace_filter",
+          "args": "new_filter: PurifierFilterItem",
+          "returns": "void"
+        },
+        {
+          "name": "spawn_starting_filters",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "play_clean_pulse",
+          "args": "",
+          "returns": "void"
+        },
+        {
           "name": "orient_along",
           "args": "pos_a: Vector3, pos_b: Vector3",
           "returns": "void"
         }
       ],
-      "private_function_count": 4,
+      "private_function_count": 11,
       "preloads": [
+        "res://scripts/ui/hud/TransientNotice.gd",
         "res://scripts/ui/water/WaterInfoUI.gd",
         "res://scripts/world/water/WaterPipeElbow.gd"
       ],
       "group_lookups": [
+        "player_stats",
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 201
+      "complexity_score": 483
     },
     {
       "path": "res://scripts/world/water/WaterPurifierAttach.gd",
-      "line_count": 135,
+      "line_count": 138,
       "class_name": "WaterPurifierAttach",
       "extends": "RefCounted",
       "exports": [],
@@ -5025,7 +5693,22 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 135
+      "complexity_score": 138
+    },
+    {
+      "path": "res://scripts/world/water/WaterQualityColor.gd",
+      "line_count": 24,
+      "class_name": "WaterQualityColor",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 24
     },
     {
       "path": "res://scripts/world/water/WaterSolver.gd",
@@ -5115,8 +5798,18 @@
       "via": "preload"
     },
     {
+      "from": "res://scripts/ui/menus/PauseMenuUI.gd",
+      "to": "res://scripts/ui/notifications/NotificationHistoryUI.gd",
+      "via": "preload"
+    },
+    {
       "from": "res://scripts/ui/power/PowerTerminalUI.gd",
       "to": "res://scripts/ui/power/ZoneCustomizeUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/farming/FarmingTray.gd",
       "via": "preload"
     },
     {
@@ -5142,6 +5835,11 @@
     {
       "from": "res://scripts/world/build/BuildModeController.gd",
       "to": "res://scripts/world/power/GeneratorObject.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/power/GrowLight.gd",
       "via": "preload"
     },
     {
@@ -5300,6 +5998,11 @@
       "via": "preload"
     },
     {
+      "from": "res://scripts/world/farming/FarmingTray.gd",
+      "to": "res://scripts/ui/farming/FarmingTrayUI.gd",
+      "via": "preload"
+    },
+    {
       "from": "res://scripts/world/items/HeavyConsumerTest.gd",
       "to": "res://scripts/ui/power/PowerPriorityUI.gd",
       "via": "preload"
@@ -5307,6 +6010,11 @@
     {
       "from": "res://scripts/world/power/GeneratorObject.gd",
       "to": "res://scripts/ui/power/GeneratorInspectUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/power/GrowLight.gd",
+      "to": "res://scripts/ui/power/PowerPriorityUI.gd",
       "via": "preload"
     },
     {
@@ -5357,6 +6065,11 @@
     {
       "from": "res://scripts/world/water/WaterManager.gd",
       "to": "res://scripts/world/water/WaterPipeSegment.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/water/WaterPurifier.gd",
+      "to": "res://scripts/ui/hud/TransientNotice.gd",
       "via": "preload"
     },
     {

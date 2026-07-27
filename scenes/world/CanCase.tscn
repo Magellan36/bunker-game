@@ -1,30 +1,264 @@
 [gd_scene format=3 uid="uid://c7johuud8s3lm"]
 
-[ext_resource type="Script" uid="uid://dofudg3t3hlxy" path="res://scripts/player/CanCase.gd" id="1_k6g3e"]
+[ext_resource type="Script" uid="uid://dofudg3t3hlxy" path="res://scripts/world/items/CanCase.gd" id="1_can_case_script"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/cardboard_tray_diffuse.png" id="2_cardboard_diff"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/cardboard_roughness.png" id="3_cardboard_rough"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/cardboard_front_strip.png" id="4_front_strip"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/can_label_red.png" id="5_label_red"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/can_label_purple.png" id="6_label_purple"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/can_label_brown.png" id="7_label_brown"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/can_lid_top.png" id="8_lid_top"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/can_lid_normal.png" id="9_lid_norm"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gw7ud"]
-albedo_color = Color(0.8280081, 0.44144282, 5.7756904e-07, 1)
+[sub_resource type="StandardMaterial3D" id="mat_cardboard"]
+albedo_texture = ExtResource("2_cardboard_diff")
+roughness = 0.9
+roughness_texture = ExtResource("3_cardboard_rough")
+metallic = 0.02
 
-[sub_resource type="BoxMesh" id="BoxMesh_tgw3k"]
-material = SubResource("StandardMaterial3D_gw7ud")
-size = Vector3(0.6, 0.3, 0.3)
+[sub_resource type="StandardMaterial3D" id="mat_case_print_dark"]
+albedo_texture = ExtResource("4_front_strip")
+roughness = 0.85
+metallic = 0.0
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_wahlu"]
-size = Vector3(0.6, 0.3, 0.3)
+[sub_resource type="StandardMaterial3D" id="mat_can_label_red"]
+albedo_texture = ExtResource("5_label_red")
+roughness = 0.4
+metallic = 0.1
 
-[node name="CanCase" type="RigidBody3D" unique_id=403391416 groups=["pickup"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+[sub_resource type="StandardMaterial3D" id="mat_can_label_purple"]
+albedo_texture = ExtResource("6_label_purple")
+roughness = 0.4
+metallic = 0.1
+
+[sub_resource type="StandardMaterial3D" id="mat_can_label_brown"]
+albedo_texture = ExtResource("7_label_brown")
+roughness = 0.4
+metallic = 0.1
+
+[sub_resource type="StandardMaterial3D" id="mat_can_lid"]
+albedo_texture = ExtResource("8_lid_top")
+roughness = 0.3
+metallic = 0.85
+normal_enabled = true
+normal_texture = ExtResource("9_lid_norm")
+
+[sub_resource type="BoxMesh" id="mesh_base"]
+size = Vector3(0.52, 0.02, 0.40)
+
+[sub_resource type="BoxMesh" id="mesh_wall_back"]
+size = Vector3(0.52, 0.07, 0.012)
+
+[sub_resource type="BoxMesh" id="mesh_wall_side"]
+size = Vector3(0.012, 0.07, 0.40)
+
+[sub_resource type="BoxMesh" id="mesh_wall_front_low"]
+size = Vector3(0.52, 0.045, 0.012)
+
+[sub_resource type="CylinderMesh" id="mesh_can_body"]
+top_radius = 0.053333
+bottom_radius = 0.053333
+height = 0.145
+radial_segments = 24
+rings = 3
+
+[sub_resource type="CylinderMesh" id="mesh_can_lid"]
+top_radius = 0.0545
+bottom_radius = 0.0545
+height = 0.012
+radial_segments = 24
+rings = 2
+
+[sub_resource type="BoxShape3D" id="shape_case_collision"]
+size = Vector3(0.54, 0.19, 0.42)
+
+[node name="CanCase" type="RigidBody3D" unique_id="403391416" groups=["pickup"]]
 mass = 5.0
 continuous_cd = true
 contact_monitor = true
-script = ExtResource("1_k6g3e")
-item_name = "Water Case"
+script = ExtResource("1_can_case_script")
+item_name = "Can Case"
+can_count = 12
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1956982096]
-mesh = SubResource("BoxMesh_tgw3k")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id="87744957"]
+position = Vector3(0, 0.095, 0)
+shape = SubResource("shape_case_collision")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=87744957]
-shape = SubResource("BoxShape3D_wahlu")
+[node name="VisualRoot" type="Node3D" parent="."]
 
-[node name="SpawnPoint" type="Node3D" parent="." unique_id=295681397]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.4)
+[node name="TrayBase" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0, 0.01, 0)
+mesh = SubResource("mesh_base")
+material_override = SubResource("mat_cardboard")
+
+[node name="TrayBack" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0, 0.045, 0.194)
+mesh = SubResource("mesh_wall_back")
+material_override = SubResource("mat_cardboard")
+
+[node name="TrayLeft" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.254, 0.045, 0)
+mesh = SubResource("mesh_wall_side")
+material_override = SubResource("mat_cardboard")
+
+[node name="TrayRight" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.254, 0.045, 0)
+mesh = SubResource("mesh_wall_side")
+material_override = SubResource("mat_cardboard")
+
+[node name="TrayFrontLow" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0, 0.0325, -0.194)
+mesh = SubResource("mesh_wall_front_low")
+material_override = SubResource("mat_cardboard")
+
+[node name="FrontBrandStrip" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0, 0.026, -0.1865)
+mesh = SubResource("mesh_wall_front_low")
+material_override = SubResource("mat_case_print_dark")
+
+[node name="Can_01" type="Node3D" parent="VisualRoot"]
+position = Vector3(-0.171, 0.0925, -0.114)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_01"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_purple")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_01"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_02" type="Node3D" parent="VisualRoot"]
+position = Vector3(-0.057, 0.0925, -0.114)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_02"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_red")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_02"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_03" type="Node3D" parent="VisualRoot"]
+position = Vector3(0.057, 0.0925, -0.114)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_03"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_brown")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_03"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_04" type="Node3D" parent="VisualRoot"]
+position = Vector3(0.171, 0.0925, -0.114)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_04"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_red")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_04"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_05" type="Node3D" parent="VisualRoot"]
+position = Vector3(-0.171, 0.0925, 0)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_05"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_red")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_05"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_06" type="Node3D" parent="VisualRoot"]
+position = Vector3(-0.057, 0.0925, 0)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_06"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_purple")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_06"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_07" type="Node3D" parent="VisualRoot"]
+position = Vector3(0.057, 0.0925, 0)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_07"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_brown")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_07"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_08" type="Node3D" parent="VisualRoot"]
+position = Vector3(0.171, 0.0925, 0)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_08"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_purple")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_08"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_09" type="Node3D" parent="VisualRoot"]
+position = Vector3(-0.171, 0.0925, 0.114)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_09"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_purple")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_09"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_10" type="Node3D" parent="VisualRoot"]
+position = Vector3(-0.057, 0.0925, 0.114)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_10"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_red")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_10"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_11" type="Node3D" parent="VisualRoot"]
+position = Vector3(0.057, 0.0925, 0.114)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_11"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_brown")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_11"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="Can_12" type="Node3D" parent="VisualRoot"]
+position = Vector3(0.171, 0.0925, 0.114)
+
+[node name="Body" type="MeshInstance3D" parent="VisualRoot/Can_12"]
+mesh = SubResource("mesh_can_body")
+material_override = SubResource("mat_can_label_red")
+
+[node name="Lid" type="MeshInstance3D" parent="VisualRoot/Can_12"]
+position = Vector3(0, 0.0785, 0)
+mesh = SubResource("mesh_can_lid")
+material_override = SubResource("mat_can_lid")
+
+[node name="SpawnPoint" type="Node3D" parent="." unique_id="295681397"]
+position = Vector3(0, 0.11, -0.245)
