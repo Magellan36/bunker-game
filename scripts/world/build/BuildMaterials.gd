@@ -119,30 +119,20 @@ func _build_world_materials() -> void:
 	_owner._mat_wall.detail_mask              = null   ## no mask — uniform blend everywhere
 
 	## ── Floor material ─────────────────────────────────────────────────────
-	var floor_norm_tex: Texture2D = load("res://assets/textures/concrete_floor_normal.png") as Texture2D
-	var floor_rough_tex: Texture2D = load("res://assets/textures/concrete_floor_roughness.png") as Texture2D
-
 	_owner._mat_floor = StandardMaterial3D.new()
-	_owner._mat_floor.roughness               = 0.88
+	_owner._mat_floor.roughness               = 0.93
 	_owner._mat_floor.metallic                = 0.0
-	if floor_rough_tex != null:
-		_owner._mat_floor.roughness_texture   = floor_rough_tex
-
-	if floor_norm_tex != null:
-		_owner._mat_floor.normal_enabled      = true
-		_owner._mat_floor.normal_texture      = floor_norm_tex
-
 	## Base layer — even coarser on floor (viewed top-down so tile edge stands out)
 	_owner._mat_floor.uv1_triplanar           = true
 	_owner._mat_floor.uv1_triplanar_sharpness = 3.0
-	_owner._mat_floor.uv1_scale               = Vector3(0.041, 0.041, 0.041)
+	_owner._mat_floor.uv1_scale               = Vector3(0.063, 0.063, 0.063)
 	## Detail layer
 	_owner._mat_floor.detail_enabled          = true
 	_owner._mat_floor.detail_blend_mode       = BaseMaterial3D.BLEND_MODE_MIX
 	_owner._mat_floor.detail_uv_layer         = BaseMaterial3D.DETAIL_UV_2
 	_owner._mat_floor.uv2_triplanar           = true
 	_owner._mat_floor.uv2_triplanar_sharpness = 3.0
-	_owner._mat_floor.uv2_scale               = Vector3(0.287, 0.287, 0.287)
+	_owner._mat_floor.uv2_scale               = Vector3(0.42, 0.42, 0.42)
 	if floor_tex != null:
 		_owner._mat_floor.albedo_texture      = floor_tex
 		_owner._mat_floor.albedo_color        = Color(DARK, DARK, DARK, 1.0)

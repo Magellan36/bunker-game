@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-27T21:50:06.827299+00:00",
+  "generated_at": "2026-07-27T21:53:15.356432+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 104,
-  "total_lines": 40319,
+  "total_lines": 40296,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -1804,7 +1804,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildMaterials.gd",
-      "line_count": 170,
+      "line_count": 160,
       "class_name": "BuildMaterials",
       "extends": "RefCounted",
       "exports": [],
@@ -1814,13 +1814,11 @@
       "private_function_count": 5,
       "preloads": [
         "res://assets/textures/concrete_floor.jpg",
-        "res://assets/textures/concrete_floor_normal.png",
-        "res://assets/textures/concrete_floor_roughness.png",
         "res://assets/textures/concrete_wall.jpg"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 175
+      "complexity_score": 165
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
@@ -2103,7 +2101,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 1243,
+      "line_count": 1230,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -2222,8 +2220,6 @@
       "private_function_count": 46,
       "preloads": [
         "res://assets/textures/concrete_floor.jpg",
-        "res://assets/textures/concrete_floor_normal.png",
-        "res://assets/textures/concrete_floor_roughness.png",
         "res://scripts/ui/build/BuildModeHUD.gd",
         "res://scripts/ui/debug/DebugOverlay.gd",
         "res://scripts/ui/inventory/InventoryManager.gd",
@@ -2247,7 +2243,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1301
+      "complexity_score": 1288
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",
