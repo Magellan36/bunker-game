@@ -187,11 +187,19 @@ func _ready() -> void:
 	add_to_group("interactable")
 	add_to_group("grow_light")
 	_build_fixture()
-	_register_bucket()
 	## A7 safety net — guarantee fixture starts off before any PowerManager
 	## solve can potentially set it powered.
 	set_powered(false)
-	_register_bucket()
+	## Bug fix (Jul 2026) — must be deferred, not called directly here.
+	## add_child() fires _ready() synchronously BEFORE spawn_structure()'s
+	## subsequent `global_position = pos` line runs, so a direct call here
+	## registers the light's spatial bucket at (0,0,0) instead of its real
+	## placed position — every grow light placed through the build menu was
+	## silently un-findable by any plant, powered or not. Deferring this
+	## (like _register_deferred below already does for power) waits until
+	## after global_position has its real value. Also removes the old
+	## duplicate call — it only ever needs to run once.
+	call_deferred("_register_bucket")
 	call_deferred("_register_deferred")
 
 ## Registers into the static bucket registry (item 14) — global_position is
