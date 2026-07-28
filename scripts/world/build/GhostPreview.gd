@@ -465,9 +465,9 @@ func _update_ghost() -> void:
 			_owner._ghost_valid   = false
 			return
 	elif _owner._selected_tile == _owner.TILE_WATER_SINK:
-		snap_pos.y = _owner.PLACEMENT_Y
+		snap_pos.y = _owner.WATER_SINK_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_WATER_DISPENSER:
-		snap_pos.y = _owner.PLACEMENT_Y
+		snap_pos.y = _owner.WATER_DISPENSER_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_HALF_WALL:
 		snap_pos.y = _owner.HALF_WALL_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_QUARTER_WALL:
@@ -489,7 +489,7 @@ func _update_ghost() -> void:
 		_owner._ghost_purifier_candidate = candidate
 	elif _owner._selected_tile == _owner.TILE_BATTERY_S or _owner._selected_tile == _owner.TILE_BATTERY_M \
 			or _owner._selected_tile == _owner.TILE_BATTERY_L:
-		snap_pos.y = _owner.PLACEMENT_Y
+		snap_pos.y = _owner.BATTERY_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_TRAY_SINGLE or _owner._selected_tile == _owner.TILE_TRAY_DOUBLE:
 		snap_pos.y = 0.5   ## Floor-standing object with slight hover offset
 	elif _owner._selected_tile == _owner.TILE_GROW_LIGHT_NORMAL or _owner._selected_tile == _owner.TILE_GROW_LIGHT_PRO:

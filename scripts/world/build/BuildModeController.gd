@@ -111,6 +111,15 @@ const WATER_HOOKUP_PLACEMENT_Y: float = 3.2
 ## it visually rests flush with the ground plane.  1.0 - 0.477 ≈ 0.523.
 const GEN_PLACEMENT_Y: float = 0.523
 
+## Water Test Sink — floor-standing procedural box, root at ground contact point.
+const WATER_SINK_PLACEMENT_Y: float = 0.0
+
+## Water Dispenser — floor-standing procedural box, root at ground contact point.
+const WATER_DISPENSER_PLACEMENT_Y: float = 0.0
+
+## Battery Banks (S/M/L) — floor-standing procedural boxes, root at ground contact point.
+const BATTERY_PLACEMENT_Y: float = 0.0
+
 ## How far (XZ) from the cursor to search for a wall surface to snap the light to.
 ## Raycasts in 4 cardinal directions; snaps to the nearest wall within this range.
 const LIGHT_WALL_SNAP_RANGE: float = 1.5
