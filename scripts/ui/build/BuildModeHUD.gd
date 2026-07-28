@@ -206,6 +206,40 @@ const PRICE_COLOR:  Color = Color(0.35, 0.95, 0.30, 1.0)
 ## straight back to this same default pose (no easing).
 const PREVIEW_ROTATION_DEFAULT: Vector3 = Vector3(-45.0, -45.0, 0.0)
 const PREVIEW_HOVER_SPIN_DEG_PER_SEC: float = 90.0
+## Orthographic camera size — smaller = more zoomed in. 1.6 / 1.5 ≈ 1.0667
+## gives a 1.5x zoom over the original framing.
+const PREVIEW_CAM_SIZE: float = 1.0667
+
+## Preview source for CONSTRUCT_ITEMS tile_ids that have no MeshLibrary
+## entry — procedural furniture/devices built in
+## BuildModeController.spawn_structure() instead of placed via the gridmap.
+## Each path is copied DIRECTLY from that tile_id's own branch in
+## spawn_structure() — same asset the real object uses, so the preview
+## can't drift out of sync with what actually gets placed. "is_script":
+## true → spawn_structure() attaches this .gd script to a bare Node3D
+## (e.g. Shelving, WaterDispenser) — mirror that here. false → this is a
+## .tscn to instantiate directly (e.g. Bed).
+const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
+	4:  { "path": "res://scenes/world/Bed.tscn",                 "is_script": false },   ## TILE_BED
+	3:  { "path": "res://scripts/world/furniture/Shelving.gd",   "is_script": true  },   ## TILE_SHELVING
+	6:  { "path": "res://scripts/world/power/GeneratorObject.gd", "is_script": true  },   ## TILE_GEN_S
+	7:  { "path": "res://scripts/world/power/GeneratorObject.gd", "is_script": true  },   ## TILE_GEN_M
+	8:  { "path": "res://scripts/world/power/GeneratorObject.gd", "is_script": true  },   ## TILE_GEN_L
+	10: { "path": "res://scripts/world/power/PowerTerminal.gd",  "is_script": true  },   ## TILE_TERMINAL
+	11: { "path": "res://scripts/world/power/LoadTest.gd",       "is_script": true  },   ## TILE_HEAVY
+	12: { "path": "res://scripts/world/power/BreakerBox.gd",     "is_script": true  },   ## TILE_BREAKER
+	16: { "path": "res://scripts/world/power/UpgradedBreakerBox.gd", "is_script": true  },   ## TILE_BREAKER_SMART
+	13: { "path": "res://scripts/world/power/BatteryBank.gd",    "is_script": true  },   ## TILE_BATTERY_S
+	14: { "path": "res://scripts/world/power/BatteryBank.gd",    "is_script": true  },   ## TILE_BATTERY_M
+	15: { "path": "res://scripts/world/power/BatteryBank.gd",    "is_script": true  },   ## TILE_BATTERY_L
+	18: { "path": "res://scripts/world/water/WaterTestSink.gd",  "is_script": true  },   ## TILE_WATER_SINK
+	19: { "path": "res://scripts/world/water/WaterDispenser.gd", "is_script": true  },   ## TILE_WATER_DISPENSER
+	20: { "path": "res://scripts/world/water/WaterPurifier.gd",  "is_script": true  },   ## TILE_WATER_PURIFIER
+	21: { "path": "res://scripts/world/farming/FarmingTray.gd",  "is_script": true  },   ## TILE_TRAY_SINGLE
+	22: { "path": "res://scripts/world/farming/FarmingTray.gd",  "is_script": true  },   ## TILE_TRAY_DOUBLE
+	23: { "path": "res://scripts/world/farming/GrowLight.gd",    "is_script": true  },   ## TILE_GROW_LIGHT_NORMAL
+	24: { "path": "res://scripts/world/farming/GrowLight.gd",    "is_script": true  },   ## TILE_GROW_LIGHT_PRO
+}
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 var _canvas:       Control        = null   ## Full-screen draw surface
@@ -225,11 +259,20 @@ var _sub_mesh_instances: Array  = []   ## MeshInstance3D per construct item (par
 var _shop_viewports:      Array = []
 var _shop_vp_textures:    Array = []
 var _shop_mesh_instances: Array = []
+## Procedural construct items (Jul 2026) — Bed, Shelving, generators, etc.
+## Same shape as the shop pool above, just sourced from
+## PROCEDURAL_PREVIEW_SOURCES instead of PREVIEW_SOURCES.
+var _proc_viewports:      Array = []
+var _proc_vp_textures:    Array = []
+var _proc_mesh_instances: Array = []
 ## Which submenu row is currently hovered — used by _process() to know
 ## which preview (construct or shop pool) to spin, and to snap every other
 ## one back to PREVIEW_ROTATION_DEFAULT. -1 = none hovered / not on an item row.
 var _hovered_preview_index: int = -1
-var _hovered_preview_is_shop: bool = false
+## "construct", "procedural", or "shop" — which pool _hovered_preview_index
+## refers to. Was a bool (is_shop) before procedural previews existed;
+## needed a third state once there were three pools.
+var _hovered_pool: String = ""
 
 # ─── External refs ────────────────────────────────────────────────────────────
 ## Set by BuildModeController after _ready — used to read tile meshes
@@ -595,7 +638,7 @@ func _build_submenu() -> Control:
 
 		var cam: Camera3D = Camera3D.new()
 		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-		cam.size = 1.6
+		cam.size = PREVIEW_CAM_SIZE
 		vp.add_child(cam)
 		cam.position = Vector3(1.0, 1.2, 1.0)
 		# look_at requires the node to be in the tree — defer until next frame
@@ -627,7 +670,7 @@ func _build_submenu() -> Control:
 
 		var cam2: Camera3D = Camera3D.new()
 		cam2.projection = Camera3D.PROJECTION_ORTHOGONAL
-		cam2.size = 1.6
+		cam2.size = PREVIEW_CAM_SIZE
 		vp2.add_child(cam2)
 		cam2.position = Vector3(1.0, 1.2, 1.0)
 		cam2.call_deferred("look_at", Vector3.ZERO, Vector3.UP)
@@ -641,6 +684,36 @@ func _build_submenu() -> Control:
 		_shop_viewports.append(vp2)
 		_shop_vp_textures.append(vp2.get_texture())
 		_shop_mesh_instances.append(null)
+
+	# Procedural construct-item previews (Jul 2026) — Bed, Shelving,
+	# generators, etc. Same viewport/camera/light setup as the shop pool
+	# above.
+	var proc_ids: Array = PROCEDURAL_PREVIEW_SOURCES.keys()
+	for pid: int in proc_ids:
+		var vp3: SubViewport = SubViewport.new()
+		vp3.size = Vector2i(SUB_VP_SIZE, SUB_VP_SIZE)
+		vp3.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+		vp3.transparent_bg  = true
+		vp3.disable_3d      = false
+		vp3.own_world_3d    = true
+		root.add_child(vp3)
+
+		var cam3: Camera3D = Camera3D.new()
+		cam3.projection = Camera3D.PROJECTION_ORTHOGONAL
+		cam3.size = PREVIEW_CAM_SIZE
+		vp3.add_child(cam3)
+		cam3.position = Vector3(1.0, 1.2, 1.0)
+		cam3.call_deferred("look_at", Vector3.ZERO, Vector3.UP)
+
+		var light3: OmniLight3D = OmniLight3D.new()
+		light3.position = Vector3(1.0, 2.0, 1.0)
+		light3.light_energy = 3.0
+		light3.omni_range = 8.0
+		vp3.add_child(light3)
+
+		_proc_viewports.append(vp3)
+		_proc_vp_textures.append(vp3.get_texture())
+		_proc_mesh_instances.append(null)
 
 	# Draw surface for the submenu panel
 	var draw_ctrl: Control = Control.new()
@@ -762,14 +835,21 @@ func _on_submenu_draw(ctrl: Control) -> void:
 				SUB_VP_SIZE, SUB_VP_SIZE)
 			if _submenu_source == "construct":
 				var flat_idx: int = -1
-				if _submenu_source == "construct":
-					for fi: int in CONSTRUCT_ITEMS.size():
-						if CONSTRUCT_ITEMS[fi]["tile_id"] == item["tile_id"]:
-							flat_idx = fi
-							break
+				for fi: int in CONSTRUCT_ITEMS.size():
+					if CONSTRUCT_ITEMS[fi]["tile_id"] == item["tile_id"]:
+						flat_idx = fi
+						break
 				if flat_idx >= 0 and flat_idx < _sub_vp_textures.size() \
 						and _sub_vp_textures[flat_idx] != null:
 					ctrl.draw_texture_rect(_sub_vp_textures[flat_idx], vp_rect, false)
+				else:
+					## Not a MeshLibrary tile — check the procedural pool
+					## (Bed, Shelving, generators, etc.) before giving up.
+					var proc_ids: Array = PROCEDURAL_PREVIEW_SOURCES.keys()
+					var proc_idx: int = proc_ids.find(item["tile_id"])
+					if proc_idx >= 0 and proc_idx < _proc_vp_textures.size() \
+							and _proc_vp_textures[proc_idx] != null:
+						ctrl.draw_texture_rect(_proc_vp_textures[proc_idx], vp_rect, false)
 			else:
 				var shop_ids: Array = PREVIEW_SOURCES.keys()
 				var shop_idx: int = shop_ids.find(item["tile_id"])
@@ -868,26 +948,105 @@ func _refresh_submenu_previews() -> void:
 			continue
 
 		var vp: SubViewport = _sub_viewports[i]
-		# Remove any old mesh
+		# Remove any old pivot/mesh
 		for child in vp.get_children():
-			if child is MeshInstance3D:
+			if child is Node3D and child is not Camera3D and child is not OmniLight3D:
 				child.queue_free()
+
+		## Pivot fix (Jul 2026) — rotating the MeshInstance3D directly spins
+		## it around ITS OWN local origin, which usually isn't the mesh's
+		## true visual center (most meshes aren't authored centered on their
+		## own origin) — it visibly swings around a corner instead of
+		## spinning in place. Fix: wrap it in a pivot Node3D that sits fixed
+		## at the viewport center; offset the mesh WITHIN the pivot instead,
+		## and rotate the pivot. _sub_mesh_instances now stores this pivot
+		## (not the raw MeshInstance3D) — _update_preview_hover_spin() needs
+		## no changes for this specific reason, it just rotates whatever's
+		## in the array.
+		var pivot: Node3D = Node3D.new()
+		pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+		vp.add_child(pivot)
 
 		var mi: MeshInstance3D = MeshInstance3D.new()
 		mi.mesh = mesh
-		mi.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-		vp.add_child(mi)
-		_sub_mesh_instances[i] = mi
+		pivot.add_child(mi)
+		_sub_mesh_instances[i] = pivot
 
-		# Center mesh in viewport
+		# Center mesh within the pivot (the pivot itself never moves)
 		if mi.mesh != null:
 			var aabb: AABB = mi.mesh.get_aabb()
 			mi.position = -aabb.get_center()
 
 	_refresh_shop_previews()
+	_refresh_procedural_previews()
 
-## Shop item previews (Jul 2026) — instantiates the real item scene/script
-## (see PREVIEW_SOURCES) into its own SubViewport, extracts nothing special:
+## Procedural construct-item previews (Jul 2026) — Bed, Shelving,
+## generators, etc. See PROCEDURAL_PREVIEW_SOURCES. Same instantiate +
+## pivot-wrap + AABB-center approach as _refresh_shop_previews() (Part B's
+## pivot fix included) — the only real difference is which
+## dictionary/array set it reads from.
+func _refresh_procedural_previews() -> void:
+	var proc_ids: Array = PROCEDURAL_PREVIEW_SOURCES.keys()
+	for i: int in proc_ids.size():
+		if i >= _proc_viewports.size():
+			break
+		var info: Dictionary = PROCEDURAL_PREVIEW_SOURCES[proc_ids[i]]
+		var vp: SubViewport = _proc_viewports[i]
+		for child in vp.get_children():
+			if child is Node3D and child is not Camera3D and child is not OmniLight3D:
+				child.queue_free()
+
+		var inst: Node3D = null
+		if bool(info.get("is_script", false)):
+			var script: GDScript = load(String(info["path"])) as GDScript
+			if script == null:
+				continue
+			var base_hint: Object = script.new()
+			if base_hint is Node3D:
+				inst = base_hint
+			else:
+				if base_hint is Node:
+					(base_hint as Node).queue_free()
+				continue
+		else:
+			var packed: PackedScene = load(String(info["path"])) as PackedScene
+			if packed == null:
+				continue
+			inst = packed.instantiate() as Node3D
+		if inst == null:
+			continue
+
+		if inst is RigidBody3D:
+			var rb: RigidBody3D = inst as RigidBody3D
+			rb.freeze = true
+			rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		inst.set_process(false)
+		inst.set_physics_process(false)
+
+		var pivot: Node3D = Node3D.new()
+		pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+		vp.add_child(pivot)
+		pivot.add_child(inst)
+		_proc_mesh_instances[i] = pivot
+
+		var combined: AABB = AABB()
+		var found_any: bool = false
+		var stack: Array = [inst]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+				var mesh_aabb: AABB = (n as MeshInstance3D).mesh.get_aabb()
+				if not found_any:
+					combined = mesh_aabb
+					found_any = true
+				else:
+					combined = combined.merge(mesh_aabb)
+			for c in n.get_children():
+				stack.append(c)
+		if found_any:
+			inst.position = -combined.get_center()
+
+# ─── Cancel button ────────────────────────────────────────────────────────────
 ## the whole node tree renders, so imported models (e.g. FuelCan's .glb)
 ## work the same as procedurally-built meshes (e.g. BagOfSoilItem). The
 ## instance's own game logic is disabled (set_process/set_physics_process
@@ -921,11 +1080,17 @@ func _refresh_shop_previews() -> void:
 			var rb: RigidBody3D = inst as RigidBody3D
 			rb.freeze = true
 			rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-		inst.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-		vp.add_child(inst)
 		inst.set_process(false)
 		inst.set_physics_process(false)
-		_shop_mesh_instances[i] = inst
+
+		## Pivot fix (Jul 2026) — same reasoning as the construct-item loop
+		## above: rotate a fixed pivot wrapping the instance, not the
+		## instance itself, so it spins around its true visual center.
+		var pivot: Node3D = Node3D.new()
+		pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+		vp.add_child(pivot)
+		pivot.add_child(inst)
+		_shop_mesh_instances[i] = pivot
 
 		# Center in viewport using the combined AABB of any MeshInstance3D
 		# children (imported models nest their mesh a level or two down, so
@@ -978,7 +1143,7 @@ func _reposition_cancel_btn() -> void:
 ## PREVIEW_ROTATION_DEFAULT with no easing, per spec.
 func _update_preview_hover_spin(delta: float) -> void:
 	var new_hover: int = -1
-	var new_is_shop: bool = false
+	var new_pool: String = ""
 	if _submenu_open and _submenu_level == "items":
 		var row: int = _get_submenu_item_at(_mouse_pos)
 		if row >= 1:   ## row 0 is the Back button, never a preview
@@ -987,30 +1152,44 @@ func _update_preview_hover_spin(delta: float) -> void:
 			var idx_in_cat: int = row - 1
 			if idx_in_cat >= 0 and idx_in_cat < cat_items.size():
 				var tid: int = cat_items[idx_in_cat]["tile_id"]
-				new_is_shop = _submenu_source != "construct"
-				if new_is_shop:
-					new_hover = PREVIEW_SOURCES.keys().find(tid)
-				else:
+				if _submenu_source == "construct":
 					for fi: int in CONSTRUCT_ITEMS.size():
 						if CONSTRUCT_ITEMS[fi]["tile_id"] == tid:
 							new_hover = fi
+							new_pool = "construct"
 							break
+					if new_hover == -1:
+						var proc_idx: int = PROCEDURAL_PREVIEW_SOURCES.keys().find(tid)
+						if proc_idx >= 0:
+							new_hover = proc_idx
+							new_pool = "procedural"
+				else:
+					new_hover = PREVIEW_SOURCES.keys().find(tid)
+					new_pool = "shop"
 
-	var mesh_pool: Array = _shop_mesh_instances if new_is_shop else _sub_mesh_instances
-	if new_hover != _hovered_preview_index or new_is_shop != _hovered_preview_is_shop:
+	if new_hover != _hovered_preview_index or new_pool != _hovered_pool:
 		# Snap the PREVIOUSLY hovered preview back to its default pose.
-		var old_pool: Array = _shop_mesh_instances if _hovered_preview_is_shop else _sub_mesh_instances
-		if _hovered_preview_index >= 0 and _hovered_preview_index < old_pool.size():
-			var old_mi: Node3D = old_pool[_hovered_preview_index]
-			if old_mi != null and is_instance_valid(old_mi):
-				old_mi.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-		_hovered_preview_index  = new_hover
-		_hovered_preview_is_shop = new_is_shop
+		var old_mi: Node3D = _get_hover_pivot(_hovered_pool, _hovered_preview_index)
+		if old_mi != null and is_instance_valid(old_mi):
+			old_mi.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+		_hovered_preview_index = new_hover
+		_hovered_pool = new_pool
 
-	if _hovered_preview_index >= 0 and _hovered_preview_index < mesh_pool.size():
-		var mi: Node3D = mesh_pool[_hovered_preview_index]
-		if mi != null and is_instance_valid(mi):
-			mi.rotation_degrees.y += PREVIEW_HOVER_SPIN_DEG_PER_SEC * delta
+	var mi: Node3D = _get_hover_pivot(_hovered_pool, _hovered_preview_index)
+	if mi != null and is_instance_valid(mi):
+		mi.rotation_degrees.y += PREVIEW_HOVER_SPIN_DEG_PER_SEC * delta
+
+func _get_hover_pivot(pool: String, index: int) -> Node3D:
+	if index < 0:
+		return null
+	match pool:
+		"construct":
+			return _sub_mesh_instances[index] if index < _sub_mesh_instances.size() else null
+		"procedural":
+			return _proc_mesh_instances[index] if index < _proc_mesh_instances.size() else null
+		"shop":
+			return _shop_mesh_instances[index] if index < _shop_mesh_instances.size() else null
+	return null
 
 func _on_cancel_draw(btn: Control) -> void:
 	var r: Rect2  = Rect2(Vector2.ZERO, btn.size)
