@@ -242,7 +242,7 @@ func _procedural_ghost_mesh(tile_id: int) -> Mesh:
 	var water_dispenser_script: GDScript = load("res://scripts/world/water/WaterDispenser.gd")
 	var water_purifier_script: GDScript = load("res://scripts/world/water/WaterPurifier.gd")
 	var farming_tray_script: GDScript = load("res://scripts/world/farming/FarmingTray.gd")
-	var grow_light_script: GDScript = load("res://scripts/world/farming/GrowLight.gd")
+	var grow_light_script: GDScript = load("res://scripts/world/power/GrowLight.gd")
 
 	match tile_id:
 		4:   # TILE_BED
