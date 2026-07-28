@@ -117,4 +117,16 @@ func _spawn_scene_item(scene_path: String, parent: Node, base_pos: Vector3) -> v
 	var offset: Vector3 = Vector3(randf_range(-0.25, 0.25), 0.0, randf_range(-0.25, 0.25))
 	node.global_position = base_pos + offset
 	if node is RigidBody3D:
+		var rb2: RigidBody3D = node as RigidBody3D
+		## Explicitly zero any leftover velocity from the freshly-instantiated
+		## scene (Jul 2026 fix) — matches MainWorld._check_abyss_items()'s own
+		## proven clean-relocation pattern for this exact class of problem.
+		## If items are still falling through the floor / getting rescued by
+		## the abyss safety net after this, the next thing to check is
+		## whether `base_pos` (player.global_position + a Y offset) can ever
+		## land inside solid geometry — e.g. a low ceiling or a wall — since
+		## that would cause a violent collision-resolution shove on unfreeze
+		## that this alone wouldn't fix.
+		rb2.linear_velocity  = Vector3.ZERO
+		rb2.angular_velocity = Vector3.ZERO
 		node.call_deferred("_unfreeze_after_spawn")
