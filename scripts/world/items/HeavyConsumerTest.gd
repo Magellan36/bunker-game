@@ -1,4 +1,5 @@
 extends StaticBody3D
+class_name HeavyConsumerTest
 ## HeavyConsumerTest.gd
 ## Simple 500 W test object for verifying overload → flicker → offline logic.
 ##
@@ -249,3 +250,12 @@ func _update_label_text(lbl: Label3D, powered: bool, load_active: bool) -> void:
 	else:
 		lbl.text     = "○  OFF"
 		lbl.modulate = COLOR_OFF
+
+## Side-effect-free ghost mesh for build-mode previews — extracted
+## verbatim from GhostPreview.gd's inline TILE_HEAVY branch so the
+## preview matches what the player actually places. No registration,
+## no signals, no groups — just a plain Mesh.
+static func build_ghost_mesh() -> Mesh:
+	var box: BoxMesh = BoxMesh.new()
+	box.size = Vector3(0.60, 0.60, 0.60)
+	return box

@@ -461,3 +461,17 @@ func _get_interaction_system() -> Node:
 					if path.contains("InteractionSystem"):
 						return sub
 	return null
+
+## Side-effect-free ghost mesh for build-mode previews — extracted
+## verbatim from GhostPreview.gd's inline TILE_GEN_S/M/L branch so the
+## preview matches what the player actually places. No registration,
+## no signals, no groups — just a plain Mesh.
+static func build_ghost_mesh(tier: int = 0) -> Mesh:
+	const GEN_SIZES: Array = [
+		Vector3(0.85, 0.85, 0.85),
+		Vector3(0.85, 0.85, 1.85),
+		Vector3(1.85, 0.85, 1.85),
+	]
+	var box: BoxMesh = BoxMesh.new()
+	box.size = GEN_SIZES[clamp(tier, 0, 2)]
+	return box

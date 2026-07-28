@@ -177,3 +177,11 @@ func _update_label(connected: bool) -> void:
 	else:
 		_state_label.text     = "○  NOT CONNECTED"
 		_state_label.modulate = COLOR_NOT_CONNECTED
+
+## Side-effect-free ghost mesh for build-mode previews — matches
+## GhostPreview.gd's inline TILE_WATER_SINK branch (uses its own
+## BOX_SIZE constant already defined in this file).
+static func build_ghost_mesh() -> Mesh:
+	var box: BoxMesh = BoxMesh.new()
+	box.size = BOX_SIZE
+	return box

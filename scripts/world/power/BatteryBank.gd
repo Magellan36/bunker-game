@@ -633,3 +633,15 @@ func _ds(text: String, pos: Vector2, col: Color, size: int) -> void:
 	_panel_canvas.draw_string(
 		_font, pos, text,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+
+## Side-effect-free ghost mesh for build-mode previews — matches
+## GhostPreview.gd's inline TILE_BATTERY_S/M/L branch.
+static func build_ghost_mesh(tier: int = 0) -> Mesh:
+	const BAT_SIZES: Array = [
+		Vector3(0.40, 0.70, 0.22),   ## Small
+		Vector3(0.50, 0.90, 0.26),   ## Medium
+		Vector3(0.60, 1.10, 0.28),   ## Large
+	]
+	var box: BoxMesh = BoxMesh.new()
+	box.size = BAT_SIZES[clamp(tier, 0, 2)]
+	return box

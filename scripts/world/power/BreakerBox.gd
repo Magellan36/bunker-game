@@ -964,3 +964,10 @@ func _ds(text: String, pos: Vector2, col: Color, size: int) -> void:
 	_settings_canvas.draw_string(
 		_font, pos, text,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+
+## Side-effect-free ghost mesh for build-mode previews — matches
+## GhostPreview.gd's inline TILE_BREAKER/TILE_BREAKER_SMART branch.
+static func build_ghost_mesh() -> Mesh:
+	var box: BoxMesh = BoxMesh.new()
+	box.size = Vector3(0.36, 0.44, 0.14)
+	return box

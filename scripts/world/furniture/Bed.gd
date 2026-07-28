@@ -1,4 +1,5 @@
 extends StaticBody3D
+class_name Bed
 ## Bed.gd
 ## Interactable bed. Player presses E nearby to sleep.
 ## Signals SleepOverlay to handle the fade + time-skip.
@@ -37,3 +38,26 @@ func set_player_in_range(in_range: bool) -> void:
 
 func set_sleeping(sleeping: bool) -> void:
 	_player_sleeping = sleeping
+
+## Side-effect-free ghost mesh for build-mode previews — extracted
+## verbatim from GhostPreview.gd's inline TILE_BED branch so the preview
+## matches what the player actually places. No registration, no signals,
+## no groups — just a plain Mesh.
+static func build_ghost_mesh() -> Mesh:
+	var st: SurfaceTool = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var W: float = 2.0; var H: float = 0.5; var D: float = 1.0
+	# Build a simple box centred at (0, H/2, 0)
+	var hx: float = W * 0.5; var hy: float = H * 0.5; var hz: float = D * 0.5
+	var verts: Array[Array] = [
+		[Vector3(-hx, -hy, -hz), Vector3(-hx, hy, -hz), Vector3(hx, hy, -hz), Vector3(-hx, -hy, -hz), Vector3(hx, hy, -hz), Vector3(hx, -hy, -hz)],   ## -Z face
+		[Vector3(hx, -hy, hz), Vector3(hx, hy, hz), Vector3(-hx, hy, hz), Vector3(hx, -hy, hz), Vector3(-hx, hy, hz), Vector3(-hx, -hy, hz)],   ## +Z face
+		[Vector3(-hx, hy, -hz), Vector3(-hx, hy, hz), Vector3(hx, hy, hz), Vector3(-hx, hy, -hz), Vector3(hx, hy, hz), Vector3(hx, hy, -hz)],     ## +Y face
+		[Vector3(-hx, -hy, hz), Vector3(-hx, -hy, -hz), Vector3(hx, -hy, -hz), Vector3(-hx, -hy, hz), Vector3(hx, -hy, -hz), Vector3(hx, -hy, hz)], ## -Y face
+		[Vector3(hx, -hy, -hz), Vector3(hx, hy, -hz), Vector3(hx, hy, hz), Vector3(hx, -hy, -hz), Vector3(hx, hy, hz), Vector3(hx, -hy, hz)],       ## +X face
+		[Vector3(-hx, -hy, hz), Vector3(-hx, hy, hz), Vector3(-hx, hy, -hz), Vector3(-hx, -hy, hz), Vector3(-hx, hy, -hz), Vector3(-hx, -hy, -hz)],  ## -X face
+	]
+	for face: Array in verts:
+		for v: Vector3 in face:
+			st.add_vertex(v)
+	return st.commit()
