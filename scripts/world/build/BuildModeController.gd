@@ -120,6 +120,10 @@ const WATER_DISPENSER_PLACEMENT_Y: float = 0.0
 ## Battery Banks (S/M/L) — floor-standing procedural boxes, root at ground contact point.
 const BATTERY_PLACEMENT_Y: float = 0.0
 
+## HeavyConsumerTest (debug-only) — floor-standing box like generators,
+## root at ground contact point.
+const HEAVY_PLACEMENT_Y: float = 0.3
+
 ## How far (XZ) from the cursor to search for a wall surface to snap the light to.
 ## Raycasts in 4 cardinal directions; snaps to the nearest wall within this range.
 const LIGHT_WALL_SNAP_RANGE: float = 1.5
@@ -2618,6 +2622,41 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 				var cell_item: int = gridmap.get_cell_item(Vector3i(cell_x, cy, cell_z))
 				if BunkerStructure.is_wall_or_pillar(cell_item):
 					return true
+		return false
+	if tile_id == TILE_WATER_SINK or tile_id == TILE_WATER_DISPENSER:
+		# Same floor-collider false-positive as Beds/Shelving/Trays/Generators
+		# above — these two sit on the floor (Y=0, see WATER_SINK_PLACEMENT_Y/
+		# WATER_DISPENSER_PLACEMENT_Y). Registry-only overlap check instead.
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			var et: int = entry.get("tile_id", -1)
+			if et != tile_id:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
+		return false
+	if tile_id == TILE_BATTERY_S or tile_id == TILE_BATTERY_M or tile_id == TILE_BATTERY_L:
+		# Same floor-collider false-positive as above — battery banks sit on
+		# the floor (Y=0, see BATTERY_PLACEMENT_Y). Registry-only overlap
+		# check instead.
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			var et: int = entry.get("tile_id", -1)
+			if et != TILE_BATTERY_S and et != TILE_BATTERY_M and et != TILE_BATTERY_L:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
+		return false
+	if tile_id == TILE_HEAVY:
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			if entry.get("tile_id", -1) != TILE_HEAVY:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
 		return false
 	return _is_position_occupied(pos, tile_id)
 

@@ -261,9 +261,14 @@ func _update_move_ghost() -> void:
 	elif mv_tile == _owner.TILE_GEN_S or mv_tile == _owner.TILE_GEN_M \
 			or mv_tile == _owner.TILE_GEN_L:
 		snap_pos.y = _owner.GEN_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_WIRE or mv_tile == _owner.TILE_HEAVY or mv_tile == _owner.TILE_WATER_SINK \
-			or mv_tile == _owner.TILE_WATER_DISPENSER:
+	elif mv_tile == _owner.TILE_WIRE:
 		snap_pos.y = _owner.PLACEMENT_Y
+	elif mv_tile == _owner.TILE_WATER_SINK:
+		snap_pos.y = _owner.WATER_SINK_PLACEMENT_Y
+	elif mv_tile == _owner.TILE_WATER_DISPENSER:
+		snap_pos.y = _owner.WATER_DISPENSER_PLACEMENT_Y
+	elif mv_tile == _owner.TILE_HEAVY:
+		snap_pos.y = _owner.HEAVY_PLACEMENT_Y
 	elif mv_tile == _owner.TILE_BREAKER or mv_tile == _owner.TILE_BREAKER_SMART:
 		snap_pos.y = _owner.PLACEMENT_Y
 		## Same July 2026 fix as TILE_LIGHT above, reusing the existing proven
@@ -292,7 +297,7 @@ func _update_move_ghost() -> void:
 			return
 	elif mv_tile == _owner.TILE_BATTERY_S \
 			or mv_tile == _owner.TILE_BATTERY_M or mv_tile == _owner.TILE_BATTERY_L:
-		snap_pos.y = _owner.PLACEMENT_Y
+		snap_pos.y = _owner.BATTERY_PLACEMENT_Y
 	elif mv_tile == _owner.TILE_TRAY_SINGLE or mv_tile == _owner.TILE_TRAY_DOUBLE:
 		snap_pos.y = _owner.PLACEMENT_Y
 	elif mv_tile == _owner.TILE_GROW_LIGHT_NORMAL or mv_tile == _owner.TILE_GROW_LIGHT_PRO:

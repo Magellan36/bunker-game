@@ -423,9 +423,10 @@ func _update_ghost() -> void:
 	elif _owner._selected_tile == _owner.TILE_GEN_S or _owner._selected_tile == _owner.TILE_GEN_M \
 			or _owner._selected_tile == _owner.TILE_GEN_L:
 		snap_pos.y = _owner.GEN_PLACEMENT_Y
-	elif _owner._selected_tile == _owner.TILE_WIRE or _owner._selected_tile == _owner.TILE_TERMINAL \
-			or _owner._selected_tile == _owner.TILE_HEAVY:
+	elif _owner._selected_tile == _owner.TILE_WIRE or _owner._selected_tile == _owner.TILE_TERMINAL:
 		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_HEAVY:
+		snap_pos.y = _owner.HEAVY_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_HALF_WALL:
 		snap_pos.y = _owner.HALF_WALL_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_QUARTER_WALL:
