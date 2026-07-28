@@ -1984,6 +1984,7 @@ func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: 
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm != null:
 		wm.recompute_flow_directions()
+		wm.refresh_all_pipe_joint_visuals()
 
 
 

@@ -185,9 +185,12 @@ func _rebuild_mesh() -> void:
 	cyl.rings = 1
 
 	_material = StandardMaterial3D.new()
-	_material.albedo_color = COLOR_PIPE
-	_material.roughness    = 0.45
-	_material.metallic     = 0.65
+	_material.albedo_texture    = load("res://assets/textures/water/pipe/pipe_teal_diffuse.png")
+	_material.normal_enabled    = true
+	_material.normal_texture    = load("res://assets/textures/water/pipe/pipe_teal_normal.png")
+	_material.roughness_texture = load("res://assets/textures/water/pipe/pipe_teal_roughness.png")
+	_material.metallic          = 0.68
+	_material.roughness         = 0.45
 	## Normal depth test (unlike WireSegment) — this is a real physical object
 	## meant to be occluded by walls/geometry like anything else in the room.
 

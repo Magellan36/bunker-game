@@ -135,4 +135,5 @@ static func insert_purifier_at(scene_root: Node, wm: WaterManager, candidate: Di
 		seg_b.set_endpoints(split_pos, pos_b)
 
 	wm.recompute_flow_directions()
+	wm.refresh_all_pipe_joint_visuals()
 	return purifier

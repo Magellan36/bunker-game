@@ -233,6 +233,7 @@ func _undo() -> void:
 		## Flow-direction arrows (Jul 2026) — recompute after undoing a pipe run.
 		if wm != null:
 			wm.recompute_flow_directions()
+			wm.refresh_all_pipe_joint_visuals()
 
 func _push_undo_place(body: Node3D, tile_id: int, price: int, pos: Vector3,
 		zone_color_snap: Dictionary = {}) -> void:

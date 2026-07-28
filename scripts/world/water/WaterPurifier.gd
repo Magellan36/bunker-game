@@ -313,6 +313,7 @@ func replace_filter(new_filter: PurifierFilterItem) -> void:
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm != null:
 		wm.recompute_flow_directions()
+		wm.refresh_all_pipe_joint_visuals()
 
 ## Spawns the two starting filters (Jul 2026, plan §2) — called once by
 ## WaterPurifierAttach.insert_purifier_at() right after this purifier is

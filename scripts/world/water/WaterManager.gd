@@ -154,6 +154,49 @@ func prune_orphan_waypoint(key: String) -> bool:
 				break
 	return pruned
 
+## Rebuilds every "corner"-role node's joint-fitting visual from its
+## CURRENT edge degree/directions. Call once after ANY pipe-graph mutation
+## finishes — see docs/systems/water/README.md for the exact trigger-point
+## list (mirrors recompute_flow_directions()'s own call sites exactly,
+## call this immediately alongside every existing call to that function).
+## Self-healing: spawns a WaterPipeElbow for any "corner" node that
+## doesn't already have one.
+func refresh_all_pipe_joint_visuals() -> void:
+	var elbow_script: GDScript = load("res://scripts/world/water/WaterPipeElbow.gd")
+	var scene_root: Node = get_tree().get_first_node_in_group("main_world")
+	if scene_root == null:
+		scene_root = get_tree().get_root()
+
+	var existing_by_key: Dictionary = {}
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_elbow"):
+		if is_instance_valid(node):
+			existing_by_key[node.get("node_key")] = node
+
+	for key: String in _graph.get_nodes():
+		var node_data: Dictionary = _graph.get_nodes()[key]
+		if node_data.get("role", "") != "corner":
+			continue
+		var node_pos: Vector3 = node_data.get("pos", Vector3.ZERO)
+
+		var elbow: Node = existing_by_key.get(key, null)
+		if elbow == null or not is_instance_valid(elbow):
+			elbow = Node3D.new()
+			if elbow_script != null:
+				elbow.set_script(elbow_script)
+			scene_root.add_child(elbow)
+			elbow.global_position = node_pos
+			elbow.set("node_key", key)
+
+		var leg_dirs: Array[Vector3] = []
+		for touch: Dictionary in get_edges_touching(key):
+			var other_key: String = touch["other_key"]
+			var other_pos: Vector3 = get_node_data(other_key).get("pos", Vector3.ZERO)
+			if node_pos.distance_to(other_pos) < 0.01:
+				continue
+			leg_dirs.append(WaterPipeElbow.snap_to_axis((other_pos - node_pos).normalized()))
+
+		elbow.call("rebuild_visual", leg_dirs)
+
 func has_edge(edge_id: String) -> bool:
 	return _graph.has_edge(edge_id)
 
@@ -287,6 +330,8 @@ func restore_pipe_network(data: Dictionary) -> void:
 		seg.set("edge_id", edge_id)
 		seg.call("set_endpoints", pos_a, pos_b)
 		seg.set("placement_cost", int(saved.get("cost", 0)))
+
+	refresh_all_pipe_joint_visuals()
 
 
 # ─── Hookup registry + boundary-change reposition dispatch ───────────────────
@@ -560,6 +605,7 @@ func delete_and_refund_edge(edge_id: String) -> bool:
 				if main_hud != null and main_hud.has_method("spawn_float_label"):
 					main_hud.spawn_float_label(screen_pos, refund, true)
 	recompute_flow_directions()
+	refresh_all_pipe_joint_visuals()
 	return true
 
 ## Helper for delete_and_refund_edge()'s §5 both-sides-deleted case — if
