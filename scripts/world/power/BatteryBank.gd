@@ -66,6 +66,18 @@ var _wire_key: String = ""
 var _bat_id:   String = ""
 var _flicker_t: float = 0.0   ## low-battery flicker phase, see _process()
 
+## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
+## construct-tab preview code BEFORE add_child(), so this instance builds
+## its real visual exactly like a placed object but skips every
+## side-effecting call (group membership, PowerManager/WaterManager
+## registration). MUST be set before add_child() — _ready() fires
+## synchronously during add_child() and reads this immediately. See
+## docs/systems/build/README.md "Full-fidelity previews" for the full
+## convention and why this exists (a previous version instantiated these
+## same scripts with no guard and registered 3 real running generators
+## into the live PowerManager the instant Build Mode opened).
+var _is_preview_only: bool = false
+
 # ─── Mesh refs ────────────────────────────────────────────────────────────────
 var _strip_mat:   StandardMaterial3D = null
 var _strip_mi:    MeshInstance3D     = null
@@ -111,8 +123,9 @@ func _ready() -> void:
 	battery_tier = clamp(battery_tier, 0, 2)
 	collision_layer = 5
 	collision_mask  = 0
-	add_to_group("interactable")
-	add_to_group("battery")
+	if not _is_preview_only:
+		add_to_group("interactable")
+		add_to_group("battery")
 	_capacity_wh = float(TIER_CONFIG[battery_tier]["capacity_wh"])
 	_charge_wh   = 0.0
 	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
@@ -120,8 +133,10 @@ func _ready() -> void:
 		_font = ThemeDB.fallback_font
 	_build_mesh()
 	_build_banner()
-	set_process(true)
 	_build_panel()
+	if _is_preview_only:
+		return
+	set_process(true)
 	_register_with_pm()
 
 

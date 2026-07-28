@@ -130,22 +130,37 @@ const UI_TRIPPED_BG:    Color = Color(0.28, 0.05, 0.04, 0.95)
 const UI_TRIPPED_TEXT:  Color = Color(1.0, 0.65, 0.55, 1.0)
 const UI_LOCK_DIM:      Color = Color(0.30, 0.30, 0.30, 0.60)
 
+## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
+## construct-tab preview code BEFORE add_child(), so this instance builds
+## its real visual exactly like a placed object but skips every
+## side-effecting call (group membership, PowerManager/WaterManager
+## registration). MUST be set before add_child() — _ready() fires
+## synchronously during add_child() and reads this immediately. See
+## docs/systems/build/README.md "Full-fidelity previews" for the full
+## convention and why this exists (a previous version instantiated these
+## same scripts with no guard and registered 3 real running generators
+## into the live PowerManager the instant Build Mode opened).
+var _is_preview_only: bool = false
 
-# ══════════════════════════════════════════════════════════════════════════════
+
+# ═════════════════════════════════════════════════════════════════════════════
 # LIFECYCLE
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
 
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
-	add_to_group("interactable")
-	add_to_group("breaker")
+	if not _is_preview_only:
+		add_to_group("interactable")
+		add_to_group("breaker")
 	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
 	if _font == null:
 		_font = ThemeDB.fallback_font
 	_build_mesh()
 	_build_banner()
 	_build_settings_panel()
+	if _is_preview_only:
+		return
 	_register_with_pm()
 
 

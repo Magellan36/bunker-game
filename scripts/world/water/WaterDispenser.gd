@@ -58,6 +58,18 @@ var stored_water_quality: float = 100.0
 
 var _node_key: String = ""
 
+## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
+## construct-tab preview code BEFORE add_child(), so this instance builds
+## its real visual exactly like a placed object but skips every
+## side-effecting call (group membership, PowerManager/WaterManager
+## registration). MUST be set before add_child() — _ready() fires
+## synchronously during add_child() and reads this immediately. See
+## docs/systems/build/README.md "Full-fidelity previews" for the full
+## convention and why this exists (a previous version instantiated these
+## same scripts with no guard and registered 3 real running generators
+## into the live PowerManager the instant Build Mode opened).
+var _is_preview_only: bool = false
+
 ## Cached shader material driving the fill-level visual (Jul 2026, Feature 2)
 ## — set once in _build_mesh(), updated every frame in _process() alongside
 ## the existing fill tick (no new polling loop, same cadence the numeric UI
@@ -71,12 +83,15 @@ var _dispenser_ui: CanvasLayer = null
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
-	add_to_group("interactable")
-	## Jul 2026 (bottle refill rework): lets WaterBottle.bottle_refill_tick()
-	## find this dispenser via get_nodes_in_group(), same nearest-node lookup
-	## pattern FuelCan._find_nearest_generator() uses for the "generator" group.
-	add_to_group("water_dispenser")
+	if not _is_preview_only:
+		add_to_group("interactable")
+		## Jul 2026 (bottle refill rework): lets WaterBottle.bottle_refill_tick()
+		## find this dispenser via get_nodes_in_group(), same nearest-node lookup
+		## pattern FuelCan._find_nearest_generator() uses for the "generator" group.
+		add_to_group("water_dispenser")
 	_build_mesh()
+	if _is_preview_only:
+		return
 	call_deferred("_register_deferred")
 
 func _exit_tree() -> void:

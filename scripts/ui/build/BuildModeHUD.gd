@@ -230,56 +230,63 @@ const PREVIEW_CAM_SIZE: float = 1.0667
 ## version of this feature did exactly that and it registered 15 real
 ## phantom devices — including 3 real running generators — into the live
 ## PowerManager/WaterManager the instant Build Mode opened).
-func _procedural_ghost_mesh(tile_id: int) -> Mesh:
-	var bed_script: GDScript = load("res://scripts/world/furniture/Bed.gd")
-	var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
-	var generator_script: GDScript = load("res://scripts/world/power/GeneratorObject.gd")
-	var terminal_script: GDScript = load("res://scripts/world/power/PowerTerminal.gd")
-	var heavy_script: GDScript = load("res://scripts/world/items/HeavyConsumerTest.gd")
-	var breaker_script: GDScript = load("res://scripts/world/power/BreakerBox.gd")
-	var battery_script: GDScript = load("res://scripts/world/power/BatteryBank.gd")
-	var water_sink_script: GDScript = load("res://scripts/world/water/WaterTestSink.gd")
-	var water_dispenser_script: GDScript = load("res://scripts/world/water/WaterDispenser.gd")
-	var water_purifier_script: GDScript = load("res://scripts/world/water/WaterPurifier.gd")
-	var farming_tray_script: GDScript = load("res://scripts/world/farming/FarmingTray.gd")
-	var grow_light_script: GDScript = load("res://scripts/world/power/GrowLight.gd")
 
-	match tile_id:
-		4:   # TILE_BED
-			return bed_script.build_ghost_mesh()
-		3:   # TILE_SHELVING
-			return shelving_script.build_ghost_mesh()
-		6:   # TILE_GEN_S
-			return generator_script.build_ghost_mesh(0)
-		7:   # TILE_GEN_M
-			return generator_script.build_ghost_mesh(1)
-		8:   # TILE_GEN_L
-			return generator_script.build_ghost_mesh(2)
-		10:  # TILE_TERMINAL
-			return terminal_script.build_ghost_mesh()
-		11:  # TILE_HEAVY
-			return heavy_script.build_ghost_mesh()
-		12, 16:  # TILE_BREAKER, TILE_BREAKER_SMART
-			return breaker_script.build_ghost_mesh()
-		13:  # TILE_BATTERY_S
-			return battery_script.build_ghost_mesh(0)
-		14:  # TILE_BATTERY_M
-			return battery_script.build_ghost_mesh(1)
-		15:  # TILE_BATTERY_L
-			return battery_script.build_ghost_mesh(2)
-		18:  # TILE_WATER_SINK
-			return water_sink_script.build_ghost_mesh()
-		19:  # TILE_WATER_DISPENSER
-			return water_dispenser_script.build_ghost_mesh()
-		20:  # TILE_WATER_PURIFIER
-			return water_purifier_script.build_ghost_mesh()
-		21:  # TILE_TRAY_SINGLE
-			return farming_tray_script.build_ghost_mesh(1)
-		22:  # TILE_TRAY_DOUBLE
-			return farming_tray_script.build_ghost_mesh(2)
-		23, 24:  # TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO
-			return grow_light_script.build_ghost_mesh()
-	return null
+const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
+	4:  { "path": "res://scenes/world/Bed.tscn",                    "is_script": false },
+	3:  { "path": "res://scripts/world/furniture/Shelving.gd",      "is_script": true  },
+	6:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 0 },
+	7:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 1 },
+	8:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 2 },
+	10: { "path": "res://scripts/world/power/PowerTerminal.gd",     "is_script": true },
+	11: { "path": "res://scripts/world/items/HeavyConsumerTest.gd", "is_script": true },
+	12: { "path": "res://scripts/world/power/BreakerBox.gd",        "is_script": true },
+	16: { "path": "res://scripts/world/power/UpgradedBreakerBox.gd","is_script": true },
+	13: { "path": "res://scripts/world/power/BatteryBank.gd",       "is_script": true, "tier_prop": "battery_tier", "tier": 0 },
+	14: { "path": "res://scripts/world/power/BatteryBank.gd",       "is_script": true, "tier_prop": "battery_tier", "tier": 1 },
+	15: { "path": "res://scripts/world/power/BatteryBank.gd",       "is_script": true, "tier_prop": "battery_tier", "tier": 2 },
+	18: { "path": "res://scripts/world/water/WaterTestSink.gd",     "is_script": true },
+	19: { "path": "res://scripts/world/water/WaterDispenser.gd",    "is_script": true },
+	20: { "path": "res://scripts/world/water/WaterPurifier.gd",     "is_script": true },
+	21: { "path": "res://scripts/world/farming/FarmingTray.gd",     "is_script": true, "tier_prop": "cell_count", "tier": 1 },
+	22: { "path": "res://scripts/world/farming/FarmingTray.gd",     "is_script": true, "tier_prop": "cell_count", "tier": 2 },
+	23: { "path": "res://scripts/world/power/GrowLight.gd",         "is_script": true },
+	24: { "path": "res://scripts/world/power/GrowLight.gd",         "is_script": true },
+}
+
+## Builds a detached, side-effect-free instance of the REAL object script/
+## scene for a construct-tab preview — sets _is_preview_only BEFORE
+## add_child() (required, see that var's own comment on each script) so
+## _ready() skips registration/grouping but still runs its real
+## mesh-building call(s) unmodified. Returns null if this tile_id isn't in
+## PROCEDURAL_PREVIEW_SOURCES or the resource fails to load.
+func _build_procedural_preview_instance(tile_id: int) -> Node3D:
+	if not PROCEDURAL_PREVIEW_SOURCES.has(tile_id):
+		return null
+	var info: Dictionary = PROCEDURAL_PREVIEW_SOURCES[tile_id]
+	var inst: Node3D = null
+	if bool(info.get("is_script", false)):
+		var script: GDScript = load(String(info["path"])) as GDScript
+		if script == null:
+			return null
+		inst = script.new()
+	else:
+		var packed: PackedScene = load(String(info["path"])) as PackedScene
+		if packed == null:
+			return null
+		inst = packed.instantiate() as Node3D
+	if inst == null:
+		return null
+
+	inst.set("_is_preview_only", true)
+	var tier_prop: String = String(info.get("tier_prop", ""))
+	if not tier_prop.is_empty():
+		inst.set(tier_prop, info["tier"])
+
+	if inst is RigidBody3D:
+		var rb: RigidBody3D = inst as RigidBody3D
+		rb.freeze = true
+		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	return inst
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 var _canvas:       Control        = null   ## Full-screen draw surface
@@ -930,44 +937,74 @@ func _refresh_submenu_previews() -> void:
 		if i >= _sub_viewports.size():
 			break
 		var tile_id: int  = CONSTRUCT_ITEMS[i]["tile_id"]
-		## Procedural tiles (Bed, Shelving, Generators, Batteries, etc.)
-		## have no MeshLibrary entry. Use their own side-effect-free
-		## build_ghost_mesh() helper instead of leaving this slot blank.
-		var mesh: Mesh = lib.get_item_mesh(tile_id) if lib.get_item_list().has(tile_id) else null
-		if mesh == null:
-			mesh = _procedural_ghost_mesh(tile_id)
-			if mesh == null:
-				continue   ## no fallback exists for this tile_id — stays text-only, same as before
-
 		var vp: SubViewport = _sub_viewports[i]
+
 		# Remove any old pivot/mesh
 		for child in vp.get_children():
 			if child is Node3D and child is not Camera3D and child is not OmniLight3D:
 				child.queue_free()
 
-		## Pivot fix (Jul 2026) — rotating the MeshInstance3D directly spins
-		## it around ITS OWN local origin, which usually isn't the mesh's
-		## true visual center (most meshes aren't authored centered on their
-		## own origin) — it visibly swings around a corner instead of
-		## spinning in place. Fix: wrap it in a pivot Node3D that sits fixed
-		## at the viewport center; offset the mesh WITHIN the pivot instead,
-		## and rotate the pivot. _sub_mesh_instances now stores this pivot
-		## (not the raw MeshInstance3D) — _update_preview_hover_spin() needs
-		## no changes for this specific reason, it just rotates whatever's
-		## in the array.
-		var pivot: Node3D = Node3D.new()
-		pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-		vp.add_child(pivot)
+		## MeshLibrary item — existing single-mesh path, unchanged.
+		if lib.get_item_list().has(tile_id):
+			var mesh: Mesh = lib.get_item_mesh(tile_id)
+			if mesh != null:
+				## Pivot fix (Jul 2026) — rotating the MeshInstance3D directly spins
+				## it around ITS OWN local origin, which usually isn't the mesh's
+				## true visual center (most meshes aren't authored centered on their
+				## own origin) — it visibly swings around a corner instead of
+				## spinning in place. Fix: wrap it in a pivot Node3D that sits fixed
+				## at the viewport center; offset the mesh WITHIN the pivot instead,
+				## and rotate the pivot. _sub_mesh_instances now stores this pivot
+				## (not the raw MeshInstance3D) — _update_preview_hover_spin() needs
+				## no changes for this specific reason, it just rotates whatever's
+				## in the array.
+				var pivot: Node3D = Node3D.new()
+				pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+				vp.add_child(pivot)
 
-		var mi: MeshInstance3D = MeshInstance3D.new()
-		mi.mesh = mesh
-		pivot.add_child(mi)
-		_sub_mesh_instances[i] = pivot
+				var mi: MeshInstance3D = MeshInstance3D.new()
+				mi.mesh = mesh
+				pivot.add_child(mi)
+				_sub_mesh_instances[i] = pivot
 
-		# Center mesh within the pivot (the pivot itself never moves)
-		if mi.mesh != null:
-			var aabb: AABB = mi.mesh.get_aabb()
-			mi.position = -aabb.get_center()
+				# Center mesh within the pivot (the pivot itself never moves)
+				if mi.mesh != null:
+					var aabb: AABB = mi.mesh.get_aabb()
+					mi.position = -aabb.get_center()
+				continue
+
+		## No MeshLibrary entry — try a full-fidelity procedural preview
+		## instead of leaving this slot blank. See _build_procedural_preview_instance().
+		var inst: Node3D = _build_procedural_preview_instance(tile_id)
+		if inst == null:
+			continue   ## no source registered for this tile — stays text-only, same as before
+		inst.set_process(false)
+		inst.set_physics_process(false)
+
+		var pivot2: Node3D = Node3D.new()
+		pivot2.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+		vp.add_child(pivot2)
+		pivot2.add_child(inst)
+		_sub_mesh_instances[i] = pivot2
+
+		## Combined AABB across every MeshInstance3D descendant — copy this
+		## exact block from _refresh_shop_previews(), don't rewrite it.
+		var combined: AABB = AABB()
+		var found_any: bool = false
+		var stack: Array = [inst]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+				var mesh_aabb: AABB = (n as MeshInstance3D).mesh.get_aabb()
+				if not found_any:
+					combined = mesh_aabb
+					found_any = true
+				else:
+					combined = combined.merge(mesh_aabb)
+			for c in n.get_children():
+				stack.append(c)
+		if found_any:
+			inst.position = -combined.get_center()
 
 	_refresh_shop_previews()
 

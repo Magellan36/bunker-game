@@ -73,24 +73,43 @@ var current_flow_mL_per_day: float = 0.0
 ## (deliberately NOT the same numbers as WaterInfoUI's flow-color bands,
 ## which are hookup-relative-adjacent UI thresholds, not a wear input — see
 ## that file's own comment before "simplifying" these into one shared set).
+## Flow-Based Filter Wear plan §1.2 — fixed absolute mL/day thresholds
+## (deliberately NOT the same numbers as WaterInfoUI's flow-color bands,
+## which are hookup-relative-adjacent UI thresholds, not a wear input — see
+## that file's own comment before "simplifying" these into one shared set).
 const FLOW_WEAR_MIN_ML:  float = 0.0      ## 0.0x multiplier
 const FLOW_WEAR_HALF_ML: float = 2000.0   ## 0.5x multiplier
 const FLOW_WEAR_MAX_ML:  float = 4000.0   ## 1.0x multiplier, clamped above
 
+## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
+## construct-tab preview code BEFORE add_child(), so this instance builds
+## its real visual exactly like a placed object but skips every
+## side-effecting call (group membership, PowerManager/WaterManager
+## registration). MUST be set before add_child() — _ready() fires
+## synchronously during add_child() and reads this immediately. See
+## docs/systems/build/README.md "Full-fidelity previews" for the full
+## convention and why this exists (a previous version instantiated these
+## same scripts with no guard and registered 3 real running generators
+## into the live PowerManager the instant Build Mode opened).
+var _is_preview_only: bool = false
+
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
-	add_to_group("interactable")
-	## Jul 2026 (clean-pulse VFX) — purifier nodes are registered into
-	## WaterGraph WITHOUT a consumer_ref (see WaterPurifierAttach
-	## .insert_purifier_at()'s register_node() call — role-only, no back-
-	## reference), so WaterManager can't find this instance via
-	## get_consumer_ref(). This group + node_key match is the same
-	## findability pattern find_pipe_visual() already uses for
-	## "water_pipe_visual" — see WaterManager._find_purifier_by_key().
-	add_to_group("water_purifier")
+	if not _is_preview_only:
+		add_to_group("interactable")
+		## Jul 2026 (clean-pulse VFX) — purifier nodes are registered into
+		## WaterGraph WITHOUT a consumer_ref (see WaterPurifierAttach
+		## .insert_purifier_at()'s register_node() call — role-only, no back-
+		## reference), so WaterManager can't find this instance via
+		## get_consumer_ref(). This group + node_key match is the same
+		## findability pattern find_pipe_visual() already uses for
+		## "water_pipe_visual" — see WaterManager._find_purifier_by_key().
+		add_to_group("water_purifier")
 	_build_mesh()
 	_refresh_band_tint()
+	if _is_preview_only:
+		return
 	## Debug print (Jul 2026, Purifier Filter plan §7) — a 10-in-game-day
 	## depletion is too slow to eyeball-verify without either a fast-forward
 	## cheat or seeing the computed rate once here. This is the MAX rate

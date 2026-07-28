@@ -40,6 +40,18 @@ var _node_key: String = ""
 var _state_label: Label3D = null
 var _check_timer: float = 0.0
 
+## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
+## construct-tab preview code BEFORE add_child(), so this instance builds
+## its real visual exactly like a placed object but skips every
+## side-effecting call (group membership, PowerManager/WaterManager
+## registration). MUST be set before add_child() — _ready() fires
+## synchronously during add_child() and reads this immediately. See
+## docs/systems/build/README.md "Full-fidelity previews" for the full
+## convention and why this exists (a previous version instantiated these
+## same scripts with no guard and registered 3 real running generators
+## into the live PowerManager the instant Build Mode opened).
+var _is_preview_only: bool = false
+
 ## Info panel (Step 2, July 2026) — lazy-instantiated, reused across opens,
 ## same lifecycle pattern as PowerTerminal._terminal_ui / WaterHookup._info_ui.
 var _info_ui: CanvasLayer = null
@@ -47,9 +59,13 @@ var _info_ui: CanvasLayer = null
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
-	add_to_group("interactable")
+	if not _is_preview_only:
+		add_to_group("interactable")
 	_build_mesh()
 	_build_label()
+	if _is_preview_only:
+		set_process(false)
+		return
 	call_deferred("_register_deferred")
 
 func _exit_tree() -> void:

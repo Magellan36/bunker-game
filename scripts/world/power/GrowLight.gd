@@ -112,6 +112,18 @@ var _pm_node_key: String = ""
 var _is_powered:  bool   = false
 var _is_shed:     bool   = false
 
+## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
+## construct-tab preview code BEFORE add_child(), so this instance builds
+## its real visual exactly like a placed object but skips every
+## side-effecting call (group membership, PowerManager/WaterManager
+## registration). MUST be set before add_child() — _ready() fires
+## synchronously during add_child() and reads this immediately. See
+## docs/systems/build/README.md "Full-fidelity previews" for the full
+## convention and why this exists (a previous version instantiated these
+## same scripts with no guard and registered 3 real running generators
+## into the live PowerManager the instant Build Mode opened).
+var _is_preview_only: bool = false
+
 ## Farming Polish Plan Group 6 item 14 (perf) — spatial-hash bucket registry
 ## replacing FarmPlant's old per-hour, per-plant O(n) scan over every
 ## "grow_light" group member. Grow lights are placed on the 0.25m build grid
@@ -184,8 +196,9 @@ func _ready() -> void:
 	tier = tier if TIER_WATTS.has(tier) else "normal"
 	collision_layer = 5
 	collision_mask  = 0
-	add_to_group("interactable")
-	add_to_group("grow_light")
+	if not _is_preview_only:
+		add_to_group("interactable")
+		add_to_group("grow_light")
 	_build_fixture()
 	## A7 safety net — guarantee fixture starts off before any PowerManager
 	## solve can potentially set it powered.
@@ -200,6 +213,8 @@ func _ready() -> void:
 	## after global_position has its real value. Also removes the old
 	## duplicate call — it only ever needs to run once.
 	call_deferred("_register_bucket")
+	if _is_preview_only:
+		return
 	call_deferred("_register_deferred")
 
 ## Registers into the static bucket registry (item 14) — global_position is

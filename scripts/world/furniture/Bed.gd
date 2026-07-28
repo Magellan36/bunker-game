@@ -5,6 +5,18 @@ class_name Bed
 ## Signals SleepOverlay to handle the fade + time-skip.
 ## Place on a StaticBody3D with a MeshInstance3D and CollisionShape3D child.
 
+# ─── Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
+## construct-tab preview code BEFORE add_child(), so this instance builds
+## its real visual exactly like a placed object but skips every
+## side-effecting call (group membership, PowerManager/WaterManager
+## registration). MUST be set before add_child() — _ready() fires
+## synchronously during add_child() and reads this immediately. See
+## docs/systems/build/README.md "Full-fidelity previews" for the full
+## convention and why this exists (a previous version instantiated these
+## same scripts with no guard and registered 3 real running generators
+## into the live PowerManager the instant Build Mode opened).
+var _is_preview_only: bool = false
+
 # ─── Signals ─────────────────────────────────────────────────────────────────
 ## Emitted when player initiates sleep
 signal sleep_requested()
@@ -16,6 +28,8 @@ var _player_in_range: bool = false
 var _player_sleeping: bool = false
 
 func _ready() -> void:
+	if _is_preview_only:
+		return
 	add_to_group("interactable")
 	add_to_group("bed")   ## Used by MainWorld._connect_bed() to wire all placed beds
 
