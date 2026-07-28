@@ -78,7 +78,7 @@ const WALL_HEIGHT_M: float = 3.0
 ## Grow lights sit "near wall-height" per the Farming System plan — high
 ## enough to read as ceiling-mounted shop lighting. Polish Plan Group 0 item
 ## 20: revised to 7/8 wall height (2.625m) — now sits slightly BELOW the
-## 3.9m pipe layer (WATER_HOOKUP_PLACEMENT_Y/WATER_CEILING_Y), a visual-only
+## 3.2m pipe layer (WATER_HOOKUP_PLACEMENT_Y/WATER_CEILING_Y), a visual-only
 ## change to eyeball once placed, not a functional conflict.
 const GROW_LIGHT_PLACEMENT_Y: float = WALL_HEIGHT_M * 7.0 / 8.0
 
