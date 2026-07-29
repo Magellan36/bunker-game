@@ -19,10 +19,6 @@ extends CanvasLayer
 ## All controls follow the shared UIKit theme for visual consistency with
 ## PauseMenuUI/WaterDispenserUI/PowerTerminalUI.
 
-var interaction_system: Node = null
-var inventory: Node = null
-var inventory_hud: Node = null
-
 var _panel:         Panel = null
 var _vbox:          VBoxContainer = null
 var _scroll:        ScrollContainer = null
@@ -102,46 +98,6 @@ const RENDER_SCALE_MIN: float = 0.5
 const RENDER_SCALE_MAX: float = 1.0
 const RENDER_SCALE_STEP: float = 0.05
 
-var inventory: Node = null
-var inventory_hud: Node = null
-
-var _panel:         Panel = null
-var _scroll:        ScrollContainer = null
-var _vbox:          VBoxContainer = nil
-
-var _preset_option: OptionButton = null
-var _close_btn:     Button = null
-
-## Display
-var _window_mode_option: OptionButton = null
-var _resolution_option:  OptionButton = null
-var _vsync_check:        CheckBox = null
-var _fps_cap_option:     OptionButton = null
-
-## Rendering
-var _aa_option:          OptionButton = null
-var _aniso_option:       OptionButton = null
-var _shadow_quality_option: OptionButton = null
-var _render_scale_slider: HSlider = null
-
-## Advanced Quality
-var _sdfgi_check:          CheckBox = null
-var _ssao_check:           CheckBox = null
-var _ssil_check:           CheckBox = null
-var _vol_fog_check:        CheckBox = null
-var _glow_check:           CheckBox = null
-var _dof_check:            CheckBox = null
-
-## Flashlight
-var _vol_check:            CheckBox = null
-var _shadow_check:         CheckBox = null
-
-## Camera
-var _fov_slider:           HSlider = nil
-
-## Close button
-var _close_btn: Button = null
-
 func _ready() -> void:
 	layer = 210   ## Above PauseMenuUI (layer 200)
 	_build_ui()
@@ -155,8 +111,7 @@ func open() -> void:
 
 func close() -> void:
 	visible = false
-	if interaction_system != null:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _build_ui() -> void:
 	## Blur backdrop (same as PauseMenuUI)
@@ -221,9 +176,9 @@ func _build_ui() -> void:
 	_panel.theme = UIKit.settings_controls_theme()
 
 	## Wire backdrop click-to-close
-	var backdrop: ColorRect = get_child(0)  ## First child is the ColorRect backdrop
-	if backdrop:
-		backdrop.gui_input.connect(_on_backdrop_input)
+	var backdrop_node: ColorRect = get_child(0)  ## First child is the ColorRect backdrop
+	if backdrop_node:
+		backdrop_node.gui_input.connect(_on_backdrop_input)
 
 ## ─── Content builder ──────────────────────────────────────────────────────────
 func _build_content() -> void:
@@ -243,7 +198,7 @@ func _build_content() -> void:
 
 	## 2. Display
 	_add_section_header("DISPLAY")
-	
+
 	## Window Mode
 	var wm_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(wm_row)
@@ -390,10 +345,6 @@ func _build_content() -> void:
 	_fov_slider.drag_ended.connect(_on_fov_drag_ended)
 	fov_row.add_child(_fov_slider)
 
-	## Close button
-	var close_btn: Button = _make_button("Close", close)
-	_vbox.add_child(close_btn)
-
 func _add_section_header(text: String) -> void:
 	var sep: HSeparator = HSeparator.new()
 	_vbox.add_child(sep)
@@ -404,7 +355,7 @@ func _add_section_header(text: String) -> void:
 	lbl.add_theme_font_override("font", UIKit.font())
 	_vbox.add_child(lbl)
 
-## ─── Helper: section-aware checkbox maker ──────────────────────────────────
+## ─── Helper: control makers ─────────────────────────────────────────────────
 func _make_checkbox(text: String, cb: Callable) -> CheckBox:
 	var box: CheckBox = CheckBox.new()
 	box.text = text
@@ -416,7 +367,6 @@ func _make_button(text: String, cb: Callable) -> Button:
 	var btn: Button = Button.new()
 	btn.text = text
 	btn.custom_minimum_size = Vector2(0.0, 36.0)
-	btn.pressed.connect(cb)
 	btn.add_theme_font_override("font", UIKit.font())
 	var sb: StyleBoxFlat = StyleBoxFlat.new()
 	sb.bg_color = Color(0.14, 0.14, 0.16, 1.0)
@@ -544,31 +494,3 @@ func _on_backdrop_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		close()
 		get_viewport().set_input_as_handled()
-
-func _make_checkbox(text: String, cb: Callable) -> CheckBox:
-	var box: CheckBox = CheckBox.new()
-	box.text = text
-	box.toggled.connect(cb)
-	box.add_theme_font_override("font", UIKit.font())
-	return box
-
-func _make_button(text: String, cb: Callable) -> Button:
-	var btn: Button = Button.new()
-	btn.text = text
-	btn.custom_minimum_size = Vector2(0.0, 36.0)
-	btn.pressed.connect(cb)
-	btn.add_theme_font_override("font", UIKit.font())
-	var sb: StyleBoxFlat = StyleBoxFlat.new()
-	sb.bg_color = Color(0.14, 0.14, 0.16, 1.0)
-	sb.border_color = Color(0.28, 0.28, 0.32, 1.0)
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(4)
-	btn.add_theme_stylebox_override("normal", sb)
-	var hover_sb: StyleBoxFlat = sb.duplicate() as StyleBoxFlat
-	hover_sb.bg_color = Color(0.20, 0.20, 0.23, 1.0)
-	btn.add_theme_stylebox_override("hover", hover_sb)
-	var pressed_sb: StyleBoxFlat = sb.duplicate() as StyleBoxFlat
-	pressed_sb.bg_color = Color(0.12, 0.12, 0.14, 1.0)
-	btn.add_theme_stylebox_override("pressed", pressed_sb)
-	btn.pressed.connect(func(): cb.call())
-	return btn

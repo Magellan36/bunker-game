@@ -248,5 +248,3 @@ static func settings_controls_theme() -> Theme:
 
 
 	return theme
-
-## Helper to create a small checkmark texture (procedural, no asset needed)
