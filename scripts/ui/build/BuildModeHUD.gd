@@ -210,6 +210,29 @@ const PREVIEW_HOVER_SPIN_DEG_PER_SEC: float = 90.0
 ## gives a 1.5x zoom over the original framing.
 const PREVIEW_CAM_SIZE: float = 1.0667
 
+## World-units the object's LARGEST AABB dimension should map to after
+## normalization, regardless of its real size — the single knob that
+## controls how "full" every preview looks in its fixed-size camera frame.
+## ~0.85 leaves a small margin so a rotating/spinning object doesn't clip
+## the viewport edge. Tune this visually first if previews look too
+## tight/loose overall — it affects every preview uniformly, so this is
+## the ONLY number that should ever need adjusting, never a per-item one.
+const PREVIEW_TARGET_SIZE: float = 0.85
+
+## Returns the uniform scale factor that makes `aabb`'s single largest
+## dimension equal PREVIEW_TARGET_SIZE. Apply this to a preview's PIVOT
+## node (never the mesh/instance child) — composes cleanly with the
+## pivot's existing PREVIEW_ROTATION_DEFAULT and the child's own
+## `-aabb.get_center()` centering offset with zero extra math needed (a
+## uniform scale on an already-centered child stays centered regardless
+## of the scale factor). Seed packets (~0.14m) and Generator L (~1.85m)
+## both end up reading as the same on-screen size in every preview pool.
+static func _preview_normalize_scale(aabb: AABB) -> float:
+	var largest: float = max(aabb.size.x, max(aabb.size.y, aabb.size.z))
+	if largest < 0.0001:
+		return 1.0
+	return PREVIEW_TARGET_SIZE / largest
+
 ## Preview source for CONSTRUCT_ITEMS tile_ids that have no MeshLibrary
 ## entry — procedural furniture/devices built in
 ## BuildModeController.spawn_structure() instead of placed via the gridmap.
@@ -971,6 +994,7 @@ func _refresh_submenu_previews() -> void:
 				if mi.mesh != null:
 					var aabb: AABB = mi.mesh.get_aabb()
 					mi.position = -aabb.get_center()
+					pivot.scale = Vector3.ONE * _preview_normalize_scale(aabb)
 				continue
 
 		## No MeshLibrary entry — try a full-fidelity procedural preview
@@ -1005,6 +1029,7 @@ func _refresh_submenu_previews() -> void:
 				stack.append(c)
 		if found_any:
 			inst.position = -combined.get_center()
+			pivot2.scale = Vector3.ONE * _preview_normalize_scale(combined)
 
 	_refresh_shop_previews()
 
@@ -1073,6 +1098,7 @@ func _refresh_shop_previews() -> void:
 				stack.append(c)
 		if found_any:
 			inst.position = -combined.get_center()
+			pivot.scale = Vector3.ONE * _preview_normalize_scale(combined)
 
 # ─── Cancel button ────────────────────────────────────────────────────────────
 func _build_cancel_button() -> Control:

@@ -66,7 +66,7 @@ The water/power systems have managers because they solve a *shared graph*
   1.0 pro). Not wall-snapped, not required to sit above a tray — placeable
   anywhere in the bunker, fixed height `GROW_LIGHT_PLACEMENT_Y = 2.625`
   (Polish Plan Group 0 item 20: derived as `WALL_HEIGHT_M * 7.0/8.0`, now
-  sitting slightly *below* the 2.9m pipe layer — was `2.75` pre-revision,
+  sitting slightly *below* the 3.2m pipe layer — was `2.75` pre-revision,
   visual-only change). 4 thin unlit dark-grey `CylinderMesh` corner support
   wires run from the fixture up to the 3.0m ceiling
   (`WIRE_LENGTH = WALL_HEIGHT_M * 1.0/8.0 = 0.375m`, both constants live in
