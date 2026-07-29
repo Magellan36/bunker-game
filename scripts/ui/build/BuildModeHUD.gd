@@ -233,6 +233,49 @@ static func _preview_normalize_scale(aabb: AABB) -> float:
 		return 1.0
 	return PREVIEW_TARGET_SIZE / largest
 
+## Computes the combined AABB of every MeshInstance3D descendant of
+## `root`, correctly expressed in root's OWN local coordinate space —
+## i.e. accounting for each mesh's position/rotation relative to root,
+## not just merging each mesh's raw local-space AABB as if every child
+## sat exactly at root's own origin.
+##
+## THIS IS THE FIX (Jul 2026) for the "rotates around its feet instead of
+## spinning in place" bug: almost every procedural device positions its
+## body mesh ABOVE its own root node (so the root represents the
+## floor-contact point, e.g. GeneratorObject's body sits at local
+## Y = height/2 — see BOX_SIZE.y * 0.5 convention used throughout
+## scripts/world/power|water/*.gd). The OLD version of this walk ignored
+## that offset entirely, silently treating every child mesh as if it were
+## centered at root's own origin — biasing the computed "center" toward
+## each object's base. Rotating a pivot around that miscomputed point
+## looked like the object orbiting around its feet, not its true middle.
+##
+## Uses GLOBAL transforms (root_inverse * mi.global_transform) rather
+## than a mesh's own local `.transform` — correct regardless of how many
+## levels deep a mesh is nested (a direct child, or 2-3 levels down inside
+## an imported model), which a single-level-only approach would get wrong.
+## Requires `root` to already be inside the SceneTree (global_transform
+## must be valid) — call this AFTER add_child(), never before.
+static func _combined_local_aabb(root: Node3D) -> Dictionary:
+	var combined: AABB = AABB()
+	var found_any: bool = false
+	var root_inverse: Transform3D = root.global_transform.affine_inverse()
+	var stack: Array = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+			var mi: MeshInstance3D = n as MeshInstance3D
+			var relative_transform: Transform3D = root_inverse * mi.global_transform
+			var mesh_aabb: AABB = relative_transform * mi.mesh.get_aabb()
+			if not found_any:
+				combined = mesh_aabb
+				found_any = true
+			else:
+				combined = combined.merge(mesh_aabb)
+		for c in n.get_children():
+			stack.append(c)
+	return { "aabb": combined, "found_any": found_any }
+
 ## Preview source for CONSTRUCT_ITEMS tile_ids that have no MeshLibrary
 ## entry — procedural furniture/devices built in
 ## BuildModeController.spawn_structure() instead of placed via the gridmap.
@@ -1011,23 +1054,12 @@ func _refresh_submenu_previews() -> void:
 		pivot2.add_child(inst)
 		_sub_mesh_instances[i] = pivot2
 
-		## Combined AABB across every MeshInstance3D descendant — copy this
-		## exact block from _refresh_shop_previews(), don't rewrite it.
-		var combined: AABB = AABB()
-		var found_any: bool = false
-		var stack: Array = [inst]
-		while not stack.is_empty():
-			var n: Node = stack.pop_back()
-			if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
-				var mesh_aabb: AABB = (n as MeshInstance3D).mesh.get_aabb()
-				if not found_any:
-					combined = mesh_aabb
-					found_any = true
-				else:
-					combined = combined.merge(mesh_aabb)
-			for c in n.get_children():
-				stack.append(c)
-		if found_any:
+		## Combined AABB, correctly accounting for each mesh's own offset
+		## from `inst` — see _combined_local_aabb()'s own header for why the
+		## old raw-merge version here was wrong.
+		var aabb_result: Dictionary = _combined_local_aabb(inst)
+		if aabb_result["found_any"]:
+			var combined: AABB = aabb_result["aabb"]
 			inst.position = -combined.get_center()
 			pivot2.scale = Vector3.ONE * _preview_normalize_scale(combined)
 
@@ -1079,24 +1111,11 @@ func _refresh_shop_previews() -> void:
 		pivot.add_child(inst)
 		_shop_mesh_instances[i] = pivot
 
-		# Center in viewport using the combined AABB of any MeshInstance3D
-		# children (imported models nest their mesh a level or two down, so
-		# search recursively rather than assuming a direct child).
-		var combined: AABB = AABB()
-		var found_any: bool = false
-		var stack: Array = [inst]
-		while not stack.is_empty():
-			var n: Node = stack.pop_back()
-			if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
-				var mesh_aabb: AABB = (n as MeshInstance3D).mesh.get_aabb()
-				if not found_any:
-					combined = mesh_aabb
-					found_any = true
-				else:
-					combined = combined.merge(mesh_aabb)
-			for c in n.get_children():
-				stack.append(c)
-		if found_any:
+		# Combined AABB, correctly accounting for each mesh's own offset
+		# from `inst` — see _combined_local_aabb()'s own header.
+		var aabb_result: Dictionary = _combined_local_aabb(inst)
+		if aabb_result["found_any"]:
+			var combined: AABB = aabb_result["aabb"]
 			inst.position = -combined.get_center()
 			pivot.scale = Vector3.ONE * _preview_normalize_scale(combined)
 
