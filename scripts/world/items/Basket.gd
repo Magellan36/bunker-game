@@ -52,6 +52,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s" % item_name
 
+func get_interact_prompt() -> String:
+	return "[G] Open Basket"
+
 ## No get_use_prompt() override — while HELD, E is intercepted entirely by
 ## InteractionSystem's is_basket_container branch (adds nearby item to
 ## basket instead of calling on_use()), so this never actually shows.

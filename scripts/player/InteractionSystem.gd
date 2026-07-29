@@ -416,6 +416,30 @@ func _update_prompt() -> void:
 					shelf_pos = nearby_shelf.get_prompt_world_pos()
 				entries.append({ "text": "\n".join(shelf_lines), "world_pos": shelf_pos, "dist": 0.0 })
 
+		# Basket held → "[E] Add to Basket" over each nearby storable item.
+		# CASE 2 further down never runs while something is held (this whole
+		# block returns before reaching it), so this can only live here.
+		# Reuses _tracked_bodies — the same Area3D-maintained set CASE 2 uses —
+		# rather than polling detect_area every frame.
+		if "is_basket_container" in held_item:
+			for body in _tracked_bodies:
+				if not is_instance_valid(body):
+					continue
+				if not body.is_in_group("basket_storable"):
+					continue
+				if body.is_in_group("shelved"):
+					continue
+				if body is RigidBody3D and (body as RigidBody3D).freeze:
+					continue
+				var bd: float = body.global_position.distance_to(player.global_position)
+				if bd > MAX_PROMPT_DIST:
+					continue
+				entries.append({
+					"text":      "[E] Add to Basket",
+					"world_pos": body.global_position,
+					"dist":      bd
+				})
+
 		if entries.is_empty():
 			prompt.hide_prompt()
 		else:
@@ -510,12 +534,8 @@ func _update_prompt() -> void:
 		var lines: Array[String] = []
 
 		if body.is_in_group("pickup") and body.has_method("get_prompt_text"):
-			if held_item != null and ("is_basket_container" in held_item) \
-					and body.is_in_group("basket_storable"):
-				lines.append("[E] Add to Basket")
-			else:
-				var pt: String = body.get_prompt_text()
-				if pt != "": lines.append(pt)
+			var pt: String = body.get_prompt_text()
+			if pt != "": lines.append(pt)
 		elif body.is_in_group("pickup"):
 			lines.append("[F] Pick up")
 

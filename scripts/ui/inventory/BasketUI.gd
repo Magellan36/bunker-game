@@ -328,9 +328,8 @@ func _populate_slots() -> void:
 func _refresh_slot(slot_idx: int) -> void:
 	if _basket == null:
 		return
-	var stack: Array = _basket.slots[slot_idx] if slot_idx < _basket.slots.size() else []
-	var top_item = stack.back() if not stack.is_empty() else null
-	_set_slot(slot_idx, top_item, stack.size())
+	var item = _basket.slots[slot_idx] if slot_idx < _basket.slots.size() else null
+	_set_slot(slot_idx, item, 1 if item != null else 0)
 
 func _set_slot(slot_idx: int, item, count: int) -> void:
 	var empty_lbl: Label = _panel.get_node_or_null("EmptyLabel_%d" % slot_idx)

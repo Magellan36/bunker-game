@@ -206,7 +206,12 @@ func _spawn_scene(path: String, pos: Vector3) -> void:
 	if node == null:
 		push_warning("[AdminSpawn] Instantiate failed: %s" % path)
 		return
-	## Freeze physics for one frame to avoid fall-through on spawn
+	## Freeze while the body joins the tree and the physics server registers
+	## its collision shape. A single call_deferred() does NOT reliably wait
+	## for this — it can fire before registration finishes, which is why
+	## spawned items were falling through the floor and getting rescued by
+	## MainWorld._check_abyss_items() a moment later. Two full physics_frame
+	## ticks guarantees registration is done before gravity takes over.
 	if node is RigidBody3D:
 		var rb: RigidBody3D = node as RigidBody3D
 		rb.freeze      = true
@@ -214,5 +219,8 @@ func _spawn_scene(path: String, pos: Vector3) -> void:
 	world_node.add_child(node)
 	node.global_position = pos
 	if node is RigidBody3D:
-		node.call_deferred("_unfreeze_after_spawn")
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		if is_instance_valid(node):
+			(node as RigidBody3D).freeze = false
 	_wdbg("[AdminSpawn] Spawned %s at %s" % [path.get_file(), pos])
