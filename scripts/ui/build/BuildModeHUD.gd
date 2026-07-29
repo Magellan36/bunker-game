@@ -217,7 +217,7 @@ const PREVIEW_CAM_SIZE: float = 1.0667
 ## the viewport edge. Tune this visually first if previews look too
 ## tight/loose overall — it affects every preview uniformly, so this is
 ## the ONLY number that should ever need adjusting, never a per-item one.
-const PREVIEW_TARGET_SIZE: float = 0.85
+const PREVIEW_TARGET_SIZE: float = 0.5667
 
 ## Returns the uniform scale factor that makes `aabb`'s single largest
 ## dimension equal PREVIEW_TARGET_SIZE. Apply this to a preview's PIVOT
