@@ -48,26 +48,48 @@ var msaa:                  int  = Viewport.MSAA_2X
 ## Flashlight.gd. Godot's Camera3D default is 75.0.
 var camera_fov: float = 75.0
 
+## Display settings (Phase 2) — device/display behavior, not quality tier
+var vsync_enabled: bool = true
+var window_mode: int = DisplayServer.WINDOW_MODE_FULLSCREEN
+var fps_cap: int = 0   ## 0 = uncapped
+
+## Anti-aliasing overhaul (Phase 3)
+var screen_space_aa: int = Viewport.SCREEN_SPACE_AA_DISABLED
+var use_taa: bool = false
+
+## Phase 4 — Anisotropic filtering, shadow quality, render scale
+var anisotropic_filtering: int = 4
+var shadow_quality: int = 2048
+var render_scale: float = 1.0
+
 const PRESETS: Dictionary = {
 	Preset.LOW: {
 		"sdfgi_enabled": false, "ssao_enabled": true, "ssil_enabled": false,
 		"volumetric_fog_enabled": false, "flashlight_volumetrics": false,
 		"glow_enabled": false, "dof_enabled": false, "msaa": Viewport.MSAA_DISABLED,
+		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
+		"anisotropic_filtering": 2, "shadow_quality": 1024, "render_scale": 1.0,
 	},
 	Preset.MEDIUM: {
 		"sdfgi_enabled": false, "ssao_enabled": true, "ssil_enabled": false,
 		"volumetric_fog_enabled": true, "flashlight_volumetrics": true,
 		"glow_enabled": true, "dof_enabled": false, "msaa": Viewport.MSAA_2X,
+		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
+		"anisotropic_filtering": 4, "shadow_quality": 2048, "render_scale": 1.0,
 	},
 	Preset.HIGH: {
 		"sdfgi_enabled": true, "ssao_enabled": true, "ssil_enabled": false,
 		"volumetric_fog_enabled": true, "flashlight_volumetrics": true,
 		"glow_enabled": true, "dof_enabled": true, "msaa": Viewport.MSAA_2X,
+		"screen_space_aa": Viewport.SCREEN_SPACE_AA_FXAA, "use_taa": false,
+		"anisotropic_filtering": 8, "shadow_quality": 4096, "render_scale": 1.0,
 	},
 	Preset.ULTRA: {
 		"sdfgi_enabled": true, "ssao_enabled": true, "ssil_enabled": true,
 		"volumetric_fog_enabled": true, "flashlight_volumetrics": true,
 		"glow_enabled": true, "dof_enabled": true, "msaa": Viewport.MSAA_4X,
+		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": true,
+		"anisotropic_filtering": 16, "shadow_quality": 4096, "render_scale": 1.0,
 	},
 }
 
@@ -123,8 +145,16 @@ func set_setting_live(field: String, value: Variant) -> void:
 		"glow_enabled":             glow_enabled = value
 		"dof_enabled":              dof_enabled = value
 		"msaa":                     msaa = value
+		"screen_space_aa":          screen_space_aa = value
+		"use_taa":                  use_taa = value
+		"anisotropic_filtering":    anisotropic_filtering = value
+		"shadow_quality":           shadow_quality = value
+		"render_scale":             render_scale = value
 		"camera_fov":               camera_fov = value
-		_:
+		"vsync_enabled":            vsync_enabled = value
+		"window_mode":              window_mode = value
+		"fps_cap":                  fps_cap = value
+		_:	
 			push_warning("[GraphicsSettings] Unknown field: %s" % field)
 			return
 	if field != "flashlight_shadows" and field != "camera_fov":
@@ -141,6 +171,7 @@ func save_now() -> void:
 func _apply_all() -> void:
 	_apply_to_environment()
 	_apply_to_viewport()
+	_apply_to_display()
 	settings_changed.emit()
 
 
@@ -172,6 +203,18 @@ func _apply_to_viewport() -> void:
 	## error here (this was the actual root cause of the autoload silently
 	## failing to load — see HANDOVER note).
 	tree.root.msaa_3d = msaa
+	tree.root.screen_space_aa = screen_space_aa
+	tree.root.use_taa = use_taa
+	get_viewport().scaling_3d_scale = render_scale
+	get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+
+## Display settings (VSync, window mode, FPS cap, anisotropic filtering, shadow quality)
+func _apply_to_display() -> void:
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if vsync_enabled else DisplayServer.VSYNC_DISABLED)
+	DisplayServer.window_set_mode(window_mode)
+	Engine.max_fps = fps_cap
+	ProjectSettings.set_setting("rendering/textures/default_filters/anisotropic_filtering_level", anisotropic_filtering)
+	get_viewport().positional_shadow_atlas_size = shadow_quality
 
 
 func _save() -> void:
@@ -186,7 +229,18 @@ func _save() -> void:
 	cfg.set_value("graphics", "glow_enabled", glow_enabled)
 	cfg.set_value("graphics", "dof_enabled", dof_enabled)
 	cfg.set_value("graphics", "msaa", msaa)
+	cfg.set_value("graphics", "screen_space_aa", screen_space_aa)
+	cfg.set_value("graphics", "use_taa", use_taa)
+	cfg.set_value("graphics", "anisotropic_filtering", anisotropic_filtering)
+	cfg.set_value("graphics", "shadow_quality", shadow_quality)
+	cfg.set_value("graphics", "render_scale", render_scale)
 	cfg.set_value("graphics", "camera_fov", camera_fov)
+	cfg.set_value("graphics", "vsync_enabled", vsync_enabled)
+	cfg.set_value("graphics", "window_mode", window_mode)
+	cfg.set_value("graphics", "fps_cap", fps_cap)
+	cfg.set_value("graphics", "anisotropic_filtering", anisotropic_filtering)
+	cfg.set_value("graphics", "shadow_quality", shadow_quality)
+	cfg.set_value("graphics", "render_scale", render_scale)
 	cfg.save(CFG_PATH)
 
 
@@ -204,4 +258,12 @@ func _load() -> void:
 	glow_enabled             = cfg.get_value("graphics", "glow_enabled", glow_enabled)
 	dof_enabled              = cfg.get_value("graphics", "dof_enabled", dof_enabled)
 	msaa                     = cfg.get_value("graphics", "msaa", msaa)
+	screen_space_aa          = cfg.get_value("graphics", "screen_space_aa", screen_space_aa)
+	use_taa                  = cfg.get_value("graphics", "use_taa", use_taa)
+	anisotropic_filtering    = cfg.get_value("graphics", "anisotropic_filtering", anisotropic_filtering)
+	shadow_quality           = cfg.get_value("graphics", "shadow_quality", shadow_quality)
+	render_scale             = cfg.get_value("graphics", "render_scale", render_scale)
 	camera_fov               = cfg.get_value("graphics", "camera_fov", camera_fov)
+	vsync_enabled            = cfg.get_value("graphics", "vsync_enabled", vsync_enabled)
+	window_mode              = cfg.get_value("graphics", "window_mode", window_mode)
+	fps_cap                  = cfg.get_value("graphics", "fps_cap", fps_cap)

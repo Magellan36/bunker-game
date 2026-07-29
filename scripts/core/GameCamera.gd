@@ -24,8 +24,9 @@ class_name GameCamera
 ## focus reads on whatever the flashlight/lights are hitting. Auto-disabled
 ## in build mode (max placement clarity) regardless of the setting, and
 ## gated on GraphicsSettings.dof_enabled otherwise.
-@export var dof_focus_distance: float = 9.0
+@export var dof_focus_distance: float = 15.0
 @export var dof_far_blur_amount: float = 0.08
+@export var dof_blur_far_transition: float = 6.0
 
 ## Trauma-based camera shake (graphics plan Phase 7) — additive on top of
 ## the existing lerped transform, does not replace/change it. Call
@@ -64,7 +65,7 @@ func _ready() -> void:
 
 	_attributes = CameraAttributesPractical.new()
 	_attributes.dof_blur_far_distance   = dof_focus_distance
-	_attributes.dof_blur_far_transition = 4.0
+	_attributes.dof_blur_far_transition = dof_blur_far_transition
 	_attributes.dof_blur_amount         = dof_far_blur_amount
 	attributes = _attributes
 	GraphicsSettings.settings_changed.connect(_apply_dof_setting)
