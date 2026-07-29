@@ -60,6 +60,7 @@ const TILE_TRAY_SINGLE: int = 21     ## Farming System (Jul 2026) — single tra
 const TILE_TRAY_DOUBLE: int = 22     ## Farming System — double tray (2×1, $275), Construct → Farming
 const TILE_GROW_LIGHT_NORMAL: int = 23  ## Farming System — grow light, normal tier, Construct → Lighting
 const TILE_GROW_LIGHT_PRO: int    = 24  ## Farming System — grow light, pro tier, Construct → Lighting
+const TILE_BASKET: int = 25  ## Basket (12-slot container, $80), Construct → Furniture
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
