@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://basket_001"]
+
+[ext_resource type="Script" path="res://scripts/world/items/Basket.gd" id="1_basket"]
+
+[node name="Basket" type="RigidBody3D"]
+script = ExtResource("1_basket")
+collision_layer = 1
+collision_mask = 1

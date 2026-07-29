@@ -34,6 +34,9 @@ var build_mode_active: bool = false
 ## Set by MainWorld — ShelfUI node ref; checked to suppress input while open
 var shelf_ui: Node = null
 
+## Set by MainWorld — BasketUI node ref; checked to suppress input while open
+var basket_ui: Node = null
+
 # ─── State ────────────────────────────────────────────────────────────────────
 var held_item: RigidBody3D = null
 var _world_root: Node3D    = null
@@ -77,7 +80,7 @@ func _on_body_exited(body: Node3D) -> void:
 		body.set_player_in_range(false)
 
 func _process(delta: float) -> void:
-	if build_mode_active or _shelf_ui_open():
+	if build_mode_active or _shelf_ui_open() or _basket_ui_open():
 		if prompt != null:
 			prompt.hide_prompt()
 		return
@@ -114,11 +117,15 @@ func _tick_continuous_bottle_refill(delta: float) -> void:
 func _shelf_ui_open() -> bool:
 	return shelf_ui != null and shelf_ui.is_open
 
+## Returns true if the basket UI overlay is open
+func _basket_ui_open() -> bool:
+	return basket_ui != null and basket_ui.is_open
+
 func _unhandled_input(event: InputEvent) -> void:
 	if build_mode_active:
 		return   ## BuildModeController owns all input while active
-	if _shelf_ui_open():
-		return   ## ShelfUI owns all input while open
+	if _shelf_ui_open() or _basket_ui_open():
+		return   ## ShelfUI/BasketUI owns all input while open
 	# ── Scroll wheel — cycle inventory slots ──
 	if event is InputEventMouseButton:
 		if event.pressed:
@@ -157,6 +164,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			shelf.on_e_interact()
 			get_viewport().set_input_as_handled()
 			return
+		## Basket held → E stashes nearest "basket_storable" item instead of item use
+		if held_item != null and ("is_basket_container" in held_item):
+			_try_add_nearest_to_basket(held_item)
+			get_viewport().set_input_as_handled()
+			return
 		if held_item != null:
 			# _is_holding_e stays true only to drive per-frame continuous
 			# actions (e.g. FuelCan.refuel_tick / bottle refill) — it no
@@ -174,7 +186,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	# G — store / put away held item (instant, no progress bar)
 	if event.is_action_pressed("store_item"):
-		if _shelf_ui_open():
+		if _shelf_ui_open() or _basket_ui_open():
+			get_viewport().set_input_as_handled()
+			return
+		if held_item != null and ("is_basket_container" in held_item):
+			if basket_ui != null and basket_ui.has_method("open"):
+				basket_ui.open(held_item)
 			get_viewport().set_input_as_handled()
 			return
 		if held_item != null:
@@ -493,8 +510,12 @@ func _update_prompt() -> void:
 		var lines: Array[String] = []
 
 		if body.is_in_group("pickup") and body.has_method("get_prompt_text"):
-			var pt: String = body.get_prompt_text()
-			if pt != "": lines.append(pt)
+			if held_item != null and ("is_basket_container" in held_item) \
+					and body.is_in_group("basket_storable"):
+				lines.append("[E] Add to Basket")
+			else:
+				var pt: String = body.get_prompt_text()
+				if pt != "": lines.append(pt)
 		elif body.is_in_group("pickup"):
 			lines.append("[F] Pick up")
 
@@ -562,6 +583,35 @@ func _nearest_shelf() -> Node3D:
 				closest_dist = d
 				closest = s3
 	return closest
+
+## E while holding a Basket — finds the nearest "basket_storable" world item
+## in reach and stashes it, instead of calling the basket's own on_use().
+func _try_add_nearest_to_basket(basket: Node) -> void:
+	var bodies: Array        = detect_area.get_overlapping_bodies()
+	var closest: RigidBody3D = null
+	var closest_dist: float  = INF
+
+	for body in bodies:
+		if body.is_in_group("basket_storable"):
+			if body.is_in_group("shelved"):
+				continue
+			if body is RigidBody3D and (body as RigidBody3D).freeze:
+				continue
+			var d: float = body.global_position.distance_to(player.global_position)
+			if d < closest_dist:
+				closest_dist = d
+				closest = body
+
+	var hud: Node = get_tree().get_first_node_in_group("hud")
+
+	if closest == null:
+		if hud != null and hud.has_method("show_soft_warning"):
+			hud.show_soft_warning("Nothing nearby to store")
+		return
+
+	if not basket.try_add_item(closest):
+		if hud != null and hud.has_method("show_soft_warning"):
+			hud.show_soft_warning("Basket full")
 
 # ─── World Interaction ────────────────────────────────────────────────────────
 func _try_interact() -> void:

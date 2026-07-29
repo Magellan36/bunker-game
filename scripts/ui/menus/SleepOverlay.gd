@@ -7,6 +7,7 @@ extends CanvasLayer
 const FADE_DURATION: float  = 0.8   ## Seconds to fade in / fade out
 const SLEEP_DURATION: float = 2.0   ## Seconds spent fully black (with Zzz)
 const WAKE_THRESHOLD: float = 5.0   ## Food/water level that cuts sleep short
+const SLEEP_SKIP_HOURS: float = 8.0   ## Hours simulated per full sleep cycle
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 @onready var overlay: ColorRect = $Overlay
@@ -78,11 +79,26 @@ func request_wake() -> void:
 		_start_fade_out()
 
 # ─── Time skip ────────────────────────────────────────────────────────────────
-## Instantly advance stats to simulate a full night's sleep.
+## Instantly advance stats AND simulate the skipped hours (water decay, plant
+## growth) — same approach as AdminMenu._on_fast_forward_pressed()'s 24h skip,
+## just for the 8h sleep duration instead of a flat day.
 func _do_time_skip() -> void:
 	if player_stats == null:
 		return
-	player_stats.skip_time(8.0)
+	var scaled: float = SLEEP_SKIP_HOURS * player_stats._seconds_per_game_hour
+
+	player_stats.skip_time_with_drain(SLEEP_SKIP_HOURS)
+
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager")
+	if wm != null:
+		var hookup: WaterHookup = wm.get_the_hookup()
+		if hookup != null:
+			hookup._process(scaled)
+
+	for tray: FarmingTray in get_tree().get_nodes_in_group("farming_tray"):
+		for plant: FarmPlant in tray.plant_refs:
+			if plant != null and is_instance_valid(plant):
+				plant._process(scaled)
 
 # ─── Zzz animation ────────────────────────────────────────────────────────────
 ## Three labels pulse in a staggered wave — big, medium, small.

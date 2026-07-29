@@ -5,6 +5,12 @@ class_name FarmProduceItem
 ## Farming System plan §7. ONE script for both tomato/onion produce via
 ## export var. 1-charge, fully consumed in one on_use() call, no partial-
 ## bite tracking like WaterBottle's continuous-mL model.
+##
+## Species whose produce can be planted back into a tray instead of eaten,
+## in addition to being buyable as a packet. Mirrors SeedItem.gd's plant flow.
+const REPLANTABLE_TYPES: Array[String] = ["potato", "onion"]
+
+const TRAY_RANGE: float = 2.5   ## Matches SeedItem.gd's TRAY_RANGE
 
 @export var produce_type: String = "tomato"   ## "tomato" or "onion"
 
@@ -24,6 +30,7 @@ var _mesh: MeshInstance3D = null
 func _ready() -> void:
 	super._ready()
 	add_to_group("inventory_item")
+	add_to_group("basket_storable")
 	_mesh = get_node_or_null("MeshInstance3D")
 	if _mesh == null:
 		_build_placeholder_mesh()
@@ -34,11 +41,33 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s" % get_display_name()
 
+func _find_nearest_plantable_tray() -> FarmingTray:
+	if not (produce_type in REPLANTABLE_TYPES):
+		return null
+	var best: FarmingTray = null
+	var best_dist: float = TRAY_RANGE
+	for node: Node in get_tree().get_nodes_in_group("farming_tray"):
+		if node is FarmingTray and (node as FarmingTray).has_open_plantable_cell():
+			var d: float = global_position.distance_to((node as Node3D).global_position)
+			if d < best_dist:
+				best_dist = d
+				best = node as FarmingTray
+	return best
+
 func get_use_prompt() -> String:
+	var tray: FarmingTray = _find_nearest_plantable_tray()
+	if tray != null:
+		return "[E] Plant %s" % get_display_name()
 	return "[E] Eat  %s" % get_display_name()
 
 ## Fully consumed in one call — no charge tracking, no empty-state.
 func on_use() -> void:
+	var tray: FarmingTray = _find_nearest_plantable_tray()
+	if tray != null:
+		if tray.plant_first_open_cell(produce_type):
+			queue_free()
+		return
+
 	if _player_stats == null:
 		_player_stats = get_tree().get_first_node_in_group("player_stats")
 	if _player_stats == null:

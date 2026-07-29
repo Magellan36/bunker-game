@@ -145,6 +145,9 @@ var _build_mode_active: bool    = false
 # ─── Shelf UI ─────────────────────────────────────────────────────────────────
 var _shelf_ui: Node = null
 
+# ─── Basket UI ────────────────────────────────────────────────────────────────
+var _basket_ui: Node = null
+
 # ─── Power Grid ───────────────────────────────────────────────────────────────
 var _power_manager: Node = null
 
@@ -212,6 +215,7 @@ func _ready() -> void:
 	## ShelfUI must come after inventory_manager exists and connect_world_objects
 	## has registered shelf group members, so injection covers pre-placed shelves.
 	_setup_shelf_ui()
+	_setup_basket_ui()
 	_setup_debug_overlay()
 	_register_save_fields()
 	get_tree().process_frame.connect(_setup_build_mode, CONNECT_ONE_SHOT)
@@ -491,6 +495,21 @@ func _setup_shelf_ui() -> void:
 			shelf.set("_shelf_ui", _shelf_ui)
 		if "_interaction_system" in shelf:
 			shelf.set("_interaction_system", interaction_system)
+
+func _setup_basket_ui() -> void:
+	var basket_ui_script: Script = load("res://scripts/ui/inventory/BasketUI.gd")
+	_basket_ui = CanvasLayer.new()
+	_basket_ui.set_script(basket_ui_script)
+	_basket_ui.name = "BasketUI"
+	add_child(_basket_ui)
+
+	## Inject shared refs
+	_basket_ui.interaction_system = interaction_system
+	_basket_ui.inventory          = inventory_manager
+	var inv_hud: Node = hud.get_node_or_null("HUDRoot/InventoryHUD")
+	_basket_ui.inventory_hud = inv_hud
+
+	interaction_system.basket_ui = _basket_ui
 
 func _ensure_inventory_manager() -> void:
 	# Use scene node if it exists, otherwise create one at runtime
