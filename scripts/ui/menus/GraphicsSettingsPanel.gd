@@ -102,7 +102,6 @@ const RENDER_SCALE_MIN: float = 0.5
 const RENDER_SCALE_MAX: float = 1.0
 const RENDER_SCALE_STEP: float = 0.05
 
-var interaction_system: Node = null
 var inventory: Node = null
 var inventory_hud: Node = null
 
