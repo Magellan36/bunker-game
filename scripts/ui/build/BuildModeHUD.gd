@@ -127,6 +127,7 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 	],
 	"Miscellaneous": [
 		{ "tile_id": 19, "name": "Crate", "price": 40 },
+		{ "tile_id": 20, "name": "Basket", "price": 100 },
 	],
 }
 
@@ -156,6 +157,7 @@ const PREVIEW_SOURCES: Dictionary = {
 	17: { "scene": "res://scenes/world/CanCase.tscn",   "is_script": false },
 	18: { "scene": "res://scenes/world/FuelCan.tscn",   "is_script": false },
 	19: { "scene": "res://scenes/world/TestCrate.tscn", "is_script": false },
+	20: { "scene": "res://scenes/world/Basket.tscn", "is_script": false },
 }
 
 ## Flat list used only for legacy compat (3D preview viewports, etc.)

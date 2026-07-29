@@ -49,6 +49,7 @@ const SHOP_ITEM_INFO: Dictionary = {
 	17: { "name": "Can Case",   "price": 60,  "kind": "scene", "scene": "res://scenes/world/CanCase.tscn" },
 	18: { "name": "Fuel Can",   "price": 120, "kind": "scene", "scene": "res://scenes/world/FuelCan.tscn" },
 	19: { "name": "Crate",      "price": 40,  "kind": "scene", "scene": "res://scenes/world/TestCrate.tscn" },
+	20: { "name": "Basket",     "price": 100, "kind": "scene", "scene": "res://scenes/world/Basket.tscn" },
 }
 
 func get_item_price(item_id: int) -> int:
