@@ -43,7 +43,6 @@ const CATEGORIES: Dictionary = {
 	"Furniture": [
 		{ "tile_id": 3, "name": "Shelving","price": 75  },
 		{ "tile_id": 4, "name": "Bed",     "price": 150 },
-		{ "tile_id": 25, "name": "Basket",  "price": 80  },
 	],
 	"Lighting": [
 		{ "tile_id": 5, "name": "Light",   "price": 50  },
@@ -128,7 +127,6 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 	],
 	"Miscellaneous": [
 		{ "tile_id": 19, "name": "Crate", "price": 40 },
-		{ "tile_id": 20, "name": "Basket", "price": 80 },
 	],
 }
 
@@ -158,7 +156,6 @@ const PREVIEW_SOURCES: Dictionary = {
 	17: { "scene": "res://scenes/world/CanCase.tscn",   "is_script": false },
 	18: { "scene": "res://scenes/world/FuelCan.tscn",   "is_script": false },
 	19: { "scene": "res://scenes/world/TestCrate.tscn", "is_script": false },
-	20: { "scene": "res://scenes/world/Basket.tscn", "is_script": false },
 }
 
 ## Flat list used only for legacy compat (3D preview viewports, etc.)
