@@ -200,3 +200,53 @@ static func button_stylebox(theme: UITheme, enabled: bool, hover: bool) -> Style
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(4)
 	return sb
+
+## ─── Shared Theme resource for real Control widgets (CheckBox/OptionButton/
+## HSlider) inside settings-style panels, so they stop using Godot's
+## default grey theme. Built once, applied via `_panel.theme = ...` so
+## every child Control inherits it automatically.
+static func settings_controls_theme() -> Theme:
+	var theme: Theme = Theme.new()
+
+
+	var normal: StyleBoxFlat = StyleBoxFlat.new()
+	normal.bg_color = Color(0.14, 0.14, 0.16, 0.95)
+	normal.border_color = Color(0.30, 0.30, 0.33, 0.85)
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(3)
+
+
+	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.20, 0.20, 0.23, 0.98)
+	hover.border_color = Color(0.55, 0.55, 0.60, 1.0)
+
+
+	var pressed: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(0.10, 0.10, 0.12, 0.98)
+
+
+	theme.set_stylebox("normal", "CheckBox", normal)
+	theme.set_stylebox("hover", "CheckBox", hover)
+	theme.set_stylebox("pressed", "CheckBox", pressed)
+
+
+	theme.set_stylebox("normal", "OptionButton", normal)
+	theme.set_stylebox("hover", "OptionButton", hover)
+	theme.set_stylebox("pressed", "OptionButton", pressed)
+
+
+	var slider_bg: StyleBoxFlat = StyleBoxFlat.new()
+	slider_bg.bg_color = Color(0.08, 0.08, 0.09, 0.9)
+	slider_bg.set_corner_radius_all(2)
+	theme.set_stylebox("slider", "HSlider", slider_bg)
+
+
+	var grabber_style: StyleBoxFlat = StyleBoxFlat.new()
+	grabber_style.bg_color = Color(0.55, 0.58, 0.62, 1.0)
+	grabber_style.set_corner_radius_all(6)
+	theme.set_stylebox("grabber_area", "HSlider", grabber_style)
+
+
+	return theme
+
+## Helper to create a small checkmark texture (procedural, no asset needed)
