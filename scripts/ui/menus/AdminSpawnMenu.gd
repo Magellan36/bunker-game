@@ -41,6 +41,7 @@ const TILES: Array = [
 	["flashlight",  "Flashlight", "item"],
 	["water_bottle","Water Bottle","item"],
 	["food_can",    "Food Can",   "item"],
+	["basket",      "Basket",     "item"],
 ]
 
 # ─── Spawn distances ──────────────────────────────────────────────────────────
@@ -182,6 +183,7 @@ func _on_spawn_pressed(id: Variant) -> void:
 		"flashlight":     _spawn_scene("res://scenes/world/Flashlight.tscn",   spawn_pos)
 		"water_bottle":   _spawn_scene("res://scenes/world/WaterBottle.tscn",  spawn_pos)
 		"food_can":       _spawn_scene("res://scenes/world/FoodCan.tscn",      spawn_pos)
+		"basket":         _spawn_scene("res://scenes/world/Basket.tscn",       spawn_pos)
 		_:
 			push_warning("[AdminSpawn] Unknown item id: %s" % str(id))
 
