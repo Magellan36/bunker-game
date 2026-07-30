@@ -99,6 +99,15 @@ identical on-screen size. Applied to all three preview pools: MeshLibrary
 (Water Case/Can Case/Fuel Can/Crate). Hover-spin (90°/sec) and centering
 unchanged.
 
+**NEW (Jul 2026): Combined-AABB Calculation Fix (Rotation Pivot / Centering Bug)**
+- **Root cause**: Both construct-tab procedural-preview path and shop-tab imported-model preview path merged raw local-space mesh AABBs without accounting for each mesh's offset from its root node. Most procedural devices position their body mesh above their root (so the root represents the floor-contact point, e.g. GeneratorObject's body sits at local Y = height/2 — see `BOX_SIZE.y * 0.5` convention throughout `scripts/world/power|water/*.gd`). Merging raw local-space AABBs biased the computed "center" toward each object's base. Since `pivot.rotation_degrees` rotates around the pivot's local origin (0,0,0), and the object gets shifted so that miscomputed off-center point sits at that origin, rotating looked like the object orbiting around a point near its feet instead of spinning in place.
+- **Fix**: Added static helper `_combined_local_aabb(root: Node3D)` in `BuildModeHUD.gd` that correctly transforms each mesh's AABB into root's local coordinate space using global transforms (`root_inverse * mi.global_transform`). Replaced duplicated buggy logic in both call sites:
+  1. Construct-tab procedural preview (`_refresh_submenu_previews`)
+  2. Shop-tab imported model preview (`_refresh_shop_previews`)
+- Uses GLOBAL transforms (`root_inverse * mi.global_transform`) rather than a mesh's own local `.transform` — correct regardless of how many levels deep a mesh is nested (direct child, or 2-3 levels down inside an imported model), which a single-level-only approach would get wrong.
+- Requires `root` to already be inside the SceneTree (`global_transform` must be valid) — call AFTER `add_child()`, never before.
+- MeshLibrary-mesh branch untouched (single freshly-created MeshInstance3D with zero parent-imposed offset, so it never had this bug).
+
 **NEW (Jul 2026): Basket** — Added to Furniture category in construct menu:
 - `TILE_BASKET` (25) — 12-slot container, $80. Uses procedural mesh (laundry basket silhouette). Opens `BasketUI` on G while held, E-key stashes nearby `basket_storable` items (Water Bottle, Food Can, Farm produce). Can be placed on Shelving like any other pickupable prop (uses `shelf_stack_limit = 1`, `shelf_item_type = "basket"`). Admin spawn entry added for testing.
 

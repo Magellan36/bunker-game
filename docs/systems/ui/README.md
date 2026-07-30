@@ -36,7 +36,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | Subfolder | Files | Role |
 |---|---|---|
 | `power/` | `PowerTerminalUI.gd` (~1010), `PowerPriorityUI.gd` (~495), `GeneratorInspectUI.gd` (~434) | Power device panels — see `docs/systems/power/README.md` for what they read/write |
-| `inventory/` | `InventoryHUD.gd` (~444 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475) | Slot HUD, inventory state, shelf storage panel |
+| `inventory/` | `InventoryHUD.gd` (~444 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475), `BasketUI.gd` (~470) | Slot HUD, inventory state, shelf storage panel, basket contents panel |
 | `hud/` | `HUD.gd` (~280), `StatusBars.gd` (~50), `InteractPrompt.gd` (~107 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text), `CircleFill.gd` (~80) | Always-on stat bars, interact prompt, radial fill widget |
 | `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~575), `AdminSpawnMenu.gd` (~215), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, dev spawn menu, sleep fade |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI |
@@ -59,6 +59,7 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
 - `InventoryHUD`: `show_error_message(text)`, `set_selected(slot)`,
   `refresh_previews()`.
 - `ShelfUI`: `open(shelf: Node3D)`, `close()`.
+- `BasketUI`: `open(basket: Node3D)`, `close()`, `is_open() -> bool`.
 - `HUD`: `set_health/stamina/food/water/sleep(value)`, `set_cash(amount)`,
   `set_clock(display)`, `set_day(day)`, `set_build_mode(enabled)`,
   `spawn_float_label(...)`, `show_cash_delta(...)`, `show_soft_warning(text)`.
@@ -366,10 +367,40 @@ overhaul (Phase 5). Key changes:
   automatically — no per-control styling needed.
 - **Hover-spin**: reverted to 2-pool (construct vs shop) since procedural
   previews now live in the same `_sub_` arrays as MeshLibrary items.
+- **Duplicate declaration fix**: removed duplicate `interaction_system` var
+  declaration and fixed `nil` → `null` typos.
 
 The panel uses `UIKit.settings_controls_theme()` for consistent CheckBox,
 OptionButton, and HSlider styling across all controls — no per-control
 styling code needed.
+
+## BasketUI Panel (Jul 2026)
+`scripts/ui/inventory/BasketUI.gd` — 12-slot container contents panel opened via
+G-key while holding a Basket. Features:
+- 3×4 grid of 3D preview viewports (SubViewport, orthographic camera, 45° angle)
+- Per-slot Drop (↓) and Add-to-inventory (⊕) buttons — inventory button only
+  shows for pocket-sized items (`inventory_item` group: Water Bottle, Food Can)
+- Empty slots show `—` placeholder; occupied slots show 3D mesh preview
+- Backdrop click-to-close, ESC/G/Interact to close
+- Reuses `UIFade.fade_in()` convention; blocks game input while open
+- `_refresh_slot()` reads basket slots directly (single items, not arrays like
+  Shelving) — fixed type error where slot value was assigned to `Array` var
+
+## BuildModeHUD Preview Fixes (Jul 2026)
+- **Preview Scale Normalization**: `PREVIEW_TARGET_SIZE = 0.5667` (1.5× zoom out
+  from 0.85) + `_preview_normalize_scale(aabb)` helper applied to all 3 preview
+  pools (MeshLibrary, procedural, shop) — seed packets and Generator L now
+  render at identical on-screen size.
+- **Combined-AABB Calculation Fix**: Added static helper
+  `_combined_local_aabb(root: Node3D)` that correctly transforms each
+  MeshInstance3D's AABB into root's local coordinate space using global
+  transforms (`root_inverse * mi.global_transform`). Replaced duplicated buggy
+  logic in both construct-tab procedural preview (`_refresh_submenu_previews`)
+  and shop-tab imported model preview (`_refresh_shop_previews`). Fixes
+  "orbits around feet instead of spinning in place" rotation bug caused by
+  merging raw local-space AABBs ignoring each mesh's offset from root
+  (most procedural devices position body mesh above root so root = floor contact).
+- MeshLibrary-mesh branch untouched (single mesh, no parent-imposed offset).
 
 ## Extension points
 - Any new shared cross-panel utility (like `UIFade`, `UIKit`) belongs in

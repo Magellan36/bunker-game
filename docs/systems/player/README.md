@@ -169,6 +169,25 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   interactable-only item that intentionally has no `on_interact()` will
   correctly be skipped and never block E for something further away.
 
+## Basket Prompt Fix (Jul 2026)
+- **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns
+  early) and CASE 2 (empty-handed). The "[E] Add to Basket" logic was placed
+  in CASE 2 behind a `held_item != null` check that can never be true there
+  (dead code). This is why nothing ever showed above water bottles/food cans
+  while holding the basket — the only code that would show it was unreachable
+  by construction.
+- **Fix (3 parts)**:
+  1. `Basket.get_interact_prompt()` added → shows "[G] Open Basket" while
+     held (CASE 1 already calls this via `has_method("get_interact_prompt")`).
+  2. Moved "[E] Add to Basket" logic from CASE 2 into CASE 1 (uses
+     `_tracked_bodies`), so it runs while holding basket.
+  3. Removed dead basket-check code from CASE 2.
+- **Verification**: Pick up basket → "[G] Open Basket" appears. Walk near
+  Water Bottle/Food Can/produce while holding basket → "[E] Add to Basket"
+  appears over that item. Press E → item stashes. Fuel Can/Seed packets show
+  no prompt (not `basket_storable`), E does nothing (matches original plan's
+  intended behavior, now actually working).
+
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**
   `_held_from_slot == -1` means "picked up fresh from the world" — every

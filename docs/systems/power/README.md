@@ -290,15 +290,11 @@ UI panel.open() ← player interacts with device → reads PowerManager getters,
   for a similar orphaned-trigger problem. Worth a dedicated pass.
 
 ## Extension points
-- ~~Grow lights as consumers~~ — **DONE (Jul 2026).** `GrowLight.gd`
-  (`scripts/world/power/`) registers via `register_consumer()`/
-  `register_wire_node()` exactly like `WallLight`/`HeavyConsumerTest` — two
-  tiers (`grow_light_normal`/`grow_light_pro`, both priority 3 by default,
-  see `DeviceDatabase.WATT_RATINGS`/`DEFAULT_PRIORITY_BY_TYPE`). No
-  `PowerManager`/`PowerSolver` changes needed. `FarmPlant.gd` reads
-  `GrowLight.get_active_growth_speed()` directly (a pure XZ position match,
-  no registration handshake with Power at all) — see
-  `docs/systems/farming/README.md`.
+- **GrowLight path fix (Jul 2026)** — Fixed `_procedural_ghost_mesh()` in
+  `BuildModeHUD.gd` referencing wrong path (`farming/GrowLight.gd` →
+  `power/GrowLight.gd`). `GrowLight.gd` lives in `scripts/world/power/` per the
+  power system's device conventions (it's a `PowerManager` consumer, not a
+  farming-specific object).
 - **New solver pass:** add it as a 4th `_evaluate_passN_*` function in
   `PowerSolver.gd`, called from `_evaluate_per_component()`'s orchestrator.
 - **New device class needing PowerManager's internal dicts:** follow the

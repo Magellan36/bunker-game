@@ -1,4 +1,4 @@
-# Handover — Graphics Overhaul + Farming/Sleep Fixes + Basket + Preview Fixes (Jul 2026)
+# Handover — Graphics Overhaul + Farming/Sleep Fixes + Basket + Preview Fixes + Basket Bug Fixes (Jul 2026)
 
 ## What changed this session
 
@@ -99,11 +99,48 @@
 - Fixed UIKit `settings_controls_theme()` syntax error (removed invalid `also` keyword)
 - DOF blur fix: `dof_focus_distance: 9.0→15.0`, added `dof_blur_far_transition` export
 
+### Combined-AABB Calculation Fix (Rotation Pivot / Centering Bug)
+- **Root cause**: Both construct-tab and shop-tab preview paths merged raw local-space mesh AABBs without accounting for each mesh's offset from its root node. Most procedural devices position body mesh above root (floor-contact point), so merging local AABBs biased the computed center toward the base, causing objects to orbit around their feet instead of spinning in place.
+- **Fix**: Added static helper `_combined_local_aabb(root: Node3D)` in BuildModeHUD.gd that correctly transforms each mesh's AABB into root's local coordinate space using global transforms (`root_inverse * mi.global_transform`). Replaced duplicated buggy logic in both call sites:
+  1. Construct-tab procedural preview path (`_refresh_submenu_previews`)
+  2. Shop-tab imported model preview path (`_refresh_shop_previews`)
+- MeshLibrary-mesh branch untouched (single mesh, no parent-imposed offset)
+
+### Basket Item Added to Shop (Miscellaneous) — $100
+- `FARMING_SHOP_ITEMS`: added Basket (tile_id 20) to Miscellaneous
+- `PREVIEW_SOURCES`: added preview entry for Basket.tscn
+- `SHOP_ITEM_INFO`: added purchase/spawn entry for Basket ($100, kind=scene)
+- Reuses existing generic `_spawn_scene_item()` path (same as Crate/Water Case/etc.)
+
+### Basket Bug Fixes (Items 1-3 from plan_basket_fixes.md)
+
+**1. BasketUI type error fix**
+- **Bug**: `_refresh_slot()` treated basket slots as arrays (like Shelving's stacked slots), but Basket slots hold single items. Assigning a `RigidBody3D` to an `Array` variable threw "Trying to assign value of type 'Object' to a variable of type 'Array'."
+- **Fix**: `_refresh_slot()` now reads slot directly: `var item = _basket.slots[slot_idx] ... _set_slot(slot_idx, item, 1 if item != null else 0)`
+
+**2. Floating prompts — basket & storable items**
+- **Root cause**: Architecture problem — InteractionSystem's `_update_prompt()` has two mutually-exclusive halves: CASE 1 (holding item, returns early) and CASE 2 (empty-handed). The "[E] Add to Basket" logic was in CASE 2 behind a `held_item != null` check that can never be true there (dead code).
+- **Fix (3 parts)**:
+  a) `Basket.get_interact_prompt()` added → shows "[G] Open Basket" while held (CASE 1 already calls this)
+  b) Moved "[E] Add to Basket" logic from CASE 2 into CASE 1 (uses `_tracked_bodies`), so it runs while holding basket
+  c) Removed dead basket-check code from CASE 2
+- **Verification**: Pick up basket → "[G] Open Basket" appears. Walk near Water Bottle/Food Can/produce while holding basket → "[E] Add to Basket" appears over that item. Press E → item stashes. Fuel Can/Seed packets show no prompt (not `basket_storable`).
+
+**3. Spawn floor-through fix (AdminSpawnMenu + FarmingShopHelper)**
+- **Root cause**: Both used `call_deferred(_unfreeze_after_spawn)` to "freeze for one physics frame," but `call_deferred` fires before physics server registers the new body's collision shape. Items fall through floor → `MainWorld._check_abyss_items()` rescues them from ABYSS_Y = -8.0 back to ABYSS_RESCUE_Y = 1.5 at drifted XZ — seen as "vanishes, reappears a little ways away a couple seconds later."
+- **Fix**: Replace `call_deferred` with `await get_tree().physics_frame` ×2 in both:
+  - `AdminSpawnMenu._spawn_scene()`
+  - `FarmingShopHelper._spawn_scene_item()`
+- Two physics ticks guarantees collision registration before gravity takes over. Same fire-and-forget coroutine behavior (call sites unchanged).
+- **Note**: `BunkerPregen.gd` uses same pattern (lines ~331, ~372, ~378) — pre-placed items may have same bug but unreported since they spawn at boot.
+
 ### Verification
 - `tools/godot_check.sh` → **PASS**
 - Code compiles cleanly
 
-## Files Modified (Graphics Overhaul + Fixes)
+---
+
+## Files Modified (Graphics Overhaul + Fixes + Basket)
 
 ### Core Graphics System
 - `scripts/core/GameCamera.gd` — DOF fix, export transition
@@ -114,101 +151,48 @@
 - `scripts/ui/menus/GraphicsSettingsPanel.gd` — complete rewrite with sectioned layout
 - `scripts/ui/common/UIKit.gd` — added `settings_controls_theme()` function
 - `scripts/ui/menus/GraphicsSettingsPanel.gd` — removed duplicate `interaction_system`, `nil`→`null` fixes
-- `scripts/ui/menus/BuildModeHUD.gd` — preview scale normalization, zoom out
+- `scripts/ui/menus/BuildModeHUD.gd` — preview scale normalization, zoom out, Combined-AABB fix, Basket shop entry
+- `scripts/ui/menus/AdminSpawnMenu.gd` — spawn floor-through fix (await physics_frame), Basket spawn entry
 
 ### Core Systems
 - `scripts/core/GameCamera.gd` — DOF fix, export transition
 - `scripts/core/GraphicsSettings.gd` — 8 new fields, PRESETS overhaul
-- `scripts/core/PlantDatabase.gd` — grow_days reverted to original values
+- `scripts/core/PlantDatabase.gd` — grow_days reverted to original values (×2)
 
 ### Basket Feature
 - New: `scripts/world/items/Basket.gd`, `scenes/world/Basket.tscn`, `scripts/ui/inventory/BasketUI.gd`
-- `scripts/player/InteractionSystem.gd` — basket UI wiring, E/G key handling
+- `scripts/player/InteractionSystem.gd` — basket UI wiring, E/G key handling, floating prompts fix
 - `scripts/world/core/MainWorld.gd` — `_basket_ui` wiring
-
-### Item Scripts
-- `scripts/world/items/Basket.gd` (new)
 - `scripts/world/items/WaterBottle.gd` — added `basket_storable` group
 - `scripts/world/items/FoodCan.gd` — added `basket_storable` group
 - `scripts/world/items/FarmProduceItem.gd` — added `basket_storable` group
+- `scripts/world/items/Basket.gd` — get_interact_prompt() added
 
 ### Farming Systems
 - `scripts/world/farming/PlantDatabase.gd` — `grow_days` reverted to original values (×2)
-- `scripts/world/farming/PlantDatabase.gd` — grow_days reverted to original values
 
 ### Build/Shop UI
-- `scripts/ui/build/BuildModeHUD.gd` — preview scale normalization, zoom out
-- `scripts/ui/menus/AdminSpawnMenu.gd` — added Basket spawn entry
+- `scripts/ui/build/BuildModeHUD.gd` — preview scale normalization, zoom out, Combined-AABB fix, Basket shop entry
+- `scripts/ui/menus/AdminSpawnMenu.gd` — added Basket spawn entry, spawn floor-through fix
+- `scripts/world/build/BuildModeController.gd` — `TILE_BASKET` constant
+- `scripts/world/build/FarmingShopHelper.gd` — SHOP_ITEM_INFO entry for Basket, spawn floor-through fix
 
 ### Fixes & Cleanups
 - `scripts/ui/menus/GraphicsSettingsPanel.gd` — removed duplicate `interaction_system`, `nil`→`null`
-- `scripts/ui/menus/BuildModeHUD.gd` — preview scale normalization, zoom out
 - `scripts/ui/common/UIKit.gd` — fixed `settings_controls_theme()` syntax error
 - `scripts/core/GameCamera.gd` — DOF fix, export transition
 - `scripts/world/power/GrowLight.gd` — path fix (`farming/` → `power/`)
-- `scripts/world/build/BuildModeController.gd` — `TILE_BASKET` constant
-- `scripts/ui/menus/AdminSpawnMenu.gd` — Basket spawn entry
+- `scripts/ui/build/BuildModeHUD.gd` — preview scale normalization, zoom out, Combined-AABB helper
+- `scripts/world/items/Basket.gd` — get_interact_prompt() for "[G] Open Basket"
+- `scripts/player/InteractionSystem.gd` — CASE 1 basket prompts, dead code removal
+- `scripts/ui/inventory/BasketUI.gd` — _refresh_slot() type fix
+- `scripts/ui/menus/AdminSpawnMenu.gd` — await physics_frame ×2
+- `scripts/world/build/FarmingShopHelper.gd` — await physics_frame ×2
 
 ### Files Created
 - `scripts/world/items/Basket.gd`
 - `scenes/world/Basket.tscn`
 - `scripts/ui/inventory/BasketUI.gd`
-
-### Verification
-- `tools/godot_check.sh` → **PASS**
-- Code compiles cleanly
-
----
-
-## Files Modified (Graphics Overhaul + Fixes)
-
-### Core Graphics System
-- `scripts/core/GameCamera.gd` — DOF fix, export transition
-- `scripts/core/GraphicsSettings.gd` — 8 new fields, PRESETS overhaul, _apply_to_display(), _apply_to_viewport() extended
-- `scripts/core/GraphicsSettings.gd` — set_setting_live/_save/_load extended for 8 new fields
-- `scripts/core/PlantDatabase.gd` — grow_days reverted to original values (×2)
-
-### UI Panels
-- `scripts/ui/menus/GraphicsSettingsPanel.gd` — complete rewrite with sectioned layout
-- `scripts/ui/common/UIKit.gd` — added `settings_controls_theme()` function
-- `scripts/ui/menus/GraphicsSettingsPanel.gd` — removed duplicate `interaction_system`, `nil`→`null` fixes
-- `scripts/ui/menus/BuildModeHUD.gd` — preview scale normalization, zoom out
-
-### Core Systems
-- `scripts/core/GameCamera.gd` — DOF fix, export transition
-- `scripts/core/GraphicsSettings.gd` — 8 new fields, PRESETS overhaul, _apply_to_display(), _apply_to_viewport() extended
-- `scripts/core/PlantDatabase.gd` — grow_days reverted to original values (×2)
-
-### Basket Feature
-- `scripts/world/items/Basket.gd` (new)
-- `scenes/world/Basket.tscn` (new)
-- `scripts/ui/inventory/BasketUI.gd` (new)
-- `scripts/player/InteractionSystem.gd` — basket UI wiring, E/G key handling
-- `scripts/world/core/MainWorld.gd` — `_basket_ui` field + `_setup_basket_ui()` wiring
-- `scripts/world/items/WaterBottle.gd` — added `basket_storable` group
-- `scripts/world/items/FoodCan.gd` — added `basket_storable` group
-- `scripts/world/items/FarmProduceItem.gd` — added `basket_storable` group
-
-### Build/Shop UI
-- `scripts/ui/build/BuildModeHUD.gd` — preview scale normalization, zoom out
-- `scripts/ui/menus/AdminSpawnMenu.gd` — added Basket spawn entry
-- `scripts/world/build/BuildModeController.gd` — `TILE_BASKET = 25` constant
-
-### Farming Systems
-- `scripts/world/farming/PlantDatabase.gd` — `grow_days` reverted to original values (×2)
-
-### Fixes & Cleanups
-- `scripts/ui/menus/GraphicsSettingsPanel.gd` — removed duplicate `interaction_system`, `nil`→`null` fixes
-- `scripts/ui/common/UIKit.gd` — fixed `settings_controls_theme()` syntax error
-- `scripts/core/GameCamera.gd` — DOF fix, export transition
-- `scripts/world/power/GrowLight.gd` — path fix (`farming/` → `power/`)
-- `scripts/ui/build/BuildModeHUD.gd` — preview scale normalization, zoom out
-
----
-
-## Next Up
-- Polish audit items 6–23 (InteractPrompt jitter, Flashlight pause battery drain, FuelCan prompt, Water pipe labels, Farming tray UI alignment, Build ghost z-fighting, etc.)
-- Await Brannon's playtest feedback and next request
 
 ---
 
@@ -216,6 +200,10 @@
 
 | Commit | Description |
 |--------|-------------|
+| `72db17c` | Basket bug fixes (items 1-3 from plan_basket_fixes.md) |
+| `5e11424` | Add Basket item to Shop (Miscellaneous) — $100 |
+| `0e6d24f` | Fix Combined-AABB Calculation (Rotation Pivot / Centering Bug) |
+| `7a28135` | Fix GraphicsSettingsPanel duplicate declarations + remove UIKit dangling comment |
 | `538aeb3` | Remove duplicate interaction_system in GraphicsSettingsPanel |
 | `4c4e260` | Settings panel UI rewrite + Admin spawn entry |
 | `185d89f` | Zoom out previews by 1.5x |
