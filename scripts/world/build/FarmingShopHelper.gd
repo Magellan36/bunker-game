@@ -86,54 +86,67 @@ func spawn_purchased_item(item_id: int) -> bool:
 			FertilizerItem.spawn_at(parent, base_pos, tier)
 		"scene":
 			var scene_path: String = String(info.get("scene", ""))
-			_spawn_scene_item(scene_path, parent, base_pos)
+			var offset: Vector3 = Vector3(randf_range(-0.25, 0.25), 0.0, randf_range(-0.25, 0.25))
+			spawn_scene_settled(_owner, parent, scene_path, base_pos + offset)
 		_:
 			push_warning("FarmingShopHelper: unhandled kind '%s' for item_id %d" % [kind, item_id])
 			return false
 
 	return true
 
-## Generic "load a .tscn, freeze it for one frame, add it, position it,
-## unfreeze it" spawn used by the Resources/Miscellaneous shop items
-## (Water Case, Can Case, Fuel Can, Crate) — same freeze/unfreeze convention
-## as AdminSpawnMenu._spawn_scene(), plus the same small randomized
-## horizontal offset the other spawn_at() helpers in this file use.
-func _spawn_scene_item(scene_path: String, parent: Node, base_pos: Vector3) -> void:
+## Shared spawn helper — waits for a physics frame BEFORE raycasting, so the
+## raycast runs inside a physics-safe window (the UI button press that leads
+## here runs on the main thread, where space_state.intersect_ray() silently
+## fails with "space is locked"). After raycasting to the floor, waits one
+## more physics frame before unfreezing so the settled position registers.
+## Static so AdminSpawnMenu can call it directly without constructing a
+## FarmingShopHelper instance.
+##
+## Parameters:
+##   anchor  — any Node3D already in the scene tree (used to get world_3d)
+##   parent  — node to add the spawned item as a child of
+##   scene_path — path to the .tscn to instantiate
+##   pos     — initial spawn position (raycast origin)
+## Returns: the instantiated Node3D (or null on failure)
+static func spawn_scene_settled(anchor: Node3D, parent: Node, scene_path: String, pos: Vector3) -> Node3D:
 	if not ResourceLoader.exists(scene_path):
 		push_warning("FarmingShopHelper: scene not found: %s" % scene_path)
-		return
+		return null
 	var packed: PackedScene = load(scene_path) as PackedScene
 	if packed == null:
 		push_warning("FarmingShopHelper: failed to load: %s" % scene_path)
-		return
+		return null
 	var node: Node3D = packed.instantiate() as Node3D
 	if node == null:
 		push_warning("FarmingShopHelper: instantiate failed: %s" % scene_path)
-		return
+		return null
 	if node is RigidBody3D:
 		var rb: RigidBody3D = node as RigidBody3D
 		rb.freeze      = true
 		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 	parent.add_child(node)
-	var offset: Vector3 = Vector3(randf_range(-0.25, 0.25), 0.0, randf_range(-0.25, 0.25))
-	## Raycast down to the actual floor before placing — see AdminSpawnMenu.
-	## _spawn_scene() for the full explanation.
-	var settled_pos: Vector3 = _find_floor_position(base_pos + offset)
-	node.global_position = settled_pos
+	## Wait for a physics frame FIRST so the raycast below runs in a
+	## physics-safe window — otherwise space_state.intersect_ray() fails
+	## with "space is locked" because we're still on the main thread.
+	await anchor.get_tree().physics_frame
+	node.global_position = _find_floor_position(anchor, pos)
 	if node is RigidBody3D:
 		var rb2: RigidBody3D = node as RigidBody3D
 		rb2.linear_velocity  = Vector3.ZERO
 		rb2.angular_velocity = Vector3.ZERO
-		await _owner.get_tree().physics_frame
-		await _owner.get_tree().physics_frame
+		## One more physics frame before unfreezing so the settled
+		## position registers before gravity takes over.
+		await anchor.get_tree().physics_frame
 		if is_instance_valid(rb2):
 			rb2.freeze = false
-
+	return node
 
 ## Raycasts straight down from from_pos looking for the floor (collision
-## layer 1) — see AdminSpawnMenu._spawn_scene() for the full explanation.
-func _find_floor_position(from_pos: Vector3) -> Vector3:
-	var space_state: PhysicsDirectSpaceState3D = _owner.get_world_3d().direct_space_state
+## layer 1) and returns a point 0.05m above whatever it hits. Falls back to
+## from_pos unchanged if nothing is hit within 20m. Must only be called from
+## a physics-safe window — see spawn_scene_settled() above.
+static func _find_floor_position(anchor: Node3D, from_pos: Vector3) -> Vector3:
+	var space_state: PhysicsDirectSpaceState3D = anchor.get_world_3d().direct_space_state
 	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
 		from_pos, from_pos + Vector3.DOWN * 20.0)
 	query.collision_mask = 1
