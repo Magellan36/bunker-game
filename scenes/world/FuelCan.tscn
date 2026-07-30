@@ -8,6 +8,7 @@ size = Vector3(0.28, 0.42, 0.17)
 
 [node name="FuelCan" type="RigidBody3D"]
 script = ExtResource("1_fuelcan")
+continuous_cd = true
 
 [node name="Model" type="Node3D" parent="."]
 position = Vector3(0, 0, 0)

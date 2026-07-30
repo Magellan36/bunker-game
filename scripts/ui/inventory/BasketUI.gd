@@ -463,7 +463,8 @@ func _on_backdrop_input(event: InputEvent) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_open:
 		return
-	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact"):
+	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact") \
+			or event.is_action_pressed("store_item"):
 		close()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventKey or event is InputEventMouseButton:

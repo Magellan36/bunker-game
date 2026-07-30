@@ -116,14 +116,28 @@ func _spawn_scene_item(scene_path: String, parent: Node, base_pos: Vector3) -> v
 		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 	parent.add_child(node)
 	var offset: Vector3 = Vector3(randf_range(-0.25, 0.25), 0.0, randf_range(-0.25, 0.25))
-	node.global_position = base_pos + offset
+	## Raycast down to the actual floor before placing — see AdminSpawnMenu.
+	## _spawn_scene() for the full explanation.
+	var settled_pos: Vector3 = _find_floor_position(base_pos + offset)
+	node.global_position = settled_pos
 	if node is RigidBody3D:
 		var rb2: RigidBody3D = node as RigidBody3D
 		rb2.linear_velocity  = Vector3.ZERO
 		rb2.angular_velocity = Vector3.ZERO
-		## Two full physics ticks before unfreezing — see AdminSpawnMenu.
-		## _spawn_scene() for the full explanation.
 		await _owner.get_tree().physics_frame
 		await _owner.get_tree().physics_frame
 		if is_instance_valid(rb2):
 			rb2.freeze = false
+
+
+## Raycasts straight down from from_pos looking for the floor (collision
+## layer 1) — see AdminSpawnMenu._spawn_scene() for the full explanation.
+func _find_floor_position(from_pos: Vector3) -> Vector3:
+	var space_state: PhysicsDirectSpaceState3D = _owner.get_world_3d().direct_space_state
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
+		from_pos, from_pos + Vector3.DOWN * 20.0)
+	query.collision_mask = 1
+	var result: Dictionary = space_state.intersect_ray(query)
+	if result.is_empty():
+		return from_pos
+	return (result["position"] as Vector3) + Vector3(0.0, 0.05, 0.0)

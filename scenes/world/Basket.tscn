@@ -6,3 +6,4 @@
 script = ExtResource("1_basket")
 collision_layer = 1
 collision_mask = 1
+continuous_cd = true

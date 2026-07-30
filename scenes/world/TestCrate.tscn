@@ -13,6 +13,7 @@ size = Vector3(0.179, 0.159, 0.245)
 
 [node name="TestCrate" type="RigidBody3D"]
 script = ExtResource("1_testcrate")
+continuous_cd = true
 
 [node name="PlasticCrateModel" type="Node3D" parent="."]
 

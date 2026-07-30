@@ -186,9 +186,6 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	# G — store / put away held item (instant, no progress bar)
 	if event.is_action_pressed("store_item"):
-		if _shelf_ui_open() or _basket_ui_open():
-			get_viewport().set_input_as_handled()
-			return
 		if held_item != null and ("is_basket_container" in held_item):
 			if basket_ui != null and basket_ui.has_method("open"):
 				basket_ui.open(held_item)

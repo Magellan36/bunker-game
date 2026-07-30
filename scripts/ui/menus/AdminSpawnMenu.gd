@@ -207,20 +207,31 @@ func _spawn_scene(path: String, pos: Vector3) -> void:
 		push_warning("[AdminSpawn] Instantiate failed: %s" % path)
 		return
 	## Freeze while the body joins the tree and the physics server registers
-	## its collision shape. A single call_deferred() does NOT reliably wait
-	## for this — it can fire before registration finishes, which is why
-	## spawned items were falling through the floor and getting rescued by
-	## MainWorld._check_abyss_items() a moment later. Two full physics_frame
-	## ticks guarantees registration is done before gravity takes over.
+	## its collision shape. We also raycast down to find the actual floor
+	## before placing the item, so it never spawns inside geometry.
 	if node is RigidBody3D:
 		var rb: RigidBody3D = node as RigidBody3D
 		rb.freeze      = true
 		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 	world_node.add_child(node)
-	node.global_position = pos
+	var settled_pos: Vector3 = _find_floor_position(pos)
+	node.global_position = settled_pos
 	if node is RigidBody3D:
 		await get_tree().physics_frame
 		await get_tree().physics_frame
 		if is_instance_valid(node):
 			(node as RigidBody3D).freeze = false
-	_wdbg("[AdminSpawn] Spawned %s at %s" % [path.get_file(), pos])
+	_wdbg("[AdminSpawn] Spawned %s at %s" % [path.get_file(), settled_pos])
+
+
+## Raycasts straight down from from_pos looking for the floor (collision
+## layer 1) — see AdminSpawnMenu._spawn_scene() for the full explanation.
+func _find_floor_position(from_pos: Vector3) -> Vector3:
+	var space_state: PhysicsDirectSpaceState3D = world_node.get_world_3d().direct_space_state
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
+		from_pos, from_pos + Vector3.DOWN * 20.0)
+	query.collision_mask = 1
+	var result: Dictionary = space_state.intersect_ray(query)
+	if result.is_empty():
+		return from_pos
+	return (result["position"] as Vector3) + Vector3(0.0, 0.05, 0.0)
