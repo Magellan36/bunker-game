@@ -38,7 +38,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `power/` | `PowerTerminalUI.gd` (~1010), `PowerPriorityUI.gd` (~495), `GeneratorInspectUI.gd` (~434) | Power device panels — see `docs/systems/power/README.md` for what they read/write |
 | `inventory/` | `InventoryHUD.gd` (~444 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475) | Slot HUD, inventory state, shelf storage panel |
 | `hud/` | `HUD.gd` (~280), `StatusBars.gd` (~50), `InteractPrompt.gd` (~107 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text), `CircleFill.gd` (~80) | Always-on stat bars, interact prompt, radial fill widget |
-| `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~180), `AdminSpawnMenu.gd` (~215), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, dev spawn menu, sleep fade |
+| `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~575), `AdminSpawnMenu.gd` (~215), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, dev spawn menu, sleep fade |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
 | `common/` | `UIFade.gd` (~30), `UIKit.gd` (~200) | Shared fade-in helper + shared theme/drawing kit (see "UIKit shared kit" below) — put any future cross-panel UI utility here |
@@ -72,6 +72,11 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
   `open_dig_confirm()`/`close_dig_confirm()`.
 - `UIFade` (static, `scripts/ui/common/UIFade.gd`): `UIFade.fade_in(target:
   CanvasItem, duration: float = 0.15)`.
+- `UIKit` (static, `scripts/ui/common/UIKit.gd`): `font()`, `theme_for(domain)`,
+  `draw_backdrop(canvas, vp_size, alpha)`, `draw_panel(canvas, rect, theme, border_width)`,
+  `draw_close_button(canvas, panel_rect, theme)`, `draw_bar(canvas, rect, fill_pct, theme, ...)`,
+  `draw_header(canvas, pos, text, theme, ...)`, `draw_shadowed_text(canvas, pos, text, size, color)`,
+  `button_stylebox(theme, enabled, hover)`, `settings_controls_theme()`.
 
 ## Signals produced
 | File | Signal | Params |
@@ -146,7 +151,20 @@ own panel on first interact). None of these are autoloads.
 - `BuildModeHUD.gd` (~1010 lines) is a possible future god-object cleanup
   candidate, not currently scheduled.
 
-**Jul 2026 — Duplicate HUD instances fix:** `MainWorld.tscn` had three `HUD.tscn` instances (one under `GameCamera`, one at root, one named `HUD` at root). Only the root `HUD` node is referenced via `@onready var hud = $HUD`, so `set_build_mode()` only hid the inventory on that one instance — the other two kept their inventory bars visible during build mode. Fixed by removing the two extra instances (lines 48-50 in `MainWorld.tscn`). Now a single `HUD` CanvasLayer at root is the authoritative instance.
+**Jul 2026 — Graphics Settings Panel Rewrite:** `GraphicsSettingsPanel.gd` was
+completely rewritten as part of the graphics overhaul (Phase 5). The new
+implementation uses a sectioned layout with a `ScrollContainer` (max height
+520px), section headers matching `PauseMenuUI` style, and a
+`UIKit.settings_controls_theme()` for consistent CheckBox/OptionButton/HSlider
+styling. Sections: Quality Preset, Display (Window Mode/Resolution/VSync/FPS
+Cap), Rendering (AA combo, Anisotropic/Shadow Quality/Render Scale), Advanced
+Quality (SDFGI/SSAO/SSIL/Volumetric Fog/Glow/DOF), Flashlight (Volumetrics/
+Shadows), Camera (FOV). All controls use `GraphicsSettings.set_setting()`/
+`set_setting_live()`/`save_now()` pattern. Hover-spin reverted to 2-pool
+(construct vs shop) since procedural previews now share the construct pool.
+`UIKit.settings_controls_theme()` provides shared CheckBox/OptionButton/HSlider
+styling — apply once via `_panel.theme = UIKit.settings_controls_theme()` and
+all child controls inherit automatically.
 
 ## UIKit shared kit (Jul 2026)
 `scripts/ui/common/UIKit.gd` — `class_name UIKit`, pure static-function
@@ -327,6 +345,31 @@ it's a global "show this text for a while" service reachable from any scene.
   `WaterDispenser` currently expose none — see plan §2.3), and `PlayerStats`
   threshold watching (food/water/sleep/health crossing a threshold, needs a
   shared `ThresholdWatcher` helper per the plan, not yet built).
+
+## Graphics Settings Panel Rewrite (Jul 2026)
+`GraphicsSettingsPanel.gd` was completely rewritten as part of the graphics
+overhaul (Phase 5). Key changes:
+- **Sectioned layout**: Quality Preset, Display, Rendering, Advanced Quality,
+  Flashlight, Camera — each with a header and separator.
+- **Display section**: Window Mode (Windowed/Borderless/Exclusive), Resolution
+  (windowed only), VSync checkbox, FPS Cap dropdown (Uncapped/30/60/90/120/144/240).
+- **Rendering section**: Anti-Aliasing combo (6 options → 3 raw fields:
+  Off/Fast/Balanced/Sharp/Smooth/Max), Anisotropic Filtering (Off/2x/4x/8x/16x),
+  Shadow Quality (Low/Medium/High/Ultra), Render Scale slider (50%-100%).
+- **Advanced Quality**: SDFGI, SSAO, SSIL, Volumetric Fog, Glow, DOF checkboxes.
+- **Flashlight**: Beam Volumetrics, Shadow Casting checkboxes.
+- **Camera**: FOV slider (60-100°).
+- **ScrollContainer** with max height (520px), section headers matching
+  `PauseMenuUI`, `ScrollContainer` with max height so it never runs off-screen.
+- **UIKit.settings_controls_theme()**: applied to root panel so all
+  CheckBox/OptionButton/HSlider controls inherit dark-panel styling
+  automatically — no per-control styling needed.
+- **Hover-spin**: reverted to 2-pool (construct vs shop) since procedural
+  previews now live in the same `_sub_` arrays as MeshLibrary items.
+
+The panel uses `UIKit.settings_controls_theme()` for consistent CheckBox,
+OptionButton, and HSlider styling across all controls — no per-control
+styling code needed.
 
 ## Extension points
 - Any new shared cross-panel utility (like `UIFade`, `UIKit`) belongs in

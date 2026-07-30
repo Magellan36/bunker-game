@@ -10,8 +10,8 @@ not the viewport/camera itself.
 ## Purpose
 Owns the isometric-style camera (follow, build-mode top-down transition,
 DOF/shake/FOV) and the player's device-level rendering/quality preferences
-(SDFGI/SSAO/SSIL/volumetric fog/glow/DOF/MSAA/FOV, persisted independently of
-game saves).
+(SDFGI/SSAO/SSIL/volumetric fog/glow/DOF/MSAA/AA/FXAA/TAA/anisotropic filtering/
+shadow quality/render scale/FOV, persisted independently of game saves).
 
 ## Responsibilities
 - `GameCamera.gd`: follows a target (the player) at a fixed iso pitch, lerps
@@ -43,7 +43,8 @@ game saves).
 | File | Lines | Role |
 |---|---|---|
 | `GameCamera.gd` | ~180 | `Camera3D` — follow/build-mode transition/DOF/shake/FOV |
-| `GraphicsSettings.gd` | ~250 | Autoload — quality presets + individual toggles, own `.cfg` persistence |
+| `GraphicsSettings.gd` | ~280 | Autoload — quality presets + individual toggles, own `.cfg` persistence |
+| `GraphicsSettingsPanel.gd` | ~575 | Settings UI panel — sectioned layout, live preview, full preset + individual control |
 
 ## Public API
 **`GameCamera`** (`class_name GameCamera`, extends `Camera3D`):
@@ -52,8 +53,9 @@ game saves).
 `rotate_view_left()` / `rotate_view_right()` (90° snap). Exported tuning
 vars: `follow_speed`, `height`, `pitch_degrees`, `z_offset`, `build_height`,
 `build_z_offset`, `transition_speed`, `yaw_lerp_speed`,
-`dof_focus_distance`, `dof_far_blur_amount`, `trauma_decay_per_sec`,
-`max_shake_offset`, `max_shake_rotation_deg`, `target_path: NodePath`.
+`dof_focus_distance`, `dof_far_blur_amount`, `dof_blur_far_transition`,
+`trauma_decay_per_sec`, `max_shake_offset`, `max_shake_rotation_deg`,
+`target_path: NodePath`.
 
 **`GraphicsSettings`** (autoload — see Ownership for why it's NOT yet
 registered in committed `project.godot`): `apply_preset(preset: int)` (LOW=0/
@@ -69,7 +71,9 @@ slider, see Known tradeoffs), `save_now()` (explicit disk write, pairs with
 deliberate gameplay choice, not a perf fallback, see its own doc-comment),
 `glow_enabled`, `dof_enabled`, `msaa: int`, `camera_fov: float` (NOT part of
 any preset — a comfort/motion-sickness setting, defaults to Godot's
-`Camera3D` default of 75.0).
+`Camera3D` default of 75.0), `vsync_enabled`, `window_mode`, `fps_cap`,
+`screen_space_aa`, `use_taa`, `anisotropic_filtering`, `shadow_quality`,
+`render_scale`.
 
 ## Signals produced
 | File | Signal | Params | Fires when |
@@ -119,7 +123,7 @@ GraphicsSettingsPanel.gd (UI)
   → GraphicsSettings.settings_changed emitted
   → GameCamera._apply_dof_setting() / _apply_fov_setting()
   → Flashlight.gd's own settings_changed listener (docs/systems/furniture-items/)
-  → GraphicsSettings._apply_to_environment() / _apply_to_viewport() (self)
+  → GraphicsSettings._apply_to_environment() / _apply_to_viewport() / _apply_to_display() (self)
 
 GameCamera._physics_process()
   → _lerp_camera_params(delta) (normal ↔ build-mode transition)
@@ -130,8 +134,9 @@ GameCamera._physics_process()
 ## Common edits
 - **New graphics toggle:** add the field to `GraphicsSettings.gd`, add its
   default to each entry in `PRESETS` (or explicitly leave it out of every
-  preset if it's a comfort setting like `camera_fov`/`flashlight_shadows`
-  rather than a quality tier), wire the panel in `GraphicsSettingsPanel.gd`
+  quality preset if it's a comfort setting like `camera_fov`/`flashlight_shadows`/
+  `vsync_enabled`/`window_mode`/`fps_cap`/`render_scale` rather than a quality
+  tier), wire the panel in `GraphicsSettingsPanel.gd`
   (`docs/systems/ui/README.md`), and connect the consuming system
   (`GameCamera`, `Flashlight`, `LightingDirector`, etc.) to
   `settings_changed` the same way existing consumers do.
@@ -151,8 +156,9 @@ GameCamera._physics_process()
   hand-edits. `GraphicsSettings` itself is already a committed one-off
   exception (see Ownership above) — don't treat that as license to hand-edit
   autoloads generally going forward.
-- **Don't route `camera_fov`/`flashlight_shadows` through a preset** — both
-  are deliberately preset-independent comfort/gameplay choices, not quality
+- **Don't route `camera_fov`/`flashlight_shadows`/`vsync_enabled`/
+  `window_mode`/`fps_cap`/`render_scale` through a preset** — all are
+  deliberately preset-independent comfort/gameplay choices, not quality
   tiers (see their doc-comments in source).
 
 ## Known tradeoffs / tech debt
@@ -172,3 +178,105 @@ GameCamera._physics_process()
 - `GameCamera`'s trauma/shake system (`add_trauma()`) is generic — any future
   system wanting screen shake should call it the same way `MainWorld`'s grid-
   tripped handler does, rather than building a second shake mechanism.
+
+## Recent changes (Jul 2026)
+
+### DOF Blur Bug Fix (Phase 0)
+**Root cause:** `dof_focus_distance = 9.0` was shorter than actual camera-to-player distance (~16.1m). DOF far blur transition at 13m meant player/midground was fully blurred.
+**Fix:** `dof_focus_distance: 9.0 → 15.0` (matches actual camera-to-player distance). Added `@export var dof_blur_far_transition: float = 6.0` (was hardcoded 4.0). Removed duplicate declaration.
+
+### Preset System Overhaul + New Fields (Phase 1)
+- Updated `PRESETS` table with all Phase 2-4 fields: `anisotropic_filtering`, `shadow_quality`, `render_scale`, `screen_space_aa`, `use_taa`
+- Added 8 new fields: `vsync_enabled`, `window_mode`, `fps_cap`, `screen_space_aa`, `use_taa`, `anisotropic_filtering`, `shadow_quality`, `render_scale`
+- Added `_apply_to_display()` for VSync, window mode, FPS cap, anisotropic filtering, shadow quality
+- Extended `_apply_to_viewport()` for `screen_space_aa`, `use_taa`, `render_scale`
+- Extended `set_setting_live()`, `_save()`, `_load()` for all new fields
+- Updated `PRESETS` table with complete Phase 2-4 values per graphics plan
+
+### Display Settings (Phase 2)
+- New fields: `vsync_enabled` (bool), `window_mode` (int enum), `fps_cap` (int, 0=uncapped)
+- Added to `_apply_to_display()` and `PRESETS`
+- Window mode enum: `WINDOWED`/`FULLSCREEN`/`EXCLUSIVE_FULLSCREEN`
+
+### Anti-Aliasing Overhaul (Phase 3)
+- New fields: `screen_space_aa` (int enum), `use_taa` (bool)
+- AA combo dropdown in panel mapping 6 friendly options → 3 raw fields:
+  - Off, Fast (FXAA), Balanced (MSAA 2x), Sharp (MSAA 2x+FXAA), Smooth (TAA), Max (MSAA 4x+TAA)
+
+### Anisotropic Filtering, Shadow Quality, Render Scale (Phase 4)
+- New fields: `anisotropic_filtering` (0/2/4/8/16), `shadow_quality` (atlas size: 1024/2048/4096), `render_scale` (0.5–1.0)
+- Applied in `_apply_to_display()` and `_apply_to_viewport()`
+
+### Settings Panel UI Rewrite (Phase 5)
+- Full rewrite with sectioned layout: Quality Preset, Display, Rendering, Advanced Quality, Flashlight, Camera
+- ScrollContainer with max height, section headers matching PauseMenuUI
+- AA combo dropdown (6 options → 3 raw fields)
+- Display: Window Mode, Resolution (windowed only), VSync, FPS Cap
+- Rendering: AA combo, Anisotropic, Shadow Quality, Render Scale slider
+- Advanced Quality: SDFGI, SSAO, SSIL, Volumetric Fog, Glow, DOF checkboxes
+- Flashlight: Volumetrics, Shadows checkboxes
+- Camera: FOV slider
+- ScrollContainer with max height, section headers, PauseMenuUI-styled theme
+- Uses `UIKit.settings_controls_theme()` for CheckBox/OptionButton/HSlider
+- Reverted hover-spin to 2-pool (construct vs shop)
+
+### Preview Scale Normalization & Zoom
+- Added `PREVIEW_TARGET_SIZE = 0.5667` (0.85/1.5) + `_preview_normalize_scale()` helper
+- Applied to all 3 preview pools (MeshLibrary, procedural, shop)
+- Seed packets (~0.14m) and Generator L (~1.85m) now render at same on-screen size
+
+## Verification
+- `tools/godot_check.sh` → **PASS**
+- Code compiles cleanly
+
+---
+
+## Common edits
+- **New graphics toggle:** add the field to `GraphicsSettings.gd`, add its
+  default to each entry in `PRESETS` (or explicitly leave it out of every
+  quality preset if it's a comfort setting like `camera_fov`/`flashlight_shadows`/
+  `vsync_enabled`/`window_mode`/`fps_cap`/`render_scale` rather than a quality
+  tier), wire the panel in `GraphicsSettingsPanel.gd`
+  (`docs/systems/ui/README.md`), and connect the consuming system
+  (`GameCamera`, `Flashlight`, `LightingDirector`, etc.) to
+  `settings_changed` the same way existing consumers do.
+- **New camera behavior/mode:** follow `enter_build_mode()`/
+  `exit_build_mode()`'s lerp-transition shape rather than snapping camera
+  params instantly.
+
+## Forbidden edits
+- **Don't cast `Preset` enum values with `as`.** Enums are plain ints in
+  GDScript — `as` doesn't support enum casts (hit twice already, in `msaa`/
+  `_apply_to_viewport()` and the preset dropdown — see
+  `HANDOVER.md`/`PROJECT_SUMMARY.md` §10 gotcha list). `apply_preset()`
+  deliberately takes a plain `int`, not `Preset`, to avoid the ambiguity at
+  the call boundary entirely — don't retype it back to `Preset`.
+- **Don't hand-edit `project.godot`'s `[autoload]` section** for any FUTURE
+  new autoload — the editor owns that section and can silently revert
+  hand-edits. `GraphicsSettings` itself is already a committed one-off
+  exception (see Ownership above) — don't treat that as license to hand-edit
+  autoloads generally going forward.
+- **Don't route `camera_fov`/`flashlight_shadows`/`vsync_enabled`/
+  `window_mode`/`fps_cap`/`render_scale` through a preset** — all are
+  deliberately preset-independent comfort/gameplay choices, not quality
+  tiers (see their doc-comments in source).
+
+## Known tradeoffs / tech debt
+- No automated tests.
+- `set_setting_live()`/`save_now()` split exists specifically to stop the FOV
+  slider from disk-write-spamming on every drag frame — any other
+  continuous-drag setting added in the future should use the same split
+  rather than calling `set_setting()` every frame.
+- `GraphicsSettings` not yet a committed autoload (see Ownership) — every
+  fresh clone requires Brannon to manually register it once in the editor
+  before the project will compile/run.
+
+## Extension points
+- New quality-tier-dependent systems should read `GraphicsSettings.<field>`
+  directly and connect to `settings_changed` — don't poll `_process()` for
+  changes.
+- `GameCamera`'s trauma/shake system (`add_trauma()`) is generic — any future
+  system wanting screen shake should call it the same way `MainWorld`'s grid-
+  tripped handler does, rather than building a second shake mechanism.
+
+(End of file - total ~220 lines)

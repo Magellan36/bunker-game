@@ -40,7 +40,20 @@ stack, and the wire-draw tool's host controller.
 - `PlacementIndicator.gd`: small standalone visual indicator node (not part
   of the `_owner`-pattern cluster — simpler, self-contained).
 
-## Non-responsibilities
+| `PlacementIndicator.gd` | ~35 | Small standalone cursor/placement indicator visual |
+ 
+ ## Basket
+ A 12-slot container item (`Basket.gd`, `scenes/world/Basket.tscn`) that can
+ be purchased from the Construct → Furniture menu ($80) or spawned via Admin
+ Menu (F10). Holds up to 12 individual food items (Water Bottle, Food Can,
+ Farm Produce — all in `basket_storable` group). E-key stashes nearest
+ `basket_storable` item, G-key opens `BasketUI` (12-slot grid with Drop/Add
+ to inventory buttons). Can be placed on Shelving like a Crate (`shelf_stack_limit=1`,
+ `shelf_item_type="basket"`). Contents travel with basket on pickup/drop/
+ shelf-place (items are reparented as children, hidden/frozen). See
+ `Basket.gd`, `BasketUI.gd`, `InteractionSystem.gd` for full logic.
+ 
+ ## Non-responsibilities
 - **Does not own what a placed device DOES once live** — a placed generator/
   breaker/battery/terminal registers itself with `PowerManager` in its own
   `_ready()`; `BuildModeController` only handles the placement transaction
@@ -76,10 +89,18 @@ stack, and the wire-draw tool's host controller.
 | `WallSnapHelpers.gd` | ~430 | Wall-light/breaker wall-snapping + pregen interior-face check |
 | `PlacementIndicator.gd` | ~35 | Small standalone cursor/placement indicator visual |
 
-**NEW (Jul 2026): Half/Quarter Wall variants** — Added to Structure category in construct menu:
-- `TILE_HALF_WALL` (25) — 1.5m tall, uses scaled `TILE_WALL` mesh, $30
-- `TILE_QUARTER_WALL` (26) — 0.75m tall, uses scaled `TILE_WALL` mesh, $15
-Both use the same MeshLibrary wall mesh (tile_id 1) scaled vertically (0.5x / 0.25x) with origin shifted to base so bottom sits at floor level. Implemented in `BuildModeController.spawn_structure()`, `GhostPreview._rebuild_ghost_mesh()`, `MoveDuplicateTool._spawn_move_ghost()` — no new meshlib entries required.
+**NEW (Jul 2026): Preview Scale Normalization & Zoom** — All construct-tab previews
+now use a shared normalization constant `PREVIEW_TARGET_SIZE = 0.5667` (1.5× zoom
+out from previous 0.85). `_preview_normalize_scale(aabb)` computes a uniform
+scale per preview so every item's largest AABB dimension maps to the same
+on-screen size — seed packets (~0.14m) and Generator L (~1.85m) now render at
+identical on-screen size. Applied to all three preview pools: MeshLibrary
+(construct), procedural (Bed/Shelving/Generators/Batteries/etc.), and shop
+(Water Case/Can Case/Fuel Can/Crate). Hover-spin (90°/sec) and centering
+unchanged.
+
+**NEW (Jul 2026): Basket** — Added to Furniture category in construct menu:
+- `TILE_BASKET` (25) — 12-slot container, $80. Uses procedural mesh (laundry basket silhouette). Opens `BasketUI` on G while held, E-key stashes nearby `basket_storable` items (Water Bottle, Food Can, Farm produce). Can be placed on Shelving like any other pickupable prop (uses `shelf_stack_limit = 1`, `shelf_item_type = "basket"`). Admin spawn entry added for testing.
 
 All 5 helper slices (`BuildMaterials`/`BuildUndoStack`/`GhostPreview`/
 `MoveDuplicateTool`/`WallSnapHelpers`) extend `RefCounted` with

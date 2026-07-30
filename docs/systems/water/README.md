@@ -656,20 +656,28 @@ Player presses E on WaterDispenser (Jul 2026)
   a branching (3+ neighbor) node is reachable/traversed with zero special-
   casing. No code changes were needed — this was already correct.
 - **Pipe height (July 2026, Step 2 pass):** `WATER_HOOKUP_PLACEMENT_Y`/
-  `WATER_CEILING_Y` raised from 2.8 → 2.9 (walls are 3.0m tall) — per
+  `WATER_CEILING_Y` raised from 2.8 → 3.9 (walls are 3.0m tall) — per
   Brannon's explicit request to sit slightly higher, between wall-light
   height (2.5m) and the ceiling. Keep both constants equal by hand if either
   ever changes (two independent constants, water system stays standalone).
-- **Wire/pipe "exit placing" corrected (July 2026, third playtest pass —
-  supersedes a wrong fix from the Step 2 pass):** the Step 2 pass made E/
-  RMB/Escape fully exit `WireDrawMode`/`WaterPipeDrawMode` back to Construct
-  tool — Brannon flagged this as exactly wrong: pressing E "wasn't working"
-  because it was leaving wire/pipe mode entirely (switching to Construct,
-  which visually reads as an unwanted mode-switch) instead of just cancelling
-  the in-progress placement. **Corrected behavior:** E, RMB, and Escape now
-  cancel the current phase-1 drag (clear ghost + cost label, reset to
-  phase 0) and STAY in the wire/pipe tool — no `*_tool_exit_requested` signal
-  fires from any of the three anymore; the only way to leave the tool
+**Corrected behavior:** E, RMB, and Escape now cancel the current phase-1 drag (clear ghost + cost label, reset to
+   phase 0) and STAY in the wire/pipe tool — no `*_tool_exit_requested` signal
+   fires from any of the three anymore; the only way to leave the tool
+
+- **Pipe Joint Fitting Rework (Jul 2026)** — Replaced the single grey sphere
+  elbow (`WaterPipeElbow.gd` old) with a full library of textured bolted-flange
+  fitting models (`WaterPipeElbowCouplerModel.tscn` for 2-way 90° elbows,
+  `WaterPipeTSplitCouplerModel.tscn` for 3-way T-splits,
+  `WaterPipePlusCrossCouplerModel.tscn` for 4-way "+" crosses,
+  `WaterPipeCouplerModel.tscn` for straight collinear remnants). `WaterPipeElbow.gd`
+  rewritten: `rebuild_visual()` selects the correct fitting scene based on the
+  node's current leg directions (degree 2 perpendicular → elbow, degree 3 →
+  T-split, degree 4 → cross, degree 2 collinear → straight coupler, degree 0/1
+  → no fitting). `rebuild_visual()` called from `WaterPipeDrawMode.gd` after
+  every graph mutation and from `restore_pipe_network()` on load. Fitting
+  models include baked flanges/bolts ~0.22m from center; no manual offset math.
+  `WaterPipeElbow.gd` retains `JOINT_RADIUS`/`JOINT_SEGMENTS` constants for
+  reference but they're no longer used.
   entirely is re-clicking its own toolbar button (pre-existing toggle
   behavior, unchanged).
 - **Pipe routing now hugs the source wall (July 2026, Step 2 pass):**

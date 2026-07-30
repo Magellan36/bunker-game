@@ -269,6 +269,9 @@ audited this pass:
   Potato, Blueberry, Corn, Pumpkin — spread across a 5–30 `grow_days` range
   and three cosmetic `category` values (Vegetable/Fruit/Herb, not read by
   any gameplay logic).
+- **Jul 2026 revert**: All 12 `grow_days` values reverted to original (pre-halved)
+  values (Tomato: 10→5→10, Onion: 20→10→20, Basil: 5→2.5→5, etc.) — the
+  previous halving commit (`d92669f`) was reverted.
 - Every entry also carries `seed_packet_color` now — fixes a real bug where
   `SeedItem._build_placeholder_mesh()` used a hardcoded
   `tomato ? color_a : color_b` ternary, so every non-tomato seed (Onion and

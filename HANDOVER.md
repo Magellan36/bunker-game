@@ -1,180 +1,235 @@
-# Handover — Farming Fixes Round 2 + B5 Tray Fixes + Part A/B/C/D/E (Jul 2026)
+# Handover — Graphics Overhaul + Farming/Sleep Fixes + Basket + Preview Fixes (Jul 2026)
 
 ## What changed this session
 
-### Part A Bug Fixes (from Farming Fixes Round 2 plan)
+### Phase 0: DOF Blur Bug Fix (GameCamera.gd)
+- **Root cause**: `dof_focus_distance = 9.0` was shorter than actual camera-to-player distance (~16.1m). DOF far blur transition at 13m meant player/midground was fully blurred.
+- **Fix**: `dof_focus_distance: 9.0 → 15.0` (matches actual camera-to-player distance). Added `@export var dof_blur_far_transition: float = 6.0` (was hardcoded 4.0). Removed duplicate declaration.
 
-**A1 — Light floor + XZ radius**
-- `FarmPlant.gd`: `LIGHT_FLOOR_SPEED = 0.1` minimum growth speed so plants never fully stall in darkness
-- `GrowLight.gd`: `LIGHT_MATCH_RADIUS = 0.25` with XZ-only distance check (flat, ignores height)
+### Phase 1: GraphicsSettings.gd Preset Overhaul + New Fields
+- Updated `PRESETS` table with all Phase 2-4 fields: `anisotropic_filtering`, `shadow_quality`, `render_scale`, `screen_space_aa`, `use_taa`
+- Added 8 new fields: `vsync_enabled`, `window_mode`, `fps_cap`, `screen_space_aa`, `use_taa`, `anisotropic_filtering`, `shadow_quality`, `render_scale`
+- Added `_apply_to_display()` for VSync, window mode, FPS cap, anisotropic filtering, shadow quality
+- Extended `_apply_to_viewport()` for `screen_space_aa`, `use_taa`, `render_scale`
+- Extended `set_setting_live()`, `_save()`, `_load()` for all 8 new fields
+- Updated `PRESETS` table with complete Phase 2-4 values per graphics plan
 
-**A2 — Farming tray prompt position**
-- `FarmingTray.gd`: Added `get_prompt_world_pos()` — prompt sits at basin height (0.85) centered for single tray, over used side for double tray
-- `InteractionSystem.gd`: Generic `has_method("get_prompt_world_pos")` check (no group restriction)
+### Phase 2: Display Settings (VSync, Fullscreen, Resolution, FPS Cap)
+- New fields: `vsync_enabled` (bool), `window_mode` (int enum), `fps_cap` (int, 0=uncapped)
+- Added to `_apply_to_display()` and `PRESETS`
 
-**A4 — Bounds check corner check**
-- `BuildModeController.gd`: `_is_inside_bunker(pos, half_extent)` now checks all 4 corners of object footprint instead of single center point
+### Phase 3: Anti-Aliasing Overhaul
+- New fields: `screen_space_aa` (int enum), `use_taa` (bool)
+- AA combo dropdown in panel mapping 6 friendly options → 3 raw fields:
+  - Off, Fast (FXAA), Balanced (MSAA 2x), Sharp (MSAA 2x+FXAA), Smooth (TAA), Max (MSAA 4x+TAA)
 
-**A5 — Warning bubble vertical centering**
-- `FarmingTrayUI.gd`: Added `_wrapped_line_count()` helper; water warning bubble now properly centers multi-line text
-- `WaterInfoUI.gd`: Purifier warning bubble similarly centered
+### Phase 4: Anisotropic Filtering, Shadow Quality, Render Scale
+- New fields: `anisotropic_filtering` (0/2/4/8/16), `shadow_quality` (atlas size: 1024/2048/4096), `render_scale` (0.5-1.0)
+- Applied in `_apply_to_display()` and `_apply_to_viewport()`
 
-**A6 — Farming shop menu no longer closes after purchase**
-- `BuildModeHUD.gd`: Farming shop emits `farming_item_chosen` without closing submenu
+### Phase 5: Settings Panel UI Rewrite (GraphicsSettingsPanel.gd)
+- Full rewrite with sectioned layout (Quality Preset, Display, Rendering, Advanced Quality, Flashlight, Camera)
+- ScrollContainer with max height, section headers matching PauseMenuUI
+- AA combo dropdown (6 options → 3 raw fields)
+- Display: Window Mode, Resolution (windowed only), VSync, FPS Cap
+- Rendering: AA combo, Anisotropic, Shadow Quality, Render Scale slider
+- Advanced Quality: SDFGI, SSAO, SSIL, Volumetric Fog, Glow, DOF checkboxes
+- Flashlight: Volumetrics, Shadows checkboxes
+- Camera: FOV slider
+- ScrollContainer with max height, section headers, PauseMenuUI-styled theme
+- Uses `UIKit.settings_controls_theme()` for CheckBox/OptionButton/HSlider
+- Reverted hover-spin to 2-pool (construct vs shop)
 
-**A7 — Grow light safety net**
-- `GrowLight.gd`: `set_powered(false)` in `_ready()` guarantees fixture starts off before PowerManager can potentially power it
-- `GrowLight.gd`: `_register_bucket()` deferred to after `global_position` is set (fixes "80 days" bug — lights were registered at (0,0,0))
+### Preview Scale Normalization (All 3 Pools)
+- Added `PREVIEW_TARGET_SIZE = 0.85` (later adjusted to 0.5667 for 1.5x zoom-out)
+- Added `_preview_normalize_scale(aabb)` helper
+- Applied to all 3 preview pools: MeshLibrary, procedural, shop
+- Seed packets (~0.14m) and Generator L (~1.85m) now render same on-screen size
 
-### Part B Features
+### Preview Zoom Out 1.5×
+- `PREVIEW_TARGET_SIZE: 0.85 → 0.5667` (0.85/1.5)
+- All three preview pools render ~1.5× smaller
 
-**B1 — Fertilizer on empty soil**
-- `FarmingTray.gd`: `cell_prepped_fertilizer` array; fertilizer can be applied to empty soil; `plant_first_open_cell()` applies prep
+### Grow Rate Revert (PlantDatabase.gd)
+- Reverted all 12 `grow_days` to original values (was halved in earlier commit)
+- tomato: 5.0→10.0, onion: 10.0→20.0, basil: 2.5→5.0, strawberry: 3.5→7.0, carrot: 4.0→8.0, chili_pepper: 4.5→9.0, bell_pepper: 6.0→12.0, garlic: 7.0→14.0, potato: 8.0→16.0, blueberry: 9.0→18.0, corn: 11.0→22.0, pumpkin: 15.0→30.0
 
-**B2 — Connectable dot at tray pipe stub**
-- `BuildModeController._refresh_connectable_dots()`: tray dot at `dot_x = 0.45/0.95`, `dot_y = 0.85` (pipe stub position)
+### Basket Feature (12-slot Container)
+- New files: `scripts/world/items/Basket.gd`, `scenes/world/Basket.tscn`, `scripts/ui/inventory/BasketUI.gd`
+- `InteractionSystem.gd`: `_basket_ui` field, `_basket_ui_open()`, E-key stash (`_try_add_nearest_to_basket`), G-key open menu, ground-prompt override
+- `WaterBottle`/`FoodCan`/`FarmProduceItem`: added `basket_storable` group
+- `MainWorld.gd`: `_basket_ui` field + `_setup_basket_ui()` wiring
+- Shelving compatibility verified (uses `shelf_stack_limit`/`shelf_item_type` duck typing)
 
-**B3 — Farming tool renamed "Shop"**
-- `BuildModeHUD.gd`: Toolbar label "Shop" (🛒), Soil/Seeds as flat top-level categories in 2-level menu
+### Fixes & Cleanups
+- Removed duplicate `interaction_system` declaration in GraphicsSettingsPanel.gd
+- Fixed `nil` → `null` typos (2 occurrences) in GraphicsSettingsPanel.gd
+- Removed duplicate `_make_checkbox`/`_make_button` definitions
+- Removed dead code: `interaction_system`, `inventory`, `inventory_hud` (unused in this file)
+- Deleted duplicate `_make_checkbox`/`_make_button` definitions
+- Fixed `interaction_system` duplicate declaration in GraphicsSettingsPanel.gd
+- Reverted Basket purchasable in Build Mode (kept in AdminSpawnMenu for testing only)
+- Fixed GrowLight.gd path in _procedural_ghost_mesh() (farming/ → power/)
+- Fixed UIKit settings_controls_theme() syntax error (removed invalid `also` keyword)
+- DOF blur fix: `dof_focus_distance: 9.0→15.0`, added `dof_blur_far_transition` export
 
-### Part A Bug Fixes (from PART_A_BUGFIX_PLAN)
+### Preview Scale Normalization
+- Added `PREVIEW_TARGET_SIZE = 0.85` (later 0.5667) + `_preview_normalize_scale()`
+- Applied to MeshLibrary, procedural, and shop preview branches
 
-1. `BuildModeController._refresh_connectable_dots()` — fixed indentation inside for loop
-2. `FarmingTrayUI.gd` — added `_wrapped_line_count()`; water bubble vertical centering fixed
-3. `FarmingTray.gd` — removed duplicate `_cell_local_x()` definition
+### Preview Zoom Out 1.5×
+- `PREVIEW_TARGET_SIZE: 0.85 → 0.5667` (0.85/1.5)
 
-### Part B4 — Dormant/Stalled/Ready Status
+### Grow Rate Revert
+- PlantDatabase.gd: all 12 `grow_days` reverted to original values (×2 from previous halved state)
 
-- `FarmPlant.gd`: `water_fraction` cached each tick
-- `FarmingTrayUI.gd`: Status text — "Dormant" (progress=0 & no water), "Stalled (No Water/No Light)", "X hours until harvest"
+### Basket Feature
+- New files: `scripts/world/items/Basket.gd`, `scenes/world/Basket.tscn`, `scripts/ui/inventory/BasketUI.gd`
+- InteractionSystem: `_basket_ui`, `_basket_ui_open()`, E-key stash, G-key open, ground-prompt override
+- WaterBottle/FoodCan/FarmProduceItem: added `basket_storable` group
+- MainWorld: `_basket_ui` + `_setup_basket_ui()` wiring
+- Shelving compatibility verified (duck-typed `shelf_stack_limit`/`shelf_item_type`)
 
-### Part B5 — Floating Tray Fixes (Root Cause Fixed)
+### Fixes & Cleanups
+- Removed duplicate `interaction_system` in GraphicsSettingsPanel.gd
+- Fixed `nil` → `null` typos (2 occurrences)
+- Removed duplicate `_make_checkbox`/`_make_button` definitions
+- Removed dead code: `interaction_system`, `inventory`, `inventory_hud` (unused)
+- Fixed GrowLight.gd path in `_procedural_ghost_mesh()` (`farming/` → `power/`)
+- Fixed UIKit `settings_controls_theme()` syntax error (removed invalid `also` keyword)
+- DOF blur fix: `dof_focus_distance: 9.0→15.0`, added `dof_blur_far_transition` export
 
-1. `GhostPreview.gd`: `snap_pos.y = 0.5` for trays (was PLACEMENT_Y=2.0 — wall-fixture height)
-2. `BuildModeController.gd`: Added tray branch in `_is_position_occupied_for_tile()` — registry-only overlap check (threshold = `grid_size * 0.9`) instead of physics shape query that hit floor collider
+### Verification
+- `tools/godot_check.sh` → **PASS**
+- Code compiles cleanly
 
-### Part C — New Shop Items (Water Case, Can Case, Fuel Can, Crate)
+## Files Modified (Graphics Overhaul + Fixes)
 
-**C1 — Shared unfreeze helper**
-- `PickupableItem.gd`: Added `_unfreeze_after_spawn()` to base class
+### Core Graphics System
+- `scripts/core/GameCamera.gd` — DOF fix, export transition
+- `scripts/core/GraphicsSettings.gd` — 8 new fields, PRESETS overhaul, _apply_to_display(), _apply_to_viewport() extended
+- `scripts/core/GraphicsSettings.gd` — set_setting_live/_save/_load extended for 8 new fields
 
-**C2 — Register four items + new categories**
-- `FarmingShopHelper.gd`: Added 4 new "scene" kind items (Water Case $80, Can Case $60, Fuel Can $120, Crate $40) with `_spawn_scene_item()` that freezes for 1 frame then unfreezes
-
-**C3 — Add two new categories to Shop menu**
-- `BuildModeHUD.gd`: Added "Resources" (Water Case, Can Case, Fuel Can) and "Miscellaneous" (Crate) as flat top-level categories under "Shop" tool
-
-### Part D — Shop Item Previews with Hover Spin
-
-- Construct items: MeshLibrary mesh, `PREVIEW_ROTATION_DEFAULT` (-45°, -45°, 0°)
-- Shop items: Instantiate actual scenes/scripts via `PREVIEW_SOURCES` (16=WaterCase.tscn, 17=CanCase.tscn, 18=FuelCan.tscn, 19=TestCrate.tscn)
-- Separate viewport pools: `_sub_mesh_instances` (construct) / `_shop_mesh_instances` (shop)
-- Hover spin: hovered preview spins 90°/sec clockwise on Y, snaps back to default pose instantly on hover-out
-- `PREVIEW_ROTATION_DEFAULT = Vector3(-45.0, -45.0, 0.0)`, `PREVIEW_HOVER_SPIN_DEG_PER_SEC = 90.0`
-
-### Part E — Raise Pipes & Hookup Another 0.5
-
-- `WaterPipeDrawMode.WATER_CEILING_Y`: 3.4 → 3.9
-- `BuildModeController.WATER_HOOKUP_PLACEMENT_Y`: 3.4 → 3.9
-
-### Other Fixes
-
-- **GrowLight spatial bucket fix**: `_register_bucket()` deferred until after `global_position` set (fixes "80 days" bug — lights registered at (0,0,0))
-- **Shelving.gd crash fix**: Removed dead `_store_hold_t`/`_use_pending` refs (deleted InteractionSystem vars)
-- **Light prompts simplified**: `[E] Name` only (no priority/power state)
-- **Farming UI**: days/hours display, gap/padding/block height tweaks
-- **Pipe drop-down cleanup**: `_cascade_delete_dead_end_drop()` in `WaterManager.delete_and_refund_edge()` removes orphaned vertical drop segments when horizontal run is deleted
-
-## Files Modified
+### UI Panels
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — complete rewrite with sectioned layout
+- `scripts/ui/common/UIKit.gd` — added `settings_controls_theme()` function
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — removed duplicate `interaction_system`, `nil`→`null` fixes
+- `scripts/ui/menus/BuildModeHUD.gd` — preview scale normalization, zoom out
 
 ### Core Systems
-- `scripts/world/farming/FarmPlant.gd` — `water_fraction` cached, `_process()` live refresh, `_tick_one_game_hour()` simplified
-- `scripts/world/farming/FarmingTray.gd` — `cell_prepped_fertilizer`, `_cell_local_x()` centered for single tray
-- `scripts/world/farming/FarmingTrayUI.gd` — `_wrapped_line_count()`, status text, bubble centering, gap/padding/block height
-- `scripts/world/farming/PlantDatabase.gd` — all 12 `grow_days` halved
-- `scripts/world/farming/FarmingConstants.gd` — `LIGHT_FLOOR_SPEED = 0.1`
+- `scripts/core/GameCamera.gd` — DOF fix, export transition
+- `scripts/core/GraphicsSettings.gd` — 8 new fields, PRESETS overhaul
+- `scripts/core/PlantDatabase.gd` — grow_days reverted to original values
 
-### Build/Placement
-- `scripts/world/build/BuildModeController.gd` — `PLACEMENT_Y = 2.0`, `_is_inside_bunker()` 4-corner check, tray occupancy check, `_is_position_occupied_for_tile()` tray branch
-- `scripts/world/build/GhostPreview.gd` — tray `snap_pos.y = 0.5`, half/quarter wall scaling
-- `scripts/world/build/BuildModeController.gd` — `WATER_HOOKUP_PLACEMENT_Y = 3.9`, tray occupancy branch in `_is_position_occupied_for_tile()`
-- `scripts/world/build/MoveDuplicateTool.gd` — tray `snap_pos.y` handling
-- `scripts/world/build/BuildMaterials.gd` — half/quarter wall materials
+### Basket Feature
+- New: `scripts/world/items/Basket.gd`, `scenes/world/Basket.tscn`, `scripts/ui/inventory/BasketUI.gd`
+- `scripts/player/InteractionSystem.gd` — basket UI wiring, E/G key handling
+- `scripts/world/core/MainWorld.gd` — `_basket_ui` wiring
 
-### Items
-- `scripts/world/items/PickupableItem.gd` — `_unfreeze_after_spawn()`
-- `scripts/world/items/FuelCan.gd` — removed duplicate `_unfreeze_after_spawn()`
-- `scripts/world/items/CanCase.gd`, `WaterCase.gd` — ejection freeze fix
-- `scripts/world/items/TestCrate.gd` — inherits PickupableItem
+### Item Scripts
+- `scripts/world/items/Basket.gd` (new)
+- `scripts/world/items/WaterBottle.gd` — added `basket_storable` group
+- `scripts/world/items/FoodCan.gd` — added `basket_storable` group
+- `scripts/world/items/FarmProduceItem.gd` — added `basket_storable` group
+
+### Farming Systems
+- `scripts/world/farming/PlantDatabase.gd` — `grow_days` reverted to original values (×2)
+- `scripts/world/farming/PlantDatabase.gd` — grow_days reverted to original values
 
 ### Build/Shop UI
-- `scripts/ui/build/BuildModeHUD.gd` — Shop tool (🛒), Resources/Misc categories, `PREVIEW_SOURCES`, `PREVIEW_ROTATION_DEFAULT`, hover spin, shop preview viewports, `_refresh_shop_previews()`
-- `scripts/ui/build/BuildModeHUD.gd` — `CAT_ICONS` updated for Resources/Miscellaneous
-- `scripts/ui/build/BuildModeHUD.gd` — `_build_submenu()` creates shop viewports, `_refresh_shop_previews()`, `_on_submenu_draw()` shop preview lookup, `_update_preview_hover_spin()`
-- `scripts/ui/build/BuildModeHUD.gd` — `FARMING_SHOP_ITEMS` → `FARMING_SHOP_ITEMS` (kept for compat), `_current_categories()` returns `FARMING_SHOP_ITEMS`
-- `scripts/ui/build/BuildModeHUD.gd` — `TOOL_LABELS`/`TOOL_ICONS`: "Shop" (🛒)
-- `scripts/ui/build/BuildModeHUD.gd` — Categories: "Resources" (Water Case, Can Case, Fuel Can), "Miscellaneous" (Crate)
-- `scripts/ui/build/BuildModeHUD.gd` — `CAT_ICONS` for "Resources" (📦), "Miscellaneous" (🗃)
+- `scripts/ui/build/BuildModeHUD.gd` — preview scale normalization, zoom out
+- `scripts/ui/menus/AdminSpawnMenu.gd` — added Basket spawn entry
 
-### Shop/Items
-- `scripts/world/build/FarmingShopHelper.gd` — `SHOP_ITEM_INFO` 4 new items (16-19), `"scene"` kind, `_spawn_scene_item()` with freeze/unfreeze
-- `scripts/world/items/PickupableItem.gd` — `_unfreeze_after_spawn()`
-- `scripts/world/items/FuelCan.gd` — removed duplicate `_unfreeze_after_spawn()`
+### Fixes & Cleanups
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — removed duplicate `interaction_system`, `nil`→`null`
+- `scripts/ui/menus/BuildModeHUD.gd` — preview scale normalization, zoom out
+- `scripts/ui/common/UIKit.gd` — fixed `settings_controls_theme()` syntax error
+- `scripts/core/GameCamera.gd` — DOF fix, export transition
+- `scripts/world/power/GrowLight.gd` — path fix (`farming/` → `power/`)
+- `scripts/world/build/BuildModeController.gd` — `TILE_BASKET` constant
+- `scripts/ui/menus/AdminSpawnMenu.gd` — Basket spawn entry
 
-### Power/Lights
-- `scripts/world/power/GrowLight.gd` — `_register_bucket()` deferred, `LIGHT_MATCH_RADIUS = 0.40`, `CELL_BUCKET_SIZE = 0.45`, `LIGHT_FLOOR_SPEED = 0.1`
-- `scripts/world/power/WallLight.gd` — `get_priority_prompt()` simplified
+### Files Created
+- `scripts/world/items/Basket.gd`
+- `scenes/world/Basket.tscn`
+- `scripts/ui/inventory/BasketUI.gd`
 
-### Water/Pipes
-- `scripts/world/water/WaterPipeDrawMode.gd` — `WATER_CEILING_Y = 3.9`
-- `scripts/world/build/BuildModeController.gd` — `WATER_HOOKUP_PLACEMENT_Y = 3.9`
-- `scripts/world/water/WaterManager.gd` — `_cascade_delete_dead_end_drop()` for drop-down cleanup
-- `scripts/world/water/WaterHookup.gd` — `_process(delta)` for quality decay
+### Verification
+- `tools/godot_check.sh` → **PASS**
+- Code compiles cleanly
 
-### Water UI
-- `scripts/ui/farming/FarmingTrayUI.gd` — `_wrapped_line_count()`, status text, bubble centering, gap/padding/block height
-- `scripts/ui/water/WaterInfoUI.gd` — purifier bubble vertical centering
+---
 
-### Misc
-- `scripts/ui/build/BuildModeHUD.gd` — Shop tool (🛒), Resources/Misc categories, `PREVIEW_SOURCES`, `PREVIEW_ROTATION_DEFAULT`, hover spin, shop preview viewports, `_refresh_shop_previews()`, `_on_submenu_draw()` shop lookup, `_update_preview_hover_spin()`
-- `scripts/ui/build/BuildModeHUD.gd` — `CAT_ICONS` for Resources (📦), Miscellaneous (🗃)
-- `scripts/ui/build/BuildModeHUD.gd` — `FARMING_SHOP_ITEMS` flat categories "Soil"/"Seeds" under "Shop"
-- `scripts/world/build/FarmingShopHelper.gd` — `SHOP_ITEM_INFO` items 16-19, `"scene"` kind, `_spawn_scene_item()`
-- `scripts/world/items/PickupableItem.gd` — `_unfreeze_after_spawn()`
-- `scripts/world/items/FuelCan.gd` — removed duplicate `_unfreeze_after_spawn()`
-- `scripts/world/environment/BunkerPregen.gd` — `PLACEMENT_Y = 2.0`
-- `scripts/world/build/BuildModeController.gd` — `PLACEMENT_Y = 2.0`, `_is_inside_bunker()` corner check, tray occupancy
-- `scripts/world/build/GhostPreview.gd` — tray `snap_pos.y = 0.5`
-- `scripts/world/build/MoveDuplicateTool.gd` — tray `snap_pos.y` handling
-- `scenes/world/MainWorld.tscn` — removed duplicate HUD CanvasLayers
+## Files Modified (Graphics Overhaul + Fixes)
 
-## Verification
-- `bash tools/godot_check.sh <headless Godot 4.6.3 binary>` → **PASS**
-- Not yet manually playtested in-editor
+### Core Graphics System
+- `scripts/core/GameCamera.gd` — DOF fix, export transition
+- `scripts/core/GraphicsSettings.gd` — 8 new fields, PRESETS overhaul, _apply_to_display(), _apply_to_viewport() extended
+- `scripts/core/GraphicsSettings.gd` — set_setting_live/_save/_load extended for 8 new fields
+- `scripts/core/PlantDatabase.gd` — grow_days reverted to original values (×2)
 
-## Playtest Checklist
-1. Pull `origin/main`.
-2. **Pickup items** — all 12 items: pickup/drop/place, physics, knockout, culling, hold-follow.
-3. **Inventory HUD** — charge badges render correctly (int font size).
-4. **Sleep** — 8h sleep advances time correctly.
-5. **CanCase/WaterCase** — eject items, no floor fall-through.
-6. **Pregen walls** — align with player-placed walls vertically.
-7. **Half/Quarter Wall** — heights (1.5m/0.75m), prices ($30/$15), collision matches visual.
-8. **Build mode** — inventory bar hides completely.
-9. **Farming tray** — place on floor (Y=0.5 ghost, Y=0 placed), no "space occupied" false positive.
-10. **Fertilizer** — apply to empty soil, prep works, seed inherits prep.
-11. **Tray UI** — Status shows Dormant/Stalled/Ready correctly.
-12. **Water warning bubble** — text vertically centered.
-13. **Shop tool** — "Shop" (🛒), Soil/Seeds categories, menu stays open after purchase.
-14. **Grow light** — never fully stalls (0.1 floor), XZ radius 0.40.
-15. **Build mode** — inventory hides, tray placement works, no false "occupied".
-16. **Grow light detection** — single tray plant centered, light at center detects it.
-17. **Fast-forward** — food/water/sleep/health drain, water quality decay, plant growth all advance ~24h.
-17. **Shop items** — Water Case/Can Case/Fuel Can/Crate spawn at head height, freeze 1 frame, no floor fall-through.
-17. **Shop previews** — all items show model, hover spins 90°/sec, snaps back on hover-out.
-18. **Pipe height** — pipes at 3.9m, hookup at 3.9m, purifier attaches, drop-down works.
-18. **Drop-down cleanup** — delete horizontal run, vertical drop vanishes + refunded.
+### UI Panels
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — complete rewrite with sectioned layout
+- `scripts/ui/common/UIKit.gd` — added `settings_controls_theme()` function
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — removed duplicate `interaction_system`, `nil`→`null` fixes
+- `scripts/ui/menus/BuildModeHUD.gd` — preview scale normalization, zoom out
+
+### Core Systems
+- `scripts/core/GameCamera.gd` — DOF fix, export transition
+- `scripts/core/GraphicsSettings.gd` — 8 new fields, PRESETS overhaul, _apply_to_display(), _apply_to_viewport() extended
+- `scripts/core/PlantDatabase.gd` — grow_days reverted to original values (×2)
+
+### Basket Feature
+- `scripts/world/items/Basket.gd` (new)
+- `scenes/world/Basket.tscn` (new)
+- `scripts/ui/inventory/BasketUI.gd` (new)
+- `scripts/player/InteractionSystem.gd` — basket UI wiring, E/G key handling
+- `scripts/world/core/MainWorld.gd` — `_basket_ui` field + `_setup_basket_ui()` wiring
+- `scripts/world/items/WaterBottle.gd` — added `basket_storable` group
+- `scripts/world/items/FoodCan.gd` — added `basket_storable` group
+- `scripts/world/items/FarmProduceItem.gd` — added `basket_storable` group
+
+### Build/Shop UI
+- `scripts/ui/build/BuildModeHUD.gd` — preview scale normalization, zoom out
+- `scripts/ui/menus/AdminSpawnMenu.gd` — added Basket spawn entry
+- `scripts/world/build/BuildModeController.gd` — `TILE_BASKET = 25` constant
+
+### Farming Systems
+- `scripts/world/farming/PlantDatabase.gd` — `grow_days` reverted to original values (×2)
+
+### Fixes & Cleanups
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — removed duplicate `interaction_system`, `nil`→`null` fixes
+- `scripts/ui/common/UIKit.gd` — fixed `settings_controls_theme()` syntax error
+- `scripts/core/GameCamera.gd` — DOF fix, export transition
+- `scripts/world/power/GrowLight.gd` — path fix (`farming/` → `power/`)
+- `scripts/ui/build/BuildModeHUD.gd` — preview scale normalization, zoom out
+
+---
 
 ## Next Up
 - Polish audit items 6–23 (InteractPrompt jitter, Flashlight pause battery drain, FuelCan prompt, Water pipe labels, Farming tray UI alignment, Build ghost z-fighting, etc.)
-- Await Brannon's playtest feedback and next request.
+- Await Brannon's playtest feedback and next request
+
+---
+
+## Updated Files Summary (Recent Commits)
+
+| Commit | Description |
+|--------|-------------|
+| `538aeb3` | Remove duplicate interaction_system in GraphicsSettingsPanel |
+| `4c4e260` | Settings panel UI rewrite + Admin spawn entry |
+| `185d89f` | Zoom out previews by 1.5x |
+| `5f385f1` | Normalize preview scale across all pools |
+| `5077e34` | Full-fidelity construct-tab previews |
+| `d252a58` | Full basket feature + farming/sleep fixes |
+| `672e1ab` | Revert Basket purchasable in Build Mode |
+| `6424c86` | Basket purchasable in Build Mode |
+| `78591ed` | Fix GrowLight path |
+| `b78bd51` | Fix UIKit settings_controls_theme() syntax |
+| `54728d6` | DOF blur fix + preset overhaul |
+
+---
+
+## Next Up
+- Polish audit items 6–23 (InteractPrompt jitter, Flashlight pause battery drain, FuelCan prompt, Water pipe labels, Farming tray UI alignment, Build ghost z-fighting, etc.)
+- Await Brannon's playtest feedback and next request
