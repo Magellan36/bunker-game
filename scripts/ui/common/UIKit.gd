@@ -248,3 +248,40 @@ static func settings_controls_theme() -> Theme:
 
 
 	return theme
+
+
+## ─── Rugged/worn border helper (Jul 2026 "gritty bunker" pass) ──────────────
+## Draws a hand-inked, slightly wobbly stroke along a circular arc instead of
+## a perfectly smooth `draw_arc` line — used for the worn-metal border
+## treatment on HUD ring/circle visuals (NeedsGauge, StatusEffectIcon). The
+## jitter is a FIXED hash of each point's angle (not per-frame randomness),
+## so the wobble is identical every redraw — no flicker, just reads as
+## rough/hand-drawn rather than a clean vector circle. Keep `width` small
+## (1.0-2.0) and `color` low-alpha near-black — this is meant to be subtle.
+static func draw_rugged_arc(canvas: CanvasItem, center: Vector2, radius: float,
+		start_angle: float, end_angle: float, color: Color, width: float,
+		seed_offset: float = 0.0) -> void:
+	var segments: int = 40
+	var points: PackedVector2Array = PackedVector2Array()
+	for i in range(segments + 1):
+		var t: float = float(i) / float(segments)
+		var angle: float = lerp(start_angle, end_angle, t)
+		var n: float = _rugged_hash(angle * 37.0 + seed_offset)
+		var jitter: float = (n - 0.5) * (width * 1.6)
+		var r: float = radius + jitter
+		points.append(center + Vector2(cos(angle), sin(angle)) * r)
+	canvas.draw_polyline(points, color, maxf(width * 0.4, 1.0), true)
+
+
+## Same wobble treatment for a full closed circle (e.g. NeedsGauge's blank
+## center, StatusEffectIcon's outer/inner edges). A tiny seam where the
+## loop closes (angle 0 meets angle TAU) is expected and fine — it reads as
+## part of the hand-inked imperfection, not a bug.
+static func draw_rugged_circle(canvas: CanvasItem, center: Vector2, radius: float,
+		color: Color, width: float, seed_offset: float = 0.0) -> void:
+	draw_rugged_arc(canvas, center, radius, 0.0, TAU, color, width, seed_offset)
+
+
+static func _rugged_hash(x: float) -> float:
+	var v: float = sin(x * 12.9898) * 43758.5453
+	return v - floor(v)

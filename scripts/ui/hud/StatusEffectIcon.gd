@@ -27,6 +27,9 @@ const THICKNESS: float = 4.0
 const BG_RING_COLOR: Color = Color(0.15, 0.15, 0.15, 0.85)
 const PANEL_COLOR:   Color = Color(0.10, 0.10, 0.10, 0.90)
 const ICON_SIZE: float = 22.0
+const PLACEHOLDER_COLOR: Color = Color(0.55, 0.55, 0.55, 0.90)   ## blank grey "no icon yet" fill
+const RUGGED_BORDER_COLOR: Color = Color(0.02, 0.02, 0.02, 0.55)
+const RUGGED_BORDER_WIDTH: float = 1.2
 
 var effect_id: String = ""
 var _icon: Texture2D = null
@@ -36,6 +39,9 @@ var _remaining: float = 1.0
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(RADIUS * 2.0 + 6.0, RADIUS * 2.0 + 6.0)
+	var grime_mat: ShaderMaterial = ShaderMaterial.new()
+	grime_mat.shader = load("res://assets/shaders/grunge_overlay.gdshader")
+	material = grime_mat
 
 ## Starts (or restarts) this badge showing `icon` (may be null — blank center)
 ## with a depletion ring in `ring_color`, counting down from `duration`
@@ -70,3 +76,8 @@ func _draw() -> void:
 		var half: float = ICON_SIZE * 0.5
 		var dst: Rect2 = Rect2(center - Vector2(half, half), Vector2(ICON_SIZE, ICON_SIZE))
 		draw_texture_rect(_icon, dst, false)
+	else:
+		## Blank grey placeholder — no real icon art exists yet (Jul 2026).
+		draw_circle(center, ICON_SIZE * 0.5, PLACEHOLDER_COLOR)
+	UIKit.draw_rugged_circle(self, center, RADIUS + THICKNESS * 0.5, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 700.0)
+	UIKit.draw_rugged_circle(self, center, RADIUS - THICKNESS * 0.5, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 850.0)

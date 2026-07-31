@@ -32,6 +32,9 @@ const ADMIN_POWER_STEP_WATTS: float = 1000.0
 const QUALITY_SCALE_DOWN: float = 0.5    ## "-50%" halves current quality
 const QUALITY_SCALE_UP:   float = 1.5    ## "+50%" raises current quality by half
 
+const TEST_EFFECT_DURATION: float = 10.0
+const TEST_EFFECT_COLOR: Color = Color(0.9, 0.6, 0.2, 1.0)   ## matches StatusEffectIcon's own default
+
 ## One entry per clickable row: [section-or-"" , label, callback]
 ## A "" section repeats the previous section's header (skipped).
 var _row_defs: Array = []
@@ -42,6 +45,7 @@ var _font:    Font    = null
 var _close_btn: Button = null
 var _row_buttons: Array[Button] = []
 var _is_open: bool = false
+var _test_effect_count: int = 0
 
 func _ready() -> void:
 	layer   = 128   ## On top of everything — same as AdminSpawnMenu
@@ -58,6 +62,7 @@ func _ready() -> void:
 		["TIME",  "Fast-Forward 1 Day", _on_fast_forward_pressed],
 		["WATER", "Hookup Quality -50%", _on_quality_down_pressed],
 		["",      "Hookup Quality +50%", _on_quality_up_pressed],
+		["STATUS", "Add Test Status Effect (10s)", _on_add_status_effect_pressed],
 	]
 
 	_canvas = Control.new()
@@ -241,6 +246,24 @@ func _get_player_stats() -> PlayerStats:
 func _get_water_manager() -> WaterManager:
 	return get_tree().get_first_node_in_group("water_manager") as WaterManager
 
+func _get_status_effects() -> StatusEffectsContainer:
+	var hud: Node = get_tree().get_first_node_in_group("hud")
+	if hud == null or not ("status_effects" in hud):
+		return null
+	return hud.get("status_effects") as StatusEffectsContainer
+
+## Adds one test status effect badge with no real icon (grey placeholder,
+## see StatusEffectIcon.gd), a 10-second timer, and the default orange ring
+## color. Each press gets a unique id so presses stack into separate
+## badges instead of restarting the same one.
+func _on_add_status_effect_pressed() -> void:
+	var se: StatusEffectsContainer = _get_status_effects()
+	if se == null:
+		return
+	_test_effect_count += 1
+	var id: String = "test_effect_%d" % _test_effect_count
+	se.add_effect(id, null, TEST_EFFECT_DURATION, TEST_EFFECT_COLOR)
+
 func _on_add_power_pressed() -> void:
 	var pm: PowerManager = _get_power_manager()
 	if pm != null:
@@ -295,3 +318,21 @@ func _on_quality_up_pressed() -> void:
 	var hookup: WaterHookup = wm.get_the_hookup()
 	if hookup != null:
 		hookup.water_quality = clampf(hookup.water_quality * QUALITY_SCALE_UP, 0.0, 100.0)
+
+func _get_status_effects() -> StatusEffectsContainer:
+	var hud: Node = get_tree().get_first_node_in_group("hud")
+	if hud == null or not ("status_effects" in hud):
+		return null
+	return hud.get("status_effects") as StatusEffectsContainer
+
+## Adds one test status effect badge with no real icon (grey placeholder,
+## see StatusEffectIcon.gd), a 10-second timer, and the default orange ring
+## color. Each press gets a unique id so presses stack into separate
+## badges instead of restarting the same one.
+func _on_add_status_effect_pressed() -> void:
+	var se: StatusEffectsContainer = _get_status_effects()
+	if se == null:
+		return
+	_test_effect_count += 1
+	var id: String = "test_effect_%d" % _test_effect_count
+	se.add_effect(id, null, TEST_EFFECT_DURATION, TEST_EFFECT_COLOR)

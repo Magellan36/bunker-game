@@ -1,27 +1,40 @@
-extends VBoxContainer
+extends Control
 class_name StatusEffectsContainer
 ## StatusEffectsContainer.gd
 ## ─────────────────────────────────────────────────────────────────────────────
-## Holds N active StatusEffectIcon badges, stacked vertically, positioned to
-## the right of NeedsGauge on the HUD (Jul 2026 skeleton pass — see
-## StatusEffectIcon.gd's own header). SKELETON ONLY: nothing calls
-## add_effect() anywhere in the codebase yet. A future plan wires real
-## gameplay effects (poison, cold, well-fed, etc.) into this by calling
-## add_effect() from wherever that effect is applied to the player.
+## Holds active StatusEffectIcon badges in a FIXED, hand-placed layout that
+## mirrors Brannon's Medieval Dynasty reference screenshot (a staggered
+## triangle, not a plain vertical list) — top badge is the OLDEST active
+## effect, and each newer effect takes the next slot down. No cap on how
+## many effects can be active (Jul 2026 call — "we'll see what happens past
+## 3 and go from there"); the 3 SLOT_OFFSETS below are hand-tuned to match
+## the reference image, and anything beyond slot index 2 falls back to
+## FALLBACK_SPACING straight down from slot 2 so it never crashes or
+## overlaps — it just won't match the reference stagger past 3 badges.
+##
+## No placeholder is drawn for empty slots (Brannon's explicit call) — an
+## empty slot is simply the absence of a child node there.
 ##
 ## Usage (future callers):
 ##     var hud: Node = get_tree().get_first_node_in_group("hud")
-##     hud.status_effects.add_effect("poisoned", poison_icon, 12.0, Color(0.85,0.3,0.2))
-##     hud.status_effects.remove_effect("poisoned")   # early removal, e.g. cured
+##     if hud != null and ("status_effects" in hud):
+##         var se: StatusEffectsContainer = hud.get("status_effects") as StatusEffectsContainer
+##         se.add_effect("poisoned", null, 12.0, Color(0.85, 0.3, 0.2))
+##         se.remove_effect("poisoned")   # early removal, e.g. cured
 
-var _badges: Dictionary = {}   ## effect_id (String) -> StatusEffectIcon
+const SLOT_OFFSETS: Array[Vector2] = [
+	Vector2(20.0, 0.0),     ## slot 0 — top (oldest)
+	Vector2(44.0, 56.0),    ## slot 1 — middle-right
+	Vector2(4.0, 112.0),    ## slot 2 — bottom-left
+]
+const FALLBACK_SPACING: float = 56.0   ## slot index 3+, straight down from slot 2
 
-func _ready() -> void:
-	add_theme_constant_override("separation", 8)
+var _order: Array[String] = []          ## effect ids, oldest first (index 0 = top)
+var _badges: Dictionary = {}            ## effect_id (String) -> StatusEffectIcon
 
-## Adds a new badge, or restarts an existing one with the same id (e.g.
-## re-applying a still-active effect refreshes its duration instead of
-## stacking a duplicate badge).
+## Adds a new badge at the bottom of the stack, or restarts an existing one
+## in place with the same id (re-applying a still-active effect refreshes
+## its duration instead of stacking a duplicate badge / changing its slot).
 func add_effect(id: String, icon: Texture2D, duration: float, ring_color: Color) -> void:
 	if _badges.has(id) and is_instance_valid(_badges[id]):
 		(_badges[id] as StatusEffectIcon).setup(id, icon, duration, ring_color)
@@ -31,16 +44,37 @@ func add_effect(id: String, icon: Texture2D, duration: float, ring_color: Color)
 	badge.expired.connect(_on_badge_expired)
 	badge.setup(id, icon, duration, ring_color)
 	_badges[id] = badge
+	_order.append(id)
+	_reflow()
 
-## Removes a badge early (e.g. the effect was cured before its timer ran out).
-## Safe to call with an id that isn't currently active (no-op).
+## Removes a badge early (e.g. the effect was cured before its timer ran
+## out). Safe to call with an id that isn't currently active (no-op).
 func remove_effect(id: String) -> void:
 	if not _badges.has(id):
 		return
 	var badge: StatusEffectIcon = _badges[id]
 	_badges.erase(id)
+	_order.erase(id)
 	if is_instance_valid(badge):
 		badge.queue_free()
+	_reflow()
 
 func _on_badge_expired(id: String) -> void:
 	remove_effect(id)
+
+## Repositions every active badge according to its current index in
+## `_order` (0 = oldest = top slot). Called after every add/remove so the
+## remaining badges always slide up into the earlier slots.
+func _reflow() -> void:
+	for i in range(_order.size()):
+		var badge: StatusEffectIcon = _badges[_order[i]]
+		if not is_instance_valid(badge):
+			continue
+		badge.position = _slot_position(i)
+
+func _slot_position(index: int) -> Vector2:
+	if index < SLOT_OFFSETS.size():
+		return SLOT_OFFSETS[index]
+	var last: Vector2 = SLOT_OFFSETS[SLOT_OFFSETS.size() - 1]
+	var extra: int = index - (SLOT_OFFSETS.size() - 1)
+	return Vector2(last.x, last.y + FALLBACK_SPACING * float(extra))
