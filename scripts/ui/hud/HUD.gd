@@ -6,10 +6,8 @@ extends CanvasLayer
 ## HUDRoot is a full-screen Control that wraps all HUD children.
 ## We fade this instead of the CanvasLayer (CanvasLayer has no modulate).
 @onready var _root: Control          = $HUDRoot
-@onready var bars: Control           = $HUDRoot/BottomLeft/Bars
-@onready var food_circle: Control    = $HUDRoot/LeftIcons/FoodCircle
-@onready var water_circle: Control   = $HUDRoot/LeftIcons/WaterCircle
-@onready var sleep_circle: Control   = $HUDRoot/LeftIcons/SleepCircle
+@onready var needs_gauge: NeedsGauge = $HUDRoot/NeedsGauge
+@onready var status_effects: StatusEffectsContainer = $HUDRoot/StatusEffects
 @onready var cash_label: Label       = $HUDRoot/TopRight/CashLabel
 @onready var clock_label: Label      = $HUDRoot/TopCenter/ClockPanel/ClockLabel
 @onready var day_label: Label        = $HUDRoot/TopCenter/DayLabel
@@ -65,25 +63,25 @@ func _process(delta: float) -> void:
 # ─── Public update API ────────────────────────────────────────────────────────
 func set_health(value: float) -> void:
 	_health_pct = value / 100.0
-	bars.set_health(_health_pct)
+	needs_gauge.set_health(_health_pct)
 	_update_critical()
 
 func set_stamina(value: float) -> void:
-	bars.set_stamina(value / 100.0)
+	needs_gauge.set_stamina(value / 100.0)
 
 func set_food(value: float) -> void:
 	_food_pct = value / 100.0
-	food_circle.set_fill(_food_pct)
+	needs_gauge.set_food(_food_pct)
 	_update_critical()
 
 func set_water(value: float) -> void:
 	_water_pct = value / 100.0
-	water_circle.set_fill(_water_pct)
+	needs_gauge.set_water(_water_pct)
 	_update_critical()
 
 func set_sleep(value: float) -> void:
 	_sleep_pct = value / 100.0
-	sleep_circle.set_fill(_sleep_pct)
+	needs_gauge.set_sleep(_sleep_pct)
 	_update_critical()
 
 func set_cash(amount: int) -> void:
