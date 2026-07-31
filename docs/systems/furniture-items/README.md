@@ -157,8 +157,12 @@ the power system â€” see `docs/systems/world-core/README.md` Persistence).
 - Farming System (Jul 2026) added 4 new pickup items â€” `BagOfSoilItem.gd`,
   `EmptyBagItem.gd`, `SeedItem.gd`, `FarmProduceItem.gd` â€” all following this
   same duck-typed contract with zero `InteractionSystem.gd` changes.
-  `FarmProduceItem.gd` deliberately does NOT copy `FoodCan.gd`'s multi-bite
+`FarmProduceItem.gd` deliberately does NOT copy `FoodCan.gd`'s multi-bite
   charge system (1-charge, fully consumed in one `on_use()`); it copies only
   `FoodCan`'s physics/pickup/drop/knockout scaffolding. See
   `docs/systems/farming/README.md`.
+
+**Also:** `TestCrate.gd` / `FuelCan.gd` — also go through `FarmingShopHelper.
+spawn_scene_settled()` (see `docs/systems/build/README.md`) for their Shop-purchase
+spawn; `continuous_cd = true` set on both `.tscn` files as tunneling insurance.
 

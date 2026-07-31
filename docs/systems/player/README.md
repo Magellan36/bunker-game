@@ -188,6 +188,24 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   no prompt (not `basket_storable`), E does nothing (matches original plan's
   intended behavior, now actually working).
 
+**Also fixed since (Jul 2026):**
+- **G/E to close BasketUI**: `BasketUI._unhandled_input()` only recognized
+  `"ui_cancel"` (Escape) and `"interact"` (E) as close triggers — G
+  (`"store_item"`) fell through to the `elif` branch and did nothing. Added
+  `"store_item"` alongside the other two. No `InteractionSystem.gd` changes
+  needed — it already returns immediately whenever
+  `_basket_ui_open()`/`_shelf_ui_open()` is true ("ShelfUI/BasketUI owns all
+  input while open"), so `BasketUI` was always the sole handler; it just
+  wasn't listening for G.
+- **Basket stays upright while held**: every other held item keeps whatever
+  tilt it had at pickup (`PickupableItem._physics_process()` only zeroes
+  `angular_velocity`, never corrects orientation — this is deliberate/correct
+  for those items). `Basket.gd` now overrides `_physics_process()`, calls
+  `super()` first so position-follow/knockout/grace-timer logic is untouched,
+  then forces `global_transform.basis = Basis.IDENTITY` (the basket's authored
+  resting orientation) every physics tick while `is_held`. Hard snap, not a
+  spring/lerp — no wobble.
+
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**
   `_held_from_slot == -1` means "picked up fresh from the world" — every

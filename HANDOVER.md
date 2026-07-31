@@ -112,31 +112,30 @@
 - `SHOP_ITEM_INFO`: added purchase/spawn entry for Basket ($100, kind=scene)
 - Reuses existing generic `_spawn_scene_item()` path (same as Crate/Water Case/etc.)
 
-### Basket Bug Fixes (Items 1-3 from plan_basket_fixes.md)
+### Basket Bug Fixes & Follow-Ups (Jul 2026, multi-round)
 
 **1. BasketUI type error fix**
-- **Bug**: `_refresh_slot()` treated basket slots as arrays (like Shelving's stacked slots), but Basket slots hold single items. Assigning a `RigidBody3D` to an `Array` variable threw "Trying to assign value of type 'Object' to a variable of type 'Array'."
-- **Fix**: `_refresh_slot()` now reads slot directly: `var item = _basket.slots[slot_idx] ... _set_slot(slot_idx, item, 1 if item != null else 0)`
+- **Bug**: `_refresh_slot()` treated basket slots as arrays (copied from ShelfUI's stacked-slot model), but Basket slots hold single items. Assigning a `RigidBody3D` to an `Array` var threw "Trying to assign value of type 'Object' to a variable of type 'Array'."
+- **Fix**: `_refresh_slot()` reads the slot directly: `var item = _basket.slots[slot_idx] ... _set_slot(slot_idx, item, 1 if item != null else 0)`
 
 **2. Floating prompts — basket & storable items**
-- **Root cause**: Architecture problem — InteractionSystem's `_update_prompt()` has two mutually-exclusive halves: CASE 1 (holding item, returns early) and CASE 2 (empty-handed). The "[E] Add to Basket" logic was in CASE 2 behind a `held_item != null` check that can never be true there (dead code).
-- **Fix (3 parts)**:
-  a) `Basket.get_interact_prompt()` added → shows "[G] Open Basket" while held (CASE 1 already calls this)
-  b) Moved "[E] Add to Basket" logic from CASE 2 into CASE 1 (uses `_tracked_bodies`), so it runs while holding basket
-  c) Removed dead basket-check code from CASE 2
+- **Root cause**: `InteractionSystem._update_prompt()` has two mutually-exclusive halves — CASE 1 (holding item, returns early) and CASE 2 (empty-handed). The "[E] Add to Basket" logic was in CASE 2 behind a `held_item != null` check that can never be true there (dead code).
+- **Fix (3 parts)**: `Basket.get_interact_prompt()` added ("[G] Open Basket" while held); "[E] Add to Basket" logic moved from CASE 2 into CASE 1 (uses `_tracked_bodies`); dead CASE 2 basket-check removed.
 - **Verification**: Pick up basket → "[G] Open Basket" appears. Walk near Water Bottle/Food Can/produce while holding basket → "[E] Add to Basket" appears over that item. Press E → item stashes. Fuel Can/Seed packets show no prompt (not `basket_storable`).
 
-**3. Spawn floor-through fix (AdminSpawnMenu + FarmingShopHelper)**
-- **Root cause**: Both used `call_deferred(_unfreeze_after_spawn)` to "freeze for one physics frame," but `call_deferred` fires before physics server registers the new body's collision shape. Items fall through floor → `MainWorld._check_abyss_items()` rescues them from ABYSS_Y = -8.0 back to ABYSS_RESCUE_Y = 1.5 at drifted XZ — seen as "vanishes, reappears a little ways away a couple seconds later."
-- **Fix**: Replace `call_deferred` with `await get_tree().physics_frame` ×2 in both:
-  - `AdminSpawnMenu._spawn_scene()`
-  - `FarmingShopHelper._spawn_scene_item()`
-- Two physics ticks guarantees collision registration before gravity takes over. Same fire-and-forget coroutine behavior (call sites unchanged).
-- **Note**: `BunkerPregen.gd` uses same pattern (lines ~331, ~372, ~378) — pre-placed items may have same bug but unreported since they spawn at boot.
+**3. Spawn flicker — Water Case / Can Case / Fuel Can / Crate / Basket (5 rounds to root-cause)**
+- **Symptom**: item visible for an instant on spawn, vanishes, reappears seconds later at a single fixed point `(0, 1.5, 5.5)` regardless of purchase location, items stacking on top of each other.
+- **Rounds 1–4 (superseded, kept here for history)**: `call_deferred` → `await physics_frame` ×2 (registration-timing theory) → raycast-to-floor (`intersect_ray()` called outside `_physics_process()`, silently failed — "space is locked") → `PhysicsServer3D.body_set_state()` forced-transform patch. None of these were the real cause.
+- **Real root cause (round 5)**: the freeze/kinematic dance itself was the bug. None of the provably-working `spawn_at()` helpers (`SeedItem`/`BagOfSoilItem`/`FertilizerItem`/`EmptyBagItem`) ever freeze — they just `add_child()` then set `global_position` once. The fixed rescue point is explained exactly by the bunker's real floor plan (`RockSurround.OFFSET_X/Z = -12.5/4.5`, `depth/width = 16/8`): an item stuck at world `(0,0,0)` gets its Z clamped by `MainWorld._check_abyss_items()`'s bounds-check to `5.5` (world Z=0 is outside the bunker's valid `[4.5, 12.5]` range) every single time — meaning the item was never actually near the player at all.
+- **Fix**: `FarmingShopHelper.spawn_scene_settled()` now matches the working pattern exactly — load scene, `add_child()`, set `global_position` once, done. No freeze, no raycast, no `physics_frame` waits. `continuous_cd = true` kept on all 5 `.tscn` files as tunneling insurance. `AdminSpawnMenu._spawn_scene()` calls this same shared function instead of keeping its own copy.
 
-### Verification
-- `tools/godot_check.sh` → **PASS**
-- Code compiles cleanly
+**4. G/E close BasketUI**
+- `BasketUI._unhandled_input()` only checked `"ui_cancel"`/`"interact"` (Escape/E) as close triggers; G (`"store_item"`) fell into the do-nothing `elif` branch. Added `"store_item"` alongside the other two.
+
+**5. Basket stays upright while held**
+- Every other held item keeps whatever tilt it had at pickup (intentional/correct for those). `Basket._physics_process()` now overrides the parent's follow logic (`super()` first, so position/knockout/grace-timer are untouched) and forces `global_transform.basis = Basis.IDENTITY` every tick while held — hard snap, not a spring.
+
+**Verification**: `tools/godot_check.sh` → PASS after each round. Manually confirmed: G/E/Escape all close BasketUI; basket stays vertical through movement/turning/collisions; Water Case/Can Case/Fuel Can/Crate/Basket all spawn cleanly from two different purchase locations with no flicker; admin-spawn path behaves identically to the real Shop purchase path.
 
 ---
 
@@ -215,6 +214,9 @@
 | `78591ed` | Fix GrowLight path |
 | `b78bd51` | Fix UIKit settings_controls_theme() syntax |
 | `54728d6` | DOF blur fix + preset overhaul |
+| `ff3a80e` | fix(spawn): remove freeze/raycast machinery, match working pattern exactly |
+| `483e052` | fix(spawn): consolidate into shared physics-safe raycast spawn |
+| `b99e31a` | fix(spawn): raycast-based floor placement + continuous_cd for flicker fix |
 
 ---
 

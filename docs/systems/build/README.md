@@ -42,16 +42,21 @@ stack, and the wire-draw tool's host controller.
 
 | `PlacementIndicator.gd` | ~35 | Small standalone cursor/placement indicator visual |
  
- ## Basket
- A 12-slot container item (`Basket.gd`, `scenes/world/Basket.tscn`) that can
- be purchased from the Construct → Furniture menu ($80) or spawned via Admin
- Menu (F10). Holds up to 12 individual food items (Water Bottle, Food Can,
- Farm Produce — all in `basket_storable` group). E-key stashes nearest
- `basket_storable` item, G-key opens `BasketUI` (12-slot grid with Drop/Add
- to inventory buttons). Can be placed on Shelving like a Crate (`shelf_stack_limit=1`,
- `shelf_item_type="basket"`). Contents travel with basket on pickup/drop/
- shelf-place (items are reparented as children, hidden/frozen). See
- `Basket.gd`, `BasketUI.gd`, `InteractionSystem.gd` for full logic.
+## Basket
+A 12-slot container item (`Basket.gd`, `scenes/world/Basket.tscn`) purchased
+from the Farming Shop's Miscellaneous category ($100, `FarmingShopHelper.
+SHOP_ITEM_INFO` item_id 20, kind `"scene"`) or spawned via Admin Menu (F10)
+for testing. Holds up to 12 individual food items (Water Bottle, Food Can,
+Farm Produce — all in `basket_storable` group). E-key stashes nearest
+`basket_storable` item, G-key opens `BasketUI` (12-slot grid with Drop/Add
+to inventory buttons; G, E, and Escape all close it). While held, the
+basket is locked upright (`Basket._physics_process()` snaps
+`global_transform.basis` to identity every tick) — unlike every other
+held item, which keeps whatever tilt it had at pickup. Can be placed on
+Shelving like a Crate (`shelf_stack_limit=1`, `shelf_item_type="basket"`).
+Contents travel with basket on pickup/drop/shelf-place (items are
+reparented as children, hidden/frozen). See `Basket.gd`, `BasketUI.gd`,
+`InteractionSystem.gd` for full logic.
  
  ## Non-responsibilities
 - **Does not own what a placed device DOES once live** — a placed generator/
@@ -122,6 +127,41 @@ All 5 helper slices (`BuildMaterials`/`BuildUndoStack`/`GhostPreview`/
 Almost every method on these 5 files is `_`-prefixed (private, called only by
 `BuildModeController` itself) — there is effectively no cross-file public API
 to document beyond `_init(owner)`.
+
+## Purchased-Prop Spawn Fix (Jul 2026, multi-round)
+**Root cause (real, round 5):** The freeze/kinematic dance (`freeze=true` +
+`FREEZE_MODE_KINEMATIC` + `await physics_frame` ×2) was the bug — not the
+fix. None of the provably-working `spawn_at()` helpers
+(`SeedItem`/`BagOfSoilItem`/`FertilizerItem`/`EmptyBagItem`) ever freeze;
+they just `add_child()` then set `global_position` once and let gravity take
+over. The kinematic freeze was silently interfering with the position write
+(the body's transform authority works differently while frozen), causing the
+spawned item to default to `(0,0,0)`, get rescued by `MainWorld.
+_check_abyss_items()` to the single fixed point `(0, 1.5, 5.5)` (the bunker's
+valid-Z clamp from `RockSurround.OFFSET_X/Z = -12.5/4.5` and `depth/width
+= 16/8`), and stack there — hence the "items teleport to a single point and
+pile up" symptom.
+
+**Rounds 1–4 (superseded):**
+1. `call_deferred("_unfreeze_after_spawn")` — fires before physics registers
+   the collision shape
+2. `await get_tree().physics_frame` ×2 — registration timing theory
+3. Raycast to floor (`intersect_ray()`) — called from UI thread, "space is
+   locked", silently returned empty → fell back to original spawn point
+4. `PhysicsServer3D.body_set_state()` forced transform — patched around the
+   freeze without removing it
+
+**Fix (round 5):** `FarmingShopHelper.spawn_scene_settled()` now matches the
+working pattern exactly — load scene, `add_child()`, set `global_position`
+once, return. No freeze, no raycast, no `physics_frame` waits.
+`continuous_cd = true` kept on all 5 `.tscn` files (`WaterCase`/`CanCase`/
+`FuelCan`/`TestCrate`/`Basket`) as tunneling insurance (larger/heavier than
+seed packets). `AdminSpawnMenu._spawn_scene()` delegates to this same shared
+function instead of keeping its own copy.
+
+**Verification:** Buy/admin-spawn Water Case, Can Case, Fuel Can, Crate,
+Basket from two different spots in the bunker — each falls from head height
+and lands where you're standing, no flicker, no teleport to `(0, 1.5, 5.5)`.
 
 ## Public API
 **`BuildModeController`** (`class_name BuildModeController`, extends
