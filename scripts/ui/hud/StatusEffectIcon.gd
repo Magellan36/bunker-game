@@ -33,7 +33,7 @@ const RUGGED_BORDER_WIDTH: float = 1.2
 
 var effect_id: String = ""
 var _icon: Texture2D = null
-var _ring_color: Color = Color(0.9, 0.6, 0.2, 1.0)
+var _ring_color: Color = Color(0.86, 0.57, 0.19, 1.0)   ## Jul 2026 — darkened 5%
 var _total_duration: float = 1.0
 var _remaining: float = 1.0
 

@@ -45,11 +45,11 @@ const RUGGED_BORDER_COLOR: Color = Color(0.02, 0.02, 0.02, 0.55)
 const RUGGED_BORDER_WIDTH: float = 1.4
 
 # ─── Colors (fill) ────────────────────────────────────────────────────────────
-const COLOR_HEALTH:  Color = Color(0.85, 0.18, 0.18, 1.0)   # red
-const COLOR_FOOD:    Color = Color(0.95, 0.55, 0.15, 1.0)   # orange
-const COLOR_STAMINA: Color = Color(0.30, 0.85, 0.25, 1.0)   # green
-const COLOR_WATER:   Color = Color(0.25, 0.55, 0.95, 1.0)   # blue
-const COLOR_SLEEP:   Color = Color(0.60, 0.35, 0.85, 1.0)   # purple
+const COLOR_HEALTH:  Color = Color(0.81, 0.17, 0.17, 1.0)   # red (Jul 2026 — darkened 5%)
+const COLOR_FOOD:    Color = Color(0.90, 0.52, 0.14, 1.0)   # orange (Jul 2026 — darkened 5%)
+const COLOR_STAMINA: Color = Color(0.29, 0.81, 0.24, 1.0)   # green (Jul 2026 — darkened 5%)
+const COLOR_WATER:   Color = Color(0.24, 0.52, 0.90, 1.0)   # blue (Jul 2026 — darkened 5%)
+const COLOR_SLEEP:   Color = Color(0.57, 0.33, 0.81, 1.0)   # purple (Jul 2026 — darkened 5%)
 
 # ─── State (0.0 - 1.0 fractions) ──────────────────────────────────────────────
 var _health:  float = 1.0

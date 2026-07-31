@@ -37,7 +37,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 |---|---|---|
 | `power/` | `PowerTerminalUI.gd` (~1010), `PowerPriorityUI.gd` (~495), `GeneratorInspectUI.gd` (~434) | Power device panels — see `docs/systems/power/README.md` for what they read/write |
 | `inventory/` | `InventoryHUD.gd` (~444 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475), `BasketUI.gd` (~470) | Slot HUD, inventory state, shelf storage panel, basket contents panel |
-| `hud/` | `HUD.gd` (~280), `StatusBars.gd` (~50), `InteractPrompt.gd` (~107 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text), `CircleFill.gd` (~80) | Always-on stat bars, interact prompt, radial fill widget |
+| `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (~107 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interact prompt |
 | `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~575), `AdminSpawnMenu.gd` (~215), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, dev spawn menu, sleep fade |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
@@ -63,6 +63,13 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
 - `HUD`: `set_health/stamina/food/water/sleep(value)`, `set_cash(amount)`,
   `set_clock(display)`, `set_day(day)`, `set_build_mode(enabled)`,
   `spawn_float_label(...)`, `show_cash_delta(...)`, `show_soft_warning(text)`.
+  Also exposes `needs_gauge: NeedsGauge` and `status_effects:
+  StatusEffectsContainer` as public properties (same pattern as
+  `inventory_hud`) — see "Needs Gauge Redesign (Jul 2026)" below.
+- `NeedsGauge`: `set_health/stamina/food/water/sleep(frac)` — all take a
+  0.0-1.0 fraction (HUD converts from the raw 0-100 values it receives).
+- `StatusEffectsContainer`: `add_effect(id, icon, duration, ring_color)`,
+  `remove_effect(id)`.
 - `PauseMenuUI`: `toggle()`, `open()`, `close()`, `is_open()`.
 - `GraphicsSettingsPanel`: `open()`, `close()`.
 - `AdminSpawnMenu`: `toggle()`.
@@ -77,7 +84,8 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
   `draw_backdrop(canvas, vp_size, alpha)`, `draw_panel(canvas, rect, theme, border_width)`,
   `draw_close_button(canvas, panel_rect, theme)`, `draw_bar(canvas, rect, fill_pct, theme, ...)`,
   `draw_header(canvas, pos, text, theme, ...)`, `draw_shadowed_text(canvas, pos, text, size, color)`,
-  `button_stylebox(theme, enabled, hover)`, `settings_controls_theme()`.
+  `button_stylebox(theme, enabled, hover)`, `settings_controls_theme()`,
+  `draw_rugged_arc(...)`, `draw_rugged_circle(...)`.
 
 ## Signals produced
 | File | Signal | Params |
@@ -192,7 +200,11 @@ their own palette consts + `_draw_str()`/backdrop/panel/bar boilerplate.
   `draw_close_button(canvas, panel_rect, theme)`, `draw_bar(canvas, rect,
   fill_pct, theme, ...)`, `draw_header(canvas, pos, text, theme, ...)`,
   `draw_shadowed_text(canvas, pos, text, size, color)`,
-  `button_stylebox(theme, enabled, hover)`.
+  `button_stylebox(theme, enabled, hover)`, `settings_controls_theme()`,
+  `draw_rugged_arc(canvas, center, radius, start_angle, end_angle, color,
+  width, seed_offset)`, `draw_rugged_circle(canvas, center, radius, color,
+  width, seed_offset)` (Jul 2026 — hand-inked wobble border helper, see
+  "Needs Gauge Redesign" below).
 - `draw_backdrop()`'s alpha is a caller-supplied param, deliberately NOT
   unified across callers (`WaterDispenserUI` used 0.60, `PowerTerminalUI`
   uses 0.65) — unifying it would be an unrequested visual change.
@@ -373,6 +385,102 @@ overhaul (Phase 5). Key changes:
 The panel uses `UIKit.settings_controls_theme()` for consistent CheckBox,
 OptionButton, and HSlider styling across all controls — no per-control
 styling code needed.
+
+## Needs Gauge Redesign (Jul 2026)
+Replaces the old rectangular health/stamina bars (`StatusBars.gd`, deleted)
+and the 3 separate food/water/sleep icon circles (`CircleFill.gd`, deleted)
+with one composite radial gauge, styled after a Medieval-Dynasty-style
+concentric ring reference, plus a status-effect badge skeleton. Three files
+now live in `scripts/ui/hud/`:
+
+- **`NeedsGauge.gd`** — 3 concentric rings, center-out:
+  - Ring 1 (innermost): Health (left, red) / Food (right, orange)
+  - Ring 2 (middle): Stamina (left, green) / Water (right, blue)
+  - Ring 3 (outermost): Sleep — **right half only** (Jul 2026 follow-up call;
+    originally mirrored both sides, trimmed after Brannon's review)
+  - Blank dark center circle, no icons anywhere on this gauge (explicit
+    design call — icons may return in a future pass).
+  - Each half-arc has a **V-shaped gap** at top and bottom (doesn't reach
+    true 12/6 o'clock) and is **bottom-anchored**: the tip nearest the
+    bottom gap is always fully drawn above 0%, and the arc grows UPWARD
+    toward the top gap as the stat fills toward 100% — the opposite of a
+    typical bottom-up fill bar. See the file's own header comment for the
+    exact angle math (`GAP_ANGLE_DEG`, `_draw_left_half`/`_draw_right_half`).
+  - `HUD.gd`'s public API (`set_health/stamina/food/water/sleep(value)`) is
+    unchanged — it now forwards to `needs_gauge.set_*(value / 100.0)`
+    instead of the old `bars`/`food_circle`/etc. child nodes. `MainWorld.gd`
+    required zero changes.
+  - Fill colors (Jul 2026, darkened 5% from initial pass) — `COLOR_HEALTH`
+    `(0.81,0.17,0.17)`, `COLOR_FOOD` `(0.90,0.52,0.14)`, `COLOR_STAMINA`
+    `(0.29,0.81,0.24)`, `COLOR_WATER` `(0.24,0.52,0.90)`, `COLOR_SLEEP`
+    `(0.57,0.33,0.81)`.
+
+- **`StatusEffectIcon.gd`** — single reusable badge: an icon (or a plain
+  grey placeholder circle if `icon` is `null` — no real icon art exists
+  yet) centered inside a ring that depletes clockwise as `_remaining`
+  ticks down via its own `_process()`. Emits `expired(effect_id)` when it
+  hits 0; the container is responsible for freeing it. **Skeleton only** —
+  nothing in gameplay calls `setup()` yet except the F7 admin test button
+  (below).
+
+- **`StatusEffectsContainer.gd`** — holds active badges in a **fixed,
+  hand-placed 3-slot stagger** (`SLOT_OFFSETS`, a `Control`, not an
+  auto-laying `VBoxContainer`) matching the reference image: top and bottom
+  slots share the same X (a straight column), middle slot sits 12.5px left
+  of that column (Jul 2026 fix — originally all 3 slots' X values didn't
+  line up correctly, corrected after pixel-measuring a screenshot). Oldest
+  effect always occupies slot 0 (top); `_reflow()` re-assigns every active
+  badge to its slot by current order-index after every add/remove, so
+  remaining badges slide up when one expires or is removed early. **No
+  cap** on simultaneous effects (explicit call — behavior past 3 is
+  untested/deferred) and **no placeholder for empty slots** (nothing drawn
+  until a badge actually occupies that position). Public API:
+  `add_effect(id, icon, duration, ring_color)` (re-calling with an existing
+  id restarts that badge in place rather than duplicating it),
+  `remove_effect(id)`.
+
+- **F7 Admin Menu test button (`AdminMenu.gd`):** a "STATUS" section with
+  an "Add Test Status Effect (10s)" row. Each press calls
+  `status_effects.add_effect()` with a unique incrementing id
+  (`test_effect_N`), `icon = null` (grey placeholder), a fixed 10-second
+  duration (`TEST_EFFECT_DURATION`), and the shared default ring color
+  (`TEST_EFFECT_COLOR`, darkened 5% to match the rest of the gauge). Looks
+  up the HUD via `get_tree().get_first_node_in_group("hud")` then its
+  public `status_effects` property, same pattern `NotificationManager`
+  already uses to find `inventory_hud`.
+
+- **Worn/rugged visual pass:** no grunge/scratch texture asset exists
+  anywhere in the project — this is entirely procedural, two shared
+  pieces:
+  1. `UIKit.draw_rugged_arc(canvas, center, radius, start_angle, end_angle,
+     color, width, seed_offset)` / `UIKit.draw_rugged_circle(...)` — draws
+     a hand-inked, slightly wobbly stroke instead of a perfectly smooth
+     `draw_arc`/`draw_circle` line. The wobble is a **fixed hash of each
+     point's angle** (not per-frame randomness) so it's identical every
+     redraw — no flicker, just reads as rough/hand-drawn. Applied to every
+     ring edge + the center circle in `NeedsGauge`, and both ring edges in
+     `StatusEffectIcon`.
+  2. `assets/shaders/grunge_overlay.gdshader` — a small `CanvasItem`
+     shader (`grit_strength`/`grit_scale` uniforms, defaults `0.14`/`26.0`)
+     that darkens random blotches across whatever the node draws (works on
+     `draw_arc`/`draw_circle`/`draw_texture_rect` alike, since it operates
+     on `COLOR` per-fragment, not on a sampled texture). Applied as a
+     `ShaderMaterial` on both `NeedsGauge` and `StatusEffectIcon` in their
+     `_ready()`. Deliberately kept subtle per Brannon's explicit call —
+     "worn metal," not visible static.
+
+- **Deleted:** `scripts/ui/hud/StatusBars.gd`, `StatusBars.gd.uid`,
+  `scripts/ui/hud/CircleFill.gd`, `CircleFill.gd.uid`. The 3 icon assets
+  they referenced (`steak.svg`, `water-drop.svg`, `night-sleep.svg`) were
+  deliberately NOT deleted — no longer referenced anywhere, kept on disk
+  for a possible future icon pass.
+
+- **Known past bug (fixed):** an early implementation pass duplicated the
+  `_get_status_effects()`/`_on_add_status_effect_pressed()` functions in
+  `AdminMenu.gd` (same block inserted twice, causing a "Function has the
+  same name as a previously declared function" parser error). Fixed by
+  removing the second copy — if you ever see this exact error again on a
+  future AdminMenu edit, check for a duplicated block first.
 
 ## BasketUI Panel (Jul 2026)
 `scripts/ui/inventory/BasketUI.gd` — 12-slot container contents panel opened via

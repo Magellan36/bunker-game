@@ -8,7 +8,9 @@ class_name StatusEffectsContainer
 ## effect, and each newer effect takes the next slot down. No cap on how
 ## many effects can be active (Jul 2026 call — "we'll see what happens past
 ## 3 and go from there"); the 3 SLOT_OFFSETS below are hand-tuned to match
-## the reference image, and anything beyond slot index 2 falls back to
+## the reference image (Jul 2026 fix: top/slot-0 and bottom/slot-2 share the
+## same X, forming a straight vertical column; the middle/slot-1 badge sits
+## 12.5px left of that column). Anything beyond slot index 2 falls back to
 ## FALLBACK_SPACING straight down from slot 2 so it never crashes or
 ## overlaps — it just won't match the reference stagger past 3 badges.
 ##
@@ -23,9 +25,12 @@ class_name StatusEffectsContainer
 ##         se.remove_effect("poisoned")   # early removal, e.g. cured
 
 const SLOT_OFFSETS: Array[Vector2] = [
-	Vector2(20.0, 0.0),     ## slot 0 — top (oldest)
-	Vector2(44.0, 56.0),    ## slot 1 — middle-right
-	Vector2(4.0, 112.0),    ## slot 2 — bottom-left
+	Vector2(20.0, 0.0),     ## slot 0 — top (oldest). X anchors the shared column.
+	Vector2(7.5, 56.0),     ## slot 1 — middle, shifted LEFT of the shared column
+	                         ##          by 25% of a badge's width (50 * 0.25 = 12.5,
+	                         ##          20.0 - 12.5 = 7.5). Jul 2026 fix.
+	Vector2(20.0, 112.0),   ## slot 2 — bottom. X now MATCHES slot 0 exactly
+	                         ##          (Jul 2026 fix — was 4.0, off by 16px).
 ]
 const FALLBACK_SPACING: float = 56.0   ## slot index 3+, straight down from slot 2
 

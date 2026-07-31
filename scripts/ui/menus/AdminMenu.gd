@@ -33,7 +33,7 @@ const QUALITY_SCALE_DOWN: float = 0.5    ## "-50%" halves current quality
 const QUALITY_SCALE_UP:   float = 1.5    ## "+50%" raises current quality by half
 
 const TEST_EFFECT_DURATION: float = 10.0
-const TEST_EFFECT_COLOR: Color = Color(0.9, 0.6, 0.2, 1.0)   ## matches StatusEffectIcon's own default
+const TEST_EFFECT_COLOR: Color = Color(0.86, 0.57, 0.19, 1.0)   ## matches StatusEffectIcon's own default (Jul 2026 — darkened 5%)
 
 ## One entry per clickable row: [section-or-"" , label, callback]
 ## A "" section repeats the previous section's header (skipped).
