@@ -195,4 +195,4 @@ func _spawn_tile(tile_id: int, pos: Vector3) -> void:
 	_wdbg("[AdminSpawn] Spawned tile %d at %s" % [tile_id, pos])
 
 func _spawn_scene(path: String, pos: Vector3) -> void:
-	FarmingShopHelper.spawn_scene_settled(world_node, world_node, path, pos)
+	FarmingShopHelper.spawn_scene_settled(world_node, path, pos)
