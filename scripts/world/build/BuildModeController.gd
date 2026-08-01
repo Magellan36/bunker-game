@@ -1111,7 +1111,7 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 	# ── Poster: script-based node, wall-mounted like the wall light ────────────
 	if tile_id == TILE_POSTER:
 		var poster_script: GDScript = load("res://scripts/world/furniture/Poster.gd")
-		var poster_node: Node3D = Node3D.new()
+		var poster_node: StaticBody3D = StaticBody3D.new()
 		if poster_script != null:
 			poster_node.set_script(poster_script)
 		poster_node.set_meta("tile_id", tile_id)

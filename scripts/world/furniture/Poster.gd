@@ -1,4 +1,4 @@
-extends Node3D
+extends StaticBody3D
 class_name Poster
 ## Poster.gd
 ## Basic wall-mounted poster — blank canvas with a visible frame border, the
@@ -6,16 +6,6 @@ class_name Poster
 ## texture/material in, keep the mount/snap logic). Wall-snapped like
 ## WallLight, but via the generic _snap_to_nearest_wall() helper rather than
 ## the light-specific one (see BuildModeController wiring below).
-##
-## COLLISION NOTE: unlike WallLight (a genuinely zero-collision Node3D),
-## Poster gets a thin flush-mounted collision box on layer 5 (player +
-## build-hover, same convention Shelving/Bed/Table use). This is
-## deliberate: BuildModeController._get_hovered_placed_body() (the function
-## the Deconstruct tool uses to find what's under the cursor) raycasts
-## against layer-3-only colliders — an object with zero collision can be
-## placed but not deconstructed via mouse hover. Because the poster sits
-## flush and is only 0.03m thick, this collision is imperceptible to player
-## movement in practice.
 
 const POSTER_WIDTH: float     = 0.90
 const POSTER_HEIGHT: float    = 1.30
@@ -40,7 +30,7 @@ func _ready() -> void:
 	_build_mesh()
 	if _is_preview_only:
 		return
-	collision_layer = 5   ## Player + build-hover raycast — see class comment
+	collision_layer = 5   ## Player + build-hover raycast
 	collision_mask  = 0
 
 func _build_mesh() -> void:
@@ -78,11 +68,12 @@ func _build_mesh() -> void:
 	add_child(canvas_mi)
 
 	if not _is_preview_only:
-		frame_mi.create_trimesh_collision()
-		for child in frame_mi.get_children():
-			if child is StaticBody3D:
-				(child as StaticBody3D).collision_layer = 5
-				(child as StaticBody3D).collision_mask  = 0
+		## Direct CollisionShape3D on the StaticBody3D root — no trimesh workaround needed.
+		var collision: CollisionShape3D = CollisionShape3D.new()
+		var box_shape: BoxShape3D = BoxShape3D.new()
+		box_shape.size = Vector3(POSTER_WIDTH, POSTER_HEIGHT, POSTER_THICKNESS)
+		collision.shape = box_shape
+		add_child(collision)
 
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
