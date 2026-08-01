@@ -50,7 +50,7 @@ const OK_COLOR:       Color = Color(0.35, 0.85, 1.00, 1.00)
 const SHED_COLOR:     Color = Color(1.00, 0.55, 0.10, 1.00)   ## orange = shed (unchanged, functional not identity)
 const OFF_COLOR:      Color = Color(0.55, 0.55, 0.55, 1.00)   ## grey = switched off (unchanged, functional not identity)
 const ACCENT_TOGGLE:  Color = Color(0.30, 0.68, 1.00, 1.00)   ## unchanged, functional not identity
-const ACCENT_COLOR:   Color = Color(0.38, 0.85, 0.40, 1.00)   ## Jul 2026 — green, this panel's top-stripe color
+const ACCENT_COLOR:   Color = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
 
 ## Priority tier accent colours — green (safe/critical) → red (luxury/shed first).
 const PRIO_COLORS: Array[Color] = [
@@ -300,7 +300,7 @@ func _reposition_controls() -> void:
 		_toggle_btn.position = Vector2(px + 20.0, ty - 4.0)
 		_toggle_btn.size     = Vector2(PANEL_W - 40.0, 50.0)
 
-	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 10.0)
+	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 16.0)   ## Jul 2026 — +6px top-padding pass, must match the drawn X above
 	_close_btn.size     = Vector2(30.0, 30.0)
 
 func _style_arrow_btn(btn: Button, enabled: bool) -> void:
@@ -335,21 +335,19 @@ func _on_draw() -> void:
 
 	## Panel
 	var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
-	_canvas.draw_rect(panel, BG_COLOR, true)
-	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
+	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 2.0)
 	UIKit.draw_domain_stripe(_canvas, panel, ACCENT_COLOR)
 
 	## Close button ×
-	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
-	_canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
-	_canvas.draw_rect(close_rect, CRIT_COLOR, false, 1.5)
+	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
+	UIKit.draw_rounded_rect(_canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), CRIT_COLOR, 1.5)
 	var cp: Vector2 = close_rect.position
 	var cs: Vector2 = close_rect.size
 	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
 	_canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
 
 	var cx: float = px + 24.0
-	var cy: float = py + 20.0
+	var cy: float = py + 26.0   ## Jul 2026 — +6px top-padding pass
 
 	# ── Header ─────────────────────────────────────────────────────────────────
 	_draw_str(_display_name.to_upper(), Vector2(cx, cy), HEADER_COLOR, 16)

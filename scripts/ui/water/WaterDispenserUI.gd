@@ -284,7 +284,7 @@ func _reposition_controls() -> void:
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - PANEL_H) * 0.5
 
-	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 10.0)
+	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 16.0)   ## Jul 2026 — +6px top-padding pass, must match UIKit.draw_close_button()
 	_close_btn.size     = Vector2(30.0, 30.0)
 
 	## Rate slider — dynamic max reacts live to any other device's priority/
@@ -357,7 +357,7 @@ func _on_draw() -> void:
 	UIKit.draw_close_button(_canvas, panel, _theme)
 
 	var cx: float = px + 24.0
-	var cy: float = py + 20.0
+	var cy: float = py + 26.0   ## Jul 2026 — +6px top-padding pass
 
 	# ── Header ────────────────────────────────────────────────────────────────
 	_draw_str("WATER DISPENSER", Vector2(cx, cy), _theme.header, 16)

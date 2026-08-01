@@ -113,7 +113,7 @@ func _build_ui() -> void:
 	var panel_style: StyleBoxFlat = _panel.get_theme_stylebox("panel") as StyleBoxFlat
 	panel_style.content_margin_left   = 20.0
 	panel_style.content_margin_right  = 20.0
-	panel_style.content_margin_top    = 18.0
+	panel_style.content_margin_top    = 24.0   ## Jul 2026 — +6px top-padding pass, was 18.0
 	panel_style.content_margin_bottom = 18.0
 	add_child(_panel)
 

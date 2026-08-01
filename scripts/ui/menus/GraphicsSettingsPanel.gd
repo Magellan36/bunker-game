@@ -144,7 +144,7 @@ func _build_ui() -> void:
 	_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_vbox.offset_left = 16
 	_vbox.offset_right = 16
-	_vbox.offset_top = 16
+	_vbox.offset_top = 22   ## Jul 2026 — +6px top-padding pass, was 16
 	_vbox.offset_bottom = 16
 	_scroll.add_child(_vbox)
 

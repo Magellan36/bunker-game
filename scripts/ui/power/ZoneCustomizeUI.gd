@@ -43,7 +43,7 @@ const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
 const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
 const TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
 const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
-const ACCENT_COLOR: Color = Color(0.38, 0.85, 0.40, 1.00)   ## Jul 2026 — green, this panel's top-stripe color
+const ACCENT_COLOR: Color = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
 
 const PANEL_W:      float = 300.0
 const SWATCH_SIZE:  float = 44.0
@@ -84,14 +84,14 @@ func _build_ui() -> void:
 	style.bg_color     = BG_COLOR
 	style.border_color = BORDER_COLOR
 	style.set_border_width_all(2)
-	style.set_corner_radius_all(3)
+	style.set_corner_radius_all(int(UIKit.CORNER_RADIUS))   ## Jul 2026 — was 3, now matches every other panel's radius exactly
 	_panel.add_theme_stylebox_override("panel", style)
 	add_child(_panel)
 	_panel.add_child(UIKit.add_domain_stripe(PANEL_W, ACCENT_COLOR))
 
 	_vbox = VBoxContainer.new()
 	_vbox.add_theme_constant_override("separation", 12)
-	_vbox.position = Vector2(16.0, 16.0)
+	_vbox.position = Vector2(16.0, 22.0)   ## Jul 2026 — +6px top-padding pass (Y only, matches every other panel)
 	_vbox.custom_minimum_size = Vector2(PANEL_W - 32.0, 0.0)
 	_panel.add_child(_vbox)
 

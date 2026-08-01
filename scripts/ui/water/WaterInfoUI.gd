@@ -195,7 +195,7 @@ func _reposition_controls() -> void:
 	var ph: float   = _panel_height()
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - ph) * 0.5
-	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 10.0)
+	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 16.0)   ## Jul 2026 — +6px top-padding pass, must match the drawn X above
 	_close_btn.size     = Vector2(30.0, 30.0)
 
 	if _mode == "sink":
@@ -319,21 +319,19 @@ func _on_draw() -> void:
 	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
 
 	var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
-	_canvas.draw_rect(panel, BG_COLOR, true)
-	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
+	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 2.0)
 	UIKit.draw_domain_stripe(_canvas, panel, ACCENT_COLOR)
 
 	## Close button ×
-	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
-	_canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
-	_canvas.draw_rect(close_rect, CRIT_COLOR, false, 1.5)
+	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
+	UIKit.draw_rounded_rect(_canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), CRIT_COLOR, 1.5)
 	var cp: Vector2 = close_rect.position
 	var cs: Vector2 = close_rect.size
 	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
 	_canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
 
 	var cx: float = px + 24.0
-	var cy: float = py + 20.0
+	var cy: float = py + 26.0   ## Jul 2026 — +6px top-padding pass
 
 	# ── Header ────────────────────────────────────────────────────────────────
 	_draw_str(_display_name.to_upper(), Vector2(cx, cy), HEADER_COLOR, 16)

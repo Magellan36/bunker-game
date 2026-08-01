@@ -30,7 +30,7 @@ extends CanvasLayer
 
 signal closed
 
-var _theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.NEUTRAL)
+var _theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.FARMING)   ## Jul 2026 — joined the unified panel system, green stripe
 
 ## Same universal green→red priority legend as WaterDispenserUI.gd/PowerPriorityUI.gd.
 const PRIO_COLORS: Array[Color] = [
@@ -210,7 +210,7 @@ func _reposition_controls() -> void:
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - _current_panel_h) * 0.5
 
-	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 10.0)
+	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 16.0)   ## Jul 2026 — +6px top-padding pass, must match UIKit.draw_close_button()
 	_close_btn.size     = Vector2(30.0, 30.0)
 
 	var arrow_y: float = _arrow_row_y if _arrow_row_y > 0.0 else (py + _current_panel_h - PRIORITY_BLOCK_H + 40.0)
@@ -250,10 +250,11 @@ func _on_draw() -> void:
 	UIKit.draw_backdrop(_canvas, vp, 0.60)
 	var panel: Rect2 = Rect2(px, py, PANEL_W, _current_panel_h)
 	UIKit.draw_panel(_canvas, panel, _theme)
+	UIKit.draw_domain_stripe(_canvas, panel, _theme.accent)
 	UIKit.draw_close_button(_canvas, panel, _theme)
 
 	var cx: float = px + 24.0
-	var cy: float = py + 20.0
+	var cy: float = py + 26.0   ## Jul 2026 — +6px top-padding pass
 
 	var tray_name: String = "TRAY (SINGLE)" if t.cell_count == 1 else "TRAY (DOUBLE)"
 	UIKit.draw_header(_canvas, Vector2(cx, cy), tray_name, _theme, PANEL_W - 48.0, 16)

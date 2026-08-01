@@ -28,7 +28,13 @@ extends RefCounted
 ##     UIKit.draw_panel(_canvas, panel_rect, theme)
 ##     var close_rect: Rect2 = UIKit.draw_close_button(_canvas, panel_rect, theme)
 
-enum Domain { WATER, POWER, NEUTRAL }
+enum Domain { WATER, POWER, NEUTRAL, FARMING }
+
+## Shared corner radius for every panel in the project (Jul 2026 "rounded
+## corners" pass) — Pause/GraphicsSettings already used 4 via
+## build_centered_panel(); every hand-drawn panel now matches via
+## draw_rounded_rect() below instead of plain square-cornered draw_rect().
+const CORNER_RADIUS: float = 4.0
 
 ## Plain data holder for one domain's palette. Not a Resource/Node — just a
 ## bag of Colors passed around by value at draw time.
@@ -65,6 +71,8 @@ static func theme_for(domain: Domain) -> UITheme:
 			return _water_theme()
 		Domain.POWER:
 			return _power_theme()
+		Domain.FARMING:
+			return _farming_theme()
 		_:
 			return _neutral_theme()
 
@@ -106,7 +114,7 @@ static func _power_theme() -> UITheme:
 	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
 	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
 	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
-	t.accent = Color(0.38, 0.85, 0.40, 1.00)   ## green — power's stripe color
+	t.accent = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), power's stripe color
 	return t
 
 
@@ -132,6 +140,24 @@ static func _neutral_theme() -> UITheme:
 	return t
 
 
+## Jul 2026 — new domain for FarmingTrayUI (1x1 and 2x1 trays, one file
+## handles both sizes). Same shared bg/border/header/text/dim/ok/warn/crit
+## as every other domain; only `accent` (the stripe color) is unique —
+## reusing the green POWER used before this pass moved to yellow.
+static func _farming_theme() -> UITheme:
+	var t: UITheme = UITheme.new()
+	t.bg     = Color(0.08, 0.08, 0.09, 0.97)
+	t.border = Color(0.55, 0.58, 0.62, 0.70)
+	t.header = Color(0.80, 0.82, 0.86, 1.00)
+	t.text   = Color(0.85, 0.86, 0.88, 0.95)
+	t.dim    = Color(0.50, 0.52, 0.55, 0.80)
+	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
+	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
+	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
+	t.accent = Color(0.38, 0.85, 0.40, 1.00)   ## green — farming's stripe color
+	return t
+
+
 # ─── Drawing primitives ──────────────────────────────────────────────────────
 ## Full-viewport dim backdrop behind a modal panel. `alpha` defaults to the
 ## value `WaterDispenserUI`/`WaterInfoUI` already use (0.60) — pass the
@@ -142,25 +168,46 @@ static func draw_backdrop(canvas: CanvasItem, vp_size: Vector2, alpha: float = 0
 	canvas.draw_rect(Rect2(Vector2.ZERO, vp_size), Color(0.0, 0.0, 0.0, alpha), true)
 
 
+## Rounded background+border rect (Jul 2026 "rounded corners" pass) — the
+## shared low-level primitive every hand-drawn panel now uses instead of a
+## plain square-cornered `draw_rect()` pair. Godot's CanvasItem has no
+## built-in rounded-rect draw call, so this builds a throwaway StyleBoxFlat
+## and calls its own `.draw()` directly against the canvas — a standard
+## Godot trick for getting StyleBox rendering inside immediate-mode `_draw()`.
+static func draw_rounded_rect(canvas: CanvasItem, rect: Rect2, bg_color: Color,
+		border_color: Color, border_width: float = 2.0, corner_radius: float = CORNER_RADIUS) -> void:
+	var sb: StyleBoxFlat = StyleBoxFlat.new()
+	sb.bg_color = bg_color
+	sb.border_color = border_color
+	sb.set_border_width_all(int(round(border_width)))
+	sb.set_corner_radius_all(int(round(corner_radius)))
+	sb.draw(canvas.get_canvas_item(), rect)
+
+
 ## Panel background + border. Caller owns computing `rect` (this project's
 ## panels are all screen-centered via `(vp - PANEL_SIZE) * 0.5`, left to the
 ## caller since PANEL_W/PANEL_H differ per file).
 static func draw_panel(canvas: CanvasItem, rect: Rect2, theme: UITheme, border_width: float = 2.0) -> void:
-	canvas.draw_rect(rect, theme.bg, true)
-	canvas.draw_rect(rect, theme.border, false, border_width)
+	draw_rounded_rect(canvas, rect, theme.bg, theme.border, border_width)
 
 
 ## Draws the standard × close button at a panel's top-right corner and
 ## returns its hit-rect (same rect the caller should position its real
 ## `Button` node over, and/or hit-test manually) — mirrors
 ## `WaterDispenserUI.gd`'s current close-button drawing verbatim.
+##
+## Jul 2026 "top padding" pass: the Y offset moved from 10.0 to 16.0 (a
+## uniform +6px applied identically to every panel's top row — title/name
+## text, this close button, and PowerTerminalUI's "LOAD" readout — see the
+## per-file edits in the same plan for the ones that don't route through
+## this shared function). Jul 2026 "rounded corners" pass: now uses
+## draw_rounded_rect() instead of a plain square draw_rect().
 static func draw_close_button(canvas: CanvasItem, panel_rect: Rect2, theme: UITheme) -> Rect2:
 	var close_rect: Rect2 = Rect2(
 		panel_rect.position.x + panel_rect.size.x - 40.0,
-		panel_rect.position.y + 10.0,
+		panel_rect.position.y + 16.0,
 		30.0, 30.0)
-	canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
-	canvas.draw_rect(close_rect, theme.crit, false, 1.5)
+	draw_rounded_rect(canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), theme.crit, 1.5)
 	var cp: Vector2 = close_rect.position
 	var cs: Vector2 = close_rect.size
 	var x_col: Color = Color(1.0, 0.7, 0.7, 1.0)

@@ -27,7 +27,7 @@ const WARN_COLOR:   Color = Color(1.0,  0.72, 0.10, 1.0)
 const CRIT_COLOR:   Color = Color(1.0,  0.35, 0.30, 1.0)
 const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.0)
 const ACCENT_BACKUP: Color = Color(0.30, 0.68, 1.00, 1.0)  ## Blue — backup generator rows (unchanged, functional not identity)
-const ACCENT_COLOR: Color = Color(0.38, 0.85, 0.40, 1.0)   ## Jul 2026 — green, this panel's top-stripe color
+const ACCENT_COLOR: Color = Color(0.90, 0.80, 0.20, 1.0)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
 
 const FONT_SIZE_H:  int = 14
 const FONT_SIZE_N:  int = 11
@@ -117,7 +117,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var vp: Vector2 = get_viewport().get_visible_rect().size
 		var px: float   = (vp.x - PANEL_W) * 0.5
 		var py: float   = (vp.y - PANEL_H) * 0.5
-		var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
+		var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
 		if close_rect.has_point(mpos):
 			close()
 			get_viewport().set_input_as_handled()
@@ -193,8 +193,7 @@ func _on_draw() -> void:
 
 	# Panel background
 	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
-	_canvas.draw_rect(panel, BG_COLOR, true)
-	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
+	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 2.0)
 	UIKit.draw_domain_stripe(_canvas, panel, ACCENT_COLOR)
 
 	var pm: PowerManager = _get_pm()
@@ -301,16 +300,15 @@ func _on_draw() -> void:
 		snap["total_capacity_watts"] = filtered_cap
 
 	# ── Close button ──────────────────────────────────────────────────────────
-	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
-	_canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
-	_canvas.draw_rect(close_rect, CRIT_COLOR, false, 1.5)
+	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
+	UIKit.draw_rounded_rect(_canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), CRIT_COLOR, 1.5)
 	var cp: Vector2 = close_rect.position
 	var cs: Vector2 = close_rect.size
 	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
 	_canvas.draw_line(cp + Vector2(cs.x-6, 6), cp + Vector2(6, cs.y-6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
 
 	# ── Title + grid state ────────────────────────────────────────────────────
-	var title_y: float = py + 24.0
+	var title_y: float = py + 30.0   ## Jul 2026 — +6px top-padding pass (also shifts the "LOAD" readout, same row)
 	_draw_string_at("⚡ POWER TERMINAL", Vector2(px + SECTION_PAD, title_y), HEADER_COLOR, FONT_SIZE_H)
 
 	## "STATE: ONLINE" removed per user feedback — confusing since it read as
