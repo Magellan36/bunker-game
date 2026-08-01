@@ -2773,8 +2773,8 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_TABLE_MEDIUM: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TRAY_DOUBLE/TILE_BED
 		TILE_CHAIR:        return Vector2(0.30, 0.30)  ## 1×1 cell, smaller physical footprint than a table
 		TILE_STOVE:        return Vector2(0.42, 0.42)  ## 1×1, same class as TILE_TRAY_SINGLE
-	## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
-	_:             return Vector2(0.40, 0.40)  ## generic fallback
+		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
+		_:             return Vector2(0.40, 0.40)  ## generic fallback
 
 
 func _is_position_occupied(pos: Vector3, tile_id: int = -1) -> bool:
