@@ -157,64 +157,6 @@ func serve_dish() -> Dictionary:
 	return result
 
 # ─── Slot helpers ─────────────────────────────────────────────────────────────
-
-	var should_progress: bool = _host_stove != null \
-		and _host_stove.has_method("is_cooking") \
-		and _host_stove.is_cooking() \
-		and count_filled() > 0
-
-	if should_progress:
-		_cook_progress += delta
-		if _cook_progress >= cook_time_required():
-			_finish_cooking()
-	elif _cook_progress > 0.0:
-		_cook_progress = max(0.0, _cook_progress - COOK_DECAY_RATE * delta)
-
-## Recomputed live from CURRENT contents — adding a 2nd/3rd item mid-cook
-## extends the target instead of locking it in at the start of cooking.
-func cook_time_required() -> float:
-	var n: int = count_filled()
-	if n <= 0:
-		return COOK_TIME_BASE
-	return COOK_TIME_BASE + COOK_TIME_PER_EXTRA_ITEM * float(n - 1)
-
-func _finish_cooking() -> void:
-	var totals: Dictionary = compute_dish_totals()
-	_dish_value     = totals["total"]
-	_dish_bonus_pct = totals["bonus_pct"]
-	for i: int in CAPACITY:
-		var entry = slots[i]
-		if entry != null:
-			var node: Node = entry["node"]
-			if is_instance_valid(node):
-				node.queue_free()   ## consumed into the dish — no longer a separate item
-			slots[i] = null
-	_cook_progress = 0.0
-	_is_cooked = true
-
-func is_dish_ready() -> bool:
-	return _is_cooked
-
-## 0.0–1.0, for anything that wants a progress bar in a future pass.
-func cook_progress_fraction() -> float:
-	var required: float = cook_time_required()
-	if required <= 0.0:
-		return 0.0
-	return clamp(_cook_progress / required, 0.0, 1.0)
-
-## Called by InteractionSystem._try_take_dish() (Part G5). Clears the
-## cooked state and hands back the values needed to spawn a DishItem.
-## Returns {} if there's nothing ready.
-func serve_dish() -> Dictionary:
-	if not _is_cooked:
-		return {}
-	var result: Dictionary = {"value": _dish_value, "bonus_pct": _dish_bonus_pct}
-	_is_cooked      = false
-	_dish_value     = 0.0
-	_dish_bonus_pct = 0.0
-	return result
-
-# ─── Slot helpers ─────────────────────────────────────────────────────────────
 func _first_empty_slot() -> int:
 	for i: int in CAPACITY:
 		if slots[i] == null:
