@@ -41,6 +41,9 @@ class UITheme:
 	var ok:     Color
 	var warn:   Color
 	var crit:   Color
+	var accent: Color   ## Jul 2026 — domain identity color, used ONLY for the
+	                     ## top stripe now that bg/border/etc. are shared
+	                     ## across all domains (see draw_domain_stripe below).
 
 
 # ─── Shared font (Jul 2026: replaces ~20 independent load() calls of the
@@ -70,29 +73,40 @@ static func theme_for(domain: Domain) -> UITheme:
 ## OK_COLOR is blue, meaning "on target" for the receiving rate — same role
 ## `ok` plays here).
 static func _water_theme() -> UITheme:
+	## Jul 2026 — bg/border/header/text/dim/ok/warn/crit now identical to
+	## POWER and NEUTRAL (Brannon's explicit call: "same UI... otherwise
+	## exact same"). Only `accent` (used for the top stripe) still differs
+	## by domain. The values below are literally NEUTRAL's, copied so this
+	## function has no cross-function dependency.
 	var t: UITheme = UITheme.new()
-	t.bg     = Color(0.06, 0.08, 0.10, 0.97)
-	t.border = Color(0.35, 0.70, 0.95, 0.80)
-	t.header = Color(0.40, 0.75, 1.00, 1.00)
-	t.text   = Color(0.85, 0.92, 0.97, 0.95)
-	t.dim    = Color(0.50, 0.58, 0.62, 0.80)
+	t.bg     = Color(0.08, 0.08, 0.09, 0.97)
+	t.border = Color(0.55, 0.58, 0.62, 0.70)
+	t.header = Color(0.80, 0.82, 0.86, 1.00)
+	t.text   = Color(0.85, 0.86, 0.88, 0.95)
+	t.dim    = Color(0.50, 0.52, 0.55, 0.80)
 	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
 	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
 	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
+	t.accent = Color(0.40, 0.75, 1.00, 1.00)   ## blue — water's stripe color
 	return t
 
 
 ## Copied verbatim from PowerTerminalUI.gd's BG_COLOR..OK_COLOR.
 static func _power_theme() -> UITheme:
+	## Jul 2026 — bg/border/header/text/dim/ok/warn/crit now identical to
+	## WATER and NEUTRAL (Brannon's explicit call: "same UI... otherwise
+	## exact same"). Only `accent` (used for the top stripe) still differs
+	## by domain.
 	var t: UITheme = UITheme.new()
-	t.bg     = Color(0.04, 0.07, 0.04, 0.97)
-	t.border = Color(0.28, 0.85, 0.32, 0.80)
-	t.header = Color(0.22, 0.75, 0.28, 1.00)
-	t.text   = Color(0.80, 0.95, 0.82, 0.95)
-	t.dim    = Color(0.45, 0.55, 0.45, 0.85)
-	t.ok     = Color(0.30, 1.00, 0.45, 1.00)
+	t.bg     = Color(0.08, 0.08, 0.09, 0.97)
+	t.border = Color(0.55, 0.58, 0.62, 0.70)
+	t.header = Color(0.80, 0.82, 0.86, 1.00)
+	t.text   = Color(0.85, 0.86, 0.88, 0.95)
+	t.dim    = Color(0.50, 0.52, 0.55, 0.80)
+	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
 	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
-	t.crit   = Color(1.00, 0.25, 0.18, 1.00)
+	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
+	t.accent = Color(0.38, 0.85, 0.40, 1.00)   ## green — power's stripe color
 	return t
 
 
@@ -112,6 +126,9 @@ static func _neutral_theme() -> UITheme:
 	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
 	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
 	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
+	t.accent = t.header   ## unused in practice — NEUTRAL panels (Pause/
+	                       ## Settings) don't get a domain stripe — set for
+	                       ## completeness so nothing reads a null Color.
 	return t
 
 
@@ -285,6 +302,39 @@ static func draw_rugged_circle(canvas: CanvasItem, center: Vector2, radius: floa
 static func _rugged_hash(x: float) -> float:
 	var v: float = sin(x * 12.9898) * 43758.5453
 	return v - floor(v)
+
+
+## ─── Domain identity stripe (Jul 2026 "power + water unification" pass) ────
+## A thin colored bar across the top of a panel, inset from the true top
+## edge by `gap` — the ONLY visual difference left between domains once a
+## panel is on the shared palette (see _water_theme/_power_theme above).
+
+## For hand-drawn immediate-mode panels (PowerTerminalUI, PowerPriorityUI,
+## GeneratorInspectUI, WaterInfoUI, WaterDispenserUI) — call this right
+## after drawing the panel's background+border, passing the same
+## `panel_rect` used for those.
+static func draw_domain_stripe(canvas: CanvasItem, panel_rect: Rect2, accent: Color,
+		gap: float = 6.0, height: float = 4.0) -> void:
+	var stripe_rect: Rect2 = Rect2(
+		panel_rect.position.x,
+		panel_rect.position.y + gap,
+		panel_rect.size.x,
+		height)
+	canvas.draw_rect(stripe_rect, accent, true)
+
+
+## For real Control-node panels (ZoneCustomizeUI) — builds and returns a
+## ColorRect the caller adds as a child of the Panel, positioned relative
+## to the panel's own top-left corner (NOT the screen), so it moves with
+## the panel automatically.
+static func add_domain_stripe(panel_width: float, accent: Color,
+		gap: float = 6.0, height: float = 4.0) -> ColorRect:
+	var stripe: ColorRect = ColorRect.new()
+	stripe.color = accent
+	stripe.position = Vector2(0.0, gap)
+	stripe.size = Vector2(panel_width, height)
+	stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return stripe
 
 
 ## ─── Real Control-node menu builders (Jul 2026 "unify every menu" pass) ────

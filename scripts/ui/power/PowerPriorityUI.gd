@@ -39,17 +39,18 @@ signal priority_changed(id: String, value: int)
 signal load_toggled(id: String, on: bool)
 
 # ─── Palette (matches bunker military/brutalist theme) ────────────────────────
-const BG_COLOR:       Color = Color(0.07, 0.08, 0.07, 0.97)
-const BORDER_COLOR:   Color = Color(0.38, 0.85, 0.40, 0.80)
-const HEADER_COLOR:   Color = Color(0.32, 0.90, 0.38, 1.00)
-const TEXT_COLOR:     Color = Color(0.82, 0.95, 0.84, 0.95)
-const DIM_COLOR:      Color = Color(0.45, 0.55, 0.46, 0.80)
+const BG_COLOR:       Color = Color(0.08, 0.08, 0.09, 0.97)
+const BORDER_COLOR:   Color = Color(0.55, 0.58, 0.62, 0.70)
+const HEADER_COLOR:   Color = Color(0.80, 0.82, 0.86, 1.00)
+const TEXT_COLOR:     Color = Color(0.85, 0.86, 0.88, 0.95)
+const DIM_COLOR:      Color = Color(0.50, 0.52, 0.55, 0.80)
 const WARN_COLOR:     Color = Color(1.00, 0.72, 0.10, 1.00)
-const CRIT_COLOR:     Color = Color(1.00, 0.28, 0.18, 1.00)
-const OK_COLOR:       Color = Color(0.30, 1.00, 0.46, 1.00)
-const SHED_COLOR:     Color = Color(1.00, 0.55, 0.10, 1.00)   ## orange = shed
-const OFF_COLOR:      Color = Color(0.55, 0.55, 0.55, 1.00)   ## grey = switched off
-const ACCENT_TOGGLE:  Color = Color(0.30, 0.68, 1.00, 1.00)
+const CRIT_COLOR:     Color = Color(1.00, 0.35, 0.30, 1.00)
+const OK_COLOR:       Color = Color(0.35, 0.85, 1.00, 1.00)
+const SHED_COLOR:     Color = Color(1.00, 0.55, 0.10, 1.00)   ## orange = shed (unchanged, functional not identity)
+const OFF_COLOR:      Color = Color(0.55, 0.55, 0.55, 1.00)   ## grey = switched off (unchanged, functional not identity)
+const ACCENT_TOGGLE:  Color = Color(0.30, 0.68, 1.00, 1.00)   ## unchanged, functional not identity
+const ACCENT_COLOR:   Color = Color(0.38, 0.85, 0.40, 1.00)   ## Jul 2026 — green, this panel's top-stripe color
 
 ## Priority tier accent colours — green (safe/critical) → red (luxury/shed first).
 const PRIO_COLORS: Array[Color] = [
@@ -330,16 +331,17 @@ func _on_draw() -> void:
 	var py: float   = (vp.y - ph) * 0.5
 
 	## Dim backdrop
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.55), true)
+	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
 
 	## Panel
 	var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
 	_canvas.draw_rect(panel, BG_COLOR, true)
 	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
+	UIKit.draw_domain_stripe(_canvas, panel, ACCENT_COLOR)
 
 	## Close button ×
 	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
-	_canvas.draw_rect(close_rect, Color(0.25, 0.06, 0.06, 0.90), true)
+	_canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
 	_canvas.draw_rect(close_rect, CRIT_COLOR, false, 1.5)
 	var cp: Vector2 = close_rect.position
 	var cs: Vector2 = close_rect.size

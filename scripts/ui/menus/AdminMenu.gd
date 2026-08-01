@@ -373,6 +373,10 @@ func _on_spawn_npc_pressed() -> void:
 		+ Vector3(0.0, 0.5, 0.0)
 
 ## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
+## MainWorld._cash directly — add_cash() is what also pushes the new balance
+## into the HUD via hud.set_cash(). Writing _cash directly would desync the
+## HUD readout until the next transaction.
+func _on_add_cash_pressed() -> void:
 	if world_node == null:
 		push_warning("[AdminMenu] world_node not injected — cash cheat skipped")
 		return

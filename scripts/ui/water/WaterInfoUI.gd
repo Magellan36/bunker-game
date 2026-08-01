@@ -24,14 +24,15 @@ extends CanvasLayer
 signal closed
 
 # ─── Palette (blue accent — distinct from the power system's green theme) ────
-const BG_COLOR:     Color = Color(0.06, 0.08, 0.10, 0.97)
-const BORDER_COLOR: Color = Color(0.35, 0.70, 0.95, 0.80)
-const HEADER_COLOR: Color = Color(0.40, 0.75, 1.00, 1.00)
-const TEXT_COLOR:   Color = Color(0.85, 0.92, 0.97, 0.95)
-const DIM_COLOR:    Color = Color(0.50, 0.58, 0.62, 0.80)
+const BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
+const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
+const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
+const TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
+const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
 const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
 const WARN_COLOR:   Color = Color(1.00, 0.72, 0.10, 1.00)
 const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
+const ACCENT_COLOR: Color = Color(0.40, 0.75, 1.00, 1.00)   ## Jul 2026 — blue, this panel's top-stripe color
 
 ## Water QUALITY specifically uses a dedicated red/yellow/green scheme (Jul
 ## 2026, Brannon's explicit spec) — deliberately separate from OK_COLOR
@@ -320,6 +321,7 @@ func _on_draw() -> void:
 	var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
 	_canvas.draw_rect(panel, BG_COLOR, true)
 	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
+	UIKit.draw_domain_stripe(_canvas, panel, ACCENT_COLOR)
 
 	## Close button ×
 	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)

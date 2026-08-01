@@ -349,6 +349,7 @@ func _on_draw() -> void:
 
 	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
 	UIKit.draw_panel(_canvas, panel, _theme)
+	UIKit.draw_domain_stripe(_canvas, panel, _theme.accent)
 
 	## Close button × — this file's actual click handling goes through the
 	## real `_close_btn` Button node positioned in `_reposition_controls()`

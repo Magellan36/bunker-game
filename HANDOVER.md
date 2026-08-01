@@ -1,105 +1,125 @@
-# Handover — Needs Gauge Redesign + Status Effect Skeleton + Worn-Look Pass (Jul 2026)
+# Handover — NPC Basics + Cooking Fixes + UI Unification + NPC Basics (Aug 2026)
 
 ## What changed this session
 
-### Phase 1: Needs Gauge Redesign (concentric ring HUD)
-- Replaced the old rectangular health/stamina bars (`StatusBars.gd`) and 3
-  separate food/water/sleep icon circles (`CircleFill.gd`) with one
-  composite radial gauge (`NeedsGauge.gd`), styled after a Medieval-
-  Dynasty-style concentric ring reference.
-- 3 rings, center-out: Ring 1 = Health(L)/Food(R), Ring 2 =
-  Stamina(L)/Water(R), Ring 3 = Sleep (originally both sides, see Phase 2).
-- Each half-arc has a V-shaped gap at top/bottom and is bottom-anchored:
-  fixed tip at the bottom gap, arc grows upward toward the top gap as the
-  stat fills toward 100%.
-- Blank dark center circle, no icons on the gauge itself.
-- `HUD.gd`'s public API (`set_health/stamina/food/water/sleep`) unchanged —
-  now forwards to `needs_gauge.set_*()`. `MainWorld.gd` required zero
-  changes.
-- Deleted: `StatusBars.gd`, `StatusBars.gd.uid`, `CircleFill.gd`,
-  `CircleFill.gd.uid`. Kept the 3 now-unreferenced icon SVGs on disk for a
-  possible future icon pass.
+### NPC Basics — Wandering NPC + Talk UI + Admin Spawn (Aug 2026)
 
-### Phase 2: Sleep Ring Trimmed to Right-Side Only
-- Ring 3 (Sleep) originally mirrored on both halves — trimmed to draw the
-  right half only, per Brannon's follow-up call after reviewing the first
-  pass. Left half is never drawn (not just zeroed).
+- **scripts/npc/NPC.gd**: New `CharacterBody3D` NPC with IDLE/WANDERING state machine, random wandering within dug-out bunker bounds (using `MainWorld.get_cleared_cell_bounds_world()`), collision with all structures, [E] Talk interaction that opens `NPCTalkMenuUI`
+- **scripts/ui/npc/NPCTalkMenuUI.gd**: Modal menu with Talk button → placeholder dialogue ("...") + Close button, built on shared UIKit builders
+- **scenes/npc/NPC.tscn**: CharacterBody3D with capsule mesh/collision, no custom collision_layer/mask (uses default layer 1 for proper collision)
+- **MainWorld.gd**: Added `get_cleared_cell_bounds_world()` returning Rect2 of all cleared cells (pregen + dug) for NPC wander bounds
+- **AdminMenu.gd**: Added "Spawn NPC" row under NPC section; callback spawns NPC.tscn 2m in front of player
 
-### Phase 3: Status Effect Skeleton + F7 Test Wiring
-- `StatusEffectIcon.gd` — single reusable badge (icon or grey placeholder
-  + a clockwise-depleting duration ring), ticks down via its own
-  `_process()`, emits `expired(id)`.
-- `StatusEffectsContainer.gd` — holds active badges in a fixed, hand-placed
-  3-slot stagger (`SLOT_OFFSETS`) matching the reference image layout, not
-  an auto-laying `VBoxContainer`. Oldest effect always in slot 0 (top);
-  `_reflow()` re-assigns slots by order-index after every add/remove so
-  remaining badges slide up. No cap on simultaneous effects, no
-  placeholder for empty slots.
-- New F7 admin menu button ("Add Test Status Effect (10s)") adds one test
-  badge per press with a unique id, `icon = null`, 10s duration, default
-  ring color. Skeleton only — no real gameplay effects wired in yet.
+### Cooking Fixes — Part 1/2 (Aug 2026)
 
-### Phase 4: Worn/Rugged Visual Pass
-- No grunge texture asset exists in the project — built procedurally.
-- `UIKit.draw_rugged_arc()`/`draw_rugged_circle()` — hand-inked wobbly
-  border stroke (fixed per-angle hash, not per-frame random, so it never
-  flickers), applied to every ring edge + center circle (`NeedsGauge`) and
-  both badge ring edges (`StatusEffectIcon`).
-- New `assets/shaders/grunge_overlay.gdshader` — subtle random-blotch
-  darkening `CanvasItem` shader, applied as a `ShaderMaterial` on both
-  `NeedsGauge` and `StatusEffectIcon`. Kept deliberately subtle per
-  Brannon's explicit call.
+- **CookingPot.gd**: Added `get_use_prompt()` — shows `"[E] Place Cooking Pot"` when holding pot near a stove with an open slot (3m range)
+- **Stove.gd**: Added `_grid_connected` tracking; `set_powered()` now tracks grid connection and auto-turns-off stove when wire connection lost; `on_interact()` prevents turning on without grid connection; `get_interact_prompt()` shows "Stove Not Connected" when unpowered and not grid-connected
 
-### Phase 5: Bugfix — Duplicate Function in AdminMenu.gd
-- An earlier implementation pass duplicated the
-  `_get_status_effects()`/`_on_add_status_effect_pressed()` block (pasted
-  twice), causing a "Function has the same name as a previously declared
-  function" parser error on F7. Fixed by removing the second copy.
+### Fix 1: Missing "Place on Stove" prompt when holding pot near stove
+### Fix 2: Stove must be wired to power; auto-shuts-off if disconnected
 
-### Phase 6: Color Darkening + Status Badge Realignment
-- All 5 `NeedsGauge` ring fill colors, `AdminMenu.TEST_EFFECT_COLOR`, and
-  `StatusEffectIcon`'s default `_ring_color` darkened ~5% (each RGB
-  channel × 0.95) to better match the rest of the theme's muted palette.
-- `StatusEffectsContainer.SLOT_OFFSETS` corrected after pixel-measuring a
-  screenshot: top (slot 0) and bottom (slot 2) now share the exact same X
-  (a straight vertical column, were off by 16px); middle (slot 1) shifted
-  further left, now 12.5px left of that shared column (25% of a badge's
-  50px width) instead of sitting to the right of it.
+### UI Unification — Pause Menu + Graphics Settings Panel (Jul 2026)
+
+- **UIKit.gd**: Added shared menu builders (`build_modal_backdrop()`, `build_centered_panel()`, `make_button()`, `make_section_label()`, `make_row_label()`), font-size constants (`FONT_SIZE_TITLE=20`, `FONT_SIZE_SECTION=11`, `FONT_SIZE_BODY=13`), `MENU_PANEL_W=380`
+- **PauseMenuUI.gd**: Complete rewrite using UIKit builders; fixed UTF-8 encoding (removed BOM/garbled comments); unified colors with NEUTRAL theme; confirm dialog now matches main panel gray
+- **GraphicsSettingsPanel.gd**: Complete rewrite using UIKit builders; **FIXED off-center bug** (`build_centered_panel()` with fixed size); row labels now use `make_row_label()` with proper font/color; unified panel width (380), fonts, button styles with PauseMenuUI
+
+### Fix: Removed invalid `custom_maximum_size` from `build_centered_panel()`
+
+Control/Panel has no `custom_maximum_size` property in Godot 4 — that line always errored. The fixed anchor offsets + `custom_minimum_size` already fully lock the panel's size.
+
+### NPC Basics — Wandering NPC + Talk UI + Admin Spawn (Aug 2026)
+
+- **scripts/npc/NPC.gd**: CharacterBody3D NPC with IDLE/WANDERING state machine, random wandering within dug-out bunker bounds (using `MainWorld.get_cleared_cell_bounds_world()`), collision with all structures, [E] Talk interaction that opens `NPCTalkMenuUI`
+- **scripts/ui/npc/NPCTalkMenuUI.gd**: Modal menu with Talk button → placeholder dialogue ("...") + Close button, built on shared UIKit builders
+- **scenes/npc/NPC.tscn**: CharacterBody3D with capsule mesh/collision, no custom collision_layer/mask (uses default layer 1 for proper collision)
+- **MainWorld.gd**: Added `get_cleared_cell_bounds_world()` returning Rect2 of all cleared cells (pregen + dug) for NPC wander bounds
+- **AdminMenu.gd**: Added "Spawn NPC" row under NPC section; callback spawns NPC.tscn 2m in front of player
+
+### Cooking Fixes — Part 1/2 (Aug 2026)
+
+- **CookingPot.gd**: Added `get_use_prompt()` — shows `"[E] Place Cooking Pot"` when holding pot near a stove with an open slot (3m range)
+- **Stove.gd**: Added `_grid_connected` tracking; `set_powered()` now tracks grid connection and auto-turns-off stove when wire connection lost; `on_interact()` prevents turning on without grid connection; `get_interact_prompt()` shows "Stove Not Connected" when unpowered and not grid-connected
+
+### Fix 1: Missing "Place on Stove" prompt when holding pot near stove
+### Fix 2: Stove must be wired to power; auto-shuts-off if disconnected
+
+---
 
 ## Files Modified
-- `scripts/ui/hud/NeedsGauge.gd` — new file, then Sleep right-only trim,
-  rugged border + grime shader, color darkening (multiple passes)
-- `scripts/ui/hud/StatusEffectIcon.gd` — new file, then grey placeholder,
-  rugged border + grime shader, default ring color darkening
-- `scripts/ui/hud/StatusEffectsContainer.gd` — new file, then converted
-  VBoxContainer → Control with fixed slot stagger, slot X-alignment fix
-- `scripts/ui/menus/AdminMenu.gd` — new "STATUS" row + test-effect
-  callback/getter, duplicate-function bugfix, color darkening
-- `scripts/ui/hud/HUD.gd` — `@onready` refs + 5 setter functions
-  repointed from old `bars`/`food_circle`/`water_circle`/`sleep_circle` to
-  `needs_gauge`
-- `scripts/ui/common/UIKit.gd` — added `draw_rugged_arc()` /
-  `draw_rugged_circle()` / `_rugged_hash()`
-- `scenes/ui/HUD.tscn` — `BottomLeft`/`LeftIcons` removed, `NeedsGauge` +
-  `StatusEffects` nodes added; `StatusEffects` later changed from
-  `VBoxContainer` to `Control`
+
+### NPC Basics
+- `scripts/npc/NPC.gd` — new file
+- `scripts/ui/npc/NPCTalkMenuUI.gd` — new file
+- `scenes/npc/NPC.tscn` — new file
+- `scripts/world/core/MainWorld.gd` — added `get_cleared_cell_bounds_world()`
+- `scripts/ui/menus/AdminMenu.gd` — added "Spawn NPC" row + callback
+
+### Cooking Fixes (Part 1/2)
+- `scripts/world/items/CookingPot.gd` — added `get_use_prompt()`
+- `scripts/world/cooking/Stove.gd` — added `_grid_connected` tracking, grid-aware `set_powered()`/`on_interact()`/`get_interact_prompt()`
+
+### UI Unification
+- `scripts/ui/common/UIKit.gd` — added `build_centered_panel()`, `make_button()`, `make_section_label()`, `make_row_label()`, font-size constants, `MENU_PANEL_W=380`
+- `scripts/ui/menus/PauseMenuUI.gd` — complete rewrite using UIKit builders
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — complete rewrite using UIKit builders; fixed off-center bug
+- `scripts/ui/common/UIKit.gd` — removed invalid `custom_maximum_size` from `build_centered_panel()`
+
+### Admin Menu Additions (Part A)
+- `scripts/ui/menus/AdminMenu.gd` — added `world_node`, `ADMIN_CASH_STEP`, `PRODUCE_SPAWN_HEIGHT`, new `_row_defs` rows, `_format_thousands()`, `_on_add_cash_pressed()`, `_on_hookup_output_double_pressed()`, `_spawn_produce()` + 3 callbacks
+
+### Admin Spawn Menu Removal (Part B)
+- `scripts/ui/menus/AdminSpawnMenu.gd` + `.uid` — deleted
+- `MainWorld.gd` — removed F10 handler, `_admin_menu` var, `_toggle_admin_spawn_menu()`
+- `PauseMenuUI.gd` — layer comment fixed
+- `PickupableItem.gd` — spawn helper comment updated
+- `FarmingShopHelper.gd` — "Single source of truth" comment updated
+- `AdminMenu.gd` — docstring F10 reference removed; layer comment fixed
+- Docs updated across `PROJECT_SUMMARY.md`, `docs/systems/ui/README.md`, `docs/systems/build/README.md`, `docs/systems/water/README.md`, `docs/systems/farming/README.md`
+- `architecture.json` regenerated
+
+---
 
 ## Files Created
+- `scripts/npc/NPC.gd`
+- `scripts/ui/npc/NPCTalkMenuUI.gd`
+- `scenes/npc/NPC.tscn`
 - `scripts/ui/hud/NeedsGauge.gd`
 - `scripts/ui/hud/StatusEffectIcon.gd`
 - `scripts/ui/hud/StatusEffectsContainer.gd`
 - `assets/shaders/grunge_overlay.gdshader`
+- `scripts/ui/hud/NeedsGauge.gd`
+- `scripts/ui/hud/StatusEffectIcon.gd`
+- `scripts/ui/hud/StatusEffectsContainer.gd`
+- `scripts/ui/npc/NPCTalkMenuUI.gd`
+- `scenes/npc/NPC.tscn`
+
+---
 
 ## Files Deleted
 - `scripts/ui/hud/StatusBars.gd` + `.uid`
 - `scripts/ui/hud/CircleFill.gd` + `.uid`
+- `scripts/ui/menus/AdminSpawnMenu.gd` + `.uid`
+
+---
 
 ## Next Up
-- Real gameplay status effects still need to be wired into
-  `StatusEffectsContainer.add_effect()` — currently F7 test-only.
-- `BuildModeHUD.gd`'s buttons/tabs/interactions are now in UI Claude's
-  scope per Brannon's Jul 2026 note — not yet started, rest of
-  `BuildModeHUD.gd` stays with the non-UI Claude instance.
-- Worn-look shader defaults (`grit_strength = 0.14`, `grit_scale = 26.0`)
-  are a first pass — confirm they read right in actual play, not just the
-  single reviewed screenshot.
+- Real gameplay status effects still need to be wired into `StatusEffectsContainer.add_effect()` — currently F7 test-only.
+- Cooking System Part 2: Cook timer + Dish item (Part G from `COOKING_SYSTEM_PLAN_PART3.md`)
+- `BuildModeHUD.gd`'s buttons/tabs/interactions are now in UI Claude's scope per Brannon's Jul 2026 note — not yet started, rest of `BuildModeHUD.gd` stays with the non-UI Claude instance.
+- Worn-look shader defaults (`grit_strength = 0.14`, `grit_scale = 26.0`) are a first pass — confirm they read right in actual play, not just the single reviewed screenshot.
+- Admin Menu Part A: economy/water-tier/produce-spawn cheats (already done in this session)
+- Admin Menu Part B: F10 Admin Spawn Menu removal + docs (already done in this session)
+- NPC Basics (already done in this session)
+- Cooking Fixes Part 1/2 (already done in this session)
+- UI Unification (already done in this session)
+
+---
+
+## Verification Checklist (for Brannon's in-editor test)
+1. **NPC**: F7 → Spawn NPC → NPC wanders, collides with walls/furniture, [E] Talk → popup → Talk → "..." → Close
+2. **Cooking**: Pot near stove → [E] Place prompt appears; Stove requires grid connection; power loss auto-shuts-off; prompt shows "Stove Not Connected"
+3. **UI**: Pause Menu (ESC) centered; Graphics Settings (F7→Settings) centered; row labels use project font; confirm dialog gray matches main panel
+3. **Admin Menu (F7)**: 11 rows, 6 sections; +$100k Cash updates HUD; Hookup Output x2 increments tier (warns at max); Spawn Potato/Blueberry/Tomato drops items with pop-in
+4. F10 does nothing (no menu, no errors)
+5. F7 Admin Menu: 11 rows, 6 sections; all original buttons (Power, Time, Water, Economy, Farming, Status) + new rows work

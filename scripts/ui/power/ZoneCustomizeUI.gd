@@ -38,11 +38,12 @@ signal name_changed(zone_key: String, new_name: String)
 signal color_changed(zone_key: String, new_color: Color)
 
 # ─── Palette — matches PowerTerminalUI/PowerPriorityUI military theme ───────
-const BG_COLOR:     Color = Color(0.07, 0.08, 0.07, 0.97)
-const BORDER_COLOR: Color = Color(0.38, 0.85, 0.40, 0.80)
-const HEADER_COLOR: Color = Color(0.32, 0.90, 0.38, 1.00)
-const TEXT_COLOR:   Color = Color(0.82, 0.95, 0.84, 0.95)
-const DIM_COLOR:    Color = Color(0.45, 0.55, 0.46, 0.80)
+const BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
+const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
+const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
+const TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
+const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
+const ACCENT_COLOR: Color = Color(0.38, 0.85, 0.40, 1.00)   ## Jul 2026 — green, this panel's top-stripe color
 
 const PANEL_W:      float = 300.0
 const SWATCH_SIZE:  float = 44.0
@@ -71,7 +72,7 @@ func _ready() -> void:
 func _build_ui() -> void:
 	var backdrop: ColorRect = ColorRect.new()
 	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
-	backdrop.color        = Color(0.0, 0.0, 0.0, 0.55)
+	backdrop.color        = Color(0.0, 0.0, 0.0, 0.60)
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(backdrop)
 
@@ -86,6 +87,7 @@ func _build_ui() -> void:
 	style.set_corner_radius_all(3)
 	_panel.add_theme_stylebox_override("panel", style)
 	add_child(_panel)
+	_panel.add_child(UIKit.add_domain_stripe(PANEL_W, ACCENT_COLOR))
 
 	_vbox = VBoxContainer.new()
 	_vbox.add_theme_constant_override("separation", 12)

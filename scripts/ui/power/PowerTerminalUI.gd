@@ -18,15 +18,16 @@ extends CanvasLayer
 signal closed
 
 # ─── Layout constants ─────────────────────────────────────────────────────────
-const BG_COLOR:     Color = Color(0.04, 0.07, 0.04, 0.97)
-const BORDER_COLOR: Color = Color(0.28, 0.85, 0.32, 0.80)
-const HEADER_COLOR: Color = Color(0.22, 0.75, 0.28, 1.0)
-const TEXT_COLOR:   Color = Color(0.80, 0.95, 0.82, 0.95)
-const DIM_COLOR:    Color = Color(0.45, 0.55, 0.45, 0.85)
+const BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
+const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
+const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.0)
+const TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
+const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
 const WARN_COLOR:   Color = Color(1.0,  0.72, 0.10, 1.0)
-const CRIT_COLOR:   Color = Color(1.0,  0.25, 0.18, 1.0)
-const OK_COLOR:     Color = Color(0.30, 1.0,  0.45, 1.0)
-const ACCENT_BACKUP: Color = Color(0.30, 0.68, 1.00, 1.0)  ## Blue — backup generator rows
+const CRIT_COLOR:   Color = Color(1.0,  0.35, 0.30, 1.0)
+const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.0)
+const ACCENT_BACKUP: Color = Color(0.30, 0.68, 1.00, 1.0)  ## Blue — backup generator rows (unchanged, functional not identity)
+const ACCENT_COLOR: Color = Color(0.38, 0.85, 0.40, 1.0)   ## Jul 2026 — green, this panel's top-stripe color
 
 const FONT_SIZE_H:  int = 14
 const FONT_SIZE_N:  int = 11
@@ -116,7 +117,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var vp: Vector2 = get_viewport().get_visible_rect().size
 		var px: float   = (vp.x - PANEL_W) * 0.5
 		var py: float   = (vp.y - PANEL_H) * 0.5
-		var close_rect: Rect2 = Rect2(px + PANEL_W - 36.0, py + 8.0, 28.0, 28.0)
+		var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
 		if close_rect.has_point(mpos):
 			close()
 			get_viewport().set_input_as_handled()
@@ -188,12 +189,13 @@ func _on_draw() -> void:
 	var py: float    = (vp.y - PANEL_H) * 0.5
 
 	# Full-screen dim
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.65), true)
+	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
 
 	# Panel background
 	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
 	_canvas.draw_rect(panel, BG_COLOR, true)
 	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
+	UIKit.draw_domain_stripe(_canvas, panel, ACCENT_COLOR)
 
 	var pm: PowerManager = _get_pm()
 	if pm == null:
@@ -299,8 +301,8 @@ func _on_draw() -> void:
 		snap["total_capacity_watts"] = filtered_cap
 
 	# ── Close button ──────────────────────────────────────────────────────────
-	var close_rect: Rect2 = Rect2(px + PANEL_W - 36.0, py + 8.0, 28.0, 28.0)
-	_canvas.draw_rect(close_rect, Color(0.30, 0.06, 0.06, 0.90), true)
+	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
+	_canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
 	_canvas.draw_rect(close_rect, CRIT_COLOR, false, 1.5)
 	var cp: Vector2 = close_rect.position
 	var cs: Vector2 = close_rect.size
