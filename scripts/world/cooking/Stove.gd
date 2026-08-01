@@ -174,7 +174,14 @@ func on_interact() -> void:
 	_refresh_cooking_state()
 	_refresh_indicator()
 
+## If our pot has a dish ready, show ITS prompt instead of the toggle text
+## — so whichever of {Stove, Pot} the nearby-interactable scan happens to
+## pick as "closest", the displayed text always matches what [E] will
+## actually do (InteractionSystem's take-dish check runs before the
+## generic fallback regardless of which one is displayed — see Part G4).
 func get_interact_prompt() -> String:
+	if pot_ref != null and pot_ref.has_method("is_dish_ready") and pot_ref.is_dish_ready():
+		return pot_ref.get_interact_prompt()
 	return "[E] Turn Stove %s" % ("Off" if powered_on else "On")
 
 
@@ -235,16 +242,31 @@ func try_remove_pot() -> Node:
 
 
 # ─── Cooking-active / power-draw logic ────────────────────────────────────────
-## "Cooking" = powered_on AND a pot is present. This is the ONLY condition
-## under which the 200W is actually drawn.
+## "Cooking" = powered_on AND a pot is present AND that pot has ≥1 item in
+## it. An empty pot on a powered-on stove draws nothing and never
+## progresses — there's nothing to cook. (Once a dish finishes, the pot's
+## slots are cleared — see CookingPot._finish_cooking() — so is_cooking()
+## naturally goes false again the instant the dish is ready, and the stove
+## stops drawing power until either the dish is taken and new items added,
+## or the ready dish is served.)
 func _refresh_cooking_state() -> void:
-	var cooking: bool = powered_on and pot_ref != null
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm != null:
-		pm.set_consumer_active(str(get_instance_id()), cooking)
+		pm.set_consumer_active(str(get_instance_id()), is_cooking())
 
+## "Cooking" = powered_on AND a pot is present AND that pot has ≥1 item in
+## it. An empty pot on a powered-on stove draws nothing and never
+## progresses — there's nothing to cook. (Once a dish finishes, the pot's
+## slots are cleared — see CookingPot._finish_cooking() — so is_cooking()
+## naturally goes false again the instant the dish is ready, and the stove
+## stops drawing power until either the dish is taken and new items added,
+## or the ready dish is served.)
 func is_cooking() -> bool:
-	return powered_on and pot_ref != null
+	if not powered_on or pot_ref == null:
+		return false
+	if not pot_ref.has_method("count_filled"):
+		return false
+	return pot_ref.count_filled() > 0
 
 
 # ─── Indicator light — reflects powered_on ONLY ──────────────────────────────

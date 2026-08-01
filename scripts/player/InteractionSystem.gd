@@ -193,7 +193,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif held_item.has_method("on_interact"):
 				held_item.on_interact()
 		else:
-			_try_interact()
+			## A ready dish takes priority over the plain stove toggle (or
+			## any other nearby interactable) — same "special-case before
+			## generic fallback" pattern as the [F] pot-pickup in Part D2.
+			var ready_pot: Node = _find_nearest_ready_pot()
+			if ready_pot != null:
+				_try_take_dish(ready_pot)
+			else:
+				_try_interact()
 
 	if event.is_action_released("interact"):
 		_is_holding_e = false
@@ -735,6 +742,51 @@ func _try_pickup_pot_from_stove(stove: Node) -> void:
 	_tracked_bodies.erase(held_item)
 	if "from_inventory" in held_item:
 		held_item.from_inventory = false
+	if not held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.connect(_on_item_knocked_out)
+	held_item.pickup(hold_point)
+	if held_item.has_method("set_player"):
+		held_item.set_player(player)
+
+## Scans "cooking_pot" — covers a pot on a stove AND a standalone pot sitting
+## on the ground with a ready dish still in it.
+func _find_nearest_ready_pot() -> Node:
+	var closest: Node        = null
+	var closest_dist: float  = MAX_PROMPT_DIST
+	var player_pos: Vector3  = player.global_position
+	for node: Node in get_tree().get_nodes_in_group("cooking_pot"):
+		if not is_instance_valid(node):
+			continue
+		if not node.has_method("is_dish_ready") or not node.is_dish_ready():
+			continue
+		var d: float = (node as Node3D).global_position.distance_to(player_pos)
+		if d < closest_dist:
+			closest_dist = d
+			closest = node
+	return closest
+
+## Spawns a DishItem from the pot's serve_dish() result and puts it directly
+## in the player's hand — mirrors _try_pickup_pot_from_stove()'s tail.
+func _try_take_dish(pot: Node) -> void:
+	var result: Dictionary = pot.serve_dish()
+	if result.is_empty():
+		return
+
+	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
+	var dish: RigidBody3D = RigidBody3D.new()
+	dish.set_script(dish_script)
+	dish.collision_layer = 1
+	dish.collision_mask  = 1
+	dish.continuous_cd   = true
+
+	var world_root: Node = get_tree().get_root()
+	world_root.add_child(dish)
+	dish.global_position = (pot as Node3D).global_position
+	dish.fill_value = result["value"]
+	dish.bonus_pct  = result["bonus_pct"]
+
+	held_item       = dish
+	_held_from_slot = -1
 	if not held_item.knocked_out.is_connected(_on_item_knocked_out):
 		held_item.knocked_out.connect(_on_item_knocked_out)
 	held_item.pickup(hold_point)

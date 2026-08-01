@@ -42,9 +42,20 @@ var shelf_item_type: String = "cooking_pot"
 ## then, not recomputed later.
 var slots: Array = []
 
-## Set by Stove.try_place_pot()/try_remove_pot(). Not used for gameplay
-## logic in this pass — kept for a future cook-timer pass.
+## Set by Stove.try_place_pot()/try_remove_pot(). Read every frame by
+## _process() below to decide whether to accrue or decay cook progress.
 var _host_stove: Node = null
+
+## ─── Cook progress state (Part G) ──────────────────────────────────────────
+const COOK_TIME_BASE:           float = 60.0
+const COOK_TIME_PER_EXTRA_ITEM: float = 10.0
+## Confirmed assumption — progress decays at the same rate it accrues.
+const COOK_DECAY_RATE: float = 1.0
+
+var _cook_progress: float = 0.0
+var _is_cooked:     bool  = false
+var _dish_value:    float = 0.0
+var _dish_bonus_pct: float = 0.0
 
 var _mesh: MeshInstance3D = null
 
@@ -66,15 +77,17 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s" % item_name
 
-## Shown BOTH while held (InteractionSystem CASE 1) and while nearby-not-held
-## (InteractionSystem's world-object prompt pass) — same method, same text,
-## since in both cases the player wants to know what's currently inside.
 func get_interact_prompt() -> String:
+	if _is_cooked:
+		return "[E] Take Dish  (%.1f Filling)" % _dish_value
 	var totals: Dictionary = compute_dish_totals()
 	if totals["item_count"] <= 0:
 		return ""
 	var bonus_txt: String = "" if totals["bonus_pct"] <= 0.0 else "  (+%d%% Diversity)" % int(round(totals["bonus_pct"] * 100.0))
-	return "Filling: %.1f%s" % [totals["total"], bonus_txt]
+	var base_txt: String = "Filling: %.1f%s" % [totals["total"], bonus_txt]
+	if _host_stove != null and _host_stove.has_method("is_cooking") and _host_stove.is_cooking():
+		return "%s  —  Cooking %.0f/%.0fs" % [base_txt, _cook_progress, cook_time_required()]
+	return base_txt
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
@@ -82,6 +95,124 @@ func _physics_process(delta: float) -> void:
 	if is_held and _hold_point != null:
 		global_transform.basis = Basis.IDENTITY
 		angular_velocity       = Vector3.ZERO
+
+func _process(delta: float) -> void:
+	if _is_cooked:
+		return   ## A completed, un-taken dish does not decay — it just waits.
+
+	var should_progress: bool = _host_stove != null \
+		and _host_stove.has_method("is_cooking") \
+		and _host_stove.is_cooking() \
+		and count_filled() > 0
+
+	if should_progress:
+		_cook_progress += delta
+		if _cook_progress >= cook_time_required():
+			_finish_cooking()
+	elif _cook_progress > 0.0:
+		_cook_progress = max(0.0, _cook_progress - COOK_DECAY_RATE * delta)
+
+## Recomputed live from CURRENT contents — adding a 2nd/3rd item mid-cook
+## extends the target instead of locking it in at the start of cooking.
+func cook_time_required() -> float:
+	var n: int = count_filled()
+	if n <= 0:
+		return COOK_TIME_BASE
+	return COOK_TIME_BASE + COOK_TIME_PER_EXTRA_ITEM * float(n - 1)
+
+func _finish_cooking() -> void:
+	var totals: Dictionary = compute_dish_totals()
+	_dish_value     = totals["total"]
+	_dish_bonus_pct = totals["bonus_pct"]
+	for i: int in CAPACITY:
+		var entry = slots[i]
+		if entry != null:
+			var node: Node = entry["node"]
+			if is_instance_valid(node):
+				node.queue_free()   ## consumed into the dish — no longer a separate item
+			slots[i] = null
+	_cook_progress = 0.0
+	_is_cooked = true
+
+func is_dish_ready() -> bool:
+	return _is_cooked
+
+## 0.0–1.0, for anything that wants a progress bar in a future pass.
+func cook_progress_fraction() -> float:
+	var required: float = cook_time_required()
+	if required <= 0.0:
+		return 0.0
+	return clamp(_cook_progress / required, 0.0, 1.0)
+
+## Called by InteractionSystem._try_take_dish() (Part G5). Clears the
+## cooked state and hands back the values needed to spawn a DishItem.
+## Returns {} if there's nothing ready.
+func serve_dish() -> Dictionary:
+	if not _is_cooked:
+		return {}
+	var result: Dictionary = {"value": _dish_value, "bonus_pct": _dish_bonus_pct}
+	_is_cooked      = false
+	_dish_value     = 0.0
+	_dish_bonus_pct = 0.0
+	return result
+
+# ─── Slot helpers ─────────────────────────────────────────────────────────────
+
+	var should_progress: bool = _host_stove != null \
+		and _host_stove.has_method("is_cooking") \
+		and _host_stove.is_cooking() \
+		and count_filled() > 0
+
+	if should_progress:
+		_cook_progress += delta
+		if _cook_progress >= cook_time_required():
+			_finish_cooking()
+	elif _cook_progress > 0.0:
+		_cook_progress = max(0.0, _cook_progress - COOK_DECAY_RATE * delta)
+
+## Recomputed live from CURRENT contents — adding a 2nd/3rd item mid-cook
+## extends the target instead of locking it in at the start of cooking.
+func cook_time_required() -> float:
+	var n: int = count_filled()
+	if n <= 0:
+		return COOK_TIME_BASE
+	return COOK_TIME_BASE + COOK_TIME_PER_EXTRA_ITEM * float(n - 1)
+
+func _finish_cooking() -> void:
+	var totals: Dictionary = compute_dish_totals()
+	_dish_value     = totals["total"]
+	_dish_bonus_pct = totals["bonus_pct"]
+	for i: int in CAPACITY:
+		var entry = slots[i]
+		if entry != null:
+			var node: Node = entry["node"]
+			if is_instance_valid(node):
+				node.queue_free()   ## consumed into the dish — no longer a separate item
+			slots[i] = null
+	_cook_progress = 0.0
+	_is_cooked = true
+
+func is_dish_ready() -> bool:
+	return _is_cooked
+
+## 0.0–1.0, for anything that wants a progress bar in a future pass.
+func cook_progress_fraction() -> float:
+	var required: float = cook_time_required()
+	if required <= 0.0:
+		return 0.0
+	return clamp(_cook_progress / required, 0.0, 1.0)
+
+## Called by InteractionSystem._try_take_dish() (Part G5). Clears the
+## cooked state and hands back the values needed to spawn a DishItem.
+## Returns {} if there's nothing ready.
+func serve_dish() -> Dictionary:
+	if not _is_cooked:
+		return {}
+	var result: Dictionary = {"value": _dish_value, "bonus_pct": _dish_bonus_pct}
+	_is_cooked      = false
+	_dish_value     = 0.0
+	_dish_bonus_pct = 0.0
+	return result
 
 # ─── Slot helpers ─────────────────────────────────────────────────────────────
 func _first_empty_slot() -> int:
