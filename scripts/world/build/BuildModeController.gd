@@ -60,6 +60,9 @@ const TILE_TRAY_SINGLE: int = 21     ## Farming System (Jul 2026) — single tra
 const TILE_TRAY_DOUBLE: int = 22     ## Farming System — double tray (2×1, $275), Construct → Farming
 const TILE_GROW_LIGHT_NORMAL: int = 23  ## Farming System — grow light, normal tier, Construct → Lighting
 const TILE_GROW_LIGHT_PRO: int    = 24  ## Farming System — grow light, pro tier, Construct → Lighting
+const TILE_TABLE_SMALL:  int = 27   ## Small table, 1×1 footprint (Furniture)
+const TILE_TABLE_MEDIUM: int = 28   ## Medium table, 2×1 footprint (Furniture)
+const TILE_CHAIR:        int = 29   ## Chair, 1×1 footprint (Furniture)
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -1014,6 +1017,38 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		bed_node.global_position  = pos
 		bed_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return bed_node
+
+	# ── Tables: script-based procedural node, ground-placed like farming trays ──
+	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM:
+		var table_script: GDScript = load("res://scripts/world/furniture/Table.gd")
+		var table_node: StaticBody3D = StaticBody3D.new()
+		if table_script != null:
+			table_node.set_script(table_script)
+		table_node.set("cell_count", 1 if tile_id == TILE_TABLE_SMALL else 2)
+		table_node.set_meta("tile_id", tile_id)
+		var table_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		table_par.add_child(table_node)
+		table_node.global_position  = pos
+		table_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return table_node
+
+	# ── Chair: script-based procedural node, ground-placed ──────────────────────
+	if tile_id == TILE_CHAIR:
+		var chair_script: GDScript = load("res://scripts/world/furniture/Chair.gd")
+		var chair_node: StaticBody3D = StaticBody3D.new()
+		if chair_script != null:
+			chair_node.set_script(chair_script)
+		chair_node.set_meta("tile_id", tile_id)
+		var chair_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		chair_par.add_child(chair_node)
+		chair_node.global_position  = pos
+		chair_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		## Wire immediately so a chair placed mid-session is interactive right away
+		## (mirrors the equivalent call for beds — see Part 3's note on call sites).
+		var wn_chair: Node = get_tree().get_first_node_in_group("world")
+		if wn_chair != null and wn_chair.has_method("_wire_chair"):
+			wn_chair.call("_wire_chair", chair_node)
+		return chair_node
 
 	# ── Shelving: script-based procedural node ─────────────────────────────────
 	if tile_id == TILE_SHELVING:
@@ -2602,6 +2637,19 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
 				return true
 		return false
+	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR:
+		# Tables and chairs sit on the floor (Y=0.5), same as Beds/Shelving/Generators/Trays above —
+		# the physics shape query hits the floor collider, causing a false
+		# "space occupied" positive. Registry-only overlap check instead.
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			var et: int = entry.get("tile_id", -1)
+			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
+		return false
 	if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
 		# Generators sit on the floor (Y=0). The physics shape query hits the
 		# floor collider and the generator's own StaticBody3D, causing false
@@ -2701,6 +2749,9 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_HEAVY:    return Vector2(0.29, 0.29)  ## 0.6×0.6 box
 		TILE_TRAY_SINGLE: return Vector2(0.45, 0.45)  ## 1×1
 		TILE_TRAY_DOUBLE: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_BED's proven footprint
+		TILE_TABLE_SMALL:  return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TRAY_SINGLE
+		TILE_TABLE_MEDIUM: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TRAY_DOUBLE/TILE_BED
+		TILE_CHAIR:        return Vector2(0.30, 0.30)  ## 1×1 cell, smaller physical footprint than a table
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback
 

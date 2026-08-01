@@ -209,6 +209,7 @@ func _ready() -> void:
 	_setup_ambient_dust()
 	_connect_hud()
 	_connect_bed()
+	_connect_chair()
 	_ensure_inventory_manager()
 	_connect_inventory()
 	_connect_world_objects()
@@ -753,6 +754,39 @@ func _wire_bed(bed: Node) -> void:
 	)
 	if bed.has_signal("wake_requested"):
 		bed.wake_requested.connect(sleep_overlay.request_wake)
+
+func _connect_chair() -> void:
+	# Wire all existing chairs in the "chair" group.
+	# Also called again when new chairs are placed (see Part 3 note on call sites).
+	for c: Node in get_tree().get_nodes_in_group("chair"):
+		_wire_chair(c)
+
+## Wires a single chair node to the seat/stand system. Guarded the same way
+## _wire_bed() is, so re-calling on already-wired chairs (e.g. after a new
+## chair is placed) is a safe no-op.
+func _wire_chair(chair: Node) -> void:
+	if chair == null or not chair.has_signal("seat_requested"):
+		return
+	if chair.has_meta("_seat_wired"):
+		return
+	chair.set_meta("_seat_wired", true)
+
+	var the_chair: Node = chair
+	chair.seat_requested.connect(func() -> void:
+		if the_chair.has_method("set_seated"):
+			the_chair.set_seated(true)
+		var t: Transform3D = the_chair.get_seat_transform()
+		player.global_position = t.origin
+		player.rotation.y = t.basis.get_euler().y
+		player.velocity = Vector3.ZERO
+		player.set_physics_process(false)
+	)
+	chair.stand_requested.connect(func() -> void:
+		if the_chair.has_method("set_seated"):
+			the_chair.set_seated(false)
+		player.global_position = the_chair.get_stand_position()
+		player.set_physics_process(true)
+	)
 
 func _connect_inventory() -> void:
 	var inv_hud: Node = hud.get_node("HUDRoot/InventoryHUD")

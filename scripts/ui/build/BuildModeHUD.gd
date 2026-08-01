@@ -43,6 +43,9 @@ const CATEGORIES: Dictionary = {
 	"Furniture": [
 		{ "tile_id": 3, "name": "Shelving","price": 75  },
 		{ "tile_id": 4, "name": "Bed",     "price": 150 },
+		{ "tile_id": 27, "name": "Small Table",  "price": 60  },
+		{ "tile_id": 28, "name": "Medium Table", "price": 110 },
+		{ "tile_id": 29, "name": "Chair",        "price": 45  },
 	],
 	"Lighting": [
 		{ "tile_id": 5, "name": "Light",   "price": 50  },
