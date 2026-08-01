@@ -334,7 +334,6 @@ static func build_modal_backdrop(alpha: float = 0.55) -> ColorRect:
 static func build_centered_panel(width: float, height: float, theme: UITheme) -> Panel:
 	var panel: Panel = Panel.new()
 	panel.custom_minimum_size = Vector2(width, height)
-	panel.custom_maximum_size = Vector2(width, height)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	panel.offset_left   = -width * 0.5
 	panel.offset_right  =  width * 0.5
