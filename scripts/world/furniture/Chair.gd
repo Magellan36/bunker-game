@@ -8,11 +8,11 @@ class_name Chair
 ## Chair's local -Z axis is its "front" (open, seat-facing) side — same
 ## forward-axis convention used by Bed/Generator ghost-arrow indicators.
 
-const SEAT_Y: float       = 0.45   ## Seat surface height
-const SEAT_THICKNESS: float = 0.05
-const BACK_HEIGHT: float  = 0.45   ## Backrest height above the seat
-const LEG_HEIGHT: float   = SEAT_Y - SEAT_THICKNESS * 0.5
-const FOOTPRINT: float    = 0.50   ## 1×1 tile, chair is smaller than the full cell
+const SEAT_Y: float       = 0.5625  ## was 0.45 → ×1.25
+const SEAT_THICKNESS: float = 0.0625 ## was 0.05 → ×1.25
+const BACK_HEIGHT: float  = 0.5625  ## was 0.45 → ×1.25
+const LEG_HEIGHT: float   = SEAT_Y - SEAT_THICKNESS * 0.5   ## unchanged formula — auto-scales
+const FOOTPRINT: float    = 0.625   ## was 0.50 → ×1.25
 
 const COLOR_BEIGE: Color = Color(0.82, 0.74, 0.60, 1.0)   ## Matches Table.gd for now
 
@@ -21,7 +21,7 @@ const COLOR_BEIGE: Color = Color(0.82, 0.74, 0.60, 1.0)   ## Matches Table.gd fo
 const SIT_SINK: float     = 0.30
 ## How far in front of the chair (along local +Z, away from the backrest)
 ## the player is placed on standing up.
-const STAND_DIST: float   = 0.55
+const STAND_DIST: float   = 0.65   ## was 0.55
 
 var _is_preview_only: bool = false   ## Same convention as Bed.gd/Shelving.gd — see those files' comment for the full writeup.
 
@@ -48,10 +48,10 @@ func _build_mesh() -> void:
 
 	## 4 thin legs under the seat corners.
 	var leg_positions: Array[Vector2] = [
-		Vector2(-FOOTPRINT * 0.5 + 0.04, -FOOTPRINT * 0.5 + 0.04),
-		Vector2( FOOTPRINT * 0.5 - 0.04, -FOOTPRINT * 0.5 + 0.04),
-		Vector2(-FOOTPRINT * 0.5 + 0.04,  FOOTPRINT * 0.5 - 0.04),
-		Vector2( FOOTPRINT * 0.5 - 0.04,  FOOTPRINT * 0.5 - 0.04),
+		Vector2(-FOOTPRINT * 0.5 + 0.05, -FOOTPRINT * 0.5 + 0.05),
+		Vector2( FOOTPRINT * 0.5 - 0.05, -FOOTPRINT * 0.5 + 0.05),
+		Vector2(-FOOTPRINT * 0.5 + 0.05,  FOOTPRINT * 0.5 - 0.05),
+		Vector2( FOOTPRINT * 0.5 - 0.05,  FOOTPRINT * 0.5 - 0.05),
 	]
 	for p: Vector2 in leg_positions:
 		var leg_mi: MeshInstance3D = MeshInstance3D.new()

@@ -32,7 +32,7 @@ const POT_LOCAL_POS: Vector3 = Vector3(0.0, 0.58, 0.0)
 var _pm_node_key: String = ""
 var powered_on:   bool   = false   ## Manual toggle state — independent of pot presence
 var _is_shed:     bool   = false   ## Grid load-shed state
-var _grid_connected: bool = false  ## True only when set_powered(true) has fired — i.e. wired with a live path to a generator
+var _grid_connected: bool = false  ## Cache only — see _is_grid_connected() below for the authoritative check
 var pot_ref:      Node   = null    ## The CookingPot currently resting on this stove, or null
 
 var _indicator_mi:  MeshInstance3D     = null
@@ -174,6 +174,22 @@ func set_shed(shed_on: bool) -> void:
 	_is_shed = shed_on
 
 
+## Authoritative "am I actually wired to a live generator right now" check.
+## Deliberately does NOT rely on set_powered() / _grid_connected alone —
+## PowerManager only calls set_powered() on ACTIVE consumers (see
+## PowerManager._apply_reachability()), and this stove registers itself
+## inactive until it's already cooking, so a wired-but-not-yet-cooking stove
+## would otherwise never be told it's connected. _is_consumer_reachable() is
+## PowerManager's private raw-BFS-result check (not active-gated) — reaching
+## into it directly is a pragmatic workaround, not a permanent API; ideally
+## PowerManager would expose a public wrapper for this someday.
+func _is_grid_connected() -> bool:
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null or not pm.has_method("_is_consumer_reachable"):
+		return false
+	return pm._is_consumer_reachable(str(get_instance_id()))
+
+
 # ─── Manual on/off toggle — [E] while NOT holding a Cooking Pot ──────────────
 ## Called generically by InteractionSystem._try_interact() (StaticBody3D +
 ## "interactable" group + on_interact() — zero InteractionSystem changes
@@ -182,7 +198,7 @@ func set_shed(shed_on: bool) -> void:
 ## the pot and this stove is open, so by the time this runs it is always
 ## meant to simply toggle.
 func on_interact() -> void:
-	if not powered_on and not _grid_connected:
+	if not powered_on and not _is_grid_connected():
 		## Can't switch on without a live wire connection.
 		var hud: Node = get_tree().get_first_node_in_group("hud")
 		if hud != null and hud.has_method("show_soft_warning"):
@@ -200,7 +216,7 @@ func on_interact() -> void:
 func get_interact_prompt() -> String:
 	if pot_ref != null and pot_ref.has_method("is_dish_ready") and pot_ref.is_dish_ready():
 		return pot_ref.get_interact_prompt()
-	if not powered_on and not _grid_connected:
+	if not powered_on and not _is_grid_connected():
 		return "Stove Not Connected"
 	return "[E] Turn Stove %s" % ("Off" if powered_on else "On")
 

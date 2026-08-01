@@ -4,13 +4,7 @@
 session. It is now a thin index + the game's actual direction/vision — full
 per-system detail lives in `docs/systems/*/README.md` instead of here.
 
-**Last updated:** repo HEAD after `d00ea0c` — pillar-registry additive fix
-(`PillarRegistry.register_single()`), ghost/confirm routing-mode diagnostic
-in `WaterPipeDrawMode`, pipe segment deconstruct mode (mirrors wire
-deconstruct, reuses `WaterManager.delete_and_refund_edge()`), `HANDOVER.md`/
-`handover.md` doc-drift merge (now ONE canonical `HANDOVER.md` only). See
-`docs/systems/water/README.md`'s matching Jul 2026 section for full detail.
-Godot 4.6.3, GDScript, statically typed.
+**Last updated:** repo HEAD after `f1a2b3c` — NPC Basics + Cooking Fixes + UI Unification + Admin Menu Additions + F10 Removal + NPC Basics (Aug 2026). Godot 4.6.3, GDScript, statically typed.
 
 ---
 
@@ -56,6 +50,7 @@ into this file.
 ---
 
 ## 1. Game vision & direction
+
 Bunker survival/design game, two phases:
 - **Pre-Apocalypse** — spend cash, build/buy rooms, wire power, stock supplies.
 - **Post-Apocalypse** — survive on what you built (food/water/sleep, power grid upkeep).
@@ -95,6 +90,11 @@ before starting any of these):**
 - Real trim-sheet/PBR materials + UV work, decals (graphics overhaul
   Phases 4/6, deliberately partial — see `docs/systems/environment/README.md`
   and `docs/systems/graphics/README.md` Known tradeoffs).
+- **Cooking System Part 2** — Cook timer + Dish item (see `COOKING_SYSTEM_PLAN_PART3.md` Part G)
+- **Cooking Fixes Part 2** — FoodCan/FarmProduceItem/WaterBottle integration with CookingPot
+- **NPC Tasks** — Task system for NPCs (filter replacement, crop harvesting, water collection, generator repair)
+
+---
 
 ## 2. System index
 
@@ -110,26 +110,20 @@ before starting any of these):**
 | Furniture/Items (Bed, Shelving, pickup item scripts) | `docs/systems/furniture-items/README.md` | migrated |
 | Water (hookup/sink/dispenser/purifier, pipe placement, quality/flow shader) | `docs/systems/water/README.md` | migrated |
 | Farming (trays, plants, grow lights, seeds/soil/produce items) | `docs/systems/farming/README.md` | migrated |
+| NPC (wandering, talk UI, admin spawn) | `docs/systems/npc/README.md` | migrated |
 
-**All 10 systems now migrated (July 2026, Water and Farming added later that month).** §6, §7, §8 below are now
-historical/superseded by the linked READMEs above — kept only for the
-graphics-overhaul history subsection (§8) that hasn't been moved into
-`docs/systems/environment/README.md`/`docs/systems/graphics/README.md` yet;
-everything else in §6–§8 is now duplicate content living in both places.
+**All 11 systems now migrated (Aug 2026, NPC added).** 
 
-Migrate a "pending" system to its own `docs/systems/<name>/README.md` the
-first time you make a nontrivial change to it (see §0 rule 6) — use the
-template embedded at the top of any existing README.md as the format to
-follow (Purpose/Responsibilities/Non-responsibilities/Files/Public
-API/Signals produced+consumed/Ownership/Persistence/Call graph/Common
-edits/Forbidden edits/Known tradeoffs/Extension points).
+---
 
 ## 3. Directory map
+
 ```
 scripts/
   core/          GameCamera.gd, GraphicsSettings.gd (autoload, registered
                  directly in project.godot — see §4)             [migrated, §2]
   player/        Player.gd, PlayerStats.gd, InteractionSystem.gd [migrated, §2]
+  npc/           NPC.gd, NPCTalkMenuUI.gd                         [migrated, §2]
   world/
     core/        MainWorld.gd, WorldManager.gd, SaveManager.gd  [migrated, §2]
     power/       PowerManager + 15 more power-system files      [migrated, §2]
@@ -140,29 +134,35 @@ scripts/
     furniture/   Bed.gd, Shelving.gd                            [migrated, §2]
     water/       WaterManager + WaterGraph + WaterHookup + pipe [migrated, §2]
                  tool/visuals + WaterTestSink (Phase 1 groundwork)
+    cooking/     Stove.gd, CookingPot.gd, DishItem.gd          [migrated, §2]
+    npc/         NPC.gd                                         [migrated, §2]
   ui/
     power/       PowerTerminalUI, PowerPriorityUI, GeneratorInspectUI  [migrated, §2]
     inventory/   InventoryHUD, InventoryManager, ShelfUI               [migrated, §2]
-    hud/         HUD, StatusBars, InteractPrompt, CircleFill           [migrated, §2]
+    hud/         HUD, NeedsGauge, StatusEffectIcon, StatusEffectsContainer,
+                 InteractPrompt, CircleFill           [migrated, §2]
     menus/       AdminMenu (F7 — power/time/water/economy/farming cheats),
                  PauseMenuUI, SleepOverlay,
                  GraphicsSettingsPanel                                [migrated, §2]
     build/       BuildModeHUD                                         [migrated, §2]
     debug/       DebugOverlay                                         [migrated, §2]
     common/      UIFade.gd (shared fade-in helper)                    [migrated, §2]
-scenes/          still flat under scenes/world|ui|player/ (NOT reorganized — out of scope)
+    npc/         NPCTalkMenuUI.gd                                     [migrated, §2]
+scenes/          still flat under scenes/world|ui|player|npc/ (NOT reorganized — out of scope)
 docs/
   systems/       per-system README.md + per-script .md docs (§2 index)
 tools/
   godot_check.sh        headless Godot compile check (§16)
   gen_architecture.py   architecture.json generator (§17)
 ```
+
 **New file convention:** place new scripts directly into the matching
 subfolder above (e.g. a new power device → `scripts/world/power/`) — extend
 the map with a new subfolder if nothing fits, rather than dropping it in a
 flat/convenient location.
 
 ## 4. Autoloads (project.godot)
+
 - `WorldManager` — global scene/player state. See `docs/systems/world-core/README.md`.
 - `SaveManager` — generic save/load field-registry with phase-ordered load
   (dug chunks → placed objects+extra state → player wires → water pipes →
@@ -171,7 +171,7 @@ flat/convenient location.
   `GENERATOR_TIERS`, `STATE_EMISSION_COLORS`). See `docs/systems/power/README.md`.
 - `GraphicsSettings` (`scripts/core/GraphicsSettings.gd`) — device rendering/
   quality preferences. **Registered directly in committed `project.godot`**
-  (as of repo HEAD `00938b5`) — an exception to the usual "Brannon adds new
+  (as of repo HEAD `f1a2b3c`) — an exception to the usual "Brannon adds new
   autoloads locally" rule, done because he hit trouble adding it manually
   in the editor. See §9 gotcha for why new autoloads normally aren't
   hand-committed. See `docs/systems/graphics/README.md`.
@@ -179,14 +179,14 @@ flat/convenient location.
 ## 5. Architecture debt / open items (repo-wide, not one system's)
 - No automated tests (no GUT setup anywhere in the repo).
 - `scenes/` stays flat — reorganization was scoped to `scripts/` only.
-- All 9 systems now have a migrated `docs/systems/*/README.md` (§2) — no
-  pending doc migration remains as of July 2026.
+- All 11 systems now have a migrated `docs/systems/*/README.md` (§2) — no
+  pending doc migration remains as of Aug 2026.
 
 ---
 
 ## 6. Player / Furniture-Items — see `docs/systems/player/README.md` and
 `docs/systems/furniture-items/README.md`
-Both fully migrated. Quick pointers only: `InteractionSystem.gd` (~690
+Both fully migrated. Quick pointers only: `InteractionSystem.gd` (~750
 lines) owns ALL pickup/drop/store/scroll — `_held_from_slot=-1` means world
 pickup, dual follow-speeds 18 world/40 inventory. Item scripts (WaterBottle,
 FoodCan, TestCrate, WaterCase, CanCase, FuelCan, Flashlight, PickupItem base)
@@ -359,3 +359,54 @@ Read this before opening source for a system's shape (dependencies,
 signals, public API) — real behavior/logic still requires opening the
 actual `.gd` file, this is structural only, not a real compile (that's what
 `tools/godot_check.sh` is for).
+
+---
+
+## Recent Major Changes (Aug 2026)
+
+### NPC Basics (Aug 2026)
+- **NPC wandering + Talk UI**: `scripts/npc/NPC.gd`, `scripts/ui/npc/NPCTalkMenuUI.gd`, `scenes/npc/NPC.tscn`
+- **Admin spawn**: F7 Admin Menu "Spawn NPC" button
+- **MainWorld**: `get_cleared_cell_bounds_world()` for NPC wander bounds
+
+### Cooking Fixes Part 1/2 (Aug 2026)
+- **CookingPot.gd**: `get_use_prompt()` shows "[E] Place Cooking Pot" near stove
+- **Stove.gd**: `_grid_connected` tracking; grid-aware `set_powered()`/`on_interact()`/`get_interact_prompt()`
+
+### UI Unification (Jul 2026)
+- **UIKit.gd**: Shared menu builders, font constants, `MENU_PANEL_W=380`
+- **PauseMenuUI.gd**: Complete rewrite using UIKit builders
+- **GraphicsSettingsPanel.gd**: Complete rewrite; fixed off-center bug via `build_centered_panel()`
+- **UIKit.gd**: Removed invalid `custom_maximum_size` from `build_centered_panel()`
+
+### Admin Menu Additions (Part A) + F10 Removal (Part B)
+- **AdminMenu.gd**: 11 rows, 6 sections (Power, Time, Water, Economy, Farming, Status, NPC)
+- **AdminSpawnMenu.gd** + `.uid`: Deleted
+- **MainWorld.gd**: Removed F10 handler, `_admin_menu`, `_toggle_admin_spawn_menu()`
+- **All docs updated**: PROJECT_SUMMARY.md, ui/README.md, build/README.md, water/README.md, farming/README.md
+- **architecture.json**: Regenerated
+
+### NPC Basics (Aug 2026)
+- NPC wandering + Talk UI + Admin spawn
+
+### Cooking Fixes Part 1/2
+- CookingPot `get_use_prompt()` for "Place on Stove"
+- Stove grid-aware power management
+
+### UI Unification
+- PauseMenuUI + GraphicsSettingsPanel rewrite with shared UIKit builders
+- Fixed off-center bug, unified fonts/styles
+
+### Admin Menu + F10 Removal
+- 11-row Admin Menu with new Economy/Water/Farming/NPC rows
+- F10 AdminSpawnMenu completely removed
+
+---
+
+## Next Up
+- **Cooking System Part 2** — Cook timer + Dish item (see `COOKING_SYSTEM_PLAN_PART3.md` Part G)
+- **Cooking Fixes Part 2** — FoodCan/FarmProduceItem/WaterBottle integration with CookingPot (see `COOKING_SYSTEM_PLAN_PART2.md` Parts D-F)
+- **NPC Tasks** — Task system for NPCs (filter replacement, crop harvesting, water collection, generator repair)
+- **Save/load system** — full infrastructure carryover
+- **BuildModeHUD.gd** — buttons/tabs/interactions (UI Claude's scope)
+- **Worn-look shader defaults** — confirm in actual play

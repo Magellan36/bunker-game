@@ -38,7 +38,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `power/` | `PowerTerminalUI.gd` (~1010), `PowerPriorityUI.gd` (~495), `GeneratorInspectUI.gd` (~434) | Power device panels — see `docs/systems/power/README.md` for what they read/write |
 | `inventory/` | `InventoryHUD.gd` (~444 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475), `BasketUI.gd` (~470) | Slot HUD, inventory state, shelf storage panel, basket contents panel |
 | `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (~107 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interact prompt |
-| `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~575), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, sleep fade |
+| `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~575), `SleepOverlay.gd` (~145), `AdminMenu.gd` (~400) | ESC pause menu, graphics settings, sleep fade, admin cheats |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
 | `common/` | `UIFade.gd` (~30), `UIKit.gd` (~200) | Shared fade-in helper + shared theme/drawing kit (see "UIKit shared kit" below) — put any future cross-panel UI utility here |
@@ -73,6 +73,7 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
 - `PauseMenuUI`: `toggle()`, `open()`, `close()`, `is_open()`.
 - `GraphicsSettingsPanel`: `open()`, `close()`.
 - `SleepOverlay`: `begin_sleep()`, `request_wake()`.
+- `AdminMenu`: `toggle()`, `open()`, `close()`, `is_open()`.
 - `BuildModeHUD`: `get_item_price(tile_id)`, `show_hud()`/`hide_hud()`,
   `set_active_tool(tool_id)`, `set_ghost_active(active)`,
   `open_construct_menu()`/`close_construct_menu()`,
@@ -458,6 +459,10 @@ now live in `scripts/ui/hud/`:
 - **FARMING section:** "Spawn Potato", "Spawn Blueberry", "Spawn Tomato"
   rows use `FarmProduceItem.spawn_at()` — same pop-in tween, jitter,
   and charges as harvested produce. No cash cost (cheat menu).
+
+- **NPC section:** "Spawn NPC" row calls `NPC.tscn` instantiation 2m in
+  front of player via injected `world_node` — same pattern as other
+  admin spawns.
 
 - **Worn/rugged visual pass:** no grunge/scratch texture asset exists
   anywhere in the project — this is entirely procedural, two shared

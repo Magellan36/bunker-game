@@ -572,7 +572,7 @@ func _refresh_connectable_dots() -> void:
 			dot_y = 0.15
 		elif tile_id == TILE_STOVE:
 			dot_y = 0.25
-			dot_x = 0.45
+			dot_x = 0.0
 		dot_mi.position = Vector3(dot_x, dot_y, 0.0)
 		obj.add_child(dot_mi)
 		_connectable_dots[obj] = dot_mi
