@@ -32,6 +32,7 @@ const POT_LOCAL_POS: Vector3 = Vector3(0.0, 0.58, 0.0)
 var _pm_node_key: String = ""
 var powered_on:   bool   = false   ## Manual toggle state — independent of pot presence
 var _is_shed:     bool   = false   ## Grid load-shed state
+var _grid_connected: bool = false  ## True only when set_powered(true) has fired — i.e. wired with a live path to a generator
 var pot_ref:      Node   = null    ## The CookingPot currently resting on this stove, or null
 
 var _indicator_mi:  MeshInstance3D     = null
@@ -155,8 +156,19 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 ## powered_on AND pot_ref are both true. The indicator light is driven
 ## independently off `powered_on` directly — see _refresh_indicator().
 func set_powered(on: bool) -> void:
+	_grid_connected = on
 	if on:
 		_is_shed = false
+	elif powered_on:
+		## Lost our wire connection (or grid path) while switched on — force
+		## off. This is the "auto-disconnect" behavior: powered_on cannot
+		## be true while _grid_connected is false. _refresh_cooking_state()
+		## already handles stopping the 200W draw, and CookingPot's existing
+		## decay logic (Part 3/G) already handles ticking cook progress back
+		## down since is_cooking() will go false the instant powered_on does.
+		powered_on = false
+		_refresh_cooking_state()
+		_refresh_indicator()
 
 func set_shed(shed_on: bool) -> void:
 	_is_shed = shed_on
@@ -170,6 +182,12 @@ func set_shed(shed_on: bool) -> void:
 ## the pot and this stove is open, so by the time this runs it is always
 ## meant to simply toggle.
 func on_interact() -> void:
+	if not powered_on and not _grid_connected:
+		## Can't switch on without a live wire connection.
+		var hud: Node = get_tree().get_first_node_in_group("hud")
+		if hud != null and hud.has_method("show_soft_warning"):
+			hud.show_soft_warning("Stove not connected to power")
+		return
 	powered_on = not powered_on
 	_refresh_cooking_state()
 	_refresh_indicator()
@@ -182,6 +200,8 @@ func on_interact() -> void:
 func get_interact_prompt() -> String:
 	if pot_ref != null and pot_ref.has_method("is_dish_ready") and pot_ref.is_dish_ready():
 		return pot_ref.get_interact_prompt()
+	if not powered_on and not _grid_connected:
+		return "Stove Not Connected"
 	return "[E] Turn Stove %s" % ("Off" if powered_on else "On")
 
 
