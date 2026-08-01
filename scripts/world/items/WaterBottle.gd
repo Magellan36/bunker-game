@@ -39,6 +39,7 @@ func _ready() -> void:
 	super._ready()
 	add_to_group("inventory_item")
 	add_to_group("basket_storable")
+	add_to_group("cookpot_storable")
 	_mesh = get_node_or_null("MeshInstance3D")
 
 # ─── Empty check (computed, not a latch) ──────────────────────────────────────

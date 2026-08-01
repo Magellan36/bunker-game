@@ -202,6 +202,17 @@ func _rebuild_ghost_mesh() -> void:
 					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
+	# ── Stove (Cooking System): ghost from Stove.gd static helper ──────────────
+	if _owner._selected_tile == _owner.TILE_STOVE:
+		var stove_ghost_script: GDScript = load("res://scripts/world/cooking/Stove.gd")
+		if stove_ghost_script != null and stove_ghost_script.has_method("build_ghost_mesh"):
+			var ghost_mesh: Mesh = stove_ghost_script.build_ghost_mesh()
+			if ghost_mesh != null:
+				_owner._ghost.mesh = ghost_mesh
+				for s: int in ghost_mesh.get_surface_count():
+					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
 	# ── Heavy consumer ghost: grey box matching HeavyConsumerTest BOX_SIZE ─────
 	if _owner._selected_tile == _owner.TILE_HEAVY:
 		var hc_box: BoxMesh = BoxMesh.new()
@@ -517,7 +528,7 @@ func _update_ghost() -> void:
 	elif _owner._selected_tile == _owner.TILE_TRAY_SINGLE or _owner._selected_tile == _owner.TILE_TRAY_DOUBLE:
 		snap_pos.y = 0.5   ## Floor-standing object with slight hover offset
 	elif _owner._selected_tile == _owner.TILE_TABLE_SMALL or _owner._selected_tile == _owner.TILE_TABLE_MEDIUM \
-			or _owner._selected_tile == _owner.TILE_CHAIR:
+			or _owner._selected_tile == _owner.TILE_CHAIR or _owner._selected_tile == _owner.TILE_STOVE:
 		snap_pos.y = 0.5   ## Floor-standing, same hover-offset convention as farming trays
 	elif _owner._selected_tile == _owner.TILE_GROW_LIGHT_NORMAL or _owner._selected_tile == _owner.TILE_GROW_LIGHT_PRO:
 		## Not wall-snapped, not required to sit above a tray — placeable

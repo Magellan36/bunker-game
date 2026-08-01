@@ -63,6 +63,7 @@ const TILE_GROW_LIGHT_PRO: int    = 24  ## Farming System — grow light, pro ti
 const TILE_TABLE_SMALL:  int = 27   ## Small table, 1×1 footprint (Furniture)
 const TILE_TABLE_MEDIUM: int = 28   ## Medium table, 2×1 footprint (Furniture)
 const TILE_CHAIR:        int = 29   ## Chair, 1×1 footprint (Furniture)
+const TILE_STOVE:        int = 30   ## Cooking System — Stove, 1×1 footprint, 200W, Construct → Cooking
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -521,7 +522,8 @@ func _refresh_connectable_dots() -> void:
 	const CONNECTABLE_TILES: Array[int] = [
 		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT,
 		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER,
-		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO
+		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO,
+		TILE_STOVE
 	]
 
 	## Dot material — light blue, billboard, always-on-top
@@ -568,6 +570,9 @@ func _refresh_connectable_dots() -> void:
 			dot_x = 0.45 if tile_id == TILE_TRAY_SINGLE else 0.95
 		elif tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
 			dot_y = 0.15
+		elif tile_id == TILE_STOVE:
+			dot_y = 0.25
+			dot_x = 0.45
 		dot_mi.position = Vector3(dot_x, dot_y, 0.0)
 		obj.add_child(dot_mi)
 		_connectable_dots[obj] = dot_mi
@@ -941,7 +946,8 @@ func _try_construct() -> void:
 		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT, TILE_HEAVY,
 		TILE_BREAKER, TILE_BREAKER_SMART, TILE_BATTERY_S, TILE_BATTERY_M, TILE_BATTERY_L,
 		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER,
-		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO
+		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO,
+		TILE_STOVE
 	]
 	if _selected_tile in CONNECTABLE_TILES_QUICK:
 		_refresh_connectable_dots()
@@ -1216,6 +1222,19 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		tray_node.global_position  = pos
 		tray_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return tray_node
+
+	## ── Stove (Cooking System) — floor-placed like a farming tray/table ──────
+	if tile_id == TILE_STOVE:
+		var stove_script: GDScript = load("res://scripts/world/cooking/Stove.gd")
+		var stove_node: StaticBody3D = StaticBody3D.new()
+		if stove_script != null:
+			stove_node.set_script(stove_script)
+		stove_node.set_meta("tile_id", tile_id)
+		var stove_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		stove_par.add_child(stove_node)
+		stove_node.global_position  = pos
+		stove_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return stove_node
 
 	## ── Grow lights (Jul 2026) — placed anywhere within the bunker, not
 	## wall-snapped, not required to sit above a tray (plan §4) ────────────────
@@ -2637,14 +2656,15 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
 				return true
 		return false
-	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR:
-		# Tables and chairs sit on the floor (Y=0.5), same as Beds/Shelving/Generators/Trays above —
-		# the physics shape query hits the floor collider, causing a false
-		# "space occupied" positive. Registry-only overlap check instead.
+	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE:
+		# Tables, chairs, and the Stove sit on the floor (Y=0.5), same as
+		# Beds/Shelving/Generators/Trays above — the physics shape query hits
+		# the floor collider, causing a false "space occupied" positive.
+		# Registry-only overlap check instead.
 		var threshold: float = grid_size * 0.9
 		for entry: Dictionary in _placed_objects:
 			var et: int = entry.get("tile_id", -1)
-			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR:
+			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE:
 				continue
 			var p: Vector3 = entry["world_pos"]
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
@@ -2749,11 +2769,12 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_HEAVY:    return Vector2(0.29, 0.29)  ## 0.6×0.6 box
 		TILE_TRAY_SINGLE: return Vector2(0.45, 0.45)  ## 1×1
 		TILE_TRAY_DOUBLE: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_BED's proven footprint
-		TILE_TABLE_SMALL:  return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TRAY_SINGLE
-		TILE_TABLE_MEDIUM: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TRAY_DOUBLE/TILE_BED
-		TILE_CHAIR:        return Vector2(0.30, 0.30)  ## 1×1 cell, smaller physical footprint than a table
-		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
-		_:             return Vector2(0.40, 0.40)  ## generic fallback
+TILE_TABLE_SMALL:  return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TRAY_SINGLE
+	TILE_TABLE_MEDIUM: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TRAY_DOUBLE/TILE_BED
+	TILE_CHAIR:        return Vector2(0.30, 0.30)  ## 1×1 cell, smaller physical footprint than a table
+	TILE_STOVE:        return Vector2(0.42, 0.42)  ## 1×1, same class as TILE_TRAY_SINGLE
+	## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
+	_:             return Vector2(0.40, 0.40)  ## generic fallback
 
 
 func _is_position_occupied(pos: Vector3, tile_id: int = -1) -> bool:

@@ -1,0 +1,9 @@
+[gd_scene format=3 uid="uid://cookingpot_001"]
+
+[ext_resource type="Script" path="res://scripts/world/items/CookingPot.gd" id="1_cookingpot"]
+
+[node name="CookingPot" type="RigidBody3D"]
+script = ExtResource("1_cookingpot")
+collision_layer = 1
+collision_mask = 1
+continuous_cd = true

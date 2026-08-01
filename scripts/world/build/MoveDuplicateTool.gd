@@ -198,6 +198,14 @@ func _spawn_move_ghost(tile_id: int) -> void:
 		_owner._move_ghost.mesh = gl_m
 		for s: int in gl_m.get_surface_count():
 			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
+	elif tile_id == _owner.TILE_STOVE:
+		var stove_script: GDScript = load("res://scripts/world/cooking/Stove.gd")
+		if stove_script != null and stove_script.has_method("build_ghost_mesh"):
+			var stove_m: Mesh = stove_script.build_ghost_mesh()
+			if stove_m != null:
+				_owner._move_ghost.mesh = stove_m
+				for s: int in stove_m.get_surface_count():
+					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
 	else:
 		if _owner.gridmap != null and _owner.gridmap.mesh_library != null:
 			# Half/quarter walls use the same wall mesh (tile_id 1) but scaled
@@ -302,6 +310,8 @@ func _update_move_ghost() -> void:
 		snap_pos.y = _owner.PLACEMENT_Y
 	elif mv_tile == _owner.TILE_GROW_LIGHT_NORMAL or mv_tile == _owner.TILE_GROW_LIGHT_PRO:
 		snap_pos.y = _owner.GROW_LIGHT_PLACEMENT_Y
+	elif mv_tile == _owner.TILE_STOVE:
+		snap_pos.y = _owner.PLACEMENT_Y
 	elif mv_tile == _owner.TILE_HALF_WALL:
 		snap_pos.y = _owner.HALF_WALL_PLACEMENT_Y
 	elif mv_tile == _owner.TILE_QUARTER_WALL:

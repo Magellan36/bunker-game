@@ -95,6 +95,12 @@ const CATEGORIES: Dictionary = {
 		{ "tile_id": 21, "name": "Tray (1x1)", "price": 150 },
 		{ "tile_id": 22, "name": "Tray (2x1)", "price": 275 },
 	],
+	"Cooking": [
+		## Cooking System (Aug 2026) — Stove only. Cooking Pot is a carryable
+		## item, bought through the Farming toolbar's shop instead (see
+		## FARMING_SHOP_ITEMS "Miscellaneous" below), same reasoning as Basket.
+		{ "tile_id": 30, "name": "Stove", "price": 500 },
+	],
 }
 
 ## Farming toolbar tool's shop (Jul 2026, plan §8.2) — a SEPARATE dict from
@@ -131,6 +137,10 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 	"Miscellaneous": [
 		{ "tile_id": 19, "name": "Crate", "price": 40 },
 		{ "tile_id": 20, "name": "Basket", "price": 100 },
+		## Cooking Pot (Aug 2026) — price is a placeholder, unreviewed —
+		## flagged for a future balance pass, same convention this project
+		## already applies to new device/item pricing.
+		{ "tile_id": 21, "name": "Cooking Pot", "price": 120 },
 	],
 }
 
@@ -161,6 +171,7 @@ const PREVIEW_SOURCES: Dictionary = {
 	18: { "scene": "res://scenes/world/FuelCan.tscn",   "is_script": false },
 	19: { "scene": "res://scenes/world/TestCrate.tscn", "is_script": false },
 	20: { "scene": "res://scenes/world/Basket.tscn", "is_script": false },
+	21: { "scene": "res://scenes/world/CookingPot.tscn", "is_script": false },
 }
 
 ## Flat list used only for legacy compat (3D preview viewports, etc.)
