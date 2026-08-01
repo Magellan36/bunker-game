@@ -15,8 +15,12 @@ const BOX_SIZE: Vector3 = Vector3(0.85, 0.55, 0.85)   ## grey box body
 const BURNER_RADIUS: float = 0.32
 const BURNER_HEIGHT: float = 0.03
 
-const COLOR_BODY:      Color = Color(0.35, 0.35, 0.36, 1.0)   ## basic grey
-const COLOR_BURNER:    Color = Color(0.05, 0.05, 0.05, 1.0)   ## flat black circle
+const BODY_TOP_PLATE_H: float = 0.035
+const BODY_FOOT_H: float = 0.06
+
+const COLOR_BODY:      Color = Color(0.29, 0.30, 0.31, 1.0)
+const COLOR_BODY_WEAR: Color = Color(0.36, 0.37, 0.38, 1.0)
+const COLOR_BURNER:    Color = Color(0.06, 0.06, 0.06, 1.0)
 const COLOR_LIGHT_ON:  Color = Color(0.30, 1.00, 0.40, 1.0)   ## green, matches HeavyConsumerTest's COLOR_ON
 const COLOR_LIGHT_OFF: Color = Color(0.25, 0.05, 0.05, 1.0)   ## dark red / unlit
 
@@ -255,7 +259,7 @@ func _refresh_indicator() -> void:
 
 # ─── Visual build ──────────────────────────────────────────────────────────
 func _build_fixture() -> void:
-	## Body — basic grey box
+	## Main body
 	var body_mi: MeshInstance3D = MeshInstance3D.new()
 	var body_mesh: BoxMesh = BoxMesh.new()
 	body_mesh.size = BOX_SIZE
@@ -263,8 +267,8 @@ func _build_fixture() -> void:
 	body_mi.position = Vector3(0.0, BOX_SIZE.y * 0.5, 0.0)
 	var body_mat: StandardMaterial3D = StandardMaterial3D.new()
 	body_mat.albedo_color = COLOR_BODY
-	body_mat.roughness    = 0.75
-	body_mat.metallic     = 0.15
+	body_mat.roughness    = 0.88
+	body_mat.metallic     = 0.30
 	body_mi.set_surface_override_material(0, body_mat)
 	add_child(body_mi)
 
@@ -274,20 +278,116 @@ func _build_fixture() -> void:
 			(child as StaticBody3D).collision_layer = 5
 			(child as StaticBody3D).collision_mask  = 0
 
-	## Burner — single flat black circle on top
-	var burner_mi: MeshInstance3D = MeshInstance3D.new()
-	var burner_mesh: CylinderMesh = CylinderMesh.new()
-	burner_mesh.top_radius    = BURNER_RADIUS
-	burner_mesh.bottom_radius = BURNER_RADIUS
-	burner_mesh.height        = BURNER_HEIGHT
-	burner_mi.mesh = burner_mesh
-	burner_mi.position = Vector3(0.0, BOX_SIZE.y + BURNER_HEIGHT * 0.5, 0.0)
+	## Slightly lighter top plate for worn enamel/steel variation
+	var top_plate_mi: MeshInstance3D = MeshInstance3D.new()
+	var top_plate_mesh: BoxMesh = BoxMesh.new()
+	top_plate_mesh.size = Vector3(BOX_SIZE.x - 0.06, BODY_TOP_PLATE_H, BOX_SIZE.z - 0.06)
+	top_plate_mi.mesh = top_plate_mesh
+	top_plate_mi.position = Vector3(0.0, BOX_SIZE.y - BODY_TOP_PLATE_H * 0.5 - 0.005, 0.0)
+	var top_plate_mat: StandardMaterial3D = StandardMaterial3D.new()
+	top_plate_mat.albedo_color = COLOR_BODY_WEAR
+	top_plate_mat.roughness = 0.84
+	top_plate_mat.metallic = 0.38
+	top_plate_mi.set_surface_override_material(0, top_plate_mat)
+	add_child(top_plate_mi)
+
+	## Four short feet so the body does not read like a floating cube
+	var foot_mat: StandardMaterial3D = StandardMaterial3D.new()
+	foot_mat.albedo_color = Color(0.18, 0.18, 0.19, 1.0)
+	foot_mat.roughness = 0.80
+	foot_mat.metallic = 0.35
+	var foot_positions: Array[Vector3] = [
+		Vector3(-0.34, BODY_FOOT_H * 0.5, -0.34),
+		Vector3( 0.34, BODY_FOOT_H * 0.5, -0.34),
+		Vector3(-0.34, BODY_FOOT_H * 0.5,  0.34),
+		Vector3( 0.34, BODY_FOOT_H * 0.5,  0.34),
+	]
+	for p: Vector3 in foot_positions:
+		var foot_mi: MeshInstance3D = MeshInstance3D.new()
+		var foot_mesh: BoxMesh = BoxMesh.new()
+		foot_mesh.size = Vector3(0.07, BODY_FOOT_H, 0.07)
+		foot_mi.mesh = foot_mesh
+		foot_mi.position = p
+		foot_mi.set_surface_override_material(0, foot_mat)
+		add_child(foot_mi)
+
+	## Burner ring assembly — cast-iron style ring with supports
 	var burner_mat: StandardMaterial3D = StandardMaterial3D.new()
 	burner_mat.albedo_color = COLOR_BURNER
-	burner_mat.roughness    = 0.55
-	burner_mat.metallic     = 0.10
-	burner_mi.set_surface_override_material(0, burner_mat)
-	add_child(burner_mi)
+	burner_mat.roughness    = 0.94
+	burner_mat.metallic     = 0.06
+
+	var ring_outer_r: float = BURNER_RADIUS * 0.86
+	var ring_inner_r: float = BURNER_RADIUS * 0.56
+	var ring_major: float = (ring_outer_r + ring_inner_r) * 0.5
+	var ring_minor: float = (ring_outer_r - ring_inner_r) * 0.5
+	var ring_y: float = BOX_SIZE.y + 0.018
+
+	var burner_ring_mi: MeshInstance3D = MeshInstance3D.new()
+	var burner_ring_mesh: TorusMesh = TorusMesh.new()
+	burner_ring_mesh.inner_radius = ring_major - ring_minor
+	burner_ring_mesh.outer_radius = ring_major + ring_minor
+	burner_ring_mesh.rings = 30
+	burner_ring_mesh.ring_segments = 14
+	burner_ring_mi.mesh = burner_ring_mesh
+	burner_ring_mi.position = Vector3(0.0, ring_y, 0.0)
+	burner_ring_mi.set_surface_override_material(0, burner_mat)
+	add_child(burner_ring_mi)
+
+	var burner_inner_ring_mi: MeshInstance3D = MeshInstance3D.new()
+	var burner_inner_ring_mesh: TorusMesh = TorusMesh.new()
+	burner_inner_ring_mesh.inner_radius = BURNER_RADIUS * 0.24
+	burner_inner_ring_mesh.outer_radius = BURNER_RADIUS * 0.31
+	burner_inner_ring_mesh.rings = 24
+	burner_inner_ring_mesh.ring_segments = 10
+	burner_inner_ring_mi.mesh = burner_inner_ring_mesh
+	burner_inner_ring_mi.position = Vector3(0.0, ring_y - 0.002, 0.0)
+	burner_inner_ring_mi.set_surface_override_material(0, burner_mat)
+	add_child(burner_inner_ring_mi)
+
+	var spoke_len: float = BURNER_RADIUS * 0.28
+	var spoke_w: float = 0.05
+	var spoke_h: float = 0.024
+	for i: int in range(4):
+		var ang: float = deg_to_rad(45.0 + float(i) * 90.0)
+		var dir: Vector3 = Vector3(cos(ang), 0.0, sin(ang))
+		var spoke_mi: MeshInstance3D = MeshInstance3D.new()
+		var spoke_mesh: BoxMesh = BoxMesh.new()
+		spoke_mesh.size = Vector3(spoke_len, spoke_h, spoke_w)
+		spoke_mi.mesh = spoke_mesh
+		spoke_mi.position = Vector3(dir.x * (BURNER_RADIUS * 0.16), ring_y - 0.001, dir.z * (BURNER_RADIUS * 0.16))
+		spoke_mi.rotation_degrees = Vector3(0.0, -rad_to_deg(ang), 0.0)
+		spoke_mi.set_surface_override_material(0, burner_mat)
+		add_child(spoke_mi)
+
+	## Burner base disc below the ring
+	var burner_base_mi: MeshInstance3D = MeshInstance3D.new()
+	var burner_base_mesh: CylinderMesh = CylinderMesh.new()
+	burner_base_mesh.top_radius = BURNER_RADIUS * 0.58
+	burner_base_mesh.bottom_radius = BURNER_RADIUS * 0.58
+	burner_base_mesh.height = 0.016
+	burner_base_mesh.radial_segments = 20
+	burner_base_mi.mesh = burner_base_mesh
+	burner_base_mi.position = Vector3(0.0, BOX_SIZE.y + 0.008, 0.0)
+	burner_base_mi.set_surface_override_material(0, burner_mat)
+	add_child(burner_base_mi)
+
+	## Front control knob
+	var knob_mi: MeshInstance3D = MeshInstance3D.new()
+	var knob_mesh: CylinderMesh = CylinderMesh.new()
+	knob_mesh.top_radius = 0.05
+	knob_mesh.bottom_radius = 0.05
+	knob_mesh.height = 0.04
+	knob_mesh.radial_segments = 16
+	knob_mi.mesh = knob_mesh
+	knob_mi.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+	knob_mi.position = Vector3(0.0, BOX_SIZE.y * 0.52, BOX_SIZE.z * 0.5 + 0.03)
+	var knob_mat: StandardMaterial3D = StandardMaterial3D.new()
+	knob_mat.albedo_color = Color(0.13, 0.13, 0.14, 1.0)
+	knob_mat.roughness = 0.72
+	knob_mat.metallic = 0.30
+	knob_mi.set_surface_override_material(0, knob_mat)
+	add_child(knob_mi)
 
 	## Indicator light — small emissive sphere on the front face
 	_indicator_mi = MeshInstance3D.new()
