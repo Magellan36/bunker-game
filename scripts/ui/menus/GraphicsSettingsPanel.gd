@@ -2,8 +2,16 @@ extends CanvasLayer
 ## GraphicsSettingsPanel.gd
 ## Graphics/quality settings panel — opened from PauseMenuUI's Settings
 ## button. Built as a real Control node tree in code (same pattern
-## PauseMenuUI/BuildModeHUD use), per the "new panels should use Control
-## trees, not hand-drawn _draw()" guidance in PROJECT_SUMMARY.md §9.
+## PauseMenuUI/BuildModeHUD use).
+##
+## Jul 2026 — restyled onto the shared UIKit menu-builder helpers as part
+## of the "unify every menu" pass. This is also the fix for the long-
+## standing off-center bug: the panel used to call the bare
+## `set_anchors_preset(PRESET_CENTER)` with no explicit offsets BEFORE its
+## ~15 settings rows were added, so Godot baked the centering math from the
+## panel's near-zero size at that moment instead of its real final size.
+## `UIKit.build_centered_panel()` fixes this structurally by always sizing
+## the panel to its final fixed width/height up front.
 ##
 ## DEPENDS ON the GraphicsSettings autoload being registered (Project
 ## Settings > Autoload, name "GraphicsSettings") — will show "Could not
@@ -16,14 +24,16 @@ extends CanvasLayer
 ##   4. Advanced Quality (SDFGI, SSAO, SSIL, Volumetric Fog, Glow, DOF)
 ##   5. Flashlight section (Volumetrics, Shadows)
 ##   6. Camera (FOV)
-## All controls follow the shared UIKit theme for visual consistency with
-## PauseMenuUI/WaterDispenserUI/PowerTerminalUI.
+## All controls use the shared UIKit NEUTRAL theme + menu builders for
+## visual consistency with PauseMenuUI.
 
 var _panel:         Panel = null
 var _vbox:          VBoxContainer = null
 var _scroll:        ScrollContainer = null
 var _preset_option: OptionButton = null
 var _close_btn:     Button = null
+var _backdrop:      ColorRect = null   ## Jul 2026 — stored directly instead of fetched via get_child(0)
+var _theme:         UIKit.UITheme = null
 
 ## Display
 var _window_mode_option: OptionButton = null
@@ -62,12 +72,7 @@ const AA_OPTIONS: Array[Dictionary] = [
 	{ "label": "Max (MSAA 4x + TAA)",    "msaa": Viewport.MSAA_4X, "screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": true },
 ]
 
-const PANEL_W: float = 340.0
 const PANEL_MAX_H: float = 520.0
-const PANEL_PAD: float = 16.0
-const PANEL_RADIUS: float = 4.0
-const SECTION_GAP: float = 10.0
-const ITEM_GAP: float = 6.0
 const PRESET_NAMES: Array[String] = ["Low", "Medium", "High", "Ultra"]
 
 ## AA combo labels in same order as AA_OPTIONS
@@ -114,31 +119,20 @@ func close() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _build_ui() -> void:
-	## Blur backdrop (same as PauseMenuUI)
-	var backdrop: ColorRect = ColorRect.new()
-	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
-	backdrop.color = Color(0.0, 0.0, 0.0, 0.55)
-	var blur_shader: Shader = load("res://assets/shaders/pause_blur.gdshader")
-	if blur_shader != null:
-		var mat: ShaderMaterial = ShaderMaterial.new()
-		mat.shader = blur_shader
-		backdrop.material = mat
-	add_child(backdrop)
+	_theme = UIKit.theme_for(UIKit.Domain.NEUTRAL)
 
-	## Main panel
-	_panel = Panel.new()
-	_panel.custom_minimum_size = Vector2(PANEL_W, 0.0)
-	_panel.custom_maximum_size = Vector2(PANEL_W, PANEL_MAX_H)
-	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color     = Color(0.07, 0.07, 0.08, 0.94)
-	style.border_color = Color(0.35, 0.35, 0.38, 0.9)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(4)
-	_panel.add_theme_stylebox_override("panel", style)
+	## Blur backdrop (same as PauseMenuUI, via the shared builder).
+	_backdrop = UIKit.build_modal_backdrop()
+	add_child(_backdrop)
+	_backdrop.gui_input.connect(_on_backdrop_input)
+
+	## Main panel — fixed size, always correctly centered (Jul 2026 fix,
+	## see file header).
+	_panel = UIKit.build_centered_panel(UIKit.MENU_PANEL_W, PANEL_MAX_H, _theme)
 	add_child(_panel)
 
-	## Scroll container (fixed max height so it never runs off-screen)
+	## Scroll container (panel is a fixed height, so overflow content scrolls
+	## instead of the panel growing/shrinking to fit it).
 	_scroll = ScrollContainer.new()
 	_scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -157,8 +151,8 @@ func _build_ui() -> void:
 	## Title
 	var title: Label = Label.new()
 	title.text = "GRAPHICS SETTINGS"
-	title.add_theme_color_override("font_color", UIKit.theme_for(UIKit.Domain.NEUTRAL).header)
-	title.add_theme_font_size_override("font_size", 14)
+	title.add_theme_color_override("font_color", _theme.header)
+	title.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_TITLE)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_override("font", UIKit.font())
 	_vbox.add_child(title)
@@ -167,29 +161,20 @@ func _build_ui() -> void:
 	_build_content()
 
 	## Close button at bottom
-	var close_btn: Button = _make_button("Close", close)
-	_vbox.add_child(close_btn)
-	_close_btn = close_btn
+	_close_btn = UIKit.make_button("Close", close, 36.0)
+	_vbox.add_child(_close_btn)
 
 	## Apply shared settings theme to the whole panel (so checkboxes, sliders,
 	## optionbuttons inherit the dark styling without per-control overrides)
 	_panel.theme = UIKit.settings_controls_theme()
 
-	## Wire backdrop click-to-close
-	var backdrop_node: ColorRect = get_child(0)  ## First child is the ColorRect backdrop
-	if backdrop_node:
-		backdrop_node.gui_input.connect(_on_backdrop_input)
-
 ## ─── Content builder ──────────────────────────────────────────────────────────
 func _build_content() -> void:
 	## 1. Quality Preset
-	_add_section_header("QUALITY PRESET")
+	_vbox.add_child(UIKit.make_section_label("QUALITY PRESET", _theme))
 	var preset_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(preset_row)
-	var preset_lbl: Label = Label.new()
-	preset_lbl.text = "Quality Preset"
-	preset_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	preset_row.add_child(preset_lbl)
+	preset_row.add_child(UIKit.make_row_label("Quality Preset", _theme))
 	_preset_option = OptionButton.new()
 	for preset_name: String in PRESET_NAMES:
 		_preset_option.add_item(preset_name)
@@ -197,15 +182,13 @@ func _build_content() -> void:
 	preset_row.add_child(_preset_option)
 
 	## 2. Display
-	_add_section_header("DISPLAY")
+	_vbox.add_child(HSeparator.new())
+	_vbox.add_child(UIKit.make_section_label("DISPLAY", _theme))
 
 	## Window Mode
 	var wm_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(wm_row)
-	var wm_lbl: Label = Label.new()
-	wm_lbl.text = "Window Mode"
-	wm_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	wm_row.add_child(wm_lbl)
+	wm_row.add_child(UIKit.make_row_label("Window Mode", _theme))
 	_window_mode_option = OptionButton.new()
 	for lbl: String in WINDOW_MODE_LABELS:
 		_window_mode_option.add_item(lbl)
@@ -215,10 +198,7 @@ func _build_content() -> void:
 	## Resolution (Windowed only)
 	var res_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(res_row)
-	var res_lbl: Label = Label.new()
-	res_lbl.text = "Resolution"
-	res_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	res_row.add_child(res_lbl)
+	res_row.add_child(UIKit.make_row_label("Resolution", _theme))
 	_resolution_option = OptionButton.new()
 	for lbl: String in RESOLUTION_LABELS:
 		_resolution_option.add_item(lbl)
@@ -228,20 +208,14 @@ func _build_content() -> void:
 	## VSync
 	var vsync_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(vsync_row)
-	var vsync_lbl: Label = Label.new()
-	vsync_lbl.text = "VSync"
-	vsync_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vsync_row.add_child(vsync_lbl)
+	vsync_row.add_child(UIKit.make_row_label("VSync", _theme))
 	_vsync_check = _make_checkbox("Enabled", _on_vsync_toggled)
 	vsync_row.add_child(_vsync_check)
 
 	## FPS Cap
 	var fps_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(fps_row)
-	var fps_lbl: Label = Label.new()
-	fps_lbl.text = "FPS Cap"
-	fps_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	fps_row.add_child(fps_lbl)
+	fps_row.add_child(UIKit.make_row_label("FPS Cap", _theme))
 	_fps_cap_option = OptionButton.new()
 	for lbl: String in FPS_CAP_LABELS:
 		_fps_cap_option.add_item(lbl)
@@ -249,15 +223,13 @@ func _build_content() -> void:
 	fps_row.add_child(_fps_cap_option)
 
 	## 3. Rendering
-	_add_section_header("RENDERING")
+	_vbox.add_child(HSeparator.new())
+	_vbox.add_child(UIKit.make_section_label("RENDERING", _theme))
 
 	## Anti-Aliasing combo
 	var aa_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(aa_row)
-	var aa_lbl: Label = Label.new()
-	aa_lbl.text = "Anti-Aliasing"
-	aa_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	aa_row.add_child(aa_lbl)
+	aa_row.add_child(UIKit.make_row_label("Anti-Aliasing", _theme))
 	_aa_option = OptionButton.new()
 	for lbl: String in AA_LABELS:
 		_aa_option.add_item(lbl)
@@ -267,10 +239,7 @@ func _build_content() -> void:
 	## Anisotropic Filtering
 	var aniso_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(aniso_row)
-	var aniso_lbl: Label = Label.new()
-	aniso_lbl.text = "Anisotropic Filtering"
-	aniso_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	aniso_row.add_child(aniso_lbl)
+	aniso_row.add_child(UIKit.make_row_label("Anisotropic Filtering", _theme))
 	_aniso_option = OptionButton.new()
 	for lbl: String in ANISO_LABELS:
 		_aniso_option.add_item(lbl)
@@ -280,10 +249,7 @@ func _build_content() -> void:
 	## Shadow Quality
 	var shadow_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(shadow_row)
-	var shadow_lbl: Label = Label.new()
-	shadow_lbl.text = "Shadow Quality"
-	shadow_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	shadow_row.add_child(shadow_lbl)
+	shadow_row.add_child(UIKit.make_row_label("Shadow Quality", _theme))
 	_shadow_quality_option = OptionButton.new()
 	for lbl: String in SHADOW_QUALITY_LABELS:
 		_shadow_quality_option.add_item(lbl)
@@ -293,10 +259,7 @@ func _build_content() -> void:
 	## Render Scale
 	var rs_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(rs_row)
-	var rs_lbl: Label = Label.new()
-	rs_lbl.text = "Render Scale"
-	rs_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rs_row.add_child(rs_lbl)
+	rs_row.add_child(UIKit.make_row_label("Render Scale", _theme))
 	_render_scale_slider = HSlider.new()
 	_render_scale_slider.min_value = RENDER_SCALE_MIN
 	_render_scale_slider.max_value = RENDER_SCALE_MAX
@@ -307,7 +270,8 @@ func _build_content() -> void:
 	rs_row.add_child(_render_scale_slider)
 
 	## 4. Advanced Quality
-	_add_section_header("ADVANCED QUALITY")
+	_vbox.add_child(HSeparator.new())
+	_vbox.add_child(UIKit.make_section_label("ADVANCED QUALITY", _theme))
 	_sdfgi_check          = _make_checkbox("SDFGI (Real-time GI)", _on_sdfgi_toggled)
 	_vbox.add_child(_sdfgi_check)
 	_ssao_check           = _make_checkbox("SSAO", _on_ssao_toggled)
@@ -322,20 +286,19 @@ func _build_content() -> void:
 	_vbox.add_child(_dof_check)
 
 	## 5. Flashlight
-	_add_section_header("FLASHLIGHT")
+	_vbox.add_child(HSeparator.new())
+	_vbox.add_child(UIKit.make_section_label("FLASHLIGHT", _theme))
 	_vol_check            = _make_checkbox("Beam Volumetrics", _on_vol_toggled)
 	_vbox.add_child(_vol_check)
 	_shadow_check         = _make_checkbox("Shadow Casting (opt-in)", _on_shadow_toggled)
 	_vbox.add_child(_shadow_check)
 
 	## 6. Camera
-	_add_section_header("CAMERA")
+	_vbox.add_child(HSeparator.new())
+	_vbox.add_child(UIKit.make_section_label("CAMERA", _theme))
 	var fov_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(fov_row)
-	var fov_lbl: Label = Label.new()
-	fov_lbl.text = "Camera FOV"
-	fov_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	fov_row.add_child(fov_lbl)
+	fov_row.add_child(UIKit.make_row_label("Camera FOV", _theme))
 	_fov_slider = HSlider.new()
 	_fov_slider.min_value = 60.0
 	_fov_slider.max_value = 100.0
@@ -345,43 +308,17 @@ func _build_content() -> void:
 	_fov_slider.drag_ended.connect(_on_fov_drag_ended)
 	fov_row.add_child(_fov_slider)
 
-func _add_section_header(text: String) -> void:
-	var sep: HSeparator = HSeparator.new()
-	_vbox.add_child(sep)
-	var lbl: Label = Label.new()
-	lbl.text = text
-	lbl.add_theme_color_override("font_color", Color(0.55, 0.55, 0.58, 1.0))
-	lbl.add_theme_font_size_override("font_size", 10)
-	lbl.add_theme_font_override("font", UIKit.font())
-	_vbox.add_child(lbl)
-
 ## ─── Helper: control makers ─────────────────────────────────────────────────
+## NOTE: section headers and row labels now go through UIKit.make_section_label()/
+## UIKit.make_row_label() (called directly at each site above) — this file
+## keeps only _make_checkbox(), which UIKit doesn't have an equivalent for yet.
 func _make_checkbox(text: String, cb: Callable) -> CheckBox:
 	var box: CheckBox = CheckBox.new()
 	box.text = text
 	box.toggled.connect(cb)
 	box.add_theme_font_override("font", UIKit.font())
+	box.add_theme_color_override("font_color", _theme.text)
 	return box
-
-func _make_button(text: String, cb: Callable) -> Button:
-	var btn: Button = Button.new()
-	btn.text = text
-	btn.custom_minimum_size = Vector2(0.0, 36.0)
-	btn.add_theme_font_override("font", UIKit.font())
-	var sb: StyleBoxFlat = StyleBoxFlat.new()
-	sb.bg_color = Color(0.14, 0.14, 0.16, 1.0)
-	sb.border_color = Color(0.28, 0.28, 0.32, 1.0)
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(4)
-	btn.add_theme_stylebox_override("normal", sb)
-	var hover_sb: StyleBoxFlat = sb.duplicate() as StyleBoxFlat
-	hover_sb.bg_color = Color(0.20, 0.20, 0.23, 1.0)
-	btn.add_theme_stylebox_override("hover", hover_sb)
-	var pressed_sb: StyleBoxFlat = sb.duplicate() as StyleBoxFlat
-	pressed_sb.bg_color = Color(0.12, 0.12, 0.14, 1.0)
-	btn.add_theme_stylebox_override("pressed", pressed_sb)
-	btn.pressed.connect(func(): cb.call())
-	return btn
 
 ## ─── Refresh from live settings ─────────────────────────────────────────────
 func _refresh_from_settings() -> void:

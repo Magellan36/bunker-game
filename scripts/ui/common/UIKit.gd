@@ -285,3 +285,122 @@ static func draw_rugged_circle(canvas: CanvasItem, center: Vector2, radius: floa
 static func _rugged_hash(x: float) -> float:
 	var v: float = sin(x * 12.9898) * 43758.5453
 	return v - floor(v)
+
+
+## ─── Real Control-node menu builders (Jul 2026 "unify every menu" pass) ────
+## For panels built from real Control/Container node trees (PauseMenuUI,
+## GraphicsSettingsPanel, and any future menu built the same way) — distinct
+## from the hand-drawn `_draw()` primitives above, which are for the older
+## immediate-mode panels (PowerTerminalUI, etc., not yet migrated).
+
+## Shared font-size scale — replaces each menu file picking its own numbers
+## for what should be the same 3 roles everywhere.
+const FONT_SIZE_TITLE:   int = 20   ## panel title ("PAUSED", "GRAPHICS SETTINGS")
+const FONT_SIZE_SECTION: int = 11   ## section divider labels ("Save", "DISPLAY", ...)
+const FONT_SIZE_BODY:    int = 13   ## buttons, row labels, dialog text
+
+## Shared modal width for paired menus (Jul 2026 — PauseMenuUI was 360,
+## GraphicsSettingsPanel was 340; unified so panels that open from one
+## another read as the same system).
+const MENU_PANEL_W: float = 380.0
+
+
+## Builds the standard blurred full-screen backdrop used by every modal menu
+## panel — same shader + dim-color-fallback pattern `PauseMenuUI`/
+## `GraphicsSettingsPanel` were each separately duplicating. Caller still
+## owns `add_child()`-ing the result and wiring up its `gui_input` if it
+## wants click-outside-to-close.
+static func build_modal_backdrop(alpha: float = 0.55) -> ColorRect:
+	var backdrop: ColorRect = ColorRect.new()
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	backdrop.color = Color(0.0, 0.0, 0.0, alpha)
+	var blur_shader: Shader = load("res://assets/shaders/pause_blur.gdshader")
+	if blur_shader != null:
+		var mat: ShaderMaterial = ShaderMaterial.new()
+		mat.shader = blur_shader
+		backdrop.material = mat
+	return backdrop
+
+
+## Builds a Panel that is ALWAYS correctly centered regardless of what gets
+## added to it afterward — the fix for the "off-center panel" bug class.
+## Sets a FIXED width/height box via explicit offsets computed up front,
+## instead of relying on Godot to recompute PRESET_CENTER's offsets from
+## whatever size the panel happens to have at the moment this is called
+## (which is wrong if content is still being added). Any future panel that
+## needs to be screen-centered should use this instead of calling
+## `set_anchors_preset(PRESET_CENTER)` directly.
+static func build_centered_panel(width: float, height: float, theme: UITheme) -> Panel:
+	var panel: Panel = Panel.new()
+	panel.custom_minimum_size = Vector2(width, height)
+	panel.custom_maximum_size = Vector2(width, height)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	panel.offset_left   = -width * 0.5
+	panel.offset_right  =  width * 0.5
+	panel.offset_top    = -height * 0.5
+	panel.offset_bottom =  height * 0.5
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color     = theme.bg
+	style.border_color = theme.border
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	panel.add_theme_stylebox_override("panel", style)
+	return panel
+
+
+## Shared 3-state button factory for real Control-node menus — distinct
+## from `button_stylebox()` above (which only builds one StyleBoxFlat at a
+## time for hand-drawn panels). Used by PauseMenuUI/GraphicsSettingsPanel
+## so every button in both menus looks and behaves identically, including
+## actually using the shared project font (PauseMenuUI's buttons never did
+## before this pass).
+static func make_button(text: String, cb: Callable, min_height: float = 32.0) -> Button:
+	var btn: Button = Button.new()
+	btn.text = text
+	btn.custom_minimum_size = Vector2(0.0, min_height)
+	btn.add_theme_font_size_override("font_size", FONT_SIZE_BODY)
+	btn.add_theme_font_override("font", font())
+
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color     = Color(0.14, 0.14, 0.16, 0.95)
+	style.border_color = Color(0.30, 0.30, 0.33, 0.85)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	btn.add_theme_stylebox_override("normal", style)
+
+	var hover: StyleBoxFlat = style.duplicate() as StyleBoxFlat
+	hover.bg_color     = Color(0.20, 0.20, 0.23, 0.98)
+	hover.border_color = Color(0.55, 0.55, 0.60, 1.0)
+	btn.add_theme_stylebox_override("hover", hover)
+
+	var pressed: StyleBoxFlat = style.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(0.10, 0.10, 0.12, 0.98)
+	btn.add_theme_stylebox_override("pressed", pressed)
+
+	btn.pressed.connect(cb)
+	return btn
+
+
+## Shared section-divider label (dim small text used to break a menu into
+## groups — "Save"/"Load" in PauseMenuUI, "DISPLAY"/"RENDERING"/etc. in
+## GraphicsSettingsPanel) and shared plain row-label factory (for e.g.
+## GraphicsSettingsPanel's "Window Mode"/"VSync"/etc. labels, which
+## previously had no font/color override at all and rendered in Godot's
+## raw default theme).
+static func make_section_label(text: String, theme: UITheme) -> Label:
+	var lbl: Label = Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", FONT_SIZE_SECTION)
+	lbl.add_theme_color_override("font_color", theme.dim)
+	lbl.add_theme_font_override("font", font())
+	return lbl
+
+static func make_row_label(text: String, theme: UITheme) -> Label:
+	var lbl: Label = Label.new()
+	lbl.text = text
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.add_theme_font_size_override("font_size", FONT_SIZE_BODY)
+	lbl.add_theme_color_override("font_color", theme.text)
+	lbl.add_theme_font_override("font", font())
+	return lbl
