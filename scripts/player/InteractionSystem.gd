@@ -152,8 +152,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				_quick_drop()
 		else:
-			## Empty-handed — just try world pickup (shelf menu is E)
-			_try_pickup()
+			## Empty-handed — a pot resting on a nearby stove takes priority
+			## over normal world pickup, so [F] reliably grabs it back even
+			## though it's frozen/reparented (generic _try_pickup() skips
+			## frozen bodies, so it would otherwise never find it).
+			var host_stove: Node = _find_nearest_stove_with_pot()
+			if host_stove != null:
+				_try_pickup_pot_from_stove(host_stove)
+			else:
+				_try_pickup()
 
 	# E — use held item (instant tap) / shelf open / world interact.
 	# Pure tap: fires immediately on press, no hold-to-store behavior.
@@ -167,6 +174,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		## Basket held → E stashes nearest "basket_storable" item instead of item use
 		if held_item != null and ("is_basket_container" in held_item):
 			_try_add_nearest_to_basket(held_item)
+			get_viewport().set_input_as_handled()
+			return
+		## Cooking Pot held → E either places it on a nearby open Stove, or
+		## (if no open stove in range) stashes the nearest "cookpot_storable"
+		## item into it. Mirrors the basket branch immediately above exactly.
+		if held_item != null and ("is_cookpot_container" in held_item):
+			_try_use_held_cookpot(held_item)
 			get_viewport().set_input_as_handled()
 			return
 		if held_item != null:
@@ -629,6 +643,103 @@ func _try_add_nearest_to_basket(basket: Node) -> void:
 	if not basket.try_add_item(closest):
 		if hud != null and hud.has_method("show_soft_warning"):
 			hud.show_soft_warning("Basket full")
+
+## Cooking Pot equivalent of _try_add_nearest_to_basket(), with an added
+## stove-placement priority check first. Called when the player presses E
+## while holding a Cooking Pot (is_cookpot_container duck type).
+func _try_use_held_cookpot(pot: Node) -> void:
+	var stove: Node = _find_nearest_open_stove()
+	if stove != null:
+		if held_item.knocked_out.is_connected(_on_item_knocked_out):
+			held_item.knocked_out.disconnect(_on_item_knocked_out)
+		stove.try_place_pot(pot)
+		held_item        = null
+		_held_from_slot  = -1
+		_is_holding_e    = false
+		return
+	_try_add_nearest_to_cookpot(pot)
+
+## Identical mechanism to _try_add_nearest_to_basket() — "cookpot_storable"
+## group instead of "basket_storable", pot.try_add_item() instead of
+## basket.try_add_item().
+func _try_add_nearest_to_cookpot(pot: Node) -> void:
+	var bodies: Array        = detect_area.get_overlapping_bodies()
+	var closest: RigidBody3D = null
+	var closest_dist: float  = INF
+
+	for body in bodies:
+		if body.is_in_group("cookpot_storable"):
+			if body.is_in_group("shelved"):
+				continue
+			if body is RigidBody3D and (body as RigidBody3D).freeze:
+				continue
+			var d: float = body.global_position.distance_to(player.global_position)
+			if d < closest_dist:
+				closest_dist = d
+				closest = body
+
+	var hud: Node = get_tree().get_first_node_in_group("hud")
+
+	if closest == null:
+		if hud != null and hud.has_method("show_soft_warning"):
+			hud.show_soft_warning("Nothing nearby to store")
+		return
+
+	if not pot.try_add_item(closest):
+		if hud != null and hud.has_method("show_soft_warning"):
+			hud.show_soft_warning("Pot full")
+
+## Stove is a StaticBody3D — Jolt's Area3D.get_overlapping_bodies() is
+## unreliable for those (same caveat _try_interact()'s Pass 2 already
+## documents), so this uses a group scan, not detect_area.
+func _find_nearest_open_stove() -> Node:
+	var closest: Node        = null
+	var closest_dist: float  = MAX_PROMPT_DIST
+	var player_pos: Vector3  = player.global_position
+	for node: Node in get_tree().get_nodes_in_group("stove"):
+		if not is_instance_valid(node):
+			continue
+		if not node.has_method("has_open_slot") or not node.has_open_slot():
+			continue
+		var d: float = (node as Node3D).global_position.distance_to(player_pos)
+		if d < closest_dist:
+			closest_dist = d
+			closest = node
+	return closest
+
+## Same group-scan reasoning as _find_nearest_open_stove().
+func _find_nearest_stove_with_pot() -> Node:
+	var closest: Node        = null
+	var closest_dist: float  = MAX_PROMPT_DIST
+	var player_pos: Vector3  = player.global_position
+	for node: Node in get_tree().get_nodes_in_group("stove"):
+		if not is_instance_valid(node):
+			continue
+		if not ("pot_ref" in node) or node.pot_ref == null:
+			continue
+		var d: float = (node as Node3D).global_position.distance_to(player_pos)
+		if d < closest_dist:
+			closest_dist = d
+			closest = node
+	return closest
+
+## Mirrors _try_pickup()'s tail exactly (signal connect, held_item/_held_from_slot
+## bookkeeping, set_player call) — the only difference is the item comes from
+## Stove.try_remove_pot() instead of a detect_area scan.
+func _try_pickup_pot_from_stove(stove: Node) -> void:
+	var pot: Node = stove.try_remove_pot()
+	if pot == null:
+		return
+	held_item       = pot
+	_held_from_slot = -1
+	_tracked_bodies.erase(held_item)
+	if "from_inventory" in held_item:
+		held_item.from_inventory = false
+	if not held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.connect(_on_item_knocked_out)
+	held_item.pickup(hold_point)
+	if held_item.has_method("set_player"):
+		held_item.set_player(player)
 
 # ─── World Interaction ────────────────────────────────────────────────────────
 func _try_interact() -> void:

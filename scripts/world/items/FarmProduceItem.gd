@@ -56,6 +56,12 @@ func _find_nearest_plantable_tray() -> FarmingTray:
 	return best
 
 func get_use_prompt() -> String:
+	var pot: CookingPot = CookingPot.find_nearest_open_pot(global_position, get_tree())
+	if pot != null:
+		var preview: Dictionary = pot.preview_add(self)
+		if not preview.is_empty():
+			var bonus_txt: String = "" if preview["bonus_pct"] <= 0.0 else "  (+%d%% Diversity)" % int(round(preview["bonus_pct"] * 100.0))
+			return "[E] Add to Pot  →  %.1f Filling%s" % [preview["total"], bonus_txt]
 	var tray: FarmingTray = _find_nearest_plantable_tray()
 	if tray != null:
 		return "[E] Plant %s" % get_display_name()
@@ -63,6 +69,12 @@ func get_use_prompt() -> String:
 
 ## Fully consumed in one call — no charge tracking, no empty-state.
 func on_use() -> void:
+	var pot: CookingPot = CookingPot.find_nearest_open_pot(global_position, get_tree())
+	if pot != null:
+		if pot.try_add_item(self):
+			CookingPot.release_from_player_hand(get_tree(), self)
+			return
+
 	var tray: FarmingTray = _find_nearest_plantable_tray()
 	if tray != null:
 		if tray.plant_first_open_cell(produce_type):
