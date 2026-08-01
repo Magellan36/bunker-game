@@ -1,7 +1,6 @@
 extends CanvasLayer
 ## AdminMenu.gd
-## F7 general-purpose admin controls panel — distinct from AdminSpawnMenu.gd
-## (F10, spawns physical objects). This one is for direct system cheats/
+## F7 general-purpose admin controls panel — direct system cheats/
 ## debug toggles that don't correspond to a placeable object.
 ## Injected refs set by MainWorld._toggle_admin_cheat_menu().
 ##
@@ -35,6 +34,12 @@ const QUALITY_SCALE_UP:   float = 1.5    ## "+50%" raises current quality by hal
 const TEST_EFFECT_DURATION: float = 10.0
 const TEST_EFFECT_COLOR: Color = Color(0.86, 0.57, 0.19, 1.0)   ## matches StatusEffectIcon's own default (Jul 2026 — darkened 5%)
 
+const ADMIN_CASH_STEP: int = 100000          ## "+$100,000" economy cheat row
+
+## Farming produce spawn — matches FarmingShopHelper.SPAWN_HEIGHT_ABOVE_PLAYER
+## (1.8) so admin-spawned produce drops exactly like a shop purchase does.
+const PRODUCE_SPAWN_HEIGHT: float = 1.8
+
 ## One entry per clickable row: [section-or-"" , label, callback]
 ## A "" section repeats the previous section's header (skipped).
 var _row_defs: Array = []
@@ -47,8 +52,15 @@ var _row_buttons: Array[Button] = []
 var _is_open: bool = false
 var _test_effect_count: int = 0
 
+# ─── Injected by MainWorld._toggle_admin_cheat_menu() ─────────────────────────
+## MainWorld — used by the ECONOMY row (add_cash()). Injected via set() at
+## menu-creation time; the injection call already exists in MainWorld.gd, this
+## var declaration is what makes it actually land (Object.set() on an
+## undeclared property is a silent no-op).
+var world_node: MainWorld = null
+
 func _ready() -> void:
-	layer   = 128   ## On top of everything — same as AdminSpawnMenu
+	layer   = 128   ## On top of everything (PauseMenuUI sits above at 200)
 	visible = false
 	set_process(false)
 
@@ -62,6 +74,11 @@ func _ready() -> void:
 		["TIME",  "Fast-Forward 1 Day", _on_fast_forward_pressed],
 		["WATER", "Hookup Quality -50%", _on_quality_down_pressed],
 		["",      "Hookup Quality +50%", _on_quality_up_pressed],
+		["",      "Hookup Output x2 (Tier +1)", _on_hookup_output_double_pressed],
+		["ECONOMY", "+ $%s Cash" % _format_thousands(ADMIN_CASH_STEP), _on_add_cash_pressed],
+		["FARMING", "Spawn Potato", _on_spawn_potato_pressed],
+		["",        "Spawn Blueberry", _on_spawn_blueberry_pressed],
+		["",        "Spawn Tomato", _on_spawn_tomato_pressed],
 		["STATUS", "Add Test Status Effect (10s)", _on_add_status_effect_pressed],
 	]
 
@@ -236,6 +253,19 @@ func _on_draw() -> void:
 func _draw_str(text: String, pos: Vector2, color: Color, size: int) -> void:
 	_canvas.draw_string(_font, pos + Vector2(0, size), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
 
+## 100000 → "100,000". Local to this menu — no shared number-format helper
+## exists in the project yet, and this is the only caller.
+func _format_thousands(value: int) -> String:
+	var s: String = str(absi(value))
+	var out: String = ""
+	var count: int = 0
+	for i: int in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		count += 1
+		if count % 3 == 0 and i > 0:
+			out = "," + out
+	return ("-" if value < 0 else "") + out
+
 # ─── Button callbacks ──────────────────────────────────────────────────────────
 func _get_power_manager() -> PowerManager:
 	return get_tree().get_first_node_in_group("power_manager") as PowerManager
@@ -318,3 +348,59 @@ func _on_quality_up_pressed() -> void:
 	var hookup: WaterHookup = wm.get_the_hookup()
 	if hookup != null:
 		hookup.water_quality = clampf(hookup.water_quality * QUALITY_SCALE_UP, 0.0, 100.0)
+
+## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
+## MainWorld._cash directly — add_cash() is what also pushes the new balance
+## into the HUD via hud.set_cash(). Writing _cash directly would desync the
+## HUD readout until the next transaction.
+func _on_add_cash_pressed() -> void:
+	if world_node == null:
+		push_warning("[AdminMenu] world_node not injected — cash cheat skipped")
+		return
+	world_node.add_cash(ADMIN_CASH_STEP)
+
+## "2x water output" == tier + 1, because WaterHookup.TIER_DAILY_ML is
+## [3000, 6000, 12000, 24000] — each tier is exactly double the last. Bumping
+## the tier is therefore the doubling, and it goes through the real upgrade
+## data path instead of inventing a debug-only multiplier. Clamped at the top
+## tier (no-op there, no error). Nothing needs to be refreshed afterwards:
+## WaterManager and WaterInfoUI both call get_daily_output_mL() live.
+func _on_hookup_output_double_pressed() -> void:
+	var wm: WaterManager = _get_water_manager()
+	if wm == null:
+		return
+	var hookup: WaterHookup = wm.get_the_hookup()
+	if hookup == null:
+		return
+	var max_tier: int = WaterHookup.TIER_DAILY_ML.size() - 1
+	if hookup.tier >= max_tier:
+		push_warning("[AdminMenu] hookup already at max tier (%d) — output unchanged" % max_tier)
+		return
+	hookup.tier += 1
+
+## Shared spawner for the three FARMING rows. Mirrors
+## FarmingShopHelper.spawn_purchased_item()'s positioning exactly (player
+## position + 1.8 up, item falls under normal gravity into normal pickup
+## rules) — deliberately reusing FarmProduceItem.spawn_at() rather than
+## instancing here, so admin-spawned produce is byte-for-byte the same object
+## a harvest produces (pop-in tween, jitter, charges, all of it).
+## No cash cost — this is a cheat menu, not the shop.
+func _spawn_produce(produce_type: String) -> void:
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player == null:
+		push_warning("[AdminMenu] no player in tree — produce spawn skipped")
+		return
+	var parent: Node = player.get_parent()
+	if parent == null:
+		return
+	var base_pos: Vector3 = player.global_position + Vector3(0.0, PRODUCE_SPAWN_HEIGHT, 0.0)
+	FarmProduceItem.spawn_at(parent, base_pos, produce_type)
+
+func _on_spawn_potato_pressed() -> void:
+	_spawn_produce("potato")
+
+func _on_spawn_blueberry_pressed() -> void:
+	_spawn_produce("blueberry")
+
+func _on_spawn_tomato_pressed() -> void:
+	_spawn_produce("tomato")
