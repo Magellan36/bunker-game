@@ -278,23 +278,28 @@ func try_remove_pot() -> Node:
 
 
 # ─── Cooking-active / power-draw logic ────────────────────────────────────────
-## "Cooking" = powered_on AND a pot is present AND that pot has ≥1 item in
-## it. An empty pot on a powered-on stove draws nothing and never
-## progresses — there's nothing to cook. (Once a dish finishes, the pot's
-## slots are cleared — see CookingPot._finish_cooking() — so is_cooking()
-## naturally goes false again the instant the dish is ready, and the stove
-## stops drawing power until either the dish is taken and new items added,
-## or the ready dish is served.)
+## Power draw (200W) = powered_on ALONE. Pot or no pot, items or no items —
+## if it's switched on, it draws. is_cooking() (powered_on + pot present +
+## pot has items) still exists and is unchanged, but is now used ONLY to
+## gate the cook-progress timer inside CookingPot._process() and the pot's
+## "COOKING" status text — a fully separate concern from the power draw.
 func _refresh_cooking_state() -> void:
+	## Confirmed Aug 2026 — the 200W draw is tied to `powered_on` ALONE, not
+	## to is_cooking(). The stove draws power the instant it's switched on,
+	## pot or no pot, items or no items. is_cooking() (powered_on + pot
+	## present + pot has items) still exists and is unchanged, but is now
+	## used ONLY to gate the cook-progress timer inside CookingPot._process()
+	## and the pot's "COOKING" status text — a fully separate concern from
+	## the power draw itself.
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm != null:
-		pm.set_consumer_active(str(get_instance_id()), is_cooking())
+		pm.set_consumer_active(str(get_instance_id()), powered_on)
+
 
 ## Called by CookingPot (via _host_stove) whenever its contents change while
 ## already resting on this stove — an item added post-placement, or a dish
-## finishing and clearing the pot's slots. Without this, the 200W draw would
-## only ever update in response to Stove-owned events (toggle, place/remove
-## pot), not pot-owned ones.
+## finishing and clearing the pot's slots. This now only re-sets active =
+## powered_on (which is already correct), kept for parity with the pattern.
 func notify_pot_contents_changed() -> void:
 	_refresh_cooking_state()
 
