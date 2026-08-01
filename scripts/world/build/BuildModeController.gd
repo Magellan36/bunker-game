@@ -64,6 +64,7 @@ const TILE_TABLE_SMALL:  int = 27   ## Small table, 1×1 footprint (Furniture)
 const TILE_TABLE_MEDIUM: int = 28   ## Medium table, 2×1 footprint (Furniture)
 const TILE_CHAIR:        int = 29   ## Chair, 1×1 footprint (Furniture)
 const TILE_STOVE:        int = 30   ## Cooking System — Stove, 1×1 footprint, 200W, Construct → Cooking
+const TILE_POSTER:       int = 31   ## Blank wall poster — decorative, wall-snapped like TILE_LIGHT
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -100,6 +101,9 @@ const SHELF_PLACEMENT_Y: float = 0.8
 ## Wall lights share the same base-Y as walls — the WallLight node self-offsets
 ## its mesh and SpotLight to 3/4 height internally.
 const LIGHT_PLACEMENT_Y: float = 1.0
+
+## Poster wall-mount height — eye-level on a 3.0m wall (WALL_HEIGHT_M).
+const POSTER_PLACEMENT_Y: float = 1.8
 
 ## Water hookup (July 2026 groundwork pass, raised per playtest feedback) —
 ## mounted near the ceiling (walls are 3.0m tall — see tile_set.tscn), above
@@ -1103,6 +1107,19 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		##   light_node.set("power_zone", "dormitory")  ## call before add_child()
 
 		return light_node
+
+	# ── Poster: script-based node, wall-mounted like the wall light ────────────
+	if tile_id == TILE_POSTER:
+		var poster_script: GDScript = load("res://scripts/world/furniture/Poster.gd")
+		var poster_node: Node3D = Node3D.new()
+		if poster_script != null:
+			poster_node.set_script(poster_script)
+		poster_node.set_meta("tile_id", tile_id)
+		var poster_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		poster_par.add_child(poster_node)
+		poster_node.global_position  = pos
+		poster_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return poster_node
 
 	# ── Generators: script-based procedural node ─────────────────────────────
 	if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
@@ -2771,7 +2788,7 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_TRAY_DOUBLE: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_BED's proven footprint
 		TILE_TABLE_SMALL:  return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TRAY_SINGLE
 		TILE_TABLE_MEDIUM: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TRAY_DOUBLE/TILE_BED
-		TILE_CHAIR:        return Vector2(0.30, 0.30)  ## 1×1 cell, smaller physical footprint than a table
+		TILE_CHAIR:        return Vector2(0.375, 0.375)  ## 1×1 cell, ×1.25 of the previous 0.30
 		TILE_STOVE:        return Vector2(0.42, 0.42)  ## 1×1, same class as TILE_TRAY_SINGLE
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback

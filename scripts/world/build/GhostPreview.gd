@@ -105,6 +105,17 @@ func _rebuild_ghost_mesh() -> void:
 					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
+	# ── Poster: ghost from Poster.gd static helper, wall-mounted like TILE_LIGHT ──
+	if _owner._selected_tile == _owner.TILE_POSTER:
+		var poster_script: GDScript = load("res://scripts/world/furniture/Poster.gd")
+		if poster_script != null and poster_script.has_method("build_ghost_mesh"):
+			var ghost_mesh: Mesh = poster_script.build_ghost_mesh()
+			if ghost_mesh != null:
+				_owner._ghost.mesh = ghost_mesh
+				for s: int in ghost_mesh.get_surface_count():
+					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
 	# ── Water hookup (July 2026 groundwork pass): ghost from static helper ────
 	if _owner._selected_tile == _owner.TILE_WATER_HOOKUP:
 		var hookup_script: GDScript = load("res://scripts/world/water/WaterHookup.gd")
@@ -454,6 +465,8 @@ func _update_ghost() -> void:
 		snap_pos.y = _owner.SHELF_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_LIGHT:
 		snap_pos.y = _owner.LIGHT_PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_POSTER:
+		snap_pos.y = _owner.POSTER_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_GEN_S or _owner._selected_tile == _owner.TILE_GEN_M \
 			or _owner._selected_tile == _owner.TILE_GEN_L:
 		snap_pos.y = _owner.GEN_PLACEMENT_Y
@@ -557,6 +570,23 @@ func _update_ghost() -> void:
 			## No wall found within snap range — cursor is over rock, open floor,
 			## or outside the bunker.  Hide the ghost entirely so there is no
 			## misleading red indicator.  Placement is blocked silently.
+			_owner._ghost.visible = false
+			_owner._ghost_valid   = false
+			return
+
+	# ── Poster: auto-snap to nearest wall surface within range (generic helper) ──
+	if _owner._selected_tile == _owner.TILE_POSTER:
+		var snapped: Dictionary = _owner._snap_to_nearest_wall(snap_pos, 0.0, 0.015, 1.5)
+		if not snapped.is_empty():
+			snap_pos           = snapped["pos"]
+			_owner._current_angle_deg = snapped["angle_deg"]
+			for i: int in _owner.EIGHT_DIR_ANGLES.size():
+				if absf(_owner.EIGHT_DIR_ANGLES[i] - _owner._current_angle_deg) < 1.0:
+					_owner._orient_index = i
+					break
+		else:
+			## No wall found within range — hide ghost, same strictness as
+			## TILE_LIGHT/TILE_BREAKER/TILE_WATER_HOOKUP.
 			_owner._ghost.visible = false
 			_owner._ghost_valid   = false
 			return

@@ -46,6 +46,7 @@ const CATEGORIES: Dictionary = {
 		{ "tile_id": 27, "name": "Small Table",  "price": 60  },
 		{ "tile_id": 28, "name": "Medium Table", "price": 110 },
 		{ "tile_id": 29, "name": "Chair",        "price": 45  },
+		{ "tile_id": 31, "name": "Poster",       "price": 20  },
 	],
 	"Lighting": [
 		{ "tile_id": 5, "name": "Light",   "price": 50  },
@@ -333,6 +334,10 @@ const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
 	22: { "path": "res://scripts/world/farming/FarmingTray.gd",     "is_script": true, "tier_prop": "cell_count", "tier": 2 },
 	23: { "path": "res://scripts/world/power/GrowLight.gd",         "is_script": true },
 	24: { "path": "res://scripts/world/power/GrowLight.gd",         "is_script": true },
+	27: { "path": "res://scripts/world/furniture/Table.gd",  "is_script": true, "tier_prop": "cell_count", "tier": 1 },
+	28: { "path": "res://scripts/world/furniture/Table.gd",  "is_script": true, "tier_prop": "cell_count", "tier": 2 },
+	29: { "path": "res://scripts/world/furniture/Chair.gd",  "is_script": true },
+	31: { "path": "res://scripts/world/furniture/Poster.gd", "is_script": true },
 }
 
 ## Builds a detached, side-effect-free instance of the REAL object script/
