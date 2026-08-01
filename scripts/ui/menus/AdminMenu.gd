@@ -80,6 +80,7 @@ func _ready() -> void:
 		["",        "Spawn Blueberry", _on_spawn_blueberry_pressed],
 		["",        "Spawn Tomato", _on_spawn_tomato_pressed],
 		["STATUS", "Add Test Status Effect (10s)", _on_add_status_effect_pressed],
+		["NPC",    "Spawn NPC", _on_spawn_npc_pressed],
 	]
 
 	_canvas = Control.new()
@@ -349,11 +350,29 @@ func _on_quality_up_pressed() -> void:
 	if hookup != null:
 		hookup.water_quality = clampf(hookup.water_quality * QUALITY_SCALE_UP, 0.0, 100.0)
 
+## Spawns one NPC.tscn instance 2m in front of the player, facing them —
+## same spawn-offset pattern MainWorld._dev_spawn_crate() uses for TestCrate.
+func _on_spawn_npc_pressed() -> void:
+	if world_node == null:
+		push_warning("[AdminMenu] world_node not injected — cannot spawn NPC")
+		return
+	var player_node: Node3D = get_tree().get_first_node_in_group("player")
+	if player_node == null:
+		push_warning("[AdminMenu] No player found in scene — cannot spawn NPC")
+		return
+
+	var npc_scene: PackedScene = load("res://scenes/npc/NPC.tscn")
+	if npc_scene == null:
+		push_warning("[AdminMenu] NPC.tscn not found — check path")
+		return
+
+	var npc: Node3D = npc_scene.instantiate()
+	world_node.add_child(npc)
+	npc.global_position = player_node.global_position \
+		+ (-player_node.global_transform.basis.z * 2.0) \
+		+ Vector3(0.0, 0.5, 0.0)
+
 ## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
-## MainWorld._cash directly — add_cash() is what also pushes the new balance
-## into the HUD via hud.set_cash(). Writing _cash directly would desync the
-## HUD readout until the next transaction.
-func _on_add_cash_pressed() -> void:
 	if world_node == null:
 		push_warning("[AdminMenu] world_node not injected — cash cheat skipped")
 		return

@@ -1066,6 +1066,36 @@ var _bunker_pregen: Node3D = null
 func _wkey(v: float) -> String:
 	return "%.2f" % v
 
+## Public: live bounding box (world-space XZ) of every currently-cleared
+## GridMap cell (the pregen room + anything the player has since dug out).
+## Used by NPC.gd to pick wander targets. Returns a Rect2 where
+## `position` = (min_x, min_z) and `size` = (width_x, depth_z). Each
+## "cx,cz" key in _cleared_cells represents a 1×1 world-unit cell — this
+## approximates its footprint as spanning from (cx, cz) to (cx+1, cz+1),
+## which is precise enough for picking a wander point (not for anything
+## requiring exact placement).
+func get_cleared_cell_bounds_world() -> Rect2:
+	if _cleared_cells.is_empty():
+		return Rect2(0.0, 0.0, 0.0, 0.0)
+
+	var min_x: float = INF
+	var max_x: float = -INF
+	var min_z: float = INF
+	var max_z: float = -INF
+
+	for key: String in _cleared_cells.keys():
+		var parts: PackedStringArray = key.split(",")
+		if parts.size() != 2:
+			continue
+		var cx: float = float(parts[0])
+		var cz: float = float(parts[1])
+		min_x = minf(min_x, cx)
+		max_x = maxf(max_x, cx + 1.0)
+		min_z = minf(min_z, cz)
+		max_z = maxf(max_z, cz + 1.0)
+
+	return Rect2(min_x, min_z, max_x - min_x, max_z - min_z)
+
 ## ─── Pre-generation ──────────────────────────────────────────────────────────
 ## Wipes any hand-made GridMap tiles that were placed in the editor scene.
 ## Must run before pregen so the scene starts clean.
