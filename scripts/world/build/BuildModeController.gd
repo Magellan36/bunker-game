@@ -2769,10 +2769,10 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_HEAVY:    return Vector2(0.29, 0.29)  ## 0.6×0.6 box
 		TILE_TRAY_SINGLE: return Vector2(0.45, 0.45)  ## 1×1
 		TILE_TRAY_DOUBLE: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_BED's proven footprint
-TILE_TABLE_SMALL:  return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TRAY_SINGLE
-	TILE_TABLE_MEDIUM: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TRAY_DOUBLE/TILE_BED
-	TILE_CHAIR:        return Vector2(0.30, 0.30)  ## 1×1 cell, smaller physical footprint than a table
-	TILE_STOVE:        return Vector2(0.42, 0.42)  ## 1×1, same class as TILE_TRAY_SINGLE
+		TILE_TABLE_SMALL:  return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TRAY_SINGLE
+		TILE_TABLE_MEDIUM: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TRAY_DOUBLE/TILE_BED
+		TILE_CHAIR:        return Vector2(0.30, 0.30)  ## 1×1 cell, smaller physical footprint than a table
+		TILE_STOVE:        return Vector2(0.42, 0.42)  ## 1×1, same class as TILE_TRAY_SINGLE
 	## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 	_:             return Vector2(0.40, 0.40)  ## generic fallback
 
