@@ -290,6 +290,15 @@ func _refresh_cooking_state() -> void:
 	if pm != null:
 		pm.set_consumer_active(str(get_instance_id()), is_cooking())
 
+## Called by CookingPot (via _host_stove) whenever its contents change while
+## already resting on this stove — an item added post-placement, or a dish
+## finishing and clearing the pot's slots. Without this, the 200W draw would
+## only ever update in response to Stove-owned events (toggle, place/remove
+## pot), not pot-owned ones.
+func notify_pot_contents_changed() -> void:
+	_refresh_cooking_state()
+
+
 ## "Cooking" = powered_on AND a pot is present AND that pot has ≥1 item in
 ## it. An empty pot on a powered-on stove draws nothing and never
 ## progresses — there's nothing to cook. (Once a dish finishes, the pot's

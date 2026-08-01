@@ -509,7 +509,14 @@ func _update_prompt() -> void:
 	for node: Node in get_tree().get_nodes_in_group("interactable"):
 		if not is_instance_valid(node):
 			continue
-		if not (node is StaticBody3D):
+		## StaticBody3D (generators, stoves, etc.) OR a frozen RigidBody3D
+		## (e.g. a CookingPot resting on a Stove — the detect_area-based scan
+		## above explicitly skips frozen bodies, so without this a frozen pot
+		## would never get a prompt at all). The two passes never overlap:
+		## the first pass already excludes frozen bodies, so nothing here
+		## can be double-added.
+		var is_frozen_rigid: bool = node is RigidBody3D and (node as RigidBody3D).freeze
+		if not (node is StaticBody3D or is_frozen_rigid):
 			continue
 		if node.is_in_group("shelved") or node.is_in_group("shelving"):
 			continue   ## Shelves handled separately above

@@ -99,14 +99,14 @@ func get_use_prompt() -> String:
 
 func get_interact_prompt() -> String:
 	if _is_cooked:
-		return "[E] Take Dish  (%.1f Filling)" % _dish_value
+		return "DONE  —  [E] Take Dish  (%.1f Filling)" % _dish_value
 	var totals: Dictionary = compute_dish_totals()
 	if totals["item_count"] <= 0:
 		return ""
 	var bonus_txt: String = "" if totals["bonus_pct"] <= 0.0 else "  (+%d%% Diversity)" % int(round(totals["bonus_pct"] * 100.0))
 	var base_txt: String = "Filling: %.1f%s" % [totals["total"], bonus_txt]
 	if _host_stove != null and _host_stove.has_method("is_cooking") and _host_stove.is_cooking():
-		return "%s  —  Cooking %.0f/%.0fs" % [base_txt, _cook_progress, cook_time_required()]
+		return "%s  —  COOKING  (%.0f/%.0fs)" % [base_txt, _cook_progress, cook_time_required()]
 	return base_txt
 
 func _physics_process(delta: float) -> void:
@@ -153,6 +153,8 @@ func _finish_cooking() -> void:
 			slots[i] = null
 	_cook_progress = 0.0
 	_is_cooked = true
+	if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
+		_host_stove.notify_pot_contents_changed()
 
 func is_dish_ready() -> bool:
 	return _is_cooked
@@ -228,6 +230,8 @@ func try_add_item(item: Node) -> bool:
 
 	slots[slot] = {"node": item, "restore_value": restore, "ingredient_key": key}
 	item_added.emit(slot, item)
+	if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
+		_host_stove.notify_pot_contents_changed()
 	return true
 
 ## Pops an item back out to full physics/visibility. Nothing calls this yet
@@ -262,6 +266,8 @@ func remove_item(slot_idx: int) -> Node:
 	item.global_position = global_position + Vector3(0.0, 0.3, 0.0)
 
 	item_removed.emit(slot_idx, item)
+	if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
+		_host_stove.notify_pot_contents_changed()
 	return item
 
 # ─── Filling value / Diversity Bonus math (Part F) ────────────────────────────
