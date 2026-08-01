@@ -38,7 +38,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `power/` | `PowerTerminalUI.gd` (~1010), `PowerPriorityUI.gd` (~495), `GeneratorInspectUI.gd` (~434) | Power device panels — see `docs/systems/power/README.md` for what they read/write |
 | `inventory/` | `InventoryHUD.gd` (~444 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475), `BasketUI.gd` (~470) | Slot HUD, inventory state, shelf storage panel, basket contents panel |
 | `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (~107 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interact prompt |
-| `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~575), `AdminSpawnMenu.gd` (~215), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, dev spawn menu, sleep fade |
+| `menus/` | `PauseMenuUI.gd` (~340), `GraphicsSettingsPanel.gd` (~575), `SleepOverlay.gd` (~145) | ESC pause menu, graphics settings, sleep fade |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
 | `common/` | `UIFade.gd` (~30), `UIKit.gd` (~200) | Shared fade-in helper + shared theme/drawing kit (see "UIKit shared kit" below) — put any future cross-panel UI utility here |
@@ -72,7 +72,6 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
   `remove_effect(id)`.
 - `PauseMenuUI`: `toggle()`, `open()`, `close()`, `is_open()`.
 - `GraphicsSettingsPanel`: `open()`, `close()`.
-- `AdminSpawnMenu`: `toggle()`.
 - `SleepOverlay`: `begin_sleep()`, `request_wake()`.
 - `BuildModeHUD`: `get_item_price(tile_id)`, `show_hud()`/`hide_hud()`,
   `set_active_tool(tool_id)`, `set_ghost_active(active)`,
@@ -117,7 +116,7 @@ own panel on first interact). None of these are autoloads.
    `visible = true` in its `open()`/`toggle()`. Applied to ALL current
    interaction panels (`PowerTerminalUI`, `PowerPriorityUI`,
    `GeneratorInspectUI`, `BreakerBox`/`UpgradedBreakerBox` via inheritance,
-   `BatteryBank`, `ShelfUI`, `AdminSpawnMenu`, `PauseMenuUI`,
+   `BatteryBank`, `ShelfUI`, `PauseMenuUI`,
    `GraphicsSettingsPanel`, `BuildModeHUD`). **Every new panel must call
    this too.** Deliberately NOT applied to `HUD.gd` (already has its own
    fade-in system — don't add a second one) or `SleepOverlay.gd` (own
@@ -448,6 +447,17 @@ now live in `scripts/ui/hud/`:
   up the HUD via `get_tree().get_first_node_in_group("hud")` then its
   public `status_effects` property, same pattern `NotificationManager`
   already uses to find `inventory_hud`.
+
+- **ECONOMY section:** "+ $100,000 Cash" row calls `MainWorld.add_cash()`
+  via injected `world_node` — updates HUD immediately.
+
+- **WATER section:** "Hookup Output x2 (Tier +1)" row increments
+  `WaterHookup.tier` (doubling output via existing tier system:
+  3000→6000→12000→24000 mL/day). Clamped at max tier with warning.
+
+- **FARMING section:** "Spawn Potato", "Spawn Blueberry", "Spawn Tomato"
+  rows use `FarmProduceItem.spawn_at()` — same pop-in tween, jitter,
+  and charges as harvested produce. No cash cost (cheat menu).
 
 - **Worn/rugged visual pass:** no grunge/scratch texture asset exists
   anywhere in the project — this is entirely procedural, two shared

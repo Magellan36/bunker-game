@@ -72,6 +72,13 @@ or delay).
   (`PlayerStats.set_elapsed()` jump of exactly `day_duration_seconds`, a
   pure clock skip — no extra stat drain applied) alongside the existing
   POWER cheat (see `docs/systems/power/README.md`).
+- **Hookup Output x2 (Tier +1) (Jul 2026):** `AdminMenu.gd`'s new WATER
+  row "Hookup Output x2 (Tier +1)" increments `WaterHookup.tier` — the
+  `TIER_DAILY_ML` array is `[3000, 6000, 12000, 24000]` so each tier is
+  exactly 2× the previous. Clamped at max tier (index 3) with a warning
+  instead of erroring. No new multiplier field added; uses the existing
+  tier lookup. `WaterManager` and `WaterInfoUI` both call
+  `get_daily_output_mL()` live, so the change propagates instantly.
 - **Purification algorithm:** a consumer's water is pure (100%) iff EVERY
   path from the hookup to it passes through at least one `"purifier"`-role
   graph node. Computed as a single filtered BFS per solve —

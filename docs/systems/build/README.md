@@ -45,8 +45,8 @@ stack, and the wire-draw tool's host controller.
 ## Basket
 A 12-slot container item (`Basket.gd`, `scenes/world/Basket.tscn`) purchased
 from the Farming Shop's Miscellaneous category ($100, `FarmingShopHelper.
-SHOP_ITEM_INFO` item_id 20, kind `"scene"`) or spawned via Admin Menu (F10)
-for testing. Holds up to 12 individual food items (Water Bottle, Food Can,
+SHOP_ITEM_INFO` item_id 20, kind `"scene"`) or spawned via the F7 Admin
+Menu's "FARMING" section for testing. Holds up to 12 individual food items (Water Bottle, Food Can,
 Farm Produce — all in `basket_storable` group). E-key stashes nearest
 `basket_storable` item, G-key opens `BasketUI` (12-slot grid with Drop/Add
 to inventory buttons; G, E, and Escape all close it). While held, the
@@ -156,8 +156,9 @@ working pattern exactly — load scene, `add_child()`, set `global_position`
 once, return. No freeze, no raycast, no `physics_frame` waits.
 `continuous_cd = true` kept on all 5 `.tscn` files (`WaterCase`/`CanCase`/
 `FuelCan`/`TestCrate`/`Basket`) as tunneling insurance (larger/heavier than
-seed packets). `AdminSpawnMenu._spawn_scene()` delegates to this same shared
-function instead of keeping its own copy.
+seed packets). `FarmingShopHelper.spawn_scene_settled()` is the single
+caller/owner for scene-based item spawns; the F7 Admin Menu's
+`_spawn_produce()` uses it for admin produce spawns.
 
 **Verification:** Buy/admin-spawn Water Case, Can Case, Fuel Can, Crate,
 Basket from two different spots in the bunker — each falls from head height

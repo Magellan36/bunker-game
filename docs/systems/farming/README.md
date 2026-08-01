@@ -90,6 +90,11 @@ The water/power systems have managers because they solve a *shared graph*
   Construct (`CATEGORIES`) and the Farming shop (`FARMING_SHOP_ITEMS`) via
   `_current_categories()`/`_submenu_source` — see that file's own comments.
 
+- **Admin spawn (F7 menu, Jul 2026):** `AdminMenu.gd`'s FARMING section
+  has three rows — "Spawn Potato", "Spawn Blueberry", "Spawn Tomato" — each
+  calling `FarmProduceItem.spawn_at()` with the same pop-in tween, jitter,
+  and 4 charges as a harvested item. No cash cost (cheat menu, not shop).
+
 ## Interaction flow (bare-handed E vs. held-item E)
 - **Bare-handed E on a tray needing soil** → INFO-level error banner ("Tray
   needs soil"), same `InventoryHUD.show_error_message()` convention every

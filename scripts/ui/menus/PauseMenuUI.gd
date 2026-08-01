@@ -38,7 +38,7 @@ const PANEL_H: float = 520.0   ## fixed height (Jul 2026 — was implicit via of
 
 
 func _ready() -> void:
-	layer = 200   ## Above HUD (default ~1) and AdminSpawnMenu (128).
+	layer = 200   ## Above HUD (default ~1) and AdminMenu (128).
 	_build_ui()
 	visible = false
 

@@ -101,9 +101,7 @@ func spawn_purchased_item(item_id: int) -> bool:
 ## Those four have never had a spawn-flicker problem; the freeze/kinematic
 ## dance this function used to do was the one piece of machinery not present
 ## in any of them, and is what's been interfering with the position write —
-## see the plan doc for the full trace. Single source of truth — AdminSpawnMenu
-## calls this same function for its debug spawn menu rather than keeping a
-## separate copy.
+## see the plan doc for the full trace. Single source of truth for scene-based item spawns.
 static func spawn_scene_settled(parent: Node, scene_path: String, pos: Vector3) -> Node3D:
 	if not ResourceLoader.exists(scene_path):
 		push_warning("FarmingShopHelper: scene not found: %s" % scene_path)
