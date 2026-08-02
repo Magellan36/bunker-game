@@ -2819,6 +2819,7 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_TABLE_MEDIUM: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TRAY_DOUBLE/TILE_BED
 		TILE_CHAIR:        return Vector2(0.375, 0.375)  ## 1×1 cell, ×1.25 of the previous 0.30
 		TILE_STOVE:        return Vector2(0.42, 0.42)  ## 1×1, same class as TILE_TRAY_SINGLE
+		TILE_POSTER:       return Vector2(0.05, 0.05)  ## Thin wall-flush panel — NOT the 0.40 floor-object default. The wall-snap step already validated a real wall was found; this check just needs to not second-guess that by treating Poster like a room-occupying object.
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback
 
