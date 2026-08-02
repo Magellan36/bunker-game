@@ -53,6 +53,15 @@ const ENERGY_DRAIN_PER_GAME_HOUR: float = 3.0
 const HUNGER_DRAIN_PER_GAME_HOUR: float = 3.4   ## mirrors PlayerStats food_drain feel
 const THIRST_DRAIN_PER_GAME_HOUR: float = 2.08  ## matches PlayerStats.water_drain_per_game_hour
 
+const HEAVY_MASS_THRESHOLD: float = 3.0    ## mass >= this = "heavy" tier
+const LIGHT_PUSH_IMPULSE: float = 1.5      ## shove strength on light items
+const HEAVY_PUSH_IMPULSE: float = 3.0      ## shove attempt strength on heavy items
+const AVOID_WEIGHT: float = 1.8            ## how strongly "away" blends into steering
+const AVOID_COOLDOWN: float = 0.6          ## seconds the blend takes to fade after last contact
+const AVOID_MAX_GRACE: float = 3.0         ## cumulative seconds avoidance may suppress
+                                           ## the general stuck-recovery before giving up
+                                           ## and letting it fire as the final fallback
+
 ## FUTURE WORK (crisis-response pass, per Brannon's standing note): when a
 ## need hits 0, consequences (refusing work, slowed movement, mood damage)
 ## hook in HERE. Deliberately no behavior yet.
@@ -167,14 +176,12 @@ func nav_finished() -> bool:
 	return nav_agent == null or nav_agent.is_navigation_finished()
 
 ## Steer toward the agent's next waypoint. Call once per physics frame while
-## traveling; pairs with move_and_slide() in _physics_process. While a local
-## detour (Part 10) is active, steers toward the detour point instead — every
-## activity keeps calling this exact same function, so no activity code
-## needs to know detours exist at all.
+## traveling; pairs with move_and_slide() in _physics_process. If avoidance
+## steering (Part 10.1) is active, the goal-seeking direction is blended
+## with an away-from-obstacle push rather than overridden — every activity
+## keeps calling this exact same function, so no activity code needs to
+## know avoidance exists at all.
 func nav_steer(delta: float) -> void:
-	if _detour_active:
-		_steer_toward(_detour_target, delta)
-		return
 	if nav_agent == null or nav_agent.is_navigation_finished():
 		velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
 		velocity.z = lerp(velocity.z, 0.0, acceleration * delta)
@@ -187,6 +194,12 @@ func _steer_toward(point: Vector3, delta: float) -> void:
 	if dir.length() < 0.01:
 		return
 	dir = dir.normalized()
+	if _avoid_cooldown_timer > 0.0 and _avoid_dir.length() > 0.01:
+		## Blend, don't override — weight decays linearly over the cooldown
+		## window so the path curves around the obstacle and smoothly
+		## re-converges on the real goal instead of snapping back to it.
+		var weight: float = AVOID_WEIGHT * (_avoid_cooldown_timer / AVOID_COOLDOWN)
+		dir = (dir + _avoid_dir * weight).normalized()
 	velocity.x = lerp(velocity.x, dir.x * move_speed, acceleration * delta)
 	velocity.z = lerp(velocity.z, dir.z * move_speed, acceleration * delta)
 	rotation.y = atan2(-dir.x, -dir.z)
@@ -334,10 +347,12 @@ func _tick_stuck_recovery(delta: float) -> void:
 		_stuck_timer = 0.0
 		_stuck_ref_pos = global_position
 		return
-	if _detour_active:
-		## A local detour (Part 10) is already handling this exact stuck
-		## condition — don't let the general 1s recovery race it. Reset the
-		## reference point so the clock starts fresh once the detour ends.
+	if _avoid_cooldown_timer > 0.0 and _avoid_grace_timer < AVOID_MAX_GRACE:
+		## Avoidance steering (Part 10.1) is actively handling this — don't
+		## let the general 1s recovery race it, UNLESS avoidance itself has
+		## been running for AVOID_MAX_GRACE straight without resolving (a
+		## genuinely wedged NPC), in which case fall through and let this
+		## check start counting normally as the final fallback.
 		_stuck_timer = 0.0
 		_stuck_ref_pos = global_position
 		return
@@ -359,31 +374,41 @@ func _recover_from_stuck() -> void:
 	velocity.z = 0.0
 
 
-# ─── Physics-clutter push-through / resistance / local detour (Part 10) ────
+# ─── Physics-clutter push-through / resistance / avoidance steering (Part 10.1) ─
 ## Loose world items (FoodCan, WaterBottle, TestCrate, Basket, ...) are all
 ## RigidBody3D and were never part of the navmesh (parse_source_geometry_data
 ## only picks up STATIC colliders — correctly, since these move). Without
 ## this system move_and_slide() treats every one of them exactly like a
-## wall. Tier is read from the item's own `mass` (Step 1 sets sensible
-## values on the three items that needed it; everything else already
-## defaults correctly). No activity code anywhere needs to know this exists.
+## wall. Tier is read from the item's own `mass` (Part 10, Step 1 sets
+## sensible values on the three items that needed it; everything else
+## already defaults correctly). No activity code anywhere needs to know
+## this exists — it only ever adjusts the direction nav_steer() produces.
+##
+## HISTORY: Part 10's first attempt used a discrete "hop to one fixed point
+## beside the obstacle, then fully resume" state machine. That failed in
+## practice — the moment the NPC arrived at the sidestep point, steering
+## snapped straight back to the original waypoint, which was still on the
+## far side of the object, so it walked right back in. This version blends
+## instead of overrides, and fades the blend out on a timer instead of
+## cutting it off at an arrival check, so the path curves around the
+## object and re-converges on the goal smoothly.
 const HEAVY_MASS_THRESHOLD: float = 3.0    ## mass >= this = "heavy" tier
 const LIGHT_PUSH_IMPULSE: float = 1.5      ## shove strength on light items
 const HEAVY_PUSH_IMPULSE: float = 3.0      ## shove attempt strength on heavy items
-const HEAVY_BLOCK_DETECT_TIME: float = 0.4 ## seconds stalled-on-heavy before detouring
-const DETOUR_STEP_DISTANCE: float = 1.3    ## how far sideways a detour reaches
-const DETOUR_TIMEOUT: float = 1.2          ## give up on one detour side after this long
+const AVOID_WEIGHT: float = 1.8            ## how strongly "away" blends into steering
+const AVOID_COOLDOWN: float = 0.6          ## seconds the blend takes to fade after last contact
+const AVOID_MAX_GRACE: float = 3.0         ## cumulative seconds avoidance may suppress
+                                           ## the general stuck-recovery before giving up
+                                           ## and letting it fire as the final fallback
 
-var _heavy_block_timer: float = 0.0
-var _detour_active: bool = false
-var _detour_target: Vector3 = Vector3.ZERO
-var _detour_timer: float = 0.0
-var _detour_tried_other_side: bool = false
-var _detour_ref_pos: Vector3 = Vector3.ZERO
+var _avoid_dir: Vector3 = Vector3.ZERO
+var _avoid_cooldown_timer: float = 0.0
+var _avoid_grace_timer: float = 0.0
+var _avoid_grace_logged: bool = false
 
 func _handle_physics_pushes(delta: float) -> void:
-	var heavy_collision_normal: Vector3 = Vector3.ZERO
 	var touching_heavy: bool = false
+	var heavy_normal: Vector3 = Vector3.ZERO
 
 	for i: int in get_slide_collision_count():
 		var col: KinematicCollision3D = get_slide_collision(i)
@@ -412,49 +437,27 @@ func _handle_physics_pushes(delta: float) -> void:
 			if away.length() > 0.01:
 				rb.apply_central_impulse(away.normalized() * HEAVY_PUSH_IMPULSE / rb.mass)
 			touching_heavy = true
-			heavy_collision_normal = col.get_normal()
+			heavy_normal = col.get_normal()
 
-	_tick_detour(delta, touching_heavy, heavy_collision_normal)
+	_tick_avoidance(delta, touching_heavy, heavy_normal)
 
-func _tick_detour(delta: float, touching_heavy: bool, heavy_normal: Vector3) -> void:
-	if _detour_active:
-		_detour_timer += delta
-		var moved: float = global_position.distance_to(_detour_ref_pos)
-		var arrived: bool = global_position.distance_to(_detour_target) < 0.5
-		if arrived or (_detour_timer > 1.0 and moved < STUCK_MIN_DISPLACEMENT):
-			if arrived or _detour_tried_other_side:
-				_end_detour()
-			else:
-				_start_detour(heavy_normal, true)   ## first side failed — try the other
-		return
-
-	if not touching_heavy or nav_agent == null or nav_finished():
-		_heavy_block_timer = 0.0
-		return
-
-	_heavy_block_timer += delta
-	if _heavy_block_timer < HEAVY_BLOCK_DETECT_TIME:
-		return
-	_heavy_block_timer = 0.0
-	_start_detour(heavy_normal, false)
-
-func _start_detour(heavy_normal: Vector3, other_side: bool) -> void:
-	var lateral: Vector3 = Vector3(-heavy_normal.z, 0.0, heavy_normal.x)   ## 90° in XZ
-	if other_side:
-		lateral = -lateral
-	_detour_target = global_position + lateral.normalized() * DETOUR_STEP_DISTANCE
-	_detour_active = true
-	_detour_timer = 0.0
-	_detour_tried_other_side = other_side
-	_detour_ref_pos = global_position
-	NPCDebug.log_detour(self, other_side)
-
-func _end_detour() -> void:
-	_detour_active = false
-	_detour_timer = 0.0
-	_detour_tried_other_side = false
-	## Deliberately do NOT touch current_task/brain/nav_agent.target_position
-	## here — the detour was a pure steering override; the original travel
-	## target (set by whatever activity is running) is untouched throughout,
-	## so normal nav_steer()/nav_finished() just resume exactly where they
-	## left off on the very next frame.
+func _tick_avoidance(delta: float, touching_heavy: bool, heavy_normal: Vector3) -> void:
+	if touching_heavy:
+		var away: Vector3 = -heavy_normal
+		away.y = 0.0
+		if away.length() > 0.01:
+			_avoid_dir = away.normalized()
+		if _avoid_cooldown_timer <= 0.0:
+			NPCDebug.log_detour(self, false)   ## log only on fresh contact, not every frame
+		_avoid_cooldown_timer = AVOID_COOLDOWN
+		_avoid_grace_timer += delta
+		if _avoid_grace_timer >= AVOID_MAX_GRACE and not _avoid_grace_logged:
+			_avoid_grace_logged = true
+			NPCDebug.log_detour(self, true)   ## grace exhausted — general recovery takes over next
+	elif _avoid_cooldown_timer > 0.0:
+		_avoid_cooldown_timer -= delta
+		_avoid_grace_timer += delta
+	else:
+		_avoid_dir = Vector3.ZERO
+		_avoid_grace_timer = 0.0
+		_avoid_grace_logged = false
