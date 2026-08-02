@@ -236,10 +236,7 @@ func _on_draw() -> void:
 	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
 	_canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
 	_canvas.draw_rect(close_rect, CRIT_COLOR, false, 1.5)
-	var cp: Vector2 = close_rect.position
-	var cs: Vector2 = close_rect.size
-	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
-	_canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
+	UIKit.draw_close_icon(_canvas, close_rect)
 
 	var cx: float = px + 20.0
 	var cy: float = py + 20.0

@@ -302,10 +302,7 @@ func _on_draw() -> void:
 	# ── Close button ──────────────────────────────────────────────────────────
 	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
 	UIKit.draw_rounded_rect(_canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), CRIT_COLOR, 1.5)
-	var cp: Vector2 = close_rect.position
-	var cs: Vector2 = close_rect.size
-	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
-	_canvas.draw_line(cp + Vector2(cs.x-6, 6), cp + Vector2(6, cs.y-6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
+	UIKit.draw_close_icon(_canvas, close_rect)
 
 	# ── Title + grid state ────────────────────────────────────────────────────
 	var title_y: float = py + 30.0   ## Jul 2026 — +6px top-padding pass (also shifts the "LOAD" readout, same row)

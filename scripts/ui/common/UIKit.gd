@@ -191,6 +191,41 @@ static func draw_panel(canvas: CanvasItem, rect: Rect2, theme: UITheme, border_w
 	draw_rounded_rect(canvas, rect, theme.bg, theme.border, border_width)
 
 
+## Cached once, shared by every close button across the project — the icon
+## only gets decoded from disk the first time it's needed.
+static var _close_icon: Texture2D = null
+
+static func _get_close_icon() -> Texture2D:
+	if _close_icon == null:
+		_close_icon = load("res://assets/icons/close_x.png")
+	return _close_icon
+
+
+## Draws the shared × close icon (Jul 2026 — replaces the old 2-line hand-
+## drawn × everywhere it appeared). The source PNG is plain white with an
+## alpha channel — a mask, not a fixed-color icon — so `modulate` tints it
+## to whatever color the caller wants; every existing close button used the
+## same light red `(1.0, 0.7, 0.7, 1.0)`, which is the default here so this
+## is a pure shape swap, not a color change. Draws centered inside `rect`
+## with a small inset margin so it doesn't crowd the button's own border.
+static func draw_close_icon(canvas: CanvasItem, rect: Rect2, modulate: Color = Color(1.0, 0.7, 0.7, 1.0)) -> void:
+	var icon: Texture2D = _get_close_icon()
+	if icon == null:
+		return
+	var inset: float = 6.0
+	var icon_rect: Rect2 = Rect2(
+		rect.position + Vector2(inset, inset),
+		rect.size - Vector2(inset * 2.0, inset * 2.0))
+	canvas.draw_texture_rect(icon, icon_rect, false, modulate)
+
+
+## Panel background + border. Caller owns computing `rect` (this project's
+## panels are all screen-centered via `(vp - PANEL_SIZE) * 0.5`, left to the
+## caller since PANEL_W/PANEL_H differ per file).
+static func draw_panel(canvas: CanvasItem, rect: Rect2, theme: UITheme, border_width: float = 2.0) -> void:
+	draw_rounded_rect(canvas, rect, theme.bg, theme.border, border_width)
+
+
 ## Draws the standard × close button at a panel's top-right corner and
 ## returns its hit-rect (same rect the caller should position its real
 ## `Button` node over, and/or hit-test manually) — mirrors
@@ -208,11 +243,7 @@ static func draw_close_button(canvas: CanvasItem, panel_rect: Rect2, theme: UITh
 		panel_rect.position.y + 16.0,
 		30.0, 30.0)
 	draw_rounded_rect(canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), theme.crit, 1.5)
-	var cp: Vector2 = close_rect.position
-	var cs: Vector2 = close_rect.size
-	var x_col: Color = Color(1.0, 0.7, 0.7, 1.0)
-	canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), x_col, 2.0)
-	canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), x_col, 2.0)
+	draw_close_icon(canvas, close_rect)
 	return close_rect
 
 
