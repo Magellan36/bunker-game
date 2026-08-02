@@ -104,6 +104,10 @@ func _ready() -> void:
 
 	_enter_idle()
 
+	generation_seed = randi()   ## stub — future personality generation input
+	brain = NPCBrain.new()
+	brain.setup(self)
+
 func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
@@ -169,11 +173,7 @@ func _process_wander(delta: float) -> void:
 				_enter_wandering()
 		NPCState.WANDERING:
 			if nav_finished():
-_enter_idle()
-
-	generation_seed = randi()   ## stub — future personality generation input
-	brain = NPCBrain.new()
-	brain.setup(self)
+				_enter_idle()
 			else:
 				nav_steer(delta)
 
