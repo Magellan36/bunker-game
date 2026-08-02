@@ -1,33 +1,46 @@
 extends Node3D
 class_name BunkerNavMesh
-## BunkerNavMesh.gd  (NPC Pass 2, Part 1)
-## Owns the game's single runtime-baked NavigationMesh covering the currently
-## dug-out bunker. Instantiated by MainWorld._ready() (one line, see plan).
+## BunkerNavMesh.gd  (rewritten in NPC Pass 2, Part 9 — parsed-collider bake)
+## Owns the game's single runtime-baked NavigationMesh covering the dug-out
+## bunker. Instantiated by MainWorld._ready().
 ##
-## Sources, per rebake:
-##   WALKABLE  — one 1×1 floor quad per key in MainWorld._cleared_cells,
-##               read via MainWorld.get_cleared_cell_keys() (added below in
-##               this same part). Cell key "cx,cz" spans world X [cx,cx+1],
-##               Z [cz,cz+1].
-##   OBSTACLES — one box per placed object from
-##               BuildModeController.get_nav_obstacle_snapshot(), extruded
-##               tall (OBSTACLE_H) so the bake can never treat its top as a
-##               walkable ledge.
+## Geometry sources, per rebake (BOTH feed one bake):
+##   1. PARSED PHYSICS WORLD — NavigationServer3D.parse_source_geometry_data
+##      walks the scene from MainWorld and collects every static collider
+##      matching geometry_collision_mask = 1: the GridMap floor tiles
+##      (walkable tops at their REAL height, y≈0.5), pregen + player-placed
+##      walls/pillars (vertical blockers), furniture/device StaticBodies
+##      (blockers at real footprints), rocks. RigidBody items and
+##      CharacterBody3D (player, NPCs) are excluded by the parser itself.
+##      This is the ground truth — no hand-fed footprints, no winding math,
+##      no per-tile assumptions.
+##   2. SAFETY-NET FLOOR — one quad per MainWorld._cleared_cells key at
+##      FLOOR_Y (0.5, the real floor surface). Coplanar with the parsed
+##      floor tops, so it merges harmlessly when redundant; it guarantees
+##      walkable coverage even if a floor tile ever lacks collision.
 ##
-## Rebake triggers (all automatic, no other system edited):
-##   - RockSurround.chunk_deconstructed / chunk_restored signals (dig/undo)
-##   - placed-object fingerprint change, polled every POLL_INTERVAL
-##   - one initial bake shortly after startup
-## All triggers only mark dirty; the actual bake runs debounced
-## (REBAKE_DEBOUNCE after the last trigger) and asynchronously
-## (NavigationServer3D.bake_from_source_geometry_data on a worker thread),
-## so digging ten rocks in a row costs one bake, and nothing hitches.
+## Rebake triggers (unchanged from Part 1): RockSurround dig/restore
+## signals, placed-object fingerprint poll, initial startup bake — all
+## debounced, all baked async off-thread.
+##
+## HISTORY (do not "restore" any of these):
+##   - Part 1 baked hand-built floor quads at FLOOR_Y = 0.0 — half a meter
+##     BELOW the real floor. That vertical offset silently broke
+##     NavigationAgent3D waypoint advancement (3D-distance reached-checks
+##     could never pass) and hid the navmesh under the floor in debug view.
+##     FLOOR_Y is now 0.5 and the primary geometry is parsed, not hand-built.
+##   - Part 1 also fed every placed object through _tile_half_extents'
+##     0.40×0.40 fallback as an obstacle box (wires/pipes/posters/lights
+##     became phantom blockers). Parsed colliders replace all of that; the
+##     snapshot function is still called ONLY as a cheap change-detector
+##     fingerprint, never for geometry.
+##   - Part 8's map cell-size sync is kept: the map must match the mesh's
+##     cell_size/cell_height for correct map-level rasterization.
 
-const FLOOR_Y: float = 0.0            ## bake-source plane; path Y is advisory only —
-                                      ## NPC gravity/physics owns real Y (see NPC.gd)
-const OBSTACLE_H: float = 2.0
-const REBAKE_DEBOUNCE: float = 0.5    ## seconds after last dirty-mark before baking
-const POLL_INTERVAL: float = 1.0      ## placed-object fingerprint poll cadence
+const FLOOR_Y: float = 0.5            ## REAL floor surface (GridMap y=1.0,
+                                      ## 0.1 cells, row -6 → tile top 0.5)
+const REBAKE_DEBOUNCE: float = 0.5
+const POLL_INTERVAL: float = 1.0
 
 var _region: NavigationRegion3D = null
 var _navmesh: NavigationMesh = null
@@ -41,26 +54,17 @@ var _bake_queued_again: bool = false
 func _ready() -> void:
 	add_to_group("bunker_navmesh")
 
+	## Map voxel grid must match the NavigationMesh's below (Part 8, kept).
+	var nav_map: RID = get_world_3d().navigation_map
+	NavigationServer3D.map_set_cell_size(nav_map, 0.1)
+	NavigationServer3D.map_set_cell_height(nav_map, 0.15)
 
-	## Part 8's map_set_cell_size/map_set_cell_height sync lived here and has
-	## been REVERTED (Part 8.1 hotfix) — it caused a much worse regression
-	## (near-total navmesh coverage loss) than the cosmetic edge-rasterization
-	## warning it was meant to fix. This project only has one NavigationRegion3D,
-	## so there's no multi-region connectivity to actually benefit from map-level
-	## cell sync, and reconfiguring the shared map's voxel grid turned out to
-	## have a much bigger effect on baking than intended. The cell_size mismatch
-	## warning may reappear in the console — that's expected and being treated
-	## as cosmetic/harmless in a single-region setup until proven otherwise.
 	_navmesh = NavigationMesh.new()
-	## Agent shape: NPC capsule is radius 0.4 (Part 7 resized it down from
-	## Godot's unset 0.5 default specifically to close this gap). agent_radius
-	## here is set to the SAME 0.4 — an exact multiple of cell_size (0.1), so
-	## Recast doesn't need to ceil/round it at bake time (that was the second
-	## warning), and the navmesh's assumed clearance now exactly matches the
-	## NPC's real physical clearance instead of only approximating it. The
-	## two most common traversal gaps in this game are 1 cell (1.0) wide
-	## between obstacle footprints; 0.4 leaves 0.2m of walkable centerline
-	## width there — tight but confirmed navigable (see verification below).
+	## Parse real static colliders on physics bit 1 (walls/floors/furniture
+	## all use collision_layer 5 = bits 1+3; mask 1 matches them all).
+	_navmesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	_navmesh.geometry_collision_mask = 1
+	## Agent shape — matches the NPC capsule exactly (radius 0.4, Part 7/8).
 	_navmesh.agent_radius = 0.4
 	_navmesh.agent_height = 1.8
 	_navmesh.agent_max_climb = 0.3
@@ -73,7 +77,6 @@ func _ready() -> void:
 	_region.navigation_mesh = _navmesh
 	add_child(_region)
 
-	## Listen for digs directly — RockSurround is MainWorld's exported ref.
 	var world: Node = get_tree().get_first_node_in_group("main_world")
 	if world != null and "rock_surround" in world and world.rock_surround != null:
 		var rs: Node = world.rock_surround
@@ -98,6 +101,8 @@ func _process(delta: float) -> void:
 			_dirty = false
 			_rebake()
 
+## Placed-object fingerprint — used ONLY as a "something changed, rebake"
+## signal. The snapshot's footprint data is NOT used for geometry anymore.
 func _poll_placed_objects() -> void:
 	var world: Node = get_tree().get_first_node_in_group("main_world")
 	if world == null or not ("_build_controller" in world):
@@ -113,7 +118,7 @@ func _poll_placed_objects() -> void:
 
 func _rebake() -> void:
 	if _baking:
-		_bake_queued_again = true   ## coalesce: bake once more when current finishes
+		_bake_queued_again = true
 		return
 
 	var world: Node = get_tree().get_first_node_in_group("main_world")
@@ -122,7 +127,13 @@ func _rebake() -> void:
 
 	var src: NavigationMeshSourceGeometryData3D = NavigationMeshSourceGeometryData3D.new()
 
-	## ── Walkable floor: one quad (two triangles) per cleared cell ──────────
+	## ── Source 1: the real physics world (floors, walls, furniture, rocks) ─
+	NavigationServer3D.parse_source_geometry_data(_navmesh, src, world)
+
+	## ── Source 2: safety-net floor quads at the REAL floor height ──────────
+	## Coplanar with parsed floor-tile tops; harmless duplicate when tiles
+	## have collision, load-bearing if any ever doesn't. Winding: (a,c,b) /
+	## (a,d,c) yields the upward (+Y) normal Recast requires for walkable.
 	var cell_keys: Array = world.get_cleared_cell_keys()
 	for key: String in cell_keys:
 		var parts: PackedStringArray = key.split(",")
@@ -136,51 +147,29 @@ func _rebake() -> void:
 		var d: Vector3 = Vector3(cx,       FLOOR_Y, cz + 1.0)
 		src.add_faces(PackedVector3Array([a, c, b,  a, d, c]), Transform3D.IDENTITY)
 
-	## ── Obstacles: one tall box per placed object footprint ────────────────
-	var bc: Node = world._build_controller if ("_build_controller" in world) else null
-	if bc != null and bc.has_method("get_nav_obstacle_snapshot"):
-		var snap: Dictionary = bc.get_nav_obstacle_snapshot()
-		for ob: Dictionary in snap.get("obstacles", []):
-			var pos: Vector3  = ob["pos"]
-			var half: Vector2 = ob["half"]
-			var ang: float    = deg_to_rad(float(ob["angle_deg"]))
-			src.add_faces(_box_faces(half, OBSTACLE_H),
-				Transform3D(Basis(Vector3.UP, ang), Vector3(pos.x, FLOOR_Y, pos.z)))
-
 	_baking = true
 	NavigationServer3D.bake_from_source_geometry_data(_navmesh, src, _on_bake_done)
 
 func _on_bake_done() -> void:
 	_baking = false
-	## Push the freshly-baked mesh into the region (re-assign triggers sync).
 	_region.navigation_mesh = _navmesh
+	if NPCDebug.enabled:
+		print("[BunkerNavMesh] bake done: %d polygons, %d vertices" % [
+			_navmesh.get_polygon_count(), _navmesh.get_vertices().size()])
 	if _bake_queued_again:
 		_bake_queued_again = false
 		mark_dirty()
 
-## Local-space triangle list for a box: XZ half-extents `half`, from y=0 up
-## to y=h. 5 faces (bottom skipped — it sits on the floor plane and only the
-## sides/top matter for blocking walkability).
-func _box_faces(half: Vector2, h: float) -> PackedVector3Array:
-	var x: float = half.x
-	var z: float = half.y
-	var p: Array[Vector3] = [
-		Vector3(-x, 0.0, -z), Vector3( x, 0.0, -z),
-		Vector3( x, 0.0,  z), Vector3(-x, 0.0,  z),   ## 0..3 bottom ring
-		Vector3(-x, h,   -z), Vector3( x, h,   -z),
-		Vector3( x, h,    z), Vector3(-x, h,    z),   ## 4..7 top ring
-	]
-	var f: PackedVector3Array = PackedVector3Array()
-	var quads: Array = [
-		[0, 1, 5, 4],   ## -Z side
-		[1, 2, 6, 5],   ## +X side
-		[2, 3, 7, 6],   ## +Z side
-		[3, 0, 4, 7],   ## -X side
-		[4, 5, 6, 7],   ## top
-	]
-	for q: Array in quads:
-		f.append_array(PackedVector3Array([
-			p[q[0]], p[q[1]], p[q[2]],
-			p[q[0]], p[q[2]], p[q[3]],
-		]))
-	return f
+const FLOOR_Y: float = 0.5            ## REAL floor surface (GridMap y=1.0,
+                                      ## 0.1 cells, row -6 → tile top 0.5)
+const REBAKE_DEBOUNCE: float = 0.5
+const POLL_INTERVAL: float = 1.0
+
+var _region: NavigationRegion3D = null
+var _navmesh: NavigationMesh = null
+var _dirty: bool = true
+var _debounce: float = 0.0
+var _poll_timer: float = 0.0
+var _last_fingerprint: int = -1
+var _baking: bool = false
+var _bake_queued_again: bool = false

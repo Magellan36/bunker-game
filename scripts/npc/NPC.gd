@@ -110,8 +110,13 @@ func _ready() -> void:
 	## Agent built in code (no scene edit needed; scene stays Pass-1 shape).
 	nav_agent = NavigationAgent3D.new()
 	nav_agent.name = "NavAgent"
-	nav_agent.path_desired_distance = 0.4
-	nav_agent.target_desired_distance = arrival_distance
+	## Reached-checks are 3D. Path points sit on the floor (y≈0.5) while this
+	## node's origin is the capsule CENTER (y≈1.4) — a constant ~0.9 vertical
+	## offset. Desired distances must exceed it or no waypoint can ever
+	## register as reached (the Part 1–8 wall-sticking root cause). 1.1
+	## leaves ~0.63 of effective XZ arrival tolerance. (Part 9)
+	nav_agent.path_desired_distance = 1.1
+	nav_agent.target_desired_distance = 1.1
 	nav_agent.path_max_distance = 3.0
 	nav_agent.radius = 0.4               ## matches BunkerNavMesh.agent_radius (Part 8)
 	nav_agent.avoidance_enabled = false  ## physics handles NPC-vs-NPC shoving fine at 2-3 NPCs
@@ -152,7 +157,10 @@ func _physics_process(delta: float) -> void:
 ## Point the agent at a world position. Y is flattened — paths are XZ-only.
 func set_nav_target(world_pos: Vector3) -> void:
 	if nav_agent != null:
-		nav_agent.target_position = Vector3(world_pos.x, 0.0, world_pos.z)
+		## Snap target to the real floor plane (0.5), not y=0 — keeps the
+		## vertical offset to this node's origin at ~0.9, inside the 1.1
+		## desired-distance budget above. (Part 9)
+		nav_agent.target_position = Vector3(world_pos.x, 0.5, world_pos.z)
 
 func nav_finished() -> bool:
 	return nav_agent == null or nav_agent.is_navigation_finished()
