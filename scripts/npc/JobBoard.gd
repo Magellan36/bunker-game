@@ -43,6 +43,7 @@ func claim(job: Dictionary, npc: Node) -> bool:
 	if live.is_empty() or live.get("claimed_by") != null:
 		return false
 	live["claimed_by"] = npc
+	NPCDebug.log_job("claimed", live, npc)
 	return true
 
 func release(job: Dictionary, npc: Node) -> void:
@@ -75,6 +76,7 @@ func _mark(seen: Dictionary, id: String, type: String, target: Node,
 		"id": id, "type": type, "target": target,
 		"fetch_filter": fetch_filter, "claimed_by": null,
 	}
+	NPCDebug.log_job("posted", _jobs[id])
 
 func _scan_harvest(seen: Dictionary) -> void:
 	for tray: Node in get_tree().get_nodes_in_group("farming_tray"):

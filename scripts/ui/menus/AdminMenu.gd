@@ -82,6 +82,17 @@ func _ready() -> void:
 		["STATUS", "Add Test Status Effect (10s)", _on_add_status_effect_pressed],
 		["NPC",    "Spawn NPC", _on_spawn_npc_pressed],
 		["",       "Drain NPC Needs -40", _on_drain_npc_needs_pressed],
+		["",       "Energy +20", _on_npc_energy_up_pressed],
+		["",       "Energy -20", _on_npc_energy_down_pressed],
+		["",       "Hunger +20", _on_npc_hunger_up_pressed],
+		["",       "Hunger -20", _on_npc_hunger_down_pressed],
+		["",       "Thirst +20", _on_npc_thirst_up_pressed],
+		["",       "Thirst -20", _on_npc_thirst_down_pressed],
+		["",       "Randomize NPC Skills", _on_npc_randomize_skills_pressed],
+		["",       "Despawn All NPCs", _on_npc_despawn_all_pressed],
+		["",       "Force Rebake Navmesh", _on_npc_force_rebake_pressed],
+		["",       "Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
+		["",       "Print NPC Debug State", _on_npc_print_debug_pressed],
 	]
 
 	_canvas = Control.new()
@@ -381,6 +392,55 @@ func _on_drain_npc_needs_pressed() -> void:
 			npc.energy = maxf(0.0, npc.energy - 40.0)
 			npc.hunger = maxf(0.0, npc.hunger - 40.0)
 			npc.thirst = maxf(0.0, npc.thirst - 40.0)
+
+## Shared helper — clamp-adjusts one need on every spawned NPC by `delta`.
+func _adjust_all_npc_need(need_name: String, delta: float) -> void:
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if need_name in npc:
+			npc.set(need_name, clampf(float(npc.get(need_name)) + delta, 0.0, 100.0))
+
+func _on_npc_energy_up_pressed() -> void:   _adjust_all_npc_need("energy", 20.0)
+func _on_npc_energy_down_pressed() -> void: _adjust_all_npc_need("energy", -20.0)
+func _on_npc_hunger_up_pressed() -> void:   _adjust_all_npc_need("hunger", 20.0)
+func _on_npc_hunger_down_pressed() -> void: _adjust_all_npc_need("hunger", -20.0)
+func _on_npc_thirst_up_pressed() -> void:   _adjust_all_npc_need("thirst", 20.0)
+func _on_npc_thirst_down_pressed() -> void: _adjust_all_npc_need("thirst", -20.0)
+
+## Re-rolls every spawned NPC's skill set (0.6–1.4 uniform, same as spawn-
+## time randomization) — handy for re-testing skill-weighted job claiming
+## without respawning.
+func _on_npc_randomize_skills_pressed() -> void:
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if npc.has_method("randomize_skills"):
+			npc.randomize_skills()
+
+## Frees every spawned NPC cleanly (stops brain activity first so any held
+## item/claimed job/chair is released, same teardown SaveManager's load
+## path uses) — faster than reloading a save to get back to zero NPCs.
+func _on_npc_despawn_all_pressed() -> void:
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if not is_instance_valid(npc):
+			continue
+		if "brain" in npc and npc.brain != null:
+			npc.brain.stop_current()
+		if "held_item" in npc and npc.held_item != null:
+			NPCItemUser.drop_held(npc)
+		npc.queue_free()
+
+## Bypasses BunkerNavMesh's debounce/poll cycle for an instant rebake —
+## useful right after manually editing the world in ways the automatic
+## dig/place-fingerprint triggers wouldn't catch.
+func _on_npc_force_rebake_pressed() -> void:
+	var nav: Node = get_tree().get_first_node_in_group("bunker_navmesh")
+	if nav != null and nav.has_method("mark_dirty"):
+		nav.mark_dirty()
+
+func _on_npc_toggle_debug_pressed() -> void:
+	NPCDebug.enabled = not NPCDebug.enabled
+	print("[AdminMenu] NPC debug logging: %s" % ("ON" if NPCDebug.enabled else "OFF"))
+
+func _on_npc_print_debug_pressed() -> void:
+	NPCDebug.dump_all(get_tree())
 
 ## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
 ## MainWorld._cash directly — add_cash() is what also pushes the new balance

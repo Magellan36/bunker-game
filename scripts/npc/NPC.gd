@@ -136,6 +136,7 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
 
 	_tick_needs(delta)
+	_tick_stuck_recovery(delta)
 
 	if current_task != null:
 		perform_task(delta)
@@ -294,3 +295,41 @@ func _process(delta: float) -> void:
 		add_child(_overhead_label)
 	var activity: String = brain.current_label() if brain != null else "Idle"
 	_overhead_label.text = "%s — %s" % [npc_name, activity]
+
+
+# ─── Stuck recovery (Part 7) ────────────────────────────────────────────────
+## Fires only while the nav agent has an active, unfinished target — i.e.
+## during any activity's travel phase. Idle/consume/work-in-place moments
+## are correctly stationary and never flagged. If the NPC hasn't displaced
+## STUCK_MIN_DISPLACEMENT in STUCK_CHECK_INTERVAL seconds while trying to
+## travel, hard-abort the current activity so the brain re-scores fresh —
+## every activity's exit() already releases jobs/chairs/items cleanly, so
+## this is always a safe, non-destructive reset.
+const STUCK_CHECK_INTERVAL: float = 1.0
+const STUCK_MIN_DISPLACEMENT: float = 0.15
+
+var _stuck_timer: float = 0.0
+var _stuck_ref_pos: Vector3 = Vector3.ZERO
+var _stuck_recoveries: int = 0   ## exposed for the Part 7 debug dump
+
+func _tick_stuck_recovery(delta: float) -> void:
+	if nav_agent == null or nav_finished():
+		_stuck_timer = 0.0
+		_stuck_ref_pos = global_position
+		return
+	_stuck_timer += delta
+	if _stuck_timer < STUCK_CHECK_INTERVAL:
+		return
+	var moved: float = global_position.distance_to(_stuck_ref_pos)
+	_stuck_timer = 0.0
+	_stuck_ref_pos = global_position
+	if moved < STUCK_MIN_DISPLACEMENT:
+		_recover_from_stuck()
+
+func _recover_from_stuck() -> void:
+	_stuck_recoveries += 1
+	NPCDebug.log_stuck(self)
+	if brain != null:
+		brain.stop_current()
+	velocity.x = 0.0
+	velocity.z = 0.0

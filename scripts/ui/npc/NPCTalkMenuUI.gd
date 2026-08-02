@@ -40,11 +40,13 @@ func open(npc_name: String, npc: Node = null) -> void:
 	_npc = npc
 	_is_open = true
 	visible = true
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_build(npc_name)
 
 func close() -> void:
 	_is_open = false
 	visible = false
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_teardown()
 
 func _teardown() -> void:

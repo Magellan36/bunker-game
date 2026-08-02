@@ -73,11 +73,13 @@ func _think() -> void:
 		return
 
 	if _current == null:
+		NPCDebug.log_activity(_npc, "Idle", best.label())
 		_start(best)
 		return
 
 	## Incumbent defends its seat: challenger needs margin AND permission.
 	if _current.interruptible() and best_score > _current.score(_npc) + SWITCH_MARGIN:
+		NPCDebug.log_activity(_npc, _current.label(), best.label())
 		_current.exit(_npc)
 		_start(best)
 
@@ -558,6 +560,7 @@ class JobActivity extends NPCActivity:
 				NotificationManager.notify(UIKit.Domain.POWER,
 					NotificationManager.Severity.INFO,
 					"%s refueled the generator" % npc.npc_name)
+		NPCDebug.log_job("completed", _job, npc)
 		npc.gain_skill(String(conf["skill"]))
 		_claimed = false
 
