@@ -64,6 +64,19 @@ var generation_seed: int = 0
 var personality: Dictionary = {}
 var mood: float = 100.0
 
+# ─── Skills (Part 4) — score multipliers for job selection; grow with use ──
+var skills: Dictionary = {
+	"farming": 1.0, "plumbing": 1.0, "electrical": 1.0, "construction": 1.0,
+}
+
+func randomize_skills() -> void:
+	for k: String in skills.keys():
+		skills[k] = randf_range(0.6, 1.4)
+
+func gain_skill(key: String, amount: float = 0.01) -> void:
+	if skills.has(key):
+		skills[key] = minf(2.0, float(skills[key]) + amount)
+
 # ─── Brain ────────────────────────────────────────────────────────────────
 var brain: NPCBrain = null
 
@@ -114,6 +127,7 @@ func _ready() -> void:
 	_enter_idle()
 
 	generation_seed = randi()   ## stub — future personality generation input
+	randomize_skills()
 	brain = NPCBrain.new()
 	brain.setup(self)
 
@@ -227,3 +241,31 @@ func _open_talk_menu() -> void:
 		get_tree().get_root().add_child(_talk_menu)
 	if _talk_menu.has_method("open"):
 		_talk_menu.open(npc_name)
+
+
+# ─── Overhead work banner (Part 4) — GeneratorObject fuel-banner style ─────
+var _work_banner: Label3D = null
+
+func show_work_banner() -> void:
+	if _work_banner == null:
+		_work_banner = Label3D.new()
+		_work_banner.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_work_banner.fixed_size = true
+		_work_banner.pixel_size = 0.0009
+		_work_banner.font_size = 40
+		_work_banner.outline_size = 8
+		_work_banner.position = Vector3(0.0, 1.55, 0.0)
+		_work_banner.modulate = Color(0.95, 0.85, 0.45, 1.0)
+		add_child(_work_banner)
+	_work_banner.visible = true
+
+func update_work_banner(action: String, progress: float) -> void:
+	if _work_banner == null:
+		return
+	var filled: int = clampi(int(round(progress * 5.0)), 0, 5)
+	_work_banner.text = "%s %s%s" % [action,
+		"▓".repeat(filled), "░".repeat(5 - filled)]
+
+func hide_work_banner() -> void:
+	if _work_banner != null:
+		_work_banner.visible = false

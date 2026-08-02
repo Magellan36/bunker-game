@@ -81,6 +81,7 @@ func _ready() -> void:
 		["",        "Spawn Tomato", _on_spawn_tomato_pressed],
 		["STATUS", "Add Test Status Effect (10s)", _on_add_status_effect_pressed],
 		["NPC",    "Spawn NPC", _on_spawn_npc_pressed],
+		["",       "Drain NPC Needs -40", _on_drain_npc_needs_pressed],
 	]
 
 	_canvas = Control.new()
@@ -371,6 +372,15 @@ func _on_spawn_npc_pressed() -> void:
 	npc.global_position = player_node.global_position \
 		+ (-player_node.global_transform.basis.z * 2.0) \
 		+ Vector3(0.0, 0.5, 0.0)
+
+## Knocks 40 points off every spawned NPC's three needs — instant way to
+## trigger drink/eat/sit behavior without waiting on the game clock.
+func _on_drain_npc_needs_pressed() -> void:
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if "energy" in npc:
+			npc.energy = maxf(0.0, npc.energy - 40.0)
+			npc.hunger = maxf(0.0, npc.hunger - 40.0)
+			npc.thirst = maxf(0.0, npc.thirst - 40.0)
 
 ## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
 ## MainWorld._cash directly — add_cash() is what also pushes the new balance

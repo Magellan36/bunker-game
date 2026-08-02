@@ -54,7 +54,14 @@ func tick(delta: float) -> void:
 func _think() -> void:
 	var best: NPCActivity = null
 	var best_score: float = 0.0
-	for cand: NPCActivity in _candidates:
+
+	## Job candidates (Part 4): one throwaway JobActivity per open job. Only
+	## unclaimed jobs are offered; claiming happens in JobActivity.enter().
+	var scan: Array[NPCActivity] = _candidates.duplicate()
+	for job: Dictionary in JobBoard.get_open_jobs():
+		scan.append(JobActivity.new(job))
+
+	for cand: NPCActivity in scan:
 		if cand == _current:
 			continue
 		var s: float = cand.score(_npc)
@@ -387,3 +394,177 @@ class EatActivity extends NPCActivity:
 		_loose = null
 		_shelf_pick = {}
 		_eating = 0.0
+
+
+class JobActivity extends NPCActivity:
+	## Executes one JobBoard job: [optional fetch item] → travel → work timer
+	## with overhead banner → apply the SAME world effect a player action has.
+	const WORK_RANGE: float = 1.6
+
+	## Per-type work seconds and skill key.
+	const TYPE_CONF: Dictionary = {
+		"HARVEST":        {"time": 4.0, "skill": "farming",    "base": 55.0, "verb": "HARVESTING"},
+		"REPLACE_FILTER": {"time": 5.0, "skill": "plumbing",   "base": 65.0, "verb": "FITTING FILTER"},
+		"REFUEL":         {"time": 6.0, "skill": "electrical", "base": 60.0, "verb": "REFUELING"},
+	}
+
+	var _job: Dictionary
+	var _phase: String = "fetch"   ## fetch → travel → work
+	var _work_left: float = 0.0
+	var _work_total: float = 1.0
+	var _fetch_loose: RigidBody3D = null
+	var _fetch_shelf: Dictionary = {}
+	var _claimed: bool = false
+
+	func _init(job: Dictionary) -> void:
+		_job = job
+
+	func label() -> String:
+		match _phase:
+			"fetch": return "Fetching supplies"
+			"travel": return "Heading to work"
+			_: return "Working"
+
+	func score(npc: NPC) -> float:
+		var conf: Dictionary = TYPE_CONF.get(_job.get("type", ""), {})
+		if conf.is_empty():
+			return 0.0
+		var target: Node = _job.get("target")
+		if target == null or not is_instance_valid(target):
+			return 0.0
+		var skill: float = float(npc.skills.get(conf["skill"], 1.0))
+		var dist: float = (target as Node3D).global_position.distance_to(npc.global_position)
+		return float(conf["base"]) * skill / (1.0 + dist * 0.08)
+
+	func interruptible() -> bool:
+		return _phase != "work"
+
+	func enter(npc: NPC) -> void:
+		_claimed = JobBoard.claim(_job, npc)
+		if not _claimed:
+			return
+		var conf: Dictionary = TYPE_CONF[_job["type"]]
+		_work_total = float(conf["time"])
+		_work_left = _work_total
+
+		var needs_fetch: bool = _job.get("fetch_filter") != null
+		if needs_fetch and npc.held_item == null:
+			_phase = "fetch"
+			var filt: Callable = _job["fetch_filter"]
+			_fetch_loose = NPCItemUser.find_loose_item(npc, filt)
+			_fetch_shelf = {} if _fetch_loose != null \
+				else NPCItemUser.find_shelved_item(npc, filt)
+			var tgt: Node3D = _fetch_loose if _fetch_loose != null \
+				else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
+			if tgt == null:
+				_claimed = false   ## spare vanished between scan and now
+				JobBoard.release(_job, npc)
+				return
+			npc.set_nav_target(tgt.global_position)
+		else:
+			_start_travel(npc)
+
+	func _start_travel(npc: NPC) -> void:
+		_phase = "travel"
+		var target: Node3D = _job.get("target") as Node3D
+		if target != null and is_instance_valid(target):
+			npc.set_nav_target(target.global_position)
+
+	func tick(npc: NPC, delta: float) -> void:
+		if not _claimed:
+			return
+		if not JobBoard.still_valid(_job):   ## player beat us to it
+			_claimed = false
+			return
+		var target: Node3D = _job.get("target") as Node3D
+		if target == null or not is_instance_valid(target):
+			_claimed = false
+			return
+
+		match _phase:
+			"fetch":
+				_tick_fetch(npc, delta)
+			"travel":
+				npc.nav_steer(delta)
+				if npc.global_position.distance_to(target.global_position) <= WORK_RANGE:
+					npc.velocity = Vector3.ZERO
+					_phase = "work"
+					npc.show_work_banner()
+			"work":
+				npc.halt_movement(delta)
+				_work_left -= delta
+				var conf: Dictionary = TYPE_CONF[_job["type"]]
+				npc.update_work_banner(String(conf["verb"]),
+					1.0 - (_work_left / _work_total))
+				if _job["type"] == "REFUEL" and npc.held_item is FuelCan:
+					npc.held_item.refuel_tick(delta)   ## REAL continuous pour
+				if _work_left <= 0.0:
+					_complete(npc)
+
+	func _tick_fetch(npc: NPC, delta: float) -> void:
+		if npc.held_item != null:
+			_start_travel(npc)
+			return
+		if _fetch_loose != null and is_instance_valid(_fetch_loose):
+			npc.nav_steer(delta)
+			if npc.global_position.distance_to(_fetch_loose.global_position) \
+					<= NPCItemUser.PICKUP_RANGE:
+				if NPCItemUser.grab_loose(npc, _fetch_loose):
+					_start_travel(npc)
+				else:
+					_fetch_loose = null
+			return
+		if not _fetch_shelf.is_empty():
+			var shelf: Node3D = _fetch_shelf.get("shelf")
+			if shelf == null or not is_instance_valid(shelf):
+				_claimed = false
+				return
+			npc.nav_steer(delta)
+			if npc.global_position.distance_to(shelf.global_position) \
+					<= NPCItemUser.SHELF_RANGE:
+				if NPCItemUser.grab_from_shelf(npc, shelf,
+						int(_fetch_shelf.get("slot", -1))):
+					_start_travel(npc)
+				else:
+					_claimed = false
+			return
+		_claimed = false   ## nothing left to fetch
+
+	func _complete(npc: NPC) -> void:
+		var target: Node = _job.get("target")
+		var conf: Dictionary = TYPE_CONF[_job["type"]]
+		match _job["type"]:
+			"HARVEST":
+				for plant in target.plant_refs:
+					if plant != null and is_instance_valid(plant) and plant.is_ready():
+						plant.harvest()   ## spawns real produce, clears cell
+				NotificationManager.notify(UIKit.Domain.NEUTRAL,
+					NotificationManager.Severity.INFO,
+					"%s harvested the crops" % npc.npc_name)
+			"REPLACE_FILTER":
+				if npc.held_item is PurifierFilterItem:
+					var filt: PurifierFilterItem = npc.held_item
+					npc.held_item = null      ## replace_filter consumes/frees it
+					target.replace_filter(filt)
+					NotificationManager.notify(UIKit.Domain.WATER,
+						NotificationManager.Severity.INFO,
+						"%s replaced the purifier filter" % npc.npc_name)
+			"REFUEL":
+				## Pouring already happened continuously during "work".
+				if npc.held_item != null:
+					NPCItemUser.drop_held(npc)   ## set the can back down
+				NotificationManager.notify(UIKit.Domain.POWER,
+					NotificationManager.Severity.INFO,
+					"%s refueled the generator" % npc.npc_name)
+		npc.gain_skill(String(conf["skill"]))
+		_claimed = false
+
+	func done(_npc: NPC) -> bool:
+		return not _claimed
+
+	func exit(npc: NPC) -> void:
+		npc.hide_work_banner()
+		JobBoard.release(_job, npc)
+		if npc.held_item != null:
+			NPCItemUser.drop_held(npc)
+		_claimed = false
