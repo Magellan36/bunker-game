@@ -159,17 +159,3 @@ func _on_bake_done() -> void:
 	if _bake_queued_again:
 		_bake_queued_again = false
 		mark_dirty()
-
-const FLOOR_Y: float = 0.5            ## REAL floor surface (GridMap y=1.0,
-                                      ## 0.1 cells, row -6 → tile top 0.5)
-const REBAKE_DEBOUNCE: float = 0.5
-const POLL_INTERVAL: float = 1.0
-
-var _region: NavigationRegion3D = null
-var _navmesh: NavigationMesh = null
-var _dirty: bool = true
-var _debounce: float = 0.0
-var _poll_timer: float = 0.0
-var _last_fingerprint: int = -1
-var _baking: bool = false
-var _bake_queued_again: bool = false
