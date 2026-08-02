@@ -292,6 +292,70 @@ func _register_save_fields() -> void:
 		func(v: float) -> void: player_stats.set_elapsed(v),
 		4)
 
+	## Phase 4 — NPCs (NPC Pass 2, Part 6). Applied after the world exists so
+	## respawned NPCs land on real floor with a valid navmesh incoming.
+	## Held items are NOT persisted — NPCs reload empty-handed and re-decide
+	## (FUTURE WORK: carry-state persistence if it ever matters). Claimed
+	## jobs/brain state are NOT persisted either — JobBoard.get_open_jobs()
+	## already auto-releases claims from freed NPCs (see JobBoard.gd), so
+	## clearing-then-respawning below never leaves a job stuck.
+	SaveManager.register_field(
+		"npcs",
+		func() -> Array: return _get_npcs_for_save(),
+		func(v: Array) -> void: _restore_npcs(v),
+		4)
+
+## ── NPC save/restore (NPC Pass 2, Part 6) ───────────────────────────────────
+func _get_npcs_for_save() -> Array:
+	var out: Array = []
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if not is_instance_valid(npc) or not ("energy" in npc):
+			continue
+		out.append({
+			"pos":    SaveManager.vec3_to_dict(npc.global_position),
+			"name":   npc.npc_name,
+			"energy": npc.energy,
+			"hunger": npc.hunger,
+			"thirst": npc.thirst,
+			"skills": npc.skills.duplicate(),
+			"seed":   npc.generation_seed,
+			"mood":   npc.mood,
+		})
+	return out
+
+func _restore_npcs(saved: Array) -> void:
+	## Clear current population first (stop activities cleanly so chairs/
+	## items aren't left claimed by freed nodes, and so any job a cleared
+	## NPC was working gets auto-released the next time JobBoard is polled —
+	## see the phase-4 registration comment above for why that's already safe).
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if not is_instance_valid(npc):
+			continue
+		if "brain" in npc and npc.brain != null:
+			npc.brain.stop_current()
+		if "held_item" in npc and npc.held_item != null:
+			NPCItemUser.drop_held(npc)
+		npc.queue_free()
+
+	var scene: PackedScene = load("res://scenes/npc/NPC.tscn")
+	if scene == null:
+		push_warning("[MainWorld] NPC.tscn missing — cannot restore NPCs")
+		return
+	for entry: Dictionary in saved:
+		var npc: Node3D = scene.instantiate()
+		add_child(npc)
+		npc.global_position = SaveManager.dict_to_vec3(entry.get("pos", {}))
+		npc.npc_name        = str(entry.get("name", "Survivor"))
+		npc.energy          = float(entry.get("energy", 100.0))
+		npc.hunger          = float(entry.get("hunger", 100.0))
+		npc.thirst          = float(entry.get("thirst", 100.0))
+		npc.mood            = float(entry.get("mood", 100.0))
+		npc.generation_seed = int(entry.get("seed", 0))
+		var sk: Dictionary  = entry.get("skills", {})
+		for k: String in npc.skills.keys():
+			if sk.has(k):
+				npc.skills[k] = float(sk[k])
+
 ## ── Player wire save/restore (Jul 2026) ─────────────────────────────────────
 ## Returns every player-placed wire as a JSON-friendly array of endpoint
 ## position pairs. Positions (not PM keys) are the stable identity here —
