@@ -96,7 +96,8 @@ static func drop_held(npc: NPC) -> void:
 
 # ─── Consumable filters (used by activities) ──────────────────────────────
 static func is_drinkable_bottle(item: Node) -> bool:
-	return item is WaterBottle and item.current_fill_mL > 0.0
+	return item.has_method("take_drink") and ("current_fill_mL" in item) \
+		and item.current_fill_mL > 0.0
 
 static func is_edible(item: Node) -> bool:
 	if item is DishItem:
