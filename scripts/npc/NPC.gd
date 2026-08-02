@@ -119,7 +119,12 @@ func _ready() -> void:
 	nav_agent.target_desired_distance = 1.1
 	nav_agent.path_max_distance = 3.0
 	nav_agent.radius = 0.4               ## matches BunkerNavMesh.agent_radius (Part 8)
-	nav_agent.avoidance_enabled = false  ## physics handles NPC-vs-NPC shoving fine at 2-3 NPCs
+	## Real dynamic avoidance (Part 11) — routes around heavy items'
+	## NavigationObstacle3D (PickupableItem.gd) AND every other NPC's own
+	## agent continuously, replacing Part 10.1's reactive post-collision
+	## steering hack entirely.
+	nav_agent.avoidance_enabled = true
+	nav_agent.velocity_computed.connect(_on_velocity_computed)
 	add_child(nav_agent)
 
 	## Carry anchor — chest-height, slightly forward; items follow it with
@@ -167,33 +172,38 @@ func nav_finished() -> bool:
 	return nav_agent == null or nav_agent.is_navigation_finished()
 
 ## Steer toward the agent's next waypoint. Call once per physics frame while
-## traveling; pairs with move_and_slide() in _physics_process. If avoidance
-## steering (Part 10.1) is active, the goal-seeking direction is blended
-## with an away-from-obstacle push rather than overridden — every activity
-## keeps calling this exact same function, so no activity code needs to
-## know avoidance exists at all.
+## traveling; pairs with move_and_slide() in _physics_process. With real
+## avoidance (Part 11) this no longer sets velocity directly — it submits
+## the PREFERRED velocity to the NavigationAgent3D, which factors in every
+## nearby NavigationObstacle3D (heavy items) and other NPC agents, then
+## calls back into _on_velocity_computed() with the safe, adjusted velocity
+## to actually apply. Every activity keeps calling this exact same function,
+## so no activity code needs to know avoidance exists at all.
 func nav_steer(delta: float) -> void:
+	_last_steer_delta = delta
 	if nav_agent == null or nav_agent.is_navigation_finished():
 		velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
 		velocity.z = lerp(velocity.z, 0.0, acceleration * delta)
 		return
-	_steer_toward(nav_agent.get_next_path_position(), delta)
-
-func _steer_toward(point: Vector3, delta: float) -> void:
-	var dir: Vector3 = point - global_position
+	var next: Vector3 = nav_agent.get_next_path_position()
+	var dir: Vector3 = next - global_position
 	dir.y = 0.0
 	if dir.length() < 0.01:
 		return
 	dir = dir.normalized()
-	if _avoid_cooldown_timer > 0.0 and _avoid_dir.length() > 0.01:
-		## Blend, don't override — weight decays linearly over the cooldown
-		## window so the path curves around the obstacle and smoothly
-		## re-converges on the real goal instead of snapping back to it.
-		var weight: float = AVOID_WEIGHT * (_avoid_cooldown_timer / AVOID_COOLDOWN)
-		dir = (dir + _avoid_dir * weight).normalized()
-	velocity.x = lerp(velocity.x, dir.x * move_speed, acceleration * delta)
-	velocity.z = lerp(velocity.z, dir.z * move_speed, acceleration * delta)
-	rotation.y = atan2(-dir.x, -dir.z)
+	nav_agent.set_velocity(dir * move_speed)   ## -> _on_velocity_computed()
+
+var _last_steer_delta: float = 0.0
+
+## Godot calls this once avoidance has computed a safe velocity from the
+## preferred one submitted in nav_steer(). Fires synchronously within the
+## same physics frame under local (non-multithreaded) avoidance, which is
+## what a single-region setup like this one uses.
+func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	velocity.x = lerp(velocity.x, safe_velocity.x, acceleration * _last_steer_delta)
+	velocity.z = lerp(velocity.z, safe_velocity.z, acceleration * _last_steer_delta)
+	if Vector2(safe_velocity.x, safe_velocity.z).length() > 0.05:
+		rotation.y = atan2(-safe_velocity.x, -safe_velocity.z)
 
 # ─── Wander state machine ─────────────────────────────────────────────────
 func _enter_idle() -> void:
@@ -338,15 +348,10 @@ func _tick_stuck_recovery(delta: float) -> void:
 		_stuck_timer = 0.0
 		_stuck_ref_pos = global_position
 		return
-	if _avoid_cooldown_timer > 0.0 and _avoid_grace_timer < AVOID_MAX_GRACE:
-		## Avoidance steering (Part 10.1) is actively handling this — don't
-		## let the general 1s recovery race it, UNLESS avoidance itself has
-		## been running for AVOID_MAX_GRACE straight without resolving (a
-		## genuinely wedged NPC), in which case fall through and let this
-		## check start counting normally as the final fallback.
-		_stuck_timer = 0.0
-		_stuck_ref_pos = global_position
-		return
+	## Part 10.1's avoidance-cooldown carve-out lived here and is removed
+	## (Part 11) — real NavigationObstacle3D-based avoidance now prevents
+	## most heavy-item collisions before they happen, so this general check
+	## goes back to being the single, simple final-fallback safety net.
 	_stuck_timer += delta
 	if _stuck_timer < STUCK_CHECK_INTERVAL:
 		return
@@ -365,42 +370,22 @@ func _recover_from_stuck() -> void:
 	velocity.z = 0.0
 
 
-# ─── Physics-clutter push-through / resistance / avoidance steering (Part 10.1) ─
-## Loose world items (FoodCan, WaterBottle, TestCrate, Basket, ...) are all
-## RigidBody3D and were never part of the navmesh (parse_source_geometry_data
-## only picks up STATIC colliders — correctly, since these move). Without
-## this system move_and_slide() treats every one of them exactly like a
-## wall. Tier is read from the item's own `mass` (Part 10, Step 1 sets
-## sensible values on the three items that needed it; everything else
-## already defaults correctly). No activity code anywhere needs to know
-## this exists — it only ever adjusts the direction nav_steer() produces.
-##
-## HISTORY: Part 10's first attempt used a discrete "hop to one fixed point
-## beside the obstacle, then fully resume" state machine. That failed in
-## practice — the moment the NPC arrived at the sidestep point, steering
-## snapped straight back to the original waypoint, which was still on the
-## far side of the object, so it walked right back in. This version blends
-## instead of overrides, and fades the blend out on a timer instead of
-## cutting it off at an arrival check, so the path curves around the
-## object and re-converges on the goal smoothly.
-const HEAVY_MASS_THRESHOLD: float = 3.0    ## mass >= this = "heavy" tier
-const LIGHT_PUSH_IMPULSE: float = 1.5      ## shove strength on light items
-const HEAVY_PUSH_IMPULSE: float = 3.0      ## shove attempt strength on heavy items
-const AVOID_WEIGHT: float = 1.8            ## how strongly "away" blends into steering
-const AVOID_COOLDOWN: float = 0.6          ## seconds the blend takes to fade after last contact
-const AVOID_MAX_GRACE: float = 3.0         ## cumulative seconds avoidance may suppress
-                                           ## the general stuck-recovery before giving up
-                                           ## and letting it fire as the final fallback
-
-var _avoid_dir: Vector3 = Vector3.ZERO
-var _avoid_cooldown_timer: float = 0.0
-var _avoid_grace_timer: float = 0.0
-var _avoid_grace_logged: bool = false
+# ─── Physics-clutter push-through (Part 10, simplified in Part 11) ─────────
+## Only light items reach this now — heavy items have a real
+## NavigationObstacle3D (PickupableItem.gd, Part 11) and NPCs route around
+## their current position proactively via avoidance, so they rarely collide
+## at all. This still shoves+corrects for light loose items (FoodCan,
+## WaterBottle, produce, ...), which intentionally have no obstacle and are
+## meant to be walked straight through rather than routed around.
+const LIGHT_PUSH_IMPULSE: float = 1.5   ## shove strength on light items
+const HEAVY_PUSH_MASS: float = 3.0      ## mirrors PickupableItem.HEAVY_OBSTACLE_MASS —
+                                        ## anything at/above this got an obstacle and
+                                        ## should rarely reach this code at all; if it
+                                        ## still does (avoidance is a preference, not a
+                                        ## guarantee), give it a small acknowledging
+                                        ## shove but let normal collision resistance stand
 
 func _handle_physics_pushes(delta: float) -> void:
-	var touching_heavy: bool = false
-	var heavy_normal: Vector3 = Vector3.ZERO
-
 	for i: int in get_slide_collision_count():
 		var col: KinematicCollision3D = get_slide_collision(i)
 		var body: Object = col.get_collider()
@@ -411,44 +396,14 @@ func _handle_physics_pushes(delta: float) -> void:
 		var rb: RigidBody3D = body as RigidBody3D
 		var away: Vector3 = -col.get_normal()
 		away.y = 0.0
+		if away.length() <= 0.01:
+			continue
 
-		if rb.mass < HEAVY_MASS_THRESHOLD:
-			## Light: shove it, and cancel out the blocked portion of this
-			## frame's motion so the NPC barely notices — "push through."
-			if away.length() > 0.01:
-				rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE)
+		if rb.mass < HEAVY_PUSH_MASS:
+			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE)
 			var blocked: Vector3 = velocity - get_real_velocity()
 			blocked.y = 0.0
 			if blocked.length() > 0.01:
 				global_position += blocked * delta
 		else:
-			## Heavy: smaller proportional shove, but do NOT correct position —
-			## Godot's normal collision resistance stands. This is the
-			## "resistance from large objects" the NPC actually feels.
-			if away.length() > 0.01:
-				rb.apply_central_impulse(away.normalized() * HEAVY_PUSH_IMPULSE / rb.mass)
-			touching_heavy = true
-			heavy_normal = col.get_normal()
-
-	_tick_avoidance(delta, touching_heavy, heavy_normal)
-
-func _tick_avoidance(delta: float, touching_heavy: bool, heavy_normal: Vector3) -> void:
-	if touching_heavy:
-		var away: Vector3 = -heavy_normal
-		away.y = 0.0
-		if away.length() > 0.01:
-			_avoid_dir = away.normalized()
-		if _avoid_cooldown_timer <= 0.0:
-			NPCDebug.log_detour(self, false)   ## log only on fresh contact, not every frame
-		_avoid_cooldown_timer = AVOID_COOLDOWN
-		_avoid_grace_timer += delta
-		if _avoid_grace_timer >= AVOID_MAX_GRACE and not _avoid_grace_logged:
-			_avoid_grace_logged = true
-			NPCDebug.log_detour(self, true)   ## grace exhausted — general recovery takes over next
-	elif _avoid_cooldown_timer > 0.0:
-		_avoid_cooldown_timer -= delta
-		_avoid_grace_timer += delta
-	else:
-		_avoid_dir = Vector3.ZERO
-		_avoid_grace_timer = 0.0
-		_avoid_grace_logged = false
+			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE / rb.mass)

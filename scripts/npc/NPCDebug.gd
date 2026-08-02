@@ -36,19 +36,6 @@ static func log_stuck(npc: Node) -> void:
 		return
 	print("%s STUCK — aborting current activity and re-scoring" % _fmt(npc))
 
-## Avoidance-steering events (Part 10.1). Distinct from log_stuck: this
-## does NOT abort the current activity/job — it only nudges steering.
-## `grace_exhausted=false` logs the start of a fresh obstacle contact;
-## `true` logs that avoidance has run for AVOID_MAX_GRACE straight without
-## resolving, meaning the general stuck-recovery is about to take over.
-static func log_detour(npc: Node, grace_exhausted: bool) -> void:
-	if not enabled:
-		return
-	if grace_exhausted:
-		print("%s AVOIDANCE grace exhausted — falling back to general stuck-recovery" % _fmt(npc))
-	else:
-		print("%s avoidance-steering around a heavy obstacle" % _fmt(npc))
-
 ## Job lifecycle — call from JobBoard (_mark/claim/release) and JobActivity.
 static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
 	if not enabled:

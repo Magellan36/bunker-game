@@ -119,13 +119,27 @@ const WATER_HOOKUP_PLACEMENT_Y: float = 3.2
 ## it visually rests flush with the ground plane.  1.0 - 0.477 ≈ 0.523.
 const GEN_PLACEMENT_Y: float = 0.523
 
-## Water Test Sink — floor-standing procedural box, root at ground contact point.
-const WATER_SINK_PLACEMENT_Y: float = 0.0
+## Water Test Sink — floor-standing procedural box, bottom flush with node origin.
+## FIX (Aug 2026): was 0.0, which assumed world Y=0.0 is the floor surface.
+## It isn't — the actual floor-flush convention in this codebase is ~0.5, per
+## BunkerPregen.gd's own "can_y = 0.5 ## safe above-floor Y" comment, and
+## matches every other confirmed-flush floor object (trays/tables/chairs/
+## stove all use 0.5 explicitly; Generator's 0.523 is that same baseline plus
+## a tiny model-specific correction — see its comment above). At 0.0 this box
+## (0.30m tall) sat entirely below the floor line.
+const WATER_SINK_PLACEMENT_Y: float = 0.5
 
-## Water Dispenser — floor-standing procedural box, root at ground contact point.
-const WATER_DISPENSER_PLACEMENT_Y: float = 0.0
+## Water Dispenser — floor-standing procedural box, bottom flush with node origin.
+## FIX (Aug 2026): same stale-0.0 bug as WATER_SINK_PLACEMENT_Y above, same fix.
+## This box is 0.55m tall, so at 0.0 it was buried nearly to the top.
+const WATER_DISPENSER_PLACEMENT_Y: float = 0.5
 
-## Battery Banks (S/M/L) — floor-standing procedural boxes, root at ground contact point.
+## Battery Banks (S/M/L) — floor-standing procedural boxes, bottom flush with node origin.
+## NOTE: this constant has the identical 0.0-vs-floor-is-0.5 issue as the two
+## above and is very likely sinking the same way — it just wasn't reported
+## yet. Left unchanged in this pass since it wasn't the reported bug, but
+## flagging for a quick visual check; if confirmed, the fix is the same
+## 0.0 → 0.5 change.
 const BATTERY_PLACEMENT_Y: float = 0.0
 
 ## HeavyConsumerTest (debug-only) — floor-standing box like generators,

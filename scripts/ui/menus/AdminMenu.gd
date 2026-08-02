@@ -4,12 +4,24 @@ extends CanvasLayer
 ## debug toggles that don't correspond to a placeable object.
 ## Injected refs set by MainWorld._toggle_admin_cheat_menu().
 ##
-## Structure (Jul 2026 rewrite) — mirrors WaterInfoUI.gd's panel convention
-## instead of the old plain Panel/VBox popup: full-screen dim overlay, a
-## drawn bordered panel with a header, an X close button, ESC/E to close,
-## and a column of real clickable Button rows (one per cheat action) laid
-## out under section labels. Reuses the same draw-based background so this
-## reads visually consistent with the rest of the game's info panels.
+## Structure (Jul 2026 "collapse + scroll" rewrite): this panel had grown to
+## 24 rows across 7 sections (the NPC section alone is 12 rows — folded in
+## from the deleted F10 Admin Spawn Menu) and was rendering as a ~1,250px-
+## tall wall of buttons. Fixed by:
+##   1. The panel is back to a FIXED height (PANEL_H) — no longer computed
+##      from row count, so it won't balloon again as rows get added.
+##   2. Every section is a collapsible header (▶ collapsed / ▼ expanded,
+##      click to toggle) — all sections start collapsed on open. Multiple
+##      sections can be open at once (not an exclusive accordion).
+##   3. The row area is a real ScrollContainer — mouse wheel scroll and an
+##      auto right-side scrollbar are both native Godot behavior, no custom
+##      code needed. Same pattern GraphicsSettingsPanel.gd already uses.
+##   4. Rounded corners (UIKit.draw_rounded_rect) + the project's +6px
+##      top-padding convention, both added in the last UI pass, applied
+##      here too since the file was already being rewritten.
+## The row DATA (`_sections`) and every `_on_*_pressed()` callback below the
+## "Button callbacks" divider are unchanged by this pass — only how they're
+## laid out and shown/hidden changed.
 
 signal closed
 
@@ -24,8 +36,12 @@ const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
 const PANEL_W: float = 320.0
+const PANEL_H: float = 480.0   ## Jul 2026 — fixed again (was computed from
+                                ## row count, which is what let it grow to
+                                ## ~1250px). Overflow content scrolls instead.
 const ROW_H:   float = 34.0
-const ROW_GAP: float = 8.0
+const ROW_GAP: float = 6.0
+const SECTION_GAP: float = 10.0   ## vertical gap between one section and the next
 
 const ADMIN_POWER_STEP_WATTS: float = 1000.0
 const QUALITY_SCALE_DOWN: float = 0.5    ## "-50%" halves current quality
@@ -40,17 +56,26 @@ const ADMIN_CASH_STEP: int = 100000          ## "+$100,000" economy cheat row
 ## (1.8) so admin-spawned produce drops exactly like a shop purchase does.
 const PRODUCE_SPAWN_HEIGHT: float = 1.8
 
-## One entry per clickable row: [section-or-"" , label, callback]
-## A "" section repeats the previous section's header (skipped).
-var _row_defs: Array = []
+## One entry per collapsible section: { "name": String, "rows": Array }
+## where each row is [label: String, callback: Callable]. Jul 2026 — replaced
+## the old flat array-with-repeated-"" -for-continuation format; grouping is
+## now explicit instead of inferred, since sections need real boundaries to
+## collapse/expand independently.
+var _sections: Array[Dictionary] = []
 
 # ─── State ────────────────────────────────────────────────────────────────────
 var _canvas:  Control = null
 var _font:    Font    = null
 var _close_btn: Button = null
-var _row_buttons: Array[Button] = []
 var _is_open: bool = false
 var _test_effect_count: int = 0
+
+## Scroll/section Control refs (Jul 2026 collapse+scroll pass)
+var _scroll: ScrollContainer = null
+var _scroll_vbox: VBoxContainer = null
+var _section_headers:  Array[Button] = []
+var _section_bodies:   Array[VBoxContainer] = []
+var _section_expanded: Array[bool] = []
 
 # ─── Injected by MainWorld._toggle_admin_cheat_menu() ─────────────────────────
 ## MainWorld — used by the ECONOMY row (add_cash()). Injected via set() at
@@ -68,31 +93,45 @@ func _ready() -> void:
 	if _font == null:
 		_font = ThemeDB.fallback_font
 
-	_row_defs = [
-		["POWER", "+ %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_add_power_pressed],
-		["",      "- %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_remove_power_pressed],
-		["TIME",  "Fast-Forward 1 Day", _on_fast_forward_pressed],
-		["WATER", "Hookup Quality -50%", _on_quality_down_pressed],
-		["",      "Hookup Quality +50%", _on_quality_up_pressed],
-		["",      "Hookup Output x2 (Tier +1)", _on_hookup_output_double_pressed],
-		["ECONOMY", "+ $%s Cash" % _format_thousands(ADMIN_CASH_STEP), _on_add_cash_pressed],
-		["FARMING", "Spawn Potato", _on_spawn_potato_pressed],
-		["",        "Spawn Blueberry", _on_spawn_blueberry_pressed],
-		["",        "Spawn Tomato", _on_spawn_tomato_pressed],
-		["STATUS", "Add Test Status Effect (10s)", _on_add_status_effect_pressed],
-		["NPC",    "Spawn NPC", _on_spawn_npc_pressed],
-		["",       "Drain NPC Needs -40", _on_drain_npc_needs_pressed],
-		["",       "Energy +20", _on_npc_energy_up_pressed],
-		["",       "Energy -20", _on_npc_energy_down_pressed],
-		["",       "Hunger +20", _on_npc_hunger_up_pressed],
-		["",       "Hunger -20", _on_npc_hunger_down_pressed],
-		["",       "Thirst +20", _on_npc_thirst_up_pressed],
-		["",       "Thirst -20", _on_npc_thirst_down_pressed],
-		["",       "Randomize NPC Skills", _on_npc_randomize_skills_pressed],
-		["",       "Despawn All NPCs", _on_npc_despawn_all_pressed],
-		["",       "Force Rebake Navmesh", _on_npc_force_rebake_pressed],
-		["",       "Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
-		["",       "Print NPC Debug State", _on_npc_print_debug_pressed],
+	_sections = [
+		{ "name": "POWER", "rows": [
+			["+ %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_add_power_pressed],
+			["- %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_remove_power_pressed],
+		]},
+		{ "name": "TIME", "rows": [
+			["Fast-Forward 1 Day", _on_fast_forward_pressed],
+		]},
+		{ "name": "WATER", "rows": [
+			["Hookup Quality -50%", _on_quality_down_pressed],
+			["Hookup Quality +50%", _on_quality_up_pressed],
+			["Hookup Output x2 (Tier +1)", _on_hookup_output_double_pressed],
+		]},
+		{ "name": "ECONOMY", "rows": [
+			["+ $%s Cash" % _format_thousands(ADMIN_CASH_STEP), _on_add_cash_pressed],
+		]},
+		{ "name": "FARMING", "rows": [
+			["Spawn Potato", _on_spawn_potato_pressed],
+			["Spawn Blueberry", _on_spawn_blueberry_pressed],
+			["Spawn Tomato", _on_spawn_tomato_pressed],
+		]},
+		{ "name": "STATUS", "rows": [
+			["Add Test Status Effect (10s)", _on_add_status_effect_pressed],
+		]},
+		{ "name": "NPC", "rows": [
+			["Spawn NPC", _on_spawn_npc_pressed],
+			["Drain NPC Needs -40", _on_drain_npc_needs_pressed],
+			["Energy +20", _on_npc_energy_up_pressed],
+			["Energy -20", _on_npc_energy_down_pressed],
+			["Hunger +20", _on_npc_hunger_up_pressed],
+			["Hunger -20", _on_npc_hunger_down_pressed],
+			["Thirst +20", _on_npc_thirst_up_pressed],
+			["Thirst -20", _on_npc_thirst_down_pressed],
+			["Randomize NPC Skills", _on_npc_randomize_skills_pressed],
+			["Despawn All NPCs", _on_npc_despawn_all_pressed],
+			["Force Rebake Navmesh", _on_npc_force_rebake_pressed],
+			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
+			["Print NPC Debug State", _on_npc_print_debug_pressed],
+		]},
 	]
 
 	_canvas = Control.new()
@@ -108,23 +147,92 @@ func _ready() -> void:
 	_close_btn.pressed.connect(close)
 	add_child(_close_btn)
 
-	for def: Array in _row_defs:
-		var btn: Button = Button.new()
-		btn.text       = String(def[1])
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.pressed.connect(def[2])
-		_style_row_btn(btn)
-		add_child(btn)
-		_row_buttons.append(btn)
+	_build_scroll_area()
 
-func _panel_height() -> float:
-	var section_count: int = 0
-	for def: Array in _row_defs:
-		if not String(def[0]).is_empty():
-			section_count += 1
-	var rows: int = _row_defs.size()
-	## header + separator + per-section label (18px) + per-row (ROW_H+gap) + footer
-	return 60.0 + float(section_count) * 22.0 + float(rows) * (ROW_H + ROW_GAP) + 24.0
+## Builds the ScrollContainer + its VBoxContainer of section header/body
+## pairs. Runs once in _ready(); sections/rows never change after this.
+func _build_scroll_area() -> void:
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_scroll)
+
+	## Themed scrollbar so the auto-generated right-side scrollbar matches
+	## this panel's olive palette instead of Godot's default blue engine
+	## theme.
+	var scroll_theme: Theme = Theme.new()
+	var grabber: StyleBoxFlat = StyleBoxFlat.new()
+	grabber.bg_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.65)
+	grabber.set_corner_radius_all(3)
+	var grabber_hi: StyleBoxFlat = grabber.duplicate() as StyleBoxFlat
+	grabber_hi.bg_color = Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.85)
+	var track: StyleBoxFlat = StyleBoxFlat.new()
+	track.bg_color = Color(0.0, 0.0, 0.0, 0.25)
+	track.set_corner_radius_all(3)
+	scroll_theme.set_stylebox("grabber", "VScrollBar", grabber)
+	scroll_theme.set_stylebox("grabber_highlight", "VScrollBar", grabber_hi)
+	scroll_theme.set_stylebox("grabber_pressed", "VScrollBar", grabber_hi)
+	scroll_theme.set_stylebox("scroll", "VScrollBar", track)
+	scroll_theme.set_stylebox("scroll_focus", "VScrollBar", track)
+	_scroll.theme = scroll_theme
+
+	_scroll_vbox = VBoxContainer.new()
+	_scroll_vbox.add_theme_constant_override("separation", SECTION_GAP)
+	_scroll_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll.add_child(_scroll_vbox)
+
+	for i: int in range(_sections.size()):
+		var section: Dictionary = _sections[i]
+
+		var header: Button = Button.new()
+		header.flat       = true
+		header.focus_mode = Control.FOCUS_NONE
+		header.alignment  = HORIZONTAL_ALIGNMENT_LEFT
+		header.text       = "▶  %s" % String(section["name"])
+		_style_section_header(header)
+		header.pressed.connect(_on_section_header_pressed.bind(i))
+		_scroll_vbox.add_child(header)
+		_section_headers.append(header)
+		_section_expanded.append(false)   ## every section starts collapsed
+
+		var body: VBoxContainer = VBoxContainer.new()
+		body.add_theme_constant_override("separation", ROW_GAP)
+		body.visible = false
+		_scroll_vbox.add_child(body)
+		_section_bodies.append(body)
+
+		var rows: Array = section["rows"]
+		for row: Array in rows:
+			var btn: Button = Button.new()
+			btn.text                = String(row[0])
+			btn.focus_mode          = Control.FOCUS_NONE
+			btn.custom_minimum_size = Vector2(0.0, ROW_H)
+			btn.pressed.connect(row[1])
+			_style_row_btn(btn)
+			body.add_child(btn)
+
+## Toggles one section's expanded/collapsed state and swaps its arrow.
+func _on_section_header_pressed(index: int) -> void:
+	_section_expanded[index] = not _section_expanded[index]
+	_section_bodies[index].visible = _section_expanded[index]
+	var arrow: String = "▼" if _section_expanded[index] else "▶"
+	_section_headers[index].text = "%s  %s" % [arrow, String(_sections[index]["name"])]
+
+func _style_section_header(btn: Button) -> void:
+	if _font != null:
+		btn.add_theme_font_override("font", _font)
+	btn.add_theme_font_size_override("font_size", 13)
+	btn.add_theme_color_override("font_color", HEADER_COLOR)
+	btn.add_theme_color_override("font_hover_color", HEADER_COLOR)
+	var normal: StyleBoxFlat = StyleBoxFlat.new()
+	normal.bg_color = Color(0.16, 0.17, 0.13, 0.55)
+	normal.set_corner_radius_all(4)
+	normal.content_margin_left = 8.0
+	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.22, 0.23, 0.18, 0.75)
+	btn.add_theme_stylebox_override("normal", normal)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_stylebox_override("pressed", hover)
 
 func _style_row_btn(btn: Button) -> void:
 	if _font != null:
@@ -146,22 +254,18 @@ func _style_row_btn(btn: Button) -> void:
 
 func _reposition_controls() -> void:
 	var vp: Vector2 = get_viewport().get_visible_rect().size
-	var ph: float   = _panel_height()
 	var px: float   = (vp.x - PANEL_W) * 0.5
-	var py: float   = (vp.y - ph) * 0.5
+	var py: float   = (vp.y - PANEL_H) * 0.5
 
-	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 10.0)
+	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 16.0)
 	_close_btn.size     = Vector2(30.0, 30.0)
 
-	var cy: float = py + 60.0
-	for i: int in range(_row_defs.size()):
-		var def: Array = _row_defs[i]
-		if not String(def[0]).is_empty():
-			cy += 22.0   ## room for the section label drawn above this row
-		var btn: Button = _row_buttons[i]
-		btn.position = Vector2(px + 20.0, cy)
-		btn.size     = Vector2(PANEL_W - 40.0, ROW_H)
-		cy += ROW_H + ROW_GAP
+	## Scroll area sits between the header chrome (title+separator, ends
+	## ~py+72) and the footer hint line (~py+PANEL_H-30) — see _on_draw().
+	var scroll_top: float    = py + 72.0
+	var scroll_bottom: float = py + PANEL_H - 34.0
+	_scroll.position = Vector2(px + 16.0, scroll_top)
+	_scroll.size     = Vector2(PANEL_W - 32.0, scroll_bottom - scroll_top)
 
 # ─── Open / Close ─────────────────────────────────────────────────────────────
 func toggle() -> void:
@@ -176,8 +280,7 @@ func open() -> void:
 	set_process(true)
 	_reposition_controls()
 	_close_btn.visible = true
-	for btn: Button in _row_buttons:
-		btn.visible = true
+	_scroll.visible = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	## Standing convention (July 2026) — see UIFade.gd.
 	UIFade.fade_in(_canvas)
@@ -188,8 +291,7 @@ func close() -> void:
 	visible  = false
 	set_process(false)
 	_close_btn.visible = false
-	for btn: Button in _row_buttons:
-		btn.visible = false
+	_scroll.visible = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	closed.emit()
 
@@ -205,10 +307,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event is InputEventMouseButton and event.pressed:
 		var vp: Vector2  = get_viewport().get_visible_rect().size
-		var ph: float    = _panel_height()
 		var px: float    = (vp.x - PANEL_W) * 0.5
-		var py: float    = (vp.y - ph) * 0.5
-		var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
+		var py: float    = (vp.y - PANEL_H) * 0.5
+		var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
 		if panel.has_point(event.position):
 			get_viewport().set_input_as_handled()
 
@@ -222,41 +323,32 @@ func _on_draw() -> void:
 		return
 
 	var vp: Vector2 = get_viewport().get_visible_rect().size
-	var ph: float   = _panel_height()
 	var px: float   = (vp.x - PANEL_W) * 0.5
-	var py: float   = (vp.y - ph) * 0.5
+	var py: float   = (vp.y - PANEL_H) * 0.5
 
 	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
 
-	var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
-	_canvas.draw_rect(panel, BG_COLOR, true)
-	_canvas.draw_rect(panel, BORDER_COLOR, false, 2.0)
+	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
+	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 2.0)
 
 	## Close button ×
-	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 10.0, 30.0, 30.0)
-	_canvas.draw_rect(close_rect, Color(0.10, 0.06, 0.06, 0.90), true)
-	_canvas.draw_rect(close_rect, CRIT_COLOR, false, 1.5)
-	UIKit.draw_close_icon(_canvas, close_rect)
+	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
+	UIKit.draw_rounded_rect(_canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), CRIT_COLOR, 1.5)
+	var cp: Vector2 = close_rect.position
+	var cs: Vector2 = close_rect.size
+	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
+	_canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
 
 	var cx: float = px + 20.0
-	var cy: float = py + 20.0
+	var cy: float = py + 26.0
 
 	_draw_str("[F7]  ADMIN CONTROLS", Vector2(cx, cy), HEADER_COLOR, 16)
 	cy += 28.0
 
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
 		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0)
-	cy += 12.0
 
-	for i: int in range(_row_defs.size()):
-		var def: Array = _row_defs[i]
-		var section: String = String(def[0])
-		if not section.is_empty():
-			_draw_str("─── %s ───" % section, Vector2(cx, cy), DIM_COLOR, 10)
-			cy += 22.0
-		cy += ROW_H + ROW_GAP
-
-	_draw_str("[ESC / E]  Close", Vector2(cx, py + ph - 18.0), DIM_COLOR, 9)
+	_draw_str("[ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), DIM_COLOR, 9)
 
 	_reposition_controls()
 
