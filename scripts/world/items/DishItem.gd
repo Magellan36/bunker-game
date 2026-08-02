@@ -36,8 +36,13 @@ func on_use() -> void:
 	if _player_stats == null:
 		push_warning("DishItem: _player_stats not found.")
 		return
-	_player_stats.replenish_food(fill_value)
+	_player_stats.replenish_food(consume_as_food())
+
+## Consumes this dish (frees the node) and returns the food restored.
+## Shared mutation for player + NPCs (NPC Pass 2, Part 3).
+func consume_as_food() -> float:
 	queue_free()
+	return fill_value * (1.0 + bonus_pct)
 
 ## Simple placeholder — shallow plate + a food mound. No per-ingredient
 ## color-blending in this pass; flat warm color regardless of what went in.

@@ -435,6 +435,33 @@ func _place_item_in_slot(item: RigidBody3D, slot_idx: int, stack_idx: int) -> vo
 		item.global_rotation = target_rot
 	)
 
+## NPC Pass 2, Part 3 — NPC-side retrieval. Mirrors retrieve_to_carry()'s
+## un-shelving mechanics exactly (group removal, freeze/collision restore),
+## minus the InteractionSystem bookkeeping, then hands the item to the NPC's
+## hold point via the standard pickup() path. Returns the item or null.
+func npc_retrieve(slot_idx: int, npc_hold_point: Node3D) -> RigidBody3D:
+	if slot_idx < 0 or slot_idx >= slots.size():
+		return null
+	var stack: Array = slots[slot_idx]
+	if stack.is_empty():
+		return null
+	var item: RigidBody3D = stack.pop_back()
+	if item.is_in_group("shelved"):
+		item.remove_from_group("shelved")
+	item.freeze           = false
+	item.freeze_mode      = RigidBody3D.FREEZE_MODE_KINEMATIC
+	item.collision_layer  = 2
+	item.collision_mask   = 1
+	item.gravity_scale    = 1.0
+	item.linear_velocity  = Vector3.ZERO
+	item.angular_velocity = Vector3.ZERO
+	if "from_inventory" in item:
+		item.from_inventory = false
+	if item.has_method("pickup"):
+		item.pickup(npc_hold_point)
+	item_retrieved.emit(slot_idx, item)
+	return item
+
 # ─── Retrieve to carry (from ShelfUI "Carry" button) ─────────────────────────
 ## Pops the top item from the slot's stack and gives it to the player's hand.
 func retrieve_to_carry(slot_idx: int, isys: Node) -> void:

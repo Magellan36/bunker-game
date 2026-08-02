@@ -121,15 +121,22 @@ func on_use() -> void:
 		push_warning("WaterBottle: _player_stats not found.")
 		return
 
-	var amount_removed: float = minf(STANDARD_DRINK_ML, current_fill_mL)
-	var hydration: float      = STANDARD_HYDRATION * (amount_removed / STANDARD_DRINK_ML)
+	_player_stats.replenish_water(take_drink())
 
-	_player_stats.replenish_water(hydration)
+## Deducts one standard drink from this bottle and returns the hydration it
+## restores. Shared mutation for BOTH the player (on_use above) and NPCs
+## (NPCItemUser) — NPC Pass 2, Part 3. Values stay linked by construction:
+## there is exactly one place a drink leaves a bottle.
+func take_drink() -> float:
+	var amount_removed: float = minf(STANDARD_DRINK_ML, current_fill_mL)
+	if amount_removed <= 0.0:
+		return 0.0
+	var hydration: float = STANDARD_HYDRATION * (amount_removed / STANDARD_DRINK_ML)
 	current_fill_mL -= amount_removed
 	current_fill_mL  = maxf(0.0, current_fill_mL)
-
 	_update_empty_tint()
-	charge_changed.emit()   ## Tell InventoryHUD to redraw the badge immediately
+	charge_changed.emit()
+	return hydration
 
 # ─── Continuous refill tick (called by InteractionSystem._process each frame) ─
 ## Transfers REFILL_RATE_ML_PER_SEC * delta mL from the nearest in-range

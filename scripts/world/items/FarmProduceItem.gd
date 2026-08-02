@@ -86,8 +86,13 @@ func on_use() -> void:
 	if _player_stats == null:
 		push_warning("FarmProduceItem: _player_stats not found.")
 		return
-	_player_stats.replenish_food(FOOD_RESTORE)
+	_player_stats.replenish_food(consume_as_food())
+
+## Consumes this produce (frees the node) and returns the food restored.
+## Shared mutation for player + NPCs (NPC Pass 2, Part 3).
+func consume_as_food() -> float:
 	queue_free()
+	return FOOD_RESTORE
 
 ## Small SphereMesh — red matte for tomato, pearl/off-white glossier for onion
 ## (plan §7's exact material distinction), color/metallic/roughness pulled

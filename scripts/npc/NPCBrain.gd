@@ -30,6 +30,8 @@ func setup(npc: NPC) -> void:
 	_candidates = [
 		WanderActivity.new(),
 		SitActivity.new(),
+		DrinkActivity.new(),
+		EatActivity.new(),
 	]
 
 func current_label() -> String:
@@ -201,3 +203,187 @@ class SitActivity extends NPCActivity:
 				best_d = d
 				best = c
 		return best
+
+
+class DrinkActivity extends NPCActivity:
+	## Thirst-driven. Priority: Dispenser with water → loose Water Bottle.
+	## FUTURE WORK: pulling a fresh bottle out of a WaterCase.
+	const DRINK_ML:        float = 375.0   ## == WaterBottle.STANDARD_DRINK_ML
+	const HYDRATION:       float = 21.5    ## == WaterBottle.STANDARD_HYDRATION
+	const CONSUME_TIME:    float = 2.0
+	const USE_RANGE:       float = 1.4
+
+	var _mode: String = ""        ## "dispenser" | "bottle"
+	var _target: Node = null
+	var _drinking: float = 0.0
+
+	func label() -> String:
+		return "Drinking" if _drinking > 0.0 else "Getting water"
+
+	func score(npc: NPC) -> float:
+		if npc.thirst >= 55.0:
+			return 0.0
+		if _pick_target(npc).is_empty():
+			return 0.0
+		return (100.0 - npc.thirst) * 1.2   ## thirst outranks equal-level energy
+
+	func _pick_target(npc: NPC) -> Dictionary:
+		var best_d: float = INF
+		var out: Dictionary = {}
+		for d: Node in npc.get_tree().get_nodes_in_group("water_dispenser"):
+			if not is_instance_valid(d) or d.current_fill_mL < DRINK_ML:
+				continue
+			var dist: float = (d as Node3D).global_position.distance_to(npc.global_position)
+			if dist < best_d:
+				best_d = dist
+				out = {"mode": "dispenser", "node": d}
+		var bottle: RigidBody3D = NPCItemUser.find_loose_item(npc,
+			Callable(NPCItemUser, "is_drinkable_bottle"))
+		if bottle != null:
+			var dist_b: float = bottle.global_position.distance_to(npc.global_position)
+			if dist_b < best_d:
+				out = {"mode": "bottle", "node": bottle}
+		return out
+
+	func enter(npc: NPC) -> void:
+		_drinking = 0.0
+		var pick: Dictionary = _pick_target(npc)
+		_mode = pick.get("mode", "")
+		_target = pick.get("node", null)
+		if _target != null:
+			npc.set_nav_target((_target as Node3D).global_position)
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _target == null or not is_instance_valid(_target):
+			_target = null
+			return
+		if _drinking > 0.0:
+			npc.halt_movement(delta)
+			_drinking -= delta
+			if _drinking <= 0.0:
+				_do_drink(npc)
+			return
+		npc.nav_steer(delta)
+		if npc.global_position.distance_to((_target as Node3D).global_position) <= USE_RANGE:
+			npc.velocity = Vector3.ZERO
+			_drinking = CONSUME_TIME
+
+	func _do_drink(npc: NPC) -> void:
+		if _mode == "dispenser":
+			var d: Node = _target
+			var ml: float = minf(DRINK_ML, d.current_fill_mL)
+			if ml > 0.0:
+				d.current_fill_mL -= ml                       ## REAL deduction
+				if d.has_method("_update_fill_visual"):
+					d._update_fill_visual()
+				npc.thirst = minf(100.0, npc.thirst + HYDRATION * (ml / DRINK_ML))
+		elif _mode == "bottle":
+			var b: Node = _target
+			if npc.held_item != b:
+				if not NPCItemUser.grab_loose(npc, b):
+					_target = null
+					return
+			npc.thirst = minf(100.0, npc.thirst + b.take_drink())   ## REAL deduction
+			NPCItemUser.drop_held(npc)
+		_target = null
+
+	func done(npc: NPC) -> bool:
+		return _target == null or npc.thirst >= 90.0
+
+	func interruptible() -> bool:
+		return _drinking <= 0.0
+
+	func exit(npc: NPC) -> void:
+		if npc.held_item != null:
+			NPCItemUser.drop_held(npc)
+		_target = null
+		_drinking = 0.0
+
+
+class EatActivity extends NPCActivity:
+	## Hunger-driven. Nearest edible: cooked Dish / produce / FoodCan-with-
+	## bites, loose in the world OR on a shelf (via Shelving.npc_retrieve).
+	const CONSUME_TIME: float = 2.0
+	const USE_RANGE:    float = 1.2
+
+	var _loose: RigidBody3D = null
+	var _shelf_pick: Dictionary = {}
+	var _eating: float = 0.0
+
+	func label() -> String:
+		return "Eating" if _eating > 0.0 else "Getting food"
+
+	func score(npc: NPC) -> float:
+		if npc.hunger >= 55.0:
+			return 0.0
+		if _find(npc) == null and _find_shelf(npc).is_empty():
+			return 0.0
+		return (100.0 - npc.hunger) * 1.15
+
+	func _find(npc: NPC) -> RigidBody3D:
+		return NPCItemUser.find_loose_item(npc, Callable(NPCItemUser, "is_edible"))
+
+	func _find_shelf(npc: NPC) -> Dictionary:
+		return NPCItemUser.find_shelved_item(npc, Callable(NPCItemUser, "is_edible"))
+
+	func enter(npc: NPC) -> void:
+		_eating = 0.0
+		_loose = _find(npc)
+		_shelf_pick = {}
+		if _loose == null:
+			_shelf_pick = _find_shelf(npc)
+		var tgt: Node3D = _loose if _loose != null \
+			else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
+		if tgt != null:
+			npc.set_nav_target(tgt.global_position)
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _eating > 0.0:
+			npc.halt_movement(delta)
+			_eating -= delta
+			if _eating <= 0.0:
+				if NPCItemUser.eat_held_step(npc):
+					pass          ## finished — done() ends us
+				else:
+					_eating = CONSUME_TIME   ## next bite of the same can
+			return
+
+		if npc.held_item != null:
+			npc.velocity = Vector3.ZERO
+			_eating = CONSUME_TIME
+			return
+
+		if _loose != null and is_instance_valid(_loose):
+			npc.nav_steer(delta)
+			if npc.global_position.distance_to(_loose.global_position) <= USE_RANGE:
+				if NPCItemUser.grab_loose(npc, _loose):
+					_loose = null
+			return
+		_loose = null
+
+		if not _shelf_pick.is_empty():
+			var shelf: Node3D = _shelf_pick.get("shelf")
+			if shelf == null or not is_instance_valid(shelf):
+				_shelf_pick = {}
+				return
+			npc.nav_steer(delta)
+			if npc.global_position.distance_to(shelf.global_position) <= NPCItemUser.SHELF_RANGE:
+				if NPCItemUser.grab_from_shelf(npc, shelf, int(_shelf_pick.get("slot", -1))):
+					_shelf_pick = {}
+				else:
+					_shelf_pick = {}   ## slot emptied under us — rescore
+			return
+
+	func done(npc: NPC) -> bool:
+		return _eating <= 0.0 and npc.held_item == null \
+			and _loose == null and _shelf_pick.is_empty()
+
+	func interruptible() -> bool:
+		return _eating <= 0.0
+
+	func exit(npc: NPC) -> void:
+		if npc.held_item != null:
+			NPCItemUser.drop_held(npc)
+		_loose = null
+		_shelf_pick = {}
+		_eating = 0.0

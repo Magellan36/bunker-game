@@ -63,12 +63,21 @@ func on_use() -> void:
 		push_warning("FoodCan: _player_stats not found.")
 		return
 
-	_player_stats.replenish_food(FOOD_PER_BITE)
+	_player_stats.replenish_food(take_bite())
+
+## Deducts one bite and returns the food it restores. Shared mutation for
+## player + NPCs (NPC Pass 2, Part 3).
+func take_bite() -> float:
+	if _is_empty or _bites_left <= 0:
+		return 0.0
 	_bites_left -= 1
 	charge_changed.emit()
-
 	if _bites_left <= 0:
 		_become_empty()
+	return FOOD_PER_BITE
+
+func has_bites_left() -> bool:
+	return not _is_empty and _bites_left > 0
 
 # ─── Empty state ──────────────────────────────────────────────────────────────
 func _become_empty() -> void:

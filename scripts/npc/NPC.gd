@@ -31,6 +31,8 @@ class_name NPC
 @onready var collision: CollisionShape3D = $CollisionShape3D
 
 var nav_agent: NavigationAgent3D = null
+var hold_point: Node3D = null       ## NPC's carry anchor (Part 3)
+var held_item: RigidBody3D = null   ## what's in hand, via PickupableItem.pickup
 
 # ─── State ────────────────────────────────────────────────────────────────
 enum NPCState { IDLE, WANDERING }
@@ -101,6 +103,13 @@ func _ready() -> void:
 	nav_agent.radius = 0.35              ## matches BunkerNavMesh.agent_radius
 	nav_agent.avoidance_enabled = false  ## physics handles NPC-vs-NPC shoving fine at 2-3 NPCs
 	add_child(nav_agent)
+
+	## Carry anchor — chest-height, slightly forward; items follow it with
+	## the same PickupableItem physics the player's HoldPoint gets.
+	hold_point = Node3D.new()
+	hold_point.name = "HoldPoint"
+	hold_point.position = Vector3(0.0, 0.9, -0.8)
+	add_child(hold_point)
 
 	_enter_idle()
 
