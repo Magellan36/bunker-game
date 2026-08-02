@@ -198,6 +198,15 @@ var _wire_builder: WireGraphBuilder = null
 func _ready() -> void:
 	_wire_builder = WireGraphBuilder.new(self)
 	add_to_group("main_world")   ## Lets PowerManager find us as fallback wire parent
+
+	## NPC Pass 2, Part 1 — runtime navmesh over the dug bunker.
+	var nav_script: GDScript = load("res://scripts/npc/BunkerNavMesh.gd")
+	if nav_script != null:
+		var navmesh_node: Node3D = Node3D.new()
+		navmesh_node.set_script(nav_script)
+		navmesh_node.name = "BunkerNavMesh"
+		add_child(navmesh_node)
+
 	_setup_pillar_registry()   ## Must exist before first wire/perimeter solve populates it
 	_setup_wall_perimeter_registry()   ## Must exist before first wire/perimeter solve populates it
 	_setup_power_manager()   ## Must be first — lights self-register in _ready()
@@ -1065,6 +1074,25 @@ var _bunker_pregen: Node3D = null
 ## Round a world-space float to 2dp for use as a stable dictionary key.
 func _wkey(v: float) -> String:
 	return "%.2f" % v
+
+## Public: raw key list of every currently-cleared cell ("cx,cz" strings).
+## Consumed by BunkerNavMesh (walkable quads) and NPC wander targeting.
+func get_cleared_cell_keys() -> Array:
+	return _cleared_cells.keys()
+
+## Public: world-space center of one random cleared cell — a guaranteed-
+## walkable wander target (unlike a random point in the bounding box, which
+## can land inside undug rock in an L-shaped dig).
+func get_random_cleared_cell_center() -> Vector3:
+	var keys: Array = _cleared_cells.keys()
+	if keys.is_empty():
+		return Vector3.ZERO
+	var key: String = keys[randi() % keys.size()]
+	var parts: PackedStringArray = key.split(",")
+	if parts.size() != 2:
+		return Vector3.ZERO
+	return Vector3(float(parts[0]) + 0.5, 0.0, float(parts[1]) + 0.5)
+
 
 ## Public: live bounding box (world-space XZ) of every currently-cleared
 ## GridMap cell (the pregen room + anything the player has since dug out).

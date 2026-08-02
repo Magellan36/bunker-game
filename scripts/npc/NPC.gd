@@ -1,75 +1,67 @@
 extends CharacterBody3D
 class_name NPC
-## NPC.gd
-## Basic NPC: wanders the currently dug-out bunker area with proper
-## collision, and can be talked to via [E] when the player is nearby.
+## NPC.gd  (rewritten in NPC Pass 2, Part 1 — navmesh locomotion)
+## Wanders the dug-out bunker using real NavigationAgent3D pathfinding over
+## BunkerNavMesh's runtime-baked navmesh, and can be talked to via [E].
 ##
-## Collision note: this node is deliberately left on Godot's DEFAULT
-## collision_layer/collision_mask (both = 1), exactly like Player.gd's
-## CharacterBody3D. Every solid structure in this project (pregen walls/
-## pillars, player-placed walls/pillars, furniture, appliances, etc.) is
-## spawned with collision_layer = 5 (bits for layer 1 + layer 3 combined —
-## see BuildModeController._spawn_placed_object and the various furniture
-## scripts under scripts/world/furniture/ and scripts/world/cooking/),
-## which INCLUDES layer 1. That means the default player-style collision
-## already collides correctly with all of it. Do not add custom
-## collision_layer/collision_mask values here — it is not needed and will
-## only cause inconsistent behavior.
+## Collision note (unchanged from Pass 1): deliberately on Godot's DEFAULT
+## collision_layer/collision_mask (1/1), like Player.gd. All placed solids
+## use collision_layer = 5 (includes bit 1), so default collision already
+## hits everything. Never set custom layers here.
 ##
-## FUTURE WORK (not wired up yet — kept easy to add later):
-##   - Replace the IDLE/WANDERING state machine below with a task-driven
-##     one. Add new states to NPCState (e.g. WORKING) and use
-##     `current_task` (already stubbed below) to hold a reference to
-##     whatever describes the job (filter swap, crop harvest, water
-##     collection, generator repair, etc).
-##   - `perform_task()` is a deliberate no-op stub. When a real task system
-##     exists, have it call `assign_task(task)` — this already interrupts
-##     wandering (see _physics_process) and defers to perform_task() every
-##     frame instead.
+## Locomotion split: the NavigationAgent3D provides the next XZ waypoint;
+## _physics_process steers toward it and move_and_slide() + gravity own the
+## actual motion and Y. Physics collision stays the hard guarantee — if the
+## navmesh is momentarily stale (mid-rebake after a dig), the NPC bumps and
+## re-targets instead of clipping.
+##
+## FUTURE WORK (unchanged contract from Pass 1):
+##   - current_task / assign_task() / perform_task() — Part 4 fills these.
 
 # ─── Tunables ─────────────────────────────────────────────────────────────
-@export var move_speed: float = 2.2          ## slower than player (4.0) so NPCs read as distinct
+@export var move_speed: float = 2.2
 @export var acceleration: float = 8.0
 @export var npc_name: String = "Survivor"
-
-## How close (world units) counts as "arrived" at a wander target.
 @export var arrival_distance: float = 0.5
-## Min/max seconds an NPC stands still between wander legs.
 @export var idle_time_min: float = 1.5
 @export var idle_time_max: float = 4.0
-## Margin (world units) kept clear from the edge of the dug-out bounding
-## box when picking wander targets, so NPCs don't hug/clip walls constantly.
-@export var wander_margin: float = 0.8
 
 # ─── Node refs ────────────────────────────────────────────────────────────
 @onready var mesh: MeshInstance3D = $MeshInstance3D
 @onready var collision: CollisionShape3D = $CollisionShape3D
 
+var nav_agent: NavigationAgent3D = null
+
 # ─── State ────────────────────────────────────────────────────────────────
 enum NPCState { IDLE, WANDERING }
 var _state: NPCState = NPCState.IDLE
 var _idle_timer: float = 0.0
-var _wander_target: Vector3 = Vector3.ZERO
 var _stuck_check_timer: float = 0.0
 var _stuck_check_last_pos: Vector3 = Vector3.ZERO
 
-## FUTURE WORK: set by a future task system via assign_task(). Left null/
-## unused deliberately for now — do not wire anything into this.
+## FUTURE WORK: Part 4's task system. Do not wire anything into this yet.
 var current_task: Node = null
 
 func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("interactable")
-	_wander_target = global_position
+
+	## Agent built in code (no scene edit needed; scene stays Pass-1 shape).
+	nav_agent = NavigationAgent3D.new()
+	nav_agent.name = "NavAgent"
+	nav_agent.path_desired_distance = 0.4
+	nav_agent.target_desired_distance = arrival_distance
+	nav_agent.path_max_distance = 3.0
+	nav_agent.radius = 0.35              ## matches BunkerNavMesh.agent_radius
+	nav_agent.avoidance_enabled = false  ## physics handles NPC-vs-NPC shoving fine at 2-3 NPCs
+	add_child(nav_agent)
+
 	_enter_idle()
 
 func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
 
-	## FUTURE WORK: once a task system exists, this branch already routes
-	## to perform_task() — do not change this branch, only fill in
-	## perform_task() itself when that system is built.
 	if current_task != null:
 		perform_task(delta)
 	else:
@@ -78,7 +70,33 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_check_stuck(delta)
 
-# ─── Wander state machine ──────────────────────────────────────────────────
+# ─── Navigation primitives (used by wander now; by every activity later) ──
+## Point the agent at a world position. Y is flattened — paths are XZ-only.
+func set_nav_target(world_pos: Vector3) -> void:
+	if nav_agent != null:
+		nav_agent.target_position = Vector3(world_pos.x, 0.0, world_pos.z)
+
+func nav_finished() -> bool:
+	return nav_agent == null or nav_agent.is_navigation_finished()
+
+## Steer toward the agent's next waypoint. Call once per physics frame while
+## traveling; pairs with move_and_slide() in _physics_process.
+func nav_steer(delta: float) -> void:
+	if nav_agent == null or nav_agent.is_navigation_finished():
+		velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
+		velocity.z = lerp(velocity.z, 0.0, acceleration * delta)
+		return
+	var next: Vector3 = nav_agent.get_next_path_position()
+	var dir: Vector3 = next - global_position
+	dir.y = 0.0
+	if dir.length() < 0.01:
+		return
+	dir = dir.normalized()
+	velocity.x = lerp(velocity.x, dir.x * move_speed, acceleration * delta)
+	velocity.z = lerp(velocity.z, dir.z * move_speed, acceleration * delta)
+	rotation.y = atan2(-dir.x, -dir.z)
+
+# ─── Wander state machine ─────────────────────────────────────────────────
 func _enter_idle() -> void:
 	_state = NPCState.IDLE
 	_idle_timer = randf_range(idle_time_min, idle_time_max)
@@ -87,7 +105,9 @@ func _enter_idle() -> void:
 
 func _enter_wandering() -> void:
 	_state = NPCState.WANDERING
-	_wander_target = _pick_wander_target()
+	var world: Node = get_tree().get_first_node_in_group("main_world")
+	if world != null and world.has_method("get_random_cleared_cell_center"):
+		set_nav_target(world.get_random_cleared_cell_center())
 	_stuck_check_timer = 0.0
 	_stuck_check_last_pos = global_position
 
@@ -98,76 +118,32 @@ func _process_wander(delta: float) -> void:
 			if _idle_timer <= 0.0:
 				_enter_wandering()
 		NPCState.WANDERING:
-			_move_toward_target(delta)
+			if nav_finished():
+				_enter_idle()
+			else:
+				nav_steer(delta)
 
-func _move_toward_target(delta: float) -> void:
-	var to_target: Vector3 = _wander_target - global_position
-	to_target.y = 0.0
-
-	if to_target.length() <= arrival_distance:
-		_enter_idle()
-		return
-
-	var direction: Vector3 = to_target.normalized()
-	velocity.x = lerp(velocity.x, direction.x * move_speed, acceleration * delta)
-	velocity.z = lerp(velocity.z, direction.z * move_speed, acceleration * delta)
-
-	## Face movement direction — same convention as Player._handle_movement().
-	var angle: float = atan2(-direction.x, -direction.z)
-	rotation.y = angle
-
-## Picks a random point inside the LIVE dug-out bunker bounding box (grows
-## as the player digs — see MainWorld.get_cleared_cell_bounds_world()),
-## inset by wander_margin. This is an axis-aligned bounding box, not the
-## exact dug shape — good enough for basic wandering; collision handles the
-## rest (see _check_stuck). Falls back to standing still if bounds aren't
-## available yet.
-func _pick_wander_target() -> Vector3:
-	var world_node: Node = get_tree().get_first_node_in_group("main_world")
-	if world_node == null or not world_node.has_method("get_cleared_cell_bounds_world"):
-		return global_position
-
-	var bounds: Rect2 = world_node.get_cleared_cell_bounds_world()
-	var min_x: float = bounds.position.x + wander_margin
-	var max_x: float = bounds.position.x + bounds.size.x - wander_margin
-	var min_z: float = bounds.position.y + wander_margin
-	var max_z: float = bounds.position.y + bounds.size.y - wander_margin
-
-	if min_x >= max_x or min_z >= max_z:
-		return global_position
-
-	return Vector3(randf_range(min_x, max_x), global_position.y, randf_range(min_z, max_z))
-
-## If a wander leg collides with something (wall/pillar/furniture/object)
-## or the NPC hasn't moved meaningfully in a while, abandon the current
-## target and pick a new one on the next idle→wander transition, rather
-## than pushing into the obstacle forever.
+## Safety net for stale-navmesh moments (mid-rebake) or physics shoves:
+## if wandering but not actually moving, give up this leg and re-idle.
 func _check_stuck(delta: float) -> void:
-	if _state != NPCState.WANDERING:
+	if _state != NPCState.WANDERING or current_task != null:
 		return
-
-	if get_slide_collision_count() > 0:
-		_enter_idle()
-		return
-
 	_stuck_check_timer += delta
-	if _stuck_check_timer >= 1.0:
+	if _stuck_check_timer >= 1.5:
 		if global_position.distance_to(_stuck_check_last_pos) < 0.15:
 			_enter_idle()
 		else:
 			_stuck_check_timer = 0.0
 			_stuck_check_last_pos = global_position
 
-# ─── Future task hook (stub — not wired up) ────────────────────────────────
+# ─── Future task hook (stub — Part 4 fills this) ──────────────────────────
 func assign_task(task: Node) -> void:
 	current_task = task
 
 func perform_task(_delta: float) -> void:
-	pass  ## FUTURE WORK: move toward the task's target, run its behavior.
+	pass  ## FUTURE WORK
 
-# ─── Interaction (called by player/InteractionSystem.gd, same contract as
-# every other "interactable" — see PowerTerminal.gd for the reference
-# pattern this mirrors) ─────────────────────────────────────────────────────
+# ─── Interaction (contract unchanged from Pass 1) ─────────────────────────
 func get_interact_prompt() -> String:
 	return "[E] Talk to %s" % npc_name
 
@@ -186,6 +162,5 @@ func _open_talk_menu() -> void:
 		_talk_menu.set_script(ui_script)
 		_talk_menu.name = "NPCTalkMenuUI"
 		get_tree().get_root().add_child(_talk_menu)
-
 	if _talk_menu.has_method("open"):
 		_talk_menu.open(npc_name)

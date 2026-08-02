@@ -210,6 +210,35 @@ var _connectable_dots: Dictionary = {}
 ## }
 var _placed_objects: Array[Dictionary] = []
 
+
+## Read-only snapshot for BunkerNavMesh (NPC Pass 2, Part 1): one entry per
+## live placed object — {pos: Vector3, half: Vector2, angle_deg: float}.
+## `half` is the same XZ half-extent _tile_half_extents() reports, padded
+## slightly so the navmesh treats objects as at least a sliver wide even if
+## a tile ever reports a zero footprint. Also returns a cheap fingerprint
+## int (count + position hash) so callers can detect "something changed"
+## without deep-comparing arrays.
+func get_nav_obstacle_snapshot() -> Dictionary:
+	var list: Array = []
+	var fingerprint: int = 0
+	for entry: Dictionary in _placed_objects:
+		var node: Node3D = entry.get("node")
+		if node == null or not is_instance_valid(node):
+			continue
+		var tile_id: int   = entry.get("tile_id", -1)
+		var half: Vector2  = _tile_half_extents(tile_id)
+		if half.x < 0.05: half.x = 0.05
+		if half.y < 0.05: half.y = 0.05
+		var pos: Vector3   = entry.get("world_pos", node.global_position)
+		list.append({
+			"pos":       pos,
+			"half":      half,
+			"angle_deg": float(entry.get("angle_deg", 0.0)),
+		})
+		fingerprint += 1 + int(pos.x * 7.0) + int(pos.z * 131.0) + tile_id * 17
+	return {"obstacles": list, "fingerprint": fingerprint}
+
+
 # ─── Undo stack ───────────────────────────────────────────────────────────────
 ## Each entry type:
 ##   "place"    — undo a placement (remove node + refund)
