@@ -496,7 +496,9 @@ class JobActivity extends NPCActivity:
 				var conf: Dictionary = TYPE_CONF[_job["type"]]
 				npc.update_work_banner(String(conf["verb"]),
 					1.0 - (_work_left / _work_total))
-				if _job["type"] == "REFUEL" and npc.held_item is FuelCan:
+				## FuelCan.gd declares no class_name — duck-type via has_method.
+				if _job["type"] == "REFUEL" and npc.held_item != null \
+						and npc.held_item.has_method("refuel_tick"):
 					npc.held_item.refuel_tick(delta)   ## REAL continuous pour
 				if _work_left <= 0.0:
 					_complete(npc)

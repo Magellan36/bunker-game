@@ -104,8 +104,9 @@ func _scan_filters(seen: Dictionary) -> void:
 				"REPLACE_FILTER", pur, spare_filter)
 
 func _scan_refuel(seen: Dictionary) -> void:
+	## FuelCan.gd declares no class_name — duck-type instead of `is FuelCan`.
 	var fuel_can: Callable = func(item: Node) -> bool:
-		return item is FuelCan and item.has_method("can_store") \
+		return item.has_method("refuel_tick") and item.has_method("can_store") \
 			and ("_fuel_remaining" in item) and item._fuel_remaining > 0.0
 	if not _spare_exists(fuel_can):
 		return
