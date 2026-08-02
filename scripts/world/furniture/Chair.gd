@@ -90,6 +90,8 @@ func _build_mesh() -> void:
 
 # ─── Interaction ────────────────────────────────────────────────────────────
 func on_interact() -> void:
+	if _npc_sitter != null and is_instance_valid(_npc_sitter):
+		return   ## An NPC is sitting here — player can't stack on top
 	if not _player_in_range:
 		return
 	if not _player_seated:
@@ -107,6 +109,27 @@ func set_player_in_range(in_range: bool) -> void:
 
 func set_seated(seated: bool) -> void:
 	_player_seated = seated
+
+
+# ─── NPC occupancy (NPC Pass 2, Part 2 — additive; player flow untouched) ──
+## The player path keeps using _player_seated via MainWorld._wire_chair.
+## NPCs use this parallel claim so both kinds of sitter mutually exclude.
+var _npc_sitter: Node = null
+
+func is_seat_free() -> bool:
+	if _player_seated:
+		return false
+	return _npc_sitter == null or not is_instance_valid(_npc_sitter)
+
+func npc_try_sit(npc: Node) -> bool:
+	if not is_seat_free():
+		return false
+	_npc_sitter = npc
+	return true
+
+func npc_stand(npc: Node) -> void:
+	if _npc_sitter == npc:
+		_npc_sitter = null
 
 # ─── Positioning API (consumed by MainWorld — see Part 3) ──────────────────
 ## World transform the player should be moved to while seated. Y is sunk

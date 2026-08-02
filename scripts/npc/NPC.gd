@@ -42,6 +42,52 @@ var _stuck_check_last_pos: Vector3 = Vector3.ZERO
 ## FUTURE WORK: Part 4's task system. Do not wire anything into this yet.
 var current_task: Node = null
 
+# ─── Needs (Part 2) — 0..100, decay on the game clock ─────────────────────
+var energy: float = 100.0
+var hunger: float = 100.0   ## 100 = full, 0 = starving (matches PlayerStats' food convention)
+var thirst: float = 100.0   ## 100 = hydrated
+
+const ENERGY_DRAIN_PER_GAME_HOUR: float = 3.0
+const HUNGER_DRAIN_PER_GAME_HOUR: float = 3.4   ## mirrors PlayerStats food_drain feel
+const THIRST_DRAIN_PER_GAME_HOUR: float = 2.08  ## matches PlayerStats.water_drain_per_game_hour
+
+## FUTURE WORK (crisis-response pass, per Brannon's standing note): when a
+## need hits 0, consequences (refusing work, slowed movement, mood damage)
+## hook in HERE. Deliberately no behavior yet.
+
+# ─── Personality / mood / seed — INERT STUBS (Part 2) ─────────────────────
+## FUTURE WORK: the personality-trait + mood + crisis-response system reads
+## and populates these. Nothing may read or write them until that pass.
+var generation_seed: int = 0
+var personality: Dictionary = {}
+var mood: float = 100.0
+
+# ─── Brain ────────────────────────────────────────────────────────────────
+var brain: NPCBrain = null
+
+var _stats_ref: Node = null
+
+## Real-seconds → game-hours for this frame, via the shared compressed clock.
+func game_hours(delta: float) -> float:
+	if _stats_ref == null or not is_instance_valid(_stats_ref):
+		_stats_ref = get_tree().get_first_node_in_group("player_stats")
+	if _stats_ref == null or _stats_ref._seconds_per_game_hour <= 0.0:
+		return 0.0
+	return delta / _stats_ref._seconds_per_game_hour
+
+func _tick_needs(delta: float) -> void:
+	var h: float = game_hours(delta)
+	if h <= 0.0:
+		return
+	energy = maxf(0.0, energy - ENERGY_DRAIN_PER_GAME_HOUR * h)
+	hunger = maxf(0.0, hunger - HUNGER_DRAIN_PER_GAME_HOUR * h)
+	thirst = maxf(0.0, thirst - THIRST_DRAIN_PER_GAME_HOUR * h)
+
+## Decelerate to a stop — used by activities when standing still.
+func halt_movement(delta: float) -> void:
+	velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
+	velocity.z = lerp(velocity.z, 0.0, acceleration * delta)
+
 func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("interactable")
@@ -62,10 +108,14 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
 
+	_tick_needs(delta)
+
 	if current_task != null:
 		perform_task(delta)
+	elif brain != null:
+		brain.tick(delta)
 	else:
-		_process_wander(delta)
+		_process_wander(delta)   ## fallback only — brain owns behavior now
 
 	move_and_slide()
 	_check_stuck(delta)
@@ -119,7 +169,11 @@ func _process_wander(delta: float) -> void:
 				_enter_wandering()
 		NPCState.WANDERING:
 			if nav_finished():
-				_enter_idle()
+_enter_idle()
+
+	generation_seed = randi()   ## stub — future personality generation input
+	brain = NPCBrain.new()
+	brain.setup(self)
 			else:
 				nav_steer(delta)
 
