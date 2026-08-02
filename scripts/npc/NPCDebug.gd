@@ -36,6 +36,14 @@ static func log_stuck(npc: Node) -> void:
 		return
 	print("%s STUCK — aborting current activity and re-scoring" % _fmt(npc))
 
+## Local detour firing — call from NPC._start_detour(). Distinct from
+## log_stuck: a detour does NOT abort the current activity/job.
+static func log_detour(npc: Node, trying_other_side: bool) -> void:
+	if not enabled:
+		return
+	var which: String = "other side" if trying_other_side else "first side"
+	print("%s DETOUR around heavy obstacle (%s)" % [_fmt(npc), which])
+
 ## Job lifecycle — call from JobBoard (_mark/claim/release) and JobActivity.
 static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
 	if not enabled:

@@ -7,3 +7,4 @@ script = ExtResource("1_cookingpot")
 collision_layer = 1
 collision_mask = 1
 continuous_cd = true
+mass = 9.0

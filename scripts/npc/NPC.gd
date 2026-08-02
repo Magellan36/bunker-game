@@ -151,6 +151,7 @@ func _physics_process(delta: float) -> void:
 		_process_wander(delta)   ## fallback only — brain owns behavior now
 
 	move_and_slide()
+	_handle_physics_pushes(delta)
 	_check_stuck(delta)
 
 # ─── Navigation primitives (used by wander now; by every activity later) ──
@@ -166,14 +167,22 @@ func nav_finished() -> bool:
 	return nav_agent == null or nav_agent.is_navigation_finished()
 
 ## Steer toward the agent's next waypoint. Call once per physics frame while
-## traveling; pairs with move_and_slide() in _physics_process.
+## traveling; pairs with move_and_slide() in _physics_process. While a local
+## detour (Part 10) is active, steers toward the detour point instead — every
+## activity keeps calling this exact same function, so no activity code
+## needs to know detours exist at all.
 func nav_steer(delta: float) -> void:
+	if _detour_active:
+		_steer_toward(_detour_target, delta)
+		return
 	if nav_agent == null or nav_agent.is_navigation_finished():
 		velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
 		velocity.z = lerp(velocity.z, 0.0, acceleration * delta)
 		return
-	var next: Vector3 = nav_agent.get_next_path_position()
-	var dir: Vector3 = next - global_position
+	_steer_toward(nav_agent.get_next_path_position(), delta)
+
+func _steer_toward(point: Vector3, delta: float) -> void:
+	var dir: Vector3 = point - global_position
 	dir.y = 0.0
 	if dir.length() < 0.01:
 		return
@@ -325,6 +334,13 @@ func _tick_stuck_recovery(delta: float) -> void:
 		_stuck_timer = 0.0
 		_stuck_ref_pos = global_position
 		return
+	if _detour_active:
+		## A local detour (Part 10) is already handling this exact stuck
+		## condition — don't let the general 1s recovery race it. Reset the
+		## reference point so the clock starts fresh once the detour ends.
+		_stuck_timer = 0.0
+		_stuck_ref_pos = global_position
+		return
 	_stuck_timer += delta
 	if _stuck_timer < STUCK_CHECK_INTERVAL:
 		return
@@ -341,3 +357,104 @@ func _recover_from_stuck() -> void:
 		brain.stop_current()
 	velocity.x = 0.0
 	velocity.z = 0.0
+
+
+# ─── Physics-clutter push-through / resistance / local detour (Part 10) ────
+## Loose world items (FoodCan, WaterBottle, TestCrate, Basket, ...) are all
+## RigidBody3D and were never part of the navmesh (parse_source_geometry_data
+## only picks up STATIC colliders — correctly, since these move). Without
+## this system move_and_slide() treats every one of them exactly like a
+## wall. Tier is read from the item's own `mass` (Step 1 sets sensible
+## values on the three items that needed it; everything else already
+## defaults correctly). No activity code anywhere needs to know this exists.
+const HEAVY_MASS_THRESHOLD: float = 3.0    ## mass >= this = "heavy" tier
+const LIGHT_PUSH_IMPULSE: float = 1.5      ## shove strength on light items
+const HEAVY_PUSH_IMPULSE: float = 3.0      ## shove attempt strength on heavy items
+const HEAVY_BLOCK_DETECT_TIME: float = 0.4 ## seconds stalled-on-heavy before detouring
+const DETOUR_STEP_DISTANCE: float = 1.3    ## how far sideways a detour reaches
+const DETOUR_TIMEOUT: float = 1.2          ## give up on one detour side after this long
+
+var _heavy_block_timer: float = 0.0
+var _detour_active: bool = false
+var _detour_target: Vector3 = Vector3.ZERO
+var _detour_timer: float = 0.0
+var _detour_tried_other_side: bool = false
+var _detour_ref_pos: Vector3 = Vector3.ZERO
+
+func _handle_physics_pushes(delta: float) -> void:
+	var heavy_collision_normal: Vector3 = Vector3.ZERO
+	var touching_heavy: bool = false
+
+	for i: int in get_slide_collision_count():
+		var col: KinematicCollision3D = get_slide_collision(i)
+		var body: Object = col.get_collider()
+		if not (body is RigidBody3D):
+			continue
+		if ("is_held" in body) and body.is_held:
+			continue   ## someone's carrying it — not clutter, ignore
+		var rb: RigidBody3D = body as RigidBody3D
+		var away: Vector3 = -col.get_normal()
+		away.y = 0.0
+
+		if rb.mass < HEAVY_MASS_THRESHOLD:
+			## Light: shove it, and cancel out the blocked portion of this
+			## frame's motion so the NPC barely notices — "push through."
+			if away.length() > 0.01:
+				rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE)
+			var blocked: Vector3 = velocity - get_real_velocity()
+			blocked.y = 0.0
+			if blocked.length() > 0.01:
+				global_position += blocked * delta
+		else:
+			## Heavy: smaller proportional shove, but do NOT correct position —
+			## Godot's normal collision resistance stands. This is the
+			## "resistance from large objects" the NPC actually feels.
+			if away.length() > 0.01:
+				rb.apply_central_impulse(away.normalized() * HEAVY_PUSH_IMPULSE / rb.mass)
+			touching_heavy = true
+			heavy_collision_normal = col.get_normal()
+
+	_tick_detour(delta, touching_heavy, heavy_collision_normal)
+
+func _tick_detour(delta: float, touching_heavy: bool, heavy_normal: Vector3) -> void:
+	if _detour_active:
+		_detour_timer += delta
+		var moved: float = global_position.distance_to(_detour_ref_pos)
+		var arrived: bool = global_position.distance_to(_detour_target) < 0.5
+		if arrived or (_detour_timer > 1.0 and moved < STUCK_MIN_DISPLACEMENT):
+			if arrived or _detour_tried_other_side:
+				_end_detour()
+			else:
+				_start_detour(heavy_normal, true)   ## first side failed — try the other
+		return
+
+	if not touching_heavy or nav_agent == null or nav_finished():
+		_heavy_block_timer = 0.0
+		return
+
+	_heavy_block_timer += delta
+	if _heavy_block_timer < HEAVY_BLOCK_DETECT_TIME:
+		return
+	_heavy_block_timer = 0.0
+	_start_detour(heavy_normal, false)
+
+func _start_detour(heavy_normal: Vector3, other_side: bool) -> void:
+	var lateral: Vector3 = Vector3(-heavy_normal.z, 0.0, heavy_normal.x)   ## 90° in XZ
+	if other_side:
+		lateral = -lateral
+	_detour_target = global_position + lateral.normalized() * DETOUR_STEP_DISTANCE
+	_detour_active = true
+	_detour_timer = 0.0
+	_detour_tried_other_side = other_side
+	_detour_ref_pos = global_position
+	NPCDebug.log_detour(self, other_side)
+
+func _end_detour() -> void:
+	_detour_active = false
+	_detour_timer = 0.0
+	_detour_tried_other_side = false
+	## Deliberately do NOT touch current_task/brain/nav_agent.target_position
+	## here — the detour was a pure steering override; the original travel
+	## target (set by whatever activity is running) is untouched throughout,
+	## so normal nav_steer()/nav_finished() just resume exactly where they
+	## left off on the very next frame.
