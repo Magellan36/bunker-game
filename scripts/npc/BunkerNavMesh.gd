@@ -120,7 +120,7 @@ func _rebake() -> void:
 		var b: Vector3 = Vector3(cx + 1.0, FLOOR_Y, cz)
 		var c: Vector3 = Vector3(cx + 1.0, FLOOR_Y, cz + 1.0)
 		var d: Vector3 = Vector3(cx,       FLOOR_Y, cz + 1.0)
-		src.add_faces(PackedVector3Array([a, b, c,  a, c, d]), Transform3D.IDENTITY)
+		src.add_faces(PackedVector3Array([a, c, b,  a, d, c]), Transform3D.IDENTITY)
 
 	## ── Obstacles: one tall box per placed object footprint ────────────────
 	var bc: Node = world._build_controller if ("_build_controller" in world) else null
