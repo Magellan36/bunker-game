@@ -240,7 +240,7 @@ func _open_talk_menu() -> void:
 		_talk_menu.name = "NPCTalkMenuUI"
 		get_tree().get_root().add_child(_talk_menu)
 	if _talk_menu.has_method("open"):
-		_talk_menu.open(npc_name)
+		_talk_menu.open(npc_name, self)
 
 
 # ─── Overhead work banner (Part 4) — GeneratorObject fuel-banner style ─────
@@ -269,3 +269,28 @@ func update_work_banner(action: String, progress: float) -> void:
 func hide_work_banner() -> void:
 	if _work_banner != null:
 		_work_banner.visible = false
+
+
+# ─── Overhead name/activity label (Part 5) ─────────────────────────────────
+## Always-on small billboard: "Name — Activity". Sits ABOVE the Part-4 work
+## banner (which shows only during job work phases, below this).
+var _overhead_label: Label3D = null
+var _overhead_timer: float = 0.0
+
+func _process(delta: float) -> void:
+	_overhead_timer -= delta
+	if _overhead_timer > 0.0:
+		return
+	_overhead_timer = 0.5
+	if _overhead_label == null:
+		_overhead_label = Label3D.new()
+		_overhead_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_overhead_label.fixed_size = true
+		_overhead_label.pixel_size = 0.0007
+		_overhead_label.font_size = 34
+		_overhead_label.outline_size = 8
+		_overhead_label.position = Vector3(0.0, 1.85, 0.0)
+		_overhead_label.modulate = Color(0.88, 0.90, 0.92, 0.95)
+		add_child(_overhead_label)
+	var activity: String = brain.current_label() if brain != null else "Idle"
+	_overhead_label.text = "%s — %s" % [npc_name, activity]
