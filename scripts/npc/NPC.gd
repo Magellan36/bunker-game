@@ -50,7 +50,7 @@ var hunger: float = 100.0   ## 100 = full, 0 = starving (matches PlayerStats' fo
 var thirst: float = 100.0   ## 100 = hydrated
 
 const ENERGY_DRAIN_PER_GAME_HOUR: float = 3.0
-const HUNGER_DRAIN_PER_GAME_HOUR: float = 3.4   ## mirrors PlayerStats food_drain feel
+const HUNGER_DRAIN_PER_GAME_HOUR: float = 1.39  ## matches PlayerStats.food_drain_per_game_hour (Part 12 fix — was 3.4, a wrong number, not a deliberate 2.4x-faster choice)
 const THIRST_DRAIN_PER_GAME_HOUR: float = 2.08  ## matches PlayerStats.water_drain_per_game_hour
 
 ## FUTURE WORK (crisis-response pass, per Brannon's standing note): when a

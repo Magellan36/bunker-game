@@ -8,10 +8,38 @@ class_name NPCItemUser
 const PICKUP_RANGE: float = 1.2      ## must be this close to grab
 const SHELF_RANGE:  float = 1.6
 
+# ─── Lightweight per-item claim system (Part 12) — prevents two NPCs from
+## targeting/grabbing the same loose or shelved item at once, which caused
+## intermittent lost bites/charges and items visually yanked between NPCs.
+## Mirrors JobBoard's claim()/release() pattern but scoped to items. Keyed
+## by instance_id so it works uniformly for loose items and shelf contents.
+static var _claims: Dictionary = {}   ## item instance_id (int) -> npc instance_id (int)
+
+static func claim_item(item: Node, npc: Node) -> bool:
+	if item == null or npc == null:
+		return false
+	var iid: int = item.get_instance_id()
+	var claimant: int = _claims.get(iid, 0)
+	if claimant != 0 and claimant != npc.get_instance_id():
+		return false   ## already claimed by someone else
+	_claims[iid] = npc.get_instance_id()
+	return true
+
+static func release_item(item: Node) -> void:
+	if item == null:
+		return
+	_claims.erase(item.get_instance_id())
+
+static func is_claimed_by_other(item: Node, npc: Node) -> bool:
+	if item == null:
+		return false
+	var claimant: int = _claims.get(item.get_instance_id(), 0)
+	return claimant != 0 and claimant != npc.get_instance_id()
+
 # ─── Target search ────────────────────────────────────────────────────────
 ## Nearest loose (world) item matching `filter: Callable(item) -> bool`.
 ## Excludes held, shelved, and frozen items — an NPC can never steal from
-## the player's hands or bypass the shelf API.
+## the player's hands or bypass the shelf API. Also respects item claims.
 static func find_loose_item(npc: NPC, filter: Callable) -> RigidBody3D:
 	var best: RigidBody3D = null
 	var best_d: float = INF
@@ -25,6 +53,8 @@ static func find_loose_item(npc: NPC, filter: Callable) -> RigidBody3D:
 			continue
 		if rb.freeze:
 			continue
+		if is_claimed_by_other(rb, npc):
+			continue
 		if not filter.call(rb):
 			continue
 		var d: float = rb.global_position.distance_to(npc.global_position)
@@ -35,6 +65,7 @@ static func find_loose_item(npc: NPC, filter: Callable) -> RigidBody3D:
 
 ## Nearest shelf slot whose TOP item matches filter.
 ## Returns {} or {shelf: Shelving, slot: int, item: RigidBody3D}.
+## Also respects item claims.
 static func find_shelved_item(npc: NPC, filter: Callable) -> Dictionary:
 	var best: Dictionary = {}
 	var best_d: float = INF
@@ -51,6 +82,8 @@ static func find_shelved_item(npc: NPC, filter: Callable) -> Dictionary:
 			var top: RigidBody3D = stack.back()
 			if top == null or not is_instance_valid(top) or not filter.call(top):
 				continue
+			if is_claimed_by_other(top, npc):
+				continue
 			best_d = d
 			best = {"shelf": node, "slot": slot_idx, "item": top}
 			break
@@ -60,6 +93,8 @@ static func find_shelved_item(npc: NPC, filter: Callable) -> Dictionary:
 static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 	if item == null or not is_instance_valid(item):
 		return false
+	if is_claimed_by_other(item, npc):
+		return false   ## defense in depth — shouldn't happen if callers claimed first
 	if npc.global_position.distance_to(item.global_position) > PICKUP_RANGE:
 		return false
 	if item.has_method("pickup"):

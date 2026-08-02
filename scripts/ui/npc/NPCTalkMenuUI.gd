@@ -213,7 +213,7 @@ func _refresh_live_values() -> void:
 	if "skills" in _npc:
 		for skill: String in _skill_labels.keys():
 			var s: float = float(_npc.skills.get(skill, 1.0))
-			(_skill_labels[skill] as Label).text = "%s  %.2f" % [skill.capitalize(), s]
+			(_skill_labels[skill] as Label).text = "%s  %d" % [skill.capitalize(), int(round(s * 10.0))]
 
 	if _activity_label != null and "brain" in _npc and _npc.brain != null:
 		_activity_label.text = _npc.brain.current_label()

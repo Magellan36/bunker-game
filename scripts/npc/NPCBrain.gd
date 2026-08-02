@@ -172,8 +172,10 @@ class SitActivity extends NPCActivity:
 				+ ENERGY_REGEN_PER_GAME_HOUR * npc.game_hours(delta))
 			return
 		npc.nav_steer(delta)
-		if npc.nav_finished() or npc.global_position.distance_to(
-				(_chair as Node3D).global_position) < 0.9:
+		var chair_pos: Vector3 = (_chair as Node3D).global_position
+		var flat_dist: float = Vector2(npc.global_position.x, npc.global_position.z) \
+			.distance_to(Vector2(chair_pos.x, chair_pos.z))
+		if npc.nav_finished() or flat_dist < 0.9:
 			## Claim + snap onto the seat (mirrors the player seat flow in
 			## MainWorld._wire_chair, minus the physics-process freeze —
 			## the NPC just parks with zero velocity).
@@ -207,7 +209,9 @@ class SitActivity extends NPCActivity:
 				continue
 			if c.has_method("is_seat_free") and not c.is_seat_free():
 				continue
-			var d: float = (c as Node3D).global_position.distance_to(npc.global_position)
+			var c_pos: Vector3 = (c as Node3D).global_position
+			var d: float = Vector2(c_pos.x, c_pos.z) \
+				.distance_to(Vector2(npc.global_position.x, npc.global_position.z))
 			if d < best_d:
 				best_d = d
 				best = c
@@ -217,6 +221,15 @@ class SitActivity extends NPCActivity:
 class DrinkActivity extends NPCActivity:
 	## Thirst-driven. Priority: Dispenser with water → loose Water Bottle.
 	## FUTURE WORK: pulling a fresh bottle out of a WaterCase.
+	##
+	## Bottle handling (Part 12): grabs the bottle FIRST, holds it through
+	## the full CONSUME_TIME wait, then drinks+drops — mirroring
+	## EatActivity's order. The previous version grabbed and dropped inside
+	## the same call at the END of the wait, with zero visible holding
+	## duration — looked exactly like the bottle teleporting into the hand
+	## and immediately falling, because that's functionally what happened.
+	## Also claims its bottle target (NPCItemUser, Part 12) so two NPCs
+	## can't converge on the same one.
 	const DRINK_ML:        float = 375.0   ## == WaterBottle.STANDARD_DRINK_ML
 	const HYDRATION:       float = 21.5    ## == WaterBottle.STANDARD_HYDRATION
 	const CONSUME_TIME:    float = 2.0
@@ -259,6 +272,10 @@ class DrinkActivity extends NPCActivity:
 		var pick: Dictionary = _pick_target(npc)
 		_mode = pick.get("mode", "")
 		_target = pick.get("node", null)
+		if _mode == "bottle" and _target != null:
+			if not NPCItemUser.claim_item(_target, npc):
+				_target = null   ## lost the race between scoring and entering
+				return
 		if _target != null:
 			npc.set_nav_target((_target as Node3D).global_position)
 
@@ -266,33 +283,56 @@ class DrinkActivity extends NPCActivity:
 		if _target == null or not is_instance_valid(_target):
 			_target = null
 			return
+		if _mode == "bottle":
+			_tick_bottle(npc, delta)
+		else:
+			_tick_dispenser(npc, delta)
+
+	func _tick_dispenser(npc: NPC, delta: float) -> void:
 		if _drinking > 0.0:
 			npc.halt_movement(delta)
 			_drinking -= delta
 			if _drinking <= 0.0:
-				_do_drink(npc)
+				_finish_dispenser(npc)
 			return
 		npc.nav_steer(delta)
 		if npc.global_position.distance_to((_target as Node3D).global_position) <= USE_RANGE:
 			npc.velocity = Vector3.ZERO
 			_drinking = CONSUME_TIME
 
-	func _do_drink(npc: NPC) -> void:
-		if _mode == "dispenser":
-			var d: Node = _target
-			var ml: float = minf(DRINK_ML, d.current_fill_mL)
-			if ml > 0.0:
-				d.current_fill_mL -= ml                       ## REAL deduction
-				if d.has_method("_update_fill_visual"):
-					d._update_fill_visual()
-				npc.thirst = minf(100.0, npc.thirst + HYDRATION * (ml / DRINK_ML))
-		elif _mode == "bottle":
-			var b: Node = _target
-			if npc.held_item != b:
-				if not NPCItemUser.grab_loose(npc, b):
-					_target = null
-					return
+	func _finish_dispenser(npc: NPC) -> void:
+		var d: Node = _target
+		var ml: float = minf(DRINK_ML, d.current_fill_mL)
+		if ml > 0.0:
+			d.current_fill_mL -= ml                       ## REAL deduction
+			if d.has_method("_update_fill_visual"):
+				d._update_fill_visual()
+			npc.thirst = minf(100.0, npc.thirst + HYDRATION * (ml / DRINK_ML))
+		_target = null
+
+	func _tick_bottle(npc: NPC, delta: float) -> void:
+		if _drinking > 0.0:
+			npc.halt_movement(delta)
+			_drinking -= delta
+			if _drinking <= 0.0:
+				_finish_bottle(npc)
+			return
+		if npc.held_item == _target:
+			## Grabbed — start the visible holding/drinking wait.
+			npc.velocity = Vector3.ZERO
+			_drinking = CONSUME_TIME
+			return
+		npc.nav_steer(delta)
+		if npc.global_position.distance_to((_target as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+			if not NPCItemUser.grab_loose(npc, _target):
+				NPCItemUser.release_item(_target)
+				_target = null   ## grab failed — give up cleanly, rescore next think
+
+	func _finish_bottle(npc: NPC) -> void:
+		var b: Node = _target
+		if b != null and is_instance_valid(b) and npc.held_item == b:
 			npc.thirst = minf(100.0, npc.thirst + b.take_drink())   ## REAL deduction
+			NPCItemUser.release_item(b)
 			NPCItemUser.drop_held(npc)
 		_target = null
 
@@ -303,7 +343,10 @@ class DrinkActivity extends NPCActivity:
 		return _drinking <= 0.0
 
 	func exit(npc: NPC) -> void:
+		if _target != null:
+			NPCItemUser.release_item(_target)
 		if npc.held_item != null:
+			NPCItemUser.release_item(npc.held_item)
 			NPCItemUser.drop_held(npc)
 		_target = null
 		_drinking = 0.0
@@ -338,9 +381,13 @@ class EatActivity extends NPCActivity:
 	func enter(npc: NPC) -> void:
 		_eating = 0.0
 		_loose = _find(npc)
+		if _loose != null and not NPCItemUser.claim_item(_loose, npc):
+			_loose = null   ## lost the race between scoring and entering
 		_shelf_pick = {}
 		if _loose == null:
 			_shelf_pick = _find_shelf(npc)
+			if not _shelf_pick.is_empty() and not NPCItemUser.claim_item(_shelf_pick.get("item"), npc):
+				_shelf_pick = {}
 		var tgt: Node3D = _loose if _loose != null \
 			else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
 		if tgt != null:
@@ -391,7 +438,12 @@ class EatActivity extends NPCActivity:
 		return _eating <= 0.0
 
 	func exit(npc: NPC) -> void:
+		if _loose != null:
+			NPCItemUser.release_item(_loose)
+		if not _shelf_pick.is_empty():
+			NPCItemUser.release_item(_shelf_pick.get("item"))
 		if npc.held_item != null:
+			NPCItemUser.release_item(npc.held_item)
 			NPCItemUser.drop_held(npc)
 		_loose = null
 		_shelf_pick = {}
