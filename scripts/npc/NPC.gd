@@ -113,7 +113,7 @@ func _ready() -> void:
 	nav_agent.path_desired_distance = 0.4
 	nav_agent.target_desired_distance = arrival_distance
 	nav_agent.path_max_distance = 3.0
-	nav_agent.radius = 0.35              ## matches BunkerNavMesh.agent_radius
+	nav_agent.radius = 0.4               ## matches BunkerNavMesh.agent_radius (Part 8)
 	nav_agent.avoidance_enabled = false  ## physics handles NPC-vs-NPC shoving fine at 2-3 NPCs
 	add_child(nav_agent)
 

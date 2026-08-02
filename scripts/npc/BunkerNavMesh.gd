@@ -41,13 +41,29 @@ var _bake_queued_again: bool = false
 func _ready() -> void:
 	add_to_group("bunker_navmesh")
 
+	## Sync the shared navigation MAP's voxel size to match the NavigationMesh
+	## below, BEFORE any region/geometry is added. Godot defaults every map to
+	## cell_size 0.25 / cell_height 0.25, distinct from a NavigationMesh
+	## resource's own cell_size/cell_height — if they don't match, the map-
+	## level polygon data (what agents actually path against) gets rasterized
+	## incorrectly at edges, which is where walls are. BunkerNavMesh is the
+	## only navigation user in this project, so retuning the default map here
+	## is safe and doesn't affect anything else. (NPC Pass 2, Part 8 hotfix.)
+	var nav_map: RID = get_world_3d().navigation_map
+	NavigationServer3D.map_set_cell_size(nav_map, 0.1)
+	NavigationServer3D.map_set_cell_height(nav_map, 0.15)
+
 	_navmesh = NavigationMesh.new()
-	## Agent shape: NPC capsule is radius 0.5 — but the two most common
-	## traversal gaps in this game are exactly 1 cell (1.0 wide) between two
-	## obstacle footprints, which 0.5 would seal shut. 0.35 keeps doorway-
-	## sized gaps open while still hugging paths safely inside the physics
-	## capsule's slide behavior (collision remains the hard guarantee).
-	_navmesh.agent_radius = 0.35
+	## Agent shape: NPC capsule is radius 0.4 (Part 7 resized it down from
+	## Godot's unset 0.5 default specifically to close this gap). agent_radius
+	## here is set to the SAME 0.4 — an exact multiple of cell_size (0.1), so
+	## Recast doesn't need to ceil/round it at bake time (that was the second
+	## warning), and the navmesh's assumed clearance now exactly matches the
+	## NPC's real physical clearance instead of only approximating it. The
+	## two most common traversal gaps in this game are 1 cell (1.0) wide
+	## between obstacle footprints; 0.4 leaves 0.2m of walkable centerline
+	## width there — tight but confirmed navigable (see verification below).
+	_navmesh.agent_radius = 0.4
 	_navmesh.agent_height = 1.8
 	_navmesh.agent_max_climb = 0.3
 	_navmesh.agent_max_slope = 30.0
