@@ -53,15 +53,6 @@ const ENERGY_DRAIN_PER_GAME_HOUR: float = 3.0
 const HUNGER_DRAIN_PER_GAME_HOUR: float = 3.4   ## mirrors PlayerStats food_drain feel
 const THIRST_DRAIN_PER_GAME_HOUR: float = 2.08  ## matches PlayerStats.water_drain_per_game_hour
 
-const HEAVY_MASS_THRESHOLD: float = 3.0    ## mass >= this = "heavy" tier
-const LIGHT_PUSH_IMPULSE: float = 1.5      ## shove strength on light items
-const HEAVY_PUSH_IMPULSE: float = 3.0      ## shove attempt strength on heavy items
-const AVOID_WEIGHT: float = 1.8            ## how strongly "away" blends into steering
-const AVOID_COOLDOWN: float = 0.6          ## seconds the blend takes to fade after last contact
-const AVOID_MAX_GRACE: float = 3.0         ## cumulative seconds avoidance may suppress
-                                           ## the general stuck-recovery before giving up
-                                           ## and letting it fire as the final fallback
-
 ## FUTURE WORK (crisis-response pass, per Brannon's standing note): when a
 ## need hits 0, consequences (refusing work, slowed movement, mood damage)
 ## hook in HERE. Deliberately no behavior yet.
