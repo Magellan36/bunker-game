@@ -219,13 +219,6 @@ static func draw_close_icon(canvas: CanvasItem, rect: Rect2, modulate: Color = C
 	canvas.draw_texture_rect(icon, icon_rect, false, modulate)
 
 
-## Panel background + border. Caller owns computing `rect` (this project's
-## panels are all screen-centered via `(vp - PANEL_SIZE) * 0.5`, left to the
-## caller since PANEL_W/PANEL_H differ per file).
-static func draw_panel(canvas: CanvasItem, rect: Rect2, theme: UITheme, border_width: float = 2.0) -> void:
-	draw_rounded_rect(canvas, rect, theme.bg, theme.border, border_width)
-
-
 ## Draws the standard × close button at a panel's top-right corner and
 ## returns its hit-rect (same rect the caller should position its real
 ## `Button` node over, and/or hit-test manually) — mirrors
