@@ -41,18 +41,16 @@ var _bake_queued_again: bool = false
 func _ready() -> void:
 	add_to_group("bunker_navmesh")
 
-	## Sync the shared navigation MAP's voxel size to match the NavigationMesh
-	## below, BEFORE any region/geometry is added. Godot defaults every map to
-	## cell_size 0.25 / cell_height 0.25, distinct from a NavigationMesh
-	## resource's own cell_size/cell_height — if they don't match, the map-
-	## level polygon data (what agents actually path against) gets rasterized
-	## incorrectly at edges, which is where walls are. BunkerNavMesh is the
-	## only navigation user in this project, so retuning the default map here
-	## is safe and doesn't affect anything else. (NPC Pass 2, Part 8 hotfix.)
-	var nav_map: RID = get_world_3d().navigation_map
-	NavigationServer3D.map_set_cell_size(nav_map, 0.1)
-	NavigationServer3D.map_set_cell_height(nav_map, 0.15)
 
+	## Part 8's map_set_cell_size/map_set_cell_height sync lived here and has
+	## been REVERTED (Part 8.1 hotfix) — it caused a much worse regression
+	## (near-total navmesh coverage loss) than the cosmetic edge-rasterization
+	## warning it was meant to fix. This project only has one NavigationRegion3D,
+	## so there's no multi-region connectivity to actually benefit from map-level
+	## cell sync, and reconfiguring the shared map's voxel grid turned out to
+	## have a much bigger effect on baking than intended. The cell_size mismatch
+	## warning may reappear in the console — that's expected and being treated
+	## as cosmetic/harmless in a single-region setup until proven otherwise.
 	_navmesh = NavigationMesh.new()
 	## Agent shape: NPC capsule is radius 0.4 (Part 7 resized it down from
 	## Godot's unset 0.5 default specifically to close this gap). agent_radius
