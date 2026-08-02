@@ -77,26 +77,6 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s" % item_name
 
-## Shown only while HELD (separate line from get_interact_prompt() below —
-## InteractionSystem stacks both together). Independent of the pot's own
-## contents (full or empty) — only cares whether a nearby Stove has an
-## open slot, since that's the only thing that gates the actual placement
-## action.
-const STOVE_PROMPT_RANGE: float = 3.0   ## keep in sync with InteractionSystem._find_nearest_open_stove()'s reach
-
-
-func get_use_prompt() -> String:
-	if not is_held:
-		return ""
-	for node: Node in get_tree().get_nodes_in_group("stove"):
-		if not is_instance_valid(node):
-			continue
-		if not node.has_method("has_open_slot") or not node.has_open_slot():
-			continue
-		if (node as Node3D).global_position.distance_to(global_position) <= STOVE_PROMPT_RANGE:
-			return "[E] Place Cooking Pot"
-	return ""
-
 func get_interact_prompt() -> String:
 	if _is_cooked:
 		return "DONE  —  [E] Take Dish  (%.1f Filling)" % _dish_value

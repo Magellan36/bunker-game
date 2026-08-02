@@ -152,15 +152,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				_quick_drop()
 		else:
-			## Empty-handed — a pot resting on a nearby stove takes priority
-			## over normal world pickup, so [F] reliably grabs it back even
-			## though it's frozen/reparented (generic _try_pickup() skips
-			## frozen bodies, so it would otherwise never find it).
+			## Empty-handed — compare the closest stove-with-pot (if any)
+			## against the closest normal pickup candidate and grab whichever
+			## is TRULY closer. Confirmed Aug 2026 fix: previously the
+			## stove-pot case always won regardless of distance, so a pot
+			## across the room could beat a vegetable at the player's feet.
 			var host_stove: Node = _find_nearest_stove_with_pot()
 			if host_stove != null:
-				_try_pickup_pot_from_stove(host_stove)
-			else:
-				_try_pickup()
+				var stove_dist: float = (host_stove as Node3D).global_position.distance_to(player.global_position)
+				if stove_dist <= _nearest_pickup_distance():
+					_try_pickup_pot_from_stove(host_stove)
+					return
+			_try_pickup()
 
 	# E — use held item (instant tap) / shelf open / world interact.
 	# Pure tap: fires immediately on press, no hold-to-store behavior.
@@ -456,6 +459,38 @@ func _update_prompt() -> void:
 					"text":      "[E] Add to Basket",
 					"world_pos": body.global_position,
 					"dist":      bd
+				})
+
+		# Cooking Pot held → "[E] Add to Pot" over each nearby storable food
+		# item, PLUS "[E] Place Cooking Pot" over the nearest open Stove.
+		# Confirmed Aug 2026: these two target types are the ONLY prompts
+		# that should show while holding the pot — nothing above the held
+		# pot itself. Mirrors the basket block above exactly, plus the
+		# stove target (baskets have no equivalent "place" target).
+		if "is_cookpot_container" in held_item:
+			for body in _tracked_bodies:
+				if not is_instance_valid(body):
+					continue
+				if not body.is_in_group("cookpot_storable"):
+					continue
+				if body.is_in_group("shelved"):
+					continue
+				if body is RigidBody3D and (body as RigidBody3D).freeze:
+					continue
+				var bd: float = body.global_position.distance_to(player.global_position)
+				if bd > MAX_PROMPT_DIST:
+					continue
+				entries.append({
+					"text":      "[E] Add to Pot",
+					"world_pos": body.global_position,
+					"dist":      bd
+				})
+			var nearby_stove: Node = _find_nearest_open_stove()
+			if nearby_stove != null:
+				entries.append({
+					"text":      "[E] Place Cooking Pot",
+					"world_pos": (nearby_stove as Node3D).global_position + Vector3(0.0, 0.9, 0.0),
+					"dist":      0.0
 				})
 
 		if entries.is_empty():
@@ -849,6 +884,23 @@ func _try_interact() -> void:
 
 	if closest != null:
 		closest.on_interact()
+
+## Read-only peek at the distance to whatever _try_pickup() would grab,
+## without actually grabbing it — used purely to fairly compare against the
+## stove-with-pot special case above. Returns INF if nothing is eligible.
+func _nearest_pickup_distance() -> float:
+	var bodies: Array = detect_area.get_overlapping_bodies()
+	var closest_dist: float = INF
+	for body in bodies:
+		if body.is_in_group("pickup"):
+			if body.is_in_group("shelved"):
+				continue
+			if body is RigidBody3D and (body as RigidBody3D).freeze:
+				continue
+			var d: float = body.global_position.distance_to(player.global_position)
+			if d < closest_dist:
+				closest_dist = d
+	return closest_dist
 
 # ─── Pickup from world ────────────────────────────────────────────────────────
 func _try_pickup() -> void:
