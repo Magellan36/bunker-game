@@ -64,7 +64,7 @@ static func dump_all(tree: SceneTree) -> void:
 			held,
 			npc._stuck_recoveries if "_stuck_recoveries" in npc else -1,
 		])
-if "skills" in npc:
+\t\tif "skills" in npc:
 		var display: Dictionary = {}
 		for k: String in npc.skills.keys():
 			display[k] = int(round(float(npc.skills[k]) * 10.0))
