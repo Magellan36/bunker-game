@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-03T23:00:51.676391+00:00",
+  "generated_at": "2026-08-03T23:04:40.495338+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 121,
-  "total_lines": 47796,
+  "total_lines": 47802,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -2903,7 +2903,7 @@
     },
     {
       "path": "res://scripts/world/build/WallDrawMode.gd",
-      "line_count": 309,
+      "line_count": 315,
       "class_name": null,
       "extends": "Node",
       "exports": [],
@@ -2939,7 +2939,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 332
+      "complexity_score": 338
     },
     {
       "path": "res://scripts/world/build/WallSnapHelpers.gd",

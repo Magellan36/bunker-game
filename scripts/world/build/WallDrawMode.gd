@@ -68,6 +68,12 @@ func handle_input(event: InputEvent) -> bool:
 		if event.keycode == KEY_E:
 			_cycle_tier(1)
 			return true
+		if event.keycode == KEY_ESCAPE:
+			if _phase == 1:
+				_cancel_drag()
+			else:
+				wall_tool_exit_requested.emit()
+			return true
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if _phase == 0:

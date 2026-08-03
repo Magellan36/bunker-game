@@ -1,0 +1,23 @@
+NPC Pass 2 Part 19: Health Adjuster, Full Debug Dump, Player Commands
+
+Part A - F7 Health adjuster:
+- AdminMenu.gd: Added Health +20/-20 rows in NPC section (mirrors Energy/Hunger/Thirst)
+- Added _on_npc_health_up_pressed/_down_pressed using shared _adjust_all_npc_need()
+
+Part B - Expanded debug dump:
+- NPCDebug.gd: Replaced dump_all() with multi-line _dump_one() per NPC
+- Shows: pos, activity, held, movement_locked, stuck_recoveries, Health/Energy/Hunger/Thirst,
+  speed_multiplier, passed_out, forgetfulness_chance, status_labels, skills, seed/mood/personality
+
+Part C - Player commands via Talk menu:
+- NPCBrain.gd: force_command(activity) - force-starts activity, exits current via exit()
+- NPCBrain.gd: CommandRestActivity (bed->chair fallback), CommandHarvestActivity (nearest HARVEST job)
+- NPCTalkMenuUI.gd: Four command buttons revealed after Talk press:
+  "Go eat something", "Go drink something", "Take a load off", "Harvest the plants"
+- Shared _issue_command() dispatch with NotificationManager toast feedback
+- Priority: Part 14 pass-out override preempts commands
+
+docs/systems/npc/README.md: Updated NPCTalkMenuUI states, Admin Spawn F7 rows,
+Extension Points with Player Commands section.
+
+Architecture.json regenerated.
