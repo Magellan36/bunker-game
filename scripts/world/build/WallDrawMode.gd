@@ -200,7 +200,7 @@ func _rebuild_run_ghost() -> void:
 		seg.global_position = pos
 		seg.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)
 		var valid: bool = build_controller._is_inside_bunker(pos, build_controller._tile_half_extents(tile_id)) \
-			and not build_controller._is_position_occupied(tile_id, pos)
+			and not build_controller._is_position_occupied(pos, tile_id)
 		_apply_ghost_color(seg, valid)
 		_ghost_segments.append(seg)
 
@@ -248,7 +248,7 @@ func _confirm_run() -> void:
 		if not build_controller._is_inside_bunker(pos, build_controller._tile_half_extents(tile_id)):
 			build_controller._show_hud_warning("Cannot place outside the bunker")
 			return
-		if build_controller._is_position_occupied(tile_id, pos):
+		if build_controller._is_position_occupied(pos, tile_id):
 			build_controller._show_hud_warning("Space is already occupied")
 			return
 
