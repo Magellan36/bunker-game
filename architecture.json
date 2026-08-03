@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-03T22:44:59.191332+00:00",
+  "generated_at": "2026-08-03T23:00:51.676391+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 121,
-  "total_lines": 47624,
+  "total_lines": 47796,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -521,7 +521,7 @@
     },
     {
       "path": "res://scripts/npc/NPCBrain.gd",
-      "line_count": 889,
+      "line_count": 983,
       "class_name": "NPCBrain",
       "extends": "RefCounted",
       "exports": [],
@@ -537,6 +537,11 @@
           "name": "current_label",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "force_command",
+          "args": "activity: NPCActivity",
+          "returns": "void"
         },
         {
           "name": "tick",
@@ -822,6 +827,76 @@
           "name": "exit",
           "args": "npc: NPC",
           "returns": "void"
+        },
+        {
+          "name": "label",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "score",
+          "args": "_npc: NPC",
+          "returns": "float"
+        },
+        {
+          "name": "interruptible",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "enter",
+          "args": "npc: NPC",
+          "returns": "void"
+        },
+        {
+          "name": "tick",
+          "args": "npc: NPC, delta: float",
+          "returns": "void"
+        },
+        {
+          "name": "done",
+          "args": "npc: NPC",
+          "returns": "bool"
+        },
+        {
+          "name": "exit",
+          "args": "npc: NPC",
+          "returns": "void"
+        },
+        {
+          "name": "label",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "score",
+          "args": "_npc: NPC",
+          "returns": "float"
+        },
+        {
+          "name": "interruptible",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "enter",
+          "args": "npc: NPC",
+          "returns": "void"
+        },
+        {
+          "name": "tick",
+          "args": "npc: NPC, delta: float",
+          "returns": "void"
+        },
+        {
+          "name": "done",
+          "args": "npc: NPC",
+          "returns": "bool"
+        },
+        {
+          "name": "exit",
+          "args": "npc: NPC",
+          "returns": "void"
         }
       ],
       "private_function_count": 18,
@@ -830,11 +905,11 @@
         "main_world"
       ],
       "autoload_references": [],
-      "complexity_score": 1025
+      "complexity_score": 1149
     },
     {
       "path": "res://scripts/npc/NPCDebug.gd",
-      "line_count": 72,
+      "line_count": 97,
       "class_name": "NPCDebug",
       "extends": "RefCounted",
       "exports": [],
@@ -845,7 +920,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 72
+      "complexity_score": 97
     },
     {
       "path": "res://scripts/npc/NPCItemUser.gd",
@@ -1795,7 +1870,7 @@
     },
     {
       "path": "res://scripts/ui/menus/AdminMenu.gd",
-      "line_count": 588,
+      "line_count": 592,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1840,7 +1915,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 41,
+      "private_function_count": 43,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf",
         "res://scenes/npc/NPC.tscn"
@@ -1854,7 +1929,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 635
+      "complexity_score": 641
     },
     {
       "path": "res://scripts/ui/menus/GraphicsSettingsPanel.gd",
@@ -2129,7 +2204,7 @@
     },
     {
       "path": "res://scripts/ui/npc/NPCTalkMenuUI.gd",
-      "line_count": 244,
+      "line_count": 293,
       "class_name": "NPCTalkMenuUI",
       "extends": "CanvasLayer",
       "exports": [],
@@ -2147,11 +2222,11 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 8,
+      "private_function_count": 13,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 256
+      "complexity_score": 310
     },
     {
       "path": "res://scripts/ui/power/GeneratorInspectUI.gd",

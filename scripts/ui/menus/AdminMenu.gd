@@ -120,6 +120,8 @@ func _ready() -> void:
 		{ "name": "NPC", "rows": [
 			["Spawn NPC", _on_spawn_npc_pressed],
 			["Drain NPC Needs -40", _on_drain_npc_needs_pressed],
+			["Health +20", _on_npc_health_up_pressed],
+			["Health -20", _on_npc_health_down_pressed],
 			["Energy +20", _on_npc_energy_up_pressed],
 			["Energy -20", _on_npc_energy_down_pressed],
 			["Hunger +20", _on_npc_hunger_up_pressed],
@@ -488,6 +490,8 @@ func _adjust_all_npc_need(need_name: String, delta: float) -> void:
 		if need_name in npc:
 			npc.set(need_name, clampf(float(npc.get(need_name)) + delta, 0.0, 100.0))
 
+func _on_npc_health_up_pressed() -> void:   _adjust_all_npc_need("health", 20.0)
+func _on_npc_health_down_pressed() -> void: _adjust_all_npc_need("health", -20.0)
 func _on_npc_energy_up_pressed() -> void:   _adjust_all_npc_need("energy", 20.0)
 func _on_npc_energy_down_pressed() -> void: _adjust_all_npc_need("energy", -20.0)
 func _on_npc_hunger_up_pressed() -> void:   _adjust_all_npc_need("hunger", 20.0)

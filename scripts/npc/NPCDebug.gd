@@ -45,28 +45,53 @@ static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
 
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
-## on-demand request, not continuous logging).
+## on-demand request, not continuous logging). Part 19 — expanded from a
+## single dense line per NPC to a full multi-line block covering every
+## piece of state Part 14 added (health, status, forgetfulness chance,
+## speed multiplier, pass-out) plus the personality/mood/seed stubs and the
+## movement-lock flag (Part 13/18), so a single dump gives the complete
+## picture during a bug hunt instead of needing several different checks.
 static func dump_all(tree: SceneTree) -> void:
 	var npcs: Array = tree.get_nodes_in_group("npc")
-	print("── NPC Debug Dump (%d NPCs) ──────────────────────────" % npcs.size())
+	print("═══ NPC Debug Dump (%d NPCs) ═══════════════════════════" % npcs.size())
 	for npc: Node in npcs:
 		if not is_instance_valid(npc):
 			continue
-		var activity: String = npc.brain.current_label() if ("brain" in npc and npc.brain != null) else "?"
-		var held: String = npc.held_item.name if ("held_item" in npc and npc.held_item != null) else "none"
-		print("  %s  pos=%s  E=%.0f H=%.0f T=%.0f  activity=%s  held=%s  stuck_recoveries=%d" % [
-			npc.npc_name if "npc_name" in npc else "?",
-			npc.global_position if "global_position" in npc else Vector3.ZERO,
-			npc.energy if "energy" in npc else -1.0,
-			npc.hunger if "hunger" in npc else -1.0,
-			npc.thirst if "thirst" in npc else -1.0,
-			activity,
-			held,
-			npc._stuck_recoveries if "_stuck_recoveries" in npc else -1,
-		])
-		if "skills" in npc:
-			var display: Dictionary = {}
-			for k: String in npc.skills.keys():
-				display[k] = int(round(float(npc.skills[k]) * 10.0))
-			print("    skills: %s" % str(display))
-	print("───────────────────────────────────────────────────────")
+		_dump_one(npc)
+	print("═════════════════════════════════════════════════════════")
+
+static func _dump_one(npc: Node) -> void:
+	var npc_name: String = npc.npc_name if "npc_name" in npc else "?"
+	var pos: Vector3 = npc.global_position if "global_position" in npc else Vector3.ZERO
+	var activity: String = npc.brain.current_label() if ("brain" in npc and npc.brain != null) else "?"
+	var held: String = npc.held_item.name if ("held_item" in npc and npc.held_item != null) else "none"
+	var locked: bool = npc._movement_locked if "_movement_locked" in npc else false
+	var stuck: int = npc._stuck_recoveries if "_stuck_recoveries" in npc else -1
+
+	print("── %s ──────────────────────────────" % npc_name)
+	print("  pos=%s  activity=%s  held=%s" % [pos, activity, held])
+	print("  movement_locked=%s  stuck_recoveries=%d" % [locked, stuck])
+
+	if "health" in npc and "energy" in npc and "hunger" in npc and "thirst" in npc:
+		print("  Health=%.1f  Energy=%.1f  Hunger=%.1f  Thirst=%.1f" % [
+			npc.health, npc.energy, npc.hunger, npc.thirst])
+
+	if npc.has_method("get_status_speed_multiplier") and npc.has_method("is_passed_out"):
+		print("  speed_multiplier=%.2f  passed_out=%s" % [
+			npc.get_status_speed_multiplier(), npc.is_passed_out()])
+
+	if npc.has_method("get_forgetfulness_chance"):
+		print("  forgetfulness_chance=%.0f%%" % (npc.get_forgetfulness_chance() * 100.0))
+
+	if npc.has_method("get_status_labels"):
+		print("  status: %s" % ", ".join(npc.get_status_labels()))
+
+	if "skills" in npc:
+		var display: Dictionary = {}
+		for k: String in npc.skills.keys():
+			display[k] = int(round(float(npc.skills[k]) * 10.0))
+		print("  skills: %s" % str(display))
+
+	if "generation_seed" in npc and "mood" in npc and "personality" in npc:
+		print("  seed=%d  mood=%.1f  personality=%s (stub — inert until the personality pass)" % [
+			npc.generation_seed, npc.mood, str(npc.personality)])

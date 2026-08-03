@@ -30,6 +30,7 @@ var _skill_labels: Dictionary = {}  ## skill name -> Label
 var _activity_label: Label = null
 var _dialogue_label: Label = null   ## hidden until Talk pressed
 var _status_label: Label = null     ## Part 14
+var _command_box: VBoxContainer = null   ## Part 19
 
 const BAR_TRACK_W: float = 200.0
 
@@ -64,6 +65,7 @@ func _teardown() -> void:
 	_activity_label = null
 	_dialogue_label = null
 	_status_label = null
+	_command_box = null
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
@@ -168,6 +170,23 @@ func _build(npc_name: String) -> void:
 	_dialogue_label.visible = false
 	_vbox.add_child(_dialogue_label)
 
+	## Commands (Part 19) — revealed alongside dialogue when Talk is pressed.
+	## Each button force-starts an existing NPCBrain activity directly,
+	## bypassing normal need-based scoring — the player explicitly asked for
+	## this action right now. Reuses the SAME activity classes the automatic
+	## system already uses, so behavior is identical either way.
+	## FUTURE WORK: this list intentionally matches Brannon's explicit
+	## examples only — adding more later is one button + one dispatch call,
+	## nothing structural.
+	_command_box = VBoxContainer.new()
+	_command_box.add_theme_constant_override("separation", 4)
+	_command_box.visible = false
+	_vbox.add_child(_command_box)
+	_command_box.add_child(UIKit.make_button("Go eat something", _on_command_eat_pressed))
+	_command_box.add_child(UIKit.make_button("Go drink something", _on_command_drink_pressed))
+	_command_box.add_child(UIKit.make_button("Take a load off", _on_command_rest_pressed))
+	_command_box.add_child(UIKit.make_button("Harvest the plants", _on_command_harvest_pressed))
+
 	## Buttons
 	_vbox.add_child(UIKit.make_button("Talk", _on_talk_pressed))
 	_vbox.add_child(UIKit.make_button("Close", close))
@@ -242,3 +261,33 @@ func _refresh_live_values() -> void:
 func _on_talk_pressed() -> void:
 	if _dialogue_label != null:
 		_dialogue_label.visible = true
+	if _command_box != null:
+		_command_box.visible = true
+
+## Shared dispatch for every command button. Feedback is a plain
+## NotificationManager toast confirming the command was ISSUED — not that
+## it necessarily found something to do (e.g. "Harvest" still confirms
+## even with nothing ready; the toast text itself says so, and the NPC
+## visibly does nothing further, which is honest feedback on its own).
+func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: String) -> void:
+	if _npc == null or not is_instance_valid(_npc) or not ("brain" in _npc) or _npc.brain == null:
+		return
+	_npc.brain.force_command(activity)
+	if activity.done(_npc):
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
+			"%s: %s" % [_npc.npc_name, empty_desc])
+	else:
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
+			"%s: %s" % [_npc.npc_name, action_desc])
+
+func _on_command_eat_pressed() -> void:
+	_issue_command(NPCBrain.EatActivity.new(), "heading to eat", "nothing to eat nearby")
+
+func _on_command_drink_pressed() -> void:
+	_issue_command(NPCBrain.DrinkActivity.new(), "heading to get water", "no water source nearby")
+
+func _on_command_rest_pressed() -> void:
+	_issue_command(NPCBrain.CommandRestActivity.new(), "heading to rest", "nowhere to rest nearby")
+
+func _on_command_harvest_pressed() -> void:
+	_issue_command(NPCBrain.CommandHarvestActivity.new(), "heading to harvest", "nothing ready to harvest")

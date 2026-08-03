@@ -38,6 +38,20 @@ func setup(npc: NPC) -> void:
 func current_label() -> String:
 	return _current.label() if _current != null else "Idle"
 
+## Player-issued command (Part 19) — force-starts the given activity
+## immediately, exiting whatever's currently running via its own exit()
+## (releases jobs/items/seats exactly like any other interruption, so this
+## is always safe regardless of what the NPC was doing). Bypasses normal
+## scoring entirely — only Part 14's pass-out override (checked every frame
+## ahead of everything else) can still preempt a command.
+func force_command(activity: NPCActivity) -> void:
+	if _current != null:
+		NPCDebug.log_activity(_npc, _current.label(), "Commanded: " + activity.label())
+		_current.exit(_npc)
+	_current = activity
+	_current.enter(_npc)
+	_think_timer = THINK_INTERVAL   ## don't immediately re-think and override the command
+
 ## Called by NPC._physics_process every frame.
 func tick(delta: float) -> void:
 	## Pass-out (Part 14) preempts everything, checked every frame — an
@@ -887,3 +901,83 @@ class ForgetfulWanderActivity extends NPCActivity:
 
 	func exit(npc: NPC) -> void:
 		_inner.exit(npc)
+
+
+class CommandRestActivity extends NPCActivity:
+	## "Take a load off" player command (Part 19). Tries a bed first
+	## (better rest, per LieActivity), falls back to a chair (SitActivity)
+	## if no bed is free/reachable. Delegates entirely to whichever inner
+	## activity is chosen, so arrival/occupancy/energy-regen behavior is
+	## identical to the needs-driven versions — this only decides which one
+	## to try, and does so regardless of current Energy (a player command
+	## should work even if Energy is high, unlike the automatic versions
+	## which only compete for selection below 60).
+	var _inner: NPCActivity = null
+
+	func label() -> String:
+		return _inner.label() if _inner != null else "Resting"
+
+	func score(_npc: NPC) -> float:
+		return 0.0   ## never selected via normal scoring — command-only
+
+	func interruptible() -> bool:
+		return _inner == null or _inner.interruptible()
+
+	func enter(npc: NPC) -> void:
+		_inner = LieActivity.new()
+		_inner.enter(npc)
+		if _inner.done(npc):   ## no bed available/reachable — fall back to a chair
+			_inner.exit(npc)
+			_inner = SitActivity.new()
+			_inner.enter(npc)
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _inner != null:
+			_inner.tick(npc, delta)
+
+	func done(npc: NPC) -> bool:
+		return _inner == null or _inner.done(npc)
+
+	func exit(npc: NPC) -> void:
+		if _inner != null:
+			_inner.exit(npc)
+		_inner = null
+
+
+class CommandHarvestActivity extends NPCActivity:
+	## "Harvest the plants" player command (Part 19). Finds the nearest
+	## open HARVEST job (bypassing the brain's normal skill/distance-scored
+	## competition among NPCs) and forces it via the SAME JobActivity the
+	## automatic system uses — real produce, real progress banner, real
+	## claim. If nothing is ready, done() is immediately true and does
+	## nothing further; NPCTalkMenuUI shows a toast either way.
+	var _inner: NPCActivity = null
+
+	func label() -> String:
+		return _inner.label() if _inner != null else "Idle"
+
+	func score(_npc: NPC) -> float:
+		return 0.0   ## never selected via normal scoring — command-only
+
+	func interruptible() -> bool:
+		return _inner == null or _inner.interruptible()
+
+	func enter(npc: NPC) -> void:
+		for job: Dictionary in JobBoard.get_open_jobs():
+			if job.get("type", "") == "HARVEST":
+				_inner = JobActivity.new(job)
+				_inner.enter(npc)
+				return
+		_inner = null   ## nothing ready to harvest
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _inner != null:
+			_inner.tick(npc, delta)
+
+	func done(npc: NPC) -> bool:
+		return _inner == null or _inner.done(npc)
+
+	func exit(npc: NPC) -> void:
+		if _inner != null:
+			_inner.exit(npc)
+		_inner = null

@@ -103,10 +103,12 @@ pathfinding, no persistence — this is the minimal viable NPC foundation.
 **States:**
 - **MENU** — NPC name + "Talk" button
 - **DIALOGUE** — placeholder line ("...") + "Close" button
+- **COMMANDS** (Part 19) — four command buttons revealed after Talk:
+  "Go eat something", "Go drink something", "Take a load off", "Harvest the plants"
 
 **Transitions:**
-- MENU → "Talk" button → DIALOGUE
-- DIALOGUE → "Close" button / ESC → close
+- MENU → "Talk" button → DIALOGUE + COMMANDS
+- DIALOGUE + COMMANDS → "Close" button / ESC → close
 
 ---
 
@@ -159,6 +161,10 @@ pathfinding, no persistence — this is the minimal viable NPC foundation.
   `-global_transform.basis.z * 2.0 + Vector3(0, 0.5, 0)`)
 - Injected `world_node` (MainWorld) used for parenting
 - No cash cost (cheat menu)
+
+**F7 NPC Section (Part 19)** — additional adjuster rows:
+- Health +20 / Health -20 (clamp 0–100, mirrors existing Energy/Hunger/Thirst rows)
+- All need adjusters use shared `_adjust_all_npc_need(field, delta)` helper
 
 ---
 
@@ -235,6 +241,16 @@ pathfinding, no persistence — this is the minimal viable NPC foundation.
   `_movement_locked` is raised by `halt_movement()`/`lock_movement()` and
   cleared only when `nav_steer()` resumes travel — a direct read of
   "an activity wants me stationary."
+- **Player Commands (Part 19)** — four commands via `NPCTalkMenuUI` after
+  pressing Talk: "Go eat", "Go drink", "Take a load off" (bed→chair
+  fallback), "Harvest the plants". Each force-starts an existing activity
+  class directly via `NPCBrain.force_command()`: `EatActivity`,
+  `DrinkActivity`, `CommandRestActivity` (tries LieActivity then
+  SitActivity), `CommandHarvestActivity` (finds nearest HARVEST job).
+  Reuses automatic system's activity classes for identical behavior.
+  **Priority note:** Part 14's pass-out override (checked every frame)
+  preempts commands — a commanded NPC with 0 Energy will immediately
+  pass out instead of executing the command.
 
 ---
 
