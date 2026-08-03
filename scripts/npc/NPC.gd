@@ -382,14 +382,23 @@ var _stuck_ref_pos: Vector3 = Vector3.ZERO
 var _stuck_recoveries: int = 0   ## exposed for the Part 7 debug dump
 
 func _tick_stuck_recovery(delta: float) -> void:
-	if nav_agent == null or nav_finished():
+	## Part 18 — gate on _movement_locked, not nav_finished(). Drink/Eat/
+	## Job-work all stop the NPC via their OWN range checks (PICKUP_RANGE,
+	## USE_RANGE, WORK_RANGE), completely decoupled from the nav_agent's own
+	## arrival threshold — an NPC can correctly halt for a totally
+	## legitimate reason while nav_finished() still reports false, because
+	## nothing ever told the nav_agent navigation was "done." That mismatch
+	## was firing false stuck-aborts mid-drink/mid-eat/mid-work, which is
+	## what was actually causing the drop-and-repeat loop (exit() drops
+	## whatever's held). _movement_locked is raised by every halt_movement()/
+	## lock_movement() call — i.e., every legitimate stationary reason — and
+	## cleared only when nav_steer() next runs to resume real travel, so
+	## it's a direct read of "an activity wants me still" instead of an
+	## indirect, frequently-wrong guess from the navigation layer.
+	if nav_agent == null or _movement_locked:
 		_stuck_timer = 0.0
 		_stuck_ref_pos = global_position
 		return
-	## Part 10.1's avoidance-cooldown carve-out lived here and is removed
-	## (Part 11) — real NavigationObstacle3D-based avoidance now prevents
-	## most heavy-item collisions before they happen, so this general check
-	## goes back to being the single, simple final-fallback safety net.
 	_stuck_timer += delta
 	if _stuck_timer < STUCK_CHECK_INTERVAL:
 		return

@@ -226,6 +226,15 @@ pathfinding, no persistence — this is the minimal viable NPC foundation.
   across multiple items within a single activity run (e.g., drink from
   dispenser until thirst ≥ 90, or eat multiple food items until hunger ≥ 55)
   rather than fully exiting and restarting between each one.
+- **Stuck recovery (Part 18)** — gated on `_movement_locked` instead of
+  `nav_finished()`. Activities (Drink/Eat/Job-work) halt via their own
+  range checks (`PICKUP_RANGE`, `USE_RANGE`, `WORK_RANGE`), which are
+  decoupled from the nav agent's internal arrival threshold. The old
+  `nav_finished()` gate caused false stuck-aborts mid-activity because
+  the nav agent didn't know the activity had intentionally stopped.
+  `_movement_locked` is raised by `halt_movement()`/`lock_movement()` and
+  cleared only when `nav_steer()` resumes travel — a direct read of
+  "an activity wants me stationary."
 
 ---
 
