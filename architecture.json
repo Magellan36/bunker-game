@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-03T04:00:20.686616+00:00",
+  "generated_at": "2026-08-03T05:04:57.247554+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 121,
-  "total_lines": 46903,
+  "total_lines": 47511,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -2541,7 +2541,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2459,
+      "line_count": 3067,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -2665,9 +2665,24 @@
           "name": "remove_placed_object",
           "args": "node: Node3D",
           "returns": "void"
+        },
+        {
+          "name": "deconstruct_purifier_by_node_key",
+          "args": "node_key: String",
+          "returns": "void"
+        },
+        {
+          "name": "remove_breakers_in_bounds",
+          "args": "x_min: float, x_max: float, z_min: float, z_max: float",
+          "returns": "bool"
+        },
+        {
+          "name": "remove_lights_in_bounds",
+          "args": "x_min: float, x_max: float, z_min: float, z_max: float",
+          "returns": "void"
         }
       ],
-      "private_function_count": 64,
+      "private_function_count": 82,
       "preloads": [
         "res://scripts/world/build/WallDrawMode.gd",
         "res://scripts/world/cooking/Stove.gd",
@@ -2698,7 +2713,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 2539
+      "complexity_score": 3171
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
