@@ -51,6 +51,19 @@ var _run_angle_deg: float = 0.0
 var _ghost_segments: Array[MeshInstance3D] = []   ## Pooled/rebuilt per frame
 var _cost_label: Label3D = null
 
+## Mirrors the per-tier Y constants the old single-click wall path already
+## used (GhostPreview's height elif-chain) — WallDrawMode needs its own
+## copy since it computes _start_pos directly rather than going through
+## GhostPreview._update_ghost().
+func _placement_y_for_tile(tile_id: int) -> float:
+	if build_controller == null:
+		return 0.0
+	if tile_id == build_controller.TILE_HALF_WALL:
+		return build_controller.HALF_WALL_PLACEMENT_Y
+	if tile_id == build_controller.TILE_QUARTER_WALL:
+		return build_controller.QUARTER_WALL_PLACEMENT_Y
+	return build_controller.PLACEMENT_Y
+
 func _ready() -> void:
 	set_process(false)
 
@@ -119,6 +132,12 @@ func _cycle_tier(delta: int) -> void:
 		build_controller._selected_tile       = HEIGHT_TIERS[_tier_index]
 		build_controller._selected_tile_price = build_controller._price_for_tile(HEIGHT_TIERS[_tier_index])
 	if _phase == 1:
+		## FIX: re-height the in-progress run immediately, both the anchor
+		## and every already-computed segment position, rather than waiting
+		## for next frame's _process() tick to quietly correct it.
+		_start_pos.y = _placement_y_for_tile(HEIGHT_TIERS[_tier_index])
+		for i: int in _run_positions.size():
+			_run_positions[i].y = _start_pos.y
 		_rebuild_run_ghost()
 	elif build_controller != null:
 		build_controller._update_ghost()   ## Refresh the normal single-tile ghost at the new tier
@@ -141,7 +160,8 @@ func _start_drag() -> void:
 	if hit.is_empty():
 		return
 	_start_pos = build_controller._snap_to_grid(hit["position"])
-	_start_pos.y = build_controller.PLACEMENT_Y   ## Matches walls' existing world-Y convention (pregen wall/pillar height)
+	var current_tile: int = HEIGHT_TIERS[_tier_index] if not HEIGHT_TIERS.is_empty() else build_controller.TILE_WALL
+	_start_pos.y = _placement_y_for_tile(current_tile)   ## FIX: was always PLACEMENT_Y regardless of tier
 	_phase = 1
 
 # ─── Per-frame drag update ─────────────────────────────────────────────
@@ -155,34 +175,59 @@ func _process(_delta: float) -> void:
 
 	var dx: float = cursor.x - _start_pos.x
 	var dz: float = cursor.z - _start_pos.z
-	## Lock to the dominant cardinal axis — a wall run is always straight,
-	## never diagonal (matches every base-building convention this project
-	## already follows for grid-aligned structures).
-	var along_x: bool = absf(dx) >= absf(dz)
-	var raw_length: float = absf(dx) if along_x else absf(dz)
+	var raw_length: float = Vector2(dx, dz).length()
+	if raw_length < 0.001:
+		_run_positions.clear()
+		_rebuild_run_ghost()
+		return
+
+	## Snap the drag direction to the nearest of 8 compass directions (45°
+	## steps) — reuses EIGHT_DIR_ANGLES, the same set already used for
+	## manual wall rotation elsewhere in Construct mode, so a run can now
+	## go cardinal (0/90/180/270) OR diagonal (45/135/225/315).
+	var raw_angle_deg: float = rad_to_deg(atan2(dx, dz))
+	if raw_angle_deg < 0.0:
+		raw_angle_deg += 360.0
+	var locked_angle_deg: float = _snap_to_eight_dir(raw_angle_deg)
+	var angle_rad: float = deg_to_rad(locked_angle_deg)
+	var dir: Vector2 = Vector2(sin(angle_rad), cos(angle_rad))   ## Unit step vector in XZ, matches the atan2(dx, dz) convention above
+
 	var cell_count: int = maxi(1, int(round(raw_length / WALL_CELL_SIZE)))
-	var step_sign: float = signf(dx if along_x else dz)
-	if step_sign == 0.0:
-		step_sign = 1.0
+	var current_tile: int = HEIGHT_TIERS[_tier_index] if not HEIGHT_TIERS.is_empty() else build_controller.TILE_WALL
+	var seg_y: float = _placement_y_for_tile(current_tile)
 
 	_run_positions.clear()
 	for i: int in cell_count:
-		var offset: float = float(i) * WALL_CELL_SIZE * step_sign
+		var offset: Vector2 = dir * (float(i) * WALL_CELL_SIZE)
 		var p: Vector3 = _start_pos
-		if along_x:
-			p.x += offset
-		else:
-			p.z += offset
+		p.x = _start_pos.x + offset.x
+		p.z = _start_pos.z + offset.y
+		## Re-snap XZ to the grid each segment — a 45° diagonal step won't
+		## always land exactly on the fine 0.25 grid the way a cardinal step
+		## does. This is the expected/standard tradeoff for diagonal
+		## placement on a square grid (every base-building game with grid
+		## snap has the same minor approximation) — segments stay grid-
+		## snapped, just not perfectly evenly spaced along a true 45° line.
+		var snapped_xz: Vector3 = build_controller._snap_to_grid(p)
+		p.x = snapped_xz.x
+		p.z = snapped_xz.z
+		p.y = seg_y
 		_run_positions.append(p)
 
-	_run_angle_deg = _axis_angle_deg(along_x)
+	_run_angle_deg = locked_angle_deg
 	_rebuild_run_ghost()
 
-## Returns the Y-rotation angle for a wall run along the dominant axis.
-## along_x = true  → run extends along X axis  → angle 90°
-## along_x = false → run extends along Z axis  → angle 0°
-func _axis_angle_deg(along_x: bool) -> float:
-	return 90.0 if along_x else 0.0
+## Snaps a raw angle (degrees, 0–360) to the nearest of the 8
+## EIGHT_DIR_ANGLES values, wrapping correctly at the 360→0 seam.
+func _snap_to_eight_dir(raw_deg: float) -> float:
+	var best_angle: float = 0.0
+	var best_diff:  float = 361.0
+	for a: float in [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0, 360.0]:
+		var diff: float = absf(raw_deg - a)
+		if diff < best_diff:
+			best_diff  = diff
+			best_angle = a
+	return fmod(best_angle, 360.0)   ## Folds a 360 match back to 0
 
 # ─── Ghost rebuild (multi-segment) ─────────────────────────────────────
 func _rebuild_run_ghost() -> void:
