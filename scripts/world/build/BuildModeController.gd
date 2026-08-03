@@ -287,6 +287,11 @@ var _wire_draw_mode: Node = null   ## WireDrawMode sub-controller
 const TOOL_WATER_PIPE: int = 6   ## Water pipe draw tool (not a construct item)
 var _water_pipe_draw_mode: Node = null   ## WaterPipeDrawMode sub-controller
 
+# ─── Wall Draw Mode (click-drag wall runs) ───────────────────────────────────
+const WALL_DRAW_TILES: Array[int] = [TILE_WALL, TILE_HALF_WALL, TILE_QUARTER_WALL]
+var _wall_draw_mode: Node = null
+var _wall_draw_active: bool = false
+
 # ─── Ghost materials ──────────────────────────────────────────────────────────
 var _mat_valid:   StandardMaterial3D = null
 var _mat_invalid: StandardMaterial3D = null
@@ -352,6 +357,7 @@ func _ready() -> void:
 	_build_world_materials()
 	_setup_wire_draw_mode()
 	_setup_water_pipe_draw_mode()
+	_setup_wall_draw_mode()
 
 	## Repaint world wire tubes the instant a player recolors a zone via its
 	## Power Terminal (PowerManager.set_zone_color_override()) — without this,
@@ -392,6 +398,7 @@ func enter_build_mode() -> void:
 	# Sync WireDrawMode refs (camera/world_node may have been set after _ready)
 	_update_wire_draw_refs()
 	_update_water_pipe_draw_refs()
+	_update_wall_draw_refs()
 
 	set_process(true)
 
@@ -412,6 +419,9 @@ func exit_build_mode() -> void:
 		_wire_draw_mode.deactivate()
 	if _active_tool == TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
 		_water_pipe_draw_mode.deactivate()
+	if _wall_draw_active and _wall_draw_mode != null:
+		_wall_draw_mode.deactivate()
+		_wall_draw_active = false
 
 	if build_hud != null:
 		build_hud.hide_hud()
@@ -474,6 +484,10 @@ func _on_tool_selected(tool_id: int) -> void:
 	# Deactivate water pipe draw mode if switching away
 	if _active_tool == TOOL_WATER_PIPE and tool_id != TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
 		_water_pipe_draw_mode.deactivate()
+	# Deactivate wall draw mode when leaving Construct tool
+	if _wall_draw_active and tool_id != 0 and _wall_draw_mode != null:
+		_wall_draw_mode.deactivate()
+		_wall_draw_active = false
 
 	_active_tool = tool_id
 	_cancel_ghost()
@@ -499,6 +513,39 @@ func _on_construct_item_chosen(tile_id: int) -> void:
 	_selected_tile_price = 0
 	if build_hud != null:
 		_selected_tile_price = build_hud.get_item_price(tile_id)
+
+	if tile_id in WALL_DRAW_TILES:
+		_active_tool = 0
+		_ghost_active = false
+		_destroy_ghost()
+
+		if _wall_draw_mode == null:
+			_setup_wall_draw_mode()
+		if _wall_draw_mode == null:
+			## Fallback if WallDrawMode failed to load — keep normal construct behavior.
+			_ghost_active = true
+			_spawn_ghost()
+			if build_hud != null:
+				build_hud.set_active_tool(0)
+				build_hud.set_ghost_active(true)
+			return
+		_update_wall_draw_refs()
+
+		if not _wall_draw_active:
+			_wall_draw_active = true
+			_wall_draw_mode.activate()
+		else:
+			if _wall_draw_mode.has_method("sync_selected_tier_from_controller"):
+				_wall_draw_mode.call("sync_selected_tier_from_controller")
+
+		if build_hud != null:
+			build_hud.set_active_tool(0)
+			build_hud.set_ghost_active(false)
+		return
+
+	if _wall_draw_active and _wall_draw_mode != null:
+		_wall_draw_mode.deactivate()
+		_wall_draw_active = false
 
 	_active_tool  = 0
 	_ghost_active = true
@@ -637,6 +684,9 @@ func _process(_delta: float) -> void:
 	if not is_active or camera == null:
 		return
 
+	if _wall_draw_active:
+		_update_wall_draw_refs()
+
 	if _ghost_active:
 		_update_ghost()
 
@@ -770,6 +820,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 
+	# ── Wall draw mode: delegate construct input while active ─────────────────
+	if _wall_draw_active and _wall_draw_mode != null:
+		if _wall_draw_mode.handle_input(event):
+			get_viewport().set_input_as_handled()
+			return
+
 	if event is InputEventMouseButton and event.pressed:
 		match event.button_index:
 			MOUSE_BUTTON_LEFT:
@@ -894,6 +950,52 @@ func _update_water_pipe_draw_refs() -> void:
 	## build_controller back-ref (July 2026 playtest pass) — needed for
 	## _is_inside_bunker() bounds checking, see WaterPipeDrawMode.gd.
 	_water_pipe_draw_mode.set("build_controller", self)
+
+# ─── Wall Draw Mode setup ─────────────────────────────────────────────────────
+func _setup_wall_draw_mode() -> void:
+	if _wall_draw_mode != null:
+		return
+	var wall_script: GDScript = load("res://scripts/world/build/WallDrawMode.gd")
+	if wall_script == null:
+		push_warning("[BuildModeController] WallDrawMode.gd not found")
+		return
+	_wall_draw_mode = Node.new()
+	_wall_draw_mode.set_script(wall_script)
+	_wall_draw_mode.name = "WallDrawMode"
+	add_child(_wall_draw_mode)
+	_wall_draw_mode.set("build_controller", self)
+	if _wall_draw_mode.has_signal("wall_run_placed"):
+		_wall_draw_mode.wall_run_placed.connect(_push_undo_wall_run)
+	if _wall_draw_mode.has_signal("wall_tool_exit_requested"):
+		_wall_draw_mode.wall_tool_exit_requested.connect(_on_wall_tool_exit_requested)
+
+func _update_wall_draw_refs() -> void:
+	if _wall_draw_mode == null:
+		return
+	_wall_draw_mode.set("camera", camera)
+	_wall_draw_mode.set("world_node", world_node)
+	_wall_draw_mode.set("build_hud", build_hud)
+	_wall_draw_mode.set("ray_length", ray_length)
+	_wall_draw_mode.set("build_controller", self)
+
+func _on_wall_tool_exit_requested() -> void:
+	if _wall_draw_mode != null:
+		_wall_draw_mode.deactivate()
+	_wall_draw_active = false
+	_active_tool = 0
+	_ghost_active = true
+	_spawn_ghost()
+	if build_hud != null:
+		build_hud.set_active_tool(0)
+		build_hud.set_ghost_active(true)
+
+## Looks up a tile's Construct-menu price from BuildModeHUD.CATEGORIES.
+## Used by WallDrawMode when cycling height tiers so it never
+## hardcodes Wall/Half Wall/Quarter Wall prices itself.
+func _price_for_tile(tile_id: int) -> int:
+	if build_hud == null or not build_hud.has_method("get_price_for_tile"):
+		return _selected_tile_price   ## Fallback — keeps current price rather than erroring
+	return build_hud.get_price_for_tile(tile_id)
 
 # ─── Bunker bounds check ──────────────────────────────────────────────────────
 ## Returns true if world-space XZ position is inside the valid placeable area:
@@ -2113,6 +2215,10 @@ func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: 
 		wm.recompute_flow_directions()
 		wm.refresh_all_pipe_joint_visuals()
 
+func _push_undo_wall_run(seg_nodes: Array, tile_id: int, price_per_segment: int,
+		positions: Array, angle_deg: float) -> void:
+	_undo_manager._push_undo_wall_run(seg_nodes, tile_id, price_per_segment, positions, angle_deg)
+
 
 
 ## Called by WireDrawMode after a wire is placed — both endpoints and their
@@ -2658,6 +2764,13 @@ func _show_hud_warning(text: String) -> void:
 	var main_hud: Node = main_world.get_node_or_null("HUD")
 	if main_hud != null and main_hud.has_method("show_soft_warning"):
 		main_hud.show_soft_warning(text)
+
+func _price_for_tile(tile_id: int) -> int:
+	if build_hud != null and build_hud.has_method("get_item_price"):
+		return build_hud.get_item_price(tile_id)
+	if tile_id == _selected_tile:
+		return _selected_tile_price
+	return 0
 
 # ─── Overlap detection ────────────────────────────────────────────────────────
 ## Tile-aware wrapper: lights use a tighter overlap radius so they can sit

@@ -310,29 +310,45 @@ func _rebuild_ghost_mesh() -> void:
 	var lib: MeshLibrary = _owner.gridmap.mesh_library
 	if lib == null:
 		return
-	# Half/quarter walls use the same wall mesh (tile_id 1) but scaled
-	var mesh_tile_id: int = _owner._selected_tile
-	if _owner._selected_tile == _owner.TILE_HALF_WALL or _owner._selected_tile == _owner.TILE_QUARTER_WALL:
-		mesh_tile_id = _owner.TILE_WALL
-	var mesh: Mesh = lib.get_item_mesh(mesh_tile_id)
-	if mesh == null:
+	var wall_mi: MeshInstance3D = _build_single_wall_ghost_mesh(_owner._selected_tile)
+	if wall_mi == null:
 		_owner._ghost.visible = false
 		return
-	_owner._ghost.mesh = mesh
-	# Scale half/quarter walls vertically (base wall mesh is 3m tall, centered at origin)
-	if _owner._selected_tile == _owner.TILE_HALF_WALL:
-		_owner._ghost.scale = Vector3(1.0, 0.5, 1.0)
-		_owner._ghost.position = Vector3(0.0, 0.75, 0.0)
-	elif _owner._selected_tile == _owner.TILE_QUARTER_WALL:
-		_owner._ghost.scale = Vector3(1.0, 0.25, 1.0)
-		_owner._ghost.position = Vector3(0.0, 0.375, 0.0)
-	else:
-		_owner._ghost.scale = Vector3(1.0, 1.0, 1.0)
-		_owner._ghost.position = Vector3(0.0, 0.0, 0.0)
-	for s: int in mesh.get_surface_count():
+	_owner._ghost.mesh = wall_mi.mesh
+	_owner._ghost.scale = wall_mi.scale
+	_owner._ghost.position = wall_mi.position
+	for s: int in wall_mi.mesh.get_surface_count():
 		_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 	## Walls/pillars have no meaningful "front" in a rotation context — skip arrow.
 	## (They're handled by the MeshLibrary branch; _owner.TILE_LIGHT and _owner.TILE_WIRE also excluded.)
+
+func _build_single_wall_ghost_mesh(tile_id: int) -> MeshInstance3D:
+	if _owner.gridmap == null:
+		return null
+	var lib: MeshLibrary = _owner.gridmap.mesh_library
+	if lib == null:
+		return null
+	var mesh_tile_id: int = tile_id
+	if tile_id == _owner.TILE_HALF_WALL or tile_id == _owner.TILE_QUARTER_WALL:
+		mesh_tile_id = _owner.TILE_WALL
+	var mesh: Mesh = lib.get_item_mesh(mesh_tile_id)
+	if mesh == null:
+		return null
+
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	mi.mesh = mesh
+	if tile_id == _owner.TILE_HALF_WALL:
+		mi.scale = Vector3(1.0, 0.5, 1.0)
+		mi.position = Vector3(0.0, 0.75, 0.0)
+	elif tile_id == _owner.TILE_QUARTER_WALL:
+		mi.scale = Vector3(1.0, 0.25, 1.0)
+		mi.position = Vector3(0.0, 0.375, 0.0)
+	else:
+		mi.scale = Vector3(1.0, 1.0, 1.0)
+		mi.position = Vector3(0.0, 0.0, 0.0)
+	for s: int in mesh.get_surface_count():
+		mi.set_surface_override_material(s, _owner._mat_valid)
+	return mi
 
 ## Attaches a small forward-direction arrow to _owner._ghost so the player can see
 ## which way the object faces before placing it.

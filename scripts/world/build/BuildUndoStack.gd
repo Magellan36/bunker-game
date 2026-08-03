@@ -3,11 +3,12 @@ class_name BuildUndoStack
 ## BuildUndoStack.gd  —  Stage 10 (BuildModeController slice) extraction
 ## ─────────────────────────────────────────────────────────────────────────────
 ## The undo system, extracted out of BuildModeController.gd: pop/replay logic
-## (_undo) plus the 5 push helpers that record place/remove/dig_rock/move/wire
+## (_undo) plus the push helpers that record place/remove/dig_rock/move/wire
 ## actions onto the undo stack.
 ##
 ## SCOPE: _undo, _push_undo_place, _push_undo_remove, _push_undo_dig_rock,
-## _push_undo_move, _push_undo_wire. Confirmed zero external callers anywhere
+## _push_undo_move, _push_undo_wire, _push_undo_pipe, _push_undo_wall_run.
+## Confirmed zero external callers anywhere
 ## else in the repo before extraction (same check as every prior slice).
 ##
 ## NOTE ON LAYOUT: unlike WireGraphBuilder/BuildMaterials, this cluster was
@@ -235,6 +236,24 @@ func _undo() -> void:
 			wm.recompute_flow_directions()
 			wm.refresh_all_pipe_joint_visuals()
 
+	elif type == "wall_run":
+		var seg_nodes: Array = entry.get("seg_nodes", [])
+		for n: Variant in seg_nodes:
+			if n != null and is_instance_valid(n):
+				var body: Node3D = n as Node3D
+				for i: int in _owner._placed_objects.size():
+					if _owner._placed_objects[i]["node"] == body:
+						_owner._placed_objects.remove_at(i)
+						break
+				body.queue_free()
+		var total_refund: int = entry.get("price_per_segment", 0) * seg_nodes.size()
+		if total_refund > 0 and _owner.world_node != null:
+			_owner.world_node.add_cash(total_refund)
+		var positions: Array = entry.get("positions", [])
+		if not positions.is_empty():
+			var mid_idx: int = int(positions.size() / 2)
+			_owner._spawn_float_label_at_pos(positions[mid_idx], total_refund, true)
+
 func _push_undo_place(body: Node3D, tile_id: int, price: int, pos: Vector3,
 		zone_color_snap: Dictionary = {}) -> void:
 	_owner._undo_stack.append({
@@ -310,3 +329,15 @@ func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: 
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
 
+func _push_undo_wall_run(seg_nodes: Array, tile_id: int, price_per_segment: int,
+		positions: Array, angle_deg: float) -> void:
+	_owner._undo_stack.append({
+		"type": "wall_run",
+		"seg_nodes": seg_nodes,
+		"tile_id": tile_id,
+		"price_per_segment": price_per_segment,
+		"positions": positions,
+		"angle_deg": angle_deg,
+	})
+	if _owner._undo_stack.size() > _owner.MAX_UNDO:
+		_owner._undo_stack.pop_front()
