@@ -214,6 +214,79 @@ func try_add_item(item: Node) -> bool:
 		_host_stove.notify_pot_contents_changed()
 	return true
 
+## ─── Save/Load (Part J) ───────────────────────────────────────────────────
+## Returns this pot's full cookable state as a JSON-friendly Dictionary.
+## NOTE: raw ingredient scene nodes are NOT re-created on restore — only
+## their restore_value/ingredient_key are preserved (everything the
+## Filling/Diversity math and the icon-preview lookup actually need).
+## Restored slots carry "node": null. The only method that would break on a
+## null node (remove_item()) is guarded below — see its own comment.
+func get_save_extra() -> Dictionary:
+	var slots_out: Array = []
+	for entry in slots:
+		if entry == null:
+			slots_out.append(null)
+		else:
+			slots_out.append({
+				"restore_value":  entry["restore_value"],
+				"ingredient_key": entry["ingredient_key"],
+			})
+	return {
+		"slots":          slots_out,
+		"cook_progress":  _cook_progress,
+		"is_cooked":      _is_cooked,
+		"dish_value":     _dish_value,
+		"dish_bonus_pct": _dish_bonus_pct,
+	}
+
+## Applies a Dictionary from get_save_extra() onto a freshly-instantiated
+## pot. Called by Stove.restore_saved_state() right after try_place_pot().
+func restore_saved_state(extra: Dictionary) -> void:
+	var slots_in: Array = extra.get("slots", [])
+	for i: int in CAPACITY:
+		if i < slots_in.size() and slots_in[i] != null:
+			var s: Dictionary = slots_in[i]
+			slots[i] = {
+				"node":           null,
+				"restore_value":  float(s.get("restore_value", 0.0)),
+				"ingredient_key": String(s.get("ingredient_key", "unknown")),
+			}
+	_cook_progress  = float(extra.get("cook_progress", 0.0))
+	_is_cooked      = bool(extra.get("is_cooked", false))
+	_dish_value     = float(extra.get("dish_value", 0.0))
+	_dish_bonus_pct = float(extra.get("dish_bonus_pct", 0.0))
+
+
+## ─── Ingredient icon previews (Part K) ────────────────────────────────────
+## Returns exactly 3 entries (one per CAPACITY slot, left-to-right in
+## insertion order), each either null (empty slot — renders as an empty
+## circle) or a small icon descriptor consumed by InteractPrompt.gd to
+## render a live 3D preview, using the exact same technique BuildModeHUD's
+## shop/construct menus already use.
+func get_slot_icon_descriptors() -> Array:
+	var out: Array = [null, null, null]
+	for i: int in CAPACITY:
+		var entry = slots[i]
+		if entry != null:
+			out[i] = _icon_descriptor_for_key(entry["ingredient_key"])
+	return out
+
+## Maps a stored ingredient_key back to a renderable icon source. Add a new
+## branch here whenever a new cookable item type is added — mirrors
+## _get_item_restore_value()/_get_item_ingredient_key()'s own
+## "add a branch here" convention.
+static func _icon_descriptor_for_key(key: String) -> Dictionary:
+	if key.begins_with("produce_"):
+		return {
+			"is_script":    true,
+			"scene":        "res://scripts/world/items/FarmProduceItem.gd",
+			"produce_type": key.substr(8),   ## strip "produce_" prefix
+		}
+	if key == "food_can":
+		return {"is_script": true, "scene": "res://scripts/world/items/FoodCan.gd"}
+	return {}
+
+
 ## Pops an item back out to full physics/visibility. Nothing calls this yet
 ## in this pass (no CookingPotUI) — included for parity with Basket and for
 ## whatever consumes the pot's contents in a future "finish cooking" pass.
@@ -224,6 +297,10 @@ func remove_item(slot_idx: int) -> Node:
 	if entry == null:
 		return null
 	var item: Node = entry["node"]
+	if item == null or not is_instance_valid(item):
+		## Restored-from-save slot — no real scene node to eject, just clear it.
+		slots[slot_idx] = null
+		return null
 	slots[slot_idx] = null
 
 	var world_root: Node = get_tree().get_first_node_in_group("world")

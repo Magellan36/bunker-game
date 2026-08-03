@@ -252,6 +252,45 @@ func try_place_pot(pot: Node) -> bool:
 	_refresh_cooking_state()
 	return true
 
+## Called by BuildModeController._try_deconstruct() before this node is
+## freed, so a pot resting on the stove survives instead of being destroyed
+## as an orphaned child. Confirmed Aug 2026 fix. Reuses try_remove_pot()'s
+## existing reparent-to-world-root + unfreeze logic — the pot ends up sitting
+## on the ground at the stove's position, fully interactable again.
+func eject_all_items() -> void:
+	if pot_ref == null:
+		return
+	var pot: Node = try_remove_pot()
+	if pot != null and pot is RigidBody3D:
+		(pot as RigidBody3D).linear_velocity = Vector3.ZERO
+
+
+## ─── Save/Load (Part J) ───────────────────────────────────────────────────
+## Read by BuildModeController._get_device_extra().
+func get_pot_extra() -> Dictionary:
+	if pot_ref != null and pot_ref.has_method("get_save_extra"):
+		return pot_ref.get_save_extra()
+	return {}
+
+## Called by BuildModeController._apply_device_extra_deferred() on restore.
+## Sets powered_on directly — bypassing the grid-connection gate inside
+## on_interact(), since this is a system-level restore, not a player action
+## — and re-creates the pot (a real CookingPot.tscn instance, not just a
+## data blob) if one existed when the game was saved.
+func restore_saved_state(saved_powered_on: bool, pot_extra: Dictionary) -> void:
+	powered_on = saved_powered_on
+	_refresh_indicator()
+	if not pot_extra.is_empty():
+		var packed: PackedScene = load("res://scenes/world/CookingPot.tscn") as PackedScene
+		if packed != null:
+			var pot: Node = packed.instantiate()
+			if pot != null:
+				try_place_pot(pot)
+				if pot.has_method("restore_saved_state"):
+					pot.restore_saved_state(pot_extra)
+	_refresh_cooking_state()
+
+
 ## Detaches the current pot, restores its physics, and returns it — caller
 ## (InteractionSystem's F-handler, Part D) then calls pot.pickup(hold_point)
 ## on it exactly like a normal world pickup. Returns null if no pot present.

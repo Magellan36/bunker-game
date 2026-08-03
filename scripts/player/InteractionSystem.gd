@@ -196,14 +196,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif held_item.has_method("on_interact"):
 				held_item.on_interact()
 		else:
-			## A ready dish takes priority over the plain stove toggle (or
-			## any other nearby interactable) — same "special-case before
-			## generic fallback" pattern as the [F] pot-pickup in Part D2.
+			## A ready dish takes priority over other interactables ONLY if
+			## it's truly the closest one — same distance-fairness fix
+			## already applied to the [F] stove-pot pickup case.
 			var ready_pot: Node = _find_nearest_ready_pot()
 			if ready_pot != null:
-				_try_take_dish(ready_pot)
-			else:
-				_try_interact()
+				var pot_dist: float = (ready_pot as Node3D).global_position.distance_to(player.global_position)
+				if pot_dist <= _nearest_interact_distance():
+					_try_take_dish(ready_pot)
+					return
+			_try_interact()
 
 	if event.is_action_released("interact"):
 		_is_holding_e = false
@@ -624,10 +626,15 @@ func _update_prompt() -> void:
 		if body.has_method("get_prompt_world_pos"):
 			prompt_pos = body.get_prompt_world_pos()
 
+		var icons: Array = []
+		if body.has_method("get_slot_icon_descriptors"):
+			icons = body.get_slot_icon_descriptors()
+
 		entries.append({
 			"text":      "\n".join(lines),
 			"world_pos": prompt_pos,
-			"dist":      cand["dist"]
+			"dist":      cand["dist"],
+			"icons":     icons,
 		})
 
 	if entries.is_empty():
@@ -806,6 +813,43 @@ func _find_nearest_ready_pot() -> Node:
 			closest_dist = d
 			closest = node
 	return closest
+
+## Read-only peek at the distance to whatever _try_interact() would
+## actually interact with, without triggering it — mirrors both of
+## _try_interact()'s passes exactly. Used purely to fairly compare against
+## the ready-dish special case above. Returns INF if nothing is eligible.
+func _nearest_interact_distance() -> float:
+	var bodies: Array       = detect_area.get_overlapping_bodies()
+	var closest_dist: float = INF
+
+	for body in bodies:
+		if body.is_in_group("interactable") and body.has_method("on_interact"):
+			if body.is_in_group("shelved"):
+				continue
+			if body is RigidBody3D and (body as RigidBody3D).freeze:
+				continue
+			var d: float = body.global_position.distance_to(player.global_position)
+			if d < closest_dist:
+				closest_dist = d
+
+	var static_reach: float = MAX_PROMPT_DIST
+	var player_pos: Vector3 = player.global_position
+	for node: Node in get_tree().get_nodes_in_group("interactable"):
+		if not is_instance_valid(node):
+			continue
+		if not (node is StaticBody3D):
+			continue
+		if not node.has_method("on_interact"):
+			continue
+		if node.is_in_group("shelved"):
+			continue
+		var n3: Node3D = node as Node3D
+		var d: float = n3.global_position.distance_to(player_pos)
+		if d < static_reach and d < closest_dist:
+			closest_dist = d
+
+	return closest_dist
+
 
 ## Spawns a DishItem from the pot's serve_dish() result and puts it directly
 ## in the player's hand — mirrors _try_pickup_pot_from_stove()'s tail.
