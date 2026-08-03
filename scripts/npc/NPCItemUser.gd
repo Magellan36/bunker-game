@@ -8,6 +8,18 @@ class_name NPCItemUser
 const PICKUP_RANGE: float = 1.2      ## must be this close to grab
 const SHELF_RANGE:  float = 1.6
 
+## XZ-only distance (Part 16). An NPC's own origin is its capsule CENTER
+## (~1.4 above the floor); loose items and most furniture sit much lower.
+## Raw 3D distance lets that vertical gap silently eat most or all of an
+## intended range budget — confirmed as the cause of unreliable water-
+## bottle pickup (PICKUP_RANGE=1.2 raw vs. ~0.85 effective once a ~0.9
+## vertical offset is factored in). Every proximity/range check below uses
+## this instead. Same fix already applied to SitActivity (Part 12) and
+## JobActivity's travel arrival (Part 15) — this closes out every remaining
+## occurrence of the same bug class in one pass.
+static func flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
 # ─── Lightweight per-item claim system (Part 12) — prevents two NPCs from
 ## targeting/grabbing the same loose or shelved item at once, which caused
 ## intermittent lost bites/charges and items visually yanked between NPCs.
@@ -57,7 +69,7 @@ static func find_loose_item(npc: NPC, filter: Callable) -> RigidBody3D:
 			continue
 		if not filter.call(rb):
 			continue
-		var d: float = rb.global_position.distance_to(npc.global_position)
+		var d: float = flat_distance(rb.global_position, npc.global_position)
 		if d < best_d:
 			best_d = d
 			best = rb
@@ -72,7 +84,7 @@ static func find_shelved_item(npc: NPC, filter: Callable) -> Dictionary:
 	for node: Node in npc.get_tree().get_nodes_in_group("shelf"):
 		if not is_instance_valid(node) or not ("slots" in node):
 			continue
-		var d: float = (node as Node3D).global_position.distance_to(npc.global_position)
+		var d: float = flat_distance((node as Node3D).global_position, npc.global_position)
 		if d >= best_d:
 			continue
 		for slot_idx: int in range(node.slots.size()):
@@ -95,7 +107,7 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 		return false
 	if is_claimed_by_other(item, npc):
 		return false   ## defense in depth — shouldn't happen if callers claimed first
-	if npc.global_position.distance_to(item.global_position) > PICKUP_RANGE:
+	if flat_distance(npc.global_position, item.global_position) > PICKUP_RANGE:
 		return false
 	if item.has_method("pickup"):
 		item.pickup(npc.hold_point)
@@ -106,7 +118,7 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 static func grab_from_shelf(npc: NPC, shelf: Node, slot: int) -> bool:
 	if shelf == null or not is_instance_valid(shelf):
 		return false
-	if npc.global_position.distance_to((shelf as Node3D).global_position) > SHELF_RANGE:
+	if flat_distance(npc.global_position, (shelf as Node3D).global_position) > SHELF_RANGE:
 		return false
 	if not shelf.has_method("npc_retrieve"):
 		return false

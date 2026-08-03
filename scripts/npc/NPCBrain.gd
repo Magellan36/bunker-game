@@ -274,14 +274,14 @@ class DrinkActivity extends NPCActivity:
 		for d: Node in npc.get_tree().get_nodes_in_group("water_dispenser"):
 			if not is_instance_valid(d) or d.current_fill_mL < DRINK_ML:
 				continue
-			var dist: float = (d as Node3D).global_position.distance_to(npc.global_position)
+			var dist: float = NPCItemUser.flat_distance((d as Node3D).global_position, npc.global_position)
 			if dist < best_d:
 				best_d = dist
 				out = {"mode": "dispenser", "node": d}
 		var bottle: RigidBody3D = NPCItemUser.find_loose_item(npc,
 			Callable(NPCItemUser, "is_drinkable_bottle"))
 		if bottle != null:
-			var dist_b: float = bottle.global_position.distance_to(npc.global_position)
+			var dist_b: float = NPCItemUser.flat_distance(bottle.global_position, npc.global_position)
 			if dist_b < best_d:
 				out = {"mode": "bottle", "node": bottle}
 		return out
@@ -315,8 +315,9 @@ class DrinkActivity extends NPCActivity:
 				_finish_dispenser(npc)
 			return
 		npc.nav_steer(delta)
-		if npc.global_position.distance_to((_target as Node3D).global_position) <= USE_RANGE:
-			npc.velocity = Vector3.ZERO
+		if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= USE_RANGE:
+			npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO, which Part 13's
+			                     ## movement-lock never protected from a late avoidance callback
 			_drinking = CONSUME_TIME
 
 	func _finish_dispenser(npc: NPC) -> void:
@@ -338,11 +339,14 @@ class DrinkActivity extends NPCActivity:
 			return
 		if npc.held_item == _target:
 			## Grabbed — start the visible holding/drinking wait.
-			npc.velocity = Vector3.ZERO
+			npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO (see 3b note)
 			_drinking = CONSUME_TIME
 			return
 		npc.nav_steer(delta)
-		if npc.global_position.distance_to((_target as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+		## Part 16 — this was the exact bug from the water-bottle report: raw 3D
+		## distance against PICKUP_RANGE(1.2), with a loose bottle's ~0.9 vertical
+		## offset from the NPC's capsule-center origin eating most of that budget.
+		if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
 			if not NPCItemUser.grab_loose(npc, _target):
 				NPCItemUser.release_item(_target)
 				_target = null   ## grab failed — give up cleanly, rescore next think
@@ -424,13 +428,13 @@ class EatActivity extends NPCActivity:
 			return
 
 		if npc.held_item != null:
-			npc.velocity = Vector3.ZERO
+			npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO (see DrinkActivity 3b note)
 			_eating = CONSUME_TIME
 			return
 
 		if _loose != null and is_instance_valid(_loose):
 			npc.nav_steer(delta)
-			if npc.global_position.distance_to(_loose.global_position) <= USE_RANGE:
+			if NPCItemUser.flat_distance(npc.global_position, _loose.global_position) <= USE_RANGE:
 				if NPCItemUser.grab_loose(npc, _loose):
 					_loose = null
 			return
@@ -442,7 +446,7 @@ class EatActivity extends NPCActivity:
 				_shelf_pick = {}
 				return
 			npc.nav_steer(delta)
-			if npc.global_position.distance_to(shelf.global_position) <= NPCItemUser.SHELF_RANGE:
+			if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) <= NPCItemUser.SHELF_RANGE:
 				if NPCItemUser.grab_from_shelf(npc, shelf, int(_shelf_pick.get("slot", -1))):
 					_shelf_pick = {}
 				else:
@@ -506,7 +510,7 @@ class JobActivity extends NPCActivity:
 		if target == null or not is_instance_valid(target):
 			return 0.0
 		var skill: float = float(npc.skills.get(conf["skill"], 1.0))
-		var dist: float = (target as Node3D).global_position.distance_to(npc.global_position)
+		var dist: float = NPCItemUser.flat_distance((target as Node3D).global_position, npc.global_position)
 		return float(conf["base"]) * skill / (1.0 + dist * 0.08)
 
 	func interruptible() -> bool:
@@ -607,7 +611,7 @@ class JobActivity extends NPCActivity:
 			return
 		if _fetch_loose != null and is_instance_valid(_fetch_loose):
 			npc.nav_steer(delta)
-			if npc.global_position.distance_to(_fetch_loose.global_position) \
+			if NPCItemUser.flat_distance(npc.global_position, _fetch_loose.global_position) \
 					<= NPCItemUser.PICKUP_RANGE:
 				if NPCItemUser.grab_loose(npc, _fetch_loose):
 					_start_travel(npc)
@@ -620,7 +624,7 @@ class JobActivity extends NPCActivity:
 				_claimed = false
 				return
 			npc.nav_steer(delta)
-			if npc.global_position.distance_to(shelf.global_position) \
+			if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) \
 					<= NPCItemUser.SHELF_RANGE:
 				if NPCItemUser.grab_from_shelf(npc, shelf,
 						int(_fetch_shelf.get("slot", -1))):
