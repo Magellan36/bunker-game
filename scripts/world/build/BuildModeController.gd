@@ -964,8 +964,8 @@ func _setup_wall_draw_mode() -> void:
 	_wall_draw_mode.name = "WallDrawMode"
 	add_child(_wall_draw_mode)
 	_wall_draw_mode.set("build_controller", self)
-	if _wall_draw_mode.has_signal("wall_run_placed"):
-		_wall_draw_mode.wall_run_placed.connect(_push_undo_wall_run)
+	if _wall_draw_mode.has_signal("wall_placed"):
+		_wall_draw_mode.wall_placed.connect(_push_undo_place)
 	if _wall_draw_mode.has_signal("wall_tool_exit_requested"):
 		_wall_draw_mode.wall_tool_exit_requested.connect(_on_wall_tool_exit_requested)
 
