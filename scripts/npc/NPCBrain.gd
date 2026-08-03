@@ -537,11 +537,29 @@ class JobActivity extends NPCActivity:
 		else:
 			_start_travel(npc)
 
+	const APPROACH_DISTANCE: float = 1.0   ## stand-off from the object's center —
+	                                       ## clear of its own collision footprint
+	                                       ## and therefore actually on the navmesh
+
 	func _start_travel(npc: NPC) -> void:
 		_phase = "travel"
 		var target: Node3D = _job.get("target") as Node3D
 		if target != null and is_instance_valid(target):
-			npc.set_nav_target(target.global_position)
+			npc.set_nav_target(_approach_point(npc, target))
+
+	## A reachable point APPROACH_DISTANCE from the object's center, along the
+	## line from wherever the NPC currently is — not a hardcoded "front," so
+	## it adapts to whichever side the NPC is already approaching from. The
+	## raw center (what this replaces) sits inside the object's own collision
+	## footprint and off the navmesh entirely (Part 9's bake carves out every
+	## static obstacle's interior), which is why targeting it directly made
+	## the NPC walk into the object and get stuck fighting its collision.
+	func _approach_point(npc: NPC, target: Node3D) -> Vector3:
+		var to_npc: Vector3 = npc.global_position - target.global_position
+		to_npc.y = 0.0
+		if to_npc.length() < 0.01:
+			to_npc = Vector3(0.0, 0.0, 1.0)   ## degenerate case: npc exactly at center
+		return target.global_position + to_npc.normalized() * APPROACH_DISTANCE
 
 	func tick(npc: NPC, delta: float) -> void:
 		if not _claimed:
@@ -559,7 +577,14 @@ class JobActivity extends NPCActivity:
 				_tick_fetch(npc, delta)
 			"travel":
 				npc.nav_steer(delta)
-				if npc.global_position.distance_to(target.global_position) <= WORK_RANGE:
+				## Flattened to XZ (Part 15) — target.global_position's Y can sit
+				## anywhere depending on the object's own mesh pivot, and this
+				## NPC's own origin is its capsule center (~1.4) — the same raw-
+				## 3D-distance mismatch already fixed for SitActivity in Part 12.
+				var t_pos: Vector3 = target.global_position
+				var flat_dist: float = Vector2(npc.global_position.x, npc.global_position.z) \
+					.distance_to(Vector2(t_pos.x, t_pos.z))
+				if flat_dist <= WORK_RANGE:
 					npc.velocity = Vector3.ZERO
 					_phase = "work"
 					npc.show_work_banner()
