@@ -40,6 +40,16 @@ func current_label() -> String:
 
 ## Called by NPC._physics_process every frame.
 func tick(delta: float) -> void:
+	## Pass-out (Part 14) preempts everything, checked every frame — an
+	## empty energy bar collapses the NPC immediately, not on the next
+	## think-cycle, and can't be interrupted by anything else.
+	if _npc.is_passed_out() and not (_current is PassedOutActivity):
+		if _current != null:
+			NPCDebug.log_activity(_npc, _current.label(), "Passed Out")
+			_current.exit(_npc)
+		_current = PassedOutActivity.new()
+		_current.enter(_npc)
+
 	if _current != null:
 		_current.tick(_npc, delta)
 		if _current.done(_npc):
@@ -72,6 +82,14 @@ func _think() -> void:
 
 	if best == null:
 		return
+
+	## Forgetfulness (Part 14) — only ever second-guesses a JOB about to be
+	## started, never Wander/Eat/Drink/Sit/Lie (those are the NPC's own
+	## needs, not "work"). Rolled once right here, not per-frame, so a
+	## triggered diversion commits to a full 20s wander instead of
+	## re-rolling every think-tick.
+	if best is JobActivity and randf() < _npc.get_forgetfulness_chance():
+		best = ForgetfulWanderActivity.new()
 
 	if _current == null:
 		NPCDebug.log_activity(_npc, "Idle", best.label())
@@ -714,3 +732,83 @@ class LieActivity extends NPCActivity:
 				best_d = d
 				best = b
 		return best
+
+
+class PassedOutActivity extends NPCActivity:
+	## Forced collapse at 0 Energy (Part 14). Never chosen via normal scoring
+	## — NPCBrain.tick() force-starts this directly, bypassing _think()
+	## entirely, since it must preempt anything mid-activity. Regenerates
+	## Energy slowly while "lying there," slower than a bed OR a chair —
+	## passing out is a bad outcome, not a rest strategy. Only ends once
+	## Energy is completely full again, per spec.
+	##
+	## FUTURE WORK: this only rotates the NPC in place as a first-pass
+	## "collapsed" visual (mirrors the lie-flat trick LieActivity uses on a
+	## bed) — it doesn't yet drop them to a true floor-lying Y position or
+	## play any real collapse animation. Revisit once there's a proper
+	## reference for what that should look like.
+	const REGEN_PER_GAME_HOUR: float = 15.0   ## slower than SitActivity (25) and LieActivity (45) on purpose
+
+	var _orig_rotation: Vector3 = Vector3.ZERO
+
+	func label() -> String:
+		return "Passed Out"
+
+	func score(_npc: NPC) -> float:
+		return 0.0   ## never selected via normal scoring — force-started only
+
+	func interruptible() -> bool:
+		return false
+
+	func enter(npc: NPC) -> void:
+		_orig_rotation = npc.rotation
+		npc.lock_movement()
+		npc.rotation = Vector3(_orig_rotation.x, _orig_rotation.y,
+			_orig_rotation.z + deg_to_rad(90.0))
+
+	func tick(npc: NPC, delta: float) -> void:
+		npc.energy = minf(100.0, npc.energy + REGEN_PER_GAME_HOUR * npc.game_hours(delta))
+
+	func done(npc: NPC) -> bool:
+		return npc.energy >= 100.0
+
+	func exit(npc: NPC) -> void:
+		npc.rotation = _orig_rotation
+
+
+class ForgetfulWanderActivity extends NPCActivity:
+	## 20 seconds of ordinary wandering, forced in place of a job the brain
+	## was about to start (Part 14's forgetfulness roll). Non-interruptible
+	## for its full duration so the SAME job (or a new one) can't just steal
+	## it right back on the next think-tick — it has to actually run its
+	## course, matching "opt to wander... as opposed to working a job."
+	## Delegates the actual walking behavior to a plain WanderActivity
+	## instance rather than duplicating it.
+	const FORGET_DURATION: float = 20.0
+
+	var _timer: float = 0.0
+	var _inner: NPCActivity = null
+
+	func label() -> String:
+		return "Wandering (forgot what they were doing)"
+
+	func score(_npc: NPC) -> float:
+		return 0.0   ## never selected via normal scoring — force-started only
+
+	func interruptible() -> bool:
+		return false
+
+	func enter(npc: NPC) -> void:
+		_timer = FORGET_DURATION
+		_inner = WanderActivity.new()
+		_inner.enter(npc)
+
+	func tick(npc: NPC, delta: float) -> void:
+		_timer -= delta
+		_inner.tick(npc, delta)
+
+	func done(_npc: NPC) -> bool:
+		return _timer <= 0.0
+
+	func exit(npc: NPC) -> void:
+		_inner.exit(npc)

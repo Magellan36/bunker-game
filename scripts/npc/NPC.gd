@@ -53,9 +53,17 @@ const ENERGY_DRAIN_PER_GAME_HOUR: float = 3.0
 const HUNGER_DRAIN_PER_GAME_HOUR: float = 1.39  ## matches PlayerStats.food_drain_per_game_hour (Part 12 fix — was 3.4, a wrong number, not a deliberate 2.4x-faster choice)
 const THIRST_DRAIN_PER_GAME_HOUR: float = 2.08  ## matches PlayerStats.water_drain_per_game_hour
 
-## FUTURE WORK (crisis-response pass, per Brannon's standing note): when a
-## need hits 0, consequences (refusing work, slowed movement, mood damage)
-## hook in HERE. Deliberately no behavior yet.
+# ─── Health (Part 14) ───────────────────────────────────────────────────────
+var health: float = 100.0
+## Only drains while Hunger OR Thirst sits at literal 0 (not 25%/50%) — each
+## zeroed need contributes its own drain, so being out of both food AND
+## water drains faster than being out of just one (Brannon's stacking rule).
+## "Slowly," per spec: ~20 real-game-hours to fully die from one zeroed need.
+const HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR: float = 5.0
+
+## FUTURE WORK (crisis-response pass): what happens at 0 health (death? a
+## collapse state beyond pass-out?) is intentionally out of scope here —
+## health is clamped at 0 and nothing further happens yet.
 
 # ─── Personality / mood / seed — INERT STUBS (Part 2) ─────────────────────
 ## FUTURE WORK: the personality-trait + mood + crisis-response system reads
@@ -97,6 +105,14 @@ func _tick_needs(delta: float) -> void:
 	energy = maxf(0.0, energy - ENERGY_DRAIN_PER_GAME_HOUR * h)
 	hunger = maxf(0.0, hunger - HUNGER_DRAIN_PER_GAME_HOUR * h)
 	thirst = maxf(0.0, thirst - THIRST_DRAIN_PER_GAME_HOUR * h)
+
+	var health_drain: float = 0.0
+	if hunger <= 0.0:
+		health_drain += HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR
+	if thirst <= 0.0:
+		health_drain += HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR
+	if health_drain > 0.0:
+		health = maxf(0.0, health - health_drain * h)
 
 ## Decelerate to a stop — used by activities when standing still.
 ## Part 13 — every stationary phase in the game (job work, eating, drinking,
@@ -210,7 +226,7 @@ func nav_steer(delta: float) -> void:
 	if dir.length() < 0.01:
 		return
 	dir = dir.normalized()
-	nav_agent.set_velocity(dir * move_speed)   ## -> _on_velocity_computed()
+	nav_agent.set_velocity(dir * move_speed * get_status_speed_multiplier())   ## Part 14
 
 var _last_steer_delta: float = 0.0
 
@@ -429,3 +445,80 @@ func _handle_physics_pushes(delta: float) -> void:
 				global_position += blocked * delta
 		else:
 			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE / rb.mass)
+
+
+# ─── Need-tier consequences (Part 14) ───────────────────────────────────────
+## Single source of truth for every need-driven consequence — both NPCBrain
+## (behavior) and NPCTalkMenuUI (display) read from these, so the numbers
+## driving what an NPC actually does and what the player sees always agree.
+##
+## FUTURE WORK (crisis-response / personality pass, explicitly deferred):
+## every tier below is a hook point for personality-scaled irritability —
+## some NPCs should get more irritable than others at the same tier. Do not
+## implement that here; mood/personality (Part 2 stubs) stay inert until
+## that pass is deliberately revisited.
+
+## Energy contributes its OWN single progressive tier (25% tier REPLACES the
+## 50% tier's penalty, doesn't stack on top of it — it's one need's escalating
+## effect, not multiple separate needs). Hunger/Thirst only affect speed at
+## <25% each (per spec, "same speed" below 50%), and DO multiply against
+## Energy's contribution and each other when both are active — this is what
+## makes multiple needs being low simultaneously compound, per the explicit
+## stacking requirement.
+func get_status_speed_multiplier() -> float:
+	var energy_mult: float = 1.0
+	if energy < 25.0:
+		energy_mult = 0.65   ## "noticeably slower"
+	elif energy < 50.0:
+		energy_mult = 0.85   ## "slightly slower"
+	var hunger_mult: float = 0.90 if hunger < 25.0 else 1.0
+	var thirst_mult: float = 0.90 if thirst < 25.0 else 1.0
+	return energy_mult * hunger_mult * thirst_mult
+
+## Chance [0..1] to divert from a job into 20s of forgetful wandering, rolled
+## by NPCBrain only at the moment a job would otherwise be picked. Hunger and
+## Thirst each contribute their own tiered chance; combined via probabilistic
+## OR (independent needs, matching the same "different needs stack" rule
+## speed uses) so being low on both makes forgetfulness MORE likely, not less.
+func get_forgetfulness_chance() -> float:
+	var p_hunger: float = _forgetfulness_tier_chance(hunger)
+	var p_thirst: float = _forgetfulness_tier_chance(thirst)
+	return 1.0 - (1.0 - p_hunger) * (1.0 - p_thirst)
+
+func _forgetfulness_tier_chance(need_value: float) -> float:
+	if need_value <= 0.0:
+		return 0.45   ## "very forgetful"
+	elif need_value < 25.0:
+		return 0.20   ## "more often"
+	elif need_value < 50.0:
+		return 0.08   ## "sometimes"
+	return 0.0
+
+func is_passed_out() -> bool:
+	return energy <= 0.0
+
+## Human-readable summary for the E-panel's Status line — display only,
+## does not drive any behavior itself (that's the two functions above).
+func get_status_labels() -> Array[String]:
+	var labels: Array[String] = []
+	if is_passed_out():
+		labels.append("Passed out (exhausted)")
+	elif energy < 25.0:
+		labels.append("Noticeably slowed (very tired)")
+	elif energy < 50.0:
+		labels.append("Slightly slowed (tired)")
+
+	var forget_chance: float = get_forgetfulness_chance()
+	if forget_chance >= 0.40:
+		labels.append("Very forgetful")
+	elif forget_chance >= 0.15:
+		labels.append("Forgetful")
+	elif forget_chance > 0.0:
+		labels.append("Occasionally forgetful")
+
+	if hunger <= 0.0 or thirst <= 0.0:
+		labels.append("Losing health (starving/dehydrated)")
+
+	if labels.is_empty():
+		labels.append("Doing fine")
+	return labels

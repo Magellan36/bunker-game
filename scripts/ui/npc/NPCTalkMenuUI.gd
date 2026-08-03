@@ -29,6 +29,7 @@ var _need_labels: Dictionary = {}   ## need name -> Label (value text)
 var _skill_labels: Dictionary = {}  ## skill name -> Label
 var _activity_label: Label = null
 var _dialogue_label: Label = null   ## hidden until Talk pressed
+var _status_label: Label = null     ## Part 14
 
 const BAR_TRACK_W: float = 200.0
 
@@ -62,6 +63,7 @@ func _teardown() -> void:
 	_skill_labels = {}
 	_activity_label = null
 	_dialogue_label = null
+	_status_label = null
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
@@ -120,10 +122,24 @@ func _build(npc_name: String) -> void:
 
 	_vbox.add_child(HSeparator.new())
 
-	## Needs
+	## Needs (+ Health, Part 14 — same bar style, reads _npc.health directly)
 	_vbox.add_child(UIKit.make_section_label("NEEDS", theme))
-	for need: String in ["Energy", "Hunger", "Thirst"]:
+	for need: String in ["Health", "Energy", "Hunger", "Thirst"]:
 		_vbox.add_child(_build_need_row(need, theme))
+
+	_vbox.add_child(HSeparator.new())
+
+	## Status (Part 14) — plain-text summary from NPC.get_status_labels();
+	## never shown in the overhead hover prompt, per Brannon's instruction —
+	## this panel only.
+	_vbox.add_child(UIKit.make_section_label("STATUS", theme))
+	_status_label = Label.new()
+	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_status_label.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
+	_status_label.add_theme_color_override("font_color", theme.text)
+	_status_label.add_theme_font_override("font", UIKit.font())
+	_vbox.add_child(_status_label)
 
 	_vbox.add_child(HSeparator.new())
 
@@ -196,6 +212,7 @@ func _refresh_live_values() -> void:
 	var theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.NEUTRAL)
 
 	var needs: Dictionary = {
+		"Health": float(_npc.health),
 		"Energy": float(_npc.energy),
 		"Hunger": float(_npc.hunger),
 		"Thirst": float(_npc.thirst),
@@ -217,6 +234,9 @@ func _refresh_live_values() -> void:
 
 	if _activity_label != null and "brain" in _npc and _npc.brain != null:
 		_activity_label.text = _npc.brain.current_label()
+
+	if _status_label != null and _npc.has_method("get_status_labels"):
+		_status_label.text = "\n".join(_npc.get_status_labels())
 
 # ─── Buttons ──────────────────────────────────────────────────────────────
 func _on_talk_pressed() -> void:
