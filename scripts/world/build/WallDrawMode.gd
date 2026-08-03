@@ -182,7 +182,7 @@ func _rebuild_ghost() -> void:
 	var height:  float = _current_tier_height(tile_id)
 	_ghost_body = _build_wall_mesh(_run_length, height)
 	add_child(_ghost_body)
-	_ghost_body.global_position  = _midpoint()
+	_ghost_body.global_position  = _midpoint() + Vector3(0.0, height * 0.5, 0.0)
 	_ghost_body.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)
 
 	var valid: bool = _wall_run_is_inside_bunker()
@@ -221,7 +221,7 @@ func _update_idle_ghost() -> void:
 	_clear_ghost()
 	_ghost_body = _build_wall_mesh(IDLE_SLIVER_LENGTH, height)
 	add_child(_ghost_body)
-	_ghost_body.global_position = cursor
+	_ghost_body.global_position = cursor + Vector3(0.0, height * 0.5, 0.0)
 	## No drag direction exists yet — keep the last-used run angle so the
 	## sliver doesn't visually snap back to 0° between successive walls.
 	_ghost_body.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)

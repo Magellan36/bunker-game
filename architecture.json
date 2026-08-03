@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T22:02:44.940446+00:00",
+  "generated_at": "2026-08-03T22:44:59.191332+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 121,
