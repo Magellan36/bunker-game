@@ -2409,7 +2409,10 @@ func spawn_structure(tile_id: int, pos: Vector3, angle_deg: float, is_true_prege
 
 func remove_placed_object(node: Node3D) -> void:
 	for i: int in _placed_objects.size():
-		if _placed_objects[i]["nodereturn body
+		if _placed_objects[i]["node"] == node:
+			_placed_objects.remove_at(i)
+			return
+
 
 ## Builds one stretched wall StaticBody3D of the given length — the single
 ## source of truth for real (non-ghost) wall geometry, used by both

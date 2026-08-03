@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-03T03:30:49.662995+00:00",
+  "generated_at": "2026-08-03T04:00:20.686616+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 121,
-  "total_lines": 46900,
+  "total_lines": 46903,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -2541,7 +2541,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 2456,
+      "line_count": 2459,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -2698,7 +2698,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 2536
+      "complexity_score": 2539
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
