@@ -361,9 +361,9 @@ static func find_nearest_open_pot(pos: Vector3, tree: SceneTree, search_radius: 
 	return best
 
 # ─── Placeholder mesh ─────────────────────────────────────────────────────────
-## Basic stock-pot silhouette: wide short cylinder body + slightly darker rim
-## disc near the top edge (reads as a pot lid line) + two small handle nubs
-## on opposite sides. Same width class as Basket (top_radius 0.28).
+## Basic stock-pot silhouette: wide short cylinder body with an indented
+## top opening, plus a darker rim ring and two small side handles. Same
+## width class as Basket (top_radius 0.28).
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
 	var body: CylinderMesh = CylinderMesh.new()
@@ -393,6 +393,33 @@ func _build_placeholder_mesh() -> void:
 	rim_mat.roughness    = 0.45
 	rim_mi.set_surface_override_material(0, rim_mat)
 	add_child(rim_mi)
+
+	## Top indentation — fake cavity so the pot reads as open instead of flat-capped.
+	var cavity_mi: MeshInstance3D = MeshInstance3D.new()
+	var cavity: CylinderMesh = CylinderMesh.new()
+	cavity.top_radius    = 0.22
+	cavity.bottom_radius = 0.21
+	cavity.height        = 0.08
+	cavity_mi.mesh = cavity
+	cavity_mi.position = Vector3(0.0, 0.255, 0.0)
+	var cavity_mat: StandardMaterial3D = StandardMaterial3D.new()
+	cavity_mat.albedo_color = Color(0.16, 0.17, 0.19, 1.0)
+	cavity_mat.metallic     = 0.40
+	cavity_mat.roughness    = 0.70
+	cavity_mi.set_surface_override_material(0, cavity_mat)
+	add_child(cavity_mi)
+
+	## Thin inner lip around the cavity to reinforce the rolled pot edge look.
+	var inner_lip_mi: MeshInstance3D = MeshInstance3D.new()
+	var inner_lip: TorusMesh = TorusMesh.new()
+	inner_lip.inner_radius = 0.215
+	inner_lip.outer_radius = 0.233
+	inner_lip.rings = 22
+	inner_lip.ring_segments = 8
+	inner_lip_mi.mesh = inner_lip
+	inner_lip_mi.position = Vector3(0.0, 0.285, 0.0)
+	inner_lip_mi.set_surface_override_material(0, rim_mat)
+	add_child(inner_lip_mi)
 
 	## Two handle nubs, opposite sides
 	for side in [-1.0, 1.0]:
