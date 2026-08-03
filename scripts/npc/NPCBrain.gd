@@ -328,7 +328,7 @@ class DrinkActivity extends NPCActivity:
 			if d.has_method("_update_fill_visual"):
 				d._update_fill_visual()
 			npc.thirst = minf(100.0, npc.thirst + HYDRATION * (ml / DRINK_ML))
-		_target = null
+		_reacquire_or_finish(npc)
 
 	func _tick_bottle(npc: NPC, delta: float) -> void:
 		if _drinking > 0.0:
@@ -357,7 +357,32 @@ class DrinkActivity extends NPCActivity:
 			npc.thirst = minf(100.0, npc.thirst + b.take_drink())   ## REAL deduction
 			NPCItemUser.release_item(b)
 			NPCItemUser.drop_held(npc)
+		_reacquire_or_finish(npc)
+
+	## Part 17 — shared by both finish paths. This is the actual fix: one sip
+	## (HYDRATION=21.5) essentially never satisfies thirst on its own, so
+	## setting _target=null unconditionally here (the old behavior) made
+	## done() end the activity after every single sip, forcing a full
+	## restart-from-scratch for the next one. Now, if thirst is still low,
+	## immediately look for a new target and keep going within this SAME
+	## activity run — only truly finish when satisfied or nothing is left.
+	func _reacquire_or_finish(npc: NPC) -> void:
 		_target = null
+		_mode = ""
+		if npc.thirst >= 90.0:
+			return   ## satisfied — done() ends us next tick
+		var pick: Dictionary = _pick_target(npc)
+		if pick.is_empty():
+			return   ## nothing left to try — done() ends us (target stays null)
+		_mode = pick.get("mode", "")
+		_target = pick.get("node", null)
+		if _mode == "bottle" and _target != null:
+			if not NPCItemUser.claim_item(_target, npc):
+				_target = null
+				_mode = ""
+				return
+		if _target != null:
+			npc.set_nav_target((_target as Node3D).global_position)
 
 	func done(npc: NPC) -> bool:
 		return _target == null or npc.thirst >= 90.0
@@ -422,7 +447,7 @@ class EatActivity extends NPCActivity:
 			_eating -= delta
 			if _eating <= 0.0:
 				if NPCItemUser.eat_held_step(npc):
-					pass          ## finished — done() ends us
+					_reacquire_or_finish(npc)   ## Part 17 — see DrinkActivity for the same fix
 				else:
 					_eating = CONSUME_TIME   ## next bite of the same can
 			return
@@ -456,6 +481,27 @@ class EatActivity extends NPCActivity:
 	func done(npc: NPC) -> bool:
 		return _eating <= 0.0 and npc.held_item == null \
 			and _loose == null and _shelf_pick.is_empty()
+
+	## Part 17 — mirrors DrinkActivity's. Finishing one item (a full can, or
+	## a single-bite item) no longer ends the activity outright if hunger is
+	## still low — it looks for another item and continues within the same
+	## run, only truly finishing once satisfied or nothing is left to eat.
+	func _reacquire_or_finish(npc: NPC) -> void:
+		_loose = null
+		_shelf_pick = {}
+		if npc.hunger >= 55.0:
+			return
+		_loose = _find(npc)
+		if _loose != null and not NPCItemUser.claim_item(_loose, npc):
+			_loose = null
+		if _loose == null:
+			_shelf_pick = _find_shelf(npc)
+			if not _shelf_pick.is_empty() and not NPCItemUser.claim_item(_shelf_pick.get("item"), npc):
+				_shelf_pick = {}
+		var tgt: Node3D = _loose if _loose != null \
+			else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
+		if tgt != null:
+			npc.set_nav_target(tgt.global_position)
 
 	func interruptible() -> bool:
 		return _eating <= 0.0

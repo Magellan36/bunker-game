@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-03T05:04:57.247554+00:00",
+  "generated_at": "2026-08-03T21:19:56.096374+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 121,
-  "total_lines": 47511,
+  "total_lines": 47557,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -521,7 +521,7 @@
     },
     {
       "path": "res://scripts/npc/NPCBrain.gd",
-      "line_count": 843,
+      "line_count": 889,
       "class_name": "NPCBrain",
       "extends": "RefCounted",
       "exports": [],
@@ -824,13 +824,13 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 16,
+      "private_function_count": 18,
       "preloads": [],
       "group_lookups": [
         "main_world"
       ],
       "autoload_references": [],
-      "complexity_score": 977
+      "complexity_score": 1025
     },
     {
       "path": "res://scripts/npc/NPCDebug.gd",

@@ -222,6 +222,10 @@ pathfinding, no persistence — this is the minimal viable NPC foundation.
   spawn buttons in AdminMenu.
 - **Save/load** → add NPC registry to `SaveManager` phase (when
   save/load overhaul happens).
+- **Eat/Drink activities (Part 17)** — both now continue automatically
+  across multiple items within a single activity run (e.g., drink from
+  dispenser until thirst ≥ 90, or eat multiple food items until hunger ≥ 55)
+  rather than fully exiting and restarting between each one.
 
 ---
 
