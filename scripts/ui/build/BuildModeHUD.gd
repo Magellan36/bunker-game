@@ -187,11 +187,6 @@ func get_item_price(tile_id: int) -> int:
 				return item["price"]
 	return 0
 
-## Alias for BuildModeController._price_for_tile() — same functionality,
-## different name to match the expected API from WallDrawMode.
-func get_price_for_tile(tile_id: int) -> int:
-	return get_item_price(tile_id)
-
 # ─── Visual constants ──────────────────────────────────────────────────────────
 const KIWI:         Color = Color(0.42, 0.87, 0.15, 1.0)
 const BORDER_W:     float = 4.0

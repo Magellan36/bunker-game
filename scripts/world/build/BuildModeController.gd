@@ -989,14 +989,6 @@ func _on_wall_tool_exit_requested() -> void:
 		build_hud.set_active_tool(0)
 		build_hud.set_ghost_active(true)
 
-## Looks up a tile's Construct-menu price from BuildModeHUD.CATEGORIES.
-## Used by WallDrawMode when cycling height tiers so it never
-## hardcodes Wall/Half Wall/Quarter Wall prices itself.
-func _price_for_tile(tile_id: int) -> int:
-	if build_hud == null or not build_hud.has_method("get_price_for_tile"):
-		return _selected_tile_price   ## Fallback — keeps current price rather than erroring
-	return build_hud.get_price_for_tile(tile_id)
-
 # ─── Bunker bounds check ──────────────────────────────────────────────────────
 ## Returns true if world-space XZ position is inside the valid placeable area:
 ## the pre-generated bunker interior + any dug rock extensions.
