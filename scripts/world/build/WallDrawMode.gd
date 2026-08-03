@@ -8,10 +8,9 @@ extends Node
 ##
 ## Flow:
 ##   Click 1 (LMB) — grid-snap the cursor, anchor as run start. Enter phase 1.
-##   Move           — drag vector locked to whichever cardinal axis (X or Z)
-##                     is dominant; ghost shows N wall segments stepped along
-##                     that axis at WALL_CELL_SIZE spacing, live cost label
-##                     at the run's midpoint showing segment_count × tier price.
+##   Move           — drag in any direction (full 360°); ghost shows N wall
+##                     segments stepped along the drag angle at WALL_CELL_SIZE
+##                     spacing, live cost label at the run's midpoint.
 ##   Click 2 (LMB) — finalise: spawn all N segments via
 ##                    build_controller._spawn_placed_object() (same function
 ##                    that spawns a single wall today), charge total cost
@@ -181,16 +180,14 @@ func _process(_delta: float) -> void:
 		_rebuild_run_ghost()
 		return
 
-	## Snap the drag direction to the nearest of 8 compass directions (45°
-	## steps) — reuses EIGHT_DIR_ANGLES, the same set already used for
-	## manual wall rotation elsewhere in Construct mode, so a run can now
-	## go cardinal (0/90/180/270) OR diagonal (45/135/225/315).
+	## Free 360° direction — no longer locked to cardinal or 8-direction.
+	## Only the resulting segment POSITIONS snap to the grid (below); the
+	## angle itself follows the raw cursor direction exactly.
 	var raw_angle_deg: float = rad_to_deg(atan2(dx, dz))
 	if raw_angle_deg < 0.0:
 		raw_angle_deg += 360.0
-	var locked_angle_deg: float = _snap_to_eight_dir(raw_angle_deg)
-	var angle_rad: float = deg_to_rad(locked_angle_deg)
-	var dir: Vector2 = Vector2(sin(angle_rad), cos(angle_rad))   ## Unit step vector in XZ, matches the atan2(dx, dz) convention above
+	var angle_rad: float = deg_to_rad(raw_angle_deg)
+	var dir: Vector2 = Vector2(sin(angle_rad), cos(angle_rad))   ## Unit step vector in XZ, matches the atan2(dx, dz) convention
 
 	var cell_count: int = maxi(1, int(round(raw_length / WALL_CELL_SIZE)))
 	var current_tile: int = HEIGHT_TIERS[_tier_index] if not HEIGHT_TIERS.is_empty() else build_controller.TILE_WALL
@@ -202,32 +199,21 @@ func _process(_delta: float) -> void:
 		var p: Vector3 = _start_pos
 		p.x = _start_pos.x + offset.x
 		p.z = _start_pos.z + offset.y
-		## Re-snap XZ to the grid each segment — a 45° diagonal step won't
-		## always land exactly on the fine 0.25 grid the way a cardinal step
-		## does. This is the expected/standard tradeoff for diagonal
-		## placement on a square grid (every base-building game with grid
-		## snap has the same minor approximation) — segments stay grid-
-		## snapped, just not perfectly evenly spaced along a true 45° line.
+		## Position still snaps to the grid every segment — only the angle
+		## is now free. At non-45°/90° angles this means segments won't be
+		## perfectly evenly spaced along the true line (same standard
+		## tradeoff noted in the previous pass for diagonals, now general
+		## to any angle) — the run still reads as a straight wall visually,
+		## just with each piece's exact position pulled to its nearest grid
+		## point rather than sitting exactly on the mathematical line.
 		var snapped_xz: Vector3 = build_controller._snap_to_grid(p)
 		p.x = snapped_xz.x
 		p.z = snapped_xz.z
 		p.y = seg_y
 		_run_positions.append(p)
 
-	_run_angle_deg = locked_angle_deg
+	_run_angle_deg = raw_angle_deg
 	_rebuild_run_ghost()
-
-## Snaps a raw angle (degrees, 0–360) to the nearest of the 8
-## EIGHT_DIR_ANGLES values, wrapping correctly at the 360→0 seam.
-func _snap_to_eight_dir(raw_deg: float) -> float:
-	var best_angle: float = 0.0
-	var best_diff:  float = 361.0
-	for a: float in [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0, 360.0]:
-		var diff: float = absf(raw_deg - a)
-		if diff < best_diff:
-			best_diff  = diff
-			best_angle = a
-	return fmod(best_angle, 360.0)   ## Folds a 360 match back to 0
 
 # ─── Ghost rebuild (multi-segment) ─────────────────────────────────────
 func _rebuild_run_ghost() -> void:
