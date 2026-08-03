@@ -53,6 +53,48 @@ func set_player_in_range(in_range: bool) -> void:
 func set_sleeping(sleeping: bool) -> void:
 	_player_sleeping = sleeping
 
+# ─── NPC occupancy (NPC Pass 2, Part 13 — additive; player flow above untouched) ──
+var _npc_sleeper: Node = null
+
+func is_bed_free() -> bool:
+	if _player_sleeping:
+		return false
+	return _npc_sleeper == null or not is_instance_valid(_npc_sleeper)
+
+func npc_try_lie(npc: Node) -> bool:
+	if not is_bed_free():
+		return false
+	_npc_sleeper = npc
+	return true
+
+func npc_stand(npc: Node) -> void:
+	if _npc_sleeper == npc:
+		_npc_sleeper = null
+
+## Approximate mattress-top height above this node's own origin (which sits
+## at the standard floor-furniture placement convention, ~0.5) — a first-pass
+## estimate; visually retune if the NPC appears to float above or sink
+## through the mattress (see Chair.gd's SEAT_Y for precedent — it needed the
+## same kind of after-the-fact adjustment).
+const LIE_SURFACE_Y: float = 0.5
+const LIE_SINK: float = 0.15   ## slight recess into the mattress, mirrors Chair's SIT_SINK
+
+## World transform an NPC should be moved to while lying down: sunk slightly
+## into the mattress, and rotated 90° around the bed's local Z so the
+## capsule lies flat along the bed's long (local X) axis instead of
+## standing upright. If it ends up lying the wrong way once visually
+## checked, flip the sign on the rotation angle below.
+func get_lie_transform() -> Transform3D:
+	var local_pos: Vector3 = Vector3(0.0, LIE_SURFACE_Y - LIE_SINK, 0.0)
+	var world_pos: Vector3 = global_transform * local_pos
+	var lie_basis: Basis = global_transform.basis * Basis(Vector3(0.0, 0.0, 1.0), deg_to_rad(90.0))
+	return Transform3D(lie_basis, world_pos)
+
+## World position to stand at when getting up — one step off the bed's side.
+func get_bed_stand_position() -> Vector3:
+	var local_pos: Vector3 = Vector3(0.0, 0.0, 1.0)
+	return global_transform * local_pos
+
 ## Side-effect-free ghost mesh for build-mode previews — extracted
 ## verbatim from GhostPreview.gd's inline TILE_BED branch so the preview
 ## matches what the player actually places. No registration, no signals,

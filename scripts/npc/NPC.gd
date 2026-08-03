@@ -99,9 +99,27 @@ func _tick_needs(delta: float) -> void:
 	thirst = maxf(0.0, thirst - THIRST_DRAIN_PER_GAME_HOUR * h)
 
 ## Decelerate to a stop — used by activities when standing still.
+## Part 13 — every stationary phase in the game (job work, eating, drinking,
+## the idle pause between wander legs) already calls this every frame. It
+## now also raises _movement_locked, so a late-arriving avoidance callback
+## (see _on_velocity_computed below) can never overwrite the halt with a
+## stale travel-direction velocity.
+var _movement_locked: bool = false
+
 func halt_movement(delta: float) -> void:
+	_movement_locked = true
 	velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
 	velocity.z = lerp(velocity.z, 0.0, acceleration * delta)
+
+## One-time hard stop for the exact instant an NPC snaps into a seated/lying
+## position (SitActivity, LieActivity) — those states return early every
+## frame afterward and never call halt_movement() again, so they need an
+## explicit lock at the moment of transition rather than relying on a
+## per-frame call.
+func lock_movement() -> void:
+	_movement_locked = true
+	velocity.x = 0.0
+	velocity.z = 0.0
 
 func _ready() -> void:
 	add_to_group("npc")
@@ -180,6 +198,7 @@ func nav_finished() -> bool:
 ## to actually apply. Every activity keeps calling this exact same function,
 ## so no activity code needs to know avoidance exists at all.
 func nav_steer(delta: float) -> void:
+	_movement_locked = false   ## actively requesting movement again (Part 13)
 	_last_steer_delta = delta
 	if nav_agent == null or nav_agent.is_navigation_finished():
 		velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
@@ -200,6 +219,9 @@ var _last_steer_delta: float = 0.0
 ## same physics frame under local (non-multithreaded) avoidance, which is
 ## what a single-region setup like this one uses.
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	if _movement_locked:
+		return   ## a stationary phase (Part 13) started after this request was
+		         ## submitted — the request is stale, ignore it
 	velocity.x = lerp(velocity.x, safe_velocity.x, acceleration * _last_steer_delta)
 	velocity.z = lerp(velocity.z, safe_velocity.z, acceleration * _last_steer_delta)
 	if Vector2(safe_velocity.x, safe_velocity.z).length() > 0.05:
