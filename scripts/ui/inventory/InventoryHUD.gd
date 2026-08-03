@@ -106,7 +106,7 @@ func _build_viewports() -> void:
 		# the node to be inside the scene tree to compute global transforms.
 		var cam := Camera3D.new()
 		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-		cam.size = 1.2
+		cam.size = 0.4   ## Jul 2026 — 1.2 / 3.0, previews 3x bigger in the same 64px slot
 		vp.add_child(cam)   ## Must be in tree first
 		cam.position = Vector3(0.8, 0.8, 0.8)
 		cam.look_at(Vector3.ZERO, Vector3.UP)
@@ -182,8 +182,11 @@ func _set_preview(slot_idx: int, item) -> void:
 	if mesh_inst == null:
 		return
 
-	# Rotate 45° on Y for an angled look
-	mesh_inst.rotation_degrees = Vector3(0.0, 45.0, 0.0)
+	# Jul 2026 — matches BuildModeHUD.gd's PREVIEW_ROTATION_DEFAULT resting
+	# pose exactly (45° left, 45° down) so construct/shop previews and
+	# inventory previews read as the same angled look. Deliberately static
+	# — no hover-spin here, unlike BuildModeHUD's pool.
+	mesh_inst.rotation_degrees = Vector3(-45.0, -45.0, 0.0)
 	mesh_inst.position = Vector3.ZERO
 
 	# Add to viewport FIRST — node must be in the scene tree before we can
@@ -213,17 +216,25 @@ func _draw() -> void:
 		var x: float = i * (SLOT_SIZE + SLOT_GAP)
 		var rect: Rect2 = Rect2(x, 0.0, SLOT_SIZE, SLOT_SIZE)
 
-		# ── Background ──
-		draw_rect_with_corners(rect, COLOR_BG)
+		# ── Background (Jul 2026 — was 6 separate overlapping translucent
+		# draw_rect/draw_circle calls, which double-blended at every seam
+		# and made the slot read as several different shades instead of one
+		# flat fill; now a single UIKit.draw_rounded_rect() StyleBox-based
+		# call — the same fix already used project-wide since the "rounded
+		# corners" pass. Border alpha is 0 here on purpose: this call is
+		# background-fill only, the actual border is drawn as its own pass
+		# below, AFTER the texture, so it still renders on top of it). ──
+		UIKit.draw_rounded_rect(self, rect, COLOR_BG, Color(0, 0, 0, 0), 0.0, CORNER)
 
 		# ── SubViewport texture (3D preview) ──
 		var item = slots[i] if i < slots.size() else null
 		if item != null and _vp_textures[i] != null:
 			draw_texture_rect(_vp_textures[i], rect, false)
 
-		# ── Border — highlight selected ──
+		# ── Border — highlight selected (fill alpha 0 here — this pass is
+		# border-only, drawn on top of the texture above) ──
 		var border_col: Color = COLOR_SELECTED if i == _selected_slot else COLOR_BORDER
-		draw_rect_with_corners_outline(rect, border_col, 2.0)
+		UIKit.draw_rounded_rect(self, rect, Color(0, 0, 0, 0), border_col, 2.0, CORNER)
 
 		# ── Slot number (top-left, subtle) ──
 		var num: String = str(i + 1)
@@ -406,39 +417,3 @@ func _prettify_name(raw: String) -> String:
 			result += " "
 		result += s[i]
 	return result.strip_edges()
-
-# ─── Rounded rect helpers ─────────────────────────────────────────────────────
-func draw_rect_with_corners(rect: Rect2, col: Color) -> void:
-	draw_rect(Rect2(rect.position + Vector2(CORNER, 0),
-		Vector2(rect.size.x - CORNER * 2, rect.size.y)), col, true)
-	draw_rect(Rect2(rect.position + Vector2(0, CORNER),
-		Vector2(rect.size.x, rect.size.y - CORNER * 2)), col, true)
-	draw_circle(rect.position + Vector2(CORNER, CORNER), CORNER, col)
-	draw_circle(rect.position + Vector2(rect.size.x - CORNER, CORNER), CORNER, col)
-	draw_circle(rect.position + Vector2(CORNER, rect.size.y - CORNER), CORNER, col)
-	draw_circle(rect.position + Vector2(rect.size.x - CORNER, rect.size.y - CORNER), CORNER, col)
-
-func draw_rect_with_corners_outline(rect: Rect2, col: Color, width: float) -> void:
-	draw_line(rect.position + Vector2(CORNER, 0),
-		rect.position + Vector2(rect.size.x - CORNER, 0), col, width)
-	draw_line(rect.position + Vector2(CORNER, rect.size.y),
-		rect.position + Vector2(rect.size.x - CORNER, rect.size.y), col, width)
-	draw_line(rect.position + Vector2(0, CORNER),
-		rect.position + Vector2(0, rect.size.y - CORNER), col, width)
-	draw_line(rect.position + Vector2(rect.size.x, CORNER),
-		rect.position + Vector2(rect.size.x, rect.size.y - CORNER), col, width)
-	var r: float = CORNER
-	_draw_arc_corner(rect.position + Vector2(r, r),             r, PI,       PI * 1.5, col, width)
-	_draw_arc_corner(rect.position + Vector2(rect.size.x-r, r), r, PI * 1.5, TAU,      col, width)
-	_draw_arc_corner(rect.position + Vector2(r, rect.size.y-r), r, PI * 0.5, PI,       col, width)
-	_draw_arc_corner(rect.position + Vector2(rect.size.x-r, rect.size.y-r), r, 0, PI*0.5, col, width)
-
-func _draw_arc_corner(center: Vector2, r: float, from_angle: float, to_angle: float,
-		col: Color, width: float) -> void:
-	var steps: int = 8
-	var prev: Vector2 = center + Vector2(cos(from_angle), sin(from_angle)) * r
-	for s in range(1, steps + 1):
-		var a: float = from_angle + (to_angle - from_angle) * s / steps
-		var cur: Vector2 = center + Vector2(cos(a), sin(a)) * r
-		draw_line(prev, cur, col, width)
-		prev = cur
