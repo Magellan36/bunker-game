@@ -13,9 +13,9 @@ const WALL_THICKNESS:  float = 0.3    ## Confirmed from tile_set.tscn's BoxMesh
 const WALL_HEIGHT_FULL: float = 3.0   ## Matches BuildModeController.WALL_HEIGHT_M
 const TRUE_FLOOR_Y:    float = 0.5    ## True floor Y in this coordinate frame
 
-const MIN_LENGTH: float = WALL_CELL_SIZE   ## Floor for a degenerate near-zero drag
-
 const IDLE_SLIVER_LENGTH: float = WALL_CELL_SIZE * 0.25   ## 1/4 of a normal 1m cell
+
+const MIN_LENGTH: float = IDLE_SLIVER_LENGTH   ## Matches the idle sliver exactly — see class comment
 
 var HEIGHT_TIERS: Array[int] = []
 var _tier_index: int = 0
