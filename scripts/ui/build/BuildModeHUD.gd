@@ -313,67 +313,18 @@ static func _combined_local_aabb(root: Node3D) -> Dictionary:
 ## version of this feature did exactly that and it registered 15 real
 ## phantom devices — including 3 real running generators — into the live
 ## PowerManager/WaterManager the instant Build Mode opened).
-
-const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
-	4:  { "path": "res://scenes/world/Bed.tscn",                    "is_script": false },
-	3:  { "path": "res://scripts/world/furniture/Shelving.gd",      "is_script": true  },
-	6:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 0 },
-	7:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 1 },
-	8:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 2 },
-	10: { "path": "res://scripts/world/power/PowerTerminal.gd",     "is_script": true },
-	11: { "path": "res://scripts/world/items/HeavyConsumerTest.gd", "is_script": true },
-	12: { "path": "res://scripts/world/power/BreakerBox.gd",        "is_script": true },
-	16: { "path": "res://scripts/world/power/UpgradedBreakerBox.gd","is_script": true },
-	13: { "path": "res://scripts/world/power/BatteryBank.gd",       "is_script": true, "tier_prop": "battery_tier", "tier": 0 },
-	14: { "path": "res://scripts/world/power/BatteryBank.gd",       "is_script": true, "tier_prop": "battery_tier", "tier": 1 },
-	15: { "path": "res://scripts/world/power/BatteryBank.gd",       "is_script": true, "tier_prop": "battery_tier", "tier": 2 },
-	18: { "path": "res://scripts/world/water/WaterTestSink.gd",     "is_script": true },
-	19: { "path": "res://scripts/world/water/WaterDispenser.gd",    "is_script": true },
-	20: { "path": "res://scripts/world/water/WaterPurifier.gd",     "is_script": true },
-	21: { "path": "res://scripts/world/farming/FarmingTray.gd",     "is_script": true, "tier_prop": "cell_count", "tier": 1 },
-	22: { "path": "res://scripts/world/farming/FarmingTray.gd",     "is_script": true, "tier_prop": "cell_count", "tier": 2 },
-	23: { "path": "res://scripts/world/power/GrowLight.gd",         "is_script": true },
-	24: { "path": "res://scripts/world/power/GrowLight.gd",         "is_script": true },
-	27: { "path": "res://scripts/world/furniture/Table.gd",  "is_script": true, "tier_prop": "cell_count", "tier": 1 },
-	28: { "path": "res://scripts/world/furniture/Table.gd",  "is_script": true, "tier_prop": "cell_count", "tier": 2 },
-	29: { "path": "res://scripts/world/furniture/Chair.gd",  "is_script": true },
-	31: { "path": "res://scripts/world/furniture/Poster.gd", "is_script": true },
-}
+##
+## NOW DELEGATED to GhostModelBuilder.gd — single source of truth for
+## both Construct submenu previews and in-world ghosts.
 
 ## Builds a detached, side-effect-free instance of the REAL object script/
 ## scene for a construct-tab preview — sets _is_preview_only BEFORE
 ## add_child() (required, see that var's own comment on each script) so
 ## _ready() skips registration/grouping but still runs its real
 ## mesh-building call(s) unmodified. Returns null if this tile_id isn't in
-## PROCEDURAL_PREVIEW_SOURCES or the resource fails to load.
+## GhostModelBuilder.PROCEDURAL_PREVIEW_SOURCES or the resource fails to load.
 func _build_procedural_preview_instance(tile_id: int) -> Node3D:
-	if not PROCEDURAL_PREVIEW_SOURCES.has(tile_id):
-		return null
-	var info: Dictionary = PROCEDURAL_PREVIEW_SOURCES[tile_id]
-	var inst: Node3D = null
-	if bool(info.get("is_script", false)):
-		var script: GDScript = load(String(info["path"])) as GDScript
-		if script == null:
-			return null
-		inst = script.new()
-	else:
-		var packed: PackedScene = load(String(info["path"])) as PackedScene
-		if packed == null:
-			return null
-		inst = packed.instantiate() as Node3D
-	if inst == null:
-		return null
-
-	inst.set("_is_preview_only", true)
-	var tier_prop: String = String(info.get("tier_prop", ""))
-	if not tier_prop.is_empty():
-		inst.set(tier_prop, info["tier"])
-
-	if inst is RigidBody3D:
-		var rb: RigidBody3D = inst as RigidBody3D
-		rb.freeze = true
-		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-	return inst
+	return GhostModelBuilder.build_real_instance(tile_id)
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 var _canvas:       Control        = null   ## Full-screen draw surface

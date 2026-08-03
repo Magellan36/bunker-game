@@ -64,6 +64,29 @@ func _rebuild_ghost_mesh() -> void:
 	if _owner._ghost == null:
 		return
 
+	## Clear any leftover real-model children from a previous tile
+	## selection (e.g. switching from Chair to Wall) — always runs,
+	## regardless of which path below ends up being used.
+	for child: Node in _owner._ghost.get_children():
+		if child.name != "_GhostArrow":   ## Arrow is re-attached fresh either way — see Part 4 — but clearing it here too is harmless
+			child.queue_free()
+	_owner._ghost.mesh = null
+
+	## ── Master builder: real-model ghost for any tile registered in
+	## GhostModelBuilder.PROCEDURAL_PREVIEW_SOURCES ────────────────────────
+	var real_inst: Node3D = GhostModelBuilder.build_real_instance(_owner._selected_tile)
+	if real_inst == null:
+		real_inst = GhostModelBuilder.build_meshlibrary_instance(_owner._selected_tile, _owner.gridmap)
+	if real_inst != null:
+		_owner._ghost.add_child(real_inst)
+		GhostModelBuilder.attach_facing_arrow(
+			_owner._ghost,
+			_owner._selected_tile,
+			_owner._tile_half_extents(_owner._selected_tile),
+			[_owner.TILE_WALL, _owner.TILE_HALF_WALL, _owner.TILE_QUARTER_WALL, _owner.TILE_PILLAR, _owner.TILE_FLOOR]
+		)
+		return
+
 	# ── Bed: procedural box ghost (2m wide × 0.5m tall × 1m deep) ───────────────
 	if _owner._selected_tile == _owner.TILE_BED:
 		var st: SurfaceTool = SurfaceTool.new()
@@ -658,7 +681,4 @@ func _update_ghost() -> void:
 		_owner._ghost.rotation_degrees = Vector3(0.0, _owner._current_angle_deg, 0.0)
 	_owner._ghost.visible         = true
 
-	var mat: StandardMaterial3D = _owner._mat_valid if _owner._ghost_valid else _owner._mat_invalid
-	if _owner._ghost.mesh != null:
-		for s: int in _owner._ghost.mesh.get_surface_count():
-			_owner._ghost.set_surface_override_material(s, mat)
+	GhostModelBuilder.apply_ghost_tint(_owner._ghost, _owner._ghost_valid)
