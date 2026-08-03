@@ -15,6 +15,8 @@ const TRUE_FLOOR_Y:    float = 0.5    ## True floor Y in this coordinate frame
 
 const MIN_LENGTH: float = WALL_CELL_SIZE   ## Floor for a degenerate near-zero drag
 
+const IDLE_SLIVER_LENGTH: float = WALL_CELL_SIZE * 0.25   ## 1/4 of a normal 1m cell
+
 var HEIGHT_TIERS: Array[int] = []
 var _tier_index: int = 0
 
@@ -90,8 +92,6 @@ func _cycle_tier(delta: int) -> void:
 		build_controller._selected_tile_price = build_controller._price_for_tile(HEIGHT_TIERS[_tier_index])
 	if _phase == 1:
 		_rebuild_ghost()
-	elif build_controller != null:
-		build_controller._update_ghost()
 
 func _start_drag() -> void:
 	if build_controller == null:
@@ -105,7 +105,10 @@ func _start_drag() -> void:
 	_phase = 1
 
 func _process(_delta: float) -> void:
-	if _phase != 1 or build_controller == null:
+	if build_controller == null:
+		return
+	if _phase == 0:
+		_update_idle_ghost()
 		return
 	var hit: Dictionary = build_controller._raycast_to_grid()
 	if hit.is_empty():
@@ -130,6 +133,31 @@ func _current_tier_height(tile_id: int) -> float:
 	if tile_id == build_controller.TILE_QUARTER_WALL:
 		return WALL_HEIGHT_FULL * 0.25
 	return WALL_HEIGHT_FULL
+
+## The wall's actual cross-section footprint — thin, NOT scaled by run
+## length. This was the bug: using _run_length here made every sample point
+## check a box as wide as half the whole wall, not the wall's real
+## thickness.
+func _wall_footprint_half_extent() -> Vector2:
+	return Vector2(WALL_THICKNESS, WALL_THICKNESS)
+
+## Samples points evenly along the run (roughly one per WALL_CELL_SIZE, at
+## least the two endpoints) so a bounds check actually covers the whole
+## length instead of relying on 3 fixed points with an oversized radius.
+func _sample_points_along_run() -> Array[Vector3]:
+	var points: Array[Vector3] = []
+	var sample_count: int = maxi(2, int(ceil(_run_length / WALL_CELL_SIZE)) + 1)
+	for i: int in sample_count:
+		var t: float = float(i) / float(sample_count - 1)
+		points.append(_start_pos.lerp(_end_pos, t))
+	return points
+
+func _wall_run_is_inside_bunker() -> bool:
+	var half_extent: Vector2 = _wall_footprint_half_extent()
+	for p: Vector3 in _sample_points_along_run():
+		if not build_controller._is_inside_bunker(p, half_extent):
+			return false
+	return true
 
 ## Builds (or resizes) one MeshInstance3D box sized to _run_length at the
 ## current tier's height, positioned/rotated to span _start_pos → _end_pos.
@@ -157,19 +185,51 @@ func _rebuild_ghost() -> void:
 	_ghost_body.global_position  = _midpoint()
 	_ghost_body.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)
 
-	var half_extent: Vector2 = Vector2(WALL_THICKNESS * 0.5, _run_length * 0.5)
-	var valid: bool = build_controller._is_inside_bunker(_start_pos, half_extent) \
-		and build_controller._is_inside_bunker(_end_pos, half_extent) \
-		and build_controller._is_inside_bunker(_midpoint(), half_extent)
+	var valid: bool = _wall_run_is_inside_bunker()
+	_apply_ghost_material(valid)
+
+	var price: int = build_controller._price_for_tile(tile_id)
+	var total_cost: int = int(round(price * (_run_length / WALL_CELL_SIZE)))
+	_update_cost_label(total_cost)
+
+func _apply_ghost_material(valid: bool) -> void:
+	if _ghost_body == null:
+		return
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = GHOST_COLOR_VALID if valid else GHOST_COLOR_INVALID
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode  = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_ghost_body.material_override = mat
 
-	var price: int = build_controller._price_for_tile(tile_id)
-	var total_cost: int = int(round(price * (_run_length / WALL_CELL_SIZE)))
-	_update_cost_label(total_cost)
+## Phase-0 preview: a short sliver — same height and thickness as a real
+## wall at the current tier, 1/4 the length of a normal cell — marking
+## where a drag would start if clicked right now. Reuses _build_wall_mesh()
+## so it's visually consistent with the real thing, just short.
+func _update_idle_ghost() -> void:
+	var hit: Dictionary = build_controller._raycast_to_grid()
+	if hit.is_empty():
+		_clear_ghost()
+		return
+	if HEIGHT_TIERS.is_empty():
+		return
+	var cursor: Vector3 = build_controller._snap_to_grid(hit["position"])
+	cursor.y = TRUE_FLOOR_Y
+
+	var tile_id: int = HEIGHT_TIERS[_tier_index]
+	var height:  float = _current_tier_height(tile_id)
+
+	_clear_ghost()
+	_ghost_body = _build_wall_mesh(IDLE_SLIVER_LENGTH, height)
+	add_child(_ghost_body)
+	_ghost_body.global_position = cursor
+	## No drag direction exists yet — keep the last-used run angle so the
+	## sliver doesn't visually snap back to 0° between successive walls.
+	_ghost_body.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)
+
+	var valid: bool = build_controller._is_inside_bunker(cursor, _wall_footprint_half_extent())
+	_apply_ghost_material(valid)
+	if _cost_label != null:
+		_cost_label.visible = false
 
 func _clear_ghost() -> void:
 	if _ghost_body != null and is_instance_valid(_ghost_body):
@@ -196,11 +256,9 @@ func _confirm_wall() -> void:
 	var price:   int = build_controller._price_for_tile(tile_id)
 	var total_cost: int = int(round(price * (_run_length / WALL_CELL_SIZE)))
 
-	var half_extent: Vector2 = Vector2(WALL_THICKNESS * 0.5, _run_length * 0.5)
-	for p: Vector3 in [_start_pos, _end_pos, _midpoint()]:
-		if not build_controller._is_inside_bunker(p, half_extent):
-			build_controller._show_hud_warning("Cannot place outside the bunker")
-			return
+	if not _wall_run_is_inside_bunker():
+		build_controller._show_hud_warning("Cannot place outside the bunker")
+		return
 
 	if world_node != null and not world_node.spend_cash(total_cost):
 		return
