@@ -32,13 +32,12 @@ var _player_in_range: bool = false
 var _player_seated: bool   = false
 
 func _ready() -> void:
-	if _is_preview_only:
-		return
-	add_to_group("interactable")
-	add_to_group("chair")   ## Used by MainWorld._connect_chair() to wire all placed chairs
+	_build_mesh()
+	if not _is_preview_only:
+		add_to_group("interactable")
+		add_to_group("chair")
 	collision_layer = 5
 	collision_mask  = 0
-	_build_mesh()
 
 func _build_mesh() -> void:
 	var mat: StandardMaterial3D = StandardMaterial3D.new()

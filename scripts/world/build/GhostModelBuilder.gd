@@ -30,6 +30,7 @@ class_name GhostModelBuilder
 const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
 	4:  { "path": "res://scenes/world/Bed.tscn",                    "is_script": false },
 	3:  { "path": "res://scripts/world/furniture/Shelving.gd",      "is_script": true  },
+	5:  { "path": "res://scripts/world/power/WallLight.gd",         "is_script": true },
 	6:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 0 },
 	7:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 1 },
 	8:  { "path": "res://scripts/world/power/GeneratorObject.gd",   "is_script": true, "tier_prop": "generator_tier", "tier": 2 },
@@ -50,6 +51,7 @@ const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
 	27: { "path": "res://scripts/world/furniture/Table.gd",  "is_script": true, "tier_prop": "cell_count", "tier": 1 },
 	28: { "path": "res://scripts/world/furniture/Table.gd",  "is_script": true, "tier_prop": "cell_count", "tier": 2 },
 	29: { "path": "res://scripts/world/furniture/Chair.gd",  "is_script": true },
+	30: { "path": "res://scripts/world/cooking/Stove.gd",         "is_script": true },
 	31: { "path": "res://scripts/world/furniture/Poster.gd", "is_script": true },
 	## NOT YET REGISTERED — flagged, not silently skipped (see testing
 	## checklist item 5): TILE_LIGHT (5, WallLight.gd — wall-mounted,
@@ -75,6 +77,9 @@ const ARROW_OVERRIDES: Dictionary = {
 	6:  [0.0,  180.0],   ## Generator S (z_offset computed from size at call time — see Part 4)
 	7:  [0.0,  180.0],   ## Generator M
 	8:  [0.0,  180.0],   ## Generator L
+	18: [0.0,  180.0],   ## Water Test Sink
+	19: [0.0,  180.0],   ## Water Dispenser
+	29: [0.0,  180.0],   ## Chair — true front is +Z (seat-facing), not -Z (backrest)
 }
 const DEFAULT_ARROW_Z_MARGIN: float = 0.15   ## Added to an object's own half-extent for tiles with no override
 
@@ -112,7 +117,23 @@ static func build_real_instance(tile_id: int) -> Node3D:
 		var rb: RigidBody3D = inst as RigidBody3D
 		rb.freeze = true
 		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+
+	_strip_collision_recursive(inst)   ## NEW — universal collision stripping
 	return inst
+
+## Forces every CollisionObject3D descendant (StaticBody3D, RigidBody3D,
+## Area3D, etc.) to collide with nothing. Ghosts are visual-only — no
+## script should need to remember to gate its own collision_layer behind
+## _is_preview_only for this to be safe; this makes it safe universally,
+## for every object registered in PROCEDURAL_PREVIEW_SOURCES, present and
+## future.
+static func _strip_collision_recursive(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_collision_recursive(child)
 
 ## Second-tier fallback for MeshLibrary-backed tiles (Pillar, Floor) that
 ## have no procedural script. Returns null if tile_id isn't a valid

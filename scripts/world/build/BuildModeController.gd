@@ -140,7 +140,7 @@ const WATER_DISPENSER_PLACEMENT_Y: float = 0.5
 ## yet. Left unchanged in this pass since it wasn't the reported bug, but
 ## flagging for a quick visual check; if confirmed, the fix is the same
 ## 0.0 → 0.5 change.
-const BATTERY_PLACEMENT_Y: float = 0.0
+const BATTERY_PLACEMENT_Y: float = 0.5   ## FIX (confirmed): same stale-0.0 bug as WATER_SINK/WATER_DISPENSER — see their fix comments earlier in this file.
 
 ## HeavyConsumerTest (debug-only) — floor-standing box like generators,
 ## root at ground contact point.

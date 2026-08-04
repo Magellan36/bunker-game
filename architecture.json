@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-04T00:08:19.651098+00:00",
+  "generated_at": "2026-08-04T00:12:49.467564+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 122,
-  "total_lines": 48030,
+  "total_lines": 48050,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -2841,7 +2841,7 @@
     },
     {
       "path": "res://scripts/world/build/GhostModelBuilder.gd",
-      "line_count": 217,
+      "line_count": 238,
       "class_name": "GhostModelBuilder",
       "extends": "RefCounted",
       "exports": [],
@@ -2852,7 +2852,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 217
+      "complexity_score": 238
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
@@ -3758,7 +3758,7 @@
     },
     {
       "path": "res://scripts/world/furniture/Chair.gd",
-      "line_count": 152,
+      "line_count": 151,
       "class_name": "Chair",
       "extends": "StaticBody3D",
       "exports": [],
@@ -3824,7 +3824,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 172
+      "complexity_score": 171
     },
     {
       "path": "res://scripts/world/furniture/Poster.gd",
