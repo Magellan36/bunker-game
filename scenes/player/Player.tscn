@@ -41,6 +41,7 @@ script = ExtResource("3_524rm")
 
 [node name="DetectArea" type="Area3D" parent="InteractionSystem" unique_id=1188015658]
 collision_layer = 0
+collision_mask = 3
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="InteractionSystem/DetectArea" unique_id=1735192436]
 shape = SubResource("SphereShape3D_4kuee")

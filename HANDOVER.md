@@ -1,3 +1,43 @@
+# Handover — Give/Takeaway Bugfixes: Stuck Item + Undetectable NPC-Held Items (Aug 2026)
+
+## What changed this session
+Fixed two bugs reported after the initial Give/Takeaway implementation.
+
+**Give stuck bug:** `_try_give_to_nearest_npc()` cleared the player's
+`held_item`/bookkeeping unconditionally after a successful give, but
+`receive_item_from_player()` only destroys single-serving items
+(Dish/Produce) — FoodCan/WaterBottle survive with reduced charge, still
+fully held. Clearing bookkeeping regardless left surviving cans/bottles
+visually stuck (undroppable/unstorable/unusable, since every other
+action gates on `held_item`). Fixed to only clear bookkeeping when
+`is_instance_valid(item)` is false (i.e. it was actually destroyed).
+
+**Takeaway silently broken:** root cause was a physics layer issue, not
+GDScript logic. `PickupableItem.pickup()` sets `collision_layer = 2`
+while held; `Player.tscn`'s `DetectArea` had no explicit
+`collision_mask` and defaulted to layer 1 only, so it could never detect
+NPC-held (layer 2) items regardless of the earlier `is_held` check
+removals. Widened `DetectArea.collision_mask` to `3` (layer 1 | 2).
+Added `body == held_item` self-detection guards to
+`_try_add_nearest_to_basket()`/`_try_add_nearest_to_cookpot()` since the
+wider mask means the player's own held item is now visible to those
+scans too.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — `_try_give_to_nearest_npc()`
+  conditional bookkeeping clear; self-detection guards in
+  `_try_add_nearest_to_basket()`/`_try_add_nearest_to_cookpot()`.
+- `scenes/player/Player.tscn` — `DetectArea.collision_mask = 3`.
+- `docs/systems/player/README.md` — bugfix follow-up appended to the
+  existing NPC Give/Takeaway entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_GIVE_TAKEAWAY_BUGFIX_PLAN.md` for the
+full 6-item checklist)
+
+---
+
 # Handover — Relationship Magnitude Rebalance (Aug 2026)
 
 ## What changed this session

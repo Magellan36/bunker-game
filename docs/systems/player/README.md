@@ -182,6 +182,19 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   NPC subsystem side — `InteractionSystem` just calls
   `receive_item_from_player()`/`on_item_taken_by_player()` and trusts the
   return value.
+  **Bugfix follow-up (Aug 2026):** two gaps in the original spec, both
+  fixed. (1) `_try_give_to_nearest_npc()` was clearing `held_item` even
+  when the given item survives the call (FoodCan/WaterBottle aren't
+  destroyed by `receive_item_from_player()`, only Dish/Produce are) —
+  now only clears bookkeeping when `is_instance_valid(item)` is false.
+  (2) Takeaway was silently unreachable — `DetectArea` (`Player.tscn`)
+  had no explicit `collision_mask` and defaulted to layer 1 only, so it
+  could never see layer-2 (currently-held) bodies regardless of any
+  GDScript `is_held` check; `collision_mask` widened to `3` (1|2) fixes
+  this. Widening the mask also means `DetectArea` now sees the player's
+  own held item while CASE 1 scans for a different target — guarded with
+  `if body == held_item: continue` in `_try_add_nearest_to_basket()` and
+  `_try_add_nearest_to_cookpot()`.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns

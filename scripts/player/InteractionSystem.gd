@@ -708,6 +708,9 @@ func _try_add_nearest_to_basket(basket: Node) -> void:
 	var closest_dist: float  = INF
 
 	for body in bodies:
+		if body == held_item:   ## DetectArea now also sees the player's
+			continue              ## own held item (layer 2, Aug 2026 mask
+			                       ## widen) — never treat it as a candidate.
 		if body.is_in_group("basket_storable"):
 			if body.is_in_group("shelved"):
 				continue
@@ -753,6 +756,9 @@ func _try_add_nearest_to_cookpot(pot: Node) -> void:
 	var closest_dist: float  = INF
 
 	for body in bodies:
+		if body == held_item:   ## DetectArea now also sees the player's
+			continue              ## own held item (layer 2, Aug 2026 mask
+			                       ## widen) — never treat it as a candidate.
 		if body.is_in_group("cookpot_storable"):
 			if body.is_in_group("shelved"):
 				continue
@@ -833,8 +839,19 @@ func _try_give_to_nearest_npc(item: RigidBody3D) -> void:
 		return
 	if not target.receive_item_from_player(item):
 		return
-	if item.knocked_out.is_connected(_on_item_knocked_out):
-		item.knocked_out.disconnect(_on_item_knocked_out)
+	## Single-serving items (Dish/Produce) are destroyed inside
+	## receive_item_from_player() — consume_as_food() frees the node, so
+	## is_instance_valid(item) is false here and there is nothing left to
+	## clean up on the item itself. Multi-charge items (can/bottle)
+	## persist and are STILL correctly held by the player (is_held/
+	## hold_point tracking untouched by that call) — only clear our own
+	## bookkeeping in the destroyed case. Clearing it unconditionally was
+	## the bug: it desynced held_item (null) from a surviving item's own
+	## is_held (still true), leaving a can/bottle visually stuck in the
+	## player's hand but undroppable/unstorable/unusable since every
+	## other action checks held_item, which had already gone null.
+	if is_instance_valid(item):
+		return
 	held_item       = null
 	_held_from_slot = -1
 	_is_holding_e   = false
