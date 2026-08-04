@@ -1,3 +1,38 @@
+# Handover — Give/Snatch Inventory-Slot Clear Fix (Aug 2026)
+
+## What changed this session
+Fixed a bug where giving or having an item Snatched by an NPC left it
+showing forever in its original inventory slot. Root cause: the cleanup
+in `_try_give_to_nearest_npc()` (destroyed-item branch) and
+`clear_held_item_external()` (Snatch) only cleared local `held_item`/
+`_held_from_slot` bookkeeping, never touching
+`InventoryManager.slots[]`. Fix routes both through a new shared
+`_release_item_to_npc()` helper calling a new
+`InventoryManager.clear_slot()`. Deliberately did NOT use the originally
+proposed `InventoryManager.remove_item()` — that method is documented
+world-drop-only (resets collision_layer to 1, re-adds `"pickup"` group,
+repositions via `drop()`), which would have fought an NPC's
+already-completed `item.pickup(npc.hold_point)` reassignment on Snatch
+(visually yanking the item back out of the NPC's hand) or errored
+outright on an already-freed item on a destroyed-item Give.
+`clear_slot()` only nulls the slot array entry, nothing else.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — new `_release_item_to_npc()`
+  helper; `_try_give_to_nearest_npc()` and `clear_held_item_external()`
+  both now delegate to it.
+- `scripts/ui/inventory/InventoryManager.gd` — new `clear_slot()` method
+  (additive only, no existing method changed).
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_GIVE_SNATCH_INVENTORY_CLEAR_FIX_PLAN.md`
+for the full 5-item checklist)
+
+---
+---
+
 # Handover — NPC Give Real-Transfer Fix + Dedicated Snatch Activity + Relationship Debug Buttons (Aug 2026)
 
 **Owner:** NPC instance. Restates Give as a real transfer and redesigns

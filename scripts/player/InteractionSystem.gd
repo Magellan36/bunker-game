@@ -829,6 +829,25 @@ func _find_nearest_npc() -> Node:
 			closest = node
 	return closest
 
+## Shared cleanup for "this item just left my possession entirely, and
+## an NPC now has (or had) ownership of it" — used by both a destroyed-
+## item Give and a Snatch. Deliberately does NOT call
+## InventoryManager.remove_item()/retrieve_item() — see
+## InventoryManager.clear_slot()'s own doc comment for why; in short,
+## both of those force the item into world-pickup state and would fight
+## an NPC's already-completed item.pickup(npc.hold_point) reassignment
+## (Snatch) or error on an already-freed item (destroyed-item Give).
+## is_instance_valid(held_item) gates the knocked_out-disconnect the same
+## way — a freed item has no live signal to disconnect from.
+func _release_item_to_npc() -> void:
+	if is_instance_valid(held_item) and held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.disconnect(_on_item_knocked_out)
+	if _held_from_slot != -1 and inventory != null:
+		inventory.clear_slot(_held_from_slot)
+	held_item       = null
+	_held_from_slot = -1
+	_is_holding_e   = false
+
 ## Give dispatch. NPC.receive_item_from_player() may free `item`
 ## internally (single-serving items are consumed and destroyed on the
 ## spot) — do not touch `item` after a true return, same caution this
@@ -852,9 +871,7 @@ func _try_give_to_nearest_npc(item: RigidBody3D) -> void:
 	## other action checks held_item, which had already gone null.
 	if is_instance_valid(item):
 		return
-	held_item       = null
-	_held_from_slot = -1
-	_is_holding_e   = false
+	_release_item_to_npc()
 
 ## External clear — called by Player.on_item_snatched() when an NPC has
 ## just taken the held item away entirely outside this system's own
@@ -865,11 +882,7 @@ func _try_give_to_nearest_npc(item: RigidBody3D) -> void:
 ## npc.held_item = item) regardless of item type, so there's no
 ## "did it survive" branch to make — it's simply gone from this side.
 func clear_held_item_external() -> void:
-	if held_item != null and held_item.knocked_out.is_connected(_on_item_knocked_out):
-		held_item.knocked_out.disconnect(_on_item_knocked_out)
-	held_item       = null
-	_held_from_slot = -1
-	_is_holding_e   = false
+	_release_item_to_npc()
 
 ## Mirrors _try_pickup()'s tail exactly (signal connect, held_item/_held_from_slot
 ## bookkeeping, set_player call) — the only difference is the item comes from

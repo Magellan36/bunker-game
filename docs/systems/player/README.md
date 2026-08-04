@@ -211,6 +211,23 @@ own held item while CASE 1 scans for a different target — guarded with
   been physically reassigned to the NPC regardless of item type. Snatch
   trigger logic, relationship math, and cooldowns are entirely NPC-owned;
   this file only reports state and cleans up after the fact.
+- **Give/Snatch inventory-slot clear fix (Aug 2026):** Both
+  `_try_give_to_nearest_npc()`'s destroyed-item cleanup and
+  `clear_held_item_external()` (Snatch) previously only nulled local
+  `held_item`/`_held_from_slot` bookkeeping, never touching
+  `InventoryManager.slots[]` — so an item pulled from an inventory slot
+  and given/snatched away kept showing in that slot forever. Both now
+  route through a new shared `_release_item_to_npc()` helper, which
+  calls a new `InventoryManager.clear_slot()` when the item came from a
+  slot. Deliberately does NOT use `InventoryManager.remove_item()` —
+  that method is documented/implemented as world-drop-only (forces
+  collision_layer back to 1, re-adds the `"pickup"` group, repositions
+  via `drop()`), which would fight an NPC's already-completed
+  `item.pickup(npc.hold_point)` reassignment on Snatch, or error on an
+  already-freed item on a destroyed-item Give. `clear_slot()` only nulls
+  the slot array entry — it's additive to `InventoryManager.gd`
+  (UI/menu-subsystem-owned; flagged for their visibility, not a change
+  to any of their existing methods).
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns

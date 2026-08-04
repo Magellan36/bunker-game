@@ -154,3 +154,19 @@ func remove_item(slot: int, drop_position: Vector3) -> void:
 		item.drop(_world_root, drop_position)
 
 	inventory_changed.emit()
+
+## Clears a slot's reference without touching the item's own state at
+## all — for the "something else already correctly handled this item,
+## I just need to stop tracking it" case (an NPC's own pickup() call
+## already reassigned it — Snatch; or it's already been freed elsewhere
+## — a destroyed single-serving Give). remove_item()/retrieve_item() both
+## force the item into world-pickup state (collision_layer = 1, "pickup"
+## group; remove_item() also repositions via drop()) and are documented
+## world-drop-only — using either here would fight an NPC's already-
+## completed pickup() reassignment, or error outright on an already-freed
+## item. This touches only the slot array itself.
+func clear_slot(slot: int) -> void:
+	if slot < 0 or slot >= SLOT_COUNT:
+		return
+	slots[slot] = null
+	inventory_changed.emit()
