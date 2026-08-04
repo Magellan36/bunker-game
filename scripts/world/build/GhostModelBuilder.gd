@@ -129,6 +129,8 @@ static func build_real_instance(tile_id: int) -> Node3D:
 ## collision_layer unconditionally) will silently undo it. See this fix's
 ## own root-cause note for why the original placement was wrong.
 static func strip_collision(node: Node) -> void:
+	if not is_instance_valid(node):
+		return
 	if node is CollisionObject3D:
 		var co: CollisionObject3D = node as CollisionObject3D
 		co.collision_layer = 0

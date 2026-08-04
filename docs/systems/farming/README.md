@@ -137,6 +137,13 @@ The water/power systems have managers because they solve a *shared graph*
   bucket-array shape (not a single ref per bucket) is intentionally reused
   by Group 7 item 15's future double-stack guard.
 
+**Fix (Aug 2026)** — preview-only grow lights (ghosts in Build Mode) no longer
+register into the spatial bucket registry. Previously a ghost grow light
+would call `_register_bucket()` in `_ready()` before the `_is_preview_only`
+early return, causing plants near the cursor to register the ghost as a real
+light. Fixed by moving the `_is_preview_only` return before the
+`_register_bucket()` call in `GrowLight._ready()`.
+
 ## Feedback & readability polish (Polish Plan Group 1, items 1–4)
 - **Item 0 cleanup carried over here** — `FarmPlant.gd` now truly
   `extends Node3D` (no `StaticBody3D`, collider, or `interactable`/

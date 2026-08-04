@@ -145,14 +145,7 @@ maintaining separate logic.
   `_is_preview_only = true` (the pre-existing guard nearly every
   furniture/device script already has), same construction every object
   needed for its menu preview to work in the first place.
-- **`strip_collision()`** — call this **after** `add_child()`, never
-  before (`_ready()` hasn't run yet before that point, and most scripts set
-  `collision_layer` unconditionally in `_ready()`, which would silently
-  undo an earlier strip — this bit Grow Light placement's own occupancy
-  check particularly badly before the fix; see `HANDOVER.md`). Forces
-  every `CollisionObject3D` descendant inert — ghosts are visual-only,
-  full stop, regardless of what a given object script's own `_ready()`
-  sets.
+- **`strip_collision()`** — call this **only after the instance is inside the SceneTree** — `add_child()` on an out-of-tree parent does not fire `_ready()`, so a strip at that point runs too early and gets undone. `_spawn_ghost()` therefore adds the ghost root to the tree **BEFORE** `_rebuild_ghost_mesh()` runs; do not reorder. An end-of-frame deferred re-strip is also applied (Fix 2) to catch any script that configures collision via `call_deferred` after its `_ready()`.
 - **`apply_ghost_tint()`** — recursively recolors every mesh surface under
   a ghost root to translucent green/red, replacing whatever real
   materials/textures the object has. Works for any number of mesh parts.
@@ -342,8 +335,8 @@ BuildModeController._ready()
 Player enters build mode (BuildModeHUD tool_selected / enter_build_mode())
   → active tool = Construct/Deconstruct/Move/Duplicate/Wire
   → Construct: GhostPreview._update_ghost() every frame → click →
-      spawn_structure() → BuildMaterials applies material →
-      BuildUndoStack._push_undo_place()
+      **_spawn_ghost() → add_child(_ghost) → _rebuild_ghost_mesh() → BuildMaterials applies material →
+      BuildUndoStack._push_undo_place()**
   → Deconstruct: hover → click → remove_placed_object() /
       RockSurround.deconstruct_chunk() (via dig-confirm flow) →
       BuildUndoStack._push_undo_remove()/_push_undo_dig_rock()

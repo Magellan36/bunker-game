@@ -50,10 +50,17 @@ func _spawn_ghost() -> void:
 	_destroy_ghost()
 	_owner._ghost = MeshInstance3D.new()
 	_owner._ghost.position = Vector3.ZERO   ## Reset local offset before mesh rebuild may override
-	_rebuild_ghost_mesh()
-	var parent: Node = _owner.gridmap.get_parent() if _owner.gridmap != null else _owner.get_tree().get_root()
-	parent.add_child(_owner._ghost)
+	## Hide BEFORE entering the tree — prevents any one-frame flash at origin.
 	_owner._ghost.visible = false
+	var parent: Node = _owner.gridmap.get_parent() if _owner.gridmap != null else _owner.get_tree().get_root()
+	## LIFECYCLE RULE: the ghost root MUST be inside the SceneTree before
+	## _rebuild_ghost_mesh() runs. add_child(real_inst) on an out-of-tree
+	## parent does NOT fire the child's _ready() — so strip_collision()
+	## would run BEFORE _ready(), and scripts that set collision_layer
+	## unconditionally in _ready() (most of them) silently undo the strip.
+	## This exact bug shipped once already — do not reorder these lines.
+	parent.add_child(_owner._ghost)
+	_rebuild_ghost_mesh()
 
 func _destroy_ghost() -> void:
 	if _owner._ghost != null:
@@ -80,6 +87,9 @@ func _rebuild_ghost_mesh() -> void:
 	if real_inst != null:
 		_owner._ghost.add_child(real_inst)
 		GhostModelBuilder.strip_collision(real_inst)   ## NEW — now runs after _ready(), actually sticks
+		## Re-strip at end of frame — catches any script that sets up
+		## collision via call_deferred after its _ready().
+		GhostModelBuilder.strip_collision.call_deferred(real_inst)
 		GhostModelBuilder.attach_facing_arrow(
 			_owner._ghost,
 			_owner._selected_tile,

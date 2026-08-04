@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-04T15:22:08.338816+00:00",
+  "generated_at": "2026-08-04T15:41:17.329142+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 122,
-  "total_lines": 48657,
+  "total_lines": 48670,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -2892,7 +2892,7 @@
     },
     {
       "path": "res://scripts/world/build/GhostModelBuilder.gd",
-      "line_count": 239,
+      "line_count": 241,
       "class_name": "GhostModelBuilder",
       "extends": "RefCounted",
       "exports": [],
@@ -2903,11 +2903,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 239
+      "complexity_score": 241
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
-      "line_count": 685,
+      "line_count": 695,
       "class_name": "GhostPreview",
       "extends": "RefCounted",
       "exports": [],
@@ -2929,7 +2929,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 693
+      "complexity_score": 703
     },
     {
       "path": "res://scripts/world/build/MoveDuplicateTool.gd",
@@ -5293,7 +5293,7 @@
     },
     {
       "path": "res://scripts/world/power/GrowLight.gd",
-      "line_count": 543,
+      "line_count": 544,
       "class_name": "GrowLight",
       "extends": "StaticBody3D",
       "exports": [
@@ -5353,7 +5353,7 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 570
+      "complexity_score": 571
     },
     {
       "path": "res://scripts/world/power/PowerGraph.gd",

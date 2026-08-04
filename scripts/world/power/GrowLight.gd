@@ -196,9 +196,10 @@ func _ready() -> void:
 	tier = tier if TIER_WATTS.has(tier) else "normal"
 	collision_layer = 5
 	collision_mask  = 0
-	if not _is_preview_only:
-		add_to_group("interactable")
-		add_to_group("grow_light")
+	if _is_preview_only:
+		return
+	add_to_group("interactable")
+	add_to_group("grow_light")
 	_build_fixture()
 	## A7 safety net — guarantee fixture starts off before any PowerManager
 	## solve can potentially set it powered.
@@ -212,9 +213,9 @@ func _ready() -> void:
 	## (like _register_deferred below already does for power) waits until
 	## after global_position has its real value. Also removes the old
 	## duplicate call — it only ever needs to run once.
-	call_deferred("_register_bucket")
 	if _is_preview_only:
 		return
+	call_deferred("_register_bucket")
 	call_deferred("_register_deferred")
 
 ## Registers into the static bucket registry (item 14) — global_position is

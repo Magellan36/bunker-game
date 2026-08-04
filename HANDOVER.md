@@ -1,3 +1,68 @@
+# Handover — Ghost Collision Regression Fix (Aug 2026)
+
+## What changed this session
+
+### Root cause — Ghost collision regression
+The July "strip collision AFTER add_child" fix ran at the wrong tree level:
+`GhostModelBuilder.strip_collision()` was called inside `_rebuild_ghost_mesh()`
+**before** the ghost root entered the SceneTree. Since `add_child(real_inst)`
+on an out-of-tree parent does **not** fire `_ready()`, the strip ran **before**
+scripts' own `_ready()` ran — scripts that unconditionally set
+`collision_layer = 5` in their `_ready()` silently re-enabled collision
+on every ghost spawn. This is why Fix 2's strip "didn't take" — it ran at
+the wrong lifecycle point.
+
+**Consequences:** (1) Ghosts of every `PROCEDURAL_PREVIEW_SOURCES` tile
+push the player/NPCs (live collision). (2) Grow lights always red/"space
+occupied" — the ghost's own live collider sits exactly at the
+`_is_position_occupied()` query position, so the ghost blocks itself.
+Grow lights had no registry carve-out in `_is_position_occupied_for_tile()`
+(unlike Purifier/Light/Shelving), so the physics query always ran for
+them and always found the ghost's own collider at the query position.
+
+### Fixes
+
+**Fix 1 — Core: Reorder `_spawn_ghost()`** — `_spawn_ghost()` now:
+1. Creates ghost root
+2. Sets `visible = false` (prevents 1-frame flash)
+2. **Adds ghost root to SceneTree** (`parent.add_child(_ghost)`)
+3. **Then** calls `_rebuild_ghost_mesh()` → `build_real_instance()` →
+   `strip_collision()` now runs AFTER `add_child(real_inst)` fires
+   `_ready()`, so the strip sticks.
+
+**Fix 2 — Hardening: Deferred re-strip + freed-node guard**
+- `_rebuild_ghost_mesh()`: added `GhostModelBuilder.strip_collision.call_deferred(real_inst)`
+  to catch any script that configures collision via `call_deferred` in
+  its `_ready()`.
+- `GhostModelBuilder.strip_collision()`: added `is_instance_valid(node)`
+  guard so the deferred call is safe if the ghost was freed the same
+  frame (tile switch / build-mode exit).
+
+**Fix 3 — Grow Light bucket registry** — preview-only grow lights no
+longer register into `GrowLight._bucket_registry`. Moved the
+`_is_preview_only` guard **before** the `call_deferred("_register_bucket")`
+call in `GrowLight._ready()` (same fix pattern as the chair ghost
+invisibility bug).
+
+### Files modified
+- `scripts/world/build/GhostPreview.gd` — `_spawn_ghost()` reorder, deferred re-strip
+- `scripts/world/build/GhostModelBuilder.gd` — `strip_collision()` freed-node guard
+- `scripts/world/power/GrowLight.gd` — preview guard before bucket register
+- `docs/systems/build/README.md` — `strip_collision()` bullet updated with
+  precise lifecycle rule; Call graph updated with `_spawn_ghost()` order
+- `docs/systems/farming/README.md` — note that preview-only grow lights
+  no longer register into spatial bucket
+- `HANDOVER.md` — this entry
+
+### Verification checklist
+1. Ghost collision gone — walk through any furniture ghost, no push.
+2. Grow lights placeable — green over open floor, places correctly.
+3. Occupancy still works — ghost red over existing object, green over open floor.
+4. No flash/regression — rapid tile switching (Chair → Wall → Stove → Grow Light) shows no flash at origin.
+5. Bucket fix — with a plant in a tray and NO real grow light, hover a grow-light ghost over tray — plant must NOT register as lit.
+
+---
+
 # Handover — NPC Names + Ask-About Relationship Dialogue (Aug 2026)
 
 ## What changed this session
