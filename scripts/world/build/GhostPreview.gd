@@ -79,6 +79,7 @@ func _rebuild_ghost_mesh() -> void:
 		real_inst = GhostModelBuilder.build_meshlibrary_instance(_owner._selected_tile, _owner.gridmap)
 	if real_inst != null:
 		_owner._ghost.add_child(real_inst)
+		GhostModelBuilder.strip_collision(real_inst)   ## NEW — now runs after _ready(), actually sticks
 		GhostModelBuilder.attach_facing_arrow(
 			_owner._ghost,
 			_owner._selected_tile,

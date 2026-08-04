@@ -1,23 +1,22 @@
-NPC Pass 2 Part 19: Health Adjuster, Full Debug Dump, Player Commands
+NPC Pass 2 Part 21: Averaged Forgetfulness + Mood-Recovery Nuance + Docs Rewrite
 
-Part A - F7 Health adjuster:
-- AdminMenu.gd: Added Health +20/-20 rows in NPC section (mirrors Energy/Hunger/Thirst)
-- Added _on_npc_health_up_pressed/_down_pressed using shared _adjust_all_npc_need()
+NPC.gd:
+- get_forgetfulness_chance(): switched from probabilistic OR to straight
+  average across Hunger, Thirst, Mood, and new Energy contribution
+- Added _energy_forgetfulness_tier_chance() (mild contribution, ~1/3
+  needs scale)
+- Added _forgetfulness_reasons() and _slow_reasons() helpers for
+  collapsed label parentheses
+- get_status_labels(): Forgetfulness and Slowing now collapse to ONE
+  label each with comma-separated reasons in parentheses
+- Mood recovery now slightly slows when needs are barely "fine" (just
+  above 70 threshold) — no status label, background nuance only
 
-Part B - Expanded debug dump:
-- NPCDebug.gd: Replaced dump_all() with multi-line _dump_one() per NPC
-- Shows: pos, activity, held, movement_locked, stuck_recoveries, Health/Energy/Hunger/Thirst,
-  speed_multiplier, passed_out, forgetfulness_chance, status_labels, skills, seed/mood/personality
-
-Part C - Player commands via Talk menu:
-- NPCBrain.gd: force_command(activity) - force-starts activity, exits current via exit()
-- NPCBrain.gd: CommandRestActivity (bed->chair fallback), CommandHarvestActivity (nearest HARVEST job)
-- NPCTalkMenuUI.gd: Four command buttons revealed after Talk press:
-  "Go eat something", "Go drink something", "Take a load off", "Harvest the plants"
-- Shared _issue_command() dispatch with NotificationManager toast feedback
-- Priority: Part 14 pass-out override preempts commands
-
-docs/systems/npc/README.md: Updated NPCTalkMenuUI states, Admin Spawn F7 rows,
-Extension Points with Player Commands section.
+docs/systems/npc/README.md:
+- Complete rewrite: replaced Pass-1-era wander-only doc with full system
+  reference covering Navigation, Physics Clutter, Needs/Health/Status,
+  Personality/Mood/Irritability, Skills/Jobs, Items/Consumption,
+  Resting, Player Commands, Persistence, Debug Tooling, Non-
+  responsibilities, Known Tradeoffs, Testing Checklist
 
 Architecture.json regenerated.

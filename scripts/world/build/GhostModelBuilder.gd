@@ -77,10 +77,8 @@ const ARROW_OVERRIDES: Dictionary = {
 	6:  [0.0,  180.0],   ## Generator S (z_offset computed from size at call time — see Part 4)
 	7:  [0.0,  180.0],   ## Generator M
 	8:  [0.0,  180.0],   ## Generator L
-	18: [0.0,  180.0],   ## Water Test Sink
-	19: [0.0,  180.0],   ## Water Dispenser
-	29: [0.0,  180.0],   ## Chair — true front is +Z (seat-facing), not -Z (backrest)
 }
+const DEFAULT_ARROW_Y_ROT: float = 180.0   ## Most objects' real "front" is local +Z, opposite the arrow geometry's own base -Z direction. Tiles with a hand-tuned ARROW_OVERRIDES entry are unaffected — this only fills in when no entry exists.
 const DEFAULT_ARROW_Z_MARGIN: float = 0.15   ## Added to an object's own half-extent for tiles with no override
 
 ## Builds a detached, side-effect-free instance of the REAL object script/
@@ -117,9 +115,7 @@ static func build_real_instance(tile_id: int) -> Node3D:
 		var rb: RigidBody3D = inst as RigidBody3D
 		rb.freeze = true
 		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-
-	_strip_collision_recursive(inst)   ## NEW — universal collision stripping
-	return inst
+	return inst   ## strip_collision() call REMOVED from here — see GhostPreview.gd instead
 
 ## Forces every CollisionObject3D descendant (StaticBody3D, RigidBody3D,
 ## Area3D, etc.) to collide with nothing. Ghosts are visual-only — no
@@ -127,13 +123,18 @@ static func build_real_instance(tile_id: int) -> Node3D:
 ## _is_preview_only for this to be safe; this makes it safe universally,
 ## for every object registered in PROCEDURAL_PREVIEW_SOURCES, present and
 ## future.
-static func _strip_collision_recursive(node: Node) -> void:
+## Renamed public (was _strip_collision_recursive) — MUST be called AFTER
+## the instance has entered the tree (i.e. after add_child()), never
+## before, or a script's own _ready() (which typically sets
+## collision_layer unconditionally) will silently undo it. See this fix's
+## own root-cause note for why the original placement was wrong.
+static func strip_collision(node: Node) -> void:
 	if node is CollisionObject3D:
 		var co: CollisionObject3D = node as CollisionObject3D
 		co.collision_layer = 0
 		co.collision_mask  = 0
 	for child: Node in node.get_children():
-		_strip_collision_recursive(child)
+		strip_collision(child)
 
 ## Second-tier fallback for MeshLibrary-backed tiles (Pillar, Floor) that
 ## have no procedural script. Returns null if tile_id isn't a valid
@@ -187,7 +188,7 @@ static func attach_facing_arrow(root: Node3D, tile_id: int, half_extent: Vector2
 			child.queue_free()
 
 	var z_offset: float = half_extent.y + DEFAULT_ARROW_Z_MARGIN
-	var y_rot: float = 0.0
+	var y_rot: float = DEFAULT_ARROW_Y_ROT   ## was 0.0
 	if ARROW_OVERRIDES.has(tile_id):
 		var ov: Array = ARROW_OVERRIDES[tile_id]
 		z_offset = ov[0] if ov[0] > 0.0 else z_offset   ## 0.0 override means "use computed default"

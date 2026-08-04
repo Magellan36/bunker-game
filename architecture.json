@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-04T02:26:03.591111+00:00",
+  "generated_at": "2026-08-04T02:32:20.538289+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 122,
-  "total_lines": 48419,
+  "total_lines": 48422,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -2646,7 +2646,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 3067,
+      "line_count": 3068,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -2818,7 +2818,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 3171
+      "complexity_score": 3172
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
@@ -2871,7 +2871,7 @@
     },
     {
       "path": "res://scripts/world/build/GhostModelBuilder.gd",
-      "line_count": 238,
+      "line_count": 239,
       "class_name": "GhostModelBuilder",
       "extends": "RefCounted",
       "exports": [],
@@ -2882,11 +2882,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 238
+      "complexity_score": 239
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
-      "line_count": 684,
+      "line_count": 685,
       "class_name": "GhostPreview",
       "extends": "RefCounted",
       "exports": [],
@@ -2908,7 +2908,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 692
+      "complexity_score": 693
     },
     {
       "path": "res://scripts/world/build/MoveDuplicateTool.gd",
