@@ -78,6 +78,15 @@ static func log_relationship_tick(npc: Node) -> void:
 		return
 	print("%s relationships: %s" % [_fmt(npc), str(npc.relationships)])
 
+## Discrete relationship events (Part 24) — Give/Takeaway, as opposed to
+## log_relationship_tick's continuous background drift. Always worth a
+## line since these are deliberate player actions, not ambient ticking.
+static func log_relationship_event(npc: Node, target_id: String, delta: float, reason: String) -> void:
+	if not enabled:
+		return
+	var after: float = npc.get_relationship(target_id) if npc.has_method("get_relationship") else 0.0
+	print("%s relationship event (%s): %s %+.1f -> %.1f" % [_fmt(npc), reason, target_id, delta, after])
+
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
 ## on-demand request, not continuous logging). Part 19 — expanded from a

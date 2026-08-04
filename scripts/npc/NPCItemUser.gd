@@ -173,3 +173,24 @@ static func eat_held_step(npc: NPC) -> bool:
 			return true
 		return false   ## more bites coming; EatActivity re-times the next one
 	return true
+
+# ─── Give/Takeaway helpers (Part 24) ────────────────────────────────────────
+## Give (player → NPC) V1 scope: single-serving items only — DishItem and
+## FarmProduceItem both resolve fully in one consume_as_food() call, so
+## there's no leftover-charge bookkeeping to handle. FoodCan/WaterBottle
+## are multi-use (take_bite()/take_drink() are partial) — deliberately
+## excluded rather than silently deciding what happens to the remainder.
+static func is_giveable(item: Node) -> bool:
+	return item is DishItem or item is FarmProduceItem
+
+## Takeaway (player steals mid-consumption). Which live NPC (if any) is
+## currently holding this exact item — used both to gate the pickup
+## prompt/action and to notify the right NPC once it's taken. A plain
+## Node scan of the "npc" group; cheap at bunker-sized NPC counts.
+static func find_holder(item: Node, tree: SceneTree) -> Node:
+	if item == null:
+		return null
+	for npc: Node in tree.get_nodes_in_group("npc"):
+		if is_instance_valid(npc) and ("held_item" in npc) and npc.held_item == item:
+			return npc
+	return null

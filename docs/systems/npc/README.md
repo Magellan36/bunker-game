@@ -254,9 +254,13 @@ into something the player can actually learn in play.
 **`FUTURE WORK` — explicitly deferred, not built. Brannon's brainstormed
 list, kept here so future passes wire into `_adjust_relationship()` the
 same way proximity does rather than reinventing the plumbing:**
-- Player handing an NPC food/water directly (positive, stronger than
-  passive proximity) vs. an NPC noticing it lost out on a scarce item to
-  another NPC (negative).
+- ~~Player handing an NPC food/water directly~~ — done (Give, Aug 2026),
+  see the new Give/Takeaway section below. ~~An NPC noticing it lost out
+  on a scarce item to another NPC~~ — deliberately NOT built this way in
+  the end (see that section for why: no reliable "who wanted it" signal
+  existed without inferring desire, which felt arbitrary). Takeaway
+  shipped instead, a different and more legible mechanic covering
+  overlapping ground.
 - Who helps a passed-out NPC/player vs. who beelines past — doubles as a
   precursor signal for the still-deferred Crisis Response system.
 - Player commands (`force_command()`) landing well vs. being ignored/
@@ -324,6 +328,63 @@ near each other.
   not just the question) once a real dialogue system replaces the small
   hardcoded pools.
 - Visual/portrait identity per name — names are text-only right now.
+
+### Give / Takeaway (Aug 2026)
+
+**Give.** Player holds a single-serving food item (`DishItem` or
+`FarmProduceItem` — see `NPCItemUser.is_giveable()`) and walks up to an
+NPC: `[E] Give <item> to <name>` appears (mirrors the Basket/Cooking Pot
+held-item prompt pattern in `InteractionSystem.gd` exactly). E consumes
+the item into the NPC's hunger immediately
+(`NPC.receive_item_from_player()`) and applies a flat +15 relationship
+bonus (scaled by Sociability like everything else, via
+`_adjust_relationship()`). Deliberately single-serving only —
+`FoodCan`/`WaterBottle` are multi-charge items and what happens to a
+partially-given can/bottle is a real open question, not silently decided
+here.
+
+**Takeaway.** An item an NPC is holding is normally pickup-blocked for the
+player (`is_held` excludes it). That block now has one narrow exception:
+while the NPC is actually mid-Eat/DrinkActivity because hunger or thirst
+is genuinely below 55 (`NPC.is_consuming_from_need()` — the exact same
+threshold EatActivity/DrinkActivity themselves auto-trigger on), the
+normal `[F] Pick up` prompt reappears on that item. Taking it applies a
+flat -15 relationship penalty
+(`NPC.on_item_taken_by_player()`/`TAKEAWAY_RELATIONSHIP_PENALTY`) and
+clears the NPC's stale `held_item` reference. A player-forced "Go eat
+something" command issued while the NPC wasn't actually hungry does NOT
+make the held item takeable — the gate is live need level, not which
+activity path triggered the hold.
+
+As a side effect, this patch also closed a latent gap: `_try_pickup()`
+had no `is_held` check at all before this pass (only the prompt did),
+meaning any NPC-held item could technically already be silently grabbed
+regardless of reason — just never surfaced because the prompt never
+showed it. It's now correctly gated everywhere, not just the prompt.
+
+Both directions log through `NPCDebug.log_relationship_event()`
+(distinct from `log_relationship_tick`'s continuous proximity logging —
+these are discrete, always-worth-a-line player actions).
+
+**F7 relationship visualizer.** Piggybacks the existing "Toggle NPC Debug
+Logging" row rather than adding a new one — while `NPCDebug.enabled` is
+on, every NPC shows a floating pale-blue text readout above their head
+(`NPC._update_relationship_debug_label()`, above the Part-5 name/activity
+label) listing every relationship they've formed and its band. Debug-only
+stand-in for a real in-fiction relationship UI later, per Brannon.
+
+**`FUTURE WORK`:**
+- Multi-use item Give (FoodCan/WaterBottle) — needs a decision on what
+  happens to the remaining charge.
+- A visible interrupt/flinch reaction when an item is taken mid-bite,
+  instead of the NPC finishing its ~2s consumption animation
+  empty-handed (a cosmetic gap, not a logic bug — see
+  `on_item_taken_by_player()`'s comment).
+- The floating "-15"/"+15" loss/gain pulse above an NPC's head — real
+  visuals pass, explicitly deferred; the F7 readout is the placeholder.
+- NPC-vs-NPC takeaway — structurally impossible right now (the item claim
+  system already prevents one NPC from ever targeting another's claimed
+  item), so this only ever fires against the player today.
 
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
@@ -475,3 +536,18 @@ skills, personality words, seed, mood, and irritability + label.
     survive; spawn a brand-new NPC after reload and confirm its
     auto-assigned id doesn't collide with a restored one (distinct ids in
     the debug dump).
+13. Get an NPC's hunger or thirst below 55 (F7 "Drain NPC Needs -40"),
+    let them start eating/drinking, then walk up mid-consumption and
+    press F — confirm the normal "[F] Pick up" prompt appears and taking
+    it works, the NPC doesn't error or double-consume, and F7 "Print NPC
+    Debug State" / the relationship dump shows -15 toward "player".
+    Separately, confirm an NPC holding an item for a non-need reason
+    (full hunger/thirst, forced via "Go eat something" while not hungry,
+    or a job material) is NOT takeable.
+14. Hold a cooked dish or piece of produce, walk up to an NPC — confirm
+    "[E] Give <item> to <name>" appears and works, hunger rises, and
+    relationship goes up +15. Confirm a FoodCan or water bottle does NOT
+    show a Give prompt (out of scope this pass).
+15. Toggle F7 "Toggle NPC Debug Logging" on — confirm every NPC shows a
+    floating relationship readout above their head; toggle off — confirm
+    it disappears.

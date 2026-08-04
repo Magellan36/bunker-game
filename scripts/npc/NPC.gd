@@ -363,6 +363,70 @@ func _tick_relationships(h: float) -> void:
 ## relationship, a Player→NPC reciprocal value). None of that is built —
 ## proximity is the only live driver this pass.
 
+# ─── Give / Takeaway (Part 24) ──────────────────────────────────────────────
+const GIVE_RELATIONSHIP_BONUS: float = 15.0
+const TAKEAWAY_RELATIONSHIP_PENALTY: float = 15.0
+## Matches EatActivity/DrinkActivity's own auto-trigger threshold
+## (`npc.hunger >= 55.0`/`npc.thirst >= 55.0` → score 0) intentionally —
+## "needs it" means the same thing everywhere in the NPC system.
+const TAKEAWAY_NEED_THRESHOLD: float = 55.0
+
+## Give (player → player-initiated hand-off). Called by InteractionSystem
+## when the player presses E on this NPC while holding a giveable item.
+## Consumed immediately rather than added to held_item — no queue, no
+## "what if they're already full/mid-task" edge cases; this can fire even
+## while the NPC is separately mid-Eat/DrinkActivity with something else
+## in hand, since it never touches `held_item`.
+func receive_item_from_player(item: Node) -> bool:
+	if item == null or not is_instance_valid(item):
+		return false
+	if not NPCItemUser.is_giveable(item):
+		return false
+	if item is DishItem or item is FarmProduceItem:
+		hunger = minf(100.0, hunger + item.consume_as_food())   ## frees the node
+	_adjust_relationship("player", GIVE_RELATIONSHIP_BONUS)
+	if NPCDebug.enabled:
+		NPCDebug.log_relationship_event(self, "player", GIVE_RELATIONSHIP_BONUS, "received gift")
+	return true
+
+## Takeaway gate. True only while genuinely hungry/thirsty AND actually
+## holding a food/drink item right now — recomputed live rather than
+## captured at the moment of pickup. Functionally identical to a captured
+## flag for the few-second holding window (need doesn't recover until the
+## bite/sip actually lands, which is the exact moment this gate exists to
+## intercept), and it correctly excludes a player-forced "Go eat
+## something" command issued while the NPC wasn't actually hungry —
+## `_talk_menu`'s command buttons use this SAME EatActivity/DrinkActivity
+## class, so there's no separate "forced" flag to check; live need level
+## is the only signal that's actually true either way.
+func is_consuming_from_need() -> bool:
+	if held_item == null or not is_instance_valid(held_item):
+		return false
+	if hunger >= TAKEAWAY_NEED_THRESHOLD and thirst >= TAKEAWAY_NEED_THRESHOLD:
+		return false
+	return NPCItemUser.is_edible(held_item) or NPCItemUser.is_drinkable_bottle(held_item)
+
+## Called by InteractionSystem the instant the player successfully grabs
+## an item this NPC was mid-consumption of. Clears the stale held_item
+## reference and releases its claim; EatActivity/DrinkActivity's
+## tick()/eat_held_step()/_finish_bottle() already no-op cleanly on a
+## null/mismatched held_item (verified against both classes — this was
+## checked, not assumed, given how much debugging already went into their
+## state machines). One accepted cosmetic gap: if the takeaway happens
+## mid-bite (during the ~2s CONSUME_TIME countdown), the NPC visibly
+## keeps "eating" empty-handed for the rest of that countdown before the
+## activity notices and re-scores — no crash, no double-consumption, just
+## a beat of odd animation. A real interrupt/flinch reaction belongs in
+## the later visuals pass, not this one.
+func on_item_taken_by_player() -> void:
+	var item: Node = held_item
+	held_item = null
+	if item != null:
+		NPCItemUser.release_item(item)
+	_adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
+	if NPCDebug.enabled:
+		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
+
 
 # ─── Skills (Part 4) — score multipliers for job selection; grow with use ──
 var skills: Dictionary = {
@@ -666,6 +730,44 @@ func _process(delta: float) -> void:
 		add_child(_overhead_label)
 	var activity: String = brain.current_label() if brain != null else "Idle"
 	_overhead_label.text = "%s — %s" % [npc_name, activity]
+	_update_relationship_debug_label()
+
+# ─── Debug relationship visualizer (Part 24) ────────────────────────────────
+## Piggybacks the existing "Toggle NPC Debug Logging" F7 row (NPCDebug.
+## enabled) rather than adding a 13th row — floating readout above each
+## NPC's head of who they know and how they feel. Deliberately plain text;
+## this is a debug stand-in for the real in-fiction relationship UI that
+## belongs in a later pass once relationships are baked into the game for
+## good, not the final thing.
+var _relationship_debug_label: Label3D = null
+
+func _update_relationship_debug_label() -> void:
+	if not NPCDebug.enabled:
+		if _relationship_debug_label != null:
+			_relationship_debug_label.visible = false
+		return
+	if _relationship_debug_label == null:
+		_relationship_debug_label = Label3D.new()
+		_relationship_debug_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_relationship_debug_label.fixed_size = true
+		_relationship_debug_label.pixel_size = 0.0006
+		_relationship_debug_label.font_size = 28
+		_relationship_debug_label.outline_size = 6
+		_relationship_debug_label.position = Vector3(0.0, 2.15, 0.0)
+		_relationship_debug_label.modulate = Color(0.55, 0.85, 1.0, 0.95)   ## pale blue — visually distinct from the other two overhead labels
+		add_child(_relationship_debug_label)
+	_relationship_debug_label.visible = true
+	var lines: Array[String] = []
+	for target_id: String in relationships.keys():
+		var display: String = "You" if target_id == "player" else _name_for_relationship_id(target_id)
+		lines.append("%s: %+.0f (%s)" % [display, relationships[target_id], get_relationship_label(target_id)])
+	_relationship_debug_label.text = "\n".join(lines) if not lines.is_empty() else "(no relationships yet)"
+
+func _name_for_relationship_id(target_id: String) -> String:
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if is_instance_valid(other) and ("npc_id" in other) and String(other.npc_id) == target_id:
+			return String(other.npc_name)
+	return target_id
 
 
 # ─── Stuck recovery (Part 7) ────────────────────────────────────────────────

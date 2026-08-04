@@ -1,3 +1,55 @@
+# Handover — NPC Give/Takeaway + F7 Relationship Visualizer (Aug 2026)
+
+## What changed this session
+
+### Give
+- **NPC.gd**: `receive_item_from_player()` (V1 scope: DishItem/
+  FarmProduceItem only), `GIVE_RELATIONSHIP_BONUS` (+15).
+- **NPCItemUser.gd**: `is_giveable()`.
+- **InteractionSystem.gd** (Player subsystem — **NOT applied this session**;
+  flagged for the later plan): new "[E] Give `<item>` to `<name>`" prompt
+  block (mirrors Basket/Cooking Pot pattern) + dispatch, `_find_nearest_npc()`,
+  `_try_give_to_nearest_npc()`. Deferred with the rest of section 5.
+
+### Takeaway
+- **NPC.gd**: `is_consuming_from_need()` (gated on the same 55.0 threshold
+  Eat/DrinkActivity auto-trigger on), `on_item_taken_by_player()`,
+  `TAKEAWAY_RELATIONSHIP_PENALTY` (-15).
+- **NPCItemUser.gd**: `find_holder()`.
+- **InteractionSystem.gd** (Player subsystem — **NOT applied this session**):
+  `_try_pickup()` and `_nearest_pickup_distance()` `is_held` carve-outs; the
+  CASE 2 prompt-loop carve-out. Deferred with the rest of section 5.
+  (Note: the latent gap this closes in `_try_pickup()` is likewise still open
+  until that section lands.)
+
+### F7 Relationship Visualizer
+- **NPC.gd**: `_update_relationship_debug_label()`, piggybacking
+  `NPCDebug.enabled` (no new F7 row) — floating per-NPC relationship
+  readout above the Part-5 name/activity label.
+- **NPCDebug.gd**: `log_relationship_event()` for discrete Give/Takeaway
+  events (separate from the existing continuous `log_relationship_tick`).
+
+### Docs
+`docs/systems/npc/README.md` — new Give/Takeaway section, Relationships'
+Future Work item marked done/superseded, three new Testing Checklist
+items.
+
+## Files Modified
+- `scripts/npc/NPC.gd`
+- `scripts/npc/NPCItemUser.gd`
+- `scripts/npc/NPCDebug.gd`
+- `docs/systems/npc/README.md`
+- ~~`scripts/player/InteractionSystem.gd`~~ ⚠️ Player subsystem — deferred
+  (section 5), expected in a later pass.
+
+## Verification Checklist (for Brannon's in-editor test)
+See `docs/systems/npc/README.md` Testing Checklist items 13–15. Note items
+13–14 (Give/Takeaway player prompts) depend on the still-deferred
+`InteractionSystem.gd` section 5; the F7 visualizer (item 15) is fully
+live now.
+
+---
+
 # Handover — Ghost Collision Regression Fix (Aug 2026)
 
 ## What changed this session
