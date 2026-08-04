@@ -331,17 +331,29 @@ near each other.
 
 ### Give / Takeaway (Aug 2026)
 
-**Give.** Player holds a single-serving food item (`DishItem` or
-`FarmProduceItem` — see `NPCItemUser.is_giveable()`) and walks up to an
-NPC: `[E] Give <item> to <name>` appears (mirrors the Basket/Cooking Pot
-held-item prompt pattern in `InteractionSystem.gd` exactly). E consumes
-the item into the NPC's hunger immediately
-(`NPC.receive_item_from_player()`) and applies a flat +15 relationship
-bonus (scaled by Sociability like everything else, via
-`_adjust_relationship()`). Deliberately single-serving only —
-`FoodCan`/`WaterBottle` are multi-charge items and what happens to a
-partially-given can/bottle is a real open question, not silently decided
-here.
+**Give.** Player holds any giveable item — `DishItem`, `FarmProduceItem`,
+`FoodCan`, or `WaterBottle` (`NPCItemUser.is_giveable()`, reuses the same
+`is_edible()`/`is_drinkable_bottle()` classifiers self-serve
+eating/drinking already use) — and walks up to an NPC: `[E] Give <item>
+to <name>` appears (mirrors the Basket/Cooking Pot held-item prompt
+pattern in `InteractionSystem.gd` exactly). E transfers nutrition/
+hydration into the NPC immediately (`NPC.receive_item_from_player()`).
+Single-serving items (Dish/Produce) are fully consumed and destroyed, one
+bite/drink at a time for cans/bottles (mirrors self-serve
+`NPCItemUser.eat_held_step()` exactly) — a can/bottle persists in the
+player's hand across multiple gifts, getting progressively emptier, same
+as it would from repeated self-use.
+
+A successful gift applies a +15 relationship bonus (scaled by Sociability
+like everything else, via `_adjust_relationship()`, and by gift
+burnout — see below). **Per-(item, NPC) boost gating:** each item
+instance tracks which NPCs it's already boosted
+(`item.get_meta("npc_gift_recipients")`, an Array of `npc_id`s) — giving
+the same can/bottle to the same NPC again still feeds them but grants NO
+further relationship reward. The same item CAN still boost several
+different NPCs once each — only a repeat to the same NPC is blocked. This
+was unreachable for single-serving items before (destroyed on first use)
+but matters now that cans/bottles persist across gifts.
 
 **Gift burnout (Aug 2026, Part 25).** Repeated gifts in a short window
 give progressively smaller boosts: each NPC tracks `gift_saturation`
@@ -395,9 +407,10 @@ label) listing every relationship they've formed and its band. Debug-only
 stand-in for a real in-fiction relationship UI later, per Brannon.
 
 **`FUTURE WORK`:**
-- Multi-use item Give (FoodCan/WaterBottle) — needs a decision on what
-  happens to the remaining charge. The gift-marking and burnout
-  infrastructure is already in place for whenever this lands.
+- ~~Multi-use item Give (FoodCan/WaterBottle)~~ — done (Aug 2026): one
+  bite/drink per gift, item persists across gifts exactly like self-serve
+  consumption, per-(item, NPC) recipient tracking prevents repeat boosts
+  to the same NPC from the same item.
 - JobActivity doesn't detect or react to a stolen job material — the job
   silently "completes" without its effect (see the Takeaway paragraph
   above). A real fix means JobActivity checking for the theft and
@@ -587,3 +600,10 @@ skills, personality words, seed, mood, and irritability + label.
     +15. Stop giving and watch (or fast-forward via F7's admin tools) —
     confirm "Gift burnout: NN%" in the visualizer decays back toward 0
     over multiple in-game days, not minutes.
+18. Give an NPC a full FoodCan or WaterBottle — confirm the relationship
+    boost lands, the item stays in your hand afterward (not destroyed),
+    and it now shows fewer bites/less fill remaining. Give the SAME
+    item to the SAME NPC again — confirm hunger/thirst still rises but
+    NO additional relationship boost (check F7 debug dump — delta should
+    log as 0.0/"no bonus"). Give that same partially-used item to a
+    DIFFERENT NPC — confirm THAT NPC gets a normal +15-scaled boost (once).

@@ -1,3 +1,32 @@
+# Handover — NPC Give: Multi-Charge Items (Aug 2026)
+
+## What changed this session
+
+- **NPCItemUser.gd**: `is_giveable()` widened to reuse `is_edible()`/
+  `is_drinkable_bottle()` directly — now covers FoodCan and WaterBottle
+  in addition to DishItem/FarmProduceItem.
+- **NPC.gd**: `receive_item_from_player()` rewritten — per-(item, NPC)
+  recipient tracking (`npc_gift_recipients` meta, an Array of npc_ids)
+  replaces the earlier single global `npc_gift_used` flag. FoodCan/
+  WaterBottle now take one bite/drink per gift and persist in the
+  player's hand across multiple gifts (mirrors
+  `NPCItemUser.eat_held_step()`'s exact per-type branching). A repeat
+  gift of the same item to the same NPC still feeds them, just grants no
+  further relationship reward; the same item can still boost different
+  NPCs once each.
+- Docs: `docs/systems/npc/README.md` — Give paragraph rewritten, Future
+  Work item marked done, new Testing Checklist item.
+
+## Files Modified
+- `scripts/npc/NPCItemUser.gd`
+- `scripts/npc/NPC.gd`
+- `docs/systems/npc/README.md`
+
+## Verification Checklist (for Brannon's in-editor test)
+See `docs/systems/npc/README.md` Testing Checklist item 18.
+
+---
+
 # Handover — NPC Universal Takeaway + Gift Burnout/Anti-Repeat (Aug 2026)
 
 ## What changed this session

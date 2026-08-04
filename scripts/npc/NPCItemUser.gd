@@ -175,13 +175,13 @@ static func eat_held_step(npc: NPC) -> bool:
 	return true
 
 # ─── Give/Takeaway helpers (Part 24) ────────────────────────────────────────
-## Give (player → NPC) V1 scope: single-serving items only — DishItem and
-## FarmProduceItem both resolve fully in one consume_as_food() call, so
-## there's no leftover-charge bookkeeping to handle. FoodCan/WaterBottle
-## are multi-use (take_bite()/take_drink() are partial) — deliberately
-## excluded rather than silently deciding what happens to the remainder.
+## Give (player → NPC). Reuses the exact same classifiers self-serve
+## eating/drinking already uses (is_edible/is_drinkable_bottle), rather
+## than re-deriving the logic — this also correctly excludes an
+## already-empty can/bottle from being offered as a "gift" for free,
+## since both classifiers already require remaining charge.
 static func is_giveable(item: Node) -> bool:
-	return item is DishItem or item is FarmProduceItem
+	return is_edible(item) or is_drinkable_bottle(item)
 
 ## Takeaway (player steals mid-consumption). Which live NPC (if any) is
 ## currently holding this exact item — used both to gate the pickup

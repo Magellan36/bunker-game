@@ -386,14 +386,19 @@ const TAKEAWAY_NEED_THRESHOLD: float = 55.0
 ## feeding them nonstop" exploit. Never fully zero (GIFT_BONUS_FLOOR_MULT)
 ## so a burned-out gift still visibly does *something*, not a dead click.
 ##
-## Per-item marking: each item instance can only ever produce a boost
-## ONCE (`npc_gift_used` meta flag, checked/set here). Currently
-## unreachable for V1's single-serving scope — the item is destroyed on
-## its first successful give (consume_as_food() frees the node), so
-## there's no surviving instance to re-offer — but closes the exploit in
-## advance for whenever Give expands to multi-charge items (FoodCan/
-## WaterBottle — see Future Work), where the same physical item COULD
-## otherwise survive to be given again.
+## Give (Part 26 update — multi-charge items). Marking is now per-(item,
+## NPC): `npc_gift_recipients` (Array of npc_id strings this exact item
+## instance has already boosted). Same can/bottle CAN still boost several
+## DIFFERENT NPCs once each — only a repeat boost to the SAME NPC is
+## blocked. Meta is written BEFORE any consumption call that might free
+## the node (DishItem/FarmProduceItem's consume_as_food() does), so this
+## stays safe regardless of item type.
+##
+## Consumption always happens even on a repeat gift — still real feeding,
+## just no relationship reward the second time. Single-serving items
+## (Dish/Produce) are destroyed on first give exactly as before, so a
+## repeat is structurally impossible for them; the recipient check exists
+## mainly for FoodCan/WaterBottle, which persist across multiple gifts.
 const GIFT_SATURATION_MAX: float = 1.0
 const GIFT_SATURATION_PER_GIFT: float = 0.25          ## ~4 gifts in a row reaches full burnout
 const GIFT_SATURATION_DECAY_PER_GAME_HOUR: float = 1.0 / (5.0 * 24.0)   ## full recovery over ~5 game-days
@@ -405,11 +410,28 @@ func receive_item_from_player(item: Node) -> bool:
 		return false
 	if not NPCItemUser.is_giveable(item):
 		return false
-	if item.has_meta("npc_gift_used"):
-		return false
-	item.set_meta("npc_gift_used", true)
+
+	var recipients: Array = item.get_meta("npc_gift_recipients", [])
+	var already_boosted: bool = recipients.has(npc_id)
+	if not already_boosted:
+		recipients.append(npc_id)
+		item.set_meta("npc_gift_recipients", recipients)
+
 	if item is DishItem or item is FarmProduceItem:
 		hunger = minf(100.0, hunger + item.consume_as_food())   ## frees the node
+	elif item.has_method("take_bite"):   ## FoodCan — multi-bite, persists (kept in world, no queue_free even when empty)
+		hunger = minf(100.0, hunger + item.take_bite())
+	elif item.has_method("take_drink"):   ## WaterBottle — multi-drink, persists
+		thirst = minf(100.0, thirst + item.take_drink())
+	else:
+		return false   ## shouldn't happen given is_giveable() above, but just in case
+
+	if already_boosted:
+		if NPCDebug.enabled:
+			NPCDebug.log_relationship_event(self, "player", 0.0,
+				"re-gift, already boosted by this item — fed only, no bonus")
+		return true
+
 	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
 	_adjust_relationship("player", effective_bonus)
 	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
