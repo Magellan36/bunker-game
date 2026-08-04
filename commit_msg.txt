@@ -1,22 +1,13 @@
-NPC Pass 2 Part 21: Averaged Forgetfulness + Mood-Recovery Nuance + Docs Rewrite
+Build Mode Fix Round 3: Ghost collision timing, arrow default, Wall Light bounds
 
-NPC.gd:
-- get_forgetfulness_chance(): switched from probabilistic OR to straight
-  average across Hunger, Thirst, Mood, and new Energy contribution
-- Added _energy_forgetfulness_tier_chance() (mild contribution, ~1/3
-  needs scale)
-- Added _forgetfulness_reasons() and _slow_reasons() helpers for
-  collapsed label parentheses
-- get_status_labels(): Forgetfulness and Slowing now collapse to ONE
-  label each with comma-separated reasons in parentheses
-- Mood recovery now slightly slows when needs are barely "fine" (just
-  above 70 threshold) — no status label, background nuance only
+Fix 1 - Ghost collision stripping moved to AFTER add_child():
+- GhostModelBuilder.gd: Removed _strip_collision_recursive() from build_real_instance() (was running before _ready(), so scripts' unconditional collision_layer=5 silently undid it). Renamed to public strip_collision(), now called from GhostPreview.gd AFTER add_child() - runs after _ready(), actually sticks.
+- GhostPreview.gd: Added GhostModelBuilder.strip_collision(real_inst) call immediately after add_child(real_inst).
 
-docs/systems/npc/README.md:
-- Complete rewrite: replaced Pass-1-era wander-only doc with full system
-  reference covering Navigation, Physics Clutter, Needs/Health/Status,
-  Personality/Mood/Irritability, Skills/Jobs, Items/Consumption,
-  Resting, Player Commands, Persistence, Debug Tooling, Non-
-  responsibilities, Known Tradeoffs, Testing Checklist
+Fix 2 - Arrow default flipped to 180 degrees (most objects face +Z, not -Z):
+- GhostModelBuilder.gd: Added DEFAULT_ARROW_Y_ROT = 180.0 as default. Removed redundant ARROW_OVERRIDES entries for 18 (Water Test Sink), 19 (Water Dispenser), 29 (Chair) - now covered by default. Default is now 180° instead of 0°; hand-tuned overrides (Bed, Shelving, Generators) unchanged.
+
+Fix 3 - Wall Lights place in expanded areas:
+- BuildModeController.gd: Added TILE_LIGHT half_extent = Vector2(0.05, 0.05) (same fix as Poster). Generic fallback 0.40 was too large for thin wall-flush fixture, causing false "outside bunker" rejects in narrow expanded corridors.
 
 Architecture.json regenerated.

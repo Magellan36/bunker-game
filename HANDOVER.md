@@ -1,3 +1,72 @@
+# Handover — Build Mode Ownership Expansion, Furniture, Wall Draw Mode, Ghost Model System (Aug 2026)
+
+## What changed this session
+
+### Role expansion
+This Claude instance's scope expanded from Furniture-only to ALL Build
+Mode / Construct Menu object placement (spawning, ghost preview,
+wall/floor snapping, height/spacing, general placement refinement) across
+every object type.
+
+### Furniture: Small/Medium Table, Chair, Poster
+- New `scripts/world/furniture/Table.gd`, `Chair.gd`, `Poster.gd` — see
+  `docs/systems/build/README.md`'s Furniture section for details.
+- Chair sit/stand mechanic: `Player.gd` gained `seated_chair` state;
+  `InteractionSystem.gd`'s `_try_interact()`/`_update_prompt()` both check
+  it first, before any proximity scan, so E always means "stand" while
+  seated regardless of what else is nearby; any WASD press while seated
+  also stands the player up and lets movement continue immediately
+  ("walk out of the chair").
+
+### Wall Draw Mode — click-drag-click stretched walls
+Full/Half/Quarter Wall placement rewritten from single-click discrete 1m
+segments to one dynamically-stretched mesh per wall, free 360° angle,
+grid-snapped endpoints, Q/E height-tier cycling, RMB/ESC exit. See
+`docs/systems/build/README.md`'s Wall Draw Mode section. Went through
+several fix rounds this session: floating half/quarter tiers (tier-aware
+placement Y), bounds-check false positives on long walls (half-extent was
+incorrectly scaled by run length), ghost sunk to half-height (a
+`global_position` assignment was clobbering the mesh's own floor-flush
+offset), minimum length matching the idle sliver instead of a full 1m cell.
+
+### Ghost Model Master System — real-shaped previews, universal facing arrow
+New `scripts/world/build/GhostModelBuilder.gd` — see
+`docs/systems/build/README.md`'s Ghost Model System section for the full
+writeup. Replaced generic box/rectangle ghost previews with translucent
+real-model ghosts for every object already registered for a Construct-menu
+preview, and gave every placeable object a facing arrow (previously only a
+few hand-picked tiles had one).
+
+Two rounds of follow-up fixes after the initial rollout:
+- **Chair ghost was invisible** — `Chair.gd`'s `_ready()` returned before
+  `_build_mesh()` when `_is_preview_only` was set (pre-existing bug, not
+  introduced by the ghost system — the Construct-menu spinning preview was
+  almost certainly blank too, before this).
+- **Ghosts had live collision, pushed the player** — root cause was a
+  lifecycle-order bug: collision was stripped *before* `add_child()`, i.e.
+  before `_ready()` had run, so scripts that set `collision_layer`
+  unconditionally in `_ready()` (most of them) silently undid the strip.
+  Fixed by moving the strip to run after `add_child()`.
+- **Grow Light placement was broken** (always red, "Space is already
+  occupied," intermittently fixable by rapid mouse movement/clicking) —
+  traced to the same collision bug: `_is_position_occupied()`'s physics
+  query (`collision_mask = 1`) was detecting the ghost's own still-live
+  collision shape at its own query position. Same fix resolved both.
+- **Facing arrow was backward on most objects** — rather than continuing
+  to add a hand-tuned override per newly-reported tile (Chair, Dispenser,
+  Test Sink, then Battery ×3, Stove, Tables, Trays), recognized the
+  pattern (every default-using tile was backward; only hand-tuned ones
+  were correct) and flipped the *default* itself (180°), removing the
+  now-redundant individual overrides.
+- **Wall Lights failed to place in player-expanded bunker areas** despite
+  a green ghost — `TILE_LIGHT` had no entry in `_tile_half_extents()`,
+  inheriting the generic 0.40 floor-object fallback for the confirm-time
+  bunker-bounds check, oversized for a thin wall-flush fixture. Same fix
+  already applied to `TILE_POSTER` earlier in the session, now applied to
+  Light too.
+
+---
+
 # Handover — NPC Basics + Cooking Fixes + UI Unification + NPC Basics (Aug 2026)
 
 ## What changed this session

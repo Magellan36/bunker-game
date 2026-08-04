@@ -2,7 +2,8 @@
 
 **Read this before opening `BuildModeController.gd` or any of its extracted
 slices (`BuildMaterials.gd`, `BuildUndoStack.gd`, `GhostPreview.gd`,
-`MoveDuplicateTool.gd`, `WallSnapHelpers.gd`, `PlacementIndicator.gd`).** Only
+`GhostModelBuilder.gd`, `MoveDuplicateTool.gd`, `WallSnapHelpers.gd`,
+`WallDrawMode.gd`, `PlacementIndicator.gd`).** Only
 open the actual source for the specific function you're changing. UI (the
 build toolbar/construct menu) is `BuildModeHUD.gd` — see
 `docs/systems/ui/README.md`. Power devices placeable in build mode
@@ -29,14 +30,20 @@ stack, and the wire-draw tool's host controller.
 - `BuildUndoStack.gd`: the undo stack (`place`/`remove`/`dig_rock`/`move`
   entry types, `MAX_UNDO = 50`).
 - `GhostPreview.gd`: builds/updates the translucent placement-preview mesh
-  that follows the cursor (including the direction-arrow overlay for
-  directional tiles like wall lights).
-- `MoveDuplicateTool.gd`: the Move tool's 2-phase click flow (idle-hover-glow
-  → object-selected-ghost-follows-cursor → click-confirms) and the
-  Duplicate tool.
+  that follows the cursor. For any tile registered in
+  `GhostModelBuilder.PROCEDURAL_PREVIEW_SOURCES`, delegates to
+  `GhostModelBuilder` for a real-shaped ghost instead of building a generic
+  box — see that file's own section below. Falls back to per-tile
+  hand-built box/mesh logic (unchanged, still present) for anything not yet
+  registered there.
+- `GhostModelBuilder.gd` — **MASTER FILE** for all ghost/preview visuals.
+  See "Ghost Model System" section below.
 - `WallSnapHelpers.gd`: snaps wall-lights and breakers to the nearest wall
   face within range, and the pregen-vs-player-wall interior-face check used
-  to fix the expanded-area wall/breaker snap bug (see `HANDOVER.md` history).
+  to fix the expanded-area wall/breaker snap bug (see `HANDOVER.md`
+  history).
+- `WallDrawMode.gd`: click-drag-click wall placement tool. See "Wall Draw
+  Mode" section below.
 - `PlacementIndicator.gd`: small standalone visual indicator node (not part
   of the `_owner`-pattern cluster — simpler, self-contained).
 
@@ -57,8 +64,110 @@ Shelving like a Crate (`shelf_stack_limit=1`, `shelf_item_type="basket"`).
 Contents travel with basket on pickup/drop/shelf-place (items are
 reparented as children, hidden/frozen). See `Basket.gd`, `BasketUI.gd`,
 `InteractionSystem.gd` for full logic.
- 
- ## Non-responsibilities
+
+## Furniture: Small/Medium Table, Chair, Poster
+Three furniture pieces added this session, all in the Construct menu's
+Furniture category, all floor/wall-standing procedural `StaticBody3D`
+scripts following the same pattern as `Shelving.gd`/`Bed.gd`:
+
+- **`Table.gd`** (tile IDs 27/28, Small/Medium) — one shared script for
+  both sizes via `cell_count` (1 or 2, mirrors `FarmingTray.gd`'s
+  convention), 4-leg beige model sized off the Farming Tray's own
+  footprint numbers.
+- **`Chair.gd`** (tile ID 29) — 4-leg seat + backrest, beige. Interactable:
+  `[E] Sit` moves the player into `get_seat_transform()` and freezes
+  `Player._physics_process()` (same mechanism `SleepOverlay` uses for
+  beds); `[E] Stand` (or any WASD movement key — see Player docs) returns
+  the player to `get_stand_position()` and re-enables physics. Chair's
+  local **+Z** is its true open/seat-facing front — its own front-facing
+  ghost arrow needed a `GhostModelBuilder.ARROW_OVERRIDES`-era correction
+  before the master arrow-default fix made it moot; see `HANDOVER.md`.
+- **`Poster.gd`** (tile ID 31) — wall-mounted, `StaticBody3D` (not
+  `Node3D` like `WallLight.gd`) specifically so it has real collision and
+  can be targeted by the Deconstruct tool's raycast — see the file's own
+  class comment for the reasoning. Wall-snapped via the generic
+  `BuildModeController._snap_to_nearest_wall()` helper (not the
+  light-specific one), blank beige canvas + dark frame, meant as the
+  baseline for future wall decor.
+
+Player-side seat/stand wiring (`seated_chair` state, movement-priority
+interaction override) lives in `Player.gd`/`InteractionSystem.gd`, not this
+system — see those docs / `HANDOVER.md` for that half of the mechanic.
+
+## Wall Draw Mode
+Full/Half/Quarter Wall placement is no longer a single-click, single-tile
+action — selecting any of the three from Construct → Structure
+auto-activates `WallDrawMode.gd`, a click-drag-click sub-mode (same
+activate()/deactivate()/handle_input()->bool contract as
+`WireDrawMode.gd`/`WaterPipeDrawMode.gd`, but auto-activated by tile
+selection rather than a separate toolbar tool).
+
+- **Geometry:** one dynamically-stretched `BoxMesh`/`BoxShape3D` per wall
+  (0.3m thick × tier height × drag length), not discrete 1m segments —
+  real dimensions confirmed from `tile_set.tscn`'s wall `BoxMesh`, not
+  guessed. Texture tiles correctly at any length via the existing
+  `_mat_wall` material's triplanar (world-space) UV mapping — no new
+  tiling code needed.
+- **Direction:** free 360°, not locked to cardinal/8-direction — angle
+  taken directly from the cursor, only endpoint *position* snaps to the
+  fine grid.
+- **Height tiers:** Q/E cycle Full ↔ Half ↔ Quarter at any time, before or
+  during a drag. E is NOT used for exit (unlike Wire/Pipe draw modes) to
+  avoid the conflict — RMB and ESC both exit/cancel instead, mirroring
+  each other exactly (phase 0 = exit tool, phase 1 = cancel current drag).
+- **Idle sliver:** before the first click, shows a short (`WALL_CELL_SIZE
+  * 0.25`) sliver ghost — same height/thickness as a real wall — marking
+  where a drag would start. `MIN_LENGTH` matches this exactly, so a
+  click-click with no movement places a wall at sliver length, not a full
+  1m segment.
+- **Cost:** `price_per_meter × length` — no separate `$/meter` constant,
+  reuses each tier's existing Construct-menu price.
+- **Save/restore:** `BuildModeController._spawn_stretched_wall()` is the
+  single source of truth for real (non-ghost) wall geometry — both live
+  placement (`WallDrawMode._confirm_wall()`) and `restore_placed_objects()`
+  call it, so a reloaded wall reconstructs at its exact saved length
+  (`wall_length` stored via `node.set_meta()`, read back through
+  `_get_device_extra()`), not a fixed stub.
+
+## Ghost Model System (`GhostModelBuilder.gd`)
+**Master file** for every ghost/preview visual in Build Mode — both the
+Construct submenu's spinning preview (`BuildModeHUD.gd`) and the in-world
+placement ghost (`GhostPreview.gd`) call into this one file rather than
+maintaining separate logic.
+
+- **`PROCEDURAL_PREVIEW_SOURCES`** — the single registry mapping tile_id →
+  real script/scene path (relocated here from `BuildModeHUD.gd`, which now
+  just calls `GhostModelBuilder.build_real_instance()`). **To add a new
+  furniture/device object: one entry here.** That's the entire requirement
+  to get a spinning menu preview, a correctly-shaped in-world ghost, and a
+  facing arrow, all three, automatically.
+- **`build_real_instance()`** — instantiates the real script/scene with
+  `_is_preview_only = true` (the pre-existing guard nearly every
+  furniture/device script already has), same construction every object
+  needed for its menu preview to work in the first place.
+- **`strip_collision()`** — call this **after** `add_child()`, never
+  before (`_ready()` hasn't run yet before that point, and most scripts set
+  `collision_layer` unconditionally in `_ready()`, which would silently
+  undo an earlier strip — this bit Grow Light placement's own occupancy
+  check particularly badly before the fix; see `HANDOVER.md`). Forces
+  every `CollisionObject3D` descendant inert — ghosts are visual-only,
+  full stop, regardless of what a given object script's own `_ready()`
+  sets.
+- **`apply_ghost_tint()`** — recursively recolors every mesh surface under
+  a ghost root to translucent green/red, replacing whatever real
+  materials/textures the object has. Works for any number of mesh parts.
+- **`attach_facing_arrow()`** — universal front-direction indicator.
+  Default direction is **180°** (most objects' real "front" is local +Z,
+  opposite the arrow geometry's own base direction) — hand-tuned
+  `ARROW_OVERRIDES` entries exist only for the handful of tiles that
+  genuinely need a different offset (Bed, Shelving, Generators). New
+  furniture should NOT need an override unless proven otherwise in-editor.
+- **Fallback tiers, in order:** (1) `PROCEDURAL_PREVIEW_SOURCES` real
+  script/scene, (2) `build_meshlibrary_instance()` for MeshLibrary-backed
+  tiles with no script (Pillar, Floor), (3) whatever tile-specific
+  hand-built box/mesh logic already existed in `GhostPreview.gd` before
+  this system, left untouched as a safety net for anything not yet
+  registered in tier 1 or 2.
 - **Does not own what a placed device DOES once live** — a placed generator/
   breaker/battery/terminal registers itself with `PowerManager` in its own
   `_ready()`; `BuildModeController` only handles the placement transaction
@@ -90,8 +199,10 @@ reparented as children, hidden/frozen). See `Basket.gd`, `BasketUI.gd`,
 | `BuildMaterials.gd` | ~200 | Ghost/world material builder+cache |
 | `BuildUndoStack.gd` | ~250 | Undo stack (`MAX_UNDO=50`) |
 | `GhostPreview.gd` | ~450 | Placement ghost mesh + direction-arrow |
+| `GhostModelBuilder.gd` | ~240 | Master ghost/preview registry + real-model builder + arrow |
 | `MoveDuplicateTool.gd` | ~290 | Move (2-phase) + Duplicate tool |
 | `WallSnapHelpers.gd` | ~430 | Wall-light/breaker wall-snapping + pregen interior-face check |
+| `WallDrawMode.gd` | ~310 | Click-drag-click stretched wall placement |
 | `PlacementIndicator.gd` | ~35 | Small standalone cursor/placement indicator visual |
 
 **NEW (Jul 2026): Preview Scale Normalization & Zoom** — All construct-tab previews
