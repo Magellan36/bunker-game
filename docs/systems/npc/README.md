@@ -480,6 +480,18 @@ the player (PICKUP_RANGE), and on a successful
 again via `take_handoff()`, so the item is eaten/drunk over the normal
 duration, never instantly.
 
+`SnatchActivity` **continuously re-aims at the player every tick** while
+the item is still in their hands (not just once at `enter()`), so a
+moving player is chased live. If the player drops the tracked item (the
+same item, now loose on the ground) instead of stowing/using/giving it
+away, it switches to chasing the dropped item and grabs it there. A
+`MAX_CHASE_TIME` (20s) safety valve makes it give up cleanly (logged)
+rather than pursuing forever — since `interruptible()` is false, nothing
+else could ever interrupt an indefinite chase. The decision path is
+fully logged via `find_player_snatch_target()` (not-considered reasons,
+roll attempts, roll success/failure) plus `SnatchActivity`'s own staged
+lines.
+
 **Snatch uses the exact same transfer path as Give.**
 `snatch_from_player()` no longer does its own pickup/inventory logic —
 it calls `Player.release_held_item_to_npc()`, the same shared function
@@ -735,3 +747,21 @@ skills, personality words, seed, mood, and irritability + label.
 25. Give an item to an NPC, then immediately check the HUD — no lingering
     eat/drop prompt should remain, and scrolling the inventory should not
     re-populate the now-empty slot.
+26. Repeat the "NPC pathing to an item, player grabs it first" test —
+    confirm the NPC now visibly gives up (or grabs something else) well
+    before reaching the item's last position, not after (the `is_held`
+    early-abort guard + `grab_loose()`'s own guard).
+27. With debug logging on, drain an NPC's need and hold a matching item
+    at a fine relationship — confirm the console explicitly shows
+    "not considered" every search with the actual reason, instead of
+    nothing.
+28. Push relationship to -60 or below (F7), drain the matching need, hold
+    the item, stay still — confirm roll attempts are logged, and
+    eventually a "roll succeeded" leading to a real chase.
+29. Once a snatch attempt starts, walk away — confirm the NPC keeps
+    adjusting course toward your CURRENT position, not a fixed point.
+30. Drop the tracked item mid-chase instead of stowing it — confirm the
+    NPC switches to walking to the dropped item and picks it up rather
+    than giving up.
+31. Keep running from a chasing NPC for over 20 seconds — confirm it
+    eventually gives up cleanly (logged) rather than following forever.

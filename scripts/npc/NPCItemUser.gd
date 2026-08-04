@@ -107,6 +107,12 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 		return false
 	if is_claimed_by_other(item, npc):
 		return false   ## defense in depth — shouldn't happen if callers claimed first
+	## The actual missing guard: an item claimed by this NPC can still
+	## have been physically picked up by the player between the claim and
+	## now. Claims only block other NPCs' claim_item() calls; they were
+	## never consulted by the player's own pickup path.
+	if "is_held" in item and item.is_held:
+		return false
 	if flat_distance(npc.global_position, item.global_position) > PICKUP_RANGE:
 		return false
 	if item.has_method("pickup"):

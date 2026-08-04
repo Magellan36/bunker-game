@@ -483,17 +483,31 @@ func find_player_snatch_target(need_filter: Callable) -> Node:
 	var forced: bool = _debug_force_snatch
 	_debug_force_snatch = false
 	if not forced and get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD:
+		if NPCDebug.enabled:
+			NPCDebug.log_snatch(self, "not considered", "relationship %.1f is above threshold %.1f" \
+				% [get_relationship("player"), SNATCH_RELATIONSHIP_THRESHOLD])
 		return null
 	var player: Node = get_tree().get_first_node_in_group("player")
 	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
 		return null
 	var held: Node = player.get_held_item()
 	if held == null or not is_instance_valid(held):
+		if NPCDebug.enabled:
+			NPCDebug.log_snatch(self, "not considered", "player isn't holding anything")
 		return null
 	if not need_filter.call(held):
+		if NPCDebug.enabled:
+			NPCDebug.log_snatch(self, "not considered", "player is holding something, but not a matching type")
 		return null
-	if not forced and randf() > get_snatch_chance():
-		return null
+	if not forced:
+		var chance: float = get_snatch_chance()
+		var roll: float = randf()
+		if roll > chance:
+			if NPCDebug.enabled:
+				NPCDebug.log_snatch(self, "roll failed", "chance=%.2f roll=%.2f" % [chance, roll])
+			return null
+		if NPCDebug.enabled:
+			NPCDebug.log_snatch(self, "roll succeeded", "chance=%.2f roll=%.2f" % [chance, roll])
 	return player
 
 ## F7 debug trigger — forces THIS NPC to attempt a snatch against the

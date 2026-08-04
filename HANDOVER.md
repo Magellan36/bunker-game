@@ -1,3 +1,41 @@
+# Handover — Re-applied Dropped Fixes + Continuous Snatch Pursuit (Aug 2026)
+
+**Owner:** NPC instance. All NPC-side; no Player changes.
+
+## What changed this session
+- `scripts/npc/NPCItemUser.gd` — `grab_loose()` gained the missing
+  `is_held` guard (an item claimed by this NPC can still have been
+  physically picked up by the player — claims only block other NPCs'
+  `claim_item()` calls, never the player's pickup path).
+- `scripts/npc/NPCBrain.gd` — three early-abort additions: `EatActivity`
+  tick()'s `_loose` branch (abandons + releases claim when the item is
+  now held; also releases claim on a failed grab), `DrinkActivity`
+  `_tick_bottle()` (abandons when the target bottle is held), and
+  `JobActivity._tick_fetch()` (abandons when the fetch item is held).
+- `scripts/npc/NPCBrain.gd` — `SnatchActivity` rewritten: continuously
+  re-aims at the player every tick (was: target set once at enter());
+  chases the dropped tracked item on the ground instead of giving up if
+  the player drops it; new `MAX_CHASE_TIME` (20s) safety valve so a
+  player who just keeps walking doesn't leave the NPC chasing forever
+  (interruptible() is false, so nothing else could interrupt it);
+  `done()` also requires `_tracked_item == null`.
+- `scripts/npc/NPC.gd` — `find_player_snatch_target()` decision path now
+  explicitly logged via `NPCDebug.log_snatch()` ("not considered" with
+  reason, roll attempt, roll success/failure) when debug logging is on.
+- `docs/systems/npc/README.md` — Snatch section updated for continuous
+  pursuit + dropped-item follow + MAX_CHASE_TIME; Testing Checklist
+  items 26-31 added.
+- `HANDOVER.md` — this entry.
+
+## Notes
+- `MAX_CHASE_TIME` is a plan-author addition beyond the original ask —
+  flagged in the code comment ("Remove this if indefinite pursuit is
+  actually what you want") — kept per the plan.
+- No Godot CLI available — no compile check ran; recommend opening the project.
+
+---
+---
+
 # Handover — Unified Item Transfer Function for Give AND Snatch (Aug 2026)
 
 **Owner:** Player + NPC subsystems (one mechanism now, listed as one plan).

@@ -382,6 +382,10 @@ class DrinkActivity extends NPCActivity:
 			npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO (see 3b note)
 			_drinking = CONSUME_TIME
 			return
+		if "is_held" in _target and _target.is_held:
+			NPCItemUser.release_item(_target)
+			_target = null
+			return
 		npc.nav_steer(delta)
 		## Part 16 — this was the exact bug from the water-bottle report: raw 3D
 		## distance against PICKUP_RANGE(1.2), with a loose bottle's ~0.9 vertical
@@ -465,17 +469,34 @@ class GivenDrinkActivity extends DrinkActivity:
 
 
 class SnatchActivity extends NPCActivity:
-	## Player Relationship Snatch (Part 30). Dedicated, non-interruptible
-	## activity — see this plan's "why the previous version almost never
-	## worked" note for why that matters. Entered via
-	## npc.brain.force_command() (never scored/auto-selected). On a
-	## successful grab, hands off to GivenEatActivity/GivenDrinkActivity
-	## via take_handoff() to actually consume what was grabbed.
+	## Player Relationship Snatch. Dedicated, non-interruptible activity,
+	## entered via force_command(), never scored/auto-selected.
+	##
+	## Continuously re-aims at the player every tick while the item is
+	## still in their hands — the previous version only set the nav
+	## target once, at enter(), so it just walked to wherever the player
+	## happened to be standing when the attempt started and never
+	## adjusted if they moved.
+	##
+	## If the player drops the tracked item (still that same item, now
+	## loose) rather than putting it away/using it/giving it away, this
+	## switches to chasing the dropped item on the ground instead of
+	## giving up.
+	##
+	## MAX_CHASE_TIME is a safety valve I added beyond what was asked —
+	## without it, a player who simply keeps walking away would leave
+	## this NPC stuck chasing forever (interruptible() is false, so
+	## nothing else could ever interrupt it either). Remove this if
+	## indefinite pursuit is actually what you want.
+	const MAX_CHASE_TIME: float = 20.0
+
 	var _player: Node = null
 	var _need_filter: Callable
 	var _is_edible: bool = false
 	var _handoff: NPCActivity = null
 	var _outcome_label: String = "Hostile"
+	var _tracked_item: Node = null
+	var _chase_timer: float = 0.0
 
 	func _init(player: Node, need_filter: Callable, is_edible: bool) -> void:
 		_player = player
@@ -486,36 +507,67 @@ class SnatchActivity extends NPCActivity:
 		return _outcome_label
 
 	func score(_npc: NPC) -> float:
-		return 0.0   ## command-only, never auto-selected
+		return 0.0
 
 	func interruptible() -> bool:
-		return false   ## commit once started — this is the actual fix
+		return false
 
 	func enter(npc: NPC) -> void:
 		NPCDebug.log_snatch(npc, "started",
 			"targeting player, relationship=%.1f" % npc.get_relationship("player"))
+		_tracked_item = _player.get_held_item() if _player != null and _player.has_method("get_held_item") else null
 		if _player != null and is_instance_valid(_player):
 			npc.set_nav_target((_player as Node3D).global_position)
 
 	func tick(npc: NPC, delta: float) -> void:
-		if _player == null or not is_instance_valid(_player):
-			NPCDebug.log_snatch(npc, "aborted", "player no longer exists")
+		_chase_timer += delta
+		if _chase_timer > MAX_CHASE_TIME:
+			NPCDebug.log_snatch(npc, "aborted", "gave up after %.0fs of pursuit" % MAX_CHASE_TIME)
 			_player = null
+			_tracked_item = null
 			return
-		var held: Node = _player.get_held_item() if _player.has_method("get_held_item") else null
-		if held == null or not is_instance_valid(held) or not _need_filter.call(held):
-			NPCDebug.log_snatch(npc, "aborted", "player no longer holding a matching item")
-			_player = null
+
+		## Still in the player's hands — chase the player, re-aiming every
+		## tick since they can move.
+		if _player != null and is_instance_valid(_player):
+			var held: Node = _player.get_held_item() if _player.has_method("get_held_item") else null
+			if held != null and is_instance_valid(held) and _need_filter.call(held):
+				_tracked_item = held
+				npc.set_nav_target((_player as Node3D).global_position)
+				npc.nav_steer(delta)
+				if NPCItemUser.flat_distance(npc.global_position, (_player as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+					if NPCItemUser.snatch_from_player(npc, _player):
+						NPCDebug.log_snatch(npc, "success", "grabbed item from player's hands, handing off to consume")
+						_handoff = NPCBrain.GivenEatActivity.new() if _is_edible else NPCBrain.GivenDrinkActivity.new()
+						_outcome_label = "Snatched!"
+						_player = null
+						_tracked_item = null
+					## else: still out of range this frame — keep chasing, no abort
+				return
+
+		## Player no longer holding a matching item. If it's the SAME item
+		## we were tracking and it's now loose nearby (dropped, not used/
+		## stored/given away), chase it down on the ground instead of
+		## giving up.
+		if _tracked_item != null and is_instance_valid(_tracked_item) \
+				and "is_held" in _tracked_item and not _tracked_item.is_held \
+				and _need_filter.call(_tracked_item):
+			npc.set_nav_target((_tracked_item as Node3D).global_position)
+			npc.nav_steer(delta)
+			if NPCItemUser.flat_distance(npc.global_position, (_tracked_item as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+				if NPCItemUser.grab_loose(npc, _tracked_item):
+					NPCDebug.log_snatch(npc, "success", "picked up the dropped item, handing off to consume")
+					_handoff = NPCBrain.GivenEatActivity.new() if _is_edible else NPCBrain.GivenDrinkActivity.new()
+					_outcome_label = "Snatched!"
+				else:
+					NPCDebug.log_snatch(npc, "failed", "dropped item grab rejected at range")
+				_tracked_item = null
+				_player = null
 			return
-		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, (_player as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
-			if NPCItemUser.snatch_from_player(npc, _player):
-				NPCDebug.log_snatch(npc, "success", "grabbed item, handing off to consume")
-				_handoff = NPCBrain.GivenEatActivity.new() if _is_edible else NPCBrain.GivenDrinkActivity.new()
-				_outcome_label = "Snatched!"
-			else:
-				NPCDebug.log_snatch(npc, "failed", "grab rejected at range (out of PICKUP_RANGE or item invalid)")
-			_player = null
+
+		NPCDebug.log_snatch(npc, "aborted", "item is gone — not held by the player, not sitting loose nearby")
+		_tracked_item = null
+		_player = null
 
 	func take_handoff() -> NPCActivity:
 		var h: NPCActivity = _handoff
@@ -523,10 +575,11 @@ class SnatchActivity extends NPCActivity:
 		return h
 
 	func done(npc: NPC) -> bool:
-		return _player == null and _handoff == null
+		return _player == null and _tracked_item == null and _handoff == null
 
 	func exit(_npc: NPC) -> void:
 		_player = null
+		_tracked_item = null
 		_handoff = null
 
 
@@ -597,9 +650,16 @@ class EatActivity extends NPCActivity:
 			return
 
 		if _loose != null and is_instance_valid(_loose):
+			if "is_held" in _loose and _loose.is_held:
+				NPCItemUser.release_item(_loose)
+				_loose = null
+				return
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, _loose.global_position) <= USE_RANGE:
 				if NPCItemUser.grab_loose(npc, _loose):
+					_loose = null
+				else:
+					NPCItemUser.release_item(_loose)
 					_loose = null
 			return
 		_loose = null
@@ -826,6 +886,9 @@ class JobActivity extends NPCActivity:
 			_start_travel(npc)
 			return
 		if _fetch_loose != null and is_instance_valid(_fetch_loose):
+			if "is_held" in _fetch_loose and _fetch_loose.is_held:
+				_fetch_loose = null
+				return
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, _fetch_loose.global_position) \
 					<= NPCItemUser.PICKUP_RANGE:
