@@ -186,6 +186,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_try_use_held_cookpot(held_item)
 			get_viewport().set_input_as_handled()
 			return
+		## Giveable item held + an NPC in range → E gives it instead of
+		## normal item use.
+		if held_item != null and NPCItemUser.is_giveable(held_item) and _find_nearest_npc() != null:
+			_try_give_to_nearest_npc(held_item)
+			get_viewport().set_input_as_handled()
+			return
 		if held_item != null:
 			# _is_holding_e stays true only to drive per-frame continuous
 			# actions (e.g. FuelCan.refuel_tick / bottle refill) — it no
@@ -505,6 +511,22 @@ func _update_prompt() -> void:
 					"dist":      0.0
 				})
 
+		# Give to NPC — holding a giveable item (dish, produce, can, or
+		# bottle) → "[E] Give <item> to <name>" over each nearby NPC.
+		# Mirrors the basket/cookpot blocks above exactly.
+		if NPCItemUser.is_giveable(held_item):
+			for npc: Node in get_tree().get_nodes_in_group("npc"):
+				if not is_instance_valid(npc):
+					continue
+				var nd: float = (npc as Node3D).global_position.distance_to(player.global_position)
+				if nd > MAX_PROMPT_DIST:
+					continue
+				entries.append({
+					"text":      "[E] Give %s to %s" % [held_item.get_display_name(), String(npc.npc_name)],
+					"world_pos": (npc as Node3D).global_position + Vector3(0.0, 1.8, 0.0),
+					"dist":      nd
+				})
+
 		if entries.is_empty():
 			prompt.hide_prompt()
 		else:
@@ -531,9 +553,6 @@ func _update_prompt() -> void:
 		if body.is_in_group("shelved"):
 			continue
 		if body is RigidBody3D and (body as RigidBody3D).freeze:
-			continue
-		# Currently held — Case 1 handles it
-		if "is_held" in body and body.is_held:
 			continue
 		if not (body.is_in_group("interactable") or body.is_in_group("pickup")):
 			continue
@@ -789,6 +808,37 @@ func _find_nearest_stove_with_pot() -> Node:
 			closest = node
 	return closest
 
+## Same group-scan/range reasoning as _find_nearest_open_stove(), reused
+## by both the Give prompt (Change 1) and its dispatch (Change 2).
+func _find_nearest_npc() -> Node:
+	var closest: Node       = null
+	var closest_dist: float = MAX_PROMPT_DIST
+	var player_pos: Vector3 = player.global_position
+	for node: Node in get_tree().get_nodes_in_group("npc"):
+		if not is_instance_valid(node):
+			continue
+		var d: float = (node as Node3D).global_position.distance_to(player_pos)
+		if d < closest_dist:
+			closest_dist = d
+			closest = node
+	return closest
+
+## Give dispatch. NPC.receive_item_from_player() may free `item`
+## internally (single-serving items are consumed and destroyed on the
+## spot) — do not touch `item` after a true return, same caution this
+## file already applies around consume_as_food()-adjacent calls elsewhere.
+func _try_give_to_nearest_npc(item: RigidBody3D) -> void:
+	var target: Node = _find_nearest_npc()
+	if target == null or not target.has_method("receive_item_from_player"):
+		return
+	if not target.receive_item_from_player(item):
+		return
+	if item.knocked_out.is_connected(_on_item_knocked_out):
+		item.knocked_out.disconnect(_on_item_knocked_out)
+	held_item       = null
+	_held_from_slot = -1
+	_is_holding_e   = false
+
 ## Mirrors _try_pickup()'s tail exactly (signal connect, held_item/_held_from_slot
 ## bookkeeping, set_player call) — the only difference is the item comes from
 ## Stove.try_remove_pot() instead of a detect_area scan.
@@ -984,6 +1034,11 @@ func _try_pickup() -> void:
 	if closest == null:
 		return
 
+	## NPC takeaway notification — look this up BEFORE reassigning
+	## held_item below, since find_holder() checks each live NPC's own
+	## held_item field for a match.
+	var taken_from: Node = NPCItemUser.find_holder(closest, get_tree())
+
 	held_item = closest
 	_held_from_slot = -1   ## Fresh from world — not in any inventory slot yet
 	# Remove from tracked set immediately — Jolt may not fire body_exited when
@@ -998,6 +1053,9 @@ func _try_pickup() -> void:
 	# Pass player reference so items that need facing direction (e.g. flashlight) can track it.
 	if held_item.has_method("set_player"):
 		held_item.set_player(player)
+
+	if taken_from != null and taken_from.has_method("on_item_taken_by_player"):
+		taken_from.on_item_taken_by_player()
 
 # ─── Knocked out ──────────────────────────────────────────────────────────────
 func _on_item_knocked_out() -> void:

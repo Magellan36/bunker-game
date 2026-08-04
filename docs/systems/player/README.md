@@ -168,6 +168,20 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   fallback to the next-closest thing that actually responds). Any new
   interactable-only item that intentionally has no `on_interact()` will
   correctly be skipped and never block E for something further away.
+- **NPC Give/Takeaway support (Aug 2026):** `InteractionSystem` gained a
+  Give prompt/dispatch (CASE 1, mirrors the Basket/Cooking-Pot pattern —
+  `NPCItemUser.is_giveable(held_item)` gates a `[E] Give <item> to
+  <name>` prompt over each nearby NPC, `_find_nearest_npc()`/
+  `_try_give_to_nearest_npc()` handle dispatch) and Takeaway (the CASE 2
+  `is_held` exclusion was removed entirely — NPC-held items are now
+  normal `[F] Pick up` targets, and `_try_pickup()` looks up
+  `NPCItemUser.find_holder()` before reassigning `held_item` so it can
+  call `on_item_taken_by_player()` on the NPC that lost the item). All
+  relationship/consequence logic and item-lifetime handling (destroy vs.
+  reduced-charge) is entirely owned by `NPC.gd`/`NPCItemUser.gd` on the
+  NPC subsystem side — `InteractionSystem` just calls
+  `receive_item_from_player()`/`on_item_taken_by_player()` and trusts the
+  return value.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns

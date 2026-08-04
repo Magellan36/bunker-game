@@ -1,3 +1,32 @@
+# Handover — NPC Give/Takeaway Support in InteractionSystem.gd (Aug 2026)
+
+## What changed this session
+Player subsystem implemented the InteractionSystem.gd half of the NPC
+Give/Takeaway feature, per a consolidated handoff from the NPC
+subsystem. Give: holding a giveable item (dish/produce/can/bottle) near
+an NPC shows `[E] Give <item> to <name>`; E calls
+`NPC.receive_item_from_player()`. Takeaway: removed the CASE 2 `is_held`
+prompt exclusion entirely (NPC-held items are now normal `[F] Pick up`
+targets); `_try_pickup()` now looks up `NPCItemUser.find_holder()` before
+reassigning `held_item` and calls `on_item_taken_by_player()` on the
+losing NPC. All relationship/consequence/item-lifetime logic lives
+NPC-side; this file only calls the contract methods and trusts their
+return values.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — Give prompt (CASE 1), Give
+  dispatch (E-branch), `_find_nearest_npc()`/`_try_give_to_nearest_npc()`
+  helpers, Takeaway `is_held` exclusion removed (CASE 2), Takeaway
+  notify-on-grab in `_try_pickup()`.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_GIVE_TAKEAWAY_IMPLEMENTATION_PLAN.md`
+for the full 6-item checklist)
+
+---
+
 # Handover — NPC Give: Multi-Charge Items (Aug 2026)
 
 ## What changed this session
