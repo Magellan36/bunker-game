@@ -120,6 +120,7 @@ func _ready() -> void:
 		{ "name": "NPC", "rows": [
 			["Spawn NPC", _on_spawn_npc_pressed],
 			["Drain NPC Needs -40", _on_drain_npc_needs_pressed],
+			["Drain NPC Mood -40", _on_drain_npc_mood_pressed],
 			["Health +20", _on_npc_health_up_pressed],
 			["Health -20", _on_npc_health_down_pressed],
 			["Energy +20", _on_npc_energy_up_pressed],
@@ -485,6 +486,11 @@ func _on_drain_npc_needs_pressed() -> void:
 			npc.thirst = maxf(0.0, npc.thirst - 40.0)
 
 ## Shared helper — clamp-adjusts one need on every spawned NPC by `delta`.
+func _on_drain_npc_mood_pressed() -> void:
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if "mood" in npc:
+			npc.mood = clampf(float(npc.mood) - 40.0, 0.0, 100.0)
+
 func _adjust_all_npc_need(need_name: String, delta: float) -> void:
 	for npc: Node in get_tree().get_nodes_in_group("npc"):
 		if need_name in npc:

@@ -43,6 +43,34 @@ static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
 	var who: String = _fmt(npc) if npc != null else "[JobBoard]"
 	print("%s job %s: %s (id=%s)" % [who, event, job.get("type", "?"), job.get("id", "?")])
 
+## Mood tick breakdown (Part 20) — called from NPC._tick_mood every ~5s
+## when enabled. Every contributing source is shown SEPARATELY (needs-pull,
+## global social contagion, random drift) so a mood change is never
+## ambiguous about why — this was an explicit requirement, not a nice-to-have.
+static func log_mood(npc: Node, needs_delta: float, contagion_delta: float,
+		drift_delta: float, mood_after: float) -> void:
+	if not enabled:
+		return
+	print("%s mood: needs=%+.2f contagion=%+.2f drift=%+.2f -> %.1f" % [
+		_fmt(npc), needs_delta, contagion_delta, drift_delta, mood_after])
+
+## Irritability tick breakdown (Part 20) — same cadence/reasoning as log_mood.
+static func log_irritability(npc: Node, need_contrib: float, mood_contrib: float,
+		trait_mult: float, target: float, value_after: float) -> void:
+	if not enabled:
+		return
+	print("%s irritability: needs_contrib=%.1f mood_contrib=%.1f trait_mult=%.2f target=%.1f -> %.1f" % [
+		_fmt(npc), need_contrib, mood_contrib, trait_mult, target, value_after])
+
+## Forgetfulness roll outcome (Part 20) — logs EVERY roll, not just
+## successful diversions, so the chance itself (already folding in hunger/
+## thirst/mood/trait) is visible even when nothing was triggered.
+static func log_forgetfulness_roll(npc: Node, chance: float, triggered: bool) -> void:
+	if not enabled:
+		return
+	var outcome: String = "DIVERTED to wandering" if triggered else "stayed on task"
+	print("%s forgetfulness roll: chance=%.0f%% -> %s" % [_fmt(npc), chance * 100.0, outcome])
+
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
 ## on-demand request, not continuous logging). Part 19 — expanded from a
@@ -93,5 +121,8 @@ static func _dump_one(npc: Node) -> void:
 		print("  skills: %s" % str(display))
 
 	if "generation_seed" in npc and "mood" in npc and "personality" in npc:
-		print("  seed=%d  mood=%.1f  personality=%s (stub — inert until the personality pass)" % [
-			npc.generation_seed, npc.mood, str(npc.personality)])
+		var words: String = ", ".join(npc.get_personality_words()) if npc.has_method("get_personality_words") else "?"
+		print("  seed=%d  personality: %s" % [npc.generation_seed, words])
+		print("  mood=%.1f  irritability=%.1f%% (%s)" % [
+			npc.mood, npc.irritability if "irritability" in npc else -1.0,
+			npc.get_irritability_label() if npc.has_method("get_irritability_label") else "?"])

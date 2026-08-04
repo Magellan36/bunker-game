@@ -65,12 +65,184 @@ const HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR: float = 5.0
 ## collapse state beyond pass-out?) is intentionally out of scope here —
 ## health is clamped at 0 and nothing further happens yet.
 
-# ─── Personality / mood / seed — INERT STUBS (Part 2) ─────────────────────
-## FUTURE WORK: the personality-trait + mood + crisis-response system reads
-## and populates these. Nothing may read or write them until that pass.
+# ─── Personality / mood / irritability (Part 20) ───────────────────────────
 var generation_seed: int = 0
+
+## 5 traits, 0.0–1.0, fully random at spawn, FIXED for the NPC's life (no
+## mechanism changes them after generation — may become possible later).
+## Only "resilience" and "optimism" drive concrete mechanics this pass (see
+## _irritability_trait_mult()/_mood_recovery_trait_mult() below). The other
+## three are generated and shown in the E-panel but mechanically inert:
+## FUTURE WORK — sociability could scale contagion strength (a "how much
+## this NPC affects/is affected by others" multiplier), work_ethic could
+## scale skill-gain rate or job willingness, neuroticism could scale mood's
+## volatility (bigger swings from the same inputs). None of that is built.
 var personality: Dictionary = {}
+const PERSONALITY_TRAIT_KEYS: Array[String] = [
+	"resilience", "sociability", "work_ethic", "neuroticism", "optimism",
+]
+## word band thresholds — shared by trait words AND the Irritable-trait
+## breakpoint-shift classification below, so "has the Irritable trait" means
+## exactly the same thing everywhere it's checked.
+const TRAIT_BAND_LOW: float = 0.35
+const TRAIT_BAND_HIGH: float = 0.65
+const TRAIT_WORDS: Dictionary = {
+	"resilience":  {"low": "Irritable",   "mid": "Even-Tempered", "high": "Level-Headed"},
+	"sociability": {"low": "Distant",     "mid": "Reserved",      "high": "Kind"},
+	"work_ethic":  {"low": "Lazy",        "mid": "Steady",        "high": "Hard Worker"},
+	"neuroticism": {"low": "Easygoing",   "mid": "Composed",      "high": "Neurotic"},
+	"optimism":    {"low": "Pessimistic", "mid": "Realistic",     "high": "Optimistic"},
+}
+
+func randomize_personality() -> void:
+	for k: String in PERSONALITY_TRAIT_KEYS:
+		personality[k] = randf()
+
+func get_trait_word(key: String) -> String:
+	var v: float = float(personality.get(key, 0.5))
+	var bands: Dictionary = TRAIT_WORDS.get(key, {})
+	if bands.is_empty():
+		return ""
+	if v < TRAIT_BAND_LOW:
+		return bands["low"]
+	elif v > TRAIT_BAND_HIGH:
+		return bands["high"]
+	return bands["mid"]
+
+## E-panel display order — 5 descriptive words, never raw numbers.
+func get_personality_words() -> Array[String]:
+	var out: Array[String] = []
+	for k: String in PERSONALITY_TRAIT_KEYS:
+		out.append(get_trait_word(k))
+	return out
+
+func has_irritable_trait() -> bool:
+	return float(personality.get("resilience", 0.5)) < TRAIT_BAND_LOW
+
+## How much the Resilience trait amplifies (Irritable) or dampens
+## (Level-Headed) irritability generation AND forgetfulness from the SAME
+## need/mood conditions. 1.0 at neutral (0.5) resilience.
+func _irritability_trait_mult() -> float:
+	return lerp(1.5, 0.5, float(personality.get("resilience", 0.5)))
+
+## Optimism scales mood RECOVERY speed only (not decline) — a pessimistic
+## NPC takes longer to bounce back from a bad mood; an optimistic one
+## recovers faster. 1.0 at neutral (0.5) optimism.
+func _mood_recovery_trait_mult() -> float:
+	return lerp(0.5, 1.5, float(personality.get("optimism", 0.5)))
+
+# ─── Mood (Part 20) — 0..100, moves SLOWLY (day-scale, not minute-scale) ───
 var mood: float = 100.0
+## Needs at/above this average = "fine" — mood drifts back toward 100.
+## Below it, mood's target tracks the needs average down proportionally.
+const MOOD_FINE_THRESHOLD: float = 70.0
+const MOOD_CHANGE_PER_GAME_HOUR: float = 4.0
+## Fraction of the gap to the average of every OTHER NPC's mood closed per
+## game-hour — global range by design (small bunkers; every NPC should be
+## able to pull every other one, compounding into spirals either direction).
+const MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR: float = 0.03
+## Small random wobble — "more than noise, not enough to drastically shift
+## moods" per spec. Symmetric, so it's pure noise on average, not a bias.
+const MOOD_DRIFT_MAX_PER_GAME_HOUR: float = 1.0
+const MOOD_TICK_INTERVAL: float = 5.0   ## periodic, not per-frame — cheap,
+                                        ## and paces debug output sensibly
+var _mood_tick_timer: float = 0.0
+
+## Last tick's per-source contribution — inspectable so mood changes are
+## NEVER ambiguous about why (Brannon's explicit requirement). Printed by
+## NPCDebug every tick when debug logging is enabled.
+var _mood_needs_delta: float = 0.0
+var _mood_contagion_delta: float = 0.0
+var _mood_drift_delta: float = 0.0
+
+# ─── Irritability (Part 20) — 0..100%, reacts FASTER than mood, no UI bar ──
+## Backend-only. Surfaces solely via get_status_labels()' Grumpy/Frustrated/
+## Mad/Rage word (+ a debug-only % suffix) — never its own bar, per spec.
+var irritability: float = 0.0
+const IRRITABILITY_NEED_WEIGHT: float = 1.2    ## bigger weight than mood
+const IRRITABILITY_MOOD_WEIGHT: float = 0.4    ## smaller weight than needs
+const IRRITABILITY_CHANGE_PER_GAME_HOUR: float = 20.0   ## reacts much faster than mood
+const IRRITABILITY_BASE_BREAKPOINTS: Array[float] = [20.0, 45.0, 70.0, 90.0]
+const IRRITABILITY_LABELS: Array[String] = ["Grumpy", "Frustrated", "Mad", "Rage"]
+var _irritability_target: float = 0.0   ## debug-inspectable
+
+## Irritable-trait NPCs cross into each label tier 5% sooner; everyone else's
+## thresholds are raised 10% (per spec — the "raise by 10% except Irritable,
+## which lower by 5%" rule).
+func _irritability_breakpoints() -> Array[float]:
+	var mult: float = 0.95 if has_irritable_trait() else 1.10
+	var out: Array[float] = []
+	for b: float in IRRITABILITY_BASE_BREAKPOINTS:
+		out.append(b * mult)
+	return out
+
+func get_irritability_label() -> String:
+	var bp: Array[float] = _irritability_breakpoints()
+	var label: String = ""
+	for i: int in range(bp.size()):
+		if irritability >= bp[i]:
+			label = IRRITABILITY_LABELS[i]
+	return label
+
+func _tick_mood_and_irritability(delta: float) -> void:
+	_mood_tick_timer -= delta
+	if _mood_tick_timer > 0.0:
+		return
+	_mood_tick_timer = MOOD_TICK_INTERVAL
+	var h: float = game_hours(MOOD_TICK_INTERVAL)
+	if h <= 0.0:
+		return
+	_tick_mood(h)
+	_tick_irritability(h)
+
+func _tick_mood(h: float) -> void:
+	var needs_avg: float = (energy + hunger + thirst) / 3.0
+	var mood_target: float = 100.0 if needs_avg >= MOOD_FINE_THRESHOLD else needs_avg
+	var rate: float = MOOD_CHANGE_PER_GAME_HOUR
+	if mood_target > mood:
+		rate *= _mood_recovery_trait_mult()
+	var before: float = mood
+	mood = move_toward(mood, mood_target, rate * h)
+	_mood_needs_delta = mood - before
+
+	before = mood
+	var others: Array = get_tree().get_nodes_in_group("npc")
+	var total: float = 0.0
+	var count: int = 0
+	for other: Node in others:
+		if other == self or not is_instance_valid(other) or not ("mood" in other):
+			continue
+		total += float(other.mood)
+		count += 1
+	if count > 0:
+		var avg_other: float = total / float(count)
+		mood = clampf(mood + (avg_other - mood) * MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * h, 0.0, 100.0)
+	_mood_contagion_delta = mood - before
+
+	before = mood
+	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR) * h, 0.0, 100.0)
+	_mood_drift_delta = mood - before
+
+	if NPCDebug.enabled:
+		NPCDebug.log_mood(self, _mood_needs_delta, _mood_contagion_delta, _mood_drift_delta, mood)
+
+func _tick_irritability(h: float) -> void:
+	var need_contrib: float = maxf(0.0, 50.0 - energy) + maxf(0.0, 50.0 - hunger) + maxf(0.0, 50.0 - thirst)
+	var mood_contrib: float = maxf(0.0, 50.0 - mood)
+	var trait_mult: float = _irritability_trait_mult()
+	var target: float = clampf(
+		(need_contrib * IRRITABILITY_NEED_WEIGHT + mood_contrib * IRRITABILITY_MOOD_WEIGHT) * trait_mult,
+		0.0, 100.0)
+	_irritability_target = target
+	irritability = move_toward(irritability, target, IRRITABILITY_CHANGE_PER_GAME_HOUR * h)
+
+	if NPCDebug.enabled:
+		NPCDebug.log_irritability(self, need_contrib, mood_contrib, trait_mult, target, irritability)
+
+## FUTURE WORK (Crisis Response pass, explicitly deferred): mood reaching 0
+## is meant to trigger a bunker-wide "Crisis" state, likely an end-game-
+## adjacent scenario per Brannon's framing. Not built — mood just clamps at
+## 0 and sits there for now, same as health's 0 floor.
 
 # ─── Skills (Part 4) — score multipliers for job selection; grow with use ──
 var skills: Dictionary = {
@@ -170,7 +342,8 @@ func _ready() -> void:
 
 	_enter_idle()
 
-	generation_seed = randi()   ## stub — future personality generation input
+	generation_seed = randi()
+	randomize_personality()
 	randomize_skills()
 	brain = NPCBrain.new()
 	brain.setup(self)
@@ -180,6 +353,7 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
 
 	_tick_needs(delta)
+	_tick_mood_and_irritability(delta)
 	_tick_stuck_recovery(delta)
 
 	if current_task != null:
@@ -456,24 +630,16 @@ func _handle_physics_pushes(delta: float) -> void:
 			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE / rb.mass)
 
 
-# ─── Need-tier consequences (Part 14) ───────────────────────────────────────
-## Single source of truth for every need-driven consequence — both NPCBrain
-## (behavior) and NPCTalkMenuUI (display) read from these, so the numbers
-## driving what an NPC actually does and what the player sees always agree.
-##
-## FUTURE WORK (crisis-response / personality pass, explicitly deferred):
-## every tier below is a hook point for personality-scaled irritability —
-## some NPCs should get more irritable than others at the same tier. Do not
-## implement that here; mood/personality (Part 2 stubs) stay inert until
-## that pass is deliberately revisited.
+# ─── Need-tier consequences (Part 14/20) ───────────────────────────────────────
+## Single source of truth for every need/mood/irritability-driven
+## consequence — NPCBrain (behavior), NPCTalkMenuUI (display), and
+## NPCDebug all read from these, so what an NPC actually does and what the
+## player/debug sees always agree.
 
 ## Energy contributes its OWN single progressive tier (25% tier REPLACES the
-## 50% tier's penalty, doesn't stack on top of it — it's one need's escalating
-## effect, not multiple separate needs). Hunger/Thirst only affect speed at
-## <25% each (per spec, "same speed" below 50%), and DO multiply against
-## Energy's contribution and each other when both are active — this is what
-## makes multiple needs being low simultaneously compound, per the explicit
-## stacking requirement.
+## 50% tier's penalty, doesn't stack on top of it). Hunger/Thirst only
+## affect speed at <25% each. Mood (Part 20) adds its own small penalty at
+## ≤25% — all multiply together, so low on several at once compounds.
 func get_status_speed_multiplier() -> float:
 	var energy_mult: float = 1.0
 	if energy < 25.0:
@@ -482,17 +648,21 @@ func get_status_speed_multiplier() -> float:
 		energy_mult = 0.85   ## "slightly slower"
 	var hunger_mult: float = 0.90 if hunger < 25.0 else 1.0
 	var thirst_mult: float = 0.90 if thirst < 25.0 else 1.0
-	return energy_mult * hunger_mult * thirst_mult
+	var mood_mult: float = 0.85 if mood <= 25.0 else 1.0   ## Part 20
+	return energy_mult * hunger_mult * thirst_mult * mood_mult
 
-## Chance [0..1] to divert from a job into 20s of forgetful wandering, rolled
-## by NPCBrain only at the moment a job would otherwise be picked. Hunger and
-## Thirst each contribute their own tiered chance; combined via probabilistic
-## OR (independent needs, matching the same "different needs stack" rule
-## speed uses) so being low on both makes forgetfulness MORE likely, not less.
+## Chance [0..1] to divert from a job into 20s of forgetful wandering.
+## Hunger, Thirst, and (Part 20) Mood each contribute their own tiered
+## chance — Mood's tiers are roughly half the needs' tiers ("affecting it
+## less than needs do", per spec) — combined via probabilistic OR, then
+## scaled by the Resilience trait (Irritable NPCs are more drastically
+## affected by the SAME conditions; Level-Headed NPCs less so).
 func get_forgetfulness_chance() -> float:
 	var p_hunger: float = _forgetfulness_tier_chance(hunger)
 	var p_thirst: float = _forgetfulness_tier_chance(thirst)
-	return 1.0 - (1.0 - p_hunger) * (1.0 - p_thirst)
+	var p_mood: float = _mood_forgetfulness_tier_chance(mood)
+	var combined: float = 1.0 - (1.0 - p_hunger) * (1.0 - p_thirst) * (1.0 - p_mood)
+	return clampf(combined * _irritability_trait_mult(), 0.0, 1.0)
 
 func _forgetfulness_tier_chance(need_value: float) -> float:
 	if need_value <= 0.0:
@@ -503,31 +673,113 @@ func _forgetfulness_tier_chance(need_value: float) -> float:
 		return 0.08   ## "sometimes"
 	return 0.0
 
+func _mood_forgetfulness_tier_chance(mood_value: float) -> float:
+	if mood_value <= 0.0:
+		return 0.25
+	elif mood_value < 25.0:
+		return 0.12
+	elif mood_value < 50.0:
+		return 0.05
+	return 0.0
+
 func is_passed_out() -> bool:
 	return energy <= 0.0
 
 ## Human-readable summary for the E-panel's Status line — display only,
-## does not drive any behavior itself (that's the two functions above).
+## does not drive any behavior itself (that's the functions above). Part 20
+## rewrite: every cause is listed INDIVIDUALLY (hunger-forgetfulness,
+## thirst-forgetfulness, mood-forgetfulness, mood-slowdown, etc.) rather
+## than a single combined line, per Brannon's explicit "no ambiguity" spec.
 func get_status_labels() -> Array[String]:
 	var labels: Array[String] = []
+
 	if is_passed_out():
 		labels.append("Passed out (exhausted)")
 	elif energy < 25.0:
 		labels.append("Noticeably slowed (very tired)")
 	elif energy < 50.0:
 		labels.append("Slightly slowed (tired)")
+	if mood <= 25.0:
+		labels.append("Slightly slowed (very low mood)")
 
-	var forget_chance: float = get_forgetfulness_chance()
-	if forget_chance >= 0.40:
-		labels.append("Very forgetful")
-	elif forget_chance >= 0.15:
-		labels.append("Forgetful")
-	elif forget_chance > 0.0:
-		labels.append("Occasionally forgetful")
+	if hunger <= 0.0:
+		labels.append("Very forgetful (starving)")
+	elif hunger < 25.0:
+		labels.append("Forgetful (very hungry)")
+	elif hunger < 50.0:
+		labels.append("Occasionally forgetful (hungry)")
+
+	if thirst <= 0.0:
+		labels.append("Very forgetful (dehydrated)")
+	elif thirst < 25.0:
+		labels.append("Forgetful (very thirsty)")
+	elif thirst < 50.0:
+		labels.append("Occasionally forgetful (thirsty)")
+
+	if mood < 25.0:
+		labels.append("Forgetful (miserable)")
+	elif mood < 50.0:
+		labels.append("Occasionally forgetful (unhappy)")
 
 	if hunger <= 0.0 or thirst <= 0.0:
 		labels.append("Losing health (starving/dehydrated)")
 
+	## Irritability — Grumpy/Frustrated/Mad/Rage. Percentage suffix is
+	## debug-only (gated on NPCDebug.enabled) — dev tool, removed for the
+	## final game per Brannon's instruction; shipped play only ever shows
+	## the word.
+	var irr_label: String = get_irritability_label()
+	if irr_label != "":
+		if NPCDebug.enabled:
+			labels.append("%s (%.0f%%)" % [irr_label, irritability])
+		else:
+			labels.append(irr_label)
+
 	if labels.is_empty():
 		labels.append("Doing fine")
 	return labels
+
+# ─── Dialogue (Part 20) — mood/irritability-aware, first pass only ─────────
+## Deliberately simple: a handful of candidate lines per tier, picked fresh
+## each time Talk is pressed. Lays groundwork for a real dialogue system
+## later rather than building one now.
+const DIALOGUE_ANGRY: Array[String] = [
+	"\"What do you want.\"",
+	"\"Not now.\"",
+	"\"I'm this close to losing it.\"",
+]
+const DIALOGUE_FRUSTRATED: Array[String] = [
+	"\"...Yeah?\"",
+	"\"Can this wait?\"",
+]
+const DIALOGUE_GRUMPY: Array[String] = [
+	"\"Hm. What.\"",
+	"\"Yeah, yeah.\"",
+]
+const DIALOGUE_LOW_MOOD: Array[String] = [
+	"\"...\"",
+	"\"I don't really feel like talking.\"",
+]
+const DIALOGUE_HAPPY: Array[String] = [
+	"\"Hey! Good to see you.\"",
+	"\"What's up?\"",
+]
+const DIALOGUE_NEUTRAL: Array[String] = [
+	"\"...\"",
+	"\"Yeah?\"",
+]
+
+func get_dialogue_line() -> String:
+	var irr_label: String = get_irritability_label()
+	var pool: Array[String] = DIALOGUE_NEUTRAL
+	if irr_label == "Rage" or irr_label == "Mad":
+		pool = DIALOGUE_ANGRY
+	elif irr_label == "Frustrated":
+		pool = DIALOGUE_FRUSTRATED
+	elif irr_label == "Grumpy":
+		pool = DIALOGUE_GRUMPY
+	elif mood < 25.0:
+		pool = DIALOGUE_LOW_MOOD
+	elif mood >= 75.0:
+		pool = DIALOGUE_HAPPY
+	return pool[randi() % pool.size()]

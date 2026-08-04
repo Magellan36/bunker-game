@@ -11,7 +11,9 @@ class_name NPCTalkMenuUI
 ##   - A bunker-wide "Residents" roster panel (hotkey, all NPCs at once).
 
 const PANEL_W: float = 380.0
-const PANEL_H: float = 460.0
+const PANEL_H: float = 760.0   ## Part 20 — bumped for the Mood row + Personality
+                               ## section (on top of Part 19's command buttons,
+                               ## if that part has also landed); retune visually
 const BAR_H: float = 14.0
 const REFRESH_INTERVAL: float = 0.25
 const PLACEHOLDER_LINE: String = "\"...\""
@@ -126,7 +128,7 @@ func _build(npc_name: String) -> void:
 
 	## Needs (+ Health, Part 14 — same bar style, reads _npc.health directly)
 	_vbox.add_child(UIKit.make_section_label("NEEDS", theme))
-	for need: String in ["Health", "Energy", "Hunger", "Thirst"]:
+	for need: String in ["Health", "Energy", "Hunger", "Thirst", "Mood"]:
 		_vbox.add_child(_build_need_row(need, theme))
 
 	_vbox.add_child(HSeparator.new())
@@ -142,6 +144,22 @@ func _build(npc_name: String) -> void:
 	_status_label.add_theme_color_override("font_color", theme.text)
 	_status_label.add_theme_font_override("font", UIKit.font())
 	_vbox.add_child(_status_label)
+
+	_vbox.add_child(HSeparator.new())
+
+	## Personality (Part 20) — fixed per NPC, shown as descriptive words
+	## only, never raw trait numbers. Computed once here since traits never
+	## change after spawn.
+	_vbox.add_child(UIKit.make_section_label("PERSONALITY", theme))
+	var personality_label: Label = Label.new()
+	personality_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	personality_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	personality_label.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
+	personality_label.add_theme_color_override("font_color", theme.text)
+	personality_label.add_theme_font_override("font", UIKit.font())
+	if _npc != null and _npc.has_method("get_personality_words"):
+		personality_label.text = ", ".join(_npc.get_personality_words())
+	_vbox.add_child(personality_label)
 
 	_vbox.add_child(HSeparator.new())
 
@@ -235,6 +253,7 @@ func _refresh_live_values() -> void:
 		"Energy": float(_npc.energy),
 		"Hunger": float(_npc.hunger),
 		"Thirst": float(_npc.thirst),
+		"Mood": float(_npc.mood),
 	}
 	for need: String in needs.keys():
 		var v: float = clampf(needs[need], 0.0, 100.0)
@@ -260,6 +279,8 @@ func _refresh_live_values() -> void:
 # ─── Buttons ──────────────────────────────────────────────────────────────
 func _on_talk_pressed() -> void:
 	if _dialogue_label != null:
+		if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_dialogue_line"):
+			_dialogue_label.text = _npc.get_dialogue_line()   ## Part 20 — picked fresh each press
 		_dialogue_label.visible = true
 	if _command_box != null:
 		_command_box.visible = true

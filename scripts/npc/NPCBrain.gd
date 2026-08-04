@@ -102,8 +102,12 @@ func _think() -> void:
 	## needs, not "work"). Rolled once right here, not per-frame, so a
 	## triggered diversion commits to a full 20s wander instead of
 	## re-rolling every think-tick.
-	if best is JobActivity and randf() < _npc.get_forgetfulness_chance():
-		best = ForgetfulWanderActivity.new()
+	if best is JobActivity:
+		var forget_chance: float = _npc.get_forgetfulness_chance()
+		var triggered: bool = randf() < forget_chance
+		NPCDebug.log_forgetfulness_roll(_npc, forget_chance, triggered)
+		if triggered:
+			best = ForgetfulWanderActivity.new()
 
 	if _current == null:
 		NPCDebug.log_activity(_npc, "Idle", best.label())
@@ -571,7 +575,15 @@ class JobActivity extends NPCActivity:
 			return 0.0
 		var skill: float = float(npc.skills.get(conf["skill"], 1.0))
 		var dist: float = NPCItemUser.flat_distance((target as Node3D).global_position, npc.global_position)
-		return float(conf["base"]) * skill / (1.0 + dist * 0.08)
+		var base_score: float = float(conf["base"]) * skill / (1.0 + dist * 0.08)
+		## Irritability reduces willingness to work (Part 20) — distinct from
+		## forgetfulness, which diverts AWAY from a job already chosen. This
+		## instead makes an irritable NPC less likely to be picked as a job's
+		## best candidate in the first place. Halves at max irritability (100%).
+		## Not separately logged — it's a continuous scoring effect evaluated
+		## every think-cycle for every open job, not a discrete event.
+		var willingness: float = 1.0 - (npc.irritability / 100.0) * 0.5
+		return base_score * willingness
 
 	func interruptible() -> bool:
 		return _phase != "work"

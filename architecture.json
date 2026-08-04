@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-04T00:12:49.467564+00:00",
+  "generated_at": "2026-08-04T00:46:57.812809+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 122,
-  "total_lines": 48050,
+  "total_lines": 48372,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -324,7 +324,7 @@
     },
     {
       "path": "res://scripts/npc/NPC.gd",
-      "line_count": 533,
+      "line_count": 785,
       "class_name": "NPC",
       "extends": "CharacterBody3D",
       "exports": [
@@ -361,6 +361,31 @@
         }
       ],
       "public_functions": [
+        {
+          "name": "randomize_personality",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_trait_word",
+          "args": "key: String",
+          "returns": "String"
+        },
+        {
+          "name": "get_personality_words",
+          "args": "",
+          "returns": "Array[String]"
+        },
+        {
+          "name": "has_irritable_trait",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "get_irritability_label",
+          "args": "",
+          "returns": "String"
+        },
         {
           "name": "randomize_skills",
           "args": "",
@@ -455,9 +480,14 @@
           "name": "get_status_labels",
           "args": "",
           "returns": "Array[String]"
+        },
+        {
+          "name": "get_dialogue_line",
+          "args": "",
+          "returns": "String"
         }
       ],
-      "private_function_count": 14,
+      "private_function_count": 21,
       "preloads": [
         "res://scripts/ui/npc/NPCTalkMenuUI.gd"
       ],
@@ -466,7 +496,7 @@
         "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 585
+      "complexity_score": 856
     },
     {
       "path": "res://scripts/npc/NPCActivity.gd",
@@ -521,7 +551,7 @@
     },
     {
       "path": "res://scripts/npc/NPCBrain.gd",
-      "line_count": 983,
+      "line_count": 995,
       "class_name": "NPCBrain",
       "extends": "RefCounted",
       "exports": [],
@@ -905,11 +935,11 @@
         "main_world"
       ],
       "autoload_references": [],
-      "complexity_score": 1149
+      "complexity_score": 1161
     },
     {
       "path": "res://scripts/npc/NPCDebug.gd",
-      "line_count": 97,
+      "line_count": 128,
       "class_name": "NPCDebug",
       "extends": "RefCounted",
       "exports": [],
@@ -920,7 +950,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 97
+      "complexity_score": 128
     },
     {
       "path": "res://scripts/npc/NPCItemUser.gd",
@@ -1870,7 +1900,7 @@
     },
     {
       "path": "res://scripts/ui/menus/AdminMenu.gd",
-      "line_count": 592,
+      "line_count": 598,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -1915,7 +1945,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 43,
+      "private_function_count": 44,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf",
         "res://scenes/npc/NPC.tscn"
@@ -1929,7 +1959,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 641
+      "complexity_score": 648
     },
     {
       "path": "res://scripts/ui/menus/GraphicsSettingsPanel.gd",
@@ -2204,7 +2234,7 @@
     },
     {
       "path": "res://scripts/ui/npc/NPCTalkMenuUI.gd",
-      "line_count": 293,
+      "line_count": 314,
       "class_name": "NPCTalkMenuUI",
       "extends": "CanvasLayer",
       "exports": [],
@@ -2226,7 +2256,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 310
+      "complexity_score": 331
     },
     {
       "path": "res://scripts/ui/power/GeneratorInspectUI.gd",
