@@ -1,3 +1,60 @@
+# Handover — NPC Give Real-Transfer Fix + Dedicated Snatch Activity + Relationship Debug Buttons (Aug 2026)
+
+**Owner:** NPC instance. Restates Give as a real transfer and redesigns
+the Snatch mechanic as a dedicated non-interruptible activity.
+
+## What changed this session
+- `scripts/npc/NPCActivity.gd` — full-file replacement adding the
+  `begin_with_item()` (Part 28) and `take_handoff()` (Part 30) virtuals.
+- `scripts/npc/NPCBrain.gd` —
+  - Core `tick()` now polls `_current.take_handoff()` right after
+    `tick()` runs and switches to the returned successor (explicit
+    handoff, avoiding reentrant `force_command()` from inside an
+    activity's own tick). On handoff it also calls the successor's
+    `begin_with_item(_npc, _npc.held_item)`.
+  - New `GivenEatActivity extends EatActivity` and
+    `GivenDrinkActivity extends DrinkActivity` — player-Give/snatch
+    consumption hand-offs (score()=0, no search, keyed off held_item/`_target`).
+  - New dedicated, non-interruptible `SnatchActivity` (entered via
+    force_command, never scored), which walks to the player, grabs via
+    `snatch_from_player()`, and hands off to Given* via `take_handoff()`.
+  - `EatActivity`/`DrinkActivity` now stash a snatch target in
+    `_pending_snatch` (from `find_player_snatch_target()` in
+    enter()/_reacquire_or_finish()) and request the handoff to
+    `SnatchActivity` on the next tick instead of walking the snatch
+    themselves — the old in-activity snatch mode (Part 29) was
+    interruptible and got cancelled mid-approach by the think-cycle.
+- `scripts/npc/NPC.gd` — `receive_item_from_player()` rewritten as a
+  real transfer: `force_command()` the Given* activity first, then
+  `item.pickup(hold_point)`/`held_item = item`, then
+  `activity.begin_with_item()`; consumption is async inside the
+  activity's tick, not instant. Snatch block updated to final form
+  (`find_player_snatch_target()`/`debug_force_snatch()`) plus new
+  `debug_adjust_player_relationship(delta)` (writes `relationships["player"]`
+  directly, bypassing Sociability, for exact ±25 F7 testing).
+- `scripts/npc/NPCItemUser.gd` — `snatch_from_player()` unchanged
+  (verified present and matching).
+- `scripts/npc/NPCDebug.gd` — new `log_snatch()` staged logging.
+- `scripts/ui/menus/AdminMenu.gd` — two new F7 rows: "Relationship -25 /
+  +25 (All NPCs ↔ Player)" with `_on_npc_relationship_down/up_pressed()`
+  + `_adjust_all_npc_relationship()`.
+- `docs/systems/npc/README.md` — Give paragraph rewritten for real
+  transfer; Relationship Snatch section rewritten for `SnatchActivity` +
+  `take_handoff()` + `log_snatch()`; Testing Checklist items 22-24.
+
+## Dependencies / notes
+- **Player-side inventory-clear fix required end-to-end**
+  (`PLAYER_SUBSYSTEM_INVENTORY_CLEAR_FIX.md`, separate Player subsystem
+  file): without it, Give/Snatch leave the transferred item stale in the
+  player's inventory list. Not applied here — NPC side only.
+- The `is_held` guard on `grab_loose()` referenced by the plan's
+  commentary was never applied on disk (prerequisite theft-fix plan was
+  never given) — the design intent is preserved via the strict
+  `grab_loose()` vs `snatch_from_player()` separation regardless.
+
+---
+---
+
 # Handover — Player Contract for NPC Relationship Snatch (Aug 2026)
 
 ## What changed this session

@@ -340,13 +340,17 @@ near each other.
 `is_edible()`/`is_drinkable_bottle()` classifiers self-serve
 eating/drinking already use) — and walks up to an NPC: `[E] Give <item>
 to <name>` appears (mirrors the Basket/Cooking Pot held-item prompt
-pattern in `InteractionSystem.gd` exactly). E transfers nutrition/
-hydration into the NPC immediately (`NPC.receive_item_from_player()`).
-Single-serving items (Dish/Produce) are fully consumed and destroyed, one
-bite/drink at a time for cans/bottles (mirrors self-serve
-`NPCItemUser.eat_held_step()` exactly) — a can/bottle persists in the
-player's hand across multiple gifts, getting progressively emptier, same
-as it would from repeated self-use.
+pattern in `InteractionSystem.gd` exactly). E performs a REAL transfer
+(`NPC.receive_item_from_player()`): the item physically leaves the
+player's hand, becomes the NPC's `held_item`, and is consumed over the
+NPC's normal eating/drinking duration via
+`GivenEatActivity`/`GivenDrinkActivity` (subclasses of the self-serve
+activities that key off `held_item`, so the NPC visibly "eats"/"drinks"
+it exactly like something it picked up itself — the overhead label shows
+"Eating"/"Drinking"). Nutrition/hydration is NOT applied instantly;
+consumption happens async inside those activities' `tick()`, and a
+can/bottle persists in the NPC's hand across bites/drinks (drops when
+finished, or is dropped if the NPC is interrupted), same as self-serve.
 
 A successful gift applies a +7.5 relationship bonus (scaled by Sociability
 like everything else, via `_adjust_relationship()`, and by gift
@@ -436,6 +440,31 @@ normal world item when searching for food/water, forcibly taking a held
 item right out of the player's hands. It is the one intentional,
 narrowly-gated exception to the strict no-theft ethos.
 
+Runs as its own **dedicated, non-interruptible `SnatchActivity`** — not a
+mode folded inside EatActivity/DrinkActivity. That earlier design (Part
+29) failed almost every time in practice: as far as `NPCBrain` was
+concerned it was still an ordinary interruptible `EatActivity`/
+`DrinkActivity` (whose `interruptible()` only returns `false` once the
+drink/eat timer is actively counting down, which never happens during
+the walk-over), so the normal 1-second think-cycle could and did cancel
+the pursuit mid-approach — the "walks toward the player, then midway just
+wanders off" behavior. Now: `SnatchActivity.interruptible()` returns
+`false` always, so once the NPC commits it cannot be preempted.
+
+The flow: EatActivity/DrinkActivity call
+`NPC.find_player_snatch_target()` in `enter()`/`_reacquire_or_finish()`.
+On a hit, the activity stores the player in `_pending_snatch` and hands
+off to `SnatchActivity` on the next tick via the new
+`NPCActivity.take_handoff()` mechanism (checked by `NPCBrain.tick()`
+right after `tick()` runs — deliberately NOT `force_command()` from
+inside an activity's own `tick()`, which would be reentrantly unsafe
+against the brain's `_current = null` line). `SnatchActivity` walks to
+the player (PICKUP_RANGE), and on a successful
+`NPCItemUser.snatch_from_player()` immediately hands off to
+`GivenEatActivity`/`GivenDrinkActivity` to consume what was grabbed —
+again via `take_handoff()`, so the item is eaten/drunk over the normal
+duration, never instantly.
+
 - **Gated on hostility.** Only ever considered when the relationship with
   the player is ≤ -50 (`SNATCH_RELATIONSHIP_THRESHOLD`).
 - **Chance scales with hostility.** At exactly -50: 5% per attempt
@@ -454,11 +483,18 @@ narrowly-gated exception to the strict no-theft ethos.
 - **Deliberately separate from `grab_loose()`.** The guarded `grab_loose()`
   (for legitimate item-finding, with its `is_held` guard added to stop
   accidental theft) stays strict. `snatch_from_player()` is the one
-  intentional exception, reached only through the gated finder function.
-- **F7 debug button** ("Force Nearest NPC to Snatch Player Item") targets
+  intentional exception, reached only through `SnatchActivity`.
+- **Staged debug logging** via `NPCDebug.log_snatch()` — `started`/
+  `success`/`aborted`/`failed` each get their own console line (only when
+  NPC debug logging is on), so a silent failure is never silent again.
+- **F7 debug buttons.** "Force Nearest NPC to Snatch Player Item" targets
   the nearest NPC to the player, bypasses both the relationship gate and
   the probability roll, but still requires the player to be actually
-  holding a matching food/water item.
+  holding a matching food/water item. "Relationship -25 / +25 (All NPCs
+  ↔ Player)" set every spawned NPC's relationship with the player by an
+  exact ±25, bypassing the Sociability multiplier
+  (`debug_adjust_player_relationship()` writes `relationships["player"]`
+  directly), so the ±25 is predictable for testing.
 
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
@@ -658,3 +694,14 @@ skills, personality words, seed, mood, and irritability + label.
     confirm it snatches anyway. Press it while NOT holding anything (or
     holding a non-food/water item) — confirm it fails gracefully (console
     message, no crash, nothing happens).
+22. Give any item type to an NPC — confirm it visibly leaves your hand,
+    appears in the NPC's, and gets "eaten"/"drunk" over the normal
+    duration (overhead label shows "Eating"/"Drinking"), not instantly.
+23. With debug logging on, use F7 "Force Nearest NPC to Snatch Player
+    Item" repeatedly while holding a matching item near an NPC — confirm
+    it succeeds reliably now (not ~1-in-many), and confirm the console
+    shows staged SNATCH log lines (started/success, or a specific
+    aborted/failed reason) every time, never silent.
+24. Confirm F7 relationship ±25 buttons move every spawned NPC's
+    relationship with the player by exactly 25 (check via the F7
+    relationship visualizer), regardless of Sociability.

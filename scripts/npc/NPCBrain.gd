@@ -66,7 +66,20 @@ func tick(delta: float) -> void:
 
 	if _current != null:
 		_current.tick(_npc, delta)
-		if _current.done(_npc):
+		## Part 30 — explicit handoff to a SPECIFIC successor. Calling
+		## force_command() reentrantly from inside an activity's own
+		## tick() is unsafe (this same block would immediately stomp
+		## whatever force_command() had just set, at the `_current = null`
+		## line below) — take_handoff() exists so an activity can request
+		## an exact successor safely, from out here in the outer scope.
+		var handoff: NPCActivity = _current.take_handoff()
+		if handoff != null:
+			_current.exit(_npc)
+			_current = handoff
+			_current.enter(_npc)
+			_current.begin_with_item(_npc, _npc.held_item)   ## no-op unless the successor implements it
+			_think_timer = THINK_INTERVAL   ## same reasoning as force_command() — don't immediately override this
+		elif _current.done(_npc):
 			_current.exit(_npc)
 			_current = null
 
@@ -275,6 +288,8 @@ class DrinkActivity extends NPCActivity:
 	var _mode: String = ""        ## "dispenser" | "bottle"
 	var _target: Node = null
 	var _drinking: float = 0.0
+	var _pending_snatch: Node = null   ## Part 30
+	var _handoff: NPCActivity = null
 
 	func label() -> String:
 		return "Drinking" if _drinking > 0.0 else "Getting water"
@@ -306,12 +321,9 @@ class DrinkActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		_drinking = 0.0
-		var snatch: Node = npc.find_player_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
-		if snatch != null:
-			_mode = "snatch"
-			_target = snatch
-			npc.set_nav_target((snatch as Node3D).global_position)
-			return
+		_pending_snatch = npc.find_player_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
+		if _pending_snatch != null:
+			return   ## handled on first tick() below
 		var pick: Dictionary = _pick_target(npc)
 		_mode = pick.get("mode", "")
 		_target = pick.get("node", null)
@@ -323,35 +335,17 @@ class DrinkActivity extends NPCActivity:
 			npc.set_nav_target((_target as Node3D).global_position)
 
 	func tick(npc: NPC, delta: float) -> void:
+		if _pending_snatch != null:
+			_handoff = NPCBrain.SnatchActivity.new(_pending_snatch, Callable(NPCItemUser, "is_drinkable_bottle"), false)
+			_pending_snatch = null
+			return
 		if _target == null or not is_instance_valid(_target):
 			_target = null
 			return
 		if _mode == "bottle":
 			_tick_bottle(npc, delta)
-		elif _mode == "snatch":
-			_tick_snatch(npc, delta)
 		else:
 			_tick_dispenser(npc, delta)
-
-	## Part 29. Once the snatch succeeds, hands off to the normal "bottle"
-	## mode/_tick_bottle() for the rest of the drink — _target gets
-	## reassigned from the player to the actual bottle so
-	## _finish_bottle()'s `npc.held_item == _target` check (which compares
-	## against the bottle, never the player) keeps working unmodified.
-	func _tick_snatch(npc: NPC, delta: float) -> void:
-		var held: Node = _target.get_held_item() if _target != null and _target.has_method("get_held_item") else null
-		if held == null or not is_instance_valid(held) or not NPCItemUser.is_drinkable_bottle(held):
-			_target = null
-			_mode = ""
-			return
-		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
-			if NPCItemUser.snatch_from_player(npc, _target):
-				_target = npc.held_item
-				_mode = "bottle"
-			else:
-				_target = null
-				_mode = ""
 
 	func _tick_dispenser(npc: NPC, delta: float) -> void:
 		if _drinking > 0.0:
@@ -415,8 +409,12 @@ class DrinkActivity extends NPCActivity:
 	func _reacquire_or_finish(npc: NPC) -> void:
 		_target = null
 		_mode = ""
+		_pending_snatch = null
 		if npc.thirst >= 90.0:
 			return   ## satisfied — done() ends us next tick
+		_pending_snatch = npc.find_player_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
+		if _pending_snatch != null:
+			return   ## picked up by tick() next frame
 		var pick: Dictionary = _pick_target(npc)
 		if pick.is_empty():
 			return   ## nothing left to try — done() ends us (target stays null)
@@ -431,10 +429,15 @@ class DrinkActivity extends NPCActivity:
 			npc.set_nav_target((_target as Node3D).global_position)
 
 	func done(npc: NPC) -> bool:
-		return _target == null or npc.thirst >= 90.0
+		return (_target == null or npc.thirst >= 90.0) and _pending_snatch == null
 
 	func interruptible() -> bool:
 		return _drinking <= 0.0
+
+	func take_handoff() -> NPCActivity:
+		var h: NPCActivity = _handoff
+		_handoff = null
+		return h
 
 	func exit(npc: NPC) -> void:
 		if _target != null:
@@ -446,6 +449,87 @@ class DrinkActivity extends NPCActivity:
 		_drinking = 0.0
 
 
+class GivenDrinkActivity extends DrinkActivity:
+	## Same reasoning as GivenEatActivity, but DrinkActivity's tick()
+	## checks `_target` (not held_item) first — begin_with_item() has to
+	## populate that explicitly.
+	func score(_npc: NPC) -> float:
+		return 0.0
+	func enter(_npc: NPC) -> void:
+		_drinking = 0.0
+		_mode = ""
+		_target = null
+	func begin_with_item(_npc: NPC, item: Node) -> void:
+		_mode = "bottle"
+		_target = item
+
+
+class SnatchActivity extends NPCActivity:
+	## Player Relationship Snatch (Part 30). Dedicated, non-interruptible
+	## activity — see this plan's "why the previous version almost never
+	## worked" note for why that matters. Entered via
+	## npc.brain.force_command() (never scored/auto-selected). On a
+	## successful grab, hands off to GivenEatActivity/GivenDrinkActivity
+	## via take_handoff() to actually consume what was grabbed.
+	var _player: Node = null
+	var _need_filter: Callable
+	var _is_edible: bool = false
+	var _handoff: NPCActivity = null
+	var _outcome_label: String = "Hostile"
+
+	func _init(player: Node, need_filter: Callable, is_edible: bool) -> void:
+		_player = player
+		_need_filter = need_filter
+		_is_edible = is_edible
+
+	func label() -> String:
+		return _outcome_label
+
+	func score(_npc: NPC) -> float:
+		return 0.0   ## command-only, never auto-selected
+
+	func interruptible() -> bool:
+		return false   ## commit once started — this is the actual fix
+
+	func enter(npc: NPC) -> void:
+		NPCDebug.log_snatch(npc, "started",
+			"targeting player, relationship=%.1f" % npc.get_relationship("player"))
+		if _player != null and is_instance_valid(_player):
+			npc.set_nav_target((_player as Node3D).global_position)
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _player == null or not is_instance_valid(_player):
+			NPCDebug.log_snatch(npc, "aborted", "player no longer exists")
+			_player = null
+			return
+		var held: Node = _player.get_held_item() if _player.has_method("get_held_item") else null
+		if held == null or not is_instance_valid(held) or not _need_filter.call(held):
+			NPCDebug.log_snatch(npc, "aborted", "player no longer holding a matching item")
+			_player = null
+			return
+		npc.nav_steer(delta)
+		if NPCItemUser.flat_distance(npc.global_position, (_player as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+			if NPCItemUser.snatch_from_player(npc, _player):
+				NPCDebug.log_snatch(npc, "success", "grabbed item, handing off to consume")
+				_handoff = NPCBrain.GivenEatActivity.new() if _is_edible else NPCBrain.GivenDrinkActivity.new()
+				_outcome_label = "Snatched!"
+			else:
+				NPCDebug.log_snatch(npc, "failed", "grab rejected at range (out of PICKUP_RANGE or item invalid)")
+			_player = null
+
+	func take_handoff() -> NPCActivity:
+		var h: NPCActivity = _handoff
+		_handoff = null
+		return h
+
+	func done(npc: NPC) -> bool:
+		return _player == null and _handoff == null
+
+	func exit(_npc: NPC) -> void:
+		_player = null
+		_handoff = null
+
+
 class EatActivity extends NPCActivity:
 	## Hunger-driven. Nearest edible: cooked Dish / produce / FoodCan-with-
 	## bites, loose in the world OR on a shelf (via Shelving.npc_retrieve).
@@ -455,7 +539,8 @@ class EatActivity extends NPCActivity:
 	var _loose: RigidBody3D = null
 	var _shelf_pick: Dictionary = {}
 	var _eating: float = 0.0
-	var _snatch_player: Node = null   ## Part 29
+	var _pending_snatch: Node = null   ## Part 30 — set in enter()/_reacquire_or_finish(), consumed on first tick()
+	var _handoff: NPCActivity = null
 
 	func label() -> String:
 		return "Eating" if _eating > 0.0 else "Getting food"
@@ -475,10 +560,9 @@ class EatActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		_eating = 0.0
-		_snatch_player = npc.find_player_snatch_target(Callable(NPCItemUser, "is_edible"))
-		if _snatch_player != null:
-			npc.set_nav_target((_snatch_player as Node3D).global_position)
-			return
+		_pending_snatch = npc.find_player_snatch_target(Callable(NPCItemUser, "is_edible"))
+		if _pending_snatch != null:
+			return   ## handled on first tick() below, via take_handoff()
 		_loose = _find(npc)
 		if _loose != null and not NPCItemUser.claim_item(_loose, npc):
 			_loose = null   ## lost the race between scoring and entering
@@ -493,6 +577,10 @@ class EatActivity extends NPCActivity:
 			npc.set_nav_target(tgt.global_position)
 
 	func tick(npc: NPC, delta: float) -> void:
+		if _pending_snatch != null:
+			_handoff = NPCBrain.SnatchActivity.new(_pending_snatch, Callable(NPCItemUser, "is_edible"), true)
+			_pending_snatch = null
+			return
 		if _eating > 0.0:
 			npc.halt_movement(delta)
 			_eating -= delta
@@ -507,18 +595,6 @@ class EatActivity extends NPCActivity:
 			npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO (see DrinkActivity 3b note)
 			_eating = CONSUME_TIME
 			return
-
-		if _snatch_player != null and is_instance_valid(_snatch_player):
-			var held: Node = _snatch_player.get_held_item() if _snatch_player.has_method("get_held_item") else null
-			if held == null or not is_instance_valid(held) or not NPCItemUser.is_edible(held):
-				_snatch_player = null   ## player dropped/used/gave it away — abandon
-				return
-			npc.nav_steer(delta)
-			if NPCItemUser.flat_distance(npc.global_position, (_snatch_player as Node3D).global_position) <= USE_RANGE:
-				NPCItemUser.snatch_from_player(npc, _snatch_player)   ## sets npc.held_item on success
-				_snatch_player = null   ## either way — success falls through to the held_item branch above next tick
-			return
-		_snatch_player = null
 
 		if _loose != null and is_instance_valid(_loose):
 			npc.nav_steer(delta)
@@ -543,7 +619,7 @@ class EatActivity extends NPCActivity:
 
 	func done(npc: NPC) -> bool:
 		return _eating <= 0.0 and npc.held_item == null \
-			and _loose == null and _shelf_pick.is_empty() and _snatch_player == null
+			and _loose == null and _shelf_pick.is_empty() and _pending_snatch == null
 
 	## Part 17 — mirrors DrinkActivity's. Finishing one item (a full can, or
 	## a single-bite item) no longer ends the activity outright if hunger is
@@ -552,13 +628,12 @@ class EatActivity extends NPCActivity:
 	func _reacquire_or_finish(npc: NPC) -> void:
 		_loose = null
 		_shelf_pick = {}
-		_snatch_player = null
+		_pending_snatch = null
 		if npc.hunger >= 55.0:
 			return
-		_snatch_player = npc.find_player_snatch_target(Callable(NPCItemUser, "is_edible"))
-		if _snatch_player != null:
-			npc.set_nav_target((_snatch_player as Node3D).global_position)
-			return
+		_pending_snatch = npc.find_player_snatch_target(Callable(NPCItemUser, "is_edible"))
+		if _pending_snatch != null:
+			return   ## picked up by tick() next frame
 		_loose = _find(npc)
 		if _loose != null and not NPCItemUser.claim_item(_loose, npc):
 			_loose = null
@@ -574,6 +649,11 @@ class EatActivity extends NPCActivity:
 	func interruptible() -> bool:
 		return _eating <= 0.0
 
+	func take_handoff() -> NPCActivity:
+		var h: NPCActivity = _handoff
+		_handoff = null
+		return h
+
 	func exit(npc: NPC) -> void:
 		if _loose != null:
 			NPCItemUser.release_item(_loose)
@@ -585,6 +665,20 @@ class EatActivity extends NPCActivity:
 		_loose = null
 		_shelf_pick = {}
 		_eating = 0.0
+
+
+class GivenEatActivity extends EatActivity:
+	## Player Give hand-off (Part 28). Reuses EatActivity's tick()/done()/
+	## exit()/label()/interruptible()/_reacquire_or_finish() completely
+	## unchanged — they already key off npc.held_item being set, which is
+	## exactly what a gift (or a successful Snatch) produces. Only
+	## enter()/score() differ: no search, no claim, never auto-selected.
+	func score(_npc: NPC) -> float:
+		return 0.0
+	func enter(_npc: NPC) -> void:
+		_eating = 0.0
+	func begin_with_item(_npc: NPC, _item: Node) -> void:
+		pass   ## tick() already reads held_item directly — nothing else needed
 
 
 class JobActivity extends NPCActivity:

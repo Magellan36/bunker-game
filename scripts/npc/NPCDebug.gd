@@ -87,6 +87,14 @@ static func log_relationship_event(npc: Node, target_id: String, delta: float, r
 	var after: float = npc.get_relationship(target_id) if npc.has_method("get_relationship") else 0.0
 	print("%s relationship event (%s): %s %+.1f -> %.1f" % [_fmt(npc), reason, target_id, delta, after])
 
+## Snatch (Part 30) — every stage gets its own line, specifically because
+## the earlier version was hard to debug when it silently failed. Always
+## logs when enabled, distinct from the continuous relationship tick log.
+static func log_snatch(npc: Node, stage: String, detail: String) -> void:
+	if not enabled:
+		return
+	print("%s SNATCH [%s]: %s" % [_fmt(npc), stage, detail])
+
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
 ## on-demand request, not continuous logging). Part 19 — expanded from a

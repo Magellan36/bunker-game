@@ -135,6 +135,8 @@ func _ready() -> void:
 			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
 			["Print NPC Debug State", _on_npc_print_debug_pressed],
 			["Force Nearest NPC to Snatch Player Item", _on_npc_force_snatch_pressed],
+			["Relationship -25 (All NPCs ↔ Player)", _on_npc_relationship_down_pressed],
+			["Relationship +25 (All NPCs ↔ Player)", _on_npc_relationship_up_pressed],
 		]},
 	]
 
@@ -565,6 +567,14 @@ func _on_npc_force_snatch_pressed() -> void:
 		return
 	if nearest.has_method("debug_force_snatch") and not nearest.debug_force_snatch():
 		print("[AdminMenu] Force snatch failed — player isn't holding a matching food/water item")
+
+func _on_npc_relationship_down_pressed() -> void: _adjust_all_npc_relationship(-25.0)
+func _on_npc_relationship_up_pressed() -> void:   _adjust_all_npc_relationship(25.0)
+
+func _adjust_all_npc_relationship(delta: float) -> void:
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if is_instance_valid(npc) and npc.has_method("debug_adjust_player_relationship"):
+			npc.debug_adjust_player_relationship(delta)
 
 ## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
 ## MainWorld._cash directly — add_cash() is what also pushes the new balance

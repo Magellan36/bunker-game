@@ -414,9 +414,23 @@ const GIFT_SATURATION_DECAY_PER_GAME_HOUR: float = 1.0 / (5.0 * 24.0)   ## full 
 const GIFT_BONUS_FLOOR_MULT: float = 0.15             ## fully burned out still does *something*
 var gift_saturation: float = 0.0
 
+## Give — real transfer. The item physically leaves the player's hand,
+## becomes this NPC's held_item, and gets consumed over the normal
+## EatActivity/DrinkActivity duration via GivenEatActivity/
+## GivenDrinkActivity — visually identical to the NPC having picked it up
+## themselves. Consumption happens async inside those activities' tick(),
+## not instantly here — this function's job is the hand-off itself plus
+## relationship/burnout/marking bookkeeping.
+##
+## Sequencing matters: force_command() FIRST (held_item is confirmed null
+## by the guard below, so the outgoing activity's exit() can't misfire
+## against the incoming gift), THEN the physical pickup/held_item
+## transfer, THEN begin_with_item() to finish wiring the new activity.
 func receive_item_from_player(item: Node) -> bool:
 	if item == null or not is_instance_valid(item):
 		return false
+	if held_item != null:
+		return false   ## hands full — can't receive a gift right now
 	if not NPCItemUser.is_giveable(item):
 		return false
 
@@ -426,14 +440,15 @@ func receive_item_from_player(item: Node) -> bool:
 		recipients.append(npc_id)
 		item.set_meta("npc_gift_recipients", recipients)
 
-	if item is DishItem or item is FarmProduceItem:
-		hunger = minf(100.0, hunger + item.consume_as_food())   ## frees the node
-	elif item.has_method("take_bite"):   ## FoodCan — multi-bite, persists (kept in world, no queue_free even when empty)
-		hunger = minf(100.0, hunger + item.take_bite())
-	elif item.has_method("take_drink"):   ## WaterBottle — multi-drink, persists
-		thirst = minf(100.0, thirst + item.take_drink())
+	var activity: NPCActivity
+	if NPCItemUser.is_edible(item):
+		activity = NPCBrain.GivenEatActivity.new()
 	else:
-		return false   ## shouldn't happen given is_giveable() above, but just in case
+		activity = NPCBrain.GivenDrinkActivity.new()
+	brain.force_command(activity)
+	item.pickup(hold_point)
+	held_item = item
+	activity.begin_with_item(self, item)
 
 	if already_boosted:
 		if NPCDebug.enabled:
@@ -449,14 +464,7 @@ func receive_item_from_player(item: Node) -> bool:
 			"received gift (saturation %.2f)" % gift_saturation)
 	return true
 
-# ─── Relationship Snatch (Part 29) ──────────────────────────────────────────
-## A badly-relationship'd NPC has a chance to target the PLAYER instead of
-## a normal world item when searching for food/water — "snatching" a held
-## item right out of their hands rather than asking or waiting. Gated
-## entirely behind relationship <= SNATCH_RELATIONSHIP_THRESHOLD; the
-## chance itself scales with how hostile the relationship actually is.
-## Deliberately relationship-neutral on success — this is a CONSEQUENCE of
-## an already-bad relationship, not a new event that further sours it.
+# ─── Relationship Snatch (Part 29/30) ───────────────────────────────────────
 const SNATCH_RELATIONSHIP_THRESHOLD: float = -50.0
 const SNATCH_CHANCE_AT_THRESHOLD: float = 0.05   ## at exactly -50
 const SNATCH_CHANCE_AT_MIN: float = 0.5          ## at -100 (fully hostile)
@@ -472,17 +480,11 @@ func get_snatch_chance() -> float:
 		0.0, 1.0)
 	return lerp(SNATCH_CHANCE_AT_THRESHOLD, SNATCH_CHANCE_AT_MIN, t)
 
-## Called from EatActivity/DrinkActivity whenever they'd normally search
-## for a new target. `need_filter` is NPCItemUser.is_edible or
-## is_drinkable_bottle, matching whichever activity is calling. Returns
-## the player node if a snatch should be attempted, else null.
-##
-## `_debug_force_snatch` (F7 test button) bypasses the relationship gate
-## and the probability roll — but NOT the "player must actually be
-## holding a matching item" check, since there'd be nothing to test
-## against otherwise. It's consumed (reset to false) on this call
-## regardless of whether a valid target was ultimately found, since it's
-## meant to affect exactly one search attempt.
+## Called from EatActivity/DrinkActivity's enter()/_reacquire_or_finish().
+## Returns the player node if a snatch should be attempted this search,
+## else null. _debug_force_snatch bypasses the relationship gate AND the
+## probability roll, but not the "player must actually be holding a
+## matching item" check.
 func find_player_snatch_target(need_filter: Callable) -> Node:
 	var forced: bool = _debug_force_snatch
 	_debug_force_snatch = false
@@ -500,14 +502,10 @@ func find_player_snatch_target(need_filter: Callable) -> Node:
 		return null
 	return player
 
-## F7 debug trigger. Forces THIS NPC into a snatch attempt against the
-## player right now, regardless of relationship — but still requires the
-## player to actually be holding a giveable food/water item. Reuses the
-## normal EatActivity/DrinkActivity classes (same pattern as
-## NPCTalkMenuUI's "Go eat something"/"Go drink something" command
-## buttons) rather than a dedicated debug activity — the one-shot
-## _debug_force_snatch flag above is what makes the normal activity
-## attempt a snatch instead of (or before) its usual search.
+## F7 debug trigger — forces THIS NPC to attempt a snatch against the
+## player right now via the normal EatActivity/DrinkActivity entry path
+## (same "Go eat something"-style force_command pattern), bypassing
+## relationship/chance but still requiring a real matching held item.
 func debug_force_snatch() -> bool:
 	var player: Node = get_tree().get_first_node_in_group("player")
 	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
@@ -524,6 +522,13 @@ func debug_force_snatch() -> bool:
 		brain.force_command(NPCBrain.DrinkActivity.new())
 		return true
 	return false
+
+## F7 debug — sets relationship-with-player directly, bypassing the
+## Sociability multiplier _adjust_relationship() normally applies, so the
+## F7 buttons produce an exact, predictable ±25 for testing.
+func debug_adjust_player_relationship(delta: float) -> void:
+	var current: float = get_relationship("player")
+	relationships["player"] = clampf(current + delta, RELATIONSHIP_MIN, RELATIONSHIP_MAX)
 
 ## Takeaway gate. True only while genuinely hungry/thirsty AND actually
 ## holding a food/drink item right now — recomputed live rather than
