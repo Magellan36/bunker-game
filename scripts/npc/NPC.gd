@@ -94,6 +94,21 @@ const TRAIT_WORDS: Dictionary = {
 	"optimism":    {"low": "Pessimistic", "mid": "Realistic",     "high": "Optimistic"},
 }
 
+## ─── Identity (Part 22) — stable unique id, used as the relationship key ──
+## Not the same thing as generation_seed (that's for personality/skill RNG,
+## not identity). Auto-assigned on first _ready(); overwritten by
+## MainWorld._restore_npcs() on load, which also calls _register_id() to
+## keep the counter ahead of every restored id so a freshly-spawned NPC in
+## the same session can never collide with one loaded from a save.
+static var _next_npc_id: int = 1
+var npc_id: String = ""
+
+static func _register_id(id: String) -> void:
+	if id.begins_with("npc_"):
+		var n: int = id.substr(4).to_int()
+		if n >= _next_npc_id:
+			_next_npc_id = n + 1
+
 func randomize_personality() -> void:
 	for k: String in PERSONALITY_TRAIT_KEYS:
 		personality[k] = randf()
@@ -194,6 +209,7 @@ func _tick_mood_and_irritability(delta: float) -> void:
 		return
 	_tick_mood(h)
 	_tick_irritability(h)
+	_tick_relationships(h)
 
 func _tick_mood(h: float) -> void:
 	var needs_avg: float = (energy + hunger + thirst) / 3.0
@@ -253,6 +269,76 @@ func _tick_irritability(h: float) -> void:
 ## is meant to trigger a bunker-wide "Crisis" state, likely an end-game-
 ## adjacent scenario per Brannon's framing. Not built — mood just clamps at
 ## 0 and sits there for now, same as health's 0 floor.
+
+# ─── Relationships (Part 22) — groundwork only, see docs/systems/npc/README ─
+## Directional, from THIS NPC's perspective only. Key is either another
+## NPC's npc_id, or the literal string "player". Value is -100..100, 0 =
+## neutral/unacquainted (absent key reads as 0 via get_relationship() — no
+## need to pre-populate every possible pair). No opposite-direction value is
+## stored anywhere yet (see Future Work in the doc) — this is intentionally
+## one-sided for now, same as mood's contagion is a live read of others'
+## state rather than a stored pairwise value.
+var relationships: Dictionary = {}
+const RELATIONSHIP_MIN: float = -100.0
+const RELATIONSHIP_MAX: float = 100.0
+## 5 bands off 4 thresholds, same pattern as irritability's breakpoints.
+const RELATIONSHIP_BAND_THRESHOLDS: Array[float] = [-60.0, -20.0, 20.0, 60.0]
+const RELATIONSHIP_LABELS: Array[String] = ["Hostile", "Cold", "Neutral", "Friendly", "Close"]
+
+## Baseline mechanic for this pass: passive proximity. Anything else
+## (giving items, crisis help, compliance, etc. — see Future Work) plugs
+## into _adjust_relationship() the exact same way once built.
+const RELATIONSHIP_PROXIMITY_RANGE: float = 4.0   ## meters, XZ-only
+const RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR: float = 2.0
+
+func get_relationship(target_id: String) -> float:
+	return float(relationships.get(target_id, 0.0))
+
+func get_relationship_label(target_id: String) -> String:
+	var v: float = get_relationship(target_id)
+	for i: int in range(RELATIONSHIP_BAND_THRESHOLDS.size()):
+		if v < RELATIONSHIP_BAND_THRESHOLDS[i]:
+			return RELATIONSHIP_LABELS[i]
+	return RELATIONSHIP_LABELS[RELATIONSHIP_LABELS.size() - 1]
+
+## Sociability trait tie-in (first mechanical use of the trait — previously
+## generated/displayed only). Low sociability = slower to form bonds OR
+## grudges either direction; high = faster both ways. Mirrors
+## _mood_recovery_trait_mult()/_irritability_trait_mult()'s lerp pattern.
+func _sociability_trait_mult() -> float:
+	return lerp(0.5, 1.5, float(personality.get("sociability", 0.5)))
+
+## Single mutation point for every relationship change, present and future
+## — every new driver in Future Work calls this, never writes `relationships`
+## directly, so the sociability multiplier and clamp are never bypassed.
+func _adjust_relationship(target_id: String, delta: float) -> void:
+	if target_id == "" or target_id == npc_id:
+		return
+	var current: float = get_relationship(target_id)
+	relationships[target_id] = clampf(
+		current + delta * _sociability_trait_mult(), RELATIONSHIP_MIN, RELATIONSHIP_MAX)
+
+func _tick_relationships(h: float) -> void:
+	var gain: float = RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR * h
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+			continue
+		if NPCItemUser.flat_distance(global_position, other.global_position) <= RELATIONSHIP_PROXIMITY_RANGE:
+			_adjust_relationship(other.npc_id, gain)
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player != null and is_instance_valid(player):
+		if NPCItemUser.flat_distance(global_position, player.global_position) <= RELATIONSHIP_PROXIMITY_RANGE:
+			_adjust_relationship("player", gain)
+	if NPCDebug.enabled:
+		NPCDebug.log_relationship_tick(self)
+
+## FUTURE WORK — see docs/systems/npc/README.md's Relationships section for
+## the full list (item giving/taking, crisis-response helping behavior,
+## command-compliance feel, personal-space avoidance scaling by
+## relationship, unprompted gift-dropping, dialogue tone reflecting
+## relationship, a Player→NPC reciprocal value). None of that is built —
+## proximity is the only live driver this pass.
+
 
 # ─── Skills (Part 4) — score multipliers for job selection; grow with use ──
 var skills: Dictionary = {
@@ -322,6 +408,11 @@ func lock_movement() -> void:
 func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("interactable")
+
+	if npc_id == "":
+		npc_id = "npc_%d" % _next_npc_id
+		_next_npc_id += 1
+	NPC._register_id(npc_id)
 
 	## Agent built in code (no scene edit needed; scene stays Pass-1 shape).
 	nav_agent = NavigationAgent3D.new()

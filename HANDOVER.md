@@ -1,3 +1,33 @@
+# Handover — NPC Relationships Groundwork + Sociability Wiring (Aug 2026)
+
+## What changed this session
+
+### Relationships — data model + proximity baseline
+- **NPC.gd**: new stable `npc_id` identity (auto-assigned, persisted,
+  collision-safe across save/load via `NPC._register_id()`); new
+  `relationships` Dictionary (directional, NPC's own perspective, keyed by
+  target `npc_id` or `"player"`, -100..100); `get_relationship()`,
+  `get_relationship_label()` (Hostile/Cold/Neutral/Friendly/Close),
+  `_adjust_relationship()` (single mutation point — applies sociability
+  multiplier + clamp); baseline driver this pass is passive proximity
+  (`_tick_relationships()`, 4m XZ range, 5s cadence alongside mood/
+  irritability).
+- **Sociability trait wired** (previously generated/displayed only):
+  `_sociability_trait_mult()`, 0.5x–1.5x, scales every relationship delta.
+- **NPCDebug.gd**: `log_relationship_tick()`; `_dump_one()` now includes
+  each NPC's relationships with labels.
+- **MainWorld.gd**: `_get_npcs_for_save()`/`_restore_npcs()` persist
+  `npc_id` and `relationships`.
+- Docs: `docs/systems/npc/README.md` — new Relationships section, updated
+  Personality/Non-responsibilities sections, new Testing Checklist items.
+
+### Explicitly not done this pass (see README's Relationships → Future Work)
+Item giving/taking, crisis-help behavior, command-compliance influence,
+personal-space avoidance scaling, gift-dropping, relationship-aware
+dialogue, Player→NPC reciprocal value.
+
+---
+
 # Handover — Build Mode Ownership Expansion, Furniture, Wall Draw Mode, Ghost Model System (Aug 2026)
 
 ## What changed this session

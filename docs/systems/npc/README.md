@@ -150,11 +150,13 @@ banded low/mid/high (`get_trait_word()`, thresholds 0.35/0.65):
 `resilience` (Irritable/Even-Tempered/Level-Headed), `sociability`
 (Distant/Reserved/Kind), `work_ethic` (Lazy/Steady/Hard Worker),
 `neuroticism` (Easygoing/Composed/Neurotic), `optimism`
-(Pessimistic/Realistic/Optimistic). Only Resilience and Optimism drive
-concrete mechanics this pass — the other three are generated/displayed
-but mechanically inert (`FUTURE WORK`: `work_ethic` → skill-gain rate or
-job willingness; `sociability` → contagion strength; `neuroticism` →
-mood volatility).
+(Pessimistic/Realistic/Optimistic). Resilience, Optimism, and (as of the
+Relationships pass) Sociability drive concrete mechanics — the remaining
+two are generated/displayed but mechanically inert (`FUTURE WORK`:
+`work_ethic` → skill-gain rate or job willingness; `neuroticism` →
+mood volatility). Sociability scales how fast a relationship value moves
+in either direction (`_sociability_trait_mult()`, 0.5x–1.5x) — see
+Relationships below.
 
 **Mood** (real E-panel bar) moves *slowly* by design — a brief dip
 shouldn't register, sustained bad conditions over real time should.
@@ -205,6 +207,68 @@ Trigger point is intended to be Mood reaching 0, likely an end-game-
 adjacent scenario. Everything in this system (needs consequences,
 irritability, personality traits, mood) exists specifically to give that
 future pass real state to react to.
+
+### Relationships (groundwork — Aug 2026)
+
+Directional, from each NPC's own perspective only: `NPC.relationships`
+(`Dictionary`, key → either another NPC's `npc_id` or the literal string
+`"player"`, value → float -100..100, absent key reads as 0/neutral via
+`get_relationship()`). No reciprocal Player→NPC value is stored anywhere —
+out of scope this pass (would require touching `Player.gd`, outside this
+subsystem).
+
+Every NPC now has a stable `npc_id` (`"npc_%d"`, auto-assigned on first
+`_ready()`, persisted, restored ids re-sync the counter via
+`NPC._register_id()` so a same-session freshly-spawned NPC can never
+collide with a loaded one). This didn't exist before — `generation_seed`
+is random-but-not-guaranteed-unique and is for personality/skill RNG only,
+never used as an identity key.
+
+**Baseline driver (the only one live this pass):** passive proximity.
+Ticks on the same 5s cadence as mood/irritability (`_tick_relationships()`,
+called from `_tick_mood_and_irritability()`), nudging affinity up toward
+every other NPC and the player within 4m (XZ-only, `NPCItemUser.flat_distance`)
+by `RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR = 2.0` per game-hour, scaled
+by sociability.
+
+**Sociability trait** (previously generated/displayed only) is now wired:
+`_sociability_trait_mult()` returns 0.5x (low sociability) to 1.5x (high),
+multiplying every relationship delta in either direction — low-sociability
+NPCs drift toward Hostile or Close more slowly than high-sociability ones,
+symmetric for both bonding and souring.
+
+**Bands** (`get_relationship_label()`, thresholds -60/-20/20/60): Hostile /
+Cold / Neutral / Friendly / Close.
+
+**Single mutation point:** every relationship change, present and future,
+must go through `_adjust_relationship(target_id, delta)` — it's what
+applies the sociability multiplier and the clamp. Never write to
+`relationships` directly.
+
+**`FUTURE WORK` — explicitly deferred, not built. Brannon's brainstormed
+list, kept here so future passes wire into `_adjust_relationship()` the
+same way proximity does rather than reinventing the plumbing:**
+- Player handing an NPC food/water directly (positive, stronger than
+  passive proximity) vs. an NPC noticing it lost out on a scarce item to
+  another NPC (negative).
+- Who helps a passed-out NPC/player vs. who beelines past — doubles as a
+  precursor signal for the still-deferred Crisis Response system.
+- Player commands (`force_command()`) landing well vs. being ignored/
+  delayed shifting player→NPC standing specifically.
+- Pairwise mood-style contagion between relationship values themselves
+  (two NPCs already fond of each other reinforcing faster).
+- Personal-space avoidance radius scaling by relationship (wider berth for
+  low relationship, tighter tolerance for high) — a `NavigationAgent3D`
+  tuning question, not a data-model one.
+- Unprompted "gift" item drop-off between NPCs with surplus/deficit.
+- `get_dialogue_line()` reading relationship value/label to color tone —
+  the dialogue system stays a *readout* of relationship state, not the
+  cause of it, matching how Mood/Irritability already work.
+- A stored Player→NPC reciprocal value, if a future UI pass needs to show
+  "how NPCs feel about you" from the player's own side rather than just
+  reading `npc.relationships["player"]` per NPC.
+- `work_ethic`/`neuroticism` wiring — unrelated to relationships, tracked
+  here only because they're the other two still-inert traits.
 
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
@@ -278,7 +342,13 @@ skills, personality words, seed, mood, and irritability + label.
 - **Crisis Response** (breakdown/overdrive/rage-as-aggression) — see the
   `FUTURE WORK` note above. Nothing built.
 - **NPC-to-NPC dialogue/social interaction** — NPCs don't talk to each
-  other; social contagion (mood) is the only inter-NPC effect that exists.
+  other. Mood contagion and (as of the Relationships pass) proximity-based
+  relationship drift are the only inter-NPC effects that exist; neither
+  involves actual communication.
+- **Relationship-reactive dialogue/behavior** — `get_dialogue_line()` and
+  every existing activity/scoring function are relationship-blind for now;
+  relationships are tracked but nothing reads them yet outside debug
+  tooling. See Relationships' Future Work below.
 - **Death / end states below 0 health or mood** — both stats clamp at 0
   and currently do nothing further.
 - **NPC variety** — single "Survivor" capsule/name; multiple visual/
@@ -332,3 +402,13 @@ skills, personality words, seed, mood, and irritability + label.
 10. Two+ NPCs over several real minutes with one deliberately starved via
     F7 — confirm the other's mood is measurably pulled down by contagion
     (visible in `log_mood`'s contagion delta).
+11. Spawn 2+ NPCs close together (or walk the player next to one) and wait
+    several real minutes with debug logging on (F7 "Toggle NPC Debug
+    Logging") — confirm `[NPC:<name>] relationships: {...}` prints every ~5s
+    with rising values for whoever's in range, and F7 "Print NPC Debug
+    State" shows the same values with correct Hostile/Cold/Neutral/Friendly/
+    Close labels.
+12. Save and reload — confirm relationship values and each NPC's `npc_id`
+    survive; spawn a brand-new NPC after reload and confirm its
+    auto-assigned id doesn't collide with a restored one (distinct ids in
+    the debug dump).

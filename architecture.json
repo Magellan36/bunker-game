@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-04T02:37:24.878508+00:00",
+  "generated_at": "2026-08-04T13:55:22.131825+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 122,
-  "total_lines": 48422,
+  "total_lines": 48531,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -324,7 +324,7 @@
     },
     {
       "path": "res://scripts/npc/NPC.gd",
-      "line_count": 832,
+      "line_count": 923,
       "class_name": "NPC",
       "extends": "CharacterBody3D",
       "exports": [
@@ -384,6 +384,16 @@
         {
           "name": "get_irritability_label",
           "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "get_relationship",
+          "args": "target_id: String",
+          "returns": "float"
+        },
+        {
+          "name": "get_relationship_label",
+          "args": "target_id: String",
           "returns": "String"
         },
         {
@@ -487,16 +497,17 @@
           "returns": "String"
         }
       ],
-      "private_function_count": 24,
+      "private_function_count": 27,
       "preloads": [
         "res://scripts/ui/npc/NPCTalkMenuUI.gd"
       ],
       "group_lookups": [
         "main_world",
+        "player",
         "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 906
+      "complexity_score": 1004
     },
     {
       "path": "res://scripts/npc/NPCActivity.gd",
@@ -939,7 +950,7 @@
     },
     {
       "path": "res://scripts/npc/NPCDebug.gd",
-      "line_count": 128,
+      "line_count": 141,
       "class_name": "NPCDebug",
       "extends": "RefCounted",
       "exports": [],
@@ -950,7 +961,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 128
+      "complexity_score": 141
     },
     {
       "path": "res://scripts/npc/NPCItemUser.gd",
@@ -3089,7 +3100,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 1381,
+      "line_count": 1386,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -3256,7 +3267,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1449
+      "complexity_score": 1454
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",

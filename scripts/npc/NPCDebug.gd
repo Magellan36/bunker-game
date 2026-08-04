@@ -71,6 +71,13 @@ static func log_forgetfulness_roll(npc: Node, chance: float, triggered: bool) ->
 	var outcome: String = "DIVERTED to wandering" if triggered else "stayed on task"
 	print("%s forgetfulness roll: chance=%.0f%% -> %s" % [_fmt(npc), chance * 100.0, outcome])
 
+## Relationship tick (Part 22) — logs the full current relationships dict
+## every ~5s tick when enabled, same cadence as log_mood/log_irritability.
+static func log_relationship_tick(npc: Node) -> void:
+	if not enabled:
+		return
+	print("%s relationships: %s" % [_fmt(npc), str(npc.relationships)])
+
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
 ## on-demand request, not continuous logging). Part 19 — expanded from a
@@ -126,3 +133,9 @@ static func _dump_one(npc: Node) -> void:
 		print("  mood=%.1f  irritability=%.1f%% (%s)" % [
 			npc.mood, npc.irritability if "irritability" in npc else -1.0,
 			npc.get_irritability_label() if npc.has_method("get_irritability_label") else "?"])
+
+	if "relationships" in npc and npc.has_method("get_relationship_label"):
+		var rel_display: Dictionary = {}
+		for k: String in npc.relationships.keys():
+			rel_display[k] = "%.0f (%s)" % [npc.relationships[k], npc.get_relationship_label(k)]
+		print("  relationships: %s" % str(rel_display))

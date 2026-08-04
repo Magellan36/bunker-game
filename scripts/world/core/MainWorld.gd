@@ -312,14 +312,16 @@ func _get_npcs_for_save() -> Array:
 		if not is_instance_valid(npc) or not ("energy" in npc):
 			continue
 		out.append({
-			"pos":    SaveManager.vec3_to_dict(npc.global_position),
-			"name":   npc.npc_name,
-			"energy": npc.energy,
-			"hunger": npc.hunger,
-			"thirst": npc.thirst,
-			"skills": npc.skills.duplicate(),
-			"seed":   npc.generation_seed,
-			"mood":   npc.mood,
+			"pos":           SaveManager.vec3_to_dict(npc.global_position),
+			"name":          npc.npc_name,
+			"energy":        npc.energy,
+			"hunger":        npc.hunger,
+			"thirst":        npc.thirst,
+			"skills":        npc.skills.duplicate(),
+			"seed":          npc.generation_seed,
+			"mood":          npc.mood,
+			"npc_id":        npc.npc_id,
+			"relationships": npc.relationships.duplicate(),
 		})
 	return out
 
@@ -351,6 +353,9 @@ func _restore_npcs(saved: Array) -> void:
 		npc.thirst          = float(entry.get("thirst", 100.0))
 		npc.mood            = float(entry.get("mood", 100.0))
 		npc.generation_seed = int(entry.get("seed", 0))
+		npc.npc_id           = str(entry.get("npc_id", npc.npc_id))
+		NPC._register_id(npc.npc_id)
+		npc.relationships    = (entry.get("relationships", {}) as Dictionary).duplicate()
 		var sk: Dictionary  = entry.get("skills", {})
 		for k: String in npc.skills.keys():
 			if sk.has(k):
