@@ -196,11 +196,15 @@ func _ready() -> void:
 	tier = tier if TIER_WATTS.has(tier) else "normal"
 	collision_layer = 5
 	collision_mask  = 0
+	## Fixture mesh must build for EVERY instance, including previews —
+	## the Construct-menu spinning preview and the placement ghost are
+	## _is_preview_only instances and are invisible without it. The
+	## preview guard goes AFTER this line, never before.
+	_build_fixture()
 	if _is_preview_only:
 		return
 	add_to_group("interactable")
 	add_to_group("grow_light")
-	_build_fixture()
 	## A7 safety net — guarantee fixture starts off before any PowerManager
 	## solve can potentially set it powered.
 	set_powered(false)
@@ -211,10 +215,7 @@ func _ready() -> void:
 	## placed position — every grow light placed through the build menu was
 	## silently un-findable by any plant, powered or not. Deferring this
 	## (like _register_deferred below already does for power) waits until
-	## after global_position has its real value. Also removes the old
-	## duplicate call — it only ever needs to run once.
-	if _is_preview_only:
-		return
+	## after global_position has its real value.
 	call_deferred("_register_bucket")
 	call_deferred("_register_deferred")
 

@@ -145,6 +145,16 @@ maintaining separate logic.
   `_is_preview_only = true` (the pre-existing guard nearly every
   furniture/device script already has), same construction every object
   needed for its menu preview to work in the first place.
+- **Preview-guard placement rule (Ghost blanking — Chair, then Grow
+  Light):** the `_is_preview_only` guard in an object's `_ready()` must sit
+  **after mesh construction** (`_build_mesh()`/`_build_fixture()`) and
+  **before side effects** (group membership, registration, power setup).
+  Putting it before the mesh call blanked preview instances twice — first
+  `Chair.gd` (returned before `_build_mesh()`), then `GrowLight.gd`
+  (returned before `_build_fixture()`), leaving the Construct-menu preview
+  and in-world ghost invisible either way. The same rule governs every
+  renderable object: build the visual first, *then* gate side effects on
+  preview status.
 - **`strip_collision()`** — call this **only after the instance is inside the SceneTree** — `add_child()` on an out-of-tree parent does not fire `_ready()`, so a strip at that point runs too early and gets undone. `_spawn_ghost()` therefore adds the ghost root to the tree **BEFORE** `_rebuild_ghost_mesh()` runs; do not reorder. An end-of-frame deferred re-strip is also applied (Fix 2) to catch any script that configures collision via `call_deferred` after its `_ready()`.
 - **`apply_ghost_tint()`** — recursively recolors every mesh surface under
   a ghost root to translucent green/red, replacing whatever real
