@@ -26,6 +26,30 @@ class_name NPC
 @export var idle_time_min: float = 1.5
 @export var idle_time_max: float = 4.0
 
+# ─── Names (Part 23) — fixed 10-name pool, randomly assigned at spawn ─────
+## `npc_name` stays @export'd above with default "Survivor" — that default
+## is also the sentinel _ready() checks to decide whether to randomize (a
+## scene-placed or save-restored NPC that already has a real name is left
+## alone). Collision-avoided against every other currently-live NPC so the
+## Ask-About dialogue below can never be ambiguous about which NPC it
+## means; if the whole pool is somehow already in use (11th+ NPC), repeats
+## are allowed rather than failing.
+const NPC_NAMES: Array[String] = [
+	"Mara", "Dez", "Colton", "Priya", "Finch",
+	"Sable", "Nolan", "Ruth", "Kwame", "Vera",
+]
+
+func _assign_random_name() -> void:
+	var used: Array[String] = []
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other != self and is_instance_valid(other) and ("npc_name" in other):
+			used.append(String(other.npc_name))
+	var available: Array[String] = NPC_NAMES.filter(
+		func(n: String) -> bool: return not used.has(n))
+	if available.is_empty():
+		available = NPC_NAMES
+	npc_name = available[randi() % available.size()]
+
 # ─── Node refs ────────────────────────────────────────────────────────────
 @onready var mesh: MeshInstance3D = $MeshInstance3D
 @onready var collision: CollisionShape3D = $CollisionShape3D
@@ -413,6 +437,9 @@ func _ready() -> void:
 		npc_id = "npc_%d" % _next_npc_id
 		_next_npc_id += 1
 	NPC._register_id(npc_id)
+
+	if npc_name == "Survivor":
+		_assign_random_name()
 
 	## Agent built in code (no scene edit needed; scene stays Pass-1 shape).
 	nav_agent = NavigationAgent3D.new()
@@ -921,3 +948,62 @@ func get_dialogue_line() -> String:
 	elif mood >= 75.0:
 		pool = DIALOGUE_HAPPY
 	return pool[randi() % pool.size()]
+
+# ─── Relationship Q&A Dialogue (Part 23) ────────────────────────────────────
+## "What do you think of X?" — the player-facing readout for the Relationships
+## pass's data (previously debug-only via NPCDebug). Deliberately separate
+## from get_dialogue_line()'s ambient Talk-line pools above: this is asked
+## explicitly about a specific target and answers from that specific
+## relationship value, not from the asked NPC's own mood/irritability.
+## Replies are intentionally name-agnostic text (the question already named
+## the target) so pools stay reusable for any target, player or NPC alike.
+const RELATIONSHIP_DIALOGUE_HOSTILE: Array[String] = [
+	"\"I hate them.\"",
+	"\"Let's not talk about that.\"",
+	"\"Stay out of it.\"",
+]
+const RELATIONSHIP_DIALOGUE_COLD: Array[String] = [
+	"\"Not a fan, honestly.\"",
+	"\"We don't really get along.\"",
+	"\"Could be better.\"",
+]
+const RELATIONSHIP_DIALOGUE_NEUTRAL: Array[String] = [
+	"\"They're alright, I guess.\"",
+	"\"Can't say much either way.\"",
+	"\"Haven't really thought about it.\"",
+]
+const RELATIONSHIP_DIALOGUE_FRIENDLY: Array[String] = [
+	"\"They're pretty cool.\"",
+	"\"I like them.\"",
+	"\"Good to have around.\"",
+]
+const RELATIONSHIP_DIALOGUE_CLOSE: Array[String] = [
+	"\"They're really cool!\"",
+	"\"Honestly? One of my favorites here.\"",
+	"\"I really like them.\"",
+]
+
+func get_relationship_dialogue_line(target_id: String) -> String:
+	var pool: Array[String] = RELATIONSHIP_DIALOGUE_NEUTRAL
+	match get_relationship_label(target_id):
+		"Hostile":  pool = RELATIONSHIP_DIALOGUE_HOSTILE
+		"Cold":     pool = RELATIONSHIP_DIALOGUE_COLD
+		"Friendly": pool = RELATIONSHIP_DIALOGUE_FRIENDLY
+		"Close":    pool = RELATIONSHIP_DIALOGUE_CLOSE
+	return pool[randi() % pool.size()]
+
+## List of every OTHER currently-live NPC, for building one Ask-About button
+## per NPC in NPCTalkMenuUI. The player is handled separately in the UI
+## (fixed "What do you think of me?" button, target_id "player") since
+## there's always exactly one and it isn't in the "npc" group.
+## FUTURE WORK: currently lists every live NPC regardless of whether the
+## player/NPC has ever "met" them — no acquaintance gating exists yet.
+func get_other_npc_topics() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other):
+			continue
+		if not ("npc_id" in other) or not ("npc_name" in other):
+			continue
+		out.append({"id": String(other.npc_id), "name": String(other.npc_name)})
+	return out

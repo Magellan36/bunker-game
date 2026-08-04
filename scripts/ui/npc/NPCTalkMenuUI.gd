@@ -11,9 +11,12 @@ class_name NPCTalkMenuUI
 ##   - A bunker-wide "Residents" roster panel (hotkey, all NPCs at once).
 
 const PANEL_W: float = 380.0
-const PANEL_H: float = 760.0   ## Part 20 — bumped for the Mood row + Personality
-                               ## section (on top of Part 19's command buttons,
-                               ## if that part has also landed); retune visually
+const PANEL_H: float = 900.0   ## Part 23 — bumped again for the Ask About
+                               ## relationship Q&A section (label + "about
+                               ## me" button + one button per other live NPC,
+                               ## typically 1-2 in a small bunker); retune
+                               ## visually once content is fully settled
+                               ## (same standing note as Part 20's bump)
 const BAR_H: float = 14.0
 const REFRESH_INTERVAL: float = 0.25
 const PLACEHOLDER_LINE: String = "\"...\""
@@ -33,6 +36,7 @@ var _activity_label: Label = null
 var _dialogue_label: Label = null   ## hidden until Talk pressed
 var _status_label: Label = null     ## Part 14
 var _command_box: VBoxContainer = null   ## Part 19
+var _relationship_box: VBoxContainer = null   ## Part 23
 
 const BAR_TRACK_W: float = 200.0
 
@@ -68,6 +72,7 @@ func _teardown() -> void:
 	_dialogue_label = null
 	_status_label = null
 	_command_box = null
+	_relationship_box = null
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
@@ -205,6 +210,25 @@ func _build(npc_name: String) -> void:
 	_command_box.add_child(UIKit.make_button("Take a load off", _on_command_rest_pressed))
 	_command_box.add_child(UIKit.make_button("Harvest the plants", _on_command_harvest_pressed))
 
+	## Ask About (Part 23) — relationship Q&A. Reveals alongside dialogue/
+	## commands when Talk is pressed. Answer reuses _dialogue_label above
+	## (swaps its text) rather than a second label, since it's the same
+	## "NPC said a line" moment, just player-triggered by topic instead of
+	## automatic.
+	_relationship_box = VBoxContainer.new()
+	_relationship_box.add_theme_constant_override("separation", 4)
+	_relationship_box.visible = false
+	_vbox.add_child(_relationship_box)
+	_relationship_box.add_child(UIKit.make_section_label("ASK ABOUT", theme))
+	_relationship_box.add_child(UIKit.make_button("What do you think of me?", _on_ask_about_player_pressed))
+	if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_other_npc_topics"):
+		for topic: Dictionary in _npc.get_other_npc_topics():
+			var target_id: String = String(topic.get("id", ""))
+			var target_name: String = String(topic.get("name", "them"))
+			_relationship_box.add_child(UIKit.make_button(
+				"What do you think of %s?" % target_name,
+				Callable(self, "_on_ask_about_npc_pressed").bind(target_id)))
+
 	## Buttons
 	_vbox.add_child(UIKit.make_button("Talk", _on_talk_pressed))
 	_vbox.add_child(UIKit.make_button("Close", close))
@@ -284,6 +308,8 @@ func _on_talk_pressed() -> void:
 		_dialogue_label.visible = true
 	if _command_box != null:
 		_command_box.visible = true
+	if _relationship_box != null:
+		_relationship_box.visible = true
 
 ## Shared dispatch for every command button. Feedback is a plain
 ## NotificationManager toast confirming the command was ISSUED — not that
@@ -312,3 +338,17 @@ func _on_command_rest_pressed() -> void:
 
 func _on_command_harvest_pressed() -> void:
 	_issue_command(NPCBrain.CommandHarvestActivity.new(), "heading to harvest", "nothing ready to harvest")
+
+# ─── Ask About (Part 23) ─────────────────────────────────────────────────
+func _on_ask_about_player_pressed() -> void:
+	_show_relationship_answer("player")
+
+func _on_ask_about_npc_pressed(target_id: String) -> void:
+	_show_relationship_answer(target_id)
+
+func _show_relationship_answer(target_id: String) -> void:
+	if _dialogue_label == null or _npc == null or not is_instance_valid(_npc):
+		return
+	if _npc.has_method("get_relationship_dialogue_line"):
+		_dialogue_label.text = _npc.get_relationship_dialogue_line(target_id)
+		_dialogue_label.visible = true

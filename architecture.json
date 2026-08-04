@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-04T13:55:22.131825+00:00",
+  "generated_at": "2026-08-04T15:22:08.338816+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 122,
-  "total_lines": 48531,
+  "total_lines": 48657,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -324,7 +324,7 @@
     },
     {
       "path": "res://scripts/npc/NPC.gd",
-      "line_count": 923,
+      "line_count": 1009,
       "class_name": "NPC",
       "extends": "CharacterBody3D",
       "exports": [
@@ -495,9 +495,19 @@
           "name": "get_dialogue_line",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "get_relationship_dialogue_line",
+          "args": "target_id: String",
+          "returns": "String"
+        },
+        {
+          "name": "get_other_npc_topics",
+          "args": "",
+          "returns": "Array[Dictionary]"
         }
       ],
-      "private_function_count": 27,
+      "private_function_count": 28,
       "preloads": [
         "res://scripts/ui/npc/NPCTalkMenuUI.gd"
       ],
@@ -507,7 +517,7 @@
         "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 1004
+      "complexity_score": 1095
     },
     {
       "path": "res://scripts/npc/NPCActivity.gd",
@@ -2245,7 +2255,7 @@
     },
     {
       "path": "res://scripts/ui/npc/NPCTalkMenuUI.gd",
-      "line_count": 314,
+      "line_count": 354,
       "class_name": "NPCTalkMenuUI",
       "extends": "CanvasLayer",
       "exports": [],
@@ -2263,11 +2273,11 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 13,
+      "private_function_count": 16,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 331
+      "complexity_score": 374
     },
     {
       "path": "res://scripts/ui/power/GeneratorInspectUI.gd",

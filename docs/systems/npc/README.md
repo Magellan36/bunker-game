@@ -23,10 +23,12 @@ directly commanded by the player. Persists through save/load.
 ## Responsibilities
 
 - **`NPC.gd`** (`scripts/npc/`) — the NPC itself: navigation primitives,
-  needs/health/mood/irritability state and their tick loops, personality
-  generation, movement-lock/stuck-recovery, physics push-through for loose
-  items, all status/consequence helper functions, dialogue line selection,
-  Talk interaction.
+  needs/health/mood/irritability/relationships state and their tick loops,
+  personality generation, random name assignment (10-name pool, collision-
+  avoided), movement-lock/stuck-recovery, physics push-through for loose
+  items, all status/consequence helper functions, dialogue line selection
+  (ambient Talk line + relationship Q&A), Talk interaction, stable
+  `npc_id` identity.
 - **`NPCBrain.gd`** (`scripts/npc/`) — the Utility-AI decision loop and
   every `NPCActivity` subclass: `WanderActivity`, `SitActivity`,
   `LieActivity`, `DrinkActivity`, `EatActivity`, `JobActivity`,
@@ -45,7 +47,7 @@ directly commanded by the player. Persists through save/load.
   "Print NPC Debug State").
 - **`NPCTalkMenuUI.gd`** (`scripts/ui/npc/`) — the E-panel: live
   Health/Energy/Hunger/Thirst/Mood bars, Status line, Skills, Personality,
-  Talk → dialogue + command buttons, Close.
+  Talk → dialogue + command buttons + "Ask About" relationship Q&A, Close.
 - **`NPC.tscn`** (`scenes/npc/`) — `CharacterBody3D`, capsule mesh/collision
   (radius 0.4, matches `BunkerNavMesh`'s `agent_radius`).
 - **`PickupableItem.gd`** (`scripts/world/items/`) — heavy items
@@ -245,6 +247,10 @@ must go through `_adjust_relationship(target_id, delta)` — it's what
 applies the sociability multiplier and the clamp. Never write to
 `relationships` directly.
 
+**Player-facing readout:** see the new Names & "Ask About" Dialogue section
+below — this is what turns the previously debug-only `relationships` data
+into something the player can actually learn in play.
+
 **`FUTURE WORK` — explicitly deferred, not built. Brannon's brainstormed
 list, kept here so future passes wire into `_adjust_relationship()` the
 same way proximity does rather than reinventing the plumbing:**
@@ -261,14 +267,63 @@ same way proximity does rather than reinventing the plumbing:**
   low relationship, tighter tolerance for high) — a `NavigationAgent3D`
   tuning question, not a data-model one.
 - Unprompted "gift" item drop-off between NPCs with surplus/deficit.
-- `get_dialogue_line()` reading relationship value/label to color tone —
-  the dialogue system stays a *readout* of relationship state, not the
-  cause of it, matching how Mood/Irritability already work.
+- ~~`get_dialogue_line()` reading relationship value/label to color
+  tone~~ — done, but narrower than originally scoped: a dedicated
+  `get_relationship_dialogue_line(target_id)` Q&A ("What do you think of
+  X?", see the Names & Ask-About section below) reads relationship state.
+  The *ambient* `get_dialogue_line()` Talk line itself is still
+  relationship-blind — still future work if a broader tone-shift is wanted.
 - A stored Player→NPC reciprocal value, if a future UI pass needs to show
   "how NPCs feel about you" from the player's own side rather than just
   reading `npc.relationships["player"]` per NPC.
 - `work_ethic`/`neuroticism` wiring — unrelated to relationships, tracked
   here only because they're the other two still-inert traits.
+
+- `work_ethic`/`neuroticism` wiring — unrelated to relationships, tracked
+  here only because they're the other two still-inert traits.
+
+### Names & "Ask About" Dialogue (Aug 2026)
+
+**Names.** `NPC.NPC_NAMES` — a fixed 10-name pool (Mara, Dez, Colton,
+Priya, Finch, Sable, Nolan, Ruth, Kwame, Vera). Assigned by
+`_assign_random_name()` at `_ready()` whenever `npc_name` is still its
+export default `"Survivor"` (a save-restored or scene-placed NPC with a
+real name already set is left alone). Collision-avoided against every
+other currently-live NPC (`"npc"` group) so two NPCs can never share a
+name at once — this matters because the Ask-About feature below refers to
+NPCs by name, and an ambiguous name would break that. If the pool is fully
+exhausted (an 11th+ NPC), repeats are allowed rather than failing. No
+persistence changes were needed — `npc_name` was already a saved field.
+
+**Ask About.** The E-panel's Talk flow gained a third revealed section
+(alongside the existing dialogue line and command buttons): "ASK ABOUT",
+one button per currently-live NPC other than the one you're talking to
+(`NPC.get_other_npc_topics()`), plus a fixed "What do you think of me?"
+for the player. Pressing one calls
+`NPC.get_relationship_dialogue_line(target_id)` — picks a flavor-text
+line from a pool keyed to `get_relationship_label(target_id)`
+(Hostile/Cold/Neutral/Friendly/Close, from the Relationships pass) and
+shows it in the same dialogue label the ambient Talk line uses. This is
+the player's window into relationship state that previously only existed
+in `NPCDebug` output.
+
+Deliberately minimal: replies are generic per-band flavor text (e.g.
+"I hate them." / "They're alright, I guess." / "They're really cool!"),
+not name-specific — the question already names the target, so pools stay
+reusable for any target. No acquaintance/gating system exists — every
+live NPC is always askable regardless of whether they've actually been
+near each other.
+
+**`FUTURE WORK`:**
+- Acquaintance gating (can't ask about — or get an honest answer about —
+  someone this NPC has never actually been near).
+- Ambient `get_dialogue_line()` Talk-line pools reading relationship
+  toward the player and coloring tone (currently only the explicit
+  Ask-About Q&A does this — see the note in Relationships above).
+- Named replies (e.g. weaving the target's name into the answer itself,
+  not just the question) once a real dialogue system replaces the small
+  hardcoded pools.
+- Visual/portrait identity per name — names are text-only right now.
 
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
@@ -402,6 +457,14 @@ skills, personality words, seed, mood, and irritability + label.
 10. Two+ NPCs over several real minutes with one deliberately starved via
     F7 — confirm the other's mood is measurably pulled down by contagion
     (visible in `log_mood`'s contagion delta).
+11. Spawn 2-3 NPCs — confirm each gets a different name from the 10-name
+    pool (no duplicates) shown in the E-panel title and debug dump.
+12. Open one NPC's E-panel, press Talk — confirm "ASK ABOUT" shows "What
+    do you think of me?" plus one button per other live NPC by name.
+    Press a few — confirm the dialogue line updates to relationship-
+    appropriate flavor text matching that NPC's current
+    Hostile/Cold/Neutral/Friendly/Close band (cross-check against F7
+    "Print NPC Debug State").
 11. Spawn 2+ NPCs close together (or walk the player next to one) and wait
     several real minutes with debug logging on (F7 "Toggle NPC Debug
     Logging") — confirm `[NPC:<name>] relationships: {...}` prints every ~5s

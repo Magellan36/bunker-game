@@ -1,3 +1,32 @@
+# Handover — NPC Names + Ask-About Relationship Dialogue (Aug 2026)
+
+## What changed this session
+
+### Names
+- **NPC.gd**: `NPC_NAMES` (10-name pool), `_assign_random_name()`
+  (collision-avoided against every live NPC), called from `_ready()` when
+  `npc_name` is still its "Survivor" default. No persistence changes
+  needed — `npc_name` was already saved.
+
+### Ask About (relationship Q&A dialogue)
+- **NPC.gd**: `get_relationship_dialogue_line(target_id)` (5 flavor-text
+  pools keyed to `get_relationship_label()`), `get_other_npc_topics()`
+  (every other live NPC, for building UI buttons).
+- **NPCTalkMenuUI.gd**: new "ASK ABOUT" section revealed alongside
+  dialogue/commands on Talk — "What do you think of me?" (player) + one
+  button per other live NPC by name; answers render in the existing
+  dialogue label. `PANEL_H` bumped 760 → 900.
+- Docs: `docs/systems/npc/README.md` — new Names & Ask-About section,
+  Relationships' dialogue Future Work item marked done (narrower scope),
+  Responsibilities bullets updated, new Testing Checklist items.
+
+## Files Modified
+- `scripts/npc/NPC.gd`
+- `scripts/ui/npc/NPCTalkMenuUI.gd`
+- `docs/systems/npc/README.md`
+
+---
+
 # Handover — NPC Relationships Groundwork + Sociability Wiring (Aug 2026)
 
 ## What changed this session
