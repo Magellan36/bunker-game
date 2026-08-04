@@ -1,3 +1,51 @@
+# Handover — Unified Item Transfer Function for Give AND Snatch (Aug 2026)
+
+**Owner:** Player + NPC subsystems (one mechanism now, listed as one plan).
+
+## What changed this session
+Replaced the separate patchwork (inventory-slot clearing,
+HUD prompt staleness, standalone snatch pickup logic) with a single
+shared transfer function mirroring `_quick_drop()` — the only difference
+is the destination is an NPC's hands instead of the floor.
+
+- `scripts/player/InteractionSystem.gd` — new `release_held_item_to_npc(npc)`
+  (disconnect knocked_out, clear inventory slot via `remove_item()` if it
+  came from one, clear held_item/_held_from_slot/_is_holding_e, refresh
+  HUD selection, then `item.pickup(npc.hold_point)`/`npc.held_item = item`).
+  `_try_give_to_nearest_npc()` simplified to: `can_receive_item()` →
+  `release_held_item_to_npc()` → `on_item_given()`.
+- `scripts/player/Player.gd` — `release_held_item_to_npc(npc)` forwarding
+  to `InteractionSystem` (reachable via the `"player"` group node for
+  NPC-side code); `get_held_item()` already existed.
+- `scripts/npc/NPC.gd` — `receive_item_from_player()` removed, replaced by
+  `can_receive_item()` (pure check) + `on_item_given()` (consequence
+  wiring: consumption activity via force_command + begin_with_item, gift
+  burnout/relationship bookkeeping). The physical transfer is now entirely
+  the Player side's job since it's the only side with inventory-slot context.
+- `scripts/npc/NPCItemUser.gd` — `snatch_from_player()` simplified to route
+  through `player.release_held_item_to_npc(npc)` (still separate from
+  strict `grab_loose()`, still only reached via SnatchActivity's gate).
+  `SnatchActivity` unchanged — it just calls `snatch_from_player()` and
+  checks the boolean.
+- `docs/systems/npc/README.md` — Give/Snatch sections updated for the
+  unified transfer path; Testing Checklist item 25 added.
+- `HANDOVER.md` — this entry.
+
+## Notes / dead code
+- `Player.on_item_snatched()` / `InteractionSystem.clear_held_item_external()` /
+  `_release_item_to_npc()` / `InventoryManager.clear_slot()` are now
+  UN-CALLED by Snatch (the shared `release_held_item_to_npc()` handles
+  everything). Left in place per the plan (no removal instructed);
+  candidates for deletion in a future cleanup pass.
+- Plan's "item bumps out and drops" post-script: that symptom is the
+  pre-existing knockout system (item displaced > KNOCK_DISTANCE from the
+  hold point by physical shoving), not the transfer path — flagged for
+  investigation only if it recurs after this.
+- No Godot CLI available — no compile check ran; recommend opening the project.
+
+---
+---
+
 # Handover — Give/Snatch Inventory-Slot Clear Fix (Aug 2026)
 
 ## What changed this session

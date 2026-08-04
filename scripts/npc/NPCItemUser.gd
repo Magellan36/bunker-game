@@ -197,22 +197,24 @@ static func find_holder(item: Node, tree: SceneTree) -> Node:
 
 
 # ─── Relationship Snatch (Part 29) ──────────────────────────────────────────
-## Deliberately NOT a path through grab_loose() — that function's is_held
-## guard (added specifically to STOP accidental item theft) is correct and
-## should stay strict. This is the one intentional, narrowly-gated
-## exception: an NPC forcibly taking something the player is actively
-## holding, only ever reached via NPC.find_player_snatch_target()'s
-## relationship/chance gate (or the debug override).
+## Snatch now goes through the exact same transfer path Give uses
+## (Player.release_held_item_to_npc(), which wraps InteractionSystem's
+## release_held_item_to_npc()) — no more separate pickup/inventory logic
+## duplicated here. This is deliberately still a SEPARATE function from
+## grab_loose() (whose is_held guard should stay strict) — this is the
+## one intentional exception, reached only via SnatchActivity, itself
+## only ever entered through NPC.find_player_snatch_target()'s gate (or
+## the F7 debug override).
 static func snatch_from_player(npc: NPC, player: Node) -> bool:
+	if npc.held_item != null:
+		return false   ## hands already full
 	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
 		return false
 	var item: Node = player.get_held_item()
-	if item == null or not is_instance_valid(item) or not item.has_method("pickup"):
+	if item == null or not is_instance_valid(item):
 		return false
 	if flat_distance(npc.global_position, (player as Node3D).global_position) > PICKUP_RANGE:
 		return false
-	item.pickup(npc.hold_point)
-	npc.held_item = item
-	if player.has_method("on_item_snatched"):
-		player.on_item_snatched()
-	return true
+	if not player.has_method("release_held_item_to_npc"):
+		return false
+	return player.release_held_item_to_npc(npc)

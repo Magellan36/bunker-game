@@ -341,7 +341,9 @@ near each other.
 eating/drinking already use) — and walks up to an NPC: `[E] Give <item>
 to <name>` appears (mirrors the Basket/Cooking Pot held-item prompt
 pattern in `InteractionSystem.gd` exactly). E performs a REAL transfer
-(`NPC.receive_item_from_player()`): the item physically leaves the
+through the single shared
+`InteractionSystem.release_held_item_to_npc()` (wrapped for NPC-side use
+by `Player.release_held_item_to_npc()`): the item physically leaves the
 player's hand, becomes the NPC's `held_item`, and is consumed over the
 NPC's normal eating/drinking duration via
 `GivenEatActivity`/`GivenDrinkActivity` (subclasses of the self-serve
@@ -351,6 +353,19 @@ it exactly like something it picked up itself — the overhead label shows
 consumption happens async inside those activities' `tick()`, and a
 can/bottle persists in the NPC's hand across bites/drinks (drops when
 finished, or is dropped if the NPC is interrupted), same as self-serve.
+
+**Give sequencing (the Player side owns the transfer now):**
+`_try_give_to_nearest_npc()` first calls `NPC.can_receive_item(item)`
+(a pure check: hands free + giveable), then
+`release_held_item_to_npc()` (the actual physical transfer, which also
+clears the inventory slot and HUD selection exactly like `_quick_drop()`
+does), then `NPC.on_item_given(item)` (relationship/burnout bookkeeping
++ wiring the consumption activity). `NPC.receive_item_from_player()`
+no longer exists — replaced by that check + consequence split, because
+only the Player side has the inventory-slot context needed to clear it
+correctly. Sequencing is still safe: `can_receive_item()`'s hands-full
+guard is checked first, and nothing changes `held_item` between it and
+`on_item_given()` since the whole sequence is synchronous.
 
 A successful gift applies a +7.5 relationship bonus (scaled by Sociability
 like everything else, via `_adjust_relationship()`, and by gift
@@ -464,6 +479,18 @@ the player (PICKUP_RANGE), and on a successful
 `GivenEatActivity`/`GivenDrinkActivity` to consume what was grabbed —
 again via `take_handoff()`, so the item is eaten/drunk over the normal
 duration, never instantly.
+
+**Snatch uses the exact same transfer path as Give.**
+`snatch_from_player()` no longer does its own pickup/inventory logic —
+it calls `Player.release_held_item_to_npc()`, the same shared function
+Give's `_try_give_to_nearest_npc()` uses (which wraps
+`InteractionSystem.release_held_item_to_npc()`, the `_quick_drop()`-
+mirroring transfer that clears the inventory slot and HUD selection too).
+The player-side `get_held_item()`/`release_held_item_to_npc()` are
+reachable via the `"player"` group node. `Player.on_item_snatched()`/
+`InteractionSystem.clear_held_item_external()` from the earlier
+contract are now un-called by Snatch (the shared transfer handles
+everything) — left in place as dead code.
 
 - **Gated on hostility.** Only ever considered when the relationship with
   the player is ≤ -50 (`SNATCH_RELATIONSHIP_THRESHOLD`).
@@ -705,3 +732,6 @@ skills, personality words, seed, mood, and irritability + label.
 24. Confirm F7 relationship ±25 buttons move every spawned NPC's
     relationship with the player by exactly 25 (check via the F7
     relationship visualizer), regardless of Sociability.
+25. Give an item to an NPC, then immediately check the HUD — no lingering
+    eat/drop prompt should remain, and scrolling the inventory should not
+    re-populate the now-empty slot.

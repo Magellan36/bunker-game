@@ -145,6 +145,13 @@ func on_item_snatched() -> void:
 	if interaction_system != null and interaction_system.has_method("clear_held_item_external"):
 		interaction_system.clear_held_item_external()
 
+## Forwards to InteractionSystem.release_held_item_to_npc() — NPC-side
+## code only has this Player node (via the "player" group), never
+## InteractionSystem directly, so this is the reachable entry point for
+## Snatch to use the exact same transfer path Give uses.
+func release_held_item_to_npc(npc: Node) -> bool:
+	return interaction_system.release_held_item_to_npc(npc) if interaction_system != null else false
+
 func _unhandled_input(event: InputEvent) -> void:
 	if seated_chair == null or not is_instance_valid(seated_chair):
 		return

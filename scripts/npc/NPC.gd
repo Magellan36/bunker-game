@@ -414,26 +414,23 @@ const GIFT_SATURATION_DECAY_PER_GAME_HOUR: float = 1.0 / (5.0 * 24.0)   ## full 
 const GIFT_BONUS_FLOOR_MULT: float = 0.15             ## fully burned out still does *something*
 var gift_saturation: float = 0.0
 
-## Give — real transfer. The item physically leaves the player's hand,
-## becomes this NPC's held_item, and gets consumed over the normal
-## EatActivity/DrinkActivity duration via GivenEatActivity/
-## GivenDrinkActivity — visually identical to the NPC having picked it up
-## themselves. Consumption happens async inside those activities' tick(),
-## not instantly here — this function's job is the hand-off itself plus
-## relationship/burnout/marking bookkeeping.
-##
-## Sequencing matters: force_command() FIRST (held_item is confirmed null
-## by the guard below, so the outgoing activity's exit() can't misfire
-## against the incoming gift), THEN the physical pickup/held_item
-## transfer, THEN begin_with_item() to finish wiring the new activity.
-func receive_item_from_player(item: Node) -> bool:
+## Pure check, no side effects — called by InteractionSystem BEFORE it
+## attempts the physical transfer, for Give.
+func can_receive_item(item: Node) -> bool:
 	if item == null or not is_instance_valid(item):
 		return false
 	if held_item != null:
-		return false   ## hands full — can't receive a gift right now
-	if not NPCItemUser.is_giveable(item):
-		return false
+		return false   ## hands full
+	return NPCItemUser.is_giveable(item)
 
+## Called AFTER the item has already been physically transferred into
+## held_item (by InteractionSystem.release_held_item_to_npc(), via
+## Give's _try_give_to_nearest_npc()) — wires up the consumption activity
+## and relationship/burnout bookkeeping. Does NOT touch held_item/pickup
+## itself anymore; that's entirely the Player side's job now, since it's
+## the only side with the inventory-slot context needed to clear it
+## correctly.
+func on_item_given(item: Node) -> void:
 	var recipients: Array = item.get_meta("npc_gift_recipients", [])
 	var already_boosted: bool = recipients.has(npc_id)
 	if not already_boosted:
@@ -446,15 +443,13 @@ func receive_item_from_player(item: Node) -> bool:
 	else:
 		activity = NPCBrain.GivenDrinkActivity.new()
 	brain.force_command(activity)
-	item.pickup(hold_point)
-	held_item = item
 	activity.begin_with_item(self, item)
 
 	if already_boosted:
 		if NPCDebug.enabled:
 			NPCDebug.log_relationship_event(self, "player", 0.0,
 				"re-gift, already boosted by this item — fed only, no bonus")
-		return true
+		return
 
 	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
 	_adjust_relationship("player", effective_bonus)
@@ -462,7 +457,6 @@ func receive_item_from_player(item: Node) -> bool:
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", effective_bonus,
 			"received gift (saturation %.2f)" % gift_saturation)
-	return true
 
 # ─── Relationship Snatch (Part 29/30) ───────────────────────────────────────
 const SNATCH_RELATIONSHIP_THRESHOLD: float = -50.0

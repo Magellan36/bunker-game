@@ -848,30 +848,51 @@ func _release_item_to_npc() -> void:
 	_held_from_slot = -1
 	_is_holding_e   = false
 
+## Give/Snatch transfer — the one correct way to move the held item into
+## an NPC's hands, for any reason other than a normal world-drop.
+## Deliberately mirrors _quick_drop(): disconnect knocked_out, clear the
+## inventory slot via remove_item() if the item came from one (this is
+## what actually empties the inventory list — deactivate_item() does
+## NOT, it's for knockouts, which intentionally keep the item in
+## inventory), clear held_item/_held_from_slot/_is_holding_e, refresh the
+## HUD selection. The only difference from a real drop: item.pickup(npc.
+## hold_point) instead of item.drop(world, floor_position).
+func release_held_item_to_npc(npc: Node) -> bool:
+	if held_item == null:
+		return false
+	if npc == null or not is_instance_valid(npc):
+		return false
+	if not ("hold_point" in npc) or not ("held_item" in npc):
+		return false
+
+	_is_holding_e = false
+	if held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.disconnect(_on_item_knocked_out)
+
+	if _held_from_slot != -1 and inventory != null:
+		inventory.remove_item(_held_from_slot, held_item.global_position)
+
+	var item: RigidBody3D = held_item
+	held_item       = null
+	_held_from_slot = -1
+	_update_hud_selection()
+
+	item.pickup(npc.hold_point)
+	npc.held_item = item
+	return true
+
 ## Give dispatch. NPC.receive_item_from_player() may free `item`
 ## internally (single-serving items are consumed and destroyed on the
 ## spot) — do not touch `item` after a true return, same caution this
 ## file already applies around consume_as_food()-adjacent calls elsewhere.
 func _try_give_to_nearest_npc(item: RigidBody3D) -> void:
 	var target: Node = _find_nearest_npc()
-	if target == null or not target.has_method("receive_item_from_player"):
+	if target == null or not target.has_method("can_receive_item") or not target.can_receive_item(item):
 		return
-	if not target.receive_item_from_player(item):
+	if not release_held_item_to_npc(target):
 		return
-	## Single-serving items (Dish/Produce) are destroyed inside
-	## receive_item_from_player() — consume_as_food() frees the node, so
-	## is_instance_valid(item) is false here and there is nothing left to
-	## clean up on the item itself. Multi-charge items (can/bottle)
-	## persist and are STILL correctly held by the player (is_held/
-	## hold_point tracking untouched by that call) — only clear our own
-	## bookkeeping in the destroyed case. Clearing it unconditionally was
-	## the bug: it desynced held_item (null) from a surviving item's own
-	## is_held (still true), leaving a can/bottle visually stuck in the
-	## player's hand but undroppable/unstorable/unusable since every
-	## other action checks held_item, which had already gone null.
-	if is_instance_valid(item):
-		return
-	_release_item_to_npc()
+	if target.has_method("on_item_given"):
+		target.on_item_given(item)
 
 ## External clear — called by Player.on_item_snatched() when an NPC has
 ## just taken the held item away entirely outside this system's own
