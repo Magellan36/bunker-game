@@ -1,3 +1,48 @@
+# Handover — NPC Relationship Snatch Mechanic + Debug Trigger (Aug 2026)
+
+**Owner:** NPC instance. Adds a hostility-gated "snatch" where a
+badly-relationship'd NPC forcibly takes a currently player-HELD food/
+water item instead of finding a normal one.
+
+## What changed this session
+- `scripts/npc/NPC.gd` — `SNATCH_RELATIONSHIP_THRESHOLD` (-50),
+  `SNATCH_CHANCE_AT_THRESHOLD` (5%), `SNATCH_CHANCE_AT_MIN` (50%),
+  `_debug_force_snatch`; `get_snatch_chance()` (linear -50→-100 scaling),
+  `find_player_snatch_target(need_filter)` (gate + chance + held-item
+  check, consumes the one-shot debug flag), `debug_force_snatch()`
+  (bypasses gate/roll, still requires matching held item; force-commands
+  Eat/DrinkActivity).
+- `scripts/npc/NPCItemUser.gd` — `snatch_from_player(npc, player)`.
+  Deliberately NOT routed through `grab_loose()` to keep that function's
+  strict no-theft `is_held` guard intact; this is the one intentional
+  gated exception.
+- `scripts/npc/NPCBrain.gd` — EatActivity: new `_snatch_player` var,
+  snatch check first in `enter()`, a `_tick`-time snatch branch
+  (abandons if player's held item no longer matches), `done()` includes
+  `_snatch_player == null`, `_reacquire_or_finish()` re-attempts the
+  snatch before normal search. DrinkActivity: `enter()` picks a snatch
+  target (`_mode = "snatch"`), `tick()` routes to new `_tick_snatch()`
+  which hands off to normal `_tick_bottle()` mode on success.
+- `scripts/ui/menus/AdminMenu.gd` — "Force Nearest NPC to Snatch Player
+  Item" row + `_on_npc_force_snatch_pressed()` (nearest-to-player).
+- `docs/systems/npc/README.md` — new "Relationship Snatch" subsection;
+  Testing Checklist items 20-21.
+
+## Dependencies / notes
+- **Prerequisite** `NPC_GIVE_REAL_TRANSFER_AND_THEFT_FIX_PLAN.md` was
+  NOT applied on disk before this (its `grab_loose()` `is_held` guard does
+  NOT yet exist) — implemented as designed per user instruction anyway.
+- **Player-side contract required end-to-end** (`PLAYER_SUBSYSTEM_SNATCH_CONTRACT.md`,
+  separate Player subsystem file): `player.get_held_item()` and
+  `player.on_item_snatched()`. All NPC-side callers guard these with
+  `has_method()`, so this compiles and runs without them, but the snatch
+  will not actually fire until those two Player methods exist.
+- **AdminMenu.gd ownership flagged** in the plan (uncertain it belongs to
+  the NPC instance) — applied since existing NPC debug rows live there.
+
+---
+---
+
 # Handover — Give/Takeaway Bugfixes: Stuck Item + Undetectable NPC-Held Items (Aug 2026)
 
 ## What changed this session

@@ -194,3 +194,25 @@ static func find_holder(item: Node, tree: SceneTree) -> Node:
 		if is_instance_valid(npc) and ("held_item" in npc) and npc.held_item == item:
 			return npc
 	return null
+
+
+# ─── Relationship Snatch (Part 29) ──────────────────────────────────────────
+## Deliberately NOT a path through grab_loose() — that function's is_held
+## guard (added specifically to STOP accidental item theft) is correct and
+## should stay strict. This is the one intentional, narrowly-gated
+## exception: an NPC forcibly taking something the player is actively
+## holding, only ever reached via NPC.find_player_snatch_target()'s
+## relationship/chance gate (or the debug override).
+static func snatch_from_player(npc: NPC, player: Node) -> bool:
+	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
+		return false
+	var item: Node = player.get_held_item()
+	if item == null or not is_instance_valid(item) or not item.has_method("pickup"):
+		return false
+	if flat_distance(npc.global_position, (player as Node3D).global_position) > PICKUP_RANGE:
+		return false
+	item.pickup(npc.hold_point)
+	npc.held_item = item
+	if player.has_method("on_item_snatched"):
+		player.on_item_snatched()
+	return true

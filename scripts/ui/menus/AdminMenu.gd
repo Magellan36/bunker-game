@@ -134,6 +134,7 @@ func _ready() -> void:
 			["Force Rebake Navmesh", _on_npc_force_rebake_pressed],
 			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
 			["Print NPC Debug State", _on_npc_print_debug_pressed],
+			["Force Nearest NPC to Snatch Player Item", _on_npc_force_snatch_pressed],
 		]},
 	]
 
@@ -540,6 +541,30 @@ func _on_npc_toggle_debug_pressed() -> void:
 
 func _on_npc_print_debug_pressed() -> void:
 	NPCDebug.dump_all(get_tree())
+
+## Part 29 — forces the NEAREST spawned NPC to attempt a snatch against
+## the player right now, bypassing relationship/probability (still
+## requires the player to actually be holding a matching food/water
+## item). Nearest-to-player, not nearest-to-camera or first-spawned.
+func _on_npc_force_snatch_pressed() -> void:
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player == null or not is_instance_valid(player):
+		push_warning("[AdminMenu] No player found — cannot force snatch")
+		return
+	var nearest: Node = null
+	var nearest_d: float = INF
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if not is_instance_valid(npc):
+			continue
+		var d: float = (npc as Node3D).global_position.distance_to((player as Node3D).global_position)
+		if d < nearest_d:
+			nearest_d = d
+			nearest = npc
+	if nearest == null:
+		push_warning("[AdminMenu] No NPCs spawned — cannot force snatch")
+		return
+	if nearest.has_method("debug_force_snatch") and not nearest.debug_force_snatch():
+		print("[AdminMenu] Force snatch failed — player isn't holding a matching food/water item")
 
 ## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
 ## MainWorld._cash directly — add_cash() is what also pushes the new balance

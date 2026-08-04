@@ -449,6 +449,82 @@ func receive_item_from_player(item: Node) -> bool:
 			"received gift (saturation %.2f)" % gift_saturation)
 	return true
 
+# ─── Relationship Snatch (Part 29) ──────────────────────────────────────────
+## A badly-relationship'd NPC has a chance to target the PLAYER instead of
+## a normal world item when searching for food/water — "snatching" a held
+## item right out of their hands rather than asking or waiting. Gated
+## entirely behind relationship <= SNATCH_RELATIONSHIP_THRESHOLD; the
+## chance itself scales with how hostile the relationship actually is.
+## Deliberately relationship-neutral on success — this is a CONSEQUENCE of
+## an already-bad relationship, not a new event that further sours it.
+const SNATCH_RELATIONSHIP_THRESHOLD: float = -50.0
+const SNATCH_CHANCE_AT_THRESHOLD: float = 0.05   ## at exactly -50
+const SNATCH_CHANCE_AT_MIN: float = 0.5          ## at -100 (fully hostile)
+
+var _debug_force_snatch: bool = false   ## F7 test button only — one-shot
+
+func get_snatch_chance() -> float:
+	var rel: float = get_relationship("player")
+	if rel > SNATCH_RELATIONSHIP_THRESHOLD:
+		return 0.0
+	var t: float = clampf(
+		(SNATCH_RELATIONSHIP_THRESHOLD - rel) / (SNATCH_RELATIONSHIP_THRESHOLD - RELATIONSHIP_MIN),
+		0.0, 1.0)
+	return lerp(SNATCH_CHANCE_AT_THRESHOLD, SNATCH_CHANCE_AT_MIN, t)
+
+## Called from EatActivity/DrinkActivity whenever they'd normally search
+## for a new target. `need_filter` is NPCItemUser.is_edible or
+## is_drinkable_bottle, matching whichever activity is calling. Returns
+## the player node if a snatch should be attempted, else null.
+##
+## `_debug_force_snatch` (F7 test button) bypasses the relationship gate
+## and the probability roll — but NOT the "player must actually be
+## holding a matching item" check, since there'd be nothing to test
+## against otherwise. It's consumed (reset to false) on this call
+## regardless of whether a valid target was ultimately found, since it's
+## meant to affect exactly one search attempt.
+func find_player_snatch_target(need_filter: Callable) -> Node:
+	var forced: bool = _debug_force_snatch
+	_debug_force_snatch = false
+	if not forced and get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD:
+		return null
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
+		return null
+	var held: Node = player.get_held_item()
+	if held == null or not is_instance_valid(held):
+		return null
+	if not need_filter.call(held):
+		return null
+	if not forced and randf() > get_snatch_chance():
+		return null
+	return player
+
+## F7 debug trigger. Forces THIS NPC into a snatch attempt against the
+## player right now, regardless of relationship — but still requires the
+## player to actually be holding a giveable food/water item. Reuses the
+## normal EatActivity/DrinkActivity classes (same pattern as
+## NPCTalkMenuUI's "Go eat something"/"Go drink something" command
+## buttons) rather than a dedicated debug activity — the one-shot
+## _debug_force_snatch flag above is what makes the normal activity
+## attempt a snatch instead of (or before) its usual search.
+func debug_force_snatch() -> bool:
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
+		return false
+	var held: Node = player.get_held_item()
+	if held == null or not is_instance_valid(held):
+		return false
+	if NPCItemUser.is_edible(held):
+		_debug_force_snatch = true
+		brain.force_command(NPCBrain.EatActivity.new())
+		return true
+	if NPCItemUser.is_drinkable_bottle(held):
+		_debug_force_snatch = true
+		brain.force_command(NPCBrain.DrinkActivity.new())
+		return true
+	return false
+
 ## Takeaway gate. True only while genuinely hungry/thirsty AND actually
 ## holding a food/drink item right now — recomputed live rather than
 ## captured at the moment of pickup. Functionally identical to a captured

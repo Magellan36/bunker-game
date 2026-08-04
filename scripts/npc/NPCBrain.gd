@@ -306,6 +306,12 @@ class DrinkActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		_drinking = 0.0
+		var snatch: Node = npc.find_player_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
+		if snatch != null:
+			_mode = "snatch"
+			_target = snatch
+			npc.set_nav_target((snatch as Node3D).global_position)
+			return
 		var pick: Dictionary = _pick_target(npc)
 		_mode = pick.get("mode", "")
 		_target = pick.get("node", null)
@@ -322,8 +328,30 @@ class DrinkActivity extends NPCActivity:
 			return
 		if _mode == "bottle":
 			_tick_bottle(npc, delta)
+		elif _mode == "snatch":
+			_tick_snatch(npc, delta)
 		else:
 			_tick_dispenser(npc, delta)
+
+	## Part 29. Once the snatch succeeds, hands off to the normal "bottle"
+	## mode/_tick_bottle() for the rest of the drink — _target gets
+	## reassigned from the player to the actual bottle so
+	## _finish_bottle()'s `npc.held_item == _target` check (which compares
+	## against the bottle, never the player) keeps working unmodified.
+	func _tick_snatch(npc: NPC, delta: float) -> void:
+		var held: Node = _target.get_held_item() if _target != null and _target.has_method("get_held_item") else null
+		if held == null or not is_instance_valid(held) or not NPCItemUser.is_drinkable_bottle(held):
+			_target = null
+			_mode = ""
+			return
+		npc.nav_steer(delta)
+		if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+			if NPCItemUser.snatch_from_player(npc, _target):
+				_target = npc.held_item
+				_mode = "bottle"
+			else:
+				_target = null
+				_mode = ""
 
 	func _tick_dispenser(npc: NPC, delta: float) -> void:
 		if _drinking > 0.0:
@@ -427,6 +455,7 @@ class EatActivity extends NPCActivity:
 	var _loose: RigidBody3D = null
 	var _shelf_pick: Dictionary = {}
 	var _eating: float = 0.0
+	var _snatch_player: Node = null   ## Part 29
 
 	func label() -> String:
 		return "Eating" if _eating > 0.0 else "Getting food"
@@ -446,6 +475,10 @@ class EatActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		_eating = 0.0
+		_snatch_player = npc.find_player_snatch_target(Callable(NPCItemUser, "is_edible"))
+		if _snatch_player != null:
+			npc.set_nav_target((_snatch_player as Node3D).global_position)
+			return
 		_loose = _find(npc)
 		if _loose != null and not NPCItemUser.claim_item(_loose, npc):
 			_loose = null   ## lost the race between scoring and entering
@@ -475,6 +508,18 @@ class EatActivity extends NPCActivity:
 			_eating = CONSUME_TIME
 			return
 
+		if _snatch_player != null and is_instance_valid(_snatch_player):
+			var held: Node = _snatch_player.get_held_item() if _snatch_player.has_method("get_held_item") else null
+			if held == null or not is_instance_valid(held) or not NPCItemUser.is_edible(held):
+				_snatch_player = null   ## player dropped/used/gave it away — abandon
+				return
+			npc.nav_steer(delta)
+			if NPCItemUser.flat_distance(npc.global_position, (_snatch_player as Node3D).global_position) <= USE_RANGE:
+				NPCItemUser.snatch_from_player(npc, _snatch_player)   ## sets npc.held_item on success
+				_snatch_player = null   ## either way — success falls through to the held_item branch above next tick
+			return
+		_snatch_player = null
+
 		if _loose != null and is_instance_valid(_loose):
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, _loose.global_position) <= USE_RANGE:
@@ -498,7 +543,7 @@ class EatActivity extends NPCActivity:
 
 	func done(npc: NPC) -> bool:
 		return _eating <= 0.0 and npc.held_item == null \
-			and _loose == null and _shelf_pick.is_empty()
+			and _loose == null and _shelf_pick.is_empty() and _snatch_player == null
 
 	## Part 17 — mirrors DrinkActivity's. Finishing one item (a full can, or
 	## a single-bite item) no longer ends the activity outright if hunger is
@@ -507,7 +552,12 @@ class EatActivity extends NPCActivity:
 	func _reacquire_or_finish(npc: NPC) -> void:
 		_loose = null
 		_shelf_pick = {}
+		_snatch_player = null
 		if npc.hunger >= 55.0:
+			return
+		_snatch_player = npc.find_player_snatch_target(Callable(NPCItemUser, "is_edible"))
+		if _snatch_player != null:
+			npc.set_nav_target((_snatch_player as Node3D).global_position)
 			return
 		_loose = _find(npc)
 		if _loose != null and not NPCItemUser.claim_item(_loose, npc):

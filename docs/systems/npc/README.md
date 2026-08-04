@@ -429,6 +429,37 @@ stand-in for a real in-fiction relationship UI later, per Brannon.
   system already prevents one NPC from ever targeting another's claimed
   item), so this only ever fires against the player today.
 
+### Relationship Snatch (Aug 2026)
+
+A badly-relationship'd NPC has a chance to target the PLAYER instead of a
+normal world item when searching for food/water, forcibly taking a held
+item right out of the player's hands. It is the one intentional,
+narrowly-gated exception to the strict no-theft ethos.
+
+- **Gated on hostility.** Only ever considered when the relationship with
+  the player is ≤ -50 (`SNATCH_RELATIONSHIP_THRESHOLD`).
+- **Chance scales with hostility.** At exactly -50: 5% per attempt
+  (`SNATCH_CHANCE_AT_THRESHOLD`). At -100 (fully hostile): 50%
+  (`SNATCH_CHANCE_AT_MIN`). Linear between via `get_snatch_chance()`.
+- **Evaluated on target search only** — once per Eat/DrinkActivity entry
+  and after finishing a previous item (via `find_player_snatch_target()`),
+  matching the cadence of every other target search, never continuously.
+- **Relationship-neutral.** A successful snatch does not further ding the
+  relationship — it is already a consequence of an existing bad one, not
+  a new event worth logging as its own relationship change.
+- **Held item only.** It only ever targets a currently player-HELD item
+  (via `player.get_held_item()`); it never reaches into inventory or
+  stored items. The item must be a matching food/water item (edible for
+  Eat, drinkable bottle for Drink).
+- **Deliberately separate from `grab_loose()`.** The guarded `grab_loose()`
+  (for legitimate item-finding, with its `is_held` guard added to stop
+  accidental theft) stays strict. `snatch_from_player()` is the one
+  intentional exception, reached only through the gated finder function.
+- **F7 debug button** ("Force Nearest NPC to Snatch Player Item") targets
+  the nearest NPC to the player, bypasses both the relationship gate and
+  the probability roll, but still requires the player to be actually
+  holding a matching food/water item.
+
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
 0.6–2.0 (displayed ×10, rounded, in the E-panel — e.g. `0.73` → `7`),
@@ -616,3 +647,14 @@ skills, personality words, seed, mood, and irritability + label.
     relationship should NOT reach "Close" within the first several
     in-game days from proximity alone. A single Give/Takeaway should move
     the number by 7.5 (pre-Sociability-scaling), not 15.
+20. Use F7 admin tools to push an NPC's relationship with the player to
+    -60 or lower (or wait for enough negative interactions). Drain that
+    NPC's hunger or thirst below 55, hold a matching item, stay nearby —
+    over several attempts, confirm the NPC sometimes paths to the player
+    and snatches instead of finding a normal item; confirm relationship
+    does NOT change from a successful snatch.
+21. Press F7 "Force Nearest NPC to Snatch Player Item" while holding a
+    matching item near an NPC with a perfectly fine relationship —
+    confirm it snatches anyway. Press it while NOT holding anything (or
+    holding a non-food/water item) — confirm it fails gracefully (console
+    message, no crash, nothing happens).
