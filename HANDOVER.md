@@ -1,3 +1,54 @@
+# Handover — NPC Universal Takeaway + Gift Burnout/Anti-Repeat (Aug 2026)
+
+## What changed this session
+
+### Takeaway, unrestricted
+- **InteractionSystem.gd** (Player subsystem — **NOT applied this session**;
+  flagged for a later plan): would have removed the need-triggered `is_held`
+  gate from the CASE 2 prompt loop and `_nearest_pickup_distance()` entirely,
+  and dropped the gating condition in `_try_pickup()` (keeping its
+  `NPCItemUser.find_holder()`/`on_item_taken_by_player()` notify call).
+  Because this section was deferred, NPC-held items are still pickable only
+  when need-triggered (Part 24 behavior) — the unrestricted-pickup portion
+  of this pass is NOT live.
+- **NPC.gd**: `on_item_taken_by_player()` now always clears `held_item`, but
+  only applies the -15 relationship ding when `is_consuming_from_need()` was
+  true at the moment of taking (evaluated before clearing). Verified
+  `JobActivity`'s held_item references are all null-safe — a stolen job
+  material can't crash, but the job silently completes without its effect
+  (accepted quirk, see docs).
+
+### Gift burnout + per-item marking
+- **NPC.gd**: `gift_saturation` (0..1, +0.25/gift, decays to 0 over ~5
+  game-days via `_tick_relationships()`), `GIFT_BONUS_FLOOR_MULT` (0.15x
+  floor), applied as a multiplier on `GIVE_RELATIONSHIP_BONUS` in
+  `receive_item_from_player()`. Each item can only produce one boost ever
+  (`npc_gift_used` meta flag) — currently unreachable given Give's
+  destroy-on-give V1 scope, forward-looking for multi-charge items later.
+- F7 relationship visualizer now shows "Gift burnout: NN%" per NPC when
+  above 0.
+
+### Docs
+`docs/systems/npc/README.md` — Give/Takeaway section updated for the
+burnout/marking behavior and the narrowed relationship ding; Future Work
+updated (multi-charge note + stolen-job-material quirk); two new Testing
+Checklist items. Note the Takeaway paragraph describes the full
+unrestricted-pickup behavior from deferred Section 2, which is not yet
+live.
+
+## Files Modified
+- `scripts/npc/NPC.gd`
+- `docs/systems/npc/README.md`
+- ~~`scripts/player/InteractionSystem.gd`~~ ⚠️ Player subsystem — deferred
+  (Section 2), expected in a later pass.
+
+## Verification Checklist (for Brannon's in-editor test)
+See `docs/systems/npc/README.md` Testing Checklist items 16–17 (gift
+burnout). Item 16 (non-need takeaway) depends on the still-deferred
+`InteractionSystem.gd` Section 2.
+
+---
+
 # Handover — NPC Give/Takeaway + F7 Relationship Visualizer (Aug 2026)
 
 ## What changed this session

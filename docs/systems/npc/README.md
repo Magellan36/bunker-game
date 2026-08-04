@@ -343,24 +343,45 @@ bonus (scaled by Sociability like everything else, via
 partially-given can/bottle is a real open question, not silently decided
 here.
 
-**Takeaway.** An item an NPC is holding is normally pickup-blocked for the
-player (`is_held` excludes it). That block now has one narrow exception:
-while the NPC is actually mid-Eat/DrinkActivity because hunger or thirst
-is genuinely below 55 (`NPC.is_consuming_from_need()` — the exact same
-threshold EatActivity/DrinkActivity themselves auto-trigger on), the
-normal `[F] Pick up` prompt reappears on that item. Taking it applies a
-flat -15 relationship penalty
-(`NPC.on_item_taken_by_player()`/`TAKEAWAY_RELATIONSHIP_PENALTY`) and
-clears the NPC's stale `held_item` reference. A player-forced "Go eat
-something" command issued while the NPC wasn't actually hungry does NOT
-make the held item takeable — the gate is live need level, not which
-activity path triggered the hold.
+**Gift burnout (Aug 2026, Part 25).** Repeated gifts in a short window
+give progressively smaller boosts: each NPC tracks `gift_saturation`
+(0..1), +0.25 per successful gift, decaying back to 0 over ~5 game-days
+(`GIFT_SATURATION_DECAY_PER_GAME_HOUR`, same `game_hours()` clock every
+other NPC system uses — day-scale, matching Mood). The actual boost is
+`GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)`
+— never fully zero (floor 0.15x) so a burned-out gift still visibly does
+something rather than feeling broken. Stacks with (multiplies against)
+the Sociability multiplier `_adjust_relationship()` already applies.
+Closes the "stand there feeding them nonstop" exploit.
 
-As a side effect, this patch also closed a latent gap: `_try_pickup()`
-had no `is_held` check at all before this pass (only the prompt did),
-meaning any NPC-held item could technically already be silently grabbed
-regardless of reason — just never surfaced because the prompt never
-showed it. It's now correctly gated everywhere, not just the prompt.
+**Per-item gift marking.** Each item instance can only ever produce a
+boost once (`item.set_meta("npc_gift_used", true)`, checked before
+allowing a repeat). Currently unreachable in practice — a single-serving
+Give item is destroyed on its first successful gift
+(`consume_as_food()` frees the node), so no instance survives to be
+re-offered — but this closes the exploit path in advance for whenever
+Give expands to multi-charge items, where the same bottle/can genuinely
+could otherwise be re-given after a refill or after being taken back.
+
+**Takeaway.** Any item an NPC is holding, for any reason, is now a valid
+`[F] Pick up` target for the player — the earlier need-triggered pickup
+gate (Aug 2026) was removed (Part 25) in favor of relying only on the
+relationship consequence, not access, to keep this fair. Taking it clears
+the NPC's stale `held_item` reference always
+(`NPC.on_item_taken_by_player()`); the -15 relationship penalty
+(`TAKEAWAY_RELATIONSHIP_PENALTY`) still only fires when the item was a
+genuinely need-triggered food/water consumption
+(`NPC.is_consuming_from_need()`, hunger/thirst < 55, the same threshold
+Eat/DrinkActivity themselves auto-trigger on) — taking a job material
+(fuel can, purifier filter, harvest fetch) away has no relationship
+consequence. A player-forced "Go eat something" command issued while the
+NPC wasn't actually hungry still doesn't count as need-triggered.
+
+Known accepted quirk: stealing a job material mid-carry doesn't abort the
+job — `JobActivity`'s `held_item` references are all null-checked, so it
+can't crash, but the job silently "completes" without its actual effect
+landing (no fuel added, no filter replaced). Not fixed this pass — see
+Future Work.
 
 Both directions log through `NPCDebug.log_relationship_event()`
 (distinct from `log_relationship_tick`'s continuous proximity logging —
@@ -375,7 +396,12 @@ stand-in for a real in-fiction relationship UI later, per Brannon.
 
 **`FUTURE WORK`:**
 - Multi-use item Give (FoodCan/WaterBottle) — needs a decision on what
-  happens to the remaining charge.
+  happens to the remaining charge. The gift-marking and burnout
+  infrastructure is already in place for whenever this lands.
+- JobActivity doesn't detect or react to a stolen job material — the job
+  silently "completes" without its effect (see the Takeaway paragraph
+  above). A real fix means JobActivity checking for the theft and
+  aborting instead of completing.
 - A visible interrupt/flinch reaction when an item is taken mid-bite,
   instead of the NPC finishing its ~2s consumption animation
   empty-handed (a cosmetic gap, not a logic bug — see
@@ -551,3 +577,13 @@ skills, personality words, seed, mood, and irritability + label.
 15. Toggle F7 "Toggle NPC Debug Logging" on — confirm every NPC shows a
     floating relationship readout above their head; toggle off — confirm
     it disappears.
+16. Confirm an NPC holding a non-need item (job material, or food/water
+    while hunger/thirst are both above 55) is now ALSO takeable via F —
+    and confirm F7's relationship dump shows NO relationship change for
+    that specific takeaway (only need-triggered takeaways should ding).
+17. Give the same NPC 4-5 dishes/produce in quick succession — confirm
+    each successive relationship gain is visibly smaller than the last in
+    the F7 debug dump/visualizer, bottoming out around 15% of the base
+    +15. Stop giving and watch (or fast-forward via F7's admin tools) —
+    confirm "Gift burnout: NN%" in the visualizer decays back toward 0
+    over multiple in-game days, not minutes.

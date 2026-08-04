@@ -353,6 +353,8 @@ func _tick_relationships(h: float) -> void:
 	if player != null and is_instance_valid(player):
 		if NPCItemUser.flat_distance(global_position, player.global_position) <= RELATIONSHIP_PROXIMITY_RANGE:
 			_adjust_relationship("player", gain)
+	if gift_saturation > 0.0:   ## Part 25 — same tick cadence as everything else here
+		gift_saturation = maxf(0.0, gift_saturation - GIFT_SATURATION_DECAY_PER_GAME_HOUR * h)
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_tick(self)
 
@@ -377,16 +379,43 @@ const TAKEAWAY_NEED_THRESHOLD: float = 55.0
 ## "what if they're already full/mid-task" edge cases; this can fire even
 ## while the NPC is separately mid-Eat/DrinkActivity with something else
 ## in hand, since it never touches `held_item`.
+##
+## Gift burnout (Part 25): repeated gifts in a short window give
+## progressively smaller boosts (`gift_saturation`, 0..1, decays back to 0
+## over ~5 game-days via _tick_relationships()) — closes the "stand there
+## feeding them nonstop" exploit. Never fully zero (GIFT_BONUS_FLOOR_MULT)
+## so a burned-out gift still visibly does *something*, not a dead click.
+##
+## Per-item marking: each item instance can only ever produce a boost
+## ONCE (`npc_gift_used` meta flag, checked/set here). Currently
+## unreachable for V1's single-serving scope — the item is destroyed on
+## its first successful give (consume_as_food() frees the node), so
+## there's no surviving instance to re-offer — but closes the exploit in
+## advance for whenever Give expands to multi-charge items (FoodCan/
+## WaterBottle — see Future Work), where the same physical item COULD
+## otherwise survive to be given again.
+const GIFT_SATURATION_MAX: float = 1.0
+const GIFT_SATURATION_PER_GIFT: float = 0.25          ## ~4 gifts in a row reaches full burnout
+const GIFT_SATURATION_DECAY_PER_GAME_HOUR: float = 1.0 / (5.0 * 24.0)   ## full recovery over ~5 game-days
+const GIFT_BONUS_FLOOR_MULT: float = 0.15             ## fully burned out still does *something*
+var gift_saturation: float = 0.0
+
 func receive_item_from_player(item: Node) -> bool:
 	if item == null or not is_instance_valid(item):
 		return false
 	if not NPCItemUser.is_giveable(item):
 		return false
+	if item.has_meta("npc_gift_used"):
+		return false
+	item.set_meta("npc_gift_used", true)
 	if item is DishItem or item is FarmProduceItem:
 		hunger = minf(100.0, hunger + item.consume_as_food())   ## frees the node
-	_adjust_relationship("player", GIVE_RELATIONSHIP_BONUS)
+	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
+	_adjust_relationship("player", effective_bonus)
+	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
 	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, "player", GIVE_RELATIONSHIP_BONUS, "received gift")
+		NPCDebug.log_relationship_event(self, "player", effective_bonus,
+			"received gift (saturation %.2f)" % gift_saturation)
 	return true
 
 ## Takeaway gate. True only while genuinely hungry/thirsty AND actually
@@ -407,22 +436,28 @@ func is_consuming_from_need() -> bool:
 	return NPCItemUser.is_edible(held_item) or NPCItemUser.is_drinkable_bottle(held_item)
 
 ## Called by InteractionSystem the instant the player successfully grabs
-## an item this NPC was mid-consumption of. Clears the stale held_item
-## reference and releases its claim; EatActivity/DrinkActivity's
-## tick()/eat_held_step()/_finish_bottle() already no-op cleanly on a
-## null/mismatched held_item (verified against both classes — this was
-## checked, not assumed, given how much debugging already went into their
-## state machines). One accepted cosmetic gap: if the takeaway happens
-## mid-bite (during the ~2s CONSUME_TIME countdown), the NPC visibly
-## keeps "eating" empty-handed for the rest of that countdown before the
-## activity notices and re-scores — no crash, no double-consumption, just
-## a beat of odd animation. A real interrupt/flinch reaction belongs in
-## the later visuals pass, not this one.
+## ANY item this NPC was holding (Part 25 — takeaway is no longer limited
+## to need-triggered consumption; see InteractionSystem's _try_pickup()).
+## Clears the stale held_item reference and releases its claim regardless
+## of what it was — EatActivity/DrinkActivity's tick()/eat_held_step()/
+## _finish_bottle() and JobActivity's fetch/work/complete paths were all
+## checked and already no-op cleanly on a null/mismatched held_item (see
+## docs/systems/npc/README.md for the one accepted quirk this leaves: a
+## stolen job material lets that job silently "complete" without its
+## actual effect landing).
+##
+## The relationship ding, however, still only applies when the item taken
+## was a genuinely need-triggered food/water consumption — evaluated
+## BEFORE clearing held_item, since is_consuming_from_need() needs it
+## still set. Taking a job material away has no relationship consequence.
 func on_item_taken_by_player() -> void:
+	var was_need_triggered: bool = is_consuming_from_need()
 	var item: Node = held_item
 	held_item = null
 	if item != null:
 		NPCItemUser.release_item(item)
+	if not was_need_triggered:
+		return
 	_adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
@@ -761,6 +796,8 @@ func _update_relationship_debug_label() -> void:
 	for target_id: String in relationships.keys():
 		var display: String = "You" if target_id == "player" else _name_for_relationship_id(target_id)
 		lines.append("%s: %+.0f (%s)" % [display, relationships[target_id], get_relationship_label(target_id)])
+	if gift_saturation > 0.0:   ## Part 25
+		lines.append("Gift burnout: %d%%" % int(round(gift_saturation * 100.0)))
 	_relationship_debug_label.text = "\n".join(lines) if not lines.is_empty() else "(no relationships yet)"
 
 func _name_for_relationship_id(target_id: String) -> String:
