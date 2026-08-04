@@ -1,3 +1,26 @@
+# Handover — Relationship Magnitude Rebalance (Aug 2026)
+
+## What changed this session
+- **NPC.gd**: `GIVE_RELATIONSHIP_BONUS` and `TAKEAWAY_RELATIONSHIP_PENALTY`
+  halved (15.0 → 7.5, kept symmetric). `RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR`
+  reduced 2.0 → 0.15 (~13x) — the original rate maxed a relationship out
+  from ordinary cohabitation alone within ~2 in-game days; the new rate
+  targets "Friendly" after ~100 days of realistic daily overlap, not
+  "Close" within the first week.
+- No mechanism changes — burnout, per-item/per-NPC repeat gating, band
+  thresholds, and Sociability scaling are untouched, just the base
+  numbers they operate on.
+
+## Files Modified
+- `scripts/npc/NPC.gd`
+- `docs/systems/npc/README.md`
+
+## Verification Checklist
+See `docs/systems/npc/README.md` Testing Checklist item 19 (renumbered
+from the plan's "17" since the checklist already had items through 18).
+
+---
+
 # Handover — NPC Give/Takeaway Support in InteractionSystem.gd (Aug 2026)
 
 ## What changed this session

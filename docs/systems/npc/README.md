@@ -230,8 +230,12 @@ never used as an identity key.
 Ticks on the same 5s cadence as mood/irritability (`_tick_relationships()`,
 called from `_tick_mood_and_irritability()`), nudging affinity up toward
 every other NPC and the player within 4m (XZ-only, `NPCItemUser.flat_distance`)
-by `RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR = 2.0` per game-hour, scaled
-by sociability.
+by `RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR = 0.15` per game-hour (reduced
+from an initial 2.0, Aug 2026 — see Testing Checklist item 19 and the
+Give/Takeaway paragraph below for the rebalanced ±7.5 event magnitudes),
+scaled by sociability. Deliberately slow — relationships here are meant
+to read as built from consistent habit over a long (100+ day)
+playthrough, not from a handful of interactions.
 
 **Sociability trait** (previously generated/displayed only) is now wired:
 `_sociability_trait_mult()` returns 0.5x (low sociability) to 1.5x (high),
@@ -344,7 +348,7 @@ bite/drink at a time for cans/bottles (mirrors self-serve
 player's hand across multiple gifts, getting progressively emptier, same
 as it would from repeated self-use.
 
-A successful gift applies a +15 relationship bonus (scaled by Sociability
+A successful gift applies a +7.5 relationship bonus (scaled by Sociability
 like everything else, via `_adjust_relationship()`, and by gift
 burnout — see below). **Per-(item, NPC) boost gating:** each item
 instance tracks which NPCs it's already boosted
@@ -380,7 +384,7 @@ could otherwise be re-given after a refill or after being taken back.
 gate (Aug 2026) was removed (Part 25) in favor of relying only on the
 relationship consequence, not access, to keep this fair. Taking it clears
 the NPC's stale `held_item` reference always
-(`NPC.on_item_taken_by_player()`); the -15 relationship penalty
+(`NPC.on_item_taken_by_player()`); the -7.5 relationship penalty
 (`TAKEAWAY_RELATIONSHIP_PENALTY`) still only fires when the item was a
 genuinely need-triggered food/water consumption
 (`NPC.is_consuming_from_need()`, hunger/thirst < 55, the same threshold
@@ -419,7 +423,7 @@ stand-in for a real in-fiction relationship UI later, per Brannon.
   instead of the NPC finishing its ~2s consumption animation
   empty-handed (a cosmetic gap, not a logic bug — see
   `on_item_taken_by_player()`'s comment).
-- The floating "-15"/"+15" loss/gain pulse above an NPC's head — real
+- The floating "-7.5"/"+7.5" loss/gain pulse above an NPC's head — real
   visuals pass, explicitly deferred; the F7 readout is the placeholder.
 - NPC-vs-NPC takeaway — structurally impossible right now (the item claim
   system already prevents one NPC from ever targeting another's claimed
@@ -579,13 +583,13 @@ skills, personality words, seed, mood, and irritability + label.
     let them start eating/drinking, then walk up mid-consumption and
     press F — confirm the normal "[F] Pick up" prompt appears and taking
     it works, the NPC doesn't error or double-consume, and F7 "Print NPC
-    Debug State" / the relationship dump shows -15 toward "player".
+    Debug State" / the relationship dump shows -7.5 toward "player".
     Separately, confirm an NPC holding an item for a non-need reason
     (full hunger/thirst, forced via "Go eat something" while not hungry,
     or a job material) is NOT takeable.
 14. Hold a cooked dish or piece of produce, walk up to an NPC — confirm
     "[E] Give <item> to <name>" appears and works, hunger rises, and
-    relationship goes up +15. Confirm a FoodCan or water bottle does NOT
+    relationship goes up +7.5. Confirm a FoodCan or water bottle does NOT
     show a Give prompt (out of scope this pass).
 15. Toggle F7 "Toggle NPC Debug Logging" on — confirm every NPC shows a
     floating relationship readout above their head; toggle off — confirm
@@ -597,7 +601,7 @@ skills, personality words, seed, mood, and irritability + label.
 17. Give the same NPC 4-5 dishes/produce in quick succession — confirm
     each successive relationship gain is visibly smaller than the last in
     the F7 debug dump/visualizer, bottoming out around 15% of the base
-    +15. Stop giving and watch (or fast-forward via F7's admin tools) —
+    +7.5. Stop giving and watch (or fast-forward via F7's admin tools) —
     confirm "Gift burnout: NN%" in the visualizer decays back toward 0
     over multiple in-game days, not minutes.
 18. Give an NPC a full FoodCan or WaterBottle — confirm the relationship
@@ -606,4 +610,9 @@ skills, personality words, seed, mood, and irritability + label.
     item to the SAME NPC again — confirm hunger/thirst still rises but
     NO additional relationship boost (check F7 debug dump — delta should
     log as 0.0/"no bonus"). Give that same partially-used item to a
-    DIFFERENT NPC — confirm THAT NPC gets a normal +15-scaled boost (once).
+    DIFFERENT NPC — confirm THAT NPC gets a normal +7.5-scaled boost (once).
+19. Confirm relationship pacing feels appropriately slow: stand an NPC
+    and the player together continuously and use F7 admin fast-forward —
+    relationship should NOT reach "Close" within the first several
+    in-game days from proximity alone. A single Give/Takeaway should move
+    the number by 7.5 (pre-Sociability-scaling), not 15.

@@ -313,7 +313,13 @@ const RELATIONSHIP_LABELS: Array[String] = ["Hostile", "Cold", "Neutral", "Frien
 ## (giving items, crisis help, compliance, etc. — see Future Work) plugs
 ## into _adjust_relationship() the exact same way once built.
 const RELATIONSHIP_PROXIMITY_RANGE: float = 4.0   ## meters, XZ-only
-const RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR: float = 2.0
+## Reduced 2.0 → 0.15 (Aug 2026, Part 27) — the original value maxed a
+## relationship out from ordinary cohabitation alone in ~2 in-game days,
+## making every other relationship driver (Give/Takeaway, Sociability)
+## irrelevant by comparison. At 0.15/hour, ~4 hrs/day of realistic
+## overlap lands around "Friendly" (not maxed) after a full 100-day
+## playthrough — see the plan doc for the full reasoning.
+const RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR: float = 0.15
 
 func get_relationship(target_id: String) -> float:
 	return float(relationships.get(target_id, 0.0))
@@ -366,8 +372,11 @@ func _tick_relationships(h: float) -> void:
 ## proximity is the only live driver this pass.
 
 # ─── Give / Takeaway (Part 24) ──────────────────────────────────────────────
-const GIVE_RELATIONSHIP_BONUS: float = 15.0
-const TAKEAWAY_RELATIONSHIP_PENALTY: float = 15.0
+## Halved (Aug 2026, Part 27) — relationships should build from many
+## interactions over a long playthrough (100+ in-game days), not swing on
+## a handful of events. Kept symmetric between Give and Takeaway.
+const GIVE_RELATIONSHIP_BONUS: float = 7.5
+const TAKEAWAY_RELATIONSHIP_PENALTY: float = 7.5
 ## Matches EatActivity/DrinkActivity's own auto-trigger threshold
 ## (`npc.hunger >= 55.0`/`npc.thirst >= 55.0` → score 0) intentionally —
 ## "needs it" means the same thing everywhere in the NPC system.
