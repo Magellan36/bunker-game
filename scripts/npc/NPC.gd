@@ -201,6 +201,16 @@ func _tick_mood(h: float) -> void:
 	var rate: float = MOOD_CHANGE_PER_GAME_HOUR
 	if mood_target > mood:
 		rate *= _mood_recovery_trait_mult()
+		## Part 21 — needs being only BARELY "fine" (just above
+		## MOOD_FINE_THRESHOLD) mildly slow recovery too, not just a binary
+		## on/off switch at the threshold. Comfortably-fine needs (near 100)
+		## recover at full speed; needs right at the threshold recover ~15%
+		## slower. Deliberately no status label — this is a background
+		## nuance for a future tutorial to explain, not something that
+		## needs surfacing moment-to-moment.
+		var needs_headroom: float = clampf(
+			(needs_avg - MOOD_FINE_THRESHOLD) / (100.0 - MOOD_FINE_THRESHOLD), 0.0, 1.0)
+		rate *= lerp(0.85, 1.0, needs_headroom)
 	var before: float = mood
 	mood = move_toward(mood, mood_target, rate * h)
 	_mood_needs_delta = mood - before
@@ -630,16 +640,11 @@ func _handle_physics_pushes(delta: float) -> void:
 			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE / rb.mass)
 
 
-# ─── Need-tier consequences (Part 14/20) ───────────────────────────────────────
-## Single source of truth for every need/mood/irritability-driven
-## consequence — NPCBrain (behavior), NPCTalkMenuUI (display), and
-## NPCDebug all read from these, so what an NPC actually does and what the
-## player/debug sees always agree.
-
 ## Energy contributes its OWN single progressive tier (25% tier REPLACES the
 ## 50% tier's penalty, doesn't stack on top of it). Hunger/Thirst only
-## affect speed at <25% each. Mood (Part 20) adds its own small penalty at
-## ≤25% — all multiply together, so low on several at once compounds.
+## affect speed at <25% each. Mood adds its own small penalty at ≤25% — all
+## multiply together, so low on several at once compounds. (Unchanged by
+## Part 21 — only the LABEL format below changes, not this math.)
 func get_status_speed_multiplier() -> float:
 	var energy_mult: float = 1.0
 	if energy < 25.0:
@@ -648,21 +653,27 @@ func get_status_speed_multiplier() -> float:
 		energy_mult = 0.85   ## "slightly slower"
 	var hunger_mult: float = 0.90 if hunger < 25.0 else 1.0
 	var thirst_mult: float = 0.90 if thirst < 25.0 else 1.0
-	var mood_mult: float = 0.85 if mood <= 25.0 else 1.0   ## Part 20
+	var mood_mult: float = 0.85 if mood <= 25.0 else 1.0
 	return energy_mult * hunger_mult * thirst_mult * mood_mult
 
 ## Chance [0..1] to divert from a job into 20s of forgetful wandering.
-## Hunger, Thirst, and (Part 20) Mood each contribute their own tiered
-## chance — Mood's tiers are roughly half the needs' tiers ("affecting it
-## less than needs do", per spec) — combined via probabilistic OR, then
-## scaled by the Resilience trait (Irritable NPCs are more drastically
-## affected by the SAME conditions; Level-Headed NPCs less so).
+## Part 21 rewrite: AVERAGED across Hunger, Thirst, Mood, and (new) Energy
+## instead of probabilistic-OR-combined — OR-combination made three only-
+## moderate sources compound to a much higher chance than any one alone
+## (~49% from three ~20% sources), which was mechanically why forgetfulness
+## felt like it could take over. A straight average is far gentler (the
+## same three sources average to ~20%) and matches the intent: a mild,
+## readable guide on effectiveness, not a system that dominates. Energy's
+## tiers are deliberately small — it stays mostly a speed stat, this is
+## just a mild secondary contribution. Averaged result is then scaled by
+## the Resilience trait, same as before.
 func get_forgetfulness_chance() -> float:
 	var p_hunger: float = _forgetfulness_tier_chance(hunger)
 	var p_thirst: float = _forgetfulness_tier_chance(thirst)
 	var p_mood: float = _mood_forgetfulness_tier_chance(mood)
-	var combined: float = 1.0 - (1.0 - p_hunger) * (1.0 - p_thirst) * (1.0 - p_mood)
-	return clampf(combined * _irritability_trait_mult(), 0.0, 1.0)
+	var p_energy: float = _energy_forgetfulness_tier_chance(energy)
+	var avg: float = (p_hunger + p_thirst + p_mood + p_energy) / 4.0
+	return clampf(avg * _irritability_trait_mult(), 0.0, 1.0)
 
 func _forgetfulness_tier_chance(need_value: float) -> float:
 	if need_value <= 0.0:
@@ -682,44 +693,80 @@ func _mood_forgetfulness_tier_chance(mood_value: float) -> float:
 		return 0.05
 	return 0.0
 
+## Part 21 — energy's new, deliberately mild forgetfulness contribution.
+## Roughly a third of the needs' scale; energy's primary job stays speed.
+func _energy_forgetfulness_tier_chance(energy_value: float) -> float:
+	if energy_value <= 0.0:
+		return 0.15
+	elif energy_value < 25.0:
+		return 0.08
+	elif energy_value < 50.0:
+		return 0.03
+	return 0.0
+
 func is_passed_out() -> bool:
 	return energy <= 0.0
 
+## Part 21 — the specific phrase(s) currently contributing to forgetfulness,
+## for the single combined label's parenthetical. Independent of the trait
+## multiplier (that only scales the roll chance/tier boundary, not which
+## reasons get listed) and independent of averaging (lists ANY active
+## source, regardless of how much the average dilutes its effective weight).
+func _forgetfulness_reasons() -> Array[String]:
+	var reasons: Array[String] = []
+	if hunger <= 0.0: reasons.append("Starving")
+	elif hunger < 25.0: reasons.append("Very Hungry")
+	elif hunger < 50.0: reasons.append("Hungry")
+	if thirst <= 0.0: reasons.append("Dehydrated")
+	elif thirst < 25.0: reasons.append("Very Thirsty")
+	elif thirst < 50.0: reasons.append("Mildly Dehydrated")
+	if energy <= 0.0: reasons.append("Exhausted")
+	elif energy < 25.0: reasons.append("Very Tired")
+	elif energy < 50.0: reasons.append("Low Energy")
+	if mood <= 0.0: reasons.append("Miserable")
+	elif mood < 25.0: reasons.append("Very Unhappy")
+	elif mood < 50.0: reasons.append("Unhappy")
+	return reasons
+
+## Part 21 — same idea for the Slow label's parenthetical (speed math itself
+## is unchanged; this only decides which reason phrases to list alongside
+## the single combined "Slightly/Noticeably Slowed" word).
+func _slow_reasons() -> Array[String]:
+	var reasons: Array[String] = []
+	if energy < 25.0: reasons.append("Very Tired")
+	elif energy < 50.0: reasons.append("Tired")
+	if hunger < 25.0: reasons.append("Very Hungry")
+	if thirst < 25.0: reasons.append("Very Thirsty")
+	if mood <= 25.0: reasons.append("Very Low Mood")
+	return reasons
+
 ## Human-readable summary for the E-panel's Status line — display only,
-## does not drive any behavior itself (that's the functions above). Part 20
-## rewrite: every cause is listed INDIVIDUALLY (hunger-forgetfulness,
-## thirst-forgetfulness, mood-forgetfulness, mood-slowdown, etc.) rather
-## than a single combined line, per Brannon's explicit "no ambiguity" spec.
+## does not drive any behavior itself (that's the functions above). Part 21
+## rewrite: Forgetfulness and Slowing each collapse to ONE label with every
+## contributing cause listed in parentheses (e.g. "Very Forgetful (Starving,
+## Dehydrated, Miserable)"), instead of one separate line per cause.
 func get_status_labels() -> Array[String]:
 	var labels: Array[String] = []
 
 	if is_passed_out():
 		labels.append("Passed out (exhausted)")
-	elif energy < 25.0:
-		labels.append("Noticeably slowed (very tired)")
-	elif energy < 50.0:
-		labels.append("Slightly slowed (tired)")
-	if mood <= 25.0:
-		labels.append("Slightly slowed (very low mood)")
+	else:
+		var slow_mult: float = get_status_speed_multiplier()
+		if slow_mult < 1.0:
+			var reasons: Array[String] = _slow_reasons()
+			if not reasons.is_empty():
+				var word: String = "Noticeably Slowed" if slow_mult <= 0.65 else "Slightly Slowed"
+				labels.append("%s (%s)" % [word, ", ".join(reasons)])
 
-	if hunger <= 0.0:
-		labels.append("Very forgetful (starving)")
-	elif hunger < 25.0:
-		labels.append("Forgetful (very hungry)")
-	elif hunger < 50.0:
-		labels.append("Occasionally forgetful (hungry)")
-
-	if thirst <= 0.0:
-		labels.append("Very forgetful (dehydrated)")
-	elif thirst < 25.0:
-		labels.append("Forgetful (very thirsty)")
-	elif thirst < 50.0:
-		labels.append("Occasionally forgetful (thirsty)")
-
-	if mood < 25.0:
-		labels.append("Forgetful (miserable)")
-	elif mood < 50.0:
-		labels.append("Occasionally forgetful (unhappy)")
+	var forget_chance: float = get_forgetfulness_chance()
+	var forget_reasons: Array[String] = _forgetfulness_reasons()
+	if not forget_reasons.is_empty():
+		if forget_chance >= 0.25:
+			labels.append("Very Forgetful (%s)" % ", ".join(forget_reasons))
+		elif forget_chance >= 0.12:
+			labels.append("Forgetful (%s)" % ", ".join(forget_reasons))
+		elif forget_chance > 0.0:
+			labels.append("Occasionally Forgetful (%s)" % ", ".join(forget_reasons))
 
 	if hunger <= 0.0 or thirst <= 0.0:
 		labels.append("Losing health (starving/dehydrated)")
