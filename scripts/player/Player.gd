@@ -19,6 +19,7 @@ extends CharacterBody3D
 @onready var mesh: MeshInstance3D = $MeshInstance3D
 @onready var collision: CollisionShape3D = $CollisionShape3D
 @onready var interaction_area: Area3D = $InteractionArea
+@onready var interaction_system: Node = $InteractionSystem
 
 ## Stamina must recover to this before sprinting is allowed again (prevents flicker)
 @export var sprint_recover_threshold: float = 20.0
@@ -121,6 +122,28 @@ func _handle_movement(delta: float) -> void:
 func _handle_interaction_input() -> void:
 	if Input.is_action_just_pressed("interact"):
 		interacted.emit()
+
+# ─── NPC-facing contract (Relationship Snatch feature, Aug 2026) ──────────────
+## Read-only. NPC-side code resolves this node via
+## get_tree().get_first_node_in_group("player") and calls these two
+## directly, the same way it already does for other player-facing calls.
+## Feature logic (when/why a snatch happens) is entirely NPC-owned — this
+## side only reports what's held and cleans up bookkeeping after a snatch.
+
+## Returns whatever the player is currently holding, or null if
+## empty-handed. Used by NPC-side code purely for detection/classification
+## — it does not touch the returned item.
+func get_held_item() -> Node:
+	return interaction_system.held_item if interaction_system != null else null
+
+## Called by NPC-side code the instant a snatch succeeds — by that point
+## the item has already been physically reassigned to the NPC
+## (item.pickup(npc.hold_point), npc.held_item = item). This only clears
+## this side's own bookkeeping so it doesn't desync, same failure mode as
+## the earlier Give-stuck bug.
+func on_item_snatched() -> void:
+	if interaction_system != null and interaction_system.has_method("clear_held_item_external"):
+		interaction_system.clear_held_item_external()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if seated_chair == null or not is_instance_valid(seated_chair):

@@ -192,9 +192,25 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   could never see layer-2 (currently-held) bodies regardless of any
   GDScript `is_held` check; `collision_mask` widened to `3` (1|2) fixes
   this. Widening the mask also means `DetectArea` now sees the player's
-  own held item while CASE 1 scans for a different target — guarded with
-  `if body == held_item: continue` in `_try_add_nearest_to_basket()` and
-  `_try_add_nearest_to_cookpot()`.
+own held item while CASE 1 scans for a different target — guarded with
+   `if body == held_item: continue` in `_try_add_nearest_to_basket()` and
+   `_try_add_nearest_to_cookpot()`.
+- **NPC-facing contract for Relationship Snatch (Aug 2026):** `Player.gd`
+  now exposes `get_held_item() -> Node` (read-only passthrough to
+  `InteractionSystem.held_item`) and `on_item_snatched() -> void` for the
+  NPC subsystem's Snatch feature (bad-relationship NPCs occasionally take
+  a food/water item straight from the player's hands). NPC-side code
+  resolves the player via `get_tree().get_first_node_in_group("player")`
+  and calls these directly — no group/signal wiring needed since
+  `Player.gd` already registers into the `"player"` group.
+  `on_item_snatched()` delegates to a new
+  `InteractionSystem.clear_held_item_external()`, which does the same
+  `held_item`/`_held_from_slot`/`_is_holding_e` cleanup (with
+  `knocked_out` disconnect guard) as a successful Give — unconditionally
+  here, since by the time this is called the item has always already
+  been physically reassigned to the NPC regardless of item type. Snatch
+  trigger logic, relationship math, and cooldowns are entirely NPC-owned;
+  this file only reports state and cleans up after the fact.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns

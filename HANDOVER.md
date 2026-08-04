@@ -1,3 +1,31 @@
+# Handover — Player Contract for NPC Relationship Snatch (Aug 2026)
+
+## What changed this session
+Added the two-method public contract the NPC subsystem needs for its
+Relationship Snatch feature (bad-relationship NPCs occasionally take a
+food/water item straight from the player's hands): `Player.get_held_item()`
+and `Player.on_item_snatched()`. `Player.gd` gained an `interaction_system`
+node ref (`$InteractionSystem`); `InteractionSystem.gd` gained
+`clear_held_item_external()`, an unconditional version of the cleanup
+`_try_give_to_nearest_npc()` already does on a successful give (item is
+guaranteed already gone from this side by the time Snatch calls it,
+unlike Give where multi-charge items can survive in hand). No existing
+Give/Takeaway behavior changed.
+
+### Files modified
+- `scripts/player/Player.gd` — `interaction_system` ref,
+  `get_held_item()`, `on_item_snatched()`.
+- `scripts/player/InteractionSystem.gd` — `clear_held_item_external()`.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_SNATCH_CONTRACT_PLAN.md` for the full
+4-item checklist)
+
+---
+---
+
 # Handover — NPC Relationship Snatch Mechanic + Debug Trigger (Aug 2026)
 
 **Owner:** NPC instance. Adds a hostility-gated "snatch" where a

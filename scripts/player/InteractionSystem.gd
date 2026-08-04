@@ -856,6 +856,21 @@ func _try_give_to_nearest_npc(item: RigidBody3D) -> void:
 	_held_from_slot = -1
 	_is_holding_e   = false
 
+## External clear — called by Player.on_item_snatched() when an NPC has
+## just taken the held item away entirely outside this system's own
+## input handling (relationship Snatch feature, NPC-owned). Unlike
+## _try_give_to_nearest_npc()'s conditional clear, this is unconditional:
+## by the time the caller reaches this, the item has already been
+## physically reassigned to the NPC (item.pickup(npc.hold_point),
+## npc.held_item = item) regardless of item type, so there's no
+## "did it survive" branch to make — it's simply gone from this side.
+func clear_held_item_external() -> void:
+	if held_item != null and held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.disconnect(_on_item_knocked_out)
+	held_item       = null
+	_held_from_slot = -1
+	_is_holding_e   = false
+
 ## Mirrors _try_pickup()'s tail exactly (signal connect, held_item/_held_from_slot
 ## bookkeeping, set_player call) — the only difference is the item comes from
 ## Stove.try_remove_pot() instead of a detect_area scan.
