@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-03T23:12:49.099534+00:00",
+  "generated_at": "2026-08-04T00:08:19.651098+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
   "script_count": 122,
-  "total_lines": 47990,
+  "total_lines": 48030,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -941,7 +941,7 @@
     },
     {
       "path": "res://scripts/player/InteractionSystem.gd",
-      "line_count": 1019,
+      "line_count": 1036,
       "class_name": "InteractionSystem",
       "extends": "Node3D",
       "exports": [
@@ -987,11 +987,11 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 1051
+      "complexity_score": 1068
     },
     {
       "path": "res://scripts/player/Player.gd",
-      "line_count": 118,
+      "line_count": 139,
       "class_name": "Player",
       "extends": "CharacterBody3D",
       "exports": [
@@ -1042,13 +1042,13 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 4,
+      "private_function_count": 5,
       "preloads": [],
       "group_lookups": [
         "player"
       ],
       "autoload_references": [],
-      "complexity_score": 124
+      "complexity_score": 146
     },
     {
       "path": "res://scripts/player/PlayerStats.gd",
@@ -3059,7 +3059,7 @@
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
-      "line_count": 1379,
+      "line_count": 1381,
       "class_name": "MainWorld",
       "extends": "Node3D",
       "exports": [
@@ -3226,7 +3226,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1447
+      "complexity_score": 1449
     },
     {
       "path": "res://scripts/world/core/SaveManager.gd",

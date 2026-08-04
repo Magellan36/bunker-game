@@ -40,6 +40,11 @@ var stamina: float = 100.0
 ## "game continues while paused" decision. Velocity is zeroed on lock so the
 ## player doesn't keep sliding on residual momentum while the menu is open.
 var _movement_locked: bool = false
+
+## The chair the player is currently sitting in, or null if standing.
+## Set/cleared by MainWorld's chair seat/stand wiring (_wire_chair).
+var seated_chair: Node3D = null
+
 func set_movement_locked(locked: bool) -> void:
 	_movement_locked = locked
 	if locked:
@@ -116,3 +121,19 @@ func _handle_movement(delta: float) -> void:
 func _handle_interaction_input() -> void:
 	if Input.is_action_just_pressed("interact"):
 		interacted.emit()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if seated_chair == null or not is_instance_valid(seated_chair):
+		return
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	## Any of the four movement actions stands the player up immediately —
+	## "walking out" of the chair rather than requiring a separate E press
+	## first. No extra movement-injection needed: seated_chair.on_interact()
+	## re-enables _physics_process() via the existing stand_requested wiring
+	## above, and since the key that triggered this is still physically held
+	## down, the very next _physics_process tick's Input.get_vector() read
+	## picks it up naturally — movement starts on its own.
+	if Input.is_action_pressed("move_left") or Input.is_action_pressed("move_right") \
+			or Input.is_action_pressed("move_up") or Input.is_action_pressed("move_down"):
+		seated_chair.on_interact()

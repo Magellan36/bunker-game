@@ -381,6 +381,16 @@ func _update_prompt() -> void:
 	if prompt == null:
 		return
 
+	## Seated players always see [E] Stand, overriding every other prompt.
+	if player.seated_chair != null and is_instance_valid(player.seated_chair):
+		prompt.set_prompts([{
+			"text":      "[E] Stand",
+			"world_pos": player.seated_chair.global_position,
+			"dist":      0.0,
+			"icons":     [],
+		}])
+		return
+
 	# ── Guard: held_item freed externally (build mode deconstruct, etc.) ─────
 	if held_item != null and not is_instance_valid(held_item):
 		held_item       = null
@@ -881,6 +891,13 @@ func _try_take_dish(pot: Node) -> void:
 
 # ─── World Interaction ────────────────────────────────────────────────────────
 func _try_interact() -> void:
+	## Seated players always stand, regardless of what else is nearby —
+	## checked first, before any proximity scan, so a chair can never lose
+	## a closest-distance comparison to some other interactable.
+	if player.seated_chair != null and is_instance_valid(player.seated_chair):
+		player.seated_chair.on_interact()
+		return
+
 	var bodies: Array       = detect_area.get_overlapping_bodies()
 	var closest: Node3D     = null
 	var closest_dist: float = INF

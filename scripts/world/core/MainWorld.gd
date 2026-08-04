@@ -827,12 +827,14 @@ func _wire_chair(chair: Node) -> void:
 		player.rotation.y = t.basis.get_euler().y
 		player.velocity = Vector3.ZERO
 		player.set_physics_process(false)
+		player.seated_chair = the_chair   ## NEW
 	)
 	chair.stand_requested.connect(func() -> void:
 		if the_chair.has_method("set_seated"):
 			the_chair.set_seated(false)
 		player.global_position = the_chair.get_stand_position()
 		player.set_physics_process(true)
+		player.seated_chair = null   ## NEW
 	)
 
 func _connect_inventory() -> void:
