@@ -474,6 +474,22 @@ func get_snatch_chance() -> float:
 		0.0, 1.0)
 	return lerp(SNATCH_CHANCE_AT_THRESHOLD, SNATCH_CHANCE_AT_MIN, t)
 
+## Deterministic eligibility, no random roll — used by EatActivity/
+## DrinkActivity's score() so they don't return 0 and get skipped
+## entirely just because the player happens to be holding the only
+## matching item in the bunker. The actual random roll only happens once
+## the activity is entered, via find_player_snatch_target() below.
+func is_player_snatch_eligible(need_filter: Callable) -> bool:
+	if get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD:
+		return false
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
+		return false
+	var held: Node = player.get_held_item()
+	if held == null or not is_instance_valid(held):
+		return false
+	return need_filter.call(held)
+
 ## Called from EatActivity/DrinkActivity's enter()/_reacquire_or_finish().
 ## Returns the player node if a snatch should be attempted this search,
 ## else null. _debug_force_snatch bypasses the relationship gate AND the

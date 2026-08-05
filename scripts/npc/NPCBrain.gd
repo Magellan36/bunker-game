@@ -297,7 +297,8 @@ class DrinkActivity extends NPCActivity:
 	func score(npc: NPC) -> float:
 		if npc.thirst >= 55.0:
 			return 0.0
-		if _pick_target(npc).is_empty():
+		if _pick_target(npc).is_empty() \
+				and not npc.is_player_snatch_eligible(Callable(NPCItemUser, "is_drinkable_bottle")):
 			return 0.0
 		return (100.0 - npc.thirst) * 1.2   ## thirst outranks equal-level energy
 
@@ -535,7 +536,7 @@ class SnatchActivity extends NPCActivity:
 				_tracked_item = held
 				npc.set_nav_target((_player as Node3D).global_position)
 				npc.nav_steer(delta)
-				if NPCItemUser.flat_distance(npc.global_position, (_player as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+				if NPCItemUser.flat_distance(npc.global_position, (_player as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
 					if NPCItemUser.snatch_from_player(npc, _player):
 						NPCDebug.log_snatch(npc, "success", "grabbed item from player's hands, handing off to consume")
 						_handoff = NPCBrain.GivenEatActivity.new() if _is_edible else NPCBrain.GivenDrinkActivity.new()
@@ -601,7 +602,8 @@ class EatActivity extends NPCActivity:
 	func score(npc: NPC) -> float:
 		if npc.hunger >= 55.0:
 			return 0.0
-		if _find(npc) == null and _find_shelf(npc).is_empty():
+		if _find(npc) == null and _find_shelf(npc).is_empty() \
+				and not npc.is_player_snatch_eligible(Callable(NPCItemUser, "is_edible")):
 			return 0.0
 		return (100.0 - npc.hunger) * 1.15
 

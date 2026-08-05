@@ -1,3 +1,44 @@
+# Handover — Snatch Root-Cause Fixes: Scoring Blind Spot, Wrong Inventory Function, Grab Distance (Aug 2026)
+
+**Owner:** NPC Claude instance, plus one function fix in Player-owned
+`InteractionSystem.gd`.
+
+## What changed
+1. **Scoring blind spot fixed** — `EatActivity.score()`/`DrinkActivity.score()`
+   returned 0 (activity never selected) whenever no normal world target
+   existed, even if the player was holding the only matching item and the
+   relationship was hostile. Added `NPC.is_player_snatch_eligible()` — a
+   deterministic, roll-free check mirroring `find_player_snatch_target()`'s
+   gates minus the probability roll — and both `score()`s now fall through
+   to it, so the activity gets selected and `enter()` runs (where the real
+   roll happens).
+2. **Snatched item no longer drops** — `InteractionSystem.release_held_item_to_npc()`
+   called `inventory.remove_item()`, whose internal `item.drop()` unfroze
+   physics/gravity and emitted `dropped` one line before the transfer
+   `pickup()`. Reordered: physically `pickup()` first, then clear the slot
+   via `inventory.clear_slot()` (the function whose own doc comment says
+   it's meant to run AFTER an NPC's pickup() reassignment — Snatch).
+   Item now visibly transfers to and stays in the NPC's hand.
+3. **Grab distance** — new `NPCItemUser.SNATCH_RANGE = 1.6` (vs the
+   loose-item `PICKUP_RANGE = 1.2`) used by both `SnatchActivity.tick()`'s
+   player-chase branch and `snatch_from_player()`'s range check, so the
+   NPC stops at a visible gap instead of walking into physical contact
+   with the player. The dropped-item ground-chase branch keeps
+   `PICKUP_RANGE` (loose item, no collision body) unchanged.
+
+## Files Modified
+`scripts/npc/NPC.gd` (new `is_player_snatch_eligible()`),
+`scripts/npc/NPCBrain.gd` (two `score()`s, `SnatchActivity` range),
+`scripts/npc/NPCItemUser.gd` (`SNATCH_RANGE` + range check),
+`scripts/player/InteractionSystem.gd` (`release_held_item_to_npc()`).
+
+## Next Up
+- None specific — testing items 32-34 in `docs/systems/npc/README.md`
+  cover the three fixes; the scoring-blind-spot fix is the one most worth
+  re-verifying in-editor (it changes what `_think()` picks).
+
+---
+
 # Handover — Storage UI Unification: ShelfUI + BasketUI → StorageUI (Aug 2026)
 
 **Owner:** UI Claude instance (HUD/menus/Build Mode/Furniture).

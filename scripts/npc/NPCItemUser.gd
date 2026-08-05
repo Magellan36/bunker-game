@@ -8,6 +8,13 @@ class_name NPCItemUser
 const PICKUP_RANGE: float = 1.2      ## must be this close to grab
 const SHELF_RANGE:  float = 1.6
 
+## Snatch specifically needs more clearance than PICKUP_RANGE — that
+## constant is tuned for loose items with near-zero collision footprint;
+## the player has real collision geometry, so using the same tight
+## distance walks the NPC into physical contact before the range check
+## is satisfied.
+const SNATCH_RANGE: float = 1.6
+
 ## XZ-only distance (Part 16). An NPC's own origin is its capsule CENTER
 ## (~1.4 above the floor); loose items and most furniture sit much lower.
 ## Raw 3D distance lets that vertical gap silently eat most or all of an
@@ -219,7 +226,7 @@ static func snatch_from_player(npc: NPC, player: Node) -> bool:
 	var item: Node = player.get_held_item()
 	if item == null or not is_instance_valid(item):
 		return false
-	if flat_distance(npc.global_position, (player as Node3D).global_position) > PICKUP_RANGE:
+	if flat_distance(npc.global_position, (player as Node3D).global_position) > SNATCH_RANGE:
 		return false
 	if not player.has_method("release_held_item_to_npc"):
 		return false

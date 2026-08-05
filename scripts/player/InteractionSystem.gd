@@ -869,16 +869,26 @@ func release_held_item_to_npc(npc: Node) -> bool:
 	if held_item.knocked_out.is_connected(_on_item_knocked_out):
 		held_item.knocked_out.disconnect(_on_item_knocked_out)
 
-	if _held_from_slot != -1 and inventory != null:
-		inventory.remove_item(_held_from_slot, held_item.global_position)
-
 	var item: RigidBody3D = held_item
+	var slot: int = _held_from_slot
 	held_item       = null
 	_held_from_slot = -1
-	_update_hud_selection()
 
+	## Physically transfer FIRST, then clear the slot — matches
+	## clear_slot()'s own doc comment: it's meant to run AFTER an NPC's
+	## pickup() has already reassigned the item, not before.
+	## Deliberately clear_slot(), NOT remove_item() — remove_item() calls
+	## item.drop() internally, which is the actual cause of the item
+	## visibly dropping instead of transferring (it unfreezes physics/
+	## enables gravity/emits `dropped` as an intermediate step, one line
+	## before pickup() below would have overridden it anyway).
 	item.pickup(npc.hold_point)
 	npc.held_item = item
+
+	if slot != -1 and inventory != null:
+		inventory.clear_slot(slot)
+
+	_update_hud_selection()
 	return true
 
 ## Give dispatch. NPC.receive_item_from_player() may free `item`

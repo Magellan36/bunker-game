@@ -474,11 +474,26 @@ off to `SnatchActivity` on the next tick via the new
 right after `tick()` runs — deliberately NOT `force_command()` from
 inside an activity's own `tick()`, which would be reentrantly unsafe
 against the brain's `_current = null` line). `SnatchActivity` walks to
-the player (PICKUP_RANGE), and on a successful
+the player (SNATCH_RANGE), and on a successful
 `NPCItemUser.snatch_from_player()` immediately hands off to
 `GivenEatActivity`/`GivenDrinkActivity` to consume what was grabbed —
 again via `take_handoff()`, so the item is eaten/drunk over the normal
 duration, never instantly.
+
+Both `EatActivity.score()` and `DrinkActivity.score()` also consult
+`NPC.is_player_snatch_eligible()` (a deterministic, roll-free check) so
+they return nonzero — and get selected by `_think()` — even when the only
+matching item in the bunker is currently in the player's hands. Without
+this, score() returned 0 whenever no normal world target existed, the
+activity never got chosen, `enter()` never ran, and the NPC just wandered
+despite hunger/thirst and a hostile relationship. The actual probability
+roll still only happens inside `find_player_snatch_target()` once the
+activity is entered.
+
+Snatch uses a slightly larger `SNATCH_RANGE` (1.6) than the loose-item
+`PICKUP_RANGE` (1.2) — the player has real collision geometry, so the
+tight pickup distance walked the NPC into physical contact before its
+range check ever satisfied.
 
 `SnatchActivity` **continuously re-aims at the player every tick** while
 the item is still in their hands (not just once at `enter()`), so a
@@ -765,3 +780,20 @@ skills, personality words, seed, mood, and irritability + label.
     than giving up.
 31. Keep running from a chasing NPC for over 20 seconds — confirm it
     eventually gives up cleanly (logged) rather than following forever.
+32. Repeat the exact root-cause scenario for the scoring blind spot:
+    player holds the ONLY water bottle in the bunker, an NPC at -100
+    relationship with 0 thirst, standing still — confirm the NPC now
+    actually enters "Getting water"/pursues within a few seconds rather
+    than wandering, and the debug log shows roll attempts, not silence
+    (this is the `is_player_snatch_eligible()` fix in both
+    `EatActivity.score()`/`DrinkActivity.score()`).
+33. Trigger a successful snatch — confirm the item now visibly transfers
+    to and STAYS in the NPC's hand (followed by the normal ~2s
+    "Drinking"/"Eating" hold) instead of falling to the floor (this is
+    `release_held_item_to_npc()` switching to `clear_slot()`, which runs
+    AFTER `pickup()` instead of `remove_item()`'s pre-pickup `drop()`).
+34. Trigger a snatch chase — confirm the NPC stops at a small but clearly
+    visible gap before grabbing rather than making physical contact with
+    the player (this is `SNATCH_RANGE` 1.6 vs the loose-item `PICKUP_RANGE`
+    1.2, used both in `SnatchActivity.tick()` and
+    `NPCItemUser.snatch_from_player()`).
