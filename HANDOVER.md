@@ -1,3 +1,27 @@
+# Handover — Trait Word Fix: "Kind" → "Open" (Aug 2026)
+
+**Owner:** NPC Claude instance.
+
+## What changed
+`NPC.TRAIT_WORDS["sociability"]["high"]` was still `"Kind"` — the
+agreed-upon rename to `"Open"` (better captures fast relationship
+reactivity in both directions without the value judgment) had never
+actually landed. Fixed in `scripts/npc/NPC.gd`, and cleaned up the stale
+`FUTURE WORK` comment a few lines up that still described Sociability as
+unwired — it's now wired via `_sociability_trait_mult()`. No code depends
+on the old string (`get_personality_words()`, the E-panel, and `NPCDebug`
+all read from the dictionary); `docs/systems/npc/README.md`'s trait-word
+band listing updated to match.
+
+## Files Modified
+`scripts/npc/NPC.gd` (one dictionary value + one comment),
+`docs/systems/npc/README.md` (trait-word band listing).
+
+## Next Up
+- None.
+
+---
+
 # Handover — Snatch: Distinguish "Dropped" from "Swapped Away in Inventory" (Aug 2026)
 
 **Owner:** NPC Claude instance.

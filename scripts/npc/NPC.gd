@@ -97,9 +97,9 @@ var generation_seed: int = 0
 ## Only "resilience" and "optimism" drive concrete mechanics this pass (see
 ## _irritability_trait_mult()/_mood_recovery_trait_mult() below). The other
 ## three are generated and shown in the E-panel but mechanically inert:
-## FUTURE WORK — sociability could scale contagion strength (a "how much
-## this NPC affects/is affected by others" multiplier), work_ethic could
-## scale skill-gain rate or job willingness, neuroticism could scale mood's
+## FUTURE WORK — sociability is wired (scales relationship-change rate,
+## including Give/Takeaway/Snatch — see _sociability_trait_mult()).
+## work_ethic could scale skill-gain rate or job willingness, neuroticism could scale mood's
 ## volatility (bigger swings from the same inputs). None of that is built.
 var personality: Dictionary = {}
 const PERSONALITY_TRAIT_KEYS: Array[String] = [
@@ -112,7 +112,7 @@ const TRAIT_BAND_LOW: float = 0.35
 const TRAIT_BAND_HIGH: float = 0.65
 const TRAIT_WORDS: Dictionary = {
 	"resilience":  {"low": "Irritable",   "mid": "Even-Tempered", "high": "Level-Headed"},
-	"sociability": {"low": "Distant",     "mid": "Reserved",      "high": "Kind"},
+	"sociability": {"low": "Distant",     "mid": "Reserved",      "high": "Open"},
 	"work_ethic":  {"low": "Lazy",        "mid": "Steady",        "high": "Hard Worker"},
 	"neuroticism": {"low": "Easygoing",   "mid": "Composed",      "high": "Neurotic"},
 	"optimism":    {"low": "Pessimistic", "mid": "Realistic",     "high": "Optimistic"},

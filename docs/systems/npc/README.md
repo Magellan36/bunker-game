@@ -150,7 +150,7 @@ float 0.0–1.0, fully random at spawn (`randomize_personality()`), **fixed
 for the NPC's life**. Never shown as numbers — always a descriptive word
 banded low/mid/high (`get_trait_word()`, thresholds 0.35/0.65):
 `resilience` (Irritable/Even-Tempered/Level-Headed), `sociability`
-(Distant/Reserved/Kind), `work_ethic` (Lazy/Steady/Hard Worker),
+(Distant/Reserved/Open), `work_ethic` (Lazy/Steady/Hard Worker),
 `neuroticism` (Easygoing/Composed/Neurotic), `optimism`
 (Pessimistic/Realistic/Optimistic). Resilience, Optimism, and (as of the
 Relationships pass) Sociability drive concrete mechanics — the remaining
