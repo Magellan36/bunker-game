@@ -141,11 +141,9 @@ var _build_controller: Node3D   = null
 var _build_hud: CanvasLayer     = null
 var _build_mode_active: bool    = false
 
-# ─── Shelf UI ─────────────────────────────────────────────────────────────────
-var _shelf_ui: Node = null
-
-# ─── Basket UI ────────────────────────────────────────────────────────────────
-var _basket_ui: Node = null
+# ─── Storage UI (Aug 2026 — shared by Shelving and Basket, was two separate
+# ShelfUI/BasketUI instances) ──────────────────────────────────────────────────
+var _storage_ui: Node = null
 
 # ─── Power Grid ───────────────────────────────────────────────────────────────
 var _power_manager: Node = null
@@ -220,10 +218,9 @@ func _ready() -> void:
 	_ensure_inventory_manager()
 	_connect_inventory()
 	_connect_world_objects()
-	## ShelfUI must come after inventory_manager exists and connect_world_objects
+	## StorageUI must come after inventory_manager exists and connect_world_objects
 	## has registered shelf group members, so injection covers pre-placed shelves.
-	_setup_shelf_ui()
-	_setup_basket_ui()
+	_setup_storage_ui()
 	_setup_debug_overlay()
 	_register_save_fields()
 	get_tree().process_frame.connect(_setup_build_mode, CONNECT_ONE_SHOT)
@@ -549,44 +546,38 @@ func _setup_debug_overlay() -> void:
 	overlay.set("world_ref",         self)
 	overlay.set("power_manager_ref", _power_manager)
 
-func _setup_shelf_ui() -> void:
-	var shelf_ui_script: Script = load("res://scripts/ui/inventory/ShelfUI.gd")
-	_shelf_ui = CanvasLayer.new()
-	_shelf_ui.set_script(shelf_ui_script)
-	_shelf_ui.name = "ShelfUI"
-	add_child(_shelf_ui)
+## Aug 2026 — replaces the former separate _setup_shelf_ui()/
+## _setup_basket_ui() (each built its own ShelfUI/BasketUI CanvasLayer).
+## One shared StorageUI instance now serves both. InteractionSystem.gd
+## (Player-thread-owned, not touched by this change) keeps its own two
+## separate properties, shelf_ui and basket_ui — both are simply pointed at
+## this SAME instance below, so every existing call in that file
+## (shelf_ui.is_open, basket_ui.open(...), etc.) keeps working unchanged.
+func _setup_storage_ui() -> void:
+	var storage_ui_script: Script = load("res://scripts/ui/inventory/StorageUI.gd")
+	_storage_ui = CanvasLayer.new()
+	_storage_ui.set_script(storage_ui_script)
+	_storage_ui.name = "StorageUI"
+	add_child(_storage_ui)
 
 	## Inject shared refs
-	_shelf_ui.interaction_system = interaction_system
-	_shelf_ui.inventory          = inventory_manager
+	_storage_ui.interaction_system = interaction_system
+	_storage_ui.inventory          = inventory_manager
 	var inv_hud: Node = hud.get_node_or_null("HUDRoot/InventoryHUD")
-	_shelf_ui.inventory_hud = inv_hud
+	_storage_ui.inventory_hud = inv_hud
 
-	## Give InteractionSystem a ref so it can block input while open
-	interaction_system.shelf_ui = _shelf_ui
+	## Give InteractionSystem a ref so it can block input while open —
+	## both properties point at the same instance, see comment above.
+	interaction_system.shelf_ui  = _storage_ui
+	interaction_system.basket_ui = _storage_ui
 
 	## Inject into any shelves already in the scene (pre-placed before build mode)
 	var shelves: Array = get_tree().get_nodes_in_group("shelving")
 	for shelf in shelves:
-		if "_shelf_ui" in shelf:
-			shelf.set("_shelf_ui", _shelf_ui)
+		if "_storage_ui" in shelf:
+			shelf.set("_storage_ui", _storage_ui)
 		if "_interaction_system" in shelf:
 			shelf.set("_interaction_system", interaction_system)
-
-func _setup_basket_ui() -> void:
-	var basket_ui_script: Script = load("res://scripts/ui/inventory/BasketUI.gd")
-	_basket_ui = CanvasLayer.new()
-	_basket_ui.set_script(basket_ui_script)
-	_basket_ui.name = "BasketUI"
-	add_child(_basket_ui)
-
-	## Inject shared refs
-	_basket_ui.interaction_system = interaction_system
-	_basket_ui.inventory          = inventory_manager
-	var inv_hud: Node = hud.get_node_or_null("HUDRoot/InventoryHUD")
-	_basket_ui.inventory_hud = inv_hud
-
-	interaction_system.basket_ui = _basket_ui
 
 func _ensure_inventory_manager() -> void:
 	# Use scene node if it exists, otherwise create one at runtime

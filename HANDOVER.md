@@ -1,3 +1,50 @@
+# Handover — Storage UI Unification: ShelfUI + BasketUI → StorageUI (Aug 2026)
+
+**Owner:** UI Claude instance (HUD/menus/Build Mode/Furniture).
+
+## What changed
+- New `scripts/ui/inventory/StorageUI.gd` — one generic, config-driven
+  storage overlay replacing `ShelfUI.gd`/`BasketUI.gd` (476/470 lines, 17
+  of 18 duplicated). Any storage object implements a 4-method contract
+  (`get_ui_config`, `get_slot_display`, `take_for_carry`,
+  `take_for_inventory`) and needs zero new UI code.
+- `Shelving.gd`/`Basket.gd` (furniture-items scope) implement that
+  contract as thin wrappers over their existing retrieval logic —
+  `retrieve_to_carry()`/`retrieve_to_inventory()` gained bool return
+  values, nothing else about their behavior changed (NPC-facing
+  `npc_retrieve()` and existing signals untouched).
+- `MainWorld.gd`'s `_setup_shelf_ui()`/`_setup_basket_ui()` collapsed into
+  one `_setup_storage_ui()`. `InteractionSystem.gd` (Player-thread-owned)
+  needed ZERO changes — its `shelf_ui`/`basket_ui` properties both now
+  point at the same shared instance.
+- Deliberately built with room for planned future storage types (lockable
+  storage, freezers/fridges, lockers, larger shelving units) — see
+  `docs/systems/ui/README.md`'s "Storage UI Unification" section for how
+  each fits without touching `StorageUI.gd` again.
+
+## Files Created
+`scripts/ui/inventory/StorageUI.gd`
+
+## Files Deleted
+`scripts/ui/inventory/ShelfUI.gd` + `.uid`,
+`scripts/ui/inventory/BasketUI.gd` + `.uid`
+
+## Files Modified
+`scripts/world/furniture/Shelving.gd`, `scripts/world/items/Basket.gd`,
+`scripts/world/core/MainWorld.gd`,
+`scripts/world/build/BuildModeController.gd`
+
+## Next Up
+- Visual styling (`UIKit` domain-stripe system) not applied to
+  `StorageUI.gd` in this pass — flagged as a deliberate, deferrable
+  choice, not an oversight.
+- First planned future storage type (lockable storage / freezer / locker
+  / larger shelving) will be the real test of the contract — implement it
+  by adding the 4 contract methods to that object's own script, nothing
+  else.
+
+---
+
 # Handover — UI Overhaul Arc: Menu Unification, Rounded Corners, Admin Menu Rework, Bugfixes (Jul-Aug 2026)
 
 **Owner:** UI Claude instance (HUD/menus/Build Mode placement).

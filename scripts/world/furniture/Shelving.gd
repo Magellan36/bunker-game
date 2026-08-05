@@ -40,7 +40,7 @@ var _slot_nodes: Array = []   ## Marker3D for each slot's base world position
 # ─── Interaction ──────────────────────────────────────────────────────────────
 var _player_in_range: bool    = false
 var _interaction_system: Node = null   ## Injected by BuildModeController after spawn
-var _shelf_ui: Node           = null   ## Injected by MainWorld after spawn
+var _storage_ui: Node         = null   ## Injected by MainWorld after spawn (Aug 2026 — the shared StorageUI, was _shelf_ui)
 
 ## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
 ## construct-tab preview code BEFORE add_child(), so this instance builds
@@ -207,10 +207,10 @@ func on_f_interact() -> void:
 
 ## E pressed — open the shelf UI overlay
 func on_e_interact() -> void:
-	if _shelf_ui == null:
-		push_warning("Shelving: _shelf_ui not injected")
+	if _storage_ui == null:
+		push_warning("Shelving: _storage_ui not injected")
 		return
-	_shelf_ui.open(self)
+	_storage_ui.open(self)
 
 ## Legacy shim
 func on_interact() -> void:
@@ -462,16 +462,18 @@ func npc_retrieve(slot_idx: int, npc_hold_point: Node3D) -> RigidBody3D:
 	item_retrieved.emit(slot_idx, item)
 	return item
 
-# ─── Retrieve to carry (from ShelfUI "Carry" button) ─────────────────────────
+# ─── Retrieve to carry (from StorageUI's primary "Carry" button) ─────────────
 ## Pops the top item from the slot's stack and gives it to the player's hand.
-func retrieve_to_carry(slot_idx: int, isys: Node) -> void:
+## Returns true on success — Aug 2026, part of the StorageUI contract
+## (get_slot_display/take_for_carry/take_for_inventory), see §7.4 below.
+func retrieve_to_carry(slot_idx: int, isys: Node) -> bool:
 	if slot_idx < 0 or slot_idx >= slots.size():
-		return
+		return false
 	var stack: Array = slots[slot_idx]
 	if stack.is_empty():
-		return
+		return false
 	if isys.held_item != null:
-		return   ## Hands full — UI should have blocked this already
+		return false   ## Hands full — UI should have blocked this already
 
 	## Pop from top of stack
 	var item: RigidBody3D = stack.pop_back()
@@ -501,14 +503,16 @@ func retrieve_to_carry(slot_idx: int, isys: Node) -> void:
 	isys.held_item       = item
 	isys._held_from_slot = -1
 	item_retrieved.emit(slot_idx, item)
+	return true
 
-# ─── Retrieve to inventory (from ShelfUI "Inv." button) ──────────────────────
-func retrieve_to_inventory(slot_idx: int, inv: Node) -> void:
+# ─── Retrieve to inventory (from StorageUI's secondary "⊕" button) ───────────
+## Returns true on success — Aug 2026, part of the StorageUI contract.
+func retrieve_to_inventory(slot_idx: int, inv: Node) -> bool:
 	if slot_idx < 0 or slot_idx >= slots.size():
-		return
+		return false
 	var stack: Array = slots[slot_idx]
 	if stack.is_empty():
-		return
+		return false
 
 	var item: RigidBody3D = stack.pop_back()
 
@@ -525,6 +529,7 @@ func retrieve_to_inventory(slot_idx: int, inv: Node) -> void:
 
 	inv.add_item(item)
 	item_retrieved.emit(slot_idx, item)
+	return true
 
 # ─── Eject all on deconstruct ─────────────────────────────────────────────────
 func eject_all_items() -> void:
@@ -615,3 +620,34 @@ func _first_empty_slot() -> int:
 	for i: int in slots.size():
 		if slots[i].is_empty(): return i
 	return -1
+
+# ─── StorageUI contract (Aug 2026 — Storage UI Unification pass) ────────────
+## Thin wrappers over this file's own pre-existing slot_top_item()/
+## slot_count()/retrieve_to_carry()/retrieve_to_inventory() — none of that
+## existing logic changed beyond the bool-return additions in §7.3/§7.4
+## above, including NPC-facing npc_retrieve() and the item_placed/
+## item_retrieved signals other systems already depend on.
+func get_slot_display(slot_idx: int) -> Array:
+	return [slot_top_item(slot_idx), slot_count(slot_idx)]
+
+func take_for_carry(slot_idx: int, isys: Node) -> bool:
+	return retrieve_to_carry(slot_idx, isys)
+
+func take_for_inventory(slot_idx: int, inv: Node) -> bool:
+	return retrieve_to_inventory(slot_idx, inv)
+
+func get_ui_config() -> Dictionary:
+	return {
+		"title": "SHELF CONTENTS",
+		"slot_count": 6,
+		"grid_cols": 2,
+		"grid_rows": 3,
+		"display_order": [4, 5, 2, 3, 0, 1],   ## visual position -> data slot (top row shows data slots 4/5, etc.)
+		"row_labels": ["Top shelf", "Middle shelf", "Bottom shelf"],
+		"supports_stacking": true,
+		"primary_button_icon": "↑",
+		"primary_button_tooltip": "Carry",
+		"primary_button_color": Color(0.20, 0.45, 0.30, 1.00),
+		"primary_requires_empty_hands": true,
+		"closes_on_action": true,
+	}

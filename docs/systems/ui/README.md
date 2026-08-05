@@ -38,7 +38,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `power/` | `PowerTerminalUI.gd` (~1180), `PowerPriorityUI.gd` (~500), `GeneratorInspectUI.gd` (~440), `ZoneCustomizeUI.gd` (~225) | Power device panels — see `docs/systems/power/README.md` for what they read/write |
 | `water/` | `WaterDispenserUI.gd` (~520), `WaterInfoUI.gd` (~625) | Water device panels — see `docs/systems/water/README.md` for what they read/write. Both fully on the shared `UIKit` palette as of the Jul 2026 "Power + Water UI Unification" pass — see that section below |
 | `farming/` | `FarmingTrayUI.gd` (~440 — handles both the 1x1 and 2x1 tray sizes; panel height grows/shrinks with 0/1/2 plant slots), `PlantInfoUI.gd` | Farming tray panel (Jul 2026 "Rounded Corners" pass joined it onto `UIKit.Domain.FARMING`, green stripe) |
-| `inventory/` | `InventoryHUD.gd` (~445 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `ShelfUI.gd` (~475), `BasketUI.gd` (~470) | Slot HUD, inventory state, shelf storage panel, basket contents panel |
+| `inventory/` | `InventoryHUD.gd` (~445 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `StorageUI.gd` (~380 — Aug 2026, generic shared storage overlay, replaces the former `ShelfUI.gd`/`BasketUI.gd`, see "Storage UI Unification" below) | Slot HUD, inventory state, shared storage-container panel |
 | `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (~107 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interact prompt |
 | `menus/` | `PauseMenuUI.gd` (~330 — rewritten onto `UIKit` menu builders, Jul 2026), `GraphicsSettingsPanel.gd` (~430 — same rewrite, also fixed a long-standing off-center bug, see below), `SleepOverlay.gd` (~145), `AdminMenu.gd` (~430 — rewritten with collapsible sections + a real `ScrollContainer`, Jul 2026, see below) | ESC pause menu, graphics settings, sleep fade, admin cheats |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI. Farming shop's `FARMING_SHOP_ITEMS["Seeds"]` had a duplicate-`tile_id` bug fixed Aug 2026 — see "Farming Shop Seed tile_id Bugfix" below |
@@ -60,8 +60,9 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
   `remove_item(slot, drop_position)`.
 - `InventoryHUD`: `show_error_message(text)`, `set_selected(slot)`,
   `refresh_previews()`.
-- `ShelfUI`: `open(shelf: Node3D)`, `close()`.
-- `BasketUI`: `open(basket: Node3D)`, `close()`, `is_open() -> bool`.
+- `StorageUI`: `open(target: Node3D)`, `close()`, `is_open: bool` — shared
+  storage overlay (Aug 2026, replaces `ShelfUI`/`BasketUI`), see "Storage
+  UI Unification" below.
 - `HUD`: `set_health/stamina/food/water/sleep(value)`, `set_cash(amount)`,
   `set_clock(display)`, `set_day(day)`, `set_build_mode(enabled)`,
   `spawn_float_label(...)`, `show_cash_delta(...)`, `show_soft_warning(text)`.
@@ -139,7 +140,7 @@ own panel on first interact). None of these are autoloads.
    `visible = true` in its `open()`/`toggle()`. Applied to ALL current
    interaction panels (`PowerTerminalUI`, `PowerPriorityUI`,
    `GeneratorInspectUI`, `BreakerBox`/`UpgradedBreakerBox` via inheritance,
-   `BatteryBank`, `ShelfUI`, `PauseMenuUI`,
+   `BatteryBank`, `StorageUI` (former `ShelfUI`/`BasketUI`), `PauseMenuUI`,
    `GraphicsSettingsPanel`, `BuildModeHUD`). **Every new panel must call
    this too.** Deliberately NOT applied to `HUD.gd` (already has its own
    fade-in system — don't add a second one) or `SleepOverlay.gd` (own
@@ -519,17 +520,45 @@ now live in `scripts/ui/hud/`:
   removing the second copy — if you ever see this exact error again on a
   future AdminMenu edit, check for a duplicated block first.
 
-## BasketUI Panel (Jul 2026)
-`scripts/ui/inventory/BasketUI.gd` — 12-slot container contents panel opened via
-G-key while holding a Basket. Features:
-- 3×4 grid of 3D preview viewports (SubViewport, orthographic camera, 45° angle)
-- Per-slot Drop (↓) and Add-to-inventory (⊕) buttons — inventory button only
-  shows for pocket-sized items (`inventory_item` group: Water Bottle, Food Can)
-- Empty slots show `—` placeholder; occupied slots show 3D mesh preview
-- Backdrop click-to-close, ESC/G/Interact to close
-- Reuses `UIFade.fade_in()` convention; blocks game input while open
-- `_refresh_slot()` reads basket slots directly (single items, not arrays like
-  Shelving) — fixed type error where slot value was assigned to `Array` var
+## Storage UI Unification (Aug 2026)
+Replaces the former separate `ShelfUI.gd`/`BasketUI.gd` (476/470 lines, 17
+of 18 functions duplicated between them) with one generic, config-driven
+`StorageUI.gd`. Any storage object — `Shelving.gd`, `Basket.gd`, and any
+future type — implements a 4-method contract:
+
+- `get_ui_config() -> Dictionary` — grid shape, slot count, row labels,
+  stacking, primary-button icon/label/color, close-vs-refresh-on-action.
+  Every key optional, `StorageUI.gd`'s `_DEFAULT_CONFIG` fills in the rest.
+- `get_slot_display(slot_idx) -> Array` — `[item_or_null, count]`.
+- `take_for_carry(slot_idx, isys) -> bool` — the primary button. Concrete
+  meaning is type-specific: `Shelving` hands the item to the player's hold
+  point ("Carry"), `Basket` drops it on the ground ("Drop") — the method
+  name is historical, not literal; treat it as "this type's primary
+  retrieval action."
+- `take_for_inventory(slot_idx, inv) -> bool` — secondary "⊕" button,
+  always means "into the player's inventory pocket," same for every type.
+
+`StorageUI.gd` keeps ONE dynamic slot-visual pool that only grows (never
+rebuilds) — opening a 12-slot basket after a 6-slot shelf grows the pool
+to 12; reopening the shelf afterward just hides the extra 6, nothing gets
+destroyed. This is what makes adding a future storage type (lockable
+storage, freezers/fridges, lockers, larger shelving units, all mentioned
+as planned) free on the UI side — no fixed slot count anywhere in the
+file, no new UI code needed, just a world-object script implementing the
+4-method contract above.
+
+`MainWorld.gd`'s former `_setup_shelf_ui()`/`_setup_basket_ui()` collapsed
+into one `_setup_storage_ui()`, which points BOTH of
+`InteractionSystem.gd`'s existing `shelf_ui`/`basket_ui` properties at the
+same `StorageUI` instance — `InteractionSystem.gd` itself (Player-thread-
+owned) needed zero changes, every existing call there
+(`shelf_ui.is_open`, `basket_ui.open(...)`, etc.) keeps working since both
+names now just reference the same object.
+
+Visual style deliberately NOT changed in this pass — `StorageUI.gd` kept
+the existing look (14px corner radius, its own dark palette) rather than
+moving onto the `UIKit` domain-stripe system Power/Water/Farming/Pause
+use. That's a separate, not-yet-requested decision.
 
 ## BuildModeHUD Preview Fixes (Jul 2026)
 - **Preview Scale Normalization**: `PREVIEW_TARGET_SIZE = 0.5667` (1.5× zoom out

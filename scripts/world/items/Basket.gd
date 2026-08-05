@@ -177,3 +177,46 @@ func _build_placeholder_mesh() -> void:
 	shape.shape = cyl_shape
 	shape.position = _mesh.position
 	add_child(shape)
+
+# ─── StorageUI contract (Aug 2026 — Storage UI Unification pass) ────────────
+## Baskets never stack (1 item per slot, count is always 0 or 1) and have
+## no "carry" concept — the primary button drops the item on the ground
+## near the basket (see get_ui_config()'s primary_button_tooltip below;
+## the contract method is still named take_for_carry(), see StorageUI.gd's
+## own header comment for why that name is kept generic across storage
+## types with different primary actions).
+func get_slot_display(slot_idx: int) -> Array:
+	if slot_idx < 0 or slot_idx >= CAPACITY:
+		return [null, 0]
+	var item: RigidBody3D = slots[slot_idx]
+	return [item, 1 if item != null else 0]
+
+func take_for_carry(slot_idx: int, _isys: Node) -> bool:
+	var item: RigidBody3D = remove_item(slot_idx)
+	return item != null
+
+func take_for_inventory(slot_idx: int, inv: Node) -> bool:
+	var item: RigidBody3D = remove_item(slot_idx)
+	if item == null:
+		return false
+	## Match Shelving.retrieve_to_inventory's post-remove physics reset —
+	## remove_item() above already re-enables physics/visibility/layers,
+	## so this is just the inventory hand-off.
+	inv.add_item(item)
+	return true
+
+func get_ui_config() -> Dictionary:
+	return {
+		"title": "BASKET CONTENTS",
+		"slot_count": CAPACITY,
+		"grid_cols": 3,
+		"grid_rows": 4,
+		"display_order": [],    ## [] = identity (visual position i -> data slot i)
+		"row_labels": [],       ## [] = auto "Row N" labels
+		"supports_stacking": false,
+		"primary_button_icon": "↓",
+		"primary_button_tooltip": "Drop",
+		"primary_button_color": Color(0.55, 0.20, 0.20, 1.00),
+		"primary_requires_empty_hands": false,
+		"closes_on_action": false,
+	}

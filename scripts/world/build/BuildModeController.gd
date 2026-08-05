@@ -1215,9 +1215,9 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 
 		var wn: Node = get_tree().get_first_node_in_group("world")
 		if wn != null:
-			var sui: Node = wn.get_node_or_null("ShelfUI")
+			var sui: Node = wn.get_node_or_null("StorageUI")
 			if sui != null:
-				shelf_node.set("_shelf_ui", sui)
+				shelf_node.set("_storage_ui", sui)
 
 		return shelf_node
 
