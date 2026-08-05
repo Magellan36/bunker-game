@@ -152,13 +152,24 @@ banded low/mid/high (`get_trait_word()`, thresholds 0.35/0.65):
 `resilience` (Irritable/Even-Tempered/Level-Headed), `sociability`
 (Distant/Reserved/Open), `work_ethic` (Lazy/Steady/Hard Worker),
 `neuroticism` (Easygoing/Composed/Neurotic), `optimism`
-(Pessimistic/Realistic/Optimistic). Resilience, Optimism, and (as of the
-Relationships pass) Sociability drive concrete mechanics — the remaining
-two are generated/displayed but mechanically inert (`FUTURE WORK`:
-`work_ethic` → skill-gain rate or job willingness; `neuroticism` →
-mood volatility). Sociability scales how fast a relationship value moves
-in either direction (`_sociability_trait_mult()`, 0.5x–1.5x) — see
-Relationships below.
+(Pessimistic/Realistic/Optimistic). All five now drive concrete
+mechanics — Resilience, Optimism, Sociability (see below), and as of
+the Aug 2026 trait-wiring pass Work Ethic and Neuroticism:
+- **Work Ethic** (Lazy/Steady/Hard Worker) — a ±30% score multiplier
+  applied symmetrically via `get_work_ethic_job_mult()`/
+  `get_work_ethic_passive_mult()`: `JobActivity.score()` ×1.3 at Hard
+  Worker (×0.7 at Lazy), while every passive/need activity (Wander, Sit,
+  Lie, Eat, Drink) gets the mirror image (×0.7 Hard Worker / ×1.3 Lazy).
+  Steady = ×1.0 both ways. Same continuous-bias pattern as Irritability's
+  job discouragement — not a discrete roll.
+- **Neuroticism** (Easygoing/Composed/Neurotic) — scales mood's random
+  per-tick drift (`MOOD_DRIFT_MAX_PER_GAME_HOUR`) via
+  `_neuroticism_trait_mult()`: ×0.5 Easygoing → ×1.5 Neurotic (Composed
+  ×1.0, unchanged). Bigger, more erratic swings for the Neurotic, calmer
+  for the Easygoing, no change to the average.
+- **Sociability** (Distant/Reserved/Open) scales how fast a relationship
+  value moves in either direction (`_sociability_trait_mult()`, 0.5x–1.5x) —
+  see Relationships below.
 
 **Mood** (real E-panel bar) moves *slowly* by design — a brief dip
 shouldn't register, sustained bad conditions over real time should.
@@ -806,3 +817,12 @@ skills, personality words, seed, mood, and irritability + label.
 36. Start a pursuit, then actually DROP the item (not swap) — confirm the
     NPC still correctly diverts to the dropped item on the ground and
     picks it up (genuine drops pass the same check).
+37. Spawn two NPCs, force one to Lazy and one to Hard Worker (F7 or
+    respawn until you get the words you want in the E-panel). With an
+    open job and normal needs on both, confirm the Hard Worker picks the
+    job noticeably more often/faster, and the Lazy one prefers wandering/
+    sitting/eating over it.
+38. Watch mood drift over several in-game hours on a Neurotic vs an
+    Easygoing NPC with stable needs — confirm the Neurotic one's mood
+    visibly swings more per tick (F7 debug mood log) than the Easygoing
+    one, without either trending toward a different average.

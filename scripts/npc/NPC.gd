@@ -270,7 +270,7 @@ func _tick_mood(h: float) -> void:
 	_mood_contagion_delta = mood - before
 
 	before = mood
-	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR) * h, 0.0, 100.0)
+	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR) * _neuroticism_trait_mult() * h, 0.0, 100.0)
 	_mood_drift_delta = mood - before
 
 	if NPCDebug.enabled:
@@ -337,6 +337,26 @@ func get_relationship_label(target_id: String) -> String:
 ## _mood_recovery_trait_mult()/_irritability_trait_mult()'s lerp pattern.
 func _sociability_trait_mult() -> float:
 	return lerp(0.5, 1.5, float(personality.get("sociability", 0.5)))
+
+
+## Work Ethic (Aug 2026) — ±30% score multiplier on JobActivity, applied
+## directly. Passive/need activities (Wander, Sit, Lie, Eat, Drink) use
+## get_work_ethic_passive_mult() below, its mirror image — so a Lazy NPC
+## doesn't just work less, it visibly prefers wandering/relaxing/eating
+## over an available job by the same margin, and Hard Worker is the
+## opposite.
+func get_work_ethic_job_mult() -> float:
+	return lerp(0.7, 1.3, float(personality.get("work_ethic", 0.5)))
+
+func get_work_ethic_passive_mult() -> float:
+	return lerp(1.3, 0.7, float(personality.get("work_ethic", 0.5)))
+
+## Neuroticism (Aug 2026) — scales mood's random per-tick drift
+## (MOOD_DRIFT_MAX_PER_GAME_HOUR in _tick_mood()) — NOT the needs-driven
+## or contagion components, just the noise. Same 0.5x-1.5x spread as
+## Sociability, for consistency.
+func _neuroticism_trait_mult() -> float:
+	return lerp(0.5, 1.5, float(personality.get("neuroticism", 0.5)))
 
 ## Single mutation point for every relationship change, present and future
 ## — every new driver in Future Work calls this, never writes `relationships`

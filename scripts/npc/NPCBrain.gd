@@ -152,8 +152,8 @@ class WanderActivity extends NPCActivity:
 	var _idle_left: float = 0.0
 	var _walking: bool = false
 
-	func score(_npc: NPC) -> float:
-		return 5.0   ## constant baseline — always available, loses to any need
+	func score(npc: NPC) -> float:
+		return 5.0 * npc.get_work_ethic_passive_mult()   ## constant baseline — always available, loses to any need
 
 	func label() -> String:
 		return "Wandering"
@@ -200,7 +200,7 @@ class SitActivity extends NPCActivity:
 			return 0.0
 		if _find_free_chair(npc) == null:
 			return 0.0
-		return (100.0 - npc.energy)   ## 40..100 as energy falls 60→0
+		return (100.0 - npc.energy) * npc.get_work_ethic_passive_mult()   ## 40..100 as energy falls 60→0
 
 	func interruptible() -> bool:
 		return not _seated   ## once seated, finish resting (Part 4 jobs can
@@ -300,7 +300,7 @@ class DrinkActivity extends NPCActivity:
 		if _pick_target(npc).is_empty() \
 				and not npc.is_player_snatch_eligible(Callable(NPCItemUser, "is_drinkable_bottle")):
 			return 0.0
-		return (100.0 - npc.thirst) * 1.2   ## thirst outranks equal-level energy
+		return (100.0 - npc.thirst) * 1.2 * npc.get_work_ethic_passive_mult()   ## thirst outranks equal-level energy
 
 	func _pick_target(npc: NPC) -> Dictionary:
 		var best_d: float = INF
@@ -614,7 +614,7 @@ class EatActivity extends NPCActivity:
 		if _find(npc) == null and _find_shelf(npc).is_empty() \
 				and not npc.is_player_snatch_eligible(Callable(NPCItemUser, "is_edible")):
 			return 0.0
-		return (100.0 - npc.hunger) * 1.15
+		return (100.0 - npc.hunger) * 1.15 * npc.get_work_ethic_passive_mult()
 
 	func _find(npc: NPC) -> RigidBody3D:
 		return NPCItemUser.find_loose_item(npc, Callable(NPCItemUser, "is_edible"))
@@ -798,7 +798,7 @@ class JobActivity extends NPCActivity:
 		## Not separately logged — it's a continuous scoring effect evaluated
 		## every think-cycle for every open job, not a discrete event.
 		var willingness: float = 1.0 - (npc.irritability / 100.0) * 0.5
-		return base_score * willingness
+		return base_score * willingness * npc.get_work_ethic_job_mult()
 
 	func interruptible() -> bool:
 		return _phase != "work"
@@ -987,8 +987,7 @@ class LieActivity extends NPCActivity:
 			return 0.0
 		if _find_free_bed(npc) == null:
 			return 0.0
-		return (100.0 - npc.energy)
-
+		return (100.0 - npc.energy) * npc.get_work_ethic_passive_mult()
 	func interruptible() -> bool:
 		return not _lying
 

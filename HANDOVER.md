@@ -1,3 +1,37 @@
+# Handover — Wire Up Work Ethic + Neuroticism (Aug 2026)
+
+**Owner:** NPC Claude instance.
+
+## What changed
+Work Ethic and Neuroticism moved from "generated/displayed only" to
+fully wired mechanics (the last two of the five traits — all five now
+drive behavior).
+
+- **Work Ethic** — ±30% score multiplier applied symmetrically:
+  `JobActivity.score()` × `get_work_ethic_job_mult()`
+  (`lerp(0.7, 1.3, work_ethic)`), and every passive/need activity —
+  Wander, Sit, Lie, Eat, Drink — × `get_work_ethic_passive_mult()`
+  (`lerp(1.3, 0.7, work_ethic)`, the mirror image). Hard Worker: jobs
+  ×1.3 / passive ×0.7. Lazy: jobs ×0.7 / passive ×1.3. Steady: ×1.0 both.
+  Same continuous score-bias pattern Irritability already uses — not a
+  discrete roll.
+- **Neuroticism** — scales mood's random per-tick drift
+  (`MOOD_DRIFT_MAX_PER_GAME_HOUR`) via `_neuroticism_trait_mult()`
+  (`lerp(0.5, 1.5, neuroticism)`, same 0.5x-1.5x spread as Sociability).
+  Neurotic: ×1.5 (wilder swings). Composed: ×1.0. Easygoing: ×0.5
+  (calmer). Only the noise component — needs and contagion unaffected.
+
+## Files Modified
+`scripts/npc/NPC.gd` (two new multiplier functions +
+`get_work_ethic_job_mult()`/`get_work_ethic_passive_mult()`, one drift-tick
+line), `scripts/npc/NPCBrain.gd` (six activity `score()`s).
+
+## Next Up
+- None specific — testing items 37-38 in `docs/systems/npc/README.md`
+  cover both traits.
+
+---
+
 # Handover — Trait Word Fix: "Kind" → "Open" (Aug 2026)
 
 **Owner:** NPC Claude instance.
