@@ -1,3 +1,55 @@
+# Handover — Trait Absence Is Baseline + Relaxing Activity (Aug 2026)
+
+## What changed this session
+Two independent changes in the NPC subsystem.
+
+### Part A — Traits only exist when they matter
+- `NPC.randomize_personality()` no longer fills all 5 trait slots with a
+  flat 0.0–1.0 roll. Each slot is now present with 55% chance
+  (`TRAIT_PRESENCE_CHANCE`), and a *present* trait is skewed into the low
+  or high band (never the neutral middle). Absent = baseline: every
+  `_*_trait_mult()` uses `.get(key, 0.5)`, which already meant baseline —
+  no multiplier changes were needed.
+- `get_trait_word()` returns "" for an absent key; `get_personality_words()`
+  filters empties, so an NPC shows anywhere from 0–5 personality words.
+- `NPCTalkMenuUI` falls back to "Nothing stands out" for the 0-trait case.
+
+### Part B — Relaxing
+- New `RelaxActivity` (NPCBrain) — a scheduled break distinct from
+  Wander/Idle. Composes `SitActivity`/`LieActivity` for the actual
+  seating mechanics (same pattern as `CommandRestActivity`), or stands in
+  place if neither a chair nor a bed is free. Flat baseline score (6.0,
+  above Wander's 5.0) × Work Ethic passive mult, gated by a daily time
+  budget.
+- Daily budget: 1 game-hour/day baseline, 2 for Lazy
+  (`NPC.get_relax_daily_budget()`), tracked via `spend_relax_time()` and
+  reset by `_tick_relax_day()` on the same 5s tick as mood. Sessions run
+  ~20–40 game-minutes.
+- Job-refusal while relaxing: first "Harvest the plants" command during a
+  relax session is refused with a flavor line
+  (`get_relaxing_refusal_line()`); the second ask complies at -3
+  relationship (`request_job_while_relaxing()`). Counter resets each
+  relax session via `reset_relax_job_requests()`.
+
+### Files modified
+- `scripts/npc/NPC.gd` — presence-based personality generation; trait-word
+  display; Relaxing section (budget, refusal state, dialogue).
+- `scripts/npc/NPCBrain.gd` — `RelaxActivity` registered in `setup()`'s
+  candidate list; `is_relaxing()`; the new class.
+- `scripts/ui/npc/NPCTalkMenuUI.gd` — personality empty-list fallback;
+  harvest-command relaxation interception.
+- `docs/systems/npc/README.md` — Personality section updated (presence-
+  based); new Relaxing subsection; testing items 39–41 (renumbered from
+  the plan's 27–29 to avoid colliding with the existing checklist).
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+See `NPC_TRAIT_BASELINE_AND_RELAXING_PLAN.md` items 27–29 (39–41 in the
+README). No Godot CLI available — recommend opening the project to
+compile-check.
+
+---
+
 # Handover — Shelf E-Hijack Fix (Aug 2026)
 
 ## What changed this session

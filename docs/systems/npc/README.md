@@ -146,9 +146,17 @@ not one line per cause. Irritability shows as its own word
 
 ### Personality, Mood & Irritability
 **5 traits** (`NPC.personality`, keys in `PERSONALITY_TRAIT_KEYS`), each a
-float 0.0–1.0, fully random at spawn (`randomize_personality()`), **fixed
-for the NPC's life**. Never shown as numbers — always a descriptive word
-banded low/mid/high (`get_trait_word()`, thresholds 0.35/0.65):
+float 0.0–1.0, generated at spawn (`randomize_personality()`) and **fixed
+for the NPC's life**. Traits are now **presence-based** (Aug 2026): each
+slot is present with 55% chance (`TRAIT_PRESENCE_CHANCE`), and any
+*present* trait is skewed into the low or high band — never the neutral
+middle. **Absent = baseline**: every `_*_trait_mult()` uses
+`.get(key, 0.5)`, so an absent trait behaves identically to a mid-band
+value mechanically. An NPC therefore shows anywhere from **0 to 5
+personality words**, most landing in between; the rare 0-trait NPC shows
+"Nothing stands out". Never shown as numbers — always a descriptive word
+banded low/mid/high (`get_trait_word()`, thresholds 0.35/0.65; absent
+key → no word):
 `resilience` (Irritable/Even-Tempered/Level-Headed), `sociability`
 (Distant/Reserved/Open), `work_ethic` (Lazy/Steady/Hard Worker),
 `neuroticism` (Easygoing/Composed/Neurotic), `optimism`
@@ -596,6 +604,25 @@ Two options, competing naturally via the brain's normal scoring:
 lie-down transition instant (a one-time hard stop, distinct from the
 per-frame `halt_movement()` every other stationary phase uses).
 
+### Relaxing (Aug 2026)
+A scheduled break, distinct from Wander/Idle: `RelaxActivity` delegates
+entirely to `SitActivity`/`LieActivity` for the actual arrival/seating
+mechanics (same composition `CommandRestActivity` already uses), or just
+stands in place if neither a chair nor a bed is free. Self-limiting via a
+**daily time budget** rather than precise scheduling — it scores a flat
+baseline (6.0, just above Wander's 5.0, × Work Ethic passive mult)
+whenever budget remains, burns budget down in ~20–40 min sessions
+(`SESSION_MIN`/`SESSION_MAX` game-hours), and naturally yields a handful
+of sessions per day. Budget = **1 game-hour/day baseline, 2 for Lazy**
+(`RELAX_BUDGET_BASELINE`/`RELAX_BUDGET_LAZY`, via
+`NPC.get_relax_time_remaining_today()`), reset once per in-game day by
+`_tick_relax_day()` on the same 5s tick as mood. Fully interruptible —
+a genuine need (hunger/thirst/energy/forgetfulness) still preempts it
+normally. Asking an NPC to do a job while relaxing ("Harvest the plants")
+is refused the first time that relax session (`get_relaxing_refusal_line()`
+shown in the E-panel dialogue); the second ask in the same session
+complies at a **-3 relationship cost** (`request_job_while_relaxing()`).
+
 ### Player Commands
 Via the E-panel: press Talk, four buttons appear — "Go eat something",
 "Go drink something", "Take a load off", "Harvest the plants". Each force-
@@ -826,3 +853,15 @@ skills, personality words, seed, mood, and irritability + label.
     Easygoing NPC with stable needs — confirm the Neurotic one's mood
     visibly swings more per tick (F7 debug mood log) than the Easygoing
     one, without either trending toward a different average.
+39. Spawn several NPCs — confirm the E-panel shows anywhere from 0 to 5
+    personality words per NPC (not always exactly 5), and "Nothing
+    stands out" for the rare 0-trait case.
+40. Watch an NPC over a full in-game day (F7 fast-forward) — confirm it
+    enters "Relaxing" roughly once or twice, ~20-40 min each, sitting/
+    lying if a chair/bed is free. Confirm a Lazy NPC's relax budget is
+    roughly double a non-Lazy NPC's over the same period.
+41. While an NPC is Relaxing, press "Harvest the plants" — confirm the
+    first press gets a refusal line and does NOT start the job. Press
+    again in the same relax session — confirm the job now starts AND
+    relationship drops by 3. Confirm a fresh relax session later resets
+    back to a first-press refusal.

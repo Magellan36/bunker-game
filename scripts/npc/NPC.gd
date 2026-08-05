@@ -133,12 +133,25 @@ static func _register_id(id: String) -> void:
 		if n >= _next_npc_id:
 			_next_npc_id = n + 1
 
+## Chance any given trait slot is actually present (a notable quirk) at
+## all, rather than baseline/absent. Not guaranteed per-NPC — an NPC
+## could rarely end up with 0 traits or all 5, most land in between.
+const TRAIT_PRESENCE_CHANCE: float = 0.55
+
 func randomize_personality() -> void:
+	personality = {}
 	for k: String in PERSONALITY_TRAIT_KEYS:
-		personality[k] = randf()
+		if randf() >= TRAIT_PRESENCE_CHANCE:
+			continue   ## absent entirely — every _*_trait_mult()'s .get(key, 0.5) default already means baseline
+		## A PRESENT trait is by definition not neutral — skew into the
+		## low or high band, never the dead middle.
+		personality[k] = randf_range(0.0, TRAIT_BAND_LOW) if randf() < 0.5 \
+			else randf_range(TRAIT_BAND_HIGH, 1.0)
 
 func get_trait_word(key: String) -> String:
-	var v: float = float(personality.get(key, 0.5))
+	if not personality.has(key):
+		return ""   ## baseline — no notable trait, nothing to show
+	var v: float = float(personality[key])
 	var bands: Dictionary = TRAIT_WORDS.get(key, {})
 	if bands.is_empty():
 		return ""
@@ -146,13 +159,16 @@ func get_trait_word(key: String) -> String:
 		return bands["low"]
 	elif v > TRAIT_BAND_HIGH:
 		return bands["high"]
-	return bands["mid"]
+	return bands["mid"]   ## shouldn't be reachable given generation above; kept as a safe fallback
 
-## E-panel display order — 5 descriptive words, never raw numbers.
+## E-panel display order — up to 5 descriptive words (only the traits that
+## are actually present), never raw numbers.
 func get_personality_words() -> Array[String]:
 	var out: Array[String] = []
 	for k: String in PERSONALITY_TRAIT_KEYS:
-		out.append(get_trait_word(k))
+		var w: String = get_trait_word(k)
+		if w != "":
+			out.append(w)
 	return out
 
 func has_irritable_trait() -> bool:
@@ -234,6 +250,7 @@ func _tick_mood_and_irritability(delta: float) -> void:
 	_tick_mood(h)
 	_tick_irritability(h)
 	_tick_relationships(h)
+	_tick_relax_day(h)
 
 func _tick_mood(h: float) -> void:
 	var needs_avg: float = (energy + hunger + thirst) / 3.0
@@ -383,6 +400,14 @@ func _tick_relationships(h: float) -> void:
 		gift_saturation = maxf(0.0, gift_saturation - GIFT_SATURATION_DECAY_PER_GAME_HOUR * h)
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_tick(self)
+
+## Resets the daily relax budget once a full in-game day (24 game-hours)
+## has elapsed. Same 5s tick cadence as everything else in this function.
+func _tick_relax_day(h: float) -> void:
+	_relax_day_clock += h
+	if _relax_day_clock >= 24.0:
+		_relax_day_clock = fmod(_relax_day_clock, 24.0)
+		_relax_time_used_today = 0.0
 
 ## FUTURE WORK — see docs/systems/npc/README.md's Relationships section for
 ## the full list (item giving/taking, crisis-response helping behavior,
@@ -1286,6 +1311,53 @@ func get_relationship_dialogue_line(target_id: String) -> String:
 		"Friendly": pool = RELATIONSHIP_DIALOGUE_FRIENDLY
 		"Close":    pool = RELATIONSHIP_DIALOGUE_CLOSE
 	return pool[randi() % pool.size()]
+
+# ─── Relaxing (Aug 2026) ─────────────────────────────────────────────────
+const RELAX_BUDGET_BASELINE: float = 1.0   ## game-hours/day
+const RELAX_BUDGET_LAZY: float = 2.0
+
+var _relax_time_used_today: float = 0.0
+var _relax_day_clock: float = 0.0   ## game-hours since the last daily reset; wraps at 24
+var _relax_job_request_count: int = 0
+
+func has_lazy_trait() -> bool:
+	return float(personality.get("work_ethic", 0.5)) < TRAIT_BAND_LOW
+
+func get_relax_daily_budget() -> float:
+	return RELAX_BUDGET_LAZY if has_lazy_trait() else RELAX_BUDGET_BASELINE
+
+func get_relax_time_remaining_today() -> float:
+	return maxf(0.0, get_relax_daily_budget() - _relax_time_used_today)
+
+func spend_relax_time(h: float) -> void:
+	_relax_time_used_today += h
+
+func is_relaxing() -> bool:
+	return brain != null and brain.is_relaxing()
+
+func reset_relax_job_requests() -> void:
+	_relax_job_request_count = 0
+
+## Called by NPCTalkMenuUI before forcing a job-type command on an NPC
+## that's currently relaxing. First call this relax session refuses
+## (returns false — caller shows the refusal line, job does NOT happen).
+## Second+ call complies, but costs the player -3 relationship.
+func request_job_while_relaxing() -> bool:
+	_relax_job_request_count += 1
+	if _relax_job_request_count <= 1:
+		return false
+	_adjust_relationship("player", -3.0)
+	if NPCDebug.enabled:
+		NPCDebug.log_relationship_event(self, "player", -3.0, "pulled from relaxing to do a job")
+	return true
+
+const RELAXING_REFUSAL_LINES: Array[String] = [
+	"\"I'm relaxing right now.\"",
+	"\"Can it wait? I'm on a break.\"",
+	"\"Give me a minute, I'm resting.\"",
+]
+func get_relaxing_refusal_line() -> String:
+	return RELAXING_REFUSAL_LINES[randi() % RELAXING_REFUSAL_LINES.size()]
 
 ## List of every OTHER currently-live NPC, for building one Ask-About button
 ## per NPC in NPCTalkMenuUI. The player is handled separately in the UI

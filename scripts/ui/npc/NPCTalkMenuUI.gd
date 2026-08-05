@@ -180,7 +180,8 @@ func _build(npc_name: String) -> void:
 	personality_label.add_theme_color_override("font_color", theme.text)
 	personality_label.add_theme_font_override("font", UIKit.font())
 	if _npc != null and _npc.has_method("get_personality_words"):
-		personality_label.text = ", ".join(_npc.get_personality_words())
+		var words: Array[String] = _npc.get_personality_words()
+		personality_label.text = ", ".join(words) if not words.is_empty() else "Nothing stands out"
 	_vbox.add_child(personality_label)
 
 	_vbox.add_child(HSeparator.new())
@@ -354,6 +355,12 @@ func _on_command_rest_pressed() -> void:
 	_issue_command(NPCBrain.CommandRestActivity.new(), "heading to rest", "nowhere to rest nearby")
 
 func _on_command_harvest_pressed() -> void:
+	if _npc != null and is_instance_valid(_npc) and _npc.has_method("is_relaxing") and _npc.is_relaxing():
+		if _npc.has_method("request_job_while_relaxing") and not _npc.request_job_while_relaxing():
+			if _dialogue_label != null and _npc.has_method("get_relaxing_refusal_line"):
+				_dialogue_label.text = _npc.get_relaxing_refusal_line()
+				_dialogue_label.visible = true
+			return
 	_issue_command(NPCBrain.CommandHarvestActivity.new(), "heading to harvest", "nothing ready to harvest")
 
 # ─── Ask About (Part 23) ─────────────────────────────────────────────────
