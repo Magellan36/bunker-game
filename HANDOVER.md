@@ -1,3 +1,38 @@
+# Handover — Fix: Relaxing In a Chair/Bed Loops When Energy Is Already Full (Aug 2026)
+
+## What changed this session
+Root cause: `LieActivity.done()` returns `_lying and energy >= 100`
+(`SitActivity` the same at 90). `RelaxActivity` delegates to these via
+`enter()` — correct, since score() being blocked at high energy should
+not stop a scheduled relax — but `done()` doesn't care HOW it was
+entered: at already-full energy, `done()` is true the instant seated,
+stand back up, loop.
+
+Fix: two new delegation-only activities in `NPCBrain.gd`:
+- `RelaxSitActivity extends SitActivity`, `RelaxLieActivity extends
+  LieActivity`. Same arrival/seating mechanics, but `done()` no longer
+  checks energy at all (chair/bed-null only) — RelaxActivity's session
+  timer is the only thing that ends them. Energy regen runs at **1/4**
+  normal rate (a break, not full rest/sleep). `score()` returns 0.0 so
+  they can never be auto-selected.
+- `RelaxActivity.enter()` now composes the Relax-prefixed classes, so the
+  `done()`-right-after-`enter()` fallback chain now means "no chair/bed
+  found", never "energy already full".
+
+Normal Sit/Lie behavior untouched.
+
+### Files modified
+- `scripts/npc/NPCBrain.gd` — two new classes + `RelaxActivity.enter()`
+  swap.
+- `docs/systems/npc/README.md` — testing items 42–44 appended.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+See `NPC_RELAX_ENERGY_LOOP_FIX.md` (3 steps). No Godot CLI available —
+recommend opening the project to compile-check.
+
+---
+
 # Handover — Trait Absence Is Baseline + Relaxing Activity (Aug 2026)
 
 ## What changed this session

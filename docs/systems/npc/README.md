@@ -865,3 +865,11 @@ skills, personality words, seed, mood, and irritability + label.
     again in the same relax session — confirm the job now starts AND
     relationship drops by 3. Confirm a fresh relax session later resets
     back to a first-press refusal.
+42. Max an NPC's energy to 100 (F7), force/wait for a relax session with a
+    free chair or bed nearby — confirm they sit/lie down and STAY there
+    for the session duration, no in-and-out loop.
+43. Confirm energy still very slowly climbs (if not already at 100) while
+    relaxing in a chair/bed, at a visibly slower rate than normal
+    resting/sleeping.
+44. Confirm normal (non-relax) Sit/Lie behavior is completely unchanged —
+    this only touches the new Relax-prefixed classes.
