@@ -550,8 +550,17 @@ class SnatchActivity extends NPCActivity:
 		## we were tracking and it's now loose nearby (dropped, not used/
 		## stored/given away), chase it down on the ground instead of
 		## giving up.
+		## Only chase it if it's GENUINELY loose in the world
+		## (collision_layer 1, set by an actual drop) — not just
+		## "not is_held", which is also true for an item the player
+		## swapped away to a different inventory slot (deactivate_item()
+		## sets is_held=false too, but leaves it frozen/hidden in
+		## storage, collision_layer 0). Without this distinction the NPC
+		## would walk to the stored item's stale last position and grab
+		## it straight out of the inventory slot array.
 		if _tracked_item != null and is_instance_valid(_tracked_item) \
 				and "is_held" in _tracked_item and not _tracked_item.is_held \
+				and "collision_layer" in _tracked_item and _tracked_item.collision_layer == 1 \
 				and _need_filter.call(_tracked_item):
 			npc.set_nav_target((_tracked_item as Node3D).global_position)
 			npc.nav_steer(delta)

@@ -1,3 +1,34 @@
+# Handover — Snatch: Distinguish "Dropped" from "Swapped Away in Inventory" (Aug 2026)
+
+**Owner:** NPC Claude instance.
+
+## What changed
+`SnatchActivity.tick()`'s "did they drop it, chase it on the ground"
+branch only tested `not _tracked_item.is_held`. But
+`InventoryManager.deactivate_item()` (player scrolling to another slot)
+also sets `is_held = false`, so a swapped-away, frozen-in-place stored
+item was treated as a genuine drop — the NPC walked to its stale last
+position and grabbed it straight out of the inventory slot array.
+
+The two states are distinguishable by `collision_layer`:
+- genuinely dropped (`remove_item()`) → `collision_layer == 1`
+- swapped away/stored (`deactivate_item()`) → `collision_layer == 0`
+- actively held (`activate_item()`/`pickup()`) → `collision_layer == 2`
+
+Added `"collision_layer" in _tracked_item and _tracked_item.collision_layer
+== 1` to the chase condition. If it now correctly fails (stored, not
+dropped), the code falls through to the existing fallback, which already
+logs `"aborted"` and ends the activity cleanly. Genuine drops still pass.
+
+## Files Modified
+`scripts/npc/NPCBrain.gd` (one condition in `SnatchActivity.tick()`).
+
+## Next Up
+- None specific — testing items 35-36 in `docs/systems/npc/README.md`
+  cover both branches (swap-abort and genuine-drop-divert).
+
+---
+
 # Handover — Snatch Root-Cause Fixes: Scoring Blind Spot, Wrong Inventory Function, Grab Distance (Aug 2026)
 
 **Owner:** NPC Claude instance, plus one function fix in Player-owned

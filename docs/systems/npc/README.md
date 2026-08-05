@@ -797,3 +797,12 @@ skills, personality words, seed, mood, and irritability + label.
     the player (this is `SNATCH_RANGE` 1.6 vs the loose-item `PICKUP_RANGE`
     1.2, used both in `SnatchActivity.tick()` and
     `NPCItemUser.snatch_from_player()`).
+35. Start a snatch pursuit (F7 force or organic), then SWAP to a
+    different inventory slot mid-chase instead of dropping the item —
+    confirm the NPC aborts (console shows the "aborted" log) instead of
+    walking to your old position and pulling the item out of storage
+    (this is the `collision_layer == 1` extra condition — swapped-away
+    items sit at layer 0, only a genuine drop sets layer 1).
+36. Start a pursuit, then actually DROP the item (not swap) — confirm the
+    NPC still correctly diverts to the dropped item on the ground and
+    picks it up (genuine drops pass the same check).
