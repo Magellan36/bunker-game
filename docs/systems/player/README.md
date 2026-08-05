@@ -228,6 +228,17 @@ own held item while CASE 1 scans for a different target — guarded with
   the slot array entry — it's additive to `InventoryManager.gd`
   (UI/menu-subsystem-owned; flagged for their visibility, not a change
   to any of their existing methods).
+- **E-dispatch shelf fairness (Aug 2026):** a nearby shelf no longer
+  unconditionally captures E. `_nearest_e_rival_distance()` returns the
+  distance to whatever the currently-held item's own E action would
+  target (nearest `basket_storable` for a Basket; nearest open stove,
+  else nearest `cookpot_storable`, for a Cooking Pot; nearest NPC for a
+  giveable item) — INF if the held item has no E action of its own. The
+  shelf only wins when strictly closer than that rival distance. This is
+  the third instance of the same fairness pattern already used for the
+  F-dispatch stove-pot-vs-pickup case and the ready-dish check — future
+  E/F priority additions should follow the same shape: compute a rival
+  distance, compare strictly, let the closer one win.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns

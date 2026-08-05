@@ -1,3 +1,33 @@
+# Handover — Shelf E-Hijack Fix (Aug 2026)
+
+## What changed this session
+Fixed a bug (reported by Brannon, root-caused by the Furniture/Build-Mode
+thread, fix implemented here): holding a Basket and pressing E near both
+a food can and a shelf always opened the shelf, even when the can was
+closer — the shelf's E-dispatch check ran first and unconditionally, so
+it hijacked E from the basket-stash, cookpot, and NPC-give branches
+alike. Added `_nearest_e_rival_distance()` (returns the distance to
+whatever the held item's own E action would target, or INF if it has
+none) and `_nearest_group_storable_distance()` (distance-only twin of the
+basket/cookpot candidate scan, filters kept in lockstep). The shelf check
+now only wins when strictly closer than the rival distance. Third
+instance of the same fairness pattern as the earlier F-dispatch
+stove-pot-vs-pickup fix and the ready-dish check.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — shelf E-dispatch check now
+  distance-gated; two new helper functions.
+- `docs/systems/player/README.md` — E-dispatch section updated.
+- `docs/systems/furniture-items/README.md` — one-line cross-reference
+  (Furniture-subsystem-owned file, flagged for their visibility).
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_SHELF_E_HIJACK_FIX_PLAN.md` for the
+full 5-item checklist)
+
+---
+
 # Handover — NPC Meter Colors: Match Player HUD Palette (Aug 2026)
 
 **Owner:** UI Claude instance (HUD/menus).

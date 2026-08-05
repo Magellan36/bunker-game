@@ -86,6 +86,10 @@ get_interact_prompt() -> String`, `on_f_interact()` / `on_e_interact()` /
 `slot_count(slot_idx)`, `slot_top_item(slot_idx)`, `slot_is_empty(slot_idx)`.
 Signals: `item_placed(slot_index, item)`, `item_retrieved(slot_index, item)`.
 
+- Shelf E-open now yields to a strictly-closer held-item E target
+  (Basket stash / Cooking Pot stove-or-stash / NPC give) — see Player
+  subsystem's `docs/systems/player/README.md` for the fairness rule.
+
 **`Bed`** (extends `StaticBody3D`): `on_interact()`, `get_prompt_text() ->
 String`, `set_player_in_range(in_range)`, `set_sleeping(sleeping: bool)`.
 Signals: `sleep_requested()`, `wake_requested()` â€” consumed by

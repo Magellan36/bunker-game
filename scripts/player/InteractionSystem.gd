@@ -168,12 +168,20 @@ func _unhandled_input(event: InputEvent) -> void:
 	# E — use held item (instant tap) / shelf open / world interact.
 	# Pure tap: fires immediately on press, no hold-to-store behavior.
 	if event.is_action_pressed("interact"):
-		## Shelf nearby → E always opens shelf UI (overrides item use)
+		## Distance fairness (Aug 2026, third instance of the stove-pot /
+		## ready-dish pattern): a nearby shelf no longer unconditionally
+		## captures E. If the held item has its own E action with a target
+		## in range (basket stash, cookpot stove/stash, NPC give), the
+		## shelf only wins when it is STRICTLY closer than that target.
+		## Empty-handed or holding an ordinary item → behavior unchanged:
+		## rival distance is INF, shelf always wins within its 2.5 m reach.
 		var shelf: Node3D = _nearest_shelf()
 		if shelf != null and shelf.has_method("on_e_interact"):
-			shelf.on_e_interact()
-			get_viewport().set_input_as_handled()
-			return
+			var shelf_d: float = shelf.global_position.distance_to(player.global_position)
+			if shelf_d < _nearest_e_rival_distance():
+				shelf.on_e_interact()
+				get_viewport().set_input_as_handled()
+				return
 		## Basket held → E stashes nearest "basket_storable" item instead of item use
 		if held_item != null and ("is_basket_container" in held_item):
 			_try_add_nearest_to_basket(held_item)
@@ -699,6 +707,49 @@ func _nearest_shelf() -> Node3D:
 				closest_dist = d
 				closest = s3
 	return closest
+
+## Distance to the nearest competing E target for the CURRENTLY HELD item —
+## used only by the E-dispatch shelf fairness check above. Returns INF
+## when the held item has no E action of its own (or nothing is held),
+## which makes the shelf win by default, preserving pre-fix behavior for
+## those cases.
+func _nearest_e_rival_distance() -> float:
+	if held_item == null:
+		return INF
+	if "is_basket_container" in held_item:
+		return _nearest_group_storable_distance("basket_storable")
+	if "is_cookpot_container" in held_item:
+		## Mirrors _try_use_held_cookpot()'s own priority: an open stove
+		## in range is the pot's E target; otherwise the nearest storable.
+		var stove: Node = _find_nearest_open_stove()
+		if stove != null:
+			return (stove as Node3D).global_position.distance_to(player.global_position)
+		return _nearest_group_storable_distance("cookpot_storable")
+	if NPCItemUser.is_giveable(held_item):
+		var npc: Node = _find_nearest_npc()
+		if npc != null:
+			return (npc as Node3D).global_position.distance_to(player.global_position)
+	return INF
+
+## Distance-only twin of the candidate scan in _try_add_nearest_to_basket()
+## / _try_add_nearest_to_cookpot(). Filters MUST stay in lockstep with
+## those two functions — if a body wouldn't be stashable there, it must
+## not count as a rival here. (Verified identical to both as of Aug 2026.)
+func _nearest_group_storable_distance(group_name: String) -> float:
+	var bodies: Array       = detect_area.get_overlapping_bodies()
+	var closest_dist: float = INF
+	for body in bodies:
+		if body == held_item:
+			continue
+		if body.is_in_group(group_name):
+			if body.is_in_group("shelved"):
+				continue
+			if body is RigidBody3D and (body as RigidBody3D).freeze:
+				continue
+			var d: float = body.global_position.distance_to(player.global_position)
+			if d < closest_dist:
+				closest_dist = d
+	return closest_dist
 
 ## E while holding a Basket — finds the nearest "basket_storable" world item
 ## in reach and stashes it, instead of calling the basket's own on_use().
