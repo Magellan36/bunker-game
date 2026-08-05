@@ -18,6 +18,23 @@ const PANEL_H: float = 900.0   ## Part 23 — bumped again for the Ask About
                                ## visually once content is fully settled
                                ## (same standing note as Part 20's bump)
 const BAR_H: float = 14.0
+
+## Aug 2026 — fixed per-stat identity colors, matching the player's own
+## NeedsGauge convention (one color per stat, always, regardless of
+## current fill — NOT recolored by value the way this panel used to).
+## Health/Energy/Thirst are exact copies of NeedsGauge's
+## COLOR_HEALTH/COLOR_SLEEP/COLOR_WATER. Hunger has no player-HUD yellow
+## to copy (the player has no yellow stat), so it reuses the project's
+## other established yellow (Power panels' stripe color) instead of a new
+## one. Mood is Brannon's exact #bca0dc via Color8 (0-255 ints), no
+## float-rounding.
+const NEED_COLORS: Dictionary = {
+	"Health": Color(0.81, 0.17, 0.17, 1.0),
+	"Energy": Color(0.57, 0.33, 0.81, 1.0),
+	"Hunger": Color(0.90, 0.80, 0.20, 1.0),
+	"Thirst": Color(0.24, 0.52, 0.90, 1.0),
+	"Mood":   Color8(188, 160, 220, 255),
+}
 const REFRESH_INTERVAL: float = 0.25
 const PLACEHOLDER_LINE: String = "\"...\""
 
@@ -252,7 +269,7 @@ func _build_need_row(need: String, theme: UIKit.UITheme) -> HBoxContainer:
 	row.add_child(track)
 
 	var fill: ColorRect = ColorRect.new()
-	fill.color = theme.ok
+	fill.color = NEED_COLORS.get(need, theme.ok)
 	fill.position = Vector2.ZERO
 	fill.size = Vector2(BAR_TRACK_W, BAR_H)
 	track.add_child(fill)
@@ -285,7 +302,7 @@ func _refresh_live_values() -> void:
 		var lbl: Label = _need_labels.get(need)
 		if fill != null:
 			fill.size = Vector2(BAR_TRACK_W * (v / 100.0), BAR_H)
-			fill.color = theme.ok if v >= 50.0 else (theme.warn if v >= 25.0 else theme.crit)
+			fill.color = NEED_COLORS.get(need, theme.ok)   ## Aug 2026 — fixed per-stat color, no longer recolors by value
 		if lbl != null:
 			lbl.text = str(int(round(v)))
 

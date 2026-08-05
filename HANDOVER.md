@@ -1,3 +1,35 @@
+# Handover — NPC Meter Colors: Match Player HUD Palette (Aug 2026)
+
+**Owner:** UI Claude instance (HUD/menus).
+
+## What changed
+`NPCTalkMenuUI.gd`'s 5 need bars (Health/Energy/Hunger/Thirst/Mood) used
+to recolor by VALUE (theme.ok/warn/crit — blue/amber/red by fill level),
+the opposite convention from the player's own `NeedsGauge` rings, which
+use ONE fixed identity color per stat. Now the NPC bars match the player
+HUD: fixed per-stat colors, fill LENGTH is the only value feedback.
+- Health: `Color(0.81, 0.17, 0.17)` — exact copy of `NeedsGauge.COLOR_HEALTH`.
+- Energy: `Color(0.57, 0.33, 0.81)` — exact copy of `NeedsGauge.COLOR_SLEEP`.
+- Thirst: `Color(0.24, 0.52, 0.90)` — exact copy of `NeedsGauge.COLOR_WATER`.
+- Mood: `Color8(188, 160, 220, 255)` — exact `#bca0dc` (Brannon's spec),
+  via `Color8` so no float rounding.
+- Hunger: `Color(0.90, 0.80, 0.20)` — the player HUD has no yellow stat
+  to copy, so this reuses the project's other established yellow (Power
+  panels' stripe color). One-line swap if a specific yellow was wanted.
+
+Added `NEED_COLORS` table (`fallback = theme.ok` via `.get()`); the
+refresh loop's per-value recolor line is now just the fixed color.
+
+## Files Modified
+`scripts/ui/npc/NPCTalkMenuUI.gd` (one const table + two color lines).
+
+## Next Up
+- None — verification checklist in the plan: reopen an NPC talk panel and
+  confirm the 5 colors, drain needs and confirm bars don't recolor
+  (only fill length shrinks), no console errors.
+
+---
+
 # Handover — Wire Up Work Ethic + Neuroticism (Aug 2026)
 
 **Owner:** NPC Claude instance.
