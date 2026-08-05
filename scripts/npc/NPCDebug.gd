@@ -87,6 +87,14 @@ static func log_relationship_event(npc: Node, target_id: String, delta: float, r
 	var after: float = npc.get_relationship(target_id) if npc.has_method("get_relationship") else 0.0
 	print("%s relationship event (%s): %s %+.1f -> %.1f" % [_fmt(npc), reason, target_id, delta, after])
 
+## Discrete mood events (Aug 2026) — one-time mood changes tied to a
+## specific cause (currently just passing out), as opposed to
+## log_mood()'s continuous per-tick needs/contagion/drift breakdown.
+static func log_mood_event(npc: Node, delta: float, reason: String) -> void:
+	if not enabled:
+		return
+	print("%s mood event (%s): %+.1f -> %.1f" % [_fmt(npc), reason, delta, npc.mood])
+
 ## Snatch (Part 30) — every stage gets its own line, specifically because
 ## the earlier version was hard to debug when it silently failed. Always
 ## logs when enabled, distinct from the continuous relationship tick log.

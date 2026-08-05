@@ -1,3 +1,46 @@
+# Handover — Pass-Out: Wake at 15 Energy + Neuroticism-Scaled Mood Drop (Aug 2026)
+
+## What changed this session
+Two changes to the pass-out flow plus a documentation consolidation.
+
+### Wake at 15, not 100
+`PassedOutActivity` now has `WAKE_ENERGY = 15.0` and `done()` returns
+`npc.energy >= WAKE_ENERGY` instead of `>= 100.0`. Deliberately leaves a
+passed-out NPC still needing real rest afterward; also the intended hook
+for a future "administer an energy item to wake them faster" player
+action.
+
+### Neuroticism-scaled mood drop on collapse
+`PassedOutActivity.enter()` now applies a one-time mood drop the instant
+an NPC collapses: `randf_range(1.0, 10.0 * npc.neuroticism_trait_mult())`
+(lower bound fixed at 1%, baseline upper 10%, Neurotic 15%, Easygoing
+5%), clamped, logged via the new `NPCDebug.log_mood_event()`.
+
+### Neuroticism multiplier made public
+`_neuroticism_trait_mult()` (private, created by the earlier Work Ethic/
+Neuroticism plan) was renamed to public `neuroticism_trait_mult()` and
+its single call site in `_tick_mood()` updated — no duplicate function.
+
+### Files modified
+- `scripts/npc/NPCBrain.gd` — `WAKE_ENERGY` const, `done()` at 15,
+  mood-drop block in `enter()`.
+- `scripts/npc/NPC.gd` — `neuroticism_trait_mult()` (renamed public) +
+  call site.
+- `scripts/npc/NPCDebug.gd` — `log_mood_event()`.
+- `docs/systems/npc/README.md` — new **Trait Effects Reference** section
+  (canonical list of all 5 traits' effects) + **Non-Trait NPC Mechanics
+  Worth Noting Alongside Traits** (pass-out wake-at-15); Personality
+  bullets updated to point at the canonical section; testing items 45–46
+  (renumbered from plan's 30–31 to avoid collision).
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+See `NPC_PASSOUT_WAKE_AND_MOOD_DROP_PLAN.md` items 30–31 (45–46 in the
+README). No Godot CLI available — recommend opening the project to
+compile-check.
+
+---
+
 # Handover — Fix: Relaxing In a Chair/Bed Loops When Energy Is Already Full (Aug 2026)
 
 ## What changed this session

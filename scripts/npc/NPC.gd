@@ -287,7 +287,7 @@ func _tick_mood(h: float) -> void:
 	_mood_contagion_delta = mood - before
 
 	before = mood
-	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR) * _neuroticism_trait_mult() * h, 0.0, 100.0)
+	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR) * neuroticism_trait_mult() * h, 0.0, 100.0)
 	_mood_drift_delta = mood - before
 
 	if NPCDebug.enabled:
@@ -368,11 +368,11 @@ func get_work_ethic_job_mult() -> float:
 func get_work_ethic_passive_mult() -> float:
 	return lerp(1.3, 0.7, float(personality.get("work_ethic", 0.5)))
 
-## Neuroticism (Aug 2026) — scales mood's random per-tick drift
-## (MOOD_DRIFT_MAX_PER_GAME_HOUR in _tick_mood()) — NOT the needs-driven
-## or contagion components, just the noise. Same 0.5x-1.5x spread as
-## Sociability, for consistency.
-func _neuroticism_trait_mult() -> float:
+## Neuroticism — scales mood's random per-tick drift AND the one-time
+## mood drop on passing out. 0.5x (Easygoing) to 1.5x (Neurotic), 1.0x
+## at baseline/absent. Public (no underscore) — called from NPCBrain.gd's
+## PassedOutActivity, not just internally.
+func neuroticism_trait_mult() -> float:
 	return lerp(0.5, 1.5, float(personality.get("neuroticism", 0.5)))
 
 ## Single mutation point for every relationship change, present and future
