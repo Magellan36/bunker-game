@@ -122,13 +122,13 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 		{ "tile_id": 4,  "name": "Basil Seeds",        "price": 25 },
 		{ "tile_id": 5,  "name": "Strawberry Seeds",   "price": 25 },
 		{ "tile_id": 6,  "name": "Carrot Seeds",       "price": 25 },
-		{ "tile_id": 6,  "name": "Chili Pepper Seeds", "price": 25 },
-		{ "tile_id": 7,  "name": "Bell Pepper Seeds",  "price": 25 },
-		{ "tile_id": 8,  "name": "Garlic Seeds",       "price": 25 },
-		{ "tile_id": 9,  "name": "Potato Seeds",       "price": 25 },
-		{ "tile_id": 10, "name": "Blueberry Seeds",    "price": 25 },
-		{ "tile_id": 11, "name": "Corn Seeds",         "price": 25 },
-		{ "tile_id": 12, "name": "Pumpkin Seeds",      "price": 25 },
+		{ "tile_id": 7,  "name": "Chili Pepper Seeds", "price": 25 },   ## Aug 2026 fix — was 6 (duplicate of Carrot), cascaded every id below down by one
+		{ "tile_id": 8,  "name": "Bell Pepper Seeds",  "price": 25 },   ## Aug 2026 fix — was 7
+		{ "tile_id": 9,  "name": "Garlic Seeds",       "price": 25 },   ## Aug 2026 fix — was 8
+		{ "tile_id": 10, "name": "Potato Seeds",       "price": 25 },   ## Aug 2026 fix — was 9
+		{ "tile_id": 11, "name": "Blueberry Seeds",    "price": 25 },   ## Aug 2026 fix — was 10
+		{ "tile_id": 12, "name": "Corn Seeds",         "price": 25 },   ## Aug 2026 fix — was 11
+		{ "tile_id": 13, "name": "Pumpkin Seeds",      "price": 25 },   ## Aug 2026 fix — was 12 (13 was never used by anything before this fix)
 	],
 	"Resources": [
 		{ "tile_id": 16, "name": "Water Case", "price": 80  },

@@ -1,3 +1,64 @@
+# Handover — UI Overhaul Arc: Menu Unification, Rounded Corners, Admin Menu Rework, Bugfixes (Jul-Aug 2026)
+
+**Owner:** UI Claude instance (HUD/menus/Build Mode placement).
+
+## What changed across this arc
+1. **Pause Menu + Graphics Settings Unification** — both rewritten onto
+   new shared `UIKit` menu-builder helpers; fixed `GraphicsSettingsPanel`'s
+   real off-center bug (centered itself before its content was added, so
+   the baked offset never matched its final size); fixed a corrupted-bytes
+   issue isolated to `PauseMenuUI.gd`.
+2. **Power + Water UI Unification** — `WATER`/`POWER` domains collapsed
+   onto one identical palette, differing only in a new `theme.accent` used
+   for a top stripe; brought `PowerTerminalUI` in line with the other 3
+   power panels it didn't match before.
+3. **Rounded Corners + Stripe Recolor + Farming Domain + Top Padding** —
+   one shared corner radius everywhere via a new `UIKit.draw_rounded_rect()`;
+   power's stripe green→yellow; new `Domain.FARMING` (green) for
+   `FarmingTrayUI`; a uniform +6px top-padding pass across every panel.
+4. **F7 Admin Menu rework** — was rendering ~1,250px tall (24 rows across
+   7 sections, mostly NPC rows folded in from the deleted F10 menu); now a
+   fixed height with collapsible sections + a real `ScrollContainer`
+   (native mouse-wheel + scrollbar).
+5. **Shared close-button icon** — one new icon asset
+   (`assets/icons/close_x.png`) replacing 2 different hand-drawn × forms
+   spread across 7 files, centralized behind `UIKit.draw_close_icon()`.
+6. **InventoryHUD preview fixes** — rotation now matches
+   `BuildModeHUD`'s 45°/45° resting pose, 3x camera zoom, and a real fix
+   for a "choppy translucent background" bug (6 overlapping alpha shapes
+   double-blending at their seams, replaced with one unified
+   `UIKit.draw_rounded_rect()` call — same technique used throughout this
+   whole arc).
+7. **Farming Shop seed bugfix** — `BuildModeHUD.FARMING_SHOP_ITEMS["Seeds"]`
+   had a duplicate `tile_id` (copy-paste typo) that shifted several seeds
+   onto the wrong species when purchased (e.g. "Corn Seeds" spawned
+   Blueberry). Root-caused via `FarmingShopHelper.SHOP_ITEM_INFO` (the
+   actual authoritative mapping, which was correct) and fixed the display
+   list to match it.
+
+## Files Modified (representative, not exhaustive — see
+`docs/systems/ui/README.md`'s per-pass sections above for full detail)
+`UIKit.gd`, `PauseMenuUI.gd`, `GraphicsSettingsPanel.gd`,
+`PowerTerminalUI.gd`, `PowerPriorityUI.gd`, `GeneratorInspectUI.gd`,
+`ZoneCustomizeUI.gd`, `WaterInfoUI.gd`, `WaterDispenserUI.gd`,
+`FarmingTrayUI.gd`, `AdminMenu.gd`, `InventoryHUD.gd`,
+`BuildModeHUD.gd` (one data fix only).
+
+## Files Created
+`assets/icons/close_x.png`
+
+## Next Up
+- The power/water/farming palette merge and rounded-corner/stripe system
+  hasn't touched `ShelfUI.gd`/`BasketUI.gd` (still their own look, and
+  ~17 of 18 functions duplicated between the two files) or
+  `BuildModeHUD.gd`'s own toolbar/construct-menu chrome — logical next
+  candidates for this same treatment if requested.
+- `FARMING_SHOP_ITEMS["Seeds"]`'s manual two-list sync with
+  `FarmingShopHelper.SHOP_ITEM_INFO` is flagged as fragile (see
+  `docs/systems/farming/README.md`) but not yet hardened.
+
+---
+
 # Handover — Re-applied Dropped Fixes + Continuous Snatch Pursuit (Aug 2026)
 
 **Owner:** NPC instance. All NPC-side; no Player changes.

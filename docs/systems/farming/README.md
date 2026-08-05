@@ -305,7 +305,17 @@ audited this pass:
 2. Add a matching entry to `FarmingShopHelper.SHOP_ITEM_INFO` (next free
    integer item_id) so it's purchasable.
 3. Mirror that same entry into `BuildModeHUD.FARMING_SHOP_ITEMS["Seeds"]`
-   so it shows up in the submenu list.
+   so it shows up in the submenu list. **Double-check the `tile_id` you
+   type here against the `item_id` you just used in step 2 — these two
+   lists are kept in sync by hand, and a copy-paste slip here (e.g.
+   reusing the previous entry's id) silently shifts every seed listed
+   below it onto the wrong species.** This exact bug happened once
+   already (Aug 2026, "Carrot"/"Chili Pepper" both got `tile_id: 6`,
+   cascading through the rest of the list) — see
+   `docs/systems/ui/README.md`'s "Farming Shop Seed tile_id Bugfix" for
+   the full trace. Worth hardening this in a future pass (e.g. generating
+   `FARMING_SHOP_ITEMS["Seeds"]`'s ids from `SHOP_ITEM_INFO` instead of
+   hand-duplicating them) rather than relying on manual care indefinitely.
 4. That's it — no changes needed to `FarmPlant.gd`, `FarmingTray.gd`, or
    `FarmingTrayUI.gd`; every one of those is already generic across
    `plant_type`.
