@@ -88,6 +88,7 @@ func _do_time_skip() -> void:
 	var scaled: float = SLEEP_SKIP_HOURS * player_stats._seconds_per_game_hour
 
 	player_stats.skip_time_with_drain(SLEEP_SKIP_HOURS)
+	NPC.catch_up_all(SLEEP_SKIP_HOURS)
 
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager")
 	if wm != null:

@@ -426,6 +426,7 @@ func _on_fast_forward_pressed() -> void:
 	var scaled: float = 24.0 * stats._seconds_per_game_hour
 
 	stats.skip_time_with_drain(24.0)
+	NPC.catch_up_all(24.0)
 
 	var wm: WaterManager = _get_water_manager()
 	if wm != null:

@@ -1,3 +1,57 @@
+# Handover — NPC Time-Skip Catch-Up Simulation (Aug 2026)
+
+## What changed this session
+Time-skips (F7 Fast-Forward, sleep) previously left NPCs completely
+frozen — `skip_time_with_drain()` in PlayerStats only touched the player.
+New static entry point `NPC.catch_up_all(hours)` simulates how NPCs spend
+a skip, called explicitly by each skip source right next to its existing
+`skip_time_with_drain()` call. Any FUTURE skip source must call it too —
+nothing hooks the game clock automatically. Hard ceiling
+`MAX_CATCHUP_HOURS` (72).
+
+Per NPC, in order (`catch_up_time()`):
+- **Needs:** full drain, then an estimate of how many real meals/drinks
+  would have offset it, actually consumed from real world items via their
+  own `consume_as_food()`/`take_bite()`/`take_drink()` calls (capped by
+  what's there — empty bunker = NPC goes hungry).
+- **Energy:** full drain; if it would cross 0 mid-skip, the same
+  neuroticism-scaled mood drop `PassedOutActivity` uses fires once
+  (logged via `log_mood_event`), remainder regens at 15/game-hour.
+- **Relax budget:** proportionally deducted for the skip's fraction of a
+  day (`_catch_up_relax_budget()`), after a day-boundary reset — 6h skip
+  removes 25% of daily budget, 12h removes 50%.
+- **Mood:** `_tick_mood()`'s own needs-pull + drift formulas evaluated
+  once with a large h; contagion is one blended pull toward the PRE-skip
+  bunker average (snapshotted once), scaled + clamped. Approximate by
+  design.
+- **Harvest:** every `is_ready()` plant snapshotted once; each NPC
+  harvests up to `floor(hours)` from the shared pool (one plant = one
+  "job", not one tray-job). Not-ready plants are never auto-harvested.
+
+### Files modified
+- `scripts/npc/NPC.gd` — static `catch_up_all()` + per-NPC
+  `catch_up_time()` and helpers (`_catch_up_hunger_and_thirst`,
+  `_catch_up_energy`, `_catch_up_relax_budget`, `_catch_up_mood`) +
+  constants.
+- `scripts/npc/NPCDebug.gd` — `log_catchup()`.
+- `scripts/ui/menus/AdminMenu.gd` — `NPC.catch_up_all(24.0)` after
+  fast-forward's `skip_time_with_drain(24.0)`.
+- `scripts/ui/menus/SleepOverlay.gd` ⚠️ — one line
+  (`NPC.catch_up_all(SLEEP_SKIP_HOURS)`) — flagged in the plan as
+  possibly another thread's file; trivial addition, no change to existing
+  sleep behavior. Caller of that thread should be aware.
+- `docs/systems/npc/README.md` — new **Time-Skip Catch-Up** section;
+  Trait Effects Reference Neuroticism note updated (mood-drop reachable
+  via catch-up too); testing items 47–51 (renumbered from plan's 32–36
+  to avoid collision).
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+See `NPC_TIMESKIP_CATCHUP_PLAN.md` items 32–36 (47–51 in the README). No
+Godot CLI available — recommend opening the project to compile-check.
+
+---
+
 # Handover — Pass-Out: Wake at 15 Energy + Neuroticism-Scaled Mood Drop (Aug 2026)
 
 ## What changed this session

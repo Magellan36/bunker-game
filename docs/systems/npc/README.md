@@ -284,7 +284,10 @@ branching needed anywhere the multipliers are used.
 - Same multiplier scales the ONE-TIME mood drop applied the instant an
   NPC passes out: `randf_range(1.0, 10.0 * neuroticism_trait_mult())`.
   Baseline range 1-10%, Neurotic 1-15%, Easygoing 1-5%. Lower bound is
-  always 1% regardless of trait.
+  always 1% regardless of trait. Reachable two ways now (same formula):
+  the live `PassedOutActivity.enter()` path AND the time-skip catch-up
+  path (`_catch_up_energy()`, which fires it when the estimated energy
+  drain would have crossed 0 mid-skip).
 
 ### Non-Trait NPC Mechanics Worth Noting Alongside Traits
 
@@ -708,6 +711,49 @@ persist; held items and in-progress job claims do not (NPCs reload
 empty-handed and re-decide; `JobBoard` auto-releases claims from freed
 NPCs, so this is always safe).
 
+### Time-Skip Catch-Up (Aug 2026)
+`NPC.catch_up_all(hours)` is the single entry point simulating how NPCs
+spend a time-skip (F7 Fast-Forward, sleep). It is called explicitly by
+each skip source right next to its existing
+`player_stats.skip_time_with_drain()` call — **any future skip source
+must call it too; nothing hooks into the game clock automatically**.
+Clamped to a hard `MAX_CATCHUP_HOURS` (72) so no single call can simulate
+unbounded consumption. Per NPC, in order:
+- **Needs (hunger/thirst):** full drain for the duration, then an
+  ESTIMATE of how many real meals/drinks would have offset it
+  (`CATCHUP_MEAL_RESTORE_ESTIMATE` ≈ 45 hunger, `CATCHUP_DRINK_RESTORE_ESTIMATE`
+  ≈ 21.5 thirst, averaging the giveable item types), actually consumed
+  from real available world items via their own
+  `consume_as_food()`/`take_bite()`/`take_drink()` calls — capped by
+  what's actually there. An empty bunker means the NPC just goes hungry,
+  same as reality. When to eat isn't simulated, only roughly how many
+  real items would have been used.
+- **Energy:** full drain; if it would have crossed 0 mid-skip, the same
+  neuroticism-scaled mood drop `PassedOutActivity` uses fires once, and
+  the remainder regenerates at `PassedOutActivity`'s rate
+  (`CATCHUP_PASSED_OUT_REGEN_PER_GAME_HOUR` = 15/game-hour, kept in sync
+  with `NPCBrain`'s constant).
+- **Relaxing:** today's budget is deducted proportionally to the skip's
+  fraction of a day (`_catch_up_relax_budget()`), after a day-boundary
+  reset via `_tick_relax_day()` — a 6h skip removes 25% of the daily
+  budget (baseline 60min → 45min remaining), a 12h skip 50% (→ 30min).
+  Stops an NPC "banking" a full untouched hour across a skip and dumping
+  it all in one greedy session right after waking.
+- **Mood:** the needs-driven pull and random drift are `_tick_mood()`'s
+  own formulas evaluated once with a large `h`. The needs target uses a
+  blend of pre-/post-catch-up needs (a rough stand-in for how needs
+  behaved across the whole window, not just the endpoint). Contagion is
+  a single blended pull toward the bunker's PRE-skip average mood
+  (`avg_mood_before`, snapshotted once in `catch_up_all()`), scaled by
+  elapsed time and clamped so it can't overshoot — deliberately
+  approximate, not a real per-NPC-pair simulation.
+- **Harvest:** every plant that `is_ready()` at the moment the skip is
+  triggered is snapshotted once into a shared pool; each NPC harvests up
+  to `floor(hours)` of them from that pool (one harvested plant = one
+  "job", not one JobBoard tray-job — a tray can hold several ready
+  plants). Plants that were NOT ready before the skip do NOT get
+  auto-harvested (farming growth isn't tied to skips at all).
+
 ### Debug Tooling
 `NPCDebug.enabled` (F7 toggle) gates continuous logging: activity
 switches, job lifecycle, stuck-recovery firing, forgetfulness roll
@@ -947,3 +993,23 @@ skills, personality words, seed, mood, and irritability + label.
     energy-drain test) — confirm the Neurotic one's mood drop is
     noticeably larger on average (up to 15%) than the Easygoing one's (up
     to 5%), with F7 debug logging showing the exact roll each time.
+47. Set an NPC's hunger/thirst low, ensure real food/water exists nearby,
+    fast-forward 24h — confirm hunger/thirst end up in a reasonable range
+    (not maxed, not zeroed) and that real items in the world were
+    actually consumed/depleted (check counts before/after).
+48. Empty the bunker of food/water entirely, fast-forward — confirm the
+    NPC's hunger/thirst just drain fully with no error, nothing crashes
+    trying to consume items that don't exist.
+49. Drain an NPC's energy most of the way down, fast-forward 24h — confirm
+    if it crosses 0 during the estimate, mood drops once (F7 log shows
+    it) and energy ends up partially recovered, not stuck at 0 or jumped
+    to full.
+50. Note an NPC's remaining relax budget, sleep 6 hours — confirm the
+    remaining budget drops by ~25% of the daily total, not to zero and
+    not unchanged.
+51. Have 2+ ready-to-harvest plants across trays before a fast-forward —
+    confirm they get harvested during the skip (real produce appears),
+    and that plants which were NOT ready before the skip do NOT get
+    auto-harvested even if the skip's growth would have made them ready
+    (since growth isn't currently tied to skips at all, this should
+    already hold true, but worth confirming directly).

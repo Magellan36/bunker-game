@@ -95,6 +95,14 @@ static func log_mood_event(npc: Node, delta: float, reason: String) -> void:
 		return
 	print("%s mood event (%s): %+.1f -> %.1f" % [_fmt(npc), reason, delta, npc.mood])
 
+## Time-skip catch-up (Aug 2026) — one summary line per NPC per skip, so
+## it's visible what the estimate produced without stepping through it.
+static func log_catchup(npc: Node, hours: float) -> void:
+	if not enabled:
+		return
+	print("%s catch-up (%.1fh skip): hunger=%.1f thirst=%.1f energy=%.1f mood=%.1f" \
+		% [_fmt(npc), hours, npc.hunger, npc.thirst, npc.energy, npc.mood])
+
 ## Snatch (Part 30) — every stage gets its own line, specifically because
 ## the earlier version was hard to debug when it silently failed. Always
 ## logs when enabled, distinct from the continuous relationship tick log.
