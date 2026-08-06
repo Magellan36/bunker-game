@@ -19,6 +19,14 @@ const PANEL_H: float = 900.0   ## Part 23 — bumped again for the Ask About
                                ## (same standing note as Part 20's bump)
 const BAR_H: float = 14.0
 
+## Action Log (Aug 2026) — extra height the panel grows by when the log
+## dropdown is expanded; shrinks back when collapsed. Log area itself
+## stays a fixed, modest size (LOG_AREA_H) — the scroll happens inside
+## it, the panel doesn't grow to fit unlimited entries.
+const LOG_AREA_H: float = 220.0
+const LOG_TOGGLE_BUTTON_H: float = 32.0
+const LOG_SECTION_H: float = LOG_AREA_H + LOG_TOGGLE_BUTTON_H + 8.0
+
 ## Aug 2026 — fixed per-stat identity colors, matching the player's own
 ## NeedsGauge convention (one color per stat, always, regardless of
 ## current fill — NOT recolored by value the way this panel used to).
@@ -54,6 +62,12 @@ var _dialogue_label: Label = null   ## hidden until Talk pressed
 var _status_label: Label = null     ## Part 14
 var _command_box: VBoxContainer = null   ## Part 19
 var _relationship_box: VBoxContainer = null   ## Part 23
+var _log_expanded: bool = false
+var _log_toggle_button: Button = null
+var _log_scroll: ScrollContainer = null
+var _log_rows_box: VBoxContainer = null
+var _log_entries: Array[Dictionary] = []
+var _log_time_labels: Array[Label] = []
 
 const BAR_TRACK_W: float = 200.0
 
@@ -75,6 +89,10 @@ func close() -> void:
 	_teardown()
 
 func _teardown() -> void:
+	if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_action_log"):
+		if _npc.action_logged.is_connected(_rebuild_log_rows):
+			_npc.action_logged.disconnect(_rebuild_log_rows)
+	_log_expanded = false
 	if _backdrop != null and is_instance_valid(_backdrop):
 		_backdrop.queue_free()
 	if _panel != null and is_instance_valid(_panel):
@@ -107,6 +125,13 @@ func _process(delta: float) -> void:
 	if _refresh_timer <= 0.0:
 		_refresh_timer = REFRESH_INTERVAL
 		_refresh_live_values()
+
+	## Action Log (Aug 2026) — live "Xs ago" timestamps while expanded.
+	if _log_expanded:
+		for i: int in range(_log_time_labels.size()):
+			if i >= _log_entries.size():
+				continue
+			_log_time_labels[i].text = _format_log_age(_log_entries[i]["fired_at_msec"] as int)
 
 # ─── Construction ─────────────────────────────────────────────────────────
 func _build(npc_name: String) -> void:
@@ -251,6 +276,41 @@ func _build(npc_name: String) -> void:
 	_vbox.add_child(UIKit.make_button("Talk", _on_talk_pressed))
 	_vbox.add_child(UIKit.make_button("Close", close))
 
+	## Action Log (Aug 2026) — collapsed by default on every fresh open,
+	## deliberately not remembered across panel reopens.
+	_log_toggle_button = UIKit.make_button("Show Activity Log ▾", _on_log_toggle_pressed)
+	_vbox.add_child(_log_toggle_button)
+
+	var log_bg: PanelContainer = PanelContainer.new()
+	var log_style: StyleBoxFlat = StyleBoxFlat.new()
+	log_style.bg_color     = Color(0.05, 0.05, 0.06, 0.9)
+	log_style.border_color = Color(0.30, 0.30, 0.33, 0.85)
+	log_style.set_border_width_all(1)
+	log_style.set_corner_radius_all(3)
+	log_style.content_margin_left   = 6.0
+	log_style.content_margin_right  = 6.0
+	log_style.content_margin_top    = 6.0
+	log_style.content_margin_bottom = 6.0
+	log_bg.add_theme_stylebox_override("panel", log_style)
+	log_bg.custom_minimum_size = Vector2(0.0, LOG_AREA_H)
+	log_bg.visible = false
+	_vbox.add_child(log_bg)
+
+	_log_scroll = ScrollContainer.new()
+	_log_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_log_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	log_bg.add_child(_log_scroll)
+
+	_log_rows_box = VBoxContainer.new()
+	_log_rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_log_rows_box.add_theme_constant_override("separation", 2)
+	_log_scroll.add_child(_log_rows_box)
+
+	if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_action_log"):
+		if not _npc.action_logged.is_connected(_rebuild_log_rows):
+			_npc.action_logged.connect(_rebuild_log_rows)
+	_rebuild_log_rows()
+
 	_refresh_live_values()
 	UIFade.fade_in(_panel)
 
@@ -376,3 +436,80 @@ func _show_relationship_answer(target_id: String) -> void:
 	if _npc.has_method("get_relationship_dialogue_line"):
 		_dialogue_label.text = _npc.get_relationship_dialogue_line(target_id)
 		_dialogue_label.visible = true
+
+# ─── Action Log (Aug 2026) ───────────────────────────────────────────────
+func _on_log_toggle_pressed() -> void:
+	_log_expanded = not _log_expanded
+	_log_toggle_button.text = "Hide Activity Log ▴" if _log_expanded else "Show Activity Log ▾"
+	## The log_bg panel is the sibling right after the toggle button —
+	## found by index rather than a stored reference to keep this
+	## function self-contained.
+	var log_idx: int = _log_toggle_button.get_index() + 1
+	if log_idx < _vbox.get_child_count():
+		_vbox.get_child(log_idx).visible = _log_expanded
+	_apply_panel_height(PANEL_H + (LOG_SECTION_H if _log_expanded else 0.0))
+
+## Resizes and re-centers the panel — mirrors UIKit.build_centered_panel()'s
+## own centering math, since that helper has no public "resize" method.
+func _apply_panel_height(height: float) -> void:
+	if _panel == null:
+		return
+	_panel.custom_minimum_size = Vector2(PANEL_W, height)
+	_panel.offset_top    = -height * 0.5
+	_panel.offset_bottom =  height * 0.5
+
+func _rebuild_log_rows() -> void:
+	if _log_rows_box == null:
+		return
+	for child: Node in _log_rows_box.get_children():
+		child.queue_free()
+	_log_time_labels.clear()
+	_log_entries = _npc.get_action_log() if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_action_log") else []
+
+	if _log_entries.is_empty():
+		var empty_lbl: Label = Label.new()
+		empty_lbl.text = "Nothing notable yet"
+		empty_lbl.add_theme_font_size_override("font_size", 12)
+		empty_lbl.add_theme_font_override("font", UIKit.font())
+		empty_lbl.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6, 0.8))
+		_log_rows_box.add_child(empty_lbl)
+		return
+
+	for entry: Dictionary in _log_entries:
+		_log_rows_box.add_child(_make_log_row(entry))
+
+func _make_log_row(entry: Dictionary) -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.tooltip_text = "At %s" % str(entry.get("game_time", "?"))
+
+	var text_lbl: Label = Label.new()
+	text_lbl.text = str(entry["text"])
+	text_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	text_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_lbl.add_theme_font_size_override("font_size", 12)
+	text_lbl.add_theme_font_override("font", UIKit.font())
+	text_lbl.add_theme_color_override("font_color", Color(0.88, 0.88, 0.90, 0.95))
+	row.add_child(text_lbl)
+
+	var time_lbl: Label = Label.new()
+	time_lbl.text = _format_log_age(entry["fired_at_msec"] as int)
+	time_lbl.custom_minimum_size = Vector2(52.0, 0.0)
+	time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	time_lbl.add_theme_font_size_override("font_size", 11)
+	time_lbl.add_theme_font_override("font", UIKit.font())
+	time_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.72, 0.8))
+	row.add_child(time_lbl)
+	_log_time_labels.append(time_lbl)
+
+	return row
+
+func _format_log_age(fired_at_msec: int) -> String:
+	var elapsed_sec: int = int((Time.get_ticks_msec() - fired_at_msec) / 1000.0)
+	if elapsed_sec < 60:
+		return "%ds ago" % elapsed_sec
+	var elapsed_min: int = int(elapsed_sec / 60.0)
+	if elapsed_min < 60:
+		return "%dm ago" % elapsed_min
+	var elapsed_hr: int = int(elapsed_min / 60.0)
+	return "%dh ago" % elapsed_hr

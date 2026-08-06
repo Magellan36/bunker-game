@@ -1,3 +1,75 @@
+# Handover — Per-Plant Harvest Jobs + NPC Action Log (Aug 2026)
+
+## What changed this session
+
+### Part A — Harvest: one job per plant, not per tray
+`JobBoard._scan_harvest()` now posts one HARVEST job per READY PLANT
+(target = the plant, `harvest_<plant id>`), not one per tray — a 2x1
+tray with both cells ready posts two independent, separately-claimable
+jobs. `NPCBrain`'s HARVEST `_complete()` now harvests just its single
+plant target (guarded with `is_ready()`), instead of looping every ready
+plant in a tray.
+
+### Part B — Action Log: data model (NPC.gd)
+`NPC.log_action()`/`get_action_log()` — per-NPC, curated (NOT routine
+activity switches), mirrors NotificationManager's capped-array + signal +
+live-rebuild pattern. Captures both `fired_at_msec` and a `game_time`
+HUD-clock snapshot. `_check_contagion_log()` (logs only after cumulative
+mood-contagion drift crosses ±2%) and `_check_label_crossings()`
+(irritability/relationship band crossings) hooked into the 5s mood tick.
+`_adjust_relationship()` now RETURNS the actual post-Sociability,
+post-clamp applied delta (all existing callers keep working, ignoring
+the return).
+
+### Part C — Log call sites
+- Give: "Player gave you X (+N relationship)" using the applied delta;
+  repeat-gift: "fed only, no relationship change".
+- Takeaway (need-triggered only): "Player took X from you (+N
+  relationship)". Non-need takeaways deliberately not logged.
+- Relax interruption: "Player interrupted your relaxation (+N
+  relationship)".
+- `RelaxActivity.exit()`: "Relaxed for N min" (skipped if session never
+  started).
+- `PassedOutActivity`: "Passed out (0 energy)" on collapse, "Woke up" on
+  exit.
+- Snatch success: "Snatched an item from your hands" (aborted/failed/
+  dropped-item-chase deliberately not logged).
+- Job (Harvest) completion: "Job (Harvest)".
+
+### Part D — UI log dropdown (NPCTalkMenuUI.gd)
+"Show Activity Log ▾" toggle expands the panel by `LOG_SECTION_H` via
+`_apply_panel_height()` (re-centering math mirrors
+`UIKit.build_centered_panel()`), revealing a fixed-height scroll area
+rebuilt live off `action_logged`; timestamps tick as "Xs/m/h ago".
+Collapsed by default each open; signal disconnected in `_teardown()`.
+
+### Files modified
+- `scripts/npc/JobBoard.gd` — per-plant harvest jobs.
+- `scripts/npc/NPCBrain.gd` — HARVEST `_complete()` per-plant + log
+  calls (Relax exit, PassedOut enter/exit, Snatch success).
+- `scripts/npc/NPC.gd` — Action Log data model, tick hooks,
+  `_adjust_relationship()` return value, Give/Takeaway/Relax log calls.
+- `scripts/ui/npc/NPCTalkMenuUI.gd` — log dropdown (constants, vars,
+  build, merged `_process`, teardown disconnect, new functions).
+- `docs/systems/npc/README.md` — new Action Log section; Skills & Jobs
+  harvest note updated (per-plant); testing items 52–57 (renumbered from
+  plan's 37–42).
+- `HANDOVER.md` — this entry.
+
+### Deviations from plan (both benign)
+- The plan said "create a `_process` if this UI doesn't already have
+  one" — NPCTalkMenuUI already had one driving `_refresh_live_values()`
+  on a timer. Merged the log-timestamp refresh into it instead of
+  replacing it (the plan's replacement would have broken the live need
+  bar refresh).
+
+### Verification checklist
+See `NPC_HARVEST_PERPLANT_AND_ACTION_LOG_PLAN.md` items 37–42 (52–57 in
+the README). No Godot CLI available — recommend opening the project to
+compile-check.
+
+---
+
 # Handover — NPC Time-Skip Catch-Up Simulation (Aug 2026)
 
 ## What changed this session

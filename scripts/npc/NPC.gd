@@ -305,6 +305,8 @@ func _tick_mood_and_irritability(delta: float) -> void:
 	_tick_irritability(h)
 	_tick_relationships(h)
 	_tick_relax_day(h)
+	_check_contagion_log()
+	_check_label_crossings()
 
 func _tick_mood(h: float) -> void:
 	var needs_avg: float = (energy + hunger + thirst) / 3.0
@@ -429,15 +431,94 @@ func get_work_ethic_passive_mult() -> float:
 func neuroticism_trait_mult() -> float:
 	return lerp(0.5, 1.5, float(personality.get("neuroticism", 0.5)))
 
+# ─── Action Log (Aug 2026) ──────────────────────────────────────────────────
+## Player-facing, curated log of MEANINGFUL things this NPC has done —
+## deliberately NOT a record of routine activity switching (Wander→Eat→
+## Wander etc.). Mirrors NotificationManager/NotificationHistoryUI's
+## pattern (capped array + change signal + live-rebuilding scroll panel)
+## but scoped to one NPC instead of a global feed.
+signal action_logged
+
+const ACTION_LOG_MAX_LEN: int = 100
+const CONTAGION_LOG_THRESHOLD: float = 2.0   ## cumulative %, since the last log entry
+
+var _action_log: Array[Dictionary] = []
+var _contagion_log_accum: float = 0.0
+var _last_irritability_label: String = ""
+var _last_player_relationship_label: String = "Neutral"
+
+## Single append point for every entry. Both timestamp flavors are
+## captured now, not derived later: `fired_at_msec` for the live "Xs ago"
+## display, `game_time` (a snapshot of the HUD clock string) for the
+## hover tooltip.
+func log_action(text: String) -> void:
+	_action_log.append({
+		"text": text,
+		"fired_at_msec": Time.get_ticks_msec(),
+		"game_time": _current_game_time_string(),
+	})
+	if _action_log.size() > ACTION_LOG_MAX_LEN:
+		_action_log.pop_front()
+	action_logged.emit()
+
+## Newest-first, matching NotificationManager.get_history()'s convention.
+func get_action_log() -> Array[Dictionary]:
+	var out: Array[Dictionary] = _action_log.duplicate()
+	out.reverse()
+	return out
+
+func _current_game_time_string() -> String:
+	var stats: Node = get_tree().get_first_node_in_group("player_stats")
+	if stats != null and stats.has_method("get_time_display"):
+		return stats.get_time_display()
+	return "?"
+
+## Contagion's own per-tick delta (_mood_contagion_delta, already tracked
+## separately inside _tick_mood()) accumulates here; only logged once the
+## cumulative drift since the last log crosses ±2%, so ambient contagion
+## doesn't spam an entry every 5 seconds.
+func _check_contagion_log() -> void:
+	_contagion_log_accum += _mood_contagion_delta
+	if absf(_contagion_log_accum) >= CONTAGION_LOG_THRESHOLD:
+		var verb: String = "rose" if _contagion_log_accum > 0.0 else "fell"
+		log_action("Mood %s %+.0f%% (Mood Contagion)" % [verb, _contagion_log_accum])
+		_contagion_log_accum = 0.0
+
+## Band-crossing detection — logs only on the actual crossing, not every
+## tick the band is held. Irritability (Grumpy/Frustrated/Mad/Rage, and
+## calming back down) and relationship-with-player
+## (Hostile/Cold/Neutral/Friendly/Close) both already have clean labeled
+## bands to compare against; mood doesn't (no small fixed set of bands),
+## so it's deliberately not included here.
+func _check_label_crossings() -> void:
+	var irr_label: String = get_irritability_label()
+	if irr_label != _last_irritability_label:
+		if irr_label != "":
+			log_action("Became \"%s\" (irritability)" % irr_label)
+		elif _last_irritability_label != "":
+			log_action("Calmed down (irritability)")
+		_last_irritability_label = irr_label
+
+	var rel_label: String = get_relationship_label("player")
+	if rel_label != _last_player_relationship_label:
+		log_action("Relationship with you became \"%s\"" % rel_label)
+		_last_player_relationship_label = rel_label
+
 ## Single mutation point for every relationship change, present and future
 ## — every new driver in Future Work calls this, never writes `relationships`
 ## directly, so the sociability multiplier and clamp are never bypassed.
-func _adjust_relationship(target_id: String, delta: float) -> void:
+## Now returns the ACTUAL applied delta (post-Sociability-multiplier,
+## post-clamp) — callers that want to show the real number in the action
+## log (not the pre-multiplier input) need this; everything that already
+## ignores the return value keeps working unchanged.
+func _adjust_relationship(target_id: String, delta: float) -> float:
 	if target_id == "" or target_id == npc_id:
-		return
+		return 0.0
 	var current: float = get_relationship(target_id)
-	relationships[target_id] = clampf(
+	var new_value: float = clampf(
 		current + delta * _sociability_trait_mult(), RELATIONSHIP_MIN, RELATIONSHIP_MAX)
+	relationships[target_id] = new_value
+	return new_value - current
 
 func _tick_relationships(h: float) -> void:
 	var gain: float = RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR * h
@@ -548,11 +629,13 @@ func on_item_given(item: Node) -> void:
 		if NPCDebug.enabled:
 			NPCDebug.log_relationship_event(self, "player", 0.0,
 				"re-gift, already boosted by this item — fed only, no bonus")
+		log_action("Player gave you %s (fed only, no relationship change)" % item.get_display_name())
 		return
 
 	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
-	_adjust_relationship("player", effective_bonus)
+	var applied: float = _adjust_relationship("player", effective_bonus)
 	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
+	log_action("Player gave you %s (%+.1f relationship)" % [item.get_display_name(), applied])
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", effective_bonus,
 			"received gift (saturation %.2f)" % gift_saturation)
@@ -692,8 +775,9 @@ func on_item_taken_by_player() -> void:
 	if item != null:
 		NPCItemUser.release_item(item)
 	if not was_need_triggered:
-		return
-	_adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
+		return   ## job material etc. — no relationship consequence, and deliberately not logged either (not meaningful enough)
+	var applied: float = _adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
+	log_action("Player took %s from you (%+.1f relationship)" % [item.get_display_name(), applied])
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
 
@@ -1400,9 +1484,10 @@ func request_job_while_relaxing() -> bool:
 	_relax_job_request_count += 1
 	if _relax_job_request_count <= 1:
 		return false
-	_adjust_relationship("player", -3.0)
+	var applied: float = _adjust_relationship("player", -3.0)
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", -3.0, "pulled from relaxing to do a job")
+	log_action("Player interrupted your relaxation (%+.1f relationship)" % applied)
 	return true
 
 const RELAXING_REFUSAL_LINES: Array[String] = [

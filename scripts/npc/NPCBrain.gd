@@ -247,6 +247,8 @@ class RelaxActivity extends NPCActivity:
 		return false
 
 	func exit(npc: NPC) -> void:
+		if _session_elapsed > 0.01:   ## skip logging a session that never actually started
+			npc.log_action("Relaxed for %d min" % int(round(_session_elapsed * 60.0)))
 		if _inner != null:
 			_inner.exit(npc)
 			_inner = null
@@ -650,6 +652,7 @@ class SnatchActivity extends NPCActivity:
 				if NPCItemUser.flat_distance(npc.global_position, (_player as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
 					if NPCItemUser.snatch_from_player(npc, _player):
 						NPCDebug.log_snatch(npc, "success", "grabbed item from player's hands, handing off to consume")
+						npc.log_action("Snatched an item from your hands")
 						_handoff = NPCBrain.GivenEatActivity.new() if _is_edible else NPCBrain.GivenDrinkActivity.new()
 						_outcome_label = "Snatched!"
 						_player = null
@@ -1040,12 +1043,14 @@ class JobActivity extends NPCActivity:
 		var conf: Dictionary = TYPE_CONF[_job["type"]]
 		match _job["type"]:
 			"HARVEST":
-				for plant in target.plant_refs:
-					if plant != null and is_instance_valid(plant) and plant.is_ready():
-						plant.harvest()   ## spawns real produce, clears cell
+				## target IS the plant now (Part 31 — one job per plant,
+				## not per tray).
+				if target != null and is_instance_valid(target) and target.has_method("is_ready") and target.is_ready():
+					target.harvest()   ## spawns real produce, clears cell
 				NotificationManager.notify(UIKit.Domain.NEUTRAL,
 					NotificationManager.Severity.INFO,
 					"%s harvested the crops" % npc.npc_name)
+				npc.log_action("Job (Harvest)")
 			"REPLACE_FILTER":
 				if npc.held_item is PurifierFilterItem:
 					var filt: PurifierFilterItem = npc.held_item
@@ -1246,6 +1251,7 @@ class PassedOutActivity extends NPCActivity:
 		npc.mood = clampf(npc.mood - mood_drop, 0.0, 100.0)
 		if NPCDebug.enabled:
 			NPCDebug.log_mood_event(npc, -mood_drop, "passed out")
+		npc.log_action("Passed out (0 energy)")
 
 	func tick(npc: NPC, delta: float) -> void:
 		npc.energy = minf(100.0, npc.energy + REGEN_PER_GAME_HOUR * npc.game_hours(delta))
@@ -1254,6 +1260,7 @@ class PassedOutActivity extends NPCActivity:
 		return npc.energy >= WAKE_ENERGY
 
 	func exit(npc: NPC) -> void:
+		npc.log_action("Woke up")
 		npc.rotation = _orig_rotation
 
 

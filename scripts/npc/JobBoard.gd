@@ -82,14 +82,13 @@ func _scan_harvest(seen: Dictionary) -> void:
 	for tray: Node in get_tree().get_nodes_in_group("farming_tray"):
 		if not is_instance_valid(tray) or not ("plant_refs" in tray):
 			continue
-		var any_ready: bool = false
 		for plant in tray.plant_refs:
 			if plant != null and is_instance_valid(plant) and plant.is_ready():
-				any_ready = true
-				break
-		if any_ready:
-			_mark(seen, "harvest_%d" % tray.get_instance_id(),
-				"HARVEST", tray, null)
+				## One job per READY PLANT now, not one per tray — a 2x1
+				## tray with both cells ready posts two independent jobs.
+				## target is the plant itself.
+				_mark(seen, "harvest_%d" % plant.get_instance_id(),
+					"HARVEST", plant, null)
 
 func _scan_filters(seen: Dictionary) -> void:
 	## Only post if a usable spare filter exists SOMEWHERE (loose or shelved)

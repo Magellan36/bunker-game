@@ -646,10 +646,14 @@ randomized at spawn, +0.01 on relevant job completion. `JobBoard`
 (autoload) polls every 2s for HARVEST (any tray with a ready plant),
 REPLACE_FILTER (purifier < 30% AND a spare unused filter exists anywhere),
 REFUEL (generator < 40% AND a non-empty fuel can exists anywhere) — jobs
-only post when actually completable. `JobActivity` runs fetch → travel →
-work phases; travel targets a standoff point near the object (not its
-exact center, which sits inside its own collision and off the navmesh)
-computed from whichever direction the NPC is approaching from.
+only post when actually completable. As of the Aug 2026 per-plant pass,
+**HARVEST posts ONE job per READY PLANT** (not one per tray) — a 2x1
+tray with both cells ready produces two independent, separately-claimable
+jobs (even by two NPCs at once); the job `target` is the plant itself.
+`JobActivity` runs fetch → travel → work phases; travel targets a
+standoff point near the object (not its exact center, which sits inside
+its own collision and off the navmesh) computed from whichever direction
+the NPC is approaching from.
 
 ### Items & Consumption
 NPCs eat/drink using the exact same world APIs the player does —
@@ -753,6 +757,50 @@ unbounded consumption. Per NPC, in order:
   "job", not one JobBoard tray-job — a tray can hold several ready
   plants). Plants that were NOT ready before the skip do NOT get
   auto-harvested (farming growth isn't tied to skips at all).
+
+### Action Log (Aug 2026)
+Per-NPC, player-facing, **curated** log of MEANINGFUL things this NPC has
+done — deliberately NOT a record of routine activity switching
+(Wander→Eat→Wander etc.). `NPC.log_action()` is the single append point
+(`get_action_log()` returns newest-first), scoped to one NPC (each NPC's
+own E-panel shows only their own log, unlike the global
+`NotificationManager` feed it mirrors in structure). Both timestamp
+flavors are captured at append time: `fired_at_msec` for the live "Xs
+ago" display, `game_time` (a snapshot of the HUD clock string) for the
+hover tooltip. Capped at `ACTION_LOG_MAX_LEN` (100).
+
+**Every current log-triggering event:**
+- Give (`on_item_given()`) — new gift: "Player gave you X (+N relationship)",
+  with the actual post-Sociability applied delta (returned by
+  `_adjust_relationship()`, which now reports what it did); repeat-gift:
+  "fed only, no relationship change".
+- Takeaway (`on_item_taken_by_player()`) — need-triggered only; taking a
+  job material is deliberately not logged.
+- Snatch success (`SnatchActivity.tick()`) — "Snatched an item from your
+  hands". Aborted/failed attempts and the dropped-item-chase variant are
+  deliberately not logged.
+- Relax session completed (`RelaxActivity.exit()`) — "Relaxed for N min"
+  (skipped if the session never actually started).
+- Job/Harvest completion — "Job (Harvest)" (Part A's per-plant change
+  touches this same anchor).
+- Pass-out / wake (`PassedOutActivity`) — "Passed out (0 energy)" on
+  collapse, "Woke up" on recovery.
+- Mood contagion (`_check_contagion_log()`) — "Mood rose/fell N% (Mood
+  Contagion)", only once cumulative drift since the last entry crosses
+  ±`CONTAGION_LOG_THRESHOLD` (2%).
+- Irritability / relationship band crossings (`_check_label_crossings()`)
+  — "Became \"X\" (irritability)", "Calmed down (irritability)",
+  "Relationship with you became \"X\"", logged only at the actual
+  crossing, not every tick the band is held.
+
+"Talked to [NPC]" is an aspirational future entry (no NPC-to-NPC
+dialogue exists yet) the log format already supports without changes.
+
+**UI:** the E-panel has a "Show Activity Log" toggle that expands the
+panel by `LOG_SECTION_H` (and re-centers it via `_apply_panel_height()`)
+revealing a fixed-height scroll area (`LOG_AREA_H`) rebuilt live off the
+`action_logged` signal; timestamps tick over as "Xs/m/h ago" every frame
+while expanded. Collapsed by default on every open, not remembered.
 
 ### Debug Tooling
 `NPCDebug.enabled` (F7 toggle) gates continuous logging: activity
@@ -1013,3 +1061,22 @@ skills, personality words, seed, mood, and irritability + label.
     auto-harvested even if the skip's growth would have made them ready
     (since growth isn't currently tied to skips at all, this should
     already hold true, but worth confirming directly).
+52. Harvest a 2x1 (or larger) tray with multiple ready plants — confirm
+    it now posts as multiple independent jobs (check F7 job debug dump
+    if available) and can be split across two NPCs working simultaneously.
+53. Open an NPC's E-panel, press "Show Activity Log" — confirm the panel
+    visibly grows taller and the log area appears with correct rows;
+    press again — confirm it shrinks back to the original size.
+54. Trigger a Give, a Takeaway, a successful Snatch, a completed Relax
+    session, and a Harvest job on one NPC — confirm each produces exactly
+    one clear, correctly-worded log entry, newest at the top.
+55. Leave two NPCs near each other with meaningfully different moods for
+    several minutes — confirm a "Mood rose/fell X% (Mood Contagion)"
+    entry appears only occasionally (once cumulative drift crosses ±2%),
+    not every few seconds.
+56. Push a relationship down past a band boundary (F7) — confirm a
+    "Relationship with you became "X"" entry appears exactly once at the
+    crossing, not repeated every tick while it stays in that band.
+57. Scroll through a log with 20+ entries — confirm the scrollbar
+    appears and behaves normally, and hovering a row's timestamp shows
+    the in-game clock time in a tooltip.
