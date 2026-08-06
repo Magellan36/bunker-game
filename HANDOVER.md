@@ -1,3 +1,34 @@
+# Handover — Fix: Action Log Wording — "you/your" → NPC Name / "the player" (Aug 2026)
+
+## What changed this session
+Pure wording fix — the action log is a third-person, objective record
+for a specific named NPC, so every "you"/"your" was replaced with either
+the NPC's own name (when it referred to the NPC) or "the player" (when
+it referred to the player). Six lines across two files:
+- Give new-gift: "Player gave you X" → "Player gave X to {name}".
+- Give repeat-gift: → "Player gave X to {name} (fed only...)".
+- Takeaway: "Player took X from you" → "Player took X from {name}".
+- Relax interruption: "interrupted your relaxation" → "{name}'s
+  relaxation".
+- Relationship band crossing: "Relationship with you" → "with the
+  player".
+- Snatch success (NPCBrain): "your hands" → "the player's hands".
+
+No other lines needed changes (Relaxed/X min, Job (Harvest), Passed out,
+Woke up, contagion/mood entries never used "you").
+
+### Files modified
+- `scripts/npc/NPC.gd` — 5 log lines (uses `npc_name`, a valid member).
+- `scripts/npc/NPCBrain.gd` — 1 snatch line.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+Trivial wording change only — no behavioral change; verify by opening an
+NPC's E-panel and checking the log reads naturally in third person. No
+Godot CLI available — recommend opening the project to compile-check.
+
+---
+
 # Handover — Per-Plant Harvest Jobs + NPC Action Log (Aug 2026)
 
 ## What changed this session

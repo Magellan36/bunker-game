@@ -501,7 +501,7 @@ func _check_label_crossings() -> void:
 
 	var rel_label: String = get_relationship_label("player")
 	if rel_label != _last_player_relationship_label:
-		log_action("Relationship with you became \"%s\"" % rel_label)
+		log_action("Relationship with the player became \"%s\"" % rel_label)
 		_last_player_relationship_label = rel_label
 
 ## Single mutation point for every relationship change, present and future
@@ -629,13 +629,13 @@ func on_item_given(item: Node) -> void:
 		if NPCDebug.enabled:
 			NPCDebug.log_relationship_event(self, "player", 0.0,
 				"re-gift, already boosted by this item — fed only, no bonus")
-		log_action("Player gave you %s (fed only, no relationship change)" % item.get_display_name())
+		log_action("Player gave %s to %s (fed only, no relationship change)" % [item.get_display_name(), npc_name])
 		return
 
 	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
 	var applied: float = _adjust_relationship("player", effective_bonus)
 	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
-	log_action("Player gave you %s (%+.1f relationship)" % [item.get_display_name(), applied])
+	log_action("Player gave %s to %s (%+.1f relationship)" % [item.get_display_name(), npc_name, applied])
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", effective_bonus,
 			"received gift (saturation %.2f)" % gift_saturation)
@@ -777,7 +777,7 @@ func on_item_taken_by_player() -> void:
 	if not was_need_triggered:
 		return   ## job material etc. — no relationship consequence, and deliberately not logged either (not meaningful enough)
 	var applied: float = _adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
-	log_action("Player took %s from you (%+.1f relationship)" % [item.get_display_name(), applied])
+	log_action("Player took %s from %s (%+.1f relationship)" % [item.get_display_name(), npc_name, applied])
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
 
@@ -1487,7 +1487,7 @@ func request_job_while_relaxing() -> bool:
 	var applied: float = _adjust_relationship("player", -3.0)
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", -3.0, "pulled from relaxing to do a job")
-	log_action("Player interrupted your relaxation (%+.1f relationship)" % applied)
+	log_action("Player interrupted %s's relaxation (%+.1f relationship)" % [npc_name, applied])
 	return true
 
 const RELAXING_REFUSAL_LINES: Array[String] = [

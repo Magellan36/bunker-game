@@ -652,7 +652,7 @@ class SnatchActivity extends NPCActivity:
 				if NPCItemUser.flat_distance(npc.global_position, (_player as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
 					if NPCItemUser.snatch_from_player(npc, _player):
 						NPCDebug.log_snatch(npc, "success", "grabbed item from player's hands, handing off to consume")
-						npc.log_action("Snatched an item from your hands")
+						npc.log_action("Snatched an item from the player's hands")
 						_handoff = NPCBrain.GivenEatActivity.new() if _is_edible else NPCBrain.GivenDrinkActivity.new()
 						_outcome_label = "Snatched!"
 						_player = null
