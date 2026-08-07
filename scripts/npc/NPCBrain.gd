@@ -59,6 +59,13 @@ func get_talk_partner_name() -> String:
 			return String(t._partner.npc_name)
 	return "someone"
 
+func get_talk_partner_id() -> String:
+	if _current is TalkActivity:
+		var t: TalkActivity = _current as TalkActivity
+		if t._partner != null and is_instance_valid(t._partner) and ("npc_id" in t._partner):
+			return String(t._partner.npc_id)
+	return ""
+
 func end_talk_if_talking() -> void:
 	if _current is TalkActivity:
 		(_current as TalkActivity)._partner = null
@@ -637,12 +644,14 @@ class TalkActivity extends NPCActivity:
 
 	func score(npc: NPC) -> float:
 		if not _is_initiator:
-			return 0.0   ## the forced partner-side instance is never itself a scoring candidate
+			return 0.0
 		if npc.has_method("is_talk_on_cooldown") and npc.is_talk_on_cooldown():
 			return 0.0
-		if npc.find_talk_partner() == null:
+		var partner: Node = npc.find_talk_partner()
+		if partner == null:
 			return 0.0
-		return NPC.TALK_BASE_SCORE * npc.get_work_ethic_passive_mult()
+		var mult: float = npc.get_talk_score_mult(partner) if npc.has_method("get_talk_score_mult") else 1.0
+		return NPC.TALK_BASE_SCORE * npc.get_work_ethic_passive_mult() * mult
 
 	func interruptible() -> bool:
 		if _partner == null:
@@ -681,8 +690,10 @@ class TalkActivity extends NPCActivity:
 		_elapsed += delta
 		if _elapsed >= _duration:
 			if _partner.has_method("end_talk_session"):
-				_partner.end_talk_session()
+				_partner.end_talk_session(true)
 			npc.log_action("Talked to %s" % _partner.npc_name)
+			if npc.has_method("apply_talk_relationship_swing") and ("npc_id" in _partner):
+				npc.apply_talk_relationship_swing(_partner.npc_id, _partner.npc_name)
 			_partner = null
 
 	func done(npc: NPC) -> bool:
@@ -691,9 +702,13 @@ class TalkActivity extends NPCActivity:
 	func exit(npc: NPC) -> void:
 		if _partner != null and is_instance_valid(_partner) and _is_initiator:
 			## interrupted some other way (including a low-needs abort) —
-			## don't leave the partner stuck waiting forever
+			## don't leave the partner stuck waiting forever; natural=false
+			## since this path only ever fires when the conversation did
+			## NOT reach its normal duration-elapsed ending (that path
+			## already nulls _partner before exit() runs, so this branch
+			## is exclusively the "cut short" case).
 			if _partner.has_method("end_talk_session"):
-				_partner.end_talk_session()
+				_partner.end_talk_session(false)
 		if _duration > 0.0 and npc.has_method("start_talk_cooldown"):
 			npc.start_talk_cooldown()   ## covers both natural completion and any interrupt/abort path
 		_partner = null

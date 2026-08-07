@@ -1014,13 +1014,41 @@ func is_talk_on_cooldown() -> bool:
 ## Flat 1.0x between -15 and +15 (your framing: "neutral" band); scales
 ## continuously beyond that rather than a hard binary jump, same reasoning
 ## every other trait/relationship multiplier in this file uses.
-func get_talk_score_mult(other_id: String) -> float:
-	var rel: float = get_relationship(other_id)
-	if rel > TALK_RELATIONSHIP_NEUTRAL_HIGH:
-		var t: float = clampf((rel - TALK_RELATIONSHIP_NEUTRAL_HIGH) / (RELATIONSHIP_MAX - TALK_RELATIONSHIP_NEUTRAL_HIGH), 0.0, 1.0)
+const TALK_RELATIONSHIP_DELTA_MIN: int = 1
+const TALK_RELATIONSHIP_DELTA_MAX: int = 3
+
+## Called independently on EACH participant at natural conversation end.
+## Uniform magnitude 1-3, random sign — routed through
+## _adjust_relationship() like every other relationship-affecting event,
+## so it's Sociability-scaled the same way Give/Takeaway/etc. already are
+## (meaning the logged number won't always be a clean integer — same
+## %+.1f convention every other relationship log line already uses).
+func apply_talk_relationship_swing(partner_id: String, partner_name: String) -> void:
+	var magnitude: float = float(randi_range(TALK_RELATIONSHIP_DELTA_MIN, TALK_RELATIONSHIP_DELTA_MAX))
+	var base_delta: float = magnitude if randf() < 0.5 else -magnitude
+	var applied: float = _adjust_relationship(partner_id, base_delta)
+	var label: String = "Good Conversation" if applied > 0.0 else ("Bad Conversation" if applied < 0.0 else "Neutral Conversation")
+	log_action("Relationship with %s %+.1f (%s)" % [partner_name, applied, label])
+
+## Takes the partner NODE (not just an id) so it can read BOTH
+## directions — "mutually high" means averaging this NPC's feeling
+## toward them AND their feeling toward this NPC, not just one side.
+## The previous version only ever considered the initiator's own
+## one-directional relationship.
+func get_talk_score_mult(other: Node) -> float:
+	if other == null or not is_instance_valid(other):
+		return 1.0
+	var other_id: String = String(other.npc_id) if ("npc_id" in other) else ""
+	if other_id == "":
+		return 1.0
+	var rel_mine: float = get_relationship(other_id)
+	var rel_theirs: float = other.get_relationship(npc_id) if other.has_method("get_relationship") else rel_mine
+	var mutual_rel: float = (rel_mine + rel_theirs) / 2.0
+	if mutual_rel > TALK_RELATIONSHIP_NEUTRAL_HIGH:
+		var t: float = clampf((mutual_rel - TALK_RELATIONSHIP_NEUTRAL_HIGH) / (RELATIONSHIP_MAX - TALK_RELATIONSHIP_NEUTRAL_HIGH), 0.0, 1.0)
 		return lerp(1.0, TALK_SCORE_MULT_MAX, t)
-	elif rel < TALK_RELATIONSHIP_NEUTRAL_LOW:
-		var t: float = clampf((TALK_RELATIONSHIP_NEUTRAL_LOW - rel) / (TALK_RELATIONSHIP_NEUTRAL_LOW - RELATIONSHIP_MIN), 0.0, 1.0)
+	elif mutual_rel < TALK_RELATIONSHIP_NEUTRAL_LOW:
+		var t: float = clampf((TALK_RELATIONSHIP_NEUTRAL_LOW - mutual_rel) / (TALK_RELATIONSHIP_NEUTRAL_LOW - RELATIONSHIP_MIN), 0.0, 1.0)
 		return lerp(1.0, TALK_SCORE_MULT_MIN, t)
 	return 1.0
 
@@ -1059,11 +1087,18 @@ func start_talk_session(initiator: NPC) -> bool:
 ## Called on the partner when the initiator's session timer ends, OR on
 ## either side if interrupted some other way — ends the local session
 ## and logs it from this NPC's own perspective.
-func end_talk_session() -> void:
+## natural=true (default) means the conversation actually ran its course
+## — a relationship swing applies. natural=false (interrupted some other
+## way) skips the swing.
+func end_talk_session(natural: bool = true) -> void:
 	if brain == null or not brain.is_talking():
 		return
 	var partner_name: String = brain.get_talk_partner_name()
 	log_action("Talked to %s" % partner_name)
+	if natural and brain.has_method("get_talk_partner_id"):
+		var partner_id: String = brain.get_talk_partner_id()
+		if partner_id != "":
+			apply_talk_relationship_swing(partner_id, partner_name)
 	brain.end_talk_if_talking()
 	start_talk_cooldown()
 
