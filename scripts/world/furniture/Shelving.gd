@@ -329,6 +329,20 @@ func _stack_rotation(item: RigidBody3D, idx: int) -> Vector3:
 func _try_place_item(item: RigidBody3D) -> void:
 	var slot: int = _find_slot_for(item)
 	if slot == -1:
+		## Aug 2026 fix — previously silent: no warning, and the item was
+		## left stranded in the player's hand with no fallback. Shelving
+		## has no "too big" concept (_find_slot_for() accepts any item
+		## type into any empty slot) — -1 here always means genuinely
+		## full. Now warns AND falls through to the same drop F would do
+		## with nothing in range (InteractionSystem._quick_drop()),
+		## matching LightStorage.gd's established too-big/full pattern —
+		## bunkers get tight with furniture placed close together, so a
+		## silent block here left players unable to drop OR pick up
+		## anything near a full shelf without walking away first.
+		var hud: Node = get_tree().get_first_node_in_group("hud")
+		if hud != null and hud.has_method("show_soft_warning"):
+			hud.show_soft_warning("Shelf is full")
+		_interaction_system._quick_drop()
 		return
 
 	## Release from InteractionSystem cleanly

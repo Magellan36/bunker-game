@@ -335,8 +335,24 @@ own held item while CASE 1 scans for a different target — guarded with
   `_placed_objects` entries, which a currently-held item is never a
   member of, so that path doesn't appear able to reach a held item
   directly; not conclusively resolved, flagged as a possible Furniture/
-  Build-Mode-thread lead (`eject_all_items()` on deconstructed
+  Build-Mode-thread lead (  `eject_all_items()` on deconstructed
   containers) rather than chased further here.
+- **Storage-reject fallback to drop (Aug 2026,
+  `LightStorage.gd`/`Shelving.gd` — flagged: `scripts/world/furniture/`,
+  not one of the three core files, but the F-dispatch fallback these
+  hook into is `InteractionSystem._quick_drop()`).** Previously,
+  pressing F to store a held item into a full or size-ineligible
+  Dresser/End Table/Shelf just showed a warning (or, for a full Shelf,
+  nothing at all) and left the item stuck in the player's hand — no
+  fallback to the normal drop F already does when nothing's in range.
+  Both `LightStorage._try_store_held()` and `Shelving._try_place_item()`
+  now call `_interaction_system._quick_drop()` directly in their
+  rejection branches after showing the warning, reusing the exact same
+  drop path rather than adding new drop logic. Matters in practice
+  because bunkers get tight with furniture placed close together —
+  without this, standing near a full/ineligible storage object could
+  leave a player unable to drop (or, transitively, pick anything else
+  up) without first walking out of that storage object's ~2.5 m reach.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns

@@ -1,3 +1,37 @@
+# Handover — Storage-Reject Fallback to Drop (Aug 2026)
+
+## What changed this session
+Fixed pressing F to store a held item into a full or size-ineligible
+Dresser/End Table/Shelf leaving the item stuck in the player's hand.
+Both `LightStorage._try_store_held()` (Dresser/End Table — "too big"/
+"full" checks) and `Shelving._try_place_item()` (Shelf — full only, no
+"too big" concept there) now call `InteractionSystem._quick_drop()`
+directly in their rejection branches, after showing the existing
+warning (Shelving previously showed no warning at all in this case —
+added one, matching LightStorage's established pattern). Reuses the
+exact drop path F already falls back to when there's no storage object
+in range at all — no new drop logic. Purpose: bunkers get tight with
+furniture placed close together, and blocking F entirely near a full/
+ineligible storage object could strand a player unable to drop (or pick
+up) anything nearby without first walking out of range.
+
+### Files modified
+- `scripts/world/furniture/LightStorage.gd` — `_try_store_held()`
+  rejection branches now fall back to `_quick_drop()`.
+- `scripts/world/furniture/Shelving.gd` — `_try_place_item()`'s full
+  branch gained a warning message (previously silent) and the same
+  `_quick_drop()` fallback.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `docs/systems/furniture-items/README.md` — one-line cross-reference
+  (Furniture-subsystem-owned file, flagged for their visibility).
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_STORAGE_REJECT_DROP_FALLBACK_PLAN.md`
+for the full 6-item checklist)
+---
+---
+
 # Handover — `get_held_item()` Validity Guard (Aug 2026)
 
 ## What changed this session

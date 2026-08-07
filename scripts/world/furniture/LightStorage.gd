@@ -125,10 +125,20 @@ func _try_store_held(item: RigidBody3D) -> void:
 	if not item.is_in_group("inventory_item"):
 		if hud != null and hud.has_method("show_soft_warning"):
 			hud.show_soft_warning("Too big for the %s" % display_name.to_lower())
+		## Aug 2026 fix — don't leave the item stranded in the player's
+		## hand. Fall through to the same drop F would do with nothing in
+		## range at all (InteractionSystem._quick_drop(), the "secondary
+		## priority" path already built into the F dispatch — see its own
+		## comment). Bunkers get tight with furniture placed close
+		## together; blocking F entirely here meant a player standing
+		## near a Dresser/End Table couldn't drop OR pick anything else up
+		## nearby without walking away first.
+		_interaction_system._quick_drop()
 		return
 	if is_full():
 		if hud != null and hud.has_method("show_soft_warning"):
 			hud.show_soft_warning("%s is full" % display_name)
+		_interaction_system._quick_drop()   ## Same fallback — see comment above.
 		return
 
 	## Release from InteractionSystem cleanly — mirrors Shelving exactly.

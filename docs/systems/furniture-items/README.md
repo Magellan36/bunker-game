@@ -167,6 +167,10 @@ the power system â€” see `docs/systems/world-core/README.md` Persistence).
 - **New furniture interaction (beyond Bed's sleep):** follow `Bed.gd`'s
   minimal `on_interact()`/`get_prompt_text()`/`set_player_in_range()` shape
   for a new `StaticBody3D` furniture piece.
+- Storage-full/too-big rejection (Dresser/End Table/Shelf) now falls
+  back to a normal drop instead of blocking F entirely — see Player
+  subsystem's `docs/systems/player/README.md` for the fallback mechanism
+  (`InteractionSystem._quick_drop()`).
 
 ## Forbidden edits
 - **Don't skip the `from_inventory` flag when adding a new item.** Every
