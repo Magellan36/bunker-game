@@ -1,3 +1,42 @@
+# Handover — Player Docs Reconciliation + Cooking Pot UI §1 Verification (Aug 2026)
+
+## What changed this session
+No code changes — verified `PLAN_cooking_pot_ui_fixes.md`'s §1
+(`scripts/player/InteractionSystem.gd` portion: CASE 1 held-item icons
+fix, `_quick_drop()` re-tracking fix) is already fully applied, exactly
+matching spec (landed in commit `f6f437c`, which the UI thread applied
+in full including the Player-owned portion). Nothing further needed for
+the implementing agent on that front.
+
+Used this as the trigger for a full audit of
+`docs/systems/player/README.md` against current code — going forward,
+every plan from the Player subsystem thread will include a
+documentation-reconciliation pass, not just append a note for its own
+change. Found and fixed: a stale Files-table line count, a missing
+Public API entry for `release_held_item_to_npc()` (Player + Interaction-
+System), a Call graph with no mention of Give/Takeaway/Snatch at all,
+and — the significant one — the existing Common-edits entries for Give/
+Takeaway still described `_release_item_to_npc()`/
+`clear_held_item_external()` as the live mechanism, when a later
+cross-thread plan ("Unified Item Transfer Function for Give AND Snatch")
+had already superseded both with a single `release_held_item_to_npc()`
+method and rewired the NPC-side contract from `receive_item_from_player()`
+to `can_receive_item()`/`on_item_given()`. Marked the superseded entries
+clearly, documented the current mechanism, and flagged the now-dead code
+(`_release_item_to_npc()`, `clear_held_item_external()`,
+`Player.on_item_snatched()`, `InventoryManager.clear_slot()`) in Known
+tradeoffs as a cleanup candidate rather than removing it (no removal was
+in scope here).
+
+### Files modified
+- `docs/systems/player/README.md` — Files table, Public API, Call graph,
+  Common edits (superseded-path flag + new cooking-pot entry), Known
+  tradeoffs.
+- `HANDOVER.md` — this entry.
+
+---
+---
+
 # Handover — Player Subsystem Cleanup Phase 1: InteractionProximityScan extraction (Aug 2026)
 
 ## Synopsis

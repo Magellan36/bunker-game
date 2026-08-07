@@ -42,9 +42,9 @@ together by `MainWorld`).
 ## Files
 | File | Lines | Role |
 |---|---|---|
-| `Player.gd` | ~120 | `CharacterBody3D` — movement, sprint/stamina, facing, movement-lock |
-| `PlayerStats.gd` | ~170 | Survival needs (food/water/sleep/health) + game clock |
-| `InteractionSystem.gd` | ~686 | Pickup/drop/store/scroll, interact prompt builder |
+| `Player.gd` | ~170 | `CharacterBody3D` — movement, sprint/stamina, facing, movement-lock, seated-chair input, NPC-facing Give/Snatch contract |
+| `PlayerStats.gd` | ~200 | Survival needs (food/water/sleep/health) + game clock |
+| `InteractionSystem.gd` | ~1,245 | Pickup/drop/store/scroll, interact prompt builder, NPC Give/Takeaway/Snatch transfer, shelf/basket/cookpot E-dispatch fairness |
 
 ## Public API
 **`Player`** (`class_name Player`, extends `CharacterBody3D`):
@@ -53,6 +53,16 @@ full-screen modal to block WASD/sprint/interact without pausing the
 `SceneTree` (grid/generators keep running). Public vars: `stamina: float`
 (0–100, read by HUD), `camera_yaw_rad: float` (set every frame by
 `MainWorld`/`GameCamera` so input stays camera-relative).
+**NPC-facing contract (Aug 2026, see Common edits):** NPC-side code
+resolves this node via `get_tree().get_first_node_in_group("player")`
+and calls these directly — `get_held_item() -> Node` (read-only
+passthrough to `InteractionSystem.held_item`), `release_held_item_to_npc
+(npc: Node) -> bool` (forwards to `InteractionSystem`'s method of the
+same name — the single shared transfer path for both Give and Snatch).
+`on_item_snatched() -> void` also still exists but is currently
+**dead code** — Snatch was rewired to call `release_held_item_to_npc()`
+directly instead (see Common edits' "Unified Item Transfer" entry);
+left in place, not yet removed.
 
 **`PlayerStats`** (`class_name PlayerStats`, extends `Node`):
 `replenish_food/water/sleep/health(amount: float)`, `get_time_display() ->
@@ -61,11 +71,19 @@ see Persistence). Public vars: `food/water/sleep/health: float` (0–100),
 `time_multiplier: float` (dev-tool time warp, F12), `current_day: int`.
 
 **`InteractionSystem`** (`class_name InteractionSystem`, extends `Node3D`):
-No public methods beyond `_ready()`/input handlers — it's driven entirely by
-`_unhandled_input()` and `_process()`. External systems configure it by
-setting its public vars directly (no setters): `inventory: Node`
-(`InventoryManager` ref), `prompt: Node` (`InteractPrompt` ref),
-`inventory_hud: Node`, `shelf_ui: Node`, `build_mode_active: bool`. Public
+Driven mostly by `_unhandled_input()`/`_process()`, but now has one real
+public method beyond that: **`release_held_item_to_npc(npc: Node) -> bool`**
+(Aug 2026) — the single shared "held item leaves the player's hand for
+an NPC" transfer path, used by both Give (`_try_give_to_nearest_npc()`)
+and Snatch (`NPCItemUser.snatch_from_player()`, via `Player.gd`'s
+forwarder above). Handles the full transfer: disconnects `knocked_out`,
+clears the inventory slot if the item came from one, clears
+`held_item`/`_held_from_slot`/`_is_holding_e`, refreshes HUD selection,
+then `item.pickup(npc.hold_point)` + `npc.held_item = item`. External
+systems otherwise configure this node by setting its public vars
+directly (no setters): `inventory: Node` (`InventoryManager` ref),
+`prompt: Node` (`InteractPrompt` ref), `inventory_hud: Node`,
+`shelf_ui: Node`, `basket_ui: Node`, `build_mode_active: bool`. Public
 var `held_item: RigidBody3D` (currently held item, `null` if empty-handed) and
 `selected_slot: int` (-1 = none) are read by other systems (e.g. HUD) but
 never written externally.
@@ -119,12 +137,24 @@ Player._physics_process() → _handle_movement() (WASD/sprint/stamina)
 InteractionSystem._unhandled_input()
   → scroll wheel  → _scroll_slot(dir) → _put_item_back_to_slot()/_bring_item_to_hand_from_slot()
   → F (pickup)    → _try_pickup() / _quick_drop() / shelf.on_f_interact()
-  → E (tap)       → held_item.on_use() / _try_interact() (world objects: generators, breakers, etc.)
+                    (_try_pickup() also checks NPCItemUser.find_holder() —
+                    picking up an NPC-held item is "Takeaway", see below)
+  → E (tap)       → shelf.on_e_interact() (distance-fair vs. any held-item
+                      E target, Aug 2026 — see Common edits) / basket-stash /
+                      cookpot-stash-or-stove / NPC-give / held_item.on_use() /
+                      _try_interact() (world objects: generators, breakers, etc.)
                     (fires instantly on press; `_is_holding_e` stays true only
                     to drive per-frame continuous-hold actions like
                     `FuelCan.refuel_tick()` — it no longer gates a store action)
   → G (tap)       → _store_item() / _put_item_back_to_slot() (instant, no hold/progress bar)
 InteractionSystem._process() → _update_prompt() → prompt.set_prompts(...)/hide_prompt()
+
+NPC Give   → _try_give_to_nearest_npc() → NPC.can_receive_item() →
+             InteractionSystem.release_held_item_to_npc(npc) → NPC.on_item_given()
+NPC Snatch → NPCItemUser.snatch_from_player() → Player.release_held_item_to_npc(npc)
+             → InteractionSystem.release_held_item_to_npc(npc)   (same function as Give)
+NPC Takeaway → player presses F on an NPC-held item → _try_pickup() finds it via
+               NPCItemUser.find_holder() → normal pickup + NPC.on_item_taken_by_player()
 
 PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation health drain
                         → _tick_clock() → time_changed/day_changed
@@ -239,6 +269,37 @@ own held item while CASE 1 scans for a different target — guarded with
   F-dispatch stove-pot-vs-pickup case and the ready-dish check — future
   E/F priority additions should follow the same shape: compute a rival
   distance, compare strictly, let the closer one win.
+- **⚠️ Superseded (Aug 2026): Give/Snatch transfer unified into
+  `release_held_item_to_npc()`.** The two entries above
+  ("NPC Give/Takeaway support" and its bugfix, "Give/Snatch
+  inventory-slot clear fix") describe `_release_item_to_npc()` /
+  `clear_held_item_external()` as the live cleanup path — that's no
+  longer accurate. A later cross-thread plan ("Unified Item Transfer
+  Function for Give AND Snatch", see `HANDOVER.md`) replaced both with
+  a single `release_held_item_to_npc(npc: Node) -> bool` method (see
+  Public API above), used by Give (`_try_give_to_nearest_npc()`, now via
+  `NPC.can_receive_item()`/`on_item_given()`, NOT the old
+  `receive_item_from_player()`) AND Snatch
+  (`NPCItemUser.snatch_from_player()` → `Player.release_held_item_to_npc()`
+  → here). **`_release_item_to_npc()`, `clear_held_item_external()`,
+  `Player.on_item_snatched()`, and `InventoryManager.clear_slot()` are
+  now dead code** — still present, nothing calls them — flagged as
+  cleanup candidates in Known tradeoffs below rather than removed here,
+  since no removal was part of the plan that superseded them.
+- **Cooking Pot UI: held-item icons + quick-drop re-tracking (Aug
+  2026, UI-thread plan, InteractionSystem.gd portion only).** Two small
+  fixes, both generic (not cooking-specific): (1) CASE 1's held-item
+  prompt entry now includes an `"icons"` key built from
+  `get_slot_icon_descriptors()` if the held item implements it — CASE 2
+  already did this for nearby (not held) interactables, CASE 1 never
+  did, which is why a held Cooking Pot's 3 ingredient-preview circles
+  vanished the instant it was picked up. (2) `_quick_drop()` now
+  re-adds the dropped item to `_tracked_bodies` immediately instead of
+  waiting for Jolt's `Area3D.body_entered` to refire — a quick-dropped
+  item usually lands well inside the same detection volume it was
+  picked up from, so that signal never naturally refires, leaving the
+  item's prompt (and icon row, if any) invisible until an actual range
+  leave/re-enter.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns
@@ -291,12 +352,20 @@ own held item while CASE 1 scans for a different target — guarded with
 ## Known tradeoffs / tech debt
 - No automated tests.
 - Survival stat/inventory state isn't saved (see Persistence above).
-- `InteractionSystem.gd` is a single ~686-line file covering pickup, drop,
-  store, scroll, AND prompt-building — a plausible future split candidate
-  (e.g. extract prompt-building into its own `_owner`-pattern helper the same
-  way `BuildModeController`'s Stage 10 extraction did) but not currently
-  scheduled; only split it if a genuinely self-contained new feature needs
-  its own file (see repo-wide "no god files" rule in `HANDOVER.md`).
+- `InteractionSystem.gd` is a single ~1,245-line file covering pickup,
+  drop, store, scroll, prompt-building, AND the NPC Give/Takeaway/Snatch
+  transfer path — see the Player subsystem's cleanup assessment plan
+  (`PLAYER_SUBSYSTEM_CLEANUP_ASSESSMENT_AND_PLAN.md`) for a scoped,
+  phased extraction plan following the same `_owner`-pattern precedent
+  `BuildModeController`'s Stage 10 and the Power system's
+  `PowerGraph`/`PowerRegistry`/`PowerSolver` split already established —
+  not yet executed, awaiting sign-off on Phase 1.
+- **Dead code (Aug 2026):** `_release_item_to_npc()`,
+  `clear_held_item_external()`, `Player.on_item_snatched()`, and
+  `InventoryManager.clear_slot()` were superseded by the unified
+  `release_held_item_to_npc()` transfer path (see Common edits above)
+  but were left in place rather than removed. Safe to delete in a future
+  pass; not currently scheduled.
 
 ## Extension points
 - New item types just need to implement the same duck-typed method surface
