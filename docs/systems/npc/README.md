@@ -271,7 +271,7 @@ branching needed anywhere the multipliers are used.
 - `get_work_ethic_job_mult()`, 0.7x-1.3x, applied directly to
   `JobActivity.score()`.
 - `get_work_ethic_passive_mult()`, the mirror image (1.3x-0.7x), applied
-  to Wander/Sit/Lie/Eat/Drink/Relax's scores.
+  to Wander/Sit/Lie/Eat/Drink/Relax/Talk/Give-to-Friend's scores.
 - Lazy specifically (not Hard Worker) gets DOUBLE the daily Relaxing
   budget (2hr vs the 1hr baseline) — this is a deliberate asymmetry, not
   an oversight: Hard Worker does NOT get a reduced relax budget, only
@@ -537,12 +537,22 @@ stand-in for a real in-fiction relationship UI later, per Brannon.
   system already prevents one NPC from ever targeting another's claimed
   item), so this only ever fires against the player today.
 
-### Relationship Snatch (Aug 2026)
+### Relationship Snatch (Aug 2026, generalized to any target)
 
-A badly-relationship'd NPC has a chance to target the PLAYER instead of a
-normal world item when searching for food/water, forcibly taking a held
-item right out of the player's hands. It is the one intentional,
-narrowly-gated exception to the strict no-theft ethos.
+A badly-relationship'd NPC has a chance to target the PLAYER **or another
+NPC** (instead of a normal world item) when searching for food/water,
+forcibly taking a held item right out of the target's hands. It is the
+one intentional, narrowly-gated exception to the strict no-theft ethos.
+
+The target pool is now unified: `NPC.find_snatch_target()`
+considers the player and every other NPC side-by-side as
+interchangeable candidates — anyone holding a matching item whose
+relationship with the snatcher is ≤ -50 qualifies, with ties broken by
+nearest (`NPCItemUser.flat_distance`). The player is just another member
+of that pool; there is no player-first branching. The old
+`find_player_snatch_target()` is gone; its one remaining backward-compat
+wrapper, `get_snatch_chance()` (kept for the player-only F7 debug flow),
+just delegates to the generalized `get_snatch_chance_toward(id)`.
 
 Runs as its own **dedicated, non-interruptible `SnatchActivity`** — not a
 mode folded inside EatActivity/DrinkActivity. That earlier design (Part
@@ -556,27 +566,27 @@ wanders off" behavior. Now: `SnatchActivity.interruptible()` returns
 `false` always, so once the NPC commits it cannot be preempted.
 
 The flow: EatActivity/DrinkActivity call
-`NPC.find_player_snatch_target()` in `enter()`/`_reacquire_or_finish()`.
-On a hit, the activity stores the player in `_pending_snatch` and hands
+`NPC.find_snatch_target()` in `enter()`/`_reacquire_or_finish()`.
+On a hit, the activity stores the target in `_pending_snatch` and hands
 off to `SnatchActivity` on the next tick via the new
 `NPCActivity.take_handoff()` mechanism (checked by `NPCBrain.tick()`
 right after `tick()` runs — deliberately NOT `force_command()` from
 inside an activity's own `tick()`, which would be reentrantly unsafe
 against the brain's `_current = null` line). `SnatchActivity` walks to
-the player (SNATCH_RANGE), and on a successful
-`NPCItemUser.snatch_from_player()` immediately hands off to
+the target (SNATCH_RANGE), and on a successful
+`NPCItemUser.snatch_from()` immediately hands off to
 `GivenEatActivity`/`GivenDrinkActivity` to consume what was grabbed —
 again via `take_handoff()`, so the item is eaten/drunk over the normal
 duration, never instantly.
 
 Both `EatActivity.score()` and `DrinkActivity.score()` also consult
-`NPC.is_player_snatch_eligible()` (a deterministic, roll-free check) so
+`NPC.is_npc_snatch_eligible()` (a deterministic, roll-free check) so
 they return nonzero — and get selected by `_think()` — even when the only
-matching item in the bunker is currently in the player's hands. Without
-this, score() returned 0 whenever no normal world target existed, the
-activity never got chosen, `enter()` never ran, and the NPC just wandered
-despite hunger/thirst and a hostile relationship. The actual probability
-roll still only happens inside `find_player_snatch_target()` once the
+matching item in the bunker is currently in another character's hands.
+Without this, score() returned 0 whenever no normal world target existed,
+the activity never got chosen, `enter()` never ran, and the NPC just
+wandered despite hunger/thirst and a hostile relationship. The actual
+probability roll still only happens inside `find_snatch_target()` once the
 activity is entered.
 
 Snatch uses a slightly larger `SNATCH_RANGE` (1.6) than the loose-item
@@ -584,48 +594,55 @@ Snatch uses a slightly larger `SNATCH_RANGE` (1.6) than the loose-item
 tight pickup distance walked the NPC into physical contact before its
 range check ever satisfied.
 
-`SnatchActivity` **continuously re-aims at the player every tick** while
+`SnatchActivity` **continuously re-aims at the target every tick** while
 the item is still in their hands (not just once at `enter()`), so a
-moving player is chased live. If the player drops the tracked item (the
-same item, now loose on the ground) instead of stowing/using/giving it
-away, it switches to chasing the dropped item and grabs it there. A
+moving character is chased live. If the target drops the tracked item
+(the same item, now loose on the ground) instead of stowing/using/giving
+it away, it switches to chasing the dropped item and grabs it there. A
 `MAX_CHASE_TIME` (20s) safety valve makes it give up cleanly (logged)
 rather than pursuing forever — since `interruptible()` is false, nothing
 else could ever interrupt an indefinite chase. The decision path is
-fully logged via `find_player_snatch_target()` (not-considered reasons,
+fully logged via `find_snatch_target()` (not-considered reasons,
 roll attempts, roll success/failure) plus `SnatchActivity`'s own staged
-lines.
+lines. The victim's side of the log mirrors the player version at NPC
+scale: `NPC.on_item_snatched_by_npc()`, invoked by `snatch_from()` for an
+NPC target, clears the victim's `held_item`, releases the claim, and logs
+"%s snatched an item from %s" (relationship-neutral).
 
 **Snatch uses the exact same transfer path as Give.**
-`snatch_from_player()` no longer does its own pickup/inventory logic —
-it calls `Player.release_held_item_to_npc()`, the same shared function
-Give's `_try_give_to_nearest_npc()` uses (which wraps
+`snatch_from()` no longer does its own pickup/inventory logic — for a
+player target it calls `Player.release_held_item_to_npc()`, the same
+shared function Give's `_try_give_to_nearest_npc()` uses (which wraps
 `InteractionSystem.release_held_item_to_npc()`, the `_quick_drop()`-
 mirroring transfer that clears the inventory slot and HUD selection too).
 The player-side `get_held_item()`/`release_held_item_to_npc()` are
-reachable via the `"player"` group node. `Player.on_item_snatched()`/
-`InteractionSystem.clear_held_item_external()` from the earlier
-contract are now un-called by Snatch (the shared transfer handles
-everything) — left in place as dead code.
+reachable via the `"player"` group node. For an NPC target there's no
+inventory system to reconcile — `snatch_from()` directly reassigns the
+item to the thief's `hold_point` and clears the victim's `held_item`.
+`Player.on_item_snatched()`/`InteractionSystem.clear_held_item_external()`
+from the earlier contract are now un-called by Snatch (the shared
+transfer handles everything) — left in place as dead code.
 
-- **Gated on hostility.** Only ever considered when the relationship with
-  the player is ≤ -50 (`SNATCH_RELATIONSHIP_THRESHOLD`).
+- **Gated on hostility.** Only ever considered when the relationship
+  with the target is ≤ -50 (`SNATCH_RELATIONSHIP_THRESHOLD`), whether
+  the target is the player or another NPC.
 - **Chance scales with hostility.** At exactly -50: 5% per attempt
   (`SNATCH_CHANCE_AT_THRESHOLD`). At -100 (fully hostile): 50%
-  (`SNATCH_CHANCE_AT_MIN`). Linear between via `get_snatch_chance()`.
+  (`SNATCH_CHANCE_AT_MIN`). Linear between, via
+  `get_snatch_chance_toward(target_id)`.
 - **Evaluated on target search only** — once per Eat/DrinkActivity entry
-  and after finishing a previous item (via `find_player_snatch_target()`),
+  and after finishing a previous item (via `find_snatch_target()`),
   matching the cadence of every other target search, never continuously.
 - **Relationship-neutral.** A successful snatch does not further ding the
   relationship — it is already a consequence of an existing bad one, not
   a new event worth logging as its own relationship change.
-- **Held item only.** It only ever targets a currently player-HELD item
-  (via `player.get_held_item()`); it never reaches into inventory or
+- **Held item only.** It only ever targets a currently target-HELD item
+  (via `target.get_held_item()`); it never reaches into inventory or
   stored items. The item must be a matching food/water item (edible for
   Eat, drinkable bottle for Drink).
 - **Deliberately separate from `grab_loose()`.** The guarded `grab_loose()`
   (for legitimate item-finding, with its `is_held` guard added to stop
-  accidental theft) stays strict. `snatch_from_player()` is the one
+  accidental theft) stays strict. `snatch_from()` is the one
   intentional exception, reached only through `SnatchActivity`.
 - **Staged debug logging** via `NPCDebug.log_snatch()` — `started`/
   `success`/`aborted`/`failed` each get their own console line (only when
@@ -633,11 +650,92 @@ everything) — left in place as dead code.
 - **F7 debug buttons.** "Force Nearest NPC to Snatch Player Item" targets
   the nearest NPC to the player, bypasses both the relationship gate and
   the probability roll, but still requires the player to be actually
-  holding a matching food/water item. "Relationship -25 / +25 (All NPCs
-  ↔ Player)" set every spawned NPC's relationship with the player by an
-  exact ±25, bypassing the Sociability multiplier
+  holding a matching food/water item. "Force Nearest NPC to Snatch NPC
+  Item" tries the same for an NPC target (bypasses gates, requires a
+  disliked NPC holding a matching item). "Relationship -25 / +25 (All
+  NPCs ↔ Player)" set every spawned NPC's relationship with the player
+  by an exact ±25, bypassing the Sociability multiplier
   (`debug_adjust_player_relationship()` writes `relationships["player"]`
   directly), so the ±25 is predictable for testing.
+
+### NPC↔NPC Talking (Aug 2026)
+
+Opportunistic, scored like Relaxing — but the score is multiplied by a
+relationship curve. Flat 1.0x between relationship −15 and +15 (the
+"neutral" band), scaling continuously up to 2.5x by +100
+(`TALK_SCORE_MULT_MAX`) and down to 0.2x by −100 (`TALK_SCORE_MULT_MIN`)
+via `get_talk_score_mult(other_id)`. Only ever considered between NPCs
+already within `TALK_RANGE` (3.0) — deliberately **no travel phase**, so
+both parties lock in place immediately rather than walking to meet. This
+sidesteps the "cancelled mid-approach" failure mode Snatch originally
+had. Non-interruptible once both parties are locked in.
+
+Mechanics (`TalkActivity`, registered in `_candidates`):
+- `score()` is zero unless a free partner exists (`find_talk_partner()`),
+  then `TALK_BASE_SCORE (5.5) × work-ethic passive mult` (see Trait
+  Effects Reference). A partner is eligible via `is_available_to_talk()`
+  (not relaxing, not already talking, and interruptible).
+- On `enter()`, the initiator picks the nearest eligible partner and
+  calls `partner.start_talk_session(initiator)`, which `force_command()`s
+  a **separate, one-shot partner-side `TalkActivity`**
+  (`is_initiator = false`) onto the partner. Both `lock_movement()` and
+  face each other (`look_at`), so both stand locked for the whole
+  session.
+- Session duration `SESSION_MIN..MAX` (8–20 real seconds). When the
+  initiator's timer ends, it calls `partner.end_talk_session()`, which
+  logs **"Talked to X"** from the partner's own perspective and clears
+  its `_partner` so its forced activity finishes. The initiator logs its
+  own "Talked to X".
+- Interaction (F7 force someone else mid-conversation) triggers
+  `exit()` → `partner.end_talk_session()` on the partner side too, so
+  neither party is stranded waiting.
+- **FUTURE WORK (deliberately not built):** relationship-based random
+  conversation OUTCOMES. This pass is groundwork only — both NPCs
+  occupied, facing each other, logged.
+
+**F7 debug button:** "Force Nearest NPC to Talk to NPC" calls
+`nearest.debug_force_talk()`, which finds a free partner and forces the
+initiator's `TalkActivity` (partners still must be eligible).
+
+### Give-to-Friend (Aug 2026)
+
+A well-fed, friendly NPC (relationship ≥ +25 with a friend whose matching
+need is low) fetches a loose food/water item and delivers it to that
+friend. Chance-to-attempt scales with relationship strength above +25,
+mirroring Snatch's curve shape in the opposite direction: 5% at exactly
++25 (`GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD`), 50% at +100
+(`GIVE_TO_FRIEND_CHANCE_AT_MAX`), linear between via
+`get_give_to_friend_chance(rel)`.
+
+Mechanics (`GiveToFriendActivity`, registered in `_candidates`):
+- `score()` uses `has_needy_friend()` (cheap, deterministic — no search
+  or roll) so the full search only runs on `enter()`:
+  `GIVE_TO_FRIEND_BASE_SCORE × work-ethic passive mult`.
+- `find_friend_to_help()` picks the **nearest** eligible needy friend
+  (relationship ≥ +25, matching need < 55), picks the matching item type
+  (lowest need: `edible` if hunger is lower, `drinkable_bottle` if
+  thirst is lower),
+  finds a matching loose item, then gates on one probability roll scaled
+  to that friend's relationship.
+- Fetch phase mirrors `JobActivity` exactly (find/claim/`grab_loose`).
+  Travel phase mirrors `SnatchActivity`'s continuous re-aim at a moving
+  target. Interruptible throughout (`interruptible() → true`) — this is
+  an altruistic errand, fine to abandon if something more urgent comes
+  up.
+- On arrival (`SNATCH_RANGE`), `can_receive_item()` gates the hand-off:
+  the item is `pickup`'d onto the friend's `hold_point`, the friend's
+  `held_item` set, and `friend.on_item_given(item, npc.npc_id,
+  npc.npc_name)` — so the **relationship boost lands on the donor**, not
+  always the player. The donor's own log: "Gave {item} to {friend}". The
+  recipient's existing Give log now reads "{donor} gave {item} to
+  {npc_name}", generalized from the player-only wording.
+- `exit()` releases any unconsumed claimed item; if interrupted while
+  actually carrying the item, the NPC keeps it (they'll finish
+  delivering or use it next re-entry — reusable fetch).
+
+**F7 debug button:** "Force Nearest NPC to Give to Friend" calls
+`nearest.debug_force_give_to_friend()` — bypasses the chance roll but
+still needs an eligible needy friend and matching loose item.
 
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
@@ -1080,3 +1178,22 @@ skills, personality words, seed, mood, and irritability + label.
 57. Scroll through a log with 20+ entries — confirm the scrollbar
     appears and behaves normally, and hovering a row's timestamp shows
     the in-game clock time in a tooltip.
+58. Push two NPCs' relationship well above +15 and place them near each
+    other — confirm they talk noticeably more often than a neutral pair;
+    push another pair below -15 — confirm noticeably less often.
+59. Confirm a talking session locks BOTH NPCs in place, facing each
+    other, for the session, and both get a "Talked to X" log entry.
+60. Interrupt one NPC mid-conversation (F7 force-command something else)
+    — confirm the partner doesn't get stuck waiting forever.
+61. Set two NPCs' relationship to +40+, drain one's hunger, ensure a
+    matching item exists — confirm the well-fed one occasionally fetches
+    and delivers it; confirm the recipient's relationship toward the
+    DONOR (not the player) goes up, and the donor's own log shows "Gave
+    X to Y".
+62. Set two NPCs' relationship to -60, drain the hostile one's hunger,
+    give the disliked one a matching held item — confirm the hostile one
+    snatches from the OTHER NPC (not the player) when eligible, and both
+    sides' logs show it correctly.
+63. With the player ALSO eligible (bad relationship, holding a matching
+    item) alongside an eligible NPC target, confirm the nearest of the
+    two gets picked, regardless of which type it is.

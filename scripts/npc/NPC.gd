@@ -610,7 +610,12 @@ func can_receive_item(item: Node) -> bool:
 ## itself anymore; that's entirely the Player side's job now, since it's
 ## the only side with the inventory-slot context needed to clear it
 ## correctly.
-func on_item_given(item: Node) -> void:
+## giver_id/giver_name default to the player — the existing player-Give
+## call site (InteractionSystem.gd) calls this with no extra args and
+## needs zero changes. NPC-to-NPC Give (GiveToFriendActivity below)
+## passes the donor's npc_id/npc_name instead, so the relationship boost
+## lands on the ACTUAL giver, not always "player".
+func on_item_given(item: Node, giver_id: String = "player", giver_name: String = "Player") -> void:
 	var recipients: Array = item.get_meta("npc_gift_recipients", [])
 	var already_boosted: bool = recipients.has(npc_id)
 	if not already_boosted:
@@ -627,17 +632,17 @@ func on_item_given(item: Node) -> void:
 
 	if already_boosted:
 		if NPCDebug.enabled:
-			NPCDebug.log_relationship_event(self, "player", 0.0,
+			NPCDebug.log_relationship_event(self, giver_id, 0.0,
 				"re-gift, already boosted by this item — fed only, no bonus")
-		log_action("Player gave %s to %s (fed only, no relationship change)" % [item.get_display_name(), npc_name])
+		log_action("%s gave %s to %s (fed only, no relationship change)" % [giver_name, item.get_display_name(), npc_name])
 		return
 
 	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
-	var applied: float = _adjust_relationship("player", effective_bonus)
+	var applied: float = _adjust_relationship(giver_id, effective_bonus)
 	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
-	log_action("Player gave %s to %s (%+.1f relationship)" % [item.get_display_name(), npc_name, applied])
+	log_action("%s gave %s to %s (%+.1f relationship)" % [giver_name, item.get_display_name(), npc_name, applied])
 	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, "player", effective_bonus,
+		NPCDebug.log_relationship_event(self, giver_id, effective_bonus,
 			"received gift (saturation %.2f)" % gift_saturation)
 
 # ─── Relationship Snatch (Part 29/30) ───────────────────────────────────────
@@ -647,8 +652,16 @@ const SNATCH_CHANCE_AT_MIN: float = 0.5          ## at -100 (fully hostile)
 
 var _debug_force_snatch: bool = false   ## F7 test button only — one-shot
 
-func get_snatch_chance() -> float:
-	var rel: float = get_relationship("player")
+## Gives NPC the same get_held_item() interface Player already has, so
+## SnatchActivity/find_snatch_target() can treat both as interchangeable
+## targets without branching on type anywhere.
+func get_held_item() -> Node:
+	return held_item
+
+## Generalized to any target_id (npc_id or "player") — same curve, just
+## no longer hardcoded to the player specifically.
+func get_snatch_chance_toward(target_id: String) -> float:
+	var rel: float = get_relationship(target_id)
 	if rel > SNATCH_RELATIONSHIP_THRESHOLD:
 		return 0.0
 	var t: float = clampf(
@@ -656,11 +669,15 @@ func get_snatch_chance() -> float:
 		0.0, 1.0)
 	return lerp(SNATCH_CHANCE_AT_THRESHOLD, SNATCH_CHANCE_AT_MIN, t)
 
+## Kept for the F7 debug button, which is still specifically about the player.
+func get_snatch_chance() -> float:
+	return get_snatch_chance_toward("player")
+
 ## Deterministic eligibility, no random roll — used by EatActivity/
 ## DrinkActivity's score() so they don't return 0 and get skipped
 ## entirely just because the player happens to be holding the only
 ## matching item in the bunker. The actual random roll only happens once
-## the activity is entered, via find_player_snatch_target() below.
+## the activity is entered, via find_snatch_target() below.
 func is_player_snatch_eligible(need_filter: Callable) -> bool:
 	if get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD:
 		return false
@@ -672,41 +689,87 @@ func is_player_snatch_eligible(need_filter: Callable) -> bool:
 		return false
 	return need_filter.call(held)
 
+## Deterministic eligibility, no random roll — used alongside is_player_snatch_eligible
+## by EatActivity/DrinkActivity's score() so a hungry/thirsty NPC prefers
+## snatching from a disliked target (player OR another NPC) over a plain
+## search. Mirrors find_snatch_target()'s candidate pool for the trigger path.
+func is_npc_snatch_eligible(need_filter: Callable) -> bool:
+	if is_player_snatch_eligible(need_filter):
+		return true
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+			continue
+		if get_relationship(other.npc_id) > SNATCH_RELATIONSHIP_THRESHOLD:
+			continue
+		var held: Node = other.held_item
+		if held == null or not is_instance_valid(held):
+			continue
+		if need_filter.call(held):
+			return true
+	return false
+
 ## Called from EatActivity/DrinkActivity's enter()/_reacquire_or_finish().
-## Returns the player node if a snatch should be attempted this search,
-## else null. _debug_force_snatch bypasses the relationship gate AND the
-## probability roll, but not the "player must actually be holding a
-## matching item" check.
-func find_player_snatch_target(need_filter: Callable) -> Node:
+## Generalized: considers the player AND every other NPC as candidates,
+## uniformly — anyone (player or NPC) counts if their relationship with
+## THIS NPC is <= threshold and they're currently holding a matching
+## item. Ties broken by nearest, per spec. _debug_force_snatch still
+## only ever targets the player specifically (see debug_force_snatch()).
+func find_snatch_target(need_filter: Callable) -> Node:
 	var forced: bool = _debug_force_snatch
 	_debug_force_snatch = false
-	if not forced and get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD:
+	var force_npc: bool = _debug_force_npc_snatch
+	_debug_force_npc_snatch = false
+
+	if forced:
+		var player: Node = get_tree().get_first_node_in_group("player")
+		return player if player != null and is_instance_valid(player) else null
+
+	var best: Node = null
+	var best_d: float = INF
+
+	if not force_npc:
+		var player: Node = get_tree().get_first_node_in_group("player")
+		if player != null and is_instance_valid(player) and player.has_method("get_held_item") \
+				and get_relationship("player") <= SNATCH_RELATIONSHIP_THRESHOLD:
+			var held: Node = player.get_held_item()
+			if held != null and is_instance_valid(held) and need_filter.call(held):
+				var d: float = NPCItemUser.flat_distance(global_position, (player as Node3D).global_position)
+				if d < best_d:
+					best_d = d
+					best = player
+
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+			continue
+		if not force_npc and get_relationship(other.npc_id) > SNATCH_RELATIONSHIP_THRESHOLD:
+			continue
+		var held: Node = other.held_item
+		if held == null or not is_instance_valid(held) or not need_filter.call(held):
+			continue
+		var d: float = NPCItemUser.flat_distance(global_position, other.global_position)
+		if d < best_d:
+			best_d = d
+			best = other
+
+	if best == null:
 		if NPCDebug.enabled:
-			NPCDebug.log_snatch(self, "not considered", "relationship %.1f is above threshold %.1f" \
-				% [get_relationship("player"), SNATCH_RELATIONSHIP_THRESHOLD])
+			NPCDebug.log_snatch(self, "not considered", "no eligible disliked target holding a matching item")
 		return null
-	var player: Node = get_tree().get_first_node_in_group("player")
-	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
-		return null
-	var held: Node = player.get_held_item()
-	if held == null or not is_instance_valid(held):
+
+	var target_id: String = "player" if best.is_in_group("player") else best.npc_id
+	if force_npc:
 		if NPCDebug.enabled:
-			NPCDebug.log_snatch(self, "not considered", "player isn't holding anything")
-		return null
-	if not need_filter.call(held):
+			NPCDebug.log_snatch(self, "roll succeeded", "forced debug target=%s" % target_id)
+		return best
+	var chance: float = get_snatch_chance_toward(target_id)
+	var roll: float = randf()
+	if roll > chance:
 		if NPCDebug.enabled:
-			NPCDebug.log_snatch(self, "not considered", "player is holding something, but not a matching type")
+			NPCDebug.log_snatch(self, "roll failed", "target=%s chance=%.2f roll=%.2f" % [target_id, chance, roll])
 		return null
-	if not forced:
-		var chance: float = get_snatch_chance()
-		var roll: float = randf()
-		if roll > chance:
-			if NPCDebug.enabled:
-				NPCDebug.log_snatch(self, "roll failed", "chance=%.2f roll=%.2f" % [chance, roll])
-			return null
-		if NPCDebug.enabled:
-			NPCDebug.log_snatch(self, "roll succeeded", "chance=%.2f roll=%.2f" % [chance, roll])
-	return player
+	if NPCDebug.enabled:
+		NPCDebug.log_snatch(self, "roll succeeded", "target=%s chance=%.2f roll=%.2f" % [target_id, chance, roll])
+	return best
 
 ## F7 debug trigger — forces THIS NPC to attempt a snatch against the
 ## player right now via the normal EatActivity/DrinkActivity entry path
@@ -735,6 +798,47 @@ func debug_force_snatch() -> bool:
 func debug_adjust_player_relationship(delta: float) -> void:
 	var current: float = get_relationship("player")
 	relationships["player"] = clampf(current + delta, RELATIONSHIP_MIN, RELATIONSHIP_MAX)
+
+# ─── Debug force buttons (Aug 2026) — one-shot flags mirroring _debug_force_snatch ───
+var _debug_force_give: bool = false
+var _debug_force_npc_snatch: bool = false
+
+## Force this NPC into a talk session right now via its normal TalkActivity
+## entry path (finds the nearest free partner within TALK_RANGE).
+func debug_force_talk() -> bool:
+	var partner: Node = find_talk_partner()
+	if partner == null:
+		return false
+	brain.force_command(NPCBrain.TalkActivity.new())
+	return true
+
+## Force this NPC to fetch+deliver to the nearest eligible friend right
+## now via its normal GiveToFriendActivity path, bypassing the chance roll
+## but still requiring a real needy friend and a matching loose item.
+func debug_force_give_to_friend() -> bool:
+	if not has_needy_friend():
+		return false
+	_debug_force_give = true
+	brain.force_command(NPCBrain.GiveToFriendActivity.new())
+	return true
+
+## Force this NPC to snatch the nearest eligible DISLIKED NPC's matching
+## item right now (bypassing chance/relation), via the Eat/Drink snatch
+## entry path. Player is deliberately NOT a candidate here — this button
+## exists to test the NPC-target branch.
+func debug_force_npc_snatch() -> bool:
+	_debug_force_npc_snatch = true
+	var target: Node = find_snatch_target(Callable(NPCItemUser, "is_edible"))
+	if target != null:
+		brain.force_command(NPCBrain.EatActivity.new())
+		return true
+	_debug_force_npc_snatch = true
+	target = find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
+	if target != null:
+		brain.force_command(NPCBrain.DrinkActivity.new())
+		return true
+	_debug_force_npc_snatch = false
+	return false
 
 ## Takeaway gate. True only while genuinely hungry/thirsty AND actually
 ## holding a food/drink item right now — recomputed live rather than
@@ -780,6 +884,145 @@ func on_item_taken_by_player() -> void:
 	log_action("Player took %s from %s (%+.1f relationship)" % [item.get_display_name(), npc_name, applied])
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
+
+## Called on the VICTIM when another NPC successfully snatches from them
+## (NPCItemUser.snatch_from()). Relationship-neutral, same as the player
+## version — this is a consequence of an already-bad relationship, not a
+## new event that further sours it.
+func on_item_snatched_by_npc(thief: NPC) -> void:
+	var item: Node = held_item
+	held_item = null
+	if item != null:
+		NPCItemUser.release_item(item)
+	log_action("%s snatched an item from %s" % [thief.npc_name, npc_name])
+
+# ─── Talking (Aug 2026) ──────────────────────────────────────────────────
+const TALK_RANGE: float = 3.0
+const TALK_BASE_SCORE: float = 5.5   ## same tier as Relax/Wander
+const TALK_RELATIONSHIP_NEUTRAL_LOW: float = -15.0
+const TALK_RELATIONSHIP_NEUTRAL_HIGH: float = 15.0
+const TALK_SCORE_MULT_MAX: float = 2.5   ## at relationship +100
+const TALK_SCORE_MULT_MIN: float = 0.2   ## at relationship -100
+
+## Flat 1.0x between -15 and +15 (your framing: "neutral" band); scales
+## continuously beyond that rather than a hard binary jump, same reasoning
+## every other trait/relationship multiplier in this file uses.
+func get_talk_score_mult(other_id: String) -> float:
+	var rel: float = get_relationship(other_id)
+	if rel > TALK_RELATIONSHIP_NEUTRAL_HIGH:
+		var t: float = clampf((rel - TALK_RELATIONSHIP_NEUTRAL_HIGH) / (RELATIONSHIP_MAX - TALK_RELATIONSHIP_NEUTRAL_HIGH), 0.0, 1.0)
+		return lerp(1.0, TALK_SCORE_MULT_MAX, t)
+	elif rel < TALK_RELATIONSHIP_NEUTRAL_LOW:
+		var t: float = clampf((TALK_RELATIONSHIP_NEUTRAL_LOW - rel) / (TALK_RELATIONSHIP_NEUTRAL_LOW - RELATIONSHIP_MIN), 0.0, 1.0)
+		return lerp(1.0, TALK_SCORE_MULT_MIN, t)
+	return 1.0
+
+## Nearest NPC within TALK_RANGE who's actually free to talk right now.
+func find_talk_partner() -> Node:
+	var best: Node = null
+	var best_d: float = TALK_RANGE
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+			continue
+		if not other.has_method("is_available_to_talk") or not other.is_available_to_talk():
+			continue
+		var d: float = NPCItemUser.flat_distance(global_position, other.global_position)
+		if d < best_d:
+			best_d = d
+			best = other
+	return best
+
+func is_available_to_talk() -> bool:
+	if brain == null:
+		return false
+	if brain.is_relaxing() or brain.is_talking():
+		return false
+	return brain.is_current_interruptible()
+
+## Called on the partner by the initiator's TalkActivity. Forces the
+## partner into their own (non-initiator) TalkActivity instance.
+func start_talk_session(initiator: NPC) -> bool:
+	if not is_available_to_talk():
+		return false
+	brain.force_command(NPCBrain.TalkActivity.new(initiator, false))
+	return true
+
+## Called on the partner when the initiator's session timer ends, OR on
+## either side if interrupted some other way — ends the local session
+## and logs it from this NPC's own perspective.
+func end_talk_session() -> void:
+	if brain == null or not brain.is_talking():
+		return
+	var partner_name: String = brain.get_talk_partner_name()
+	log_action("Talked to %s" % partner_name)
+	brain.end_talk_if_talking()
+
+# ─── Give-to-Friend (Aug 2026) ──────────────────────────────────────────────
+const GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD: float = 25.0
+const GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD: float = 0.05   ## at exactly +25
+const GIVE_TO_FRIEND_CHANCE_AT_MAX: float = 0.5          ## at +100 — same curve shape as Snatch, mirrored direction
+const GIVE_TO_FRIEND_BASE_SCORE: float = 5.5
+
+func get_give_to_friend_chance(rel: float) -> float:
+	if rel < GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD:
+		return 0.0
+	var t: float = clampf(
+		(rel - GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD) / (RELATIONSHIP_MAX - GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD),
+		0.0, 1.0)
+	return lerp(GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD, GIVE_TO_FRIEND_CHANCE_AT_MAX, t)
+
+## Cheap, deterministic (no item search, no roll) — used by
+## GiveToFriendActivity.score() so the full search only runs on enter().
+func has_needy_friend() -> bool:
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+			continue
+		if get_relationship(other.npc_id) < GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD:
+			continue
+		if float(other.hunger) < 55.0 or float(other.thirst) < 55.0:
+			return true
+	return false
+
+## Full search: nearest needy friend (relationship-eligible, matching
+## need low) with a matching item actually available in the world, gated
+## by one probability roll scaled to that friend's relationship. Returns
+## {} if nothing qualifies.
+func find_friend_to_help() -> Dictionary:
+	var best: Node = null
+	var best_d: float = INF
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+			continue
+		if get_relationship(other.npc_id) < GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD:
+			continue
+		if not (float(other.hunger) < 55.0 or float(other.thirst) < 55.0):
+			continue
+		var d: float = NPCItemUser.flat_distance(global_position, other.global_position)
+		if d < best_d:
+			best_d = d
+			best = other
+	if best == null:
+		return {}
+
+	var need_filter: Callable = Callable(NPCItemUser, "is_edible") if float(best.hunger) < float(best.thirst) \
+		else Callable(NPCItemUser, "is_drinkable_bottle")
+	## if only one need is actually low, make sure the filter matches THAT one
+	if float(best.hunger) < 55.0 and not (float(best.thirst) < 55.0):
+		need_filter = Callable(NPCItemUser, "is_edible")
+	elif float(best.thirst) < 55.0 and not (float(best.hunger) < 55.0):
+		need_filter = Callable(NPCItemUser, "is_drinkable_bottle")
+
+	var item: Node = NPCItemUser.find_loose_item(self, need_filter)
+	if item == null:
+		return {}
+
+	var chance: float = get_give_to_friend_chance(get_relationship(best.npc_id))
+	var forced_give: bool = _debug_force_give
+	_debug_force_give = false
+	if not forced_give and randf() > chance:
+		return {}
+
+	return {"friend": best, "item": item}
 
 
 # ─── Skills (Part 4) — score multipliers for job selection; grow with use ──

@@ -135,6 +135,9 @@ func _ready() -> void:
 			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
 			["Print NPC Debug State", _on_npc_print_debug_pressed],
 			["Force Nearest NPC to Snatch Player Item", _on_npc_force_snatch_pressed],
+			["Force Nearest NPC to Talk to NPC", _on_npc_force_talk_pressed],
+			["Force Nearest NPC to Give to Friend", _on_npc_force_give_friend_pressed],
+			["Force Nearest NPC to Snatch NPC Item", _on_npc_force_npc_snatch_pressed],
 			["Relationship -25 (All NPCs ↔ Player)", _on_npc_relationship_down_pressed],
 			["Relationship +25 (All NPCs ↔ Player)", _on_npc_relationship_up_pressed],
 		]},
@@ -568,6 +571,45 @@ func _on_npc_force_snatch_pressed() -> void:
 		return
 	if nearest.has_method("debug_force_snatch") and not nearest.debug_force_snatch():
 		print("[AdminMenu] Force snatch failed — player isn't holding a matching food/water item")
+
+func _nearest_npc_to_player() -> Node:
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player == null or not is_instance_valid(player):
+		return null
+	var nearest: Node = null
+	var nearest_d: float = INF
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if not is_instance_valid(npc):
+			continue
+		var d: float = (npc as Node3D).global_position.distance_to((player as Node3D).global_position)
+		if d < nearest_d:
+			nearest_d = d
+			nearest = npc
+	return nearest
+
+func _on_npc_force_talk_pressed() -> void:
+	var nearest: Node = _nearest_npc_to_player()
+	if nearest == null:
+		push_warning("[AdminMenu] No NPCs spawned — cannot force talk")
+		return
+	if not nearest.has_method("debug_force_talk") or not nearest.debug_force_talk():
+		print("[AdminMenu] Force talk failed — no free NPC partner within TALK_RANGE")
+
+func _on_npc_force_give_friend_pressed() -> void:
+	var nearest: Node = _nearest_npc_to_player()
+	if nearest == null:
+		push_warning("[AdminMenu] No NPCs spawned — cannot force give-to-friend")
+		return
+	if not nearest.has_method("debug_force_give_to_friend") or not nearest.debug_force_give_to_friend():
+		print("[AdminMenu] Force give-to-friend failed — no eligible needy friend + matching loose item")
+
+func _on_npc_force_npc_snatch_pressed() -> void:
+	var nearest: Node = _nearest_npc_to_player()
+	if nearest == null:
+		push_warning("[AdminMenu] No NPCs spawned — cannot force NPC snatch")
+		return
+	if not nearest.has_method("debug_force_npc_snatch") or not nearest.debug_force_npc_snatch():
+		print("[AdminMenu] Force NPC snatch failed — no eligible disliked NPC holding a matching item")
 
 func _on_npc_relationship_down_pressed() -> void: _adjust_all_npc_relationship(-25.0)
 func _on_npc_relationship_up_pressed() -> void:   _adjust_all_npc_relationship(25.0)

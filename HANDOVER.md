@@ -1,3 +1,92 @@
+# Handover — NPC↔NPC Talking, Give-to-Friend, and Generalized Snatch (Aug 2026)
+
+## What changed this session
+Plan: `NPC_TO_NPC_TALK_GIVE_SNATCH_PLAN.md` (copied to repo root). Three
+NPC↔NPC social systems, plus unified snatch targeting. No Player-subsystem
+changes — `on_item_given()`'s new params default to player-Give, so
+`InteractionSystem.gd`'s call site needed zero edits.
+
+### Part A — Snatch generalized to any target (player + NPC)
+- `NPC.gd`: added `get_held_item()` (duck-typed parity with Player, so
+  targets are interchangeable). Split `get_snatch_chance()` into the
+  generalized `get_snatch_chance_toward(id)` (kept the old name as a
+  player-only wrapper for the F7 debug). Replaced
+  `find_player_snatch_target()` with `find_snatch_target()` — one unified
+  candidate pool (player + every NPC holding a matching item, relationship
+  ≤ -50, ties → nearest), a single roll against the chosen target's own
+  relationship. `_debug_force_snatch` still force only targets the player;
+  new `_debug_force_npc_snatch` forces an NPC target (skips player, gates,
+  and roll).
+- `NPCItemUser.snatch_from_player()` → `snatch_from(&)`: player targets
+  still go through `release_held_item_to_npc()` (inventory-slot context);
+  NPC targets do a direct physical reassignment plus call the victim's new
+  `on_item_snatched_by_npc()` (releases the victim's claim, logs "<thief>
+  snatched an item from <victim>", relationship-neutral).
+- `SnatchActivity` retargeted: `_player` → `_target` throughout (continuous
+  re-aim, dropped-item chase, MAX_CHASE_TIME all unchanged, already written
+  against a generic Node). Success log now "Snatched an item from {player
+  name|npc name}".
+- Generalized the score() snatch-trigger gate: `is_player_snatch_eligible`
+  → `is_npc_snatch_eligible` (player OR any disliked NPC holding a matching
+  item), so the "prefer snatch over a normal search" trigger also fires for
+  NPC targets organically.
+
+### Part B — NPC↔NPC Talking (groundwork only)
+- `TalkActivity` (non-blocked; only when already within `TALK_RANGE=3.0`):
+  score = `TALK_BASE_SCORE (5.5) × work-ethic passive mult`, then × a
+  relationship curve flat 1.0x in the −15..+15 neutral band, up to 2.5x
+  at +100, down to 0.2x at −100 (`get_talk_score_mult`).
+  Non-interruptible once locked in; both `lock_movement()` and face each
+  other (8–20 real seconds); both sides log "Talked to X".
+- One partner-side instance `force_command`'d via `start_talk_session()`
+  (is_initiator=false); `end_talk_session()` clears it so the partner never
+  hangs. `exit()` also clears the partner on interruption. FUTURE WORK:
+  conversation OUTCOMES deliberately not built.
+
+### Part C — Give-to-Friend
+- `on_item_given()` now takes `giver_id`/`giver_name` (defaults "player"/
+  "Player") so the relationship boost lands on the ACTUAL donor, not always
+  the player. Give log generalized to "{giver} gave {item} to
+  {npc_name}".
+- Added chance (`get_give_to_friend_chance`: 5% at +25 → 50% at +100),
+  cheap determinist `has_needy_friend()`, and full `find_friend_to_help()`
+  (nearest needy friend, matching loose item, one roll).
+- `GiveToFriendActivity`: fetch (mirrors JobActivity), travel (mirrors
+  Snatch re-aim), hand-off via `can_receive_item()` + `on_item_given(item,
+  npc_id, npc_name)`. Interruptible throughout. If interrupted carrying the
+  item, keeps it (finishes/uses on re-entry).
+
+### Part D — AdminMenu debug buttons (nice-to-have, implemented)
+"Force Nearest NPC to Talk to NPC", "Force Nearest NPC to Give to Friend",
+"Force Nearest NPC to Snatch NPC Item" — one-shot flags mirroring
+`_debug_force_snatch`, bypassing gates/roll but still requiring a valid
+partner/friend/item. Added `_nearest_npc_to_player()` helper.
+
+### Deviations from the plan
+- `find_snatch_target` forced-branch: kept `_debug_force_snatch`
+  player-only; added a separate `_debug_force_npc_snatch` flag instead of
+  the plan's single forced path, so the two F7 buttons stay distinct.
+- AdminMenu buttons: the plan's "nearest eligible PAIR" idea was simplified
+  into a flag-based one (nearest NPC calls its own normal search with gates
+  bypassed).
+
+### Files modified
+- `scripts/npc/NPC.gd` (talking + give constants/funcs, generalized snatch,
+  `get_held_item`, debug flags, `on_item_snatched_by_npc`).
+- `scripts/npc/NPCBrain.gd` (`TalkActivity`, `GiveToFriendActivity`, brain
+  helpers, `SnatchActivity` retargeted, `snatch_from`, generalize gates).
+- `scripts/npc/NPCItemUser.gd` (`snatch_from_player` → `snatch_from`).
+- `scripts/ui/menus/AdminMenu.gd` (3 debug buttons).
+- `docs/systems/npc/README.md` (new Talking/Give-to-Friend sections,
+  generalized Snatch section + F7 buttons, trait ref, testing items 58–63).
+- `HANDOVER.md` (this entry).
+
+### Verification checklist
+See plan items 43–48 (documented as 58–63 in README). No Godot CLI —
+recommend opening the project to compile-check.
+
+---
+
 # Handover — Fix: Action Log Wording — "you/your" → NPC Name / "the player" (Aug 2026)
 
 ## What changed this session

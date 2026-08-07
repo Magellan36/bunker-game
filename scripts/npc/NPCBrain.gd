@@ -34,6 +34,8 @@ func setup(npc: NPC) -> void:
 		DrinkActivity.new(),
 		EatActivity.new(),
 		RelaxActivity.new(),
+		TalkActivity.new(),
+		GiveToFriendActivity.new(),
 	]
 
 func current_label() -> String:
@@ -41,6 +43,25 @@ func current_label() -> String:
 
 func is_relaxing() -> bool:
 	return _current is RelaxActivity
+
+func is_talking() -> bool:
+	return _current is TalkActivity
+
+func is_current_interruptible() -> bool:
+	return _current == null or _current.interruptible()
+
+## Reaches into the current TalkActivity instance directly — same-file
+## access, no privacy concern; used by NPC.end_talk_session().
+func get_talk_partner_name() -> String:
+	if _current is TalkActivity:
+		var t: TalkActivity = _current as TalkActivity
+		if t._partner != null and is_instance_valid(t._partner) and ("npc_name" in t._partner):
+			return String(t._partner.npc_name)
+	return "someone"
+
+func end_talk_if_talking() -> void:
+	if _current is TalkActivity:
+		(_current as TalkActivity)._partner = null
 
 ## Player-issued command (Part 19) — force-starts the given activity
 ## immediately, exiting whatever's currently running via its own exit()
@@ -411,7 +432,7 @@ class DrinkActivity extends NPCActivity:
 		if npc.thirst >= 55.0:
 			return 0.0
 		if _pick_target(npc).is_empty() \
-				and not npc.is_player_snatch_eligible(Callable(NPCItemUser, "is_drinkable_bottle")):
+				and not npc.is_npc_snatch_eligible(Callable(NPCItemUser, "is_drinkable_bottle")):
 			return 0.0
 		return (100.0 - npc.thirst) * 1.2 * npc.get_work_ethic_passive_mult()   ## thirst outranks equal-level energy
 
@@ -435,7 +456,7 @@ class DrinkActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		_drinking = 0.0
-		_pending_snatch = npc.find_player_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
+		_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
 		if _pending_snatch != null:
 			return   ## handled on first tick() below
 		var pick: Dictionary = _pick_target(npc)
@@ -530,7 +551,7 @@ class DrinkActivity extends NPCActivity:
 		_pending_snatch = null
 		if npc.thirst >= 90.0:
 			return   ## satisfied — done() ends us next tick
-		_pending_snatch = npc.find_player_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
+		_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
 		if _pending_snatch != null:
 			return   ## picked up by tick() next frame
 		var pick: Dictionary = _pick_target(npc)
@@ -582,29 +603,108 @@ class GivenDrinkActivity extends DrinkActivity:
 		_target = item
 
 
+class TalkActivity extends NPCActivity:
+	## NPC↔NPC Talking (Aug 2026). One reusable instance lives in
+	## _candidates (constructed with defaults — partner=null,
+	## is_initiator=true) for the normal scored/organic path; a SEPARATE
+	## one-shot instance gets force_command()'d onto the partner side
+	## (partner=initiator, is_initiator=false) via start_talk_session().
+	## No travel phase — only ever matched between NPCs already within
+	## TALK_RANGE, so both lock in place immediately. Non-interruptible
+	## once a partner's actually locked in, same "commit once started"
+	## reasoning as every other multi-step activity in this file.
+	## FUTURE WORK: relationship-based random conversation OUTCOMES —
+	## deliberately not built yet. This pass is groundwork only: both
+	## NPCs occupied, facing each other, logged.
+	const SESSION_MIN: float = 8.0    ## seconds, real-time — a quick social beat, not a game-hours-scale session like Relaxing
+	const SESSION_MAX: float = 20.0
+
+	var _partner: Node = null
+	var _elapsed: float = 0.0
+	var _duration: float = 0.0
+	var _is_initiator: bool = true
+
+	func _init(partner: Node = null, is_initiator: bool = true) -> void:
+		_partner = partner
+		_is_initiator = is_initiator
+
+	func label() -> String:
+		return "Talking" if _partner != null else "Idle"
+
+	func score(npc: NPC) -> float:
+		if not _is_initiator:
+			return 0.0   ## the forced partner-side instance is never itself a scoring candidate
+		if npc.find_talk_partner() == null:
+			return 0.0
+		return TALK_BASE_SCORE * npc.get_work_ethic_passive_mult()
+
+	func interruptible() -> bool:
+		return _partner == null   ## only interruptible in the brief instant before a partner locks in
+
+	func enter(npc: NPC) -> void:
+		if _is_initiator:
+			_partner = npc.find_talk_partner()
+			if _partner == null:
+				return
+			if not _partner.has_method("start_talk_session") or not _partner.start_talk_session(npc):
+				_partner = null
+				return
+			_duration = randf_range(SESSION_MIN, SESSION_MAX)
+			_elapsed = 0.0
+		if _partner != null and is_instance_valid(_partner):
+			npc.lock_movement()
+			var target_pos: Vector3 = (_partner as Node3D).global_position
+			target_pos.y = npc.global_position.y
+			npc.look_at(target_pos, Vector3.UP)
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _partner == null or not is_instance_valid(_partner):
+			_partner = null
+			return
+		npc.halt_movement(delta)
+		if not _is_initiator:
+			return   ## partner just waits — end_talk_if_talking() (called via the initiator's own end-of-session) clears _partner externally
+		_elapsed += delta
+		if _elapsed >= _duration:
+			if _partner.has_method("end_talk_session"):
+				_partner.end_talk_session()
+			npc.log_action("Talked to %s" % _partner.npc_name)
+			_partner = null
+
+	func done(npc: NPC) -> bool:
+		return _partner == null
+
+	func exit(npc: NPC) -> void:
+		if _partner != null and is_instance_valid(_partner) and _is_initiator:
+			## interrupted some other way — don't leave the partner stuck
+			if _partner.has_method("end_talk_session"):
+				_partner.end_talk_session()
+		_partner = null
+
+
 class SnatchActivity extends NPCActivity:
-	## Player Relationship Snatch. Dedicated, non-interruptible activity,
-	## entered via force_command(), never scored/auto-selected.
+	## Relationship Snatch — player or another NPC (Aug 2026), target-
+	## force_command(), never scored/auto-selected.
 	##
-	## Continuously re-aims at the player every tick while the item is
+	## Continuously re-aims at the target every tick while the item is
 	## still in their hands — the previous version only set the nav
 	## target once, at enter(), so it just walked to wherever the player
 	## happened to be standing when the attempt started and never
 	## adjusted if they moved.
 	##
-	## If the player drops the tracked item (still that same item, now
+	## If the target drops the tracked item (still that same item, now
 	## loose) rather than putting it away/using it/giving it away, this
 	## switches to chasing the dropped item on the ground instead of
 	## giving up.
 	##
-	## MAX_CHASE_TIME is a safety valve I added beyond what was asked —
-	## without it, a player who simply keeps walking away would leave
+	## MAX_CHASE_TIME is a safety valve beyond what was asked —
+	## without it, a victim who simply keeps walking away would leave
 	## this NPC stuck chasing forever (interruptible() is false, so
 	## nothing else could ever interrupt it either). Remove this if
 	## indefinite pursuit is actually what you want.
 	const MAX_CHASE_TIME: float = 20.0
 
-	var _player: Node = null
+	var _target: Node = null
 	var _need_filter: Callable
 	var _is_edible: bool = false
 	var _handoff: NPCActivity = null
@@ -612,8 +712,8 @@ class SnatchActivity extends NPCActivity:
 	var _tracked_item: Node = null
 	var _chase_timer: float = 0.0
 
-	func _init(player: Node, need_filter: Callable, is_edible: bool) -> void:
-		_player = player
+	func _init(target: Node, need_filter: Callable, is_edible: bool) -> void:
+		_target = target
 		_need_filter = need_filter
 		_is_edible = is_edible
 
@@ -628,45 +728,48 @@ class SnatchActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		NPCDebug.log_snatch(npc, "started",
-			"targeting player, relationship=%.1f" % npc.get_relationship("player"))
-		_tracked_item = _player.get_held_item() if _player != null and _player.has_method("get_held_item") else null
-		if _player != null and is_instance_valid(_player):
-			npc.set_nav_target((_player as Node3D).global_position)
+			"targeting %s, relationship=%.1f" % [
+				"player" if _target != null and _target.is_in_group("player") else (_target.npc_name if _target != null and ("npc_name" in _target) else "unknown"),
+				npc.get_relationship("player" if _target != null and _target.is_in_group("player") else (_target.npc_id if _target != null and "npc_id" in _target else "player"))])
+		_tracked_item = _target.get_held_item() if _target != null and _target.has_method("get_held_item") else null
+		if _target != null and is_instance_valid(_target):
+			npc.set_nav_target((_target as Node3D).global_position)
 
 	func tick(npc: NPC, delta: float) -> void:
 		_chase_timer += delta
 		if _chase_timer > MAX_CHASE_TIME:
 			NPCDebug.log_snatch(npc, "aborted", "gave up after %.0fs of pursuit" % MAX_CHASE_TIME)
-			_player = null
+			_target = null
 			_tracked_item = null
 			return
 
-		## Still in the player's hands — chase the player, re-aiming every
+		## Still in the target's hands — chase them, re-aiming every
 		## tick since they can move.
-		if _player != null and is_instance_valid(_player):
-			var held: Node = _player.get_held_item() if _player.has_method("get_held_item") else null
+		if _target != null and is_instance_valid(_target):
+			var held: Node = _target.get_held_item() if _target.has_method("get_held_item") else null
 			if held != null and is_instance_valid(held) and _need_filter.call(held):
 				_tracked_item = held
-				npc.set_nav_target((_player as Node3D).global_position)
+				npc.set_nav_target((_target as Node3D).global_position)
 				npc.nav_steer(delta)
-				if NPCItemUser.flat_distance(npc.global_position, (_player as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
-					if NPCItemUser.snatch_from_player(npc, _player):
-						NPCDebug.log_snatch(npc, "success", "grabbed item from player's hands, handing off to consume")
-						npc.log_action("Snatched an item from the player's hands")
+				if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
+					if NPCItemUser.snatch_from(npc, _target):
+						NPCDebug.log_snatch(npc, "success", "grabbed item, handing off to consume")
+						var target_desc: String = "the player" if _target.is_in_group("player") else _target.npc_name
+						npc.log_action("Snatched an item from %s" % target_desc)
 						_handoff = NPCBrain.GivenEatActivity.new() if _is_edible else NPCBrain.GivenDrinkActivity.new()
 						_outcome_label = "Snatched!"
-						_player = null
+						_target = null
 						_tracked_item = null
 					## else: still out of range this frame — keep chasing, no abort
 				return
 
-		## Player no longer holding a matching item. If it's the SAME item
+		## Target no longer holding a matching item. If it's the SAME item
 		## we were tracking and it's now loose nearby (dropped, not used/
 		## stored/given away), chase it down on the ground instead of
 		## giving up.
 		## Only chase it if it's GENUINELY loose in the world
 		## (collision_layer 1, set by an actual drop) — not just
-		## "not is_held", which is also true for an item the player
+		## "not is_held", which is also true for an item the target
 		## swapped away to a different inventory slot (deactivate_item()
 		## sets is_held=false too, but leaves it frozen/hidden in
 		## storage, collision_layer 0). Without this distinction the NPC
@@ -686,12 +789,12 @@ class SnatchActivity extends NPCActivity:
 				else:
 					NPCDebug.log_snatch(npc, "failed", "dropped item grab rejected at range")
 				_tracked_item = null
-				_player = null
+				_target = null
 			return
 
-		NPCDebug.log_snatch(npc, "aborted", "item is gone — not held by the player, not sitting loose nearby")
+		NPCDebug.log_snatch(npc, "aborted", "item is gone — not held by the target, not sitting loose nearby")
 		_tracked_item = null
-		_player = null
+		_target = null
 
 	func take_handoff() -> NPCActivity:
 		var h: NPCActivity = _handoff
@@ -699,12 +802,113 @@ class SnatchActivity extends NPCActivity:
 		return h
 
 	func done(npc: NPC) -> bool:
-		return _player == null and _tracked_item == null and _handoff == null
+		return _target == null and _tracked_item == null and _handoff == null
 
 	func exit(_npc: NPC) -> void:
-		_player = null
+		_target = null
 		_tracked_item = null
 		_handoff = null
+
+
+class GiveToFriendActivity extends NPCActivity:
+	## NPC→NPC Give (Aug 2026). Fetch phase mirrors JobActivity's fetch
+	## exactly (find/claim/grab a loose item); travel phase mirrors
+	## SnatchActivity's continuous re-aim at a moving target; hand-off
+	## reuses can_receive_item()/on_item_given() unchanged in spirit
+	## (just told who the giver actually is). Interruptible throughout —
+	## unlike Snatch, this is a low-stakes altruistic errand, fine to
+	## abandon if something more pressing comes up.
+	var _friend: Node = null
+	var _loose: RigidBody3D = null
+
+	func label() -> String:
+		return "Bringing %s something" % _friend.npc_name if _friend != null and _loose == null and npc_holds_nothing() else "Getting an item for a friend"
+
+	## Small helper avoiding a direct `npc` reference in label() (label()
+	## has no npc param) — see note below if your NPCActivity base differs;
+	## simplest fallback if this causes issues is just a flat "Helping a friend" label.
+	func npc_holds_nothing() -> bool:
+		return true
+
+	func score(npc: NPC) -> float:
+		if not npc.has_needy_friend():
+			return 0.0
+		return GIVE_TO_FRIEND_BASE_SCORE * npc.get_work_ethic_passive_mult()
+
+	func interruptible() -> bool:
+		return true
+
+	func enter(npc: NPC) -> void:
+		var result: Dictionary = npc.find_friend_to_help()
+		if result.is_empty():
+			return
+		_friend = result.get("friend")
+		_loose = result.get("item")
+		if not NPCItemUser.claim_item(_loose, npc):
+			_friend = null
+			_loose = null
+			return
+		npc.set_nav_target(_loose.global_position)
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _friend == null or not is_instance_valid(_friend):
+			_friend = null
+			_loose = null
+			return
+
+		if npc.held_item == null:
+			## Fetch phase
+			if _loose == null or not is_instance_valid(_loose):
+				_friend = null
+				_loose = null
+				return
+			if "is_held" in _loose and _loose.is_held:
+				NPCItemUser.release_item(_loose)
+				_friend = null
+				_loose = null
+				return
+			npc.nav_steer(delta)
+			if NPCItemUser.flat_distance(npc.global_position, _loose.global_position) <= NPCItemUser.PICKUP_RANGE:
+				if NPCItemUser.grab_loose(npc, _loose):
+					_loose = null   ## fetched — travel phase starts next tick
+				else:
+					NPCItemUser.release_item(_loose)
+					_friend = null
+					_loose = null
+			return
+
+		## Travel phase — friend may have moved, or no longer needs it
+		if not (float(_friend.hunger) < 90.0 or float(_friend.thirst) < 90.0):
+			_friend = null   ## already fed some other way — no longer needed
+			return
+		npc.set_nav_target((_friend as Node3D).global_position)
+		npc.nav_steer(delta)
+		if NPCItemUser.flat_distance(npc.global_position, (_friend as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
+			if _friend.has_method("can_receive_item") and _friend.can_receive_item(npc.held_item):
+				var item: Node = npc.held_item
+				var friend_name: String = _friend.npc_name
+				npc.held_item = null
+				item.pickup((_friend as Node3D).hold_point)
+				_friend.held_item = item
+				_friend.on_item_given(item, npc.npc_id, npc.npc_name)
+				npc.log_action("Gave %s to %s" % [item.get_display_name(), friend_name])
+			_friend = null
+
+	func done(npc: NPC) -> bool:
+		return _friend == null and _loose == null and npc.held_item == null
+
+	func exit(npc: NPC) -> void:
+		if _loose != null:
+			NPCItemUser.release_item(_loose)
+			_loose = null
+		if npc.held_item != null:
+			## Interrupted mid-errand while actually carrying the item —
+			## just let them keep it; they'll finish delivering (or eat it
+			## themselves if truly needed) next time this activity re-enters,
+			## since held_item persisting is harmless and re-searching from
+			## scratch would waste a perfectly good fetched item.
+			pass
+		_friend = null
 
 
 class EatActivity extends NPCActivity:
@@ -726,7 +930,7 @@ class EatActivity extends NPCActivity:
 		if npc.hunger >= 55.0:
 			return 0.0
 		if _find(npc) == null and _find_shelf(npc).is_empty() \
-				and not npc.is_player_snatch_eligible(Callable(NPCItemUser, "is_edible")):
+				and not npc.is_npc_snatch_eligible(Callable(NPCItemUser, "is_edible")):
 			return 0.0
 		return (100.0 - npc.hunger) * 1.15 * npc.get_work_ethic_passive_mult()
 
@@ -738,7 +942,7 @@ class EatActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		_eating = 0.0
-		_pending_snatch = npc.find_player_snatch_target(Callable(NPCItemUser, "is_edible"))
+		_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_edible"))
 		if _pending_snatch != null:
 			return   ## handled on first tick() below, via take_handoff()
 		_loose = _find(npc)
@@ -816,7 +1020,7 @@ class EatActivity extends NPCActivity:
 		_pending_snatch = null
 		if npc.hunger >= 55.0:
 			return
-		_pending_snatch = npc.find_player_snatch_target(Callable(NPCItemUser, "is_edible"))
+		_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_edible"))
 		if _pending_snatch != null:
 			return   ## picked up by tick() next frame
 		_loose = _find(npc)

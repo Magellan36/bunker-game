@@ -209,25 +209,39 @@ static func find_holder(item: Node, tree: SceneTree) -> Node:
 	return null
 
 
-# ─── Relationship Snatch (Part 29) ──────────────────────────────────────────
-## Snatch now goes through the exact same transfer path Give uses
-## (Player.release_held_item_to_npc(), which wraps InteractionSystem's
-## release_held_item_to_npc()) — no more separate pickup/inventory logic
-## duplicated here. This is deliberately still a SEPARATE function from
-## grab_loose() (whose is_held guard should stay strict) — this is the
-## one intentional exception, reached only via SnatchActivity, itself
-## only ever entered through NPC.find_player_snatch_target()'s gate (or
-## the F7 debug override).
-static func snatch_from_player(npc: NPC, player: Node) -> bool:
+# ─── Relationship Snatch (Part 29/Aug 2026) ──────────────────────────────
+## Generalized to any target (player or NPC). Player targets still go
+## through release_held_item_to_npc() (the only path with inventory-slot
+## context). NPC targets are simpler — no inventory system to reconcile,
+## just a direct physical reassignment plus telling the victim to clear
+## their own held_item reference (mirrors what on_item_snatched() does
+## for the player, at NPC scale). Reached only via SnatchActivity, which
+## itself is only ever entered through NPC.find_snatch_target()'s gate
+## (or the F7 debug override).
+static func snatch_from(npc: NPC, target: Node) -> bool:
 	if npc.held_item != null:
 		return false   ## hands already full
-	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
+	if target == null or not is_instance_valid(target):
 		return false
-	var item: Node = player.get_held_item()
-	if item == null or not is_instance_valid(item):
+	if flat_distance(npc.global_position, (target as Node3D).global_position) > SNATCH_RANGE:
 		return false
-	if flat_distance(npc.global_position, (player as Node3D).global_position) > SNATCH_RANGE:
+
+	if target.is_in_group("player"):
+		if not target.has_method("get_held_item") or not target.has_method("release_held_item_to_npc"):
+			return false
+		var item: Node = target.get_held_item()
+		if item == null or not is_instance_valid(item):
+			return false
+		return target.release_held_item_to_npc(npc)
+
+	## NPC target
+	var item: Node = target.held_item
+	if item == null or not is_instance_valid(item) or not item.has_method("pickup"):
 		return false
-	if not player.has_method("release_held_item_to_npc"):
-		return false
-	return player.release_held_item_to_npc(npc)
+	item.pickup(npc.hold_point)
+	npc.held_item = item
+	if target.has_method("on_item_snatched_by_npc"):
+		target.on_item_snatched_by_npc(npc)
+	else:
+		target.held_item = null
+	return true
