@@ -300,6 +300,27 @@ own held item while CASE 1 scans for a different target — guarded with
   picked up from, so that signal never naturally refires, leaving the
   item's prompt (and icon row, if any) invisible until an actual range
   leave/re-enter.
+- **Bulky held-item head-clearance arc (Aug 2026, `PickupableItem.gd`
+  — flagged: `scripts/world/items/`, not one of the three core files,
+  but the hold-follow mechanic itself is Player-subsystem scope).**
+  Fixes Crate/Can Case/Water Case visibly getting stuck against the
+  player's head during a fast 180° turn while held. Root cause: held
+  items are real `RigidBody3D`s with `collision_mask = 1`, the same
+  layer as the player's own `CapsuleShape3D` — during a fast turn, the
+  straight-line chase path from one side of the player to the other
+  passes through that capsule, and large enough items physically
+  collide with it instead of passing through cleanly. Gated by a
+  lazily-computed real collision-shape radius
+  (`_carry_bulk_radius`, `BULKY_CARRY_RADIUS_THRESHOLD = 0.30`) rather
+  than a hardcoded item list or mass — mass doesn't correlate (Basket/
+  Cooking Pot are heavier by mass than Can Case/Water Case but have a
+  smaller footprint, and are correctly unaffected). While a bulky
+  item's actual position and its target are far enough apart
+  angularly (`CARRY_ARC_START_ANGLE_DEG`), the CHASE target's height
+  (never the true hold point used for the knockout check) ramps
+  upward continuously, driving the physics body up and over the
+  player's capsule instead of through it, and back down as the item
+  catches up — one continuous formula, no state machine.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns

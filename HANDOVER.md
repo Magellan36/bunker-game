@@ -1,3 +1,46 @@
+# Handover — Bulky Held-Item Head-Clearance Arc (Aug 2026)
+
+## What changed this session
+Fixed Crate/Can Case/Water Case getting visibly stuck against the
+player's head during a fast 180° turn while held. Root cause: held
+items are real, fully-collidable `RigidBody3D`s (`collision_mask = 1`,
+same layer as the player's own `CapsuleShape3D`) chasing `hold_point`
+via a simple proportional-velocity controller in
+`PickupableItem._physics_process()`. `hold_point` jumps to its new
+position instantly on player rotation; the item's straight-line
+physical path to catch up passes through the player's own capsule, and
+large enough items collide with it instead of sliding past.
+
+Traced the actual differentiator empirically rather than assuming mass:
+computed each carriable item's real collision-shape horizontal radius —
+Basket/Cooking Pot ~0.28 (unaffected, correctly so despite being
+"heavier" by mass), Can Case/Water Case ~0.34, Crate ~0.46 (all three
+reported-affected). Added a lazily-computed `_carry_bulk_radius`
+(computed on first `pickup()`, not in `_ready()`, since Basket/
+CookingPot build their `CollisionShape3D` procedurally AFTER their own
+`_ready()` calls `super()` — computing it any earlier would've silently
+fallen back to a generic minimum radius dangerously close to the new
+threshold and misclassified both). Items at or above
+`BULKY_CARRY_RADIUS_THRESHOLD` (0.30) get a continuous, angle-driven
+upward boost applied only to their physics CHASE target (never the true
+hold point the knockout-distance check measures against) whenever their
+actual position and target are far enough apart angularly — ramping in
+and back out smoothly as the item catches up, no separate settle step.
+
+### Files modified
+- `scripts/world/items/PickupableItem.gd` — new tuning consts, lazy
+  `_carry_bulk_radius` computation in `pickup()`, chase-target height
+  boost + new `_carry_arc_height_boost()` helper in `_physics_process()`.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_BULKY_HOLD_ARC_PLAN.md` for the full 8-item checklist)
+
+---
+---
+
 # Handover — Player Docs Reconciliation + Cooking Pot UI §1 Verification (Aug 2026)
 
 ## What changed this session
