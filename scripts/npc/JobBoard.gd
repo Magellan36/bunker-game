@@ -30,7 +30,20 @@ func _process(delta: float) -> void:
 
 func get_open_jobs() -> Array:
 	var out: Array = []
-	for job: Dictionary in _jobs.values():
+	for id: String in _jobs.keys().duplicate():
+		var job: Dictionary = _jobs[id]
+		var target: Node = job.get("target")
+		if target == null or not is_instance_valid(target):
+			## Target vanished (harvested/freed, etc.) — drop immediately
+			## rather than waiting for the next _rescan() (up to
+			## SCAN_INTERVAL later). This is what was letting a
+			## just-harvested, already-freed plant get handed to a
+			## DIFFERENT NPC's JobActivity.score() as if it were still
+			## open — Godot flags the freed reference the moment it's
+			## assigned to a typed Node var, before score()'s own
+			## is_instance_valid() check even runs.
+			_jobs.erase(id)
+			continue
 		var claimant: Node = job.get("claimed_by")
 		if claimant != null and not is_instance_valid(claimant):
 			job["claimed_by"] = null   ## claimant vanished — auto-release
@@ -54,7 +67,10 @@ func release(job: Dictionary, npc: Node) -> void:
 ## True while the job's world condition still holds (activities poll this so
 ## a job finished by the player mid-walk cancels cleanly).
 func still_valid(job: Dictionary) -> bool:
-	return _jobs.has(job.get("id", ""))
+	if not _jobs.has(job.get("id", "")):
+		return false
+	var target: Node = job.get("target")
+	return target != null and is_instance_valid(target)
 
 func _rescan() -> void:
 	var seen: Dictionary = {}

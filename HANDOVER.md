@@ -1,3 +1,47 @@
+# Handover — Fix: JobBoard Stale Target After Harvest + F7 NPC↔NPC Relationship Buttons (Aug 2026)
+
+## What changed this session
+Plan: `NPC_JOBBOARD_STALE_TARGET_FIX_AND_NPC_RELATIONSHIP_BUTTONS.md`
+(copied to repo root).
+
+### Part A — JobBoard stale-target bug fix
+Symptom: a plant that was just harvested but its job's target already
+freed could still be returned by `get_open_jobs()` and handed to a
+DIFFERENT NPC's `JobActivity.score()` as if still open. Godot flags the
+freed reference the moment it's assigned to a typed `Node` var — before
+`score()`'s own `is_instance_valid()` even runs — so the typed var
+raised "freed instance" errors.
+- `get_open_jobs()` now iterates `_jobs.keys().duplicate()` and drops
+  any job whose `target` is null/invalid immediately (`_jobs.erase(id)`),
+  rather than waiting up to `SCAN_INTERVAL` for the next `_rescan()`.
+- `still_valid()` now also checks the job's `target` is a valid live
+  node — covers an NPC already mid-work on a job whose target got freed
+  some other way before they finished (same class of gap, same fix).
+
+### Part B — F7 NPC↔NPC relationship buttons
+- `NPC.debug_adjust_relationship(target_id, delta)` — the generalized
+  write (bypasses the Sociability multiplier, clamps to
+  RELATIONSHIP_MIN/MAX); `debug_adjust_player_relationship(delta)` is
+  now a thin wrapper.
+- Two AdminMenu buttons: "NPC↔NPC Relationship -25/+25 (All Pairs)" →
+  `_adjust_all_npc_npc_relationships(delta)`, which adjusts every
+  DIRECTED pair independently (A→B and B→A as separate one-sided
+  feelings), for every spawned NPC, skipping self.
+
+### Files modified
+- `scripts/npc/JobBoard.gd` — `get_open_jobs()` + `still_valid()`.
+- `scripts/npc/NPC.gd` — `debug_adjust_relationship()` +
+  thin player wrapper.
+- `scripts/ui/menus/AdminMenu.gd` — 2 rows + 1 handler helper.
+- `docs/systems/npc/README.md` — testing items 64–65.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+See plan items 49–50 (documented as 64–65 in README). No Godot CLI —
+recommend opening the project to compile-check.
+
+---
+
 # Handover — NPC↔NPC Talking, Give-to-Friend, and Generalized Snatch (Aug 2026)
 
 ## What changed this session

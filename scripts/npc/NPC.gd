@@ -795,9 +795,12 @@ func debug_force_snatch() -> bool:
 ## F7 debug — sets relationship-with-player directly, bypassing the
 ## Sociability multiplier _adjust_relationship() normally applies, so the
 ## F7 buttons produce an exact, predictable ±25 for testing.
+func debug_adjust_relationship(target_id: String, delta: float) -> void:
+	var current: float = get_relationship(target_id)
+	relationships[target_id] = clampf(current + delta, RELATIONSHIP_MIN, RELATIONSHIP_MAX)
+
 func debug_adjust_player_relationship(delta: float) -> void:
-	var current: float = get_relationship("player")
-	relationships["player"] = clampf(current + delta, RELATIONSHIP_MIN, RELATIONSHIP_MAX)
+	debug_adjust_relationship("player", delta)
 
 # ─── Debug force buttons (Aug 2026) — one-shot flags mirroring _debug_force_snatch ───
 var _debug_force_give: bool = false

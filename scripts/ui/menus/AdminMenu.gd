@@ -140,6 +140,8 @@ func _ready() -> void:
 			["Force Nearest NPC to Snatch NPC Item", _on_npc_force_npc_snatch_pressed],
 			["Relationship -25 (All NPCs ↔ Player)", _on_npc_relationship_down_pressed],
 			["Relationship +25 (All NPCs ↔ Player)", _on_npc_relationship_up_pressed],
+			["NPC↔NPC Relationship -25 (All Pairs)", _on_npc_npc_relationship_down_pressed],
+			["NPC↔NPC Relationship +25 (All Pairs)", _on_npc_npc_relationship_up_pressed],
 		]},
 	]
 
@@ -618,6 +620,22 @@ func _adjust_all_npc_relationship(delta: float) -> void:
 	for npc: Node in get_tree().get_nodes_in_group("npc"):
 		if is_instance_valid(npc) and npc.has_method("debug_adjust_player_relationship"):
 			npc.debug_adjust_player_relationship(delta)
+
+func _on_npc_npc_relationship_down_pressed() -> void: _adjust_all_npc_npc_relationships(-25.0)
+func _on_npc_npc_relationship_up_pressed() -> void:   _adjust_all_npc_npc_relationships(25.0)
+
+## Adjusts every DIRECTED pair independently (A's feeling toward B, and
+## B's feeling toward A, separately) — relationships are one-sided per
+## NPC, same as everywhere else in this system.
+func _adjust_all_npc_npc_relationships(delta: float) -> void:
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	for npc: Node in npcs:
+		if not is_instance_valid(npc) or not npc.has_method("debug_adjust_relationship"):
+			continue
+		for other: Node in npcs:
+			if other == npc or not is_instance_valid(other) or not ("npc_id" in other):
+				continue
+			npc.debug_adjust_relationship(other.npc_id, delta)
 
 ## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
 ## MainWorld._cash directly — add_cash() is what also pushes the new balance

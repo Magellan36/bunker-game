@@ -1197,3 +1197,9 @@ skills, personality words, seed, mood, and irritability + label.
 63. With the player ALSO eligible (bad relationship, holding a matching
     item) alongside an eligible NPC target, confirm the nearest of the
     two gets picked, regardless of which type it is.
+64. Harvest multiple ready plants back-to-back with 2+ NPCs farming
+    actively — confirm no "freed instance" errors in the console, even
+    under repeated rapid harvesting.
+65. Press F7 "NPC↔NPC Relationship +25 (All Pairs)" a few times — confirm
+    every NPC's relationship toward every OTHER NPC rises (check via each
+    NPC's F7 relationship visualizer), not just toward the player.
