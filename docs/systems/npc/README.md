@@ -266,6 +266,18 @@ branching needed anywhere the multipliers are used.
   outcome is deliberately relationship-NEUTRAL and untouched by this.)
   A high-Sociability NPC's relationship with you moves faster in BOTH
   directions — quicker to warm up, quicker to sour.
+- `get_contagion_sociability_mult()`, 0.67x to 1.33x, is a SEPARATE,
+  smaller-range multiplier (same trait value, distinct function) for
+  **mood contagion receptivity** — how much this NPC's own mood gets
+  pulled toward the room's average mood each contagion tick, not how
+  much they influence others. Applied to both the live per-tick
+  contagion (`_tick_mood()`) and the time-skip catch-up blend
+  (`_catch_up_mood()`); `_mood_contagion_delta` (used by the Action
+  Log's threshold logging) automatically reflects the scaled value.
+  Tutorial-friendly phrasing: *"Sociability: 0.5x-1.5x on how fast this
+  NPC's relationships change (both directions); separately, 0.67x-1.33x
+  on how much this NPC's own mood gets pulled by the room's average mood
+  (mood contagion)."*
 
 **Work Ethic** (Lazy / — / Hard Worker)
 - `get_work_ethic_job_mult()`, 0.7x-1.3x, applied directly to
@@ -658,6 +670,24 @@ transfer handles everything) — left in place as dead code.
   (`debug_adjust_player_relationship()` writes `relationships["player"]`
   directly), so the ±25 is predictable for testing.
 
+#### Snatch → Gift Cooldown (Aug 2026)
+
+Per **attacker ↔ specific victim** pair, blocks the NPC or player who was
+just snatched FROM from gifting back to that SAME attacker for
+`SNATCH_GIFT_COOLDOWN_SEC` **60 seconds** — NOT a general "this NPC is
+scary" flag. An uninvolved third party's ability to gift the attacker is
+completely unaffected (they were never in that attacker's cooldown list).
+
+- `NPC.start_snatch_cooldown_against(victim_id)` is called by
+  `SnatchActivity.tick()` every active tick, so the 60s always counts
+  from the LAST moment of active pursuit against that victim (attempts
+  that fail or get abandoned still count as "just tried to snatch").
+- `NPC.is_gift_blocked_from(giver_id)` is consulted inside
+  `can_receive_item()` (its new `giver_id` param defaults to
+  `"player"`, so `InteractionSystem.gd`'s existing Give call site needs
+  zero changes). When blocked, `can_receive_item()` returns false and
+  any Give toward the victim fails.
+
 ### NPC↔NPC Talking (Aug 2026)
 
 Opportunistic, scored like Relaxing — but the score is multiplied by a
@@ -794,6 +824,18 @@ normally. Asking an NPC to do a job while relaxing ("Harvest the plants")
 is refused the first time that relax session (`get_relaxing_refusal_line()`
 shown in the E-panel dialogue); the second ask in the same session
 complies at a **-3 relationship cost** (`request_job_while_relaxing()`).
+
+**Inter-session cooldown + spawn stagger (Aug 2026):** sessions are now
+separated by a randomized `RELAX_MIN_GAP_HOURS`–`RELAX_MAX_GAP_HOURS`
+(3–6 game-hours) cooldown (`start_relax_cooldown()`, checked by
+`RelaxActivity.score()` via `NPC.is_relax_on_cooldown()`; decremented in
+`_tick_relax_day()`). The cooldown only starts if a session actually
+happened — an `enter()` that immediately found no chair/bed doesn't
+trigger it. Fresh NPCs also get a randomized 1–3h head-start cooldown in
+`_ready()`. Why: without these, a fresh NPC (full needs, nothing else
+competing) wins the very first think-cycle and can chain sessions
+back-to-back until the whole daily budget is gone in one sitting —
+front-loading the entire day's relaxation at spawn.
 
 ### Player Commands
 Via the E-panel: press Talk, four buttons appear — "Go eat something",

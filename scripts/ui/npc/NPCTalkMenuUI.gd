@@ -68,6 +68,7 @@ var _log_scroll: ScrollContainer = null
 var _log_rows_box: VBoxContainer = null
 var _log_entries: Array[Dictionary] = []
 var _log_time_labels: Array[Label] = []
+var _log_text_labels: Array[Label] = []
 
 const BAR_TRACK_W: float = 200.0
 
@@ -132,6 +133,13 @@ func _process(delta: float) -> void:
 			if i >= _log_entries.size():
 				continue
 			_log_time_labels[i].text = _format_log_age(_log_entries[i]["fired_at_msec"] as int)
+		## Live hostile entry — always the newest, so always index 0 if
+		## present. get_action_log()'s shallow duplicate means _log_entries[0]
+		## is the SAME dictionary NPC.gd keeps mutating in update_hostile_log()
+		## — just re-read its current text, no extra query needed.
+		if not _log_entries.is_empty() and bool(_log_entries[0].get("is_live_hostile", false)) \
+				and not _log_text_labels.is_empty():
+			_log_text_labels[0].text = str(_log_entries[0]["text"])
 
 # ─── Construction ─────────────────────────────────────────────────────────
 func _build(npc_name: String) -> void:
@@ -464,6 +472,7 @@ func _rebuild_log_rows() -> void:
 	for child: Node in _log_rows_box.get_children():
 		child.queue_free()
 	_log_time_labels.clear()
+	_log_text_labels.clear()
 	_log_entries = _npc.get_action_log() if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_action_log") else []
 
 	if _log_entries.is_empty():
@@ -491,6 +500,7 @@ func _make_log_row(entry: Dictionary) -> Control:
 	text_lbl.add_theme_font_override("font", UIKit.font())
 	text_lbl.add_theme_color_override("font_color", Color(0.88, 0.88, 0.90, 0.95))
 	row.add_child(text_lbl)
+	_log_text_labels.append(text_lbl)
 
 	var time_lbl: Label = Label.new()
 	time_lbl.text = _format_log_age(entry["fired_at_msec"] as int)

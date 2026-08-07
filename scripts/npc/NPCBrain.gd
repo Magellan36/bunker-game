@@ -232,6 +232,8 @@ class RelaxActivity extends NPCActivity:
 	func score(npc: NPC) -> float:
 		if npc.get_relax_time_remaining_today() <= 0.0:
 			return 0.0
+		if npc.is_relax_on_cooldown():
+			return 0.0
 		return BASE_SCORE * npc.get_work_ethic_passive_mult()
 
 	func interruptible() -> bool:
@@ -270,6 +272,7 @@ class RelaxActivity extends NPCActivity:
 	func exit(npc: NPC) -> void:
 		if _session_elapsed > 0.01:   ## skip logging a session that never actually started
 			npc.log_action("Relaxed for %d min" % int(round(_session_elapsed * 60.0)))
+			npc.start_relax_cooldown()   ## spaces sessions apart — see NPC.gd's Relaxing section
 		if _inner != null:
 			_inner.exit(npc)
 			_inner = null
@@ -731,12 +734,17 @@ class SnatchActivity extends NPCActivity:
 			"targeting %s, relationship=%.1f" % [
 				"player" if _target != null and _target.is_in_group("player") else (_target.npc_name if _target != null and ("npc_name" in _target) else "unknown"),
 				npc.get_relationship("player" if _target != null and _target.is_in_group("player") else (_target.npc_id if _target != null and "npc_id" in _target else "player"))])
+		npc.start_hostile_log()
 		_tracked_item = _target.get_held_item() if _target != null and _target.has_method("get_held_item") else null
 		if _target != null and is_instance_valid(_target):
 			npc.set_nav_target((_target as Node3D).global_position)
 
 	func tick(npc: NPC, delta: float) -> void:
 		_chase_timer += delta
+		if _target != null and is_instance_valid(_target):
+			var target_id: String = "player" if _target.is_in_group("player") else _target.npc_id
+			npc.start_snatch_cooldown_against(target_id)
+			npc.update_hostile_log()
 		if _chase_timer > MAX_CHASE_TIME:
 			NPCDebug.log_snatch(npc, "aborted", "gave up after %.0fs of pursuit" % MAX_CHASE_TIME)
 			_target = null
@@ -804,7 +812,8 @@ class SnatchActivity extends NPCActivity:
 	func done(npc: NPC) -> bool:
 		return _target == null and _tracked_item == null and _handoff == null
 
-	func exit(_npc: NPC) -> void:
+	func exit(npc: NPC) -> void:
+		npc.end_hostile_log()
 		_target = null
 		_tracked_item = null
 		_handoff = null
@@ -884,7 +893,7 @@ class GiveToFriendActivity extends NPCActivity:
 		npc.set_nav_target((_friend as Node3D).global_position)
 		npc.nav_steer(delta)
 		if NPCItemUser.flat_distance(npc.global_position, (_friend as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
-			if _friend.has_method("can_receive_item") and _friend.can_receive_item(npc.held_item):
+			if _friend.has_method("can_receive_item") and _friend.can_receive_item(npc.held_item, npc.npc_id):
 				var item: Node = npc.held_item
 				var friend_name: String = _friend.npc_name
 				npc.held_item = null

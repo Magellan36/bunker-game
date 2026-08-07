@@ -339,7 +339,7 @@ func _tick_mood(h: float) -> void:
 		count += 1
 	if count > 0:
 		var avg_other: float = total / float(count)
-		mood = clampf(mood + (avg_other - mood) * MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * h, 0.0, 100.0)
+		mood = clampf(mood + (avg_other - mood) * MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * get_contagion_sociability_mult() * h, 0.0, 100.0)
 	_mood_contagion_delta = mood - before
 
 	before = mood
@@ -411,6 +411,14 @@ func get_relationship_label(target_id: String) -> String:
 func _sociability_trait_mult() -> float:
 	return lerp(0.5, 1.5, float(personality.get("sociability", 0.5)))
 
+## Separate from _sociability_trait_mult() (0.5x-1.5x, relationship
+## magnitude) — this is its own smaller-range multiplier specifically for
+## mood contagion receptivity: how much THIS NPC's own mood gets pulled
+## toward the group average, not how much they influence others. 0.67x
+## (Distant) to 1.33x (Open), 1.0x at baseline/absent.
+func get_contagion_sociability_mult() -> float:
+	return lerp(0.67, 1.33, float(personality.get("sociability", 0.5)))
+
 
 ## Work Ethic (Aug 2026) — ±30% score multiplier on JobActivity, applied
 ## directly. Passive/need activities (Wander, Sit, Lie, Eat, Drink) use
@@ -472,6 +480,46 @@ func _current_game_time_string() -> String:
 	if stats != null and stats.has_method("get_time_display"):
 		return stats.get_time_display()
 	return "?"
+
+# ─── Live Hostile Log Entry (Aug 2026) ──────────────────────────────────────
+var _hostile_log_entry: Dictionary = {}   ## reference to the live entry dict (shared with _action_log), or {} if none active
+var _hostile_start_msec: int = 0
+
+## Called once, from SnatchActivity.enter(), the moment this NPC commits
+## to a target. Appends ONE entry and keeps mutating it in place for the
+## duration (see update_hostile_log()) — never a new entry per tick.
+func start_hostile_log() -> void:
+	_hostile_start_msec = Time.get_ticks_msec()
+	var entry: Dictionary = {
+		"text": "%s HOSTILE for 0s" % npc_name,
+		"fired_at_msec": _hostile_start_msec,
+		"game_time": _current_game_time_string(),
+		"is_live_hostile": true,
+	}
+	_action_log.append(entry)
+	if _action_log.size() > ACTION_LOG_MAX_LEN:
+		_action_log.pop_front()
+	_hostile_log_entry = entry
+	action_logged.emit()   ## structural change (new row) — needs the UI to rebuild once
+
+## Called every tick while SnatchActivity is active. Deliberately does
+## NOT emit action_logged — the UI polls and refreshes this specific
+## row's text directly each frame (same pattern already used for "Xs
+## ago" timestamps), avoiding a full log rebuild 60x/second.
+func update_hostile_log() -> void:
+	if _hostile_log_entry.is_empty():
+		return
+	var elapsed_sec: int = int((Time.get_ticks_msec() - _hostile_start_msec) / 1000.0)
+	_hostile_log_entry["text"] = "%s HOSTILE for %ds" % [npc_name, elapsed_sec]
+
+## Called once, from SnatchActivity.exit() — freezes the final text and
+## clears the live marker. From this point it's a normal static entry.
+func end_hostile_log() -> void:
+	if not _hostile_log_entry.is_empty():
+		var elapsed_sec: int = int((Time.get_ticks_msec() - _hostile_start_msec) / 1000.0)
+		_hostile_log_entry["text"] = "%s was HOSTILE for %ds" % [npc_name, elapsed_sec]
+		_hostile_log_entry["is_live_hostile"] = false
+	_hostile_log_entry = {}
 
 ## Contagion's own per-tick delta (_mood_contagion_delta, already tracked
 ## separately inside _tick_mood()) accumulates here; only logged once the
@@ -543,6 +591,7 @@ func _tick_relax_day(h: float) -> void:
 	if _relax_day_clock >= 24.0:
 		_relax_day_clock = fmod(_relax_day_clock, 24.0)
 		_relax_time_used_today = 0.0
+	_relax_cooldown_hours = maxf(0.0, _relax_cooldown_hours - h)
 
 ## FUTURE WORK — see docs/systems/npc/README.md's Relationships section for
 ## the full list (item giving/taking, crisis-response helping behavior,
@@ -596,11 +645,15 @@ var gift_saturation: float = 0.0
 
 ## Pure check, no side effects — called by InteractionSystem BEFORE it
 ## attempts the physical transfer, for Give.
-func can_receive_item(item: Node) -> bool:
+## giver_id defaults to "player" — InteractionSystem.gd's existing call
+## site (target.can_receive_item(item)) needs zero changes.
+func can_receive_item(item: Node, giver_id: String = "player") -> bool:
 	if item == null or not is_instance_valid(item):
 		return false
 	if held_item != null:
 		return false   ## hands full
+	if is_gift_blocked_from(giver_id):
+		return false
 	return NPCItemUser.is_giveable(item)
 
 ## Called AFTER the item has already been physically transferred into
@@ -651,6 +704,22 @@ const SNATCH_CHANCE_AT_THRESHOLD: float = 0.05   ## at exactly -50
 const SNATCH_CHANCE_AT_MIN: float = 0.5          ## at -100 (fully hostile)
 
 var _debug_force_snatch: bool = false   ## F7 test button only — one-shot
+
+# ─── Snatch → Gift Cooldown (Aug 2026) ──────────────────────────────────────
+const SNATCH_GIFT_COOLDOWN_SEC: float = 60.0
+var _snatch_cooldown_from: Dictionary = {}   ## victim_id (npc_id or "player") -> msec of last snatch attempt against them
+
+## Called by SnatchActivity every tick while actively pursuing a specific
+## target — refreshes so the 60s always counts from the LAST moment of
+## active pursuit against that victim, not just the initial decision.
+func start_snatch_cooldown_against(victim_id: String) -> void:
+	_snatch_cooldown_from[victim_id] = Time.get_ticks_msec()
+
+func is_gift_blocked_from(giver_id: String) -> bool:
+	if not _snatch_cooldown_from.has(giver_id):
+		return false
+	var last: int = _snatch_cooldown_from[giver_id]
+	return (Time.get_ticks_msec() - last) < int(SNATCH_GIFT_COOLDOWN_SEC * 1000.0)
 
 ## Gives NPC the same get_held_item() interface Player already has, so
 ## SnatchActivity/find_snatch_target() can treat both as interchangeable
@@ -1137,6 +1206,7 @@ func _ready() -> void:
 	generation_seed = randi()
 	randomize_personality()
 	randomize_skills()
+	_relax_cooldown_hours = randf_range(1.0, RELAX_MIN_GAP_HOURS)   ## staggered head-start — never eligible to relax the instant they spawn
 	brain = NPCBrain.new()
 	brain.setup(self)
 
@@ -1700,6 +1770,16 @@ func get_relationship_dialogue_line(target_id: String) -> String:
 const RELAX_BUDGET_BASELINE: float = 1.0   ## game-hours/day
 const RELAX_BUDGET_LAZY: float = 2.0
 
+## Minimum game-hours between the end of one relax session and the next
+## becoming eligible — without this, a fresh NPC (full needs, nothing else
+## competing) wins the very first think-cycle and can chain sessions
+## back-to-back until the whole daily budget is gone in one sitting.
+## Randomized per-cooldown (not a fixed value) so sessions don't fall
+## into a predictable rhythm across NPCs or across a single NPC's day.
+const RELAX_MIN_GAP_HOURS: float = 3.0
+const RELAX_MAX_GAP_HOURS: float = 6.0
+var _relax_cooldown_hours: float = 0.0
+
 var _relax_time_used_today: float = 0.0
 var _relax_day_clock: float = 0.0   ## game-hours since the last daily reset; wraps at 24
 var _relax_job_request_count: int = 0
@@ -1712,6 +1792,12 @@ func get_relax_daily_budget() -> float:
 
 func get_relax_time_remaining_today() -> float:
 	return maxf(0.0, get_relax_daily_budget() - _relax_time_used_today)
+
+func is_relax_on_cooldown() -> bool:
+	return _relax_cooldown_hours > 0.0
+
+func start_relax_cooldown() -> void:
+	_relax_cooldown_hours = randf_range(RELAX_MIN_GAP_HOURS, RELAX_MAX_GAP_HOURS)
 
 func spend_relax_time(h: float) -> void:
 	_relax_time_used_today += h
@@ -1855,7 +1941,7 @@ func _catch_up_mood(h: float, avg_mood_before: float, needs_avg_blend: float) ->
 		rate *= _mood_recovery_trait_mult()
 	mood = move_toward(mood, mood_target, rate * h)
 
-	var blend: float = clampf(MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * h, 0.0, 1.0)
+	var blend: float = clampf(MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * get_contagion_sociability_mult() * h, 0.0, 1.0)
 	mood = clampf(mood + (avg_mood_before - mood) * blend, 0.0, 100.0)
 
 	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR)
