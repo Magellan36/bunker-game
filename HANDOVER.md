@@ -1,3 +1,29 @@
+# Handover — Fix: Unqualified NPC.gd Consts Referenced from NPCBrain.gd (Aug 2026)
+
+## What changed this session
+`TALK_BASE_SCORE` and `GIVE_TO_FRIEND_BASE_SCORE` are declared on
+`NPC.gd`, but `TalkActivity`/`GiveToFriendActivity` are inner classes of
+`NPCBrain.gd` and need the `NPC.` qualifier to see them — same reason
+`NPCBrain.EatActivity.new()` needs the `NPCBrain.` prefix from outside
+that file. Two one-word fixes:
+- `TalkActivity.score()` → `NPC.TALK_BASE_SCORE`
+- `GiveToFriendActivity.score()` → `NPC.GIVE_TO_FRIEND_BASE_SCORE`
+
+No other lines reference either const (verified via grep — only the
+declarations in NPC.gd remain unqualified).
+
+### Files modified
+- `scripts/npc/NPCBrain.gd` (2 const qualifiers).
+- `HANDOVER.md` (this entry).
+
+### Verification checklist
+No behavioral change in values — `TALK_BASE_SCORE`/`GIVE_TO_FRIEND_BASE_SCORE`
+are still 5.5; this only fixes the reference-qualification so the inner
+classes resolve them. No Godot CLI — recommend opening the project to
+compile-check.
+
+---
+
 # Handover — Cooking Pot UI: Persistence Fix, Layout, 2x Size, Rotation, Food Can (Aug 2026)
 
 ## What changed this session

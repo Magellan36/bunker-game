@@ -636,7 +636,7 @@ class TalkActivity extends NPCActivity:
 			return 0.0   ## the forced partner-side instance is never itself a scoring candidate
 		if npc.find_talk_partner() == null:
 			return 0.0
-		return TALK_BASE_SCORE * npc.get_work_ethic_passive_mult()
+		return NPC.TALK_BASE_SCORE * npc.get_work_ethic_passive_mult()
 
 	func interruptible() -> bool:
 		return _partner == null   ## only interruptible in the brief instant before a partner locks in
@@ -833,7 +833,7 @@ class GiveToFriendActivity extends NPCActivity:
 	func score(npc: NPC) -> float:
 		if not npc.has_needy_friend():
 			return 0.0
-		return GIVE_TO_FRIEND_BASE_SCORE * npc.get_work_ethic_passive_mult()
+		return NPC.GIVE_TO_FRIEND_BASE_SCORE * npc.get_work_ethic_passive_mult()
 
 	func interruptible() -> bool:
 		return true
