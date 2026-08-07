@@ -22,7 +22,7 @@ extends CanvasLayer
 # ─── Template panel ───────────────────────────────────────────────────────────
 @onready var _template_panel:    PanelContainer  = $Panel
 @onready var _template_label:    RichTextLabel   = $Panel/VBox/Label
-	@onready var _template_icon_row: Control          = $Panel/VBox/IconRow
+@onready var _template_icon_row: Control          = $Panel/VBox/IconRow
 
 ## Vertical world-space offset so the panel floats above the object origin
 const WORLD_OFFSET: Vector3 = Vector3(0.0, 1.2, 0.0)
