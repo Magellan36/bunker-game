@@ -283,7 +283,14 @@ static func _icon_descriptor_for_key(key: String) -> Dictionary:
 			"produce_type": key.substr(8),   ## strip "produce_" prefix
 		}
 	if key == "food_can":
-		return {"is_script": true, "scene": "res://scripts/world/items/FoodCan.gd"}
+		## Aug 2026 fix — FoodCan.gd expects a pre-built MeshInstance3D CHILD
+		## node (get_node_or_null("MeshInstance3D") in its own _ready()),
+		## unlike FarmProduceItem which builds its mesh procedurally in code.
+		## is_script mode instantiates a bare Script.new() with no children,
+		## so FoodCan rendered as a fully invisible/empty preview before this
+		## fix. Pointing at the actual scene (which has that mesh child
+		## authored) instead of the script directly fixes it.
+		return {"scene": "res://scenes/world/FoodCan.tscn"}
 	return {}
 
 

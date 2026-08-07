@@ -34,7 +34,7 @@ const FADE_START: float = 2.2
 const FADE_END:   float = 3.2
 
 ## Icon SubViewport render size (px) / orthogonal camera framing.
-const ICON_VP_SIZE: int = 40
+const ICON_VP_SIZE: int = 80
 const ICON_CAM_SIZE: float = 0.6
 
 # ─── State ────────────────────────────────────────────────────────────────────
@@ -218,6 +218,12 @@ func _refresh_icon_slots(pool_index: int, icons: Array) -> void:
 		var pivot: Node3D = Node3D.new()
 		vp.add_child(pivot)
 		pivot.add_child(inst)
+		## Aug 2026 — matches BuildModeHUD's PREVIEW_ROTATION_DEFAULT exactly
+		## (45° left, 45° down), same convention already applied to
+		## InventoryHUD's previews. These previews had no rotation applied
+		## at all before this — always rendered at each item's raw default
+		## orientation.
+		pivot.rotation_degrees = Vector3(-45.0, -45.0, 0.0)
 
 func _signature_for(desc: Variant) -> String:
 	if desc == null or not (desc is Dictionary) or (desc as Dictionary).is_empty():

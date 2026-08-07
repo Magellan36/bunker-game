@@ -440,11 +440,21 @@ func _update_prompt() -> void:
 		var item_prompt_pos: Vector3 = hold_point.global_position \
 				if hold_point != null else held_item.global_position
 
+		## Aug 2026 fix — CASE 2 (below) already does this lookup for nearby
+		## interactables; CASE 1 never did, which is why a held item's own
+		## icon row (e.g. CookingPot's 3 ingredient previews) used to vanish
+		## the instant it was picked up. Generic — works for any held item
+		## that implements get_slot_icon_descriptors(), not cooking-specific.
+		var held_icons: Array = []
+		if held_item.has_method("get_slot_icon_descriptors"):
+			held_icons = held_item.get_slot_icon_descriptors()
+
 		if not item_lines.is_empty():
 			entries.append({
 				"text":      "\n".join(item_lines),
 				"world_pos": item_prompt_pos,
-				"dist":      0.0
+				"dist":      0.0,
+				"icons":     held_icons,
 			})
 
 		# Shelf nearby — separate panel above the shelf
@@ -1209,6 +1219,8 @@ func _quick_drop() -> void:
 	var drop_pos: Vector3 = player.global_position + \
 		player.global_transform.basis.z * -1.5 + Vector3(0.0, 0.2, 0.0)
 
+	var dropped_item: RigidBody3D = held_item   ## captured before nulling below
+
 	if _held_from_slot != -1 and inventory != null:
 		# Item was from inventory — remove it from the slot before dropping
 		inventory.remove_item(_held_from_slot, drop_pos)
@@ -1219,3 +1231,15 @@ func _quick_drop() -> void:
 
 	held_item = null
 	_held_from_slot = -1
+
+	## Aug 2026 fix — re-add to the tracked set immediately. Jolt's Area3D
+	## body_entered only fires on a genuine boundary crossing; an item
+	## dropped back roughly where it was picked up never physically leaves/
+	## re-enters detect_area's collision volume (it was just reparented away
+	## and back), so body_entered never refires. Without this, a dropped
+	## item's prompt — and for anything with get_slot_icon_descriptors()
+	## like CookingPot, its icon row — stayed invisible until the player
+	## actually walked out of range and back in. Mirrors the explicit
+	## _tracked_bodies.erase() already done at pickup, just in reverse.
+	if is_instance_valid(dropped_item):
+		_tracked_bodies[dropped_item] = true

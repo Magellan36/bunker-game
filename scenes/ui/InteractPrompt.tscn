@@ -3,12 +3,28 @@
 [ext_resource type="Script" path="res://scripts/ui/hud/InteractPrompt.gd" id="1_prompt"]
 [ext_resource type="Theme" path="res://assets/fonts/BunkerTheme.tres" id="2_theme"]
 
+[sub_resource type="StyleBoxFlat" id="PromptPanelStyle"]
+bg_color = Color(0.08, 0.08, 0.09, 0.88)
+border_color = Color(0.55, 0.58, 0.62, 0.60)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+content_margin_left = 12.0
+content_margin_right = 12.0
+content_margin_top = 18.0
+content_margin_bottom = 10.0
+
 [sub_resource type="StyleBoxFlat" id="CircleSlot"]
 bg_color = Color(0, 0, 0, 0.35)
-corner_radius_top_left = 16
-corner_radius_top_right = 16
-corner_radius_bottom_right = 16
-corner_radius_bottom_left = 16
+corner_radius_top_left = 32
+corner_radius_top_right = 32
+corner_radius_bottom_right = 32
+corner_radius_bottom_left = 32
 
 [node name="InteractPrompt" type="CanvasLayer"]
 layer = 5
@@ -17,23 +33,27 @@ script = ExtResource("1_prompt")
 [node name="Panel" type="PanelContainer" parent="."]
 visible = false
 theme = ExtResource("2_theme")
+theme_override_styles/panel = SubResource("PromptPanelStyle")
 
 [node name="VBox" type="VBoxContainer" parent="Panel"]
 
-[node name="IconRow" type="HBoxContainer" parent="Panel/VBox"]
+[node name="IconRow" type="Control" parent="Panel/VBox"]
+custom_minimum_size = Vector2(208, 74)
 visible = false
-alignment = 1
 
 [node name="Slot0" type="PanelContainer" parent="Panel/VBox/IconRow"]
-custom_minimum_size = Vector2(32, 32)
+position = Vector2(0, 10)
+size = Vector2(64, 64)
 theme_override_styles/panel = SubResource("CircleSlot")
 
 [node name="Slot1" type="PanelContainer" parent="Panel/VBox/IconRow"]
-custom_minimum_size = Vector2(32, 32)
+position = Vector2(72, 0)
+size = Vector2(64, 64)
 theme_override_styles/panel = SubResource("CircleSlot")
 
 [node name="Slot2" type="PanelContainer" parent="Panel/VBox/IconRow"]
-custom_minimum_size = Vector2(32, 32)
+position = Vector2(144, 10)
+size = Vector2(64, 64)
 theme_override_styles/panel = SubResource("CircleSlot")
 
 [node name="Label" type="RichTextLabel" parent="Panel/VBox"]

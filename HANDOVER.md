@@ -1,4 +1,77 @@
-# Handover — Fix: JobBoard Stale Target After Harvest + F7 NPC↔NPC Relationship Buttons (Aug 2026)
+# Handover — Cooking Pot UI: Persistence Fix, Layout, 2x Size, Rotation, Food Can (Aug 2026)
+
+## What changed this session
+Plan `PLAN_cooking_pot_ui_fixes.md` (copied to repo root), owned by the
+UI instance. Two disappearing-UI bug fixes, a scene layout rework, a 2x
+size + rotation change, and a Food Can preview fix.
+
+### §1 — Two disappearing-icon bugs (root cause found + fixed)
+`InteractionSystem._update_prompt()` builds prompt entries in two
+branches: CASE 1 (holding something) and CASE 2 (empty-handed, nearby
+interactables).
+- **Bug 1** CASE 2 already computes `get_slot_icon_descriptors()` and
+  sends `"icons"`; CASE 1 never did, so a held item's icon row (e.g.
+  CookingPot's 3 ingredient circles) vanished the instant it was picked
+  up. **Fix 1a** adds the same generic `"icons"` key to the CASE 1 held
+  entry (works for any held item implementing
+  `get_slot_icon_descriptors()`, not cooking-specific).
+- **Bug 2** `_tracked_bodies` (the set CASE 2 scans) is fed by the
+  player's Area3D `body_entered`. It's explicitly erased at pickup, but
+  nothing re-adds on a quick-drop — a dropped item that lands back
+  roughly where it was picked up never physically crosses the trigger
+  boundary (reparented away and back), so `body_entered` never refires.
+  **Fix 1b** re-adds the dropped item to `_tracked_bodies` in
+  `_quick_drop()` so it reappears immediately (mirrors the pickup
+  erase in reverse). Stove-placing path is unaffected (frozen bodies use
+  a separate per-frame group scan, not `_tracked_bodies`).
+
+### §2 — InteractPrompt.tscn replaced entirely
+`IconRow` changed from HBoxContainer (positions auto-managed) to a plain
+`Control` with each slot's `position`/`size` authored permanently in the
+scene. Icons 32px→64px (2x), gap kept 8px, row 208×74px. Middle slot
+(Slot1) sits at y=0, the flanking slots at y=10 — that's the "15%
+higher" middle expressed in fixed pixels (~10px of 64). The Panel now
+gets its FIRST real `StyleBoxFlat` (`PromptPanelStyle`): dark background
+0.08/0.08/0.09@0.88, border 0.55/0.58/0.62@0.60, radius 8, content
+margins 12/12/18/10 — this is what fixes the "icons touch the top edge"
+padding complaint AND brings the panel onto the shared dark/bordered
+palette. Blast radius: affects the floating prompt for EVERY interactable
+in the game (flagged in the plan — the same shared panel, no cooking-only
+way to touch it).
+
+### §3 — InteractPrompt.gd
+- `ICON_VP_SIZE` 40 → 80 (keeps ~1.25x oversample vs the 64px display
+  slots); `ICON_CAM_SIZE` unchanged.
+- The preview pivot now gets
+  `rotation_degrees = Vector3(-45, -45, 0)` — matching
+  BuildModeHUD's PREVIEW_ROTATION_DEFAULT / InventoryHUD previews; these
+  previews previously rendered at each item's raw default orientation.
+
+### §4 — CookingPot food_can preview fix
+The `food_can` descriptor was `{"is_script": true, ... FoodCan.gd}`.
+`is_script` instantiates a bare `Script.new()` with no child nodes, but
+`FoodCan.gd._ready()` does `get_node_or_null("MeshInstance3D")`, expecting
+an authored mesh child — so it rendered empty/invisible. Changed to point
+at the actual scene `res://scenes/world/FoodCan.tscn` (verified: that
+scene DOES author a `MeshInstance3D` child), which fixes it.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` (Fix 1a + Fix 1b — Player-thread
+  file, edited per the plan's explicit, flagged §1 direction).
+- `scenes/ui/InteractPrompt.tscn` (replaced entirely).
+- `scripts/ui/hud/InteractPrompt.gd` (2 constants + pivot rotation).
+- `scripts/world/items/CookingPot.gd` (food_can descriptor).
+- `HANDOVER.md` (this entry).
+
+### Verification checklist
+Plan §5 items 1–10. All anchors matched; the fix path
+`res://scenes/world/FoodCan.tscn` verified to exist (referenced by
+`CanCase.gd` and the file authors the mesh child). No Godot CLI —
+recommend opening the project to compile-check.
+
+---
+
+# Handover — Fix: JobBoardStale Target After Harvest + F7 NPC↔NPC Relationship Buttons (Aug 2026)
 
 ## What changed this session
 Plan: `NPC_JOBBOARD_STALE_TARGET_FIX_AND_NPC_RELATIONSHIP_BUTTONS.md`
