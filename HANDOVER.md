@@ -1,3 +1,49 @@
+# Handover — Player Subsystem Cleanup Phase 1: InteractionProximityScan extraction (Aug 2026)
+
+## Synopsis
+Extracted 9 duplicated proximity-scan loops out of `scripts/player/InteractionSystem.gd` into a new helper `scripts/player/InteractionProximityScan.gd`. Phase 1 only — Phases 2-4 are scoped in `PLAYER_SUBSYSTEM_CLEANUP_ASSESSMENT_AND_PLAN.md` but explicitly not yet diffed; they await in-editor confirmation and their own plan docs.
+
+## Root cause
+`InteractionSystem.gd` had grown ~1,250 lines with five near-identical "scan `detect_area.get_overlapping_bodies()`, skip held_item/shelved/frozen, take nearest" loops (Pattern A) and four "scene-tree group scan with `MAX_PROMPT_DIST`, optional predicate" loops (Pattern B). The two `_try_add_*` stash loops and `_nearest_group_storable_distance()` even had a documented "keep filters in lockstep" coupling.
+
+## Change
+- New file `scripts/player/InteractionProximityScan.gd`: `class_name InteractionProximityScan`, `extends RefCounted`, holds an `_owner: InteractionSystem` back-reference (same precedent as `WallSnapHelpers.gd`/`PowerGraph.gd`). Three helpers:
+  - `nearest_body_in_group(group_name, predicate)` — Pattern A, returns nearest qualifying `RigidBody3D`.
+  - `nearest_distance_in_group(group_name, predicate)` — Pattern A, distance-only twin.
+  - `nearest_in_group(group_name, max_dist, predicate)` — Pattern B, StaticBody3D-safe group scan.
+- `InteractionSystem.gd`:
+  - Added `var _proximity: InteractionProximityScan = null` after the `@onready` block; instantiated in `_ready()`.
+  - Converted 9 call sites to one-line forwarding calls (signatures preserved):
+    - `_nearest_pickup_distance()` → `nearest_distance_in_group("pickup")`
+    - `_try_pickup()` → `nearest_body_in_group("pickup")`
+    - `_nearest_group_storable_distance()` → `nearest_distance_in_group(group_name)`
+    - `_try_add_nearest_to_basket()` → `nearest_body_in_group("basket_storable")`
+    - `_try_add_nearest_to_cookpot()` → `nearest_body_in_group("cookpot_storable")`
+    - `_find_nearest_open_stove()` → `nearest_in_group("stove", MAX_PROMPT_DIST, <has_open_slot lambda>)`
+    - `_find_nearest_stove_with_pot()` → `nearest_in_group("stove", MAX_PROMPT_DIST, <pot_ref lambda>)`
+    - `_find_nearest_npc()` → `nearest_in_group("npc", MAX_PROMPT_DIST)` (no predicate)
+    - `_find_nearest_ready_pot()` → `nearest_in_group("cooking_pot", MAX_PROMPT_DIST, <is_dish_ready lambda>)`
+- Deliberately NOT touched (deferred to Phase 2):
+  - `_nearest_shelf()` — flat-XZ outlier.
+  - `_try_interact()` / `_nearest_interact_distance()` — two-pass shared-accumulator loop.
+  - CASE 2 `_update_prompt()` static scan (~lines 583-620) — has `set_player_in_range()` side effects; moves verbatim into `InteractionPromptBuilder.gd` in Phase 2.
+
+## Verification
+1. Open project in Godot editor — new script registers, no parse errors.
+2. `_proximity` initializes in `_ready()` before any prompt/pickup call.
+3. Pickup, Basket-stash, Cookpot-add, open-stove, stove-with-pot, NPC Give, and ready-dish prompts all still behave as before.
+4. Basket/Cookpot stash: "Nothing nearby to store" / "Pot full" paths unchanged (forwarding call preserves `closest == null` semantics).
+5. `_nearest_group_storable_distance()` still locks step with the two stash functions (now guaranteed by shared helper).
+6. No remaining inline Pattern A/B loops except the deferred Phase 2 sites.
+7. Git diff contains only InteractionSystem.gd + the new InteractionProximityScan.gd + this entry.
+
+## Follow-ups
+- Phase 2: extract `_update_prompt()` (~290 lines) into `InteractionPromptBuilder.gd`.
+- Phase 3: consolidate held-item bookkeeping (`_release_item_to_npc()` vs `release_held_item_to_npc()` divergence).
+- Phase 4: constants gathering, PlayerStats doc-comment move, dispatch-chain docs, README Files-table line count (~686 stale; file is now ~1,144 lines).
+
+---
+
 # Handover — Fix: Unqualified NPC.gd Consts Referenced from NPCBrain.gd (Aug 2026)
 
 ## What changed this session

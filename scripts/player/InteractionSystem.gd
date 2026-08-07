@@ -21,6 +21,10 @@ class_name InteractionSystem
 @onready var detect_area: Area3D     = $DetectArea
 @onready var player: CharacterBody3D = get_parent()
 
+## Phase 1 (Aug 2026) extraction — see InteractionProximityScan.gd's own
+## header comment for what moved and why.
+var _proximity: InteractionProximityScan = null
+
 ## Set by MainWorld after ready
 var prompt: Node     = null
 var inventory: Node  = null   ## InventoryManager reference
@@ -59,6 +63,7 @@ func _ready() -> void:
 	_world_root = get_tree().get_first_node_in_group("world")
 	detect_area.body_entered.connect(_on_body_entered)
 	detect_area.body_exited.connect(_on_body_exited)
+	_proximity = InteractionProximityScan.new(self)
 
 ## Tracked interactable bodies currently inside DetectArea.
 ## Maintained via body_entered / body_exited signals.
@@ -746,41 +751,14 @@ func _nearest_e_rival_distance() -> float:
 ## those two functions — if a body wouldn't be stashable there, it must
 ## not count as a rival here. (Verified identical to both as of Aug 2026.)
 func _nearest_group_storable_distance(group_name: String) -> float:
-	var bodies: Array       = detect_area.get_overlapping_bodies()
-	var closest_dist: float = INF
-	for body in bodies:
-		if body == held_item:
-			continue
-		if body.is_in_group(group_name):
-			if body.is_in_group("shelved"):
-				continue
-			if body is RigidBody3D and (body as RigidBody3D).freeze:
-				continue
-			var d: float = body.global_position.distance_to(player.global_position)
-			if d < closest_dist:
-				closest_dist = d
-	return closest_dist
+	return _proximity.nearest_distance_in_group(group_name)
 
 ## E while holding a Basket — finds the nearest "basket_storable" world item
 ## in reach and stashes it, instead of calling the basket's own on_use().
 func _try_add_nearest_to_basket(basket: Node) -> void:
-	var bodies: Array        = detect_area.get_overlapping_bodies()
-	var closest: RigidBody3D = null
-	var closest_dist: float  = INF
-
-	for body in bodies:
-		if body == held_item:   ## DetectArea now also sees the player's
-			continue              ## own held item (layer 2, Aug 2026 mask
-			                       ## widen) — never treat it as a candidate.
-		if body.is_in_group("basket_storable"):
-			if body.is_in_group("shelved"):
-				continue
-			if body is RigidBody3D and (body as RigidBody3D).freeze:
-				continue
-			var d: float = body.global_position.distance_to(player.global_position)
-			if d < closest_dist:
-				closest_dist = d
-				closest = body
+	## held_item / shelved / frozen filtering now lives in
+	## InteractionProximityScan (Phase 1, Aug 2026) — see its header comment.
+	var closest: RigidBody3D = _proximity.nearest_body_in_group("basket_storable") as RigidBody3D
 
 	var hud: Node = get_tree().get_first_node_in_group("hud")
 
@@ -812,23 +790,9 @@ func _try_use_held_cookpot(pot: Node) -> void:
 ## group instead of "basket_storable", pot.try_add_item() instead of
 ## basket.try_add_item().
 func _try_add_nearest_to_cookpot(pot: Node) -> void:
-	var bodies: Array        = detect_area.get_overlapping_bodies()
-	var closest: RigidBody3D = null
-	var closest_dist: float  = INF
-
-	for body in bodies:
-		if body == held_item:   ## DetectArea now also sees the player's
-			continue              ## own held item (layer 2, Aug 2026 mask
-			                       ## widen) — never treat it as a candidate.
-		if body.is_in_group("cookpot_storable"):
-			if body.is_in_group("shelved"):
-				continue
-			if body is RigidBody3D and (body as RigidBody3D).freeze:
-				continue
-			var d: float = body.global_position.distance_to(player.global_position)
-			if d < closest_dist:
-				closest_dist = d
-				closest = body
+	## held_item / shelved / frozen filtering now lives in
+	## InteractionProximityScan (Phase 1, Aug 2026) — see its header comment.
+	var closest: RigidBody3D = _proximity.nearest_body_in_group("cookpot_storable") as RigidBody3D
 
 	var hud: Node = get_tree().get_first_node_in_group("hud")
 
@@ -845,50 +809,18 @@ func _try_add_nearest_to_cookpot(pot: Node) -> void:
 ## unreliable for those (same caveat _try_interact()'s Pass 2 already
 ## documents), so this uses a group scan, not detect_area.
 func _find_nearest_open_stove() -> Node:
-	var closest: Node        = null
-	var closest_dist: float  = MAX_PROMPT_DIST
-	var player_pos: Vector3  = player.global_position
-	for node: Node in get_tree().get_nodes_in_group("stove"):
-		if not is_instance_valid(node):
-			continue
-		if not node.has_method("has_open_slot") or not node.has_open_slot():
-			continue
-		var d: float = (node as Node3D).global_position.distance_to(player_pos)
-		if d < closest_dist:
-			closest_dist = d
-			closest = node
-	return closest
+	return _proximity.nearest_in_group("stove", MAX_PROMPT_DIST,
+		func(n: Node) -> bool: return n.has_method("has_open_slot") and n.has_open_slot())
 
 ## Same group-scan reasoning as _find_nearest_open_stove().
 func _find_nearest_stove_with_pot() -> Node:
-	var closest: Node        = null
-	var closest_dist: float  = MAX_PROMPT_DIST
-	var player_pos: Vector3  = player.global_position
-	for node: Node in get_tree().get_nodes_in_group("stove"):
-		if not is_instance_valid(node):
-			continue
-		if not ("pot_ref" in node) or node.pot_ref == null:
-			continue
-		var d: float = (node as Node3D).global_position.distance_to(player_pos)
-		if d < closest_dist:
-			closest_dist = d
-			closest = node
-	return closest
+	return _proximity.nearest_in_group("stove", MAX_PROMPT_DIST,
+		func(n: Node) -> bool: return ("pot_ref" in n) and n.pot_ref != null)
 
 ## Same group-scan/range reasoning as _find_nearest_open_stove(), reused
 ## by both the Give prompt (Change 1) and its dispatch (Change 2).
 func _find_nearest_npc() -> Node:
-	var closest: Node       = null
-	var closest_dist: float = MAX_PROMPT_DIST
-	var player_pos: Vector3 = player.global_position
-	for node: Node in get_tree().get_nodes_in_group("npc"):
-		if not is_instance_valid(node):
-			continue
-		var d: float = (node as Node3D).global_position.distance_to(player_pos)
-		if d < closest_dist:
-			closest_dist = d
-			closest = node
-	return closest
+	return _proximity.nearest_in_group("npc", MAX_PROMPT_DIST)
 
 ## Shared cleanup for "this item just left my possession entirely, and
 ## an NPC now has (or had) ownership of it" — used by both a destroyed-
@@ -997,19 +929,8 @@ func _try_pickup_pot_from_stove(stove: Node) -> void:
 ## Scans "cooking_pot" — covers a pot on a stove AND a standalone pot sitting
 ## on the ground with a ready dish still in it.
 func _find_nearest_ready_pot() -> Node:
-	var closest: Node        = null
-	var closest_dist: float  = MAX_PROMPT_DIST
-	var player_pos: Vector3  = player.global_position
-	for node: Node in get_tree().get_nodes_in_group("cooking_pot"):
-		if not is_instance_valid(node):
-			continue
-		if not node.has_method("is_dish_ready") or not node.is_dish_ready():
-			continue
-		var d: float = (node as Node3D).global_position.distance_to(player_pos)
-		if d < closest_dist:
-			closest_dist = d
-			closest = node
-	return closest
+	return _proximity.nearest_in_group("cooking_pot", MAX_PROMPT_DIST,
+		func(n: Node) -> bool: return n.has_method("is_dish_ready") and n.is_dish_ready())
 
 ## Read-only peek at the distance to whatever _try_interact() would
 ## actually interact with, without triggering it — mirrors both of
@@ -1137,36 +1058,14 @@ func _try_interact() -> void:
 ## without actually grabbing it — used purely to fairly compare against the
 ## stove-with-pot special case above. Returns INF if nothing is eligible.
 func _nearest_pickup_distance() -> float:
-	var bodies: Array = detect_area.get_overlapping_bodies()
-	var closest_dist: float = INF
-	for body in bodies:
-		if body.is_in_group("pickup"):
-			if body.is_in_group("shelved"):
-				continue
-			if body is RigidBody3D and (body as RigidBody3D).freeze:
-				continue
-			var d: float = body.global_position.distance_to(player.global_position)
-			if d < closest_dist:
-				closest_dist = d
-	return closest_dist
+	return _proximity.nearest_distance_in_group("pickup")
 
 # ─── Pickup from world ────────────────────────────────────────────────────────
 func _try_pickup() -> void:
-	var bodies: Array        = detect_area.get_overlapping_bodies()
-	var closest: RigidBody3D = null
-	var closest_dist: float  = INF
-
-	for body in bodies:
-		if body.is_in_group("pickup"):
-			## Shelved items — block direct pickup via F; use shelf menu (E) to retrieve
-			if body.is_in_group("shelved"):
-				continue
-			if body is RigidBody3D and (body as RigidBody3D).freeze:
-				continue
-			var d: float = body.global_position.distance_to(player.global_position)
-			if d < closest_dist:
-				closest_dist = d
-				closest = body
+	## Shelved items — block direct pickup via F; use shelf menu (E) to retrieve.
+	## Frozen-body / shelved / held-item filtering now lives in
+	## InteractionProximityScan (Phase 1, Aug 2026) — see its header comment.
+	var closest: RigidBody3D = _proximity.nearest_body_in_group("pickup") as RigidBody3D
 
 	if closest == null:
 		return
