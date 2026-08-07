@@ -22,7 +22,7 @@ extends CanvasLayer
 # ─── Template panel ───────────────────────────────────────────────────────────
 @onready var _template_panel:    PanelContainer  = $Panel
 @onready var _template_label:    RichTextLabel   = $Panel/VBox/Label
-@onready var _template_icon_row: HBoxContainer   = $Panel/VBox/IconRow
+	@onready var _template_icon_row: Control          = $Panel/VBox/IconRow
 
 ## Vertical world-space offset so the panel floats above the object origin
 const WORLD_OFFSET: Vector3 = Vector3(0.0, 1.2, 0.0)
@@ -104,7 +104,7 @@ func _process(_delta: float) -> void:
 
 		# Update icon row (only visible/populated for entries that carry one)
 		var icons: Array = entry.get("icons", [])
-		var icon_row: HBoxContainer = p.get_node_or_null("VBox/IconRow") as HBoxContainer
+		var icon_row: Control = p.get_node_or_null("VBox/IconRow") as Control
 		if icon_row != null:
 			icon_row.visible = not icons.is_empty()
 			if not icons.is_empty():
@@ -129,7 +129,7 @@ func _process(_delta: float) -> void:
 ## them by index.
 func _build_icon_slots(clone: PanelContainer) -> Array:
 	var out: Array = [null, null, null]
-	var row: HBoxContainer = clone.get_node_or_null("VBox/IconRow") as HBoxContainer
+	var row: Control = clone.get_node_or_null("VBox/IconRow") as Control
 	if row == null:
 		return out
 	for slot_i: int in 3:
