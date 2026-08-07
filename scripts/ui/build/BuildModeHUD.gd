@@ -153,18 +153,24 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 ## have their own .tscn).
 const PREVIEW_SOURCES: Dictionary = {
 	1:  { "scene": "res://scripts/world/items/BagOfSoilItem.gd", "is_script": true },
-	2:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	3:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	4:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	5:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	6:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	7:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	8:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	9:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	10: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	11: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	12: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
-	13: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true },
+	## Aug 2026 fix — each seed now carries its own seed_type so
+	## _refresh_shop_previews() below can set it on the instance before
+	## _ready() runs, exactly matching FarmProduceItem's existing
+	## produce_type handling. Without this every seed defaulted to
+	## SeedItem.gd's "tomato" fallback and looked identical. Values match
+	## FarmingShopHelper.SHOP_ITEM_INFO's "type" field exactly for each id.
+	2:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "tomato" },
+	3:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "onion" },
+	4:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "basil" },
+	5:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "strawberry" },
+	6:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "carrot" },
+	7:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "chili_pepper" },
+	8:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "bell_pepper" },
+	9:  { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "garlic" },
+	10: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "potato" },
+	11: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "blueberry" },
+	12: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "corn" },
+	13: { "scene": "res://scripts/world/items/SeedItem.gd", "is_script": true, "seed_type": "pumpkin" },
 	14: { "scene": "res://scripts/world/items/FertilizerItem.gd", "is_script": true },
 	15: { "scene": "res://scripts/world/items/FertilizerItem.gd", "is_script": true },
 	16: { "scene": "res://scenes/world/WaterCase.tscn", "is_script": false },
@@ -1059,6 +1065,11 @@ func _refresh_shop_previews() -> void:
 			if script == null:
 				continue
 			inst = script.new()
+			## Aug 2026 fix — must be set BEFORE the node enters the tree, so
+			## SeedItem.gd's own _ready() builds its placeholder mesh with the
+			## correct species color instead of the "tomato" default.
+			if info.has("seed_type") and "seed_type" in inst:
+				inst.set("seed_type", info["seed_type"])
 		else:
 			var packed: PackedScene = load(String(info["scene"])) as PackedScene
 			if packed == null:

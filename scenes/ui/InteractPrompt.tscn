@@ -21,10 +21,10 @@ content_margin_bottom = 10.0
 
 [sub_resource type="StyleBoxFlat" id="CircleSlot"]
 bg_color = Color(0, 0, 0, 0.35)
-corner_radius_top_left = 32
-corner_radius_top_right = 32
-corner_radius_bottom_right = 32
-corner_radius_bottom_left = 32
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
 
 [node name="InteractPrompt" type="CanvasLayer"]
 layer = 5
@@ -38,22 +38,22 @@ theme_override_styles/panel = SubResource("PromptPanelStyle")
 [node name="VBox" type="VBoxContainer" parent="Panel"]
 
 [node name="IconRow" type="Control" parent="Panel/VBox"]
-custom_minimum_size = Vector2(208, 74)
+custom_minimum_size = Vector2(108, 37)
 visible = false
 
 [node name="Slot0" type="PanelContainer" parent="Panel/VBox/IconRow"]
-position = Vector2(0, 10)
-size = Vector2(64, 64)
+position = Vector2(0, 5)
+size = Vector2(32, 32)
 theme_override_styles/panel = SubResource("CircleSlot")
 
 [node name="Slot1" type="PanelContainer" parent="Panel/VBox/IconRow"]
-position = Vector2(72, 0)
-size = Vector2(64, 64)
+position = Vector2(38, 0)
+size = Vector2(32, 32)
 theme_override_styles/panel = SubResource("CircleSlot")
 
 [node name="Slot2" type="PanelContainer" parent="Panel/VBox/IconRow"]
-position = Vector2(144, 10)
-size = Vector2(64, 64)
+position = Vector2(76, 5)
+size = Vector2(32, 32)
 theme_override_styles/panel = SubResource("CircleSlot")
 
 [node name="Label" type="RichTextLabel" parent="Panel/VBox"]

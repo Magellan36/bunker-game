@@ -34,7 +34,7 @@ const FADE_START: float = 2.2
 const FADE_END:   float = 3.2
 
 ## Icon SubViewport render size (px) / orthogonal camera framing.
-const ICON_VP_SIZE: int = 80
+const ICON_VP_SIZE: int = 40
 const ICON_CAM_SIZE: float = 0.6
 
 # ─── State ────────────────────────────────────────────────────────────────────
@@ -75,34 +75,35 @@ func _process(_delta: float) -> void:
 		_icon_viewports.append(_build_icon_slots(clone))
 		_icon_loaded_sig.append(["", "", ""])
 
-	# ── Update active panels ──────────────────────────────────────────────────
+	# ── Phase 1: compute each panel's natural position/size/alpha and update
+	## its content. `layouts[i]` is null for a hidden entry, else a Dictionary
+	## with pos/size/alpha/priority/dist — Aug 2026, split out of the single
+	## loop this used to be so overlap avoidance (Phase 2) can see every
+	## panel's real size (post-content-update) before any position is final.
+	var layouts: Array = []
 	for i: int in _active.size():
-		var entry: Dictionary    = _active[i]
-		var p: PanelContainer    = _pool[i] as PanelContainer
-		var world_pos: Vector3   = entry["world_pos"] + WORLD_OFFSET
+		var entry: Dictionary  = _active[i]
+		var p: PanelContainer  = _pool[i] as PanelContainer
+		var world_pos: Vector3 = entry["world_pos"] + WORLD_OFFSET
 
-		# Behind camera check
 		if camera.is_position_behind(world_pos):
 			p.visible = false
+			layouts.append(null)
 			continue
 
-		# Compute screen position
 		p.reset_size()
 		var screen_pos: Vector2 = camera.unproject_position(world_pos)
 
-		# Distance-based alpha
 		var dist: float  = entry.get("dist", 0.0)
 		var alpha: float = 1.0
 		if dist > FADE_START:
 			alpha = clampf(1.0 - (dist - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0)
 
-		# Update text
 		var lbl: RichTextLabel = p.get_node_or_null("VBox/Label") as RichTextLabel
 		var txt: String = entry.get("text", "")
 		if lbl != null and lbl.text != txt:
 			lbl.text = txt
 
-		# Update icon row (only visible/populated for entries that carry one)
 		var icons: Array = entry.get("icons", [])
 		var icon_row: Control = p.get_node_or_null("VBox/IconRow") as Control
 		if icon_row != null:
@@ -110,17 +111,77 @@ func _process(_delta: float) -> void:
 			if not icons.is_empty():
 				_refresh_icon_slots(i, icons)
 
-		# Apply — order matters: set text → reset_size → position → modulate → visible
 		p.reset_size()
-		p.position  = screen_pos - p.size / 2.0
-		p.modulate  = Color(1.0, 1.0, 1.0, alpha)
-		p.visible   = true
+		layouts.append({
+			"pos":      screen_pos - p.size / 2.0,
+			"size":     p.size,
+			"alpha":    alpha,
+			"priority": 1 if not icons.is_empty() else 0,
+			"dist":     dist,
+		})
+
+	## Phase 2: pairwise overlap avoidance — only moves panels that actually
+	## overlap on screen; every other panel keeps its natural position
+	## exactly as before. See _resolve_overlaps()'s own header for the rule.
+	_resolve_overlaps(layouts)
+
+	## Phase 3: apply final positions.
+	for i: int in _active.size():
+		var p: PanelContainer = _pool[i] as PanelContainer
+		var lay: Variant = layouts[i]
+		if lay == null:
+			p.visible = false
+			continue
+		var d: Dictionary = lay as Dictionary
+		p.position = d["pos"]
+		p.modulate = Color(1.0, 1.0, 1.0, float(d["alpha"]))
+		p.visible  = true
 
 	# ── Hide surplus pool panels ──────────────────────────────────────────────
 	for i: int in range(_active.size(), _pool.size()):
 		var p: PanelContainer = _pool[i] as PanelContainer
 		if p.visible:
 			p.visible = false
+
+## Pushes lower-priority panels directly below higher-priority ones until no
+## two visible panels' rects overlap. Priority: an entry with a non-empty
+## icon row (e.g. CookingPot's ingredient previews) outranks a plain-text
+## entry (e.g. a Stove's on/off toggle) — ties broken by whichever is
+## closer to the player. This is a general rule, not a hardcoded pot-vs-
+## stove case, so it covers any future pair of nearby prompts too. Runs a
+## few passes so a chain of 3+ overlapping panels all separate out cleanly.
+const OVERLAP_GAP: float = 6.0
+const OVERLAP_PASSES: int = 4
+
+func _resolve_overlaps(layouts: Array) -> void:
+	for _pass: int in OVERLAP_PASSES:
+		var moved_any: bool = false
+		for a: int in layouts.size():
+			var la: Variant = layouts[a]
+			if la == null:
+				continue
+			for b: int in range(a + 1, layouts.size()):
+				var lb: Variant = layouts[b]
+				if lb == null:
+					continue
+				var da: Dictionary = la as Dictionary
+				var db: Dictionary = lb as Dictionary
+				var ra: Rect2 = Rect2(da["pos"] as Vector2, da["size"] as Vector2)
+				var rb: Rect2 = Rect2(db["pos"] as Vector2, db["size"] as Vector2)
+				if not ra.intersects(rb):
+					continue
+
+				var a_wins: bool = float(da["priority"]) > float(db["priority"]) \
+					or (float(da["priority"]) == float(db["priority"]) and float(da["dist"]) <= float(db["dist"]))
+				var top: Dictionary    = da if a_wins else db
+				var bottom: Dictionary = db if a_wins else da
+
+				var new_y: float = (top["pos"] as Vector2).y + (top["size"] as Vector2).y + OVERLAP_GAP
+				if (bottom["pos"] as Vector2).y != new_y:
+					bottom["pos"] = Vector2((bottom["pos"] as Vector2).x, new_y)
+					moved_any = true
+		if not moved_any:
+			break
 
 # ─── Icon slot construction / refresh ─────────────────────────────────────────
 ## Builds the 3 SubViewport+Camera3D+OmniLight3D triples for one pool
