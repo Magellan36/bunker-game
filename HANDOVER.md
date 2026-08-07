@@ -1,3 +1,78 @@
+# Handover — End Table + Dresser (Light Storage, Shared StorageUI) (Aug 2026)
+
+## What changed this session
+Added two floor-standing hidden-storage furniture pieces to Construct →
+Furniture: **End Table** (TILE 32, $60, capacity 2) and **Dresser**
+(TILE 33, $150, capacity 6). Both share a new `LightStorage.gd` base and
+are implemented **entirely against the shared `StorageUI` 4-method
+contract** — no new UI file, no second CanvasLayer. This supersedes the
+original plan's (v1) ShelfUI-copy approach, which was dead code after the
+Aug 2026 Storage UI Unification pass deleted `ShelfUI.gd`/`BasketUI.gd`.
+
+### Key decisions
+- **UI via the shared StorageUI contract**, not a new `LightStorageUI.gd`.
+  `LightStorage.gd` implements `get_ui_config` / `get_slot_display` /
+  `take_for_carry` / `take_for_inventory`; `get_ui_config()` is built from
+  `grid_cols`/`grid_rows`/`row_labels` exports set by each subclass in
+  `_init()`.
+- **`"shelving"` group = the generic E/F container contract**, reused
+  deliberately (InteractionSystem duck-types `on_e_interact`/`on_f_interact`/
+  `get_e_prompt`/`get_f_prompt`/`get_prompt_world_pos`). Both MainWorld's
+  `_setup_storage_ui()` group loop and BuildModeController's spawn branch
+  inject `_storage_ui`/`_interaction_system` into them — so **MainWorld and
+  InteractionSystem needed zero changes**.
+- **Fixed-size `stored` slot array** (length = capacity, null = empty) so
+  StorageUI's positional addressing stays index-stable when a middle slot
+  is emptied. No stacking. Eligibility = the `"inventory_item"` group.
+- **Hidden-children storage model** (frozen, invisible, collision-off
+  children) — reuse of the ecosystem-wide `"shelved"` exclusion group.
+- **`eject_all_items()` is load-bearing**: deconstruct / build-undo
+  duck-call it; stored items are children of the furniture node, so
+  without it they'd be silently freed with the node. Any container whose
+  items are children MUST implement it (same rule Shelving/Stove follow).
+
+### Files modified
+- `scripts/world/furniture/LightStorage.gd` — NEW shared base (~300 lines).
+- `scripts/world/furniture/EndTable.gd` — NEW subclass (Table.gd legs+top,
+  cabinet + drawer face/knob), capacity 2.
+- `scripts/world/furniture/Dresser.gd` — NEW subclass (2×3 drawer grid),
+  capacity 6.
+- `scripts/world/build/BuildModeController.gd` — consts 32/33, spawn
+  branch + StorageUI/InteractionSystem injection, occupancy block +
+  inner filter, `_tile_half_extents()` arms.
+- `scripts/ui/build/BuildModeHUD.gd` — two Furniture category lines
+  (scoped exception, nothing else in the file).
+- `scripts/world/build/GhostModelBuilder.gd` — 2 preview-source entries.
+- `scripts/world/build/GhostPreview.gd` — 2 ghost branches + floor-Y elif.
+- `docs/systems/furniture-items/README.md`, `docs/systems/build/README.md`
+  (new "Light Storage" section + complete wiring checklist),
+  `docs/systems/ui/README.md` (contract implementer list), `HANDOVER.md`.
+- `END_TABLE_DRESSER_LIGHT_STORAGE_PLAN_V2.md` — plan copied into repo root.
+
+### Verification checklist
+(in-editor, Brannon)
+1. Placement: both in Construct → Furniture at $60/$150; spinning
+   previews; correctly-sized non-colliding ghosts + facing arrow; green/
+   red overlap vs other furniture; flush at floor; drawers face the arrow
+   direction after rotation.
+2. Store: FoodCan + F → vanishes; fill to capacity → "… is full" warning;
+   Crate → no F prompt, F drops normally.
+3. Shared UI: E opens END TABLE / DRESSER grid (2×1 / 2×3) + row labels;
+   ↑ Carry (blocked with full hands) / ⊕ to pocket; slot indices stable
+   after emptying a middle drawer; panel blocks world E/F while open;
+   shelf + basket UIs still work unchanged.
+4. Injection both paths: mid-session-placed unit opens its UI with no
+   "not injected" warning.
+5. Eject: store 2 items in an End Table → deconstruct → both pop out
+   visible + grabbable; repeat via build-undo on a Dresser.
+6. Ecosystem: hidden stored can isn't stashed by a held Basket, gets no
+   prompts, invisible to scans; E fairness unchanged; items resting on the
+   End Table top behave normally; Move tool carries stored items and they
+   stay retrievable.
+
+---
+---
+
 # Handover — Bulky Held-Item Head-Clearance Arc (Aug 2026)
 
 ## What changed this session

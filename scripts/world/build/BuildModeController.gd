@@ -65,6 +65,8 @@ const TILE_TABLE_MEDIUM: int = 28   ## Medium table, 2×1 footprint (Furniture)
 const TILE_CHAIR:        int = 29   ## Chair, 1×1 footprint (Furniture)
 const TILE_STOVE:        int = 30   ## Cooking System — Stove, 1×1 footprint, 200W, Construct → Cooking
 const TILE_POSTER:       int = 31   ## Blank wall poster — decorative, wall-snapped like TILE_LIGHT
+const TILE_END_TABLE:    int = 32   ## End table, 1×1 footprint, 2-item light storage (Furniture)
+const TILE_DRESSER:      int = 33   ## Dresser, 2×1 footprint, 6-item light storage (Furniture)
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -1220,6 +1222,38 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 				shelf_node.set("_storage_ui", sui)
 
 		return shelf_node
+
+	# ── End Table / Dresser: script-based procedural nodes, ground-placed ──────
+	## Light storage furniture (shared LightStorage base). Mirrors the Shelving
+	## branch's injection block so a unit placed mid-session is wired (E opens
+	## the shared StorageUI) and interactive right away.
+	if tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER:
+		var storage_script: GDScript = null
+		if tile_id == TILE_END_TABLE:
+			storage_script = load("res://scripts/world/furniture/EndTable.gd")
+		else:
+			storage_script = load("res://scripts/world/furniture/Dresser.gd")
+		var storage_node: StaticBody3D = StaticBody3D.new()
+		if storage_script != null:
+			storage_node.set_script(storage_script)
+		storage_node.set_meta("tile_id", tile_id)
+
+		var storage_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		storage_par.add_child(storage_node)
+		storage_node.global_position  = pos
+		storage_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+
+		var storage_isys: Node = get_parent().get_node_or_null("InteractionSystem")
+		if storage_isys != null:
+			storage_node.set("_interaction_system", storage_isys)
+
+		var storage_wn: Node = get_tree().get_first_node_in_group("world")
+		if storage_wn != null:
+			var storage_sui: Node = storage_wn.get_node_or_null("StorageUI")
+			if storage_sui != null:
+				storage_node.set("_storage_ui", storage_sui)
+
+		return storage_node
 
 	# ── Wall light: script-based node (Node3D — no collision) ────────────────
 	if tile_id == TILE_LIGHT:
@@ -2833,7 +2867,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
 				return true
 		return false
-	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE:
+	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE or tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER:
 		# Tables, chairs, and the Stove sit on the floor (Y=0.5), same as
 		# Beds/Shelving/Generators/Trays above — the physics shape query hits
 		# the floor collider, causing a false "space occupied" positive.
@@ -2841,7 +2875,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 		var threshold: float = grid_size * 0.9
 		for entry: Dictionary in _placed_objects:
 			var et: int = entry.get("tile_id", -1)
-			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE:
+			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE and et != TILE_END_TABLE and et != TILE_DRESSER:
 				continue
 			var p: Vector3 = entry["world_pos"]
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
@@ -2951,6 +2985,8 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_CHAIR:        return Vector2(0.375, 0.375)  ## 1×1 cell, ×1.25 of the previous 0.30
 		TILE_STOVE:        return Vector2(0.42, 0.42)  ## 1×1, same class as TILE_TRAY_SINGLE
 		TILE_POSTER:       return Vector2(0.05, 0.05)  ## Thin wall-flush panel — NOT the 0.40 floor-object default. The wall-snap step already validated a real wall was found; this check just needs to not second-guess that by treating Poster like a room-occupying object.
+		TILE_END_TABLE:    return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TABLE_SMALL/TILE_TRAY_SINGLE
+		TILE_DRESSER:      return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
 		TILE_LIGHT:        return Vector2(0.05, 0.05)   ## Thin wall-flush fixture — NOT the 0.40 floor-object default. Same fix/reasoning as TILE_POSTER earlier this session; the wall-snap step already validated a real wall was found, this just needs to not second-guess that with an oversized box.
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback

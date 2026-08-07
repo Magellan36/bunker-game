@@ -52,6 +52,9 @@ or the environment itself (`docs/systems/environment/README.md`).
 | `items/HeavyConsumerTest.gd` | ~280 | StaticBody3D load-test device â€” registers/unregisters as a power consumer via `PowerManager`, not a real pickup item |
 | `furniture/Bed.gd` | ~45 | Sleep interaction trigger â€” `sleep_requested`/`wake_requested` signals |
 | `furniture/Shelving.gd` | ~890 | Shelf storage: slot markers, item stacking/placement, retrieval to hand or inventory |
+| `furniture/LightStorage.gd` | ~300 | **NEW (Aug 2026)** Shared base for hidden-children light-item storage furniture (End Table / Dresser). Implements the StorageUI 4-method contract (see `docs/systems/ui/README.md`) + the `"shelving"`-group E/F duck-type contract; fixed-size `stored` slot array; `eject_all_items()` reparents hidden children to the world root on deconstruct/build-undo |
+| `furniture/EndTable.gd` | ~95 | **NEW (Aug 2026)** 1×1 side table, capacity 2 light storage (drawer), TILE 32, $60 |
+| `furniture/Dresser.gd` | ~95 | **NEW (Aug 2026)** 2×1 dresser, capacity 6 light storage (2×3 drawers), TILE 33, $150 |
 
 ## Public API
 **Shared item contract** (duck-typed â€” `InteractionSystem`/`Shelving` call
@@ -94,6 +97,40 @@ Signals: `item_placed(slot_index, item)`, `item_retrieved(slot_index, item)`.
 String`, `set_player_in_range(in_range)`, `set_sleeping(sleeping: bool)`.
 Signals: `sleep_requested()`, `wake_requested()` â€” consumed by
 `SleepOverlay.gd` (`docs/systems/ui/README.md`).
+
+**`LightStorage`** (`class_name LightStorage`, extends `StaticBody3D`):
+shared base for furniture with hidden internal storage of LIGHT items
+(End Table capacity 2, Dresser capacity 6). Eligibility = exactly the
+`"inventory_item"` group (same set as pocket inventory) â€” crates/cases
+etc. get no F prompt and are rejected with a HUD soft warning. No
+stacking, no slot geometry, no visible stored meshes.
+
+- **Storage model:** fixed-size `stored` slot array (length `capacity`,
+  null = empty), initialized in `_ready()` via `stored.resize(capacity)`.
+  Indices stay stable when a middle slot is emptied (StorageUI addresses
+  slots positionally). Storing fills the first null slot.
+- **UI:** opens the SHARED `StorageUI` (`_storage_ui.open(self)`) via the
+  4-method contract (`get_ui_config` / `get_slot_display` /
+  `take_for_carry` / `take_for_inventory`) â€” zero UI code of its own.
+  `get_ui_config()` is built from `grid_cols`/`grid_rows`/`row_labels`
+  exports set by the subclass in `_init()`.
+- **`"shelving"` group** = the generic E/F container contract
+  (`on_e_interact`/`on_f_interact`/`get_e_prompt`/`get_f_prompt`/
+  `get_prompt_world_pos`) that InteractionSystem duck-types against, NOT
+  "is literally a shelf". MainWorld's `_setup_storage_ui()` injects
+  `_storage_ui`/`_interaction_system` into every member that declares
+  those properties; BuildModeController's spawn branch does the same for
+  mid-session placement.
+- **Hidden-children gotcha:** stored items are frozen, invisible,
+  collision-off children of the furniture node. Any retrieval path must
+  reparent to the world root + restore visibility before handing off;
+  `eject_all_items()` does this and is REQUIRED (deconstruct/build-undo
+  duck-call it â€” without it the stored items are silently freed with the
+  node). No metadata layer-saving: restoration uses canonical values.
+- **`EndTable.gd` / `Dresser.gd`:** mesh-only subclasses; `_init()` sets
+  capacity / display_name / prompt_height / grid_cols / grid_rows /
+  row_labels. Both expose `static func build_ghost_mesh()` for the build
+  ghost + procedural preview.
 
 ## Signals/events consumed
 - `InteractionSystem` connects to every held item's `knocked_out` signal

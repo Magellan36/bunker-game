@@ -524,7 +524,9 @@ now live in `scripts/ui/hud/`:
 Replaces the former separate `ShelfUI.gd`/`BasketUI.gd` (476/470 lines, 17
 of 18 functions duplicated between them) with one generic, config-driven
 `StorageUI.gd`. Any storage object — `Shelving.gd`, `Basket.gd`, and any
-future type — implements a 4-method contract:
+future type — implements a 4-method contract. Current implementers:
+`Shelving.gd`, `Basket.gd`, and the light-storage furniture base
+`LightStorage.gd` (`EndTable.gd` / `Dresser.gd`, Aug 2026):
 
 - `get_ui_config() -> Dictionary` — grid shape, slot count, row labels,
   stacking, primary-button icon/label/color, close-vs-refresh-on-action.
@@ -545,7 +547,14 @@ destroyed. This is what makes adding a future storage type (lockable
 storage, freezers/fridges, lockers, larger shelving units, all mentioned
 as planned) free on the UI side — no fixed slot count anywhere in the
 file, no new UI code needed, just a world-object script implementing the
-4-method contract above.
+4-method contract above. `LightStorage.gd` is the proof: capacity-2
+(End Table) and capacity-6 (Dresser) containers with zero UI code of
+their own, only the four methods + a `get_ui_config()` built from its
+`grid_cols`/`grid_rows`/`row_labels` exports. Because its stored items are
+hidden children of the furniture node, its `take_for_carry`/
+`take_for_inventory`/`eject_all_items()` must reparent them to the world
+root and restore visibility before handing off — see
+`docs/systems/furniture-items/README.md`.
 
 `MainWorld.gd`'s former `_setup_shelf_ui()`/`_setup_basket_ui()` collapsed
 into one `_setup_storage_ui()`, which points BOTH of

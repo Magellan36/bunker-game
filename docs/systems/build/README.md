@@ -90,6 +90,42 @@ scripts following the same pattern as `Shelving.gd`/`Bed.gd`:
   light-specific one), blank beige canvas + dark frame, meant as the
   baseline for future wall decor.
 
+## Light Storage: End Table / Dresser (Aug 2026)
+Tile IDs **32** (`End Table`, $60, capacity 2) and **33** (`Dresser`,
+$150, capacity 6) in Construct → Furniture — floor-standing hidden-
+storage furniture sharing the `LightStorage.gd` base. These two are the
+current **reference example of complete new-object wiring** (see the
+checklist below): every layer that a new placeable furniture type must
+touch is wired here.
+
+- `EndTable.gd` / `Dresser.gd`: mesh-only subclasses of
+  `scripts/world/furniture/LightStorage.gd`, each exposing
+  `static func build_ghost_mesh()`.
+- `BuildModeController.gd`: `TILE_END_TABLE`/`TILE_DRESSER` consts (32/33);
+  a shared spawn branch in `spawn_structure()` that mirrors the Shelving
+  branch's StorageUI + InteractionSystem injection (so mid-session-placed
+  units open the shared UI with no "not injected" warning); both tiles
+  added to the `_is_position_occupied_for_tile()` floor-furniture registry
+  block and the inner `et !=` filter; `_tile_half_extents()` arms
+  `Vector2(0.45, 0.45)` / `Vector2(0.95, 0.48)`.
+- `BuildModeHUD.gd`: two data lines in `CATEGORIES["Furniture"]`.
+- `GhostModelBuilder.gd`: `PROCEDURAL_PREVIEW_SOURCES` entries for 32/33.
+- `GhostPreview.gd`: ghost branches via the static helpers + the
+  floor-standing `snap_pos.y = 0.5` elif extended.
+- `MainWorld.gd` / `InteractionSystem.gd`: **no changes** — the shared
+  `_setup_storage_ui()` group loop and the shared `shelf_ui` ref already
+  cover pre-placed units and input-blocking.
+
+**Wiring checklist for a new placeable object** (complete set):
+1. `BuildModeController` const + `spawn_structure()` branch (incl. any
+   UI/interaction ref injection for storage types).
+2. `BuildModeHUD` category data line.
+3. `GhostModelBuilder.PROCEDURAL_PREVIEW_SOURCES` entry (if procedural).
+4. `GhostPreview` ghost branch + floor/wall snap-Y handling.
+5. `_is_position_occupied_for_tile()` / `_tile_half_extents()` if
+   floor-standing.
+6. Docs + HANDOVER.
+
 Player-side seat/stand wiring (`seated_chair` state, movement-priority
 interaction override) lives in `Player.gd`/`InteractionSystem.gd`, not this
 system — see those docs / `HANDOVER.md` for that half of the mechanic.

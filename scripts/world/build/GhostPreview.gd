@@ -247,6 +247,20 @@ func _rebuild_ghost_mesh() -> void:
 					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
+	# ── End Table / Dresser (Light Storage): ghost from static helpers ─────────
+	if _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER:
+		var storage_script_path: String = "res://scripts/world/furniture/EndTable.gd"
+		if _owner._selected_tile == _owner.TILE_DRESSER:
+			storage_script_path = "res://scripts/world/furniture/Dresser.gd"
+		var storage_script: GDScript = load(storage_script_path)
+		if storage_script != null and storage_script.has_method("build_ghost_mesh"):
+			var ghost_mesh: Mesh = storage_script.build_ghost_mesh()
+			if ghost_mesh != null:
+				_owner._ghost.mesh = ghost_mesh
+				for s: int in ghost_mesh.get_surface_count():
+					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
 	# ── Stove (Cooking System): ghost from Stove.gd static helper ──────────────
 	if _owner._selected_tile == _owner.TILE_STOVE:
 		var stove_ghost_script: GDScript = load("res://scripts/world/cooking/Stove.gd")
@@ -591,7 +605,8 @@ func _update_ghost() -> void:
 	elif _owner._selected_tile == _owner.TILE_TRAY_SINGLE or _owner._selected_tile == _owner.TILE_TRAY_DOUBLE:
 		snap_pos.y = 0.5   ## Floor-standing object with slight hover offset
 	elif _owner._selected_tile == _owner.TILE_TABLE_SMALL or _owner._selected_tile == _owner.TILE_TABLE_MEDIUM \
-			or _owner._selected_tile == _owner.TILE_CHAIR or _owner._selected_tile == _owner.TILE_STOVE:
+			or _owner._selected_tile == _owner.TILE_CHAIR or _owner._selected_tile == _owner.TILE_STOVE \
+			or _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER:
 		snap_pos.y = 0.5   ## Floor-standing, same hover-offset convention as farming trays
 	elif _owner._selected_tile == _owner.TILE_GROW_LIGHT_NORMAL or _owner._selected_tile == _owner.TILE_GROW_LIGHT_PRO:
 		## Not wall-snapped, not required to sit above a tray — placeable

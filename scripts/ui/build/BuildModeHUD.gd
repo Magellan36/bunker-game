@@ -46,6 +46,8 @@ const CATEGORIES: Dictionary = {
 		{ "tile_id": 27, "name": "Small Table",  "price": 60  },
 		{ "tile_id": 28, "name": "Medium Table", "price": 110 },
 		{ "tile_id": 29, "name": "Chair",        "price": 45  },
+		{ "tile_id": 32, "name": "End Table",    "price": 60  },
+		{ "tile_id": 33, "name": "Dresser",      "price": 150 },
 		{ "tile_id": 31, "name": "Poster",       "price": 20  },
 	],
 	"Lighting": [
