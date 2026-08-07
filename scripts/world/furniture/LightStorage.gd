@@ -51,6 +51,15 @@ func _ready() -> void:
 	if _is_preview_only:
 		return
 	add_to_group("shelving")
+	## Aug 2026 fix — Shelving.gd joins BOTH "interactable" and "shelving";
+	## this file only joined "shelving", which InteractionSystem's Pass 2
+	## (the static-body scan) explicitly EXCLUDES on purpose (its own
+	## comment claims shelving-group objects are "handled separately" —
+	## that separate handling is Pass 1, which requires "interactable" OR
+	## "pickup" membership). Without this line, End Table/Dresser fell into
+	## the gap between both passes and never became a prompt candidate at
+	## all — not a display bug, they were simply never scanned.
+	add_to_group("interactable")
 
 ## Subclasses MUST override.
 func _build_mesh() -> void:
@@ -96,7 +105,7 @@ func get_f_prompt() -> String:
 	if not item.is_in_group("inventory_item"):
 		return ""
 	if is_full():
-		return ""
+		return "%s Full" % display_name   ## Aug 2026 — was "", matching Shelving.gd's existing "[F] Shelf full" pattern
 	return "[F] Store item"
 
 func get_prompt_world_pos() -> Vector3:

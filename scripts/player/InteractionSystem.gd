@@ -654,12 +654,22 @@ func _update_prompt() -> void:
 			lines.append("[F] Pick up")
 
 		if body.is_in_group("shelving"):
+			var fp: String = ""
 			if body.has_method("get_f_prompt"):
-				var fp: String = body.get_f_prompt()
-				if fp != "": lines.append(fp)
-			if body.has_method("get_e_prompt"):
-				var ep: String = body.get_e_prompt()
-				if ep != "": lines.append(ep)
+				fp = body.get_f_prompt()
+			if fp != "":
+				lines.append(fp)
+			else:
+				## Aug 2026 fix — only show "[E] Open X" when there's nothing
+				## for F to say instead (i.e. not holding a storable item).
+				## Previously both always showed together, which was
+				## misleading: while ANYTHING is held, E is bound to the held
+				## item's own action (CASE 1 above), never to this object's
+				## on_e_interact() — so "[E] Open X" promised something E
+				## wouldn't actually do whenever a storable item was held.
+				if body.has_method("get_e_prompt"):
+					var ep: String = body.get_e_prompt()
+					if ep != "": lines.append(ep)
 		elif body.is_in_group("interactable") and not body.is_in_group("pickup"):
 			if body.has_method("get_interact_prompt"):
 				var ip: String = body.get_interact_prompt()
