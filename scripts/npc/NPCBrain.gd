@@ -638,7 +638,7 @@ class TalkActivity extends NPCActivity:
 	func score(npc: NPC) -> float:
 		if not _is_initiator:
 			return 0.0   ## the forced partner-side instance is never itself a scoring candidate
-		if npc.is_talk_on_cooldown():
+		if npc.has_method("is_talk_on_cooldown") and npc.is_talk_on_cooldown():
 			return 0.0
 		if npc.find_talk_partner() == null:
 			return 0.0
@@ -694,7 +694,7 @@ class TalkActivity extends NPCActivity:
 			## don't leave the partner stuck waiting forever
 			if _partner.has_method("end_talk_session"):
 				_partner.end_talk_session()
-		if _duration > 0.0:
+		if _duration > 0.0 and npc.has_method("start_talk_cooldown"):
 			npc.start_talk_cooldown()   ## covers both natural completion and any interrupt/abort path
 		_partner = null
 
@@ -748,7 +748,8 @@ class SnatchActivity extends NPCActivity:
 			"targeting %s, relationship=%.1f" % [
 				"player" if _target != null and _target.is_in_group("player") else (_target.npc_name if _target != null and ("npc_name" in _target) else "unknown"),
 				npc.get_relationship("player" if _target != null and _target.is_in_group("player") else (_target.npc_id if _target != null and "npc_id" in _target else "player"))])
-		npc.start_hostile_log()
+		if npc.has_method("start_hostile_log"):
+			npc.start_hostile_log()
 		_tracked_item = _target.get_held_item() if _target != null and _target.has_method("get_held_item") else null
 		if _target != null and is_instance_valid(_target):
 			npc.set_nav_target((_target as Node3D).global_position)
@@ -757,11 +758,15 @@ class SnatchActivity extends NPCActivity:
 		_chase_timer += delta
 		if _target != null and is_instance_valid(_target):
 			var target_id: String = "player" if _target.is_in_group("player") else _target.npc_id
-			npc.start_snatch_cooldown_against(target_id)
-			npc.update_hostile_log()
+			if npc.has_method("start_snatch_cooldown_against"):
+				npc.start_snatch_cooldown_against(target_id)
+			if npc.has_method("update_hostile_log"):
+				npc.update_hostile_log()
 			if not _target.is_in_group("player"):
-				npc.start_npc_snatch_pair_cooldown(target_id)
-				_target.start_npc_snatch_pair_cooldown(npc.npc_id)   ## bidirectional
+				if npc.has_method("start_npc_snatch_pair_cooldown"):
+					npc.start_npc_snatch_pair_cooldown(target_id)
+				if _target.has_method("start_npc_snatch_pair_cooldown"):
+					_target.start_npc_snatch_pair_cooldown(npc.npc_id)   ## bidirectional
 		if _chase_timer > MAX_CHASE_TIME:
 			NPCDebug.log_snatch(npc, "aborted", "gave up after %.0fs of pursuit" % MAX_CHASE_TIME)
 			_target = null
@@ -830,7 +835,8 @@ class SnatchActivity extends NPCActivity:
 		return _target == null and _tracked_item == null and _handoff == null
 
 	func exit(npc: NPC) -> void:
-		npc.end_hostile_log()
+		if npc.has_method("end_hostile_log"):
+			npc.end_hostile_log()
 		_target = null
 		_tracked_item = null
 		_handoff = null
