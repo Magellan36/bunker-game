@@ -118,6 +118,30 @@ const TRAIT_WORDS: Dictionary = {
 	"optimism":    {"low": "Pessimistic", "mid": "Realistic",     "high": "Optimistic"},
 }
 
+# ─── Shared Randomness Helpers (Aug 2026 consistency pass) ──────────────────
+## Centralizes two patterns that were being reimplemented slightly
+## differently in multiple places — existing per-mechanic constants
+## (SNATCH_CHANCE_AT_THRESHOLD, etc.) are unchanged, only the FORMULA
+## itself is now shared instead of duplicated.
+
+func _random_sign() -> float:
+	return 1.0 if randf() < 0.5 else -1.0
+
+## direction = +1.0 for "chance increases as value rises above threshold"
+## (Give-to-Friend), -1.0 for "chance increases as value falls below
+## threshold" (Snatch). Handles both with one formula.
+func _threshold_scaled_chance(value: float, threshold: float, extreme: float,
+		chance_at_threshold: float, chance_at_extreme: float, direction: float) -> float:
+	if direction > 0.0 and value < threshold:
+		return 0.0
+	if direction < 0.0 and value > threshold:
+		return 0.0
+	var span: float = extreme - threshold
+	if absf(span) < 0.0001:
+		return chance_at_threshold
+	var t: float = clampf((value - threshold) / span, 0.0, 1.0)
+	return lerp(chance_at_threshold, chance_at_extreme, t)
+
 ## ─── Identity (Part 22) — stable unique id, used as the relationship key ──
 ## Not the same thing as generation_seed (that's for personality/skill RNG,
 ## not identity). Auto-assigned on first _ready(); overwritten by
@@ -199,7 +223,7 @@ func randomize_personality() -> void:
 			continue   ## absent entirely — every _*_trait_mult()'s .get(key, 0.5) default already means baseline
 		## A PRESENT trait is by definition not neutral — skew into the
 		## low or high band, never the dead middle.
-		personality[k] = randf_range(0.0, TRAIT_BAND_LOW) if randf() < 0.5 \
+		personality[k] = randf_range(0.0, TRAIT_BAND_LOW) if _random_sign() > 0.0 \
 			else randf_range(TRAIT_BAND_HIGH, 1.0)
 
 func get_trait_word(key: String) -> String:
@@ -305,6 +329,7 @@ func _tick_mood_and_irritability(delta: float) -> void:
 	_tick_irritability(h)
 	_tick_relationships(h)
 	_tick_relax_day(h)
+	_tick_contagion_exposure(h)
 	_check_contagion_log()
 	_check_label_crossings()
 
@@ -329,17 +354,8 @@ func _tick_mood(h: float) -> void:
 	_mood_needs_delta = mood - before
 
 	before = mood
-	var others: Array = get_tree().get_nodes_in_group("npc")
-	var total: float = 0.0
-	var count: int = 0
-	for other: Node in others:
-		if other == self or not is_instance_valid(other) or not ("mood" in other):
-			continue
-		total += float(other.mood)
-		count += 1
-	if count > 0:
-		var avg_other: float = total / float(count)
-		mood = clampf(mood + (avg_other - mood) * MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * get_contagion_sociability_mult() * h, 0.0, 100.0)
+	var contagion_target: float = _compute_weighted_contagion_target()
+	mood = clampf(mood + (contagion_target - mood) * MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * get_contagion_sociability_mult() * h, 0.0, 100.0)
 	_mood_contagion_delta = mood - before
 
 	before = mood
@@ -593,6 +609,47 @@ func _tick_relax_day(h: float) -> void:
 		_relax_time_used_today = 0.0
 	_relax_cooldown_hours = maxf(0.0, _relax_cooldown_hours - h)
 
+# ─── Mood Contagion Exposure Weighting (Aug 2026) ───────────────────────────
+const CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR: float = 0.5
+const CONTAGION_EXPOSURE_DECAY_PER_GAME_HOUR: float = 0.2
+const CONTAGION_EXPOSURE_MAX: float = 5.0
+var _contagion_exposure: Dictionary = {}   ## other npc_id -> 0..CONTAGION_EXPOSURE_MAX
+
+## Same 5s tick cadence and the SAME proximity range the Relationships
+## system already uses (RELATIONSHIP_PROXIMITY_RANGE) — one consistent
+## definition of "together" across both systems, not a second threshold.
+func _tick_contagion_exposure(h: float) -> void:
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+			continue
+		var id: String = other.npc_id
+		var current: float = float(_contagion_exposure.get(id, 0.0))
+		if NPCItemUser.flat_distance(global_position, other.global_position) <= RELATIONSHIP_PROXIMITY_RANGE:
+			current = minf(CONTAGION_EXPOSURE_MAX, current + CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR * h)
+		else:
+			current = maxf(0.0, current - CONTAGION_EXPOSURE_DECAY_PER_GAME_HOUR * h)
+		_contagion_exposure[id] = current
+
+## Weighted average of every other NPC's mood, weighted by this NPC's
+## accumulated exposure to them. Someone with zero recent exposure
+## contributes nothing at all, not a diluted "everyone counts a little."
+## Returns this NPC's own current mood (a no-op target) if nobody has any
+## exposure yet — e.g. a freshly-spawned NPC with no history.
+func _compute_weighted_contagion_target() -> float:
+	var weighted_sum: float = 0.0
+	var weight_total: float = 0.0
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not ("mood" in other) or not ("npc_id" in other):
+			continue
+		var exposure: float = float(_contagion_exposure.get(other.npc_id, 0.0))
+		if exposure <= 0.0:
+			continue
+		weighted_sum += float(other.mood) * exposure
+		weight_total += exposure
+	if weight_total <= 0.0:
+		return mood
+	return weighted_sum / weight_total
+
 ## FUTURE WORK — see docs/systems/npc/README.md's Relationships section for
 ## the full list (item giving/taking, crisis-response helping behavior,
 ## command-compliance feel, personal-space avoidance scaling by
@@ -745,13 +802,8 @@ func get_held_item() -> Node:
 ## Generalized to any target_id (npc_id or "player") — same curve, just
 ## no longer hardcoded to the player specifically.
 func get_snatch_chance_toward(target_id: String) -> float:
-	var rel: float = get_relationship(target_id)
-	if rel > SNATCH_RELATIONSHIP_THRESHOLD:
-		return 0.0
-	var t: float = clampf(
-		(SNATCH_RELATIONSHIP_THRESHOLD - rel) / (SNATCH_RELATIONSHIP_THRESHOLD - RELATIONSHIP_MIN),
-		0.0, 1.0)
-	return lerp(SNATCH_CHANCE_AT_THRESHOLD, SNATCH_CHANCE_AT_MIN, t)
+	return _threshold_scaled_chance(get_relationship(target_id), SNATCH_RELATIONSHIP_THRESHOLD,
+		RELATIONSHIP_MIN, SNATCH_CHANCE_AT_THRESHOLD, SNATCH_CHANCE_AT_MIN, -1.0)
 
 ## Kept for the F7 debug button, which is still specifically about the player.
 func get_snatch_chance() -> float:
@@ -1025,7 +1077,7 @@ const TALK_RELATIONSHIP_DELTA_MAX: int = 3
 ## %+.1f convention every other relationship log line already uses).
 func apply_talk_relationship_swing(partner_id: String, partner_name: String) -> void:
 	var magnitude: float = float(randi_range(TALK_RELATIONSHIP_DELTA_MIN, TALK_RELATIONSHIP_DELTA_MAX))
-	var base_delta: float = magnitude if randf() < 0.5 else -magnitude
+	var base_delta: float = magnitude * _random_sign()
 	var applied: float = _adjust_relationship(partner_id, base_delta)
 	var label: String = "Good Conversation" if applied > 0.0 else ("Bad Conversation" if applied < 0.0 else "Neutral Conversation")
 	log_action("Relationship with %s %+.1f (%s)" % [partner_name, applied, label])
@@ -1109,12 +1161,8 @@ const GIVE_TO_FRIEND_CHANCE_AT_MAX: float = 0.5          ## at +100 — same cur
 const GIVE_TO_FRIEND_BASE_SCORE: float = 5.5
 
 func get_give_to_friend_chance(rel: float) -> float:
-	if rel < GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD:
-		return 0.0
-	var t: float = clampf(
-		(rel - GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD) / (RELATIONSHIP_MAX - GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD),
-		0.0, 1.0)
-	return lerp(GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD, GIVE_TO_FRIEND_CHANCE_AT_MAX, t)
+	return _threshold_scaled_chance(rel, GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD,
+		RELATIONSHIP_MAX, GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD, GIVE_TO_FRIEND_CHANCE_AT_MAX, 1.0)
 
 ## Cheap, deterministic (no item search, no roll) — used by
 ## GiveToFriendActivity.score() so the full search only runs on enter().
