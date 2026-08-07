@@ -721,6 +721,21 @@ func is_gift_blocked_from(giver_id: String) -> bool:
 	var last: int = _snatch_cooldown_from[giver_id]
 	return (Time.get_ticks_msec() - last) < int(SNATCH_GIFT_COOLDOWN_SEC * 1000.0)
 
+# ─── NPC↔NPC Snatch Pair Cooldown (Aug 2026) ────────────────────────────────
+const NPC_SNATCH_PAIR_COOLDOWN_SEC: float = 10.0
+var _npc_snatch_pair_cooldown: Dictionary = {}   ## other npc_id -> msec of last NPC-NPC snatch involving this pair (either direction)
+
+## Set on BOTH NPCs involved whenever an NPC-NPC snatch happens (see
+## SnatchActivity.tick()) — bidirectional, so the victim can't
+## immediately retaliate either.
+func start_npc_snatch_pair_cooldown(other_id: String) -> void:
+	_npc_snatch_pair_cooldown[other_id] = Time.get_ticks_msec()
+
+func is_npc_snatch_pair_on_cooldown(other_id: String) -> bool:
+	if not _npc_snatch_pair_cooldown.has(other_id):
+		return false
+	return (Time.get_ticks_msec() - _npc_snatch_pair_cooldown[other_id]) < int(NPC_SNATCH_PAIR_COOLDOWN_SEC * 1000.0)
+
 ## Gives NPC the same get_held_item() interface Player already has, so
 ## SnatchActivity/find_snatch_target() can treat both as interchangeable
 ## targets without branching on type anywhere.
@@ -811,6 +826,8 @@ func find_snatch_target(need_filter: Callable) -> Node:
 		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
 			continue
 		if not force_npc and get_relationship(other.npc_id) > SNATCH_RELATIONSHIP_THRESHOLD:
+			continue
+		if not force_npc and is_npc_snatch_pair_on_cooldown(other.npc_id):
 			continue
 		var held: Node = other.held_item
 		if held == null or not is_instance_valid(held) or not need_filter.call(held):
@@ -976,6 +993,24 @@ const TALK_RELATIONSHIP_NEUTRAL_HIGH: float = 15.0
 const TALK_SCORE_MULT_MAX: float = 2.5   ## at relationship +100
 const TALK_SCORE_MULT_MIN: float = 0.2   ## at relationship -100
 
+## Randomized cooldown after ANY talk session ends (natural completion or
+## interrupted) before this NPC can talk OR be talked to again. Without
+## this, nothing stopped the same two NPCs immediately re-initiating the
+## instant one conversation ended — which is what "randomly interrupted
+## with brief Idles, several instances back to back" actually was: not a
+## bug in the non-interruptibility logic itself, just nothing preventing
+## rapid re-triggering. Same pattern already used for Relaxing.
+const TALK_COOLDOWN_MIN_SEC: float = 30.0
+const TALK_COOLDOWN_MAX_SEC: float = 90.0
+var _talk_cooldown_until_msec: int = 0
+
+func start_talk_cooldown() -> void:
+	var cooldown_sec: float = randf_range(TALK_COOLDOWN_MIN_SEC, TALK_COOLDOWN_MAX_SEC)
+	_talk_cooldown_until_msec = Time.get_ticks_msec() + int(cooldown_sec * 1000.0)
+
+func is_talk_on_cooldown() -> bool:
+	return Time.get_ticks_msec() < _talk_cooldown_until_msec
+
 ## Flat 1.0x between -15 and +15 (your framing: "neutral" band); scales
 ## continuously beyond that rather than a hard binary jump, same reasoning
 ## every other trait/relationship multiplier in this file uses.
@@ -1009,6 +1044,8 @@ func is_available_to_talk() -> bool:
 		return false
 	if brain.is_relaxing() or brain.is_talking():
 		return false
+	if is_talk_on_cooldown():
+		return false
 	return brain.is_current_interruptible()
 
 ## Called on the partner by the initiator's TalkActivity. Forces the
@@ -1028,6 +1065,7 @@ func end_talk_session() -> void:
 	var partner_name: String = brain.get_talk_partner_name()
 	log_action("Talked to %s" % partner_name)
 	brain.end_talk_if_talking()
+	start_talk_cooldown()
 
 # ─── Give-to-Friend (Aug 2026) ──────────────────────────────────────────────
 const GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD: float = 25.0

@@ -626,6 +626,7 @@ class TalkActivity extends NPCActivity:
 	var _elapsed: float = 0.0
 	var _duration: float = 0.0
 	var _is_initiator: bool = true
+	var _self_npc: NPC = null   ## interruptible() has no npc parameter in this codebase's activity interface — stored here at enter() so it can check this NPC's own needs
 
 	func _init(partner: Node = null, is_initiator: bool = true) -> void:
 		_partner = partner
@@ -637,14 +638,24 @@ class TalkActivity extends NPCActivity:
 	func score(npc: NPC) -> float:
 		if not _is_initiator:
 			return 0.0   ## the forced partner-side instance is never itself a scoring candidate
+		if npc.is_talk_on_cooldown():
+			return 0.0
 		if npc.find_talk_partner() == null:
 			return 0.0
 		return NPC.TALK_BASE_SCORE * npc.get_work_ethic_passive_mult()
 
 	func interruptible() -> bool:
-		return _partner == null   ## only interruptible in the brief instant before a partner locks in
+		if _partner == null:
+			return true   ## brief instant before a partner locks in
+		## Needs take priority over an ongoing conversation — same 55%
+		## threshold Eat/DrinkActivity themselves auto-trigger on, so
+		## "hungry enough to interrupt" means the same thing everywhere.
+		if _self_npc != null and (float(_self_npc.hunger) < 55.0 or float(_self_npc.thirst) < 55.0):
+			return true
+		return false
 
 	func enter(npc: NPC) -> void:
+		_self_npc = npc
 		if _is_initiator:
 			_partner = npc.find_talk_partner()
 			if _partner == null:
@@ -679,9 +690,12 @@ class TalkActivity extends NPCActivity:
 
 	func exit(npc: NPC) -> void:
 		if _partner != null and is_instance_valid(_partner) and _is_initiator:
-			## interrupted some other way — don't leave the partner stuck
+			## interrupted some other way (including a low-needs abort) —
+			## don't leave the partner stuck waiting forever
 			if _partner.has_method("end_talk_session"):
 				_partner.end_talk_session()
+		if _duration > 0.0:
+			npc.start_talk_cooldown()   ## covers both natural completion and any interrupt/abort path
 		_partner = null
 
 
@@ -745,6 +759,9 @@ class SnatchActivity extends NPCActivity:
 			var target_id: String = "player" if _target.is_in_group("player") else _target.npc_id
 			npc.start_snatch_cooldown_against(target_id)
 			npc.update_hostile_log()
+			if not _target.is_in_group("player"):
+				npc.start_npc_snatch_pair_cooldown(target_id)
+				_target.start_npc_snatch_pair_cooldown(npc.npc_id)   ## bidirectional
 		if _chase_timer > MAX_CHASE_TIME:
 			NPCDebug.log_snatch(npc, "aborted", "gave up after %.0fs of pursuit" % MAX_CHASE_TIME)
 			_target = null
