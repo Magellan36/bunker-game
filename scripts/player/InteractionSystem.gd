@@ -466,12 +466,25 @@ func _update_prompt() -> void:
 		var nearby_shelf: Node3D = _nearest_shelf()
 		if nearby_shelf != null:
 			var shelf_lines: Array[String] = []
+			var shelf_fp: String = ""
 			if nearby_shelf.has_method("get_f_prompt"):
-				var fp: String = nearby_shelf.get_f_prompt()
-				if fp != "": shelf_lines.append(fp)
-			if nearby_shelf.has_method("get_e_prompt"):
-				var ep: String = nearby_shelf.get_e_prompt()
-				if ep != "": shelf_lines.append(ep)
+				shelf_fp = nearby_shelf.get_f_prompt()
+			if shelf_fp != "":
+				shelf_lines.append(shelf_fp)
+			else:
+				## Aug 2026 fix — mirrors the same fix already applied to
+				## CASE 2's "shelving" handling below, which this block
+				## never received (CASE 1 and CASE 2 are separate code
+				## paths — this is why holding a storable item still
+				## showed both "[F] Store item" and "[E] Open X" together).
+				## Only fall back to E when F has nothing to say (not
+				## holding a storable item) — while ANYTHING is held, E is
+				## bound to the held item's own action above, never to
+				## this shelf's on_e_interact(), so showing it alongside a
+				## working F prompt was misleading.
+				if nearby_shelf.has_method("get_e_prompt"):
+					var ep: String = nearby_shelf.get_e_prompt()
+					if ep != "": shelf_lines.append(ep)
 			if not shelf_lines.is_empty():
 				var shelf_pos: Vector3 = nearby_shelf.global_position + Vector3(0.0, 2.3, 0.0)
 				if nearby_shelf.has_method("get_prompt_world_pos"):
@@ -633,6 +646,34 @@ func _update_prompt() -> void:
 			if gone_node.has_method("set_player_in_range"):
 				gone_node.set_player_in_range(false)
 	_static_in_range = static_in_range_now
+
+	## Aug 2026 fix — "shelving" group objects (Shelving, End Table, Dresser)
+	## used to rely ENTIRELY on Pass 1's _tracked_bodies (Area3D signal-
+	## based). That's fragile to spawn timing: a body that spawns already
+	## inside the player's Area3D (exactly what happens placing furniture
+	## via Build Mode while standing next to it) never fires body_entered,
+	## so it never joined _tracked_bodies and never got a prompt until the
+	## player walked away and back. CASE 1's _nearest_shelf() already avoids
+	## this with a direct group scan every frame — this does the same thing
+	## here, but collects every nearby shelving object (not just the single
+	## closest) so multiple can appear alongside other prompts, capped by
+	## MAX_VISIBLE_PROMPTS same as everything else.
+	for node: Node in get_tree().get_nodes_in_group("shelving"):
+		if not is_instance_valid(node):
+			continue
+		var shelf3: Node3D = node as Node3D
+		if shelf3 == null:
+			continue
+		var shelf_d: float = shelf3.global_position.distance_to(player.global_position)
+		if shelf_d > MAX_PROMPT_DIST:
+			continue
+		var shelf_already: bool = false
+		for existing: Dictionary in candidates:
+			if existing["node"] == shelf3:
+				shelf_already = true
+				break
+		if not shelf_already:
+			candidates.append({ "node": shelf3, "dist": shelf_d })
 
 	# Closest first so nearest panel renders on top
 	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
