@@ -1,3 +1,37 @@
+# Handover — `get_held_item()` Validity Guard (Aug 2026)
+
+## What changed this session
+Fixed a crash ("Trying to return a previously freed instance") in
+`Player.get_held_item()`, which was a bare passthrough to
+`InteractionSystem.held_item` with no validity check. Added the same
+self-heal guard `InteractionSystem._update_prompt()` already uses for
+this exact scenario (held item freed externally without going through
+normal drop/give cleanup) — validates with `is_instance_valid()`, clears
+both `held_item` and `_held_from_slot` (the reported fix only cleared
+the former; fixed to match the established pattern in full).
+
+Investigated whether build-mode deconstruct is the actual upstream cause,
+per the bug report's request — read `_try_deconstruct()` directly; it
+only targets `_placed_objects` entries (world-placed constructions), and
+a currently-held pickupable item is never a member of that array, so it
+doesn't appear to be able to reach a held item under normal
+circumstances. Not conclusively resolved either way; noted
+`eject_all_items()` on deconstructed containers as a possible lead for
+the Furniture/Build-Mode thread, not chased further here since it's
+outside this file.
+
+### Files modified
+- `scripts/player/Player.gd` — `get_held_item()` validity guard.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_GET_HELD_ITEM_VALIDITY_FIX_PLAN.md`
+for the full 3-item checklist)
+
+---
+---
+
 # Handover — End Table + Dresser (Light Storage, Shared StorageUI) (Aug 2026)
 
 ## What changed this session

@@ -321,6 +321,22 @@ own held item while CASE 1 scans for a different target — guarded with
   upward continuously, driving the physics body up and over the
   player's capsule instead of through it, and back down as the item
   catches up — one continuous formula, no state machine.
+- **`get_held_item()` validity guard (Aug 2026).** Was a bare
+  passthrough to `InteractionSystem.held_item` with no check — if that
+  field ever ends up pointing at a freed object without going through
+  the normal drop/give cleanup, any NPC-side caller crashed on
+  "previously freed instance." Now self-heals the same way
+  `InteractionSystem._update_prompt()`'s existing guard already handles
+  this (see that function, "Guard: held_item freed externally"):
+  validates with `is_instance_valid()`, and clears both `held_item` and
+  `_held_from_slot` (not just the former) before returning. Investigated
+  whether build-mode deconstruct is actually the upstream cause per the
+  bug report's suggestion — `_try_deconstruct()` only operates on
+  `_placed_objects` entries, which a currently-held item is never a
+  member of, so that path doesn't appear able to reach a held item
+  directly; not conclusively resolved, flagged as a possible Furniture/
+  Build-Mode-thread lead (`eject_all_items()` on deconstructed
+  containers) rather than chased further here.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns

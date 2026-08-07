@@ -134,7 +134,19 @@ func _handle_interaction_input() -> void:
 ## empty-handed. Used by NPC-side code purely for detection/classification
 ## — it does not touch the returned item.
 func get_held_item() -> Node:
-	return interaction_system.held_item if interaction_system != null else null
+	if interaction_system == null:
+		return null
+	if interaction_system.held_item != null and not is_instance_valid(interaction_system.held_item):
+		## Freed externally without going through the normal drop/give
+		## cleanup — self-heal the same way InteractionSystem._update_prompt()'s
+		## existing guard already does for this exact scenario (see that
+		## function's own comment), rather than handing back a dangling
+		## reference to whatever NPC-side code called this. Clears both
+		## fields, matching that guard exactly — held_item alone isn't
+		## enough, or _held_from_slot is left stale.
+		interaction_system.held_item       = null
+		interaction_system._held_from_slot = -1
+	return interaction_system.held_item
 
 ## Called by NPC-side code the instant a snatch succeeds — by that point
 ## the item has already been physically reassigned to the NPC
