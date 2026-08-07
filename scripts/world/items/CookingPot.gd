@@ -56,11 +56,121 @@ var _cook_progress: float = 0.0
 var _is_cooked:     bool  = false
 var _dish_value:    float = 0.0
 var _dish_bonus_pct: float = 0.0
+var _dish_name:     String = "Cooked Dish"
 
 var _mesh: MeshInstance3D = null
 
 signal item_added(slot_index: int, item: Node)
 signal item_removed(slot_index: int, item: Node)
+
+# ─── Recipe system (Aug 2026) ──────────────────────────────────────────────
+## "Best fit" matching: EVERY recipe is scored against whatever's actually
+## in the pot, and the highest-scoring recipe wins — even if the pot has
+## extra ingredients the recipe doesn't call for. Confirmed spec:
+## {Chili Pepper, Onion, Pumpkin} should still resolve to "Spicy Chili
+## Sauté" (which only needs {Chili Pepper, Onion}) rather than matching
+## nothing just because Pumpkin is also present.
+##
+## score = (2 × shared) − (1 × extras in pot not in recipe) − (1 × misses
+## the recipe needs but the pot doesn't have). Highest score wins; ties
+## break on more shared ingredients, then alphabetically by name
+## (deterministic, no randomness). Falls back to "Cooked Dish" if nothing
+## clears RECIPE_MIN_SCORE — long-term goal is for every combination to
+## resolve to SOMETHING that at least loosely fits, but that's future
+## recipe-list expansion, not a change to this matching logic.
+const RECIPE_MIN_SCORE: float = 1.0
+
+## Static recipe table. Each entry: { "name": String, "ingredients": Array[String] }.
+## ingredients are ingredient_key values (see _get_item_ingredient_key()).
+## Every ingredient set below is verified unique — no two recipes share the
+## exact same set (verified by hand; if you add a new recipe, re-check this).
+const RECIPES: Array[Dictionary] = [
+	# ── Porridge ──
+	{"name": "Potato Porridge",                "ingredients": ["produce_potato"]},
+	{"name": "Pumpkin Porridge",                "ingredients": ["produce_pumpkin"]},
+	{"name": "Corn & Potato Porridge",          "ingredients": ["produce_corn", "produce_potato"]},
+	# ── Soup ──
+	{"name": "Tomato Basil Soup",               "ingredients": ["produce_tomato", "produce_basil"]},
+	{"name": "Garden Vegetable Soup",           "ingredients": ["produce_carrot", "produce_onion", "produce_potato"]},
+	{"name": "Roasted Garlic Soup",             "ingredients": ["produce_garlic", "produce_onion", "produce_potato"]},
+	{"name": "Canned Ration Soup",              "ingredients": ["food_can", "produce_onion"]},
+	# ── Stew ──
+	{"name": "Root Vegetable Stew",             "ingredients": ["produce_potato", "produce_carrot", "produce_garlic"]},
+	{"name": "Hearty Garden Stew",               "ingredients": ["produce_potato", "produce_bell_pepper", "produce_onion"]},
+	{"name": "Canned Ration Stew",               "ingredients": ["food_can", "produce_potato", "produce_onion"]},
+	# ── Casserole ──
+	{"name": "Potato, Corn & Pepper Casserole", "ingredients": ["produce_potato", "produce_corn", "produce_bell_pepper"]},
+	{"name": "Garden Casserole",                "ingredients": ["produce_potato", "produce_carrot", "produce_corn"]},
+	{"name": "Canned Ration Casserole",         "ingredients": ["food_can", "produce_potato", "produce_corn"]},
+	# ── Sauté ──
+	{"name": "Garlic Basil Sauté",              "ingredients": ["produce_garlic", "produce_basil"]},
+	{"name": "Pepper & Onion Sauté",            "ingredients": ["produce_bell_pepper", "produce_onion"]},
+	{"name": "Spicy Chili Sauté",                "ingredients": ["produce_chili_pepper", "produce_onion"]},
+	{"name": "Tomato Basil Garlic Sauté",       "ingredients": ["produce_tomato", "produce_basil", "produce_garlic"]},
+	# ── Chowder ──
+	{"name": "Corn Chowder",                    "ingredients": ["produce_corn", "produce_potato", "produce_onion"]},
+	{"name": "Garden Chowder",                  "ingredients": ["produce_corn", "produce_bell_pepper", "produce_carrot"]},
+	# ── Gumbo ──
+	{"name": "Vegetable Gumbo",                 "ingredients": ["produce_onion", "produce_bell_pepper", "produce_tomato"]},
+	{"name": "Spicy Garden Gumbo",               "ingredients": ["produce_bell_pepper", "produce_chili_pepper", "produce_onion"]},
+	# ── Paella ──
+	{"name": "Garden Paella",                   "ingredients": ["produce_bell_pepper", "produce_tomato", "produce_garlic"]},
+	# ── Baseline (early game) ──
+	{"name": "Canned Ration",                   "ingredients": ["food_can"]},
+	# ── Preserve / Compote (fruit-only) ──
+	{"name": "Blueberry Compote",               "ingredients": ["produce_blueberry"]},
+	{"name": "Strawberry Preserve",             "ingredients": ["produce_strawberry"]},
+	{"name": "Mixed Berry Preserve",            "ingredients": ["produce_blueberry", "produce_strawberry"]},
+	{"name": "Pumpkin Berry Compote",           "ingredients": ["produce_pumpkin", "produce_blueberry"]},
+	# Pemmican intentionally has NO recipes yet — needs a meat/protein item
+	# that doesn't exist in the game. Do not approximate it with berries
+	# alone; leave it fully locked until a real meat item is added.
+]
+
+## Resolves the best-fit dish name for a set of DISTINCT ingredient keys
+## (duplicates in `keys` don't matter — pass unique keys). Falls back to
+## "Cooked Dish" if nothing scores well enough.
+static func resolve_dish_name(keys: Array) -> String:
+	var pot_set: Dictionary = {}
+	for k in keys:
+		pot_set[k] = true
+
+	var best_name: String = "Cooked Dish"
+	var best_score: float = -INF
+	var best_matches: int = -1
+
+	for recipe: Dictionary in RECIPES:
+		var recipe_keys: Array = recipe["ingredients"]
+		var matches: int = 0
+		var misses: int  = 0
+		for rk in recipe_keys:
+			if pot_set.has(rk):
+				matches += 1
+			else:
+				misses += 1
+		var extras: int = 0
+		for pk in pot_set.keys():
+			if not recipe_keys.has(pk):
+				extras += 1
+
+		var score: float = float(matches) * 2.0 - float(extras) - float(misses)
+
+		var better: bool = false
+		if score > best_score:
+			better = true
+		elif score == best_score and matches > best_matches:
+			better = true
+		elif score == best_score and matches == best_matches and String(recipe["name"]) < best_name:
+			better = true
+
+		if better:
+			best_score   = score
+			best_matches = matches
+			best_name    = String(recipe["name"])
+
+	if best_score < RECIPE_MIN_SCORE:
+		return "Cooked Dish"
+	return best_name
 
 func _ready() -> void:
 	super._ready()
@@ -79,12 +189,21 @@ func get_prompt_text() -> String:
 
 func get_interact_prompt() -> String:
 	if _is_cooked:
-		return "DONE  —  [E] Take Dish  (%.1f Filling)" % _dish_value
+		if _host_stove != null:
+			return ""
+		return "DONE  —  [E] Take Dish  (%s, %.1f Filling)" % [_dish_name, _dish_value]
 	var totals: Dictionary = compute_dish_totals()
 	if totals["item_count"] <= 0:
 		return ""
+	## Live best-fit preview of what this WOULD cook into right now, even
+	## before the timer finishes — same resolver _finish_cooking() uses.
+	var unique_keys: Array = []
+	for entry in slots:
+		if entry != null and not unique_keys.has(entry["ingredient_key"]):
+			unique_keys.append(entry["ingredient_key"])
+	var preview_name: String = resolve_dish_name(unique_keys)
 	var bonus_txt: String = "" if totals["bonus_pct"] <= 0.0 else "  (+%d%% Diversity)" % int(round(totals["bonus_pct"] * 100.0))
-	var base_txt: String = "Filling: %.1f%s" % [totals["total"], bonus_txt]
+	var base_txt: String = "%s  —  Filling: %.1f%s" % [preview_name, totals["total"], bonus_txt]
 	if _host_stove != null and _host_stove.has_method("is_cooking") and _host_stove.is_cooking():
 		return "%s  —  COOKING  (%.0f/%.0fs)" % [base_txt, _cook_progress, cook_time_required()]
 	return base_txt
@@ -124,6 +243,13 @@ func _finish_cooking() -> void:
 	var totals: Dictionary = compute_dish_totals()
 	_dish_value     = totals["total"]
 	_dish_bonus_pct = totals["bonus_pct"]
+
+	var unique_keys: Array = []
+	for entry in slots:
+		if entry != null and not unique_keys.has(entry["ingredient_key"]):
+			unique_keys.append(entry["ingredient_key"])
+	_dish_name = resolve_dish_name(unique_keys)
+
 	for i: int in CAPACITY:
 		var entry = slots[i]
 		if entry != null:
@@ -152,10 +278,11 @@ func cook_progress_fraction() -> float:
 func serve_dish() -> Dictionary:
 	if not _is_cooked:
 		return {}
-	var result: Dictionary = {"value": _dish_value, "bonus_pct": _dish_bonus_pct}
+	var result: Dictionary = {"value": _dish_value, "bonus_pct": _dish_bonus_pct, "name": _dish_name}
 	_is_cooked      = false
 	_dish_value     = 0.0
 	_dish_bonus_pct = 0.0
+	_dish_name      = "Cooked Dish"
 	return result
 
 # ─── Slot helpers ─────────────────────────────────────────────────────────────
@@ -237,6 +364,7 @@ func get_save_extra() -> Dictionary:
 		"is_cooked":      _is_cooked,
 		"dish_value":     _dish_value,
 		"dish_bonus_pct": _dish_bonus_pct,
+		"dish_name":      _dish_name,
 	}
 
 ## Applies a Dictionary from get_save_extra() onto a freshly-instantiated
@@ -255,6 +383,7 @@ func restore_saved_state(extra: Dictionary) -> void:
 	_is_cooked      = bool(extra.get("is_cooked", false))
 	_dish_value     = float(extra.get("dish_value", 0.0))
 	_dish_bonus_pct = float(extra.get("dish_bonus_pct", 0.0))
+	_dish_name      = String(extra.get("dish_name", "Cooked Dish"))
 
 
 ## ─── Ingredient icon previews (Part K) ────────────────────────────────────

@@ -9,6 +9,7 @@ class_name DishItem
 
 var fill_value: float = 0.0
 var bonus_pct:  float = 0.0
+var dish_name:  String = "Cooked Dish"
 
 var _mesh: MeshInstance3D = null
 var _player_stats: Node = null
@@ -22,13 +23,13 @@ func _ready() -> void:
 		_build_placeholder_mesh()
 
 func get_display_name() -> String:
-	return "Cooked Dish"
+	return dish_name
 
 func get_prompt_text() -> String:
-	return "[F] Pick up  Cooked Dish"
+	return "[F] Pick up  %s" % dish_name
 
 func get_use_prompt() -> String:
-	return "[E] Eat  Cooked Dish  (%.1f)" % fill_value
+	return "[E] Eat  %s  (%.1f)" % [dish_name, fill_value]
 
 func on_use() -> void:
 	if _player_stats == null:

@@ -988,6 +988,7 @@ func _try_take_dish(pot: Node) -> void:
 	dish.global_position = (pot as Node3D).global_position
 	dish.fill_value = result["value"]
 	dish.bonus_pct  = result["bonus_pct"]
+	dish.dish_name  = String(result.get("name", "Cooked Dish"))
 
 	held_item       = dish
 	_held_from_slot = -1
