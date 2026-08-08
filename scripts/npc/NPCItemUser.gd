@@ -120,6 +120,15 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 	## never consulted by the player's own pickup path.
 	if "is_held" in item and item.is_held:
 		return false
+	## Second missing guard (Aug 2026) — a shelved item has is_held=false
+	## the whole time (Shelving.gd manipulates freeze/collision directly,
+	## never is_held), so the check above provides it zero protection.
+	## Without this, a stale claim/target reference from before an item
+	## was shelved could grab it right back off the shelf, bypassing the
+	## shelf's own tracking entirely — this was the actual cause of
+	## shelved items "popping out" and un-freezing on their own.
+	if item.is_in_group("shelved"):
+		return false
 	if flat_distance(npc.global_position, item.global_position) > PICKUP_RANGE:
 		return false
 	if item.has_method("pickup"):

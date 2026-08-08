@@ -111,6 +111,12 @@ static func log_snatch(npc: Node, stage: String, detail: String) -> void:
 		return
 	print("%s SNATCH [%s]: %s" % [_fmt(npc), stage, detail])
 
+## Cleaning (Aug 2026) — mirrors log_snatch()'s staged pattern.
+static func log_cleaning(npc: Node, stage: String, detail: String) -> void:
+	if not enabled:
+		return
+	print("%s CLEANING [%s]: %s" % [_fmt(npc), stage, detail])
+
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
 ## on-demand request, not continuous logging). Part 19 — expanded from a

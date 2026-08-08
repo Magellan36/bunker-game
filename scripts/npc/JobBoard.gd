@@ -221,6 +221,9 @@ func _scan_cleaning(seen: Dictionary) -> void:
 
 	_trash_items_cache = new_trash
 	_organizable_items_cache = new_organizable
+	if NPCDebug.enabled:
+		print("[JobBoard] Cleaning scan: %d trash, %d organizable, %d tracked-but-not-yet-idle" \
+			% [new_trash.size(), new_organizable.size(), _cleaning_idle_tracker.size() - new_organizable.size()])
 
 ## Does any loose-or-shelved item matching the filter exist? Uses a dummy
 ## NPC-shaped search: loose world scan mirrors NPCItemUser.find_loose_item's
