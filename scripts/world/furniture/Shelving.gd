@@ -476,6 +476,36 @@ func npc_retrieve(slot_idx: int, npc_hold_point: Node3D) -> RigidBody3D:
 	item_retrieved.emit(slot_idx, item)
 	return item
 
+## NPC-side placement (Aug 2026, Cleaning) — mirrors _try_place_item()
+## exactly for the actual shelving math/animation (reuses
+## _find_slot_for()/_place_item_in_slot() directly, unchanged), but
+## sources the item from an NPC's held_item instead of the player's
+## InteractionSystem and skips all the InteractionSystem-specific
+## bookkeeping (inventory slot clearing, knocked_out signal) that simply
+## doesn't apply to NPCs. Returns false if the shelf has no room — caller
+## decides what to do next (CleaningActivity just sets the item back
+## down rather than carrying it forever).
+func npc_try_place_item(npc: Node, item: RigidBody3D) -> bool:
+	var slot: int = _find_slot_for(item)
+	if slot == -1:
+		return false
+
+	if "held_item" in npc and npc.held_item == item:
+		npc.held_item = null
+
+	var world_root: Node3D = get_tree().get_first_node_in_group("world")
+	if world_root == null:
+		world_root = get_parent()
+	if item.get_parent() != world_root:
+		item.get_parent().remove_child(item)
+		world_root.add_child(item)
+
+	var stack_idx: int = slots[slot].size()
+	slots[slot].append(item)
+	_place_item_in_slot(item, slot, stack_idx)
+	item_placed.emit(slot, item)
+	return true
+
 # ─── Retrieve to carry (from StorageUI's primary "Carry" button) ─────────────
 ## Pops the top item from the slot's stack and gives it to the player's hand.
 ## Returns true on success — Aug 2026, part of the StorageUI contract

@@ -21,6 +21,42 @@ const FILTER_BELOW: float = 30.0
 var _jobs: Dictionary = {}   ## id -> job dict
 var _timer: float = 0.0
 
+# ─── Cleaning discovery (Aug 2026) ──────────────────────────────────────────
+## Idle-time gating for organizing — an item must sit untouched/unclaimed
+## for this long before it's eligible, so NPCs don't sweep away something
+## the player just set down to use in a moment. Trash items skip this
+## entirely (they're unambiguously "done," not "in active use").
+const CLEANING_IDLE_MIN_SEC: float = 90.0
+const CLEANING_IDLE_MOVE_TOLERANCE: float = 0.3   ## meters — moved more than this since tracking began = someone touched it, restart the clock
+var _cleaning_idle_tracker: Dictionary = {}   ## item instance_id -> {"pos": Vector3, "since_msec": int}
+var _trash_items_cache: Array = []
+var _organizable_items_cache: Array = []
+
+func get_trash_items() -> Array:
+	return _trash_items_cache
+
+func get_organizable_items() -> Array:
+	return _organizable_items_cache
+
+func _has_trash_receptacle() -> bool:
+	## Self-gating mechanism — returns false today since nothing occupies
+	## this group yet, meaning trash items never make it into
+	## _trash_items_cache until a receptacle is actually added later. No
+	## other change needed when that happens.
+	return not get_tree().get_nodes_in_group("trash_receptacle").is_empty()
+
+## Duck-typed, matching NPCItemUser.is_edible()/is_drinkable_bottle()'s
+## own established checks exactly — FoodCan/WaterBottle have no
+## class_name registered, so `is FoodCan` type checks wouldn't work here.
+func _is_trash_item(item: Node) -> bool:
+	if item is EmptyBagItem:
+		return true
+	if item.has_method("has_bites_left") and not item.has_bites_left():
+		return true   ## empty FoodCan
+	if item.has_method("take_drink") and ("current_fill_mL" in item) and float(item.current_fill_mL) <= 0.0:
+		return true   ## empty WaterBottle
+	return false
+
 func _process(delta: float) -> void:
 	_timer -= delta
 	if _timer > 0.0:
@@ -77,6 +113,7 @@ func _rescan() -> void:
 	_scan_harvest(seen)
 	_scan_filters(seen)
 	_scan_refuel(seen)
+	_scan_cleaning(seen)
 	## Drop jobs whose condition ended; keep claim state on persisting ones.
 	for id: String in _jobs.keys().duplicate():
 		if not seen.has(id):
@@ -137,6 +174,51 @@ func _scan_refuel(seen: Dictionary) -> void:
 		if fuel < REFUEL_BELOW:
 			_mark(seen, "refuel_%d" % gen.get_instance_id(),
 				"REFUEL", gen, fuel_can)
+
+## Same periodic cadence as Harvest/Filter/Refuel discovery — called from
+## _rescan(). Rebuilds both cached lists fresh each pass; idle-tracking
+## persists across passes (that's the whole point) but gets pruned for
+## anything no longer present (picked up, freed, etc.). The `seen` param
+## is accepted for call-signature consistency with the other _scan_*
+## functions but is intentionally ignored — this maintains its own
+## separate cache, not the _jobs dict.
+func _scan_cleaning(seen: Dictionary) -> void:
+	var trash_receptacle_exists: bool = _has_trash_receptacle()
+	var new_trash: Array = []
+	var new_organizable: Array = []
+	var seen_ids: Dictionary = {}
+
+	for item: Node in get_tree().get_nodes_in_group("pickup"):
+		if not is_instance_valid(item) or not ("is_held" in item):
+			continue
+		if item.is_held or item.is_in_group("shelved"):
+			continue
+		var id: int = item.get_instance_id()
+		seen_ids[id] = true
+
+		if _is_trash_item(item):
+			if trash_receptacle_exists:
+				new_trash.append(item)
+			continue   ## trash never also counts as organizable
+
+		var pos: Vector3 = (item as Node3D).global_position
+		var now: int = Time.get_ticks_msec()
+		if not _cleaning_idle_tracker.has(id):
+			_cleaning_idle_tracker[id] = {"pos": pos, "since_msec": now}
+			continue
+		var rec: Dictionary = _cleaning_idle_tracker[id]
+		if pos.distance_to(rec["pos"]) > CLEANING_IDLE_MOVE_TOLERANCE:
+			_cleaning_idle_tracker[id] = {"pos": pos, "since_msec": now}
+			continue
+		if (now - int(rec["since_msec"])) >= int(CLEANING_IDLE_MIN_SEC * 1000.0):
+			new_organizable.append(item)
+
+	for id in _cleaning_idle_tracker.keys().duplicate():
+		if not seen_ids.has(id):
+			_cleaning_idle_tracker.erase(id)
+
+	_trash_items_cache = new_trash
+	_organizable_items_cache = new_organizable
 
 ## Does any loose-or-shelved item matching the filter exist? Uses a dummy
 ## NPC-shaped search: loose world scan mirrors NPCItemUser.find_loose_item's

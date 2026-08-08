@@ -767,6 +767,47 @@ Mechanics (`GiveToFriendActivity`, registered in `_candidates`):
 `nearest.debug_force_give_to_friend()` — bypasses the chance roll but
 still needs an eligible needy friend and matching loose item.
 
+### Cleaning (Aug 2026)
+
+Trash disposal + shelf organizing under one job, run by
+`CleaningActivity` (registered in `_candidates`). Not routed through
+`JobBoard`'s claim system the way Harvest/Filter/Refuel are — those are
+single-location jobs; Cleaning is three-location (go to the item → go
+to a *different* destination → drop it there), the same fetch→travel→
+deliver shape `GiveToFriendActivity` already uses. `JobBoard` instead
+gains a periodic world-state discovery role (`_scan_cleaning()`, same 2s
+cadence as the other scans) maintaining two cached lists that `NPC.gd`
+reads from:
+- **Trash items:** `EmptyBagItem`, an empty `FoodCan` (no bites left),
+  or an empty `WaterBottle` (fill ≤ 0). Fuel cans deliberately NOT
+  included yet — easy future addition once its public empty-check API is
+  confirmed. Gated behind `_has_trash_receptacle()`: returns false today
+  because nothing occupies the `"trash_receptacle"` group yet, so trash
+  never actually enters the cache — the mechanism self-activates the
+  instant a receptacle exists, with zero code changes then.
+- **Organizable items:** anything loose that has sat untouched/unclaimed
+  for **90s** (`CLEANING_IDLE_MIN_SEC`, tunable). The idle clock restarts
+  if the item moves more than 0.3 m (`CLEANING_IDLE_MOVE_TOLERANCE`)
+  while being tracked — so an NPC won't sweep away something the player
+  just set down. Trash skips the idle gate entirely (it's unambiguous).
+
+Work Ethic treats this as a **job** (`get_work_ethic_job_mult()`), so
+Lazy NPCs clean less and Hard Workers more, same as every other job.
+
+**Stuck-recovery integration:** when an NPC stalls
+(`_recover_from_stuck()`), `_find_stuck_obstruction()` checks the slide
+collisions for a loose (unheld, unshelved) `RigidBody3D`; if one is
+found, the NPC is forced into `CleaningActivity` carrying that specific
+item — bypassing both eligibility checks entirely by design (it caused
+the stall, so it's fair game regardless of what it technically is).
+The `is_trash_item()` classification is only for which log line fires
+("Threw away" vs "Put away"), not a gate.
+
+**Future hook:** the eventual trash receptacle scene just needs to
+occupy the `"trash_receptacle"` group and implement
+`npc_deposit_trash(npc, item)`; the delivery call is already
+`has_method()`-guarded so it's a safe no-op today.
+
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
 0.6–2.0 (displayed ×10, rounded, in the E-panel — e.g. `0.73` → `7`),

@@ -1218,6 +1218,64 @@ func find_friend_to_help() -> Dictionary:
 	return {"friend": best, "item": item}
 
 
+# ─── Cleaning (Aug 2026) ─────────────────────────────────────────────────
+const CLEANING_BASE_SCORE: float = 5.5
+
+func has_cleaning_target_available() -> bool:
+	if not JobBoard.get_trash_items().is_empty():
+		return true
+	return not JobBoard.get_organizable_items().is_empty()
+
+## Nearest eligible item across BOTH lists — trash and organizable are
+## mutually exclusive per JobBoard's own scan, so no double-counting risk.
+func find_cleaning_target() -> Dictionary:
+	var best_item: Node = null
+	var best_d: float = INF
+	var best_is_trash: bool = false
+	for item: Node in JobBoard.get_trash_items():
+		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
+			continue
+		var d: float = NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best_item = item
+			best_is_trash = true
+	for item: Node in JobBoard.get_organizable_items():
+		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
+			continue
+		var d: float = NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best_item = item
+			best_is_trash = false
+	if best_item == null:
+		return {}
+	return {"item": best_item, "is_trash": best_is_trash}
+
+## Nearest member of the matching destination group. For trash, returning
+## null here (no receptacle exists) is expected and handled gracefully by
+## CleaningActivity — it just abandons and sets the item back down.
+func find_cleaning_destination(is_trash: bool) -> Node:
+	var group_name: String = "trash_receptacle" if is_trash else "shelving"
+	var best: Node = null
+	var best_d: float = INF
+	for candidate: Node in get_tree().get_nodes_in_group(group_name):
+		if not is_instance_valid(candidate):
+			continue
+		var d: float = NPCItemUser.flat_distance(global_position, (candidate as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best = candidate
+	return best
+
+## Used by the stuck-recovery hook to decide whether a forced grab should
+## be logged/treated as "threw away" vs "put away" once delivered — the
+## grab itself always bypasses eligibility per your answer, this is just
+## classification, not a gate.
+func is_trash_item(item: Node) -> bool:
+	return JobBoard._is_trash_item(item) if JobBoard.has_method("_is_trash_item") else false
+
+
 # ─── Skills (Part 4) — score multipliers for job selection; grow with use ──
 var skills: Dictionary = {
 	"farming": 1.0, "plumbing": 1.0, "electrical": 1.0, "construction": 1.0,
@@ -1608,10 +1666,28 @@ func _tick_stuck_recovery(delta: float) -> void:
 func _recover_from_stuck() -> void:
 	_stuck_recoveries += 1
 	NPCDebug.log_stuck(self)
+	var stuck_item: RigidBody3D = _find_stuck_obstruction()
 	if brain != null:
 		brain.stop_current()
 	velocity.x = 0.0
 	velocity.z = 0.0
+	if stuck_item != null and brain != null:
+		## Always fair game when it caused a stuck NPC — bypasses the
+		## normal trash/idle-time eligibility entirely, per design.
+		brain.force_command(NPCBrain.CleaningActivity.new(stuck_item))
+
+## Best-effort — mirrors _handle_physics_pushes()'s own collision
+## detection. Not guaranteed to find the TRUE cause of the stall (could be
+## a nav-mesh issue, another NPC, geometry) — if nothing found here,
+## _recover_from_stuck() just falls back to its existing stop-and-clear
+## behavior, unchanged from before.
+func _find_stuck_obstruction() -> RigidBody3D:
+	for i: int in get_slide_collision_count():
+		var col: KinematicCollision3D = get_slide_collision(i)
+		var body: Object = col.get_collider()
+		if body is RigidBody3D and not (("is_held" in body) and body.is_held) and not body.is_in_group("shelved"):
+			return body as RigidBody3D
+	return null
 
 
 # ─── Physics-clutter push-through (Part 10, simplified in Part 11) ─────────

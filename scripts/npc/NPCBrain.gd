@@ -36,6 +36,7 @@ func setup(npc: NPC) -> void:
 		RelaxActivity.new(),
 		TalkActivity.new(),
 		GiveToFriendActivity.new(),
+		CleaningActivity.new(),
 	]
 
 func current_label() -> String:
@@ -956,6 +957,121 @@ class GiveToFriendActivity extends NPCActivity:
 			## scratch would waste a perfectly good fetched item.
 			pass
 		_friend = null
+
+
+class CleaningActivity extends NPCActivity:
+	## Cleaning (Aug 2026) — trash disposal + shelf organizing under one
+	## job, mirroring GiveToFriendActivity's fetch→travel→deliver shape
+	## (three locations: current position, item, destination — not
+	## JobActivity's single-destination shape). Counts as a JOB for Work
+	## Ethic purposes (get_work_ethic_job_mult(), not the passive
+	## multiplier) per explicit instruction that Lazy NPCs should clean
+	## less and Hard Workers more, same as every other job.
+	##
+	## forced_item/bypass_eligibility (non-null/true) is the stuck-recovery
+	## path — grabs whatever caused the stuck NPC to stall, skipping the
+	## normal trash/idle-time eligibility checks entirely, since it's
+	## unstuck-worthy by definition regardless of what it technically is.
+	var _item: RigidBody3D = null
+	var _destination: Node = null
+	var _is_trash: bool = false
+	var _forced_item: RigidBody3D = null
+
+	func _init(forced_item: RigidBody3D = null) -> void:
+		_forced_item = forced_item
+
+	func label() -> String:
+		if _item == null:
+			return "Cleaning"
+		return "Cleaning (carrying)" if npc_holding() else "Cleaning (fetching)"
+
+	## Small helper avoiding a stored npc reference just for label() —
+	## approximated via _destination being set (only happens once actually
+	## holding the item, see tick()). Fine if this feels imprecise; not
+	## load-bearing anywhere else.
+	func npc_holding() -> bool:
+		return _destination != null
+
+	func score(npc: NPC) -> float:
+		if _forced_item != null:
+			return 0.0   ## forced-only instance, never auto-selected
+		if not npc.has_cleaning_target_available():
+			return 0.0
+		return NPC.CLEANING_BASE_SCORE * npc.get_work_ethic_job_mult()
+
+	func interruptible() -> bool:
+		return _item == null   ## once actually carrying something, commit to delivering it
+
+	func enter(npc: NPC) -> void:
+		if _forced_item != null:
+			_item = _forced_item
+			_is_trash = npc.is_trash_item(_item) if npc.has_method("is_trash_item") else false
+		else:
+			var result: Dictionary = npc.find_cleaning_target()
+			if result.is_empty():
+				return
+			_item = result.get("item")
+			_is_trash = result.get("is_trash", false)
+		if _item == null or not is_instance_valid(_item):
+			_item = null
+			return
+		if not NPCItemUser.claim_item(_item, npc):
+			_item = null
+			return
+		npc.set_nav_target(_item.global_position)
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _item == null or not is_instance_valid(_item):
+			_item = null
+			return
+
+		if npc.held_item == null:
+			## Fetch phase
+			if "is_held" in _item and _item.is_held:
+				NPCItemUser.release_item(_item)
+				_item = null
+				return
+			npc.nav_steer(delta)
+			if NPCItemUser.flat_distance(npc.global_position, _item.global_position) <= NPCItemUser.PICKUP_RANGE:
+				if NPCItemUser.grab_loose(npc, _item):
+					_destination = npc.find_cleaning_destination(_is_trash)
+					if _destination == null:
+						## No valid destination (expected for trash until a
+						## receptacle exists; shouldn't normally happen for
+						## organizing) — abandon cleanly, don't carry forever.
+						NPCItemUser.drop_held(npc)
+						_item = null
+				else:
+					NPCItemUser.release_item(_item)
+					_item = null
+			return
+
+		## Travel phase — carrying the item to its destination
+		if _destination == null or not is_instance_valid(_destination):
+			_item = null
+			return
+		npc.set_nav_target((_destination as Node3D).global_position)
+		npc.nav_steer(delta)
+		if NPCItemUser.flat_distance(npc.global_position, (_destination as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
+			var item_name: String = _item.get_display_name() if _item.has_method("get_display_name") else "an item"
+			if _is_trash:
+				if _destination.has_method("npc_deposit_trash"):
+					_destination.npc_deposit_trash(npc, _item)
+				npc.log_action("Threw away %s" % item_name)
+			else:
+				if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
+					npc.log_action("Put away %s" % item_name)
+				else:
+					NPCItemUser.drop_held(npc)   ## shelf filled up before arrival — just set it down
+			_item = null
+
+	func done(npc: NPC) -> bool:
+		return _item == null
+
+	func exit(npc: NPC) -> void:
+		if _item != null:
+			NPCItemUser.release_item(_item)
+		_item = null
 
 
 class EatActivity extends NPCActivity:
