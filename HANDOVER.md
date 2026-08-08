@@ -1,3 +1,43 @@
+# Handover — Held-Item E Priority Is Unconditional (Aug 2026)
+
+## What changed this session
+Fixed the E-dispatch so a held item's own E action always takes priority
+over a nearby shelf/dresser/end table, unconditionally — previously only
+Basket/Cooking Pot/giveable items had any protection at all (a distance-
+fairness rule from earlier this session), and even that only won if
+strictly closer than the shelf. Every OTHER held item with its own
+`on_use()`/`on_interact()` (Flashlight, FuelCan, WaterBottle, FoodCan,
+DishItem, FarmProduceItem, SeedItem, FertilizerItem, BagOfSoilItem,
+PurifierFilterItem — 10 item scripts, confirmed via direct grep) had
+zero protection: any shelf within 2.5 m always won, full stop. Reordered
+the dispatch so every held-item E-check runs before the shelf check,
+each with an explicit early return, and removed the distance comparison
+entirely — the held item always wins now, not just when closer. One
+deliberate exception, confirmed against `TestCrate.gd` directly: a Crate
+has neither method, so it still lets a nearby shelf capture E normally.
+World-interact (stove/generators/breakers) and the ready-dish priority
+check were already correctly gated to empty-handed only — confirmed
+unaffected, not touched.
+
+Removed `_nearest_e_rival_distance()` and
+`_nearest_group_storable_distance()` — both became fully unused as a
+direct result of this change (confirmed via repo-wide grep before
+removal), so cleaned them up now rather than leaving fresh dead code.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — E-dispatch reordered;
+  `_nearest_e_rival_distance()`/`_nearest_group_storable_distance()`
+  removed.
+- `docs/systems/player/README.md` — Common-edits entry replaced (was
+  describing the now-superseded distance-fairness rule).
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_HELD_ITEM_E_PRIORITY_PLAN.md` for the
+full 8-item checklist)
+---
+---
+
 # Handover — Storage-Reject Fallback to Drop (Aug 2026)
 
 ## What changed this session

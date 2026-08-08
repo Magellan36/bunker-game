@@ -173,20 +173,25 @@ func _unhandled_input(event: InputEvent) -> void:
 	# E — use held item (instant tap) / shelf open / world interact.
 	# Pure tap: fires immediately on press, no hold-to-store behavior.
 	if event.is_action_pressed("interact"):
-		## Distance fairness (Aug 2026, third instance of the stove-pot /
-		## ready-dish pattern): a nearby shelf no longer unconditionally
-		## captures E. If the held item has its own E action with a target
-		## in range (basket stash, cookpot stove/stash, NPC give), the
-		## shelf only wins when it is STRICTLY closer than that target.
-		## Empty-handed or holding an ordinary item → behavior unchanged:
-		## rival distance is INF, shelf always wins within its 2.5 m reach.
-		var shelf: Node3D = _nearest_shelf()
-		if shelf != null and shelf.has_method("on_e_interact"):
-			var shelf_d: float = shelf.global_position.distance_to(player.global_position)
-			if shelf_d < _nearest_e_rival_distance():
-				shelf.on_e_interact()
-				get_viewport().set_input_as_handled()
-				return
+		## Held-item E priority (Aug 2026) — an item's own E action ALWAYS
+		## wins over a nearby shelf/dresser/end table, unconditionally,
+		## whenever it has one. Supersedes the earlier "distance fairness"
+		## rule (shelf won only if farther than a basket/cookpot/give
+		## target) — that covered those three cases but left every OTHER
+		## held item with its own E action (Flashlight, FuelCan, Water
+		## Bottle, Food Can, Dish, produce, seeds, fertilizer, soil, filter
+		## — anything implementing on_use()) losing E to any shelf within
+		## 2.5 m, since the old distance check returned INF — "shelf
+		## always wins" — for all of them. The player's own hands take
+		## priority full stop; shelf/stove/world-interact are the
+		## fallback, reached only once nothing in the player's hand claims
+		## E for itself. A held item with genuinely no E action at all
+		## (Crate — implements neither on_use() nor on_interact())
+		## deliberately still falls through to the shelf check below: E
+		## doing nothing at all near a shelf while holding a Crate would
+		## be worse, not more correct, especially given how close together
+		## furniture gets placed in a bunker.
+
 		## Basket held → E stashes nearest "basket_storable" item instead of item use
 		if held_item != null and ("is_basket_container" in held_item):
 			_try_add_nearest_to_basket(held_item)
@@ -205,7 +210,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			_try_give_to_nearest_npc(held_item)
 			get_viewport().set_input_as_handled()
 			return
-		if held_item != null:
+		## Any other held item with its own E action (Flashlight toggle,
+		## FuelCan refuel, WaterBottle drink, FoodCan/Dish/produce eat,
+		## seed/fertilizer/soil/filter use, etc.) — also takes unconditional
+		## priority. This is the branch that previously ran AFTER the shelf
+		## check and could lose to it; moved ahead of the shelf check and
+		## given an explicit return so it can't fall through into it.
+		if held_item != null and (held_item.has_method("on_use") or held_item.has_method("on_interact")):
 			# _is_holding_e stays true only to drive per-frame continuous
 			# actions (e.g. FuelCan.refuel_tick / bottle refill) — it no
 			# longer gates a store action.
@@ -214,6 +225,26 @@ func _unhandled_input(event: InputEvent) -> void:
 				held_item.on_use()
 			elif held_item.has_method("on_interact"):
 				held_item.on_interact()
+			return
+
+		## Shelf nearby — reached only if empty-handed, or holding
+		## something with no E action of its own (Crate, etc. — see
+		## header comment). No distance comparison needed any more: if
+		## execution reaches here, nothing in the player's hand claimed E,
+		## so the shelf is free to.
+		var shelf: Node3D = _nearest_shelf()
+		if shelf != null and shelf.has_method("on_e_interact"):
+			shelf.on_e_interact()
+			get_viewport().set_input_as_handled()
+			return
+
+		if held_item != null:
+			## Holding something with no E action and no shelf in range —
+			## E is a no-op here, matching prior behavior exactly (this
+			## was already a no-op via a different code path before this
+			## fix — just preserving _is_holding_e's per-frame-continuous-
+			## action bookkeeping regardless of whether this item uses it).
+			_is_holding_e = true
 		else:
 			## A ready dish takes priority over other interactables ONLY if
 			## it's truly the closest one — same distance-fairness fix
@@ -773,36 +804,6 @@ func _nearest_shelf() -> Node3D:
 				closest_dist = d
 				closest = s3
 	return closest
-
-## Distance to the nearest competing E target for the CURRENTLY HELD item —
-## used only by the E-dispatch shelf fairness check above. Returns INF
-## when the held item has no E action of its own (or nothing is held),
-## which makes the shelf win by default, preserving pre-fix behavior for
-## those cases.
-func _nearest_e_rival_distance() -> float:
-	if held_item == null:
-		return INF
-	if "is_basket_container" in held_item:
-		return _nearest_group_storable_distance("basket_storable")
-	if "is_cookpot_container" in held_item:
-		## Mirrors _try_use_held_cookpot()'s own priority: an open stove
-		## in range is the pot's E target; otherwise the nearest storable.
-		var stove: Node = _find_nearest_open_stove()
-		if stove != null:
-			return (stove as Node3D).global_position.distance_to(player.global_position)
-		return _nearest_group_storable_distance("cookpot_storable")
-	if NPCItemUser.is_giveable(held_item):
-		var npc: Node = _find_nearest_npc()
-		if npc != null:
-			return (npc as Node3D).global_position.distance_to(player.global_position)
-	return INF
-
-## Distance-only twin of the candidate scan in _try_add_nearest_to_basket()
-## / _try_add_nearest_to_cookpot(). Filters MUST stay in lockstep with
-## those two functions — if a body wouldn't be stashable there, it must
-## not count as a rival here. (Verified identical to both as of Aug 2026.)
-func _nearest_group_storable_distance(group_name: String) -> float:
-	return _proximity.nearest_distance_in_group(group_name)
 
 ## E while holding a Basket — finds the nearest "basket_storable" world item
 ## in reach and stashes it, instead of calling the basket's own on_use().

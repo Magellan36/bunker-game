@@ -258,17 +258,27 @@ own held item while CASE 1 scans for a different target — guarded with
   the slot array entry — it's additive to `InventoryManager.gd`
   (UI/menu-subsystem-owned; flagged for their visibility, not a change
   to any of their existing methods).
-- **E-dispatch shelf fairness (Aug 2026):** a nearby shelf no longer
-  unconditionally captures E. `_nearest_e_rival_distance()` returns the
-  distance to whatever the currently-held item's own E action would
-  target (nearest `basket_storable` for a Basket; nearest open stove,
-  else nearest `cookpot_storable`, for a Cooking Pot; nearest NPC for a
-  giveable item) — INF if the held item has no E action of its own. The
-  shelf only wins when strictly closer than that rival distance. This is
-  the third instance of the same fairness pattern already used for the
-  F-dispatch stove-pot-vs-pickup case and the ready-dish check — future
-  E/F priority additions should follow the same shape: compute a rival
-  distance, compare strictly, let the closer one win.
+- **Held-item E priority is unconditional (Aug 2026, supersedes the
+  distance-fairness rule below).** A held item's own E action
+  (Basket stash, Cooking Pot stove-or-stash, NPC give, or any item
+  implementing `on_use()`/`on_interact()` — Flashlight, FuelCan,
+  WaterBottle, FoodCan, DishItem, FarmProduceItem, SeedItem,
+  FertilizerItem, BagOfSoilItem, PurifierFilterItem) now ALWAYS wins
+  over a nearby shelf/dresser/end table, regardless of distance. The
+  earlier "distance fairness" rule (shelf wins only if farther than a
+  basket/cookpot/give target — see superseded description below) only
+  covered those three cases and still let a closer-than-2.5m shelf steal
+  E from every other held item with its own action, since the old rival-
+  distance check returned INF for anything outside those three. Removed
+  `_nearest_e_rival_distance()`/`_nearest_group_storable_distance()`
+  entirely — no longer needed once "held item always wins" replaced
+  "held item wins if closer." One deliberate exception: a held item with
+  genuinely no E action (Crate — implements neither method) still lets
+  the shelf capture E normally, since E doing nothing at all would be
+  worse given how tightly bunkers get furnished.
+- ~~Superseded, kept for history — **E-dispatch shelf fairness (Aug
+  2026)**: a nearby shelf no longer unconditionally captures E...~~ (see
+  entry above for current behavior)
 - **⚠️ Superseded (Aug 2026): Give/Snatch transfer unified into
   `release_held_item_to_npc()`.** The two entries above
   ("NPC Give/Takeaway support" and its bugfix, "Give/Snatch
