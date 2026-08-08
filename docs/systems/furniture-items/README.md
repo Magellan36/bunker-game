@@ -171,6 +171,15 @@ the power system â€” see `docs/systems/world-core/README.md` Persistence).
   back to a normal drop instead of blocking F entirely — see Player
   subsystem's `docs/systems/player/README.md` for the fallback mechanism
   (`InteractionSystem._quick_drop()`).
+- **Aug 2026 fix**: `LightStorage.gd` only joined the `"shelving"` group,
+  never `"interactable"` (unlike `Shelving.gd`, which joins both) — this
+  meant Dresser/End Table never showed an empty-handed prompt at all, they
+  fell into a gap between `InteractionSystem`'s two candidate-gathering
+  passes. Fixed with one `add_to_group("interactable")` call in
+  `LightStorage._ready()`. Also fixed `get_f_prompt()` returning `""`
+  (nothing) when full — now returns `"<name> Full"`, matching
+  `Shelving.gd`'s existing `"[F] Shelf full"` pattern. Full detail in
+  `docs/systems/ui/README.md`'s "Storage UI Unification" section.
 
 ## Forbidden edits
 - **Don't skip the `from_inventory` flag when adding a new item.** Every

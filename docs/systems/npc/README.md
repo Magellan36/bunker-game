@@ -46,7 +46,13 @@ directly commanded by the player. Persists through save/load.
   logging (F7 "Toggle NPC Debug Logging") and the full-state dump (F7
   "Print NPC Debug State").
 - **`NPCTalkMenuUI.gd`** (`scripts/ui/npc/`) — the E-panel: live
-  Health/Energy/Hunger/Thirst/Mood bars, Status line, Skills, Personality,
+  Health/Energy/Hunger/Thirst/Mood bars (Aug 2026 — fixed per-stat colors
+  matching the player's own `NeedsGauge` palette: Health red, Energy
+  purple, Thirst blue, all copied exactly; Hunger yellow reuses the
+  project's other established yellow since the player HUD has none; Mood
+  is `#bca0dc` exactly. No longer recolors by value the way it used to —
+  see `docs/systems/ui/README.md`'s `UIKit`/`NeedsGauge` sections for the
+  broader palette convention this now matches), Status line, Skills, Personality,
   Talk → dialogue + command buttons + "Ask About" relationship Q&A, Close.
 - **`NPC.tscn`** (`scenes/npc/`) — `CharacterBody3D`, capsule mesh/collision
   (radius 0.4, matches `BunkerNavMesh`'s `agent_radius`).

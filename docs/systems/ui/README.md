@@ -39,12 +39,13 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `water/` | `WaterDispenserUI.gd` (~520), `WaterInfoUI.gd` (~625) | Water device panels — see `docs/systems/water/README.md` for what they read/write. Both fully on the shared `UIKit` palette as of the Jul 2026 "Power + Water UI Unification" pass — see that section below |
 | `farming/` | `FarmingTrayUI.gd` (~440 — handles both the 1x1 and 2x1 tray sizes; panel height grows/shrinks with 0/1/2 plant slots), `PlantInfoUI.gd` | Farming tray panel (Jul 2026 "Rounded Corners" pass joined it onto `UIKit.Domain.FARMING`, green stripe) |
 | `inventory/` | `InventoryHUD.gd` (~445 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `StorageUI.gd` (~380 — Aug 2026, generic shared storage overlay, replaces the former `ShelfUI.gd`/`BasketUI.gd`, see "Storage UI Unification" below) | Slot HUD, inventory state, shared storage-container panel |
-| `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (~107 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interact prompt |
+| `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (~170 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text; grew substantially Aug 2026 — real styling, an icon-preview row, and general pairwise overlap avoidance, see "Cooking Pot UI Fixes + Prompt Overlap Avoidance" below) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interact prompt |
 | `menus/` | `PauseMenuUI.gd` (~330 — rewritten onto `UIKit` menu builders, Jul 2026), `GraphicsSettingsPanel.gd` (~430 — same rewrite, also fixed a long-standing off-center bug, see below), `SleepOverlay.gd` (~145), `AdminMenu.gd` (~430 — rewritten with collapsible sections + a real `ScrollContainer`, Jul 2026, see below) | ESC pause menu, graphics settings, sleep fade, admin cheats |
-| `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI. Farming shop's `FARMING_SHOP_ITEMS["Seeds"]` had a duplicate-`tile_id` bug fixed Aug 2026 — see "Farming Shop Seed tile_id Bugfix" below |
+| `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI. Farming shop's `FARMING_SHOP_ITEMS["Seeds"]` had a duplicate-`tile_id` bug fixed Aug 2026 (see "Farming Shop Seed tile_id Bugfix" below) and a SEPARATE bug where `PREVIEW_SOURCES` never set `seed_type` per-id, so every seed preview looked identical — fixed Aug 2026, see "Cooking Pot UI Fixes + Prompt Overlap Avoidance" below |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
 | `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain) | Shared fade-in helper + shared theme/drawing kit (see "UIKit shared kit" below) — put any future cross-panel UI utility here |
 | `notifications/` | `NotificationManager.gd` (~175) | Central toast/notification system (see "NotificationManager" below) |
+| `npc/` | `NPCTalkMenuUI.gd` | NPC E-panel (needs bars, status, skills, personality) — see `docs/systems/npc/README.md` for full detail; fixed per-stat bar colors as of Aug 2026, see "Cooking Pot UI Fixes..." below is unrelated — see the NPC doc directly for the color table |
 
 ## Public API (representative — not exhaustive, see each panel's own header)
 Every interaction panel follows the same shape: `open(...)` / `close()` /
@@ -569,6 +570,44 @@ the existing look (14px corner radius, its own dark palette) rather than
 moving onto the `UIKit` domain-stripe system Power/Water/Farming/Pause
 use. That's a separate, not-yet-requested decision.
 
+**Follow-up (Aug 2026) — prompt exclusivity rule + Dresser/End Table
+fix.** Two real bugs found and fixed after the initial unification:
+
+1. `LightStorage.gd` (the shared base `Dresser.gd`/`EndTable.gd` extend)
+   only joined the `"shelving"` group, never `"interactable"`. Shelving.gd
+   joins both — `InteractionSystem.gd`'s empty-handed candidate-gathering
+   requires `"interactable"` membership for one of its two passes and
+   explicitly excludes `"shelving"` members from the other, so Shelving
+   slipped through via the first pass while Dresser/End Table fell into
+   the gap between both and never got a prompt at all. Fixed with one
+   `add_to_group("interactable")` call.
+2. `LightStorage.get_f_prompt()` returned `""` (nothing) when full,
+   unlike `Shelving.gd`'s existing `"[F] Shelf full"` — now returns
+   `"<name> Full"` to match.
+
+**New standing rule**: while the player holds a storable item near any
+`"shelving"`-group object (Shelf, Dresser, End Table, and any future
+storage furniture), only ONE prompt line shows — `get_f_prompt()`'s text
+if it has something to say (Store or Full), falling back to
+`get_e_prompt()` only when it doesn't. Previously both always showed
+together, which was actively misleading: while anything is held, `E` is
+bound to the held item's own action, never to a nearby shelf's
+`on_e_interact()`.
+
+This rule needed to be applied in TWO places —
+`InteractionSystem._update_prompt()` has entirely separate code paths for
+"holding something" (CASE 1) vs "empty-handed" (CASE 2), each with its own
+copy of the shelving-prompt logic. An earlier pass only fixed CASE 2, which
+is why the bug persisted for held items. Both are now fixed, along with a
+second, unrelated bug in CASE 2 specifically: it discovered `"shelving"`
+objects via `Area3D` signal tracking, which never fires for a body that
+spawns already inside the player's trigger volume (exactly what happens
+placing furniture via Build Mode while standing next to it) — CASE 2 now
+also does a direct per-frame group scan, matching the timing-safe approach
+CASE 1's `_nearest_shelf()` already used. All of this lives in
+`InteractionSystem.gd` (Player-thread-owned) — handed off as a standalone
+plan rather than applied directly by the UI thread.
+
 ## BuildModeHUD Preview Fixes (Jul 2026)
 - **Preview Scale Normalization**: `PREVIEW_TARGET_SIZE = 0.5667` (1.5× zoom out
   from 0.85) + `_preview_normalize_scale(aabb)` helper applied to all 3 preview
@@ -688,6 +727,84 @@ for the same duplicate-id pattern — nowhere else has it. See
 `docs/systems/farming/README.md`'s "Common edits — adding a new plant
 species" checklist for the manual two-list-sync process this bug fell out
 of, and a flagged note there about hardening it in a future pass.
+
+## Cooking Pot UI Fixes + Prompt Overlap Avoidance (Aug 2026)
+`CookingPot.gd` has no dedicated modal panel — it's driven entirely by the
+shared `InteractPrompt.gd` floating prompt (text + up to 3 live 3D
+ingredient icon previews), the same panel every interactable in the game
+uses. Several real bugs found and fixed here, all traced to root cause
+rather than patched by symptom:
+
+- **Icons vanished on pickup**: `InteractionSystem._update_prompt()`'s
+  held-item branch (CASE 1) never looked up `get_slot_icon_descriptors()`
+  at all — only the empty-handed branch (CASE 2) did. Fixed generically
+  (works for any held item implementing that method, not cooking-
+  specific).
+- **Icons/prompt vanished on drop until leaving and re-entering range**: a
+  dropped item was never re-added to `InteractionSystem._tracked_bodies`
+  (the `Area3D`-signal-tracked set CASE 2 scans) — same root cause as the
+  Dresser/End Table timing bug above. Fixed in `_quick_drop()`.
+- **"DONE — Take Dish" prompt went blank while the pot sat on a Stove**: a
+  regression from the "Cooking recipe best-fit dish naming" commit added
+  `if _host_stove != null: return ""` to `CookingPot.get_interact_prompt()`
+  — but `Stove.get_interact_prompt()` delegates to that exact same
+  function for its own ready-dish text, so the early-return silenced both
+  objects' prompts at once whenever the pot was actually on a stove (the
+  normal cooking setup). Removed the early-return.
+- **Food Can preview rendered as an empty circle**: its descriptor used
+  `is_script: true` (bare `Script.new()`, no children), but
+  `FoodCan.gd`'s own `_ready()` expects a pre-built `MeshInstance3D` CHILD
+  node (`get_node_or_null("MeshInstance3D")`) — unlike `FarmProduceItem`,
+  which builds its mesh procedurally in code. Fixed by pointing the
+  descriptor at `FoodCan.tscn` (packed-scene mode) instead of the script.
+- **All 12 seed packets in the Build Mode Farming Shop preview looked
+  identical**: `BuildModeHUD.PREVIEW_SOURCES` mapped every seed `tile_id`
+  to the same generic `SeedItem.gd` script but never set its `seed_type`
+  export var before instantiating — unlike produce, which already gets
+  its `produce_type` set correctly nearby in the same file. Every seed
+  silently defaulted to `seed_type`'s own `"tomato"` fallback.
+  `PlantDatabase.get_seed_packet_color()` already supported all 12 species
+  correctly; it just never received the right value. Fixed by adding
+  `seed_type` to each of the 12 `PREVIEW_SOURCES` entries (matching
+  `FarmingShopHelper.SHOP_ITEM_INFO`'s `"type"` field exactly) and setting
+  it on the instance before it enters the tree.
+
+**Layout**: middle ingredient icon sits 15% higher than the two flanking
+it (a fixed pixel offset baked into the scene template, not computed at
+runtime — `HBoxContainer`'s auto-layout can't offset one child, so
+`IconRow` is a plain `Control` with each slot's position set explicitly).
+Icon size and the outer panel's padding went through a few iterations —
+final state is back to the original 32px icon size (a 2x-larger version
+was tried and explicitly reverted per Brannon's call), with the panel's
+top/bottom content margins symmetric (`10.0` each) so plain-text prompts
+(the vast majority — "[F] Pick up crate," "[E] Wall Light," etc., which
+have no icon row at all) read as properly vertically centered. Ingredient
+previews render at the same 45°/45° resting rotation used everywhere else
+in the project (`Vector3(-45, -45, 0)`, matching `BuildModeHUD`'s
+`PREVIEW_ROTATION_DEFAULT` and `InventoryHUD`'s own previews) — static, no
+hover-spin.
+
+**Prompt overlap avoidance** (`InteractPrompt._resolve_overlaps()`): a
+general, non-cooking-specific pairwise layout pass. When two visible
+prompt panels would overlap on screen (e.g. a Cooking Pot placed on a
+Stove — two separate objects, two separate panels, positioned very close
+together), the one with a non-empty icon row outranks a plain-text one
+(ties broken by whichever is closer to the player); the lower-priority
+panel gets pushed directly below the higher one with a fixed gap. Panels
+that don't overlap are completely unaffected — this only activates when
+two real panels' rects actually intersect on screen. Runs a few passes so
+a chain of 3+ overlapping panels all separate out.
+
+**Panel styling** (this affects EVERY interactable's prompt in the game,
+not just cooking — `InteractPrompt.tscn` is one shared template): the
+outer panel had zero custom `StyleBoxFlat` at all before this pass — no
+theme resource defines one, so it rendered with Godot's raw default
+`PanelContainer` look the whole time. Now uses a dark/rounded style
+matching the rest of the project's palette (8px corner radius — rounder
+than the 4px modal-panel standard, intentionally, same "smaller-scale
+identity" precedent as `StorageUI.gd`'s 14px). Confirmed with Brannon this
+project-wide change is wanted, not something to scope down to cooking
+only.
 
 ## Extension points
 - Any new shared cross-panel utility (like `UIFade`, `UIKit`) belongs in

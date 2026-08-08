@@ -1,3 +1,61 @@
+# Handover — Cooking Pot UI Fixes, Storage Prompt Rules, NPC Colors (Aug 2026)
+
+**Owner:** UI Claude instance (HUD/menus/Build Mode/Furniture).
+
+## What changed
+- **Cooking Pot UI**: fixed the icon row disappearing on pickup (CASE 1
+  never looked up icon descriptors) and on drop (items never got
+  re-tracked after `_quick_drop()`); fixed the "DONE — Take Dish" prompt
+  going blank while the pot sat on a Stove (a regression from the dish-
+  naming commit); fixed Food Can rendering as an empty preview circle
+  (wrong instantiation mode); fixed all 12 seed packets looking identical
+  in the Build Mode shop preview (missing per-id `seed_type`). Layout:
+  middle ingredient icon 15% higher, panel padding made symmetric, icon
+  size settled back to original 32px after a 2x version was tried and
+  reverted, previews now use the same 45°/45° resting rotation as
+  everywhere else in the project.
+- **Prompt overlap avoidance**: general pairwise layout pass in
+  `InteractPrompt.gd` — any two overlapping prompt panels (e.g. Cooking
+  Pot + the Stove it's sitting on) now stack instead of overlapping,
+  icon-bearing prompts on top. Not cooking-specific, applies project-wide.
+- **`InteractPrompt.tscn` panel styling**: gave the shared floating prompt
+  (used by every interactable in the game) real dark/rounded styling for
+  the first time — it had zero custom stylebox before this arc.
+- **Storage prompt exclusivity rule**: while holding a storable item near
+  a Shelf/Dresser/End Table, only one prompt line shows now (Store/Full,
+  not also "Open"). Needed fixing in two separate code paths in
+  `InteractionSystem.gd` (CASE 1 held-item vs CASE 2 empty-handed).
+- **Dresser/End Table empty-handed prompt bug, fixed**: `LightStorage.gd`
+  was missing `"interactable"` group membership — Shelving has it,
+  Dresser/End Table didn't, so they never got a prompt.
+- **Handed a separate plan to the Player thread** for the remaining
+  `InteractionSystem.gd` half of the storage-prompt fix (CASE 1's
+  un-fixed copy of the exclusivity logic, and a timing-safe group-scan
+  for CASE 2, since `Area3D` signals don't fire for furniture that spawns
+  already inside the player's trigger volume).
+- **NPC meter colors**: `NPCTalkMenuUI.gd`'s 5 need bars now use fixed
+  per-stat colors (Health red, Energy purple, Hunger yellow, Thirst blue,
+  Mood `#bca0dc`) instead of recoloring by value — matches the player's
+  own `NeedsGauge` convention.
+
+## Files Modified
+`scripts/ui/hud/InteractPrompt.gd`, `scenes/ui/InteractPrompt.tscn`,
+`scripts/world/items/CookingPot.gd`, `scripts/ui/build/BuildModeHUD.gd`,
+`scripts/world/furniture/LightStorage.gd`, `scripts/ui/npc/NPCTalkMenuUI.gd`,
+`scripts/player/InteractionSystem.gd` (partially — see handed-off plan for
+the remainder)
+
+## Next Up
+- Confirm the Player thread has applied the handed-off
+  `InteractionSystem.gd` fixes (CASE 1 exclusivity + CASE 2 timing-safe
+  shelving scan) — until then, Dresser/End Table's empty-handed prompt and
+  Shelving's held-item exclusivity remain broken.
+- `ShelfUI`/`BasketUI`-era visual identity for `StorageUI.gd` still
+  hasn't been brought onto the `UIKit` domain-stripe system — still a
+  deliberate, deferred decision, not forgotten.
+
+---
+
 # Handover — Held-Item E Priority Is Unconditional (Aug 2026)
 
 ## What changed this session
