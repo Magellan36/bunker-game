@@ -506,6 +506,11 @@ func npc_try_place_item(npc: Node, item: RigidBody3D) -> bool:
 	item_placed.emit(slot, item)
 	return true
 
+## Public capacity check, used so a full shelf isn't chosen as a
+## destination in the first place — see NPC.find_cleaning_destination().
+func has_room_for(item: RigidBody3D) -> bool:
+	return _find_slot_for(item) != -1
+
 # ─── Retrieve to carry (from StorageUI's primary "Carry" button) ─────────────
 ## Pops the top item from the slot's stack and gives it to the player's hand.
 ## Returns true on success — Aug 2026, part of the StorageUI contract

@@ -27,6 +27,13 @@ const LOG_AREA_H: float = 220.0
 const LOG_TOGGLE_BUTTON_H: float = 32.0
 const LOG_SECTION_H: float = LOG_AREA_H + LOG_TOGGLE_BUTTON_H + 8.0
 
+## Generous fixed bump covering the Requests box (4 buttons) plus the
+## Jobs sub-list (currently 4 entries, grows as job types are added) —
+## simplification: ONE combined bump rather than precisely tracking two
+## separate additive heights, same "retune visually later" spirit as
+## every other PANEL_H bump in this file's history.
+const REQUESTS_SECTION_H: float = 260.0
+
 ## Aug 2026 — fixed per-stat identity colors, matching the player's own
 ## NeedsGauge convention (one color per stat, always, regardless of
 ## current fill — NOT recolored by value the way this panel used to).
@@ -45,6 +52,18 @@ const NEED_COLORS: Dictionary = {
 }
 const REFRESH_INTERVAL: float = 0.25
 const PLACEHOLDER_LINE: String = "\"...\""
+
+## Centralized so a new job type later needs ONE entry here, nothing
+## else. "type" must match JobBoard's job "type" string exactly
+## (HARVEST/REPLACE_FILTER/REFUEL), or the literal string "CLEANING"
+## (routed to CommandCleaningActivity instead of the generic
+## CommandJobActivity, since Cleaning isn't JobBoard-claimed at all).
+const NPC_JOB_MENU_ENTRIES: Array[Dictionary] = [
+	{"type": "HARVEST", "label": "Harvest the plants", "action_desc": "heading to harvest", "empty_desc": "nothing ready to harvest"},
+	{"type": "REPLACE_FILTER", "label": "Replace the water filters", "action_desc": "heading to replace a filter", "empty_desc": "no filters need replacing"},
+	{"type": "REFUEL", "label": "Refuel the generator", "action_desc": "heading to refuel", "empty_desc": "nothing needs refueling"},
+	{"type": "CLEANING", "label": "Clean the bunker", "action_desc": "heading to clean up", "empty_desc": "nothing to clean right now"},
+]
 
 var _npc: Node = null
 var _backdrop: ColorRect = null
@@ -67,6 +86,11 @@ var _log_toggle_button: Button = null
 var _log_scroll: ScrollContainer = null
 var _log_rows_box: VBoxContainer = null
 var _log_entries: Array[Dictionary] = []
+var _requests_toggle_button: Button = null
+var _requests_box: VBoxContainer = null
+var _requests_expanded: bool = false
+var _jobs_box: VBoxContainer = null
+var _jobs_expanded: bool = false
 var _log_time_labels: Array[Label] = []
 var _log_text_labels: Array[Label] = []
 
@@ -94,6 +118,8 @@ func _teardown() -> void:
 		if _npc.action_logged.is_connected(_rebuild_log_rows):
 			_npc.action_logged.disconnect(_rebuild_log_rows)
 	_log_expanded = false
+	_requests_expanded = false
+	_jobs_expanded = false
 	if _backdrop != null and is_instance_valid(_backdrop):
 		_backdrop.queue_free()
 	if _panel != null and is_instance_valid(_panel):
@@ -256,10 +282,26 @@ func _build(npc_name: String) -> void:
 	_command_box.add_theme_constant_override("separation", 4)
 	_command_box.visible = false
 	_vbox.add_child(_command_box)
-	_command_box.add_child(UIKit.make_button("Go eat something", _on_command_eat_pressed))
-	_command_box.add_child(UIKit.make_button("Go drink something", _on_command_drink_pressed))
-	_command_box.add_child(UIKit.make_button("Take a load off", _on_command_rest_pressed))
-	_command_box.add_child(UIKit.make_button("Harvest the plants", _on_command_harvest_pressed))
+	_requests_toggle_button = UIKit.make_button("Requests", _on_requests_toggle_pressed)
+	_command_box.add_child(_requests_toggle_button)
+
+	_requests_box = VBoxContainer.new()
+	_requests_box.add_theme_constant_override("separation", 4)
+	_requests_box.visible = false
+	_command_box.add_child(_requests_box)
+	_requests_box.add_child(UIKit.make_button("Can you go eat something?", _on_command_eat_pressed))
+	_requests_box.add_child(UIKit.make_button("Can you go drink something?", _on_command_drink_pressed))
+	_requests_box.add_child(UIKit.make_button("Take a load off", _on_command_rest_pressed))
+	_requests_box.add_child(UIKit.make_button("Can you complete this job?", _on_jobs_toggle_pressed))
+
+	_jobs_box = VBoxContainer.new()
+	_jobs_box.add_theme_constant_override("separation", 4)
+	_jobs_box.visible = false
+	_command_box.add_child(_jobs_box)
+	for entry: Dictionary in NPC_JOB_MENU_ENTRIES:
+		var job_type: String = String(entry.get("type", ""))
+		var label_text: String = String(entry.get("label", job_type))
+		_jobs_box.add_child(UIKit.make_button(label_text, Callable(self, "_on_job_command_pressed").bind(job_type)))
 
 	## Ask About (Part 23) — relationship Q&A. Reveals alongside dialogue/
 	## commands when Talk is pressed. Answer reuses _dialogue_label above
@@ -422,14 +464,46 @@ func _on_command_drink_pressed() -> void:
 func _on_command_rest_pressed() -> void:
 	_issue_command(NPCBrain.CommandRestActivity.new(), "heading to rest", "nowhere to rest nearby")
 
-func _on_command_harvest_pressed() -> void:
+func _on_requests_toggle_pressed() -> void:
+	_requests_expanded = not _requests_expanded
+	_requests_toggle_button.text = "Requests ▴" if _requests_expanded else "Requests"
+	if _requests_box != null:
+		_requests_box.visible = _requests_expanded
+	if not _requests_expanded and _jobs_box != null:
+		## collapsing Requests also collapses Jobs so it doesn't linger
+		## open behind a now-hidden parent
+		_jobs_box.visible = false
+		_jobs_expanded = false
+	_refresh_panel_height()
+
+func _on_jobs_toggle_pressed() -> void:
+	_jobs_expanded = not _jobs_expanded
+	if _jobs_box != null:
+		_jobs_box.visible = _jobs_expanded
+	_refresh_panel_height()
+
+## Same "asking during a conversation shouldn't count" relaxing-refusal
+## guard the old Harvest-only handler had — now applies to EVERY job
+## type uniformly, fulfilling the note left in an earlier plan about
+## extending this to future job buttons.
+func _on_job_command_pressed(job_type: String) -> void:
 	if _npc != null and is_instance_valid(_npc) and _npc.has_method("is_relaxing") and _npc.is_relaxing():
 		if _npc.has_method("request_job_while_relaxing") and not _npc.request_job_while_relaxing():
 			if _dialogue_label != null and _npc.has_method("get_relaxing_refusal_line"):
 				_dialogue_label.text = _npc.get_relaxing_refusal_line()
 				_dialogue_label.visible = true
 			return
-	_issue_command(NPCBrain.CommandHarvestActivity.new(), "heading to harvest", "nothing ready to harvest")
+	var entry: Dictionary = {}
+	for e: Dictionary in NPC_JOB_MENU_ENTRIES:
+		if String(e.get("type", "")) == job_type:
+			entry = e
+			break
+	var action_desc: String = String(entry.get("action_desc", "heading to work"))
+	var empty_desc: String = String(entry.get("empty_desc", "nothing to do right now"))
+	if job_type == "CLEANING":
+		_issue_command(NPCBrain.CommandCleaningActivity.new(), action_desc, empty_desc)
+	else:
+		_issue_command(NPCBrain.CommandJobActivity.new(job_type), action_desc, empty_desc)
 
 # ─── Ask About (Part 23) ─────────────────────────────────────────────────
 func _on_ask_about_player_pressed() -> void:
@@ -455,7 +529,18 @@ func _on_log_toggle_pressed() -> void:
 	var log_idx: int = _log_toggle_button.get_index() + 1
 	if log_idx < _vbox.get_child_count():
 		_vbox.get_child(log_idx).visible = _log_expanded
-	_apply_panel_height(PANEL_H + (LOG_SECTION_H if _log_expanded else 0.0))
+	_refresh_panel_height()
+
+## Combines every section that can currently be expanded — Log and
+## Requests/Jobs both call this instead of computing height independently,
+## so they stack correctly rather than overwriting each other's contribution.
+func _refresh_panel_height() -> void:
+	var height: float = PANEL_H
+	if _log_expanded:
+		height += LOG_SECTION_H
+	if _requests_expanded:
+		height += REQUESTS_SECTION_H
+	_apply_panel_height(height)
 
 ## Resizes and re-centers the panel — mirrors UIKit.build_centered_panel()'s
 ## own centering math, since that helper has no public "resize" method.

@@ -997,7 +997,8 @@ class CleaningActivity extends NPCActivity:
 			return 0.0   ## forced-only instance, never auto-selected
 		if not npc.has_cleaning_target_available():
 			return 0.0
-		return NPC.CLEANING_BASE_SCORE * npc.get_work_ethic_job_mult()
+		return NPC.CLEANING_BASE_SCORE * npc.get_work_ethic_job_mult() \
+			* npc.get_job_priority_weight("CLEANING")
 
 	func interruptible() -> bool:
 		return _item == null   ## once actually carrying something, commit to delivering it
@@ -1018,6 +1019,8 @@ class CleaningActivity extends NPCActivity:
 		if not NPCItemUser.claim_item(_item, npc):
 			_item = null
 			return
+		if _item.has_method("set_nav_obstacle_enabled"):
+			_item.set_nav_obstacle_enabled(false)
 		npc.set_nav_target(_item.global_position)
 
 	func tick(npc: NPC, delta: float) -> void:
@@ -1034,7 +1037,7 @@ class CleaningActivity extends NPCActivity:
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, _item.global_position) <= NPCItemUser.PICKUP_RANGE:
 				if NPCItemUser.grab_loose(npc, _item):
-					_destination = npc.find_cleaning_destination(_is_trash)
+					_destination = npc.find_cleaning_destination(_is_trash, _item)
 					if _destination == null:
 						## No valid destination (expected for trash until a
 						## receptacle exists; shouldn't normally happen for
@@ -1070,6 +1073,11 @@ class CleaningActivity extends NPCActivity:
 
 	func exit(npc: NPC) -> void:
 		if _item != null:
+			## Restore avoidance if we're abandoning it back on the ground —
+			## pickup() already handles this correctly if it was actually
+			## grabbed (is_held true), so only restore when it wasn't.
+			if _item.has_method("set_nav_obstacle_enabled") and "is_held" in _item and not _item.is_held:
+				_item.set_nav_obstacle_enabled(true)
 			NPCItemUser.release_item(_item)
 		_item = null
 
@@ -1279,7 +1287,8 @@ class JobActivity extends NPCActivity:
 		## Not separately logged — it's a continuous scoring effect evaluated
 		## every think-cycle for every open job, not a discrete event.
 		var willingness: float = 1.0 - (npc.irritability / 100.0) * 0.5
-		return base_score * willingness * npc.get_work_ethic_job_mult()
+		return base_score * willingness * npc.get_work_ethic_job_mult() \
+			* npc.get_job_priority_weight(_job.get("type", ""))
 
 	func interruptible() -> bool:
 		return _phase != "work"
@@ -1735,6 +1744,83 @@ class CommandHarvestActivity extends NPCActivity:
 				_inner.enter(npc)
 				return
 		_inner = null   ## nothing ready to harvest
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _inner != null:
+			_inner.tick(npc, delta)
+
+	func done(npc: NPC) -> bool:
+		return _inner == null or _inner.done(npc)
+
+	func exit(npc: NPC) -> void:
+		if _inner != null:
+			_inner.exit(npc)
+		_inner = null
+
+
+class CommandJobActivity extends NPCActivity:
+	## Generalized "can you complete this job?" command (Aug 2026) —
+	## CommandHarvestActivity's exact pattern, parameterized by job type,
+	## so adding a new JobBoard-routed job type later needs no new class
+	## here, just a new entry in NPCTalkMenuUI's job menu list.
+	var _job_type: String = ""
+	var _inner: NPCActivity = null
+
+	func _init(job_type: String) -> void:
+		_job_type = job_type
+
+	func label() -> String:
+		return _inner.label() if _inner != null else "Idle"
+
+	func score(_npc: NPC) -> float:
+		return 0.0   ## command-only, never auto-selected
+
+	func interruptible() -> bool:
+		return _inner == null or _inner.interruptible()
+
+	func enter(npc: NPC) -> void:
+		for job: Dictionary in JobBoard.get_open_jobs():
+			if job.get("type", "") == _job_type:
+				_inner = JobActivity.new(job)
+				_inner.enter(npc)
+				return
+		_inner = null
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _inner != null:
+			_inner.tick(npc, delta)
+
+	func done(npc: NPC) -> bool:
+		return _inner == null or _inner.done(npc)
+
+	func exit(npc: NPC) -> void:
+		if _inner != null:
+			_inner.exit(npc)
+		_inner = null
+
+
+class CommandCleaningActivity extends NPCActivity:
+	## "Can you complete this job?" → Clean the bunker (Aug 2026).
+	## Delegates straight to a normal (organic-mode) CleaningActivity —
+	## its own enter() already does the full find_cleaning_target() +
+	## claim search; done() right after enter() tells us whether anything
+	## was actually found.
+	var _inner: NPCActivity = null
+
+	func label() -> String:
+		return _inner.label() if _inner != null else "Idle"
+
+	func score(_npc: NPC) -> float:
+		return 0.0
+
+	func interruptible() -> bool:
+		return _inner == null or _inner.interruptible()
+
+	func enter(npc: NPC) -> void:
+		_inner = CleaningActivity.new()
+		_inner.enter(npc)
+		if _inner.done(npc):
+			_inner = null
 
 	func tick(npc: NPC, delta: float) -> void:
 		if _inner != null:

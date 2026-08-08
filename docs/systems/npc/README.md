@@ -808,6 +808,29 @@ occupy the `"trash_receptacle"` group and implement
 `npc_deposit_trash(npc, item)`; the delivery call is already
 `has_method()`-guarded so it's a safe no-op today.
 
+**Confirmed bug fixes (Aug 2026):**
+- **Stale cached references crash** — `get_trash_items()`/
+  `get_organizable_items()` returned the raw cache with no validity
+  check; an item destroyed between `SCAN_INTERVAL` scans made
+  `find_cleaning_target()` iterate a freed reference (same class of bug
+  previously fixed in `get_open_jobs()`). Both now `filter()` on
+  `is_instance_valid()` before returning.
+- **Heavy items couldn't be approached** — a Crate (`mass 7.0` ≥
+  `HEAVY_OBSTACLE_MASS`) gets a `NavigationObstacle3D` with
+  `avoidance_enabled` so NPCs route *around* it, which actively prevents
+  closing the final distance when the NPC *wants* to grab it. Added
+  `PickupableItem.set_nav_obstacle_enabled(bool)` (flagged: World-Items
+  file); `CleaningActivity.enter()` disables avoidance on the target
+  while approaching, and `exit()` restores it if the item is abandoned
+  still on the ground (`pickup()`/`drop()` already manage the held/
+  dropped states correctly).
+- **Nearest-shelf-picked-without-capacity-check → "just drops"** —
+  `find_cleaning_destination()` picked the nearest `"shelving"` member
+  by distance alone, so a full shelf was chosen, the placement attempt
+  failed, and the NPC dropped the item. Added `Shelving.has_room_for()`
+  and made `find_cleaning_destination(is_trash, item)` skip shelves
+  without room.
+
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
 0.6–2.0 (displayed ×10, rounded, in the E-panel — e.g. `0.73` → `7`),
@@ -823,6 +846,20 @@ jobs (even by two NPCs at once); the job `target` is the plant itself.
 standoff point near the object (not its exact center, which sits inside
 its own collision and off the navmesh) computed from whichever direction
 the NPC is approaching from.
+
+### Job Priority (Aug 2026)
+A universal per-job-type weighting, a separate axis from Work Ethic:
+Work Ethic is whether *this NPC* feels like working at all right now;
+Job Priority is how important *this kind of task* is, in general. Both
+multiply together into the final score (`get_work_ethic_job_mult()` ×
+`get_job_priority_weight(job_type)`). Current weights
+(`JOB_PRIORITY_WEIGHTS`, tuned as a starting point): HARVEST **1.3**,
+REPLACE_FILTER **1.0**, REFUEL **1.0**, CLEANING **0.5**, default **1.0**
+for unknown types. Deliberately an `NPC.gd` instance method even though
+it doesn't read `personality` yet — **extension point:** a planned
+Gardening trait can boost HARVEST and a Mechanic trait can boost
+REPLACE_FILTER/REFUEL by reading `personality` right here, one central
+place rather than a parallel system.
 
 ### Items & Consumption
 NPCs eat/drink using the exact same world APIs the player does —
@@ -879,15 +916,29 @@ back-to-back until the whole daily budget is gone in one sitting —
 front-loading the entire day's relaxation at spawn.
 
 ### Player Commands
-Via the E-panel: press Talk, four buttons appear — "Go eat something",
-"Go drink something", "Take a load off", "Harvest the plants". Each force-
-starts an existing activity class directly (`NPCBrain.force_command()`),
-bypassing normal need-based scoring: `EatActivity`/`DrinkActivity`
-directly, `CommandRestActivity` (tries `LieActivity` then falls back to
-`SitActivity`), `CommandHarvestActivity` (finds the nearest open HARVEST
-job). Identical real-world behavior to the automatic versions. Pass-out's
-force-check still preempts a command every frame — commanding a passed-out
-NPC does nothing until it recovers.
+Via the E-panel: press Talk, a **Requests** button appears (replaced the
+four direct action buttons). Clicking it reveals four rephrased buttons
+— "Can you go eat something?", "Can you go drink something?", "Take a
+load off", "Can you complete this job?" — plus a **Jobs** submenu
+revealed by the last one. Job buttons are built from the centralized
+`NPC_JOB_MENU_ENTRIES` registry (`NPCTalkMenuUI.gd`) — one entry per
+type (HARVEST, REPLACE_FILTER, REFUEL, and the literal "CLEANING").
+Each force-starts an existing activity class via
+`NPCBrain.force_command()`, bypassing normal need-based scoring:
+`EatActivity`/`DrinkActivity` directly, `CommandRestActivity` (tries
+`LieActivity` then falls back to `SitActivity`), `CommandJobActivity`
+(generic — finds the nearest open `JobBoard` job of the requested type,
+parameterized so a new job type needs no new class), and
+`CommandCleaningActivity` (wraps an organic `CleaningActivity` for the
+CLEANING entry, since Cleaning isn't JobBoard-claimed). Identical real-
+world behavior to the automatic versions. The relaxing-refusal guard
+("asking during a conversation doesn't count" → refusal line, then -3
+relationship on the second ask) now applies uniformly to **every** job
+button, not just Harvest. Panel height grows to fit via the shared
+`_refresh_panel_height()` (stacks Log + Requests/Jobs contributions).
+`CommandHarvestActivity` is retained but unused from the UI going
+forward. Pass-out's force-check still preempts a command every frame —
+commanding a passed-out NPC does nothing until it recovers.
 
 ### Persistence
 Phase-4 `SaveManager` field (`MainWorld._get_npcs_for_save`/

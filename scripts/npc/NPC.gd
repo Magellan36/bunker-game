@@ -448,6 +448,25 @@ func get_work_ethic_job_mult() -> float:
 func get_work_ethic_passive_mult() -> float:
 	return lerp(1.3, 0.7, float(personality.get("work_ethic", 0.5)))
 
+# ─── Job Priority (Aug 2026) ─────────────────────────────────────────────
+## Separate from Work Ethic's job/passive multiplier — this is about how
+## important the TASK is, universally, not whether this NPC feels like
+## working right now. Both multiply together into the final score.
+## FUTURE WORK: Gardening trait → boost "HARVEST" specifically for NPCs
+## who have it; Mechanic trait → boost "REPLACE_FILTER"/"REFUEL" — read
+## `personality` right here once those traits exist, rather than adding a
+## parallel system elsewhere.
+const JOB_PRIORITY_WEIGHTS: Dictionary = {
+	"HARVEST": 1.3,
+	"REPLACE_FILTER": 1.0,
+	"REFUEL": 1.0,
+	"CLEANING": 0.5,
+}
+const JOB_PRIORITY_DEFAULT: float = 1.0
+
+func get_job_priority_weight(job_type: String) -> float:
+	return float(JOB_PRIORITY_WEIGHTS.get(job_type, JOB_PRIORITY_DEFAULT))
+
 ## Neuroticism — scales mood's random per-tick drift AND the one-time
 ## mood drop on passing out. 0.5x (Easygoing) to 1.5x (Neurotic), 1.0x
 ## at baseline/absent. Public (no underscore) — called from NPCBrain.gd's
@@ -1255,13 +1274,15 @@ func find_cleaning_target() -> Dictionary:
 ## Nearest member of the matching destination group. For trash, returning
 ## null here (no receptacle exists) is expected and handled gracefully by
 ## CleaningActivity — it just abandons and sets the item back down.
-func find_cleaning_destination(is_trash: bool) -> Node:
+func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node:
 	var group_name: String = "trash_receptacle" if is_trash else "shelving"
 	var best: Node = null
 	var best_d: float = INF
 	for candidate: Node in get_tree().get_nodes_in_group(group_name):
 		if not is_instance_valid(candidate):
 			continue
+		if not is_trash and item != null and candidate.has_method("has_room_for") and not candidate.has_room_for(item):
+			continue   ## skip shelves with no room — this check was the whole gap
 		var d: float = NPCItemUser.flat_distance(global_position, (candidate as Node3D).global_position)
 		if d < best_d:
 			best_d = d

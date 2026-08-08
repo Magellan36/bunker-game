@@ -102,6 +102,16 @@ func _maybe_create_nav_obstacle() -> void:
 	_nav_obstacle.avoidance_enabled = true
 	add_child(_nav_obstacle)
 
+## Lets external code (an NPC actively approaching this item to grab it)
+## temporarily suspend obstacle avoidance while it's still on the ground.
+## pickup()/drop() already handle the held/dropped states correctly —
+## this covers the gap in between: the walk-up itself, during which
+## avoidance would otherwise prevent ever closing the final distance to
+## a heavy item.
+func set_nav_obstacle_enabled(enabled: bool) -> void:
+	if _nav_obstacle != null:
+		_nav_obstacle.avoidance_enabled = enabled
+
 ## Generic, shape-agnostic bounding-circle radius computed from this item's
 ## ACTUAL collision geometry (every CollisionShape3D child, compound shapes
 ## included) rather than a hardcoded per-item guess — same "trust the real

@@ -33,9 +33,11 @@ var _trash_items_cache: Array = []
 var _organizable_items_cache: Array = []
 
 func get_trash_items() -> Array:
+	_trash_items_cache = _trash_items_cache.filter(func(i): return is_instance_valid(i))
 	return _trash_items_cache
 
 func get_organizable_items() -> Array:
+	_organizable_items_cache = _organizable_items_cache.filter(func(i): return is_instance_valid(i))
 	return _organizable_items_cache
 
 func _has_trash_receptacle() -> bool:
