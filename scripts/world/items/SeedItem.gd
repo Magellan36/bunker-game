@@ -117,12 +117,11 @@ func _build_placeholder_mesh() -> void:
 	## Text label — centered on the packet, 2/3 up its length.
 	var label: Label3D = Label3D.new()
 	label.text = "%s Seeds" % PlantDatabase.get_display_name(seed_type)
-	label.font_size = 6
-	label.scale = Vector3(0.001, 0.001, 0.001)
+	label.font_size = 8
 	label.modulate = Color(0.95, 0.92, 0.78, 1.0)
 	label.outline_size = 0
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD
-	label.width = 90
+	label.width = 100
 	label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	label.no_depth_test = false
 	label.fixed_size = false
