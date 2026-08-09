@@ -179,7 +179,7 @@ func _build_tomato(mat: StandardMaterial3D) -> void:
 	stem_mat.albedo_color = Color(0.25, 0.55, 0.15, 1.0)
 	stem_mat.roughness = 0.7
 	stem_mi.set_surface_override_material(0, stem_mat)
-	add_child(stem_mi)
+	_mesh.add_child(stem_mi)
 
 ## Onion — sphere with pointed top (tapered upper half)
 func _build_onion(mat: StandardMaterial3D) -> void:
@@ -200,7 +200,7 @@ func _build_onion(mat: StandardMaterial3D) -> void:
 	tip_mi.mesh = tip
 	tip_mi.position = Vector3(0.0, 0.105, 0.0)
 	tip_mi.set_surface_override_material(0, mat)
-	add_child(tip_mi)
+	_mesh.add_child(tip_mi)
 
 ## Basil — small cluster of 3 flat leaf-like boxes
 func _build_basil(mat: StandardMaterial3D) -> void:
@@ -217,7 +217,7 @@ func _build_basil(mat: StandardMaterial3D) -> void:
 	stem_mat.albedo_color = Color(0.18, 0.45, 0.12, 1.0)
 	stem_mat.roughness = 0.7
 	stem_mi.set_surface_override_material(0, stem_mat)
-	add_child(stem_mi)
+	_mesh.add_child(stem_mi)
 
 	## 3 leaves fanning out
 	for i in range(3):
@@ -229,7 +229,7 @@ func _build_basil(mat: StandardMaterial3D) -> void:
 		leaf_mi.position = Vector3(cos(angle) * 0.018, 0.065, sin(angle) * 0.018)
 		leaf_mi.rotation.y = angle
 		leaf_mi.set_surface_override_material(0, mat)
-		add_child(leaf_mi)
+		_mesh.add_child(leaf_mi)
 
 	_mesh.mesh = BoxMesh.new()
 	_mesh.mesh.size = Vector3(0.001, 0.001, 0.001)
@@ -264,7 +264,7 @@ func _build_strawberry(mat: StandardMaterial3D) -> void:
 		leaf_mi.position = Vector3(cos(angle) * 0.02, 0.092, sin(angle) * 0.02)
 		leaf_mi.rotation.y = angle
 		leaf_mi.set_surface_override_material(0, leaf_mat)
-		add_child(leaf_mi)
+		_mesh.add_child(leaf_mi)
 
 ## Carrot — long tapered cylinder (wider at top, pointed at bottom)
 func _build_carrot(mat: StandardMaterial3D) -> void:
@@ -292,7 +292,7 @@ func _build_carrot(mat: StandardMaterial3D) -> void:
 		var angle: float = TAU * i / 3.0
 		leaf_mi.position = Vector3(cos(angle) * 0.01, 0.125, sin(angle) * 0.01)
 		leaf_mi.set_surface_override_material(0, leaf_mat)
-		add_child(leaf_mi)
+		_mesh.add_child(leaf_mi)
 
 ## Chili pepper — long thin curved capsule
 func _build_chili_pepper(mat: StandardMaterial3D) -> void:
@@ -317,7 +317,7 @@ func _build_chili_pepper(mat: StandardMaterial3D) -> void:
 	stem_mat.albedo_color = Color(0.22, 0.50, 0.15, 1.0)
 	stem_mat.roughness = 0.7
 	stem_mi.set_surface_override_material(0, stem_mat)
-	add_child(stem_mi)
+	_mesh.add_child(stem_mi)
 
 ## Bell pepper — squarish rounded box
 func _build_bell_pepper(mat: StandardMaterial3D) -> void:
@@ -340,7 +340,7 @@ func _build_bell_pepper(mat: StandardMaterial3D) -> void:
 	stem_mat.albedo_color = Color(0.22, 0.50, 0.15, 1.0)
 	stem_mat.roughness = 0.7
 	stem_mi.set_surface_override_material(0, stem_mat)
-	add_child(stem_mi)
+	_mesh.add_child(stem_mi)
 
 ## Garlic — bulb shape (sphere with smaller cloves around base)
 func _build_garlic(mat: StandardMaterial3D) -> void:
@@ -361,7 +361,7 @@ func _build_garlic(mat: StandardMaterial3D) -> void:
 	tip_mi.mesh = tip
 	tip_mi.position = Vector3(0.0, 0.078, 0.0)
 	tip_mi.set_surface_override_material(0, mat)
-	add_child(tip_mi)
+	_mesh.add_child(tip_mi)
 
 ## Potato — irregular oval (squashed sphere)
 func _build_potato(mat: StandardMaterial3D) -> void:
@@ -385,7 +385,7 @@ func _build_potato(mat: StandardMaterial3D) -> void:
 		var angle: float = TAU * i / 3.0
 		eye_mi.position = Vector3(cos(angle) * 0.035, 0.045, sin(angle) * 0.035)
 		eye_mi.set_surface_override_material(0, eye_mat)
-		add_child(eye_mi)
+		_mesh.add_child(eye_mi)
 
 ## Blueberry — small sphere with crown (tiny cylinder on top)
 func _build_blueberry(mat: StandardMaterial3D) -> void:
@@ -409,7 +409,7 @@ func _build_blueberry(mat: StandardMaterial3D) -> void:
 	crown_mat.albedo_color = Color(0.35, 0.25, 0.15, 1.0)
 	crown_mat.roughness = 0.7
 	crown_mi.set_surface_override_material(0, crown_mat)
-	add_child(crown_mi)
+	_mesh.add_child(crown_mi)
 
 ## Corn — cylinder with husk leaves at base
 func _build_corn(mat: StandardMaterial3D) -> void:
@@ -435,7 +435,7 @@ func _build_corn(mat: StandardMaterial3D) -> void:
 		husk_mi.position = Vector3(cos(angle) * 0.018, 0.015, sin(angle) * 0.018)
 		husk_mi.rotation.y = angle
 		husk_mi.set_surface_override_material(0, husk_mat)
-		add_child(husk_mi)
+		_mesh.add_child(husk_mi)
 
 	## Silk threads on top (thin yellow cylinders)
 	var silk_mat: StandardMaterial3D = StandardMaterial3D.new()
@@ -452,7 +452,7 @@ func _build_corn(mat: StandardMaterial3D) -> void:
 		var angle: float = TAU * i / 4.0
 		silk_mi.position = Vector3(cos(angle) * 0.008, 0.12, sin(angle) * 0.008)
 		silk_mi.set_surface_override_material(0, silk_mat)
-		add_child(silk_mi)
+		_mesh.add_child(silk_mi)
 
 ## Pumpkin — large ribbed sphere (use multiple overlapping spheres for ribs)
 func _build_pumpkin(mat: StandardMaterial3D) -> void:
@@ -474,7 +474,7 @@ func _build_pumpkin(mat: StandardMaterial3D) -> void:
 		rib_mi.position = Vector3(cos(angle) * 0.055, 0.055, sin(angle) * 0.055)
 		rib_mi.rotation.y = angle
 		rib_mi.set_surface_override_material(0, mat)
-		add_child(rib_mi)
+		_mesh.add_child(rib_mi)
 
 	## Green stem on top
 	var stem_mi: MeshInstance3D = MeshInstance3D.new()
@@ -489,7 +489,7 @@ func _build_pumpkin(mat: StandardMaterial3D) -> void:
 	stem_mat.albedo_color = Color(0.25, 0.48, 0.15, 1.0)
 	stem_mat.roughness = 0.7
 	stem_mi.set_surface_override_material(0, stem_mat)
-	add_child(stem_mi)
+	_mesh.add_child(stem_mi)
 
 ## Generic fallback sphere
 func _build_generic_sphere(mat: StandardMaterial3D) -> void:
