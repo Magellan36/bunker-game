@@ -1,7 +1,7 @@
 extends StaticBody3D
 class_name Table
 ## Table.gd
-## Basic 4-legged table, beige. Two sizes via cell_count (1 = small 1×1,
+## Basic 4-legged table, metallic grey. Two sizes via cell_count (1 = small 1×1,
 ## 2 = medium 2×1) — same footprint numbers as FarmingTray (0.90×0.90 /
 ## 1.90×0.90) so it reads as visually consistent furniture at the same scale.
 ## Not interactable yet — pure static decoration/placement object for now.
@@ -10,7 +10,7 @@ const LEG_HEIGHT: float        = 0.72   ## Matches FarmingTray.LEG_HEIGHT
 const TABLETOP_THICKNESS: float = 0.05
 const TABLETOP_Y: float        = LEG_HEIGHT + TABLETOP_THICKNESS * 0.5
 
-const COLOR_BEIGE: Color = Color(0.82, 0.74, 0.60, 1.0)
+const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)
 
 @export var cell_count: int = 1   ## 1 = small table, 2 = medium table
 
@@ -39,9 +39,9 @@ func _build_mesh() -> void:
 	var footprint_z: float = fp.y
 
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = COLOR_BEIGE
-	mat.metallic  = 0.0
-	mat.roughness = 0.85
+	mat.albedo_color = COLOR_METAL
+	mat.metallic  = 0.5
+	mat.roughness = 0.4
 
 	## 4 legs at the footprint's corners — identical geometry/positions to
 	## FarmingTray._build_mesh()'s leg loop.
