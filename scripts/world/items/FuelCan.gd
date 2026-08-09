@@ -19,6 +19,8 @@ const FUEL_RATE: float = 8.0
 var shelf_stack_limit: int    = 2
 var shelf_item_type:   String = "fuel_can"
 
+var _mesh: MeshInstance3D = null
+
 # ─── State ───────────────────────────────────────────────────────────────────
 var _fuel_remaining:   float  = FUEL_UNITS_TOTAL
 var _is_empty:         bool   = false
@@ -31,6 +33,9 @@ func _ready() -> void:
 	super._ready()
 	add_to_group("inventory_item")
 	add_to_group("interactable")
+	_mesh = get_node_or_null("Model/MeshInstance3D")
+	if _mesh == null:
+		_build_placeholder_mesh()
 
 # ─── Inventory gate ──────────────────────────────────────────────────────────
 ## Returning false blocks InteractionSystem from storing this item into a slot.
@@ -127,3 +132,90 @@ func _find_nearest_generator() -> Node3D:
 func _become_empty() -> void:
 	_is_empty       = true
 	_fuel_remaining = 0.0
+
+# ─── Mesh ─────────────────────────────────────────────────────────────────────
+
+## Procedural jerry can model — red body, dark grey handle, metallic cap.
+## Built from BoxMesh + CylinderMesh primitives.
+func _build_placeholder_mesh() -> void:
+	_mesh = MeshInstance3D.new()
+	_mesh.position = Vector3(0.0, 0.21, 0.0)
+
+	var body_mat: StandardMaterial3D = StandardMaterial3D.new()
+	body_mat.albedo_color = Color(0.75, 0.10, 0.10, 1.0)
+	body_mat.roughness    = 0.55
+	body_mat.metallic     = 0.15
+
+	var handle_mat: StandardMaterial3D = StandardMaterial3D.new()
+	handle_mat.albedo_color = Color(0.30, 0.30, 0.30, 1.0)
+	handle_mat.roughness    = 0.60
+	handle_mat.metallic     = 0.30
+
+	var cap_mat: StandardMaterial3D = StandardMaterial3D.new()
+	cap_mat.albedo_color = Color(0.35, 0.35, 0.35, 1.0)
+	cap_mat.roughness    = 0.40
+	cap_mat.metallic     = 0.50
+
+	var label_mat: StandardMaterial3D = StandardMaterial3D.new()
+	label_mat.albedo_color = Color(0.90, 0.85, 0.70, 1.0)
+	label_mat.roughness    = 0.80
+	label_mat.metallic     = 0.0
+
+	## Main body — rectangular tank.
+	var body: MeshInstance3D = MeshInstance3D.new()
+	body.mesh = BoxMesh.new()
+	(body.mesh as BoxMesh).size = Vector3(0.24, 0.34, 0.14)
+	body.position = Vector3(0.0, 0.0, 0.0)
+	body.set_surface_override_material(0, body_mat)
+	_mesh.add_child(body)
+
+	## Handle — dark bar on top.
+	var handle: MeshInstance3D = MeshInstance3D.new()
+	handle.mesh = BoxMesh.new()
+	(handle.mesh as BoxMesh).size = Vector3(0.10, 0.03, 0.04)
+	handle.position = Vector3(0.0, 0.185, 0.0)
+	handle.set_surface_override_material(0, handle_mat)
+	_mesh.add_child(handle)
+
+	## Handle supports — two thin vertical bars connecting handle to body.
+	for sign_x: int in [-1, 1]:
+		var support: MeshInstance3D = MeshInstance3D.new()
+		support.mesh = BoxMesh.new()
+		(support.mesh as BoxMesh).size = Vector3(0.02, 0.04, 0.03)
+		support.position = Vector3(sign_x * 0.04, 0.16, 0.0)
+		support.set_surface_override_material(0, handle_mat)
+		_mesh.add_child(support)
+
+	## Spout base — short cylinder on the right side.
+	var spout: MeshInstance3D = MeshInstance3D.new()
+	var spout_mesh: CylinderMesh = CylinderMesh.new()
+	spout_mesh.top_radius    = 0.025
+	spout_mesh.bottom_radius = 0.025
+	spout_mesh.height        = 0.03
+	spout.mesh = spout_mesh
+	spout.position = Vector3(0.135, 0.10, 0.0)
+	spout.rotation.z = PI / 2.0
+	spout.set_surface_override_material(0, handle_mat)
+	_mesh.add_child(spout)
+
+	## Cap — slightly wider cylinder covering spout.
+	var cap: MeshInstance3D = MeshInstance3D.new()
+	var cap_mesh: CylinderMesh = CylinderMesh.new()
+	cap_mesh.top_radius    = 0.03
+	cap_mesh.bottom_radius = 0.03
+	cap_mesh.height        = 0.015
+	cap.mesh = cap_mesh
+	cap.position = Vector3(0.155, 0.10, 0.0)
+	cap.rotation.z = PI / 2.0
+	cap.set_surface_override_material(0, cap_mat)
+	_mesh.add_child(cap)
+
+	## Front label — thin flat box.
+	var label: MeshInstance3D = MeshInstance3D.new()
+	label.mesh = BoxMesh.new()
+	(label.mesh as BoxMesh).size = Vector3(0.12, 0.14, 0.005)
+	label.position = Vector3(0.0, -0.02, 0.073)
+	label.set_surface_override_material(0, label_mat)
+	_mesh.add_child(label)
+
+	add_child(_mesh)
