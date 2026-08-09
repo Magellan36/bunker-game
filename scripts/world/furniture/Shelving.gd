@@ -20,7 +20,7 @@ class_name Shelving
 ##   Slot 4 = shelf 2, left    Slot 5 = shelf 2, right
 
 # ─── Asset ────────────────────────────────────────────────────────────────────
-const MODEL_PATH: String = "res://assets/models/steel_frame_shelves_01_4k.glb"
+## Procedural mesh — no GLB needed. 4 corner posts + shelf platforms.
 
 # ─── Tunable dimensions ───────────────────────────────────────────────────────
 @export var unit_w: float = 1.0
@@ -73,25 +73,66 @@ func _ready() -> void:
 
 # ─── Mesh ─────────────────────────────────────────────────────────────────────
 func _load_mesh() -> void:
-	var scene: PackedScene = load(MODEL_PATH)
-	if scene == null:
-		push_error("Shelving: failed to load model at " + MODEL_PATH)
-		var mi: MeshInstance3D = MeshInstance3D.new()
-		var bm: BoxMesh = BoxMesh.new()
-		bm.size = Vector3(unit_w, unit_h, unit_d)
-		mi.mesh = bm
-		mi.position = Vector3(0.0, unit_h * 0.5, 0.0)
-		add_child(mi)
-		return
-	var instance: Node3D = scene.instantiate()
-	instance.position = Vector3.ZERO
-	## Facing-convention fix (Aug 2026): the source model's open front is
-	## baked facing local -Z, opposite the project convention that every
-	## object's front is local +Z (see GhostModelBuilder.DEFAULT_ARROW_Y_ROT).
-	## Rotate the VISUAL instance only — slot markers (z=0), the collision
-	## box, and stack offsets are all Z-symmetric, so nothing functional moves.
-	instance.rotation_degrees = Vector3(0.0, 180.0, 0.0)
-	add_child(instance)
+	## Metallic grey — matches Table.gd
+	var metal_mat: StandardMaterial3D = StandardMaterial3D.new()
+	metal_mat.albedo_color = Color(0.60, 0.62, 0.65, 1.0)
+	metal_mat.roughness    = 0.4
+	metal_mat.metallic     = 0.5
+
+	var shelf_mat: StandardMaterial3D = StandardMaterial3D.new()
+	shelf_mat.albedo_color = Color(0.55, 0.57, 0.60, 1.0)
+	shelf_mat.roughness    = 0.4
+	shelf_mat.metallic     = 0.5
+
+	## 4 corner posts — angle-iron style (thin L-shaped cross-section via 2 boxes)
+	var post_w: float = 0.035
+	var post_d: float = 0.035
+	var corners: Array[Vector2] = [
+		Vector2(-unit_w * 0.5 + post_w * 0.5, -unit_d * 0.5 + post_d * 0.5),
+		Vector2( unit_w * 0.5 - post_w * 0.5, -unit_d * 0.5 + post_d * 0.5),
+		Vector2(-unit_w * 0.5 + post_w * 0.5,  unit_d * 0.5 - post_d * 0.5),
+		Vector2( unit_w * 0.5 - post_w * 0.5,  unit_d * 0.5 - post_d * 0.5),
+	]
+	for corner: Vector2 in corners:
+		## Vertical bar
+		var post_mi: MeshInstance3D = MeshInstance3D.new()
+		var post: BoxMesh = BoxMesh.new()
+		post.size = Vector3(post_w, unit_h, post_d)
+		post_mi.mesh = post
+		post_mi.position = Vector3(corner.x, unit_h * 0.5, corner.y)
+		post_mi.set_surface_override_material(0, metal_mat)
+		add_child(post_mi)
+
+		## Horizontal lip (front-facing L-bracket detail)
+		var lip_mi: MeshInstance3D = MeshInstance3D.new()
+		var lip: BoxMesh = BoxMesh.new()
+		lip.size = Vector3(post_w, 0.015, 0.008)
+		lip_mi.mesh = lip
+		lip_mi.position = Vector3(corner.x, unit_h * 0.5, corner.y - post_d * 0.5 - 0.004)
+		lip_mi.set_surface_override_material(0, metal_mat)
+		add_child(lip_mi)
+
+	## Slot notches on each post (small horizontal marks for adjustable shelves)
+	for corner: Vector2 in corners:
+		for sy: float in shelf_y:
+			for n: int in range(-1, 2):
+				var notch_mi: MeshInstance3D = MeshInstance3D.new()
+				var notch: BoxMesh = BoxMesh.new()
+				notch.size = Vector3(post_w + 0.005, 0.004, 0.003)
+				notch_mi.mesh = notch
+				notch_mi.position = Vector3(corner.x, sy + float(n) * 0.012, corner.y - post_d * 0.5 - 0.002)
+				notch_mi.set_surface_override_material(0, metal_mat)
+				add_child(notch_mi)
+
+	## Shelf platforms
+	for sy: float in shelf_y:
+		var shelf_mi: MeshInstance3D = MeshInstance3D.new()
+		var shelf: BoxMesh = BoxMesh.new()
+		shelf.size = Vector3(unit_w - post_w * 2.0, 0.018, unit_d - post_d * 2.0)
+		shelf_mi.mesh = shelf
+		shelf_mi.position = Vector3(0.0, sy, 0.0)
+		shelf_mi.set_surface_override_material(0, shelf_mat)
+		add_child(shelf_mi)
 
 # ─── Slot markers ─────────────────────────────────────────────────────────────
 func _build_slot_markers() -> void:
