@@ -256,6 +256,9 @@ func _build_mesh() -> void:
 		led.set_surface_override_material(0, lmat)
 		add_child(led)
 
+	## Flip 180° so screen faces +Z (front) — was backwards in all instances
+	rotation.y = PI
+
 # ─── Static ghost helper (for BuildModeController preview) ───────────────────
 static func build_ghost_mesh() -> Mesh:
 	var bm: BoxMesh = BoxMesh.new()
