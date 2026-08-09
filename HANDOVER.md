@@ -1,3 +1,29 @@
+## NPC: Clutter-Driven Cleaning Urgency + Held-Item Safety Net (Aug 2026)
+
+- CleaningActivity.score() now scales with JobBoard.get_total_clutter_
+  count() (ready trash + ready organizable + still-settling items) via
+  NPC.CLUTTER_URGENCY_STEP, derived so an average-Work-Ethic NPC's
+  Cleaning score crosses an average-Work-Ethic NPC's Wander score at
+  ~11 total clutter items in the level.
+- Added NPCBrain.PutAwayHeldItemActivity — a small, self-contained
+  safety net that fires whenever an NPC is holding a loose item with
+  nothing else claiming it (root cause: _recover_from_stuck() can
+  stop_current() a CleaningActivity mid-carry, e.g. a second stuck event
+  hitting while already holding something — CleaningActivity.exit()
+  only ever released the item's CLAIM, never dropped/redirected a
+  physically-held item, since that path assumed a claim release always
+  meant "never picked it up"). Scores a flat, modest value (20.0) —
+  enough to beat Wander/Relax/Sit/Lie/Talk, far below any genuine active
+  need, so legitimate holds (Drink/Eat/GiveToFriend/Cleaning/Refuel) are
+  unaffected.
+
+Files touched: `scripts/npc/JobBoard.gd`, `scripts/npc/NPC.gd`,
+`scripts/npc/NPCBrain.gd`.
+
+---
+
+---
+
 ## NPC: F7 "Make All NPCs Clean" (Aug 2026)
 
 - Added a debug row that force_command()s every NPC in the "npc" group

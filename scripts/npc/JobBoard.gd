@@ -82,6 +82,15 @@ func get_organizable_items() -> Array:
 func get_pending_cleaning_count() -> int:
 	return maxi(0, _cleaning_idle_tracker.size() - _organizable_items_cache.size())
 
+## Aug 2026 — total loose clutter in the level right now, for
+## CleaningActivity's escalating urgency score: ready trash + ready
+## organizable + still-settling (not yet past the idle gate). Includes
+## the settling ones deliberately — urgency should build from the
+## moment something hits the floor, not only once it's individually
+## eligible to be picked up 90s later.
+func get_total_clutter_count() -> int:
+	return _trash_items_cache.size() + _organizable_items_cache.size() + get_pending_cleaning_count()
+
 ## Aug 2026 — for NPC.get_cleaning_unavailable_reason()'s "NO_TRASH_
 ## RECEPTACLE" check.
 func get_trash_blocked_by_no_receptacle_count() -> int:

@@ -1588,3 +1588,12 @@ without being asked.
     one buried in the center when both are similar distances away.
 84. Press F7 → "Make All NPCs Clean" with several NPCs mid-activity —
     confirm every one immediately force-switches into Cleaning.
+85. Spawn ~11 loose clutter items with an average-Work-Ethic NPC nearby
+    with nothing else demanding attention — confirm Cleaning now wins
+    over Wander in a fair (no-incumbent) comparison at roughly that
+    count, not comfortably before or after it.
+86. Force an NPC to hold an item with no active job (e.g. interrupt a
+    stuck-recovery cleanup mid-carry) — confirm it immediately switches
+    to "Putting away X" rather than wandering/relaxing while still
+    holding it. Confirm a genuinely mid-Drink/mid-Eat/mid-GiveToFriend
+    NPC is never affected.

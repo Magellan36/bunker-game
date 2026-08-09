@@ -1240,6 +1240,16 @@ func find_friend_to_help() -> Dictionary:
 # ─── Cleaning (Aug 2026) ─────────────────────────────────────────────────
 const CLEANING_BASE_SCORE: float = 5.5
 
+## Aug 2026 — per-clutter-item urgency ramp. Derived so the AVERAGE
+## Cleaning score (base 5.5 × job_priority_weight 0.5 = 2.75, at
+## average Work Ethic) crosses the AVERAGE Wander score (5.0, at
+## average Work Ethic) once total clutter reaches 11 items:
+##   1.0 + 11 × CLUTTER_URGENCY_STEP == 5.0 / 2.75  ->  STEP = 9/121
+## Actual per-NPC scores still use that NPC's own Work Ethic multiplier
+## on top of this — this only fixes the BREAKEVEN POINT for the
+## average case, exactly as asked. See CleaningActivity.score().
+const CLUTTER_URGENCY_STEP: float = 9.0 / 121.0
+
 ## Refuel session (Aug 2026). Higher than Cleaning's base — running out
 ## of power is more urgent than clutter — tune visually once live-tested.
 const REFUEL_BASE_SCORE: float = 8.0
