@@ -109,11 +109,20 @@ func _ready() -> void:
 		{ "name": "ECONOMY", "rows": [
 			["+ $%s Cash" % _format_thousands(ADMIN_CASH_STEP), _on_add_cash_pressed],
 		]},
-		{ "name": "FARMING", "rows": [
-			["Spawn Potato", _on_spawn_potato_pressed],
-			["Spawn Blueberry", _on_spawn_blueberry_pressed],
-			["Spawn Tomato", _on_spawn_tomato_pressed],
-		]},
+	{ "name": "FARMING", "rows": [
+		["Spawn Potato", _on_spawn_potato_pressed],
+		["Spawn Blueberry", _on_spawn_blueberry_pressed],
+		["Spawn Tomato", _on_spawn_tomato_pressed],
+		["Spawn Onion", _on_spawn_onion_pressed],
+		["Spawn Basil", _on_spawn_basil_pressed],
+		["Spawn Strawberry", _on_spawn_strawberry_pressed],
+		["Spawn Carrot", _on_spawn_carrot_pressed],
+		["Spawn Chili Pepper", _on_spawn_chili_pepper_pressed],
+		["Spawn Bell Pepper", _on_spawn_bell_pepper_pressed],
+		["Spawn Garlic", _on_spawn_garlic_pressed],
+		["Spawn Corn", _on_spawn_corn_pressed],
+		["Spawn Pumpkin", _on_spawn_pumpkin_pressed],
+	]},
 		{ "name": "STATUS", "rows": [
 			["Add Test Status Effect (10s)", _on_add_status_effect_pressed],
 		]},
@@ -696,3 +705,30 @@ func _on_spawn_blueberry_pressed() -> void:
 
 func _on_spawn_tomato_pressed() -> void:
 	_spawn_produce("tomato")
+
+func _on_spawn_onion_pressed() -> void:
+	_spawn_produce("onion")
+
+func _on_spawn_basil_pressed() -> void:
+	_spawn_produce("basil")
+
+func _on_spawn_strawberry_pressed() -> void:
+	_spawn_produce("strawberry")
+
+func _on_spawn_carrot_pressed() -> void:
+	_spawn_produce("carrot")
+
+func _on_spawn_chili_pepper_pressed() -> void:
+	_spawn_produce("chili_pepper")
+
+func _on_spawn_bell_pepper_pressed() -> void:
+	_spawn_produce("bell_pepper")
+
+func _on_spawn_garlic_pressed() -> void:
+	_spawn_produce("garlic")
+
+func _on_spawn_corn_pressed() -> void:
+	_spawn_produce("corn")
+
+func _on_spawn_pumpkin_pressed() -> void:
+	_spawn_produce("pumpkin")

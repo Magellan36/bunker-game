@@ -8,7 +8,7 @@ class_name FarmProduceItem
 ##
 ## Species whose produce can be planted back into a tray instead of eaten,
 ## in addition to being buyable as a packet. Mirrors SeedItem.gd's plant flow.
-const REPLANTABLE_TYPES: Array[String] = ["potato", "onion"]
+const REPLANTABLE_TYPES: Array[String] = ["potato", "onion", "garlic"]
 
 const TRAY_RANGE: float = 2.5   ## Matches SeedItem.gd's TRAY_RANGE
 
