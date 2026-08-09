@@ -546,8 +546,8 @@ future type — implements a 4-method contract. Current implementers:
   always means "into the player's inventory pocket," same for every type.
 
 `StorageUI.gd` keeps ONE dynamic slot-visual pool that only grows (never
-rebuilds) — opening a 12-slot basket after a 6-slot shelf grows the pool
-to 12; reopening the shelf afterward just hides the extra 6, nothing gets
+rebuilds) — opening a 12-slot basket after a 10-slot shelf grows the pool
+to 12; reopening the shelf afterward just hides the extra 2, nothing gets
 destroyed. This is what makes adding a future storage type (lockable
 storage, freezers/fridges, lockers, larger shelving units, all mentioned
 as planned) free on the UI side — no fixed slot count anywhere in the

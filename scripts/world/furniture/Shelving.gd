@@ -277,7 +277,7 @@ func _find_slot_for(item: RigidBody3D) -> int:
 	var itype: String = _get_item_type(item)
 
 	# Pass 1: partial stack of same type
-	for i: int in 6:
+	for i: int in slots.size():
 		var stack: Array = slots[i]
 		if stack.is_empty():
 			continue
@@ -288,7 +288,7 @@ func _find_slot_for(item: RigidBody3D) -> int:
 			return i
 
 	# Pass 2: first empty slot
-	for i: int in 6:
+	for i: int in slots.size():
 		if slots[i].is_empty():
 			return i
 
@@ -766,10 +766,17 @@ func take_for_inventory(slot_idx: int, inv: Node) -> bool:
 func get_ui_config() -> Dictionary:
 	return {
 		"title": "SHELF CONTENTS",
-		"slot_count": 6,
+		"slot_count": 10,
 		"grid_cols": 2,
-		"grid_rows": 3,
-		"display_order": [4, 5, 2, 3, 0, 1],   ## visual position -> data slot (top row shows data slots 4/5, etc.)
+		"grid_rows": 5,
+		## visual position -> data slot. Data slots are bottom-up (0/1 =
+		## tier 0/bottom shelf, ... 8/9 = tier 4/top shelf, per this file's
+		## header comment) but the UI panel should read top-to-bottom same
+		## as the physical shelf, so row 0 (top of panel) shows the top
+		## tier's data slots (8/9) and row 4 (bottom of panel) shows the
+		## bottom tier's (0/1) — same top-shelf-at-top convention the old
+		## 6-slot [4,5,2,3,0,1] mapping used, extended to 5 tiers.
+		"display_order": [8, 9, 6, 7, 4, 5, 2, 3, 0, 1],
 		"supports_stacking": true,
 		"primary_button_icon": "carry",
 		"primary_button_tooltip": "Carry",
