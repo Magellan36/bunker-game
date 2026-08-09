@@ -151,9 +151,16 @@ func _build_placeholder_mesh() -> void:
 	## was wrong here (no collider on this body at all -> infinite fall,
 	## undetectable by the interaction system).
 	var shape: CollisionShape3D = CollisionShape3D.new()
-	var sphere_shape: SphereShape3D = SphereShape3D.new()
-	sphere_shape.radius = 0.055
-	shape.shape = sphere_shape
+	if produce_type == "corn" or produce_type == "carrot":
+		## Cylindrical collision for corn/carrot so they don't roll like balls
+		var cyl_shape: CylinderShape3D = CylinderShape3D.new()
+		cyl_shape.radius = 0.018
+		cyl_shape.height = 0.11
+		shape.shape = cyl_shape
+	else:
+		var sphere_shape: SphereShape3D = SphereShape3D.new()
+		sphere_shape.radius = 0.055
+		shape.shape = sphere_shape
 	shape.position = _mesh.position
 	add_child(shape)
 
