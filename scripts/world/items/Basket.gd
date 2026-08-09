@@ -150,20 +150,131 @@ func remove_item(slot_idx: int) -> RigidBody3D:
 	return item
 
 # ─── Placeholder mesh ─────────────────────────────────────────────────────────
-## Plain cylinder, laundry/waste-basket silhouette — CylinderMesh top wider
-## than bottom (top_radius > bottom_radius) reads visually as an open basket.
+## Woven wicker basket with cross-hatched lattice, arched handles, and an
+## open hollow interior. All built from CylinderMesh + BoxMesh primitives.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
-	var cyl: CylinderMesh = CylinderMesh.new()
-	cyl.top_radius    = 0.28
-	cyl.bottom_radius = 0.22
-	cyl.height        = 0.45
-	_mesh.mesh = cyl
 	_mesh.position = Vector3(0.0, 0.225, 0.0)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.55, 0.42, 0.30, 1.0)   ## Woven-basket tan
-	mat.roughness    = 0.85
-	_mesh.set_surface_override_material(0, mat)
+
+	var wicker_mat: StandardMaterial3D = StandardMaterial3D.new()
+	wicker_mat.albedo_color = Color(0.58, 0.45, 0.30, 1.0)
+	wicker_mat.roughness    = 0.90
+	wicker_mat.metallic     = 0.0
+
+	var rim_mat: StandardMaterial3D = StandardMaterial3D.new()
+	rim_mat.albedo_color = Color(0.50, 0.38, 0.25, 1.0)
+	rim_mat.roughness    = 0.88
+	rim_mat.metallic     = 0.0
+
+	var dark_mat: StandardMaterial3D = StandardMaterial3D.new()
+	dark_mat.albedo_color = Color(0.20, 0.15, 0.10, 1.0)
+	dark_mat.roughness    = 0.95
+	dark_mat.metallic     = 0.0
+
+	## Outer wall — tapered cylinder (top wider than bottom).
+	var outer: MeshInstance3D = MeshInstance3D.new()
+	var outer_mesh: CylinderMesh = CylinderMesh.new()
+	outer_mesh.top_radius    = 0.28
+	outer_mesh.bottom_radius = 0.22
+	outer_mesh.height        = 0.45
+	outer.mesh = outer_mesh
+	outer.position = Vector3(0.0, 0.0, 0.0)
+	outer.set_surface_override_material(0, wicker_mat)
+	_mesh.add_child(outer)
+
+	## Inner cavity — dark hollow interior.
+	var cavity: MeshInstance3D = MeshInstance3D.new()
+	var cavity_mesh: CylinderMesh = CylinderMesh.new()
+	cavity_mesh.top_radius    = 0.25
+	cavity_mesh.bottom_radius = 0.19
+	cavity_mesh.height        = 0.38
+	cavity.mesh = cavity_mesh
+	cavity.position = Vector3(0.0, 0.04, 0.0)
+	cavity.set_surface_override_material(0, dark_mat)
+	_mesh.add_child(cavity)
+
+	## Top rim — thick braided ring.
+	var rim: MeshInstance3D = MeshInstance3D.new()
+	var rim_mesh: CylinderMesh = CylinderMesh.new()
+	rim_mesh.top_radius    = 0.29
+	rim_mesh.bottom_radius = 0.29
+	rim_mesh.height        = 0.03
+	rim.mesh = rim_mesh
+	rim.position = Vector3(0.0, 0.225, 0.0)
+	rim.set_surface_override_material(0, rim_mat)
+	_mesh.add_child(rim)
+
+	## Bottom ring.
+	var bottom_ring: MeshInstance3D = MeshInstance3D.new()
+	var bottom_mesh: CylinderMesh = CylinderMesh.new()
+	bottom_mesh.top_radius    = 0.23
+	bottom_mesh.bottom_radius = 0.23
+	bottom_mesh.height        = 0.02
+	bottom_ring.mesh = bottom_mesh
+	bottom_ring.position = Vector3(0.0, -0.215, 0.0)
+	bottom_ring.set_surface_override_material(0, rim_mat)
+	_mesh.add_child(bottom_ring)
+
+	## Vertical weave bars — 10 bars around the circumference.
+	for i: int in 10:
+		var angle: float = i * TAU / 10.0
+		var bar: MeshInstance3D = MeshInstance3D.new()
+		var bar_mesh: BoxMesh = BoxMesh.new()
+		bar_mesh.size = Vector3(0.012, 0.40, 0.012)
+		bar.mesh = bar_mesh
+		var r: float = 0.265
+		bar.position = Vector3(cos(angle) * r, 0.0, sin(angle) * r)
+		bar.rotation.y = -angle
+		bar.set_surface_override_material(0, wicker_mat)
+		_mesh.add_child(bar)
+
+	## Diagonal cross-hatch bars (45° and -45°) — 5 rows, 10 bars each.
+	for row: int in 5:
+		var y: float = -0.16 + row * 0.09
+		for i: int in 10:
+			var angle: float = i * TAU / 10.0
+			## Diagonal bar 1 (45°)
+			var d1: MeshInstance3D = MeshInstance3D.new()
+			var d1_mesh: BoxMesh = BoxMesh.new()
+			d1_mesh.size = Vector3(0.008, 0.07, 0.008)
+			d1.mesh = d1_mesh
+			var r: float = 0.27
+			d1.position = Vector3(cos(angle) * r, y, sin(angle) * r)
+			d1.rotation.y = -angle
+			d1.rotation.x = PI / 4.0
+			d1.set_surface_override_material(0, rim_mat)
+			_mesh.add_child(d1)
+			## Diagonal bar 2 (-45°)
+			var d2: MeshInstance3D = MeshInstance3D.new()
+			var d2_mesh: BoxMesh = BoxMesh.new()
+			d2_mesh.size = Vector3(0.008, 0.07, 0.008)
+			d2.mesh = d2_mesh
+			d2.position = Vector3(cos(angle) * r, y, sin(angle) * r)
+			d2.rotation.y = -angle
+			d2.rotation.x = -PI / 4.0
+			d2.set_surface_override_material(0, rim_mat)
+			_mesh.add_child(d2)
+
+	## Arched handles — two handles on opposite sides.
+	for sign_x: int in [-1, 1]:
+		## Vertical posts.
+		for sign_z: int in [-1, 1]:
+			var post: MeshInstance3D = MeshInstance3D.new()
+			var post_mesh: BoxMesh = BoxMesh.new()
+			post_mesh.size = Vector3(0.018, 0.12, 0.018)
+			post.mesh = post_mesh
+			post.position = Vector3(sign_x * 0.28, 0.22, sign_z * 0.04)
+			post.set_surface_override_material(0, rim_mat)
+			_mesh.add_child(post)
+		## Top arch bar.
+		var arch: MeshInstance3D = MeshInstance3D.new()
+		var arch_mesh: BoxMesh = BoxMesh.new()
+		arch_mesh.size = Vector3(0.018, 0.018, 0.10)
+		arch.mesh = arch_mesh
+		arch.position = Vector3(sign_x * 0.28, 0.29, 0.0)
+		arch.set_surface_override_material(0, rim_mat)
+		_mesh.add_child(arch)
+
 	add_child(_mesh)
 
 	## Real collision shape on the RigidBody3D itself, matching
@@ -212,9 +323,8 @@ func get_ui_config() -> Dictionary:
 		"grid_cols": 3,
 		"grid_rows": 4,
 		"display_order": [],    ## [] = identity (visual position i -> data slot i)
-		"row_labels": [],       ## [] = auto "Row N" labels
 		"supports_stacking": false,
-		"primary_button_icon": "↓",
+		"primary_button_icon": "drop",
 		"primary_button_tooltip": "Drop",
 		"primary_button_color": Color(0.55, 0.20, 0.20, 1.00),
 		"primary_requires_empty_hands": false,
