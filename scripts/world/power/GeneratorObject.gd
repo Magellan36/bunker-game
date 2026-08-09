@@ -18,7 +18,7 @@ func _wdbg(msg: String) -> void:
 # ─── Tier config ──────────────────────────────────────────────────────────────
 const TIER_CONFIG: Array = [
 	{ "size": Vector3(0.85, 0.85, 0.85), "watts": 800,  "label": "Generator S" },
-	{ "size": Vector3(0.85, 0.85, 1.85), "watts": 2000, "label": "Generator M" },
+	{ "size": Vector3(1.24, 1.13, 0.62), "watts": 2000, "label": "Generator M" },
 	{ "size": Vector3(1.85, 1.70, 0.925), "watts": 5000, "label": "Generator L" },
 ]
 
@@ -27,6 +27,7 @@ const COLOR_PANEL:    Color = Color(0.25, 0.25, 0.28, 1.0)
 const COLOR_RUNNING:  Color = Color(0.15, 0.90, 0.20, 1.0)
 const COLOR_STOPPED:  Color = Color(0.85, 0.18, 0.12, 1.0)
 const COLOR_GENL_GREEN: Color = Color(0.18, 0.52, 0.34, 1.0)   ## industrial green panels
+const COLOR_GENM_WHITE: Color = Color(0.92, 0.92, 0.90, 1.0)   ## white panels
 const COLOR_GENL_BLACK: Color = Color(0.10, 0.10, 0.10, 1.0)   ## black base/skid
 
 ## Wire socket — small emissive sphere on the generator side face (−Z face).
@@ -215,6 +216,54 @@ func _build_mesh() -> void:
 		## Louvers on right side (−X face) — horizontal slats
 		_add_louvers(self, sz, 7)
 
+	## Generator M specific details: white panels, black base, doors, louvers
+	elif generator_tier == 1:
+		## Black base/skid at bottom
+		var base_mi: MeshInstance3D = MeshInstance3D.new()
+		var base: BoxMesh = BoxMesh.new()
+		base.size = Vector3(sz.x * 0.98, sz.y * 0.15, sz.z * 0.98)
+		base_mi.mesh = base
+		base_mi.position = Vector3(0.0, sz.y * 0.075, 0.0)
+		var base_mat: StandardMaterial3D = StandardMaterial3D.new()
+		base_mat.albedo_color = COLOR_GENL_BLACK
+		base_mat.roughness    = 0.80
+		base_mat.metallic     = 0.35
+		base_mi.set_surface_override_material(0, base_mat)
+		add_child(base_mi)
+
+		## White panel overlay on front
+		var white_front_mi: MeshInstance3D = MeshInstance3D.new()
+		var white_front: BoxMesh = BoxMesh.new()
+		white_front.size = Vector3(sz.x * 0.96, sz.y * 0.78, 0.022)
+		white_front_mi.mesh = white_front
+		white_front_mi.position = Vector3(0.0, sz.y * 0.50, sz.z * 0.5 + 0.015)
+		var white_mat: StandardMaterial3D = StandardMaterial3D.new()
+		white_mat.albedo_color = COLOR_GENM_WHITE
+		white_mat.roughness    = 0.55
+		white_mat.metallic     = 0.45
+		white_front_mi.set_surface_override_material(0, white_mat)
+		add_child(white_front_mi)
+
+		## Door panels with handles (front)
+		var door_w: float = sz.x * 0.30
+		_add_door(self, sz, -sz.x * 0.22, door_w, COLOR_GENM_WHITE)
+
+		## Control panel inset on right side of front face
+		var ctrl_mi: MeshInstance3D = MeshInstance3D.new()
+		var ctrl: BoxMesh = BoxMesh.new()
+		ctrl.size = Vector3(sz.x * 0.35, sz.y * 0.35, 0.025)
+		ctrl_mi.mesh = ctrl
+		ctrl_mi.position = Vector3(sz.x * 0.28, sz.y * 0.55, sz.z * 0.5 + 0.018)
+		var ctrl_mat: StandardMaterial3D = StandardMaterial3D.new()
+		ctrl_mat.albedo_color = Color(0.15, 0.15, 0.18, 1.0)
+		ctrl_mat.roughness    = 0.60
+		ctrl_mat.metallic     = 0.50
+		ctrl_mi.set_surface_override_material(0, ctrl_mat)
+		add_child(ctrl_mi)
+
+		## Louvers on right side — horizontal slats
+		_add_louvers(self, sz, 5)
+
 _build_exhaust(sz)
 
 
@@ -235,10 +284,10 @@ func _add_louvers(parent: Node3D, sz: Vector3, count: int) -> void:
 		slat_mi.position = Vector3(0.0, y_pos, sz.z * 0.5 + 0.012)
 		parent.add_child(slat_mi)
 
-## Door panel with handle (front face detail for Generator L)
-func _add_door(parent: Node3D, sz: Vector3, x_offset: float, door_w: float) -> void:
+## Door panel with handle (front face detail for Generator L/M)
+func _add_door(parent: Node3D, sz: Vector3, x_offset: float, door_w: float, door_color: Color = COLOR_GENL_GREEN) -> void:
 	var door_mat: StandardMaterial3D = StandardMaterial3D.new()
-	door_mat.albedo_color = COLOR_GENL_GREEN
+	door_mat.albedo_color = door_color
 	door_mat.roughness    = 0.55
 	door_mat.metallic     = 0.45
 	var door_mi: MeshInstance3D = MeshInstance3D.new()
@@ -567,7 +616,7 @@ func _get_interaction_system() -> Node:
 static func build_ghost_mesh(tier: int = 0) -> Mesh:
 	const GEN_SIZES: Array = [
 		Vector3(0.85, 0.85, 0.85),
-		Vector3(0.85, 0.85, 1.85),
+		Vector3(1.24, 1.13, 0.62),
 		Vector3(1.85, 1.70, 0.925),
 	]
 	var box: BoxMesh = BoxMesh.new()
