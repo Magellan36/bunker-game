@@ -100,18 +100,52 @@ func on_use() -> void:
 		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
 		queue_free()
 
-## Sack model — rounded-box burlap sack with soft edges, matching the
-## reference image. Straight/stiff, not floppy. Uses SurfaceTool to build
-## a subdivided box with corner rounding.
+## Sack model — composite box shape: a main body with beveled top/bottom
+## edges to give a soft, filled-sack silhouette. All built from BoxMesh
+## primitives (proven to render correctly in this codebase).
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
-	_mesh.mesh = _make_sack_mesh(Vector3(0.26, 0.20, 0.16), 3, 0.035)
 	_mesh.position = Vector3(0.0, 0.10, 0.0)
+
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.62, 0.53, 0.38, 1.0)
 	mat.roughness    = 0.92
 	mat.metallic     = 0.0
-	_mesh.set_surface_override_material(0, mat)
+
+	## Main body — slightly inset so edge bevels sit proud.
+	var body: MeshInstance3D = MeshInstance3D.new()
+	body.mesh = BoxMesh.new()
+	(body.mesh as BoxMesh).size = Vector3(0.24, 0.17, 0.14)
+	body.position = Vector3(0.0, 0.0, 0.0)
+	body.set_surface_override_material(0, mat)
+	_mesh.add_child(body)
+
+	## Top/bottom edge bevels — 4 thin boxes along each horizontal edge
+	## to round off the sharp corners and suggest a stuffed-sack profile.
+	var bevel_mat: StandardMaterial3D = mat
+	var bevel_w: float = 0.26
+	var bevel_h: float = 0.025
+	var bevel_d: float = 0.16
+	var bevel_y_off: float = 0.085
+	for sign_y: int in [-1, 1]:
+		for sign_z: int in [-1, 1]:
+			var bevel: MeshInstance3D = MeshInstance3D.new()
+			bevel.mesh = BoxMesh.new()
+			(bevel.mesh as BoxMesh).size = Vector3(bevel_w, bevel_h, bevel_d)
+			bevel.position = Vector3(0.0, sign_y * bevel_y_off, sign_z * 0.01)
+			bevel.set_surface_override_material(0, bevel_mat)
+			_mesh.add_child(bevel)
+
+	## Side edge bevels — 4 thin boxes on the left/right edges.
+	for sign_x: int in [-1, 1]:
+		for sign_z: int in [-1, 1]:
+			var bevel: MeshInstance3D = MeshInstance3D.new()
+			bevel.mesh = BoxMesh.new()
+			(bevel.mesh as BoxMesh).size = Vector3(0.025, 0.20, bevel_d)
+			bevel.position = Vector3(sign_x * 0.12, 0.0, sign_z * 0.01)
+			bevel.set_surface_override_material(0, bevel_mat)
+			_mesh.add_child(bevel)
+
 	add_child(_mesh)
 
 	## Real collision shape on the RigidBody3D itself — see SeedItem.gd's
@@ -124,55 +158,6 @@ func _build_placeholder_mesh() -> void:
 	shape.shape = box_shape
 	shape.position = _mesh.position
 	add_child(shape)
-
-## Generates a rounded-box mesh (pillow sack shape) via SurfaceTool.
-## `size` is the full bounding-box dimensions, `segs` is subdivisions per
-## face edge (more = smoother corners), `radius` is the corner round-off.
-static func _make_sack_mesh(size: Vector3, segs: int, radius: float) -> ArrayMesh:
-	var st: SurfaceTool = SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var hs: Vector3 = size * 0.5
-	var r: float = minf(radius, minf(hs.x, minf(hs.y, hs.z)))
-	## 6 face definitions: [face_normal, tangent_u, tangent_v].
-	var face_defs: Array = [
-		[Vector3.RIGHT,   Vector3.UP,     Vector3.FORWARD],
-		[Vector3.LEFT,    Vector3.UP,     Vector3.FORWARD],
-		[Vector3.UP,      Vector3.FORWARD, Vector3.RIGHT],
-		[Vector3.DOWN,    Vector3.FORWARD, Vector3.RIGHT],
-		[Vector3.FORWARD, Vector3.UP,     Vector3.RIGHT],
-		[Vector3.BACK,    Vector3.UP,     Vector3.RIGHT]]
-	var n: int = segs
-	for face: Array in face_defs:
-		var face_dir: Vector3 = face[0]
-		for i: int in n:
-			for j: int in n:
-				var quad: Array[Vector3] = []
-				var quad_n: Array[Vector3] = []
-				for di: int in [0, 1]:
-					for dj: int in [0, 1]:
-						var pu: float = float(i + di) / float(n) * 2.0 - 1.0
-						var pv: float = float(j + dj) / float(n) * 2.0 - 1.0
-						var pos: Vector3 = Vector3.ZERO
-						if face_dir == Vector3.RIGHT or face_dir == Vector3.LEFT:
-							pos = Vector3(face_dir.x * hs.x, pu * (hs.y - r), pv * (hs.z - r))
-						elif face_dir == Vector3.UP or face_dir == Vector3.DOWN:
-							pos = Vector3(pu * (hs.x - r), face_dir.y * hs.y, pv * (hs.z - r))
-						else:
-							pos = Vector3(pu * (hs.x - r), pv * (hs.y - r), face_dir.z * hs.z)
-						var corner_vec: Vector3 = pos - Vector3(
-							clampf(pos.x, -hs.x + r, hs.x - r),
-							clampf(pos.y, -hs.y + r, hs.y - r),
-							clampf(pos.z, -hs.z + r, hs.z - r))
-						quad.append(pos)
-						quad_n.append(corner_vec.normalized() if corner_vec.length_squared() > 0.001 else face_dir)
-				for tri: Array in [[0, 1, 2], [1, 3, 2]]:
-					for k: int in tri:
-						st.set_normal(quad_n[k])
-						st.add_vertex(quad[k])
-	var arrays: Array = st.commit_to_arrays()
-	var mesh: ArrayMesh = ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
 
 ## Spawn helper (used by FarmingShopHelper for shop purchases). Mirrors
 ## PurifierFilterItem.spawn_at()'s shape — floor-dropped, not auto-added to
