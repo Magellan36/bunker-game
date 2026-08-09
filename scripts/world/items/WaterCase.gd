@@ -64,6 +64,10 @@ func get_prompt_text() -> String:
 		return "[F] Drop %s" % item_name
 	return "[F] Pick up %s" % item_name
 
+## Aug 2026 — same gap as TestCrate.gd — see that file's comment.
+func get_display_name() -> String:
+	return item_name
+
 func get_interact_prompt() -> String:
 	if bottle_count <= 0:
 		return ""

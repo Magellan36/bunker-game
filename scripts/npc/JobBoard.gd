@@ -51,12 +51,29 @@ var _organizable_items_cache: Array = []
 ## specific reason instead of it looking identical to "nothing to clean".
 var _trash_blocked_by_no_receptacle: int = 0
 
+## Aug 2026 — now also filters out anything that's become shelved or
+## held SINCE the last _scan_cleaning() pass, not just freed instances.
+## Root cause of a real bug: this cache only rebuilds every
+## SCAN_INTERVAL (2s), so for up to ~2s after an NPC successfully
+## stores an item, the now-shelved item was still returned here as if
+## still organizable — and since it's now the item physically nearest
+## to the NPC standing right next to the storage it just used,
+## find_cleaning_target() kept re-selecting it, only for the fetch
+## phase's own is_in_group("shelved") check to immediately reject it,
+## every single think-tick, in a tight repeating loop until the next
+## scan finally dropped it. Filtering here closes the gap at the source
+## for every caller, not just find_cleaning_target()'s own defensive
+## checks.
 func get_trash_items() -> Array:
-	_trash_items_cache = _trash_items_cache.filter(func(i): return is_instance_valid(i))
+	_trash_items_cache = _trash_items_cache.filter(func(i):
+		return is_instance_valid(i) and not i.is_in_group("shelved") \
+			and not (("is_held" in i) and i.is_held))
 	return _trash_items_cache
 
 func get_organizable_items() -> Array:
-	_organizable_items_cache = _organizable_items_cache.filter(func(i): return is_instance_valid(i))
+	_organizable_items_cache = _organizable_items_cache.filter(func(i):
+		return is_instance_valid(i) and not i.is_in_group("shelved") \
+			and not (("is_held" in i) and i.is_held))
 	return _organizable_items_cache
 
 ## Aug 2026 — cheap count for NPC.get_cleaning_unavailable_reason()'s

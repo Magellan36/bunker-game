@@ -1,3 +1,56 @@
+# Handover — NPC: Cleaning Root-Cause Fixes + Refuel Errors + Neutral NPC Spawn (Aug 2026)
+
+- Fixed generic "Item" naming: TestCrate.gd, CanCase.gd, WaterCase.gd
+  were all missing get_display_name() entirely, falling back to
+  PickupableItem's "Item" default despite already having a usable
+  item_name field.
+- CleaningActivity is now destination-first: confirms a viable
+  destination for an organizable item BEFORE claiming/walking to it,
+  not after already picking it up. An item with genuinely no viable
+  destination for its whole classification (light/heavy) is skipped
+  once and never retried for the rest of the session
+  (_skipped_ids/_no_storage_categories), instead of being picked up and
+  dropped on a loop every tick — this was the direct cause of the
+  Test Crate repeat-loop seen in a live debug capture.
+- Fixed a real stale-cache bug: JobBoard.get_trash_items()/
+  get_organizable_items() only filtered is_instance_valid(), not
+  shelved/held state, so a just-stored item stayed "organizable" in the
+  cache for up to the full 2s SCAN_INTERVAL — and being physically
+  nearest to the NPC that just used it, got endlessly re-picked and
+  rejected until the next scan. This was the cause of the repeating
+  "target picked / target lost: became shelved" bursts between
+  otherwise-successful deliveries.
+- Formalized "light" (inventory_item-gated) vs "heavy" as NPC.gd's real
+  organizable-item classification (previously always "general"), with
+  NPC.has_viable_destination_for_category() backing both the new
+  destination-first check and specific unavailable-reason errors:
+  NO_LIGHT_STORAGE_AVAILABLE / NO_HEAVY_STORAGE_AVAILABLE replace the
+  old generic NO_STORAGE_AVAILABLE. Confirmed (no code change needed)
+  that Water Bottle, Food Can, all seed packets, Bag of Soil, and both
+  Fertilizer tiers were already inventory_item-gated and thus already
+  "light"-eligible.
+- Added NPC.get_refuel_unavailable_reason() — replaces the old blanket
+  "nothing needs refueling" with ALL_GENERATORS_FULL / FUEL_CAN_CLAIMED
+  / NO_FUEL_CAN, same pattern as Cleaning's reason system. This is now
+  the standard going forward for every job's failure messaging.
+- Added Shelving.has_free_space()/LightStorage.has_free_space() —
+  generic "any room at all" checks used by the new category-availability
+  logic without needing a specific item on hand yet.
+- Added F7 "Spawn Neutral NPC (Testing)" — spawns via the same path as
+  the existing Spawn NPC row, then overrides personality to fully
+  baseline and every skill to exactly 1.0, for reproducible testing
+  without trait-driven behavior variance.
+
+Files touched: `scripts/world/items/TestCrate.gd`,
+`scripts/world/items/CanCase.gd`, `scripts/world/items/WaterCase.gd`,
+`scripts/npc/JobBoard.gd`, `scripts/npc/NPC.gd`, `scripts/npc/NPCBrain.gd`,
+`scripts/world/furniture/Shelving.gd`,
+`scripts/world/furniture/LightStorage.gd`, `scripts/ui/npc/NPCTalkMenuUI.gd`,
+`scripts/ui/menus/AdminMenu.gd`.
+
+---
+---
+
 # Handover — NPC: Cleaning Debug Overhaul + Specific Unavailable-Reason Errors (Aug 2026)
 
 - CleaningActivity now logs every meaningful decision point (target

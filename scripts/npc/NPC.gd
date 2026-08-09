@@ -1257,13 +1257,19 @@ func has_cleaning_target_available() -> bool:
 	return not JobBoard.get_organizable_items().is_empty()
 
 ## Nearest eligible item across BOTH lists — trash and organizable are
-## mutually exclusive per JobBoard's own scan, so no double-counting risk.
-func find_cleaning_target() -> Dictionary:
+## mutually exclusive per JobBoard's own scan, so no double-counting
+## risk. `exclude_ids` (Aug 2026) lets CleaningActivity skip items it's
+## already tried and confirmed have nowhere to go THIS session, and
+## skip momentary claim-clash items, without waiting on JobBoard's own
+## 2s cache refresh — see CleaningActivity._pick_next_target().
+func find_cleaning_target(exclude_ids: Dictionary = {}) -> Dictionary:
 	var best_item: Node = null
 	var best_d: float = INF
 	var best_is_trash: bool = false
 	for item: Node in JobBoard.get_trash_items():
 		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
+			continue
+		if exclude_ids.has(item.get_instance_id()):
 			continue
 		var d: float = NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)
 		if d < best_d:
@@ -1272,6 +1278,8 @@ func find_cleaning_target() -> Dictionary:
 			best_is_trash = true
 	for item: Node in JobBoard.get_organizable_items():
 		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
+			continue
+		if exclude_ids.has(item.get_instance_id()):
 			continue
 		var d: float = NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)
 		if d < best_d:
@@ -1294,13 +1302,42 @@ func find_cleaning_target() -> Dictionary:
 ## _classify_organizable_item() below and one new entry to
 ## ORGANIZE_DESTINATION_GROUPS. No other cleaning code needs to change.
 const ORGANIZE_DESTINATION_GROUPS: Dictionary = {
-	"general": ["shelving"],
+	"light": ["shelving"],
+	"heavy": ["shelving"],
 }
 
-func _classify_organizable_item(_item: RigidBody3D) -> String:
-	## FUTURE: return "food" once a Fridge exists and food items should
-	## prefer it over general shelving (see comment above).
-	return "general"
+## Aug 2026 — "light" vs "heavy" is now the real, named classification
+## (previously everything was lumped as "general"). "light" = the exact
+## same is_in_group("inventory_item") gate LightStorage.has_room_for()
+## already enforces, so this can never drift out of sync with actual
+## eligibility — it's just naming the same rule for routing/reporting
+## purposes. "heavy" = everything else (Test Crate, Can Case, Water
+## Case, etc.) — these can ONLY ever fit real Shelving, never an End
+## Table/Dresser, regardless of how much room the latter has.
+func _classify_organizable_item(item: RigidBody3D) -> String:
+	if item != null and item.is_in_group("inventory_item"):
+		return "light"
+	return "heavy"
+
+## Aug 2026 — is there ANY viable destination for this classification
+## ANYWHERE in the level right now, independent of a specific item?
+## Used by CleaningActivity to decide "skip this whole category for the
+## rest of the session" vs "try a different candidate, one shelf being
+## full doesn't mean they all are." A LightStorage node never counts
+## for "heavy" no matter how empty it is — it structurally can't accept
+## a non-inventory_item object (see LightStorage.has_room_for()).
+func has_viable_destination_for_category(category: String) -> bool:
+	var group_names: Array = ORGANIZE_DESTINATION_GROUPS.get(category, ["shelving"])
+	for group_name: String in group_names:
+		for candidate: Node in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(candidate):
+				continue
+			if category == "heavy" and candidate is LightStorage:
+				continue
+			if candidate.has_method("has_free_space") and not candidate.has_free_space():
+				continue
+			return true
+	return false
 
 ## Nearest member of the matching destination group(s). For trash,
 ## returning null here (no receptacle exists) is expected and handled
@@ -1337,11 +1374,15 @@ func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node
 ##                            JobBoard.CLEANING_IDLE_MIN_SEC)
 ##   "ALL_CLAIMED"          — ready items exist but every one is already
 ##                            claimed by another NPC
-##   "NO_STORAGE_AVAILABLE" — a ready organizable item exists and is
-##                            claimable, but zero shelves/End
-##                            Tables/Dressers exist anywhere in the level
-##   "STORAGE_FULL"         — same as above, except storage exists but
-##                            every candidate is currently full
+##   "NO_LIGHT_STORAGE_AVAILABLE" — a ready LIGHT (inventory_item)
+##                            organizable item exists and is claimable,
+##                            but no shelf/End Table/Dresser anywhere can
+##                            currently take it
+##   "NO_HEAVY_STORAGE_AVAILABLE" — same, for a HEAVY (non-inventory_item)
+##                            item — only a real Shelving object can ever
+##                            take these, never an End Table/Dresser
+##   "STORAGE_FULL"         — a viable destination TYPE exists somewhere,
+##                            just not one with room right now
 ## NPCTalkMenuUI maps these to player-facing strings — see
 ## CLEANING_UNAVAILABLE_REASONS there. Keep both in sync if this list changes.
 func get_cleaning_unavailable_reason() -> String:
@@ -1359,17 +1400,15 @@ func get_cleaning_unavailable_reason() -> String:
 	if not bool(target.get("is_trash", false)):
 		var item: RigidBody3D = target.get("item")
 		if find_cleaning_destination(false, item) == null:
-			## Distinguish "nothing exists to store it in" from "it exists
-			## but every candidate is full" — same group set
-			## find_cleaning_destination() itself searches, just checking
-			## bare presence separately for a precise message.
-			var group_names: Array = ORGANIZE_DESTINATION_GROUPS.get(_classify_organizable_item(item), ["shelving"])
-			var any_candidate: bool = false
-			for group_name: String in group_names:
-				if not get_tree().get_nodes_in_group(group_name).is_empty():
-					any_candidate = true
-					break
-			return "STORAGE_FULL" if any_candidate else "NO_STORAGE_AVAILABLE"
+			## Aug 2026 — now uses has_viable_destination_for_category()
+			## (accounts for LightStorage never accepting "heavy" items
+			## regardless of room) instead of a bare group-presence check,
+			## and reports which specific category (light/heavy) has
+			## nothing available.
+			var category: String = _classify_organizable_item(item)
+			if not has_viable_destination_for_category(category):
+				return "NO_LIGHT_STORAGE_AVAILABLE" if category == "light" else "NO_HEAVY_STORAGE_AVAILABLE"
+			return "STORAGE_FULL"
 	return ""   ## available
 
 ## Nearest generator still below 100% fuel, excluding IDs already
@@ -1398,6 +1437,50 @@ func find_next_refuel_target(exclude_ids: Dictionary) -> Node:
 			best_d = d
 			best = gen
 	return best
+
+## Specific, human-readable-key reason Refuel currently isn't available
+## for THIS NPC (Aug 2026) — same pattern as
+## get_cleaning_unavailable_reason(), replacing the old blanket "nothing
+## needs refueling" with an exact cause:
+##   ""                    — available right now
+##   "ALL_GENERATORS_FULL" — genuinely nothing needs fuel
+##   "FUEL_CAN_CLAIMED"    — a generator needs fuel and a spare can
+##                           exists, but another NPC already has it
+##   "NO_FUEL_CAN"         — a generator needs fuel and nothing else
+##                           explains why it can't proceed
+## This is the standard going forward for every job's "can't do it"
+## message — specific and checked in priority order, not a single
+## catch-all string. NPCTalkMenuUI maps these to player-facing text —
+## see REFUEL_UNAVAILABLE_REASONS there. Keep both in sync.
+func get_refuel_unavailable_reason() -> String:
+	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var any_needs_fuel: bool = false
+	if pm != null:
+		for gen: Node in get_tree().get_nodes_in_group("generator"):
+			if not is_instance_valid(gen):
+				continue
+			if pm.get_generator_fuel(str(gen.get_instance_id())) < 100.0:
+				any_needs_fuel = true
+				break
+	if not any_needs_fuel:
+		return "ALL_GENERATORS_FULL"
+	if held_item != null and held_item.has_method("refuel_tick"):
+		return ""   ## already holding a can — available regardless of anything below
+	var filt: Callable = Callable(NPCItemUser, "is_spare_fuel_can")
+	if NPCItemUser.find_loose_item(self, filt) != null:
+		return ""
+	if not NPCItemUser.find_shelved_item(self, filt).is_empty():
+		return ""
+	## Nothing claimable right now — distinguish "no can exists at all"
+	## from "one exists but another NPC already has it."
+	for node: Node in get_tree().get_nodes_in_group("pickup"):
+		if not is_instance_valid(node) or node.is_in_group("shelved"):
+			continue
+		if "is_held" in node and node.is_held:
+			continue
+		if NPCItemUser.is_spare_fuel_can(node) and NPCItemUser.is_claimed_by_other(node, self):
+			return "FUEL_CAN_CLAIMED"
+	return "NO_FUEL_CAN"
 
 ## Autonomous-trigger availability check — mirrors
 ## has_cleaning_target_available()'s shape. Gates on REFUEL_URGENT_BELOW

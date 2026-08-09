@@ -529,6 +529,21 @@ func npc_try_place_item(npc: Node, item: RigidBody3D) -> bool:
 func has_room_for(item: RigidBody3D) -> bool:
 	return _find_slot_for(item) != -1
 
+## Aug 2026 — generic "does this shelf have ANY free space at all" check,
+## independent of a specific item's type. Used by
+## NPC.has_viable_destination_for_category() to answer "does storage
+## exist for this classification" without needing a representative item
+## on hand — has_room_for(item) needs a real item to test slot-type
+## matching, this doesn't. Deliberately conservative: an empty slot
+## always counts, even though a specific item might ALSO fit into a
+## same-type partial stack with no fully-empty slot left — fine for an
+## availability estimate, not for an actual placement decision.
+func has_free_space() -> bool:
+	for stack: Array in slots:
+		if stack.is_empty():
+			return true
+	return false
+
 # ─── Retrieve to carry (from StorageUI's primary "Carry" button) ─────────────
 ## Pops the top item from the slot's stack and gives it to the player's hand.
 ## Returns true on success — Aug 2026, part of the StorageUI contract

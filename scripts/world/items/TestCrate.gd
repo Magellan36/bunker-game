@@ -21,6 +21,13 @@ func _ready() -> void:
 func get_prompt_text() -> String:
 	return "[F] Pick up %s" % item_name
 
+## Aug 2026 — was missing entirely, so every NPC-facing log/UI surface
+## fell back to PickupableItem's generic "Item" default. NPCs need real
+## per-object identity now (Cleaning logs, and every future job that
+## touches specific objects), not just the player-facing F-prompt text.
+func get_display_name() -> String:
+	return item_name
+
 ## Procedural milk crate — dark blue/grey plastic with lattice-style
 ## reinforcement ribs on each face, corner pillars, and handle cutouts.
 func _build_placeholder_mesh() -> void:

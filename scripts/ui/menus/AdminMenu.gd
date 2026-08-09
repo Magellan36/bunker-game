@@ -128,6 +128,7 @@ func _ready() -> void:
 		]},
 		{ "name": "NPC", "rows": [
 			["Spawn NPC", _on_spawn_npc_pressed],
+			["Spawn Neutral NPC (Testing)", _on_spawn_neutral_npc_pressed],
 			["Drain NPC Needs -40", _on_drain_npc_needs_pressed],
 			["Drain NPC Mood -40", _on_drain_npc_mood_pressed],
 			["Health +20", _on_npc_health_up_pressed],
@@ -494,6 +495,44 @@ func _on_spawn_npc_pressed() -> void:
 	npc.global_position = player_node.global_position \
 		+ (-player_node.global_transform.basis.z * 2.0) \
 		+ Vector3(0.0, 0.5, 0.0)
+
+## Aug 2026 — identical spawn to _on_spawn_npc_pressed() above, but then
+## overrides _ready()'s random personality/skill roll with a fully
+## neutral baseline: for reproducible bug-hunting where trait-driven
+## behavior variance (irritability, work ethic, forgetfulness, job
+## priority weighting) would otherwise be one more variable to account
+## for. personality = {} already means "every trait absent/baseline" per
+## randomize_personality()'s own convention (a PRESENT trait is never
+## neutral by design — see that function's comment) — this just makes it
+## deterministic instead of leaving it to chance which traits happened
+## not to roll present. Skills forced to 1.0 (dead center of
+## randomize_skills()'s normal 0.6-1.4 range) for the same reason. Name
+## stays on the normal random pool — only traits/skills are neutralized.
+func _on_spawn_neutral_npc_pressed() -> void:
+	if world_node == null:
+		push_warning("[AdminMenu] world_node not injected — cannot spawn NPC")
+		return
+	var player_node: Node3D = get_tree().get_first_node_in_group("player")
+	if player_node == null:
+		push_warning("[AdminMenu] No player found in scene — cannot spawn NPC")
+		return
+
+	var npc_scene: PackedScene = load("res://scenes/npc/NPC.tscn")
+	if npc_scene == null:
+		push_warning("[AdminMenu] NPC.tscn not found — check path")
+		return
+
+	var npc: Node3D = npc_scene.instantiate()
+	world_node.add_child(npc)
+	npc.global_position = player_node.global_position \
+		+ (-player_node.global_transform.basis.z * 2.0) \
+		+ Vector3(0.0, 0.5, 0.0)
+
+	if "personality" in npc:
+		npc.personality = {}
+	if "skills" in npc:
+		for key: String in npc.skills.keys():
+			npc.skills[key] = 1.0
 
 ## Knocks 40 points off every spawned NPC's three needs — instant way to
 ## trigger drink/eat/sit behavior without waiting on the game clock.

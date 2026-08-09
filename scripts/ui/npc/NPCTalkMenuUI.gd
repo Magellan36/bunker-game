@@ -71,12 +71,22 @@ const NPC_JOB_MENU_ENTRIES: Array[Dictionary] = [
 ## "nothing to clean right now" (NPC_JOB_MENU_ENTRIES' empty_desc) for any
 ## key not listed here, including "" (available).
 const CLEANING_UNAVAILABLE_REASONS: Dictionary = {
-	"NOTHING_TO_CLEAN":     "nothing to clean right now",
-	"NO_TRASH_RECEPTACLE":  "there's trash, but nowhere to throw it away yet",
-	"STILL_SETTLING":       "everything's still settling — check back shortly",
-	"ALL_CLAIMED":          "everything's already being handled by someone else",
-	"NO_STORAGE_AVAILABLE": "there's nothing to put things away in",
-	"STORAGE_FULL":         "storage is full",
+	"NOTHING_TO_CLEAN":          "nothing to clean right now",
+	"NO_TRASH_RECEPTACLE":       "there's trash, but nowhere to throw it away yet",
+	"STILL_SETTLING":            "everything's still settling — check back shortly",
+	"ALL_CLAIMED":               "everything's already being handled by someone else",
+	"NO_LIGHT_STORAGE_AVAILABLE": "there's nothing to put light items away in",
+	"NO_HEAVY_STORAGE_AVAILABLE": "there's nothing to put heavy items away in",
+	"STORAGE_FULL":              "storage is full",
+}
+
+## Aug 2026 — mirrors CLEANING_UNAVAILABLE_REASONS for
+## NPC.get_refuel_unavailable_reason(). Keep in sync with that
+## function's own doc comment if the reason set changes.
+const REFUEL_UNAVAILABLE_REASONS: Dictionary = {
+	"ALL_GENERATORS_FULL": "every generator is already full",
+	"FUEL_CAN_CLAIMED":    "the only fuel can is already being used",
+	"NO_FUEL_CAN":         "there's no fuel can anywhere to refuel with",
 }
 
 var _npc: Node = null
@@ -524,6 +534,11 @@ func _on_job_command_pressed(job_type: String) -> void:
 				empty_desc = String(CLEANING_UNAVAILABLE_REASONS[reason])
 		_issue_command(NPCBrain.CommandCleaningActivity.new(), action_desc, empty_desc)
 	elif job_type == "REFUEL":
+		## Aug 2026 — same specific-reason treatment as Cleaning.
+		if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_refuel_unavailable_reason"):
+			var rreason: String = _npc.get_refuel_unavailable_reason()
+			if rreason != "" and REFUEL_UNAVAILABLE_REASONS.has(rreason):
+				empty_desc = String(REFUEL_UNAVAILABLE_REASONS[rreason])
 		_issue_command(NPCBrain.CommandRefuelActivity.new(), action_desc, empty_desc)
 	else:
 		_issue_command(NPCBrain.CommandJobActivity.new(job_type), action_desc, empty_desc)

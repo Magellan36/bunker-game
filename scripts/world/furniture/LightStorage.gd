@@ -82,6 +82,14 @@ func _first_null_slot() -> int:
 func has_room_for(item: RigidBody3D) -> bool:
 	return item != null and item.is_in_group("inventory_item") and not is_full()
 
+## Aug 2026 — matches Shelving.gd's new has_free_space() so
+## NPC.has_viable_destination_for_category() can call either storage
+## type polymorphically without an item on hand yet. Type-eligibility
+## (inventory_item) is handled separately by the caller, not here — this
+## only answers "is there room", same contract as Shelving's version.
+func has_free_space() -> bool:
+	return not is_full()
+
 ## NPC-side placement (Aug 2026, Cleaning) — mirrors
 ## Shelving.npc_try_place_item()'s shape (NPC-sourced item, no
 ## InteractionSystem bookkeeping to reconcile) and _try_store_held()'s

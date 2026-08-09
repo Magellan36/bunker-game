@@ -1558,3 +1558,20 @@ without being asked.
     toast says "storage is full" specifically. Empty the area of storage
     entirely, request again — confirm a distinct "nothing to put things
     away in" message instead of the same generic failure.
+76. Clean a Test Crate, Can Case, and Water Case individually with debug
+    logging on — confirm real names appear in the console, not generic
+    "Item" (all three were missing get_display_name() entirely).
+77. In a scene with only light-capable storage, ask an NPC to clean a
+    heavy item (e.g. Test Crate) — confirm it's skipped once with a "no
+    storage for category" log line, never picked up, and the toast (if
+    requested) says "there's nothing to put heavy items away in"
+    specifically, not a generic message.
+78. Watch a full multi-item cleaning session end-to-end — confirm no
+    repeating "target picked / target lost: became shelved" bursts
+    between successful deliveries (stale-cache bug, fixed at
+    JobBoard.get_trash_items()/get_organizable_items()).
+79. Test each specific Refuel unavailable reason (all full, no can
+    anywhere, can claimed by another NPC) — confirm distinct toast text
+    for each.
+80. Press F7 → "Spawn Neutral NPC (Testing)" — confirm the spawned NPC
+    has zero personality trait words and all skills at exactly 1.0.

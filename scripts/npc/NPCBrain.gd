@@ -988,6 +988,8 @@ class CleaningActivity extends NPCActivity:
 	var _session_elapsed: float = 0.0
 	var _session_duration: float = 0.0
 	var _finished: bool = false
+	var _skipped_ids: Dictionary = {}         ## item instance_id -> true, this session — confirmed no destination, never retry
+	var _no_storage_categories: Dictionary = {}   ## "light"/"heavy" -> true, this session — every viable destination for the category is gone/full/nonexistent
 
 	func _init(forced_item: RigidBody3D = null) -> void:
 		_forced_item = forced_item
@@ -1013,6 +1015,8 @@ class CleaningActivity extends NPCActivity:
 		_session_duration = randf_range(SESSION_MIN_SEC, SESSION_MAX_SEC)
 		_session_elapsed = 0.0
 		_finished = false
+		_skipped_ids = {}
+		_no_storage_categories = {}
 		if NPCDebug.enabled and not _is_forced_session:
 			NPCDebug.log_cleaning(npc, "session started", "target duration=%.0fs" % _session_duration)
 		_pick_next_target(npc)
@@ -1020,6 +1024,24 @@ class CleaningActivity extends NPCActivity:
 	## Called at session start and after each delivery (success or
 	## failure) — this is what makes the NPC keep working through the
 	## bunker's clutter instead of stopping after one item.
+	##
+	## Aug 2026 — destination-first. Previously this only set _item and
+	## walked toward it; find_cleaning_destination() was checked AFTER
+	## grab_loose() succeeded, in tick()'s fetch phase. That meant an
+	## item with genuinely nowhere to go (e.g. a Test Crate with only an
+	## End Table/Dresser in range, neither able to take it) got walked
+	## to, picked up, and dropped again — then immediately re-selected as
+	## "nearest" and repeated, every tick, for the entire session. Now:
+	## for organizable (non-trash) items, confirm a destination exists
+	## BEFORE claiming or moving toward it at all. If none exists for
+	## this SPECIFIC item but the category (light/heavy) still has
+	## SOME viable destination elsewhere, just try the next candidate. If
+	## the category has NO viable destination anywhere, remember that
+	## (_no_storage_categories) so every future item of that category is
+	## skipped on sight for the rest of the session instead of being
+	## retried. Trash is unchanged — it's a single flat group with its
+	## own pre-existing "no receptacle" handling, worth revisiting
+	## together once trash_receptacle actually exists.
 	func _pick_next_target(npc: NPC) -> void:
 		_destination = null
 		if _is_forced_session:
@@ -1034,19 +1056,38 @@ class CleaningActivity extends NPCActivity:
 				NPCDebug.log_cleaning(npc, "forced grab", "%s (stuck-recovery, is_trash=%s)" % [
 					_display_name(_item), _is_trash])
 		else:
-			var result: Dictionary = npc.find_cleaning_target()
-			if result.is_empty():
-				_finished = true
-				_item = null
+			while true:
+				var result: Dictionary = npc.find_cleaning_target(_skipped_ids)
+				if result.is_empty():
+					_finished = true
+					_item = null
+					if NPCDebug.enabled:
+						var reason: String = "nothing left to clean"
+						if not _no_storage_categories.is_empty():
+							reason = "nothing left to clean — no storage for: %s" % ", ".join(_no_storage_categories.keys())
+						NPCDebug.log_cleaning(npc, "session ended", reason)
+					return
+				_item = result.get("item")
+				_is_trash = result.get("is_trash", false)
 				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "session ended", "nothing left to clean")
-				return
-			_item = result.get("item")
-			_is_trash = result.get("is_trash", false)
-			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "target picked", "%s (%s) dist=%.1f" % [
-					_display_name(_item), "trash" if _is_trash else "organizable",
-					NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position)])
+					NPCDebug.log_cleaning(npc, "target picked", "%s (%s) dist=%.1f" % [
+						_display_name(_item), "trash" if _is_trash else "organizable",
+						NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position)])
+				if _is_trash:
+					break   ## trash keeps its existing post-pickup handling — commit and go
+				var category: String = npc._classify_organizable_item(_item)
+				if npc.find_cleaning_destination(false, _item) != null:
+					break   ## viable destination confirmed for THIS item — commit and go fetch it
+				_skipped_ids[_item.get_instance_id()] = true
+				if not npc.has_viable_destination_for_category(category):
+					_no_storage_categories[category] = true
+					if NPCDebug.enabled:
+						NPCDebug.log_cleaning(npc, "no storage for category", "%s (%s) — no viable destination exists anywhere; skipping all %s items this session" \
+							% [_display_name(_item), category, category])
+				elif NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "no destination (retrying)", "%s (%s) has nowhere to go right now — trying next item" \
+						% [_display_name(_item), category])
+				## loop again — try the next nearest candidate, never having walked to this one at all
 		if not NPCItemUser.claim_item(_item, npc):
 			if NPCDebug.enabled:
 				NPCDebug.log_cleaning(npc, "claim failed", "%s already claimed by another NPC — retrying next tick" % _display_name(_item))
@@ -1180,6 +1221,7 @@ class CleaningActivity extends NPCActivity:
 			"session_elapsed": _session_elapsed,
 			"session_duration": _session_duration,
 			"forced": _is_forced_session,
+			"no_storage_categories": _no_storage_categories.keys(),
 		}
 
 
