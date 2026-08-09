@@ -286,7 +286,7 @@ func _build_mesh() -> void:
 	lid_mesh.bottom_radius = BODY_RADIUS + 0.02
 	lid_mesh.height        = 0.03
 	lid.mesh = lid_mesh
-	lid.position = Vector3(0.0, BODY_HEIGHT + 0.015, 0.0)
+	lid.position = Vector3(0.0, BODY_HEIGHT * 0.5 + 0.015, 0.0)
 	var lid_mat: StandardMaterial3D = StandardMaterial3D.new()
 	lid_mat.albedo_color = COLOR_RIM
 	lid_mat.roughness    = 0.30
