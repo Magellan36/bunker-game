@@ -1343,14 +1343,40 @@ func has_viable_destination_for_category(category: String) -> bool:
 ## returning null here (no receptacle exists) is expected and handled
 ## gracefully by CleaningActivity — it just abandons and sets the item
 ## back down.
+##
+## Aug 2026 — light items now prefer a LightStorage (End Table/Dresser)
+## over a general Shelving object, even when a nearer shelf has room.
+## Two-pass search: try LightStorage-only first; only fall back to
+## considering every candidate (Shelving included) once no LightStorage
+## has room. Heavy items and trash are unaffected — LightStorage can
+## never take a heavy item anyway (has_room_for()'s own inventory_item
+## gate already blocks it), so a LightStorage-only pass would just be a
+## wasted search for them, never chosen for either.
 func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node:
 	var group_names: Array = ["trash_receptacle"] if is_trash \
 		else ORGANIZE_DESTINATION_GROUPS.get(_classify_organizable_item(item), ["shelving"])
+
+	var prefer_light_storage: bool = not is_trash and item != null \
+		and _classify_organizable_item(item) == "light"
+	if prefer_light_storage:
+		var light_pick: Node = _nearest_cleaning_destination(group_names, item, is_trash, true)
+		if light_pick != null:
+			return light_pick
+	return _nearest_cleaning_destination(group_names, item, is_trash, false)
+
+## Shared nearest-candidate search behind find_cleaning_destination().
+## light_storage_only, when true, additionally requires the candidate be
+## a LightStorage instance (End Table/Dresser) — the light-item
+## storage-preference pass above; false searches every candidate in
+## group_names as before (shelves included).
+func _nearest_cleaning_destination(group_names: Array, item: RigidBody3D, is_trash: bool, light_storage_only: bool) -> Node:
 	var best: Node = null
 	var best_d: float = INF
 	for group_name: String in group_names:
 		for candidate: Node in get_tree().get_nodes_in_group(group_name):
 			if not is_instance_valid(candidate):
+				continue
+			if light_storage_only and not (candidate is LightStorage):
 				continue
 			if not is_trash and item != null and candidate.has_method("has_room_for") and not candidate.has_room_for(item):
 				continue   ## skip a full/ineligible container — this check was the whole gap

@@ -1,3 +1,15 @@
+# Handover — NPC: Light Items Prefer Light Storage Over Shelving (Aug 2026)
+
+- find_cleaning_destination() now does a two-pass search for "light"
+  classified items: LightStorage (End Table/Dresser) only first, and
+  only falls back to considering general Shelving objects once no
+  LightStorage candidate has room. Heavy items and trash are unaffected.
+
+Files touched: `scripts/npc/NPC.gd`.
+
+---
+---
+
 # Handover — NPC: Cleaning Root-Cause Fixes + Refuel Errors + Neutral NPC Spawn (Aug 2026)
 
 - Fixed generic "Item" naming: TestCrate.gd, CanCase.gd, WaterCase.gd

@@ -1575,3 +1575,7 @@ without being asked.
     for each.
 80. Press F7 → "Spawn Neutral NPC (Testing)" — confirm the spawned NPC
     has zero personality trait words and all skills at exactly 1.0.
+81. With both an End Table/Dresser and a closer real shelf available,
+    ask an NPC to clean a light item (e.g. fuel can) — confirm it
+    prefers the End Table/Dresser over the closer shelf. Fill all
+    light storage, repeat — confirm it falls back to the shelf.
