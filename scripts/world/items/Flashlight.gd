@@ -21,6 +21,12 @@ var shelf_item_type:   String = "flashlight"
 # ─── State ────────────────────────────────────────────────────────────────────
 var _player:           Node3D = null   ## CharacterBody3D — set on pickup
 
+## Excluded from CTRL manual-upright (see PickupableItem._physics_process()'s
+## CTRL branch) — this item's rotation IS its aim direction (auto-aimed
+## along the player's facing, per the header comment above), so forcing it
+## upright while held would fight the entire point of holding one.
+var allow_manual_upright: bool = false
+
 var _on:         bool  = false
 var _battery:    float = 100.0  ## 0–100
 var _is_dead:    bool  = false

@@ -1,3 +1,52 @@
+# Handover — Softened Upright Snap + CTRL Manual-Upright Hold (Aug 2026)
+
+## What changed this session
+Softened Basket/Cooking Pot's always-on "never lean while carried"
+behavior from an instant hard snap (`global_transform.basis =
+Basis.IDENTITY` outright every physics tick) to a quick spherical-
+interpolation ease, via a new shared `PickupableItem.slerp_to_upright
+(delta, speed)` (Basis.slerp() toward identity, exponential-decay
+convergence, `UPRIGHT_SLERP_SPEED = 10.0` — tunable, ~99% converged in
+~⅓ second). Then layered a new feature on the same primitive: holding
+CTRL now applies the same ease-to-upright to ANY held item, via a new
+`allow_manual_upright: bool` on `PickupableItem` (default true,
+overridden false only on `Flashlight.gd`, since its rotation is its own
+aim direction). Basket/Cooking Pot are excluded from the CTRL branch
+(checked via their existing container duck-type markers) since their own
+override already keeps them upright regardless — avoids a harmless but
+pointless double-call, not a bug fix. Used `Input.is_key_pressed
+(KEY_CTRL)` polled directly rather than adding a new Input Map action —
+avoided hand-transcribing a `physical_keycode` value into `project.godot`
+with no way to verify it outside the Godot editor. Releasing CTRL needs
+no explicit stop logic: the interpolation function holds no state
+between calls, so the item simply holds still at whatever orientation it
+last reached.
+
+One open question flagged for Brannon rather than resolved
+unilaterally: whether CTRL near a Shelf/Dresser/End Table should
+interact with the held-item E-priority system from earlier this session
+— currently doesn't, since CTRL isn't bound to any existing action, but
+named explicitly in case something else was intended there.
+
+### Files modified
+- `scripts/world/items/PickupableItem.gd` — new
+  `slerp_to_upright()`/`UPRIGHT_SLERP_SPEED`/`allow_manual_upright`; CTRL
+  branch added to `_physics_process()`.
+- `scripts/world/items/Basket.gd` — instant snap replaced with
+  `slerp_to_upright()` call.
+- `scripts/world/items/CookingPot.gd` — same replacement.
+- `scripts/world/items/Flashlight.gd` — `allow_manual_upright = false`.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_UPRIGHT_SLERP_AND_CTRL_HOLD_PLAN.md`
+for the full 7-item checklist)
+
+---
+
+---
+
 # Handover — NPC: Stuck-Recovery Deadlock Fix + Reachability-Aware Target Selection (Aug 2026)
 
 - Root-caused a real infinite loop: _recover_from_stuck() had no memory

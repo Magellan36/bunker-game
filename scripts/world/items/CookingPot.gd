@@ -211,9 +211,11 @@ func get_interact_prompt() -> String:
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
 	## Same upright lock as Basket.gd — never lean/tip while carried.
+	## Aug 2026 — softened from an instant snap to a quick ease via
+	## PickupableItem.slerp_to_upright(); see Basket.gd's own comment for
+	## the full reasoning, identical here.
 	if is_held and _hold_point != null:
-		global_transform.basis = Basis.IDENTITY
-		angular_velocity       = Vector3.ZERO
+		slerp_to_upright(delta, UPRIGHT_SLERP_SPEED)
 
 func _process(delta: float) -> void:
 	if _is_cooked:

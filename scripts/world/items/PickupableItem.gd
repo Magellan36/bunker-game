@@ -72,6 +72,13 @@ var _out_of_range_time: float = 0.0
 ## the sentinel is never actually consulted before pickup() sets it.
 var _carry_bulk_radius: float = -1.0
 
+## Whether CTRL-hold manual-upright (see _physics_process()'s CTRL branch
+## below) applies to this item. True by default for every item;
+## Flashlight.gd overrides this to false — a flashlight's own rotation IS
+## its aim direction (it auto-aims along the player's facing), so forcing
+## it upright while held would fight the entire point of holding one.
+var allow_manual_upright: bool = true
+
 func _ready() -> void:
 	add_to_group("pickup")
 	contact_monitor = true
@@ -170,6 +177,20 @@ func _physics_process(delta: float) -> void:
 	var speed: float = inv_follow_speed if from_inventory else follow_speed
 	linear_velocity  = (chase_target - global_position) * speed
 	angular_velocity = Vector3.ZERO
+
+	## CTRL manual-upright hold (Aug 2026) — while CTRL is held, ease
+	## ANY held item toward upright, same slerp_to_upright() the Basket/
+	## Cooking Pot always-on lock uses. Excludes Flashlight.gd
+	## (allow_manual_upright = false there) and Basket/Cooking Pot
+	## specifically (they already do this unconditionally via their own
+	## _physics_process() override, immediately after this base call
+	## returns — calling it twice in the same frame would be harmless but
+	## pointless). Stops the instant CTRL is released: this only ever
+	## takes one interpolation step per call, so the item simply keeps
+	## whatever orientation it had on the last frame CTRL was held.
+	if allow_manual_upright and not ("is_basket_container" in self) and not ("is_cookpot_container" in self) \
+			and Input.is_key_pressed(KEY_CTRL):
+		slerp_to_upright(delta, UPRIGHT_SLERP_SPEED)
 
 ## Continuous (no state machine) head-clearance boost for bulky held items.
 ## Compares the item's ACTUAL current bearing from the player against its
@@ -295,3 +316,28 @@ func _set_held_culling(held: bool) -> void:
 ## "seen" yet), then call this deferred to unfreeze it.
 func _unfreeze_after_spawn() -> void:
 	freeze = false
+
+# ─── Upright interpolation (Aug 2026) ─────────────────────────────────────────
+## How quickly slerp_to_upright() converges — same role follow_speed plays
+## for position-chase. Higher = snappier. 10.0 reaches ~99% converged in
+## roughly a third of a second regardless of framerate (exponential decay,
+## see slerp_to_upright()'s own comment) — visibly smooth but not sluggish.
+## Shared by Basket/CookingPot's own always-on upright lock AND the CTRL
+## manual-upright hold below; split into two separate consts if you want
+## a different feel for the two cases after trying this in-editor.
+const UPRIGHT_SLERP_SPEED: float = 10.0
+
+## Smoothly rotates this item's CURRENT orientation toward perfectly
+## upright (Basis.IDENTITY) using spherical interpolation, so the shortest
+## rotational path is taken regardless of current tilt. `speed` controls
+## convergence rate the same way follow_speed does for position (t =
+## speed * delta each call — exponential decay, so it naturally slows down
+## as it approaches upright rather than snapping then stopping). Call this
+## every physics tick you want the behavior active; simply stop calling it
+## to leave the item's rotation exactly wherever it currently is — this
+## function holds no state of its own between calls, it only ever takes
+## one step per call.
+func slerp_to_upright(delta: float, speed: float) -> void:
+	var t: float = clampf(speed * delta, 0.0, 1.0)
+	global_transform.basis = global_transform.basis.slerp(Basis.IDENTITY, t).orthonormalized()
+	angular_velocity = Vector3.ZERO

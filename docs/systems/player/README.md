@@ -400,6 +400,32 @@ own held item while CASE 1 scans for a different target — guarded with
   then forces `global_transform.basis = Basis.IDENTITY` (the basket's authored
   resting orientation) every physics tick while `is_held`. Hard snap, not a
   spring/lerp — no wobble.
+- **Softened upright snap + CTRL manual-upright hold (Aug 2026,
+  `PickupableItem.gd`/`Basket.gd`/`CookingPot.gd`/`Flashlight.gd` —
+  flagged: `scripts/world/items/`, not one of the three core files, but
+  the hold-follow mechanic itself is Player-subsystem scope).** Basket/
+  Cooking Pot's always-on upright lock (never lean while carried) was an
+  instant hard snap (`global_transform.basis = Basis.IDENTITY` outright,
+  every physics tick) — replaced with a new shared
+  `PickupableItem.slerp_to_upright(delta, speed)` using spherical
+  interpolation (`Basis.slerp()`, exponential-decay convergence via
+  `UPRIGHT_SLERP_SPEED = 10.0`, ~99% converged in ~⅓ second), same
+  visual result but eased rather than snapped. New feature layered on
+  the same primitive: holding **CTRL** applies this to ANY held item
+  (new `allow_manual_upright: bool` on `PickupableItem`, default true,
+  overridden `false` only on `Flashlight.gd` — its rotation is its aim
+  direction, forcing it upright would fight the point of holding one).
+  Basket/Cooking Pot are excluded from the CTRL branch specifically
+  (checked via their existing `is_basket_container`/`is_cookpot_container`
+  duck-type markers) since their own override already keeps them
+  upright unconditionally — redundant, not broken, to call it twice, so
+  skipped for cleanliness. Deliberately uses `Input.is_key_pressed
+  (KEY_CTRL)` polled directly in `_physics_process()` rather than adding
+  a new Input Map action — avoids hand-transcribing a `project.godot`
+  `physical_keycode` value with no way to verify it outside the editor.
+  Releasing CTRL needs no cleanup code: the function holds no state
+  between calls, so the item simply stops moving and holds its last
+  orientation.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**

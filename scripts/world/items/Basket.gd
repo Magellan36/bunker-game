@@ -63,16 +63,18 @@ func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
 	## Unlike every other held item — which keeps whatever tilt it happened to
 	## have at pickup, by design — the basket must never lean or tip while
-	## carried. Snap it back to its authored upright orientation (Basis
+	## carried. Smoothly returns to its authored upright orientation (Basis
 	## IDENTITY — Basket.tscn has no rotation set, and the cylinder mesh is
 	## built along local Y in _build_placeholder_mesh(), so identity IS
 	## upright) every physics tick, immediately after the parent class's
-	## position-follow logic runs. This only touches rotation — linear_velocity
-	## / follow_speed / knockout distance / grace timer are all untouched,
-	## still handled entirely by PickupableItem._physics_process() above.
+	## position-follow logic runs. Aug 2026 — was an instant hard snap
+	## (global_transform.basis = Basis.IDENTITY outright); now eases toward
+	## it via PickupableItem.slerp_to_upright(), softer but still quick. This
+	## only touches rotation — linear_velocity / follow_speed / knockout
+	## distance / grace timer are all untouched, still handled entirely by
+	## PickupableItem._physics_process() above.
 	if is_held and _hold_point != null:
-		global_transform.basis = Basis.IDENTITY
-		angular_velocity       = Vector3.ZERO
+		slerp_to_upright(delta, UPRIGHT_SLERP_SPEED)
 
 # ─── Slot helpers ─────────────────────────────────────────────────────────────
 func _first_empty_slot() -> int:
