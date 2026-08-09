@@ -101,7 +101,7 @@ func on_use() -> void:
 		queue_free()   ## No "empty packet" object — seeds don't have one, unlike soil/fertilizer bags
 
 ## Small flat packet placeholder, tinted per seed_type so the two types are
-## visually distinguishable on the ground.
+## visually distinguishable on the ground. Includes a centered text label.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
 	var box: BoxMesh = BoxMesh.new()
@@ -113,6 +113,18 @@ func _build_placeholder_mesh() -> void:
 	mat.roughness    = 0.85
 	_mesh.set_surface_override_material(0, mat)
 	add_child(_mesh)
+
+	## Text label — centered on the packet, 2/3 up its length.
+	var label: Label3D = Label3D.new()
+	label.text = "%s Seeds" % PlantDatabase.get_display_name(seed_type)
+	label.font_size = 12
+	label.modulate = Color(0.15, 0.12, 0.08, 1.0)
+	label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	label.no_depth_test = false
+	label.fixed_size = false
+	label.position = Vector3(0.0, 0.025, -0.023)
+	label.rotation.x = -PI / 2.0
+	add_child(label)
 
 	## Real collision shape on the RigidBody3D itself (NOT
 	## MeshInstance3D.create_trimesh_collision(), which nests a separate
