@@ -1,3 +1,33 @@
+# Handover — Shelf Corner Post Height Fix (Aug 2026)
+
+Symptom: shelf corner posts (all three sizes — Small/Medium/Large share
+`_build_mesh()` from the `Shelving.gd` base) reached ~0.57 m above the
+top shelf platform, towering over it visually.
+
+Root cause: stale hardcoded offsets left over from the pre-resize 0.45
+tier spacing. The post formula was `unit_h - 0.2375` with
+`post_y_offset = 0.45 * 0.5`, tuned against the old 0.45 spacing and
+never recomputed when the crate-fit pass raised spacing to 0.60 (and
+raised `unit_h` 2.5→3.55 for unrelated crate headroom). Drift between
+the two left the posts far too tall.
+
+Fix: post height now derives directly from `shelf_y` — top shelf +
+1/6 of the tier spacing + the unchanged `post_y_offset` (0.225). At the
+current 0.60 spacing that's exactly 0.10 m above the top shelf on every
+variant automatically (Small's top shelf sits lower so its excess is the
+same ratio, shorter in absolute terms; Large inherits Medium's
+`shelf_y`). The comment on the old constants was also removed/replaced.
+`unit_h` is deliberately left unchanged — it still sizes the collision
+box (headroom for a crate-height top-shelf item) and the E-prompt
+height, so the visual-posts vs unit_h-collision gap is intentional.
+
+Files touched: `scripts/world/furniture/Shelving.gd`,
+`docs/systems/furniture-items/README.md`.
+
+---
+
+---
+
 # Handover — Flashlight.gd Compile Error Fix (Aug 2026)
 
 ## What changed this session

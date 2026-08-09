@@ -157,6 +157,18 @@ Signals: `item_placed(slot_index, item)`, `item_retrieved(slot_index, item)`.
   no shelf/furniture/wall can be in the way; the short remaining gap to the
   hold point is closed by `PickupableItem._physics_process()`'s existing
   per-frame chase, preserving the natural pop-then-settle feel.
+- **Corner post height now derived from `shelf_y` (Aug 2026):** the post
+  formula in `_build_mesh()` was previously `unit_h - 0.2375`, tuned
+  against the pre-resize 0.45 tier spacing and never recomputed when the
+  crate-fit pass raised spacing to 0.60 (and `unit_h` independently to
+  3.55) — so posts drifted to reaching ~0.57 m above the top shelf.
+  Posts now extend exactly 1/6 of the tier spacing above the TOP shelf
+  (0.10 m at current 0.60 spacing), derived live from `shelf_y` so it
+  tracks future spacing changes automatically. **`unit_h` deliberately
+  stays taller than the visible posts** — it still sizes the collision
+  box (headroom for a crate-height item on the top shelf) and the
+  E-prompt height; that gap between visual post height and unit_h-based
+  collision height is intentional, not a leftover bug.
 
 
 **`Bed`** (extends `StaticBody3D`): `on_interact()`, `get_prompt_text() ->

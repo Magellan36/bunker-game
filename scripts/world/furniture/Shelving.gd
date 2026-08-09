@@ -124,8 +124,19 @@ func _load_mesh() -> void:
 	## 4 corner posts — angle-iron style (shortened at top by one shelf spacing)
 	var post_w: float = 0.035
 	var post_d: float = 0.035
-	var post_h: float = unit_h - 0.2375   ## shortened by 0.45, then increased by 0.1125 + 0.10
-	var post_y_offset: float = 0.45 * 0.5   ## shift down so top is lower
+	## Aug 2026 — rebuilt from shelf_y directly instead of unit_h. The old
+	## formula (unit_h - 0.2375) was tuned against the pre-resize 0.45 tier
+	## spacing and never recomputed when spacing/unit_h changed in the crate-
+	## fit pass, so posts drifted to reaching ~0.57m above the top shelf.
+	## Posts now extend exactly 1/6 of the tier spacing above the TOP shelf
+	## (≈ 0.10m at the current 0.60 spacing — also close to 1/6 of TestCrate's
+	## height, the secondary reference point). post_y_offset (how far the
+	## post's bottom sits below floor level, for the embedded/anchored look)
+	## is unchanged and independent of this.
+	var tier_spacing: float  = (shelf_y[1] - shelf_y[0]) if shelf_y.size() > 1 else 0.60
+	var post_top_excess: float = tier_spacing / 6.0
+	var post_y_offset: float   = 0.225
+	var post_h: float          = shelf_y[shelf_y.size() - 1] + post_top_excess + post_y_offset
 	var corners: Array[Vector2] = [
 		Vector2(-unit_w * 0.5 + post_w * 0.5, -unit_d * 0.5 + post_d * 0.5),
 		Vector2( unit_w * 0.5 - post_w * 0.5, -unit_d * 0.5 + post_d * 0.5),
