@@ -624,6 +624,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 
+	# Numpad 5 — add 1000w power (admin shortcut)
+	if event is InputEventKey and event.pressed and event.keycode == KEY_KP_5:
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager")
+		if pm != null:
+			pm.admin_add_power(1000.0)
+		get_viewport().set_input_as_handled()
+		return
+
+	# Numpad 2 — spawn NPC (admin shortcut)
+	if event is InputEventKey and event.pressed and event.keycode == KEY_KP_2:
+		_dev_spawn_npc()
+		get_viewport().set_input_as_handled()
+		return
+
 	# F7 — Admin controls menu (system cheats)
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F7:
 		_toggle_admin_cheat_menu()
@@ -684,6 +698,18 @@ func _dev_spawn_crate() -> void:
 		+ (-player.global_transform.basis.z * 2.0) \
 		+ Vector3(0.0, 0.5, 0.0)
 	_wdbg("[DEV] Spawned TestCrate")
+
+func _dev_spawn_npc() -> void:
+	var npc_scene: PackedScene = load("res://scenes/npc/NPC.tscn")
+	if npc_scene == null:
+		push_warning("[DEV] NPC.tscn not found — check path")
+		return
+	var npc: Node3D = npc_scene.instantiate()
+	add_child(npc)
+	npc.global_position = player.global_position \
+		+ (-player.global_transform.basis.z * 2.0) \
+		+ Vector3(0.0, 0.5, 0.0)
+	_wdbg("[DEV] Spawned NPC")
 
 func _setup_lighting() -> void:
 	## Subtle moonlight — barely visible cool ambient, not true sunlight.
