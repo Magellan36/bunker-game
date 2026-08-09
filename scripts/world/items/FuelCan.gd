@@ -142,7 +142,7 @@ func _build_placeholder_mesh() -> void:
 	_mesh.position = Vector3(0.0, 0.17, 0.0)
 
 	var body_mat: StandardMaterial3D = StandardMaterial3D.new()
-	body_mat.albedo_color = Color(0.75, 0.10, 0.10, 1.0)
+	body_mat.albedo_color = Color(0.30, 0.35, 0.20, 1.0)
 	body_mat.roughness    = 0.55
 	body_mat.metallic     = 0.15
 
