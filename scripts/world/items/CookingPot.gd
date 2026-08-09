@@ -592,12 +592,13 @@ func _build_placeholder_mesh() -> void:
 	_mesh.set_surface_override_material(0, mat)
 	add_child(_mesh)
 
-	## Rim ring — thin darker disc near the top edge, reads as the pot's lid line
+	## Rim ring — open torus around the top edge, not a solid disc.
 	var rim_mi: MeshInstance3D = MeshInstance3D.new()
-	var rim: CylinderMesh = CylinderMesh.new()
-	rim.top_radius    = 0.285
-	rim.bottom_radius = 0.285
-	rim.height        = 0.02
+	var rim: TorusMesh = TorusMesh.new()
+	rim.inner_radius = 0.24
+	rim.outer_radius = 0.29
+	rim.rings = 22
+	rim.ring_segments = 12
 	rim_mi.mesh = rim
 	rim_mi.position = Vector3(0.0, 0.29, 0.0)
 	var rim_mat: StandardMaterial3D = StandardMaterial3D.new()
