@@ -30,10 +30,21 @@ class_name Shelving
 
 # ─── Tunable dimensions ───────────────────────────────────────────────────────
 @export var unit_w: float = 1.25
-@export var unit_h: float = 2.5
-@export var unit_d: float = 0.625
+## Aug 2026 — raised from 2.5 to 3.55 alongside the shelf_y spacing
+## increase, so the posts (derived below as unit_h - 0.2375) still extend
+## comfortably above the new top tier (2.52) with headroom for a
+## crate-height item, matching the previous proportions.
+@export var unit_h: float = 3.55
+## Aug 2026 — widened from 0.625 to 0.85 so TestCrate (D=0.73, the deepest
+## carriable item) fits within the shelf's own depth instead of clipping
+## through the front/back — found during the tier-spacing fix below.
+@export var unit_d: float = 0.85
 
-@export var shelf_y: Array[float] = [0.225, 0.675, 1.125, 1.575, 2.025]
+## Aug 2026 — widened from 0.45 to 0.60 spacing (interior clear height
+## 0.432 -> 0.582) so TestCrate (H=0.48, the largest carriable item) fits
+## with clearance on every tier. Bottom tier dropped from 0.225 to 0.12,
+## closer to the floor per design feedback.
+@export var shelf_y: Array[float] = [0.12, 0.72, 1.32, 1.92, 2.52]
 @export var slot_offset_x: float  = 0.275
 @export var slot_lift: float      = 0.075
 

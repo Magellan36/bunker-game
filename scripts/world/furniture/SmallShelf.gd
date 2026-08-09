@@ -6,5 +6,7 @@ class_name SmallShelf
 
 func _init() -> void:
 	display_name = "Small Shelf"
-	shelf_y       = [0.225, 0.675, 1.125]
-	unit_h        = 1.6   ## proportional to 3 tiers vs Medium's 5-tier 2.5
+	## Aug 2026 — same 0.60 spacing/lowered-floor fix as Medium so TestCrate
+	## (H=0.48) fits here too; unit_h proportioned the same way (3 tiers).
+	shelf_y       = [0.12, 0.72, 1.32]   ## was [0.225, 0.675, 1.125]
+	unit_h        = 2.35                  ## was 1.6

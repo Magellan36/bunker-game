@@ -96,6 +96,15 @@ and the procedural mesh scales to each variant's own dimensions.
 | Medium Shelf| `Shelving.gd`     | 10    | 5 tiers × 2 | 3  | $75 |
 | Large Shelf | `LargeShelf.gd`   | 15    | 5 tiers × 3 | 35 | $180 |
 
+**Dimensions (Aug 2026 — resized so Test Crate, the largest carriable item,
+fits on every tier):** Medium defines the base values — tier spacing **0.60**
+(interior clear height 0.582 vs the crate's 0.48 H), bottom tier lowered to
+**0.12**, unit depth **0.85** (vs the crate's 0.73 D), unit height **3.55**.
+Large inherits all of these unchanged (no override). Small has its own 3-tier
+values at the same 0.60 spacing / 0.12 floor (`shelf_y [0.12, 0.72, 1.32]`,
+`unit_h 2.35`); it inherits the depth fix from the base `unit_d` with no
+override.
+
 API (base class, inherited by all variants): `set_player_in_range(in_range:
 bool)`, `get_f_prompt/get_e_prompt/get_interact_prompt() -> String`,
 `on_f_interact()` / `on_e_interact()` / `on_interact()`,

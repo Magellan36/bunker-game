@@ -1,3 +1,34 @@
+# Handover — Medium Shelf Resize for Test Crate Fit (Aug 2026)
+
+- Symptom: the Test Crate (W=0.54, H=0.48, D=0.73 — the largest carriable
+  item) couldn't visibly fit between shelf tiers, and the bottom shelf sat
+  too high off the floor.
+- Root causes (both fixed in the `Shelving.gd` base class, so Medium AND
+  Large inherit them):
+  1. Tier spacing was 0.45 → interior clear height 0.432, narrower than the
+     crate's 0.48 H. Now 0.60 spacing → 0.582 clear, on every tier.
+  2. Shelf depth `unit_d` was 0.625 — narrower than the crate's own 0.73 D,
+     so it would clip through the front/back even with taller spacing
+     (independent problem found during investigation). Now 0.85.
+  Plus: bottom tier lowered 0.225 → 0.12 (closer to the floor), and `unit_h`
+  2.5 → 3.55 so the posts (derived from `unit_h`) still clear the raised top
+  tier (2.52) with crate-height headroom.
+- Small Shelf: same 0.60 spacing / 0.12 floor applied to its own 3-tier
+  values (`shelf_y [0.12, 0.72, 1.32]`, `unit_h 2.35`) so the crate fits
+  there too; depth fix inherited from base `unit_d` automatically.
+- No other changes: `_build_collision()` reads `unit_w/unit_h/unit_d` live
+  and `_build_slot_markers()` derives Y from `shelf_y`, so collision and slot
+  markers auto-adjust. `unit_w`/`slot_offset_x` untouched (not reported
+  broken). Occupancy/overlap footprint unaffected (uses `unit_w`, unchanged).
+- Large Shelf takes no action — inherits every base fix.
+
+Files touched: `scripts/world/furniture/Shelving.gd`,
+`scripts/world/furniture/SmallShelf.gd`,
+`docs/systems/furniture-items/README.md`.
+
+---
+---
+
 # Handover — Shelf Family: Small/Medium/Large (Aug 2026, v2 corrected for current 10-slot Shelving)
 
 - Added the shelf family: **Small Shelf (tile 34, $45, 6 slots as 3 tiers ×
