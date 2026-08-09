@@ -73,6 +73,32 @@ func _first_null_slot() -> int:
 			return i
 	return -1
 
+## Public capacity+type check (Aug 2026, NPC Cleaning) — used by
+## NPC.find_cleaning_destination() so an ineligible-type or full
+## container is never picked as a cleaning destination. Deliberately
+## reuses _try_store_held()'s own eligibility rule (is_in_group(
+## "inventory_item")) rather than a separate list, so NPC and player
+## storage rules can never diverge.
+func has_room_for(item: RigidBody3D) -> bool:
+	return item != null and item.is_in_group("inventory_item") and not is_full()
+
+## NPC-side placement (Aug 2026, Cleaning) — mirrors
+## Shelving.npc_try_place_item()'s shape (NPC-sourced item, no
+## InteractionSystem bookkeeping to reconcile) and _try_store_held()'s
+## own held-state clear + _absorb_item() reuse. Returns false if the item
+## isn't eligible for this container or it's full — caller
+## (CleaningActivity) decides what to do next (sets the item back down).
+func npc_try_place_item(npc: Node, item: RigidBody3D) -> bool:
+	if not has_room_for(item):
+		return false
+	if "held_item" in npc and npc.held_item == item:
+		npc.held_item = null
+	if "is_held"        in item: item.is_held        = false
+	if "_hold_point"    in item: item._hold_point    = null
+	if "from_inventory" in item: item.from_inventory = false
+	_absorb_item(item)
+	return true
+
 # ─── E/F contract (mirrors Shelving.gd) ────────────────────────────────────
 func on_f_interact() -> void:
 	if _interaction_system == null:

@@ -1240,6 +1240,17 @@ func find_friend_to_help() -> Dictionary:
 # ─── Cleaning (Aug 2026) ─────────────────────────────────────────────────
 const CLEANING_BASE_SCORE: float = 5.5
 
+## Refuel session (Aug 2026). Higher than Cleaning's base — running out
+## of power is more urgent than clutter — tune visually once live-tested.
+const REFUEL_BASE_SCORE: float = 8.0
+
+## Autonomous-trigger gate ONLY (carried over from JobBoard's old
+## REFUEL_BELOW). has_refuel_target_available()'s score() use of this
+## just decides whether an NPC will interrupt other work over fuel level;
+## once a refuel session actually starts (autonomous OR commanded), it
+## tops off every generator below 100%, not just the urgent one.
+const REFUEL_URGENT_BELOW: float = 40.0
+
 func has_cleaning_target_available() -> bool:
 	if not JobBoard.get_trash_items().is_empty():
 		return true
@@ -1271,23 +1282,97 @@ func find_cleaning_target() -> Dictionary:
 		return {}
 	return {"item": best_item, "is_trash": best_is_trash}
 
-## Nearest member of the matching destination group. For trash, returning
-## null here (no receptacle exists) is expected and handled gracefully by
-## CleaningActivity — it just abandons and sets the item back down.
+## Cleaning destination routing (Aug 2026) — maps an organizable item's
+## CLASSIFICATION to the destination group(s) to search, in priority
+## order. Every classification today resolves to "shelving", which both
+## Shelving.gd (real shelves) AND LightStorage.gd (End Table/Dresser)
+## join — LightStorage's own has_room_for() already enforces the
+## inventory_item type gate, so this stays correct with zero extra logic
+## here. To add a new dedicated container later (e.g. a Fridge that
+## should only receive food, joining a new "food_storage" group instead
+## of "shelving"): add one classification check to
+## _classify_organizable_item() below and one new entry to
+## ORGANIZE_DESTINATION_GROUPS. No other cleaning code needs to change.
+const ORGANIZE_DESTINATION_GROUPS: Dictionary = {
+	"general": ["shelving"],
+}
+
+func _classify_organizable_item(_item: RigidBody3D) -> String:
+	## FUTURE: return "food" once a Fridge exists and food items should
+	## prefer it over general shelving (see comment above).
+	return "general"
+
+## Nearest member of the matching destination group(s). For trash,
+## returning null here (no receptacle exists) is expected and handled
+## gracefully by CleaningActivity — it just abandons and sets the item
+## back down.
 func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node:
-	var group_name: String = "trash_receptacle" if is_trash else "shelving"
+	var group_names: Array = ["trash_receptacle"] if is_trash \
+		else ORGANIZE_DESTINATION_GROUPS.get(_classify_organizable_item(item), ["shelving"])
 	var best: Node = null
 	var best_d: float = INF
-	for candidate: Node in get_tree().get_nodes_in_group(group_name):
-		if not is_instance_valid(candidate):
+	for group_name: String in group_names:
+		for candidate: Node in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(candidate):
+				continue
+			if not is_trash and item != null and candidate.has_method("has_room_for") and not candidate.has_room_for(item):
+				continue   ## skip a full/ineligible container — this check was the whole gap
+			var d: float = NPCItemUser.flat_distance(global_position, (candidate as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = candidate
+	return best
+
+## Nearest generator still below 100% fuel, excluding IDs already
+## refueled THIS SESSION (passed in by RefuelActivity — its own session
+## state stays the single source of truth, same shape as
+## find_cleaning_target() not owning any state itself either). Also used
+## with an empty exclude set for a quick "is there anything to do at
+## all" check.
+func find_next_refuel_target(exclude_ids: Dictionary) -> Node:
+	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	if pm == null:
+		return null
+	var best: Node = null
+	var best_d: float = INF
+	for gen: Node in get_tree().get_nodes_in_group("generator"):
+		if not is_instance_valid(gen):
 			continue
-		if not is_trash and item != null and candidate.has_method("has_room_for") and not candidate.has_room_for(item):
-			continue   ## skip shelves with no room — this check was the whole gap
-		var d: float = NPCItemUser.flat_distance(global_position, (candidate as Node3D).global_position)
+		var gid: int = gen.get_instance_id()
+		if exclude_ids.has(gid):
+			continue
+		var fuel: float = pm.get_generator_fuel(str(gid))
+		if fuel >= 100.0:
+			continue
+		var d: float = NPCItemUser.flat_distance(global_position, (gen as Node3D).global_position)
 		if d < best_d:
 			best_d = d
-			best = candidate
+			best = gen
 	return best
+
+## Autonomous-trigger availability check — mirrors
+## has_cleaning_target_available()'s shape. Gates on REFUEL_URGENT_BELOW
+## (not "any generator below 100%") so an NPC doesn't autonomously
+## interrupt other work over a near-full generator; RefuelActivity's own
+## session sweep still tops off everything below 100% once it starts.
+func has_refuel_target_available() -> bool:
+	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	if pm == null:
+		return false
+	var urgent_exists: bool = false
+	for gen: Node in get_tree().get_nodes_in_group("generator"):
+		if not is_instance_valid(gen):
+			continue
+		if pm.get_generator_fuel(str(gen.get_instance_id())) < REFUEL_URGENT_BELOW:
+			urgent_exists = true
+			break
+	if not urgent_exists:
+		return false
+	if held_item != null and held_item.has_method("refuel_tick"):
+		return true
+	var filt: Callable = Callable(NPCItemUser, "is_spare_fuel_can")
+	return NPCItemUser.find_loose_item(self, filt) != null \
+		or not NPCItemUser.find_shelved_item(self, filt).is_empty()
 
 ## Used by the stuck-recovery hook to decide whether a forced grab should
 ## be logged/treated as "threw away" vs "put away" once delivered — the
@@ -1295,7 +1380,6 @@ func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node
 ## classification, not a gate.
 func is_trash_item(item: Node) -> bool:
 	return JobBoard._is_trash_item(item) if JobBoard.has_method("_is_trash_item") else false
-
 
 # ─── Skills (Part 4) — score multipliers for job selection; grow with use ──
 var skills: Dictionary = {

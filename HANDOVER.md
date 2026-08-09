@@ -1,3 +1,33 @@
+# Handover — NPC Light Storage (End Table/Dresser) Cleanup + Refuel Session Redesign (Aug 2026)
+
+- Fixed a dead group-name bug: NPCItemUser.find_shelved_item() and
+  JobBoard._spare_exists() both searched group "shelf", which nothing in
+  the project has ever joined (real shelves/storage join "shelving").
+  NPCs could never find a spare item that had been put away on a shelf —
+  affected Eat/Drink/Replace-Filter/Refuel fetch-from-shelf fallback.
+- Added has_room_for()/npc_try_place_item() to LightStorage.gd (End
+  Table/Dresser) so Cleaning can actually store eligible light items
+  there — previously silently failed since only Shelving.gd had these.
+  Eligibility reuses the player's own inventory_item group gate.
+- Added an extensible item-classification → destination-group mapping
+  to NPC.find_cleaning_destination() (currently everything still
+  resolves to "shelving") so a future dedicated container (Fridge for
+  food, etc.) is a one-line addition, not a rework.
+- Pulled REFUEL out of JobBoard/JobActivity entirely (it never fit the
+  single-target claim shape any better than Cleaning did) and rebuilt it
+  as NPCBrain.RefuelActivity/CommandRefuelActivity: fetches one fuel can,
+  sweeps every generator below 100% in one session, never revisits a
+  generator already topped off, ends when the can empties or everything's
+  full. Also fixes the old REFUEL_BELOW=40% gate that meant a mid-range
+  generator was never even detectable as needing fuel.
+
+Files touched: `scripts/npc/NPCItemUser.gd`, `scripts/npc/JobBoard.gd`,
+`scripts/npc/NPC.gd`, `scripts/npc/NPCBrain.gd`,
+`scripts/world/furniture/LightStorage.gd`, `scripts/ui/npc/NPCTalkMenuUI.gd`.
+
+---
+---
+
 # Handover — Shelving Facing + Default-South Selection Reset (Aug 2026)
 
 - **Bug A — Shelving faced backwards (two independent causes).** The

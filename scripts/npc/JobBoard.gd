@@ -6,7 +6,11 @@ extends Node
 ##
 ## Job dictionary shape:
 ##   id           String  — stable while the condition persists ("refuel_<iid>")
-##   type         String  — "HARVEST" | "REPLACE_FILTER" | "REFUEL"
+##   type         String  — "HARVEST" | "REPLACE_FILTER"
+##   (REFUEL was JobBoard-claimed through Aug 2026; moved to a dedicated
+##   multi-generator session — NPCBrain.RefuelActivity — since sweeping
+##   every generator in one trip doesn't fit this single-target shape any
+##   better than Cleaning's multi-item sweep does. See docs/systems/npc/README.md.)
 ##   target       Node    — tray / purifier / generator
 ##   fetch_filter Callable or null — matches the item that must be carried
 ##   claimed_by   Node    — NPC or null
@@ -15,7 +19,6 @@ extends Node
 ## one new _scan_*() function + one JobActivity type-branch in NPCBrain.
 
 const SCAN_INTERVAL: float = 2.0
-const REFUEL_BELOW: float = 40.0
 const FILTER_BELOW: float = 30.0
 
 var _jobs: Dictionary = {}   ## id -> job dict
@@ -122,7 +125,6 @@ func _rescan() -> void:
 	var seen: Dictionary = {}
 	_scan_harvest(seen)
 	_scan_filters(seen)
-	_scan_refuel(seen)
 	_scan_cleaning(seen)
 	## Drop jobs whose condition ended; keep claim state on persisting ones.
 	for id: String in _jobs.keys().duplicate():
@@ -166,24 +168,6 @@ func _scan_filters(seen: Dictionary) -> void:
 		if pur.filter_quality < FILTER_BELOW:
 			_mark(seen, "filter_%d" % pur.get_instance_id(),
 				"REPLACE_FILTER", pur, spare_filter)
-
-func _scan_refuel(seen: Dictionary) -> void:
-	## FuelCan.gd declares no class_name — duck-type instead of `is FuelCan`.
-	var fuel_can: Callable = func(item: Node) -> bool:
-		return item.has_method("refuel_tick") and item.has_method("can_store") \
-			and ("_fuel_remaining" in item) and item._fuel_remaining > 0.0
-	if not _spare_exists(fuel_can):
-		return
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm == null:
-		return
-	for gen: Node in get_tree().get_nodes_in_group("generator"):
-		if not is_instance_valid(gen):
-			continue
-		var fuel: float = pm.get_generator_fuel(str(gen.get_instance_id()))
-		if fuel < REFUEL_BELOW:
-			_mark(seen, "refuel_%d" % gen.get_instance_id(),
-				"REFUEL", gen, fuel_can)
 
 ## Same periodic cadence as Harvest/Filter/Refuel discovery — called from
 ## _rescan(). Rebuilds both cached lists fresh each pass; idle-tracking
@@ -248,7 +232,9 @@ func _spare_exists(filter: Callable) -> bool:
 			continue
 		if filter.call(node):
 			return true
-	for shelf: Node in get_tree().get_nodes_in_group("shelf"):
+	## Fixed Aug 2026 — same dead-group bug as NPCItemUser.find_shelved_item();
+	## real shelf/storage objects join "shelving", never "shelf".
+	for shelf: Node in get_tree().get_nodes_in_group("shelving"):
 		if not is_instance_valid(shelf) or not ("slots" in shelf):
 			continue
 		for stack in shelf.slots:

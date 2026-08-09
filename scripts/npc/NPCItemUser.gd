@@ -88,7 +88,11 @@ static func find_loose_item(npc: NPC, filter: Callable) -> RigidBody3D:
 static func find_shelved_item(npc: NPC, filter: Callable) -> Dictionary:
 	var best: Dictionary = {}
 	var best_d: float = INF
-	for node: Node in npc.get_tree().get_nodes_in_group("shelf"):
+	## Fixed Aug 2026 — every real shelf/storage object joins "shelving"
+	## (Shelving.gd, LightStorage.gd), never "shelf". This loop searched a
+	## group nothing has ever joined, so it silently found nothing for
+	## the entire lifetime of this function.
+	for node: Node in npc.get_tree().get_nodes_in_group("shelving"):
 		if not is_instance_valid(node) or not ("slots" in node):
 			continue
 		var d: float = flat_distance((node as Node3D).global_position, npc.global_position)
@@ -167,6 +171,13 @@ static func drop_held(npc: NPC) -> void:
 static func is_drinkable_bottle(item: Node) -> bool:
 	return item.has_method("take_drink") and ("current_fill_mL" in item) \
 		and item.current_fill_mL > 0.0
+
+## Fuel-can duck-typed filter (FuelCan.gd declares no class_name — same
+## reasoning as is_edible/is_drinkable_bottle above). Shared by
+## RefuelActivity's fetch phase and NPC.has_refuel_target_available().
+static func is_spare_fuel_can(item: Node) -> bool:
+	return item.has_method("refuel_tick") and ("_fuel_remaining" in item) \
+		and float(item._fuel_remaining) > 0.0
 
 static func is_edible(item: Node) -> bool:
 	if item is DishItem:

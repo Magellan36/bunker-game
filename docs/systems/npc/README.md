@@ -1530,3 +1530,19 @@ without being asked.
 68. Force a shelf-full race between two NPCs both cleaning toward the
     same shelf — confirm a failed placement doesn't leave the item
     permanently unavailable to the other NPC (claim leak fix).
+69. Put a spare Fuel Can or Purifier Filter on a real shelf (not the
+    floor) — confirm Eat/Drink/Replace-Filter/Refuel can now find it
+    (previously find_shelved_item()/_spare_exists() searched a group
+    ("shelf") nothing ever joined — see NPC_LIGHT_STORAGE_AND_REFUEL_
+    REDESIGN.md).
+70. Ask an NPC to clean with a loose Fuel Can/Water Bottle and an empty
+    End Table or Dresser nearby — confirm it gets carried in and stored
+    (End Table/Dresser previously had no npc_try_place_item(), so this
+    always silently failed/dropped the item).
+71. Set a generator to a mid-range fuel level (e.g. 70%) — confirm
+    "Refuel the generator" now offers it (previously gated at <40%).
+72. Issue "Refuel the generator" with 2+ generators below 100% and one
+    fuel can — confirm the NPC sweeps every eligible generator in one
+    trip, never re-fetches mid-session, never revisits a generator
+    already topped off, and stops cleanly when the can runs dry or
+    everything's full.

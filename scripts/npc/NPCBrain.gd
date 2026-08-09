@@ -37,6 +37,7 @@ func setup(npc: NPC) -> void:
 		TalkActivity.new(),
 		GiveToFriendActivity.new(),
 		CleaningActivity.new(),
+		RefuelActivity.new(),
 	]
 
 func current_label() -> String:
@@ -1120,6 +1121,174 @@ class CleaningActivity extends NPCActivity:
 		_item = null
 
 
+class RefuelActivity extends NPCActivity:
+	## Refuel (Aug 2026, sustained session) — fetch ONE fuel can, then
+	## visit every generator below 100% in turn, refueling each until
+	## full (or the can runs dry) before moving to the next. Mirrors
+	## CleaningActivity's fetch→travel→[loop] shape exactly — multi-
+	## location work doesn't fit JobBoard's single-target claim system,
+	## see JobBoard.gd's own header comment. Ends when the can empties or
+	## no generator remains below 100%. Never revisits a generator
+	## already topped off THIS session (_refueled_ids) — that's what
+	## prevents an infinite loop once the first generator it fills is
+	## still nearest again.
+	const APPROACH_DISTANCE: float = 1.0
+	const WORK_RANGE: float = 1.6
+
+	var _can: RigidBody3D = null
+	var _fetch_loose: RigidBody3D = null
+	var _fetch_shelf: Dictionary = {}
+	var _current_gen: Node = null
+	var _refueled_ids: Dictionary = {}   ## generator instance_id -> true, this session only
+	var _phase: String = "fetch"         ## fetch -> travel -> refuel
+	var _finished: bool = false
+
+	func label() -> String:
+		match _phase:
+			"fetch": return "Fetching fuel can"
+			"travel": return "Heading to generator"
+			_: return "Refueling"
+
+	func score(npc: NPC) -> float:
+		if not npc.has_refuel_target_available():
+			return 0.0
+		return NPC.REFUEL_BASE_SCORE * npc.get_work_ethic_job_mult() \
+			* npc.get_job_priority_weight("REFUEL")
+
+	func interruptible() -> bool:
+		return _phase != "refuel"   ## mid-pour, commit; between generators/fetching, fine to interrupt
+
+	func enter(npc: NPC) -> void:
+		_refueled_ids = {}
+		_finished = false
+		if npc.held_item != null and npc.held_item.has_method("refuel_tick"):
+			_can = npc.held_item
+			_pick_next_generator(npc)
+			return
+		_phase = "fetch"
+		_start_fetch(npc)
+
+	func _start_fetch(npc: NPC) -> void:
+		var filt: Callable = Callable(NPCItemUser, "is_spare_fuel_can")
+		var loose: RigidBody3D = NPCItemUser.find_loose_item(npc, filt)
+		var shelf_pick: Dictionary = {} if loose != null else NPCItemUser.find_shelved_item(npc, filt)
+		var tgt: Node3D = loose if loose != null \
+			else (shelf_pick.get("shelf") as Node3D if not shelf_pick.is_empty() else null)
+		if tgt == null:
+			_finished = true   ## no spare can anywhere — nothing to do
+			return
+		if loose != null:
+			if not NPCItemUser.claim_item(loose, npc):
+				_finished = true   ## momentary claim clash — try again next think-cycle
+				return
+			_fetch_loose = loose
+		else:
+			if not NPCItemUser.claim_item(shelf_pick.get("item"), npc):
+				_finished = true
+				return
+			_fetch_shelf = shelf_pick
+		npc.set_nav_target(tgt.global_position)
+
+	func _tick_fetch(npc: NPC, delta: float) -> void:
+		if npc.held_item != null:
+			_can = npc.held_item
+			_pick_next_generator(npc)
+			return
+		if _fetch_loose != null and is_instance_valid(_fetch_loose):
+			if "is_held" in _fetch_loose and _fetch_loose.is_held:
+				_fetch_loose = null
+				_finished = true
+				return
+			npc.nav_steer(delta)
+			if NPCItemUser.flat_distance(npc.global_position, _fetch_loose.global_position) <= NPCItemUser.PICKUP_RANGE:
+				if not NPCItemUser.grab_loose(npc, _fetch_loose):
+					_finished = true
+			return
+		if not _fetch_shelf.is_empty():
+			var shelf: Node3D = _fetch_shelf.get("shelf")
+			if shelf == null or not is_instance_valid(shelf):
+				_finished = true
+				return
+			npc.nav_steer(delta)
+			if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) <= NPCItemUser.SHELF_RANGE:
+				if not NPCItemUser.grab_from_shelf(npc, shelf, int(_fetch_shelf.get("slot", -1))):
+					_finished = true
+			return
+		_finished = true   ## nothing left to fetch — spare can vanished between scan and now
+
+	func _pick_next_generator(npc: NPC) -> void:
+		_current_gen = npc.find_next_refuel_target(_refueled_ids)
+		if _current_gen == null:
+			_finished = true   ## every generator full — session complete
+			return
+		npc.set_nav_target(_approach_point(npc, _current_gen))
+		_phase = "travel"
+
+	func _approach_point(npc: NPC, target: Node) -> Vector3:
+		var t3: Node3D = target as Node3D
+		var to_npc: Vector3 = npc.global_position - t3.global_position
+		to_npc.y = 0.0
+		if to_npc.length() < 0.01:
+			to_npc = Vector3(0.0, 0.0, 1.0)   ## degenerate case: npc exactly at center
+		return t3.global_position + to_npc.normalized() * APPROACH_DISTANCE
+
+	func tick(npc: NPC, delta: float) -> void:
+		match _phase:
+			"fetch":
+				_tick_fetch(npc, delta)
+			"travel":
+				if _current_gen == null or not is_instance_valid(_current_gen):
+					_pick_next_generator(npc)
+					return
+				npc.nav_steer(delta)
+				var t_pos: Vector3 = (_current_gen as Node3D).global_position
+				var flat_dist: float = Vector2(npc.global_position.x, npc.global_position.z) \
+					.distance_to(Vector2(t_pos.x, t_pos.z))
+				if flat_dist <= WORK_RANGE:
+					npc.velocity = Vector3.ZERO
+					_phase = "refuel"
+					npc.show_work_banner()
+			"refuel":
+				npc.halt_movement(delta)
+				if _can == null or not is_instance_valid(_can) \
+						or _current_gen == null or not is_instance_valid(_current_gen):
+					npc.hide_work_banner()
+					_pick_next_generator(npc)
+					return
+				var pm: Node = npc.get_tree().get_first_node_in_group("power_manager")
+				if pm == null:
+					_finished = true
+					return
+				var gid: String = str(_current_gen.get_instance_id())
+				npc.update_work_banner("REFUELING", pm.get_generator_fuel(gid) / 100.0)
+				_can.refuel_tick(delta)   ## REAL continuous pour, same mechanic as before
+				var fuel_after: float = pm.get_generator_fuel(gid)
+				var can_empty: bool = ("_fuel_remaining" in _can) and float(_can._fuel_remaining) <= 0.0
+				if fuel_after >= 100.0 or can_empty:
+					npc.hide_work_banner()
+					_refueled_ids[_current_gen.get_instance_id()] = true
+					NotificationManager.notify(UIKit.Domain.POWER, NotificationManager.Severity.INFO,
+						"%s refueled the generator" % npc.npc_name)
+					npc.log_action("Refueled a generator")
+					npc.gain_skill("electrical")
+					if can_empty:
+						_finished = true   ## can is dry — session ends even if generators remain
+					else:
+						_pick_next_generator(npc)
+
+	func done(_npc: NPC) -> bool:
+		return _finished
+
+	func exit(npc: NPC) -> void:
+		npc.hide_work_banner()
+		if _fetch_loose != null:
+			NPCItemUser.release_item(_fetch_loose)
+		if not _fetch_shelf.is_empty():
+			NPCItemUser.release_item(_fetch_shelf.get("item"))
+		if _finished and npc.held_item != null and npc.held_item == _can:
+			NPCItemUser.drop_held(npc)   ## session truly over — set the (empty or spare) can down
+
+
 class EatActivity extends NPCActivity:
 	## Hunger-driven. Nearest edible: cooked Dish / produce / FoodCan-with-
 	## bites, loose in the world OR on a shelf (via Shelving.npc_retrieve).
@@ -1288,7 +1457,6 @@ class JobActivity extends NPCActivity:
 	const TYPE_CONF: Dictionary = {
 		"HARVEST":        {"time": 4.0, "skill": "farming",    "base": 55.0, "verb": "HARVESTING"},
 		"REPLACE_FILTER": {"time": 5.0, "skill": "plumbing",   "base": 65.0, "verb": "FITTING FILTER"},
-		"REFUEL":         {"time": 6.0, "skill": "electrical", "base": 60.0, "verb": "REFUELING"},
 	}
 
 	var _job: Dictionary
@@ -1413,10 +1581,6 @@ class JobActivity extends NPCActivity:
 				var conf: Dictionary = TYPE_CONF[_job["type"]]
 				npc.update_work_banner(String(conf["verb"]),
 					1.0 - (_work_left / _work_total))
-				## FuelCan.gd declares no class_name — duck-type via has_method.
-				if _job["type"] == "REFUEL" and npc.held_item != null \
-						and npc.held_item.has_method("refuel_tick"):
-					npc.held_item.refuel_tick(delta)   ## REAL continuous pour
 				if _work_left <= 0.0:
 					_complete(npc)
 
@@ -1473,13 +1637,6 @@ class JobActivity extends NPCActivity:
 					NotificationManager.notify(UIKit.Domain.WATER,
 						NotificationManager.Severity.INFO,
 						"%s replaced the purifier filter" % npc.npc_name)
-			"REFUEL":
-				## Pouring already happened continuously during "work".
-				if npc.held_item != null:
-					NPCItemUser.drop_held(npc)   ## set the can back down
-				NotificationManager.notify(UIKit.Domain.POWER,
-					NotificationManager.Severity.INFO,
-					"%s refueled the generator" % npc.npc_name)
 		NPCDebug.log_job("completed", _job, npc)
 		npc.gain_skill(String(conf["skill"]))
 		_claimed = false
@@ -1856,6 +2013,41 @@ class CommandCleaningActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		_inner = CleaningActivity.new()
+		_inner.enter(npc)
+		if _inner.done(npc):
+			_inner = null
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _inner != null:
+			_inner.tick(npc, delta)
+
+	func done(npc: NPC) -> bool:
+		return _inner == null or _inner.done(npc)
+
+	func exit(npc: NPC) -> void:
+		if _inner != null:
+			_inner.exit(npc)
+		_inner = null
+
+
+class CommandRefuelActivity extends NPCActivity:
+	## "Can you complete this job?" → Refuel the generators (Aug 2026).
+	## Delegates straight to a normal (organic-mode) RefuelActivity — its
+	## own enter() already does the full fetch/target search; done()
+	## right after enter() tells us whether anything was actually found.
+	var _inner: NPCActivity = null
+
+	func label() -> String:
+		return _inner.label() if _inner != null else "Idle"
+
+	func score(_npc: NPC) -> float:
+		return 0.0
+
+	func interruptible() -> bool:
+		return _inner == null or _inner.interruptible()
+
+	func enter(npc: NPC) -> void:
+		_inner = RefuelActivity.new()
 		_inner.enter(npc)
 		if _inner.done(npc):
 			_inner = null

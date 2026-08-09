@@ -55,9 +55,9 @@ const PLACEHOLDER_LINE: String = "\"...\""
 
 ## Centralized so a new job type later needs ONE entry here, nothing
 ## else. "type" must match JobBoard's job "type" string exactly
-## (HARVEST/REPLACE_FILTER/REFUEL), or the literal string "CLEANING"
-## (routed to CommandCleaningActivity instead of the generic
-## CommandJobActivity, since Cleaning isn't JobBoard-claimed at all).
+## (HARVEST/REPLACE_FILTER), or the literal strings "CLEANING"/"REFUEL"
+## (routed to CommandCleaningActivity/CommandRefuelActivity instead of
+## the generic CommandJobActivity, since neither is JobBoard-claimed).
 const NPC_JOB_MENU_ENTRIES: Array[Dictionary] = [
 	{"type": "HARVEST", "label": "Harvest the plants", "action_desc": "heading to harvest", "empty_desc": "nothing ready to harvest"},
 	{"type": "REPLACE_FILTER", "label": "Replace the water filters", "action_desc": "heading to replace a filter", "empty_desc": "no filters need replacing"},
@@ -502,6 +502,8 @@ func _on_job_command_pressed(job_type: String) -> void:
 	var empty_desc: String = String(entry.get("empty_desc", "nothing to do right now"))
 	if job_type == "CLEANING":
 		_issue_command(NPCBrain.CommandCleaningActivity.new(), action_desc, empty_desc)
+	elif job_type == "REFUEL":
+		_issue_command(NPCBrain.CommandRefuelActivity.new(), action_desc, empty_desc)
 	else:
 		_issue_command(NPCBrain.CommandJobActivity.new(job_type), action_desc, empty_desc)
 
