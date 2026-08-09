@@ -352,7 +352,7 @@ func _build_garlic(mat: StandardMaterial3D) -> void:
 	_mesh.position = Vector3(0.0, 0.04, 0.0)
 	_mesh.set_surface_override_material(0, mat)
 
-	## Small pointed tip
+	## Small pointed tip (divide position by 2x scale)
 	var tip_mi: MeshInstance3D = MeshInstance3D.new()
 	var tip: CylinderMesh = CylinderMesh.new()
 	tip.top_radius = 0.002
@@ -360,7 +360,7 @@ func _build_garlic(mat: StandardMaterial3D) -> void:
 	tip.height = 0.015
 	tip.radial_segments = 6
 	tip_mi.mesh = tip
-	tip_mi.position = Vector3(0.0, 0.078, 0.0)
+	tip_mi.position = Vector3(0.0, 0.078 / 2.0, 0.0)
 	tip_mi.set_surface_override_material(0, mat)
 	_mesh.add_child(tip_mi)
 
