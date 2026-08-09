@@ -1586,3 +1586,5 @@ without being asked.
 83. Drop a dense pile of items (e.g. by deleting a loaded shelf) and ask
     an NPC to clean — confirm it prefers an outer, reachable item over
     one buried in the center when both are similar distances away.
+84. Press F7 → "Make All NPCs Clean" with several NPCs mid-activity —
+    confirm every one immediately force-switches into Cleaning.

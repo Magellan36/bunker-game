@@ -129,6 +129,7 @@ func _ready() -> void:
 		{ "name": "NPC", "rows": [
 			["Spawn NPC", _on_spawn_npc_pressed],
 			["Spawn Neutral NPC (Testing)", _on_spawn_neutral_npc_pressed],
+			["Make All NPCs Clean", _on_make_all_npcs_clean_pressed],
 			["Drain NPC Needs -40", _on_drain_npc_needs_pressed],
 			["Drain NPC Mood -40", _on_drain_npc_mood_pressed],
 			["Health +20", _on_npc_health_up_pressed],
@@ -533,6 +534,23 @@ func _on_spawn_neutral_npc_pressed() -> void:
 	if "skills" in npc:
 		for key: String in npc.skills.keys():
 			npc.skills[key] = 1.0
+
+## Aug 2026 — force-starts every NPC in the level straight into Cleaning,
+## bypassing normal scoring entirely (same force_command() path the
+## player-issued Talk-menu "Clean the bunker" request uses via
+## CommandCleaningActivity, just applied to every NPC at once instead of
+## one at a time). Useful for clearing test clutter fast, and for
+## isolating whether a reported cleaning issue is about the JOB-PICKING
+## logic (never gets chosen) versus the cleaning behavior itself (chosen,
+## but doesn't work right) — this button skips past the former entirely.
+func _on_make_all_npcs_clean_pressed() -> void:
+	var count: int = 0
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if not is_instance_valid(npc) or not ("brain" in npc) or npc.brain == null:
+			continue
+		npc.brain.force_command(NPCBrain.CommandCleaningActivity.new())
+		count += 1
+	print("[AdminMenu] Forced %d NPC(s) into Cleaning" % count)
 
 ## Knocks 40 points off every spawned NPC's three needs — instant way to
 ## trigger drink/eat/sit behavior without waiting on the game clock.

@@ -1,3 +1,15 @@
+## NPC: F7 "Make All NPCs Clean" (Aug 2026)
+
+- Added a debug row that force_command()s every NPC in the "npc" group
+  straight into CommandCleaningActivity at once, for fast test-clutter
+  cleanup and to isolate job-picking issues from cleaning-behavior ones.
+
+Files touched: `scripts/ui/menus/AdminMenu.gd`.
+
+---
+
+---
+
 # Handover — Shelf E-Priority Fairness + Grow Light Priority + Focus Mode Plumbing (Aug 2026)
 
 ## What changed this session
