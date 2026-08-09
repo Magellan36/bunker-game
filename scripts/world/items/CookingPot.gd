@@ -607,14 +607,14 @@ func _build_placeholder_mesh() -> void:
 	rim_mi.set_surface_override_material(0, rim_mat)
 	add_child(rim_mi)
 
-	## Top indentation — deepened and widened so the opening clearly reads in-game.
+	## Top indentation — deep cavity so the pot reads as open/hollow in-game.
 	var cavity_mi: MeshInstance3D = MeshInstance3D.new()
 	var cavity: CylinderMesh = CylinderMesh.new()
-	cavity.top_radius    = 0.235
-	cavity.bottom_radius = 0.225
-	cavity.height        = 0.11
+	cavity.top_radius    = 0.24
+	cavity.bottom_radius = 0.22
+	cavity.height        = 0.22
 	cavity_mi.mesh = cavity
-	cavity_mi.position = Vector3(0.0, 0.245, 0.0)
+	cavity_mi.position = Vector3(0.0, 0.19, 0.0)
 	var cavity_mat: StandardMaterial3D = StandardMaterial3D.new()
 	cavity_mat.albedo_color = Color(0.09, 0.10, 0.11, 1.0)
 	cavity_mat.metallic     = 0.40
@@ -625,8 +625,8 @@ func _build_placeholder_mesh() -> void:
 	## Inner lip around the cavity to reinforce the rolled pot edge look.
 	var inner_lip_mi: MeshInstance3D = MeshInstance3D.new()
 	var inner_lip: TorusMesh = TorusMesh.new()
-	inner_lip.inner_radius = 0.225
-	inner_lip.outer_radius = 0.246
+	inner_lip.inner_radius = 0.22
+	inner_lip.outer_radius = 0.245
 	inner_lip.rings = 22
 	inner_lip.ring_segments = 10
 	inner_lip_mi.mesh = inner_lip
