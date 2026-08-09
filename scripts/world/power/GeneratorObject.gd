@@ -17,7 +17,7 @@ func _wdbg(msg: String) -> void:
 
 # ─── Tier config ──────────────────────────────────────────────────────────────
 const TIER_CONFIG: Array = [
-	{ "size": Vector3(0.85, 0.85, 0.85), "watts": 800,  "label": "Generator S" },
+	{ "size": Vector3(0.57, 0.85, 0.85), "watts": 800,  "label": "Generator S" },
 	{ "size": Vector3(1.24, 1.13, 0.62), "watts": 2000, "label": "Generator M" },
 	{ "size": Vector3(1.85, 1.70, 0.925), "watts": 5000, "label": "Generator L" },
 ]
@@ -29,6 +29,8 @@ const COLOR_STOPPED:  Color = Color(0.85, 0.18, 0.12, 1.0)
 const COLOR_GENL_GREEN: Color = Color(0.18, 0.52, 0.34, 1.0)   ## industrial green panels
 const COLOR_GENM_WHITE: Color = Color(0.92, 0.92, 0.90, 1.0)   ## white panels
 const COLOR_GENL_BLACK: Color = Color(0.10, 0.10, 0.10, 1.0)   ## black base/skid
+const COLOR_GENS_DARK: Color = Color(0.18, 0.18, 0.20, 1.0)   ## dark grey body
+const COLOR_GENS_RED: Color = Color(0.85, 0.15, 0.10, 1.0)   ## red accent stripe
 
 ## Wire socket — small emissive sphere on the generator side face (−Z face).
 ## Indicates where a wire should be connected. Cyan when running, dim when off.
@@ -180,8 +182,132 @@ func _build_mesh() -> void:
 	## The centre snap dot shown in Build Mode is sufficient; the back-face sphere
 	## was a duplicate connection point that confused placement.
 
+	## Generator S specific details: dark grey body, red stripe, control panel, emergency stop
+	if generator_tier == 0:
+		## Dark panels wrapping all 4 vertical faces
+		var dark_mat: StandardMaterial3D = StandardMaterial3D.new()
+		dark_mat.albedo_color = COLOR_GENS_DARK
+		dark_mat.roughness    = 0.60
+		dark_mat.metallic     = 0.40
+
+		## Front panel (+Z)
+		var sf_mi: MeshInstance3D = MeshInstance3D.new()
+		var sf: BoxMesh = BoxMesh.new()
+		sf.size = Vector3(sz.x * 0.96, sz.y * 0.90, 0.022)
+		sf_mi.mesh = sf
+		sf_mi.position = Vector3(0.0, sz.y * 0.50, sz.z * 0.5 + 0.015)
+		sf_mi.set_surface_override_material(0, dark_mat)
+		add_child(sf_mi)
+
+		## Back panel (-Z)
+		var sb_mi: MeshInstance3D = MeshInstance3D.new()
+		var sb: BoxMesh = BoxMesh.new()
+		sb.size = Vector3(sz.x * 0.96, sz.y * 0.90, 0.022)
+		sb_mi.mesh = sb
+		sb_mi.position = Vector3(0.0, sz.y * 0.50, -sz.z * 0.5 - 0.015)
+		sb_mi.set_surface_override_material(0, dark_mat)
+		add_child(sb_mi)
+
+		## Left panel (+X)
+		var sl_mi: MeshInstance3D = MeshInstance3D.new()
+		var sl: BoxMesh = BoxMesh.new()
+		sl.size = Vector3(0.022, sz.y * 0.90, sz.z * 0.96)
+		sl_mi.mesh = sl
+		sl_mi.position = Vector3(sz.x * 0.5 + 0.015, sz.y * 0.50, 0.0)
+		sl_mi.set_surface_override_material(0, dark_mat)
+		add_child(sl_mi)
+
+		## Right panel (-X)
+		var sr_mi: MeshInstance3D = MeshInstance3D.new()
+		var sr: BoxMesh = BoxMesh.new()
+		sr.size = Vector3(0.022, sz.y * 0.90, sz.z * 0.96)
+		sr_mi.mesh = sr
+		sr_mi.position = Vector3(-sz.x * 0.5 - 0.015, sz.y * 0.50, 0.0)
+		sr_mi.set_surface_override_material(0, dark_mat)
+		add_child(sr_mi)
+
+		## Red horizontal stripe (front face)
+		var stripe_mi: MeshInstance3D = MeshInstance3D.new()
+		var stripe: BoxMesh = BoxMesh.new()
+		stripe.size = Vector3(sz.x * 0.94, sz.y * 0.12, 0.024)
+		stripe_mi.mesh = stripe
+		stripe_mi.position = Vector3(0.0, sz.y * 0.45, sz.z * 0.5 + 0.018)
+		var stripe_mat: StandardMaterial3D = StandardMaterial3D.new()
+		stripe_mat.albedo_color = COLOR_GENS_RED
+		stripe_mat.roughness    = 0.40
+		stripe_mat.metallic     = 0.50
+		stripe_mi.set_surface_override_material(0, stripe_mat)
+		add_child(stripe_mi)
+
+		## Control panel inset (upper front)
+		var ctrl_mi: MeshInstance3D = MeshInstance3D.new()
+		var ctrl: BoxMesh = BoxMesh.new()
+		ctrl.size = Vector3(sz.x * 0.70, sz.y * 0.28, 0.025)
+		ctrl_mi.mesh = ctrl
+		ctrl_mi.position = Vector3(0.0, sz.y * 0.72, sz.z * 0.5 + 0.018)
+		var ctrl_mat: StandardMaterial3D = StandardMaterial3D.new()
+		ctrl_mat.albedo_color = Color(0.12, 0.12, 0.15, 1.0)
+		ctrl_mat.roughness    = 0.60
+		ctrl_mat.metallic     = 0.50
+		ctrl_mi.set_surface_override_material(0, ctrl_mat)
+		add_child(ctrl_mi)
+
+		## Emergency stop button (red circle, lower front)
+		var estop_mi: MeshInstance3D = MeshInstance3D.new()
+		var estop: CylinderMesh = CylinderMesh.new()
+		estop.top_radius    = 0.035
+		estop.bottom_radius = 0.035
+		estop.height        = 0.025
+		estop.radial_segments = 16
+		estop_mi.mesh = estop
+		estop_mi.position = Vector3(-sz.x * 0.25, sz.y * 0.32, sz.z * 0.5 + 0.025)
+		estop_mi.rotation.x = PI * 0.5
+		var estop_mat: StandardMaterial3D = StandardMaterial3D.new()
+		estop_mat.albedo_color = Color(0.90, 0.10, 0.08, 1.0)
+		estop_mat.roughness    = 0.35
+		estop_mat.metallic     = 0.55
+		estop_mi.set_surface_override_material(0, estop_mat)
+		add_child(estop_mi)
+
+		## Handle on top (black bar)
+		var handle_mi: MeshInstance3D = MeshInstance3D.new()
+		var handle: BoxMesh = BoxMesh.new()
+		handle.size = Vector3(sz.x * 0.50, 0.025, 0.025)
+		handle_mi.mesh = handle
+		handle_mi.position = Vector3(0.0, sz.y + 0.02, 0.0)
+		var handle_mat: StandardMaterial3D = StandardMaterial3D.new()
+		handle_mat.albedo_color = COLOR_GENL_BLACK
+		handle_mat.roughness    = 0.40
+		handle_mat.metallic     = 0.60
+		handle_mi.set_surface_override_material(0, handle_mat)
+		add_child(handle_mi)
+
+		## Handle supports (two vertical bars)
+		for hx in [-sz.x * 0.20, sz.x * 0.20]:
+			var supp_mi: MeshInstance3D = MeshInstance3D.new()
+			var supp: BoxMesh = BoxMesh.new()
+			supp.size = Vector3(0.020, 0.04, 0.020)
+			supp_mi.mesh = supp
+			supp_mi.position = Vector3(hx, sz.y + 0.005, 0.0)
+			supp_mi.set_surface_override_material(0, handle_mat)
+			add_child(supp_mi)
+
+		## Ventilation slots on side (3 horizontal slats)
+		var vent_mat: StandardMaterial3D = StandardMaterial3D.new()
+		vent_mat.albedo_color = COLOR_GENL_BLACK
+		vent_mat.roughness    = 0.70
+		vent_mat.metallic     = 0.30
+		for i in range(3):
+			var vent_mi: MeshInstance3D = MeshInstance3D.new()
+			var vent: BoxMesh = BoxMesh.new()
+			vent.size = Vector3(0.024, 0.015, sz.z * 0.40)
+			vent_mi.mesh = vent
+			vent_mi.position = Vector3(-sz.x * 0.5 - 0.018, sz.y * 0.18 + float(i) * 0.035, 0.0)
+			vent_mi.set_surface_override_material(0, vent_mat)
+			add_child(vent_mi)
+
 	## Generator L specific details: green panels, black base, doors, louvers
-	if generator_tier == 2:
+	elif generator_tier == 2:
 		## Black base/skid at bottom
 		var base_mi: MeshInstance3D = MeshInstance3D.new()
 		var base: BoxMesh = BoxMesh.new()
@@ -673,7 +799,7 @@ func _get_interaction_system() -> Node:
 ## no signals, no groups — just a plain Mesh.
 static func build_ghost_mesh(tier: int = 0) -> Mesh:
 	const GEN_SIZES: Array = [
-		Vector3(0.85, 0.85, 0.85),
+		Vector3(0.57, 0.85, 0.85),
 		Vector3(1.24, 1.13, 0.62),
 		Vector3(1.85, 1.70, 0.925),
 	]
