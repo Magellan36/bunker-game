@@ -264,7 +264,7 @@ func _build_strawberry(mat: StandardMaterial3D) -> void:
 	dome.radius = 0.04
 	dome.height = 0.05
 	dome_mi.mesh = dome
-	dome_mi.position = Vector3(0.0, 0.09, 0.0)
+	dome_mi.position = Vector3(0.0, 0.08, 0.0)
 	dome_mi.set_surface_override_material(0, mat)
 	_mesh.add_child(dome_mi)
 
