@@ -32,7 +32,7 @@ func get_display_name() -> String:
 ## reinforcement ribs on each face, corner pillars, and handle cutouts.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
-	_mesh.position = Vector3(0.0, 0.01, 0.0)
+	_mesh.position = Vector3(0.0, 0.019, 0.0)
 
 	var crate_mat: StandardMaterial3D = StandardMaterial3D.new()
 	crate_mat.albedo_color = Color(0.22, 0.25, 0.30, 1.0)
