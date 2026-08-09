@@ -14,7 +14,7 @@ const BACK_HEIGHT: float  = 0.5625  ## was 0.45 → ×1.25
 const LEG_HEIGHT: float   = SEAT_Y - SEAT_THICKNESS * 0.5   ## unchanged formula — auto-scales
 const FOOTPRINT: float    = 0.625   ## was 0.50 → ×1.25
 
-const COLOR_BEIGE: Color = Color(0.82, 0.74, 0.60, 1.0)   ## Matches Table.gd for now
+const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)   ## Matches Table.gd
 
 ## How far the player sinks below the seat surface while "seated" (placeholder
 ## for a proper sit animation — see class comment).
@@ -41,9 +41,9 @@ func _ready() -> void:
 
 func _build_mesh() -> void:
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = COLOR_BEIGE
-	mat.metallic  = 0.0
-	mat.roughness = 0.85
+	mat.albedo_color = COLOR_METAL
+	mat.metallic  = 0.5
+	mat.roughness = 0.4
 
 	## 4 thin legs under the seat corners.
 	var leg_positions: Array[Vector2] = [
