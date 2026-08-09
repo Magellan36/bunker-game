@@ -124,29 +124,90 @@ func on_use() -> void:
 		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
 		queue_free()
 
-## Placeholder sack model, copied from BagOfSoilItem's shape/collision setup,
-## tinted per tier so the two are visually distinguishable on a shelf/floor:
-## darker "chemical" grey-green for Normal, richer saturated green for Pro.
+## Bottle model — cylindrical fertilizer bottle matching the reference image.
+## Body + tapered shoulder + narrow neck + cap. Tinted per tier: grey-green
+## for Normal, purple for Pro. All CylinderMesh primitives.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
-	var box: BoxMesh = BoxMesh.new()
-	box.size = Vector3(0.26, 0.20, 0.16)
-	_mesh.mesh = box
-	_mesh.position = Vector3(0.0, 0.10, 0.0)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.30, 0.62, 0.20, 1.0) if tier == "pro" else Color(0.40, 0.45, 0.32, 1.0)
-	mat.roughness    = 0.90
-	_mesh.set_surface_override_material(0, mat)
+	_mesh.position = Vector3(0.0, 0.14, 0.0)
+
+	var body_color: Color = Color(0.45, 0.20, 0.55, 1.0) if tier == "pro" \
+		else Color(0.20, 0.52, 0.28, 1.0)
+	var body_mat: StandardMaterial3D = StandardMaterial3D.new()
+	body_mat.albedo_color = body_color
+	body_mat.roughness    = 0.75
+	body_mat.metallic     = 0.05
+
+	var cap_mat: StandardMaterial3D = StandardMaterial3D.new()
+	cap_mat.albedo_color = Color(0.90, 0.90, 0.90, 1.0)
+	cap_mat.roughness    = 0.60
+	cap_mat.metallic     = 0.0
+
+	var label_mat: StandardMaterial3D = StandardMaterial3D.new()
+	label_mat.albedo_color = Color(0.92, 0.92, 0.88, 1.0)
+	label_mat.roughness    = 0.80
+	label_mat.metallic     = 0.0
+
+	## Main body — wide cylinder.
+	var body: MeshInstance3D = MeshInstance3D.new()
+	var body_mesh: CylinderMesh = CylinderMesh.new()
+	body_mesh.top_radius    = 0.065
+	body_mesh.bottom_radius = 0.065
+	body_mesh.height        = 0.18
+	body.mesh = body_mesh
+	body.position = Vector3(0.0, 0.0, 0.0)
+	body.set_surface_override_material(0, body_mat)
+	_mesh.add_child(body)
+
+	## Shoulder — tapers from body width to neck width.
+	var shoulder: MeshInstance3D = MeshInstance3D.new()
+	var shoulder_mesh: CylinderMesh = CylinderMesh.new()
+	shoulder_mesh.top_radius    = 0.025
+	shoulder_mesh.bottom_radius = 0.065
+	shoulder_mesh.height        = 0.04
+	shoulder.mesh = shoulder_mesh
+	shoulder.position = Vector3(0.0, 0.11, 0.0)
+	shoulder.set_surface_override_material(0, body_mat)
+	_mesh.add_child(shoulder)
+
+	## Neck — narrow cylinder.
+	var neck: MeshInstance3D = MeshInstance3D.new()
+	var neck_mesh: CylinderMesh = CylinderMesh.new()
+	neck_mesh.top_radius    = 0.025
+	neck_mesh.bottom_radius = 0.025
+	neck_mesh.height        = 0.035
+	neck.mesh = neck_mesh
+	neck.position = Vector3(0.0, 0.145, 0.0)
+	neck.set_surface_override_material(0, body_mat)
+	_mesh.add_child(neck)
+
+	## Cap — slightly wider than neck, white/grey.
+	var cap: MeshInstance3D = MeshInstance3D.new()
+	var cap_mesh: CylinderMesh = CylinderMesh.new()
+	cap_mesh.top_radius    = 0.03
+	cap_mesh.bottom_radius = 0.03
+	cap_mesh.height        = 0.015
+	cap.mesh = cap_mesh
+	cap.position = Vector3(0.0, 0.17, 0.0)
+	cap.set_surface_override_material(0, cap_mat)
+	_mesh.add_child(cap)
+
+	## Label — thin flat box on the front face.
+	var label: MeshInstance3D = MeshInstance3D.new()
+	label.mesh = BoxMesh.new()
+	(label.mesh as BoxMesh).size = Vector3(0.08, 0.10, 0.005)
+	label.position = Vector3(0.0, 0.02, 0.066)
+	label.set_surface_override_material(0, label_mat)
+	_mesh.add_child(label)
+
 	add_child(_mesh)
 
-	## Real collision shape on the RigidBody3D itself — see SeedItem.gd's
-	## _build_placeholder_mesh() comment for why create_trimesh_collision()
-	## was wrong here (no collider on this body at all -> infinite fall,
-	## undetectable by the interaction system).
+	## Collision — single cylinder matching overall bounding volume.
 	var shape: CollisionShape3D = CollisionShape3D.new()
-	var box_shape: BoxShape3D = BoxShape3D.new()
-	box_shape.size = box.size
-	shape.shape = box_shape
+	var cyl_shape: CylinderShape3D = CylinderShape3D.new()
+	cyl_shape.radius = 0.065
+	cyl_shape.height = 0.34
+	shape.shape = cyl_shape
 	shape.position = _mesh.position
 	add_child(shape)
 
