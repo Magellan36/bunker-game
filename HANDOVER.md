@@ -1,3 +1,35 @@
+# Handover — Flashlight.gd Compile Error Fix (Aug 2026)
+
+## What changed this session
+Fixed a compile error introduced by the prior "Softened Upright Snap +
+CTRL Manual-Upright Hold" plan: `Flashlight.gd`'s
+`allow_manual_upright` exclusion was written as a fresh `var`
+declaration, but GDScript doesn't allow a subclass to redeclare a `var`
+already declared on its parent class (`PickupableItem.gd` already
+declares this one) — hard compile error, script failed to load. Fixed
+by removing the redeclaration and instead assigning
+`allow_manual_upright = false` inside `Flashlight._ready()`, which is
+the correct way to override an inherited var's default in GDScript. No
+behavior change from what was originally intended — same end value,
+just set the right way. Already applied and verified directly in this
+session, not left as a pending plan.
+
+### Files modified
+- `scripts/world/items/Flashlight.gd` — redeclaration replaced with an
+  assignment in `_ready()`.
+- `docs/systems/player/README.md` — correction note appended to the
+  prior entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_FLASHLIGHT_VAR_REDECLARATION_FIX_PLAN.md` for the full 3-item
+checklist)
+
+---
+
+---
+
 # Handover — Storage Carry-Retrieval Wall Tunneling Fix (Aug 2026)
 
 Symptom: items retrieved via the StorageUI "Carry" button from a

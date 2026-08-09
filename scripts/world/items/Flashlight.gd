@@ -21,12 +21,6 @@ var shelf_item_type:   String = "flashlight"
 # ─── State ────────────────────────────────────────────────────────────────────
 var _player:           Node3D = null   ## CharacterBody3D — set on pickup
 
-## Excluded from CTRL manual-upright (see PickupableItem._physics_process()'s
-## CTRL branch) — this item's rotation IS its aim direction (auto-aimed
-## along the player's facing, per the header comment above), so forcing it
-## upright while held would fight the entire point of holding one.
-var allow_manual_upright: bool = false
-
 var _on:         bool  = false
 var _battery:    float = 100.0  ## 0–100
 var _is_dead:    bool  = false
@@ -46,6 +40,16 @@ const COL_DEAD: Color = Color(0.30, 0.30, 0.32, 0.55)  ## gray
 func _ready() -> void:
 	super._ready()
 	add_to_group("inventory_item")
+
+	## Excluded from CTRL manual-upright (see PickupableItem.
+	## _physics_process()'s CTRL branch) — this item's rotation IS its aim
+	## direction (auto-aimed along the player's facing, per the header
+	## comment above), so forcing it upright while held would fight the
+	## entire point of holding one. Set here rather than as a var
+	## redeclaration — GDScript doesn't allow shadowing a var that already
+	## exists on the parent class (PickupableItem already declares
+	## allow_manual_upright), even to override its default value.
+	allow_manual_upright = false
 
 	_build_mesh()
 	_build_light()

@@ -426,6 +426,11 @@ own held item while CASE 1 scans for a different target — guarded with
   Releasing CTRL needs no cleanup code: the function holds no state
   between calls, so the item simply stops moving and holds its last
   orientation.
+  (Correction, same session: `Flashlight.gd`'s exclusion was initially
+  written as a fresh `var allow_manual_upright: bool = false`
+  declaration, which is a GDScript compile error — subclasses can't
+  redeclare a parent class's `var`, even to override its default. Fixed
+  to a plain assignment inside `_ready()` instead.)
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**
