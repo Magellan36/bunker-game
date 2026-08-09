@@ -1,3 +1,38 @@
+# Handover — Can Case / Water Case Scale Change (Aug 2026)
+
+## What changed this session
+Removed `CanCase.gd`/`WaterCase.gd`'s `scale = Vector3(0.75, 0.75, 0.75)`
+downscale (both now sit at their full authored mesh size, `1.0`).
+Follow-up to a bug found in the CTRL manual-upright feature: `Basis.
+slerp()` (used by `PickupableItem.slerp_to_upright()`) decomposes and
+interpolates BOTH rotation and scale toward its target — since the
+target is always `Basis.IDENTITY` (scale `1.0`), holding CTRL on either
+item was gradually growing them from their authored 0.75 scale toward
+1.0 as an unintended side effect of what was meant to be a rotation-only
+correction. Brannon preferred the resulting larger look over the
+original 0.75 scale, so rather than fixing the slerp to leave scale
+alone, made 1.0 the permanent authored scale instead. Confirmed via
+direct read of `_compute_obstacle_radius()` that neither the bulky-
+carry-arc gating nor the `NavigationObstacle3D` avoidance radius for
+either item are affected — both are computed from each `CollisionShape3D`
+child's own local transform, never from the parent `RigidBody3D`'s own
+`scale`, so this was already independent of the 0.75 value one way or
+the other.
+
+### Files modified
+- `scripts/world/items/CanCase.gd` — `scale` override removed.
+- `scripts/world/items/WaterCase.gd` — same.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_CANCASE_WATERCASE_SCALE_PLAN.md` for the full 4-item checklist)
+
+---
+
+---
+
 # Handover — Shelf Corner Post Height Fix (Aug 2026)
 
 Symptom: shelf corner posts (all three sizes — Small/Medium/Large share

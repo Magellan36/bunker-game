@@ -431,6 +431,20 @@ own held item while CASE 1 scans for a different target — guarded with
   declaration, which is a GDScript compile error — subclasses can't
   redeclare a parent class's `var`, even to override its default. Fixed
   to a plain assignment inside `_ready()` instead.)
+- **Can Case / Water Case: removed the 0.75 downscale (Aug 2026,
+  `CanCase.gd`/`WaterCase.gd` — flagged: `scripts/world/items/`, not
+  one of the three core files).** Both previously scaled themselves
+  down to 0.75 on `_ready()`; removed after the CTRL manual-upright
+  slerp (which targets `Basis.IDENTITY`, scale `1.0`) was found to drag
+  their scale up toward `1.0` as an unintended side effect while CTRL
+  was held (`Basis.slerp()` interpolates a decomposed scale component
+  alongside rotation — not something `slerp_to_upright()`'s rotation-only
+  intent accounted for). Brannon preferred the resulting larger look, so
+  made it permanent instead of drifting there conditionally. Confirmed
+  no effect on the bulky-carry-arc gating or the `NavigationObstacle3D`
+  avoidance radius for either item — both are computed from each
+  collision shape's own local transform, never from the `RigidBody3D`'s
+  own `scale` property, so this change doesn't alter either.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**

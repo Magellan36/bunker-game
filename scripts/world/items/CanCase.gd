@@ -30,8 +30,10 @@ var _can_visuals: Array[Node3D] = []   ## Populated in _ready(), depleted highes
 func _ready() -> void:
 	super._ready()
 	add_to_group("interactable")
-	## Scale down by 1/4
-	scale = Vector3(0.75, 0.75, 0.75)
+	## Aug 2026 — was scaled down by 1/4 (0.75); kept at full authored mesh
+	## size (1.0) instead, per Brannon's preference for how it looked
+	## after the CTRL manual-upright slerp (which targets Basis.IDENTITY,
+	## scale 1.0) briefly grew it toward this size as a side effect.
 	_collect_can_visuals()
 
 ## Builds _can_visuals in ascending name order (Can_01 .. Can_12) from VisualRoot's
