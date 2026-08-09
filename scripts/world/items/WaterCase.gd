@@ -27,6 +27,7 @@ const VISUAL_BOTTLE_PREFIX: String = "Bottle_"   ## VisualRoot child name prefix
 
 var _player_stats: Node = null  ## Injected by MainWorld (scans "interactable" group)
 var _bottle_visuals: Array[Node3D] = []   ## Populated in _ready(), depleted highest-numbered-first
+var _cap_visuals: Array[Node3D] = []      ## Matching Cap_XX nodes, hidden alongside bottles
 
 func _ready() -> void:
 	super._ready()
@@ -37,19 +38,25 @@ func _ready() -> void:
 
 ## Builds _bottle_visuals in ascending name order (Bottle_01 .. Bottle_24) from
 ## VisualRoot's children so _hide_next_bottle_visual() can pop from the end
-## (Bottle_24 hidden first). Note: unlike CanCase's Can_XX holder nodes, these
-## are MeshInstance3D nodes directly — no Body/Lid sub-children to worry about.
+## (Bottle_24 hidden first). Also collects matching Cap_XX nodes so caps hide
+## with their bottles.
 func _collect_bottle_visuals() -> void:
 	_bottle_visuals.clear()
+	_cap_visuals.clear()
 	if visual_root == null:
 		push_warning("WaterCase: no 'VisualRoot' node found — visual bottle depletion disabled.")
 		return
-	var found: Array[Node3D] = []
+	var found_bottles: Array[Node3D] = []
+	var found_caps: Array[Node3D] = []
 	for child in visual_root.get_children():
 		if child is Node3D and String(child.name).begins_with(VISUAL_BOTTLE_PREFIX):
-			found.append(child)
-	found.sort_custom(func(a, b): return String(a.name) < String(b.name))
-	_bottle_visuals = found
+			found_bottles.append(child)
+		elif child is Node3D and String(child.name).begins_with("Cap_"):
+			found_caps.append(child)
+	found_bottles.sort_custom(func(a, b): return String(a.name) < String(b.name))
+	found_caps.sort_custom(func(a, b): return String(a.name) < String(b.name))
+	_bottle_visuals = found_bottles
+	_cap_visuals = found_caps
 
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_prompt_text() -> String:
@@ -94,10 +101,13 @@ func on_interact() -> void:
 	_hide_next_bottle_visual()
 
 ## Hides the next remaining visible bottle mesh (highest-numbered first) so
-## the case model visually empties in sync with bottle_count. Safe no-op once
-## _bottle_visuals is empty (e.g. bottle_count configured higher than 24 elsewhere).
+## the case model visually empties in sync with bottle_count. Also hides the
+## matching Cap_XX node. Safe no-op once visuals are empty.
 func _hide_next_bottle_visual() -> void:
 	if _bottle_visuals.is_empty():
 		return
 	var next_bottle: Node3D = _bottle_visuals.pop_back()
 	next_bottle.visible = false
+	if not _cap_visuals.is_empty():
+		var next_cap: Node3D = _cap_visuals.pop_back()
+		next_cap.visible = false

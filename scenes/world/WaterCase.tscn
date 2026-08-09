@@ -1,51 +1,57 @@
 [gd_scene format=3 uid="uid://dg8v10e04k60e"]
 
 [ext_resource type="Script" uid="uid://dtdxnbhfq83y5" path="res://scripts/world/items/WaterCase.gd" id="1_water_case_script"]
-[ext_resource type="Texture2D" path="res://assets/textures/items/water_case/water_cardboard_tray_diffuse.png" id="2_water_cardboard_diff"]
-[ext_resource type="Texture2D" path="res://assets/textures/items/can_case/cardboard_roughness.png" id="3_cardboard_rough"]
-[ext_resource type="Texture2D" path="res://assets/textures/items/water_case/water_cardboard_front_strip.png" id="4_water_front_strip"]
-[ext_resource type="Texture2D" path="res://assets/textures/items/water_case/water_bottle_label.png" id="5_water_bottle_label"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/water_case/water_bottle_label.png" id="2_water_bottle_label"]
 
-[sub_resource type="StandardMaterial3D" id="mat_cardboard"]
-albedo_texture = ExtResource("2_water_cardboard_diff")
-roughness = 0.9
-roughness_texture = ExtResource("3_cardboard_rough")
-metallic = 0.02
-
-[sub_resource type="StandardMaterial3D" id="mat_case_print_dark"]
-albedo_texture = ExtResource("4_water_front_strip")
-roughness = 0.85
-metallic = 0.0
+[sub_resource type="StandardMaterial3D" id="mat_plastic"]
+transparency = 1
+albedo_color = Color(0.85, 0.92, 0.97, 0.35)
+roughness = 0.15
+metallic = 0.05
 
 [sub_resource type="StandardMaterial3D" id="mat_bottle"]
 transparency = 1
-albedo_color = Color(0.9, 0.95, 1, 0.92)
-albedo_texture = ExtResource("5_water_bottle_label")
+albedo_color = Color(0.88, 0.94, 1.0, 0.90)
+albedo_texture = ExtResource("2_water_bottle_label")
 roughness = 0.2
 metallic = 0.04
 
+[sub_resource type="StandardMaterial3D" id="mat_cap"]
+albedo_color = Color(0.15, 0.30, 0.60, 1.0)
+roughness = 0.5
+metallic = 0.1
+
 [sub_resource type="BoxMesh" id="mesh_base"]
-size = Vector3(0.52, 0.02, 0.40)
+size = Vector3(0.52, 0.015, 0.40)
 
 [sub_resource type="BoxMesh" id="mesh_wall_back"]
-size = Vector3(0.52, 0.07, 0.012)
+size = Vector3(0.52, 0.30, 0.010)
 
 [sub_resource type="BoxMesh" id="mesh_wall_side"]
-size = Vector3(0.012, 0.07, 0.40)
+size = Vector3(0.010, 0.30, 0.40)
 
-[sub_resource type="BoxMesh" id="mesh_wall_front_low"]
-size = Vector3(0.52, 0.045, 0.012)
+[sub_resource type="BoxMesh" id="mesh_wall_front"]
+size = Vector3(0.52, 0.30, 0.010)
+
+[sub_resource type="BoxMesh" id="mesh_wall_top"]
+size = Vector3(0.52, 0.010, 0.40)
 
 [sub_resource type="CapsuleMesh" id="mesh_bottle"]
 radius = 0.026
-height = 0.13
+height = 0.26
 radial_segments = 16
 rings = 6
 
-[sub_resource type="BoxShape3D" id="shape_case_collision"]
-size = Vector3(0.54, 0.19, 0.42)
+[sub_resource type="CylinderMesh" id="mesh_cap"]
+top_radius = 0.018
+bottom_radius = 0.018
+height = 0.015
+radial_segments = 12
 
-[node name="WaterCase" type="RigidBody3D" unique_id=403391416 groups=["pickup"]]
+[sub_resource type="BoxShape3D" id="shape_case_collision"]
+size = Vector3(0.54, 0.32, 0.42)
+
+[node name="WaterCase" type="RigidBody3D" groups=["pickup"]]
 mass = 5.0
 continuous_cd = true
 contact_monitor = true
@@ -53,161 +59,281 @@ script = ExtResource("1_water_case_script")
 item_name = "Water Case"
 bottle_count = 24
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=87744957]
-position = Vector3(0, 0.095, 0)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.16, 0)
 shape = SubResource("shape_case_collision")
 
 [node name="VisualRoot" type="Node3D" parent="."]
 
 [node name="TrayBase" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0, 0.01, 0)
+position = Vector3(0, 0.0075, 0)
 mesh = SubResource("mesh_base")
-material_override = SubResource("mat_cardboard")
+material_override = SubResource("mat_plastic")
 
 [node name="TrayBack" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0, 0.045, 0.194)
+position = Vector3(0, 0.165, 0.195)
 mesh = SubResource("mesh_wall_back")
-material_override = SubResource("mat_cardboard")
+material_override = SubResource("mat_plastic")
 
 [node name="TrayLeft" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.254, 0.045, 0)
+position = Vector3(-0.255, 0.165, 0)
 mesh = SubResource("mesh_wall_side")
-material_override = SubResource("mat_cardboard")
+material_override = SubResource("mat_plastic")
 
 [node name="TrayRight" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.254, 0.045, 0)
+position = Vector3(0.255, 0.165, 0)
 mesh = SubResource("mesh_wall_side")
-material_override = SubResource("mat_cardboard")
+material_override = SubResource("mat_plastic")
 
-[node name="TrayFrontLow" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0, 0.0325, -0.194)
-mesh = SubResource("mesh_wall_front_low")
-material_override = SubResource("mat_cardboard")
+[node name="TrayFront" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0, 0.165, -0.195)
+mesh = SubResource("mesh_wall_front")
+material_override = SubResource("mat_plastic")
 
-[node name="FrontBrandStrip" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0, 0.026, -0.1865)
-mesh = SubResource("mesh_wall_front_low")
-material_override = SubResource("mat_case_print_dark")
+[node name="TrayTop" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0, 0.32, 0)
+mesh = SubResource("mesh_wall_top")
+material_override = SubResource("mat_plastic")
 
 [node name="Bottle_01" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.205, 0.095, -0.126)
+position = Vector3(-0.205, 0.155, -0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_01" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.205, 0.295, -0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_02" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.123, 0.095, -0.126)
+position = Vector3(-0.123, 0.155, -0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_02" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.123, 0.295, -0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_03" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.041, 0.095, -0.126)
+position = Vector3(-0.041, 0.155, -0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_03" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.041, 0.295, -0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_04" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.041, 0.095, -0.126)
+position = Vector3(0.041, 0.155, -0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_04" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.041, 0.295, -0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_05" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.123, 0.095, -0.126)
+position = Vector3(0.123, 0.155, -0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_05" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.123, 0.295, -0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_06" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.205, 0.095, -0.126)
+position = Vector3(0.205, 0.155, -0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_06" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.205, 0.295, -0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_07" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.205, 0.095, -0.042)
+position = Vector3(-0.205, 0.155, -0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_07" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.205, 0.295, -0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_08" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.123, 0.095, -0.042)
+position = Vector3(-0.123, 0.155, -0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_08" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.123, 0.295, -0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_09" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.041, 0.095, -0.042)
+position = Vector3(-0.041, 0.155, -0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_09" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.041, 0.295, -0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_10" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.041, 0.095, -0.042)
+position = Vector3(0.041, 0.155, -0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_10" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.041, 0.295, -0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_11" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.123, 0.095, -0.042)
+position = Vector3(0.123, 0.155, -0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_11" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.123, 0.295, -0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_12" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.205, 0.095, -0.042)
+position = Vector3(0.205, 0.155, -0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_12" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.205, 0.295, -0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_13" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.205, 0.095, 0.042)
+position = Vector3(-0.205, 0.155, 0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_13" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.205, 0.295, 0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_14" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.123, 0.095, 0.042)
+position = Vector3(-0.123, 0.155, 0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_14" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.123, 0.295, 0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_15" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.041, 0.095, 0.042)
+position = Vector3(-0.041, 0.155, 0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_15" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.041, 0.295, 0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_16" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.041, 0.095, 0.042)
+position = Vector3(0.041, 0.155, 0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_16" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.041, 0.295, 0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_17" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.123, 0.095, 0.042)
+position = Vector3(0.123, 0.155, 0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_17" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.123, 0.295, 0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_18" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.205, 0.095, 0.042)
+position = Vector3(0.205, 0.155, 0.042)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_18" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.205, 0.295, 0.042)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_19" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.205, 0.095, 0.126)
+position = Vector3(-0.205, 0.155, 0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_19" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.205, 0.295, 0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_20" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.123, 0.095, 0.126)
+position = Vector3(-0.123, 0.155, 0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_20" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.123, 0.295, 0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_21" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(-0.041, 0.095, 0.126)
+position = Vector3(-0.041, 0.155, 0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_21" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.041, 0.295, 0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_22" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.041, 0.095, 0.126)
+position = Vector3(0.041, 0.155, 0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_22" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.041, 0.295, 0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_23" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.123, 0.095, 0.126)
+position = Vector3(0.123, 0.155, 0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
+
+[node name="Cap_23" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.123, 0.295, 0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
 
 [node name="Bottle_24" type="MeshInstance3D" parent="VisualRoot"]
-position = Vector3(0.205, 0.095, 0.126)
+position = Vector3(0.205, 0.155, 0.126)
 mesh = SubResource("mesh_bottle")
 material_override = SubResource("mat_bottle")
 
-[node name="SpawnPoint" type="Node3D" parent="." unique_id=295681397]
-position = Vector3(0, 0.11, -0.245)
+[node name="Cap_24" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.205, 0.295, 0.126)
+mesh = SubResource("mesh_cap")
+material_override = SubResource("mat_cap")
+
+[node name="SpawnPoint" type="Node3D" parent="."]
+position = Vector3(0, 0.20, -0.245)
