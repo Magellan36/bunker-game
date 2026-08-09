@@ -181,6 +181,17 @@ the power system â€” see `docs/systems/world-core/README.md` Persistence).
   `Shelving.gd`'s existing `"[F] Shelf full"` pattern. Full detail in
   `docs/systems/ui/README.md`'s "Storage UI Unification" section.
 
+## StorageUI Contract Config Updates (Aug 2026)
+UI-thread pass touching `get_ui_config()` on every `StorageUI`-contract
+object (`Basket.gd`, `Shelving.gd`, `LightStorage.gd` and its subclasses
+`Dresser.gd`/`EndTable.gd`): `primary_button_icon` values changed from
+literal glyph strings to icon-texture lookup keys (`"carry"`/`"drop"`),
+and the `row_labels` config key/export was removed entirely (row-label
+text no longer renders anywhere). See
+`docs/systems/ui/README.md`'s "Storage UI Icon + Row Label Redesign" for
+the full change — this note exists so a furniture-thread reader isn't
+surprised by the config value change if they touch these files next.
+
 ## Forbidden edits
 - **Don't skip the `from_inventory` flag when adding a new item.** Every
   item needs it set correctly by `InteractionSystem` (world pickup vs.

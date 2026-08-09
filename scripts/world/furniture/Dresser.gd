@@ -23,7 +23,6 @@ func _init() -> void:
 	prompt_height = 0.8
 	grid_cols     = 2
 	grid_rows     = 3
-	row_labels    = ["Top drawers", "Middle drawers", "Bottom drawers"]
 
 func _build_mesh() -> void:
 	var wood_mat: StandardMaterial3D = StandardMaterial3D.new()

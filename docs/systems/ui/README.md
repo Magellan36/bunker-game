@@ -38,12 +38,12 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `power/` | `PowerTerminalUI.gd` (~1180), `PowerPriorityUI.gd` (~500), `GeneratorInspectUI.gd` (~440), `ZoneCustomizeUI.gd` (~225) | Power device panels — see `docs/systems/power/README.md` for what they read/write |
 | `water/` | `WaterDispenserUI.gd` (~520), `WaterInfoUI.gd` (~625) | Water device panels — see `docs/systems/water/README.md` for what they read/write. Both fully on the shared `UIKit` palette as of the Jul 2026 "Power + Water UI Unification" pass — see that section below |
 | `farming/` | `FarmingTrayUI.gd` (~440 — handles both the 1x1 and 2x1 tray sizes; panel height grows/shrinks with 0/1/2 plant slots), `PlantInfoUI.gd` | Farming tray panel (Jul 2026 "Rounded Corners" pass joined it onto `UIKit.Domain.FARMING`, green stripe) |
-| `inventory/` | `InventoryHUD.gd` (~445 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback), `InventoryManager.gd` (~155, see Non-responsibilities), `StorageUI.gd` (~380 — Aug 2026, generic shared storage overlay, replaces the former `ShelfUI.gd`/`BasketUI.gd`, see "Storage UI Unification" below) | Slot HUD, inventory state, shared storage-container panel |
+| `inventory/` | `InventoryHUD.gd` (~400 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback; 3D preview building/populating delegated to `ItemPreviewKit.gd` as of Aug 2026), `InventoryManager.gd` (~155, see Non-responsibilities), `StorageUI.gd` (~360 — Aug 2026, generic shared storage overlay, replaces the former `ShelfUI.gd`/`BasketUI.gd`, see "Storage UI Unification" below; icon-texture buttons + preview delegated to `ItemPreviewKit.gd`, row labels removed, see "Shared Item Preview Kit" and "Storage UI Icon + Row Label Redesign" below) | Slot HUD, inventory state, shared storage-container panel |
 | `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (~170 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text; grew substantially Aug 2026 — real styling, an icon-preview row, and general pairwise overlap avoidance, see "Cooking Pot UI Fixes + Prompt Overlap Avoidance" below) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interact prompt |
 | `menus/` | `PauseMenuUI.gd` (~330 — rewritten onto `UIKit` menu builders, Jul 2026), `GraphicsSettingsPanel.gd` (~430 — same rewrite, also fixed a long-standing off-center bug, see below), `SleepOverlay.gd` (~145), `AdminMenu.gd` (~430 — rewritten with collapsible sections + a real `ScrollContainer`, Jul 2026, see below) | ESC pause menu, graphics settings, sleep fade, admin cheats |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI. Farming shop's `FARMING_SHOP_ITEMS["Seeds"]` had a duplicate-`tile_id` bug fixed Aug 2026 (see "Farming Shop Seed tile_id Bugfix" below) and a SEPARATE bug where `PREVIEW_SOURCES` never set `seed_type` per-id, so every seed preview looked identical — fixed Aug 2026, see "Cooking Pot UI Fixes + Prompt Overlap Avoidance" below |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
-| `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain) | Shared fade-in helper + shared theme/drawing kit (see "UIKit shared kit" below) — put any future cross-panel UI utility here |
+| `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain), `ItemPreviewKit.gd` (~90 — Aug 2026, shared static 3D item-preview builder used by `InventoryHUD`/`StorageUI`, see "Shared Item Preview Kit" below) | Shared fade-in helper + shared theme/drawing kit + shared 3D item-preview builder — put any future cross-panel UI utility here |
 | `notifications/` | `NotificationManager.gd` (~175) | Central toast/notification system (see "NotificationManager" below) |
 | `npc/` | `NPCTalkMenuUI.gd` | NPC E-panel (needs bars, status, skills, personality) — see `docs/systems/npc/README.md` for full detail; fixed per-stat bar colors as of Aug 2026, see "Cooking Pot UI Fixes..." below is unrelated — see the NPC doc directly for the color table |
 
@@ -84,6 +84,10 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
   `open_dig_confirm()`/`close_dig_confirm()`.
 - `UIFade` (static, `scripts/ui/common/UIFade.gd`): `UIFade.fade_in(target:
   CanvasItem, duration: float = 0.15)`.
+- `ItemPreviewKit` (static, `scripts/ui/common/ItemPreviewKit.gd`, Aug
+  2026): `build_viewport(parent, pixel_size) -> SubViewport`,
+  `set_item(vp, item)`, `clear(vp)` — shared 3D item-preview builder used
+  by `InventoryHUD` and `StorageUI`, see "Shared Item Preview Kit" below.
 - `UIKit` (static, `scripts/ui/common/UIKit.gd`): `font()`, `theme_for(domain)`
   (domains: `WATER`, `POWER`, `NEUTRAL`, `FARMING` — `WATER`/`POWER`/`FARMING`
   share one identical bg/border/header/text/dim/ok/warn/crit palette as of
@@ -805,6 +809,55 @@ than the 4px modal-panel standard, intentionally, same "smaller-scale
 identity" precedent as `StorageUI.gd`'s 14px). Confirmed with Brannon this
 project-wide change is wanted, not something to scope down to cooking
 only.
+
+## Shared Item Preview Kit (Aug 2026)
+Fixed StorageUI's 3D item previews (Shelving/Basket/End Table/Dresser),
+where most items rendered as a near-invisible speck: `_add_pool_slot()`
+used `cam.size = 1.2` and mesh rotation `(-20°, 45°, 0°)`, while
+`InventoryHUD.gd` (the correct, working reference) uses `cam.size = 0.4`
+and `(-45°, -45°, 0°)` — Storage's camera was 3x more zoomed out on top of
+a completely different angle. Extracted `InventoryHUD.gd`'s preview code
+into a new shared static utility, `scripts/ui/common/ItemPreviewKit.gd`
+(`build_viewport()`, `set_item()`, `clear()`), and migrated both
+`InventoryHUD.gd` and `StorageUI.gd` onto it — any future adjustment to
+camera angle, zoom, lighting, or the mesh-fetch fallback now happens ONCE
+and cascades to every consumer automatically, instead of needing to be
+hand-copied per file. `ItemPreviewKit.CAM_SIZE_PER_PIXEL` scales `cam.size`
+linearly with each consumer's preview pixel size (derived from
+`InventoryHUD`'s proven 64px/0.4 ratio) so different-sized preview slots
+(Inventory's 64px vs Storage's 96px) show items at the same real-world
+scale rather than a different zoom level per file.
+
+**Deliberately NOT adopted by `BuildModeHUD.gd`** — Build's construct/shop
+previews layer a continuous hover-spin (a rotated pivot node in
+`_process()`) on top of the same resting pose (`PREVIEW_ROTATION_DEFAULT`
+already matches `ItemPreviewKit.ROTATION_DEFAULT` exactly, by design, and
+always has). Folding Build onto the shared kit is a reasonable future
+pass, scoped out of this one to avoid touching a working, more complex
+implementation.
+
+## Storage UI Icon + Row Label Redesign (Aug 2026)
+Two changes to `StorageUI.gd`, both applying automatically to every
+current and future storage type through the shared panel:
+- **Icon buttons, not text glyphs.** The "↑" Carry, "↓" Drop, and "⊕" Add-
+  to-inventory buttons were `Button.text` glyphs; replaced with real icon
+  textures (`assets/icons/arrow_decorative_n.png`,
+  `arrow_decorative_s.png`, `icon_plus.png` — the last is `icon_cross.png`
+  pre-rotated 45° so its × reads as a +) via `Button.icon` +
+  `expand_icon` + a shared `icon_max_width` cap (`ICON_MAX_WIDTH = 22`).
+  All three source PNGs carry their own gray/silver shading and are NOT
+  tinted via `modulate`, unlike `UIKit`'s white-mask `close_x.png`.
+  **Contract change:** `get_ui_config()`'s `primary_button_icon` is no
+  longer a literal glyph string — it must be one of `StorageUI`'s
+  `_ICON_TEXTURES` keys (`"carry"` or `"drop"`). The secondary button's
+  icon is fixed, not config-driven — identical for every storage type.
+- **Row-label text removed entirely** ("Top shelf"/"Middle drawers"/etc,
+  and the auto "Row N" fallback) — deleted the `Label` node creation in
+  `_layout_panel()` along with the now-dead `ROW_LABEL_H` constant,
+  `C_ROW_LABEL` color, and every storage object's `row_labels`
+  config/export. `ROW_GAP` (the only remaining vertical gap between rows)
+  reduced `22 → 4` (18px, half of `BTN_SIZE`) as a separate, deliberate
+  tightening — not a side effect of removing the labels.
 
 ## Extension points
 - Any new shared cross-panel utility (like `UIFade`, `UIKit`) belongs in

@@ -27,7 +27,6 @@ class_name LightStorage
 @export var prompt_height: float   = 1.2   ## get_prompt_world_pos Y offset
 @export var grid_cols: int         = 2
 @export var grid_rows: int         = 1
-@export var row_labels: Array[String] = []
 
 ## Fixed-size slot array — length == capacity, null = empty. See header.
 var stored: Array[RigidBody3D] = []
@@ -200,9 +199,8 @@ func get_ui_config() -> Dictionary:
 		"grid_cols": grid_cols,
 		"grid_rows": grid_rows,
 		"display_order": [],                  ## identity — visual pos i = stored index i
-		"row_labels": row_labels,
 		"supports_stacking": false,
-		"primary_button_icon": "↑",
+		"primary_button_icon": "carry",
 		"primary_button_tooltip": "Carry",
 		"primary_button_color": Color(0.20, 0.45, 0.30, 1.00),
 		"primary_requires_empty_hands": true,
@@ -246,7 +244,7 @@ func take_for_carry(slot_idx: int, isys: Node) -> bool:
 	isys._held_from_slot = -1
 	return true
 
-## Secondary "⊕" button — mirrors Shelving.retrieve_to_inventory()
+## Secondary "Add to inventory" button — mirrors Shelving.retrieve_to_inventory()
 ## (Shelving.gd:510-532) plus the reparent + visible-restore deltas.
 func take_for_inventory(slot_idx: int, inv: Node) -> bool:
 	if slot_idx < 0 or slot_idx >= stored.size() or stored[slot_idx] == null:

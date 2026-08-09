@@ -17,13 +17,18 @@ extends CanvasLayer
 ##       not literally "carry" — see each type's own get_ui_config()
 ##       primary_button_icon/_tooltip for what it actually does.
 ##   take_for_inventory(slot_idx: int, inv: Node) -> bool
-##       Secondary "⊕" button — always means "pop into the player's
-##       inventory pocket," identical meaning for every storage type.
-## That's the whole contract. Grid shape, row labels, capacity, stacking,
-## and the primary button's icon/label/color/hands-empty-requirement are
-## ALL read from get_ui_config() at open() time — nothing type-specific is
+##       Secondary "Add to inventory" button — always means "pop into the
+##       player's inventory pocket," identical meaning for every storage type.
+## That's the whole contract. Grid shape, capacity, stacking, and the
+## primary button's icon/label/color/hands-empty-requirement are ALL read
+## from get_ui_config() at open() time — nothing type-specific is
 ## hardcoded in this file. Adding a new storage type needs ZERO changes
 ## here, just a world-object script implementing the contract above.
+##
+## primary_button_icon (Aug 2026 — no longer a literal glyph): must be one
+## of the keys in _ICON_TEXTURES below ("carry" or "drop"). The secondary
+## "Add to inventory" button's icon is fixed (not config-driven) — same
+## icon for every storage type, see _INV_ICON_TEXTURE.
 
 # ─── Dependencies (injected by MainWorld) ─────────────────────────────────────
 var interaction_system: Node   = null
@@ -44,9 +49,8 @@ const _DEFAULT_CONFIG: Dictionary = {
 	"grid_cols": 2,
 	"grid_rows": 3,
 	"display_order": [],                 ## [] = identity (visual pos i -> data slot i)
-	"row_labels": [],                    ## [] = auto "Row N" labels
 	"supports_stacking": false,
-	"primary_button_icon": "↑",
+	"primary_button_icon": "carry",
 	"primary_button_tooltip": "Take",
 	"primary_button_color": Color(0.20, 0.45, 0.30, 1.00),
 	"primary_requires_empty_hands": false,
@@ -63,17 +67,29 @@ const BTN_SIZE:      float = 36.0
 const BTN_GAP:       float = 8.0
 const PANEL_PAD:     int   = 28
 const PANEL_RADIUS:  float = 14.0
-const ROW_GAP:        int   = 22
-const ROW_LABEL_H:   int   = 18
+## Aug 2026 — reduced from 22 to 4 (18px, half of BTN_SIZE) per the row-
+## label removal below; this is now the ONLY vertical gap between rows.
+const ROW_GAP:        int   = 4
+
+# ─── Icon textures (Aug 2026 — replaces the old "↑"/"↓"/"⊕" text glyphs).
+## primary_button_icon in get_ui_config() must be one of these keys.
+## Sources carry their own gray/silver shading — do not modulate/tint.
+const _ICON_TEXTURES: Dictionary = {
+	"carry": preload("res://assets/icons/arrow_decorative_n.png"),
+	"drop":  preload("res://assets/icons/arrow_decorative_s.png"),
+}
+## Fixed for every storage type — not config-driven.
+const _INV_ICON_TEXTURE: Texture2D = preload("res://assets/icons/icon_plus.png")
+## Caps rendered icon size inside the 36px button (all 3 source PNGs are
+## square, so this scales them uniformly with no distortion).
+const ICON_MAX_WIDTH: int = 22
 
 const C_BG:          Color = Color(0.08, 0.08, 0.08, 0.92)
 const C_SLOT_BG:     Color = Color(0.13, 0.13, 0.13, 1.00)
 const C_SLOT_BORDER: Color = Color(0.28, 0.28, 0.28, 1.00)
 const C_BTN_INV:     Color = Color(0.22, 0.33, 0.50, 1.00)
-const C_BTN_TEXT:    Color = Color(0.90, 0.88, 0.84, 1.00)
 const C_TITLE:       Color = Color(0.80, 0.78, 0.72, 1.00)
 const C_EMPTY_TEXT:  Color = Color(0.35, 0.35, 0.35, 1.00)
-const C_ROW_LABEL:   Color = Color(0.45, 0.43, 0.40, 1.00)
 const C_BADGE_TEXT:  Color = Color(0.80, 1.00, 0.85, 1.00)
 
 # ─── Nodes — a dynamic pool, sized to the LARGEST slot_count opened so far.
@@ -134,26 +150,11 @@ func _ensure_pool_size(needed: int) -> void:
 		_pool_size += 1
 
 func _add_pool_slot() -> void:
-	var vp := SubViewport.new()
-	vp.size = Vector2i(PREVIEW_SIZE, PREVIEW_SIZE)
-	vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
-	vp.transparent_bg = true
-	vp.own_world_3d    = true
-	vp.disable_3d      = false
-	_root.add_child(vp)
-
-	var cam := Camera3D.new()
-	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = 1.2
-	vp.add_child(cam)
-	cam.position = Vector3(0.8, 0.8, 0.8)
-	cam.look_at(Vector3.ZERO, Vector3.UP)
-
-	var light := OmniLight3D.new()
-	light.position = Vector3(1.0, 1.5, 1.0)
-	light.light_energy = 2.5
-	light.omni_range = 8.0
-	vp.add_child(light)
+	## Aug 2026 — delegates to the shared kit; was previously hand-rolled
+	## here with cam.size=1.2 and no rotation match to Inventory/Build,
+	## which is why most item meshes rendered as a near-invisible speck.
+	## See ItemPreviewKit.gd for the formula every preview consumer shares.
+	var vp: SubViewport = ItemPreviewKit.build_viewport(_root, PREVIEW_SIZE)
 
 	var slot_bg: Panel = Panel.new()
 	var slot_ss: StyleBoxFlat = StyleBoxFlat.new()
@@ -212,8 +213,11 @@ func _add_pool_slot() -> void:
 func _make_icon_button(slot_idx: int, is_primary: bool) -> Button:
 	var btn: Button = Button.new()
 	btn.size = Vector2(BTN_SIZE, BTN_SIZE)
-	btn.add_theme_color_override("font_color", C_BTN_TEXT)
-	btn.add_theme_font_size_override("font_size", 16)
+	btn.text = ""
+	btn.expand_icon = true
+	btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+	btn.add_theme_constant_override("icon_max_width", ICON_MAX_WIDTH)
 
 	var ss: StyleBoxFlat = StyleBoxFlat.new()
 	ss.set_corner_radius_all(int(BTN_SIZE * 0.25))
@@ -224,7 +228,7 @@ func _make_icon_button(slot_idx: int, is_primary: bool) -> Button:
 	if is_primary:
 		btn.pressed.connect(func() -> void: _on_primary_pressed(slot_idx))
 	else:
-		btn.text = "⊕"
+		btn.icon = _INV_ICON_TEXTURE
 		btn.tooltip_text = "Add to inventory"
 		var inv_ss: StyleBoxFlat = ss.duplicate()
 		inv_ss.bg_color = C_BTN_INV
@@ -240,12 +244,13 @@ func _make_icon_button(slot_idx: int, is_primary: bool) -> Button:
 	return btn
 
 func _apply_primary_button_style() -> void:
-	var icon: String = String(_cfg("primary_button_icon"))
-	var tip: String  = String(_cfg("primary_button_tooltip"))
-	var color: Color  = _cfg("primary_button_color")
+	var icon_key: String    = String(_cfg("primary_button_icon"))
+	var tip: String         = String(_cfg("primary_button_tooltip"))
+	var color: Color        = _cfg("primary_button_color")
+	var texture: Texture2D  = _ICON_TEXTURES.get(icon_key)
 
 	for btn: Button in _primary_btns:
-		btn.text = icon
+		btn.icon = texture
 		btn.tooltip_text = tip
 		var ss: StyleBoxFlat = StyleBoxFlat.new()
 		ss.bg_color = color
@@ -301,7 +306,7 @@ func _layout_panel() -> void:
 	var title_h: int = 32
 
 	var panel_w: int = PANEL_PAD * 2 + cols * col_w + (cols - 1) * SLOT_GAP
-	var panel_h: int = PANEL_PAD * 2 + title_h + rows * row_h + (rows - 1) * (ROW_GAP + ROW_LABEL_H)
+	var panel_h: int = PANEL_PAD * 2 + title_h + rows * row_h + (rows - 1) * ROW_GAP
 
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
 	_panel.size     = Vector2(panel_w, panel_h)
@@ -311,11 +316,6 @@ func _layout_panel() -> void:
 	title.position = Vector2(0, PANEL_PAD * 0.5)
 	title.size = Vector2(panel_w, title_h)
 
-	for child in _panel.get_children():
-		if child.name.begins_with("RowLabel_"):
-			child.queue_free()
-
-	var row_labels: Array = _cfg("row_labels")
 	var slot_count: int = int(_cfg("slot_count"))
 
 	## Hide every pool slot beyond this config's slot_count — _populate_slots()
@@ -331,24 +331,14 @@ func _layout_panel() -> void:
 			_badge_labels[i].visible = false
 
 	for row: int in rows:
-		var row_y_base: int = PANEL_PAD + title_h + row * (row_h + ROW_GAP + ROW_LABEL_H)
-
-		var label_text: String = row_labels[row] if row < row_labels.size() else "Row %d" % (row + 1)
-		var row_lbl: Label = Label.new()
-		row_lbl.name = "RowLabel_%d" % row
-		row_lbl.text = label_text
-		row_lbl.add_theme_color_override("font_color", C_ROW_LABEL)
-		row_lbl.add_theme_font_size_override("font_size", 10)
-		row_lbl.position = Vector2(PANEL_PAD, row_y_base)
-		row_lbl.size     = Vector2(panel_w - PANEL_PAD * 2, ROW_LABEL_H)
-		_panel.add_child(row_lbl)
+		var row_y_base: int = PANEL_PAD + title_h + row * (row_h + ROW_GAP)
 
 		for col: int in cols:
 			var visual_idx: int = row * cols + col
 			if visual_idx >= slot_count:
 				continue
 			var sx: float = PANEL_PAD + col * (col_w + SLOT_GAP)
-			var sy: float = row_y_base + ROW_LABEL_H + 4
+			var sy: float = row_y_base
 			_position_slot_visuals(visual_idx, sx, sy)
 
 func _data_slot_for(visual_idx: int) -> int:
@@ -440,44 +430,14 @@ func _set_slot(visual_idx: int, item, count: int) -> void:
 	_populate_viewport(visual_idx, item)
 
 func _populate_viewport(visual_idx: int, item: Node) -> void:
-	var vp: SubViewport = _viewports[visual_idx]
-
-	var to_free: Array = []
-	for child in vp.get_children():
-		if child is MeshInstance3D:
-			to_free.append(child)
-	for c in to_free:
-		c.queue_free()
-
-	var mesh_inst: MeshInstance3D = null
-	if item.has_method("get_inventory_mesh"):
-		var m: Mesh = item.get_inventory_mesh()
-		if m != null:
-			mesh_inst = MeshInstance3D.new()
-			mesh_inst.mesh = m
-	if mesh_inst == null:
-		for child in item.get_children():
-			if child is MeshInstance3D:
-				mesh_inst = child.duplicate() as MeshInstance3D
-				break
-	if mesh_inst == null:
-		return
-
-	mesh_inst.rotation_degrees = Vector3(-20.0, 45.0, 0.0)
-	mesh_inst.position = Vector3.ZERO
-	vp.add_child(mesh_inst)
-
-	if mesh_inst.mesh != null:
-		var local_aabb: AABB    = mesh_inst.mesh.get_aabb()
-		var basis: Basis        = mesh_inst.transform.basis
-		var rot_center: Vector3 = basis * local_aabb.get_center()
-		mesh_inst.position = -rot_center
+	## Aug 2026 — delegates to the shared kit; the old body here used
+	## rotation (-20°, 45°, 0°) with no matching cam.size fix, which was
+	## the root cause of most item previews rendering as a near-invisible
+	## speck. See ItemPreviewKit.gd.
+	ItemPreviewKit.set_item(_viewports[visual_idx], item)
 
 func _clear_viewport(visual_idx: int) -> void:
-	var vp: SubViewport = _viewports[visual_idx]
-	for child in vp.get_children():
-		if child is MeshInstance3D:
-			child.queue_free()
+	ItemPreviewKit.clear(_viewports[visual_idx])
 
 func _clear_all_viewports() -> void:
 	for i: int in _pool_size:

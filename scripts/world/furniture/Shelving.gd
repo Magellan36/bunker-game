@@ -554,7 +554,7 @@ func retrieve_to_carry(slot_idx: int, isys: Node) -> bool:
 	item_retrieved.emit(slot_idx, item)
 	return true
 
-# ─── Retrieve to inventory (from StorageUI's secondary "⊕" button) ───────────
+# ─── Retrieve to inventory (from StorageUI's secondary "Add to inventory" button) ─
 ## Returns true on success — Aug 2026, part of the StorageUI contract.
 func retrieve_to_inventory(slot_idx: int, inv: Node) -> bool:
 	if slot_idx < 0 or slot_idx >= slots.size():
@@ -692,9 +692,8 @@ func get_ui_config() -> Dictionary:
 		"grid_cols": 2,
 		"grid_rows": 3,
 		"display_order": [4, 5, 2, 3, 0, 1],   ## visual position -> data slot (top row shows data slots 4/5, etc.)
-		"row_labels": ["Top shelf", "Middle shelf", "Bottom shelf"],
 		"supports_stacking": true,
-		"primary_button_icon": "↑",
+		"primary_button_icon": "carry",
 		"primary_button_tooltip": "Carry",
 		"primary_button_color": Color(0.20, 0.45, 0.30, 1.00),
 		"primary_requires_empty_hands": true,

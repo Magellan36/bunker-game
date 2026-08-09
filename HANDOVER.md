@@ -1,3 +1,51 @@
+# Handover — Storage UI Preview Fix + Icon/Row-Label Redesign (Aug 2026)
+
+## What changed this session
+Fixed StorageUI's broken 3D item previews (most items rendered as a
+near-invisible speck in Shelving/Basket/End Table/Dresser) — root cause
+was `_add_pool_slot()` using `cam.size = 1.2` and rotation `(-20°, 45°,
+0°)` while the working reference, `InventoryHUD.gd`, uses `cam.size = 0.4`
+and `(-45°, -45°, 0°)`. Extracted `InventoryHUD.gd`'s preview code into a
+new shared static utility, `scripts/ui/common/ItemPreviewKit.gd`, and
+migrated both `InventoryHUD.gd` and `StorageUI.gd` onto it so future
+preview adjustments cascade automatically instead of needing to be
+hand-copied per file. Deliberately did NOT migrate `BuildModeHUD.gd`'s
+construct/shop previews this pass — they already share the same resting
+angle but layer their own hover-spin on top; flagged as a reasonable
+future pass.
+
+Also replaced every storage panel's "↑"/"↓"/"⊕" text-glyph buttons with
+real icon textures (two supplied decorative arrows + a 45°-pre-rotated
+version of a supplied × icon so it reads as a +), and removed the
+"Top shelf"/"Middle drawers"/etc. row-label text entirely from every
+storage panel, tightening the now-label-free row gap from 22px to 4px.
+
+### Files modified
+- `scripts/ui/common/ItemPreviewKit.gd` — NEW shared 3D preview builder.
+- `scripts/ui/inventory/InventoryHUD.gd` — preview logic delegated to
+  `ItemPreviewKit`.
+- `scripts/ui/inventory/StorageUI.gd` — preview logic delegated to
+  `ItemPreviewKit`; icon buttons converted to textures; row-label
+  rendering removed; row gap tightened.
+- `scripts/world/items/Basket.gd`, `scripts/world/furniture/Shelving.gd`,
+  `scripts/world/furniture/LightStorage.gd`,
+  `scripts/world/furniture/Dresser.gd`,
+  `scripts/world/furniture/EndTable.gd` — `primary_button_icon` values
+  updated to the new lookup-key convention; `row_labels` config/export
+  removed.
+- `assets/icons/arrow_decorative_n.png`, `arrow_decorative_s.png`,
+  `icon_plus.png` — NEW icon assets.
+- `docs/systems/ui/README.md` — new "Shared Item Preview Kit" and
+  "Storage UI Icon + Row Label Redesign" sections.
+- `docs/systems/furniture-items/README.md` — cross-reference note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see `UI_STORAGE_PREVIEW_ICON_REDESIGN_PLAN.md` for the full 8-item
+checklist)
+---
+---
+
 # Handover — Cleaning Follow-Up: Shelf Pop-Out + Sustained Session (Aug 2026)
 
 **Owner:** NPC Claude instance.

@@ -23,7 +23,6 @@ func _init() -> void:
 	prompt_height = 1.2
 	grid_cols     = 2
 	grid_rows     = 1
-	row_labels    = ["Drawer"]
 
 func _build_mesh() -> void:
 	var beige_mat: StandardMaterial3D = StandardMaterial3D.new()

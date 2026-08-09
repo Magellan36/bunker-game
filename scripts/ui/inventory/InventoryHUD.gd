@@ -42,8 +42,6 @@ var _charge_watched: Array = []
 
 ## One SubViewport per slot — holds the 3D preview scene
 var _viewports:  Array[SubViewport]    = []
-var _cameras:    Array[Camera3D]       = []
-var _previews:   Array[MeshInstance3D] = []   ## Currently displayed mesh copy
 var _vp_textures: Array[ViewportTexture] = []
 
 func _ready() -> void:
@@ -91,36 +89,8 @@ func show_error_message(text: String) -> void:
 
 func _build_viewports() -> void:
 	for i in 4:
-		var vp := SubViewport.new()
-		vp.size = Vector2i(int(SLOT_SIZE), int(SLOT_SIZE))
-		vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
-		vp.transparent_bg = true
-		vp.disable_3d = false
-		# CRITICAL: own world so the preview light doesn't leak into the main scene
-		# and so the main scene's lights don't corrupt the preview render.
-		vp.own_world_3d = true
-		add_child(vp)
-
-		# Camera at a fixed iso angle looking at origin.
-		# IMPORTANT: add to tree BEFORE calling look_at() — look_at() requires
-		# the node to be inside the scene tree to compute global transforms.
-		var cam := Camera3D.new()
-		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-		cam.size = 0.4   ## Jul 2026 — 1.2 / 3.0, previews 3x bigger in the same 64px slot
-		vp.add_child(cam)   ## Must be in tree first
-		cam.position = Vector3(0.8, 0.8, 0.8)
-		cam.look_at(Vector3.ZERO, Vector3.UP)
-
-		# Soft fill light so mesh isn't pitch black
-		var light := OmniLight3D.new()
-		light.position = Vector3(1.0, 1.5, 1.0)
-		light.light_energy = 2.5
-		light.omni_range = 8.0
-		vp.add_child(light)
-
+		var vp: SubViewport = ItemPreviewKit.build_viewport(self, int(SLOT_SIZE))
 		_viewports.append(vp)
-		_cameras.append(cam)
-		_previews.append(null)
 
 		# Grab the texture handle once — stays valid
 		_vp_textures.append(vp.get_texture())
@@ -153,59 +123,10 @@ func refresh_previews() -> void:
 	queue_redraw()
 
 func _set_preview(slot_idx: int, item) -> void:
-	var vp: SubViewport = _viewports[slot_idx]
-
-	# Remove old preview mesh
-	if _previews[slot_idx] != null:
-		_previews[slot_idx].queue_free()
-		_previews[slot_idx] = null
-
-	if item == null:
-		return
-
-	# Get mesh from the item — try get_inventory_mesh() first, fallback to child scan
-	var mesh_inst: MeshInstance3D = null
-
-	if item.has_method("get_inventory_mesh"):
-		var m: Mesh = item.get_inventory_mesh()
-		if m != null:
-			mesh_inst = MeshInstance3D.new()
-			mesh_inst.mesh = m
-	
-	if mesh_inst == null:
-		# Fallback: duplicate the first MeshInstance3D child of the item
-		for child in item.get_children():
-			if child is MeshInstance3D:
-				mesh_inst = child.duplicate() as MeshInstance3D
-				break
-
-	if mesh_inst == null:
-		return
-
-	# Jul 2026 — matches BuildModeHUD.gd's PREVIEW_ROTATION_DEFAULT resting
-	# pose exactly (45° left, 45° down) so construct/shop previews and
-	# inventory previews read as the same angled look. Deliberately static
-	# — no hover-spin here, unlike BuildModeHUD's pool.
-	mesh_inst.rotation_degrees = Vector3(-45.0, -45.0, 0.0)
-	mesh_inst.position = Vector3.ZERO
-
-	# Add to viewport FIRST — node must be in the scene tree before we can
-	# read its world-space AABB (get_aabb() needs a valid global transform).
-	vp.add_child(mesh_inst)
-
-	# Now read the AABB in the node's LOCAL space but transformed by its basis
-	# so rotation is accounted for. mesh.get_aabb() is pre-rotation and gives
-	# the wrong center; instead we transform it manually with the node's basis.
-	if mesh_inst.mesh != null:
-		var local_aabb: AABB  = mesh_inst.mesh.get_aabb()
-		# Transform each corner through the rotation basis to get the true
-		# rotated extents, then rebuild the AABB from the transformed center.
-		var basis: Basis      = mesh_inst.transform.basis
-		var rot_center: Vector3 = basis * local_aabb.get_center()
-		mesh_inst.position = -rot_center
-	# else position stays Vector3.ZERO — nothing to center
-
-	_previews[slot_idx] = mesh_inst
+	## Delegates to the shared kit (Aug 2026) — see ItemPreviewKit.gd for
+	## the mesh-fetch/rotation/centering formula. Every other preview
+	## consumer (StorageUI) uses this exact same call.
+	ItemPreviewKit.set_item(_viewports[slot_idx], item)
 
 # ─── Draw ─────────────────────────────────────────────────────────────────────
 func _draw() -> void:
