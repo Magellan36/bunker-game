@@ -86,9 +86,11 @@ func _load_mesh() -> void:
 	shelf_mat.roughness    = 0.4
 	shelf_mat.metallic     = 0.5
 
-	## 4 corner posts — angle-iron style (thin L-shaped cross-section via 2 boxes)
+	## 4 corner posts — angle-iron style (shortened at top by one shelf spacing)
 	var post_w: float = 0.035
 	var post_d: float = 0.035
+	var post_h: float = unit_h - 0.45   ## one shelf spacing shorter at top
+	var post_y_offset: float = 0.45 * 0.5   ## shift down so top is lower
 	var corners: Array[Vector2] = [
 		Vector2(-unit_w * 0.5 + post_w * 0.5, -unit_d * 0.5 + post_d * 0.5),
 		Vector2( unit_w * 0.5 - post_w * 0.5, -unit_d * 0.5 + post_d * 0.5),
@@ -99,9 +101,9 @@ func _load_mesh() -> void:
 		## Vertical bar
 		var post_mi: MeshInstance3D = MeshInstance3D.new()
 		var post: BoxMesh = BoxMesh.new()
-		post.size = Vector3(post_w, unit_h, post_d)
+		post.size = Vector3(post_w, post_h, post_d)
 		post_mi.mesh = post
-		post_mi.position = Vector3(corner.x, unit_h * 0.5, corner.y)
+		post_mi.position = Vector3(corner.x, post_h * 0.5 - post_y_offset, corner.y)
 		post_mi.set_surface_override_material(0, metal_mat)
 		add_child(post_mi)
 
@@ -110,7 +112,7 @@ func _load_mesh() -> void:
 		var lip: BoxMesh = BoxMesh.new()
 		lip.size = Vector3(post_w, 0.015, 0.008)
 		lip_mi.mesh = lip
-		lip_mi.position = Vector3(corner.x, unit_h * 0.5, corner.y - post_d * 0.5 - 0.004)
+		lip_mi.position = Vector3(corner.x, post_h * 0.5 - post_y_offset, corner.y - post_d * 0.5 - 0.004)
 		lip_mi.set_surface_override_material(0, metal_mat)
 		add_child(lip_mi)
 
@@ -126,11 +128,11 @@ func _load_mesh() -> void:
 				notch_mi.set_surface_override_material(0, metal_mat)
 				add_child(notch_mi)
 
-	## Shelf platforms
+	## Shelf platforms — span full width, posts sit inside
 	for sy: float in shelf_y:
 		var shelf_mi: MeshInstance3D = MeshInstance3D.new()
 		var shelf: BoxMesh = BoxMesh.new()
-		shelf.size = Vector3(unit_w - post_w * 2.0, 0.018, unit_d - post_d * 2.0)
+		shelf.size = Vector3(unit_w, 0.018, unit_d)
 		shelf_mi.mesh = shelf
 		shelf_mi.position = Vector3(0.0, sy, 0.0)
 		shelf_mi.set_surface_override_material(0, shelf_mat)
