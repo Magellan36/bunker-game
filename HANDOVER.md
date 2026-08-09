@@ -1,3 +1,237 @@
+# Handover — Cleaning Follow-Up: Shelf Pop-Out + Sustained Session (Aug 2026)
+
+**Owner:** NPC Claude instance.
+
+## What changed
+- **`NPCItemUser.grab_loose()` now refuses shelved items.** It previously
+  grabbed anything loose; if a `CleaningActivity` carried a reference to
+  an item that got shelved mid-approach (or the `"shelved"` group was
+  already set), the NPC could end up carrying/placing a shelved item —
+  plausibly the shelf-pop-out symptom. Guard added so grab-any-loose
+  callers (Give-to-Friend, Eat/Drink fetching, stuck-recovery forcing)
+  can never take a shelved item.
+- **`NPCBrain.gd` early-abort:** `CleaningActivity` aborts the moment
+  its target becomes `"shelved"` while fetching (the grab would fail
+  anyway per the above) instead of walking the full distance for
+  nothing.
+- **Cleaning is now a sustained session, not one-and-done.** `done()`
+  was `_item == null`, which became true after every single delivery —
+  the activity stopped after one item by design. Rewrote
+  `CleaningActivity`: after each delivery it calls `_pick_next_target()`
+  and keeps cleaning for **20–40 real seconds** (`SESSION_MIN_SEC`/
+  `SESSION_MAX_SEC`, `randf_range()`, same convention as Talk/Relax
+  session lengths) or until nothing's left to clean bunker-wide,
+  whichever comes first. Session time is only checked between items so
+  it always finishes the current carry. Interruptible only between
+  items (`interruptible()` = `_item == null`). Stuck-recovery path
+  (`forced_item`) stays exactly one grab. `done()` is now
+  `_finished and _item == null`.
+- **Diagnostics:** `NPCDebug.log_cleaning(npc, stage, detail)` (staged,
+  like `log_snatch()`) + a `[JobBoard] Cleaning scan:` summary line
+  (trash / organizable / tracked-not-yet-idle counts) under F7 debug.
+- **`CommandCleaningActivity` delegates to a normal organic
+  `CleaningActivity`** — inherits sustained-session behavior unchanged,
+  deliberate.
+
+## Files Modified
+`scripts/npc/NPCItemUser.gd`, `scripts/npc/NPCBrain.gd`,
+`scripts/npc/NPCDebug.gd`, `scripts/npc/JobBoard.gd`.
+
+## Status: NOT VERIFIED FIXED
+Both original complaints were re-investigated and root causes proposed,
+but the field symptoms were **still reported after this fix attempt**:
+- **Shelf pop-out** — a placed item occasionally popping back out of /
+  unfreezing from a shelf. Not reproducibly traced to one remaining code
+  path; suspected interaction between `_find_stuck_obstruction()` forcing
+  `CleaningActivity` onto a shelved `RigidBody3D` and stale cached
+  references, but unconfirmed.
+- **"Nothing to clean" regression** — partly a timing false-alarm (90s
+  idle gate on organize-ables + trash never posting because
+  `_has_trash_receptacle()` is still false), but the pre-placed-item path
+  is still open.
+- **Sporadic timing** — the "randomly interrupted with brief Idles"
+  symptom was traced to Talk's missing session cooldown (fixed in the
+  Talking entry below), but the equivalent Cleaning timing remains
+  unexplained.
+
+**Investigation was interrupted by a tool outage mid-session.** A fresh
+live-repo check is the stated next step.
+
+## Next Up
+- Run test checklist items 80–84 in
+  `NPC_CLEANING_SHELF_POPOUT_AND_SESSION_PLAN.md` against a fresh pull
+  (shelf pop-out with several items back-to-back; multi-item single
+  session; clean session timeout mid-carry; empty-bunker graceful end;
+  JobBoard scan line accuracy).
+- If pop-out still reproduces, instrument `_find_stuck_obstruction()`
+  and the shelving slot assignment specifically — that interaction was
+  the leading unconfirmed suspect.
+
+---
+
+# Handover — Cleaning Job + 3 Root-Cause Fixes + Job Priority + Requests UI (Aug 2026)
+
+**Owner:** NPC Claude instance.
+
+## What changed
+- **Cleaning job** (`CleaningActivity`): trash disposal + shelf
+  organizing under one job, mirroring `GiveToFriendActivity`'s
+  fetch→travel→deliver shape (NOT routed through `JobBoard`'s claim
+  system — those are single-location; Cleaning is three-location).
+  `JobBoard._scan_cleaning()` (same 2s cadence) maintains cached trash /
+  organize-able lists that `NPC.gd` reads via
+  `has_cleaning_target_available()` / `find_cleaning_target()` /
+  `find_cleaning_destination()`. Trash = `EmptyBagItem`, empty
+  `FoodCan`, empty `WaterBottle`; gated behind `_has_trash_receptacle()`
+  (false today — a `"trash_receptacle"` group member would self-activate
+  it). Organize-ables = loose items idle **90s** (`CLEANING_IDLE_MIN_SEC`,
+  idle clock resets if the item moves > 0.3 m). Counts as a JOB for Work
+  Ethic (`get_work_ethic_job_mult()`).
+- **Stuck-recovery integration:** a stall caused by a loose
+  `RigidBody3D` forces `CleaningActivity` onto that specific item,
+  bypassing eligibility by design. Future hook: `npc_deposit_trash()`
+  is `has_method()`-guarded and ready.
+- **Three root-caused fixes** (Part A):
+  1. **Stale cache crash** — `get_trash_items()`/`get_organizable_items()`
+     returned raw caches; freed references crashed typed iteration.
+     Both `filter()` on `is_instance_valid()` before returning (same
+     class as the earlier `get_open_jobs()` fix).
+  2. **Heavy items unapproachable** — Crates (`mass 7.0` ≥
+     `HEAVY_OBSTACLE_MASS`) get a `NavigationObstacle3D` with avoidance
+     enabled, which prevents closing the final distance when an NPC
+     wants to grab them. Added
+     `PickupableItem.set_nav_obstacle_enabled(bool)` (⚠️ World Items
+     file — additive only); `CleaningActivity` disables avoidance while
+     approaching and restores it on abandoned drops.
+  3. **The "just drops" cause** — `find_cleaning_destination()` picked
+     the nearest shelf by distance with no capacity check; a full shelf
+     meant the carry fails → drop. Added `Shelving.has_room_for()` and
+     made destination selection skip shelves without room.
+- **Job Priority system** (Part B): universal per-job-type weight,
+     a separate axis from Work Ethic (multiplies into final score).
+     `JOB_PRIORITY_WEIGHTS`: HARVEST 1.3, REPLACE_FILTER 1.0, REFUEL 1.0,
+     CLEANING 0.5, default 1.0. Applies to `JobActivity.score()` and
+     `CleaningActivity.score()`.
+- **Requests/Jobs UI** (Part C): the NPC E-panel Command box became a
+  **Requests** toggle (Go eat / Go drink / Take a load off / "Can you
+  complete this job?") with a **Jobs** sub-list driven by
+  `NPC_JOB_MENU_ENTRIES` (one entry per job type — add a job type later
+  with just one dict entry). New generalized `CommandJobActivity`
+  parameterized by job type; `CommandCleaningActivity` wraps an organic
+  `CleaningActivity`. `REQUESTS_SECTION_H = 260` fixed panel bump.
+- Cleaned: `docs/systems/npc/README.md` (Cleaning section: sustained
+  session, diagnostics, and a **known-open-issues** block), Job Priority
+  section, and the Action Log section.
+
+## Files Modified
+`scripts/npc/JobBoard.gd`, `scripts/world/furniture/Shelving.gd`,
+`scripts/world/items/PickupableItem.gd` (⚠️ flagged, additive),
+`scripts/npc/NPC.gd`, `scripts/npc/NPCBrain.gd`,
+`scripts/ui/npc/NPCTalkMenuUI.gd`, `docs/systems/npc/README.md`.
+
+## Verification
+- Tests 70–79 in `NPC_CLEANING_FIXES_PRIORITY_REQUESTS_UI_PLAN.md` +
+  full Cleaning test list in `NPC_CLEANING_JOB_PLAN.md`.
+- Watch for the follow-up entry above — the sustained-session redesign
+  landed separately and the shelf pop-out is **not** confirmed fixed.
+
+---
+
+# Handover — Exposure-Weighted Mood Contagion + Randomness Consistency (Aug 2026)
+
+**Owner:** NPC Claude instance.
+
+## What changed
+- **Mood contagion is now exposure-weighted.** Previously
+  `_tick_mood()`'s contagion averaged ALL other NPCs' moods equally
+  regardless of distance/history — someone across the bunker pulled as
+  hard as someone stood next to all day. Added a per-pair **exposure
+  score** (`_contagion_exposure`: `CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR`
+  0.5, `DECAY` 0.2, `MAX` 5.0), built up while within
+  `RELATIONSHIP_PROXIMITY_RANGE` (the SAME range the Relationships
+  system uses — one consistent "what counts as together" definition),
+  decaying while apart. Contagion target is now
+  `_compute_weighted_contagion_target()` — an exposure-weighted average;
+  zero exposure = zero influence (no diluted "everyone counts a little").
+  Falls back to own mood if nobody has exposure (fresh spawn).
+- **Deliberately NOT extended to time-skip catch-up** — that already
+  uses a single pre-skip bunker-wide snapshot as an accepted
+  approximation; weighting it would require snapshotting every NPC's
+  exposure map too. Live contagion only.
+- **Randomness consistency pass** (Part B): two duplicated formulas
+  centralized in `NPC.gd`:
+  - `_random_sign()` — shared coinflip helper (was inlined as
+    `randf() < 0.5` in personality generation and the Talk swing).
+  - `_threshold_scaled_chance(value, threshold, extreme,
+    chance_at_threshold, chance_at_extreme, direction)` — one formula
+    for both "chance rises above threshold" (Give-to-Friend) and
+    "chance falls below threshold" (Snatch).
+  Per-mechanic constants unchanged; range picks already consistently use
+  `randf_range()`. Trait multiplier ranges (0.5x/0.67x/0.7x) deliberately
+  left different — they were explicit per-trait percentage requests.
+
+## Files Modified
+`scripts/npc/NPC.gd` only.
+
+## Verification
+- Two NPCs near each other with divergent moods: close proximity should
+  pull moods together strongly; after separating for a while, influence
+  fades (F7 mood debug). A pair that only barely crossed paths should
+  have near-zero contagion pull.
+- Documented in `docs/systems/npc/README.md` (contagion section +
+  skip-note rationale + new "Established Conventions" section).
+
+---
+
+# Handover — Sociability→Contagion, Snatch/Gift Cooldown + Live HOSTILE Log, Relax Spacing (Aug 2026)
+
+**Owner:** NPC Claude instance.
+
+## What changed
+- **Sociability now scales mood contagion ±33%** —
+  `get_contagion_sociability_mult()` (0.67x Distant → 1.33x Open, 1.0x
+  baseline/absent), applied to both the live `_tick_mood()` contagion
+  line and `_catch_up_mood()`'s blend. Separate from
+  `_sociability_trait_mult()` (relationship-magnitude) — this is
+  receptivity, how much THIS NPC's mood gets pulled toward the group
+  average.
+- **Snatch → Gift 60s pair cooldown** — a victim (npc_id or "player")
+  of a snatch attempt can't gift back to THAT SAME attacker for 60s
+  (`SNATCH_GIFT_COOLDOWN_SEC`, refreshed every tick of active pursuit).
+  Uninvolved third parties unaffected.
+- **Live HOSTILE log entry** — during a pursuit, a single Action Log row
+  "X HOSTILE for Ns" is created once (`start_hostile_log()`), mutated in
+  place every tick (`update_hostile_log()`, counts "1s", "2s", ...), and
+  frozen to "was HOSTILE for Ns" the instant pursuit ends
+  (`end_hostile_log()`). `NPCTalkMenuUI._process()` refreshes just that
+  one row's text per frame while expanded (relies on `get_action_log()`
+  returning a shallow copy, so index 0 is the SAME dict NPC.gd mutates).
+- **Relax clustering fix** — a fresh NPC (full needs, nothing competing)
+  could win the first think-cycle and chain relax sessions until the
+  whole daily budget was gone in one sitting. Added a randomized
+  inter-session cooldown (`RELAX_MIN_GAP_HOURS` 3 / `MAX` 6,
+  `is_relax_on_cooldown()`/`start_relax_cooldown()`,
+  `RelaxActivity.score()` gates on it), plus a staggered 1–3h head-start
+  at spawn so nobody's eligible the instant they spawn.
+- Also part of this pass: NPC↔NPC snatch pair cooldown (10s,
+  `NPC_SNATCH_PAIR_COOLDOWN_SEC`, bidirectional) and Talk session
+  cooldown (30–90s) — see the Talking entry.
+
+## Files Modified
+`scripts/npc/NPC.gd`, `scripts/npc/NPCBrain.gd`,
+`scripts/ui/npc/NPCTalkMenuUI.gd`. (No Player-subsystem changes —
+`can_receive_item()`'s new param defaults to `"player"`.)
+
+## Verification
+- Snatched NPC vs the attacker: gifting back blocked ~60s, third-party
+  NPCs unaffected. Pursuit shows one live "X HOSTILE for Ns" row that
+  counts up and freezes on end. Two new spawns near each other with
+  full needs no longer chain relax sessions back-to-back.
+- Details: `NPC_SOCIABILITY_CONTAGION_SNATCH_COOLDOWN_RELAX_FIX_PLAN.md`;
+  documented in `docs/systems/npc/README.md`.
+
+---
+
 # Handover — Cooking Pot UI Fixes, Storage Prompt Rules, NPC Colors (Aug 2026)
 
 **Owner:** UI Claude instance (HUD/menus/Build Mode/Furniture).

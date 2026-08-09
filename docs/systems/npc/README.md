@@ -200,10 +200,26 @@ additive sources, each independently inspectable via `NPCDebug.log_mood`:
    *rising* toward the target) is scaled by the Optimism trait AND
    (Part 21) mildly by how far into "fine" territory needs actually are
    — barely-fine needs recover ~15% slower than comfortably-fine ones.
-2. **Global social contagion** — every tick, each NPC's mood is pulled
-   3%/game-hour toward the mood *average of every other NPC in the game*
-   (`"npc"` group, no distance limit — deliberately global; bunkers are
-   small, and this is meant to compound into spirals either direction).
+2. **Social contagion — exposure-weighted (Aug 2026).** Every tick,
+   each NPC's mood is pulled toward an *exposure-weighted* average of the
+   other NPCs' moods — NOT a flat bunker-wide average anymore. Per-pair
+   exposure scores build up while two NPCs are near each other and decay
+   while apart (`_tick_contagion_exposure()`), using the **same
+   proximity range the Relationships system uses**
+   (`RELATIONSHIP_PROXIMITY_RANGE`) — one consistent "what counts as
+   together" definition across both systems, deliberately not a second
+   threshold. `_compute_weighted_contagion_target()` produces the actual
+   pull target: someone you've spent a lot of recent time near pulls your
+   mood much harder than someone you've barely crossed paths with.
+   **Zero exposure means zero influence** — an NPC with no history
+   against anyone contributes nothing at all, and a freshly-spawned NPC
+   (empty exposure map) is not pulled by anyone until it actually spends
+   time near someone. Rate is `MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR`
+   (3%/game-hour), scaled by the Sociability contagion multiplier (see
+   Trait Effects Reference) and by `h`. Exposure accumulates
+   (`CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR = 0.5`, capped at
+   `CONTAGION_EXPOSURE_MAX = 5.0`) and decays at 0.2/game-hour while
+   apart.
 3. **Random drift** — small symmetric noise, "more than nothing, not
    drastic."
 
@@ -694,23 +710,46 @@ completely unaffected (they were never in that attacker's cooldown list).
   zero changes). When blocked, `can_receive_item()` returns false and
   any Give toward the victim fails.
 
+#### NPC↔NPC Snatch Pair Cooldown (Aug 2026)
+
+A second, distinct cooldown for NPC-vs-NPC snatches specifically:
+`NPC_SNATCH_PAIR_COOLDOWN_SEC` **10 seconds**, per pair, tracked
+**bidirectionally** — both NPCs in the pair get the cooldown stamped the
+moment a successful NPC→NPC snatch happens between them
+(`start_npc_snatch_pair_cooldown(other_id)` called on both sides by
+`SnatchActivity.tick()`), so the two hostile NPCs can't immediately
+ping-pong the same item back and forth. `find_snatch_target()` skips any
+pair currently on this cooldown (unless the F7 force-NPC-snatch debug
+flag bypasses it). This is deliberately separate from the Snatch→Gift
+60s cooldown above — that one blocks *gifting back* after a snatch;
+this one blocks *another snatch from the same pair* for a short window,
+regardless of which direction.
+
 ### NPC↔NPC Talking (Aug 2026)
 
 Opportunistic, scored like Relaxing — but the score is multiplied by a
-relationship curve. Flat 1.0x between relationship −15 and +15 (the
-"neutral" band), scaling continuously up to 2.5x by +100
-(`TALK_SCORE_MULT_MAX`) and down to 0.2x by −100 (`TALK_SCORE_MULT_MIN`)
-via `get_talk_score_mult(other_id)`. Only ever considered between NPCs
+relationship curve based on the **mutual** relationship (both directions
+averaged, `get_talk_score_mult(partner)`: reads this NPC's feeling toward
+the partner AND the partner's feeling toward this NPC, then averages —
+"mutually high" means both like each other, not just one side). Flat 1.0x
+between mutual relationship −15 and +15 (the "neutral" band), scaling
+continuously up to 2.5x by +100 (`TALK_SCORE_MULT_MAX`) and down to 0.2x
+by −100 (`TALK_SCORE_MULT_MIN`). Only ever considered between NPCs
 already within `TALK_RANGE` (3.0) — deliberately **no travel phase**, so
 both parties lock in place immediately rather than walking to meet. This
 sidesteps the "cancelled mid-approach" failure mode Snatch originally
-had. Non-interruptible once both parties are locked in.
+had. Non-interruptible once both parties are locked in — except low
+needs always override: if either participant's hunger or thirst drops
+below 55 mid-conversation, `interruptible()` returns true so they can
+break off and eat/drink (same 55 threshold Eat/DrinkActivity auto-trigger
+on).
 
 Mechanics (`TalkActivity`, registered in `_candidates`):
 - `score()` is zero unless a free partner exists (`find_talk_partner()`),
   then `TALK_BASE_SCORE (5.5) × work-ethic passive mult` (see Trait
   Effects Reference). A partner is eligible via `is_available_to_talk()`
-  (not relaxing, not already talking, and interruptible).
+  (not relaxing, not already talking, not on the talk cooldown, and
+  interruptible).
 - On `enter()`, the initiator picks the nearest eligible partner and
   calls `partner.start_talk_session(initiator)`, which `force_command()`s
   a **separate, one-shot partner-side `TalkActivity`**
@@ -719,9 +758,27 @@ Mechanics (`TalkActivity`, registered in `_candidates`):
   session.
 - Session duration `SESSION_MIN..MAX` (8–20 real seconds). When the
   initiator's timer ends, it calls `partner.end_talk_session()`, which
-  logs **"Talked to X"** from the partner's own perspective and clears
-  its `_partner` so its forced activity finishes. The initiator logs its
-  own "Talked to X".
+  logs **"Talked to X"** from the partner's own perspective, applies the
+  per-conversation relationship swing (see below), and clears its
+  `_partner` so its forced activity finishes. The initiator logs its own
+  "Talked to X" and applies the same swing.
+- **Per-conversation relationship swing** (`apply_talk_relationship_swing()`)
+  — applied independently to EACH participant at NATURAL conversation end
+  only (`end_talk_session(natural=true)`); an interrupted conversation
+  (`natural=false`) skips it. Uniform magnitude 1–3, random sign
+  (`_random_sign()`, see Established Conventions below), routed through
+  `_adjust_relationship()` like every other relationship-affecting event
+  (so it's Sociability-scaled). Logged per NPC as "Relationship with
+  {partner} +{applied} (Good/Bad/Neutral Conversation)" — the applied
+  (post-Sociability) delta with a conversation label.
+- **30–90s session-end cooldown** (`TALK_COOLDOWN_MIN_SEC`/
+  `TALK_COOLDOWN_MAX_SEC`, randomized via `start_talk_cooldown()`), started
+  after ANY session ends (natural or interrupted) and gating both
+  `is_available_to_talk()` and `TalkActivity.score()` — without it,
+  nothing stopped the same two NPCs immediately re-initiating the instant
+  one conversation ended (which was the actual source of the "randomly
+  interrupted with brief Idles, several instances back to back" symptom,
+  not the non-interruptibility logic itself).
 - Interaction (F7 force someone else mid-conversation) triggers
   `exit()` → `partner.end_talk_session()` on the partner side too, so
   neither party is stranded waiting.
@@ -836,6 +893,58 @@ occupy the `"trash_receptacle"` group and implement
   failed, and the NPC dropped the item. Added `Shelving.has_room_for()`
   and made `find_cleaning_destination(is_trash, item)` skip shelves
   without room.
+- **Only ever did one item per shift** — `done()` returned
+  `_item == null`, which became true the instant after every single
+  delivery, so the activity stopped after one item by design. Redesigned
+  (Aug 2026) as a **sustained session**: `CleaningActivity` now loops
+  `_pick_next_target()` after each delivery (success or failure) and keeps
+  cleaning until either **20–40 real seconds** elapse
+  (`SESSION_MIN_SEC`/`SESSION_MAX_SEC`, uniform random via `randf_range()`
+  — same convention as Talk/Relax session lengths; real time, not
+  game-hours, matching Talk not Relaxing) **or nothing's left to clean**
+  bunker-wide. Session time is only checked between items
+  (`_item == null`) so it always finishes delivering whatever it's
+  currently carrying before ending. Interruptible only between items
+  (`interruptible()` returns `_item == null` — mid-carry, committed).
+  The `CommandCleaningActivity` "Clean the bunker" button delegates to a
+  normal organic-mode `CleaningActivity` unchanged, deliberately inheriting
+  the sustained session rather than stopping after one item. The
+  stuck-recovery path (`forced_item`) is exempt by design — always exactly
+  **one grab**, an emergency unstick, never a full session. If a session
+  finds nothing to clean at start (or the timer runs out between items),
+  it ends immediately/gracefully rather than idling forever — `done()` is
+  `_finished and _item == null`, not `_item == null`.
+
+**Diagnostics (Aug 2026):** `NPCDebug.log_cleaning(npc, stage, detail)`
+mirrors `log_snatch()`'s staged pattern — "session ended" /
+"nothing left to clean" / "time's up (Ns)" entries under
+`%s CLEANING [%s]: %s`. `JobBoard._scan_cleaning()` prints a summary
+line per scan when debug is on: `N trash, N organizable,
+N tracked-but-not-yet-idle`.
+
+**Known open issues (NOT resolved — do not mark done):** both original
+Cleaning complaints were re-investigated in the Aug 2026 sustained-session
+pass (root causes identified above), and several item-management bugs were
+fixed, but the field symptoms were **still reported after the fix attempt**:
+- **Shelf pop-out** — a placed item occasionally popping back out of /
+  unfreezing from a shelf (or a carried-then-shelved item unfreezing).
+  Not reproducibly traced to a single remaining code path; suspected
+  interaction between `_find_stuck_obstruction()` forcing
+  `CleaningActivity` onto a shelved `RigidBody3D` and stale cached
+  references, but unconfirmed. **Investigation was interrupted by a tool
+  outage mid-session** — a fresh live-repo check is the stated next step.
+- **"Nothing to clean" regression** — an NPC saying nothing's left while
+  items are visibly on the floor. Partly explained as a timing
+  false-alarm (the 90s idle gate on organize-ables + trash never posting
+  because `_has_trash_receptacle()` is still false), but the exact
+  pre-placed-item path is still open.
+- **Sporadic timing** — the original "randomly interrupted with brief
+  Idles, several instances back to back" symptom was traced to Talk's
+  missing session cooldown (fixed), but the equivalent Cleaning/other
+  activity timing remains unexplained.
+Before declaring Cleaning fully fixed, re-verify against the test
+checklist (tests 80–84) in `NPC_CLEANING_SHELF_POPOUT_AND_SESSION_PLAN.md`
+after a fresh repo pull.
 
 ### Skills & Jobs
 Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
@@ -892,9 +1001,18 @@ per-frame `halt_movement()` every other stationary phase uses).
 
 ### Relaxing (Aug 2026)
 A scheduled break, distinct from Wander/Idle: `RelaxActivity` delegates
-entirely to `SitActivity`/`LieActivity` for the actual arrival/seating
-mechanics (same composition `CommandRestActivity` already uses), or just
-stands in place if neither a chair nor a bed is free. Self-limiting via a
+entirely to the Relax-prefixed subclasses `RelaxSitActivity`/
+`RelaxLieActivity` (which extend `SitActivity`/`LieActivity`) for the
+actual arrival/seating mechanics — or just stands in place if neither a
+chair nor a bed is free. The Relax-prefixed pair exist specifically to
+fix a get-in/get-out energy loop: the base `SitActivity`/`LieActivity`
+only compete for selection below their Energy thresholds, but a scheduled
+relax session must be able to *start* even at full Energy — and once it
+had, the base classes' `done()` logic (which also keys off Energy) would
+immediately end it, so a full-Energy NPC could repeatedly sit down and
+get straight back up. The Relax subclasses gate on chair/bed-availability
+only, not Energy, so a session runs its full duration regardless of how
+full the NPC's Energy is. Self-limiting via a
 **daily time budget** rather than precise scheduling — it scores a flat
 baseline (6.0, just above Wander's 5.0, × Work Ethic passive mult)
 whenever budget remains, burns budget down in ~20–40 min sessions
@@ -988,7 +1106,11 @@ unbounded consumption. Per NPC, in order:
   a single blended pull toward the bunker's PRE-skip average mood
   (`avg_mood_before`, snapshotted once in `catch_up_all()`), scaled by
   elapsed time and clamped so it can't overshoot — deliberately
-  approximate, not a real per-NPC-pair simulation.
+  approximate, not a real per-NPC-pair simulation. It stays a FLAT
+  pre-skip average rather than the live system's exposure-weighting on
+  purpose: weighting it correctly would require snapshotting every NPC's
+  exposure map too (in addition to every mood), adding real complexity
+  to something already explicitly treated as an approximation.
 - **Harvest:** every plant that `is_ready()` at the moment the skip is
   triggered is snapshotted once into a shared pool; each NPC harvests up
   to `floor(hours)` of them from that pool (one harvested plant = one
@@ -1008,15 +1130,24 @@ ago" display, `game_time` (a snapshot of the HUD clock string) for the
 hover tooltip. Capped at `ACTION_LOG_MAX_LEN` (100).
 
 **Every current log-triggering event:**
-- Give (`on_item_given()`) — new gift: "Player gave you X (+N relationship)",
-  with the actual post-Sociability applied delta (returned by
-  `_adjust_relationship()`, which now reports what it did); repeat-gift:
-  "fed only, no relationship change".
+- Give (`on_item_given()`) — new gift: "Player gave X to {name} (+N
+  relationship)", with the actual post-Sociability applied delta (returned
+  by `_adjust_relationship()`, which now reports what it did); repeat-gift:
+  "Player gave X to {name} (fed only, no relationship change)". NPC-to-NPC
+  gifts (Give-to-Friend) read "{donor} gave X to {name}".
 - Takeaway (`on_item_taken_by_player()`) — need-triggered only; taking a
   job material is deliberately not logged.
-- Snatch success (`SnatchActivity.tick()`) — "Snatched an item from your
-  hands". Aborted/failed attempts and the dropped-item-chase variant are
+- Snatch success (`SnatchActivity.tick()`) — "Snatched an item from the
+  player's hands" (or "{thief} snatched an item from {victim}" for an NPC
+  target). Aborted/failed attempts and the dropped-item-chase variant are
   deliberately not logged.
+- Hostile episodes (`SnatchActivity` pursuing a target) — one LIVE entry
+  "X HOSTILE for Ns", created once per episode (`start_hostile_log()`),
+  mutated in place every tick (`update_hostile_log()` — the text counts up
+  "1s", "2s", ... without creating new rows), frozen to a static "X was
+  HOSTILE for Ns" the instant the pursuit ends (`end_hostile_log()`). The
+  UI refreshes this one row's text directly each frame rather than
+  rebuilding the whole log.
 - Relax session completed (`RelaxActivity.exit()`) — "Relaxed for N min"
   (skipped if the session never actually started).
 - Job/Harvest completion — "Job (Harvest)" (Part A's per-plant change
@@ -1028,11 +1159,18 @@ hover tooltip. Capped at `ACTION_LOG_MAX_LEN` (100).
   ±`CONTAGION_LOG_THRESHOLD` (2%).
 - Irritability / relationship band crossings (`_check_label_crossings()`)
   — "Became \"X\" (irritability)", "Calmed down (irritability)",
-  "Relationship with you became \"X\"", logged only at the actual
+  "Relationship with the player became \"X\"", logged only at the actual
   crossing, not every tick the band is held.
+- Talk session ended (`end_talk_session()`) — "Talked to {other NPC}",
+  from each participant's own perspective.
 
-"Talked to [NPC]" is an aspirational future entry (no NPC-to-NPC
-dialogue exists yet) the log format already supports without changes.
+**Wording convention (mandatory):** the log is a third-person, objective
+record for a specific named NPC — entries always use the NPC's own name
+(or "the player" for the player), **never "you/your"**. This was a real
+bug once (fixed Aug 2026: six lines across `NPC.gd`/`NPCBrain.gd` used
+"you"/"your"); keep every future entry consistent with it.
+`log_action()` is the single append point; new log-triggering events
+must route through it.
 
 **UI:** the E-panel has a "Show Activity Log" toggle that expands the
 panel by `LOG_SECTION_H` (and re-centers it via `_apply_panel_height()`)
@@ -1058,14 +1196,12 @@ skills, personality words, seed, mood, and irritability + label.
 
 - **Crisis Response** (breakdown/overdrive/rage-as-aggression) — see the
   `FUTURE WORK` note above. Nothing built.
-- **NPC-to-NPC dialogue/social interaction** — NPCs don't talk to each
-  other. Mood contagion and (as of the Relationships pass) proximity-based
-  relationship drift are the only inter-NPC effects that exist; neither
-  involves actual communication.
-- **Relationship-reactive dialogue/behavior** — `get_dialogue_line()` and
-  every existing activity/scoring function are relationship-blind for now;
-  relationships are tracked but nothing reads them yet outside debug
-  tooling. See Relationships' Future Work below.
+- **NPC-to-NPC dialogue with real content** — NPCs occupy each other,
+  face each other, and log "Talked to X", but there is no dialogue text
+  or content; the conversation is strictly a timed, scored social
+  activity. See NPC↔NPC Talking's `FUTURE WORK` note.
+- **Conversation outcomes** — the per-conversation relationship swing
+  exists (see Talking), but "what was actually said" is not simulated.
 - **Death / end states below 0 health or mood** — both stats clamp at 0
   and currently do nothing further.
 - **NPC variety** — single "Survivor" capsule/name; multiple visual/
@@ -1074,7 +1210,8 @@ skills, personality words, seed, mood, and irritability + label.
   pools, not branching dialogue or NPC-specific writing.
 - **Planting, cooking, water-collection, or repair jobs** — `JobBoard`
   is built so each is one new `_scan_*()` function + one `JobActivity`
-  type-branch; none of the four exist yet beyond Harvest/Filter/Refuel.
+  type-branch; none of the four exist yet beyond Harvest/Filter/Refuel
+  (Cleaning is deliberately NOT a JobBoard-claim job — see Cleaning).
 
 ---
 
@@ -1093,6 +1230,45 @@ skills, personality words, seed, mood, and irritability + label.
 - `NPCTalkMenuUI.PANEL_H` has been bumped several times as content was
   added (currently 760) via estimation rather than exact measurement —
   worth a real pass once the panel's final content is settled.
+
+---
+
+## Established Conventions (Aug 2026)
+
+These patterns are now convention — new NPC code should follow them
+without being asked.
+
+- **Defensive `has_method()` guards on every cross-file NPC↔NPCBrain
+  call.** NPC.gd and NPCBrain.gd are tightly coupled but always built
+  separately; every cross-file call
+  (`if _partner.has_method("end_talk_session"):`, `has_cleaning_target_available()`,
+  `is_trash_item()`, etc.) goes through a `has_method()` guard so either
+  file can be temporarily broken/stubbed during a build without crashing
+  the other. If you add a call from one into the other, add the guard.
+- **Shared randomness helpers, never ad-hoc reimplementation.** Two
+  formulas that used to be reimplemented slightly differently in several
+  places are now centralized in `NPC.gd` and should be used everywhere:
+  `_random_sign()` (→ `1.0` or `-1.0`) and
+  `_threshold_scaled_chance(value, threshold, extreme, chance_at_threshold,
+  chance_at_extreme, direction)` (one formula for both "chance rises as
+  value rises above threshold" [Give-to-Friend] and "chance rises as
+  value falls below threshold" [Snatch]; returns 0 outside the span).
+  Per-mechanic constants (`SNATCH_CHANCE_AT_THRESHOLD`, etc.) are
+  unchanged — only the formula is shared. Random *ranges* (session
+  lengths, cooldown windows) all use `randf_range(MIN, MAX)`.
+- **Cache accessors self-prune stale references.** Every cache that can
+  hold freed objects (JobBoard's `get_open_jobs()`, `get_trash_items()`,
+  `get_organizable_items()`) `filter()`s on `is_instance_valid()` before
+  returning rather than making callers guard against freed instances.
+- **Target-walking activities early-abort on every tick.** An activity
+  walking toward a target re-checks that target's validity each tick and
+  bails the moment it's gone (stale `is_held`/shelved reference, item
+  removed, claim lost) instead of walking the full distance for nothing.
+  See `SnatchActivity`, `EatActivity`/`DrinkActivity`, and
+  `CleaningActivity`'s fetch phase.
+- **Staged debug logging.** `NPCDebug.log_*()` helpers
+  (`log_snatch()`, `log_cleaning()`) follow a `(npc, stage, detail)`
+  pattern and gate on `NPCDebug.enabled` (F7).
 
 ---
 
