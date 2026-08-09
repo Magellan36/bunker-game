@@ -464,7 +464,7 @@ func _build_corn(mat: StandardMaterial3D) -> void:
 		silk_mi.set_surface_override_material(0, silk_mat)
 		_mesh.add_child(silk_mi)
 
-## Pumpkin — large ribbed sphere (use multiple overlapping spheres for ribs)
+## Pumpkin — smooth sphere with stem
 func _build_pumpkin(mat: StandardMaterial3D) -> void:
 	## Main body
 	var sphere: SphereMesh = SphereMesh.new()
@@ -473,18 +473,6 @@ func _build_pumpkin(mat: StandardMaterial3D) -> void:
 	_mesh.mesh = sphere
 	_mesh.position = Vector3(0.0, 0.055, 0.0)
 	_mesh.set_surface_override_material(0, mat)
-
-	## Vertical ribs (6 thin elongated boxes — divide positions by 3x scale)
-	for i in range(6):
-		var rib_mi: MeshInstance3D = MeshInstance3D.new()
-		var rib: BoxMesh = BoxMesh.new()
-		rib.size = Vector3(0.008, 0.09, 0.025)
-		rib_mi.mesh = rib
-		var angle: float = TAU * i / 6.0
-		rib_mi.position = Vector3(cos(angle) * 0.055, 0.055 / 3.0, sin(angle) * 0.055)
-		rib_mi.rotation.y = angle
-		rib_mi.set_surface_override_material(0, mat)
-		_mesh.add_child(rib_mi)
 
 	## Green stem on top (divide position by 3x scale)
 	var stem_mi: MeshInstance3D = MeshInstance3D.new()
