@@ -11,5 +11,5 @@ continuous_cd = true
 mass = 7.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-position = Vector3(0, 0.24, 0)
+position = Vector3(0, 0.01, 0)
 shape = SubResource("shape_crate")
