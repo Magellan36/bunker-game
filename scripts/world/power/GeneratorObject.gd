@@ -19,13 +19,15 @@ func _wdbg(msg: String) -> void:
 const TIER_CONFIG: Array = [
 	{ "size": Vector3(0.85, 0.85, 0.85), "watts": 800,  "label": "Generator S" },
 	{ "size": Vector3(0.85, 0.85, 1.85), "watts": 2000, "label": "Generator M" },
-	{ "size": Vector3(1.85, 0.85, 1.85), "watts": 5000, "label": "Generator L" },
+	{ "size": Vector3(1.85, 1.70, 0.925), "watts": 5000, "label": "Generator L" },
 ]
 
 const COLOR_BODY:     Color = Color(0.38, 0.38, 0.38, 1.0)
 const COLOR_PANEL:    Color = Color(0.25, 0.25, 0.28, 1.0)
 const COLOR_RUNNING:  Color = Color(0.15, 0.90, 0.20, 1.0)
 const COLOR_STOPPED:  Color = Color(0.85, 0.18, 0.12, 1.0)
+const COLOR_GENL_GREEN: Color = Color(0.18, 0.52, 0.34, 1.0)   ## industrial green panels
+const COLOR_GENL_BLACK: Color = Color(0.10, 0.10, 0.10, 1.0)   ## black base/skid
 
 ## Wire socket — small emissive sphere on the generator side face (−Z face).
 ## Indicates where a wire should be connected. Cyan when running, dim when off.
@@ -177,7 +179,88 @@ func _build_mesh() -> void:
 	## The centre snap dot shown in Build Mode is sufficient; the back-face sphere
 	## was a duplicate connection point that confused placement.
 
-	_build_exhaust(sz)
+	## Generator L specific details: green panels, black base, doors, louvers
+	if generator_tier == 2:
+		## Black base/skid at bottom
+		var base_mi: MeshInstance3D = MeshInstance3D.new()
+		var base: BoxMesh = BoxMesh.new()
+		base.size = Vector3(sz.x * 0.98, sz.y * 0.15, sz.z * 0.98)
+		base_mi.mesh = base
+		base_mi.position = Vector3(0.0, sz.y * 0.075, 0.0)
+		var base_mat: StandardMaterial3D = StandardMaterial3D.new()
+		base_mat.albedo_color = COLOR_GENL_BLACK
+		base_mat.roughness    = 0.80
+		base_mat.metallic     = 0.35
+		base_mi.set_surface_override_material(0, base_mat)
+		add_child(base_mi)
+
+		## Green panel overlay on front (over the grey body)
+		var green_front_mi: MeshInstance3D = MeshInstance3D.new()
+		var green_front: BoxMesh = BoxMesh.new()
+		green_front.size = Vector3(sz.x * 0.96, sz.y * 0.78, 0.022)
+		green_front_mi.mesh = green_front
+		green_front_mi.position = Vector3(0.0, sz.y * 0.50, sz.z * 0.5 + 0.015)
+		var green_mat: StandardMaterial3D = StandardMaterial3D.new()
+		green_mat.albedo_color = COLOR_GENL_GREEN
+		green_mat.roughness    = 0.55
+		green_mat.metallic     = 0.45
+		green_front_mi.set_surface_override_material(0, green_mat)
+		add_child(green_front_mi)
+
+		## Door panels with handles (front)
+		var door_w: float = sz.x * 0.30
+		_add_door(self, sz, -sz.x * 0.22, door_w)
+		_add_door(self, sz, sz.x * 0.22, door_w)
+
+		## Louvers on right side (−X face) — horizontal slats
+		_add_louvers(self, sz, 7)
+
+_build_exhaust(sz)
+
+
+## Side louver vent (horizontal slats on the side face)
+func _add_louvers(parent: Node3D, sz: Vector3, count: int) -> void:
+	var louver_mat: StandardMaterial3D = StandardMaterial3D.new()
+	louver_mat.albedo_color = COLOR_GENL_BLACK
+	louver_mat.roughness    = 0.75
+	louver_mat.metallic     = 0.30
+	var slat_w: float = sz.z * 0.85
+	for i in range(count):
+		var slat_mi: MeshInstance3D = MeshInstance3D.new()
+		var slat: BoxMesh = BoxMesh.new()
+		slat.size = Vector3(slat_w, 0.018, 0.015)
+		slat_mi.mesh = slat
+		slat_mi.set_surface_override_material(0, louver_mat)
+		var y_pos: float = sz.y * 0.35 + (float(i) / float(count - 1)) * sz.y * 0.45
+		slat_mi.position = Vector3(0.0, y_pos, sz.z * 0.5 + 0.012)
+		parent.add_child(slat_mi)
+
+## Door panel with handle (front face detail for Generator L)
+func _add_door(parent: Node3D, sz: Vector3, x_offset: float, door_w: float) -> void:
+	var door_mat: StandardMaterial3D = StandardMaterial3D.new()
+	door_mat.albedo_color = COLOR_GENL_GREEN
+	door_mat.roughness    = 0.55
+	door_mat.metallic     = 0.45
+	var door_mi: MeshInstance3D = MeshInstance3D.new()
+	var door: BoxMesh = BoxMesh.new()
+	door.size = Vector3(door_w, sz.y * 0.72, 0.025)
+	door_mi.mesh = door
+	door_mi.set_surface_override_material(0, door_mat)
+	door_mi.position = Vector3(x_offset, sz.y * 0.48, sz.z * 0.5 + 0.018)
+	parent.add_child(door_mi)
+
+	## Handle (small horizontal bar)
+	var handle_mat: StandardMaterial3D = StandardMaterial3D.new()
+	handle_mat.albedo_color = COLOR_GENL_BLACK
+	handle_mat.roughness    = 0.40
+	handle_mat.metallic     = 0.70
+	var handle_mi: MeshInstance3D = MeshInstance3D.new()
+	var handle: BoxMesh = BoxMesh.new()
+	handle.size = Vector3(0.04, 0.018, 0.018)
+	handle_mi.mesh = handle
+	handle_mi.set_surface_override_material(0, handle_mat)
+	handle_mi.position = Vector3(x_offset + door_w * 0.35, sz.y * 0.50, sz.z * 0.5 + 0.035)
+	parent.add_child(handle_mi)
 
 
 ## _build_wire_socket removed — back-face socket sphere was a duplicate snap point.
@@ -485,7 +568,7 @@ static func build_ghost_mesh(tier: int = 0) -> Mesh:
 	const GEN_SIZES: Array = [
 		Vector3(0.85, 0.85, 0.85),
 		Vector3(0.85, 0.85, 1.85),
-		Vector3(1.85, 0.85, 1.85),
+		Vector3(1.85, 1.70, 0.925),
 	]
 	var box: BoxMesh = BoxMesh.new()
 	box.size = GEN_SIZES[clamp(tier, 0, 2)]
