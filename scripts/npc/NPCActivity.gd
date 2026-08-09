@@ -38,3 +38,11 @@ func exit(_npc: NPC) -> void: pass
 func label() -> String: return "Idle"
 func begin_with_item(_npc: NPC, _item: Node) -> void: pass
 func take_handoff() -> NPCActivity: return null
+
+## Optional (Aug 2026) — structured debug snapshot for NPCDebug's on-demand
+## dumps. Empty Dictionary means "nothing interesting to show" (the
+## default, for every activity that doesn't override this). An activity
+## that DOES override it should include an "activity" String key so a
+## dump can filter to just the activity type it cares about (see
+## CleaningActivity.debug_info() for the pattern).
+func debug_info() -> Dictionary: return {}

@@ -43,6 +43,14 @@ var _cleaning_idle_tracker: Dictionary = {}   ## item instance_id -> {"pos": Vec
 var _trash_items_cache: Array = []
 var _organizable_items_cache: Array = []
 
+## Aug 2026 — count of genuine trash-classified items sitting in the world
+## RIGHT NOW that are being silently excluded because no trash_receptacle
+## exists anywhere in the level yet (see _has_trash_receptacle()'s own
+## comment — this is a known, by-design permanent gap until a receptacle
+## object is added). Tracked purely so debug tooling can surface it as a
+## specific reason instead of it looking identical to "nothing to clean".
+var _trash_blocked_by_no_receptacle: int = 0
+
 func get_trash_items() -> Array:
 	_trash_items_cache = _trash_items_cache.filter(func(i): return is_instance_valid(i))
 	return _trash_items_cache
@@ -50,6 +58,42 @@ func get_trash_items() -> Array:
 func get_organizable_items() -> Array:
 	_organizable_items_cache = _organizable_items_cache.filter(func(i): return is_instance_valid(i))
 	return _organizable_items_cache
+
+## Aug 2026 — cheap count for NPC.get_cleaning_unavailable_reason()'s
+## "STILL_SETTLING" check. Same subtraction the periodic debug print
+## already does, exposed as a real getter instead of duplicated inline.
+func get_pending_cleaning_count() -> int:
+	return maxi(0, _cleaning_idle_tracker.size() - _organizable_items_cache.size())
+
+## Aug 2026 — for NPC.get_cleaning_unavailable_reason()'s "NO_TRASH_
+## RECEPTACLE" check.
+func get_trash_blocked_by_no_receptacle_count() -> int:
+	return _trash_blocked_by_no_receptacle
+
+## Aug 2026 — full snapshot for NPCDebug.dump_cleaning_state(). Resolves
+## every still-tracked-but-not-yet-idle item's live remaining time, so a
+## single dump answers "why isn't X organizable yet" directly instead of
+## needing to watch the periodic scan print over time.
+func get_cleaning_debug_snapshot() -> Dictionary:
+	var idle_needed: float = _effective_cleaning_idle_min_sec()
+	var now: int = Time.get_ticks_msec()
+	var pending: Array = []
+	for id in _cleaning_idle_tracker.keys():
+		var item: Object = instance_from_id(id)
+		if item == null or not is_instance_valid(item) or _organizable_items_cache.has(item):
+			continue   ## already ready, or freed since — not "pending"
+		var rec: Dictionary = _cleaning_idle_tracker[id]
+		var elapsed: float = float(now - int(rec["since_msec"])) / 1000.0
+		var name: String = item.get_display_name() if item.has_method("get_display_name") else str(item.name)
+		pending.append({"name": name, "elapsed_sec": elapsed, "remaining_sec": maxf(0.0, idle_needed - elapsed)})
+	return {
+		"trash_count": _trash_items_cache.size(),
+		"organizable_count": _organizable_items_cache.size(),
+		"pending": pending,
+		"trash_blocked_by_no_receptacle": _trash_blocked_by_no_receptacle,
+		"idle_gate_sec": idle_needed,
+		"idle_gate_is_debug": NPCDebug.enabled,
+	}
 
 func _has_trash_receptacle() -> bool:
 	## Self-gating mechanism — returns false today since nothing occupies
@@ -181,6 +225,7 @@ func _scan_cleaning(seen: Dictionary) -> void:
 	var new_trash: Array = []
 	var new_organizable: Array = []
 	var seen_ids: Dictionary = {}
+	var trash_blocked_this_scan: int = 0
 
 	for item: Node in get_tree().get_nodes_in_group("pickup"):
 		if not is_instance_valid(item) or not ("is_held" in item):
@@ -193,6 +238,8 @@ func _scan_cleaning(seen: Dictionary) -> void:
 		if _is_trash_item(item):
 			if trash_receptacle_exists:
 				new_trash.append(item)
+			else:
+				trash_blocked_this_scan += 1
 			continue   ## trash never also counts as organizable
 
 		var pos: Vector3 = (item as Node3D).global_position
@@ -213,9 +260,12 @@ func _scan_cleaning(seen: Dictionary) -> void:
 
 	_trash_items_cache = new_trash
 	_organizable_items_cache = new_organizable
+	_trash_blocked_by_no_receptacle = trash_blocked_this_scan
 	if NPCDebug.enabled:
-		print("[JobBoard] Cleaning scan: %d trash, %d organizable, %d tracked-but-not-yet-idle" \
-			% [new_trash.size(), new_organizable.size(), _cleaning_idle_tracker.size() - new_organizable.size()])
+		var blocked_suffix: String = " | %d trash item(s) blocked (no trash_receptacle in level)" % trash_blocked_this_scan \
+			if trash_blocked_this_scan > 0 else ""
+		print("[JobBoard] Cleaning scan: %d trash, %d organizable, %d tracked-but-not-yet-idle%s" \
+			% [new_trash.size(), new_organizable.size(), _cleaning_idle_tracker.size() - new_organizable.size(), blocked_suffix])
 
 ## Does any loose-or-shelved item matching the filter exist? Uses a dummy
 ## NPC-shaped search: loose world scan mirrors NPCItemUser.find_loose_item's

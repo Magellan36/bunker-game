@@ -1546,3 +1546,15 @@ without being asked.
     trip, never re-fetches mid-session, never revisits a generator
     already topped off, and stops cleanly when the can runs dry or
     everything's full.
+73. Enable NPC Debug Logging, drop a loose item, ask an NPC to clean —
+    confirm the console shows target picked / picked up / destination
+    chosen / delivered lines naming the actual item and destination, not
+    just session start/end.
+74. Press F7 → "Print NPC Cleaning Debug State" — confirm it lists every
+    shelf/End Table/Dresser's occupancy, every pending (not-yet-idle)
+    item with an accurate remaining-time countdown, and any NPC
+    currently mid-clean with its exact phase/item/destination.
+75. Fill all storage in a test area, request Cleaning — confirm the
+    toast says "storage is full" specifically. Empty the area of storage
+    entirely, request again — confirm a distinct "nothing to put things
+    away in" message instead of the same generic failure.

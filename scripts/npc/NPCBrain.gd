@@ -43,6 +43,12 @@ func setup(npc: NPC) -> void:
 func current_label() -> String:
 	return _current.label() if _current != null else "Idle"
 
+## Aug 2026 — structured debug snapshot of whatever the NPC is currently
+## doing, for NPCDebug.dump_cleaning_state(). Empty Dictionary if idle or
+## the current activity doesn't implement debug_info().
+func get_current_activity_debug_info() -> Dictionary:
+	return _current.debug_info() if _current != null else {}
+
 func is_relaxing() -> bool:
 	return _current is RelaxActivity
 
@@ -1007,6 +1013,8 @@ class CleaningActivity extends NPCActivity:
 		_session_duration = randf_range(SESSION_MIN_SEC, SESSION_MAX_SEC)
 		_session_elapsed = 0.0
 		_finished = false
+		if NPCDebug.enabled and not _is_forced_session:
+			NPCDebug.log_cleaning(npc, "session started", "target duration=%.0fs" % _session_duration)
 		_pick_next_target(npc)
 
 	## Called at session start and after each delivery (success or
@@ -1022,6 +1030,9 @@ class CleaningActivity extends NPCActivity:
 				_finished = true
 				return
 			_is_trash = npc.is_trash_item(_item) if npc.has_method("is_trash_item") else false
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "forced grab", "%s (stuck-recovery, is_trash=%s)" % [
+					_display_name(_item), _is_trash])
 		else:
 			var result: Dictionary = npc.find_cleaning_target()
 			if result.is_empty():
@@ -1032,12 +1043,25 @@ class CleaningActivity extends NPCActivity:
 				return
 			_item = result.get("item")
 			_is_trash = result.get("is_trash", false)
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "target picked", "%s (%s) dist=%.1f" % [
+					_display_name(_item), "trash" if _is_trash else "organizable",
+					NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position)])
 		if not NPCItemUser.claim_item(_item, npc):
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "claim failed", "%s already claimed by another NPC — retrying next tick" % _display_name(_item))
 			_item = null   ## momentary claim clash — try again next tick, don't end the session over it
 			return
 		if _item.has_method("set_nav_obstacle_enabled"):
 			_item.set_nav_obstacle_enabled(false)
 		npc.set_nav_target(_item.global_position)
+
+	## Shared display-name helper so every log line above uses the same
+	## fallback (get_display_name() when available, raw node name otherwise).
+	static func _display_name(item: Node) -> String:
+		if item == null:
+			return "?"
+		return item.get_display_name() if item.has_method("get_display_name") else str(item.name)
 
 	func tick(npc: NPC, delta: float) -> void:
 		if not _is_forced_session:
@@ -1057,6 +1081,8 @@ class CleaningActivity extends NPCActivity:
 		if npc.held_item == null:
 			## Fetch phase
 			if "is_held" in _item and _item.is_held:
+				if NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "target lost", "%s became held by someone else before pickup" % _display_name(_item))
 				NPCItemUser.release_item(_item)
 				_item = null
 				return
@@ -1066,19 +1092,30 @@ class CleaningActivity extends NPCActivity:
 				## up on THIS item immediately rather than walking the
 				## full distance for nothing (grab_loose() would refuse
 				## it anyway, per Part A above).
+				if NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "target lost", "%s became shelved before pickup" % _display_name(_item))
 				NPCItemUser.release_item(_item)
 				_item = null
 				return
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, _item.global_position) <= NPCItemUser.PICKUP_RANGE:
 				if NPCItemUser.grab_loose(npc, _item):
+					if NPCDebug.enabled:
+						NPCDebug.log_cleaning(npc, "picked up", _display_name(_item))
 					_destination = npc.find_cleaning_destination(_is_trash, _item)
 					if _destination == null:
+						if NPCDebug.enabled:
+							NPCDebug.log_cleaning(npc, "no destination", "%s has nowhere to go (is_trash=%s) — setting back down" % [
+								_display_name(_item), _is_trash])
 						NPCItemUser.drop_held(npc)
 						_item = null
 						if _is_forced_session:
 							_finished = true
+					elif NPCDebug.enabled:
+						NPCDebug.log_cleaning(npc, "destination chosen", "%s -> %s" % [_display_name(_item), _destination.name])
 				else:
+					if NPCDebug.enabled:
+						NPCDebug.log_cleaning(npc, "pickup failed", "grab_loose() refused %s" % _display_name(_item))
 					NPCItemUser.release_item(_item)
 					_item = null
 			return
@@ -1095,15 +1132,21 @@ class CleaningActivity extends NPCActivity:
 				if _destination.has_method("npc_deposit_trash"):
 					_destination.npc_deposit_trash(npc, _item)
 				npc.log_action("Threw away %s" % item_name)
+				if NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "delivered", "threw away %s at %s" % [item_name, _destination.name])
 			else:
 				if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
 					npc.log_action("Put away %s" % item_name)
+					if NPCDebug.enabled:
+						NPCDebug.log_cleaning(npc, "delivered", "stored %s in %s" % [item_name, _destination.name])
 				else:
 					## Placement failed (shelf filled between selection and
 					## arrival) — item goes back on the ground and MUST be
 					## released here, or it stays permanently claimed by
 					## this NPC and invisible to every other NPC's cleaning
 					## scans for the rest of the session.
+					if NPCDebug.enabled:
+						NPCDebug.log_cleaning(npc, "delivery failed", "%s no longer had room for %s — dropping it" % [_destination.name, item_name])
 					NPCItemUser.release_item(_item)
 					NPCItemUser.drop_held(npc)
 			_item = null
@@ -1119,6 +1162,25 @@ class CleaningActivity extends NPCActivity:
 				_item.set_nav_obstacle_enabled(true)
 			NPCItemUser.release_item(_item)
 		_item = null
+
+	## Aug 2026 — structured snapshot for NPCDebug.dump_cleaning_state().
+	## "activity" key lets the dump filter to cleaning-only, since
+	## RefuelActivity doesn't implement this and would otherwise show up
+	## under the same generic getter.
+	func debug_info() -> Dictionary:
+		var phase: String = "idle"
+		if _item != null:
+			phase = "carrying" if _destination != null else "fetching"
+		return {
+			"activity": "cleaning",
+			"item": _display_name(_item) if _item != null else "",
+			"is_trash": _is_trash,
+			"phase": phase,
+			"destination": (_destination.name if _destination != null and is_instance_valid(_destination) else ""),
+			"session_elapsed": _session_elapsed,
+			"session_duration": _session_duration,
+			"forced": _is_forced_session,
+		}
 
 
 class RefuelActivity extends NPCActivity:

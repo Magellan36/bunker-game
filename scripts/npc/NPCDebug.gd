@@ -117,6 +117,82 @@ static func log_cleaning(npc: Node, stage: String, detail: String) -> void:
 		return
 	print("%s CLEANING [%s]: %s" % [_fmt(npc), stage, detail])
 
+## One-shot full Cleaning-system snapshot — call from the F7 "Print NPC
+## Cleaning Debug State" row. Always prints regardless of `enabled` (an
+## explicit on-demand request, same convention as dump_all()). Covers:
+## JobBoard's caches (including WHY something isn't ready yet — per-item
+## remaining idle time, and trash blocked by a missing receptacle),
+## every storage destination's current occupancy, and every NPC currently
+## mid-clean with its exact phase/item/destination/session progress.
+static func dump_cleaning_state(tree: SceneTree) -> void:
+	print("═══ NPC Cleaning Debug Dump ═══════════════════════════")
+	var snap: Dictionary = JobBoard.get_cleaning_debug_snapshot()
+	print("Idle gate: %.1fs%s" % [
+		float(snap["idle_gate_sec"]),
+		" (DEBUG override active — real gameplay uses 90s)" if bool(snap["idle_gate_is_debug"]) else ""])
+	print("Ready now — trash: %d   organizable: %d" % [int(snap["trash_count"]), int(snap["organizable_count"])])
+	if int(snap["trash_blocked_by_no_receptacle"]) > 0:
+		print("  ⚠ %d trash item(s) exist but no trash_receptacle in the level — permanently blocked until one's added" \
+			% int(snap["trash_blocked_by_no_receptacle"]))
+
+	var pending: Array = snap["pending"]
+	if pending.is_empty():
+		print("Pending (tracked, not yet idle-eligible): none")
+	else:
+		print("Pending (tracked, not yet idle-eligible): %d" % pending.size())
+		for p: Dictionary in pending:
+			print("  - %s: %.1fs elapsed / %.1fs remaining" % [p["name"], p["elapsed_sec"], p["remaining_sec"]])
+
+	print("── Destinations (\"shelving\" group) ──")
+	var dest_count: int = 0
+	for candidate: Node in tree.get_nodes_in_group("shelving"):
+		if not is_instance_valid(candidate):
+			continue
+		dest_count += 1
+		print("  %s: %s" % [candidate.name, _describe_storage_room(candidate)])
+	if dest_count == 0:
+		print("  (none — no shelf/End Table/Dresser exists anywhere in the level)")
+
+	print("── NPCs currently cleaning ──")
+	var any_cleaning: bool = false
+	for npc: Node in tree.get_nodes_in_group("npc"):
+		if not is_instance_valid(npc) or not ("brain" in npc) or npc.brain == null:
+			continue
+		if not npc.brain.has_method("get_current_activity_debug_info"):
+			continue
+		var info: Dictionary = npc.brain.get_current_activity_debug_info()
+		if info.is_empty() or String(info.get("activity", "")) != "cleaning":
+			continue
+		any_cleaning = true
+		var npc_name: String = npc.npc_name if "npc_name" in npc else "?"
+		print("  %s: phase=%s item=%s is_trash=%s destination=%s session=%.0fs/%.0fs%s" % [
+			npc_name, info.get("phase", "?"), info.get("item", ""), info.get("is_trash", false),
+			info.get("destination", ""), info.get("session_elapsed", 0.0), info.get("session_duration", 0.0),
+			" (forced/stuck-recovery)" if info.get("forced", false) else ""])
+	if not any_cleaning:
+		print("  (none)")
+	print("═════════════════════════════════════════════════════════")
+
+## Duck-typed room description — Shelving.gd uses `slots` (Array of
+## per-slot stacks), LightStorage.gd (End Table/Dresser) uses `stored`
+## (flat Array, null = empty slot). Anything joining "shelving" without
+## either shape just reports as unknown rather than erroring.
+static func _describe_storage_room(candidate: Node) -> String:
+	if "slots" in candidate and candidate.slots is Array:
+		var used: int = 0
+		for stack in candidate.slots:
+			if stack is Array and not stack.is_empty():
+				used += 1
+		return "shelf, %d/%d slots used" % [used, candidate.slots.size()]
+	if "stored" in candidate and candidate.stored is Array:
+		var used2: int = 0
+		for slot in candidate.stored:
+			if slot != null:
+				used2 += 1
+		var label: String = candidate.display_name if "display_name" in candidate else "storage"
+		return "%s, %d/%d used" % [label, used2, candidate.stored.size()]
+	return "(unknown storage type)"
+
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
 ## on-demand request, not continuous logging). Part 19 — expanded from a

@@ -65,6 +65,20 @@ const NPC_JOB_MENU_ENTRIES: Array[Dictionary] = [
 	{"type": "CLEANING", "label": "Clean the bunker", "action_desc": "heading to clean up", "empty_desc": "nothing to clean right now"},
 ]
 
+## Aug 2026 — maps NPC.get_cleaning_unavailable_reason()'s keys to the
+## exact player-facing toast text. Keep in sync with that function's own
+## doc comment if the reason set ever changes. Falls back to the generic
+## "nothing to clean right now" (NPC_JOB_MENU_ENTRIES' empty_desc) for any
+## key not listed here, including "" (available).
+const CLEANING_UNAVAILABLE_REASONS: Dictionary = {
+	"NOTHING_TO_CLEAN":     "nothing to clean right now",
+	"NO_TRASH_RECEPTACLE":  "there's trash, but nowhere to throw it away yet",
+	"STILL_SETTLING":       "everything's still settling — check back shortly",
+	"ALL_CLAIMED":          "everything's already being handled by someone else",
+	"NO_STORAGE_AVAILABLE": "there's nothing to put things away in",
+	"STORAGE_FULL":         "storage is full",
+}
+
 var _npc: Node = null
 var _backdrop: ColorRect = null
 var _panel: Panel = null
@@ -501,6 +515,13 @@ func _on_job_command_pressed(job_type: String) -> void:
 	var action_desc: String = String(entry.get("action_desc", "heading to work"))
 	var empty_desc: String = String(entry.get("empty_desc", "nothing to do right now"))
 	if job_type == "CLEANING":
+		## Aug 2026 — swap the generic empty_desc for a specific reason
+		## when we have one, so the player sees exactly WHY instead of a
+		## blanket "nothing to clean right now" every time.
+		if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_cleaning_unavailable_reason"):
+			var reason: String = _npc.get_cleaning_unavailable_reason()
+			if reason != "" and CLEANING_UNAVAILABLE_REASONS.has(reason):
+				empty_desc = String(CLEANING_UNAVAILABLE_REASONS[reason])
 		_issue_command(NPCBrain.CommandCleaningActivity.new(), action_desc, empty_desc)
 	elif job_type == "REFUEL":
 		_issue_command(NPCBrain.CommandRefuelActivity.new(), action_desc, empty_desc)

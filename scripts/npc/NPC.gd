@@ -1323,6 +1323,55 @@ func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node
 				best = candidate
 	return best
 
+## Specific, human-readable-key reason Cleaning currently isn't available
+## for THIS NPC (Aug 2026) — replaces a blanket "nothing to clean" with an
+## exact cause. Checked in priority order (each check assumes the ones
+## before it didn't already explain the situation):
+##   ""                     — available right now
+##   "NOTHING_TO_CLEAN"     — genuinely nothing tracked at all
+##   "NO_TRASH_RECEPTACLE"  — trash-eligible items exist but there's no
+##                            receptacle anywhere in the level (permanent
+##                            gap until one's built — see JobBoard.gd)
+##   "STILL_SETTLING"       — items exist and are being tracked, but none
+##                            have sat idle long enough yet (see
+##                            JobBoard.CLEANING_IDLE_MIN_SEC)
+##   "ALL_CLAIMED"          — ready items exist but every one is already
+##                            claimed by another NPC
+##   "NO_STORAGE_AVAILABLE" — a ready organizable item exists and is
+##                            claimable, but zero shelves/End
+##                            Tables/Dressers exist anywhere in the level
+##   "STORAGE_FULL"         — same as above, except storage exists but
+##                            every candidate is currently full
+## NPCTalkMenuUI maps these to player-facing strings — see
+## CLEANING_UNAVAILABLE_REASONS there. Keep both in sync if this list changes.
+func get_cleaning_unavailable_reason() -> String:
+	var trash: Array = JobBoard.get_trash_items()
+	var organizable: Array = JobBoard.get_organizable_items()
+	if trash.is_empty() and organizable.is_empty():
+		if JobBoard.get_trash_blocked_by_no_receptacle_count() > 0:
+			return "NO_TRASH_RECEPTACLE"
+		if JobBoard.get_pending_cleaning_count() > 0:
+			return "STILL_SETTLING"
+		return "NOTHING_TO_CLEAN"
+	var target: Dictionary = find_cleaning_target()
+	if target.is_empty():
+		return "ALL_CLAIMED"   ## ready items exist, but this NPC can't claim any of them
+	if not bool(target.get("is_trash", false)):
+		var item: RigidBody3D = target.get("item")
+		if find_cleaning_destination(false, item) == null:
+			## Distinguish "nothing exists to store it in" from "it exists
+			## but every candidate is full" — same group set
+			## find_cleaning_destination() itself searches, just checking
+			## bare presence separately for a precise message.
+			var group_names: Array = ORGANIZE_DESTINATION_GROUPS.get(_classify_organizable_item(item), ["shelving"])
+			var any_candidate: bool = false
+			for group_name: String in group_names:
+				if not get_tree().get_nodes_in_group(group_name).is_empty():
+					any_candidate = true
+					break
+			return "STORAGE_FULL" if any_candidate else "NO_STORAGE_AVAILABLE"
+	return ""   ## available
+
 ## Nearest generator still below 100% fuel, excluding IDs already
 ## refueled THIS SESSION (passed in by RefuelActivity — its own session
 ## state stays the single source of truth, same shape as

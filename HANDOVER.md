@@ -1,3 +1,35 @@
+# Handover — NPC: Cleaning Debug Overhaul + Specific Unavailable-Reason Errors (Aug 2026)
+
+- CleaningActivity now logs every meaningful decision point (target
+  picked, claim failed, picked up, destination chosen, no destination,
+  delivered, delivery failed, target lost, forced grab, session
+  started/ended) via NPCDebug.log_cleaning() — previously only session-
+  end was logged.
+- Added NPCActivity.debug_info() (optional, empty by default) and wired
+  it through NPCBrain.get_current_activity_debug_info(); CleaningActivity
+  implements it with phase/item/destination/session-progress.
+- Added a new F7 row, "Print NPC Cleaning Debug State"
+  (NPCDebug.dump_cleaning_state()) — one-shot snapshot of JobBoard's
+  ready/pending caches (with live per-item remaining idle-timer seconds),
+  every "shelving"-group destination's occupancy, and every NPC currently
+  mid-clean.
+- JobBoard now tracks trash items blocked by the missing trash_receptacle
+  separately (get_trash_blocked_by_no_receptacle_count()), and exposes
+  get_pending_cleaning_count()/get_cleaning_debug_snapshot() for the
+  above.
+- Added NPC.get_cleaning_unavailable_reason() — replaces the blanket
+  "nothing to clean right now" toast with a specific one: NOTHING_TO_
+  CLEAN, NO_TRASH_RECEPTACLE, STILL_SETTLING, ALL_CLAIMED, NO_STORAGE_
+  AVAILABLE, or STORAGE_FULL. Mapped to player-facing text in
+  NPCTalkMenuUI.CLEANING_UNAVAILABLE_REASONS.
+
+Files touched: `scripts/npc/NPCDebug.gd`, `scripts/npc/NPCActivity.gd`,
+`scripts/npc/NPCBrain.gd`, `scripts/npc/JobBoard.gd`, `scripts/npc/NPC.gd`,
+`scripts/ui/npc/NPCTalkMenuUI.gd`, `scripts/ui/menus/AdminMenu.gd`.
+
+---
+---
+
 # Handover — NPC Light Storage (End Table/Dresser) Cleanup + Refuel Session Redesign (Aug 2026)
 
 - Fixed a dead group-name bug: NPCItemUser.find_shelved_item() and
