@@ -264,7 +264,7 @@ func _build_mesh() -> void:
 		## Louvers on right side — horizontal slats
 		_add_louvers(self, sz, 5)
 
-_build_exhaust(sz)
+	_build_exhaust(sz)
 
 
 ## Side louver vent (horizontal slats on the side face)
