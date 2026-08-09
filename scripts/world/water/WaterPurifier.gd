@@ -29,10 +29,8 @@ class_name WaterPurifier
 
 const RADIUS: float = 0.135   ## WaterPipeSegment.PIPE_RADIUS * 1.5
 const LENGTH: float = 0.34
-const COLOR_BODY: Color = Color(0.45, 0.47, 0.49, 1.0)   ## grey galvanized pipe, matches pipe network
-const COLOR_FLANGE: Color = Color(0.50, 0.52, 0.54, 1.0)   ## slightly lighter grey for flanges
+const COLOR_BODY: Color = Color(0.30, 0.55, 0.42, 1.0)   ## green-teal, distinct from plain grey pipe
 const COLOR_BAND: Color = Color(0.85, 0.90, 0.30, 1.0)   ## yellow warning band, reads as "treatment unit"
-const COLOR_HANDWHEEL: Color = Color(0.20, 0.35, 0.75, 1.0)   ## medium-dark blue handwheel
 
 ## This purifier's own WaterGraph node key — set by WaterPurifierAttach right
 ## after insertion.
@@ -414,56 +412,18 @@ func orient_along(pos_a: Vector3, pos_b: Vector3) -> void:
 	rotate_object_local(Vector3.RIGHT, PI * 0.5)
 
 static func build_ghost_mesh() -> Mesh:
-	## Ghost shows the full valve body (flanges + stem + handwheel too)
-	var ghost_mesh: ArrayMesh = ArrayMesh.new()
-
-	## Main body cylinder
-	var body_verts: PackedVector3Array = []
-	var body_indices: PackedInt32Array = []
-	var segs: int = 16
-	for i in range(segs + 1):
-		var angle: float = TAU * i / segs
-		var x: float = cos(angle) * RADIUS
-		var z: float = sin(angle) * RADIUS
-		body_verts.append(Vector3(x, -LENGTH * 0.5, z))
-		body_verts.append(Vector3(x, LENGTH * 0.5, z))
-	for i in range(segs):
-		var base: int = i * 2
-		body_indices.append_array([base, base + 1, base + 2, base + 1, base + 3, base + 2])
-
-	## Flanges (left + right)
-	for fz in [-LENGTH * 0.5, LENGTH * 0.5]:
-		for i in range(segs + 1):
-			var angle: float = TAU * i / segs
-			var r: float = RADIUS * 1.15
-			var x: float = cos(angle) * r
-			var z: float = sin(angle) * r
-			body_verts.append(Vector3(x, fz - 0.0175, z))
-			body_verts.append(Vector3(x, fz + 0.0175, z))
-		for i in range(segs):
-			var base: int = (i + 1) * 2
-			body_indices.append_array([base, base + 1, base + 2, base + 1, base + 3, base + 2])
-
-	var arrays: Array = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = body_verts
-	arrays[Mesh.ARRAY_INDEX]  = body_indices
-	ghost_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-
-	return ghost_mesh
+	var cyl: CylinderMesh = CylinderMesh.new()
+	cyl.top_radius    = RADIUS
+	cyl.bottom_radius = RADIUS
+	cyl.height        = LENGTH
+	cyl.radial_segments = 12
+	return cyl
 
 func _build_mesh() -> void:
-	## Grey galvanized pipe body — matches WaterPipeSegment's metallic look
 	var body_mat: StandardMaterial3D = StandardMaterial3D.new()
 	body_mat.albedo_color = COLOR_BODY
 	body_mat.roughness    = 0.45
-	body_mat.metallic     = 0.68
-
-	## Flange material — slightly lighter grey
-	var flange_mat: StandardMaterial3D = StandardMaterial3D.new()
-	flange_mat.albedo_color = COLOR_FLANGE
-	flange_mat.roughness    = 0.40
-	flange_mat.metallic     = 0.70
+	body_mat.metallic     = 0.55
 
 	## Stored as a member (Jul 2026, Purifier QoL plan item 1), not just a
 	## local — _refresh_band_tint() re-tints this after initial construction
@@ -472,12 +432,6 @@ func _build_mesh() -> void:
 	_band_mat.albedo_color = COLOR_BAND
 	_band_mat.roughness    = 0.60
 	_band_mat.metallic     = 0.20
-
-	## Blue handwheel material
-	var handwheel_mat: StandardMaterial3D = StandardMaterial3D.new()
-	handwheel_mat.albedo_color = COLOR_HANDWHEEL
-	handwheel_mat.roughness    = 0.35
-	handwheel_mat.metallic     = 0.55
 
 	## NO extra local rotation on these mesh instances (Jul 2026 fix — was
 	## previously rotation_degrees = Vector3(90,0,0) on both, "CylinderMesh
@@ -493,8 +447,6 @@ func _build_mesh() -> void:
 	## that alignment. The old extra 90°-around-X on the child re-tipped the
 	## already-aligned cylinder onto local Z, landing it perpendicular to
 	## the pipe — exactly the reported bug.
-
-	## Main cylindrical body (grey galvanized metal)
 	var body_mi: MeshInstance3D = MeshInstance3D.new()
 	var body_cyl: CylinderMesh  = CylinderMesh.new()
 	body_cyl.top_radius    = RADIUS
@@ -505,76 +457,15 @@ func _build_mesh() -> void:
 	body_mi.set_surface_override_material(0, body_mat)
 	add_child(body_mi)
 
-	## Flange at pipe end (left)
-	var flange_left_mi: MeshInstance3D = MeshInstance3D.new()
-	var flange_left_cyl: CylinderMesh = CylinderMesh.new()
-	flange_left_cyl.top_radius    = RADIUS * 1.15
-	flange_left_cyl.bottom_radius = RADIUS * 1.15
-	flange_left_cyl.height        = 0.035
-	flange_left_cyl.radial_segments = 16
-	flange_left_mi.mesh = flange_left_cyl
-	flange_left_mi.set_surface_override_material(0, flange_mat)
-	flange_left_mi.position.z = -LENGTH * 0.5
-	add_child(flange_left_mi)
-
-	## Flange at pipe end (right)
-	var flange_right_mi: MeshInstance3D = MeshInstance3D.new()
-	var flange_right_cyl: CylinderMesh = CylinderMesh.new()
-	flange_right_cyl.top_radius    = RADIUS * 1.15
-	flange_right_cyl.bottom_radius = RADIUS * 1.15
-	flange_right_cyl.height        = 0.035
-	flange_right_cyl.radial_segments = 16
-	flange_right_mi.mesh = flange_right_cyl
-	flange_right_mi.set_surface_override_material(0, flange_mat)
-	flange_right_mi.position.z = LENGTH * 0.5
-	add_child(flange_right_mi)
-
-	## Yellow warning band (center of body)
 	var band_mi: MeshInstance3D = MeshInstance3D.new()
 	var band_cyl: CylinderMesh  = CylinderMesh.new()
 	band_cyl.top_radius    = RADIUS * 1.08
 	band_cyl.bottom_radius = RADIUS * 1.08
-	band_cyl.height        = LENGTH * 0.18
+	band_cyl.height        = LENGTH * 0.22
 	band_cyl.radial_segments = 12
 	band_mi.mesh = band_cyl
 	band_mi.set_surface_override_material(0, _band_mat)
 	add_child(band_mi)
-
-	## Vertical stem rising from body top (grey metal)
-	var stem_mi: MeshInstance3D = MeshInstance3D.new()
-	var stem_cyl: CylinderMesh = CylinderMesh.new()
-	stem_cyl.top_radius    = 0.025
-	stem_cyl.bottom_radius = 0.025
-	stem_cyl.height        = 0.18
-	stem_cyl.radial_segments = 8
-	stem_mi.mesh = stem_cyl
-	stem_mi.set_surface_override_material(0, body_mat)
-	stem_mi.position.y = RADIUS + 0.09
-	add_child(stem_mi)
-
-	## Blue handwheel (torus ring at top of stem)
-	var handwheel_mi: MeshInstance3D = MeshInstance3D.new()
-	var handwheel_torus: TorusMesh = TorusMesh.new()
-	handwheel_torus.inner_radius = 0.045
-	handwheel_torus.outer_radius = 0.075
-	handwheel_mi.mesh = handwheel_torus
-	handwheel_mi.set_surface_override_material(0, handwheel_mat)
-	handwheel_mi.position.y = RADIUS + 0.18
-	handwheel_mi.rotation.x = PI * 0.5   ## lay flat (torus default is vertical)
-	add_child(handwheel_mi)
-
-	## Handle spoke (horizontal bar across handwheel)
-	var handle_mi: MeshInstance3D = MeshInstance3D.new()
-	var handle_cyl: CylinderMesh = CylinderMesh.new()
-	handle_cyl.top_radius    = 0.012
-	handle_cyl.bottom_radius = 0.012
-	handle_cyl.height        = 0.16
-	handle_cyl.radial_segments = 6
-	handle_mi.mesh = handle_cyl
-	handle_mi.set_surface_override_material(0, handwheel_mat)
-	handle_mi.position.y = RADIUS + 0.18
-	handle_mi.rotation.z = PI * 0.5   ## perpendicular to stem
-	add_child(handle_mi)
 
 	body_mi.create_trimesh_collision()
 	for child in body_mi.get_children():
