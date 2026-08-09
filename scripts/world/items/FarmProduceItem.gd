@@ -242,7 +242,7 @@ func _build_basil(mat: StandardMaterial3D) -> void:
 	_mesh.mesh.size = Vector3(0.001, 0.001, 0.001)
 	_mesh.position = Vector3(0.0, 0.0, 0.0)
 
-## Strawberry — cone/tapered shape with small seed dots
+## Strawberry — cone/tapered shape with rounded top and calyx
 func _build_strawberry(mat: StandardMaterial3D) -> void:
 	## Main body — tapered cylinder (wider at top, narrow at bottom)
 	var body_mi: MeshInstance3D = MeshInstance3D.new()
@@ -257,6 +257,16 @@ func _build_strawberry(mat: StandardMaterial3D) -> void:
 	_mesh.mesh = body
 	_mesh.position = Vector3(0.0, 0.045, 0.0)
 	_mesh.set_surface_override_material(0, mat)
+
+	## Rounded dome on top to soften the flat cylinder top
+	var dome_mi: MeshInstance3D = MeshInstance3D.new()
+	var dome: SphereMesh = SphereMesh.new()
+	dome.radius = 0.04
+	dome.height = 0.05
+	dome_mi.mesh = dome
+	dome_mi.position = Vector3(0.0, 0.09, 0.0)
+	dome_mi.set_surface_override_material(0, mat)
+	_mesh.add_child(dome_mi)
 
 	## Green leafy top (calyx)
 	var leaf_mat: StandardMaterial3D = StandardMaterial3D.new()
