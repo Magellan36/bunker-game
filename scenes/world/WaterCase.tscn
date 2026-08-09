@@ -51,6 +51,12 @@ radial_segments = 12
 [sub_resource type="BoxShape3D" id="shape_case_collision"]
 size = Vector3(0.54, 0.32, 0.42)
 
+[sub_resource type="CylinderMesh" id="mesh_corner"]
+top_radius = 0.012
+bottom_radius = 0.012
+height = 0.30
+radial_segments = 8
+
 [node name="WaterCase" type="RigidBody3D" groups=["pickup"]]
 mass = 5.0
 continuous_cd = true
@@ -93,6 +99,26 @@ material_override = SubResource("mat_plastic")
 [node name="TrayTop" type="MeshInstance3D" parent="VisualRoot"]
 position = Vector3(0, 0.32, 0)
 mesh = SubResource("mesh_wall_top")
+material_override = SubResource("mat_plastic")
+
+[node name="CornerBL" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.255, 0.165, 0.195)
+mesh = SubResource("mesh_corner")
+material_override = SubResource("mat_plastic")
+
+[node name="CornerBR" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.255, 0.165, 0.195)
+mesh = SubResource("mesh_corner")
+material_override = SubResource("mat_plastic")
+
+[node name="CornerFL" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(-0.255, 0.165, -0.195)
+mesh = SubResource("mesh_corner")
+material_override = SubResource("mat_plastic")
+
+[node name="CornerFR" type="MeshInstance3D" parent="VisualRoot"]
+position = Vector3(0.255, 0.165, -0.195)
+mesh = SubResource("mesh_corner")
 material_override = SubResource("mat_plastic")
 
 [node name="Bottle_01" type="MeshInstance3D" parent="VisualRoot"]
