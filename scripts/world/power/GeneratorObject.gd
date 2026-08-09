@@ -195,18 +195,47 @@ func _build_mesh() -> void:
 		base_mi.set_surface_override_material(0, base_mat)
 		add_child(base_mi)
 
-		## Green panel overlay on front (over the grey body)
-		var green_front_mi: MeshInstance3D = MeshInstance3D.new()
-		var green_front: BoxMesh = BoxMesh.new()
-		green_front.size = Vector3(sz.x * 0.96, sz.y * 0.78, 0.022)
-		green_front_mi.mesh = green_front
-		green_front_mi.position = Vector3(0.0, sz.y * 0.50, sz.z * 0.5 + 0.015)
+		## Green panels wrapping all 4 vertical faces
 		var green_mat: StandardMaterial3D = StandardMaterial3D.new()
 		green_mat.albedo_color = COLOR_GENL_GREEN
 		green_mat.roughness    = 0.55
 		green_mat.metallic     = 0.45
-		green_front_mi.set_surface_override_material(0, green_mat)
-		add_child(green_front_mi)
+
+		## Front panel (+Z)
+		var gf_mi: MeshInstance3D = MeshInstance3D.new()
+		var gf: BoxMesh = BoxMesh.new()
+		gf.size = Vector3(sz.x * 0.96, sz.y * 0.78, 0.022)
+		gf_mi.mesh = gf
+		gf_mi.position = Vector3(0.0, sz.y * 0.50, sz.z * 0.5 + 0.015)
+		gf_mi.set_surface_override_material(0, green_mat)
+		add_child(gf_mi)
+
+		## Back panel (-Z)
+		var gb_mi: MeshInstance3D = MeshInstance3D.new()
+		var gb: BoxMesh = BoxMesh.new()
+		gb.size = Vector3(sz.x * 0.96, sz.y * 0.78, 0.022)
+		gb_mi.mesh = gb
+		gb_mi.position = Vector3(0.0, sz.y * 0.50, -sz.z * 0.5 - 0.015)
+		gb_mi.set_surface_override_material(0, green_mat)
+		add_child(gb_mi)
+
+		## Left panel (+X)
+		var gl_mi: MeshInstance3D = MeshInstance3D.new()
+		var gl: BoxMesh = BoxMesh.new()
+		gl.size = Vector3(0.022, sz.y * 0.78, sz.z * 0.96)
+		gl_mi.mesh = gl
+		gl_mi.position = Vector3(sz.x * 0.5 + 0.015, sz.y * 0.50, 0.0)
+		gl_mi.set_surface_override_material(0, green_mat)
+		add_child(gl_mi)
+
+		## Right panel (-X)
+		var gr_mi: MeshInstance3D = MeshInstance3D.new()
+		var gr: BoxMesh = BoxMesh.new()
+		gr.size = Vector3(0.022, sz.y * 0.78, sz.z * 0.96)
+		gr_mi.mesh = gr
+		gr_mi.position = Vector3(-sz.x * 0.5 - 0.015, sz.y * 0.50, 0.0)
+		gr_mi.set_surface_override_material(0, green_mat)
+		add_child(gr_mi)
 
 		## Door panels with handles (front)
 		var door_w: float = sz.x * 0.30
@@ -231,18 +260,47 @@ func _build_mesh() -> void:
 		base_mi.set_surface_override_material(0, base_mat)
 		add_child(base_mi)
 
-		## White panel overlay on front
-		var white_front_mi: MeshInstance3D = MeshInstance3D.new()
-		var white_front: BoxMesh = BoxMesh.new()
-		white_front.size = Vector3(sz.x * 0.96, sz.y * 0.78, 0.022)
-		white_front_mi.mesh = white_front
-		white_front_mi.position = Vector3(0.0, sz.y * 0.50, sz.z * 0.5 + 0.015)
+		## White panels wrapping all 4 vertical faces
 		var white_mat: StandardMaterial3D = StandardMaterial3D.new()
 		white_mat.albedo_color = COLOR_GENM_WHITE
 		white_mat.roughness    = 0.55
 		white_mat.metallic     = 0.45
-		white_front_mi.set_surface_override_material(0, white_mat)
-		add_child(white_front_mi)
+
+		## Front panel (+Z)
+		var wf_mi: MeshInstance3D = MeshInstance3D.new()
+		var wf: BoxMesh = BoxMesh.new()
+		wf.size = Vector3(sz.x * 0.96, sz.y * 0.78, 0.022)
+		wf_mi.mesh = wf
+		wf_mi.position = Vector3(0.0, sz.y * 0.50, sz.z * 0.5 + 0.015)
+		wf_mi.set_surface_override_material(0, white_mat)
+		add_child(wf_mi)
+
+		## Back panel (-Z)
+		var wb_mi: MeshInstance3D = MeshInstance3D.new()
+		var wb: BoxMesh = BoxMesh.new()
+		wb.size = Vector3(sz.x * 0.96, sz.y * 0.78, 0.022)
+		wb_mi.mesh = wb
+		wb_mi.position = Vector3(0.0, sz.y * 0.50, -sz.z * 0.5 - 0.015)
+		wb_mi.set_surface_override_material(0, white_mat)
+		add_child(wb_mi)
+
+		## Left panel (+X)
+		var wl_mi: MeshInstance3D = MeshInstance3D.new()
+		var wl: BoxMesh = BoxMesh.new()
+		wl.size = Vector3(0.022, sz.y * 0.78, sz.z * 0.96)
+		wl_mi.mesh = wl
+		wl_mi.position = Vector3(sz.x * 0.5 + 0.015, sz.y * 0.50, 0.0)
+		wl_mi.set_surface_override_material(0, white_mat)
+		add_child(wl_mi)
+
+		## Right panel (-X)
+		var wr_mi: MeshInstance3D = MeshInstance3D.new()
+		var wr: BoxMesh = BoxMesh.new()
+		wr.size = Vector3(0.022, sz.y * 0.78, sz.z * 0.96)
+		wr_mi.mesh = wr
+		wr_mi.position = Vector3(-sz.x * 0.5 - 0.015, sz.y * 0.50, 0.0)
+		wr_mi.set_surface_override_material(0, white_mat)
+		add_child(wr_mi)
 
 		## Door panels with handles (front)
 		var door_w: float = sz.x * 0.30
