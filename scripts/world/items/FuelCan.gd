@@ -139,7 +139,7 @@ func _become_empty() -> void:
 ## Built from BoxMesh + CylinderMesh primitives.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
-	_mesh.position = Vector3(0.0, 0.21, 0.0)
+	_mesh.position = Vector3(0.0, 0.17, 0.0)
 
 	var body_mat: StandardMaterial3D = StandardMaterial3D.new()
 	body_mat.albedo_color = Color(0.75, 0.10, 0.10, 1.0)
