@@ -609,13 +609,14 @@ func _build_placeholder_mesh() -> void:
 	add_child(rim_mi)
 
 	## Top indentation — deep cavity so the pot reads as open/hollow in-game.
+	## Extends slightly above the body top so the opening is visible from above.
 	var cavity_mi: MeshInstance3D = MeshInstance3D.new()
 	var cavity: CylinderMesh = CylinderMesh.new()
 	cavity.top_radius    = 0.24
 	cavity.bottom_radius = 0.22
-	cavity.height        = 0.22
+	cavity.height        = 0.28
 	cavity_mi.mesh = cavity
-	cavity_mi.position = Vector3(0.0, 0.19, 0.0)
+	cavity_mi.position = Vector3(0.0, 0.21, 0.0)
 	var cavity_mat: StandardMaterial3D = StandardMaterial3D.new()
 	cavity_mat.albedo_color = Color(0.09, 0.10, 0.11, 1.0)
 	cavity_mat.metallic     = 0.40
@@ -631,7 +632,7 @@ func _build_placeholder_mesh() -> void:
 	inner_lip.rings = 22
 	inner_lip.ring_segments = 10
 	inner_lip_mi.mesh = inner_lip
-	inner_lip_mi.position = Vector3(0.0, 0.286, 0.0)
+	inner_lip_mi.position = Vector3(0.0, 0.34, 0.0)
 	inner_lip_mi.set_surface_override_material(0, rim_mat)
 	add_child(inner_lip_mi)
 
