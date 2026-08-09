@@ -100,61 +100,71 @@ func on_use() -> void:
 		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
 		queue_free()
 
-## Sack model — composite box shape: a main body with beveled top/bottom
-## edges to give a soft, filled-sack silhouette. All built from BoxMesh
-## primitives (proven to render correctly in this codebase).
+## Bag model — upright sealed soil bag matching the reference image.
+## Built from BoxMesh primitives: a puffy middle body, a narrower sealed
+## top, and a flat bottom base. Light brown / burlap color.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
-	_mesh.position = Vector3(0.0, 0.10, 0.0)
+	_mesh.position = Vector3(0.0, 0.15, 0.0)
 
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.62, 0.53, 0.38, 1.0)
-	mat.roughness    = 0.92
-	mat.metallic     = 0.0
+	var bag_mat: StandardMaterial3D = StandardMaterial3D.new()
+	bag_mat.albedo_color = Color(0.62, 0.53, 0.38, 1.0)
+	bag_mat.roughness    = 0.92
+	bag_mat.metallic     = 0.0
 
-	## Main body — slightly inset so edge bevels sit proud.
+	var seam_mat: StandardMaterial3D = StandardMaterial3D.new()
+	seam_mat.albedo_color = Color(0.55, 0.46, 0.32, 1.0)
+	seam_mat.roughness    = 0.90
+	seam_mat.metallic     = 0.0
+
+	## Main body — puffy middle section, widest part of the bag.
 	var body: MeshInstance3D = MeshInstance3D.new()
 	body.mesh = BoxMesh.new()
-	(body.mesh as BoxMesh).size = Vector3(0.24, 0.17, 0.14)
+	(body.mesh as BoxMesh).size = Vector3(0.22, 0.20, 0.12)
 	body.position = Vector3(0.0, 0.0, 0.0)
-	body.set_surface_override_material(0, mat)
+	body.set_surface_override_material(0, bag_mat)
 	_mesh.add_child(body)
 
-	## Top/bottom edge bevels — 4 thin boxes along each horizontal edge
-	## to round off the sharp corners and suggest a stuffed-sack profile.
-	var bevel_mat: StandardMaterial3D = mat
-	var bevel_w: float = 0.26
-	var bevel_h: float = 0.025
-	var bevel_d: float = 0.16
-	var bevel_y_off: float = 0.085
-	for sign_y: int in [-1, 1]:
-		for sign_z: int in [-1, 1]:
-			var bevel: MeshInstance3D = MeshInstance3D.new()
-			bevel.mesh = BoxMesh.new()
-			(bevel.mesh as BoxMesh).size = Vector3(bevel_w, bevel_h, bevel_d)
-			bevel.position = Vector3(0.0, sign_y * bevel_y_off, sign_z * 0.01)
-			bevel.set_surface_override_material(0, bevel_mat)
-			_mesh.add_child(bevel)
+	## Sealed top — narrower, crimped/folded over.
+	var top: MeshInstance3D = MeshInstance3D.new()
+	top.mesh = BoxMesh.new()
+	(top.mesh as BoxMesh).size = Vector3(0.18, 0.08, 0.10)
+	top.position = Vector3(0.0, 0.12, 0.0)
+	top.set_surface_override_material(0, bag_mat)
+	_mesh.add_child(top)
 
-	## Side edge bevels — 4 thin boxes on the left/right edges.
+	## Top seam — thin dark strip where the bag is heat-sealed.
+	var top_seam: MeshInstance3D = MeshInstance3D.new()
+	top_seam.mesh = BoxMesh.new()
+	(top_seam.mesh as BoxMesh).size = Vector3(0.18, 0.01, 0.10)
+	top_seam.position = Vector3(0.0, 0.085, 0.0)
+	top_seam.set_surface_override_material(0, seam_mat)
+	_mesh.add_child(top_seam)
+
+	## Bottom base — flat, slightly inset.
+	var base: MeshInstance3D = MeshInstance3D.new()
+	base.mesh = BoxMesh.new()
+	(base.mesh as BoxMesh).size = Vector3(0.22, 0.02, 0.12)
+	base.position = Vector3(0.0, -0.10, 0.0)
+	base.set_surface_override_material(0, seam_mat)
+	_mesh.add_child(base)
+
+	## Side bulge strips — thin boxes on left/right faces to suggest
+	## the puffy, filled-bag curve without using rounded geometry.
 	for sign_x: int in [-1, 1]:
-		for sign_z: int in [-1, 1]:
-			var bevel: MeshInstance3D = MeshInstance3D.new()
-			bevel.mesh = BoxMesh.new()
-			(bevel.mesh as BoxMesh).size = Vector3(0.025, 0.20, bevel_d)
-			bevel.position = Vector3(sign_x * 0.12, 0.0, sign_z * 0.01)
-			bevel.set_surface_override_material(0, bevel_mat)
-			_mesh.add_child(bevel)
+		var strip: MeshInstance3D = MeshInstance3D.new()
+		strip.mesh = BoxMesh.new()
+		(strip.mesh as BoxMesh).size = Vector3(0.015, 0.18, 0.10)
+		strip.position = Vector3(sign_x * 0.11, 0.0, 0.0)
+		strip.set_surface_override_material(0, bag_mat)
+		_mesh.add_child(strip)
 
 	add_child(_mesh)
 
-	## Real collision shape on the RigidBody3D itself — see SeedItem.gd's
-	## _build_placeholder_mesh() comment for why create_trimesh_collision()
-	## was wrong here (no collider on this body at all -> infinite fall,
-	## undetectable by the interaction system).
+	## Collision — single box matching overall bounding volume.
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var box_shape: BoxShape3D = BoxShape3D.new()
-	box_shape.size = Vector3(0.26, 0.20, 0.16)
+	box_shape.size = Vector3(0.22, 0.30, 0.12)
 	shape.shape = box_shape
 	shape.position = _mesh.position
 	add_child(shape)
