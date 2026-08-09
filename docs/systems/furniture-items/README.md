@@ -19,9 +19,10 @@ or the environment itself (`docs/systems/environment/README.md`).
   refueling with `FuelCan`, toggling `Flashlight`, registering
   `HeavyConsumerTest` as a power consumer for load-testing).
 - **Furniture** (`scripts/world/furniture/`): `Bed.gd` (sleep interaction,
-  signals to `SleepOverlay` â€” see `docs/systems/ui/README.md`) and
-  `Shelving.gd` (~890 lines â€” item storage slots, stacking, retrieval to
-  hand/inventory).
+  signals to `SleepOverlay` â€” see `docs/systems/ui/README.md`) and the
+  shelf family — `Shelving.gd` base (~800 lines â€” item storage slots,
+  stacking, retrieval to hand/inventory) plus `SmallShelf.gd`/`LargeShelf.gd`
+  subclasses (6 and 15 slots respectively).
 
 ## Non-responsibilities
 - **Does not own the actual pickup/drop/store STATE MACHINE** â€” that's
@@ -51,7 +52,9 @@ or the environment itself (`docs/systems/environment/README.md`).
 | `items/WaterCase.gd` / `items/CanCase.gd` | ~215 each | Multi-unit cases (shelf-stackable, see `Shelving.gd`'s case-stacking constants). **Jul 2026 fix:** Ejected items (`FoodCan`/`WaterBottle`) now spawn with `freeze=true` + `call_deferred("_unfreeze_after_spawn")` (one-frame kinematic freeze) instead of `freeze=false` + deferred `freeze=false` â€” prevented floor fall-through on spawn. Removed the now-dead `_unfreeze_after_spawn()` stubs from `FoodCan.gd`/`WaterBottle.gd`.
 | `items/HeavyConsumerTest.gd` | ~280 | StaticBody3D load-test device â€” registers/unregisters as a power consumer via `PowerManager`, not a real pickup item |
 | `furniture/Bed.gd` | ~45 | Sleep interaction trigger â€” `sleep_requested`/`wake_requested` signals |
-| `furniture/Shelving.gd` | ~890 | Shelf storage: slot markers, item stacking/placement, retrieval to hand or inventory |
+| `furniture/Shelving.gd` | ~800 | Shelf family base (Medium 10 slots; Small/Large subclass it): slot markers, item stacking/placement, retrieval to hand or inventory |
+| `furniture/SmallShelf.gd` | ~15 | Shelf-family variant: 6 slots as 3 tiers × 2, TILE 34, $45 — overrides `_init()` only |
+| `furniture/LargeShelf.gd` | ~15 | Shelf-family variant: 15 slots as 5 tiers × 3, TILE 35, $180 — overrides `_init()` only |
 | `furniture/LightStorage.gd` | ~300 | **NEW (Aug 2026)** Shared base for hidden-children light-item storage furniture (End Table / Dresser). Implements the StorageUI 4-method contract (see `docs/systems/ui/README.md`) + the `"shelving"`-group E/F duck-type contract; fixed-size `stored` slot array; `eject_all_items()` reparents hidden children to the world root on deconstruct/build-undo |
 | `furniture/EndTable.gd` | ~95 | **NEW (Aug 2026)** 1×1 side table, capacity 2 light storage (drawer), TILE 32, $60 |
 | `furniture/Dresser.gd` | ~95 | **NEW (Aug 2026)** 2×1 dresser, capacity 6 light storage (2×3 drawers), TILE 33, $150 |
@@ -81,23 +84,37 @@ fill%/quality via its own `get_bottle_badge_info()` contract, `FoodCan`'s is
 the generic bites-remaining fallback â€” see `docs/systems/ui/README.md`'s
 `InventoryHUD._draw()` badge dispatch).
 
-**`Shelving`** (`class_name Shelving`, extends `StaticBody3D`):
-`set_player_in_range(in_range: bool)`, `get_f_prompt/get_e_prompt/
-get_interact_prompt() -> String`, `on_f_interact()` / `on_e_interact()` /
-`on_interact()`, `retrieve_to_carry(slot_idx, isys)`, `retrieve_to_inventory
-(slot_idx, inv)`, `eject_all_items()`, `is_slot_full_for(item)`,
-`slot_count(slot_idx)`, `slot_top_item(slot_idx)`, `slot_is_empty(slot_idx)`.
+**Shelf family** — `Shelving` (`class_name Shelving`, extends `StaticBody3D`)
+is the base class; `SmallShelf` and `LargeShelf` are ~15-line subclasses that
+override `_init()` only (dimensions, `slots_per_tier`, `shelf_y`). All
+storage/stacking/retrieval/NPC/StorageUI/eject logic is inherited unchanged,
+and the procedural mesh scales to each variant's own dimensions.
+
+| Variant     | Script            | Slots | Layout   | Tile | Price |
+|-------------|-------------------|-------|----------|------|-------|
+| Small Shelf | `SmallShelf.gd`   | 6     | 3 tiers × 2 | 34 | $45 |
+| Medium Shelf| `Shelving.gd`     | 10    | 5 tiers × 2 | 3  | $75 |
+| Large Shelf | `LargeShelf.gd`   | 15    | 5 tiers × 3 | 35 | $180 |
+
+API (base class, inherited by all variants): `set_player_in_range(in_range:
+bool)`, `get_f_prompt/get_e_prompt/get_interact_prompt() -> String`,
+`on_f_interact()` / `on_e_interact()` / `on_interact()`,
+`retrieve_to_carry(slot_idx, isys)`, `retrieve_to_inventory(slot_idx, inv)`,
+`eject_all_items()`, `is_slot_full_for(item)`, `slot_count(slot_idx)`,
+`slot_top_item(slot_idx)`, `slot_is_empty(slot_idx)`.
 Signals: `item_placed(slot_index, item)`, `item_retrieved(slot_index, item)`.
 
+- Slot count = `shelf_y.size() * slots_per_tier`, sized in `_ready()`. Slot
+  markers, `get_ui_config()`, and the mesh are all parametric — 2-column
+  marker math and the 10-slot UI `display_order` are reproduced exactly for
+  Medium, and generalize to N columns/tiers for the variants.
 - Shelf E-open now yields to a strictly-closer held-item E target
   (Basket stash / Cooking Pot stove-or-stash / NPC give) — see Player
   subsystem's `docs/systems/player/README.md` for the fairness rule.
-- **Facing (Aug 2026):** the loaded model instance (`MODEL_PATH`,
-  `steel_frame_shelves_01_4k.glb`) is rotated 180° at load in
-  `_load_mesh()` to meet the project's +Z-front convention — the source
-  asset's open front is baked facing local -Z. Visual-only: slot markers
-  (z=0), collision, and stack offsets are Z-symmetric. See
-  `docs/systems/build/README.md`'s "Facing convention".
+- **Facing (Aug 2026):** the shelf mesh is procedural (no GLB), generated
+  Z-symmetric so it meets the project's +Z-front convention without any
+  model rotation — slot markers (z=0), collision, and stack offsets are all
+  Z-symmetric. See `docs/systems/build/README.md`'s "Facing convention".
 
 **`Bed`** (extends `StaticBody3D`): `on_interact()`, `get_prompt_text() ->
 String`, `set_player_in_range(in_range)`, `set_sleeping(sleeping: bool)`.

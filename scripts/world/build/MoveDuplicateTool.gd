@@ -114,8 +114,13 @@ func _spawn_move_ghost(tile_id: int) -> void:
 	_destroy_move_ghost()
 	_owner._move_ghost = MeshInstance3D.new()
 
-	if tile_id == _owner.TILE_SHELVING:
-		var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
+	if tile_id == _owner.TILE_SHELVING or tile_id == _owner.TILE_SMALL_SHELF or tile_id == _owner.TILE_LARGE_SHELF:
+		var shelf_script_path: String = "res://scripts/world/furniture/Shelving.gd"
+		if tile_id == _owner.TILE_SMALL_SHELF:
+			shelf_script_path = "res://scripts/world/furniture/SmallShelf.gd"
+		elif tile_id == _owner.TILE_LARGE_SHELF:
+			shelf_script_path = "res://scripts/world/furniture/LargeShelf.gd"
+		var shelving_script: GDScript = load(shelf_script_path)
 		if shelving_script != null and shelving_script.has_method("build_ghost_mesh"):
 			var m: Mesh = shelving_script.build_ghost_mesh()
 			if m != null:
@@ -254,7 +259,8 @@ func _update_move_ghost() -> void:
 	## angle) than they started with.
 	var ghost_angle_deg: float = _owner._move_source_entry.get("angle_deg", 0.0)
 
-	if mv_tile == _owner.TILE_SHELVING or mv_tile == _owner.TILE_BED:
+	if mv_tile == _owner.TILE_SHELVING or mv_tile == _owner.TILE_SMALL_SHELF or \
+			mv_tile == _owner.TILE_LARGE_SHELF or mv_tile == _owner.TILE_BED:
 		snap_pos.y = _owner.SHELF_PLACEMENT_Y
 	elif mv_tile == _owner.TILE_LIGHT:
 		snap_pos.y = _owner.LIGHT_PLACEMENT_Y

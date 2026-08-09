@@ -130,6 +130,41 @@ Player-side seat/stand wiring (`seated_chair` state, movement-priority
 interaction override) lives in `Player.gd`/`InteractionSystem.gd`, not this
 system — see those docs / `HANDOVER.md` for that half of the mechanic.
 
+## Shelf Family: Small / Medium / Large (Aug 2026)
+Tile IDs **3** (`Medium Shelf`, $75, 10 slots — the former "Shelving"),
+**34** (`Small Shelf`, $45, 6 slots), and **35** (`Large Shelf`, $180,
+15 slots) in Construct → Furniture. All three share the `Shelving.gd` base
+class; `SmallShelf.gd` / `LargeShelf.gd` are ~15-line subclasses overriding
+`_init()` only (dimensions, `slots_per_tier`, `shelf_y`). Slot count =
+`shelf_y.size() * slots_per_tier`, sized in `_ready()`; the procedural mesh,
+slot markers, and `get_ui_config()` are all parametric, so each variant
+renders and stores at its own layout (Medium reproduces the previous 10-slot
+2-column math and UI `display_order` exactly).
+
+- `Shelving.gd`: new exports `slots_per_tier` (2) and `display_name`
+  ("Medium Shelf"); `_build_slot_markers()` keeps the classic 2-column math
+  bit-for-bit for `slots_per_tier == 2` and spaces N columns evenly
+  otherwise; `get_ui_config()` derives `title`/`slot_count`/`grid_cols`/
+  `grid_rows`/`display_order` dynamically.
+- `BuildModeController.gd`: `TILE_SMALL_SHELF`/`TILE_LARGE_SHELF` consts
+  (34/35); two spawn branches in `spawn_structure()` copied from the
+  Shelving branch (incl. StorageUI + InteractionSystem injection); the
+  `_is_position_occupied_for_tile()` shelf block now accepts all three
+  tiles and its inner filter counts **any** shelf variant as occupying (a
+  Small placed beside a Large beside a Medium all block each other, not
+  just same-tile matches); `_tile_half_extents()` arms
+  `Vector2(0.48, 0.18)` (Small, same depth as Medium) and
+  `Vector2(0.65, 0.18)` (Large, wider unit) — matched to Medium's
+  `unit_w * ~0.384` ratio.
+- `BuildModeHUD.gd`: CATEGORIES line 3 renamed "Shelving" → "Medium Shelf"
+  plus data lines for 34/35.
+- `GhostModelBuilder.gd`: `PROCEDURAL_PREVIEW_SOURCES` entries for 34/35
+  (subclass scripts) and `ARROW_OVERRIDES` `[0.6, 180.0]` for both (same
+  procedural-mesh facing as Medium).
+- `GhostPreview.gd` / `MoveDuplicateTool.gd`: shelf-family ghost-build and
+  `SHELF_PLACEMENT_Y` snap-Y branches extended to all three tiles so
+  previews, moves, and duplicates behave identically across variants.
+
 ## Wall Draw Mode
 Full/Half/Quarter Wall placement is no longer a single-click, single-tile
 action — selecting any of the three from Construct → Structure

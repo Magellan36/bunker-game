@@ -1,9 +1,13 @@
 extends StaticBody3D
 class_name Shelving
 ## Shelving.gd
-## Buildable/deconstructible shelf unit. Procedural mesh (no GLB).
-## 5 tiers × 2 slots = 10 storage slots. Each slot is a STACK — multiple
-## small items can share one slot up to a type-specific limit.
+## Base class for the shelf family (Small / Medium / Large). Buildable/
+## deconstructible shelf unit. Procedural mesh (no GLB).
+## Slot count = shelf_y.size() * slots_per_tier (Medium = 5 tiers × 2
+## columns = 10 storage slots). Each slot is a STACK — multiple small
+## items can share one slot up to a type-specific limit. Subclasses
+## (SmallShelf / LargeShelf) override _init() only — dimensions,
+## slots_per_tier, shelf_y — everything else is inherited unchanged.
 ##
 ## Stack limits (per slot):
 ##   WaterCase / CanCase  → 4  (lay flat, 2×2 grid)
@@ -33,10 +37,13 @@ class_name Shelving
 @export var slot_offset_x: float  = 0.275
 @export var slot_lift: float      = 0.075
 
+@export var slots_per_tier: int  = 2        ## Columns of slots per tier (2 = classic left/right)
+@export var display_name: String = "Medium Shelf"
+
 # ─── Slot state ───────────────────────────────────────────────────────────────
 ## Each slot is an Array of RigidBody3D items (a stack).
 ## slots[i] = [] means empty, slots[i].size() = count in that slot.
-var slots: Array = [[], [], [], [], [], [], [], [], [], []]
+var slots: Array = []   ## Sized in _ready(): shelf_y.size() * slots_per_tier empty stacks
 var _slot_nodes: Array = []   ## Marker3D for each slot's base world position
 
 # ─── Interaction ──────────────────────────────────────────────────────────────
@@ -69,6 +76,8 @@ func _ready() -> void:
 	## Must match the layer set on wall/pillar placed objects (also 5).
 	collision_layer = 5
 	collision_mask  = 0
+	for i: int in shelf_y.size() * slots_per_tier:
+		slots.append([])
 	_load_mesh()
 	_build_slot_markers()
 	_build_collision()
@@ -145,10 +154,16 @@ func _build_slot_markers() -> void:
 	## slot_offset_x already separates left/right; right_extra shifts them slightly further right.
 	const right_extra: float = 0.06
 	for tier: int in shelf_y.size():
-		for side: int in 2:
-			var base_x: float = slot_offset_x * (1.0 if side == 1 else -1.0)
-			var x: float = base_x + (right_extra if side == 1 else 0.0)
-			var y: float  = shelf_y[tier] + slot_lift
+		for side: int in slots_per_tier:
+			var x: float
+			if slots_per_tier == 2:
+				## Classic left/right — EXACT pre-existing math, do not alter
+				var base_x: float = slot_offset_x * (1.0 if side == 1 else -1.0)
+				x = base_x + (right_extra if side == 1 else 0.0)
+			else:
+				## N evenly spaced columns centered on the unit (Large Shelf: 3)
+				x = (float(side) - float(slots_per_tier - 1) * 0.5) * 0.30
+			var y: float = shelf_y[tier] + slot_lift
 			var marker: Marker3D = Marker3D.new()
 			marker.position = Vector3(x, y, 0.0)
 			add_child(marker)
@@ -764,19 +779,22 @@ func take_for_inventory(slot_idx: int, inv: Node) -> bool:
 	return retrieve_to_inventory(slot_idx, inv)
 
 func get_ui_config() -> Dictionary:
+	var tiers: int = shelf_y.size()
+	## visual position -> data slot. Data slots are bottom-up; the UI panel
+	## reads top-to-bottom matching the physical shelf, so visual row 0
+	## (top of panel) shows the TOP tier's data slots. Generalizes the
+	## existing 10-slot [8,9,6,7,4,5,2,3,0,1] mapping to any tier/column count.
+	var order: Array[int] = []
+	for visual_row: int in tiers:
+		var data_tier: int = tiers - 1 - visual_row
+		for col: int in slots_per_tier:
+			order.append(data_tier * slots_per_tier + col)
 	return {
-		"title": "SHELF CONTENTS",
-		"slot_count": 10,
-		"grid_cols": 2,
-		"grid_rows": 5,
-		## visual position -> data slot. Data slots are bottom-up (0/1 =
-		## tier 0/bottom shelf, ... 8/9 = tier 4/top shelf, per this file's
-		## header comment) but the UI panel should read top-to-bottom same
-		## as the physical shelf, so row 0 (top of panel) shows the top
-		## tier's data slots (8/9) and row 4 (bottom of panel) shows the
-		## bottom tier's (0/1) — same top-shelf-at-top convention the old
-		## 6-slot [4,5,2,3,0,1] mapping used, extended to 5 tiers.
-		"display_order": [8, 9, 6, 7, 4, 5, 2, 3, 0, 1],
+		"title": display_name.to_upper(),
+		"slot_count": slots.size(),
+		"grid_cols": slots_per_tier,
+		"grid_rows": tiers,
+		"display_order": order,
 		"supports_stacking": true,
 		"primary_button_icon": "carry",
 		"primary_button_tooltip": "Carry",

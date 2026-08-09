@@ -39,6 +39,8 @@ const TILE_PILLAR:   int = 2
 const TILE_HALF_WALL: int = 25   ## Half-height wall (Y=1.0)
 const TILE_QUARTER_WALL: int = 26  ## Quarter-height wall (Y=0.25)
 const TILE_SHELVING: int = 3
+const TILE_SMALL_SHELF: int = 34
+const TILE_LARGE_SHELF: int = 35
 const TILE_BED:      int = 4
 const TILE_LIGHT:    int = 5
 const TILE_GEN_S:    int = 6   ## Small generator  (1×1, 800W)
@@ -1232,6 +1234,54 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 				shelf_node.set("_storage_ui", sui)
 
 		return shelf_node
+
+	# ── Small Shelf: script-based procedural node (Shelving subclass) ──────────
+	if tile_id == TILE_SMALL_SHELF:
+		var small_script: GDScript = load("res://scripts/world/furniture/SmallShelf.gd")
+		var small_node: StaticBody3D = StaticBody3D.new()
+		small_node.set_script(small_script)
+		small_node.set_meta("tile_id", tile_id)
+
+		var small_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		small_par.add_child(small_node)
+		small_node.global_position  = pos
+		small_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+
+		var small_isys: Node = get_parent().get_node_or_null("InteractionSystem")
+		if small_isys != null:
+			small_node.set("_interaction_system", small_isys)
+
+		var small_wn: Node = get_tree().get_first_node_in_group("world")
+		if small_wn != null:
+			var small_sui: Node = small_wn.get_node_or_null("StorageUI")
+			if small_sui != null:
+				small_node.set("_storage_ui", small_sui)
+
+		return small_node
+
+	# ── Large Shelf: script-based procedural node (Shelving subclass) ──────────
+	if tile_id == TILE_LARGE_SHELF:
+		var large_script: GDScript = load("res://scripts/world/furniture/LargeShelf.gd")
+		var large_node: StaticBody3D = StaticBody3D.new()
+		large_node.set_script(large_script)
+		large_node.set_meta("tile_id", tile_id)
+
+		var large_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		large_par.add_child(large_node)
+		large_node.global_position  = pos
+		large_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+
+		var large_isys: Node = get_parent().get_node_or_null("InteractionSystem")
+		if large_isys != null:
+			large_node.set("_interaction_system", large_isys)
+
+		var large_wn: Node = get_tree().get_first_node_in_group("world")
+		if large_wn != null:
+			var large_sui: Node = large_wn.get_node_or_null("StorageUI")
+			if large_sui != null:
+				large_node.set("_storage_ui", large_sui)
+
+		return large_node
 
 	# ── End Table / Dresser: script-based procedural nodes, ground-placed ──────
 	## Light storage furniture (shared LightStorage base). Mirrors the Shelving
@@ -2841,13 +2891,16 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < LIGHT_OVERLAP_RADIUS and abs(p.z - pos.z) < LIGHT_OVERLAP_RADIUS:
 				return true
 		return false
-	if tile_id == TILE_SHELVING:
-		# Shelves are StaticBody3D on layer 1 — the physics shape query would
-		# hit the shelf's own collider, giving a false "occupied" positive.
-		# Registry check + GridMap check (done before this call) are sufficient.
+	if tile_id == TILE_SHELVING or tile_id == TILE_SMALL_SHELF or tile_id == TILE_LARGE_SHELF:
+		# Shelf family (Small/Medium/Large) are StaticBody3D on layer 1 — the
+		# physics shape query would hit the shelf's own collider, giving a
+		# false "occupied" positive. Registry check + GridMap check (done
+		# before this call) are sufficient. All three variants count each
+		# other (and Medium) as occupying — not just same-tile matches.
 		var threshold: float = grid_size * 0.9
 		for entry: Dictionary in _placed_objects:
-			if entry.get("tile_id", -1) != TILE_SHELVING:
+			var et: int = entry.get("tile_id", -1)
+			if et != TILE_SHELVING and et != TILE_SMALL_SHELF and et != TILE_LARGE_SHELF:
 				continue
 			var p: Vector3 = entry["world_pos"]
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
@@ -2982,7 +3035,9 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_WALL:     return Vector2(0.44, 0.44)  ## 1×1 cell — tightened from 0.48 to allow flush placement against pregen walls
 		TILE_PILLAR:   return Vector2(0.24, 0.24)  ## 0.5×0.5
 		TILE_BED:      return Vector2(0.95, 0.48)  ## 2×1
-		TILE_SHELVING: return Vector2(0.48, 0.18)  ## 1×0.4
+		TILE_SHELVING: return Vector2(0.48, 0.18)  ## 1×0.4 (Medium — 1.25 wide × 0.625 deep)
+		TILE_SMALL_SHELF: return Vector2(0.48, 0.18)  ## Same as Medium — narrower unit but same depth
+		TILE_LARGE_SHELF: return Vector2(0.65, 0.18)  ## Wider (1.70 wide, ×0.384 of Medium's 0.48 ratio)
 		TILE_GEN_S:    return Vector2(0.41, 0.41)  ## 0.85×0.85
 		TILE_GEN_M:    return Vector2(0.41, 0.91)  ## 0.85×1.85
 		TILE_GEN_L:    return Vector2(0.91, 0.91)  ## 1.85×1.85

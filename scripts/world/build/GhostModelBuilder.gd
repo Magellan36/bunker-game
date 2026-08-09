@@ -55,6 +55,8 @@ const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
 	31: { "path": "res://scripts/world/furniture/Poster.gd", "is_script": true },
 	32: { "path": "res://scripts/world/furniture/EndTable.gd", "is_script": true },
 	33: { "path": "res://scripts/world/furniture/Dresser.gd",  "is_script": true },
+	34: { "path": "res://scripts/world/furniture/SmallShelf.gd", "is_script": true },
+	35: { "path": "res://scripts/world/furniture/LargeShelf.gd", "is_script": true },
 	## NOT YET REGISTERED — flagged, not silently skipped (see testing
 	## checklist item 5): TILE_LIGHT (5, WallLight.gd — wall-mounted,
 	## no entry existed even before this plan), TILE_STOVE (30,
@@ -75,7 +77,9 @@ const NO_ARROW_TILES: Array[int] = []   ## Populated by caller with TILE_WALL/HA
 const ARROW_OVERRIDES: Dictionary = {
 	# tile_id: [z_offset, y_rotation_offset_deg]
 	4:  [0.75, 90.0],    ## Bed
-	3:  [0.6,  180.0],   ## Shelving — model rotated to +Z-front convention (Aug 2026); arrow now standard
+	3:  [0.6,  180.0],   ## Shelving (Medium) — model rotated to +Z-front convention (Aug 2026); arrow now standard
+	34: [0.6,  180.0],   ## Small Shelf — same procedural-mesh facing as Medium
+	35: [0.6,  180.0],   ## Large Shelf — same procedural-mesh facing as Medium
 	6:  [0.0,  180.0],   ## Generator S (z_offset computed from size at call time — see Part 4)
 	7:  [0.0,  180.0],   ## Generator M
 	8:  [0.0,  180.0],   ## Generator L

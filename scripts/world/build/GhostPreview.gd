@@ -212,9 +212,16 @@ func _rebuild_ghost_mesh() -> void:
 		_attach_grow_light_footprint_decal()
 		return
 
-	# ── Shelving: procedural ghost from static helper ──────────────────────────
-	if _owner._selected_tile == _owner.TILE_SHELVING:
-		var shelving_script: GDScript = load("res://scripts/world/furniture/Shelving.gd")
+	# ── Shelf family (Small/Medium/Large): procedural ghost from static helper ─
+	if _owner._selected_tile == _owner.TILE_SHELVING or \
+			_owner._selected_tile == _owner.TILE_SMALL_SHELF or \
+			_owner._selected_tile == _owner.TILE_LARGE_SHELF:
+		var shelf_script_path: String = "res://scripts/world/furniture/Shelving.gd"
+		if _owner._selected_tile == _owner.TILE_SMALL_SHELF:
+			shelf_script_path = "res://scripts/world/furniture/SmallShelf.gd"
+		elif _owner._selected_tile == _owner.TILE_LARGE_SHELF:
+			shelf_script_path = "res://scripts/world/furniture/LargeShelf.gd"
+		var shelving_script: GDScript = load(shelf_script_path)
 		if shelving_script != null and shelving_script.has_method("build_ghost_mesh"):
 			var ghost_mesh: Mesh = shelving_script.build_ghost_mesh()
 			if ghost_mesh != null:
@@ -524,8 +531,11 @@ func _update_ghost() -> void:
 
 	var world_pos: Vector3 = result["position"]
 	var snap_pos: Vector3  = _owner._snap_to_grid(world_pos)
-	# Use shelf-specific Y for shelving, standard for everything else
-	if _owner._selected_tile == _owner.TILE_SHELVING or _owner._selected_tile == _owner.TILE_BED:
+	# Use shelf-specific Y for the shelf family, standard for everything else
+	if _owner._selected_tile == _owner.TILE_SHELVING or \
+			_owner._selected_tile == _owner.TILE_SMALL_SHELF or \
+			_owner._selected_tile == _owner.TILE_LARGE_SHELF or \
+			_owner._selected_tile == _owner.TILE_BED:
 		snap_pos.y = _owner.SHELF_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_LIGHT:
 		snap_pos.y = _owner.LIGHT_PLACEMENT_Y

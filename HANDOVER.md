@@ -1,3 +1,51 @@
+# Handover — Shelf Family: Small/Medium/Large (Aug 2026, v2 corrected for current 10-slot Shelving)
+
+- Added the shelf family: **Small Shelf (tile 34, $45, 6 slots as 3 tiers ×
+  2)**, **Medium Shelf (tile 3, $75, 10 slots as 5 × 2 — the former
+  "Shelving", renamed display-only)**, and **Large Shelf (tile 35, $180, 15
+  slots as 5 × 3)**.
+- Architecture: subclass, not file-copy. `Shelving.gd` stays the base class
+  (file/class/group names unchanged); `SmallShelf.gd`/`LargeShelf.gd` are
+  ~15-line subclasses overriding `_init()` only. All storage/stacking/NPC/
+  StorageUI/eject logic inherited untouched.
+- `Shelving.gd` generalizations: new exports `slots_per_tier` (2) and
+  `display_name` ("Medium Shelf"); `slots` derived as
+  `shelf_y.size() * slots_per_tier` in `_ready()` (was a hardcoded 10-element
+  literal); `_build_slot_markers()` keeps the classic 2-column math
+  bit-for-bit for `slots_per_tier == 2` (existing shelved items don't move)
+  and spaces N columns evenly otherwise; `get_ui_config()` is now dynamic —
+  verified to reproduce the current 10-slot values exactly (`slot_count` 10,
+  `grid_cols` 2, `grid_rows` 5, `display_order` `[8,9,6,7,4,5,2,3,0,1]`),
+  with `"title": display_name.to_upper()` so Medium reads "MEDIUM SHELF".
+- Wiring: `BuildModeController` consts 34/35 + two spawn branches copied from
+  the Shelving branch (incl. StorageUI + InteractionSystem injection);
+  `BuildModeHUD` CATEGORIES lines (rename + 34/35); `GhostModelBuilder`
+  `PROCEDURAL_PREVIEW_SOURCES` + `ARROW_OVERRIDES` `[0.6, 180.0]` for both;
+  `GhostPreview`/`MoveDuplicateTool` shelf-family ghost-build and
+  `SHELF_PLACEMENT_Y` snap-Y branches extended to all three tiles; occupancy
+  carve-out now accepts all three shelf tiles and counts any shelf variant as
+  occupying (Small/Large/Medium block each other, not just same-tile);
+  `_tile_half_extents()` arms `(0.48, 0.18)` for Small and `(0.65, 0.18)` for
+  Large (matched to Medium's `unit_w * ~0.384` ratio). Save/load and undo work
+  automatically — both route through `_spawn_placed_object()`.
+- **Note for the NPC thread:** shelf-seeking code iterates the `"shelving"`
+  group, which Small/Large now join automatically (inherited `_ready()`).
+  Inherited APIs are identical, so no action is expected — but NPCs can now
+  also use Small/Large as storage destinations if desired.
+- v1 of this plan was written against a stale clone (pre-10-slot rewrite) and
+  is superseded; nothing from v1's model-rotation work applies.
+
+Files touched: `scripts/world/furniture/Shelving.gd`,
+`scripts/world/furniture/SmallShelf.gd`, `scripts/world/furniture/LargeShelf.gd`,
+`scripts/world/build/BuildModeController.gd`,
+`scripts/world/build/GhostModelBuilder.gd`,
+`scripts/world/build/GhostPreview.gd`, `scripts/world/build/MoveDuplicateTool.gd`,
+`scripts/ui/build/BuildModeHUD.gd`, `docs/systems/furniture-items/README.md`,
+`docs/systems/build/README.md`.
+
+---
+---
+
 # Handover — NPC: Light Items Prefer Light Storage Over Shelving (Aug 2026)
 
 - find_cleaning_destination() now does a two-pass search for "light"
