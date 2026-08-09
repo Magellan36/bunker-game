@@ -855,9 +855,39 @@ current and future storage type through the shared panel:
   and the auto "Row N" fallback) — deleted the `Label` node creation in
   `_layout_panel()` along with the now-dead `ROW_LABEL_H` constant,
   `C_ROW_LABEL` color, and every storage object's `row_labels`
-  config/export. `ROW_GAP` (the only remaining vertical gap between rows)
-  reduced `22 → 4` (18px, half of `BTN_SIZE`) as a separate, deliberate
-  tightening — not a side effect of removing the labels.
+   config/export. `ROW_GAP` (the only remaining vertical gap between rows)
+   reduced `22 → 4` (18px, half of `BTN_SIZE`) as a separate, deliberate
+   tightening — not a side effect of removing the labels.
+
+## Focus Mode (Aug 2026)
+Hold `Ctrl` to collapse every active interaction prompt down to the one
+`E` would actually trigger right now — a hold, not a toggle. Built as a
+debugging aid for prompt-priority bugs (the shelf-unconditional-priority
+bug and the grow-light-vs-tray issue were both diagnosed and fixed using
+this) that's also just a useful player-facing decluttering option when
+several prompts compete for attention near each other.
+
+Entirely a rendering concern in `InteractPrompt.gd` — it filters
+`_active` down to whichever entry carries `"is_e_target": true` while
+`Ctrl` is held. Resolution of WHICH entry that is stays entirely
+Player-owned, in `InteractionSystem._resolve_current_e_target()` (a
+read-only peek that mirrors the actual E-handler's priority chain
+exactly, so the two can never disagree) — `InteractPrompt.gd` never
+re-derives priority itself, it only reads the tag.
+
+**Scope (this pass):** only empty-handed prompts (CASE 2) are tagged
+with a real `true`/`false`. Held-item prompts (CASE 1) never set the
+key, and a missing key defaults to shown — so Focus Mode currently has
+no visible effect while holding an item. Collapsing CASE 1's basket/
+cookpot/give-to-NPC multi-target prompts down to one true target is a
+reasonable future pass, scoped out here since it requires mirroring each
+of those three's own nearest-target selection logic, not just reading a
+tag.
+
+Shares the `Ctrl` key with the held-item "upright" feature by design —
+this reads the key via passive per-frame `Input.is_key_pressed()`
+polling rather than consuming an input event, so the two can't
+functionally conflict regardless of how the other one is implemented.
 
 ## Extension points
 - Any new shared cross-panel utility (like `UIFade`, `UIKit`) belongs in

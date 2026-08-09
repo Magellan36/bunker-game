@@ -1,3 +1,87 @@
+# Handover — Shelf E-Priority Fairness + Grow Light Priority + Focus Mode Plumbing (Aug 2026)
+
+## What changed this session
+Fixed a shelf E-priority bug distinct from the held-item-priority fix
+earlier this session: while empty-handed, a nearby shelf was winning E
+unconditionally over any OTHER world interactable too (e.g. a generator
+genuinely closer to the player), not just over held items. Fixed with
+the same distance-fairness pattern already established in this handler
+for stove-pot/ready-dish — "peek both, smaller wins." Centralized the
+scan itself: `_try_interact()` and `_nearest_interact_distance()` were
+two near-identical copies of the same RigidBody3D/StaticBody3D two-pass
+scan; both now go through one shared `_nearest_generic_interactable()`.
+
+Added a grow-light-over-tray override inside that same shared scan — a
+`GrowLight` mounted directly above its `FarmingTray` was functionally
+unreachable via E, since the tray sits almost exactly at the same
+horizontal position and is essentially always the physically closer
+candidate. Deliberately narrow: only overrides when a `FarmingTray`
+specifically would otherwise win and a grow light is also in reach —
+every other pairing resolves by genuine fair distance, unaffected.
+
+Added `_resolve_current_e_target()`, a read-only empty-handed-only peek
+mirroring the live dispatch's priority order exactly (shelf fairness →
+ready-dish fairness → generic fallback), for a separate UI-thread Focus
+Mode feature to tag which prompt E would actually fire — shares the
+same underlying scan as the real dispatch, so the two can't drift apart.
+Tagged onto CASE 2's prompt entries via a new `"is_e_target"` boolean key
+(additive only, no existing entry keys touched).
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — new
+  `_nearest_generic_interactable()` (absorbs `_try_interact()`'s and
+  `_nearest_interact_distance()`'s scans, adds the grow-light override);
+  `_try_interact()` simplified to use it; new `_nearest_shelf_distance()`;
+  shelf E-dispatch now distance-fair against other interactables; new
+  `_resolve_current_e_target()`; CASE 2 prompt entries gain
+  `"is_e_target"`.
+- `docs/systems/player/README.md` — new Common-edits entry.
+
+### Cross-thread note
+A separate UI-thread plan ("Focus Mode Prompt Filter") depends on this
+one — order of application doesn't matter for crash-safety, but Focus
+Mode only correctly highlights anything once this lands.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_SHELF_FAIRNESS_GROWLIGHT_FOCUS_PLAN.md` for the full 6-item
+checklist)
+
+---
+
+---
+
+# Handover — Focus Mode (Hold Ctrl) for Interaction Prompts (Aug 2026)
+
+## What changed this session
+Added Focus Mode: holding `Ctrl` collapses every active interaction
+prompt down to the single one `E` would actually trigger, filtering
+`InteractPrompt.gd`'s `_active` list by a new `is_e_target` tag. Built
+primarily as a debugging tool — used it to find and fix two real bugs in
+`InteractionSystem.gd` (separate hand-off plan, Player thread): shelving
+was winning `E` unconditionally over genuinely closer interactables, and
+grow lights were unreachable because their tray sits directly beneath
+them and always won on raw distance. Both fixed there; this prompt-side
+change is purely rendering, no priority logic lives here.
+
+Empty-handed only this pass — held-item prompts (baskets, cooking pots,
+give-to-NPC, etc.) aren't filtered yet, by design (see
+`docs/systems/ui/README.md`'s "Focus Mode" section for the reasoning).
+
+### Files modified
+- `scripts/ui/hud/InteractPrompt.gd` — Ctrl polling + `_active` filtering
+  in `_process()`; `set_prompts()` doc comment updated for the new
+  `is_e_target` key.
+- (Companion Player-thread plan, applied separately) —
+  `scripts/player/InteractionSystem.gd`: shelf E-priority fairness fix,
+  grow-light-over-tray priority, new `_resolve_current_e_target()`.
+- `docs/systems/ui/README.md` — new "Focus Mode" section.
+
+### Verification checklist
+(see `FOCUS_MODE_PROMPT_FILTER_PLAN.md` for the full checklist)
+---
+---
+
 # Handover — Can Case / Water Case Scale Change (Aug 2026)
 
 ## What changed this session

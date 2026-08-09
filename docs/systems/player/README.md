@@ -445,6 +445,26 @@ own held item while CASE 1 scans for a different target — guarded with
   avoidance radius for either item — both are computed from each
   collision shape's own local transform, never from the `RigidBody3D`'s
   own `scale` property, so this change doesn't alter either.
+- **Shelf E-priority fairness + grow-light-over-tray + Focus Mode
+  plumbing (Aug 2026).** Fixed a second shelf E-priority bug distinct
+  from the held-item fix earlier this session: a nearby shelf was
+  winning E unconditionally over OTHER world interactables too (e.g. a
+  closer generator) whenever empty-handed. Now fairly compared via the
+  same "peek both, smaller wins" pattern already used for stove-pot/
+  ready-dish, through a new shared `_nearest_generic_interactable()`
+  (also absorbs `_try_interact()`'s own scan and
+  `_nearest_interact_distance()`, previously two near-duplicate copies
+  of the same two-pass RigidBody3D/StaticBody3D scan). Added a narrow
+  grow-light-over-tray override inside that same shared scan — a
+  `GrowLight` sitting directly above its `FarmingTray` was otherwise
+  functionally unreachable since the tray is almost always physically
+  closer; only overrides when a `FarmingTray` specifically would
+  otherwise win, every other interactable pair still resolves by fair
+  distance. New `_resolve_current_e_target()` (empty-handed only) gives
+  a UI-thread Focus Mode feature a read-only peek at exactly what E
+  would fire, sharing the same underlying scan so the two can never
+  drift apart — tagged onto CASE 2 prompt entries via a new
+  `"is_e_target"` key.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**

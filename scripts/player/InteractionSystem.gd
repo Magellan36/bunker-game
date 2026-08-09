@@ -229,14 +229,34 @@ func _unhandled_input(event: InputEvent) -> void:
 
 		## Shelf nearby — reached only if empty-handed, or holding
 		## something with no E action of its own (Crate, etc. — see
-		## header comment). No distance comparison needed any more: if
-		## execution reaches here, nothing in the player's hand claimed E,
-		## so the shelf is free to.
+		## header comment).
+		##
+		## Aug 2026 fix — previously won unconditionally here regardless
+		## of true distance to any other nearby interactable (reported
+		## bug: shelving stealing E from things genuinely closer to the
+		## player). Now fairly compared against the same candidate
+		## _try_interact() would otherwise pick, mirroring the existing
+		## ready-dish/stove-pot fairness pattern already used in this
+		## handler. Metrics aren't identical — shelf distance is
+		## intentionally flat-XZ (reach along its whole vertical face,
+		## see _nearest_shelf()'s header) vs. the generic candidate's
+		## full 3D distance — but this is the same head-to-head "peek
+		## both, smaller wins" pattern already used for stove_dist vs.
+		## _nearest_pickup_distance() a few lines up; if this metric
+		## mismatch ever causes a new edge case, switching
+		## _nearest_shelf()/_nearest_shelf_distance() to full 3D is a
+		## small, isolated follow-up.
 		var shelf: Node3D = _nearest_shelf()
 		if shelf != null and shelf.has_method("on_e_interact"):
-			shelf.on_e_interact()
-			get_viewport().set_input_as_handled()
-			return
+			var shelf_dist: float = _nearest_shelf_distance()
+			var other: Dictionary = _nearest_generic_interactable()
+			if shelf_dist <= float(other["dist"]):
+				shelf.on_e_interact()
+				get_viewport().set_input_as_handled()
+				return
+			## else: something else is genuinely closer — fall through,
+			## the logic below (or _try_interact() at the bottom) picks
+			## the real winner instead.
 
 		if held_item != null:
 			## Holding something with no E action and no shelf in range —
@@ -714,6 +734,12 @@ func _update_prompt() -> void:
 	if candidates.size() > MAX_VISIBLE_PROMPTS:
 		candidates = candidates.slice(0, MAX_VISIBLE_PROMPTS)
 
+	## Aug 2026 — Focus Mode support. Resolved once per frame, tagged onto
+	## whichever entry below actually matches — see
+	## _resolve_current_e_target()'s header for why this can never drift
+	## from what E actually does.
+	var e_target: Node3D = _resolve_current_e_target()
+
 	var entries: Array = []
 	for cand: Dictionary in candidates:
 		var body: Node3D = cand["node"] as Node3D
@@ -765,10 +791,11 @@ func _update_prompt() -> void:
 			icons = body.get_slot_icon_descriptors()
 
 		entries.append({
-			"text":      "\n".join(lines),
-			"world_pos": prompt_pos,
-			"dist":      cand["dist"],
-			"icons":     icons,
+			"text":         "\n".join(lines),
+			"world_pos":    prompt_pos,
+			"dist":         cand["dist"],
+			"icons":        icons,
+			"is_e_target":  body == e_target,
 		})
 
 	if entries.is_empty():
@@ -804,6 +831,48 @@ func _nearest_shelf() -> Node3D:
 				closest_dist = d
 				closest = s3
 	return closest
+
+## Distance-only twin of _nearest_shelf() — same flat-XZ metric (reach
+## along the shelf's whole vertical face, not full 3D distance to its
+## origin — see the header comment above). Used by the E-handler's
+## shelf-fairness check and Focus Mode's _resolve_current_e_target().
+## Returns INF if no shelf is in range.
+func _nearest_shelf_distance() -> float:
+	var shelf: Node3D = _nearest_shelf()
+	if shelf == null:
+		return INF
+	var player_xz: Vector2 = Vector2(player.global_position.x, player.global_position.z)
+	var shelf_xz: Vector2  = Vector2(shelf.global_position.x, shelf.global_position.z)
+	return shelf_xz.distance_to(player_xz)
+
+## Resolves exactly which object E would trigger right now, empty-handed
+## — the single source of truth for the UI thread's Focus Mode prompt
+## tagging. Pure read-only peek, mirrors the empty-handed branch of
+## _unhandled_input()'s "interact" handler exactly (shelf fairness check,
+## then ready-dish fairness check, then the generic candidate). MUST be
+## kept in sync with that branch if its priority order ever changes —
+## kept as a light, clearly-cross-referenced duplication rather than a
+## restructure of the input-handling hot path itself, same philosophy
+## InteractionProximityScan.gd's header already uses for _nearest_shelf().
+## Not valid while holding an item — CASE 1 in InteractPrompt.gd doesn't
+## call this and isn't filtered by Focus Mode this pass. Returns null if
+## nothing qualifies.
+func _resolve_current_e_target() -> Node3D:
+	var shelf: Node3D = _nearest_shelf()
+	if shelf != null and shelf.has_method("on_e_interact"):
+		var shelf_dist: float = _nearest_shelf_distance()
+		var other: Dictionary = _nearest_generic_interactable()
+		if shelf_dist <= float(other["dist"]):
+			return shelf
+
+	var ready_pot: Node = _find_nearest_ready_pot()
+	if ready_pot != null:
+		var pot_dist: float = (ready_pot as Node3D).global_position.distance_to(player.global_position)
+		if pot_dist <= _nearest_interact_distance():
+			return ready_pot as Node3D
+
+	var other2: Dictionary = _nearest_generic_interactable()
+	return other2["node"] as Node3D
 
 ## E while holding a Basket — finds the nearest "basket_storable" world item
 ## in reach and stashes it, instead of calling the basket's own on_use().
@@ -984,12 +1053,25 @@ func _find_nearest_ready_pot() -> Node:
 	return _proximity.nearest_in_group("cooking_pot", MAX_PROMPT_DIST,
 		func(n: Node) -> bool: return n.has_method("is_dish_ready") and n.is_dish_ready())
 
-## Read-only peek at the distance to whatever _try_interact() would
-## actually interact with, without triggering it — mirrors both of
-## _try_interact()'s passes exactly. Used purely to fairly compare against
-## the ready-dish special case above. Returns INF if nothing is eligible.
-func _nearest_interact_distance() -> float:
+## Read-only peek at whatever _try_interact() would actually interact
+## with, without triggering it — the ONE shared scan used by
+## _try_interact() itself, _nearest_interact_distance() (kept as a thin
+## distance-only wrapper below, several callers only need the number),
+## the shelf E-priority fairness check, and Focus Mode's
+## _resolve_current_e_target(). Returns { "node": Node3D or null, "dist":
+## float (INF if nothing eligible) }.
+##
+## Aug 2026 — added the grow-light-over-tray override: a GrowLight sits
+## on the ceiling directly above its FarmingTray (the intended setup), so
+## the tray is almost always physically closer to the player and would
+## otherwise always win here. Deliberately narrow — only overrides when
+## a FarmingTray specifically would otherwise win and a grow light is
+## also in reach. Every other pair of nearby interactables (shelves,
+## generators, anything else near a grow light) still resolves by
+## genuine fair distance, unaffected.
+func _nearest_generic_interactable() -> Dictionary:
 	var bodies: Array       = detect_area.get_overlapping_bodies()
+	var closest: Node3D     = null
 	var closest_dist: float = INF
 
 	for body in bodies:
@@ -1001,9 +1083,12 @@ func _nearest_interact_distance() -> float:
 			var d: float = body.global_position.distance_to(player.global_position)
 			if d < closest_dist:
 				closest_dist = d
+				closest = body
 
 	var static_reach: float = MAX_PROMPT_DIST
 	var player_pos: Vector3 = player.global_position
+	var nearest_grow_light: Node3D     = null
+	var nearest_grow_light_dist: float = INF
 	for node: Node in get_tree().get_nodes_in_group("interactable"):
 		if not is_instance_valid(node):
 			continue
@@ -1015,10 +1100,23 @@ func _nearest_interact_distance() -> float:
 			continue
 		var n3: Node3D = node as Node3D
 		var d: float = n3.global_position.distance_to(player_pos)
+		if node.is_in_group("grow_light") and d < static_reach and d < nearest_grow_light_dist:
+			nearest_grow_light_dist = d
+			nearest_grow_light = n3
 		if d < static_reach and d < closest_dist:
 			closest_dist = d
+			closest = n3
 
-	return closest_dist
+	if nearest_grow_light != null and closest != null and closest.is_in_group("farming_tray"):
+		closest      = nearest_grow_light
+		closest_dist = nearest_grow_light_dist
+
+	return { "node": closest, "dist": closest_dist }
+
+## Thin distance-only wrapper — several existing callers (the ready-dish
+## fairness check below) only need the number, not the node.
+func _nearest_interact_distance() -> float:
+	return float(_nearest_generic_interactable()["dist"])
 
 
 ## Spawns a DishItem from the pot's serve_dish() result and puts it directly
@@ -1059,51 +1157,12 @@ func _try_interact() -> void:
 		player.seated_chair.on_interact()
 		return
 
-	var bodies: Array       = detect_area.get_overlapping_bodies()
-	var closest: Node3D     = null
-	var closest_dist: float = INF
-
-	## Pass 1 - RigidBody3D interactables tracked via Area3D overlap.
-	## NOTE: only bodies that actually implement on_interact() are considered.
-	## Some items (e.g. FuelCan) sit in the "interactable" group purely so their
-	## get_prompt_text()/get_use_prompt() lines show up while HELD - they have no
-	## on_interact() of their own. If those were allowed to win the closest-node
-	## comparison, pressing E while merely standing near one would silently no-op
-	## instead of falling through to the next-closest thing that can actually
-	## respond (e.g. a WaterHookup a bit further away). Filtering here keeps E
-	## always resolving to the closest thing that will actually do something.
-	for body in bodies:
-		if body.is_in_group("interactable") and body.has_method("on_interact"):
-			## Shelved items — block direct interaction; use shelf menu (E) to retrieve
-			if body.is_in_group("shelved"):
-				continue
-			if body is RigidBody3D and (body as RigidBody3D).freeze:
-				continue
-			var d: float = body.global_position.distance_to(player.global_position)
-			if d < closest_dist:
-				closest_dist = d
-				closest = body
-
-	## Pass 2 — StaticBody3D interactables (e.g. PowerTerminal, BreakerBox).
-	## Jolt's Area3D.get_overlapping_bodies() is unreliable for StaticBody3D nodes,
-	## so we do a proximity group scan — same pattern as _nearest_shelf().
-	var static_reach: float = MAX_PROMPT_DIST
-	var player_pos: Vector3 = player.global_position
-	for node: Node in get_tree().get_nodes_in_group("interactable"):
-		if not is_instance_valid(node):
-			continue
-		if not (node is StaticBody3D):
-			continue
-		if not node.has_method("on_interact"):
-			continue
-		if node.is_in_group("shelved"):
-			continue
-		var n3: Node3D = node as Node3D
-		var d: float = n3.global_position.distance_to(player_pos)
-		if d < static_reach and d < closest_dist:
-			closest_dist = d
-			closest = n3
-
+	## Aug 2026 — scan itself moved into _nearest_generic_interactable()
+	## (shared with _nearest_interact_distance(), the shelf E-priority
+	## fairness check, and Focus Mode's _resolve_current_e_target()) so
+	## "what would fire" and "what actually fires" can never disagree.
+	var best: Dictionary = _nearest_generic_interactable()
+	var closest: Node3D = best["node"]
 	if closest != null:
 		closest.on_interact()
 

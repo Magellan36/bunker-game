@@ -66,8 +66,32 @@ func _process(_delta: float) -> void:
 			p.visible = false
 		return
 
+	## Focus Mode (Aug 2026) — hold Ctrl to collapse every prompt down to
+	## the single one E would actually trigger right now. Debugging aid
+	## for prompt-priority bugs as well as a normal player-facing
+	## decluttering option when several prompts compete for attention. A
+	## HOLD, not a toggle — release Ctrl and everything returns to normal
+	## immediately, no state to reset.
+	##
+	## Resolution is entirely Player-owned: InteractionSystem tags exactly
+	## one CASE-2 (empty-handed) entry per frame with "is_e_target": true,
+	## every other CASE-2 entry gets "is_e_target": false — see
+	## InteractionSystem._resolve_current_e_target()'s header for why that
+	## tag can never disagree with what E actually does. This file only
+	## reads the tag, it never re-derives priority itself.
+	##
+	## Entries that never set the key at all (every CASE-1 held-item
+	## entry — basket/cookpot/give-to-NPC/held-item's-own-action) default
+	## to shown via the `true` fallback below: Focus Mode intentionally
+	## has no effect while holding an item this pass (see this plan's
+	## header for why).
+	var focus_mode: bool = Input.is_key_pressed(KEY_CTRL)
+	var display_list: Array = _active
+	if focus_mode:
+		display_list = _active.filter(func(e: Dictionary) -> bool: return bool(e.get("is_e_target", true)))
+
 	# ── Ensure pool is large enough ──────────────────────────────────────────
-	while _pool.size() < _active.size():
+	while _pool.size() < display_list.size():
 		var clone: PanelContainer = _template_panel.duplicate() as PanelContainer
 		clone.visible = false
 		add_child(clone)
@@ -81,8 +105,8 @@ func _process(_delta: float) -> void:
 	## loop this used to be so overlap avoidance (Phase 2) can see every
 	## panel's real size (post-content-update) before any position is final.
 	var layouts: Array = []
-	for i: int in _active.size():
-		var entry: Dictionary  = _active[i]
+	for i: int in display_list.size():
+		var entry: Dictionary  = display_list[i]
 		var p: PanelContainer  = _pool[i] as PanelContainer
 		var world_pos: Vector3 = entry["world_pos"] + WORLD_OFFSET
 
@@ -126,7 +150,7 @@ func _process(_delta: float) -> void:
 	_resolve_overlaps(layouts)
 
 	## Phase 3: apply final positions.
-	for i: int in _active.size():
+	for i: int in display_list.size():
 		var p: PanelContainer = _pool[i] as PanelContainer
 		var lay: Variant = layouts[i]
 		if lay == null:
@@ -138,7 +162,7 @@ func _process(_delta: float) -> void:
 		p.visible  = true
 
 	# ── Hide surplus pool panels ──────────────────────────────────────────────
-	for i: int in range(_active.size(), _pool.size()):
+	for i: int in range(display_list.size(), _pool.size()):
 		var p: PanelContainer = _pool[i] as PanelContainer
 		if p.visible:
 			p.visible = false
@@ -296,7 +320,11 @@ func _signature_for(desc: Variant) -> String:
 ## Primary API — call every frame from InteractionSystem._update_prompt().
 ## Pass an Array of { "text": String, "world_pos": Vector3, "dist": float,
 ## "icons": Array (optional, up to 3 entries, each a descriptor Dictionary
-## or null) }. Pass [] to hide all panels.
+## or null), "is_e_target": bool (optional, Aug 2026 — Focus Mode: true
+## for the one entry E would actually trigger right now, false for other
+## empty-handed candidates, omitted entirely for held-item entries that
+## haven't opted into Focus Mode filtering yet — a missing key defaults
+## to shown) }. Pass [] to hide all panels.
 func set_prompts(new_entries: Array) -> void:
 	_active = new_entries
 
