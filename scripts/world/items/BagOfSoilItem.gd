@@ -165,7 +165,7 @@ static func _make_sack_mesh(size: Vector3, segs: int, radius: float) -> ArrayMes
 							clampf(pos.z, -hs.z + r, hs.z - r))
 						quad.append(pos)
 						quad_n.append(corner_vec.normalized() if corner_vec.length_squared() > 0.001 else face_dir)
-				for tri: Array in [[0, 2, 1], [1, 2, 3]]:
+				for tri: Array in [[0, 1, 2], [1, 3, 2]]:
 					for k: int in tri:
 						st.set_normal(quad_n[k])
 						st.add_vertex(quad[k])
