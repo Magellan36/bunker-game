@@ -190,7 +190,7 @@ func _build_onion(mat: StandardMaterial3D) -> void:
 	_mesh.position = Vector3(0.0, 0.05, 0.0)
 	_mesh.set_surface_override_material(0, mat)
 
-	## Small pointed tip on top
+	## Small pointed tip on top (divide position by 2x scale)
 	var tip_mi: MeshInstance3D = MeshInstance3D.new()
 	var tip: CylinderMesh = CylinderMesh.new()
 	tip.top_radius = 0.003
@@ -198,7 +198,7 @@ func _build_onion(mat: StandardMaterial3D) -> void:
 	tip.height = 0.025
 	tip.radial_segments = 6
 	tip_mi.mesh = tip
-	tip_mi.position = Vector3(0.0, 0.105, 0.0)
+	tip_mi.position = Vector3(0.0, 0.105 / 2.0, 0.0)
 	tip_mi.set_surface_override_material(0, mat)
 	_mesh.add_child(tip_mi)
 
@@ -319,15 +319,16 @@ func _build_chili_pepper(mat: StandardMaterial3D) -> void:
 	stem_mi.set_surface_override_material(0, stem_mat)
 	_mesh.add_child(stem_mi)
 
-## Bell pepper — squarish rounded box
+## Bell pepper — round sphere
 func _build_bell_pepper(mat: StandardMaterial3D) -> void:
-	var body: BoxMesh = BoxMesh.new()
-	body.size = Vector3(0.07, 0.065, 0.065)
+	var body: SphereMesh = SphereMesh.new()
+	body.radius = 0.04
+	body.height = 0.07
 	_mesh.mesh = body
-	_mesh.position = Vector3(0.0, 0.045, 0.0)
+	_mesh.position = Vector3(0.0, 0.04, 0.0)
 	_mesh.set_surface_override_material(0, mat)
 
-	## Small green stem
+	## Small green stem (divide position by 2x scale)
 	var stem_mi: MeshInstance3D = MeshInstance3D.new()
 	var stem: CylinderMesh = CylinderMesh.new()
 	stem.top_radius = 0.005
@@ -335,7 +336,7 @@ func _build_bell_pepper(mat: StandardMaterial3D) -> void:
 	stem.height = 0.018
 	stem.radial_segments = 6
 	stem_mi.mesh = stem
-	stem_mi.position = Vector3(0.0, 0.085, 0.0)
+	stem_mi.position = Vector3(0.0, 0.082 / 2.0, 0.0)
 	var stem_mat: StandardMaterial3D = StandardMaterial3D.new()
 	stem_mat.albedo_color = Color(0.22, 0.50, 0.15, 1.0)
 	stem_mat.roughness = 0.7
@@ -411,7 +412,7 @@ func _build_blueberry(mat: StandardMaterial3D) -> void:
 	crown_mi.set_surface_override_material(0, crown_mat)
 	_mesh.add_child(crown_mi)
 
-## Corn — cylinder with husk leaves at base
+## Corn — cylinder with husk leaves peeling away from base
 func _build_corn(mat: StandardMaterial3D) -> void:
 	var body: CylinderMesh = CylinderMesh.new()
 	body.top_radius = 0.018
@@ -422,22 +423,24 @@ func _build_corn(mat: StandardMaterial3D) -> void:
 	_mesh.position = Vector3(0.0, 0.055, 0.0)
 	_mesh.set_surface_override_material(0, mat)
 
-	## Green husk leaves wrapping base
+	## Green husk leaves peeling away from the cob (rotate outward)
 	var husk_mat: StandardMaterial3D = StandardMaterial3D.new()
 	husk_mat.albedo_color = Color(0.30, 0.55, 0.18, 1.0)
 	husk_mat.roughness = 0.7
 	for i in range(3):
 		var husk_mi: MeshInstance3D = MeshInstance3D.new()
 		var husk: BoxMesh = BoxMesh.new()
-		husk.size = Vector3(0.015, 0.04, 0.035)
+		husk.size = Vector3(0.012, 0.05, 0.003)
 		husk_mi.mesh = husk
 		var angle: float = TAU * i / 3.0
-		husk_mi.position = Vector3(cos(angle) * 0.018, 0.015, sin(angle) * 0.018)
+		## Position at base, offset outward, rotated to peel away
+		husk_mi.position = Vector3(cos(angle) * 0.025, 0.01, sin(angle) * 0.025)
 		husk_mi.rotation.y = angle
+		husk_mi.rotation.x = 0.4   ## tilt outward
 		husk_mi.set_surface_override_material(0, husk_mat)
 		_mesh.add_child(husk_mi)
 
-	## Silk threads on top (thin yellow cylinders)
+	## Silk threads on top (divide position by 3x scale)
 	var silk_mat: StandardMaterial3D = StandardMaterial3D.new()
 	silk_mat.albedo_color = Color(0.85, 0.75, 0.30, 1.0)
 	silk_mat.roughness = 0.6
@@ -450,7 +453,7 @@ func _build_corn(mat: StandardMaterial3D) -> void:
 		silk.radial_segments = 4
 		silk_mi.mesh = silk
 		var angle: float = TAU * i / 4.0
-		silk_mi.position = Vector3(cos(angle) * 0.008, 0.12, sin(angle) * 0.008)
+		silk_mi.position = Vector3(cos(angle) * 0.008, 0.12 / 3.0, sin(angle) * 0.008)
 		silk_mi.set_surface_override_material(0, silk_mat)
 		_mesh.add_child(silk_mi)
 
@@ -464,19 +467,19 @@ func _build_pumpkin(mat: StandardMaterial3D) -> void:
 	_mesh.position = Vector3(0.0, 0.055, 0.0)
 	_mesh.set_surface_override_material(0, mat)
 
-	## Vertical ribs (6 thin elongated boxes around the equator)
+	## Vertical ribs (6 thin elongated boxes — divide positions by 3x scale)
 	for i in range(6):
 		var rib_mi: MeshInstance3D = MeshInstance3D.new()
 		var rib: BoxMesh = BoxMesh.new()
 		rib.size = Vector3(0.008, 0.09, 0.025)
 		rib_mi.mesh = rib
 		var angle: float = TAU * i / 6.0
-		rib_mi.position = Vector3(cos(angle) * 0.055, 0.055, sin(angle) * 0.055)
+		rib_mi.position = Vector3(cos(angle) * 0.055, 0.055 / 3.0, sin(angle) * 0.055)
 		rib_mi.rotation.y = angle
 		rib_mi.set_surface_override_material(0, mat)
 		_mesh.add_child(rib_mi)
 
-	## Green stem on top
+	## Green stem on top (divide position by 3x scale)
 	var stem_mi: MeshInstance3D = MeshInstance3D.new()
 	var stem: CylinderMesh = CylinderMesh.new()
 	stem.top_radius = 0.006
@@ -484,7 +487,7 @@ func _build_pumpkin(mat: StandardMaterial3D) -> void:
 	stem.height = 0.025
 	stem.radial_segments = 6
 	stem_mi.mesh = stem
-	stem_mi.position = Vector3(0.0, 0.112, 0.0)
+	stem_mi.position = Vector3(0.0, 0.112 / 3.0, 0.0)
 	var stem_mat: StandardMaterial3D = StandardMaterial3D.new()
 	stem_mat.albedo_color = Color(0.25, 0.48, 0.15, 1.0)
 	stem_mat.roughness = 0.7
