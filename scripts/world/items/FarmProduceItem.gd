@@ -19,6 +19,15 @@ const TRAY_RANGE: float = 2.5   ## Matches SeedItem.gd's TRAY_RANGE
 ## 1-charge item rather than a 2-bite can.
 const FOOD_RESTORE: float = 20.0
 
+## Visual scale per produce type — most items 2x, large items (corn, carrot,
+## pumpkin) 3x. Applied to the MeshInstance3D only, collision stays at the
+## original radius for gameplay consistency.
+const PRODUCE_SCALE: Dictionary = {
+	"tomato": 2.0, "onion": 2.0, "basil": 2.0, "strawberry": 2.0,
+	"carrot": 3.0, "chili_pepper": 2.0, "bell_pepper": 2.0, "garlic": 2.0,
+	"potato": 2.0, "blueberry": 2.0, "corn": 3.0, "pumpkin": 3.0,
+}
+
 var shelf_stack_limit: int  = 6
 var shelf_item_type: String = "farm_produce"   ## Shared slot for both types —
 ## per-instance produce_type preserved by Shelving.gd's real-node-reference
@@ -130,6 +139,10 @@ func _build_placeholder_mesh() -> void:
 			_build_pumpkin(mat)
 		_:
 			_build_generic_sphere(mat)
+
+	## Apply visual scale (2x default, 3x for corn/carrot/pumpkin)
+	var scale_factor: float = PRODUCE_SCALE.get(produce_type, 2.0)
+	_mesh.scale = Vector3.ONE * scale_factor
 
 	add_child(_mesh)
 
