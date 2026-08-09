@@ -21,9 +21,12 @@ class_name WaterDispenser
 
 const MAX_STORAGE_ML: float = 5000.0
 
-const BOX_SIZE: Vector3 = Vector3(0.45, 0.55, 0.35)
-const COLOR_BODY:  Color = Color(0.26, 0.42, 0.48, 1.0)   ## teal-grey, distinct from the sink's neutral grey
-const COLOR_SPOUT: Color = Color(0.18, 0.30, 0.34, 1.0)
+const BODY_RADIUS: float = 0.45
+const BODY_HEIGHT: float = 1.65
+const BODY_SIZE: Vector3 = Vector3(BODY_RADIUS * 2.0, BODY_HEIGHT, BODY_RADIUS * 2.0)
+const COLOR_BODY:  Color = Color(0.65, 0.67, 0.70, 1.0)   ## brushed stainless steel
+const COLOR_SPOUT: Color = Color(0.55, 0.57, 0.60, 1.0)
+const COLOR_RIM:   Color = Color(0.60, 0.62, 0.65, 1.0)
 
 ## Fill-level visual (Jul 2026, Feature 2) — reuses WaterInfoUI/
 ## WaterDispenserUI's existing OK_COLOR blue theme for the water tint rather
@@ -111,7 +114,7 @@ func _register_deferred() -> void:
 		return
 	## Registered at the top of the box, same convention as WaterTestSink —
 	## the actual physical point a pipe connects to.
-	_node_key = wm.register_node(global_position + Vector3(0.0, BOX_SIZE.y, 0.0), "endpoint", self)
+	_node_key = wm.register_node(global_position + Vector3(0.0, BODY_SIZE.y, 0.0), "endpoint", self)
 
 
 # ─── WaterSolver duck-typed demand contract ───────────────────────────────────
@@ -247,49 +250,88 @@ func _on_ui_closed() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 
-# ─── Mesh (placeholder — grey/teal box body + darker spout nub) ──────────────
+# ─── Mesh (cylindrical stainless steel water dispenser) ──────────────────────
 static func build_ghost_mesh() -> Mesh:
-	var box: BoxMesh = BoxMesh.new()
-	box.size = BOX_SIZE
-	return box
+	var cyl: CylinderMesh = CylinderMesh.new()
+	cyl.top_radius    = BODY_RADIUS
+	cyl.bottom_radius = BODY_RADIUS
+	cyl.height        = BODY_HEIGHT
+	return cyl
 
 func _build_mesh() -> void:
 	var mi:   MeshInstance3D = MeshInstance3D.new()
-	var mesh: BoxMesh        = BoxMesh.new()
-	mesh.size = BOX_SIZE
+	var mesh: CylinderMesh  = CylinderMesh.new()
+	mesh.top_radius    = BODY_RADIUS
+	mesh.bottom_radius = BODY_RADIUS
+	mesh.height        = BODY_HEIGHT
+	mesh.radial_segments = 24
 	mi.mesh   = mesh
-	mi.position = Vector3(0.0, BOX_SIZE.y * 0.5, 0.0)
+	mi.position = Vector3(0.0, BODY_HEIGHT * 0.5, 0.0)
 
-	## Fill-level visual (Jul 2026, Feature 2) — ShaderMaterial replaces the
-	## old flat StandardMaterial3D so the box's own color tracks stored
-	## volume (water-blue below the fill line, empty-tank teal-grey above,
-	## thin bright waterline band at the cutoff). No new geometry — see
-	## assets/shaders/tank_fill.gdshader's own header.
+	## Fill-level visual — ShaderMaterial tracks stored volume.
 	var shader: Shader = load("res://assets/shaders/tank_fill.gdshader")
 	_fill_material = ShaderMaterial.new()
 	_fill_material.shader = shader
 	_fill_material.set_shader_parameter("fill_pct", 0.0)
-	_fill_material.set_shader_parameter("tank_height", BOX_SIZE.y)
+	_fill_material.set_shader_parameter("tank_height", BODY_HEIGHT)
 	_fill_material.set_shader_parameter("water_color", COLOR_WATER_FILL)
 	_fill_material.set_shader_parameter("empty_color", COLOR_BODY)
 	mi.set_surface_override_material(0, _fill_material)
 	add_child(mi)
 
-	## Small spout nub near the bottom-front — purely cosmetic, no collision.
+	## Lid — slightly wider disc on top.
+	var lid: MeshInstance3D = MeshInstance3D.new()
+	var lid_mesh: CylinderMesh = CylinderMesh.new()
+	lid_mesh.top_radius    = BODY_RADIUS + 0.02
+	lid_mesh.bottom_radius = BODY_RADIUS + 0.02
+	lid_mesh.height        = 0.03
+	lid.mesh = lid_mesh
+	lid.position = Vector3(0.0, BODY_HEIGHT + 0.015, 0.0)
+	var lid_mat: StandardMaterial3D = StandardMaterial3D.new()
+	lid_mat.albedo_color = COLOR_RIM
+	lid_mat.roughness    = 0.30
+	lid_mat.metallic     = 0.55
+	lid.set_surface_override_material(0, lid_mat)
+	mi.add_child(lid)
+
+	## Base ring — slightly wider disc at the bottom.
+	var base: MeshInstance3D = MeshInstance3D.new()
+	var base_mesh: CylinderMesh = CylinderMesh.new()
+	base_mesh.top_radius    = BODY_RADIUS + 0.03
+	base_mesh.bottom_radius = BODY_RADIUS + 0.03
+	base_mesh.height        = 0.04
+	base.mesh = base_mesh
+	base.position = Vector3(0.0, 0.02, 0.0)
+	base.set_surface_override_material(0, lid_mat)
+	mi.add_child(base)
+
+	## Spout — cylinder protruding from the front, near the bottom.
 	var spout: MeshInstance3D = MeshInstance3D.new()
 	var spout_mesh: CylinderMesh = CylinderMesh.new()
-	spout_mesh.top_radius    = 0.05
-	spout_mesh.bottom_radius = 0.05
-	spout_mesh.height        = 0.10
+	spout_mesh.top_radius    = 0.04
+	spout_mesh.bottom_radius = 0.04
+	spout_mesh.height        = 0.12
 	spout.mesh     = spout_mesh
 	spout.rotation_degrees = Vector3(90.0, 0.0, 0.0)
-	spout.position = Vector3(0.0, BOX_SIZE.y * 0.18, BOX_SIZE.z * 0.5 + 0.05)
+	spout.position = Vector3(0.0, BODY_HEIGHT * 0.15, BODY_RADIUS + 0.06)
 	var spout_mat: StandardMaterial3D = StandardMaterial3D.new()
 	spout_mat.albedo_color = COLOR_SPOUT
-	spout_mat.roughness    = 0.40
-	spout_mat.metallic     = 0.60
+	spout_mat.roughness    = 0.30
+	spout_mat.metallic     = 0.55
 	spout.set_surface_override_material(0, spout_mat)
 	mi.add_child(spout)
+
+	## Spout knob — small cylinder at the end of the spout.
+	var knob: MeshInstance3D = MeshInstance3D.new()
+	var knob_mesh: CylinderMesh = CylinderMesh.new()
+	knob_mesh.top_radius    = 0.025
+	knob_mesh.bottom_radius = 0.025
+	knob_mesh.height        = 0.03
+	knob.mesh = knob_mesh
+	knob.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+	knob.position = Vector3(0.0, BODY_HEIGHT * 0.15, BODY_RADIUS + 0.13)
+	knob.set_surface_override_material(0, spout_mat)
+	mi.add_child(knob)
 
 	mi.create_trimesh_collision()
 	for child in mi.get_children():
