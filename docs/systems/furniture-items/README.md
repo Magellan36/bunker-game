@@ -146,6 +146,18 @@ Signals: `item_placed(slot_index, item)`, `item_retrieved(slot_index, item)`.
   Z-symmetric so it meets the project's +Z-front convention without any
   model rotation — slot markers (z=0), collision, and stack offsets are all
   Z-symmetric. See `docs/systems/build/README.md`'s "Facing convention".
+- **Carry-retrieval safe spawn (Aug 2026):** `retrieve_to_carry()` now
+  repositions the item onto the player (`Shelving.carry_spawn_position()`,
+  `isys.global_position + (0, 1.0, 0)` — chest height) BEFORE calling
+  `pickup()`. Previously the item was left at its shelf-slot position, so
+  for a shelf backed against a wall that meant starting on the far/wall
+  side of the unit and being physics-chased to the player straight through
+  it — the tunnel-through-wall/floor bug. The player's own position is
+  guaranteed clear of solid geometry (their own collision occupies it), so
+  no shelf/furniture/wall can be in the way; the short remaining gap to the
+  hold point is closed by `PickupableItem._physics_process()`'s existing
+  per-frame chase, preserving the natural pop-then-settle feel.
+
 
 **`Bed`** (extends `StaticBody3D`): `on_interact()`, `get_prompt_text() ->
 String`, `set_player_in_range(in_range)`, `set_sleeping(sleeping: bool)`.
@@ -181,6 +193,14 @@ stacking, no slot geometry, no visible stored meshes.
   `eject_all_items()` does this and is REQUIRED (deconstruct/build-undo
   duck-call it â€” without it the stored items are silently freed with the
   node). No metadata layer-saving: restoration uses canonical values.
+- **Carry-retrieval safe spawn (Aug 2026):** `take_for_carry()` overrides
+  `_reparent_to_world()`'s furniture-center placement
+  (`global_position + (0, 0.6, 0)` — fine for `take_for_inventory()`, which
+  goes straight into the pocket, but the furniture center can still be
+  near/behind a wall the unit is pushed against) with the same
+  `Shelving.carry_spawn_position()` player-side point before `pickup()`, so
+  the item is never physics-chased from a wall-side start into the player.
+  See the Shelf family section above for the full reasoning.
 - **`EndTable.gd` / `Dresser.gd`:** mesh-only subclasses; `_init()` sets
   capacity / display_name / prompt_height / grid_cols / grid_rows /
   row_labels. Both expose `static func build_ghost_mesh()` for the build

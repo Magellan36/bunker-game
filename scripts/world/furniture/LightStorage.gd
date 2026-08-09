@@ -272,6 +272,13 @@ func take_for_carry(slot_idx: int, isys: Node) -> bool:
 		item.knocked_out.connect(isys._on_item_knocked_out)
 	if "from_inventory" in item:
 		item.from_inventory = false
+
+	## Aug 2026 fix — _reparent_to_world() above positions the item at the
+	## FURNITURE's own center, which can still be near/behind a wall the
+	## unit is pushed against. Override with the same player-side safe spot
+	## Shelving uses right before handing off to pickup().
+	item.global_position = Shelving.carry_spawn_position(isys)
+
 	if item.has_method("pickup"):
 		item.pickup(isys.hold_point)
 	isys.held_item       = item

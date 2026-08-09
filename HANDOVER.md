@@ -1,3 +1,44 @@
+# Handover — Storage Carry-Retrieval Wall Tunneling Fix (Aug 2026)
+
+Symptom: items retrieved via the StorageUI "Carry" button from a
+wall-adjacent shelf / End Table / Dresser would sometimes tunnel through
+the world — clipping through the unit and wall, occasionally the floor.
+
+Root cause: neither `Shelving.retrieve_to_carry()` nor
+`LightStorage.take_for_carry()` repositioned the item onto the player's
+side before handing off. `PickupableItem.pickup()` never moves the item —
+it just flips held state and lets `_physics_process()` drive it toward the
+hold point via raw velocity (`linear_velocity = (chase_target -
+global_position) * speed`). So the item was physics-chased from its old
+storage position (behind the unit, against the wall) straight through any
+layer-1 colliders between there and the player.
+
+Fix: a shared `Shelving.carry_spawn_position(isys)` static helper
+(`isys.global_position + (0, 1.0, 0)` — chest height) now positions the
+item at the player's own origin before `pickup()`. The player's position
+is by construction never inside solid geometry (their own collision
+occupies it), so there is categorically no unit/wall/floor to tunnel
+through; the remaining short gap to the hold point is closed by the
+existing per-frame chase, preserving the pop-then-settle pickup feel.
+Called from both `Shelving.retrieve_to_carry()` and
+`LightStorage.take_for_carry()` before the `pickup()` call.
+`LightStorage`'s `_reparent_to_world()` is untouched — its
+furniture-center placement is fine for the inventory path
+(`take_for_inventory()`, no physics chase).
+
+Out of scope: `_reparent_to_world()` inventory-path positioning, Basket's
+`take_for_carry()`/Drop behavior (different action/code path), and
+`PickupableItem._physics_process()` itself (chase logic correct, reused
+as-is).
+
+Files touched: `scripts/world/furniture/Shelving.gd`,
+`scripts/world/furniture/LightStorage.gd`,
+`docs/systems/furniture-items/README.md`.
+
+---
+
+---
+
 # Handover — Softened Upright Snap + CTRL Manual-Upright Hold (Aug 2026)
 
 ## What changed this session

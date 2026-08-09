@@ -75,6 +75,20 @@ var _storage_ui: Node         = null   ## Injected by MainWorld after spawn (Aug
 ## into the live PowerManager the instant Build Mode opened).
 var _is_preview_only: bool = false
 
+## Aug 2026 — safe spawn point for any item about to be handed to the player
+## via pickup(). The player's own position is guaranteed clear of solid
+## world geometry (their own collision volume occupies it), so starting a
+## carried item here — rather than at its old storage-slot position, which
+## can be behind a shelf/furniture unit pressed against a wall — eliminates
+## the tunnel-through-wall/floor bug entirely. The short remaining distance
+## to the real hold point is closed by PickupableItem._physics_process()'s
+## existing per-frame chase, so this still gets a small natural "pop into
+## hand" motion instead of an instant teleport onto the hold point itself.
+## Shared by Shelving.retrieve_to_carry() and LightStorage.take_for_carry().
+static func carry_spawn_position(isys: Node) -> Vector3:
+	const SPAWN_HEIGHT: float = 1.0   ## Roughly chest height on the player
+	return isys.global_position + Vector3(0.0, SPAWN_HEIGHT, 0.0)
+
 # ─── Signals ──────────────────────────────────────────────────────────────────
 signal item_placed(slot_index: int, item: RigidBody3D)
 signal item_retrieved(slot_index: int, item: RigidBody3D)
@@ -644,6 +658,8 @@ func retrieve_to_carry(slot_idx: int, isys: Node) -> bool:
 
 	if "from_inventory" in item:
 		item.from_inventory = false
+
+	item.global_position = Shelving.carry_spawn_position(isys)   ## Aug 2026 fix — was left at the shelf slot, could tunnel through a wall on the way to the player
 
 	if item.has_method("pickup"):
 		item.pickup(isys.hold_point)
