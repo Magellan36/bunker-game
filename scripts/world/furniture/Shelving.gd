@@ -89,7 +89,7 @@ func _load_mesh() -> void:
 	## 4 corner posts — angle-iron style (shortened at top by one shelf spacing)
 	var post_w: float = 0.035
 	var post_d: float = 0.035
-	var post_h: float = unit_h - 0.45   ## one shelf spacing shorter at top
+	var post_h: float = unit_h - 0.3375   ## shortened by 0.45, then increased by 1/4 of that (0.1125)
 	var post_y_offset: float = 0.45 * 0.5   ## shift down so top is lower
 	var corners: Array[Vector2] = [
 		Vector2(-unit_w * 0.5 + post_w * 0.5, -unit_d * 0.5 + post_d * 0.5),
