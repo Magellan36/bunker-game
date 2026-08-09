@@ -1,3 +1,35 @@
+# Handover — NPC: Stuck-Recovery Deadlock Fix + Reachability-Aware Target Selection (Aug 2026)
+
+- Root-caused a real infinite loop: _recover_from_stuck() had no memory
+  of repeated failures, so a genuinely wedged NPC (boxed in by clutter
+  on every side, unable to move toward anything — including the item
+  touching it) would force the identical doomed CleaningActivity every
+  ~1s forever. Now tracks a same-obstruction streak
+  (_stuck_streak_obstruction_id/_stuck_streak_count); after
+  STUCK_ESCALATE_AFTER (2) consecutive failures on the same target, it
+  stops retrying and directly nudges the NPC's position away from the
+  obstruction instead (movement commands don't work on a wedged NPC, so
+  this bypasses movement entirely), then lets the next think-cycle
+  decide fresh. Added NPCDebug.log_stuck_escalation() for visibility.
+- find_cleaning_target() no longer picks purely by straight-line
+  distance — candidates are checked in distance order, but a
+  _has_clear_approach() raycast now deprioritizes an item that's
+  directly behind another piece of clutter in favor of a similarly-close
+  one with a clear line to it. This is what "prefer the item on the
+  outside of a pile over the one buried in the center" means
+  mechanically. Falls back to plain-nearest if every candidate looks
+  equally blocked.
+- Confirmed (no fix needed): items freed from a deleted shelf are
+  already correctly picked up by JobBoard's cleaning scan — they join
+  the "pickup" group in their own _ready() regardless of how they ended
+  up loose.
+
+Files touched: `scripts/npc/NPC.gd`, `scripts/npc/NPCDebug.gd`,
+`docs/systems/npc/README.md`.
+
+---
+---
+
 # Handover — Large Shelf Spacing + Crate Sink Fix + Case Upright/Restack (Aug 2026)
 
 Three independent fixes in `Shelving.gd` plus two item files:

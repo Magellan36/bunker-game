@@ -1579,3 +1579,10 @@ without being asked.
     ask an NPC to clean a light item (e.g. fuel can) — confirm it
     prefers the End Table/Dresser over the closer shelf. Fill all
     light storage, repeat — confirm it falls back to the shelf.
+82. Wedge an NPC tightly inside a pile of items so it can't move at
+    all — confirm it tries the forced cleanup at most twice before a
+    STUCK ESCALATION log line appears and the NPC visibly relocates,
+    rather than looping the same forced grab forever.
+83. Drop a dense pile of items (e.g. by deleting a loaded shelf) and ask
+    an NPC to clean — confirm it prefers an outer, reachable item over
+    one buried in the center when both are similar distances away.

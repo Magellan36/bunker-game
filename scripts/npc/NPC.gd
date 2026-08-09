@@ -1256,39 +1256,66 @@ func has_cleaning_target_available() -> bool:
 		return true
 	return not JobBoard.get_organizable_items().is_empty()
 
-## Nearest eligible item across BOTH lists — trash and organizable are
-## mutually exclusive per JobBoard's own scan, so no double-counting
-## risk. `exclude_ids` (Aug 2026) lets CleaningActivity skip items it's
-## already tried and confirmed have nowhere to go THIS session, and
-## skip momentary claim-clash items, without waiting on JobBoard's own
-## 2s cache refresh — see CleaningActivity._pick_next_target().
+## Eligible item across BOTH lists — trash and organizable are mutually
+## exclusive per JobBoard's own scan, so no double-counting risk.
+## `exclude_ids` (Aug 2026) lets CleaningActivity skip items it's already
+## tried and confirmed have nowhere to go THIS session, and skip
+## momentary claim-clash items, without waiting on JobBoard's own 2s
+## cache refresh — see CleaningActivity._pick_next_target().
+##
+## Aug 2026 — no longer purely nearest-by-distance. Candidates are
+## checked in distance order, but the first one with a roughly clear
+## approach (see _has_clear_approach()) wins over a nominally-nearer one
+## that's actually buried behind other clutter — this is the mechanical
+## meaning of "go to the item on the outside of a pile, not the one
+## wedged in the center." Falls back to the plain nearest item if every
+## candidate looks equally blocked (better to try SOMETHING than return
+## nothing).
 func find_cleaning_target(exclude_ids: Dictionary = {}) -> Dictionary:
-	var best_item: Node = null
-	var best_d: float = INF
-	var best_is_trash: bool = false
+	var candidates: Array = []
 	for item: Node in JobBoard.get_trash_items():
 		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
 			continue
 		if exclude_ids.has(item.get_instance_id()):
 			continue
-		var d: float = NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)
-		if d < best_d:
-			best_d = d
-			best_item = item
-			best_is_trash = true
+		candidates.append({"item": item, "is_trash": true,
+			"d": NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)})
 	for item: Node in JobBoard.get_organizable_items():
 		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
 			continue
 		if exclude_ids.has(item.get_instance_id()):
 			continue
-		var d: float = NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)
-		if d < best_d:
-			best_d = d
-			best_item = item
-			best_is_trash = false
-	if best_item == null:
+		candidates.append({"item": item, "is_trash": false,
+			"d": NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)})
+	if candidates.is_empty():
 		return {}
-	return {"item": best_item, "is_trash": best_is_trash}
+	candidates.sort_custom(func(a, b): return a["d"] < b["d"])
+
+	var fallback: Dictionary = candidates[0]
+	for c: Dictionary in candidates:
+		if _has_clear_approach(c["item"]):
+			return {"item": c["item"], "is_trash": c["is_trash"]}
+	return {"item": fallback["item"], "is_trash": fallback["is_trash"]}
+
+## Cheap line-of-sight estimate (Aug 2026): raycast from roughly chest
+## height toward the candidate item. If something ELSE in the "pickup"
+## group is hit first, the item is buried behind other clutter rather
+## than a clean, direct pickup target — exactly the "shelf's worth of
+## items dumped in one spot" case. Best-effort, not real pathfinding
+## cost; a raycast miss or a hit on the item itself both count as clear.
+func _has_clear_approach(item: Node) -> bool:
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var from: Vector3 = global_position + Vector3(0.0, 0.9, 0.0)
+	var to: Vector3 = (item as Node3D).global_position + Vector3(0.0, 0.2, 0.0)
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = [get_rid()]
+	var result: Dictionary = space_state.intersect_ray(query)
+	if result.is_empty():
+		return true
+	var hit: Object = result.get("collider")
+	if hit == item:
+		return true
+	return not (hit is Node and (hit as Node).is_in_group("pickup"))
 
 ## Cleaning destination routing (Aug 2026) — maps an organizable item's
 ## CLASSIFICATION to the destination group(s) to search, in priority
@@ -1899,6 +1926,18 @@ var _stuck_timer: float = 0.0
 var _stuck_ref_pos: Vector3 = Vector3.ZERO
 var _stuck_recoveries: int = 0   ## exposed for the Part 7 debug dump
 
+## Aug 2026 — how many CONSECUTIVE stuck-recoveries have targeted the
+## same obstruction (or found none). This is what was missing: without
+## it, a genuinely wedged NPC (boxed in by clutter on every side, unable
+## to move toward ANYTHING, including the item touching it) would force
+## the exact same doomed CleaningActivity over and over forever, once
+## per second, since the item causing the stall correctly kept getting
+## re-identified as the obstruction every time.
+const STUCK_ESCALATE_AFTER: int = 2
+const STUCK_NUDGE_DISTANCE: float = 0.6
+var _stuck_streak_obstruction_id: int = -1
+var _stuck_streak_count: int = 0
+
 func _tick_stuck_recovery(delta: float) -> void:
 	## Part 18 — gate on _movement_locked, not nav_finished(). Drink/Eat/
 	## Job-work all stop the NPC via their OWN range checks (PICKUP_RANGE,
@@ -1925,6 +1964,12 @@ func _tick_stuck_recovery(delta: float) -> void:
 	_stuck_ref_pos = global_position
 	if moved < STUCK_MIN_DISPLACEMENT:
 		_recover_from_stuck()
+	else:
+		## Real progress was made — a fresh, unrelated stuck event later
+		## deserves its own full STUCK_ESCALATE_AFTER tries, not whatever
+		## was left over from an old, now-resolved streak.
+		_stuck_streak_obstruction_id = -1
+		_stuck_streak_count = 0
 
 func _recover_from_stuck() -> void:
 	_stuck_recoveries += 1
@@ -1934,10 +1979,52 @@ func _recover_from_stuck() -> void:
 		brain.stop_current()
 	velocity.x = 0.0
 	velocity.z = 0.0
-	if stuck_item != null and brain != null:
+
+	var obstruction_id: int = stuck_item.get_instance_id() if stuck_item != null else -1
+	if obstruction_id != -1 and obstruction_id == _stuck_streak_obstruction_id:
+		_stuck_streak_count += 1
+	else:
+		_stuck_streak_count = 1
+	_stuck_streak_obstruction_id = obstruction_id
+
+	if stuck_item != null and brain != null and _stuck_streak_count <= STUCK_ESCALATE_AFTER:
 		## Always fair game when it caused a stuck NPC — bypasses the
 		## normal trash/idle-time eligibility entirely, per design.
 		brain.force_command(NPCBrain.CleaningActivity.new(stuck_item))
+		return
+
+	## Aug 2026 — same obstruction (or nothing identifiable) kept the NPC
+	## stuck across multiple recovery attempts in a row. Trying to force-
+	## clean it again just repeats the same failed loop — the NPC can't
+	## even close the distance to something it's already touching, which
+	## means it's genuinely wedged (boxed in by clutter on every side),
+	## not just picking a bad target. Break the deadlock directly: nudge
+	## the NPC a short distance away from the obstruction (a real
+	## position change, not a movement command — movement is exactly
+	## what isn't working) and let the NEXT think-cycle decide fresh,
+	## with no forced target at all. The streak resets so a genuinely new
+	## stuck event later still gets its own full set of tries.
+	if NPCDebug.enabled:
+		NPCDebug.log_stuck_escalation(self, stuck_item, _stuck_streak_count)
+	_nudge_free_of_obstruction(stuck_item)
+	_stuck_streak_obstruction_id = -1
+	_stuck_streak_count = 0
+
+## Direct position nudge away from whatever's blocking the NPC — bypasses
+## normal collision-respecting movement entirely, which is the point: a
+## wedged NPC can't walk itself out, so this moves it out instead. Falls
+## back to a random horizontal direction if no obstruction is known
+## (e.g. the last few recoveries found nothing specific).
+func _nudge_free_of_obstruction(stuck_item: RigidBody3D) -> void:
+	var away: Vector3
+	if stuck_item != null and is_instance_valid(stuck_item):
+		away = global_position - (stuck_item as Node3D).global_position
+	else:
+		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
+	away.y = 0.0
+	if away.length() < 0.01:
+		away = Vector3(1.0, 0.0, 0.0)
+	global_position += away.normalized() * STUCK_NUDGE_DISTANCE
 
 ## Best-effort — mirrors _handle_physics_pushes()'s own collision
 ## detection. Not guaranteed to find the TRUE cause of the stall (could be

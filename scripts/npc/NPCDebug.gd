@@ -36,6 +36,20 @@ static func log_stuck(npc: Node) -> void:
 		return
 	print("%s STUCK — aborting current activity and re-scoring" % _fmt(npc))
 
+## Aug 2026 — logged when the same obstruction (or none identifiable)
+## has kept an NPC stuck across multiple consecutive recovery attempts,
+## and it's about to give up forcing a cleanup and nudge free instead.
+static func log_stuck_escalation(npc: Node, obstruction: Node, streak: int) -> void:
+	if not enabled:
+		return
+	var name: String = "?"
+	if obstruction != null and obstruction.has_method("get_display_name"):
+		name = obstruction.get_display_name()
+	elif obstruction != null:
+		name = str(obstruction.name)
+	print("%s STUCK ESCALATION — %s failed to clear the stall %d times in a row, nudging free instead of retrying" \
+		% [_fmt(npc), name, streak])
+
 ## Job lifecycle — call from JobBoard (_mark/claim/release) and JobActivity.
 static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
 	if not enabled:
