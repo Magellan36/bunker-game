@@ -92,6 +92,12 @@ Signals: `item_placed(slot_index, item)`, `item_retrieved(slot_index, item)`.
 - Shelf E-open now yields to a strictly-closer held-item E target
   (Basket stash / Cooking Pot stove-or-stash / NPC give) — see Player
   subsystem's `docs/systems/player/README.md` for the fairness rule.
+- **Facing (Aug 2026):** the loaded model instance (`MODEL_PATH`,
+  `steel_frame_shelves_01_4k.glb`) is rotated 180° at load in
+  `_load_mesh()` to meet the project's +Z-front convention — the source
+  asset's open front is baked facing local -Z. Visual-only: slot markers
+  (z=0), collision, and stack offsets are Z-symmetric. See
+  `docs/systems/build/README.md`'s "Facing convention".
 
 **`Bed`** (extends `StaticBody3D`): `on_interact()`, `get_prompt_text() ->
 String`, `set_player_in_range(in_range)`, `set_sleeping(sleeping: bool)`.

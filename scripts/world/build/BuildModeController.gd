@@ -171,6 +171,11 @@ const EIGHT_DIR_ANGLES: Array[float] = [
 
 var _orient_index:        int   = 0   ## Current index into EIGHT_DIR_ANGLES
 var _current_angle_deg:   float = 0.0 ## Current ghost rotation in degrees
+## Every construct-menu selection resets the ghost to this facing (Aug 2026).
+## Index into EIGHT_DIR_ANGLES: 0 → 0.0° → object front (local +Z) points
+## world +Z = south. If in-game "south" turns out to be world -Z with the
+## final camera/compass, change this single constant to 4 (180.0°).
+const DEFAULT_ORIENT_INDEX: int = 0
 
 # ─── State ────────────────────────────────────────────────────────────────────
 var is_active:            bool  = false
@@ -512,6 +517,11 @@ func _on_construct_item_chosen(tile_id: int) -> void:
 		_water_pipe_draw_mode.deactivate()
 
 	_selected_tile = tile_id
+	## Reset ghost facing to the default (south) on every selection — rotation
+	## no longer carries over from the previous object or from wall-snapped
+	## tiles that overwrote _current_angle_deg (posters/lights/breakers).
+	_orient_index      = DEFAULT_ORIENT_INDEX
+	_current_angle_deg = EIGHT_DIR_ANGLES[DEFAULT_ORIENT_INDEX]
 	_selected_tile_price = 0
 	if build_hud != null:
 		_selected_tile_price = build_hud.get_item_price(tile_id)

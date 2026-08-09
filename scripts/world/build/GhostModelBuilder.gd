@@ -75,7 +75,7 @@ const NO_ARROW_TILES: Array[int] = []   ## Populated by caller with TILE_WALL/HA
 const ARROW_OVERRIDES: Dictionary = {
 	# tile_id: [z_offset, y_rotation_offset_deg]
 	4:  [0.75, 90.0],    ## Bed
-	3:  [0.6,  0.0],     ## Shelving
+	3:  [0.6,  180.0],   ## Shelving — model rotated to +Z-front convention (Aug 2026); arrow now standard
 	6:  [0.0,  180.0],   ## Generator S (z_offset computed from size at call time — see Part 4)
 	7:  [0.0,  180.0],   ## Generator M
 	8:  [0.0,  180.0],   ## Generator L

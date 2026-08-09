@@ -1,3 +1,36 @@
+# Handover — Shelving Facing + Default-South Selection Reset (Aug 2026)
+
+- **Bug A — Shelving faced backwards (two independent causes).** The
+  project's facing convention (see `GhostModelBuilder.gd`) is that every
+  object's real "front" is local +Z; `DEFAULT_ARROW_Y_ROT = 180.0` rotates
+  the arrow geometry to match. Shelving was the odd one out twice over:
+  its loaded model (`MODEL_PATH`, `steel_frame_shelves_01_4k.glb`) has its
+  open front baked facing local -Z, AND both arrow paths were hand-tuned
+  to that backwards model instead of the convention
+  (`ARROW_OVERRIDES[3] = [0.6, 0.0]` and the fallback
+  `_attach_ghost_direction_arrow(0.6)`). Fixed at the source:
+  `Shelving._load_mesh()` now rotates the visual instance 180°, and both
+  arrow entries are updated to the standard `180.0`. Visual-only — slot
+  markers (z=0), collision, and stack offsets are Z-symmetric.
+- **Bug B — ghost rotation never reset on selection.** `_orient_index` /
+  `_current_angle_deg` persisted across construct-menu clicks, so the
+  previous object's rotation — or a wall-snapped tile's (poster/light/
+  breaker) — carried into the next ghost. Every construct selection now
+  resets to `BuildModeController.DEFAULT_ORIENT_INDEX` (0 → 0.0° → front
+  +Z = world south). Scroll-wheel rotation still works (relative);
+  wall-snapping tiles recompute their own angle each frame.
+- **Accepted effect:** shelves placed in a RUNNING scene before this lands
+  will visually rotate 180° on script reload (no persistent save — one-time
+  blip, items stay put).
+
+Files touched: `scripts/world/furniture/Shelving.gd`,
+`scripts/world/build/GhostModelBuilder.gd`,
+`scripts/world/build/GhostPreview.gd`,
+`scripts/world/build/BuildModeController.gd`.
+
+---
+---
+
 # Handover — Storage UI Preview Fix + Icon/Row-Label Redesign (Aug 2026)
 
 ## What changed this session

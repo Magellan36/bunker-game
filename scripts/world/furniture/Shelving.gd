@@ -85,6 +85,12 @@ func _load_mesh() -> void:
 		return
 	var instance: Node3D = scene.instantiate()
 	instance.position = Vector3.ZERO
+	## Facing-convention fix (Aug 2026): the source model's open front is
+	## baked facing local -Z, opposite the project convention that every
+	## object's front is local +Z (see GhostModelBuilder.DEFAULT_ARROW_Y_ROT).
+	## Rotate the VISUAL instance only — slot markers (z=0), the collision
+	## box, and stack offsets are all Z-symmetric, so nothing functional moves.
+	instance.rotation_degrees = Vector3(0.0, 180.0, 0.0)
 	add_child(instance)
 
 # ─── Slot markers ─────────────────────────────────────────────────────────────

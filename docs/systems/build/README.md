@@ -231,6 +231,21 @@ maintaining separate logic.
   `deconstruct_chunk()`/`restore_chunk()` after the player confirms a dig and
   deducts/refunds `ROCK_DIG_COST`.
 
+## Facing convention (Aug 2026)
+- Every object's real "front" is **local +Z** (`DEFAULT_ARROW_Y_ROT = 180.0`
+  rotates the arrow geometry, whose base points -Z, to match).
+- `ARROW_OVERRIDES` is for placement z-offsets and **intentional** quirks
+  (the Bed's 90° side-facing asset) — it is NOT for papering over a
+  backwards-baked model. Fix a wrong-facing model at the source (rotate
+  the visual instance at load, as `Shelving._load_mesh()` now does), then
+  set its override to the standard 180° (or drop it if the z-offset is
+  also unnecessary).
+- Every construct-menu selection resets the ghost facing to
+  `BuildModeController.DEFAULT_ORIENT_INDEX` (index 0 → 0.0° → front = +Z
+  = world south). Scroll-wheel rotation then steps 45° relative to that
+  reset; wall-snapped tiles (posters/lights/breakers) still recompute
+  their own angle every frame, unaffected by the reset.
+
 ## Files
 | File | Lines | Role |
 |---|---|---|

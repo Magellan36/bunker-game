@@ -221,7 +221,7 @@ func _rebuild_ghost_mesh() -> void:
 				_owner._ghost.mesh = ghost_mesh
 				for s: int in ghost_mesh.get_surface_count():
 					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
-		_attach_ghost_direction_arrow(0.6)
+		_attach_ghost_direction_arrow(0.6, 180.0)
 		return
 
 	# ── Tables: ghost from Table.gd static helper (1×1 small or 2×1 medium) ──
