@@ -320,14 +320,16 @@ func close() -> void:
 # ─── Input ────────────────────────────────────────────────────────────────────
 func _unhandled_input(event: InputEvent) -> void:
 	## Numpad shortcuts — work whether menu is open or closed
-	if event.is_action_pressed("admin_add_power"):
-		_on_add_power_pressed()
-		get_viewport().set_input_as_handled()
-		return
-	if event.is_action_pressed("admin_spawn_npc"):
-		_on_spawn_npc_pressed()
-		get_viewport().set_input_as_handled()
-		return
+	if event is InputEventKey and event.pressed:
+		var k: int = (event as InputEventKey).keycode
+		if k == KEY_KP_5:
+			_on_add_power_pressed()
+			get_viewport().set_input_as_handled()
+			return
+		if k == KEY_KP_2:
+			_on_spawn_npc_pressed()
+			get_viewport().set_input_as_handled()
+			return
 
 	if not _is_open:
 		return
