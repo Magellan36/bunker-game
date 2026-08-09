@@ -100,17 +100,17 @@ func on_use() -> void:
 		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
 		queue_free()
 
-## Placeholder box model — a full sack, visibly bulkier than EmptyBagItem's
-## flatter silhouette so the two read as distinct on the ground at a glance.
+## Sack model — rounded-box burlap sack with soft edges, matching the
+## reference image. Straight/stiff, not floppy. Uses SurfaceTool to build
+## a subdivided box with corner rounding.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
-	var box: BoxMesh = BoxMesh.new()
-	box.size = Vector3(0.26, 0.20, 0.16)
-	_mesh.mesh = box
+	_mesh.mesh = _make_sack_mesh(Vector3(0.26, 0.20, 0.16), 3, 0.035)
 	_mesh.position = Vector3(0.0, 0.10, 0.0)
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.55, 0.42, 0.28, 1.0)
-	mat.roughness    = 0.95
+	mat.albedo_color = Color(0.62, 0.53, 0.38, 1.0)
+	mat.roughness    = 0.92
+	mat.metallic     = 0.0
 	_mesh.set_surface_override_material(0, mat)
 	add_child(_mesh)
 
@@ -120,10 +120,59 @@ func _build_placeholder_mesh() -> void:
 	## undetectable by the interaction system).
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var box_shape: BoxShape3D = BoxShape3D.new()
-	box_shape.size = box.size
+	box_shape.size = Vector3(0.26, 0.20, 0.16)
 	shape.shape = box_shape
 	shape.position = _mesh.position
 	add_child(shape)
+
+## Generates a rounded-box mesh (pillow sack shape) via SurfaceTool.
+## `size` is the full bounding-box dimensions, `segs` is subdivisions per
+## face edge (more = smoother corners), `radius` is the corner round-off.
+static func _make_sack_mesh(size: Vector3, segs: int, radius: float) -> ArrayMesh:
+	var st: SurfaceTool = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var hs: Vector3 = size * 0.5
+	var r: float = minf(radius, minf(hs.x, minf(hs.y, hs.z)))
+	## 6 face definitions: [face_normal, tangent_u, tangent_v].
+	var face_defs: Array = [
+		[Vector3.RIGHT,   Vector3.UP,     Vector3.FORWARD],
+		[Vector3.LEFT,    Vector3.UP,     Vector3.FORWARD],
+		[Vector3.UP,      Vector3.FORWARD, Vector3.RIGHT],
+		[Vector3.DOWN,    Vector3.FORWARD, Vector3.RIGHT],
+		[Vector3.FORWARD, Vector3.UP,     Vector3.RIGHT],
+		[Vector3.BACK,    Vector3.UP,     Vector3.RIGHT]]
+	var n: int = segs
+	for face: Array in face_defs:
+		var face_dir: Vector3 = face[0]
+		for i: int in n:
+			for j: int in n:
+				var quad: Array[Vector3] = []
+				var quad_n: Array[Vector3] = []
+				for di: int in [0, 1]:
+					for dj: int in [0, 1]:
+						var pu: float = float(i + di) / float(n) * 2.0 - 1.0
+						var pv: float = float(j + dj) / float(n) * 2.0 - 1.0
+						var pos: Vector3 = Vector3.ZERO
+						if face_dir == Vector3.RIGHT or face_dir == Vector3.LEFT:
+							pos = Vector3(face_dir.x * hs.x, pu * (hs.y - r), pv * (hs.z - r))
+						elif face_dir == Vector3.UP or face_dir == Vector3.DOWN:
+							pos = Vector3(pu * (hs.x - r), face_dir.y * hs.y, pv * (hs.z - r))
+						else:
+							pos = Vector3(pu * (hs.x - r), pv * (hs.y - r), face_dir.z * hs.z)
+						var corner_vec: Vector3 = pos - Vector3(
+							clampf(pos.x, -hs.x + r, hs.x - r),
+							clampf(pos.y, -hs.y + r, hs.y - r),
+							clampf(pos.z, -hs.z + r, hs.z - r))
+						quad.append(pos)
+						quad_n.append(corner_vec.normalized() if corner_vec.length_squared() > 0.001 else face_dir)
+				for tri: Array in [[0, 2, 1], [1, 2, 3]]:
+					for k: int in tri:
+						st.set_normal(quad_n[k])
+						st.add_vertex(quad[k])
+	var arrays: Array = st.commit_to_arrays()
+	var mesh: ArrayMesh = ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 ## Spawn helper (used by FarmingShopHelper for shop purchases). Mirrors
 ## PurifierFilterItem.spawn_at()'s shape — floor-dropped, not auto-added to
