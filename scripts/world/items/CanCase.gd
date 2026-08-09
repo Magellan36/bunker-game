@@ -11,8 +11,9 @@ extends PickupableItem
 @export var item_name: String  = "Can Case"
 @export var can_count: int     = 12   ## Matches the 12 visible Can_01..Can_12 nodes in CanCase.tscn
 
-## Shelf stacking — 4 cases lay flat per slot (2×2 grid)
-var shelf_stack_limit: int   = 4
+## Shelf stacking — 2 cases stack vertically per slot (Aug 2026: was 4 lying
+## flat in a 2×2 grid; now stands upright, one case on top of another)
+var shelf_stack_limit: int   = 2
 var shelf_item_type: String  = "can_case"
 
 const CAN_SCENE: String = "res://scenes/world/FoodCan.tscn"

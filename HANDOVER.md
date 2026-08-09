@@ -1,3 +1,43 @@
+# Handover — Large Shelf Spacing + Crate Sink Fix + Case Upright/Restack (Aug 2026)
+
+Three independent fixes in `Shelving.gd` plus two item files:
+
+1. **Large Shelf column overlap** — the N-column marker branch hardcoded
+   0.30 spacing, so 3 Test Crates (W=0.54) overlapped by 0.24 each. New base
+   export `multi_col_spacing` (default 0.30); Large overrides it to **0.62**
+   (= 0.54 + 0.08 clearance) and widens `unit_w` 1.70 → **2.00** so the outer
+   crates (edges ±0.89) sit inside the frame (half-width 1.00, 0.11 margin).
+2. **Crate sink bug** — TestCrate's mesh pivot is centered (bottom plate at
+   -0.231 below origin), and `_place_item_in_slot()`'s old `extra_lift`
+   logic never lifted crates (the "slot_lift already handles it" comment was
+   wrong). Added a `_get_item_type(item) == "test_crate"` branch →
+   `extra_lift = 0.18`, so the crate rests visibly ON the platform.
+   **Pattern to watch:** any future shelf-stackable item with a centered mesh
+   pivot needs the same per-type `extra_lift` lift.
+3. **Cases stand upright + new limits** — CanCase/WaterCase previously laid
+   flat in a 2×2 grid (`limit == 4` rotation/offset branches). Now both stand
+   upright (`_stack_rotation` → `(0, 90, 0)`, type-keyed off
+   `can_case`/`water_case`; Y=90 keeps label facing player). CanCase
+   `shelf_stack_limit` 4 → **2** (stacks vertically, `_stack_offset` lifts
+   idx 1 by `CASE_H_UPRIGHT` 0.34 + gap — **provisional, tune in-editor**);
+   WaterCase 4 → **1** (too large for two). Removed the now-unused
+   `CASE_W`/`CASE_H_LAY`/`CASE_GAP_X` constants; added `CASE_H_UPRIGHT`.
+
+**Required in-editor verification (not assumed done):** since CanCase/
+WaterCase are `.tscn`-based and may share TestCrate's centered-pivot
+convention, check both standing upright on a shelf for the same sink symptom
+Part 2 fixed. If either sinks through the platform, add a matching
+`can_case`/`water_case` `extra_lift` branch (half real standing height +
+0.009 platform-top offset − 0.075 slot_lift).
+
+Files touched: `scripts/world/furniture/Shelving.gd`,
+`scripts/world/furniture/LargeShelf.gd`,
+`scripts/world/items/CanCase.gd`, `scripts/world/items/WaterCase.gd`,
+`docs/systems/furniture-items/README.md`.
+
+---
+---
+
 # Handover — Medium Shelf Resize for Test Crate Fit (Aug 2026)
 
 - Symptom: the Test Crate (W=0.54, H=0.48, D=0.73 — the largest carriable

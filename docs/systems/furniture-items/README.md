@@ -105,6 +105,28 @@ values at the same 0.60 spacing / 0.12 floor (`shelf_y [0.12, 0.72, 1.32]`,
 `unit_h 2.35`); it inherits the depth fix from the base `unit_d` with no
 override.
 
+**Large Shelf columns (Aug 2026):** Large overrides the base `multi_col_spacing`
+to **0.62** (= TestCrate width 0.54 + 0.08 clearance) and widens `unit_w` to
+**2.00** so 3 crates sit snug side-by-side with no overlap — columns at x
+= ±0.62/0, crate edges at ±0.89, 0.08 gap between neighbours, 0.11 margin
+inside the frame. `multi_col_spacing` is a base export (default 0.30, the old
+hardcoded value) used only by the N-column marker path.
+
+**Item pivot sink pattern (Aug 2026):** `TestCrate`'s mesh uses a centered
+pivot (bottom plate at -0.231 below the item origin), so marker-based
+placement sinks ~0.23m into the shelf platform without a compensating lift
+`_place_item_in_slot()`'s `extra_lift`. The crate now gets `extra_lift = 0.18`.
+`CanCase`/`WaterCase` are `.tscn`-based models that may share the centered-pivot
+convention — watch for the same symptom if their upright standing (below)
+looks sunken in-editor, and fix with the same per-type `extra_lift` pattern.
+
+**Cases now stand upright (Aug 2026):** CanCase/WaterCase no longer lay flat
+in a 2×2 grid. Both stand upright (`_stack_rotation` returns `(0, 90, 0)` —
+Y=90 keeps the label facing the player). CanCase stacks 2 vertically per slot
+(`shelf_stack_limit` 2; `_stack_offset` lifts idx 1 by `CASE_H_UPRIGHT` +
+gap, provisional 0.34 — tune in-editor); WaterCase is 1 per slot
+(`shelf_stack_limit` 1, no offset).
+
 API (base class, inherited by all variants): `set_player_in_range(in_range:
 bool)`, `get_f_prompt/get_e_prompt/get_interact_prompt() -> String`,
 `on_f_interact()` / `on_e_interact()` / `on_interact()`,

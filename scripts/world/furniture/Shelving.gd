@@ -47,6 +47,7 @@ class_name Shelving
 @export var shelf_y: Array[float] = [0.12, 0.72, 1.32, 1.92, 2.52]
 @export var slot_offset_x: float  = 0.275
 @export var slot_lift: float      = 0.075
+@export var multi_col_spacing: float = 0.30   ## Column spacing for the N-column (slots_per_tier != 2) layout path only
 
 @export var slots_per_tier: int  = 2        ## Columns of slots per tier (2 = classic left/right)
 @export var display_name: String = "Medium Shelf"
@@ -173,7 +174,7 @@ func _build_slot_markers() -> void:
 				x = base_x + (right_extra if side == 1 else 0.0)
 			else:
 				## N evenly spaced columns centered on the unit (Large Shelf: 3)
-				x = (float(side) - float(slots_per_tier - 1) * 0.5) * 0.30
+				x = (float(side) - float(slots_per_tier - 1) * 0.5) * multi_col_spacing
 			var y: float = shelf_y[tier] + slot_lift
 			var marker: Marker3D = Marker3D.new()
 			marker.position = Vector3(x, y, 0.0)
@@ -324,15 +325,13 @@ func _find_slot_for(item: RigidBody3D) -> int:
 ## Returns the local position offset for item at stack index `idx`,
 ## given the item type's layout. All relative to the slot marker's position.
 ##
-## Layout reference (matches player's drawn diagram):
+## Layout reference:
 ##
-##   WaterCase / CanCase  (limit=4):
-##     Lay flat (rotated 90° on X so label faces the player).
-##     2 wide (X) × 2 tall (Y) — front view shows a 2×2 block.
-##     idx 0 = bottom-left, 1 = bottom-right, 2 = top-left, 3 = top-right.
-##     Each case is roughly 0.30 W × 0.12 H × 0.20 D when upright,
-##     so laid flat it becomes ~0.30 W × 0.20 H × 0.12 D (H is its depth).
-##     case_w=0.32 (X spacing), case_h=0.22 (Y lift per layer).
+##   CanCase (limit=2):
+##     Stand upright. Stacks vertically — idx 0 = bottom, 1 = top.
+##
+##   WaterCase (limit=1):
+##     Stand upright, single case per slot. No offset.
 ##
 ##   WaterBottle / FoodCan (limit=6):
 ##     Stand upright. 3 across (X) × 2 deep (Z).
@@ -341,11 +340,8 @@ func _find_slot_for(item: RigidBody3D) -> int:
 ##   TestCrate (limit=1):
 ##     Single item, centered at slot marker. No offset.
 
-## Approximate case dimensions when laid flat (label face = front/back ±Z):
-const CASE_W: float    = 0.300   ## Width  along X (left-right on shelf)
-const CASE_H_LAY: float = 0.200  ## Height along Y when laid flat (~depth when upright)
-const CASE_GAP_X: float = 0.005  ## Small gap between side-by-side cases
-const CASE_GAP_Y: float = 0.004  ## Small gap between stacked layers
+const CASE_H_UPRIGHT: float = 0.34   ## Provisional standing height of one case, top-to-bottom. Tune in-editor per the note above.
+const CASE_GAP_Y: float     = 0.004  ## Small gap between the two stacked cases (kept from the old constant)
 
 ## Bottle / can spacing
 const BTLCAN_SPACE_X: float = 0.085  ## Spacing between columns
@@ -354,22 +350,14 @@ const BTLCAN_SPACE_Z: float = 0.110  ## Spacing front-to-back row
 func _stack_offset(item: RigidBody3D, idx: int) -> Vector3:
 	var limit: int = _get_stack_limit(item)
 
-	var iname: String = ""
-	if "item_name" in item:
-		iname = str(item.item_name).to_lower()
-
-	## ── Cases (WaterCase / CanCase): limit=4 ─────────────────────────────────
-	## 2-wide × 2-tall block, cases laid flat.
-	## Bottom layer: idx 0 (left), 1 (right). Top layer: idx 2 (left), 3 (right).
-	if limit == 4 and (iname.contains("case")):
-		var col: int   = idx % 2        ## 0=left, 1=right
-		var layer: int = idx / 2        ## 0=bottom, 1=top
-		## Centre the pair around X=0
-		var ox: float  = (col - 0.5) * (CASE_W + CASE_GAP_X)
-		## Stack upward — each layer lifts by the laid-flat height
-		var oy: float  = layer * (CASE_H_LAY + CASE_GAP_Y)
-		## Centred on shelf depth (no Z offset)
-		return Vector3(ox, oy, 0.0)
+	## ── Can Case: limit=2, stacked vertically (one on top of the other) ──────
+	if _get_item_type(item) == "can_case":
+		## CASE_H_UPRIGHT is a first-pass estimate (CanCase is a .tscn scene,
+		## not procedural, so its real AABB isn't visible from script). Verify
+		## in-editor: if the top case floats above or clips into the bottom
+		## one, adjust ONLY this constant.
+		var oy: float = float(idx) * (CASE_H_UPRIGHT + CASE_GAP_Y)
+		return Vector3(0.0, oy, 0.0)
 
 	## ── Bottles / Cans: limit=6 ───────────────────────────────────────────────
 	## 3 columns × 2 rows (depth). Front row first (idx 0-2), back row (idx 3-5).
@@ -386,14 +374,12 @@ func _stack_offset(item: RigidBody3D, idx: int) -> Vector3:
 ## Returns the rotation (degrees) for this item at stack position idx.
 func _stack_rotation(item: RigidBody3D, idx: int) -> Vector3:
 	var limit: int = _get_stack_limit(item)
-	var iname: String = ""
-	if "item_name" in item:
-		iname = str(item.item_name).to_lower()
 
-	## Cases: lay flat (-90° X) + 90° Y so the long axis runs shelf-depth-wise
-	## (label face pointing toward player rather than along the shelf width).
-	if limit == 4 and iname.contains("case"):
-		return Vector3(-90.0, 90.0, 0.0)
+	## Cases (CanCase / WaterCase): stand upright. Y=90 keeps the label facing
+	## the player, matching the existing shelf-facing convention.
+	var itype: String = _get_item_type(item)
+	if itype == "can_case" or itype == "water_case":
+		return Vector3(0.0, 90.0, 0.0)   ## Aug 2026 — stand upright (was -90° X, laid flat); Y=90 keeps label facing the player, matching the existing shelf-facing convention
 
 	## Bottles/cans: perfectly upright — small natural lean removed for clean look
 	if limit == 6:
@@ -469,11 +455,20 @@ func _place_item_in_slot(item: RigidBody3D, slot_idx: int, stack_idx: int) -> vo
 	if "item_name" in item:
 		iname = str(item.item_name).to_lower()
 	var extra_lift: float = 0.0
-	if _get_stack_limit(item) == 4 and iname.contains("case"):
+	if _get_item_type(item) == "test_crate":
+		## Aug 2026 — TestCrate's mesh pivot is centered (bottom plate sits at
+		## -H*0.5+T*0.5 = -0.231 below the item's own origin; see
+		## TestCrate._build_placeholder_mesh()). Without this lift the crate's
+		## origin lands at the marker itself and ~0.23m of the model sinks
+		## through the shelf platform below it — this is the reported bug.
+		## 0.18 = platform_top_offset(0.009) + half_crate_height(0.24) -
+		## slot_lift(0.075), rounded down ~0.006 for a hair of visible
+		## clearance instead of exact flush contact (avoids z-fighting).
+		extra_lift = 0.18
+	elif _get_stack_limit(item) == 4 and iname.contains("case"):
 		extra_lift = 0.06   ## Cases laid flat — lift centre above shelf board
 	elif _get_stack_limit(item) == 6:
 		extra_lift = 0.05   ## Bottles/cans — minor lift so base doesn't clip
-	## Crates: slot_lift in _build_slot_markers already handles this
 
 	base_pos.y += extra_lift
 

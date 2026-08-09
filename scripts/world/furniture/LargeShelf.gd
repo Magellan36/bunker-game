@@ -8,4 +8,10 @@ class_name LargeShelf
 func _init() -> void:
 	display_name   = "Large Shelf"
 	slots_per_tier = 3
-	unit_w         = 1.70   ## widened from Medium's 1.25 to fit 3 columns
+	## Aug 2026 — 0.62 = TestCrate width (0.54, the widest item) + 0.08
+	## clearance, so 3 crates sit snug side-by-side with no overlap (columns
+	## at ±0.62/0, crate edges at ±0.89, 0.08 gap between neighbours).
+	multi_col_spacing = 0.62
+	## Aug 2026 — widened from 1.70 so 3 crates at 0.62 spacing sit inside the
+	## frame: unit_w/2 = 1.00, outermost crate edge at 0.89 → 0.11 margin.
+	unit_w            = 2.00

@@ -12,8 +12,9 @@ extends PickupableItem
 @export var item_name: String  = "Water Case"
 @export var bottle_count: int  = 24   ## Matches the 24 visible Bottle_01..Bottle_24 nodes in WaterCase.tscn
 
-## Shelf stacking — 4 cases lay flat per slot (2×2 grid)
-var shelf_stack_limit: int   = 4
+## Shelf stacking — 1 case per slot (Aug 2026: was 4 lying flat; now stands
+## upright and the model is too large for a second to fit in the same slot)
+var shelf_stack_limit: int   = 1
 var shelf_item_type: String  = "water_case"
 
 ## Preloaded bottle scene — must exist at this path

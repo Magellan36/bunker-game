@@ -154,8 +154,8 @@ renders and stores at its own layout (Medium reproduces the previous 10-slot
   Small placed beside a Large beside a Medium all block each other, not
   just same-tile matches); `_tile_half_extents()` arms
   `Vector2(0.48, 0.18)` (Small, same depth as Medium) and
-  `Vector2(0.65, 0.18)` (Large, wider unit) — matched to Medium's
-  `unit_w * ~0.384` ratio.
+  `Vector2(0.77, 0.18)` (Large — widened to 2.00 in Aug 2026, still at
+  Medium's `unit_w * ~0.384` ratio).
 - `BuildModeHUD.gd`: CATEGORIES line 3 renamed "Shelving" → "Medium Shelf"
   plus data lines for 34/35.
 - `GhostModelBuilder.gd`: `PROCEDURAL_PREVIEW_SOURCES` entries for 34/35
