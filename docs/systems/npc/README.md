@@ -1519,3 +1519,14 @@ without being asked.
 65. Press F7 "NPC↔NPC Relationship +25 (All Pairs)" a few times — confirm
     every NPC's relationship toward every OTHER NPC rises (check via each
     NPC's F7 relationship visualizer), not just toward the player.
+66. Have an NPC deliver an item to a shelf via Cleaning — confirm it
+    stays frozen and in place for at least 10-15 seconds afterward
+    (previously it would pop back out and unfreeze ~1s after placement
+    due to a stale is_held/_hold_point state — see
+    CLEANING_SHELF_POPOUT_FIX_AND_INVESTIGATION.md).
+67. With NPCDebug.enabled (5s debug idle-gate), confirm cleaning becomes
+    available quickly instead of requiring a ~90s real-time wait; with
+    it off, confirm the real 90s gate still applies unchanged.
+68. Force a shelf-full race between two NPCs both cleaning toward the
+    same shelf — confirm a failed placement doesn't leave the item
+    permanently unavailable to the other NPC (claim leak fix).

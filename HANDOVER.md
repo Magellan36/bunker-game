@@ -46,6 +46,29 @@ checklist)
 ---
 ---
 
+## NPC: Shelf Pop-Out Fix + Cleaning Investigation (Aug 2026)
+
+- Root-caused and fixed shelf pop-out: `Shelving.npc_try_place_item()`
+  never cleared the delivered item's `is_held`/`_hold_point`, so
+  `PickupableItem`'s own knockout logic treated it as still being
+  carried and ejected it once the NPC walked away. Now mirrors the
+  player placement path's existing clear.
+- Fixed a claim leak in `CleaningActivity` where a failed shelf
+  placement (destination filled mid-delivery) dropped the item without
+  releasing its `NPCItemUser` claim, permanently blocking other NPCs
+  from it.
+- Added an `NPCDebug`-gated fast idle-timer override
+  (`CLEANING_IDLE_MIN_SEC_DEBUG`, 5s) to `JobBoard.gd` for testing the
+  90s cleaning idle-gate's role in the "nothing to clean" / sporadic
+  cleaning reports without waiting it out live.
+- Confirmed: no object in the project currently occupies the
+  `trash_receptacle` group, so trash-type cleaning cannot complete yet —
+  pre-existing/by-design, not a regression, but relevant to interpreting
+  cleaning test results until a receptacle object exists.
+
+Files touched: `scripts/world/furniture/Shelving.gd`,
+`scripts/npc/NPCBrain.gd`, `scripts/npc/JobBoard.gd`.
+
 # Handover — Cleaning Follow-Up: Shelf Pop-Out + Sustained Session (Aug 2026)
 
 **Owner:** NPC Claude instance.

@@ -27,6 +27,14 @@ var _timer: float = 0.0
 ## the player just set down to use in a moment. Trash items skip this
 ## entirely (they're unambiguously "done," not "in active use").
 const CLEANING_IDLE_MIN_SEC: float = 90.0
+## Debug-only override (F7 → NPCDebug.enabled) so idle-gate timing can be
+## tested in seconds instead of minutes. Never changes real gameplay —
+## only takes effect while NPCDebug.enabled is true.
+const CLEANING_IDLE_MIN_SEC_DEBUG: float = 5.0
+
+func _effective_cleaning_idle_min_sec() -> float:
+	return CLEANING_IDLE_MIN_SEC_DEBUG if NPCDebug.enabled else CLEANING_IDLE_MIN_SEC
+
 const CLEANING_IDLE_MOVE_TOLERANCE: float = 0.3   ## meters — moved more than this since tracking began = someone touched it, restart the clock
 var _cleaning_idle_tracker: Dictionary = {}   ## item instance_id -> {"pos": Vector3, "since_msec": int}
 var _trash_items_cache: Array = []
@@ -212,7 +220,7 @@ func _scan_cleaning(seen: Dictionary) -> void:
 		if pos.distance_to(rec["pos"]) > CLEANING_IDLE_MOVE_TOLERANCE:
 			_cleaning_idle_tracker[id] = {"pos": pos, "since_msec": now}
 			continue
-		if (now - int(rec["since_msec"])) >= int(CLEANING_IDLE_MIN_SEC * 1000.0):
+		if (now - int(rec["since_msec"])) >= int(_effective_cleaning_idle_min_sec() * 1000.0):
 			new_organizable.append(item)
 
 	for id in _cleaning_idle_tracker.keys().duplicate():

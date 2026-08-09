@@ -493,6 +493,18 @@ func npc_try_place_item(npc: Node, item: RigidBody3D) -> bool:
 	if "held_item" in npc and npc.held_item == item:
 		npc.held_item = null
 
+	## Mirror _try_place_item()'s (player path) held-state clear exactly.
+	## Without this, the item's own is_held/_hold_point stay set to the
+	## NPC that carried it here — PickupableItem._physics_process() then
+	## keeps measuring distance against the NPC's (now walking-away)
+	## hold point every frame, and once that exceeds KNOCK_DISTANCE for
+	## KNOCK_LINGER_TIME, _do_knocked_out() fires and un-freezes/ejects
+	## the item off the shelf. This was the actual cause of shelved
+	## items popping back out ~1s after an NPC placed them.
+	if "is_held"        in item: item.is_held       = false
+	if "_hold_point"    in item: item._hold_point   = null
+	if "from_inventory" in item: item.from_inventory = false
+
 	var world_root: Node3D = get_tree().get_first_node_in_group("world")
 	if world_root == null:
 		world_root = get_parent()

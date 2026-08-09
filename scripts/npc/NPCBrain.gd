@@ -1098,6 +1098,12 @@ class CleaningActivity extends NPCActivity:
 				if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
 					npc.log_action("Put away %s" % item_name)
 				else:
+					## Placement failed (shelf filled between selection and
+					## arrival) — item goes back on the ground and MUST be
+					## released here, or it stays permanently claimed by
+					## this NPC and invisible to every other NPC's cleaning
+					## scans for the rest of the session.
+					NPCItemUser.release_item(_item)
 					NPCItemUser.drop_held(npc)
 			_item = null
 			if _is_forced_session:
