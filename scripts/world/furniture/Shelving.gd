@@ -1,8 +1,8 @@
 extends StaticBody3D
 class_name Shelving
 ## Shelving.gd
-## Buildable/deconstructible shelf unit. Mesh loaded from GLB asset.
-## 3 tiers × 2 slots = 6 storage slots. Each slot is a STACK — multiple
+## Buildable/deconstructible shelf unit. Procedural mesh (no GLB).
+## 5 tiers × 2 slots = 10 storage slots. Each slot is a STACK — multiple
 ## small items can share one slot up to a type-specific limit.
 ##
 ## Stack limits (per slot):
@@ -14,27 +14,29 @@ class_name Shelving
 ## F — place held item into first compatible slot (prompt: "[F] Place item")
 ## E — open shelf UI menu (prompt: "[E] Open")
 ##
-## Slot layout (shelf 0 = bottom, shelf 2 = top):
+## Slot layout (shelf 0 = bottom, shelf 4 = top):
 ##   Slot 0 = shelf 0, left    Slot 1 = shelf 0, right
 ##   Slot 2 = shelf 1, left    Slot 3 = shelf 1, right
 ##   Slot 4 = shelf 2, left    Slot 5 = shelf 2, right
+##   Slot 6 = shelf 3, left    Slot 7 = shelf 3, right
+##   Slot 8 = shelf 4, left    Slot 9 = shelf 4, right
 
 # ─── Asset ────────────────────────────────────────────────────────────────────
 ## Procedural mesh — no GLB needed. 4 corner posts + shelf platforms.
 
 # ─── Tunable dimensions ───────────────────────────────────────────────────────
-@export var unit_w: float = 1.0
-@export var unit_h: float = 2.0
-@export var unit_d: float = 0.5
+@export var unit_w: float = 1.25
+@export var unit_h: float = 2.5
+@export var unit_d: float = 0.625
 
-@export var shelf_y: Array[float] = [0.18, 0.62, 1.06]
-@export var slot_offset_x: float  = 0.22
-@export var slot_lift: float      = 0.06
+@export var shelf_y: Array[float] = [0.225, 0.675, 1.125, 1.575, 2.025]
+@export var slot_offset_x: float  = 0.275
+@export var slot_lift: float      = 0.075
 
 # ─── Slot state ───────────────────────────────────────────────────────────────
 ## Each slot is an Array of RigidBody3D items (a stack).
 ## slots[i] = [] means empty, slots[i].size() = count in that slot.
-var slots: Array = [[], [], [], [], [], []]
+var slots: Array = [[], [], [], [], [], [], [], [], [], []]
 var _slot_nodes: Array = []   ## Marker3D for each slot's base world position
 
 # ─── Interaction ──────────────────────────────────────────────────────────────
