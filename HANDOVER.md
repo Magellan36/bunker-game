@@ -10,6 +10,32 @@ Files touched: `scripts/ui/menus/AdminMenu.gd`.
 
 ---
 
+# Handover — Focus Mode Broadened to Cover Pickup-Only Objects (Aug 2026)
+
+## What changed this session
+Focus Mode (hold Ctrl, added earlier this session) wasn't showing
+prompts for pickup-only objects like Test Crate (`"pickup"` group only)
+or Fuel Can (`"interactable"` group but no `on_interact()`) — it was
+built around "what would E do," which is the wrong question for objects
+E can't act on. Redefined the focus target as "the closest object with
+any prompt at all" (E or F), sourced directly from `_update_prompt()`'s
+already-sorted CASE-2 candidates list instead of a separate E-only
+resolver. Deleted `_resolve_current_e_target()` (fully dead after the
+rewrite) and renamed the tag `is_e_target` → `is_focus_target` in both
+`InteractionSystem.gd` and `InteractPrompt.gd` to match its broader
+meaning.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — CASE-2 tagging rewritten,
+  `_resolve_current_e_target()` removed.
+- `scripts/ui/hud/InteractPrompt.gd` — key renamed, doc comments updated.
+- `docs/systems/ui/README.md` — "Focus Mode" section corrected.
+
+### Verification checklist
+(see `FOCUS_MODE_PICKUP_FIX_PLAN.md` for the full checklist)
+---
+---
+
 # Handover — Shelf E-Priority Fairness + Grow Light Priority + Focus Mode Plumbing (Aug 2026)
 
 ## What changed this session

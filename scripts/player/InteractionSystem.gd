@@ -734,13 +734,8 @@ func _update_prompt() -> void:
 	if candidates.size() > MAX_VISIBLE_PROMPTS:
 		candidates = candidates.slice(0, MAX_VISIBLE_PROMPTS)
 
-	## Aug 2026 — Focus Mode support. Resolved once per frame, tagged onto
-	## whichever entry below actually matches — see
-	## _resolve_current_e_target()'s header for why this can never drift
-	## from what E actually does.
-	var e_target: Node3D = _resolve_current_e_target()
-
 	var entries: Array = []
+	var entry_bodies: Array = []   ## Parallel to entries[] — Focus Mode below
 	for cand: Dictionary in candidates:
 		var body: Node3D = cand["node"] as Node3D
 		var lines: Array[String] = []
@@ -791,12 +786,34 @@ func _update_prompt() -> void:
 			icons = body.get_slot_icon_descriptors()
 
 		entries.append({
-			"text":         "\n".join(lines),
-			"world_pos":    prompt_pos,
-			"dist":         cand["dist"],
-			"icons":        icons,
-			"is_e_target":  body == e_target,
+			"text":      "\n".join(lines),
+			"world_pos": prompt_pos,
+			"dist":      cand["dist"],
+			"icons":     icons,
 		})
+		entry_bodies.append(body)
+
+	## Aug 2026 v2 — Focus Mode, broadened. Previously only tagged whatever
+	## E would fire on (_resolve_current_e_target(), now removed), which
+	## meant pickup-only objects with no on_interact() at all — Test
+	## Crate ("pickup" group only), Fuel Can ("interactable" group but no
+	## on_interact(), only on_use() for while held) — never got a Focus
+	## Mode prompt even though F still works on them and they show fine
+	## normally. Focus target is now simply the CLOSEST entry with an
+	## actual displayable prompt: entries[] is already built in
+	## candidates' closest-first order, so that's just index 0 — with the
+	## grow-light-over-tray override still applied on top, since raw
+	## distance sorting doesn't know about that deliberate exception.
+	var focus_idx: int = -1
+	if not entries.is_empty():
+		focus_idx = 0
+		if entry_bodies[0].is_in_group("farming_tray"):
+			for i: int in entry_bodies.size():
+				if entry_bodies[i].is_in_group("grow_light"):
+					focus_idx = i
+					break
+	for i: int in entries.size():
+		entries[i]["is_focus_target"] = (i == focus_idx)
 
 	if entries.is_empty():
 		prompt.hide_prompt()
@@ -835,7 +852,7 @@ func _nearest_shelf() -> Node3D:
 ## Distance-only twin of _nearest_shelf() — same flat-XZ metric (reach
 ## along the shelf's whole vertical face, not full 3D distance to its
 ## origin — see the header comment above). Used by the E-handler's
-## shelf-fairness check and Focus Mode's _resolve_current_e_target().
+## shelf-fairness check below.
 ## Returns INF if no shelf is in range.
 func _nearest_shelf_distance() -> float:
 	var shelf: Node3D = _nearest_shelf()
@@ -844,35 +861,6 @@ func _nearest_shelf_distance() -> float:
 	var player_xz: Vector2 = Vector2(player.global_position.x, player.global_position.z)
 	var shelf_xz: Vector2  = Vector2(shelf.global_position.x, shelf.global_position.z)
 	return shelf_xz.distance_to(player_xz)
-
-## Resolves exactly which object E would trigger right now, empty-handed
-## — the single source of truth for the UI thread's Focus Mode prompt
-## tagging. Pure read-only peek, mirrors the empty-handed branch of
-## _unhandled_input()'s "interact" handler exactly (shelf fairness check,
-## then ready-dish fairness check, then the generic candidate). MUST be
-## kept in sync with that branch if its priority order ever changes —
-## kept as a light, clearly-cross-referenced duplication rather than a
-## restructure of the input-handling hot path itself, same philosophy
-## InteractionProximityScan.gd's header already uses for _nearest_shelf().
-## Not valid while holding an item — CASE 1 in InteractPrompt.gd doesn't
-## call this and isn't filtered by Focus Mode this pass. Returns null if
-## nothing qualifies.
-func _resolve_current_e_target() -> Node3D:
-	var shelf: Node3D = _nearest_shelf()
-	if shelf != null and shelf.has_method("on_e_interact"):
-		var shelf_dist: float = _nearest_shelf_distance()
-		var other: Dictionary = _nearest_generic_interactable()
-		if shelf_dist <= float(other["dist"]):
-			return shelf
-
-	var ready_pot: Node = _find_nearest_ready_pot()
-	if ready_pot != null:
-		var pot_dist: float = (ready_pot as Node3D).global_position.distance_to(player.global_position)
-		if pot_dist <= _nearest_interact_distance():
-			return ready_pot as Node3D
-
-	var other2: Dictionary = _nearest_generic_interactable()
-	return other2["node"] as Node3D
 
 ## E while holding a Basket — finds the nearest "basket_storable" world item
 ## in reach and stashes it, instead of calling the basket's own on_use().
@@ -1057,9 +1045,8 @@ func _find_nearest_ready_pot() -> Node:
 ## with, without triggering it — the ONE shared scan used by
 ## _try_interact() itself, _nearest_interact_distance() (kept as a thin
 ## distance-only wrapper below, several callers only need the number),
-## the shelf E-priority fairness check, and Focus Mode's
-## _resolve_current_e_target(). Returns { "node": Node3D or null, "dist":
-## float (INF if nothing eligible) }.
+## and the shelf E-priority fairness check below. Returns { "node":
+## Node3D or null, "dist": float (INF if nothing eligible) }.
 ##
 ## Aug 2026 — added the grow-light-over-tray override: a GrowLight sits
 ## on the ceiling directly above its FarmingTray (the intended setup), so
@@ -1158,9 +1145,9 @@ func _try_interact() -> void:
 		return
 
 	## Aug 2026 — scan itself moved into _nearest_generic_interactable()
-	## (shared with _nearest_interact_distance(), the shelf E-priority
-	## fairness check, and Focus Mode's _resolve_current_e_target()) so
-	## "what would fire" and "what actually fires" can never disagree.
+	## (shared with _nearest_interact_distance() and the shelf E-priority
+	## fairness check) so "what would fire" and "what actually fires" can
+	## never disagree.
 	var best: Dictionary = _nearest_generic_interactable()
 	var closest: Node3D = best["node"]
 	if closest != null:

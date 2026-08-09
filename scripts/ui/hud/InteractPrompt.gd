@@ -66,29 +66,31 @@ func _process(_delta: float) -> void:
 			p.visible = false
 		return
 
-	## Focus Mode (Aug 2026) — hold Ctrl to collapse every prompt down to
-	## the single one E would actually trigger right now. Debugging aid
-	## for prompt-priority bugs as well as a normal player-facing
+	## Focus Mode (Aug 2026, broadened) — hold Ctrl to collapse every
+	## prompt down to the single closest one, hiding the rest. Debugging
+	## aid for prompt-priority bugs as well as a normal player-facing
 	## decluttering option when several prompts compete for attention. A
 	## HOLD, not a toggle — release Ctrl and everything returns to normal
 	## immediately, no state to reset.
 	##
 	## Resolution is entirely Player-owned: InteractionSystem tags exactly
-	## one CASE-2 (empty-handed) entry per frame with "is_e_target": true,
-	## every other CASE-2 entry gets "is_e_target": false — see
-	## InteractionSystem._resolve_current_e_target()'s header for why that
-	## tag can never disagree with what E actually does. This file only
-	## reads the tag, it never re-derives priority itself.
+	## one CASE-2 (empty-handed) entry per frame with "is_focus_target":
+	## true, every other CASE-2 entry gets "is_focus_target": false. This
+	## file only reads the tag, it never re-derives priority itself.
+	## v2 — originally tagged only whatever E would fire on, which meant
+	## pickup-only objects (Test Crate, Fuel Can, etc. — no on_interact())
+	## never got a Focus Mode prompt at all even though they show fine
+	## normally; now it's simply the closest object with any prompt
+	## (E or F), with the grow-light-over-tray override still applied.
 	##
 	## Entries that never set the key at all (every CASE-1 held-item
 	## entry — basket/cookpot/give-to-NPC/held-item's-own-action) default
 	## to shown via the `true` fallback below: Focus Mode intentionally
-	## has no effect while holding an item this pass (see this plan's
-	## header for why).
+	## has no effect while holding an item this pass.
 	var focus_mode: bool = Input.is_key_pressed(KEY_CTRL)
 	var display_list: Array = _active
 	if focus_mode:
-		display_list = _active.filter(func(e: Dictionary) -> bool: return bool(e.get("is_e_target", true)))
+		display_list = _active.filter(func(e: Dictionary) -> bool: return bool(e.get("is_focus_target", true)))
 
 	# ── Ensure pool is large enough ──────────────────────────────────────────
 	while _pool.size() < display_list.size():
@@ -320,11 +322,11 @@ func _signature_for(desc: Variant) -> String:
 ## Primary API — call every frame from InteractionSystem._update_prompt().
 ## Pass an Array of { "text": String, "world_pos": Vector3, "dist": float,
 ## "icons": Array (optional, up to 3 entries, each a descriptor Dictionary
-## or null), "is_e_target": bool (optional, Aug 2026 — Focus Mode: true
-## for the one entry E would actually trigger right now, false for other
-## empty-handed candidates, omitted entirely for held-item entries that
-## haven't opted into Focus Mode filtering yet — a missing key defaults
-## to shown) }. Pass [] to hide all panels.
+## or null), "is_focus_target": bool (optional, Aug 2026 — Focus Mode:
+## true for the single closest empty-handed candidate with any prompt
+## (E or F), false for other empty-handed candidates, omitted entirely
+## for held-item entries that haven't opted into Focus Mode filtering
+## yet — a missing key defaults to shown) }. Pass [] to hide all panels.
 func set_prompts(new_entries: Array) -> void:
 	_active = new_entries
 

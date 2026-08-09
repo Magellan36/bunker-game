@@ -859,30 +859,31 @@ current and future storage type through the shared panel:
    reduced `22 → 4` (18px, half of `BTN_SIZE`) as a separate, deliberate
    tightening — not a side effect of removing the labels.
 
-## Focus Mode (Aug 2026)
-Hold `Ctrl` to collapse every active interaction prompt down to the one
-`E` would actually trigger right now — a hold, not a toggle. Built as a
+## Focus Mode (Aug 2026, broadened same session)
+Hold `Ctrl` to collapse every active interaction prompt down to the
+single CLOSEST one, hiding the rest — a hold, not a toggle. Built as a
 debugging aid for prompt-priority bugs (the shelf-unconditional-priority
 bug and the grow-light-vs-tray issue were both diagnosed and fixed using
-this) that's also just a useful player-facing decluttering option when
-several prompts compete for attention near each other.
+this) that's also a useful player-facing decluttering option.
 
 Entirely a rendering concern in `InteractPrompt.gd` — it filters
-`_active` down to whichever entry carries `"is_e_target": true` while
-`Ctrl` is held. Resolution of WHICH entry that is stays entirely
-Player-owned, in `InteractionSystem._resolve_current_e_target()` (a
-read-only peek that mirrors the actual E-handler's priority chain
-exactly, so the two can never disagree) — `InteractPrompt.gd` never
-re-derives priority itself, it only reads the tag.
+`_active` down to whichever entry carries `"is_focus_target": true`
+while `Ctrl` is held. Resolution stays Player-owned, in
+`InteractionSystem._update_prompt()`'s CASE-2 block: the focus target is
+the closest entry in the already-distance-sorted `candidates` list that
+actually produces a displayable prompt, covering pickups AND
+interactables AND shelving uniformly (originally scoped to "whatever E
+would fire on," which excluded pickup-only objects like Test Crate and
+interactable-but-no-on_interact() objects like Fuel Can — broadened same
+session once that gap was reported), with the grow-light-over-tray
+override still applied on top since raw distance sorting doesn't know
+about that deliberate exception.
 
-**Scope (this pass):** only empty-handed prompts (CASE 2) are tagged
-with a real `true`/`false`. Held-item prompts (CASE 1) never set the
-key, and a missing key defaults to shown — so Focus Mode currently has
-no visible effect while holding an item. Collapsing CASE 1's basket/
-cookpot/give-to-NPC multi-target prompts down to one true target is a
-reasonable future pass, scoped out here since it requires mirroring each
-of those three's own nearest-target selection logic, not just reading a
-tag.
+**Scope:** only empty-handed prompts (CASE 2) are tagged with a real
+`true`/`false`. Held-item prompts (CASE 1) never set the key, and a
+missing key defaults to shown — Focus Mode has no effect while holding
+an item. Collapsing CASE 1's basket/cookpot/give-to-NPC multi-target
+prompts down to one true target remains a possible future pass.
 
 Shares the `Ctrl` key with the held-item "upright" feature by design —
 this reads the key via passive per-frame `Input.is_key_pressed()`
