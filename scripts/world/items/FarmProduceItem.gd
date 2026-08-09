@@ -94,21 +94,43 @@ func consume_as_food() -> float:
 	queue_free()
 	return FOOD_RESTORE
 
-## Small SphereMesh — red matte for tomato, pearl/off-white glossier for onion
-## (plan §7's exact material distinction), color/metallic/roughness pulled
-## from PlantDatabase so balance stays in one config table.
+## Unique mesh per produce type — replaces the generic sphere with shapes
+## that read as their real-life fruits/vegetables at a glance.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
-	var sphere: SphereMesh = SphereMesh.new()
-	sphere.radius = 0.055
-	sphere.height = 0.11
-	_mesh.mesh = sphere
-	_mesh.position = Vector3(0.0, 0.055, 0.0)
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = PlantDatabase.get_produce_color(produce_type)
 	mat.metallic     = PlantDatabase.get_produce_metallic(produce_type)
 	mat.roughness    = PlantDatabase.get_produce_roughness(produce_type)
-	_mesh.set_surface_override_material(0, mat)
+
+	match produce_type:
+		"tomato":
+			_build_tomato(mat)
+		"onion":
+			_build_onion(mat)
+		"basil":
+			_build_basil(mat)
+		"strawberry":
+			_build_strawberry(mat)
+		"carrot":
+			_build_carrot(mat)
+		"chili_pepper":
+			_build_chili_pepper(mat)
+		"bell_pepper":
+			_build_bell_pepper(mat)
+		"garlic":
+			_build_garlic(mat)
+		"potato":
+			_build_potato(mat)
+		"blueberry":
+			_build_blueberry(mat)
+		"corn":
+			_build_corn(mat)
+		"pumpkin":
+			_build_pumpkin(mat)
+		_:
+			_build_generic_sphere(mat)
+
 	add_child(_mesh)
 
 	## Real collision shape on the RigidBody3D itself — see SeedItem.gd's
@@ -117,10 +139,353 @@ func _build_placeholder_mesh() -> void:
 	## undetectable by the interaction system).
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var sphere_shape: SphereShape3D = SphereShape3D.new()
-	sphere_shape.radius = sphere.radius
+	sphere_shape.radius = 0.055
 	shape.shape = sphere_shape
 	shape.position = _mesh.position
 	add_child(shape)
+
+## Tomato — round sphere with small green stem cylinder on top
+func _build_tomato(mat: StandardMaterial3D) -> void:
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.055
+	sphere.height = 0.10
+	_mesh.mesh = sphere
+	_mesh.position = Vector3(0.0, 0.055, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Green stem
+	var stem_mi: MeshInstance3D = MeshInstance3D.new()
+	var stem: CylinderMesh = CylinderMesh.new()
+	stem.top_radius = 0.006
+	stem.bottom_radius = 0.008
+	stem.height = 0.02
+	stem.radial_segments = 6
+	stem_mi.mesh = stem
+	stem_mi.position = Vector3(0.0, 0.11, 0.0)
+	var stem_mat: StandardMaterial3D = StandardMaterial3D.new()
+	stem_mat.albedo_color = Color(0.25, 0.55, 0.15, 1.0)
+	stem_mat.roughness = 0.7
+	stem_mi.set_surface_override_material(0, stem_mat)
+	add_child(stem_mi)
+
+## Onion — sphere with pointed top (tapered upper half)
+func _build_onion(mat: StandardMaterial3D) -> void:
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.05
+	sphere.height = 0.10
+	_mesh.mesh = sphere
+	_mesh.position = Vector3(0.0, 0.05, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Small pointed tip on top
+	var tip_mi: MeshInstance3D = MeshInstance3D.new()
+	var tip: CylinderMesh = CylinderMesh.new()
+	tip.top_radius = 0.003
+	tip.bottom_radius = 0.012
+	tip.height = 0.025
+	tip.radial_segments = 6
+	tip_mi.mesh = tip
+	tip_mi.position = Vector3(0.0, 0.105, 0.0)
+	tip_mi.set_surface_override_material(0, mat)
+	add_child(tip_mi)
+
+## Basil — small cluster of 3 flat leaf-like boxes
+func _build_basil(mat: StandardMaterial3D) -> void:
+	## Stem
+	var stem_mi: MeshInstance3D = MeshInstance3D.new()
+	var stem: CylinderMesh = CylinderMesh.new()
+	stem.top_radius = 0.004
+	stem.bottom_radius = 0.005
+	stem.height = 0.06
+	stem.radial_segments = 6
+	stem_mi.mesh = stem
+	stem_mi.position = Vector3(0.0, 0.03, 0.0)
+	var stem_mat: StandardMaterial3D = StandardMaterial3D.new()
+	stem_mat.albedo_color = Color(0.18, 0.45, 0.12, 1.0)
+	stem_mat.roughness = 0.7
+	stem_mi.set_surface_override_material(0, stem_mat)
+	add_child(stem_mi)
+
+	## 3 leaves fanning out
+	for i in range(3):
+		var leaf_mi: MeshInstance3D = MeshInstance3D.new()
+		var leaf: BoxMesh = BoxMesh.new()
+		leaf.size = Vector3(0.035, 0.004, 0.05)
+		leaf_mi.mesh = leaf
+		var angle: float = TAU * i / 3.0
+		leaf_mi.position = Vector3(cos(angle) * 0.018, 0.065, sin(angle) * 0.018)
+		leaf_mi.rotation.y = angle
+		leaf_mi.set_surface_override_material(0, mat)
+		add_child(leaf_mi)
+
+	_mesh.mesh = BoxMesh.new()
+	_mesh.mesh.size = Vector3(0.001, 0.001, 0.001)
+	_mesh.position = Vector3(0.0, 0.0, 0.0)
+
+## Strawberry — cone/tapered shape with small seed dots
+func _build_strawberry(mat: StandardMaterial3D) -> void:
+	## Main body — tapered cylinder (wider at top, narrow at bottom)
+	var body_mi: MeshInstance3D = MeshInstance3D.new()
+	var body: CylinderMesh = CylinderMesh.new()
+	body.top_radius = 0.04
+	body.bottom_radius = 0.012
+	body.height = 0.09
+	body.radial_segments = 10
+	body_mi.mesh = body
+	body_mi.position = Vector3(0.0, 0.045, 0.0)
+	body_mi.set_surface_override_material(0, mat)
+	_mesh.mesh = body
+	_mesh.position = Vector3(0.0, 0.045, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Green leafy top (calyx)
+	var leaf_mat: StandardMaterial3D = StandardMaterial3D.new()
+	leaf_mat.albedo_color = Color(0.20, 0.50, 0.12, 1.0)
+	leaf_mat.roughness = 0.7
+	for i in range(5):
+		var leaf_mi: MeshInstance3D = MeshInstance3D.new()
+		var leaf: BoxMesh = BoxMesh.new()
+		leaf.size = Vector3(0.012, 0.003, 0.025)
+		leaf_mi.mesh = leaf
+		var angle: float = TAU * i / 5.0
+		leaf_mi.position = Vector3(cos(angle) * 0.02, 0.092, sin(angle) * 0.02)
+		leaf_mi.rotation.y = angle
+		leaf_mi.set_surface_override_material(0, leaf_mat)
+		add_child(leaf_mi)
+
+## Carrot — long tapered cylinder (wider at top, pointed at bottom)
+func _build_carrot(mat: StandardMaterial3D) -> void:
+	var body: CylinderMesh = CylinderMesh.new()
+	body.top_radius = 0.022
+	body.bottom_radius = 0.004
+	body.height = 0.12
+	body.radial_segments = 8
+	_mesh.mesh = body
+	_mesh.position = Vector3(0.0, 0.06, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Green leafy top
+	var leaf_mat: StandardMaterial3D = StandardMaterial3D.new()
+	leaf_mat.albedo_color = Color(0.22, 0.52, 0.15, 1.0)
+	leaf_mat.roughness = 0.7
+	for i in range(3):
+		var leaf_mi: MeshInstance3D = MeshInstance3D.new()
+		var leaf: CylinderMesh = CylinderMesh.new()
+		leaf.top_radius = 0.003
+		leaf.bottom_radius = 0.003
+		leaf.height = 0.04
+		leaf.radial_segments = 4
+		leaf_mi.mesh = leaf
+		var angle: float = TAU * i / 3.0
+		leaf_mi.position = Vector3(cos(angle) * 0.01, 0.125, sin(angle) * 0.01)
+		leaf_mi.set_surface_override_material(0, leaf_mat)
+		add_child(leaf_mi)
+
+## Chili pepper — long thin curved capsule
+func _build_chili_pepper(mat: StandardMaterial3D) -> void:
+	var body: CapsuleMesh = CapsuleMesh.new()
+	body.radius = 0.012
+	body.height = 0.10
+	_mesh.mesh = body
+	_mesh.position = Vector3(0.0, 0.05, 0.0)
+	_mesh.rotation.z = 0.25   ## slight curve
+	_mesh.set_surface_override_material(0, mat)
+
+	## Small green stem
+	var stem_mi: MeshInstance3D = MeshInstance3D.new()
+	var stem: CylinderMesh = CylinderMesh.new()
+	stem.top_radius = 0.004
+	stem.bottom_radius = 0.006
+	stem.height = 0.015
+	stem.radial_segments = 6
+	stem_mi.mesh = stem
+	stem_mi.position = Vector3(0.0, 0.102, 0.0)
+	var stem_mat: StandardMaterial3D = StandardMaterial3D.new()
+	stem_mat.albedo_color = Color(0.22, 0.50, 0.15, 1.0)
+	stem_mat.roughness = 0.7
+	stem_mi.set_surface_override_material(0, stem_mat)
+	add_child(stem_mi)
+
+## Bell pepper — squarish rounded box
+func _build_bell_pepper(mat: StandardMaterial3D) -> void:
+	var body: BoxMesh = BoxMesh.new()
+	body.size = Vector3(0.07, 0.065, 0.065)
+	_mesh.mesh = body
+	_mesh.position = Vector3(0.0, 0.045, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Small green stem
+	var stem_mi: MeshInstance3D = MeshInstance3D.new()
+	var stem: CylinderMesh = CylinderMesh.new()
+	stem.top_radius = 0.005
+	stem.bottom_radius = 0.007
+	stem.height = 0.018
+	stem.radial_segments = 6
+	stem_mi.mesh = stem
+	stem_mi.position = Vector3(0.0, 0.085, 0.0)
+	var stem_mat: StandardMaterial3D = StandardMaterial3D.new()
+	stem_mat.albedo_color = Color(0.22, 0.50, 0.15, 1.0)
+	stem_mat.roughness = 0.7
+	stem_mi.set_surface_override_material(0, stem_mat)
+	add_child(stem_mi)
+
+## Garlic — bulb shape (sphere with smaller cloves around base)
+func _build_garlic(mat: StandardMaterial3D) -> void:
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.04
+	sphere.height = 0.07
+	_mesh.mesh = sphere
+	_mesh.position = Vector3(0.0, 0.04, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Small pointed tip
+	var tip_mi: MeshInstance3D = MeshInstance3D.new()
+	var tip: CylinderMesh = CylinderMesh.new()
+	tip.top_radius = 0.002
+	tip.bottom_radius = 0.008
+	tip.height = 0.015
+	tip.radial_segments = 6
+	tip_mi.mesh = tip
+	tip_mi.position = Vector3(0.0, 0.078, 0.0)
+	tip_mi.set_surface_override_material(0, mat)
+	add_child(tip_mi)
+
+## Potato — irregular oval (squashed sphere)
+func _build_potato(mat: StandardMaterial3D) -> void:
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.045
+	sphere.height = 0.075
+	_mesh.mesh = sphere
+	_mesh.position = Vector3(0.0, 0.04, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Small "eyes" (tiny dark indentations — just small spheres)
+	var eye_mat: StandardMaterial3D = StandardMaterial3D.new()
+	eye_mat.albedo_color = Color(0.45, 0.35, 0.22, 1.0)
+	eye_mat.roughness = 0.9
+	for i in range(3):
+		var eye_mi: MeshInstance3D = MeshInstance3D.new()
+		var eye: SphereMesh = SphereMesh.new()
+		eye.radius = 0.005
+		eye.height = 0.01
+		eye_mi.mesh = eye
+		var angle: float = TAU * i / 3.0
+		eye_mi.position = Vector3(cos(angle) * 0.035, 0.045, sin(angle) * 0.035)
+		eye_mi.set_surface_override_material(0, eye_mat)
+		add_child(eye_mi)
+
+## Blueberry — small sphere with crown (tiny cylinder on top)
+func _build_blueberry(mat: StandardMaterial3D) -> void:
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.028
+	sphere.height = 0.05
+	_mesh.mesh = sphere
+	_mesh.position = Vector3(0.0, 0.03, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Small crown/star on top
+	var crown_mi: MeshInstance3D = MeshInstance3D.new()
+	var crown: CylinderMesh = CylinderMesh.new()
+	crown.top_radius = 0.008
+	crown.bottom_radius = 0.004
+	crown.height = 0.006
+	crown.radial_segments = 5
+	crown_mi.mesh = crown
+	crown_mi.position = Vector3(0.0, 0.058, 0.0)
+	var crown_mat: StandardMaterial3D = StandardMaterial3D.new()
+	crown_mat.albedo_color = Color(0.35, 0.25, 0.15, 1.0)
+	crown_mat.roughness = 0.7
+	crown_mi.set_surface_override_material(0, crown_mat)
+	add_child(crown_mi)
+
+## Corn — cylinder with husk leaves at base
+func _build_corn(mat: StandardMaterial3D) -> void:
+	var body: CylinderMesh = CylinderMesh.new()
+	body.top_radius = 0.018
+	body.bottom_radius = 0.015
+	body.height = 0.11
+	body.radial_segments = 8
+	_mesh.mesh = body
+	_mesh.position = Vector3(0.0, 0.055, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Green husk leaves wrapping base
+	var husk_mat: StandardMaterial3D = StandardMaterial3D.new()
+	husk_mat.albedo_color = Color(0.30, 0.55, 0.18, 1.0)
+	husk_mat.roughness = 0.7
+	for i in range(3):
+		var husk_mi: MeshInstance3D = MeshInstance3D.new()
+		var husk: BoxMesh = BoxMesh.new()
+		husk.size = Vector3(0.015, 0.04, 0.035)
+		husk_mi.mesh = husk
+		var angle: float = TAU * i / 3.0
+		husk_mi.position = Vector3(cos(angle) * 0.018, 0.015, sin(angle) * 0.018)
+		husk_mi.rotation.y = angle
+		husk_mi.set_surface_override_material(0, husk_mat)
+		add_child(husk_mi)
+
+	## Silk threads on top (thin yellow cylinders)
+	var silk_mat: StandardMaterial3D = StandardMaterial3D.new()
+	silk_mat.albedo_color = Color(0.85, 0.75, 0.30, 1.0)
+	silk_mat.roughness = 0.6
+	for i in range(4):
+		var silk_mi: MeshInstance3D = MeshInstance3D.new()
+		var silk: CylinderMesh = CylinderMesh.new()
+		silk.top_radius = 0.002
+		silk.bottom_radius = 0.002
+		silk.height = 0.025
+		silk.radial_segments = 4
+		silk_mi.mesh = silk
+		var angle: float = TAU * i / 4.0
+		silk_mi.position = Vector3(cos(angle) * 0.008, 0.12, sin(angle) * 0.008)
+		silk_mi.set_surface_override_material(0, silk_mat)
+		add_child(silk_mi)
+
+## Pumpkin — large ribbed sphere (use multiple overlapping spheres for ribs)
+func _build_pumpkin(mat: StandardMaterial3D) -> void:
+	## Main body
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.06
+	sphere.height = 0.10
+	_mesh.mesh = sphere
+	_mesh.position = Vector3(0.0, 0.055, 0.0)
+	_mesh.set_surface_override_material(0, mat)
+
+	## Vertical ribs (6 thin elongated boxes around the equator)
+	for i in range(6):
+		var rib_mi: MeshInstance3D = MeshInstance3D.new()
+		var rib: BoxMesh = BoxMesh.new()
+		rib.size = Vector3(0.008, 0.09, 0.025)
+		rib_mi.mesh = rib
+		var angle: float = TAU * i / 6.0
+		rib_mi.position = Vector3(cos(angle) * 0.055, 0.055, sin(angle) * 0.055)
+		rib_mi.rotation.y = angle
+		rib_mi.set_surface_override_material(0, mat)
+		add_child(rib_mi)
+
+	## Green stem on top
+	var stem_mi: MeshInstance3D = MeshInstance3D.new()
+	var stem: CylinderMesh = CylinderMesh.new()
+	stem.top_radius = 0.006
+	stem.bottom_radius = 0.010
+	stem.height = 0.025
+	stem.radial_segments = 6
+	stem_mi.mesh = stem
+	stem_mi.position = Vector3(0.0, 0.112, 0.0)
+	var stem_mat: StandardMaterial3D = StandardMaterial3D.new()
+	stem_mat.albedo_color = Color(0.25, 0.48, 0.15, 1.0)
+	stem_mat.roughness = 0.7
+	stem_mi.set_surface_override_material(0, stem_mat)
+	add_child(stem_mi)
+
+## Generic fallback sphere
+func _build_generic_sphere(mat: StandardMaterial3D) -> void:
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.055
+	sphere.height = 0.11
+	_mesh.mesh = sphere
+	_mesh.position = Vector3(0.0, 0.055, 0.0)
+	_mesh.set_surface_override_material(0, mat)
 
 ## Harvest pop-in tween constants (Polish Plan Group 3 item 8) — cosmetic only,
 ## no physics/gameplay effect. Scale-in overshoot mirrors WaterPurifier's
