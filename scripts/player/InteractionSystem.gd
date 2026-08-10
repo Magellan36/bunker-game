@@ -1076,6 +1076,8 @@ func _nearest_generic_interactable() -> Dictionary:
 	var player_pos: Vector3 = player.global_position
 	var nearest_grow_light: Node3D     = null
 	var nearest_grow_light_dist: float = INF
+	var nearest_water_hookup: Node3D     = null
+	var nearest_water_hookup_dist: float = INF
 	for node: Node in get_tree().get_nodes_in_group("interactable"):
 		if not is_instance_valid(node):
 			continue
@@ -1090,6 +1092,9 @@ func _nearest_generic_interactable() -> Dictionary:
 		if node.is_in_group("grow_light") and d < static_reach and d < nearest_grow_light_dist:
 			nearest_grow_light_dist = d
 			nearest_grow_light = n3
+		if node.is_in_group("water_hookup") and d < static_reach and d < nearest_water_hookup_dist:
+			nearest_water_hookup_dist = d
+			nearest_water_hookup = n3
 		if d < static_reach and d < closest_dist:
 			closest_dist = d
 			closest = n3
@@ -1097,6 +1102,22 @@ func _nearest_generic_interactable() -> Dictionary:
 	if nearest_grow_light != null and closest != null and closest.is_in_group("farming_tray"):
 		closest      = nearest_grow_light
 		closest_dist = nearest_grow_light_dist
+
+	## Aug 2026 — Water Hookup: unconditional top priority whenever in
+	## reach at all, applied AFTER the grow-light override so it wins
+	## even in the extremely unlikely case both would otherwise fire the
+	## same frame. Deliberately unscoped, unlike the grow-light override
+	## above (which only beats one specific named rival, FarmingTray) —
+	## a Water Hookup can end up near any number of different wall-
+	## mounted objects depending on how a given bunker is furnished, so
+	## there's no single fixed rival worth naming; it simply always wins
+	## over whatever else is in range. This also means a plain E press
+	## (not just Focus Mode's Ctrl-held highlight) now always resolves to
+	## the hookup when one's in reach — deliberate, not an oversight; see
+	## this plan's own header for why decoupling the two would be worse.
+	if nearest_water_hookup != null:
+		closest      = nearest_water_hookup
+		closest_dist = nearest_water_hookup_dist
 
 	return { "node": closest, "dist": closest_dist }
 

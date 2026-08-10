@@ -88,6 +88,14 @@ func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
 	add_to_group("interactable")
+	## Duck-typed marker InteractionSystem._nearest_generic_interactable()
+	## checks for ("water_hookup" group) to give this unconditional E-
+	## priority over other nearby interactables — mounted high on the
+	## wall, so it otherwise almost always loses fair-distance comparison
+	## against lower-mounted wall objects (lights, breaker boxes, etc.)
+	## that sit physically closer to a player standing on the ground.
+	## Mirrors the "grow_light"/"farming_tray" marker pattern.
+	add_to_group("water_hookup")
 	_build_mesh()
 	call_deferred("_register_deferred")
 

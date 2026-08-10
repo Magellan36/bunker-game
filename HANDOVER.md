@@ -1,3 +1,47 @@
+# Handover — Water Hookup Unconditional E-Priority (Aug 2026)
+
+## What changed this session
+Fixed Water Hookup losing E-priority to nearby lower-mounted wall
+objects (wall lights, breaker boxes, etc.) — being mounted high on the
+wall meant it was almost always physically farther from a
+ground-standing player than whatever else happened to share that wall,
+so it kept losing the fair-distance comparison in
+`_nearest_generic_interactable()`. Gave it a new `"water_hookup"`
+duck-type marker group (`WaterHookup.gd`, mirrors the existing
+`"grow_light"`/`"farming_tray"` pattern) and an unconditional top-
+priority override in `_nearest_generic_interactable()` — unlike the
+narrow grow-light-over-tray override (beats one specific named rival
+only), this one is deliberately unscoped: a Water Hookup can end up near
+any number of different wall-mounted objects depending on how a given
+bunker is furnished, so there's no single fixed rival to name.
+
+Worth noting explicitly: because both the real `E` dispatch
+(`_try_interact()`) and Focus Mode's highlight
+(`_resolve_current_e_target()`) share this same function by design, this
+also makes a plain `E` press (not just Ctrl/Focus Mode) always resolve
+to a nearby Water Hookup. Considered scoping the override to only affect
+Focus Mode and leave real dispatch alone, but that would let the two
+disagree — worse than the original bug, and against the entire point of
+the shared-resolver design. Implemented as a genuine always-on priority
+instead, per direct instruction.
+
+### Files modified
+- `scripts/world/water/WaterHookup.gd` — new `"water_hookup"` group
+  registration.
+- `scripts/player/InteractionSystem.gd` —
+  `_nearest_generic_interactable()` gains the unconditional Water
+  Hookup override, applied after the existing grow-light override.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_WATER_HOOKUP_E_PRIORITY_PLAN.md` for
+the full 6-item checklist)
+
+---
+
+---
+
 # Handover — Preview Scale Normalization + CanCase/WaterCase Blank Fix (Aug 2026)
 
 ## What changed this session
