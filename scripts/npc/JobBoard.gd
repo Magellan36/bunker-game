@@ -29,14 +29,45 @@ var _timer: float = 0.0
 ## for this long before it's eligible, so NPCs don't sweep away something
 ## the player just set down to use in a moment. Trash items skip this
 ## entirely (they're unambiguously "done," not "in active use").
+
+## Aug 2026 — sanity bounds for "is this thing actually still in the
+## bunker." Not a general physics constraint — every real in-play
+## position seen across testing sits within roughly -2..+15 on Y; an
+## item outside this generous range (two NPCs were observed at
+## Y≈-140000 and Y≈-58000 in one session — clearly fallen/ejected far
+## outside the level, not a real placement) is excluded from the
+## cleaning system entirely at scan time, for every NPC at once, rather
+## than discovered per-NPC through repeated failed attempts.
+## flat_distance() (used for normal target-picking) deliberately ignores
+## Y — this is the check that actually catches a pure vertical
+## fall-through, which flat_distance alone never would.
+const CLEANING_SANITY_Y_MIN: float = -20.0
+const CLEANING_SANITY_Y_MAX: float = 30.0
+
 const CLEANING_IDLE_MIN_SEC: float = 90.0
 ## Debug-only override (F7 → NPCDebug.enabled) so idle-gate timing can be
 ## tested in seconds instead of minutes. Never changes real gameplay —
 ## only takes effect while NPCDebug.enabled is true.
 const CLEANING_IDLE_MIN_SEC_DEBUG: float = 5.0
 
+## Aug 2026 — exponential clutter scaling. 90s at zero clutter, dropping
+## to exactly 0s once total clutter reaches CLUTTER_IDLE_ZERO_AT (20).
+## The exponent (4.0) is what gives it the "stays close to 90s, then
+## drops sharply near the cap" shape you asked for — try tuning this one
+## constant first if the curve ever feels off, before touching the
+## formula itself. Debug override still always wins over this — it's for
+## fast iteration, not meant to reflect real clutter-scaled timing.
+const CLUTTER_IDLE_ZERO_AT: int = 20
+const CLUTTER_IDLE_CURVE_POWER: float = 4.0
+
 func _effective_cleaning_idle_min_sec() -> float:
-	return CLEANING_IDLE_MIN_SEC_DEBUG if NPCDebug.enabled else CLEANING_IDLE_MIN_SEC
+	if NPCDebug.enabled:
+		return CLEANING_IDLE_MIN_SEC_DEBUG
+	var clutter: int = get_total_clutter_count()
+	if clutter >= CLUTTER_IDLE_ZERO_AT:
+		return 0.0
+	var fraction: float = float(clutter) / float(CLUTTER_IDLE_ZERO_AT)
+	return CLEANING_IDLE_MIN_SEC * (1.0 - pow(fraction, CLUTTER_IDLE_CURVE_POWER))
 
 const CLEANING_IDLE_MOVE_TOLERANCE: float = 0.3   ## meters — moved more than this since tracking began = someone touched it, restart the clock
 var _cleaning_idle_tracker: Dictionary = {}   ## item instance_id -> {"pos": Vector3, "since_msec": int}
@@ -257,6 +288,14 @@ func _scan_cleaning(seen: Dictionary) -> void:
 		if not is_instance_valid(item) or not ("is_held" in item):
 			continue
 		if item.is_held or item.is_in_group("shelved"):
+			continue
+		var item_y: float = (item as Node3D).global_position.y
+		if item_y < CLEANING_SANITY_Y_MIN or item_y > CLEANING_SANITY_Y_MAX:
+			## Glitched/out-of-bounds — never enters the cleaning system
+			## at all, for any NPC. See CLEANING_SANITY_Y_MIN's comment.
+			if NPCDebug.enabled:
+				print("[JobBoard] Cleaning scan: excluding %s — Y=%.1f is outside sane bunker bounds (glitched/out-of-bounds)" \
+					% [(item.get_display_name() if item.has_method("get_display_name") else str(item.name)), item_y])
 			continue
 		var id: int = item.get_instance_id()
 		seen_ids[id] = true

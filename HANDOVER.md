@@ -1,3 +1,36 @@
+## NPC: Glitch Detection, Scoped Give-Up System, Exponential Idle Gate (Aug 2026)
+
+- JobBoard._scan_cleaning() now excludes any item outside sane Y bounds
+  (CLEANING_SANITY_Y_MIN/MAX, -20..30) from the cleaning system entirely,
+  at the source, for every NPC at once — root fix for NPCs targeting/
+  huddling around items that had fallen/glitched far outside the bunker
+  (two NPCs were observed at Y≈-140000/-58000 in one session).
+  flat_distance() deliberately ignores Y, so this is the check that
+  actually catches a pure vertical fall-through.
+- Confirmed (no code change): Bag of Soil/Fertilizer/etc. only ever
+  spawn via a Farming Shop purchase — no other spawn path exists, so
+  their appearance was never a debug leftover.
+- Added a narrowly-scoped, permanent-per-NPC give-up system
+  (NPC._cleaning_blacklist): a stuck-recovery streak on the same item
+  reaching 2, or 2 genuine in-range pickup failures
+  (record_cleaning_pickup_failure()), permanently removes that item from
+  that NPC's candidates. Routine contention (claim lost to another NPC,
+  became held/shelved before arrival) is explicitly excluded and stays
+  infinitely retryable — this only targets confirmed unreachability, not
+  normal cleaning traffic.
+- JobBoard._effective_cleaning_idle_min_sec() now scales with
+  get_total_clutter_count(): 90s at 0 clutter, exactly 0s at 20
+  (CLUTTER_IDLE_ZERO_AT), via an exponential curve
+  (CLUTTER_IDLE_CURVE_POWER = 4.0) that stays close to 90s until nearing
+  the cap, then drops sharply. Debug override (F7) still always wins.
+
+Files touched: `scripts/npc/JobBoard.gd`, `scripts/npc/NPC.gd`,
+`scripts/npc/NPCBrain.gd`.
+
+---
+
+---
+
 # Handover — Water Hookup Unconditional E-Priority (Aug 2026)
 
 ## What changed this session

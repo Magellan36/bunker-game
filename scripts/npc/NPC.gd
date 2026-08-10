@@ -1286,14 +1286,14 @@ func find_cleaning_target(exclude_ids: Dictionary = {}) -> Dictionary:
 	for item: Node in JobBoard.get_trash_items():
 		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
 			continue
-		if exclude_ids.has(item.get_instance_id()):
+		if exclude_ids.has(item.get_instance_id()) or _cleaning_blacklist.has(item.get_instance_id()):
 			continue
 		candidates.append({"item": item, "is_trash": true,
 			"d": NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)})
 	for item: Node in JobBoard.get_organizable_items():
 		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
 			continue
-		if exclude_ids.has(item.get_instance_id()):
+		if exclude_ids.has(item.get_instance_id()) or _cleaning_blacklist.has(item.get_instance_id()):
 			continue
 		candidates.append({"item": item, "is_trash": false,
 			"d": NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)})
@@ -1306,6 +1306,45 @@ func find_cleaning_target(exclude_ids: Dictionary = {}) -> Dictionary:
 		if _has_clear_approach(c["item"]):
 			return {"item": c["item"], "is_trash": c["is_trash"]}
 	return {"item": fallback["item"], "is_trash": fallback["is_trash"]}
+
+## Aug 2026 — permanent-for-this-NPC give-up list. Deliberately NARROW in
+## scope: only two things ever add to it — a stuck-recovery streak on the
+## exact same item reaching CLEANING_GIVEUP_STUCK_LIMIT (see
+## _recover_from_stuck()), and a genuine in-range pickup failure reaching
+## CLEANING_GIVEUP_PICKUP_LIMIT (see record_cleaning_pickup_failure()).
+## Routine contention — another NPC claiming it first, it becoming held/
+## shelved before arrival — never touches this and stays infinitely
+## retryable exactly as before. Persists for this NPC's lifetime; never
+## cleared (despawn/reload naturally resets it by removing the NPC).
+const CLEANING_GIVEUP_STUCK_LIMIT: int = 2
+const CLEANING_GIVEUP_PICKUP_LIMIT: int = 2
+var _cleaning_blacklist: Dictionary = {}          ## item instance_id -> true
+var _cleaning_pickup_failures: Dictionary = {}    ## item instance_id -> consecutive genuine-pickup-failure count
+
+func _blacklist_cleaning_item(item: Node, reason: String) -> void:
+	if item == null:
+		return
+	var id: int = item.get_instance_id()
+	if _cleaning_blacklist.has(id):
+		return
+	_cleaning_blacklist[id] = true
+	if NPCDebug.enabled:
+		var name: String = item.get_display_name() if item.has_method("get_display_name") else str(item.name)
+		NPCDebug.log_cleaning(self, "gave up permanently", "%s — %s" % [name, reason])
+
+## Called by CleaningActivity when grab_loose() refuses an item the NPC
+## is already standing within PICKUP_RANGE of — a genuine, repeatable
+## failure to physically pick something up, not contention with another
+## NPC (that's a separate, infinitely-retryable case — see
+## find_cleaning_target()'s claim check).
+func record_cleaning_pickup_failure(item: Node) -> void:
+	if item == null:
+		return
+	var id: int = item.get_instance_id()
+	var count: int = int(_cleaning_pickup_failures.get(id, 0)) + 1
+	_cleaning_pickup_failures[id] = count
+	if count >= CLEANING_GIVEUP_PICKUP_LIMIT:
+		_blacklist_cleaning_item(item, "pickup refused %d times in a row while in range" % count)
 
 ## Cheap line-of-sight estimate (Aug 2026): raycast from roughly chest
 ## height toward the candidate item. If something ELSE in the "pickup"
@@ -2037,23 +2076,23 @@ func _recover_from_stuck() -> void:
 		_stuck_streak_count = 1
 	_stuck_streak_obstruction_id = obstruction_id
 
-	if stuck_item != null and brain != null and _stuck_streak_count <= STUCK_ESCALATE_AFTER:
+	if stuck_item != null and brain != null and _stuck_streak_count < CLEANING_GIVEUP_STUCK_LIMIT:
 		## Always fair game when it caused a stuck NPC — bypasses the
 		## normal trash/idle-time eligibility entirely, per design.
 		brain.force_command(NPCBrain.CleaningActivity.new(stuck_item))
 		return
 
-	## Aug 2026 — same obstruction (or nothing identifiable) kept the NPC
-	## stuck across multiple recovery attempts in a row. Trying to force-
-	## clean it again just repeats the same failed loop — the NPC can't
-	## even close the distance to something it's already touching, which
-	## means it's genuinely wedged (boxed in by clutter on every side),
-	## not just picking a bad target. Break the deadlock directly: nudge
-	## the NPC a short distance away from the obstruction (a real
-	## position change, not a movement command — movement is exactly
-	## what isn't working) and let the NEXT think-cycle decide fresh,
-	## with no forced target at all. The streak resets so a genuinely new
-	## stuck event later still gets its own full set of tries.
+	## Aug 2026 — same obstruction kept the NPC stuck CLEANING_GIVEUP_
+	## STUCK_LIMIT times in a row (2). Trying to force-clean it again
+	## just repeats the same failed loop — the NPC can't even close the
+	## distance to something it's already touching. Give up on it
+	## permanently (see _blacklist_cleaning_item()) rather than retrying
+	## forever, and break the immediate deadlock the same way as before:
+	## nudge the NPC a short distance away (a real position change, not a
+	## movement command — movement is exactly what isn't working) and let
+	## the NEXT think-cycle decide fresh, with no forced target at all.
+	if stuck_item != null:
+		_blacklist_cleaning_item(stuck_item, "stuck-recovery failed %d times in a row" % _stuck_streak_count)
 	if NPCDebug.enabled:
 		NPCDebug.log_stuck_escalation(self, stuck_item, _stuck_streak_count)
 	_nudge_free_of_obstruction(stuck_item, STUCK_NUDGE_DISTANCE)

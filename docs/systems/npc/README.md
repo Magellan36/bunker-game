@@ -1601,3 +1601,13 @@ without being asked.
     confirm STUCK ESCALATION lines now name the blocking NPC instead of
     "?", and confirm the group actually disperses instead of shuffling
     in place indefinitely.
+88. Teleport a loose item to an extreme Y position — confirm JobBoard's
+    scan excludes it by name and no NPC ever targets it, while normal
+    items are completely unaffected.
+89. Wedge an item so an NPC can never reach it — confirm it force-cleans
+    exactly twice, then gives up permanently for that NPC only (console:
+    "gave up permanently"), while claim contention with other NPCs never
+    triggers a give-up no matter how often it happens.
+90. Check the real (non-debug) idle-gate timing at a few clutter counts
+    — confirm it stays close to 90s at low counts and drops sharply
+    toward 0s as clutter approaches 20.

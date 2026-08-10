@@ -1162,6 +1162,7 @@ class CleaningActivity extends NPCActivity:
 				else:
 					if NPCDebug.enabled:
 						NPCDebug.log_cleaning(npc, "pickup failed", "grab_loose() refused %s" % _display_name(_item))
+					npc.record_cleaning_pickup_failure(_item)   ## Aug 2026 — counts toward the give-up limit; claim/held/shelved misses elsewhere never call this
 					NPCItemUser.release_item(_item)
 					_item = null
 			return
