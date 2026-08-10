@@ -1,3 +1,37 @@
+# Handover — Preview Scale Normalization + CanCase/WaterCase Blank Fix (Aug 2026)
+
+## What changed this session
+Ported `BuildModeHUD.gd`'s preview-normalization logic into
+`ItemPreviewKit.gd`, fixing two reported bugs: the Crate rendering way
+too large relative to other items in Shelf/Inventory previews (no scale
+normalization existed at all before this), and Can Case/Water Case
+rendering as a blank preview (their 12 can/bottle meshes sit nested
+under `VisualRoot/Can_XX`/`Bottle_XX`, 2+ levels deep — the old preview
+code only checked direct children). Added `_combined_local_aabb()` (deep
+mesh walk) and `_preview_normalize_scale()` (uniform fill-fraction
+scaling, re-derived as a fraction of each consumer's own `cam.size`
+rather than Build's fixed-meters constant, since this kit serves two
+different preview pixel sizes). New `_duplicate_visual_tree()` builds a
+lightweight mesh-only copy of an item's full visual tree (material
+overrides preserved, hidden meshes skipped) for the deep-walk case.
+Also fixed `clear()`, which would have silently stopped matching
+anything once `set_item()` started wrapping content in a pivot `Node3D`
+instead of a bare `MeshInstance3D` — caught during this pass, not
+previously live.
+
+### Files modified
+- `scripts/ui/common/ItemPreviewKit.gd` — see file for full diff.
+- `docs/systems/ui/README.md` — `ItemPreviewKit.gd` note updated, new
+  "Preview Scale Normalization + Deep Mesh Walk" subsection.
+
+### Verification checklist
+(see `PREVIEW_SCALE_NORMALIZATION_AND_BLANK_FIX_PLAN.md` for the full
+6-item checklist)
+
+---
+
+---
+
 ## NPC: NPC-vs-NPC Crowd Gridlock Fix (Aug 2026)
 
 - Root-caused the "NPCs huddle and shuffle forever" report: multiple

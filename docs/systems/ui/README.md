@@ -43,7 +43,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `menus/` | `PauseMenuUI.gd` (~330 — rewritten onto `UIKit` menu builders, Jul 2026), `GraphicsSettingsPanel.gd` (~430 — same rewrite, also fixed a long-standing off-center bug, see below), `SleepOverlay.gd` (~145), `AdminMenu.gd` (~430 — rewritten with collapsible sections + a real `ScrollContainer`, Jul 2026, see below) | ESC pause menu, graphics settings, sleep fade, admin cheats |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI. Farming shop's `FARMING_SHOP_ITEMS["Seeds"]` had a duplicate-`tile_id` bug fixed Aug 2026 (see "Farming Shop Seed tile_id Bugfix" below) and a SEPARATE bug where `PREVIEW_SOURCES` never set `seed_type` per-id, so every seed preview looked identical — fixed Aug 2026, see "Cooking Pot UI Fixes + Prompt Overlap Avoidance" below |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
-| `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain), `ItemPreviewKit.gd` (~90 — Aug 2026, shared static 3D item-preview builder used by `InventoryHUD`/`StorageUI`, see "Shared Item Preview Kit" below) | Shared fade-in helper + shared theme/drawing kit + shared 3D item-preview builder — put any future cross-panel UI utility here |
+| `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain), `ItemPreviewKit.gd` (~235 — Aug 2026, shared static 3D item-preview builder used by `InventoryHUD`/`StorageUI`, see "Shared Item Preview Kit" and "Preview Scale Normalization + Deep Mesh Walk" below) | Shared fade-in helper + shared theme/drawing kit + shared 3D item-preview builder — put any future cross-panel UI utility here |
 | `notifications/` | `NotificationManager.gd` (~175) | Central toast/notification system (see "NotificationManager" below) |
 | `npc/` | `NPCTalkMenuUI.gd` | NPC E-panel (needs bars, status, skills, personality) — see `docs/systems/npc/README.md` for full detail; fixed per-stat bar colors as of Aug 2026, see "Cooking Pot UI Fixes..." below is unrelated — see the NPC doc directly for the color table |
 
@@ -835,6 +835,25 @@ already matches `ItemPreviewKit.ROTATION_DEFAULT` exactly, by design, and
 always has). Folding Build onto the shared kit is a reasonable future
 pass, scoped out of this one to avoid touching a working, more complex
 implementation.
+
+### Preview Scale Normalization + Deep Mesh Walk (Aug 2026)
+`ItemPreviewKit.gd` ported two pieces of `BuildModeHUD.gd`'s preview
+logic it was missing: `_combined_local_aabb()` (walks every
+MeshInstance3D descendant at any nesting depth, not just direct
+children — fixes CanCase/WaterCase, whose 12 can/bottle meshes sit under
+`VisualRoot/Can_XX`/`Bottle_XX`, previously rendering blank) and
+`_preview_normalize_scale()` (uniform scale so every item's largest AABB
+dimension fills the same fraction of its preview frame — fixes large
+items like the Crate overflowing while small items looked tiny).
+The scale target is expressed as `PREVIEW_FILL_FRACTION` (a fraction of
+each call's own `cam.size`) rather than Build Mode's fixed-meters
+constant, since this kit serves multiple preview pixel sizes (Inventory
+64px, Storage 96px) and a flat meters value doesn't generalize across
+them the way BuildModeHUD's single-pixel-size version could get away
+with. New `_duplicate_visual_tree()` duplicates only mesh geometry (with
+material overrides preserved) from an already-live item reference,
+skipping currently-hidden meshes — so a partially-emptied CanCase/
+WaterCase previews as partially empty too.
 
 ## Storage UI Icon + Row Label Redesign (Aug 2026)
 Two changes to `StorageUI.gd`, both applying automatically to every
