@@ -63,6 +63,9 @@ const NPC_JOB_MENU_ENTRIES: Array[Dictionary] = [
 	{"type": "REPLACE_FILTER", "label": "Replace the water filters", "action_desc": "heading to replace a filter", "empty_desc": "no filters need replacing"},
 	{"type": "REFUEL", "label": "Refuel the generator", "action_desc": "heading to refuel", "empty_desc": "nothing needs refueling"},
 	{"type": "CLEANING", "label": "Clean the bunker", "action_desc": "heading to clean up", "empty_desc": "nothing to clean right now"},
+	{"type": "ADD_SOIL", "label": "Add soil to all trays", "action_desc": "heading to fill trays with soil", "empty_desc": "no trays need soil, or no soil available"},
+	{"type": "FERTILIZE", "label": "Fertilize the trays", "action_desc": "heading to fertilize", "empty_desc": "nothing needs fertilizing, or none available"},
+	{"type": "PLANT_SEEDS", "label": "Plant seeds", "action_desc": "", "empty_desc": ""},
 ]
 
 ## Aug 2026 — maps NPC.get_cleaning_unavailable_reason()'s keys to the
@@ -540,8 +543,34 @@ func _on_job_command_pressed(job_type: String) -> void:
 			if rreason != "" and REFUEL_UNAVAILABLE_REASONS.has(rreason):
 				empty_desc = String(REFUEL_UNAVAILABLE_REASONS[rreason])
 		_issue_command(NPCBrain.CommandRefuelActivity.new(), action_desc, empty_desc)
+	elif job_type == "ADD_SOIL":
+		var soil_cmd: NPCBrain.CommandGardeningActivity = NPCBrain.CommandGardeningActivity.new()
+		soil_cmd.mode = "soil_only"
+		_issue_command(soil_cmd, action_desc, empty_desc)
+	elif job_type == "FERTILIZE":
+		var fert_cmd: NPCBrain.CommandGardeningActivity = NPCBrain.CommandGardeningActivity.new()
+		fert_cmd.mode = "fertilize_only"
+		_issue_command(fert_cmd, action_desc, empty_desc)
+	elif job_type == "PLANT_SEEDS":
+		## Aug 2026 — separate small popup instead of expanding this panel
+		## further; see NPCSeedSelectMenuUI.gd. Picking a type there issues
+		## the actual command back on this NPC.
+		if _dialogue_label != null:
+			_dialogue_label.text = "What kind of seed do you want?"
+			_dialogue_label.visible = true
+		_open_seed_select_menu()
 	else:
 		_issue_command(NPCBrain.CommandJobActivity.new(job_type), action_desc, empty_desc)
+
+## Aug 2026 — opens the standalone seed-type picker (NPCSeedSelectMenuUI)
+## as a top-layer popup over this panel. Built fresh each time rather than
+## kept as a persistent child, matching how little state it needs.
+func _open_seed_select_menu() -> void:
+	if _npc == null or not is_instance_valid(_npc):
+		return
+	var menu: NPCSeedSelectMenuUI = NPCSeedSelectMenuUI.new()
+	get_tree().root.add_child(menu)
+	menu.open(_npc)
 
 # ─── Ask About (Part 23) ─────────────────────────────────────────────────
 func _on_ask_about_player_pressed() -> void:

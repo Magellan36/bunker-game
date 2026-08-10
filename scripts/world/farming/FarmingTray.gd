@@ -28,6 +28,21 @@ var soil_filled:  Array[bool]   = []
 var planted_type: Array[String] = []
 var plant_refs:   Array[FarmPlant] = []
 
+## Aug 2026 — per-cell replant memory. Unlike planted_type (blanked by
+## clear_cell() on every harvest), this survives specifically so "prefer
+## replanting what was there before" has something to read afterward.
+## Kept in sync by plant_first_open_cell() below for BOTH player- and
+## NPC-driven planting, so it's never a separate thing to maintain.
+var last_planted_type: Array[String] = []
+
+## Aug 2026 — future gardening-feature hook (not built yet — a later
+## pass will let the player lock a tray/cell to one species via its own
+## UI). Every cell defaults to "" (unassigned) until that ships; nothing
+## writes this yet except that future feature, but
+## get_next_plant_preference() below already reads it FIRST, so no NPC-
+## side code will need to change once tray assignment exists.
+var assigned_plant_type: Array[String] = []
+
 ## B1 — fertilizer can be applied to empty (unplanted) soil. "Prepped"
 ## means fertilizer has been applied to empty soil; when a seed is later
 ## planted there, it starts already fertilized.
@@ -82,12 +97,16 @@ func _ready() -> void:
 	plant_refs.resize(cell_count)
 	cell_prepped_fertilizer.resize(cell_count)
 	_soil_mesh_instances.resize(cell_count)
+	last_planted_type.resize(cell_count)
+	assigned_plant_type.resize(cell_count)
 	for i: int in range(cell_count):
 		soil_filled[i]  = false
 		planted_type[i] = ""
 		plant_refs[i]   = null
 		cell_prepped_fertilizer[i] = ""
 		_soil_mesh_instances[i] = null
+		last_planted_type[i] = ""
+		assigned_plant_type[i] = ""
 
 	collision_layer = 5
 	collision_mask  = 0
@@ -265,6 +284,7 @@ func plant_first_open_cell(plant_type: String) -> bool:
 	for i: int in range(cell_count):
 		if soil_filled[i] and planted_type[i] == "":
 			planted_type[i] = plant_type
+			last_planted_type[i] = plant_type   ## Aug 2026 — survives the eventual harvest, unlike planted_type
 			var plant: FarmPlant = FarmPlant.new()
 			add_child(plant)
 			plant.setup(self, i, plant_type)
@@ -276,6 +296,23 @@ func plant_first_open_cell(plant_type: String) -> bool:
 				cell_prepped_fertilizer[i] = ""
 			return true
 	return false
+
+## Aug 2026 — what type should go in the NEXT open plantable cell, in
+## priority order: assigned_plant_type (future feature, see its own
+## comment above) > last_planted_type (what grew here before) > "" (no
+## preference at all — any available type is fine). Returns "" if there's
+## no open plantable cell right now. NPCGardeningActivity uses this for
+## autonomous planting; an explicit player-requested seed type (via the
+## Plant Seeds menu) bypasses this entirely and is never overridden by it.
+func get_next_plant_preference() -> String:
+	for i: int in range(cell_count):
+		if soil_filled[i] and planted_type[i] == "":
+			if i < assigned_plant_type.size() and assigned_plant_type[i] != "":
+				return assigned_plant_type[i]
+			if i < last_planted_type.size() and last_planted_type[i] != "":
+				return last_planted_type[i]
+			return ""
+	return ""
 
 ## Called by FarmPlant on harvest/death — cell goes back to soil-filled/empty,
 ## ready to replant, no new soil bag needed (plan §5.3/§6.3).

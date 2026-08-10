@@ -461,6 +461,7 @@ const JOB_PRIORITY_WEIGHTS: Dictionary = {
 	"REPLACE_FILTER": 1.0,
 	"REFUEL": 1.0,
 	"CLEANING": 0.5,
+	"GARDENING": 0.8,
 }
 const JOB_PRIORITY_DEFAULT: float = 1.0
 
@@ -1254,6 +1255,10 @@ const CLUTTER_URGENCY_STEP: float = 9.0 / 121.0
 ## of power is more urgent than clutter — tune visually once live-tested.
 const REFUEL_BASE_SCORE: float = 8.0
 
+## Gardening session (Aug 2026, autonomous) — soil-filling + planting.
+## Moderate priority: useful busywork, but shouldn't outrank real jobs.
+const GARDENING_BASE_SCORE: float = 6.0
+
 ## Autonomous-trigger gate ONLY (carried over from JobBoard's old
 ## REFUEL_BELOW). has_refuel_target_available()'s score() use of this
 ## just decides whether an NPC will interrupt other work over fuel level;
@@ -1607,6 +1612,50 @@ func has_refuel_target_available() -> bool:
 	var filt: Callable = Callable(NPCItemUser, "is_spare_fuel_can")
 	return NPCItemUser.find_loose_item(self, filt) != null \
 		or not NPCItemUser.find_shelved_item(self, filt).is_empty()
+
+## Autonomous-trigger availability check for GardeningActivity — mirrors
+## has_cleaning_target_available()'s shape. True if ANY tray needs soil
+## (and a spare Bag of Soil exists somewhere) OR ANY tray has an open
+## plantable cell (and ANY seed of ANY type exists somewhere — the exact
+## type match, if any, is resolved per-tray at pick time via
+## FarmingTray.get_next_plant_preference(), not here).
+func has_gardening_target_available() -> bool:
+	var any_tray: bool = false
+	var needs_soil: bool = false
+	var needs_plant: bool = false
+	for tray: Node in get_tree().get_nodes_in_group("farming_tray"):
+		if not is_instance_valid(tray):
+			continue
+		any_tray = true
+		if tray.has_open_soil_cell():
+			needs_soil = true
+		if tray.has_open_plantable_cell():
+			needs_plant = true
+		if needs_soil and needs_plant:
+			break
+	if not any_tray:
+		return false
+	if needs_soil:
+		for item: Node in get_tree().get_nodes_in_group("pickup"):
+			if is_instance_valid(item) and item is BagOfSoilItem and not (("is_held" in item) and item.is_held) and not item.is_in_group("shelved"):
+				return true
+		for shelf: Node in get_tree().get_nodes_in_group("shelving"):
+			if not is_instance_valid(shelf) or not ("slots" in shelf):
+				continue
+			for stack in shelf.slots:
+				if stack is Array and not stack.is_empty() and stack.back() is BagOfSoilItem:
+					return true
+	if needs_plant:
+		for item: Node in get_tree().get_nodes_in_group("pickup"):
+			if is_instance_valid(item) and item is SeedItem and not (("is_held" in item) and item.is_held) and not item.is_in_group("shelved"):
+				return true
+		for shelf: Node in get_tree().get_nodes_in_group("shelving"):
+			if not is_instance_valid(shelf) or not ("slots" in shelf):
+				continue
+			for stack in shelf.slots:
+				if stack is Array and not stack.is_empty() and stack.back() is SeedItem:
+					return true
+	return false
 
 ## Used by the stuck-recovery hook to decide whether a forced grab should
 ## be logged/treated as "threw away" vs "put away" once delivered — the

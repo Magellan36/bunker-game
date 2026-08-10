@@ -1,3 +1,36 @@
+## NPC: Gardening (Soil/Plant/Fertilize) + Seed-Type Menu + Basket Produce Cleanup (Aug 2026)
+
+- Added FarmingTray.last_planted_type (survives harvest, unlike
+  planted_type) and assigned_plant_type (unused placeholder for a future
+  gardening-side tray-assignment feature — already wired into
+  get_next_plant_preference()'s priority order so no NPC code will need
+  to change once that ships).
+- Added NPCBrain.GardeningActivity/CommandGardeningActivity — session
+  activity mirroring Cleaning/Refuel's shape. Mode "auto" (autonomous,
+  soil+planting, replant-preference-aware) is the default; "soil_only",
+  "plant_only" (with forced_seed_type, no fallback substitution), and
+  "fertilize_only" back the three player commands. Fertilizing is
+  reachable ONLY via command, never autonomous. Reuses each consumable
+  item's own real on_use() (BagOfSoilItem/SeedItem/FertilizerItem) rather
+  than duplicating charge/consumption logic — identical mechanic to the
+  player by construction.
+- Added NPCTalkMenuUI rows for "Add soil to all trays" and "Fertilize
+  the trays" (direct commands), and "Plant seeds" (opens a new standalone
+  popup, NPCSeedSelectMenuUI.gd, listing only currently-in-stock seed
+  species — built on the same UIKit modal helpers every other popup in
+  the project uses).
+- CleaningActivity now special-cases FarmProduceItem: if a Basket is
+  available, fetches it first and stashes produce into it (mirroring
+  Basket.gd's real "E while holding basket" player mechanic) instead of
+  hand-carrying each item individually, then delivers the basket to
+  storage once done. All other item types are unaffected.
+
+Files touched: `scripts/world/farming/FarmingTray.gd`, `scripts/npc/NPC.gd`,
+`scripts/npc/NPCBrain.gd`, `scripts/ui/npc/NPCTalkMenuUI.gd`,
+`scripts/ui/npc/NPCSeedSelectMenuUI.gd` (new).
+
+---
+
 ## NPC: Glitch Detection, Scoped Give-Up System, Exponential Idle Gate (Aug 2026)
 
 - JobBoard._scan_cleaning() now excludes any item outside sane Y bounds

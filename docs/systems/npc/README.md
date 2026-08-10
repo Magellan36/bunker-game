@@ -1611,3 +1611,14 @@ without being asked.
 90. Check the real (non-debug) idle-gate timing at a few clutter counts
     — confirm it stays close to 90s at low counts and drops sharply
     toward 0s as clutter approaches 20.
+91. Autonomous gardening: confirm an idle NPC fills soil and plants
+    seeds on its own, preferring the last-planted type per cell and
+    falling back to any available type when that's out of stock.
+92. "Add soil to all trays" only fills soil, never plants. "Plant seeds"
+    opens a new popup listing only in-stock species; picking one plants
+    ONLY that type, no substitution. "Fertilize the trays" never
+    triggers on its own, only via the command.
+93. Ask an NPC to clean with harvested produce and a Basket both
+    present — confirm it fetches the basket first and stashes produce
+    into it (not hand-carried), then delivers the basket to real
+    shelving once done. Non-produce cleaning is unaffected.

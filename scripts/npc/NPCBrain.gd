@@ -39,6 +39,7 @@ func setup(npc: NPC) -> void:
 		CleaningActivity.new(),
 		RefuelActivity.new(),
 		PutAwayHeldItemActivity.new(),
+		GardeningActivity.new(),
 	]
 
 func current_label() -> String:
@@ -991,6 +992,7 @@ class CleaningActivity extends NPCActivity:
 	var _finished: bool = false
 	var _skipped_ids: Dictionary = {}         ## item instance_id -> true, this session — confirmed no destination, never retry
 	var _no_storage_categories: Dictionary = {}   ## "light"/"heavy" -> true, this session — every viable destination for the category is gone/full/nonexistent
+	var _basket: Basket = null                ## Aug 2026 — set once fetched, for produce collection (see _pick_next_target/_tick_produce_via_basket)
 
 	func _init(forced_item: RigidBody3D = null) -> void:
 		_forced_item = forced_item
@@ -1081,6 +1083,16 @@ class CleaningActivity extends NPCActivity:
 				if _is_trash:
 					break   ## trash keeps its existing post-pickup handling — commit and go
 				var category: String = npc._classify_organizable_item(_item)
+				if _item is FarmProduceItem and _basket == null:
+					var basket: Basket = _find_available_basket(npc)
+					if basket != null:
+						## Aug 2026 — produce specifically prefers basket collection
+						## over normal carry-and-deliver, mirroring how the player
+						## actually gathers produce. _phase handling for this is
+						## entirely in tick()'s fetch branch below — no destination
+						## lookup needed for the produce item itself, the BASKET is
+						## what eventually gets delivered.
+						break
 				if npc.find_cleaning_destination(false, _item) != null:
 					break   ## viable destination confirmed for THIS item — commit and go fetch it
 				_skipped_ids[_item.get_instance_id()] = true
@@ -1126,6 +1138,22 @@ class CleaningActivity extends NPCActivity:
 
 		if npc.held_item == null:
 			## Fetch phase
+			## Aug 2026 — produce collection: fetch a Basket FIRST if one's
+			## needed and not already held, before ever approaching the
+			## produce item itself. Once holding a basket, produce items get
+			## stashed into it (see the branch further below) instead of the
+			## normal carry-in-hand pickup.
+			if _item is FarmProduceItem and _basket == null:
+				var basket: Basket = _find_available_basket(npc)
+				if basket == null:
+					## No basket after all (taken/gone since selection) —
+					## fall through to a normal hand-carry pickup instead.
+					pass
+				elif not _tick_fetch_basket(npc, delta, basket):
+					return
+			if _basket != null and _item is FarmProduceItem:
+				_tick_stash_into_basket(npc, delta)
+				return
 			if "is_held" in _item and _item.is_held:
 				if NPCDebug.enabled:
 					NPCDebug.log_cleaning(npc, "target lost", "%s became held by someone else before pickup" % _display_name(_item))
@@ -1208,6 +1236,75 @@ class CleaningActivity extends NPCActivity:
 			if _item.has_method("set_nav_obstacle_enabled") and "is_held" in _item and not _item.is_held:
 				_item.set_nav_obstacle_enabled(true)
 			NPCItemUser.release_item(_item)
+		_item = null
+
+	## Aug 2026 — nearest Basket with at least one open slot, loose or
+	## shelved. Mirrors the general fetch-candidate search shape used
+	## elsewhere in this file, scoped to Basket specifically.
+	func _find_available_basket(npc: NPC) -> Basket:
+		var best: Basket = null
+		var best_d: float = INF
+		for node: Node in npc.get_tree().get_nodes_in_group("pickup"):
+			if not (node is Basket) or not is_instance_valid(node):
+				continue
+			if ("is_held" in node and node.is_held) or node.is_in_group("shelved"):
+				continue
+			if node.slots.count(null) <= 0:
+				continue   ## full
+			var d: float = NPCItemUser.flat_distance(npc.global_position, (node as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = node as Basket
+		return best
+
+	## Walks to and picks up the basket itself (a normal hand-carry pickup
+	## — Basket isn't a "basket_storable" item, it's the container).
+	## Returns false while still in progress (caller should return this
+	## tick), true once holding it and ready to proceed.
+	func _tick_fetch_basket(npc: NPC, delta: float, basket: Basket) -> bool:
+		if npc.held_item == basket:
+			_basket = basket
+			return true
+		if not NPCItemUser.is_claimed_by_other(basket, npc):
+			NPCItemUser.claim_item(basket, npc)
+		npc.nav_steer(delta)
+		if NPCItemUser.flat_distance(npc.global_position, basket.global_position) <= NPCItemUser.PICKUP_RANGE:
+			NPCItemUser.grab_loose(npc, basket)
+		return false
+
+	## Walks to the produce item and stashes it into the held basket —
+	## mirrors Basket.gd's own player-facing "E while holding basket"
+	## mechanic exactly (first open slot, item re-parented/hidden/frozen
+	## under the basket), not a normal carry pickup. Once the basket has
+	## no open slots left, or this produce item vanished, moves on.
+	func _tick_stash_into_basket(npc: NPC, delta: float) -> void:
+		if _item == null or not is_instance_valid(_item) or ("is_held" in _item and _item.is_held) or _item.is_in_group("shelved"):
+			_item = null
+			return
+		npc.nav_steer(delta)
+		if NPCItemUser.flat_distance(npc.global_position, _item.global_position) > NPCItemUser.PICKUP_RANGE:
+			return
+		var slot_index: int = _basket.slots.find(null)
+		if slot_index == -1:
+			## Basket just filled up (e.g. by something else) — treat like
+			## any other carried item now: it needs delivering, not more
+			## stashing. Hand control back to the normal fetch/travel logic
+			## by clearing _item so _pick_next_target() re-evaluates fresh
+			## next cycle with the FULL basket as npc.held_item.
+			_item = null
+			return
+		_item.get_parent().remove_child(_item)
+		_basket.add_child(_item)
+		_item.global_position = _basket.global_position
+		_item.freeze = true
+		_item.visible = false
+		if "is_held" in _item:
+			_item.is_held = false
+		_basket.slots[slot_index] = _item
+		_basket.item_added.emit(slot_index, _item)
+		if NPCDebug.enabled:
+			NPCDebug.log_cleaning(npc, "stashed in basket", "%s -> basket (%d/%d slots used)" \
+				% [_display_name(_item), _basket.slots.size() - _basket.slots.count(null), _basket.slots.size()])
 		_item = null
 
 	## Aug 2026 — structured snapshot for NPCDebug.dump_cleaning_state().
@@ -1477,6 +1574,291 @@ class RefuelActivity extends NPCActivity:
 			NPCItemUser.release_item(_fetch_shelf.get("item"))
 		if _finished and npc.held_item != null and npc.held_item == _can:
 			NPCItemUser.drop_held(npc)   ## session truly over — set the (empty or spare) can down
+
+class GardeningActivity extends NPCActivity:
+	## Gardening (Aug 2026, sustained session) — mirrors CleaningActivity/
+	## RefuelActivity's fetch→travel→apply→[loop] shape. Autonomous by
+	## default (mode "auto": soil + planting, using each tray's own
+	## replant preference); mode-restricted variants back the three
+	## player commands — see this file's own header comment above for the
+	## full breakdown. Fertilizing is NEVER autonomous — only reachable
+	## via mode "fertilize_only", which only CommandGardeningActivity ever
+	## constructs.
+	var mode: String = "auto"            ## "auto" | "soil_only" | "plant_only" | "fertilize_only"
+	var forced_seed_type: String = ""    ## only meaningful for "plant_only" — no fallback substitution when set
+
+	var _item: RigidBody3D = null        ## currently held soil bag / seed packet / fertilizer
+	var _current_tray: Node = null
+	var _current_task: String = ""       ## "soil" | "plant" | "fertilize"
+	var _fetch_loose: RigidBody3D = null
+	var _fetch_shelf: Dictionary = {}
+	var _phase: String = "pick_task"     ## "pick_task" -> "fetch" -> "travel" -> "apply"
+	var _finished: bool = false
+
+	const WORK_RANGE: float = 2.0   ## generous — matches FarmingTray/item REPLACE_RANGE-style tolerances used elsewhere in farming
+
+	func label() -> String:
+		match _phase:
+			"fetch": return "Fetching %s" % _current_task
+			"travel": return "Heading to tend a tray"
+			"apply": return "Tending the garden"
+			_: return "Gardening"
+
+	func score(npc: NPC) -> float:
+		if mode != "auto":
+			return 0.0   ## command-only modes never compete for autonomous pick
+		if not npc.has_gardening_target_available():
+			return 0.0
+		return NPC.GARDENING_BASE_SCORE * npc.get_work_ethic_job_mult() \
+			* npc.get_job_priority_weight("GARDENING")
+
+	func interruptible() -> bool:
+		return _phase != "apply"   ## mid-application, commit; between tasks, fine to interrupt
+
+	func enter(npc: NPC) -> void:
+		_finished = false
+		if npc.held_item != null and (npc.held_item is BagOfSoilItem or npc.held_item is SeedItem or npc.held_item is FertilizerItem):
+			_item = npc.held_item
+		_pick_next_task(npc)
+
+	## Finds the nearest tray needing whichever task category applies
+	## next (soil > plant > fertilize, mode-restricted), sets _current_
+	## tray/_current_task, and kicks off fetch/travel for it. Ends the
+	## session if nothing eligible remains.
+	func _pick_next_task(npc: NPC) -> void:
+		_current_tray = null
+		_current_task = ""
+
+		if mode != "fertilize_only":
+			_current_tray = _nearest_tray_needing(npc, "has_open_soil_cell")
+			if _current_tray != null:
+				_current_task = "soil"
+
+		if _current_tray == null and mode != "soil_only" and mode != "fertilize_only":
+			_current_tray = _nearest_tray_needing(npc, "has_open_plantable_cell")
+			if _current_tray != null:
+				_current_task = "plant"
+
+		if _current_tray == null and mode == "fertilize_only":
+			_current_tray = _nearest_tray_needing(npc, "has_open_fertilizable_cell")
+			if _current_tray != null:
+				_current_task = "fertilize"
+
+		if _current_tray == null:
+			_finished = true
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "gardening session ended", "nothing left to do (mode=%s)" % mode)
+			return
+
+		if NPCDebug.enabled:
+			NPCDebug.log_cleaning(npc, "gardening target picked", "%s task=%s" % [_current_tray.name, _current_task])
+
+		if _item != null and _item_matches_task(npc):
+			_phase = "travel"
+			npc.set_nav_target(_approach_point(npc, _current_tray))
+			return
+		_phase = "fetch"
+		_start_fetch(npc)
+
+	func _nearest_tray_needing(npc: NPC, check_method: String) -> Node:
+		var best: Node = null
+		var best_d: float = INF
+		for tray: Node in npc.get_tree().get_nodes_in_group("farming_tray"):
+			if not is_instance_valid(tray) or not tray.call(check_method):
+				continue
+			var d: float = NPCItemUser.flat_distance(npc.global_position, (tray as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = tray
+		return best
+
+	## Does the currently-held item match what _current_task needs? For
+	## "plant" with forced_seed_type set, the type must match exactly —
+	## no substitution once the player has explicitly asked for one.
+	func _item_matches_task(npc: NPC) -> bool:
+		if _item == null:
+			return false
+		match _current_task:
+			"soil": return _item is BagOfSoilItem
+			"plant":
+				if not (_item is SeedItem):
+					return false
+				if forced_seed_type != "":
+					return _item.seed_type == forced_seed_type
+				return true   ## autonomous — already fetched to satisfy some preference; re-validated at fetch time, not here
+			"fertilize": return _item is FertilizerItem
+			_: return false
+		return false
+
+	func _start_fetch(npc: NPC) -> void:
+		var filt: Callable = _fetch_filter_for_task(npc)
+		var loose: RigidBody3D = NPCItemUser.find_loose_item(npc, filt)
+		var shelf_pick: Dictionary = {} if loose != null else NPCItemUser.find_shelved_item(npc, filt)
+		var tgt: Node3D = loose if loose != null \
+			else (shelf_pick.get("shelf") as Node3D if not shelf_pick.is_empty() else null)
+		if tgt == null:
+			## Nothing available for this specific task right now — skip
+			## this tray/task and try the next one rather than ending the
+			## whole session over one shortage.
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "gardening fetch failed", "nothing available for task=%s (mode=%s, forced_type=%s)" \
+					% [_current_task, mode, forced_seed_type])
+			_pick_next_task(npc)
+			return
+		if loose != null:
+			if not NPCItemUser.claim_item(loose, npc):
+				_pick_next_task(npc)
+				return
+			_fetch_loose = loose
+		else:
+			if not NPCItemUser.claim_item(shelf_pick.get("item"), npc):
+				_pick_next_task(npc)
+				return
+			_fetch_shelf = shelf_pick
+		npc.set_nav_target(tgt.global_position)
+
+	## Aug 2026 — autonomous planting prefers this tray's own
+	## get_next_plant_preference() (falls back to ANY seed type if the
+	## preferred one is unavailable — matches "prefer X unless X isn't
+	## available"). A forced_seed_type (player command) is exact-match
+	## only, no fallback.
+	func _fetch_filter_for_task(npc: NPC) -> Callable:
+		match _current_task:
+			"soil":
+				return func(item: Node) -> bool: return item is BagOfSoilItem
+			"plant":
+				if forced_seed_type != "":
+					var want: String = forced_seed_type
+					return func(item: Node) -> bool: return item is SeedItem and item.seed_type == want
+				var preferred: String = _current_tray.get_next_plant_preference() if _current_tray != null else ""
+				if preferred != "":
+					var pref: String = preferred
+					return func(item: Node) -> bool: return item is SeedItem and item.seed_type == pref
+				return func(item: Node) -> bool: return item is SeedItem
+			"fertilize":
+				return func(item: Node) -> bool: return item is FertilizerItem
+			_:
+				return func(_item: Node) -> bool: return false
+
+	func _approach_point(npc: NPC, target: Node) -> Vector3:
+		var t3: Node3D = target as Node3D
+		var to_npc: Vector3 = npc.global_position - t3.global_position
+		to_npc.y = 0.0
+		if to_npc.length() < 0.01:
+			to_npc = Vector3(0.0, 0.0, 1.0)
+		return t3.global_position + to_npc.normalized() * 1.0
+
+	func tick(npc: NPC, delta: float) -> void:
+		match _phase:
+			"fetch":
+				_tick_fetch(npc, delta)
+			"travel":
+				if _current_tray == null or not is_instance_valid(_current_tray):
+					_pick_next_task(npc)
+					return
+				npc.nav_steer(delta)
+				var t_pos: Vector3 = (_current_tray as Node3D).global_position
+				var flat_dist: float = Vector2(npc.global_position.x, npc.global_position.z) \
+					.distance_to(Vector2(t_pos.x, t_pos.z))
+				if flat_dist <= WORK_RANGE:
+					npc.velocity = Vector3.ZERO
+					_phase = "apply"
+			"apply":
+				npc.halt_movement(delta)
+				if _item == null or not is_instance_valid(_item) or _current_tray == null or not is_instance_valid(_current_tray):
+					_pick_next_task(npc)
+					return
+				## Reuses the item's own real on_use() — identical mechanic
+				## to the player (finds a nearby valid tray itself, applies,
+				## consumes a charge, spawns EmptyBagItem/frees at zero —
+				## nothing about consumption is duplicated here).
+				_item.on_use()
+				if NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "gardening applied", "%s at %s" % [_current_task, _current_tray.name])
+				if npc.held_item != _item:
+					## Item freed itself (out of charges) — nothing left in hand
+					_item = null
+				_pick_next_task(npc)
+
+	func _tick_fetch(npc: NPC, delta: float) -> void:
+		if npc.held_item != null:
+			_item = npc.held_item
+			_phase = "travel"
+			npc.set_nav_target(_approach_point(npc, _current_tray))
+			return
+		if _fetch_loose != null and is_instance_valid(_fetch_loose):
+			if "is_held" in _fetch_loose and _fetch_loose.is_held:
+				_fetch_loose = null
+				_pick_next_task(npc)
+				return
+			npc.nav_steer(delta)
+			if NPCItemUser.flat_distance(npc.global_position, _fetch_loose.global_position) <= NPCItemUser.PICKUP_RANGE:
+				if not NPCItemUser.grab_loose(npc, _fetch_loose):
+					_pick_next_task(npc)
+			return
+		if not _fetch_shelf.is_empty():
+			var shelf: Node3D = _fetch_shelf.get("shelf")
+			if shelf == null or not is_instance_valid(shelf):
+				_pick_next_task(npc)
+				return
+			npc.nav_steer(delta)
+			if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) <= NPCItemUser.SHELF_RANGE:
+				if not NPCItemUser.grab_from_shelf(npc, shelf, int(_fetch_shelf.get("slot", -1))):
+					_pick_next_task(npc)
+			return
+		_pick_next_task(npc)   ## nothing left to fetch — vanished between scan and now
+
+	func done(_npc: NPC) -> bool:
+		return _finished
+
+	func exit(npc: NPC) -> void:
+		if _fetch_loose != null:
+			NPCItemUser.release_item(_fetch_loose)
+		if not _fetch_shelf.is_empty():
+			NPCItemUser.release_item(_fetch_shelf.get("item"))
+		## Deliberately does NOT drop _item on exit — matches
+		## PutAwayHeldItemActivity's safety net, which will pick up and
+		## put away any leftover held item if this gets interrupted
+		## mid-carry with nothing else claiming it.
+
+class CommandGardeningActivity extends NPCActivity:
+	## Backs all three player-issued gardening requests ("Add soil to all
+	## trays", "Plant seeds" with a chosen type, "Fertilize the trays") —
+	## delegates straight to a mode-restricted GardeningActivity, same
+	## pattern as CommandCleaningActivity/CommandRefuelActivity.
+	var mode: String = "auto"
+	var forced_seed_type: String = ""
+	var _inner: NPCActivity = null
+
+	func label() -> String:
+		return _inner.label() if _inner != null else "Idle"
+
+	func score(_npc: NPC) -> float:
+		return 0.0
+
+	func interruptible() -> bool:
+		return _inner == null or _inner.interruptible()
+
+	func enter(npc: NPC) -> void:
+		var g: GardeningActivity = GardeningActivity.new()
+		g.mode = mode
+		g.forced_seed_type = forced_seed_type
+		_inner = g
+		_inner.enter(npc)
+		if _inner.done(npc):
+			_inner = null
+
+	func tick(npc: NPC, delta: float) -> void:
+		if _inner != null:
+			_inner.tick(npc, delta)
+
+	func done(npc: NPC) -> bool:
+		return _inner == null or _inner.done(npc)
+
+	func exit(npc: NPC) -> void:
+		if _inner != null:
+			_inner.exit(npc)
+		_inner = null
 
 
 class EatActivity extends NPCActivity:
