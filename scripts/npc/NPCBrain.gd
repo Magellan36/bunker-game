@@ -1006,8 +1006,10 @@ class CleaningActivity extends NPCActivity:
 			return 0.0
 		if not npc.has_cleaning_target_available():
 			return 0.0
-		var clutter_count: int = JobBoard.get_total_clutter_count()
-		var urgency_mult: float = 1.0 + float(clutter_count) * NPC.CLUTTER_URGENCY_STEP
+		## Aug 2026 — escalating urgency: the more clutter sits around,
+		## the more Cleaning outcompetes Wander/Relax/etc. See
+		## NPC.CLUTTER_URGENCY_STEP's own comment for the derivation.
+		var urgency_mult: float = 1.0 + float(JobBoard.get_total_clutter_count()) * NPC.CLUTTER_URGENCY_STEP
 		return NPC.CLEANING_BASE_SCORE * npc.get_work_ethic_job_mult() \
 			* npc.get_job_priority_weight("CLEANING") * urgency_mult
 
