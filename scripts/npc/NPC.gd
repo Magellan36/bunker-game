@@ -1948,6 +1948,20 @@ const STUCK_NUDGE_DISTANCE: float = 0.6
 var _stuck_streak_obstruction_id: int = -1
 var _stuck_streak_count: int = 0
 
+## Aug 2026 — separate streak for "blocked by ANOTHER NPC," not an item.
+## _find_stuck_obstruction() only ever detects RigidBody3D colliders, so
+## it never identifies another NPC (CharacterBody3D) as the cause —
+## several NPCs converging on the same clutter hotspot and physically
+## boxing each other in showed up as an unidentifiable ("?") obstruction
+## every single time, which meant the old fallback (a RANDOM-direction
+## nudge) had real odds of shoving an NPC straight into someone else —
+## exactly the reported "shuffling around each other" behavior. This
+## streak lets a repeated NPC-on-NPC jam escalate to a bigger, more
+## decisive displacement instead of a lot of small ineffective ones.
+const STUCK_NPC_BACKOFF_AFTER: int = 2
+const STUCK_NPC_BACKOFF_DISTANCE: float = 2.5
+var _stuck_npc_streak: int = 0
+
 func _tick_stuck_recovery(delta: float) -> void:
 	## Part 18 — gate on _movement_locked, not nav_finished(). Drink/Eat/
 	## Job-work all stop the NPC via their OWN range checks (PICKUP_RANGE,
@@ -1980,15 +1994,41 @@ func _tick_stuck_recovery(delta: float) -> void:
 		## was left over from an old, now-resolved streak.
 		_stuck_streak_obstruction_id = -1
 		_stuck_streak_count = 0
+		_stuck_npc_streak = 0
 
 func _recover_from_stuck() -> void:
 	_stuck_recoveries += 1
 	NPCDebug.log_stuck(self)
 	var stuck_item: RigidBody3D = _find_stuck_obstruction()
+	var stuck_npc: CharacterBody3D = null
+	if stuck_item == null:
+		stuck_npc = _find_stuck_obstruction_npc()
 	if brain != null:
 		brain.stop_current()
 	velocity.x = 0.0
 	velocity.z = 0.0
+
+	if stuck_npc != null:
+		## Aug 2026 — blocked by ANOTHER NPC, not an item. Forcing a
+		## CleaningActivity here would do nothing useful — the problem
+		## isn't a target to pick up, it's a crowd to get out of. Nudge
+		## directly away from the SPECIFIC NPC that's in the way (not a
+		## random direction — a directed nudge actually creates
+		## separation instead of a coin-flip chance of shoving into
+		## someone else). A repeated jam (STUCK_NPC_BACKOFF_AFTER in a
+		## row) escalates to a bigger, more decisive displacement rather
+		## than a lot of small ineffective ones.
+		_stuck_npc_streak += 1
+		_stuck_streak_obstruction_id = -1
+		_stuck_streak_count = 0
+		if NPCDebug.enabled:
+			NPCDebug.log_stuck_escalation(self, stuck_npc, _stuck_npc_streak)
+		var backoff: float = STUCK_NPC_BACKOFF_DISTANCE if _stuck_npc_streak >= STUCK_NPC_BACKOFF_AFTER else STUCK_NUDGE_DISTANCE
+		_nudge_free_of_obstruction(stuck_npc, backoff)
+		if _stuck_npc_streak >= STUCK_NPC_BACKOFF_AFTER:
+			_stuck_npc_streak = 0
+		return
+	_stuck_npc_streak = 0
 
 	var obstruction_id: int = stuck_item.get_instance_id() if stuck_item != null else -1
 	if obstruction_id != -1 and obstruction_id == _stuck_streak_obstruction_id:
@@ -2016,7 +2056,7 @@ func _recover_from_stuck() -> void:
 	## stuck event later still gets its own full set of tries.
 	if NPCDebug.enabled:
 		NPCDebug.log_stuck_escalation(self, stuck_item, _stuck_streak_count)
-	_nudge_free_of_obstruction(stuck_item)
+	_nudge_free_of_obstruction(stuck_item, STUCK_NUDGE_DISTANCE)
 	_stuck_streak_obstruction_id = -1
 	_stuck_streak_count = 0
 
@@ -2024,17 +2064,20 @@ func _recover_from_stuck() -> void:
 ## normal collision-respecting movement entirely, which is the point: a
 ## wedged NPC can't walk itself out, so this moves it out instead. Falls
 ## back to a random horizontal direction if no obstruction is known
-## (e.g. the last few recoveries found nothing specific).
-func _nudge_free_of_obstruction(stuck_item: RigidBody3D) -> void:
+## (e.g. the last few recoveries found nothing specific). Aug 2026 —
+## `distance` param (was always STUCK_NUDGE_DISTANCE before) and the
+## type widened from RigidBody3D to Node3D so this can also be called
+## with another NPC (CharacterBody3D) as the obstruction.
+func _nudge_free_of_obstruction(obstruction: Node3D, distance: float = STUCK_NUDGE_DISTANCE) -> void:
 	var away: Vector3
-	if stuck_item != null and is_instance_valid(stuck_item):
-		away = global_position - (stuck_item as Node3D).global_position
+	if obstruction != null and is_instance_valid(obstruction):
+		away = global_position - obstruction.global_position
 	else:
 		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
 	away.y = 0.0
 	if away.length() < 0.01:
 		away = Vector3(1.0, 0.0, 0.0)
-	global_position += away.normalized() * STUCK_NUDGE_DISTANCE
+	global_position += away.normalized() * distance
 
 ## Best-effort — mirrors _handle_physics_pushes()'s own collision
 ## detection. Not guaranteed to find the TRUE cause of the stall (could be
@@ -2047,6 +2090,18 @@ func _find_stuck_obstruction() -> RigidBody3D:
 		var body: Object = col.get_collider()
 		if body is RigidBody3D and not (("is_held" in body) and body.is_held) and not body.is_in_group("shelved"):
 			return body as RigidBody3D
+	return null
+
+## Aug 2026 — the NPC counterpart to _find_stuck_obstruction() above.
+## Only ever checked when that function finds nothing, so an item
+## obstruction still always takes priority when both happen to be
+## present.
+func _find_stuck_obstruction_npc() -> CharacterBody3D:
+	for i: int in get_slide_collision_count():
+		var col: KinematicCollision3D = get_slide_collision(i)
+		var body: Object = col.get_collider()
+		if body is CharacterBody3D and body != self and body.is_in_group("npc"):
+			return body as CharacterBody3D
 	return null
 
 

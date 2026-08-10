@@ -45,6 +45,8 @@ static func log_stuck_escalation(npc: Node, obstruction: Node, streak: int) -> v
 	var name: String = "?"
 	if obstruction != null and obstruction.has_method("get_display_name"):
 		name = obstruction.get_display_name()
+	elif obstruction != null and "npc_name" in obstruction:
+		name = "NPC:%s" % obstruction.npc_name   ## Aug 2026 — the new NPC-vs-NPC case, so this reads clearly instead of a raw Godot node name
 	elif obstruction != null:
 		name = str(obstruction.name)
 	print("%s STUCK ESCALATION — %s failed to clear the stall %d times in a row, nudging free instead of retrying" \

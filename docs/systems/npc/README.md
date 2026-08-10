@@ -1597,3 +1597,7 @@ without being asked.
     to "Putting away X" rather than wandering/relaxing while still
     holding it. Confirm a genuinely mid-Drink/mid-Eat/mid-GiveToFriend
     NPC is never affected.
+87. Force several NPCs to converge on the same tight clutter pile —
+    confirm STUCK ESCALATION lines now name the blocking NPC instead of
+    "?", and confirm the group actually disperses instead of shuffling
+    in place indefinitely.

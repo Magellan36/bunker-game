@@ -1,3 +1,32 @@
+## NPC: NPC-vs-NPC Crowd Gridlock Fix (Aug 2026)
+
+- Root-caused the "NPCs huddle and shuffle forever" report: multiple
+  NPCs converging on the same clutter hotspot (more likely now with the
+  clutter-urgency change) physically block EACH OTHER, but
+  _find_stuck_obstruction() only ever detects RigidBody3D colliders —
+  another NPC (CharacterBody3D) was invisible to it, always logging "?"
+  and falling back to a RANDOM-direction nudge, which had real odds of
+  shoving an NPC straight into someone else.
+- Added _find_stuck_obstruction_npc() and a separate NPC-blocking streak
+  (_stuck_npc_streak). Now nudges directly away from the specific
+  blocking NPC (not randomly), and escalates to a larger, more decisive
+  displacement (STUCK_NPC_BACKOFF_DISTANCE, 2.5m) after
+  STUCK_NPC_BACKOFF_AFTER (2) repeated jams instead of many small
+  ineffective ones.
+- _nudge_free_of_obstruction() now takes a distance parameter and a
+  Node3D obstruction (was hardcoded to STUCK_NUDGE_DISTANCE and typed to
+  RigidBody3D only).
+- Known limitation, not addressed here: this is reactive (escape once
+  crowded), not preventive (nothing stops multiple NPCs choosing the
+  same hotspot in the first place). Flagged for a possible future
+  target-selection-side pass if still an issue after this lands.
+
+Files touched: `scripts/npc/NPC.gd`, `scripts/npc/NPCDebug.gd`.
+
+---
+
+---
+
 ## NPC: Clutter-Driven Cleaning Urgency + Held-Item Safety Net (Aug 2026)
 
 - CleaningActivity.score() now scales with JobBoard.get_total_clutter_
