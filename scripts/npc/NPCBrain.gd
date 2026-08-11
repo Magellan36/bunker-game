@@ -1064,7 +1064,7 @@ class CleaningActivity extends NPCActivity:
 					_display_name(_item), _is_trash])
 		else:
 			while true:
-				var result: Dictionary = npc.find_cleaning_target(_skipped_ids)
+				var result: Dictionary = npc.find_cleaning_target(_skipped_ids, _no_storage_categories)
 				if result.is_empty():
 					_finished = true
 					_item = null

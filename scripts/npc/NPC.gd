@@ -1286,7 +1286,17 @@ func has_cleaning_target_available() -> bool:
 ## wedged in the center." Falls back to the plain nearest item if every
 ## candidate looks equally blocked (better to try SOMETHING than return
 ## nothing).
-func find_cleaning_target(exclude_ids: Dictionary = {}) -> Dictionary:
+## Aug 2026 — new `exclude_categories` param (light/heavy): skips
+## organizable candidates in an already-confirmed-hopeless category
+## BEFORE they're ever added to the candidate list, so they never get
+## raycasted (_has_clear_approach()) or re-selected at all. Without this,
+## CleaningActivity's retry loop was re-evaluating every remaining item
+## from scratch on every failed attempt — on a level with zero storage
+## anywhere, that meant up to N full raycast-driven candidate scans
+## synchronously in one frame (N = organizable item count), which is a
+## real, measurable frame stall, not a false alarm — root-caused from a
+## live debug capture, not a guess.
+func find_cleaning_target(exclude_ids: Dictionary = {}, exclude_categories: Dictionary = {}) -> Dictionary:
 	var candidates: Array = []
 	for item: Node in JobBoard.get_trash_items():
 		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
@@ -1299,6 +1309,8 @@ func find_cleaning_target(exclude_ids: Dictionary = {}) -> Dictionary:
 		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
 			continue
 		if exclude_ids.has(item.get_instance_id()) or _cleaning_blacklist.has(item.get_instance_id()):
+			continue
+		if not exclude_categories.is_empty() and exclude_categories.has(_classify_organizable_item(item)):
 			continue
 		candidates.append({"item": item, "is_trash": false,
 			"d": NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)})

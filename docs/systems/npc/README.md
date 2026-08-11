@@ -1631,3 +1631,8 @@ without being asked.
     rather than looping), and confirm an explicit "Plant seeds" request
     for a different type skips that locked cell rather than overriding
     the lock.
+96. On a level with clutter but zero shelving/light storage anywhere,
+    watch NPC movement while Cleaning sessions repeatedly start and
+    immediately end — confirm no frame stall/snapping, and confirm the
+    console shows at most one "no storage for category" line per
+    category per session, not one per item.

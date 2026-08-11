@@ -1,3 +1,23 @@
+## NPC: Fixed Cleaning Frame-Stall on No-Storage Levels (Aug 2026)
+
+- Root-caused a real performance bug from a live debug capture:
+  CleaningActivity._pick_next_target()'s retry loop re-evaluated every
+  remaining organizable item from scratch on every failed attempt
+  (including a fresh raycast-driven candidate search per item), even
+  after a category was already confirmed hopeless this session. On a
+  level with clutter but zero storage anywhere, this meant a
+  synchronous burst of up to N full candidate scans in one frame,
+  presenting as "1fps snapping" every time a Cleaning session started.
+- find_cleaning_target() now takes an exclude_categories param
+  (NPC.gd) — CleaningActivity passes its own _no_storage_categories in,
+  so a confirmed-hopeless category's items are filtered out before ever
+  being raycasted or re-selected. Bounded by category count (2), not
+  item count, regardless of clutter volume.
+
+Files touched: `scripts/npc/NPC.gd`, `scripts/npc/NPCBrain.gd`.
+
+---
+
 ## NPC: Gardening Migrated to Per-Cell Farming API + Seed Locks (Aug 2026)
 
 - Reconciled with the Farming thread's per-cell FarmingTray API
