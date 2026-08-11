@@ -81,6 +81,10 @@ func get_use_prompt() -> String:
 		return ""
 	return "[E] Fill Tray with Soil"
 
+## Aug 2026 per-cell interaction pass — targets the single tray cell
+## nearest to this held item (== roughly the player's hand position), not
+## "the tray's first open cell". A double tray fills whichever side the
+## player is standing closer to.
 func on_use() -> void:
 	var tray: FarmingTray = _find_nearest_tray_needing_soil()
 	if tray == null:
@@ -89,7 +93,8 @@ func on_use() -> void:
 			hud.show_soft_warning("No tray needing soil nearby")
 		return
 
-	if not tray.fill_first_open_soil_cell():
+	var cell_index: int = tray.nearest_open_soil_cell_to(global_position)
+	if cell_index < 0 or not tray.fill_soil_at_cell(cell_index):
 		return
 
 	_charges -= 1

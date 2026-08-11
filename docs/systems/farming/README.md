@@ -363,6 +363,35 @@ audited this pass:
   items even though a stacked shelf slot now represents more total
   plantings/fills than before — flagged, not silently tuned.
 
+## Per-cell seed lock + per-cell interaction (Aug 2026)
+- **Seed lock** — `FarmingTray.cell_seed_lock: Array[String]`, one entry
+  per cell, `""` = Any. Set via a new dropdown per cell in
+  `FarmingTrayUI._draw_plant_block()`/`_draw_empty_cell_block()`, backed by
+  a real `OptionButton` positioned in `_reposition_controls()`. Options are
+  built from `FarmingTrayUI._get_available_seed_types()` — every `SeedItem`
+  in the `"inventory_item"` group (inventory + shelved + dropped, all use
+  that group) with `_charges > 0`, deduped by `seed_type`. **This lock only
+  constrains the NPC thread's own auto-planting job discovery/dispatch —
+  it is read-only data from this system's perspective and does NOT gate
+  `FarmingTray.plant_seed_at_cell()`, so the player's manual `SeedItem`/
+  `FarmProduceItem.on_use()` always ignores it.** In-session only — not
+  wired into save/load, same gap category as the rest of this system's
+  per-cell state (see "Known gaps" below).
+- **Per-cell interaction** — soil-fill, seed-plant, and harvest all now
+  resolve to exactly ONE cell per action, via
+  `FarmingTray.nearest_cell_to()`/`nearest_open_soil_cell_to()`/
+  `nearest_open_plantable_cell_to()` (XZ-distance to the acting entity's
+  position — the held item's `global_position` for the player, and,
+  going forward, the acting NPC's position for NPC jobs). A double tray
+  now behaves as two fully independent 1×1 cells for every action except
+  the `FarmingTrayUI` "Tray Info" panel, which still shows both cells at
+  once. `FarmingTray.fill_first_open_soil_cell()`/`plant_first_open_cell()`
+  (tray-wide "first open cell") were removed and replaced with indexed
+  `fill_soil_at_cell(cell_index)`/`plant_seed_at_cell(cell_index, type)`.
+  **`FertilizerItem`/`fertilize_first_open_cell()` were deliberately left
+  on the old tray-wide pattern this pass** — flagged as inconsistent with
+  the rest of the tray now, not yet fixed.
+
 ## Known gaps (explicitly out of scope for this pass)
 - **Persistence**: trays/grow lights themselves save/restore fine as
   ordinary `BuildModeController._placed_objects` entries, but per-cell
@@ -373,3 +402,8 @@ audited this pass:
 - **Group 7 items** (double-stack grow-light guard, save schema pre-shape,
   tray deconstruct/refund rule, `get_trays_needing_attention()`) — the last
   remaining group, not yet started.
+- **Fertilizer per-cell consistency** — `FertilizerItem`/
+  `FarmingTray.fertilize_first_open_cell()` still use the tray-wide
+  "first open cell" pattern that soil/seed/harvest moved away from in the
+  Aug 2026 per-cell interaction pass (see that section above). Flagged,
+  not yet converted.

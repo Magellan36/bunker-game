@@ -48,6 +48,18 @@ var assigned_plant_type: Array[String] = []
 ## planted there, it starts already fertilized.
 var cell_prepped_fertilizer: Array[String] = []
 
+## Seed Lock plan (Aug 2026) — per-cell NPC auto-plant restriction. ""
+## means "Any" (unrestricted, NPC will plant whatever the JobBoard/NPC
+## logic picks). A non-empty value is a PlantDatabase plant_type key
+## (e.g. "onion") — the ONLY type the NPC's future auto-planting job is
+## allowed to plant into this specific cell. Deliberately does NOT gate
+## the player's own manual SeedItem/FarmProduceItem on_use() — the player
+## can always plant by hand regardless of this value (confirmed with
+## Brannon). In-session only for now — not wired into save/load, matching
+## the tray's existing soil_filled/planted_type gap (see "Known gaps" in
+## docs/systems/farming/README.md).
+var cell_seed_lock: Array[String] = []
+
 ## Nearest-valid-tray highlight (Polish Plan Group 5 item 12) — driven
 ## externally by BagOfSoilItem/SeedItem while held, mirroring their existing
 ## "nearest in range" lookups. Pulses a translucent green outline over the
@@ -96,6 +108,7 @@ func _ready() -> void:
 	planted_type.resize(cell_count)
 	plant_refs.resize(cell_count)
 	cell_prepped_fertilizer.resize(cell_count)
+	cell_seed_lock.resize(cell_count)
 	_soil_mesh_instances.resize(cell_count)
 	last_planted_type.resize(cell_count)
 	assigned_plant_type.resize(cell_count)
@@ -104,6 +117,7 @@ func _ready() -> void:
 		planted_type[i] = ""
 		plant_refs[i]   = null
 		cell_prepped_fertilizer[i] = ""
+		cell_seed_lock[i] = ""
 		_soil_mesh_instances[i] = null
 		last_planted_type[i] = ""
 		assigned_plant_type[i] = ""
@@ -200,15 +214,19 @@ func is_fully_soiled() -> bool:
 			return false
 	return true
 
-## Fills the first unsoiled cell. Returns true if a cell was filled.
-func fill_first_open_soil_cell() -> bool:
-	for i: int in range(cell_count):
-		if not soil_filled[i]:
-			soil_filled[i] = true
-			_refresh_soil_visual(i)
-			_play_soil_fill_puff(i)
-			return true
-	return false
+## Fills exactly the given cell. Returns true on success. Replaces the old
+## tray-wide fill_first_open_soil_cell() (Aug 2026 per-cell interaction
+## pass) — callers now resolve WHICH cell via nearest_open_soil_cell_to()
+## first, then commit here.
+func fill_soil_at_cell(cell_index: int) -> bool:
+	if cell_index < 0 or cell_index >= cell_count:
+		return false
+	if soil_filled[cell_index]:
+		return false
+	soil_filled[cell_index] = true
+	_refresh_soil_visual(cell_index)
+	_play_soil_fill_puff(cell_index)
+	return true
 
 ## Soil-fill dust-puff (Polish Plan Group 3 item 7) — cosmetic only, no sound
 ## (project has no audio infrastructure yet at all; flagged as a scope call
@@ -279,23 +297,32 @@ func fertilize_first_open_cell(tier: String) -> bool:
 			return true
 	return false
 
-## Plants into the first open (soiled, unplanted) cell. Returns true on success.
-func plant_first_open_cell(plant_type: String) -> bool:
-	for i: int in range(cell_count):
-		if soil_filled[i] and planted_type[i] == "":
-			planted_type[i] = plant_type
-			last_planted_type[i] = plant_type   ## Aug 2026 — survives the eventual harvest, unlike planted_type
-			var plant: FarmPlant = FarmPlant.new()
-			add_child(plant)
-			plant.setup(self, i, plant_type)
-			plant.position = Vector3(_cell_local_x(i), SOIL_LAYER_Y, 0.0)
-			plant_refs[i] = plant
-			## B7 — if this cell had prepped fertilizer, apply it now and clear it
-			if cell_prepped_fertilizer[i] != "":
-				plant.apply_fertilizer(cell_prepped_fertilizer[i])
-				cell_prepped_fertilizer[i] = ""
-			return true
-	return false
+## Plants into exactly the given cell (must already be soiled and empty).
+## Returns true on success. Replaces the old tray-wide plant_first_open_cell()
+## (Aug 2026 per-cell interaction pass) — callers now resolve WHICH cell via
+## nearest_open_plantable_cell_to() first, then commit here. Deliberately
+## does NOT consult cell_seed_lock — the lock only constrains the NPC
+## thread's own job-discovery/dispatch logic (their choice of WHICH job to
+## post/claim), never this low-level mutator. A player (or, per the NPC
+## thread's own future logic, an NPC executing a job it already chose)
+## calling this directly always succeeds regardless of any lock set here.
+func plant_seed_at_cell(cell_index: int, plant_type: String) -> bool:
+	if cell_index < 0 or cell_index >= cell_count:
+		return false
+	if not soil_filled[cell_index] or planted_type[cell_index] != "":
+		return false
+	planted_type[cell_index] = plant_type
+	last_planted_type[cell_index] = plant_type   ## Aug 2026 — survives the eventual harvest, unlike planted_type
+	var plant: FarmPlant = FarmPlant.new()
+	add_child(plant)
+	plant.setup(self, cell_index, plant_type)
+	plant.position = Vector3(_cell_local_x(cell_index), SOIL_LAYER_Y, 0.0)
+	plant_refs[cell_index] = plant
+	## B7 — if this cell had prepped fertilizer, apply it now and clear it
+	if cell_prepped_fertilizer[cell_index] != "":
+		plant.apply_fertilizer(cell_prepped_fertilizer[cell_index])
+		cell_prepped_fertilizer[cell_index] = ""
+	return true
 
 ## Aug 2026 — what type should go in the NEXT open plantable cell, in
 ## priority order: assigned_plant_type (future feature, see its own
@@ -322,43 +349,117 @@ func clear_cell(cell_index: int) -> void:
 	planted_type[cell_index] = ""
 	plant_refs[cell_index]   = null
 	cell_prepped_fertilizer[cell_index] = ""
+	## Seed Lock plan — deliberately NOT cleared on harvest/death. A lock
+	## is a standing instruction ("always replant onions here"), not a
+	## one-shot flag, so it survives the cell going empty and applies to
+	## the next auto-plant too.
+
+## ─── Seed Lock (used by FarmingTrayUI, read by the NPC thread) ──────────────
+## "" = Any/unrestricted. Non-empty = a PlantDatabase plant_type key. Does
+## NOT gate FarmingTray.plant_seed_at_cell() — see that function's own
+## comment. Purely a read/write data field for the NPC thread's future
+## PLANT_SEED job discovery to consult.
+func get_cell_seed_lock(cell_index: int) -> String:
+	if cell_index < 0 or cell_index >= cell_count:
+		return ""
+	return cell_seed_lock[cell_index]
+
+func set_cell_seed_lock(cell_index: int, seed_type: String) -> void:
+	if cell_index < 0 or cell_index >= cell_count:
+		return
+	cell_seed_lock[cell_index] = seed_type
 
 func _cell_local_x(cell_index: int) -> float:
 	if cell_count == 1:
 		return 0.0
 	return -0.475 if cell_index == 0 else 0.475
 
+# ─── Per-cell targeting (Aug 2026 — treat a double tray as two independent
+# 1×1 cells for every action: soil, seed, harvest. A single tray always
+# resolves to cell 0. XZ-only distance (matches every other horizontal-only
+# proximity check in this file, e.g. GrowLight's own XZ match) — Y doesn't
+# matter since cells never differ in height. Used by held items (their own
+# global_position while held) and, going forward, by NPC job execution
+# (their own global_position at time of acting). ────────────────────────────
+func nearest_cell_to(pos: Vector3) -> int:
+	if cell_count == 1:
+		return 0
+	var best_i: int = 0
+	var best_d: float = INF
+	for i: int in range(cell_count):
+		var cell_pos: Vector3 = to_global(Vector3(_cell_local_x(i), 0.0, 0.0))
+		var d: float = Vector2(cell_pos.x, cell_pos.z).distance_to(Vector2(pos.x, pos.z))
+		if d < best_d:
+			best_d = d
+			best_i = i
+	return best_i
+
+## Same nearest-cell search, restricted to cells matching `predicate(i)`.
+## Returns -1 if no cell matches. Shared by the three typed lookups below.
+func _nearest_matching_cell(pos: Vector3, predicate: Callable) -> int:
+	var best_i: int = -1
+	var best_d: float = INF
+	for i: int in range(cell_count):
+		if not predicate.call(i):
+			continue
+		var cell_pos: Vector3 = to_global(Vector3(_cell_local_x(i), 0.0, 0.0))
+		var d: float = Vector2(cell_pos.x, cell_pos.z).distance_to(Vector2(pos.x, pos.z))
+		if d < best_d:
+			best_d = d
+			best_i = i
+	return best_i
+
+## Used by BagOfSoilItem.on_use() (and, going forward, NPC FILL_SOIL jobs).
+func nearest_open_soil_cell_to(pos: Vector3) -> int:
+	return _nearest_matching_cell(pos, func(i: int) -> bool: return not soil_filled[i])
+
+## Used by SeedItem/FarmProduceItem.on_use() (and, going forward, NPC
+## PLANT_SEED jobs).
+func nearest_open_plantable_cell_to(pos: Vector3) -> int:
+	return _nearest_matching_cell(pos, func(i: int) -> bool: return soil_filled[i] and planted_type[i] == "")
+
+## Used by on_interact()/get_interact_prompt()/get_prompt_world_pos() below
+## (bare-handed E) — resolves the single cell that this E-press addresses,
+## via the "player" group lookup convention used elsewhere in this file
+## (_show_error() looks up "hud" the same way). Falls back to cell 0 if the
+## player node can't be found for any reason.
+func _nearest_cell_to_player() -> int:
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player is Node3D:
+		return nearest_cell_to((player as Node3D).global_position)
+	return 0
+
 # ─── Interaction ──────────────────────────────────────────────────────────────
 ## Bare-handed E only — InteractionSystem routes here when held_item == null.
 ## Polish Plan Group 0 item 19: FarmPlant has no interactability of its own
 ## anymore — this is now the single E-press entry point for the whole tray.
+## Aug 2026 per-cell interaction pass — bare-handed E now always addresses
+## the ONE cell nearest the player (_nearest_cell_to_player()), never "any
+## cell"/"every ready cell". A double tray reads as two independent 1×1
+## units: standing closer to the left cell only ever fills/harvests the
+## left cell, even if the right cell also needs soil or is also ready.
 func get_interact_prompt() -> String:
-	if not is_fully_soiled():
+	var idx: int = _nearest_cell_to_player()
+	if not soil_filled[idx]:
 		return "[E] Fill with Soil"
-	if _has_ready_cell():
+	var plant: FarmPlant = plant_refs[idx]
+	if plant != null and is_instance_valid(plant) and plant.is_ready():
 		return "[E] Harvest"
 	return "[E] Tray Info"
 
-func _has_ready_cell() -> bool:
-	for plant: FarmPlant in plant_refs:
-		if plant != null and is_instance_valid(plant) and plant.is_ready():
-			return true
-	return false
-
 func on_interact() -> void:
-	if not is_fully_soiled():
+	var idx: int = _nearest_cell_to_player()
+	if not soil_filled[idx]:
 		_show_error("Tray needs soil")
 		return
 
-	## Harvest every ready cell immediately, no menu — avoids stranding a
-	## second ready cell on a double tray behind an ambiguous follow-up
-	## E-press (plan's own reasoning, Group 0 item 19).
-	var harvested_any: bool = false
-	for plant: FarmPlant in plant_refs.duplicate():
-		if plant != null and is_instance_valid(plant) and plant.is_ready():
-			plant.harvest()
-			harvested_any = true
-	if harvested_any:
+	## Harvest only the nearest cell's plant, one cell per E-press (Aug
+	## 2026 per-cell interaction pass — was "every ready cell in the tray
+	## at once"). If the player wants both cells of a double tray
+	## harvested, that's two separate E-presses, one per side.
+	var plant: FarmPlant = plant_refs[idx]
+	if plant != null and is_instance_valid(plant) and plant.is_ready():
+		plant.harvest()
 		return
 
 	if _tray_ui == null or not is_instance_valid(_tray_ui):
@@ -384,24 +485,14 @@ func _on_ui_closed() -> void:
 ## A2 — custom prompt world position so bare-handed E prompt sits above
 ## the tray basin (single) or above the used side (double) instead of the
 ## tray's center. InteractionSystem calls this via has_method() duck-typing.
+## Aug 2026 per-cell interaction pass — always anchors over whichever cell
+## _nearest_cell_to_player() resolves to, replacing the old soil-count-based
+## heuristic. This keeps the prompt, the prompt's world position, and
+## on_interact()'s actual target in permanent agreement (all three now call
+## the same resolution function).
 func get_prompt_world_pos() -> Vector3:
-	if cell_count == 1:
-		return global_position + Vector3(0.0, BASIN_TOP_Y, 0.0)
-
-	## Double tray: which cells have soil? (soil_filled OR planted counts as "used")
-	var used_count: int = 0
-	var used_index: int = -1
-	for i in range(cell_count):
-		if soil_filled[i]:
-			used_count += 1
-			used_index = i
-
-	if used_count == 1:
-		## Exactly one side used — anchor over that side
-		return global_position + Vector3(_cell_local_x(used_index), BASIN_TOP_Y, 0.0)
-
-	## Both used, or neither used — center of the tray
-	return global_position + Vector3(0.0, BASIN_TOP_Y, 0.0)
+	var idx: int = _nearest_cell_to_player()
+	return global_position + Vector3(_cell_local_x(idx), BASIN_TOP_Y, 0.0)
 
 ## Same lookup path WaterPipeDrawMode._show_error() uses — HUD's
 ## `inventory_hud` @onready child, InventoryHUD.show_error_message() convention

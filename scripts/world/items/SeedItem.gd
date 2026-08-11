@@ -82,6 +82,11 @@ func get_use_prompt() -> String:
 		return ""
 	return "[E] Plant %s (%d/%d)" % [PlantDatabase.get_display_name(seed_type), _charges, _max_charges]
 
+## Aug 2026 per-cell interaction pass — targets the single tray cell
+## nearest to this held item, not "the tray's first open cell". Note this
+## deliberately ignores FarmingTray.cell_seed_lock entirely — the lock only
+## constrains the NPC thread's own auto-planting, never the player's manual
+## on_use() (confirmed with Brannon, Seed Lock plan).
 func on_use() -> void:
 	var tray: FarmingTray = _find_nearest_plantable_tray()
 	if tray == null:
@@ -90,7 +95,8 @@ func on_use() -> void:
 			hud.show_soft_warning("No tray ready to plant nearby")
 		return
 
-	if not tray.plant_first_open_cell(seed_type):
+	var cell_index: int = tray.nearest_open_plantable_cell_to(global_position)
+	if cell_index < 0 or not tray.plant_seed_at_cell(cell_index, seed_type):
 		return
 
 	_charges -= 1

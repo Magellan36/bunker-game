@@ -84,9 +84,13 @@ func on_use() -> void:
 			CookingPot.release_from_player_hand(get_tree(), self)
 			return
 
+	## Aug 2026 per-cell interaction pass — same nearest-cell targeting as
+	## SeedItem.on_use(); also deliberately ignores cell_seed_lock for the
+	## same reason (player manual planting is never gated by the lock).
 	var tray: FarmingTray = _find_nearest_plantable_tray()
 	if tray != null:
-		if tray.plant_first_open_cell(produce_type):
+		var cell_index: int = tray.nearest_open_plantable_cell_to(global_position)
+		if cell_index >= 0 and tray.plant_seed_at_cell(cell_index, produce_type):
 			queue_free()
 		return
 

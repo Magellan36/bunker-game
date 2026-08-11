@@ -12,9 +12,13 @@ extends CanvasLayer
 ##
 ## Group 0 additions (replaces the old separate PlantInfoUI.gd panel, now
 ## deleted):
-##   19a — one inset block per occupied cell (has a live FarmPlant): plant
-##         name, "Health: X%", a flat #e3ad30 growth bar + numeric
-##         "Growth: NN%" label, and a NOT READY (red) / READY (green) line.
+##   19a — one inset block per CELL (Seed Lock plan, Aug 2026, widened from
+##         "per occupied cell"): occupied cells get plant name, "Health: X%",
+##         a flat #e3ad30 growth bar + numeric "Growth: NN%" label, and a
+##         NOT READY (red) / READY (green) line; empty cells get a shorter
+##         status-only block. Every cell's block also carries a seed-lock
+##         dropdown (NPC auto-plant restriction — see FarmingTray.gd's
+##         cell_seed_lock).
 ##   19b — an inset warning bubble shown only when water_fraction < 1.0,
 ##         mirroring the "LOAD" inline sub-panel style already used by
 ##         PowerPriorityUI.gd's toggle row (filled rect + border, not a
@@ -59,10 +63,15 @@ const CONNECTION_H: float = 40.0
 const WATER_BLOCK_H: float = 70.0   ## label + value + bar + gap
 const BUBBLE_H: float = 52.0
 const BUBBLE_GAP_AFTER: float = 16.0
-const PLANT_BLOCK_H: float = 126.0   ## Polish Plan Group 1 item 4: +16 for the "Ready in ~X days" line; Fertilizer plan: +18 for the fertilized-status line
+## Seed Lock plan (Aug 2026) — +34 to PLANT_BLOCK_H for the seed-lock
+## dropdown row appended to every cell block (occupied or empty).
+const PLANT_BLOCK_H: float = 160.0   ## was 126 (Fertilizer plan) — +34 seed-lock row
+const EMPTY_CELL_BLOCK_H: float = 96.0   ## title + status line + seed-lock row, no growth/health
 const PLANT_BLOCK_GAP: float = 10.0
 const PRIORITY_BLOCK_H: float = 112.0
 const BOTTOM_PAD: float = 20.0
+const SEED_LOCK_DD_H: float = 28.0
+const SEED_LOCK_LABEL_H: float = 16.0   ## "SEED LOCK" label above the dropdown
 
 var _tray: FarmingTray = null
 var _is_open: bool = false
@@ -74,6 +83,17 @@ var _canvas:    Control = null
 var _close_btn: Button  = null
 var _dec_btn:   Button  = null
 var _inc_btn:   Button  = null
+
+## Seed Lock plan (Aug 2026) — one dropdown per cell (index 0 = left/only
+## cell, index 1 = right cell on a double tray, hidden entirely on single
+## trays). Each entry in _seed_lock_options[i] is a parallel array to the
+## OptionButton's own items: index 0 is always "" (Any), the rest are
+## PlantDatabase plant_type keys for whatever's currently in stock (plus
+## the currently-locked type even if out of stock — see
+## _refresh_seed_lock_dropdown()). Rebuilt only when the underlying list
+## actually changes, so an open popup never gets yanked shut mid-frame.
+var _seed_lock_dd:      Array[OptionButton] = [null, null]
+var _seed_lock_options: Array = [[], []]   ## Array[Array[String]], parallel to each dd's items
 
 func _ready() -> void:
 	layer   = 60
@@ -113,6 +133,24 @@ func _build_controls() -> void:
 	_close_btn.pressed.connect(close)
 	add_child(_close_btn)
 
+	## Seed Lock plan — two dropdowns built up front (cell 1's is hidden
+	## via _reposition_controls() on single trays), styled with the
+	## project's existing settings_controls_theme() so OptionButton stops
+	## using Godot's default grey chrome (same theme GraphicsSettingsPanel
+	## already applies to its own OptionButtons).
+	var dd_theme: Theme = UIKit.settings_controls_theme()
+	for i: int in range(2):
+		var dd: OptionButton = OptionButton.new()
+		dd.theme        = dd_theme
+		dd.mouse_filter = Control.MOUSE_FILTER_STOP
+		dd.focus_mode   = Control.FOCUS_NONE
+		dd.fit_to_longest_item = false
+		dd.clip_text    = true
+		var captured_i: int = i
+		dd.item_selected.connect(func(index: int) -> void: _on_seed_lock_selected(captured_i, index))
+		add_child(dd)
+		_seed_lock_dd[i] = dd
+
 func open(tray: FarmingTray) -> void:
 	_tray    = tray
 	_is_open = true
@@ -121,6 +159,16 @@ func open(tray: FarmingTray) -> void:
 	_close_btn.visible = true
 	_dec_btn.visible   = true
 	_inc_btn.visible   = true
+	_seed_lock_dd[0].visible = true
+	_seed_lock_dd[1].visible = tray.cell_count == 2
+	## Force a full rebuild on open (bypasses the "no change" skip in
+	## _refresh_seed_lock_dropdown() by clearing the cache first) so a
+	## freshly-opened panel never shows a stale list from whatever tray
+	## was open last.
+	_seed_lock_options = [[], []]
+	_refresh_seed_lock_dropdown(0)
+	if tray.cell_count == 2:
+		_refresh_seed_lock_dropdown(1)
 	_reposition_controls()
 	UIFade.fade_in(_canvas)
 	_canvas.queue_redraw()
@@ -132,6 +180,8 @@ func close() -> void:
 	_close_btn.visible = false
 	_dec_btn.visible   = false
 	_inc_btn.visible   = false
+	_seed_lock_dd[0].visible = false
+	_seed_lock_dd[1].visible = false
 	closed.emit()
 
 func is_open() -> bool:
@@ -159,6 +209,13 @@ func _process(_delta: float) -> void:
 	if _tray == null or not is_instance_valid(_tray):
 		close()
 		return
+	## Live-refresh (Seed Lock plan) — the player can pick up/drop/use
+	## seeds while this panel is open (e.g. walk to a shelf mid-session),
+	## so the available-types list needs to track that. Cheap no-op most
+	## frames thanks to the option-set comparison inside the function.
+	_refresh_seed_lock_dropdown(0)
+	if _tray.cell_count == 2:
+		_refresh_seed_lock_dropdown(1)
 	_reposition_controls()
 	_canvas.queue_redraw()
 
@@ -174,24 +231,105 @@ func _apply_priority(delta: int) -> void:
 	_tray.priority = clampi(_tray.priority + delta, PRIORITY_MIN, PRIORITY_MAX)
 	_canvas.queue_redraw()
 
+## Seed Lock plan — writes straight through to the tray on selection.
+## `option_index` is an index into _seed_lock_options[cell_index], NOT a
+## plant_type — index 0 is always "" (Any).
+func _on_seed_lock_selected(cell_index: int, option_index: int) -> void:
+	if _tray == null or not is_instance_valid(_tray):
+		return
+	var options: Array = _seed_lock_options[cell_index]
+	if option_index < 0 or option_index >= options.size():
+		return
+	_tray.set_cell_seed_lock(cell_index, String(options[option_index]))
+
+## Seed Lock plan — every SeedItem instance anywhere in the bunker
+## (inventory, shelved, or dropped all use the same "inventory_item" group
+## membership — see SeedItem._ready()) with charges remaining. Returns
+## unique plant_type keys, alphabetically sorted by display name for a
+## stable, readable dropdown order.
+func _get_available_seed_types() -> Array[String]:
+	var seen: Dictionary = {}
+	for node: Node in get_tree().get_nodes_in_group("inventory_item"):
+		if node is SeedItem and "_charges" in node and node._charges > 0:
+			seen[(node as SeedItem).seed_type] = true
+	var types: Array[String] = []
+	for t: String in seen.keys():
+		types.append(t)
+	types.sort_custom(func(a: String, b: String) -> bool:
+		return PlantDatabase.get_display_name(a) < PlantDatabase.get_display_name(b))
+	return types
+
+## Seed Lock plan — rebuilds dd's item list ONLY when the underlying set of
+## options actually changed (compares against _seed_lock_options[cell_index]
+## first), so an open popup is never yanked shut by a same-value refresh.
+## Always keeps the CURRENTLY LOCKED type visible even if it's out of
+## stock right now (a lock is a standing instruction, not tied to current
+## inventory — see FarmingTray.cell_seed_lock's own comment), tagged
+## "(none in stock)" so the player understands why the plant hasn't shown
+## up yet.
+func _refresh_seed_lock_dropdown(cell_index: int) -> void:
+	var dd: OptionButton = _seed_lock_dd[cell_index]
+	if dd == null or _tray == null or not is_instance_valid(_tray):
+		return
+
+	var current_lock: String = _tray.get_cell_seed_lock(cell_index)
+	var available: Array[String] = _get_available_seed_types()
+
+	var new_options: Array = [""]   ## index 0 always "Any"
+	for t: String in available:
+		new_options.append(t)
+	if current_lock != "" and not (current_lock in available):
+		new_options.append(current_lock)
+
+	if new_options == _seed_lock_options[cell_index]:
+		## No change to the option SET — but the lock itself could still
+		## have changed (e.g. cleared elsewhere) on a rare path; keep
+		## selection in sync without touching item_count/items.
+		var idx: int = new_options.find(current_lock)
+		if idx >= 0 and dd.selected != idx:
+			dd.select(idx)
+		return
+
+	_seed_lock_options[cell_index] = new_options
+	dd.clear()
+	for i: int in range(new_options.size()):
+		var val: String = String(new_options[i])
+		if val == "":
+			dd.add_item("Any (NPC auto-plant)")
+		elif val == current_lock and not (val in available):
+			dd.add_item("%s (none in stock)" % PlantDatabase.get_display_name(val))
+		else:
+			dd.add_item(PlantDatabase.get_display_name(val))
+	var sel_idx: int = new_options.find(current_lock)
+	dd.select(maxi(sel_idx, 0))
+
 ## Shared occupied-cell/bubble/height computation — used to keep the real
 ## Button children and the hand-drawn content in perfect agreement every
 ## frame (occupied cell count and the water bubble can both change live
 ## while the panel is open: growth ticks, harvests, water fraction shifts).
+## Seed Lock plan — every cell now draws a block (occupied cells get the
+## taller plant-info block, empty cells get the shorter EMPTY_CELL_BLOCK_H
+## block), not just occupied ones, since the seed-lock dropdown must be
+## reachable regardless of whether anything's currently planted there.
 func _layout_metrics(t: FarmingTray) -> Dictionary:
 	var occupied: int = 0
-	for plant: FarmPlant in t.plant_refs:
+	var cells_h: float = 0.0
+	for i: int in range(t.cell_count):
+		var plant: FarmPlant = t.plant_refs[i]
 		if plant != null and is_instance_valid(plant):
 			occupied += 1
+			cells_h += PLANT_BLOCK_H
+		else:
+			cells_h += EMPTY_CELL_BLOCK_H
+	if t.cell_count > 1:
+		cells_h += float(t.cell_count - 1) * PLANT_BLOCK_GAP
 
 	var show_bubble: bool = t.get_water_fraction() < 1.0
 
 	var h: float = TOP_PAD + HEADER_H + CONNECTION_H + WATER_BLOCK_H
 	if show_bubble:
 		h += BUBBLE_H + BUBBLE_GAP_AFTER
-	h += float(occupied) * PLANT_BLOCK_H + (maxf(0.0, float(occupied) - 1.0)) * PLANT_BLOCK_GAP
-	if occupied > 0:
-		h += PLANT_BLOCK_GAP   ## gap between plant blocks and priority section
+	h += cells_h + PLANT_BLOCK_GAP   ## gap between cell blocks and priority section
 	h += PRIORITY_BLOCK_H + BOTTOM_PAD
 
 	return {
@@ -221,6 +359,27 @@ func _reposition_controls() -> void:
 	_inc_btn.position = Vector2(px + PANEL_W - 36.0 - arrow_sz.x, arrow_y)
 	_style_arrow_btn(_dec_btn, _tray.priority > PRIORITY_MIN)
 	_style_arrow_btn(_inc_btn, _tray.priority < PRIORITY_MAX)
+
+	## Seed Lock plan — positioned via the same running-cy walk _on_draw()
+	## uses, recomputed independently here since Button children can't be
+	## positioned from inside a `draw`-signal callback. Must stay in exact
+	## sync with _on_draw()'s own cy math below (both start from the same
+	## TOP_PAD/HEADER_H/CONNECTION_H/WATER_BLOCK_H/bubble header and walk
+	## the same per-cell block heights) — if you change one, change both.
+	var cell_cy: float = py + 26.0 + HEADER_H + CONNECTION_H + WATER_BLOCK_H
+	if bool(_layout_metrics(_tray)["show_bubble"]):
+		cell_cy += BUBBLE_H + BUBBLE_GAP_AFTER
+	var dd_w: float = PANEL_W - 48.0 - 12.0
+	for i: int in range(_tray.cell_count):
+		var plant: FarmPlant = _tray.plant_refs[i]
+		var occupied_here: bool = plant != null and is_instance_valid(plant)
+		var block_h: float = PLANT_BLOCK_H if occupied_here else EMPTY_CELL_BLOCK_H
+		var dd: OptionButton = _seed_lock_dd[i]
+		dd.position = Vector2(px + 24.0 + 6.0, cell_cy + block_h - SEED_LOCK_DD_H - 10.0)
+		dd.size     = Vector2(dd_w, SEED_LOCK_DD_H)
+		cell_cy += block_h
+		if i < _tray.cell_count - 1:
+			cell_cy += PLANT_BLOCK_GAP
 
 func _style_arrow_btn(btn: Button, enabled: bool) -> void:
 	btn.disabled = not enabled
@@ -299,15 +458,15 @@ func _on_draw() -> void:
 		_draw_wrapped(msg, Vector2(text_x, text_y), wrap_w, WARN_COLOR, 10)
 		cy += BUBBLE_H + BUBBLE_GAP_AFTER
 
-	## 19a — one inset block per occupied cell (has a live FarmPlant).
-	var occupied: int = int(metrics["occupied"])
-	if occupied > 0:
-		for i: int in range(t.cell_count):
-			var plant: FarmPlant = t.plant_refs[i]
-			if plant == null or not is_instance_valid(plant):
-				continue
+	## 19a, extended by the Seed Lock plan — one block per cell now,
+	## occupied or not, so the seed-lock dropdown is always reachable.
+	for i: int in range(t.cell_count):
+		var plant: FarmPlant = t.plant_refs[i]
+		if plant != null and is_instance_valid(plant):
 			cy = _draw_plant_block(plant, cx, cy, bar_w)
-		cy += PLANT_BLOCK_GAP
+		else:
+			cy = _draw_empty_cell_block(t, i, cx, cy, bar_w)
+	cy += PLANT_BLOCK_GAP
 
 	## Priority.
 	_draw_str("PRIORITY", Vector2(cx, cy), _theme.dim, 10)
@@ -391,8 +550,39 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 		_draw_str(fert_label, Vector2(bx, by), READY_COLOR, 11)
 	else:
 		_draw_str("Not Fertilized", Vector2(bx, by), _theme.dim, 11)
+	by += 22.0
+
+	## Seed Lock plan — label sits directly above the real OptionButton
+	## positioned by _reposition_controls(); wording makes the NPC-only
+	## scope explicit right where the player sets it.
+	_draw_str("SEED LOCK (NPC auto-plant only)", Vector2(bx, by), _theme.dim, 9)
 
 	return cy + PLANT_BLOCK_H
+
+## Empty-cell counterpart to _draw_plant_block() — Seed Lock plan. Drawn
+## for any cell with no live FarmPlant (unsoiled, or soiled-but-unplanted).
+## Shorter than a plant block (no health/growth/ready/fertilized rows) but
+## still carries the seed-lock dropdown, since a lock is meant to be set
+## BEFORE something is planted.
+func _draw_empty_cell_block(t: FarmingTray, cell_index: int, cx: float, cy: float, bar_w: float) -> float:
+	var block_rect: Rect2 = Rect2(cx - 4.0, cy - 4.0, bar_w + 8.0, EMPTY_CELL_BLOCK_H - PLANT_BLOCK_GAP)
+	_canvas.draw_rect(block_rect, Color(0.09, 0.10, 0.11, 0.70), true)
+	_canvas.draw_rect(block_rect, Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45), false, 1.0)
+
+	var bx: float = cx + 6.0
+	var by: float = cy + 12.0
+
+	var title: String = ("CELL %d" % (cell_index + 1)) if t.cell_count > 1 else "CELL"
+	_draw_str(title, Vector2(bx, by), _theme.header, 12)
+	by += 20.0
+
+	var status: String = "Needs Soil" if not t.soil_filled[cell_index] else "Empty — Ready to Plant"
+	_draw_str(status, Vector2(bx, by), _theme.dim, 11)
+	by += 26.0
+
+	_draw_str("SEED LOCK (NPC auto-plant only)", Vector2(bx, by), _theme.dim, 9)
+
+	return cy + EMPTY_CELL_BLOCK_H
 
 ## Simple word-wrap for the 19b warning bubble — same font size the caller
 ## draws at, wraps to fit `max_w`, one shadowed line per row.
