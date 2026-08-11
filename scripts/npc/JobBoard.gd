@@ -15,8 +15,11 @@ extends Node
 ##   fetch_filter Callable or null — matches the item that must be carried
 ##   claimed_by   Node    — NPC or null
 ##
-## FUTURE WORK: planting, cooking, water-collection, repair jobs — each is
+## FUTURE WORK: cooking, water-collection, repair jobs — each is
 ## one new _scan_*() function + one JobActivity type-branch in NPCBrain.
+## (Gardening was listed here once, but was built as a direct NPC activity
+## in NPCBrain.gd instead of a JobBoard job — hence it's dropped from this
+## list.)
 
 const SCAN_INTERVAL: float = 2.0
 const FILTER_BELOW: float = 30.0

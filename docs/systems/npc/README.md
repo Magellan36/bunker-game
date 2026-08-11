@@ -1622,3 +1622,12 @@ without being asked.
     present — confirm it fetches the basket first and stashes produce
     into it (not hand-carried), then delivers the basket to real
     shelving once done. Non-produce cleaning is unaffected.
+94. Two NPCs gardening the same double tray at once — confirm each
+    works its own cell (soil in one, planting in the other) without
+    conflict, and confirm a cell claim releases correctly if an NPC gets
+    interrupted mid-travel to it.
+95. Lock a cell to a specific seed type — confirm autonomous planting
+    never substitutes a different type there (skips if unavailable
+    rather than looping), and confirm an explicit "Plant seeds" request
+    for a different type skips that locked cell rather than overriding
+    the lock.

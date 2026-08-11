@@ -1617,8 +1617,8 @@ func has_refuel_target_available() -> bool:
 ## has_cleaning_target_available()'s shape. True if ANY tray needs soil
 ## (and a spare Bag of Soil exists somewhere) OR ANY tray has an open
 ## plantable cell (and ANY seed of ANY type exists somewhere — the exact
-## type match, if any, is resolved per-tray at pick time via
-## FarmingTray.get_next_plant_preference(), not here).
+## type match, including the per-cell seed-lock constraint, is resolved
+## per-cell inside GardeningActivity._pick_next_task(), not here).
 func has_gardening_target_available() -> bool:
 	var any_tray: bool = false
 	var needs_soil: bool = false

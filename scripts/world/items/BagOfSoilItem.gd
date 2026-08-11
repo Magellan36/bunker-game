@@ -105,6 +105,24 @@ func on_use() -> void:
 		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
 		queue_free()
 
+## Aug 2026 (NPC Gardening thread) — index-aware counterpart to on_use(),
+## for callers that have already resolved a SPECIFIC cell (e.g. via a
+## per-cell claim) rather than "nearest cell to my own position." Mirrors
+## on_use() exactly — same charge decrement, same signal, same
+## EmptyBagItem-at-zero cleanup — just targets fill_soil_at_cell(cell_index)
+## instead of resolving a cell itself. Flag to the Farming thread if this
+## doesn't fit however fill_soil_at_cell() ends up shaped.
+func apply_at_cell(tray: FarmingTray, cell_index: int) -> bool:
+	if not tray.fill_soil_at_cell(cell_index):
+		return false
+	_charges -= 1
+	charge_changed.emit()
+	_update_target_highlight(null)
+	if _charges <= 0:
+		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
+		queue_free()
+	return true
+
 ## Bag model — upright sealed soil bag matching the reference image.
 ## Built from BoxMesh primitives: a puffy middle body, a narrower sealed
 ## top, and a flat bottom base. Light brown / burlap color.

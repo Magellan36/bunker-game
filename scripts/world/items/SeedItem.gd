@@ -106,6 +106,22 @@ func on_use() -> void:
 	if _charges <= 0:
 		queue_free()   ## No "empty packet" object — seeds don't have one, unlike soil/fertilizer bags
 
+## Aug 2026 (NPC Gardening thread) — index-aware counterpart to on_use(),
+## same reasoning as BagOfSoilItem.apply_at_cell(). Uses this instance's
+## own seed_type (same source on_use() reads) rather than taking a type
+## parameter — by the time an NPC is holding a specific SeedItem, its
+## type is already fixed and already the one that was fetched to satisfy
+## whatever cell this is being applied to.
+func apply_at_cell(tray: FarmingTray, cell_index: int) -> bool:
+	if not tray.plant_seed_at_cell(cell_index, seed_type):
+		return false
+	_charges -= 1
+	charge_changed.emit()
+	_update_target_highlight(null)
+	if _charges <= 0:
+		queue_free()
+	return true
+
 ## Small flat packet placeholder, tinted per seed_type so the two types are
 ## visually distinguishable on the ground. Includes a centered text label.
 func _build_placeholder_mesh() -> void:

@@ -1,3 +1,39 @@
+## NPC: Gardening Migrated to Per-Cell Farming API + Seed Locks (Aug 2026)
+
+- Reconciled with the Farming thread's per-cell FarmingTray API
+  (fill_soil_at_cell/plant_seed_at_cell/get_cell_seed_lock, replacing the
+  old tray-wide fill_first_open_soil_cell/plant_first_open_cell).
+  Removed my own now-redundant assigned_plant_type/
+  get_next_plant_preference() (a placeholder for exactly the feature the
+  Farming thread has now actually built) — last_planted_type (soft
+  replant preference, distinct from a hard lock) stays.
+- GardeningActivity rewritten to operate per-CELL, not per-tray, mirroring
+  HARVEST's existing one-job-per-ready-plant shape — a double tray's two
+  cells can now be worked by two different NPCs simultaneously. Added a
+  matching per-cell claim system (NPCItemUser.claim_cell()/release_cell()/
+  is_cell_claimed_by_other()) to prevent two NPCs targeting the same cell.
+- Seed locks (get_cell_seed_lock()) are respected as an ABSOLUTE
+  constraint by both autonomous planting and player-forced type
+  requests — never substituted, cell skipped silently if the locked
+  type isn't in stock, exactly per the Farming thread's own recommended
+  discovery logic.
+- Added BagOfSoilItem.apply_at_cell()/SeedItem.apply_at_cell() — thin,
+  index-aware siblings to on_use(), needed because on_use() resolves the
+  nearest cell to the ITEM's position, which is no longer guaranteed to
+  be the specific cell an NPC claimed and walked to. Mirror on_use()'s
+  charge/signal/cleanup logic exactly; nothing about consumption is
+  duplicated elsewhere.
+- Fertilizer intentionally NOT touched — stays tray-wide/on_use()-based,
+  per the Farming thread's explicit note that FertilizerItem is likely to
+  change shape in a follow-up pass.
+
+Files touched: `scripts/npc/NPCItemUser.gd`,
+`scripts/world/farming/FarmingTray.gd`, `scripts/world/items/BagOfSoilItem.gd`,
+`scripts/world/items/SeedItem.gd`, `scripts/npc/NPCBrain.gd`,
+`scripts/npc/JobBoard.gd`.
+
+---
+
 ## NPC: Gardening (Soil/Plant/Fertilize) + Seed-Type Menu + Basket Produce Cleanup (Aug 2026)
 
 - Added FarmingTray.last_planted_type (survives harvest, unlike

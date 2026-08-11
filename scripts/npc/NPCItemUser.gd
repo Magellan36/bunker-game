@@ -55,6 +55,42 @@ static func is_claimed_by_other(item: Node, npc: Node) -> bool:
 	var claimant: int = _claims.get(item.get_instance_id(), 0)
 	return claimant != 0 and claimant != npc.get_instance_id()
 
+# ─── Per-cell claim system (Aug 2026) ──────────────────────────────────────
+## Same shape as the item claims above, but for a specific farming-tray
+## CELL rather than a Node — a cell isn't its own object to claim
+## directly. Needed once GardeningActivity operates per-cell (soil in
+## cell 0, planting in cell 1 of the same double tray can now be worked
+## by two different NPCs simultaneously) — without this, two NPCs could
+## both decide the SAME cell needs attention and both walk over before
+## either discovers the other got there first.
+static var _cell_claims: Dictionary = {}   ## "tray_instance_id:cell_index" -> npc instance_id (int)
+
+static func _cell_key(tray: Node, cell_index: int) -> String:
+	return "%d:%d" % [tray.get_instance_id(), cell_index]
+
+static func claim_cell(tray: Node, cell_index: int, npc: Node) -> bool:
+	if tray == null or npc == null:
+		return false
+	var key: String = _cell_key(tray, cell_index)
+	var claimant: int = _cell_claims.get(key, 0)
+	if claimant != 0 and claimant != npc.get_instance_id():
+		return false
+	_cell_claims[key] = npc.get_instance_id()
+	return true
+
+static func release_cell(tray: Node, cell_index: int, npc: Node) -> void:
+	if tray == null or cell_index < 0:
+		return
+	var key: String = _cell_key(tray, cell_index)
+	if _cell_claims.get(key, 0) == npc.get_instance_id():
+		_cell_claims.erase(key)
+
+static func is_cell_claimed_by_other(tray: Node, cell_index: int, npc: Node) -> bool:
+	if tray == null or cell_index < 0:
+		return false
+	var claimant: int = _cell_claims.get(_cell_key(tray, cell_index), 0)
+	return claimant != 0 and claimant != npc.get_instance_id()
+
 # ─── Target search ────────────────────────────────────────────────────────
 ## Nearest loose (world) item matching `filter: Callable(item) -> bool`.
 ## Excludes held, shelved, and frozen items — an NPC can never steal from
