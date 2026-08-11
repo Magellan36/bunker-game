@@ -1636,3 +1636,8 @@ without being asked.
     immediately end — confirm no frame stall/snapping, and confirm the
     console shows at most one "no storage for category" line per
     category per session, not one per item.
+97. Watch an NPC carry a Bag of Soil (or seed packet, or fuel can) the
+    entire way to its destination — confirm it's never interrupted
+    mid-carry by the "put away held item" safety net, which previously
+    could win the very next think-cycle (~1s later) and cause a
+    drop/idle/straight-line-drift.

@@ -1376,6 +1376,7 @@ class PutAwayHeldItemActivity extends NPCActivity:
 				(_destination.name if _destination != null else "(no destination — dropping in place)")])
 		if _destination == null:
 			NPCItemUser.drop_held(npc)
+			npc.velocity = Vector3.ZERO   ## Aug 2026 — don't leave the NPC coasting in whatever direction it was last walking
 			_settled = true
 			return
 		npc.set_nav_target((_destination as Node3D).global_position)
@@ -1388,6 +1389,7 @@ class PutAwayHeldItemActivity extends NPCActivity:
 			return
 		if _destination == null or not is_instance_valid(_destination):
 			NPCItemUser.drop_held(npc)
+			npc.velocity = Vector3.ZERO   ## Aug 2026 — same as enter()'s drop branch
 			_settled = true
 			return
 		npc.nav_steer(delta)
@@ -1443,7 +1445,16 @@ class RefuelActivity extends NPCActivity:
 			* npc.get_job_priority_weight("REFUEL")
 
 	func interruptible() -> bool:
-		return _phase != "refuel"   ## mid-pour, commit; between generators/fetching, fine to interrupt
+		## Aug 2026 — same fix as GardeningActivity, same root cause: was
+		## only protected during the final "refuel" sub-phase, leaving the
+		## whole fetch-complete-through-travel window (physically carrying
+		## the fuel can) vulnerable to PutAwayHeldItemActivity's flat
+		## score interrupting mid-carry. Not yet reported for Refuel
+		## specifically, but the exact same math applies (max score ~10.4
+		## + margin = ~18.4, still under PutAwayHeldItemActivity's flat
+		## 20.0) — fixed alongside Gardening rather than waiting for it to
+		## show up separately.
+		return _can == null
 
 	func enter(npc: NPC) -> void:
 		_refueled_ids = {}
@@ -1618,7 +1629,18 @@ class GardeningActivity extends NPCActivity:
 			* npc.get_job_priority_weight("GARDENING")
 
 	func interruptible() -> bool:
-		return _phase != "apply"   ## mid-application, commit; between tasks, fine to interrupt
+		## Aug 2026 — was `_phase != "apply"`, which only protected the
+		## final sub-phase. That left the NPC interruptible for the whole
+		## fetch-complete-through-travel window while physically CARRYING
+		## the soil bag/seed packet — long enough for
+		## PutAwayHeldItemActivity's flat score (20.0) to beat Gardening's
+		## own (max ~6.2 + the 8.0 switch margin) on the very next think-
+		## cycle (~1s later), interrupting the carry and (since neither
+		## item has a real Shelving/LightStorage destination) getting
+		## dropped in place almost immediately. Matches CleaningActivity's
+		## existing pattern instead: non-interruptible for the item's
+		## ENTIRE held lifecycle, not just the last sub-phase.
+		return _item == null
 
 	func enter(npc: NPC) -> void:
 		_finished = false

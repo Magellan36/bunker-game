@@ -1,3 +1,25 @@
+## NPC: Fixed Gardening/Refuel Getting Interrupted Mid-Carry (Aug 2026)
+
+- Root cause: GardeningActivity.interruptible() only protected the final
+  "apply" sub-phase, Refuel only "refuel" — both left the
+  fetch-complete-through-travel window (physically carrying the soil
+  bag/seed packet/fuel can) interruptible, and PutAwayHeldItemActivity's
+  flat score (20.0) beat both (Gardening ~6.2 + 8.0 margin, Refuel ~10.4
+  + margin) on the very next think-cycle (~1s later). Result: carry
+  interrupted, item dropped in place almost immediately, then straight-
+  line drift. (Not yet reported for Refuel, but same math — fixed
+  alongside rather than waiting to see it separately.)
+- interruptible() now checks `_item == null` (Gardening) /
+  `_can == null` (Refuel) — non-interruptible for the item's ENTIRE held
+  lifecycle, matching CleaningActivity's existing pattern.
+- Defensive: both PutAwayHeldItemActivity drop branches (enter() and
+  tick()) now zero `npc.velocity` when the item is dropped in place, so
+  the NPC isn't left coasting in whatever direction it was last walking.
+
+Files touched: `scripts/npc/NPCBrain.gd`.
+
+---
+
 ## NPC: Fixed Cleaning Frame-Stall on No-Storage Levels (Aug 2026)
 
 - Root-caused a real performance bug from a live debug capture:
