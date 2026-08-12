@@ -549,7 +549,7 @@ func _on_make_all_npcs_clean_pressed() -> void:
 	for npc: Node in get_tree().get_nodes_in_group("npc"):
 		if not is_instance_valid(npc) or not ("brain" in npc) or npc.brain == null:
 			continue
-		npc.brain.force_command(NPCBrain.CommandCleaningActivity.new())
+		npc.brain.force_command(CommandCleaningActivity.new())
 		count += 1
 	print("[AdminMenu] Forced %d NPC(s) into Cleaning" % count)
 

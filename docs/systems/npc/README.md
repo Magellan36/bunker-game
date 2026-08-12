@@ -1659,3 +1659,12 @@ without being asked.
 102. Empty a level of all Bags of Soil and Seeds, leave a tray needing
      soil, and request Farming — confirm the session ends cleanly with
      a specific log message instead of crashing with a stack overflow.
+103. After the consolidation pass: issue all three job commands (Clean,
+     Refuel, Tend the farm), and press F7 -> "Print NPC Job Debug
+     State" for each — confirm real detail shows for all three (this
+     was silently broken for command-driven sessions before this
+     pass — CommandCleaningActivity/CommandRefuelActivity/
+     CommandGardeningActivity never delegated debug_info()).
+104. Reproduce the empty-level-of-soil-and-seeds stack overflow repro
+     from the Gardening fix plan — confirm it still terminates cleanly
+     via the shared NPCSessionActivity._skipped mechanism.

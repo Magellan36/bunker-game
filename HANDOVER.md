@@ -1,3 +1,66 @@
+## NPC: Systems Consolidation Pass (Aug 2026)
+
+Ran the consolidation pass Brannon asked for after flagging feature-
+creep/backend-complexity concerns. Extracted the patterns that had been
+independently hand-copied (and independently gone wrong) across
+Cleaning/Refuel/Gardening into shared, reusable infrastructure, and
+split both god-files (NPC.gd was 2,681 lines, NPCBrain.gd was 2,842)
+along real seams.
+
+New shared infrastructure:
+- NPCSessionActivity.gd — base for every fetch->travel->apply->loop
+  job. Non-interruptible by default (the bug found and fixed three
+  separate times before this existed), a shared _skipped exclusion-set
+  mechanism (the bug that caused Cleaning's frame-stall AND Gardening's
+  stack-overflow crash — same root cause, fixed twice separately before
+  this), shared approach-point math, shared display-name fallback,
+  shared exit()-velocity-zero + early-exit logging.
+- NPCCommandWrapperActivity.gd — base for the three "player pressed a
+  Talk-menu button" wrappers. Found while writing this that ALL THREE
+  were independently missing debug_info() delegation — a real,
+  previously unnoticed gap (Print NPC Job Debug State showed nothing
+  for any command-driven session) that this consolidation fixes by
+  construction.
+- NPCJobQueries.gd — every Cleaning/Refuel/Gardening "is a target
+  available, and where" query, extracted from NPC.gd into a static
+  utility class (mirrors NPCItemUser.gd's existing convention). NPC.gd
+  keeps one-line delegating wrappers with identical names/signatures,
+  so no external call site changed.
+- NPCJobState.gd — the Cleaning give-up/blacklist system, composed onto
+  NPC.gd as npc.job_state instead of living as loose instance vars —
+  the natural home for any future per-NPC "remembers this didn't work"
+  state a new job type needs.
+
+Rebuilt on the new base (moved to scripts/npc/activities/, one file
+each): CleaningActivity (relocated + adopted shared exit/display-name
+only — its own proven-correct target-selection loop is UNCHANGED,
+deliberately not forced into a rigid shared template), RefuelActivity,
+GardeningActivity (also fixes the still-live recursion bug from the
+last plan by construction), CommandCleaningActivity,
+CommandRefuelActivity, CommandGardeningActivity, PutAwayHeldItemActivity.
+
+Deliberately deferred to a later, purely-mechanical pass: relocating
+the unrelated Needs-based activities (Wander/Sit/Drink/Eat/Talk/
+GiveToFriend/JobActivity and their variants) that already lived in
+NPCBrain.gd — none of this work ever touched them, so moving them is
+zero-risk but adds no functional value to bundle into this pass.
+
+Files touched/added: scripts/npc/activities/NPCSessionActivity.gd (new),
+scripts/npc/activities/NPCCommandWrapperActivity.gd (new),
+scripts/npc/activities/CleaningActivity.gd (new),
+scripts/npc/activities/CommandCleaningActivity.gd (new),
+scripts/npc/activities/RefuelActivity.gd (new),
+scripts/npc/activities/CommandRefuelActivity.gd (new),
+scripts/npc/activities/GardeningActivity.gd (new),
+scripts/npc/activities/CommandGardeningActivity.gd (new),
+scripts/npc/activities/PutAwayHeldItemActivity.gd (new),
+scripts/npc/queries/NPCJobQueries.gd (new), scripts/npc/NPCJobState.gd
+(new), scripts/npc/NPCBrain.gd, scripts/npc/NPC.gd,
+scripts/ui/npc/NPCTalkMenuUI.gd, scripts/ui/menus/AdminMenu.gd,
+scripts/npc/JobBoard.gd (doc comment only).
+
+---
+
 ## NPC: Fixed Real Stack Overflow in GardeningActivity (Aug 2026)
 
 - Root-caused and fixed a genuine crash: GardeningActivity._start_fetch()

@@ -278,7 +278,7 @@ const MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR: float = 0.03
 ## moods" per spec. Symmetric, so it's pure noise on average, not a bias.
 const MOOD_DRIFT_MAX_PER_GAME_HOUR: float = 1.0
 const MOOD_TICK_INTERVAL: float = 5.0   ## periodic, not per-frame — cheap,
-                                        ## and paces debug output sensibly
+										## and paces debug output sensibly
 var _mood_tick_timer: float = 0.0
 
 ## Last tick's per-source contribution — inspectable so mood changes are
@@ -1267,9 +1267,7 @@ const GARDENING_BASE_SCORE: float = 6.0
 const REFUEL_URGENT_BELOW: float = 40.0
 
 func has_cleaning_target_available() -> bool:
-	if not JobBoard.get_trash_items().is_empty():
-		return true
-	return not JobBoard.get_organizable_items().is_empty()
+	return NPCJobQueries.has_cleaning_target_available(self)
 
 ## Eligible item across BOTH lists — trash and organizable are mutually
 ## exclusive per JobBoard's own scan, so no double-counting risk.
@@ -1297,91 +1295,7 @@ func has_cleaning_target_available() -> bool:
 ## real, measurable frame stall, not a false alarm — root-caused from a
 ## live debug capture, not a guess.
 func find_cleaning_target(exclude_ids: Dictionary = {}, exclude_categories: Dictionary = {}) -> Dictionary:
-	var candidates: Array = []
-	for item: Node in JobBoard.get_trash_items():
-		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
-			continue
-		if exclude_ids.has(item.get_instance_id()) or _cleaning_blacklist.has(item.get_instance_id()):
-			continue
-		candidates.append({"item": item, "is_trash": true,
-			"d": NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)})
-	for item: Node in JobBoard.get_organizable_items():
-		if not is_instance_valid(item) or NPCItemUser.is_claimed_by_other(item, self):
-			continue
-		if exclude_ids.has(item.get_instance_id()) or _cleaning_blacklist.has(item.get_instance_id()):
-			continue
-		if not exclude_categories.is_empty() and exclude_categories.has(_classify_organizable_item(item)):
-			continue
-		candidates.append({"item": item, "is_trash": false,
-			"d": NPCItemUser.flat_distance(global_position, (item as Node3D).global_position)})
-	if candidates.is_empty():
-		return {}
-	candidates.sort_custom(func(a, b): return a["d"] < b["d"])
-
-	var fallback: Dictionary = candidates[0]
-	for c: Dictionary in candidates:
-		if _has_clear_approach(c["item"]):
-			return {"item": c["item"], "is_trash": c["is_trash"]}
-	return {"item": fallback["item"], "is_trash": fallback["is_trash"]}
-
-## Aug 2026 — permanent-for-this-NPC give-up list. Deliberately NARROW in
-## scope: only two things ever add to it — a stuck-recovery streak on the
-## exact same item reaching CLEANING_GIVEUP_STUCK_LIMIT (see
-## _recover_from_stuck()), and a genuine in-range pickup failure reaching
-## CLEANING_GIVEUP_PICKUP_LIMIT (see record_cleaning_pickup_failure()).
-## Routine contention — another NPC claiming it first, it becoming held/
-## shelved before arrival — never touches this and stays infinitely
-## retryable exactly as before. Persists for this NPC's lifetime; never
-## cleared (despawn/reload naturally resets it by removing the NPC).
-const CLEANING_GIVEUP_STUCK_LIMIT: int = 2
-const CLEANING_GIVEUP_PICKUP_LIMIT: int = 2
-var _cleaning_blacklist: Dictionary = {}          ## item instance_id -> true
-var _cleaning_pickup_failures: Dictionary = {}    ## item instance_id -> consecutive genuine-pickup-failure count
-
-func _blacklist_cleaning_item(item: Node, reason: String) -> void:
-	if item == null:
-		return
-	var id: int = item.get_instance_id()
-	if _cleaning_blacklist.has(id):
-		return
-	_cleaning_blacklist[id] = true
-	if NPCDebug.enabled:
-		var name: String = item.get_display_name() if item.has_method("get_display_name") else str(item.name)
-		NPCDebug.log_cleaning(self, "gave up permanently", "%s — %s" % [name, reason])
-
-## Called by CleaningActivity when grab_loose() refuses an item the NPC
-## is already standing within PICKUP_RANGE of — a genuine, repeatable
-## failure to physically pick something up, not contention with another
-## NPC (that's a separate, infinitely-retryable case — see
-## find_cleaning_target()'s claim check).
-func record_cleaning_pickup_failure(item: Node) -> void:
-	if item == null:
-		return
-	var id: int = item.get_instance_id()
-	var count: int = int(_cleaning_pickup_failures.get(id, 0)) + 1
-	_cleaning_pickup_failures[id] = count
-	if count >= CLEANING_GIVEUP_PICKUP_LIMIT:
-		_blacklist_cleaning_item(item, "pickup refused %d times in a row while in range" % count)
-
-## Cheap line-of-sight estimate (Aug 2026): raycast from roughly chest
-## height toward the candidate item. If something ELSE in the "pickup"
-## group is hit first, the item is buried behind other clutter rather
-## than a clean, direct pickup target — exactly the "shelf's worth of
-## items dumped in one spot" case. Best-effort, not real pathfinding
-## cost; a raycast miss or a hit on the item itself both count as clear.
-func _has_clear_approach(item: Node) -> bool:
-	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	var from: Vector3 = global_position + Vector3(0.0, 0.9, 0.0)
-	var to: Vector3 = (item as Node3D).global_position + Vector3(0.0, 0.2, 0.0)
-	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
-	query.exclude = [get_rid()]
-	var result: Dictionary = space_state.intersect_ray(query)
-	if result.is_empty():
-		return true
-	var hit: Object = result.get("collider")
-	if hit == item:
-		return true
-	return not (hit is Node and (hit as Node).is_in_group("pickup"))
+	return NPCJobQueries.find_cleaning_target(self, exclude_ids, exclude_categories)
 
 ## Cleaning destination routing (Aug 2026) — maps an organizable item's
 ## CLASSIFICATION to the destination group(s) to search, in priority
@@ -1394,10 +1308,7 @@ func _has_clear_approach(item: Node) -> bool:
 ## of "shelving"): add one classification check to
 ## _classify_organizable_item() below and one new entry to
 ## ORGANIZE_DESTINATION_GROUPS. No other cleaning code needs to change.
-const ORGANIZE_DESTINATION_GROUPS: Dictionary = {
-	"light": ["shelving"],
-	"heavy": ["shelving"],
-}
+## (Both now live in NPCJobQueries.gd — see its ORGANIZE_DESTINATION_GROUPS.)
 
 ## Aug 2026 — "light" vs "heavy" is now the real, named classification
 ## (previously everything was lumped as "general"). "light" = the exact
@@ -1408,9 +1319,7 @@ const ORGANIZE_DESTINATION_GROUPS: Dictionary = {
 ## Case, etc.) — these can ONLY ever fit real Shelving, never an End
 ## Table/Dresser, regardless of how much room the latter has.
 func _classify_organizable_item(item: RigidBody3D) -> String:
-	if item != null and item.is_in_group("inventory_item"):
-		return "light"
-	return "heavy"
+	return NPCJobQueries.classify_organizable_item(item)
 
 ## Aug 2026 — is there ANY viable destination for this classification
 ## ANYWHERE in the level right now, independent of a specific item?
@@ -1420,17 +1329,7 @@ func _classify_organizable_item(item: RigidBody3D) -> String:
 ## for "heavy" no matter how empty it is — it structurally can't accept
 ## a non-inventory_item object (see LightStorage.has_room_for()).
 func has_viable_destination_for_category(category: String) -> bool:
-	var group_names: Array = ORGANIZE_DESTINATION_GROUPS.get(category, ["shelving"])
-	for group_name: String in group_names:
-		for candidate: Node in get_tree().get_nodes_in_group(group_name):
-			if not is_instance_valid(candidate):
-				continue
-			if category == "heavy" and candidate is LightStorage:
-				continue
-			if candidate.has_method("has_free_space") and not candidate.has_free_space():
-				continue
-			return true
-	return false
+	return NPCJobQueries.has_viable_destination_for_category(self, category)
 
 ## Nearest member of the matching destination group(s). For trash,
 ## returning null here (no receptacle exists) is expected and handled
@@ -1446,38 +1345,7 @@ func has_viable_destination_for_category(category: String) -> bool:
 ## gate already blocks it), so a LightStorage-only pass would just be a
 ## wasted search for them, never chosen for either.
 func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node:
-	var group_names: Array = ["trash_receptacle"] if is_trash \
-		else ORGANIZE_DESTINATION_GROUPS.get(_classify_organizable_item(item), ["shelving"])
-
-	var prefer_light_storage: bool = not is_trash and item != null \
-		and _classify_organizable_item(item) == "light"
-	if prefer_light_storage:
-		var light_pick: Node = _nearest_cleaning_destination(group_names, item, is_trash, true)
-		if light_pick != null:
-			return light_pick
-	return _nearest_cleaning_destination(group_names, item, is_trash, false)
-
-## Shared nearest-candidate search behind find_cleaning_destination().
-## light_storage_only, when true, additionally requires the candidate be
-## a LightStorage instance (End Table/Dresser) — the light-item
-## storage-preference pass above; false searches every candidate in
-## group_names as before (shelves included).
-func _nearest_cleaning_destination(group_names: Array, item: RigidBody3D, is_trash: bool, light_storage_only: bool) -> Node:
-	var best: Node = null
-	var best_d: float = INF
-	for group_name: String in group_names:
-		for candidate: Node in get_tree().get_nodes_in_group(group_name):
-			if not is_instance_valid(candidate):
-				continue
-			if light_storage_only and not (candidate is LightStorage):
-				continue
-			if not is_trash and item != null and candidate.has_method("has_room_for") and not candidate.has_room_for(item):
-				continue   ## skip a full/ineligible container — this check was the whole gap
-			var d: float = NPCItemUser.flat_distance(global_position, (candidate as Node3D).global_position)
-			if d < best_d:
-				best_d = d
-				best = candidate
-	return best
+	return NPCJobQueries.find_cleaning_destination(self, is_trash, item)
 
 ## Specific, human-readable-key reason Cleaning currently isn't available
 ## for THIS NPC (Aug 2026) — replaces a blanket "nothing to clean" with an
@@ -1505,30 +1373,7 @@ func _nearest_cleaning_destination(group_names: Array, item: RigidBody3D, is_tra
 ## NPCTalkMenuUI maps these to player-facing strings — see
 ## CLEANING_UNAVAILABLE_REASONS there. Keep both in sync if this list changes.
 func get_cleaning_unavailable_reason() -> String:
-	var trash: Array = JobBoard.get_trash_items()
-	var organizable: Array = JobBoard.get_organizable_items()
-	if trash.is_empty() and organizable.is_empty():
-		if JobBoard.get_trash_blocked_by_no_receptacle_count() > 0:
-			return "NO_TRASH_RECEPTACLE"
-		if JobBoard.get_pending_cleaning_count() > 0:
-			return "STILL_SETTLING"
-		return "NOTHING_TO_CLEAN"
-	var target: Dictionary = find_cleaning_target()
-	if target.is_empty():
-		return "ALL_CLAIMED"   ## ready items exist, but this NPC can't claim any of them
-	if not bool(target.get("is_trash", false)):
-		var item: RigidBody3D = target.get("item")
-		if find_cleaning_destination(false, item) == null:
-			## Aug 2026 — now uses has_viable_destination_for_category()
-			## (accounts for LightStorage never accepting "heavy" items
-			## regardless of room) instead of a bare group-presence check,
-			## and reports which specific category (light/heavy) has
-			## nothing available.
-			var category: String = _classify_organizable_item(item)
-			if not has_viable_destination_for_category(category):
-				return "NO_LIGHT_STORAGE_AVAILABLE" if category == "light" else "NO_HEAVY_STORAGE_AVAILABLE"
-			return "STORAGE_FULL"
-	return ""   ## available
+	return NPCJobQueries.get_cleaning_unavailable_reason(self)
 
 ## Nearest generator still below 100% fuel, excluding IDs already
 ## refueled THIS SESSION (passed in by RefuelActivity — its own session
@@ -1537,25 +1382,7 @@ func get_cleaning_unavailable_reason() -> String:
 ## with an empty exclude set for a quick "is there anything to do at
 ## all" check.
 func find_next_refuel_target(exclude_ids: Dictionary) -> Node:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm == null:
-		return null
-	var best: Node = null
-	var best_d: float = INF
-	for gen: Node in get_tree().get_nodes_in_group("generator"):
-		if not is_instance_valid(gen):
-			continue
-		var gid: int = gen.get_instance_id()
-		if exclude_ids.has(gid):
-			continue
-		var fuel: float = pm.get_generator_fuel(str(gid))
-		if fuel >= 100.0:
-			continue
-		var d: float = NPCItemUser.flat_distance(global_position, (gen as Node3D).global_position)
-		if d < best_d:
-			best_d = d
-			best = gen
-	return best
+	return NPCJobQueries.find_next_refuel_target(self, exclude_ids)
 
 ## Specific, human-readable-key reason Refuel currently isn't available
 ## for THIS NPC (Aug 2026) — same pattern as
@@ -1572,34 +1399,7 @@ func find_next_refuel_target(exclude_ids: Dictionary) -> Node:
 ## catch-all string. NPCTalkMenuUI maps these to player-facing text —
 ## see REFUEL_UNAVAILABLE_REASONS there. Keep both in sync.
 func get_refuel_unavailable_reason() -> String:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	var any_needs_fuel: bool = false
-	if pm != null:
-		for gen: Node in get_tree().get_nodes_in_group("generator"):
-			if not is_instance_valid(gen):
-				continue
-			if pm.get_generator_fuel(str(gen.get_instance_id())) < 100.0:
-				any_needs_fuel = true
-				break
-	if not any_needs_fuel:
-		return "ALL_GENERATORS_FULL"
-	if held_item != null and held_item.has_method("refuel_tick"):
-		return ""   ## already holding a can — available regardless of anything below
-	var filt: Callable = Callable(NPCItemUser, "is_spare_fuel_can")
-	if NPCItemUser.find_loose_item(self, filt) != null:
-		return ""
-	if not NPCItemUser.find_shelved_item(self, filt).is_empty():
-		return ""
-	## Nothing claimable right now — distinguish "no can exists at all"
-	## from "one exists but another NPC already has it."
-	for node: Node in get_tree().get_nodes_in_group("pickup"):
-		if not is_instance_valid(node) or node.is_in_group("shelved"):
-			continue
-		if "is_held" in node and node.is_held:
-			continue
-		if NPCItemUser.is_spare_fuel_can(node) and NPCItemUser.is_claimed_by_other(node, self):
-			return "FUEL_CAN_CLAIMED"
-	return "NO_FUEL_CAN"
+	return NPCJobQueries.get_refuel_unavailable_reason(self)
 
 ## Autonomous-trigger availability check — mirrors
 ## has_cleaning_target_available()'s shape. Gates on REFUEL_URGENT_BELOW
@@ -1607,23 +1407,7 @@ func get_refuel_unavailable_reason() -> String:
 ## interrupt other work over a near-full generator; RefuelActivity's own
 ## session sweep still tops off everything below 100% once it starts.
 func has_refuel_target_available() -> bool:
-	var pm: Node = get_tree().get_first_node_in_group("power_manager")
-	if pm == null:
-		return false
-	var urgent_exists: bool = false
-	for gen: Node in get_tree().get_nodes_in_group("generator"):
-		if not is_instance_valid(gen):
-			continue
-		if pm.get_generator_fuel(str(gen.get_instance_id())) < REFUEL_URGENT_BELOW:
-			urgent_exists = true
-			break
-	if not urgent_exists:
-		return false
-	if held_item != null and held_item.has_method("refuel_tick"):
-		return true
-	var filt: Callable = Callable(NPCItemUser, "is_spare_fuel_can")
-	return NPCItemUser.find_loose_item(self, filt) != null \
-		or not NPCItemUser.find_shelved_item(self, filt).is_empty()
+	return NPCJobQueries.has_refuel_target_available(self)
 
 ## Autonomous-trigger availability check for GardeningActivity — mirrors
 ## has_cleaning_target_available()'s shape. True if ANY tray needs soil
@@ -1632,42 +1416,7 @@ func has_refuel_target_available() -> bool:
 ## type match, including the per-cell seed-lock constraint, is resolved
 ## per-cell inside GardeningActivity._pick_next_task(), not here).
 func has_gardening_target_available() -> bool:
-	var any_tray: bool = false
-	var needs_soil: bool = false
-	var needs_plant: bool = false
-	for tray: Node in get_tree().get_nodes_in_group("farming_tray"):
-		if not is_instance_valid(tray):
-			continue
-		any_tray = true
-		if tray.has_open_soil_cell():
-			needs_soil = true
-		if tray.has_open_plantable_cell():
-			needs_plant = true
-		if needs_soil and needs_plant:
-			break
-	if not any_tray:
-		return false
-	if needs_soil:
-		for item: Node in get_tree().get_nodes_in_group("pickup"):
-			if is_instance_valid(item) and item is BagOfSoilItem and not (("is_held" in item) and item.is_held) and not item.is_in_group("shelved"):
-				return true
-		for shelf: Node in get_tree().get_nodes_in_group("shelving"):
-			if not is_instance_valid(shelf) or not ("slots" in shelf):
-				continue
-			for stack in shelf.slots:
-				if stack is Array and not stack.is_empty() and stack.back() is BagOfSoilItem:
-					return true
-	if needs_plant:
-		for item: Node in get_tree().get_nodes_in_group("pickup"):
-			if is_instance_valid(item) and item is SeedItem and not (("is_held" in item) and item.is_held) and not item.is_in_group("shelved"):
-				return true
-		for shelf: Node in get_tree().get_nodes_in_group("shelving"):
-			if not is_instance_valid(shelf) or not ("slots" in shelf):
-				continue
-			for stack in shelf.slots:
-				if stack is Array and not stack.is_empty() and stack.back() is SeedItem:
-					return true
-	return false
+	return NPCJobQueries.has_gardening_target_available(self)
 
 ## Used by the stuck-recovery hook to decide whether a forced grab should
 ## be logged/treated as "threw away" vs "put away" once delivered — the
@@ -1691,6 +1440,11 @@ func gain_skill(key: String, amount: float = 0.01) -> void:
 
 # ─── Brain ────────────────────────────────────────────────────────────────
 var brain: NPCBrain = null
+
+## Aug 2026 — per-NPC cross-session job state (Cleaning give-up/blacklist
+## system and the natural home for any future "remembers this didn't work"
+## state) — see NPCJobState.gd.
+var job_state: NPCJobState = NPCJobState.new()
 
 var _stats_ref: Node = null
 
@@ -1852,7 +1606,7 @@ var _last_steer_delta: float = 0.0
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
 	if _movement_locked:
 		return   ## a stationary phase (Part 13) started after this request was
-		         ## submitted — the request is stale, ignore it
+				 ## submitted — the request is stale, ignore it
 	velocity.x = lerp(velocity.x, safe_velocity.x, acceleration * _last_steer_delta)
 	velocity.z = lerp(velocity.z, safe_velocity.z, acceleration * _last_steer_delta)
 	if Vector2(safe_velocity.x, safe_velocity.z).length() > 0.05:
@@ -2137,23 +1891,24 @@ func _recover_from_stuck() -> void:
 		_stuck_streak_count = 1
 	_stuck_streak_obstruction_id = obstruction_id
 
-	if stuck_item != null and brain != null and _stuck_streak_count < CLEANING_GIVEUP_STUCK_LIMIT:
+	if stuck_item != null and brain != null and _stuck_streak_count < NPCJobState.CLEANING_GIVEUP_STUCK_LIMIT:
 		## Always fair game when it caused a stuck NPC — bypasses the
 		## normal trash/idle-time eligibility entirely, per design.
-		brain.force_command(NPCBrain.CleaningActivity.new(stuck_item))
+		brain.force_command(CleaningActivity.new(stuck_item))
 		return
 
 	## Aug 2026 — same obstruction kept the NPC stuck CLEANING_GIVEUP_
 	## STUCK_LIMIT times in a row (2). Trying to force-clean it again
 	## just repeats the same failed loop — the NPC can't even close the
 	## distance to something it's already touching. Give up on it
-	## permanently (see _blacklist_cleaning_item()) rather than retrying
-	## forever, and break the immediate deadlock the same way as before:
-	## nudge the NPC a short distance away (a real position change, not a
-	## movement command — movement is exactly what isn't working) and let
-	## the NEXT think-cycle decide fresh, with no forced target at all.
+	## permanently (see job_state.blacklist_cleaning_item()) rather than
+	## retrying forever, and break the immediate deadlock the same way as
+	## before: nudge the NPC a short distance away (a real position
+	## change, not a movement command — movement is exactly what isn't
+	## working) and let the NEXT think-cycle decide fresh, with no forced
+	## target at all.
 	if stuck_item != null:
-		_blacklist_cleaning_item(stuck_item, "stuck-recovery failed %d times in a row" % _stuck_streak_count)
+		job_state.blacklist_cleaning_item(self, stuck_item, "stuck-recovery failed %d times in a row" % _stuck_streak_count)
 	if NPCDebug.enabled:
 		NPCDebug.log_stuck_escalation(self, stuck_item, _stuck_streak_count)
 	_nudge_free_of_obstruction(stuck_item, STUCK_NUDGE_DISTANCE)
@@ -2214,11 +1969,11 @@ func _find_stuck_obstruction_npc() -> CharacterBody3D:
 ## meant to be walked straight through rather than routed around.
 const LIGHT_PUSH_IMPULSE: float = 1.5   ## shove strength on light items
 const HEAVY_PUSH_MASS: float = 3.0      ## mirrors PickupableItem.HEAVY_OBSTACLE_MASS —
-                                        ## anything at/above this got an obstacle and
-                                        ## should rarely reach this code at all; if it
-                                        ## still does (avoidance is a preference, not a
-                                        ## guarantee), give it a small acknowledging
-                                        ## shove but let normal collision resistance stand
+										## anything at/above this got an obstacle and
+										## should rarely reach this code at all; if it
+										## still does (avoidance is a preference, not a
+										## guarantee), give it a small acknowledging
+										## shove but let normal collision resistance stand
 
 func _handle_physics_pushes(delta: float) -> void:
 	for i: int in get_slide_collision_count():

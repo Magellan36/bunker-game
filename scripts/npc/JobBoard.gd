@@ -8,7 +8,7 @@ extends Node
 ##   id           String  — stable while the condition persists ("refuel_<iid>")
 ##   type         String  — "HARVEST" | "REPLACE_FILTER"
 ##   (REFUEL was JobBoard-claimed through Aug 2026; moved to a dedicated
-##   multi-generator session — NPCBrain.RefuelActivity — since sweeping
+##   multi-generator session — RefuelActivity — since sweeping
 ##   every generator in one trip doesn't fit this single-target shape any
 ##   better than Cleaning's multi-item sweep does. See docs/systems/npc/README.md.)
 ##   target       Node    — tray / purifier / generator

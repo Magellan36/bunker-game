@@ -536,24 +536,24 @@ func _on_job_command_pressed(job_type: String) -> void:
 			var reason: String = _npc.get_cleaning_unavailable_reason()
 			if reason != "" and CLEANING_UNAVAILABLE_REASONS.has(reason):
 				empty_desc = String(CLEANING_UNAVAILABLE_REASONS[reason])
-		_issue_command(NPCBrain.CommandCleaningActivity.new(), action_desc, empty_desc)
+		_issue_command(CommandCleaningActivity.new(), action_desc, empty_desc)
 	elif job_type == "REFUEL":
 		## Aug 2026 — same specific-reason treatment as Cleaning.
 		if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_refuel_unavailable_reason"):
 			var rreason: String = _npc.get_refuel_unavailable_reason()
 			if rreason != "" and REFUEL_UNAVAILABLE_REASONS.has(rreason):
 				empty_desc = String(REFUEL_UNAVAILABLE_REASONS[rreason])
-		_issue_command(NPCBrain.CommandRefuelActivity.new(), action_desc, empty_desc)
+		_issue_command(CommandRefuelActivity.new(), action_desc, empty_desc)
 	elif job_type == "FARMING":
 		## Aug 2026 — unified request: harvest -> plant -> soil, in that
 		## priority, in one session. Seed type for planting is always
 		## read from each cell's own lock/replant memory now — no
 		## separate player-chosen-type step exists anymore.
-		var farm_cmd: NPCBrain.CommandGardeningActivity = NPCBrain.CommandGardeningActivity.new()
+		var farm_cmd: CommandGardeningActivity = CommandGardeningActivity.new()
 		farm_cmd.mode = "farming"
 		_issue_command(farm_cmd, action_desc, empty_desc)
 	elif job_type == "FERTILIZE":
-		var fert_cmd: NPCBrain.CommandGardeningActivity = NPCBrain.CommandGardeningActivity.new()
+		var fert_cmd: CommandGardeningActivity = CommandGardeningActivity.new()
 		fert_cmd.mode = "fertilize_only"
 		_issue_command(fert_cmd, action_desc, empty_desc)
 	else:
