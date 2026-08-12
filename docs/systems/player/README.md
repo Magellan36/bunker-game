@@ -465,22 +465,24 @@ own held item while CASE 1 scans for a different target — guarded with
   would fire, sharing the same underlying scan so the two can never
   drift apart — tagged onto CASE 2 prompt entries via a new
   `"is_e_target"` key.
-- **Water Hookup unconditional E-priority (Aug 2026,
+- **Water Hookup unconditional Focus Mode priority (Aug 2026,
   `WaterHookup.gd` — flagged: `scripts/world/water/`, not one of the
-  three core files).** Mounted high on the wall, so it was almost always
-  losing fair-distance comparison in `_nearest_generic_interactable()`
-  against lower-mounted wall objects (lights, breaker boxes, etc.)
-  physically closer to a player standing on the ground. Given a new
-  `"water_hookup"` duck-type marker group (mirrors `"grow_light"`/
-  `"farming_tray"`); `_nearest_generic_interactable()` now gives it
-  unconditional top priority whenever one's in reach at all — unlike the
-  narrow grow-light-over-tray override (which only beats one specific
-  named rival), this is deliberately unscoped, since a Water Hookup has
-  no single fixed competitor. Because both the real `E` dispatch and
-  Focus Mode's highlight share this same function by design, a plain `E`
-  press now also always resolves to a nearby hookup, not just Focus
-  Mode's Ctrl-held highlight — deliberate, keeps the two from ever being
-  able to disagree.
+  three core files; corrected same session — see below).** Mounted high
+  on the wall, so it's almost always farther than lower-mounted wall
+  objects sharing the same wall and would rarely win on raw distance
+  alone. Given a `"water_hookup"` duck-type marker group (mirrors
+  `"grow_light"`/`"farming_tray"`). **Correction:** initially implemented
+  inside `_nearest_generic_interactable()`, which at the time was shared
+  by both real `E` dispatch and Focus Mode's target resolution — but
+  Focus Mode had since been rewritten to compute its own
+  `is_focus_target` independently (see `_update_prompt()`'s "Aug 2026 v2"
+  comment) and no longer calls that function at all, so the override was
+  silently affecting only plain `E` presses, never Focus Mode — the
+  opposite of the intent. Moved to `_update_prompt()`'s `focus_idx`
+  computation instead (mirrors the existing grow-light-over-tray swap
+  already there), which is the thing that's actually gated behind
+  `Input.is_key_pressed(KEY_CTRL)`. Plain `E` presses (`_try_interact()`)
+  are back to fair-distance-only, unaffected by Water Hookup's presence.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**

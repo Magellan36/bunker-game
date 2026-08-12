@@ -1,3 +1,39 @@
+# Handover — Water Hookup Priority Corrected to Focus-Mode-Only (Aug 2026)
+
+## What changed this session
+Corrected a bug in the prior "Water Hookup Unconditional E-Priority"
+plan: it gave Water Hookup unconditional priority whenever in reach,
+but implemented it inside `_nearest_generic_interactable()`, which
+turned out to be reached only by real `E` dispatch (`_try_interact()`)
+— Focus Mode had already been rewritten in a separate pass to compute
+its own `is_focus_target` tag independently, no longer calling that
+function at all. Net effect: the override was silently controlling
+plain `E` presses (making a nearby Water Hookup always win, even
+without Ctrl held) while having zero effect on Focus Mode itself — the
+exact opposite of the intended scope.
+
+Removed the override from `_nearest_generic_interactable()` (plain `E`
+is back to fair-distance-only) and added the equivalent to
+`_update_prompt()`'s `focus_idx` computation instead — the thing
+`InteractPrompt.gd`'s Focus Mode filter actually reads, and which is
+only ever consulted while `Ctrl` is held. Mirrors the existing
+grow-light-over-tray swap already present in that same computation.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — Water Hookup override moved
+  from `_nearest_generic_interactable()` to `_update_prompt()`'s
+  `focus_idx` computation.
+- `docs/systems/player/README.md` — prior Common-edits entry corrected
+  in place (not duplicated) to describe the current, correct behavior.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_WATER_HOOKUP_FOCUS_MODE_SCOPE_FIX_PLAN.md` for the full 5-item
+checklist)
+
+---
+
 ## NPC: Fixed Gardening/Refuel Getting Interrupted Mid-Carry (Aug 2026)
 
 - Root cause: GardeningActivity.interruptible() only protected the final
