@@ -1,3 +1,24 @@
+## NPC: Fixed Real Stack Overflow in GardeningActivity (Aug 2026)
+
+- Root-caused and fixed a genuine crash: GardeningActivity._start_fetch()
+  called _pick_next_task() recursively on failure, and _pick_next_task()
+  recursed on itself on a cell-claim failure — neither had any exclusion
+  tracking. If a soil/plant task's needed item type had zero instances
+  anywhere in the level, nothing about the world changed between
+  attempts, so it recursed identically forever, hitting Godot's call
+  stack limit and crashing ("Stack overflow (stack size: 1024)").
+  Checked RefuelActivity for the same pattern — it doesn't have this bug
+  (it correctly ends the session on fetch failure instead of retrying).
+- _pick_next_task() is now an iterative while-loop with a session-local
+  _skipped_cells exclusion set (mirrors CleaningActivity's own
+  _skipped_ids/_no_storage_categories for the identical class of
+  problem) — bounded by the level's total cell count, guaranteed to
+  terminate. _start_fetch() now returns bool instead of recursing.
+
+Files touched: `scripts/npc/NPCBrain.gd`.
+
+---
+
 ## NPC: Gardening Claim-Failure Logging (Aug 2026)
 
 - GardeningActivity._pick_next_task() now logs when a cell-claim

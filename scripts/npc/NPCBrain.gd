@@ -1644,6 +1644,15 @@ class GardeningActivity extends NPCActivity:
 	var _fetch_shelf: Dictionary = {}
 	var _phase: String = "pick_task"     ## "pick_task" -> "fetch" -> "travel" -> "apply"
 	var _finished: bool = false
+	## Aug 2026 — "trayid:cell" -> true, THIS SESSION ONLY. Confirmed fix
+	## for a real stack overflow: _pick_next_task()/_start_fetch() used
+	## to retry a doomed cell via unbounded recursion (e.g. a soil/plant
+	## task where NO matching item exists anywhere in the level at all —
+	## nothing about the world changes between attempts, so it recursed
+	## forever). Mirrors CleaningActivity's own _skipped_ids for the
+	## identical class of problem — bounds the retry loop by the total
+	## number of cells in the level, guaranteeing termination.
+	var _skipped_cells: Dictionary = {}
 
 	const WORK_RANGE: float = 2.0   ## generous — matches FarmingTray/item REPLACE_RANGE-style tolerances used elsewhere in farming
 
@@ -1672,6 +1681,7 @@ class GardeningActivity extends NPCActivity:
 
 	func enter(npc: NPC) -> void:
 		_finished = false
+		_skipped_cells = {}
 		if npc.held_item != null and (npc.held_item is BagOfSoilItem or npc.held_item is SeedItem or npc.held_item is FertilizerItem):
 			_item = npc.held_item
 		_pick_next_task(npc)
@@ -1679,73 +1689,106 @@ class GardeningActivity extends NPCActivity:
 	## Finds the nearest eligible task (harvest > soil > plant, mode-
 	## restricted — fertilize stays tray-wide/separate), claims it, and
 	## kicks off fetch/travel. Ends the session if nothing eligible
-	## remains anywhere.
+	## remains anywhere. Aug 2026 — now an iterative loop (was
+	## unbounded recursion — see this class's own note above
+	## _skipped_cells for the real stack overflow this caused). Every
+	## cell the loop rejects for THIS session gets excluded from all the
+	## selection helpers below, so the loop is bounded by the level's
+	## total cell count and always terminates.
 	func _pick_next_task(npc: NPC) -> void:
-		_release_current_cell(npc)
-		_current_tray = null
-		_current_cell = -1
-		_current_task = ""
+		while true:
+			_release_current_cell(npc)
+			_current_tray = null
+			_current_cell = -1
+			_current_task = ""
 
-		if mode == "farming":
-			var harvest_pick: Dictionary = _nearest_ready_plant(npc)
-			if not harvest_pick.is_empty():
-				_current_tray = harvest_pick["tray"]
-				_current_cell = int(harvest_pick["cell"])
-				_current_task = "harvest"
+			if mode == "farming":
+				var harvest_pick: Dictionary = _nearest_ready_plant(npc)
+				if not harvest_pick.is_empty():
+					_current_tray = harvest_pick["tray"]
+					_current_cell = int(harvest_pick["cell"])
+					_current_task = "harvest"
 
-		if _current_tray == null and mode != "fertilize_only":
-			var soil_pick: Dictionary = _nearest_open_cell(npc, "soil")
-			if not soil_pick.is_empty():
-				_current_tray = soil_pick["tray"]
-				_current_cell = int(soil_pick["cell"])
-				_current_task = "soil"
+			if _current_tray == null and mode != "fertilize_only":
+				var soil_pick: Dictionary = _nearest_open_cell(npc, "soil")
+				if not soil_pick.is_empty():
+					_current_tray = soil_pick["tray"]
+					_current_cell = int(soil_pick["cell"])
+					_current_task = "soil"
 
-		if _current_tray == null and mode != "soil_only" and mode != "fertilize_only":
-			var plant_pick: Dictionary = _nearest_open_cell(npc, "plant")
-			if not plant_pick.is_empty():
-				_current_tray = plant_pick["tray"]
-				_current_cell = int(plant_pick["cell"])
-				_current_task = "plant"
+			if _current_tray == null and mode != "soil_only" and mode != "fertilize_only":
+				var plant_pick: Dictionary = _nearest_open_cell(npc, "plant")
+				if not plant_pick.is_empty():
+					_current_tray = plant_pick["tray"]
+					_current_cell = int(plant_pick["cell"])
+					_current_task = "plant"
 
-		if _current_tray == null and mode == "fertilize_only":
-			## Fertilizer intentionally NOT converted to per-cell yet — see
-			## this class's own header comment. Tray-wide, exactly as
-			## before.
-			_current_tray = _nearest_tray_needing(npc, "has_open_fertilizable_cell")
-			if _current_tray != null:
-				_current_task = "fertilize"
+			if _current_tray == null and mode == "fertilize_only":
+				## Fertilizer intentionally NOT converted to per-cell yet —
+				## see this class's own header comment. Tray-wide, exactly
+				## as before. (A tray-wide "skip" uses cell index -1 in
+				## the key, same Dictionary, no separate tracking needed.)
+				var fert_tray: Node = _nearest_tray_needing(npc, "has_open_fertilizable_cell")
+				if fert_tray != null:
+					_current_tray = fert_tray
+					_current_cell = -1
+					_current_task = "fertilize"
 
-		if _current_tray == null:
-			_finished = true
+			if _current_tray == null:
+				_finished = true
+				if NPCDebug.enabled:
+					var reason: String = "nothing left to do (mode=%s)" % mode
+					if not _skipped_cells.is_empty():
+						reason += " — %d cell(s) skipped this session (no resource available or persistent claim contention)" % _skipped_cells.size()
+					NPCDebug.log_cleaning(npc, "gardening session ended", reason)
+				return
+
+			if _current_task != "fertilize" and not NPCItemUser.claim_cell(_current_tray, _current_cell, npc):
+				## Another NPC's Gardening session already has this cell.
+				## Aug 2026 — now marks it skipped THIS pass instead of
+				## recursing — a persistently-contested cell can no
+				## longer spin forever; a FUTURE _pick_next_task() call
+				## (next apply/fetch-fail) still gets a clean slate, so
+				## this NPC will happily retry it once it's actually free.
+				if NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "gardening claim failed", "%s cell=%d already claimed by another NPC — skipping for now" \
+						% [_current_tray.name, _current_cell])
+				_skipped_cells[_cell_key(_current_tray, _current_cell)] = true
+				continue
+
 			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "gardening session ended", "nothing left to do (mode=%s)" % mode)
-			return
+				NPCDebug.log_cleaning(npc, "gardening target picked", "%s cell=%d task=%s" \
+					% [_current_tray.name, _current_cell, _current_task])
 
-		if _current_task != "fertilize" and not NPCItemUser.claim_cell(_current_tray, _current_cell, npc):
-			## Another NPC's Gardening session already has this cell —
-			## try again fresh; a different cell (or nothing) will come up.
-			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "gardening claim failed", "%s cell=%d already claimed by another NPC — retrying" \
-					% [_current_tray.name, _current_cell])
-			_pick_next_task(npc)
-			return
+			if _current_task == "harvest":
+				## No item involved — go straight to travel.
+				_phase = "travel"
+				npc.set_nav_target(_approach_point(npc, _current_tray))
+				return
 
-		if NPCDebug.enabled:
-			NPCDebug.log_cleaning(npc, "gardening target picked", "%s cell=%d task=%s" \
-				% [_current_tray.name, _current_cell, _current_task])
+			if _item != null and _item_matches_task(npc):
+				_phase = "travel"
+				npc.set_nav_target(_approach_point(npc, _current_tray))
+				return
 
-		if _current_task == "harvest":
-			## No item involved — go straight to travel.
-			_phase = "travel"
-			npc.set_nav_target(_approach_point(npc, _current_tray))
-			return
+			_phase = "fetch"
+			if _start_fetch(npc):
+				return   ## fetch target found and nav set — commit, exit the loop
 
-		if _item != null and _item_matches_task(npc):
-			_phase = "travel"
-			npc.set_nav_target(_approach_point(npc, _current_tray))
-			return
-		_phase = "fetch"
-		_start_fetch(npc)
+			## Aug 2026 — nothing fetchable for this cell/task at all
+			## (this is the actual bug fix: this used to call
+			## _pick_next_task() recursively here with no exclusion,
+			## which could re-select the exact same doomed cell forever).
+			## Release the claim we just took, mark it skipped for the
+			## rest of this session, and loop to try the next candidate.
+			NPCItemUser.release_cell(_current_tray, _current_cell, npc)
+			_skipped_cells[_cell_key(_current_tray, _current_cell)] = true
+
+	## Aug 2026 — shared key format for _skipped_cells, matching
+	## NPCItemUser's own private cell-key convention (not reused directly
+	## since that one's private to NPCItemUser.gd).
+	func _cell_key(tray: Node, cell_index: int) -> String:
+		return "%d:%d" % [tray.get_instance_id(), cell_index]
 
 	## Nearest tray/cell with a ready-to-harvest plant. Only ever used by
 	## mode "farming" (the unified player request) — autonomous
@@ -1759,6 +1802,8 @@ class GardeningActivity extends NPCActivity:
 			if not is_instance_valid(tray):
 				continue
 			for i: int in range(tray.cell_count):
+				if _skipped_cells.has(_cell_key(tray, i)):
+					continue
 				var plant: FarmPlant = tray.plant_refs[i] if i < tray.plant_refs.size() else null
 				if plant == null or not is_instance_valid(plant) or not plant.is_ready():
 					continue
@@ -1783,6 +1828,8 @@ class GardeningActivity extends NPCActivity:
 			if not is_instance_valid(tray):
 				continue
 			for i: int in range(tray.cell_count):
+				if _skipped_cells.has(_cell_key(tray, i)):
+					continue
 				var eligible: bool = false
 				if kind == "soil":
 					eligible = not tray.soil_filled[i]
@@ -1806,6 +1853,8 @@ class GardeningActivity extends NPCActivity:
 		var best: Node = null
 		var best_d: float = INF
 		for tray: Node in npc.get_tree().get_nodes_in_group("farming_tray"):
+			if _skipped_cells.has(_cell_key(tray, -1)):
+				continue
 			if not is_instance_valid(tray) or not tray.call(check_method):
 				continue
 			var d: float = NPCItemUser.flat_distance(npc.global_position, (tray as Node3D).global_position)
@@ -1848,16 +1897,20 @@ class GardeningActivity extends NPCActivity:
 	## specific one isn't available. A hard lock never falls back — the
 	## earlier cell-selection pass already guaranteed a locked cell's
 	## type is in stock before this ever runs.
-	func _start_fetch(npc: NPC) -> void:
+	## Aug 2026 — now returns bool instead of recursively calling
+	## _pick_next_task() itself on failure (that recursion, with no
+	## exclusion tracking, was the actual stack-overflow bug — see this
+	## class's own header note). The caller (_pick_next_task()'s loop)
+	## decides what to do with a false result.
+	func _start_fetch(npc: NPC) -> bool:
 		var found: bool = _try_fetch_with_filter(npc, _fetch_filter_for_task())
 		if not found and _current_task == "plant" and _current_tray != null \
 				and _current_tray.get_cell_seed_lock(_current_cell) == "":
 			found = _try_fetch_with_filter(npc, func(item: Node) -> bool: return item is SeedItem)
-		if not found:
-			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "gardening fetch failed", "nothing available for task=%s cell=%d" \
-					% [_current_task, _current_cell])
-			_pick_next_task(npc)
+		if not found and NPCDebug.enabled:
+			NPCDebug.log_cleaning(npc, "gardening fetch failed", "nothing available for task=%s cell=%d — skipping for the rest of this session" \
+				% [_current_task, _current_cell])
+		return found
 
 	func _try_fetch_with_filter(npc: NPC, filt: Callable) -> bool:
 		var loose: RigidBody3D = NPCItemUser.find_loose_item(npc, filt)

@@ -1656,3 +1656,6 @@ without being asked.
 101. Force two NPCs to briefly contend for the same farming cell —
      confirm a "gardening claim failed" log line explains the retry
      instead of an unexplained duplicate "target picked" line.
+102. Empty a level of all Bags of Soil and Seeds, leave a tray needing
+     soil, and request Farming — confirm the session ends cleanly with
+     a specific log message instead of crashing with a stack overflow.
