@@ -24,6 +24,7 @@ class_name InteractionSystem
 ## Phase 1 (Aug 2026) extraction — see InteractionProximityScan.gd's own
 ## header comment for what moved and why.
 var _proximity: InteractionProximityScan = null
+var _focus_glow: InteractionFocusGlow = null
 
 ## Set by MainWorld after ready
 var prompt: Node     = null
@@ -64,6 +65,8 @@ func _ready() -> void:
 	detect_area.body_entered.connect(_on_body_entered)
 	detect_area.body_exited.connect(_on_body_exited)
 	_proximity = InteractionProximityScan.new(self)
+	_focus_glow = InteractionFocusGlow.new()
+	add_child(_focus_glow)
 
 ## Tracked interactable bodies currently inside DetectArea.
 ## Maintained via body_entered / body_exited signals.
@@ -453,6 +456,8 @@ func _update_prompt() -> void:
 
 	## Seated players always see [E] Stand, overriding every other prompt.
 	if player.seated_chair != null and is_instance_valid(player.seated_chair):
+		if _focus_glow != null:
+			_focus_glow.set_target(null)
 		prompt.set_prompts([{
 			"text":      "[E] Stand",
 			"world_pos": player.seated_chair.global_position,
@@ -614,6 +619,8 @@ func _update_prompt() -> void:
 					"dist":      nd
 				})
 
+		if _focus_glow != null:
+			_focus_glow.set_target(null)
 		if entries.is_empty():
 			prompt.hide_prompt()
 		else:
@@ -827,6 +834,17 @@ func _update_prompt() -> void:
 				break
 	for i: int in entries.size():
 		entries[i]["is_focus_target"] = (i == focus_idx)
+
+	## Focus Mode target glow (Aug 2026) — same Ctrl check already used by
+	## _nearest_generic_interactable()'s E-interact parity fix. Applies to
+	## ANY current focus target, not just Grow Light/Water Hookup — the
+	## glow follows is_focus_target generically, whatever object that
+	## happens to land on.
+	if _focus_glow != null:
+		if focus_idx != -1 and Input.is_key_pressed(KEY_CTRL):
+			_focus_glow.set_target(entry_bodies[focus_idx])
+		else:
+			_focus_glow.set_target(null)
 
 	if entries.is_empty():
 		prompt.hide_prompt()

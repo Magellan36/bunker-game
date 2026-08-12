@@ -48,6 +48,8 @@ func nearest_body_in_group(group_name: String, predicate: Callable = Callable())
 			continue
 		if body.is_in_group("shelved"):
 			continue
+		if ("is_held" in body) and body.is_held:
+			continue
 		if body is RigidBody3D and (body as RigidBody3D).freeze:
 			continue
 		if predicate.is_valid() and not predicate.call(body):

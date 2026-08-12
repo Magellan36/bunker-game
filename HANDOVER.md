@@ -1,3 +1,46 @@
+# Handover — Focus Mode Target Glow: Rim Outline + Soft Halo (Aug 2026)
+
+## What changed this session
+Added a visual highlight for Focus Mode (hold Ctrl): whatever object is
+currently the resolved focus target gets a white rim-light outline plus
+a soft halo, both gently pulsing, so it's visually obvious which object
+Ctrl is pointing at — especially useful for the Grow Light/Water Hookup
+priority work from the last two sessions, where the highlighted object
+is often not the closest/most obvious one in view.
+
+New `scripts/player/InteractionFocusGlow.gd`, a self-contained `Node3D`
+child of `InteractionSystem` (not the `_owner`/`RefCounted` pattern used
+by `InteractionProximityScan.gd` — this one needs real scene presence).
+Rim outline uses `GeometryInstance3D.material_overlay` (verified real
+Godot 4 functionality before building on it) to add an extra Fresnel-
+shader render pass to every `MeshInstance3D` found recursively under the
+target — nothing about the target's own material or mesh is touched,
+which is what makes this work uniformly across procedural meshes, GLB
+imports, and multi-part assemblies without any item file needing
+changes. Halo is a `Sprite3D` with a procedurally-generated radial
+gradient texture (no external asset). Driven by the same Ctrl check
+already established for the E-interact-parity fix, applies to whatever
+`focus_idx` resolves to generically — no per-object special-casing.
+
+Defensively checks `is_instance_valid()` on the target every frame in
+its own `_process()`, learned directly from this session's earlier
+freed-reference investigation — self-heals rather than risks touching a
+dangling reference if the glowing object is removed mid-highlight.
+
+### Files modified
+- `scripts/player/InteractionFocusGlow.gd` — new file.
+- `scripts/player/InteractionSystem.gd` — instantiates and drives the
+  new node; clears it on every `_update_prompt()` early exit, sets it
+  from the CASE 2 Focus Mode computation.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_FOCUS_MODE_GLOW_PLAN.md` for the full 7-item checklist)
+
+---
+
 # Handover — E-Interact Parity With Focus Mode's Highlight (Aug 2026)
 
 ## What changed this session

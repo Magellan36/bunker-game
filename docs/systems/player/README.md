@@ -500,6 +500,21 @@ own held item while CASE 1 scans for a different target — guarded with
   the display and the `E`-target could theoretically diverge — existing
   characteristic of the prompt-capping system generally, not something
   this fix introduces or attempts to resolve.
+- **Focus Mode target glow: rim outline + soft halo (Aug 2026,
+  new file `InteractionFocusGlow.gd`).** Whatever object Focus Mode
+  (hold Ctrl) is currently highlighting now gets a white rim-light
+  outline (Fresnel-based `ShaderMaterial`, applied via
+  `GeometryInstance3D.material_overlay` to every `MeshInstance3D` found
+  recursively under the target — an extra render pass, not a material
+  replacement, so no item file needs to know this feature exists) plus a
+  soft procedurally-generated radial-gradient halo (`Sprite3D`,
+  billboarded), both pulsing gently together. Applies to ANY current
+  Focus Mode target generically (driven by the existing `focus_idx`
+  computation), not special-cased per object type. Self-contained
+  `Node3D` child of `InteractionSystem` (`_focus_glow`), driven by one
+  `set_target()` call per `_update_prompt()` invocation; defensively
+  checks `is_instance_valid()` every frame in its own `_process()` in
+  case the target is removed mid-highlight.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**
