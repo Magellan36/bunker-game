@@ -1653,3 +1653,6 @@ without being asked.
      line naming the actual activity. Press F7 -> "Print NPC Job Debug
      State" — confirm it shows every NPC's current activity/debug info
      regardless of type.
+101. Force two NPCs to briefly contend for the same farming cell —
+     confirm a "gardening claim failed" log line explains the retry
+     instead of an unexplained duplicate "target picked" line.

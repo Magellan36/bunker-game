@@ -1724,6 +1724,9 @@ class GardeningActivity extends NPCActivity:
 		if _current_task != "fertilize" and not NPCItemUser.claim_cell(_current_tray, _current_cell, npc):
 			## Another NPC's Gardening session already has this cell —
 			## try again fresh; a different cell (or nothing) will come up.
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "gardening claim failed", "%s cell=%d already claimed by another NPC — retrying" \
+					% [_current_tray.name, _current_cell])
 			_pick_next_task(npc)
 			return
 

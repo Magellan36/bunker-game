@@ -1,3 +1,22 @@
+## NPC: Gardening Claim-Failure Logging (Aug 2026)
+
+- GardeningActivity._pick_next_task() now logs when a cell-claim
+  attempt fails due to another NPC's contention, instead of silently
+  retrying — matches CleaningActivity's existing "claim failed"
+  pattern. Explains what previously showed as unexplained duplicate
+  "target picked" lines for the same cell.
+- Verified (not a new bug): the interrupt/stuck logging and Gardening/
+  Refuel non-interruptibility fixes from the prior plan are correctly
+  live in code. A reported "Fetching soil -> Cleaning" transition with
+  no INTERRUPTED: line contradicts that code (the branch that could
+  produce it should be unreachable with interruptible() now false) —
+  most likely a stale build from before that fix took effect. Flagged
+  for a fresh post-restart capture rather than assumed to be a new bug.
+
+Files touched: `scripts/npc/NPCBrain.gd`.
+
+---
+
 ## NPC: Unified Farming Request, Full Interruption Fix, Comprehensive Debug (Aug 2026)
 
 - Root-caused Sable's bug as a broader version of the earlier mid-carry
