@@ -812,22 +812,6 @@ func _update_prompt() -> void:
 				if entry_bodies[i].is_in_group("grow_light"):
 					focus_idx = i
 					break
-		## Aug 2026 (correction) — Water Hookup: unconditional Focus Mode
-		## priority whenever one is anywhere in the CURRENT prompt set
-		## (i.e. already within normal prompt range — nothing new opened
-		## up here), overriding whatever the distance-based pick above
-		## was. Deliberately Focus-Mode-only, unlike the grow-light
-		## override just above — a plain E press
-		## (_try_interact()/_nearest_generic_interactable()) resolves by
-		## fair distance only and is untouched by this. Mounted high on
-		## the wall, so it's otherwise almost always farther than
-		## lower-mounted wall objects sharing the same wall and would
-		## rarely be entries[0] on raw distance alone — this is what
-		## makes Ctrl useful for reaching it specifically.
-		for i: int in entry_bodies.size():
-			if entry_bodies[i].is_in_group("water_hookup"):
-				focus_idx = i
-				break
 	for i: int in entries.size():
 		entries[i]["is_focus_target"] = (i == focus_idx)
 
@@ -1092,6 +1076,8 @@ func _nearest_generic_interactable() -> Dictionary:
 	var player_pos: Vector3 = player.global_position
 	var nearest_grow_light: Node3D     = null
 	var nearest_grow_light_dist: float = INF
+	var nearest_water_hookup: Node3D     = null
+	var nearest_water_hookup_dist: float = INF
 	for node: Node in get_tree().get_nodes_in_group("interactable"):
 		if not is_instance_valid(node):
 			continue
@@ -1106,6 +1092,9 @@ func _nearest_generic_interactable() -> Dictionary:
 		if node.is_in_group("grow_light") and d < static_reach and d < nearest_grow_light_dist:
 			nearest_grow_light_dist = d
 			nearest_grow_light = n3
+		if node.is_in_group("water_hookup") and d < static_reach and d < nearest_water_hookup_dist:
+			nearest_water_hookup_dist = d
+			nearest_water_hookup = n3
 		if d < static_reach and d < closest_dist:
 			closest_dist = d
 			closest = n3
@@ -1114,14 +1103,22 @@ func _nearest_generic_interactable() -> Dictionary:
 		closest      = nearest_grow_light
 		closest_dist = nearest_grow_light_dist
 
-	## Aug 2026, then Aug 2026 (correction) — a Water Hookup priority
-	## override briefly lived here, but this function is ONLY reached by
-	## real E dispatch (_try_interact()) since Focus Mode was rewritten
-	## to compute its own is_focus_target independently (see
-	## _update_prompt()'s "Aug 2026 v2" comment) — putting the override
-	## here made a plain E press always resolve to a nearby hookup, which
-	## was never the intent. Moved to _update_prompt()'s focus_idx
-	## computation instead, the thing that's actually Focus-Mode-only.
+	## Aug 2026 — Water Hookup: unconditional top priority whenever in
+	## reach at all, applied AFTER the grow-light override so it wins
+	## even in the extremely unlikely case both would otherwise fire the
+	## same frame. Deliberately unscoped, unlike the grow-light override
+	## above (which only beats one specific named rival, FarmingTray) —
+	## a Water Hookup can end up near any number of different wall-
+	## mounted objects depending on how a given bunker is furnished, so
+	## there's no single fixed rival worth naming; it simply always wins
+	## over whatever else is in range. This also means a plain E press
+	## (not just Focus Mode's Ctrl-held highlight) now always resolves to
+	## the hookup when one's in reach — deliberate, not an oversight; see
+	## this plan's own header for why decoupling the two would be worse.
+	if nearest_water_hookup != null:
+		closest      = nearest_water_hookup
+		closest_dist = nearest_water_hookup_dist
+
 	return { "node": closest, "dist": closest_dist }
 
 ## Thin distance-only wrapper — several existing callers (the ready-dish

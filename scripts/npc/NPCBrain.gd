@@ -171,14 +171,6 @@ func _think() -> void:
 
 	## Incumbent defends its seat: challenger needs margin AND permission.
 	if _current.interruptible() and best_score > _current.score(_npc) + SWITCH_MARGIN:
-		## Aug 2026 — this is the exact moment an activity gets
-		## preempted, and previously the ONLY thing logged was the bare
-		## "X -> Y" label transition, with no indication of WHY —
-		## whether it was a natural score win, by how much, or what the
-		## incumbent's own score was. This was the missing piece when
-		## diagnosing a session getting dropped for no visible reason.
-		if NPCDebug.enabled:
-			NPCDebug.log_interrupt(_npc, _current.label(), _current.score(_npc), best.label(), best_score, SWITCH_MARGIN)
 		NPCDebug.log_activity(_npc, _current.label(), best.label())
 		_current.exit(_npc)
 		_start(best)
@@ -520,7 +512,7 @@ class DrinkActivity extends NPCActivity:
 		npc.nav_steer(delta)
 		if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= USE_RANGE:
 			npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO, which Part 13's
-			                     ## movement-lock never protected from a late avoidance callback
+								 ## movement-lock never protected from a late avoidance callback
 			_drinking = CONSUME_TIME
 
 	func _finish_dispenser(npc: NPC) -> void:
@@ -1453,13 +1445,16 @@ class RefuelActivity extends NPCActivity:
 			* npc.get_job_priority_weight("REFUEL")
 
 	func interruptible() -> bool:
-		## Aug 2026 — same fix and same reasoning as GardeningActivity
-		## (see that class's header comment) — was only protected during
-		## the final "refuel" sub-phase, leaving the fetch-approach and
-		## travel-with-can phases vulnerable to the identical bug. Not
-		## separately reported for Refuel yet, but the mechanism is
-		## identical, so fixed the same way rather than waiting.
-		return false
+		## Aug 2026 — same fix as GardeningActivity, same root cause: was
+		## only protected during the final "refuel" sub-phase, leaving the
+		## whole fetch-complete-through-travel window (physically carrying
+		## the fuel can) vulnerable to PutAwayHeldItemActivity's flat
+		## score interrupting mid-carry. Not yet reported for Refuel
+		## specifically, but the exact same math applies (max score ~10.4
+		## + margin = ~18.4, still under PutAwayHeldItemActivity's flat
+		## 20.0) — fixed alongside Gardening rather than waiting for it to
+		## show up separately.
+		return _can == null
 
 	func enter(npc: NPC) -> void:
 		_refueled_ids = {}
@@ -1582,64 +1577,35 @@ class RefuelActivity extends NPCActivity:
 	func done(_npc: NPC) -> bool:
 		return _finished
 
-	func debug_info() -> Dictionary:
-		return {
-			"activity": "refuel",
-			"phase": _phase,
-			"can_held": _can != null and is_instance_valid(_can),
-			"current_generator": (_current_gen.name if _current_gen != null and is_instance_valid(_current_gen) else ""),
-			"refueled_this_session": _refueled_ids.size(),
-		}
-
 	func exit(npc: NPC) -> void:
 		npc.hide_work_banner()
-		if NPCDebug.enabled and not _finished:
-			NPCDebug.log_cleaning(npc, "refuel exited early", "phase=%s can_held=%s generator=%s" \
-				% [_phase, _can != null and is_instance_valid(_can),
-					(_current_gen.name if _current_gen != null and is_instance_valid(_current_gen) else "none")])
 		if _fetch_loose != null:
 			NPCItemUser.release_item(_fetch_loose)
 		if not _fetch_shelf.is_empty():
 			NPCItemUser.release_item(_fetch_shelf.get("item"))
 		if _finished and npc.held_item != null and npc.held_item == _can:
 			NPCItemUser.drop_held(npc)   ## session truly over — set the (empty or spare) can down
-		npc.velocity = Vector3.ZERO   ## Aug 2026 — same reasoning as GardeningActivity's exit()
 
 class GardeningActivity extends NPCActivity:
 	## Gardening (Aug 2026, sustained session) — mirrors CleaningActivity/
-	## RefuelActivity's fetch→travel→apply→[loop] shape, per-CELL (a
-	## double tray's two cells are independent and workable by two
-	## different NPCs at once, same as HARVEST already does per-plant).
-	## Modes:
-	##   "auto"           — autonomous: soil + planting only, replant-
-	##                       preference-aware. Never includes harvest —
-	##                       that stays on the existing JobBoard HARVEST
-	##                       path, unchanged, to avoid two competing
-	##                       harvest triggers.
-	##   "soil_only"       — command: soil only, never plants.
-	##   "fertilize_only"  — command: fertilizing only, tray-wide (not
-	##                       converted to per-cell — see the Farming
-	##                       thread's own note on FertilizerItem).
-	##   "farming"         — command: the unified player request. Harvest
-	##                       first (any ready plant, anywhere), then
-	##                       planting (reading each cell's own seed
-	##                       lock/replant memory — no separate type
-	##                       selection needed), then soil. Ends when none
-	##                       of the three apply anywhere.
-	## Aug 2026 — now fully non-interruptible (see interruptible() below)
-	## — was only protected once physically holding an item, which left
-	## the walk-TOWARD a loose item (before ever picking it up)
-	## vulnerable to a high-scoring competitor (e.g. clutter-escalated
-	## Cleaning) winning the very next think-cycle and aborting the
-	## approach entirely. Root-caused from a live debug capture showing
-	## exactly this: closer soil succeeded, farther soil didn't.
-	var mode: String = "auto"            ## "auto" | "soil_only" | "fertilize_only" | "farming"
-	var forced_seed_type: String = ""    ## unused now that seed type is always read from the tray — kept only so CommandGardeningActivity's signature doesn't need to change
+	## RefuelActivity's fetch→travel→apply→[loop] shape, now operating
+	## per-CELL rather than per-tray (Farming thread's handover: a double
+	## tray's two cells are independent and must be workable by two
+	## different NPCs at once, exactly like two ready plants in a double
+	## tray already post two independent HARVEST jobs). Autonomous by
+	## default (mode "auto": soil + planting); mode-restricted variants
+	## back the three player commands — see this file's own header
+	## comment above for the full breakdown. Fertilizing is NEVER
+	## autonomous (mode "fertilize_only" only, command-only) and stays
+	## tray-wide/on_use()-based per the Farming thread's explicit "don't
+	## build against FertilizerItem yet" note.
+	var mode: String = "auto"            ## "auto" | "soil_only" | "plant_only" | "fertilize_only"
+	var forced_seed_type: String = ""    ## only meaningful for "plant_only" — never overrides a cell's hard seed lock
 
-	var _item: RigidBody3D = null        ## currently held soil bag / seed packet / fertilizer — null for the harvest task, which holds nothing
+	var _item: RigidBody3D = null        ## currently held soil bag / seed packet / fertilizer
 	var _current_tray: FarmingTray = null
 	var _current_cell: int = -1          ## -1 for the fertilize path, which stays tray-wide
-	var _current_task: String = ""       ## "harvest" | "soil" | "plant" | "fertilize"
+	var _current_task: String = ""       ## "soil" | "plant" | "fertilize"
 	var _fetch_loose: RigidBody3D = null
 	var _fetch_shelf: Dictionary = {}
 	var _phase: String = "pick_task"     ## "pick_task" -> "fetch" -> "travel" -> "apply"
@@ -1663,12 +1629,18 @@ class GardeningActivity extends NPCActivity:
 			* npc.get_job_priority_weight("GARDENING")
 
 	func interruptible() -> bool:
-		## Aug 2026 — see this class's header comment. No genuinely safe
-		## mid-session gap exists (unlike Cleaning's real between-items
-		## gap) — a new target is claimed immediately on completion of
-		## the last one. stuck-recovery's stop_current() still bypasses
-		## this entirely for real emergencies.
-		return false
+		## Aug 2026 — was `_phase != "apply"`, which only protected the
+		## final sub-phase. That left the NPC interruptible for the whole
+		## fetch-complete-through-travel window while physically CARRYING
+		## the soil bag/seed packet — long enough for
+		## PutAwayHeldItemActivity's flat score (20.0) to beat Gardening's
+		## own (max ~6.2 + the 8.0 switch margin) on the very next think-
+		## cycle (~1s later), interrupting the carry and (since neither
+		## item has a real Shelving/LightStorage destination) getting
+		## dropped in place almost immediately. Matches CleaningActivity's
+		## existing pattern instead: non-interruptible for the item's
+		## ENTIRE held lifecycle, not just the last sub-phase.
+		return _item == null
 
 	func enter(npc: NPC) -> void:
 		_finished = false
@@ -1676,24 +1648,17 @@ class GardeningActivity extends NPCActivity:
 			_item = npc.held_item
 		_pick_next_task(npc)
 
-	## Finds the nearest eligible task (harvest > soil > plant, mode-
-	## restricted — fertilize stays tray-wide/separate), claims it, and
-	## kicks off fetch/travel. Ends the session if nothing eligible
-	## remains anywhere.
+	## Finds the nearest eligible CELL for whichever task category
+	## applies next (soil > plant, mode-restricted; fertilize stays
+	## tray-wide, unaffected by any of this), claims it, and kicks off
+	## fetch/travel. Ends the session if nothing eligible remains.
 	func _pick_next_task(npc: NPC) -> void:
 		_release_current_cell(npc)
 		_current_tray = null
 		_current_cell = -1
 		_current_task = ""
 
-		if mode == "farming":
-			var harvest_pick: Dictionary = _nearest_ready_plant(npc)
-			if not harvest_pick.is_empty():
-				_current_tray = harvest_pick["tray"]
-				_current_cell = int(harvest_pick["cell"])
-				_current_task = "harvest"
-
-		if _current_tray == null and mode != "fertilize_only":
+		if mode != "fertilize_only":
 			var soil_pick: Dictionary = _nearest_open_cell(npc, "soil")
 			if not soil_pick.is_empty():
 				_current_tray = soil_pick["tray"]
@@ -1734,12 +1699,6 @@ class GardeningActivity extends NPCActivity:
 			NPCDebug.log_cleaning(npc, "gardening target picked", "%s cell=%d task=%s" \
 				% [_current_tray.name, _current_cell, _current_task])
 
-		if _current_task == "harvest":
-			## No item involved — go straight to travel.
-			_phase = "travel"
-			npc.set_nav_target(_approach_point(npc, _current_tray))
-			return
-
 		if _item != null and _item_matches_task(npc):
 			_phase = "travel"
 			npc.set_nav_target(_approach_point(npc, _current_tray))
@@ -1747,35 +1706,13 @@ class GardeningActivity extends NPCActivity:
 		_phase = "fetch"
 		_start_fetch(npc)
 
-	## Nearest tray/cell with a ready-to-harvest plant. Only ever used by
-	## mode "farming" (the unified player request) — autonomous
-	## harvesting stays exclusively on the existing JobBoard HARVEST path
-	## to avoid two independent systems both deciding to harvest the same
-	## plant.
-	func _nearest_ready_plant(npc: NPC) -> Dictionary:
-		var best: Dictionary = {}
-		var best_d: float = INF
-		for tray: Node in npc.get_tree().get_nodes_in_group("farming_tray"):
-			if not is_instance_valid(tray):
-				continue
-			for i: int in range(tray.cell_count):
-				var plant: FarmPlant = tray.plant_refs[i] if i < tray.plant_refs.size() else null
-				if plant == null or not is_instance_valid(plant) or not plant.is_ready():
-					continue
-				if NPCItemUser.is_cell_claimed_by_other(tray, i, npc):
-					continue
-				var d: float = NPCItemUser.flat_distance(npc.global_position, (tray as Node3D).global_position)
-				if d < best_d:
-					best_d = d
-					best = {"tray": tray, "cell": i}
-		return best
-
 	## Scans every farming_tray's cells for the given kind ("soil" or
 	## "plant"), skipping cells claimed by another NPC and — for "plant"
 	## — skipping cells whose hard seed lock (get_cell_seed_lock()) can't
-	## currently be satisfied at all (no matching seed anywhere). A
-	## locked cell NEVER falls back to a different type — the lock is
-	## absolute, autonomous or commanded.
+	## currently be satisfied at all (no matching seed anywhere), per the
+	## Farming thread's own recommended discovery logic. A locked cell
+	## NEVER falls back to a different type, autonomous or commanded —
+	## the lock is absolute.
 	func _nearest_open_cell(npc: NPC, kind: String) -> Dictionary:
 		var best: Dictionary = {}
 		var best_d: float = INF
@@ -1794,8 +1731,11 @@ class GardeningActivity extends NPCActivity:
 					continue
 				if kind == "plant":
 					var lock: String = tray.get_cell_seed_lock(i)
-					if lock != "" and not _seed_type_available(npc, lock):
-						continue   ## locked type not in stock anywhere — skip silently
+					if lock != "":
+						if forced_seed_type != "" and forced_seed_type != lock:
+							continue   ## player asked for a different type than this cell allows — skip, never override a lock
+						if not _seed_type_available(npc, lock):
+							continue   ## locked type not in stock anywhere — skip silently, per Farming thread's own guidance
 				var d: float = NPCItemUser.flat_distance(npc.global_position, (tray as Node3D).global_position)
 				if d < best_d:
 					best_d = d
@@ -1838,20 +1778,24 @@ class GardeningActivity extends NPCActivity:
 				var lock: String = _current_tray.get_cell_seed_lock(_current_cell) if _current_tray != null else ""
 				if lock != "":
 					return _item.seed_type == lock
+				if forced_seed_type != "":
+					return _item.seed_type == forced_seed_type
 				return true   ## soft preference — re-validated at fetch time, not here
 			"fertilize": return _item is FertilizerItem
 			_: return false
 		return false
 
-	## Two-stage: try the resolved locked/preferred type first; for a
-	## SOFT preference only (no lock), fall back to ANY seed type if that
-	## specific one isn't available. A hard lock never falls back — the
-	## earlier cell-selection pass already guaranteed a locked cell's
-	## type is in stock before this ever runs.
+	## Two-stage: try the resolved preferred/locked/forced type first; for
+	## a SOFT preference only (no lock, no forced command), fall back to
+	## ANY seed type if that specific one isn't available — matches
+	## "prefer X unless X isn't available." A hard lock or an explicit
+	## player-requested type NEVER falls back (the earlier cell-selection
+	## pass already guaranteed a locked cell's type is in stock before
+	## this ever runs — see _nearest_open_cell()).
 	func _start_fetch(npc: NPC) -> void:
 		var found: bool = _try_fetch_with_filter(npc, _fetch_filter_for_task())
 		if not found and _current_task == "plant" and _current_tray != null \
-				and _current_tray.get_cell_seed_lock(_current_cell) == "":
+				and _current_tray.get_cell_seed_lock(_current_cell) == "" and forced_seed_type == "":
 			found = _try_fetch_with_filter(npc, func(item: Node) -> bool: return item is SeedItem)
 		if not found:
 			if NPCDebug.enabled:
@@ -1877,16 +1821,13 @@ class GardeningActivity extends NPCActivity:
 		npc.set_nav_target(tgt.global_position)
 		return true
 
-	## Aug 2026 — seed type is ALWAYS read from the tray now (lock, then
-	## replant memory, then "any") — no separate player-chosen type
-	## exists anymore.
 	func _fetch_filter_for_task() -> Callable:
 		match _current_task:
 			"soil":
 				return func(item: Node) -> bool: return item is BagOfSoilItem
 			"plant":
 				var lock: String = _current_tray.get_cell_seed_lock(_current_cell) if _current_tray != null else ""
-				var want: String = lock
+				var want: String = lock if lock != "" else forced_seed_type
 				if want == "" and _current_tray != null:
 					want = _current_tray.last_planted_type[_current_cell]   ## soft preference
 				if want != "":
@@ -1923,21 +1864,7 @@ class GardeningActivity extends NPCActivity:
 					_phase = "apply"
 			"apply":
 				npc.halt_movement(delta)
-				if _current_tray == null or not is_instance_valid(_current_tray):
-					_pick_next_task(npc)
-					return
-				if _current_task == "harvest":
-					var plant: FarmPlant = _current_tray.plant_refs[_current_cell] \
-						if _current_cell >= 0 and _current_cell < _current_tray.plant_refs.size() else null
-					if plant != null and is_instance_valid(plant) and plant.is_ready():
-						plant.harvest()
-						if NPCDebug.enabled:
-							NPCDebug.log_cleaning(npc, "gardening applied", "harvest cell=%d success=true" % _current_cell)
-					elif NPCDebug.enabled:
-						NPCDebug.log_cleaning(npc, "gardening applied", "harvest cell=%d success=false (no longer ready)" % _current_cell)
-					_pick_next_task(npc)
-					return
-				if _item == null or not is_instance_valid(_item):
+				if _item == null or not is_instance_valid(_item) or _current_tray == null or not is_instance_valid(_current_tray):
 					_pick_next_task(npc)
 					return
 				var applied: bool = true
@@ -1946,8 +1873,8 @@ class GardeningActivity extends NPCActivity:
 					## on why fertilizer stays exactly as it was.
 					_item.on_use()
 				else:
-					## Index-aware apply. Targets the SPECIFIC claimed cell,
-					## not "nearest to the item."
+					## Index-aware apply — see Part C. Targets the SPECIFIC
+					## claimed cell, not "nearest to the item."
 					applied = _item.apply_at_cell(_current_tray, _current_cell)
 				if NPCDebug.enabled:
 					NPCDebug.log_cleaning(npc, "gardening applied", "%s cell=%d success=%s" \
@@ -1991,40 +1918,16 @@ class GardeningActivity extends NPCActivity:
 		if _current_tray != null and _current_cell != -1:
 			NPCItemUser.release_cell(_current_tray, _current_cell, npc)
 
-	## Aug 2026 — structured snapshot for the new "Print NPC Job Debug
-	## State" dump (see NPCDebug.dump_job_state()).
-	func debug_info() -> Dictionary:
-		return {
-			"activity": "gardening",
-			"mode": mode,
-			"phase": _phase,
-			"task": _current_task,
-			"tray": (_current_tray.name if _current_tray != null and is_instance_valid(_current_tray) else ""),
-			"cell": _current_cell,
-			"item": (_display_name(_item) if _item != null else ""),
-		}
-
-	static func _display_name(item: Node) -> String:
-		if item == null:
-			return "?"
-		return item.get_display_name() if item.has_method("get_display_name") else str(item.name)
-
 	func exit(npc: NPC) -> void:
-		## Aug 2026 — log exactly what was in progress at the moment of
-		## exit (natural completion vs. an outside interrupt look
-		## identical from here — the NEW _think()/stuck logging elsewhere
-		## in this plan is what tells them apart) — this is the detail
-		## that was missing when this bug was first reported.
-		if NPCDebug.enabled and not _finished:
-			NPCDebug.log_cleaning(npc, "gardening exited early", "phase=%s task=%s tray=%s cell=%d item=%s" \
-				% [_phase, _current_task, (_current_tray.name if _current_tray != null and is_instance_valid(_current_tray) else "?"),
-					_current_cell, (_display_name(_item) if _item != null else "none")])
 		_release_current_cell(npc)
 		if _fetch_loose != null:
 			NPCItemUser.release_item(_fetch_loose)
 		if not _fetch_shelf.is_empty():
 			NPCItemUser.release_item(_fetch_shelf.get("item"))
-		npc.velocity = Vector3.ZERO   ## Aug 2026 — don't leave the NPC coasting in whatever direction it was last walking
+		## Deliberately does NOT drop _item on exit — matches
+		## PutAwayHeldItemActivity's safety net, which will pick up and
+		## put away any leftover held item if this gets interrupted
+		## mid-carry with nothing else claiming it.
 
 class CommandGardeningActivity extends NPCActivity:
 	## Backs all three player-issued gardening requests ("Add soil to all
