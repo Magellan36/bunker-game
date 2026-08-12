@@ -1,3 +1,98 @@
+# Handover — E-Interact Parity With Focus Mode's Highlight (Aug 2026)
+
+## What changed this session
+Fixed a gap in the Grow Light/Water Hookup Focus Mode work: the prior
+plan made both unconditional #1 priority in what Focus Mode *displays*
+(`_update_prompt()`'s `focus_idx`), but real `E` dispatch
+(`_try_interact()`, via `_nearest_generic_interactable()`) had zero
+awareness of Ctrl being held, so it kept resolving to whatever was
+genuinely closest regardless — meaning `E` could interact with a
+different object than the one being highlighted the entire time Ctrl
+was held (reported: Water Hookup/Grow Light shown correctly as the sole
+prompt, but pressing `E` still hit a nearer Wall Light or the tray).
+
+`_nearest_generic_interactable()` now polls `Input.is_key_pressed
+(KEY_CTRL)` directly (same passive-polling pattern already used
+elsewhere in this file and in `InteractPrompt.gd`'s own Focus Mode
+filter) and applies the identical "nearest Grow Light or Water Hookup
+wins outright" rule `focus_idx` uses, but strictly gated behind Ctrl
+being held — with Ctrl up, this is a proven no-op, plain `E` stays pure
+fair distance. Since the shelf E-priority fairness check already reads
+this same function, it correctly picks up consistent behavior too, with
+no separate change needed there.
+
+Noted one narrow pre-existing edge case rather than chasing it: CASE 2's
+prompt list caps at `MAX_VISIBLE_PROMPTS` (3) before `focus_idx` is
+computed, so in a spot with 4+ simultaneous interactables the display
+and the real `E`-target could theoretically diverge — existing
+characteristic of prompt-capping generally, out of scope here.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — `_nearest_generic_interactable()`
+  gains a Ctrl-gated Grow Light/Water Hookup priority override, mirroring
+  `focus_idx`'s rule exactly.
+- `docs/systems/player/README.md` — follow-up paragraph appended to the
+  prior Grow Light + Water Hookup entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_FOCUS_MODE_E_INTERACT_PARITY_PLAN.md` for the full 5-item
+checklist)
+
+---
+
+# Handover — Grow Light + Water Hookup Focus-Mode Priority: Re-Applied, Broadened, and a Merge-Revert Postmortem (Aug 2026)
+
+## What changed this session
+Discovered (via `git log`) that the prior "Water Hookup priority
+corrected to Focus-Mode-only scope" fix (`3ccd877`) had been silently
+reverted by a later merge commit (`f1b6c7e`, "Merge remote changes and
+retain local GardeningActivity stack overflow fix...") — its conflict
+resolution landed on the pre-fix version of the same `InteractionSystem.
+gd` region (45 lines changed in both commits, same area). No revert
+commit, no visible signal it happened; only surfaced because the
+in-game behavior regressed and got reported. Re-applied the fix fresh
+against current code rather than trusting the old diff blindly.
+
+While re-applying, also fixed the same unscoped-priority problem for
+Grow Light, which had never actually been Focus-Mode-scoped at all — it
+always lived in `_nearest_generic_interactable()` (real `E` dispatch),
+so it had been winning both in and out of Focus Mode this whole time.
+Moved to `_update_prompt()`'s `focus_idx` computation alongside Water
+Hookup, and broadened both from "only wins if the closest entry happens
+to be [FarmingTray]" to "unconditional #1 whenever anywhere in the
+current prompt set" — per direct instruction. Both `GrowLight` tiers
+("normal"/"pro") are covered by the existing single `"grow_light"`
+group regardless of tier, confirmed by reading `GrowLight.gd` directly.
+
+Outside Focus Mode, both objects are now back to ordinary fair-distance
+`E`-dispatch priority — `_nearest_generic_interactable()` has zero
+special-casing for either group anymore.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — both overrides removed from
+  `_nearest_generic_interactable()`; both added (broadened, unconditional)
+  to `_update_prompt()`'s `focus_idx` computation.
+- `docs/systems/player/README.md` — Water Hookup entry replaced with a
+  combined Grow Light + Water Hookup entry.
+- `HANDOVER.md` — this entry.
+
+### Process note for future sessions
+Worth a heads-up for whoever's merging branches on this file going
+forward — `InteractionSystem.gd` has now had at least one real bug fix
+silently lost to a merge conflict resolution this session. Might be
+worth a quick diff review against the pre-merge state specifically for
+this file after any future merge touching it, given how much active
+work keeps landing here across multiple threads.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_GROWLIGHT_WATERHOOKUP_FOCUS_REAPPLY_PLAN.md` for the full
+6-item checklist)
+
+---
+
 ## NPC: Systems Consolidation Pass (Aug 2026)
 
 Ran the consolidation pass Brannon asked for after flagging feature-

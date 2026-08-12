@@ -465,24 +465,41 @@ own held item while CASE 1 scans for a different target — guarded with
   would fire, sharing the same underlying scan so the two can never
   drift apart — tagged onto CASE 2 prompt entries via a new
   `"is_e_target"` key.
-- **Water Hookup unconditional Focus Mode priority (Aug 2026,
-  `WaterHookup.gd` — flagged: `scripts/world/water/`, not one of the
-  three core files; corrected same session — see below).** Mounted high
-  on the wall, so it's almost always farther than lower-mounted wall
-  objects sharing the same wall and would rarely win on raw distance
-  alone. Given a `"water_hookup"` duck-type marker group (mirrors
-  `"grow_light"`/`"farming_tray"`). **Correction:** initially implemented
-  inside `_nearest_generic_interactable()`, which at the time was shared
-  by both real `E` dispatch and Focus Mode's target resolution — but
-  Focus Mode had since been rewritten to compute its own
-  `is_focus_target` independently (see `_update_prompt()`'s "Aug 2026 v2"
-  comment) and no longer calls that function at all, so the override was
-  silently affecting only plain `E` presses, never Focus Mode — the
-  opposite of the intent. Moved to `_update_prompt()`'s `focus_idx`
-  computation instead (mirrors the existing grow-light-over-tray swap
-  already there), which is the thing that's actually gated behind
-  `Input.is_key_pressed(KEY_CTRL)`. Plain `E` presses (`_try_interact()`)
-  are back to fair-distance-only, unaffected by Water Hookup's presence.
+- **Grow Light + Water Hookup: unconditional Focus-Mode-only priority
+  (Aug 2026, re-applied and broadened — a prior version of the Water
+  Hookup half of this was silently reverted by a merge commit, `f1b6c7e`,
+  which landed on the pre-fix version of the same file region during
+  conflict resolution; re-applied fresh from current code, not just
+  restored blindly).** Both `GrowLight` (either tier — "normal"/"pro"
+  share one script and one `"grow_light"` group) and `WaterHookup` are
+  mounted in positions that make them lose ordinary fair-distance
+  competition almost every time (grow lights sit directly above their
+  tray; hookups are high on the wall, farther from a ground-standing
+  player than whatever's mounted lower on the same wall). Both are now
+  unconditional #1 Focus Mode priority whenever either is anywhere in
+  the current prompt set at all, via `_update_prompt()`'s `focus_idx`
+  computation — broadened from grow light's previous narrower rule
+  (only swapped in if the closest entry specifically was its own
+  `FarmingTray`). Deliberately lives ONLY in `focus_idx`, not in
+  `_nearest_generic_interactable()` (real `E` dispatch) — outside Focus
+  Mode, both return to ordinary fair-distance priority, i.e. essentially
+  never winning, by design.
+  **E-interact parity follow-up (Aug 2026):** the above only affected
+  what Focus Mode *displayed* — real `E` dispatch
+  (`_try_interact()`/`_nearest_generic_interactable()`) had no
+  awareness of Ctrl at all, so pressing `E` while Ctrl was held could
+  still interact with a different, nearer object than the one being
+  highlighted (reported: Water Hookup/Grow Light shown correctly, but
+  `E` hit a nearer Wall Light/tray instead). `_nearest_generic_interactable()`
+  now polls `Input.is_key_pressed(KEY_CTRL)` directly and applies the
+  identical nearest-Grow-Light-or-Water-Hookup-wins rule `focus_idx`
+  uses, but only while Ctrl is actually held — plain `E` presses remain
+  pure fair distance, unaffected. One known narrow edge case: the CASE 2
+  prompt list caps at `MAX_VISIBLE_PROMPTS` (3) before Focus Mode's
+  highlight is computed, so with 4+ simultaneous interactables in range
+  the display and the `E`-target could theoretically diverge — existing
+  characteristic of the prompt-capping system generally, not something
+  this fix introduces or attempts to resolve.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**

@@ -801,17 +801,30 @@ func _update_prompt() -> void:
 	## Mode prompt even though F still works on them and they show fine
 	## normally. Focus target is now simply the CLOSEST entry with an
 	## actual displayable prompt: entries[] is already built in
-	## candidates' closest-first order, so that's just index 0 — with the
-	## grow-light-over-tray override still applied on top, since raw
-	## distance sorting doesn't know about that deliberate exception.
+	## candidates' closest-first order, so that's just index 0.
+	##
+	## Aug 2026 v3 (corrected — a prior version of this was lost to a
+	## merge, then broadened per direct instruction) — Grow Light (both
+	## tiers, "normal" and "pro" — same GrowLight.gd script either way,
+	## both join the single "grow_light" group regardless of tier) and
+	## Water Hookup are unconditional #1 Focus Mode priority whenever
+	## EITHER is anywhere in the current prompt set at all — not the
+	## previous narrower "only if the closest entry happens to be a
+	## FarmingTray" swap. Both are mounted awkwardly (grow lights on the
+	## ceiling directly above their tray, water hookups high on the wall)
+	## and would otherwise almost never be entries[0] on raw distance
+	## alone — this unconditional-while-Ctrl-is-held rule is the entire
+	## reason Focus Mode is useful for reaching either. Deliberately does
+	## NOT touch _nearest_generic_interactable() (real E dispatch) at
+	## all — outside Focus Mode, both return to ordinary fair-distance
+	## priority, i.e. close to never winning, by design.
 	var focus_idx: int = -1
 	if not entries.is_empty():
 		focus_idx = 0
-		if entry_bodies[0].is_in_group("farming_tray"):
-			for i: int in entry_bodies.size():
-				if entry_bodies[i].is_in_group("grow_light"):
-					focus_idx = i
-					break
+		for i: int in entry_bodies.size():
+			if entry_bodies[i].is_in_group("grow_light") or entry_bodies[i].is_in_group("water_hookup"):
+				focus_idx = i
+				break
 	for i: int in entries.size():
 		entries[i]["is_focus_target"] = (i == focus_idx)
 
@@ -1074,10 +1087,17 @@ func _nearest_generic_interactable() -> Dictionary:
 
 	var static_reach: float = MAX_PROMPT_DIST
 	var player_pos: Vector3 = player.global_position
-	var nearest_grow_light: Node3D     = null
-	var nearest_grow_light_dist: float = INF
-	var nearest_water_hookup: Node3D     = null
-	var nearest_water_hookup_dist: float = INF
+	var nearest_focus_priority: Node3D     = null
+	var nearest_focus_priority_dist: float = INF
+	## Aug 2026 v2 — Focus Mode E-interact parity. Grow Light/Water Hookup
+	## priority moved back here from being purely a display concern, but
+	## gated behind Ctrl so it ONLY applies while Focus Mode is actually
+	## active — plain E presses are still pure fair distance, unaffected.
+	## Without this, E could interact with something different than
+	## whatever Focus Mode was highlighting the whole time Ctrl was held
+	## (reported: Water Hookup/Grow Light correctly shown as the only
+	## prompt, but E still hit the nearer Wall Light/tray instead).
+	var focus_mode_active: bool = Input.is_key_pressed(KEY_CTRL)
 	for node: Node in get_tree().get_nodes_in_group("interactable"):
 		if not is_instance_valid(node):
 			continue
@@ -1089,35 +1109,23 @@ func _nearest_generic_interactable() -> Dictionary:
 			continue
 		var n3: Node3D = node as Node3D
 		var d: float = n3.global_position.distance_to(player_pos)
-		if node.is_in_group("grow_light") and d < static_reach and d < nearest_grow_light_dist:
-			nearest_grow_light_dist = d
-			nearest_grow_light = n3
-		if node.is_in_group("water_hookup") and d < static_reach and d < nearest_water_hookup_dist:
-			nearest_water_hookup_dist = d
-			nearest_water_hookup = n3
+		if focus_mode_active and (node.is_in_group("grow_light") or node.is_in_group("water_hookup")) \
+				and d < static_reach and d < nearest_focus_priority_dist:
+			nearest_focus_priority_dist = d
+			nearest_focus_priority = n3
 		if d < static_reach and d < closest_dist:
 			closest_dist = d
 			closest = n3
 
-	if nearest_grow_light != null and closest != null and closest.is_in_group("farming_tray"):
-		closest      = nearest_grow_light
-		closest_dist = nearest_grow_light_dist
-
-	## Aug 2026 — Water Hookup: unconditional top priority whenever in
-	## reach at all, applied AFTER the grow-light override so it wins
-	## even in the extremely unlikely case both would otherwise fire the
-	## same frame. Deliberately unscoped, unlike the grow-light override
-	## above (which only beats one specific named rival, FarmingTray) —
-	## a Water Hookup can end up near any number of different wall-
-	## mounted objects depending on how a given bunker is furnished, so
-	## there's no single fixed rival worth naming; it simply always wins
-	## over whatever else is in range. This also means a plain E press
-	## (not just Focus Mode's Ctrl-held highlight) now always resolves to
-	## the hookup when one's in reach — deliberate, not an oversight; see
-	## this plan's own header for why decoupling the two would be worse.
-	if nearest_water_hookup != null:
-		closest      = nearest_water_hookup
-		closest_dist = nearest_water_hookup_dist
+	## Mirrors focus_idx's own priority exactly (nearest of either group
+	## wins if Ctrl is held) — see that function's comment for the full
+	## reasoning on why both are treated identically. Ctrl not held →
+	## nearest_focus_priority stays null → this is a no-op, ordinary fair
+	## distance stands, matching "essentially never wins outside Focus
+	## Mode" by design.
+	if nearest_focus_priority != null:
+		closest      = nearest_focus_priority
+		closest_dist = nearest_focus_priority_dist
 
 	return { "node": closest, "dist": closest_dist }
 
