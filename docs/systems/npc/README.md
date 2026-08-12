@@ -1641,3 +1641,15 @@ without being asked.
     mid-carry by the "put away held item" safety net, which previously
     could win the very next think-cycle (~1s later) and cause a
     drop/idle/straight-line-drift.
+98. On a level with heavy clutter (so Cleaning's score is escalated),
+    request Farming with a distant tray needing soil — confirm the NPC
+    walks the entire distance without being pulled away.
+99. Request "Tend the farm" with harvest, planting, and soil all needed
+    at once — confirm strict priority order (harvest -> plant -> soil)
+    in one session, with seed type always read from each cell, no
+    popup.
+100. Force an interrupt and a stuck event — confirm the console now
+     shows an INTERRUPTED: line with both scores, and a STUCK while ...
+     line naming the actual activity. Press F7 -> "Print NPC Job Debug
+     State" — confirm it shows every NPC's current activity/debug info
+     regardless of type.

@@ -23,6 +23,17 @@ static func log_activity(npc: Node, from_label: String, to_label: String) -> voi
 		return
 	print("%s activity: %s -> %s" % [_fmt(npc), from_label, to_label])
 
+## Aug 2026 — logs the actual score comparison behind an interrupt
+## decision, called right before log_activity() at the one place this
+## decision is made (NPCBrain._think()). This is what answers "why did
+## my NPC's job get dropped" directly, instead of needing to infer it
+## from a bare label transition.
+static func log_interrupt(npc: Node, from_label: String, from_score: float, to_label: String, to_score: float, margin: float) -> void:
+	if not enabled:
+		return
+	print("%s INTERRUPTED: %s (score=%.2f) -> %s (score=%.2f, needed >%.2f)" \
+		% [_fmt(npc), from_label, from_score, to_label, to_score, from_score + margin])
+
 ## Need crossing an interest threshold (e.g. dropping below 55/60) — call
 ## from _tick_needs() or an activity's score() the first time it goes live.
 static func log_need_threshold(npc: Node, need_name: String, value: float) -> void:
@@ -30,11 +41,20 @@ static func log_need_threshold(npc: Node, need_name: String, value: float) -> vo
 		return
 	print("%s %s dropped to %.1f" % [_fmt(npc), need_name, value])
 
-## Stuck-recovery firing — call from NPC._recover_from_stuck().
-static func log_stuck(npc: Node) -> void:
+## Aug 2026 — context/info params added so the console shows WHAT was
+## interrupted, not just that something was. `info` is whatever the
+## current activity's debug_info() returned (empty for activities that
+## don't implement it, e.g. Wander/Relax).
+static func log_stuck(npc: Node, context: String = "?", info: Dictionary = {}) -> void:
 	if not enabled:
 		return
-	print("%s STUCK — aborting current activity and re-scoring" % _fmt(npc))
+	var detail: String = ""
+	if not info.is_empty():
+		var parts: Array = []
+		for key: String in info.keys():
+			parts.append("%s=%s" % [key, str(info[key])])
+		detail = " [%s]" % ", ".join(parts)
+	print("%s STUCK while %s%s — aborting current activity and re-scoring" % [_fmt(npc), context, detail])
 
 ## Aug 2026 — logged when the same obstruction (or none identifiable)
 ## has kept an NPC stuck across multiple consecutive recovery attempts,
@@ -208,6 +228,36 @@ static func _describe_storage_room(candidate: Node) -> String:
 		var label: String = candidate.display_name if "display_name" in candidate else "storage"
 		return "%s, %d/%d used" % [label, used2, candidate.stored.size()]
 	return "(unknown storage type)"
+
+## Aug 2026 — one-shot snapshot of EVERY NPC's current activity and its
+## full debug_info(), whatever that activity is. dump_cleaning_state()
+## stays Cleaning-specific (JobBoard caches, storage occupancy) — this
+## is the general-purpose complement for diagnosing Gardening/Refuel/
+## anything else without needing a dedicated dump per activity type.
+## Always prints regardless of `enabled` (an explicit on-demand request,
+## same convention as dump_all()/dump_cleaning_state()).
+static func dump_job_state(tree: SceneTree) -> void:
+	print("═══ NPC Job Debug Dump ════════════════════════════════")
+	var any_npc: bool = false
+	for npc: Node in tree.get_nodes_in_group("npc"):
+		if not is_instance_valid(npc):
+			continue
+		any_npc = true
+		var npc_name: String = npc.npc_name if "npc_name" in npc else "?"
+		var label: String = npc.brain.current_label() if ("brain" in npc and npc.brain != null) else "?"
+		var info: Dictionary = {}
+		if "brain" in npc and npc.brain != null and npc.brain.has_method("get_current_activity_debug_info"):
+			info = npc.brain.get_current_activity_debug_info()
+		if info.is_empty():
+			print("  %s: %s" % [npc_name, label])
+		else:
+			var parts: Array = []
+			for key: String in info.keys():
+				parts.append("%s=%s" % [key, str(info[key])])
+			print("  %s: %s [%s]" % [npc_name, label, ", ".join(parts)])
+	if not any_npc:
+		print("  (no NPCs)")
+	print("═════════════════════════════════════════════════════════")
 
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,

@@ -1,3 +1,43 @@
+## NPC: Unified Farming Request, Full Interruption Fix, Comprehensive Debug (Aug 2026)
+
+- Root-caused Sable's bug as a broader version of the earlier mid-carry
+  interrupt fix: GardeningActivity/RefuelActivity were only non-
+  interruptible during their FINAL sub-phase, leaving the walk-TOWARD a
+  loose item (before ever picking it up) vulnerable to any high-scoring
+  competitor (confirmed: clutter-escalated Cleaning) winning the next
+  think-cycle (~1s) and aborting the approach — explaining why closer
+  items succeeded and farther ones didn't. Both now return `false` from
+  interruptible() (matching PutAwayHeldItemActivity's existing "short
+  and self-contained" precedent) — non-interruptible for the whole
+  session, with stuck-recovery's stop_current() unaffected since it
+  never went through interruptible() in the first place.
+- Unified Harvest/Plant/Soil into one "Tend the farm" Talk-menu request
+  (GardeningActivity mode "farming"): strict priority harvest -> plant
+  -> soil, ends when none apply anywhere. Autonomous Harvest (JobBoard)
+  and autonomous soil/planting (mode "auto") are unchanged — this is a
+  new command-only path only. Planting now always reads each cell's own
+  seed lock/replant memory — the seed-type-selection popup
+  (NPCSeedSelectMenuUI.gd) is retired/deleted, no longer needed.
+  Fertilizer stays its own separate, command-only request.
+- Comprehensive debug expansion: NPCBrain._think() now logs the exact
+  score comparison behind every interrupt decision
+  (NPCDebug.log_interrupt()); NPC._recover_from_stuck() now attaches
+  the current activity's label + debug_info() to the stuck log
+  (NPCDebug.log_stuck() signature expanded); added GardeningActivity/
+  RefuelActivity debug_info() and early-exit logging (mirrors
+  CleaningActivity's existing pattern); added a new generalized F7
+  dump, "Print NPC Job Debug State"
+  (NPCDebug.dump_job_state()), showing every NPC's current activity and
+  full debug info regardless of activity type, complementing the
+  existing Cleaning-specific dump.
+
+Files touched: `scripts/npc/NPCBrain.gd`, `scripts/npc/NPC.gd`,
+`scripts/npc/NPCDebug.gd`, `scripts/ui/npc/NPCTalkMenuUI.gd`,
+`scripts/ui/menus/AdminMenu.gd`; deleted
+`scripts/ui/npc/NPCSeedSelectMenuUI.gd`.
+
+---
+
 # Handover — Water Hookup Priority Corrected to Focus-Mode-Only (Aug 2026)
 
 ## What changed this session

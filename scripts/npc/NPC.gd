@@ -2098,7 +2098,13 @@ func _tick_stuck_recovery(delta: float) -> void:
 
 func _recover_from_stuck() -> void:
 	_stuck_recoveries += 1
-	NPCDebug.log_stuck(self)
+	## Aug 2026 — was just "STUCK — aborting current activity", with no
+	## indication of what the NPC was actually doing when it happened.
+	## Include the current activity's label (and its debug_info() when
+	## available) so the console shows exactly what got interrupted.
+	var context: String = brain.current_label() if brain != null else "?"
+	var info: Dictionary = brain.get_current_activity_debug_info() if brain != null else {}
+	NPCDebug.log_stuck(self, context, info)
 	var stuck_item: RigidBody3D = _find_stuck_obstruction()
 	var stuck_npc: CharacterBody3D = null
 	if stuck_item == null:

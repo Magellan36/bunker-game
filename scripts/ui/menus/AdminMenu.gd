@@ -146,6 +146,7 @@ func _ready() -> void:
 			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
 			["Print NPC Debug State", _on_npc_print_debug_pressed],
 			["Print NPC Cleaning Debug State", _on_npc_print_cleaning_debug_pressed],
+			["Print NPC Job Debug State", _on_npc_print_job_debug_pressed],
 			["Force Nearest NPC to Snatch Player Item", _on_npc_force_snatch_pressed],
 			["Force Nearest NPC to Talk to NPC", _on_npc_force_talk_pressed],
 			["Force Nearest NPC to Give to Friend", _on_npc_force_give_friend_pressed],
@@ -619,6 +620,9 @@ func _on_npc_print_debug_pressed() -> void:
 
 func _on_npc_print_cleaning_debug_pressed() -> void:
 	NPCDebug.dump_cleaning_state(get_tree())
+
+func _on_npc_print_job_debug_pressed() -> void:
+	NPCDebug.dump_job_state(get_tree())
 
 ## Part 29 — forces the NEAREST spawned NPC to attempt a snatch against
 ## the player right now, bypassing relationship/probability (still
