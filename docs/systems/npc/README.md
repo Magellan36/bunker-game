@@ -1736,3 +1736,21 @@ without being asked.
      report). Deliberately scoped to `_recover_from_stuck()` only — not a blanket
      `force_command()` change, since Give/Snatch handoffs legitimately rely on setting `held_item`
      as part of their own forced entry.
+111. CleaningActivity indentation fix (Aug 2026) — the previous relocate-fix plan introduced a
+     transcription error: the pickup-attempt block (`npc.nav_steer(delta)` through its closing
+     `return`) lost one level of indentation, making it a sibling of `if npc.held_item == null:`
+     instead of nested inside it. This made it run unconditionally every tick (repeatedly
+     "failing" to re-grab an already-held item, then grabbing a fresh one without ever detaching
+     the first — the stacking bug) and made the Relocate/Travel phase code below it permanently
+     unreachable (why the relocate fix appeared to do nothing, and why no item could ever actually
+     reach a shelf). Fixed by restoring the correct nesting — no logic changes, indentation only.
+112. Stuck-recovery grace period + Cooking stove-power awareness (Aug 2026). (1) Added
+     `STUCK_GRACE_PERIOD` (4.0s) — the no-progress condition must now persist for the full window
+     before `_recover_from_stuck()` gets called at all, applying to every job uniformly (one
+     shared constant). Does NOT fix `_recover_from_stuck()` itself (still tracked as broken
+     separately) — calls into it unmodified, so its eventual fix cascades automatically. (2)
+     `CookingActivity` now checks whether `on_interact()` actually turned the stove on rather than
+     assuming success — shows `"<npc> cannot cook meal (Stove unpowered)"` and leaves (no waiting)
+     on failure. New `NPCJobQueries.find_cooking_needs_power_target()` tier (ranked between serve
+     and ingredient-fetch) recognizes a fully-loaded-but-unlit pot on a future command invocation
+     — previously invisible to every existing tier once a pot reached 3/3 ingredients.

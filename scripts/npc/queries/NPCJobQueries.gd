@@ -309,6 +309,35 @@ static func find_cooking_ingredient_target(npc: NPC) -> Node:
 			best = stove
 	return best
 
+## Aug 2026 — a stove whose pot has ≥1 ingredient but isn't powered on
+## (e.g. the last attempt found it unpowered and left it exactly as-is,
+## per the leave-and-recheck model). find_cooking_ingredient_target()
+## above skips a FULL pot entirely, and find_cooking_pot_target() below
+## skips any stove that already has a pot — so without this tier, a
+## fully-loaded, never-lit pot would be invisible to every future "Cook a
+## meal" command. Ranked above find_cooking_pot_target() (retrying a
+## near-finished stove beats starting a brand new one).
+static func find_cooking_needs_power_target(npc: NPC) -> Node:
+	var best: Node = null
+	var best_d: float = INF
+	for stove: Node in npc.get_tree().get_nodes_in_group("stove"):
+		if not is_instance_valid(stove):
+			continue
+		if NPCItemUser.is_claimed_by_other(stove, npc):
+			continue
+		if stove.powered_on:
+			continue
+		var pot: Node = stove.pot_ref
+		if pot == null or not pot.has_method("count_filled") or pot.count_filled() <= 0:
+			continue
+		if pot.has_method("is_dish_ready") and pot.is_dish_ready():
+			continue   ## shouldn't happen (serve tier catches this first) — stay defensive
+		var d: float = NPCItemUser.flat_distance(npc.global_position, (stove as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best = stove
+	return best
+
 static func find_cooking_pot_target(npc: NPC) -> Node:
 	var best: Node = null
 	var best_d: float = INF
@@ -331,6 +360,7 @@ static func find_cooking_pot_target(npc: NPC) -> Node:
 ## already feed their score()s.
 static func has_cooking_target_available(npc: NPC) -> bool:
 	return find_cooking_serve_target(npc) != null \
+		or find_cooking_needs_power_target(npc) != null \
 		or find_cooking_ingredient_target(npc) != null \
 		or find_cooking_pot_target(npc) != null
 

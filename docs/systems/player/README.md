@@ -521,16 +521,20 @@ own held item while CASE 1 scans for a different target — guarded with
   concept of opacity, it just stacks brightness, which read as too
   intense/washed-out. Halo alpha and pulse amplitude both raised
   (more opaque, stronger pulse) per direct feedback.
-  **Correction (Aug 2026):** the hand-rolled Fresnel `ShaderMaterial`
-  produced no visible change when switched from additive to alpha
-  blending, pointing at an unverifiable assumption about how
-  `material_overlay` composites a custom shader's `render_mode` —
-  replaced entirely with Godot's own built-in
-  `StandardMaterial3D.rim_enabled`/`rim`/`rim_tint` (native fresnel/edge
-  highlight) plus `transparency`/`emission` for direct, engine-documented
-  opacity and baseline-visibility control, rather than continuing to
-  tune a custom shader whose behavior in this context isn't fully
-  verifiable without the engine itself.
+  **Correction (Aug 2026):** the native `StandardMaterial3D.rim_enabled`
+  attempt was the wrong tool — it's an additive lighting-response term on
+  top of the base material, not a mask that restricts color to the
+  edges; the base albedo/emission was covering the entire mesh uniformly
+  (confirmed via screenshot: whole object rendering white, not just its
+  silhouette). Reverted to a Fresnel `ShaderMaterial` — the only
+  technique that genuinely restricts visible color to grazing angles, by
+  driving the shader's ALPHA output directly from the fresnel term
+  rather than adding brightness on top of an already-opaque surface.
+  Standard (non-additive) blending and a steeper falloff
+  (`rim_power = 5.0`) this time, addressing both the original "too
+  intense" complaint and the new "whole object white" one in the same
+  pass. Halo/pulse logic untouched throughout — confirmed working
+  correctly at every step of this back-and-forth.
 
 - **Grow Light fully hidden outside Focus Mode (Aug 2026).** Previously
   de-prioritized outside Ctrl (ordinary fair-distance treatment) but

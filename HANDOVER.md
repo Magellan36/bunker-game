@@ -1,3 +1,51 @@
+# Handover — Rim Outline Restricted to Edges (Reverted to Fresnel Shader) (Aug 2026)
+
+## What changed this session
+Fixed the Focus Mode glow rendering as a nearly-fully-white object
+instead of an edge outline (confirmed via screenshot). Root cause:
+`StandardMaterial3D.rim_enabled` (the native-material approach from the
+prior session) is an ADDITIVE lighting-response term at grazing angles
+— it does not mask or restrict the base material to the edges. The base
+`albedo_color`/`emission` was rendering across the entire mesh surface
+uniformly; `rim` only added a bit more brightness on top of that at the
+silhouette. Reverted to a Fresnel `ShaderMaterial`, the only technique
+that genuinely restricts color to the edges, by driving the shader's
+ALPHA output directly from the fresnel term (near-zero facing the
+camera, near-full at grazing angles) rather than layering a bonus on an
+already-opaque surface. Used standard alpha blending (not additive) and
+a steeper falloff (`rim_power = 5.0`, up from 2.5–3.0 in earlier
+attempts) to also address the original "too intense" complaint in the
+same pass, since both trace back to the same underlying "isn't actually
+restricted to the edges, or is too broad" category of problem. Halo and
+pulse logic confirmed correct throughout this whole investigation and
+left completely untouched.
+
+### Files modified
+- `scripts/player/InteractionFocusGlow.gd` — rim material reverted to a
+  Fresnel `ShaderMaterial`; `RIM_BASE_INTENSITY`/`RIM_BASE_ALPHA`
+  consolidated back to a single constant.
+- `docs/systems/player/README.md` — correction note appended to the
+  existing glow entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_GLOW_RIM_SHADER_REVERT_PLAN.md` for the full 5-item checklist)
+
+> **Stuck-recovery grace period + Cooking stove-power fix (Aug 2026):** Jobs no longer get
+> aborted on a single 1-second snag — `_recover_from_stuck()` (still broken, separately
+> tracked) now only fires after 4 continuous seconds of no progress, shared across all jobs.
+> Cooking now correctly detects an unpowered stove, messages the player with an NPC-attributed
+> error instead of silently assuming success, and — critically — a new target-finder tier means
+> a fully-loaded, never-lit pot is no longer invisible to future "Cook a meal" commands once
+> power comes back.
+
+> **CleaningActivity indentation fix (Aug 2026):** Root cause of both the "items stacking" and
+> "relocate fix doing nothing" reports — a one-tab transcription error in the previous plan
+> unindented the pickup-attempt block out from under `if npc.held_item == null:`, making it run
+> every tick unconditionally and making everything below it (Relocate phase, Travel phase)
+> unreachable dead code. Fixed with a pure re-indentation, no logic changes.
+
 > **Stuck-recovery held-item fix (Aug 2026):** Fixed both reported regressions from the
 > previous stuck-recovery passes — obstructions not being picked up, and items stacking inside
 > each other — with one fix: `_recover_from_stuck()` drops whatever's currently held before

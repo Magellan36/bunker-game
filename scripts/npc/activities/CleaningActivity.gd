@@ -209,40 +209,40 @@ func tick(npc: NPC, delta: float) -> void:
 			NPCItemUser.release_item(_item)
 			_item = null
 			return
-	npc.nav_steer(delta)
-	if NPCItemUser.flat_distance(npc.global_position, _item.global_position) <= NPCItemUser.PICKUP_RANGE:
-		if NPCItemUser.grab_loose(npc, _item):
-			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "picked up", display_name(_item))
-			_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
-			if _destination == null:
-				if _is_forced_session:
-					## Aug 2026 — last resort: this item is genuinely
-					## storable nowhere, but it's still the obstruction
-					## that got the NPC stuck. Setting it back down in
-					## the same spot (the old behavior) doesn't clear
-					## anything — carry it a short, real, pathed distance
-					## away first instead.
-					_relocating = true
-					_relocate_point = _pick_relocate_point(npc)
-					if NPCDebug.enabled:
-						NPCDebug.log_cleaning(npc, "relocating (no destination)", "%s has nowhere to go — carrying it clear instead of dropping in place" % display_name(_item))
-					npc.set_nav_target(_relocate_point)
-				else:
-					if NPCDebug.enabled:
-						NPCDebug.log_cleaning(npc, "no destination", "%s has nowhere to go (is_trash=%s) — setting back down" % [
-							display_name(_item), _is_trash])
-					NPCItemUser.drop_held(npc)
-					_item = null
-			elif NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "destination chosen", "%s -> %s" % [display_name(_item), _destination.name])
-		else:
-			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "pickup failed", "grab_loose() refused %s" % display_name(_item))
-			npc.job_state.record_cleaning_pickup_failure(npc, _item)   ## Aug 2026 — counts toward the give-up limit; claim/held/shelved misses elsewhere never call this
-			NPCItemUser.release_item(_item)
-			_item = null
-	return
+		npc.nav_steer(delta)
+		if NPCItemUser.flat_distance(npc.global_position, _item.global_position) <= NPCItemUser.PICKUP_RANGE:
+			if NPCItemUser.grab_loose(npc, _item):
+				if NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "picked up", display_name(_item))
+				_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
+				if _destination == null:
+					if _is_forced_session:
+						## Aug 2026 — last resort: this item is genuinely
+						## storable nowhere, but it's still the obstruction
+						## that got the NPC stuck. Setting it back down in
+						## the same spot (the old behavior) doesn't clear
+						## anything — carry it a short, real, pathed distance
+						## away first instead.
+						_relocating = true
+						_relocate_point = _pick_relocate_point(npc)
+						if NPCDebug.enabled:
+							NPCDebug.log_cleaning(npc, "relocating (no destination)", "%s has nowhere to go — carrying it clear instead of dropping in place" % display_name(_item))
+						npc.set_nav_target(_relocate_point)
+					else:
+						if NPCDebug.enabled:
+							NPCDebug.log_cleaning(npc, "no destination", "%s has nowhere to go (is_trash=%s) — setting back down" % [
+								display_name(_item), _is_trash])
+						NPCItemUser.drop_held(npc)
+						_item = null
+				elif NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "destination chosen", "%s -> %s" % [display_name(_item), _destination.name])
+			else:
+				if NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "pickup failed", "grab_loose() refused %s" % display_name(_item))
+				npc.job_state.record_cleaning_pickup_failure(npc, _item)   ## Aug 2026 — counts toward the give-up limit; claim/held/shelved misses elsewhere never call this
+				NPCItemUser.release_item(_item)
+				_item = null
+		return
 
 	## Relocate phase (forced-session, no-destination last resort)
 	if _relocating:

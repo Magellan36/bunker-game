@@ -19,7 +19,7 @@ class_name CookingActivity
 const WORK_RANGE: float = 1.6   ## matches RefuelActivity's WORK_RANGE — distance to work a stove
 
 var _stove: Node = null
-var _mode: String = ""            ## "serve" or "setup"
+var _mode: String = ""            ## "serve", "power", or "setup"
 var _phase: String = ""           ## sub-phase, meaning depends on _mode
 var _carrying_kind: String = ""   ## "pot" or "ingredient" — which fetch is in flight (setup mode)
 var _fetch_loose: RigidBody3D = null
@@ -33,6 +33,8 @@ func label() -> String:
 			"travel_to_stove": return "Heading to plate a dish"
 			"travel_to_storage": return "Storing a meal"
 			_: return "Serving a dish"
+	if _mode == "power":
+		return "Heading to restart the stove"
 	if _carrying_kind == "pot":
 		match _phase:
 			"fetch": return "Fetching a Cooking Pot"
@@ -106,6 +108,11 @@ func enter(npc: NPC) -> void:
 		_start_serve(npc, serve)
 		return
 
+	var power_target: Node = NPCJobQueries.find_cooking_needs_power_target(npc)
+	if power_target != null:
+		_start_power_retry(npc, power_target)
+		return
+
 	var ing_target: Node = NPCJobQueries.find_cooking_ingredient_target(npc)
 	if ing_target != null:
 		_start_setup(npc, ing_target, "ingredient")
@@ -123,6 +130,15 @@ func _start_serve(npc: NPC, stove: Node) -> void:
 		_finished = true
 		return
 	_mode = "serve"
+	_stove = stove
+	_phase = "travel_to_stove"
+	npc.set_nav_target(approach_point(npc, _stove))
+
+func _start_power_retry(npc: NPC, stove: Node) -> void:
+	if not NPCItemUser.claim_item(stove, npc):
+		_finished = true
+		return
+	_mode = "power"
 	_stove = stove
 	_phase = "travel_to_stove"
 	npc.set_nav_target(approach_point(npc, _stove))
@@ -191,8 +207,19 @@ func _begin_fetch_ingredient(npc: NPC) -> void:
 func tick(npc: NPC, delta: float) -> void:
 	if _mode == "serve":
 		_tick_serve(npc, delta)
+	elif _mode == "power":
+		_tick_power(npc, delta)
 	else:
 		_tick_setup(npc, delta)
+
+func _tick_power(npc: NPC, delta: float) -> void:
+	if _stove == null or not is_instance_valid(_stove):
+		_finished = true
+		return
+	npc.nav_steer(delta)
+	if NPCItemUser.flat_distance(npc.global_position, (_stove as Node3D).global_position) <= WORK_RANGE:
+		npc.velocity = Vector3.ZERO
+		_turn_on_stove(npc)
 
 func _tick_serve(npc: NPC, delta: float) -> void:
 	match _phase:
@@ -353,7 +380,19 @@ func _turn_on_stove(npc: NPC) -> void:
 		_finished = true   ## empty pot — nothing to cook, leave it for next time
 		return
 	if not _stove.powered_on:
-		_stove.on_interact()   ## turns on if grid-connected; harmlessly no-ops (own soft warning) if not
+		_stove.on_interact()   ## turns on if grid-connected; silently no-ops otherwise
+		if not _stove.powered_on:
+			## Aug 2026 — genuinely no power. on_interact()'s own HUD
+			## warning is written for a player caller and doesn't make
+			## sense attributed to an NPC. Leave the pot exactly as-is —
+			## full, unlit — and leave; find_cooking_needs_power_target()
+			## will find this same stove again on the next "Cook a meal"
+			## command once power is actually restored. No waiting around.
+			NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
+				"%s cannot cook meal (Stove unpowered)" % npc.npc_name)
+			npc.log_action("Cooking blocked — stove unpowered")
+			_finished = true
+			return
 		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
 			"%s started cooking a meal" % npc.npc_name)
 	npc.log_action("Started cooking a meal")
@@ -369,6 +408,7 @@ func debug_info() -> Dictionary:
 		"phase": _phase,
 		"carrying": _carrying_kind,
 		"stove": (_stove.name if _stove != null and is_instance_valid(_stove) else ""),
+		"stove_powered": (_stove.powered_on if _stove != null and is_instance_valid(_stove) else false),
 	}
 
 func exit(npc: NPC) -> void:

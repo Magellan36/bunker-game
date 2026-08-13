@@ -29,14 +29,14 @@ class_name InteractionFocusGlow
 
 const PULSE_SPEED:     float = 2.0    ## radians/sec — one full breath ~3.1s
 const PULSE_AMPLITUDE: float = 0.22   ## +/-22% — "slightly more intense"
-const RIM_BASE_INTENSITY: float = 0.6    ## drives emission_energy_multiplier directly
-const RIM_BASE_ALPHA:     float = 0.6    ## drives the rim material's own albedo alpha
+const RIM_BASE_INTENSITY: float = 0.75   ## multiplies the shader's already edge-restricted
+                                          ## fresnel alpha — this is the ONLY rim knob now
 const HALO_BASE_ALPHA:    float = 0.75   ## more opaque
 const HALO_WORLD_DIAMETER: float = 1.0   ## metres — tune in-editor per feel
 
 var _target: Node3D = null
 var _mesh_instances: Array[MeshInstance3D] = []
-var _rim_material: StandardMaterial3D = null
+var _rim_material: ShaderMaterial = null
 var _halo: Sprite3D = null
 var _pulse_time: float = 0.0
 
@@ -46,29 +46,37 @@ func _ready() -> void:
 	add_child(_halo)
 	_halo.visible = false
 
-## Aug 2026 (rethought) — replaced the hand-rolled Fresnel ShaderMaterial
-## with Godot's own BUILT-IN rim/emission/transparency properties on a
-## StandardMaterial3D. The custom shader produced no visible change when
-## its render_mode was switched from blend_add to blend_mix, which points
-## at an assumption about how material_overlay composites a custom
-## shader's render_mode that I can't fully verify without the engine in
-## front of me — rather than guess at more shader code, this uses
-## engine-native, GUI-inspectable properties whose behavior is documented
-## and predictable. rim_enabled/rim/rim_tint IS Godot's own fresnel/edge-
-## highlight implementation — this is the actual "cell-shading style
-## edge glow" originally asked for, using the engine's own version of it
-## instead of reimplementing the math by hand.
-func _build_rim_material() -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
-	mat.transparency               = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color                = Color(1.0, 1.0, 1.0, 0.6)   ## direct opacity control
-	mat.rim_enabled                 = true
-	mat.rim                         = 1.0
-	mat.rim_tint                    = 0.0   ## 0 = pure light color (white), ignores albedo tint
-	mat.emission_enabled            = true
-	mat.emission                    = Color(1.0, 1.0, 1.0)
-	mat.emission_energy_multiplier  = 0.6   ## baseline visibility regardless of scene lighting
-	mat.cull_mode                   = BaseMaterial3D.CULL_DISABLED
+## Aug 2026 (reverted, corrected) — StandardMaterial3D.rim_enabled turned
+## out to be the wrong tool: it's an ADDITIONAL lighting-response term at
+## grazing angles, layered on top of the base albedo/emission — it does
+## NOT mask or restrict the base material to the edges. The base material
+## (opaque-ish albedo alpha + full-surface emission) was rendering across
+## the ENTIRE mesh, which is exactly the "nearly completely white whole
+## object" reported. Back to a Fresnel shader — the only technique that
+## actually restricts color to the silhouette, by driving ALPHA itself
+## from the fresnel term (near-zero facing the camera, near-full at
+## grazing/edge angles) rather than adding a bonus on top of an
+## already-fully-opaque surface. Standard alpha blend (blend_mix), not
+## additive — additive was the earlier "too intense" complaint; this
+## fixes both problems in one pass rather than re-guessing either alone.
+func _build_rim_material() -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode blend_mix, unshaded, cull_disabled;
+
+uniform vec4 rim_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+uniform float rim_power : hint_range(0.5, 12.0) = 5.0;
+uniform float rim_intensity : hint_range(0.0, 1.0) = 0.75;
+
+void fragment() {
+	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), rim_power);
+	ALBEDO = rim_color.rgb;
+	ALPHA = fresnel * rim_intensity;
+}
+"""
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
 	return mat
 
 func _build_halo_sprite() -> Sprite3D:
@@ -140,11 +148,7 @@ func _process(delta: float) -> void:
 	_pulse_time += delta
 	var pulse: float = 1.0 + sin(_pulse_time * PULSE_SPEED) * PULSE_AMPLITUDE
 
-	## No shader uniform to drive any more — pulse the native material's
-	## own properties directly. emission_energy_multiplier for the
-	## baseline glow strength, albedo alpha for the rim's own opacity.
-	_rim_material.emission_energy_multiplier = RIM_BASE_INTENSITY * pulse
-	_rim_material.albedo_color.a = clampf(RIM_BASE_ALPHA * pulse, 0.0, 1.0)
+	_rim_material.set_shader_parameter("rim_intensity", RIM_BASE_INTENSITY * pulse)
 
 	_halo.visible = true
 	_halo.global_position = _target.global_position

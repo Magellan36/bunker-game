@@ -1838,6 +1838,21 @@ var _stuck_npc_streak: int = 0
 const STUCK_UNKNOWN_GIVEUP_AFTER: int = 3
 var _stuck_unknown_streak: int = 0
 
+## Aug 2026 — grace period before _recover_from_stuck() gets called AT
+## ALL. Previously a single STUCK_CHECK_INTERVAL (1s) of no progress
+## immediately discarded whatever job the NPC was doing, however briefly
+## it paused. Now the no-progress condition has to persist for a full
+## STUCK_GRACE_PERIOD before recovery kicks in — the NPC keeps trying its
+## actual job the entire time, since nothing here touches the current
+## activity; only once the grace period is truly exhausted does the
+## existing recovery machinery fire, unmodified. Deliberately calls into
+## _recover_from_stuck() as a black box rather than duplicating any of
+## its logic — that function is still broken (tracked separately); this
+## only changes the timing before it's invoked, so its eventual fix
+## cascades to this caller (and any other) automatically.
+const STUCK_GRACE_PERIOD: float = 4.0
+var _stuck_grace_elapsed: float = 0.0
+
 func _tick_stuck_recovery(delta: float) -> void:
 	## Part 18 — gate on _movement_locked, not nav_finished(). Drink/Eat/
 	## Job-work all stop the NPC via their OWN range checks (PICKUP_RANGE,
@@ -1863,14 +1878,19 @@ func _tick_stuck_recovery(delta: float) -> void:
 	_stuck_timer = 0.0
 	_stuck_ref_pos = global_position
 	if moved < STUCK_MIN_DISPLACEMENT:
-		_recover_from_stuck()
+		_stuck_grace_elapsed += STUCK_CHECK_INTERVAL
+		if _stuck_grace_elapsed >= STUCK_GRACE_PERIOD:
+			_stuck_grace_elapsed = 0.0
+			_recover_from_stuck()
 	else:
 		## Real progress was made — a fresh, unrelated stuck event later
-		## deserves its own full STUCK_ESCALATE_AFTER tries, not whatever
-		## was left over from an old, now-resolved streak.
+		## deserves its own full STUCK_ESCALATE_AFTER tries and its own
+		## full grace period, not whatever was left over from an old,
+		## now-resolved streak.
 		_stuck_streak_obstruction_id = -1
 		_stuck_streak_count = 0
 		_stuck_npc_streak = 0
+		_stuck_grace_elapsed = 0.0
 
 func _recover_from_stuck() -> void:
 	_stuck_recoveries += 1
