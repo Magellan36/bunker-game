@@ -292,13 +292,13 @@ func _scan_cleaning(seen: Dictionary) -> void:
 			continue
 		if item.is_held or item.is_in_group("shelved"):
 			continue
-		## Aug 2026 — an actively-cooking pot sits perfectly still (is_held
-		## is false the whole time it's on a stove, same convention as a
-		## shelved item) and would otherwise pass the idle gate and look
-		## exactly like any other settled, organizable item. See
-		## NPCItemUser.is_actively_cooking()'s own comment for exactly
-		## what "actively" means — normal before/after that window.
-		if NPCItemUser.is_actively_cooking(item):
+		## Aug 2026 — a pot resting on a stove sits perfectly still
+		## (is_held is false the whole time it's hosted, same convention
+		## as a shelved item) and would otherwise pass the idle gate and
+		## look exactly like any other settled, organizable item. See
+		## NPCItemUser.is_on_stove()'s own comment — this now covers the
+		## whole time it's placed, not just while actively cooking.
+		if NPCItemUser.is_on_stove(item):
 			continue
 		var item_y: float = (item as Node3D).global_position.y
 		if item_y < CLEANING_SANITY_Y_MIN or item_y > CLEANING_SANITY_Y_MAX:

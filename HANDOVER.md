@@ -1,3 +1,7 @@
+> **Cooking pot cleaning immunity widened (Aug 2026):** Corrected from last pass — a pot on a
+> stove is now untouchable by Cleaning the whole time it's hosted there, not just while actively
+> cooking. `is_actively_cooking()` → `is_on_stove()`.
+
 > **Stuck-detection core fixes + live re-targeting + cooking-pot immunity (Aug 2026):** Traced
 > the "endless loop" report to two compounding bugs — obstruction detection blind to walls, and
 > a streak counter that never reset — both now fixed, see README's own entry for the full

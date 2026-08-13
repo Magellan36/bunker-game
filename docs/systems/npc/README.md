@@ -1771,3 +1771,9 @@ without being asked.
      excluded from Cleaning at both the JobBoard scan level and in `grab_loose()` itself
      (defense-in-depth, covers stuck-recovery's forced-grab path too); normal before/after the
      active-cooking window.
+114. Cooking pot cleaning immunity widened (Aug 2026) — was "immune only while actively cooking"
+     (`Stove.is_cooking()` true); now immune the entire time it's resting on any stove at all,
+     regardless of cook state or who placed it. `NPCItemUser.is_actively_cooking()` renamed/
+     redefined to `is_on_stove()`, dropping the `Stove.is_cooking()` check entirely — just checks
+     `_host_stove != null`. Same two call sites as before (`grab_loose()`, JobBoard's
+     organizable-item scan).

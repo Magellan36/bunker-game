@@ -169,13 +169,14 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 	## shelved items "popping out" and un-freezing on their own.
 	if item.is_in_group("shelved"):
 		return false
-	## Aug 2026 — an actively-cooking pot stays on its stove until done or
-	## manually taken off. JobBoard's scan already keeps Cleaning from
-	## walking toward one as a candidate (see is_actively_cooking()'s own
-	## comment), but this covers every other path that can reach
-	## grab_loose() directly — most importantly stuck-recovery's forced
-	## grab, which bypasses JobBoard's eligibility scan entirely by design.
-	if is_actively_cooking(item):
+	## Aug 2026 — a pot resting on a stove (placed, cooking, done, doesn't
+	## matter) stays there until manually taken off. JobBoard's scan
+	## already keeps Cleaning from walking toward one as a candidate (see
+	## is_on_stove()'s own comment), but this covers every other path that
+	## can reach grab_loose() directly — most importantly stuck-recovery's
+	## forced grab, which bypasses JobBoard's eligibility scan entirely by
+	## design.
+	if is_on_stove(item):
 		return false
 	if flat_distance(npc.global_position, item.global_position) > PICKUP_RANGE:
 		return false
@@ -270,16 +271,16 @@ static func is_cooking_pot(item: Node) -> bool:
 		return false
 	return true
 
-## Aug 2026 — true only while a Cooking Pot is actively cooking (on its
-## stove, stove powered on, contents not yet empty — Stove.is_cooking()'s
-## own definition). Before ingredients go in and after a finished dish is
-## taken (or the stove's turned off), it organizes/moves completely
-## normally — this exists to draw that one specific line. Single source
-## of truth, used by both grab_loose() below and JobBoard's
-## organizable-item scan.
-static func is_actively_cooking(item: Node) -> bool:
-	return item is CookingPot and ("_host_stove" in item) and item._host_stove != null \
-		and item._host_stove.has_method("is_cooking") and item._host_stove.is_cooking()
+## Aug 2026 fix — widened from "actively cooking" (stove powered on +
+## contents) to "resting on a stove at all," per direction: a pot stays
+## untouchable by Cleaning the whole time it's placed/frozen on a stove —
+## empty, mid-fill, powered off, whatever — regardless of whether an NPC
+## or the player put it there. Only once it's actually off the stove is
+## it fair game again. No longer needs Stove.is_cooking() at all — just
+## whether the pot currently has a host. Single source of truth, used by
+## both grab_loose() below and JobBoard's organizable-item scan.
+static func is_on_stove(item: Node) -> bool:
+	return item is CookingPot and ("_host_stove" in item) and item._host_stove != null
 
 ## Apply one "consume step" of a held edible to the NPC's hunger. Returns
 ## true when the item is finished with (freed or empty) and the hand is clear.
