@@ -313,6 +313,7 @@ func _tick_fetch(npc: NPC, delta: float) -> void:
 			_fetch_loose = null
 			_finished = true
 			return
+		NPCItemUser.track_fetch_target(npc, _fetch_loose)
 		npc.nav_steer(delta)
 		if NPCItemUser.flat_distance(npc.global_position, _fetch_loose.global_position) <= NPCItemUser.PICKUP_RANGE:
 			if not NPCItemUser.grab_loose(npc, _fetch_loose):

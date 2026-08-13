@@ -1822,6 +1822,14 @@ const STUCK_NPC_BACKOFF_AFTER: int = 2
 const STUCK_NPC_BACKOFF_DISTANCE: float = 2.5
 var _stuck_npc_streak: int = 0
 
+## Aug 2026 — separate streak for "wedged against static level geometry"
+## (walls, corners). Same directed-nudge-with-escalating-backoff shape as
+## the NPC-vs-NPC case above, just using the real collision normal
+## instead of a direction toward/away from another agent.
+const STUCK_WALL_BACKOFF_AFTER: int = 2
+const STUCK_WALL_BACKOFF_DISTANCE: float = 1.2
+var _stuck_wall_streak: int = 0
+
 ## Aug 2026 — separate streak specifically for "recovery fired but NO
 ## obstruction (item or NPC) could be identified at all." The item-keyed
 ## streak below (_stuck_streak_obstruction_id/_stuck_streak_count) can
@@ -1886,11 +1894,20 @@ func _tick_stuck_recovery(delta: float) -> void:
 		## Real progress was made — a fresh, unrelated stuck event later
 		## deserves its own full STUCK_ESCALATE_AFTER tries and its own
 		## full grace period, not whatever was left over from an old,
-		## now-resolved streak.
+		## now-resolved streak. Aug 2026 fix: this used to be missing
+		## _stuck_unknown_streak and _stuck_wall_streak — meaning those two
+		## streaks NEVER reset within a session (confirmed from a real log:
+		## one climbed from 2 to 456, monotonically, the entire time),
+		## permanently exhausting the nudge-fallback's give-up cap after
+		## just the NPC's first few stuck episodes ever, then doing nothing
+		## for the rest of the game. All four streaks now reset together,
+		## uniformly, on any real forward progress.
 		_stuck_streak_obstruction_id = -1
 		_stuck_streak_count = 0
 		_stuck_npc_streak = 0
 		_stuck_grace_elapsed = 0.0
+		_stuck_unknown_streak = 0
+		_stuck_wall_streak = 0
 
 func _recover_from_stuck() -> void:
 	_stuck_recoveries += 1
@@ -1944,6 +1961,24 @@ func _recover_from_stuck() -> void:
 			_stuck_npc_streak = 0
 		return
 	_stuck_npc_streak = 0
+
+	var stuck_wall: KinematicCollision3D = null
+	if stuck_item == null:
+		stuck_wall = _find_stuck_obstruction_static()
+	if stuck_wall != null:
+		## Aug 2026 fix — this is the real fix for the majority case (see
+		## Part A's own header). Directed nudge using the actual collision
+		## normal — same escalating-backoff shape as the NPC case above.
+		_stuck_wall_streak += 1
+		if NPCDebug.enabled:
+			NPCDebug.log_stuck_escalation(self, stuck_wall.get_collider(), _stuck_wall_streak)
+		var wall_away: Vector3 = stuck_wall.get_normal()
+		var wall_backoff: float = STUCK_WALL_BACKOFF_DISTANCE if _stuck_wall_streak >= STUCK_WALL_BACKOFF_AFTER else STUCK_NUDGE_DISTANCE
+		_nudge_free_of_obstruction(stuck_wall.get_collider() as Node3D, wall_backoff, wall_away)
+		if _stuck_wall_streak >= STUCK_WALL_BACKOFF_AFTER:
+			_stuck_wall_streak = 0
+		return
+	_stuck_wall_streak = 0
 
 	if stuck_item == null:
 		## Aug 2026 fix — see STUCK_UNKNOWN_GIVEUP_AFTER's own comment.
@@ -2002,9 +2037,15 @@ func _recover_from_stuck() -> void:
 ## `distance` param (was always STUCK_NUDGE_DISTANCE before) and the
 ## type widened from RigidBody3D to Node3D so this can also be called
 ## with another NPC (CharacterBody3D) as the obstruction.
-func _nudge_free_of_obstruction(obstruction: Node3D, distance: float = STUCK_NUDGE_DISTANCE) -> void:
+func _nudge_free_of_obstruction(obstruction: Node3D, distance: float = STUCK_NUDGE_DISTANCE, direction_override: Vector3 = Vector3.ZERO) -> void:
 	var away: Vector3
-	if obstruction != null and is_instance_valid(obstruction):
+	if direction_override != Vector3.ZERO:
+		## Aug 2026 — real collision-normal direction (walls), when known.
+		## Strictly more informed than guessing from obstruction.global_position,
+		## which for a large StaticBody3D wall segment isn't a meaningful
+		## "away" direction relative to the actual point of contact.
+		away = direction_override
+	elif obstruction != null and is_instance_valid(obstruction):
 		away = global_position - obstruction.global_position
 	else:
 		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
@@ -2036,6 +2077,22 @@ func _find_stuck_obstruction_npc() -> CharacterBody3D:
 		var body: Object = col.get_collider()
 		if body is CharacterBody3D and body != self and body.is_in_group("npc"):
 			return body as CharacterBody3D
+	return null
+
+## Aug 2026 — the actual majority real-world stuck cause, confirmed from a
+## real session log where all 456 stuck events fell through to the
+## "unexplained" branch: _find_stuck_obstruction() only ever checks
+## RigidBody3D, so a wall or corner (StaticBody3D, by far the most common
+## thing to wedge an NPC) was never identifiable, ever. Returns the
+## KinematicCollision3D itself (not just the body) specifically so the
+## caller can use the real collision normal for a directed nudge instead
+## of guessing.
+func _find_stuck_obstruction_static() -> KinematicCollision3D:
+	for i: int in get_slide_collision_count():
+		var col: KinematicCollision3D = get_slide_collision(i)
+		var body: Object = col.get_collider()
+		if body is StaticBody3D:
+			return col
 	return null
 
 

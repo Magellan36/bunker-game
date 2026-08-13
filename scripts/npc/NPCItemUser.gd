@@ -169,6 +169,14 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 	## shelved items "popping out" and un-freezing on their own.
 	if item.is_in_group("shelved"):
 		return false
+	## Aug 2026 — an actively-cooking pot stays on its stove until done or
+	## manually taken off. JobBoard's scan already keeps Cleaning from
+	## walking toward one as a candidate (see is_actively_cooking()'s own
+	## comment), but this covers every other path that can reach
+	## grab_loose() directly — most importantly stuck-recovery's forced
+	## grab, which bypasses JobBoard's eligibility scan entirely by design.
+	if is_actively_cooking(item):
+		return false
 	if flat_distance(npc.global_position, item.global_position) > PICKUP_RANGE:
 		return false
 	if item.has_method("pickup"):
@@ -189,6 +197,20 @@ static func grab_from_shelf(npc: NPC, shelf: Node, slot: int) -> bool:
 		return false
 	npc.held_item = item
 	return true
+
+## Aug 2026 — call every tick during a loose-item fetch approach, right
+## before nav_steer(). Keeps the nav target in sync with the item's real
+## current position — items can roll or get bumped after an NPC starts
+## walking toward them (produce, fuel cans, ingredients, anything loose),
+## and without this the NPC just walks to wherever the item WAS when the
+## approach began, since set_nav_target() only ever captures a position
+## once. Re-setting target_position to an unchanged value is a cheap
+## no-op for NavigationAgent3D (only repaths on an actual change), so
+## this costs nothing extra in the common case where the item hasn't
+## moved.
+static func track_fetch_target(npc: NPC, item: Node) -> void:
+	if item != null and is_instance_valid(item):
+		npc.set_nav_target((item as Node3D).global_position)
 
 ## Put whatever is held back into the world at the NPC's feet, via the same
 ## drop() the player uses.
@@ -247,6 +269,17 @@ static func is_cooking_pot(item: Node) -> bool:
 	if ("_host_stove" in item) and item._host_stove != null:
 		return false
 	return true
+
+## Aug 2026 — true only while a Cooking Pot is actively cooking (on its
+## stove, stove powered on, contents not yet empty — Stove.is_cooking()'s
+## own definition). Before ingredients go in and after a finished dish is
+## taken (or the stove's turned off), it organizes/moves completely
+## normally — this exists to draw that one specific line. Single source
+## of truth, used by both grab_loose() below and JobBoard's
+## organizable-item scan.
+static func is_actively_cooking(item: Node) -> bool:
+	return item is CookingPot and ("_host_stove" in item) and item._host_stove != null \
+		and item._host_stove.has_method("is_cooking") and item._host_stove.is_cooking()
 
 ## Apply one "consume step" of a held edible to the NPC's hunger. Returns
 ## true when the item is finished with (freed or empty) and the hand is clear.

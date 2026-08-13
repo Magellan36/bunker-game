@@ -1,3 +1,11 @@
+> **Stuck-detection core fixes + live re-targeting + cooking-pot immunity (Aug 2026):** Traced
+> the "endless loop" report to two compounding bugs — obstruction detection blind to walls, and
+> a streak counter that never reset — both now fixed, see README's own entry for the full
+> mechanism. Also added live re-targeting for every job's loose-item fetch (items that roll away
+> mid-approach are now actually followed, not walked-to-where-they-were), and made an
+> actively-cooking pot immune to being cleaned up, both at the JobBoard scan level and as
+> defense-in-depth in `grab_loose()` itself.
+
 # Handover — Rim Outline Restricted to Edges (Reverted to Fresnel Shader) (Aug 2026)
 
 ## What changed this session

@@ -1754,3 +1754,20 @@ without being asked.
      on failure. New `NPCJobQueries.find_cooking_needs_power_target()` tier (ranked between serve
      and ingredient-fetch) recognizes a fully-loaded-but-unlit pot on a future command invocation
      — previously invisible to every existing tier once a pot reached 3/3 ingredients.
+113. Stuck-detection core fixes + live item re-targeting + cooking-pot cleaning immunity (Aug
+     2026). Diagnosed from a real session log: (1) `_find_stuck_obstruction()` only ever checked
+     `RigidBody3D`, completely blind to `StaticBody3D` (walls/corners) — the actual majority
+     real-world stuck cause (456/456 stuck events in the log fell through to "unexplained"). Added
+     `_find_stuck_obstruction_static()` with a directed nudge using the real collision normal,
+     mirroring the existing NPC-vs-NPC directed-nudge pattern. (2) `_stuck_unknown_streak` never
+     reset on real progress (bug from the prior grace-period pass) — climbed monotonically for an
+     entire session in the log (2 → 456), permanently exhausting the nudge-fallback's give-up cap
+     after the first few stuck episodes ever. All streak counters now reset uniformly on real
+     progress. (3) New `NPCItemUser.track_fetch_target()`, called every tick from every job's
+     loose-item fetch phase (Cleaning incl. its basket sub-flow, Refuel, Gardening, Cooking,
+     JobBoard-driven Harvest/Filter) — keeps the nav target in sync with a rolling/bumped item's
+     real position instead of walking to wherever it was when the approach began. (4) New
+     `NPCItemUser.is_actively_cooking()` — a Cooking Pot on a stove that's actively cooking is now
+     excluded from Cleaning at both the JobBoard scan level and in `grab_loose()` itself
+     (defense-in-depth, covers stuck-recovery's forced-grab path too); normal before/after the
+     active-cooking window.

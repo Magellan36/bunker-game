@@ -209,6 +209,7 @@ func tick(npc: NPC, delta: float) -> void:
 			NPCItemUser.release_item(_item)
 			_item = null
 			return
+		NPCItemUser.track_fetch_target(npc, _item)
 		npc.nav_steer(delta)
 		if NPCItemUser.flat_distance(npc.global_position, _item.global_position) <= NPCItemUser.PICKUP_RANGE:
 			if NPCItemUser.grab_loose(npc, _item):
@@ -343,6 +344,7 @@ func _tick_fetch_basket(npc: NPC, delta: float, basket: Basket) -> bool:
 		return true
 	if not NPCItemUser.is_claimed_by_other(basket, npc):
 		NPCItemUser.claim_item(basket, npc)
+	NPCItemUser.track_fetch_target(npc, basket)
 	npc.nav_steer(delta)
 	if NPCItemUser.flat_distance(npc.global_position, basket.global_position) <= NPCItemUser.PICKUP_RANGE:
 		NPCItemUser.grab_loose(npc, basket)
