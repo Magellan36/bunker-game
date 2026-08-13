@@ -154,6 +154,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		var shelf: Node3D = _nearest_shelf()
 		if held_item != null:
+			## Cooking Pot held + a nearby open Stove → [F] places it there.
+			## Moved from [E] to [F], confirmed Aug 2026. Checked before the
+			## shelf fallback so a shelf sitting near a stove can't steal
+			## the placement action.
+			if "is_cookpot_container" in held_item:
+				var open_stove: Node = _find_nearest_open_stove()
+				if open_stove != null:
+					if _try_place_held_cookpot_on_stove(held_item, open_stove):
+						return
 			## Holding something — try placing on nearby shelf first, else drop
 			if shelf != null and shelf.has_method("on_f_interact"):
 				shelf.on_f_interact()
@@ -572,11 +581,11 @@ func _update_prompt() -> void:
 				})
 
 		# Cooking Pot held → "[E] Add to Pot" over each nearby storable food
-		# item, PLUS "[E] Place Cooking Pot" over the nearest open Stove.
-		# Confirmed Aug 2026: these two target types are the ONLY prompts
-		# that should show while holding the pot — nothing above the held
-		# pot itself. Mirrors the basket block above exactly, plus the
-		# stove target (baskets have no equivalent "place" target).
+		# item, PLUS the nearest Stove's own prompt (its normal toggle text,
+		# or "DONE"/connection text — [E] now interacts with it normally,
+		# confirmed Aug 2026 revert) PLUS a separate "[F] Place Cooking Pot"
+		# hint when that stove has an open slot (placement moved from [E]
+		# to [F] the same pass). Nothing shows above the held pot itself.
 		if "is_cookpot_container" in held_item:
 			for body in _tracked_bodies:
 				if not is_instance_valid(body):
@@ -595,13 +604,15 @@ func _update_prompt() -> void:
 					"world_pos": body.global_position,
 					"dist":      bd
 				})
-			var nearby_stove: Node = _find_nearest_open_stove()
+			var nearby_stove: Node = _find_nearest_stove()
 			if nearby_stove != null:
-				entries.append({
-					"text":      "[E] Place Cooking Pot",
-					"world_pos": (nearby_stove as Node3D).global_position + Vector3(0.0, 0.9, 0.0),
-					"dist":      0.0
-				})
+				var stove_pos: Vector3 = (nearby_stove as Node3D).global_position + Vector3(0.0, 0.9, 0.0)
+				if nearby_stove.has_method("get_interact_prompt"):
+					var stove_txt: String = nearby_stove.get_interact_prompt()
+					if not stove_txt.is_empty():
+						entries.append({"text": stove_txt, "world_pos": stove_pos, "dist": 0.0})
+				if nearby_stove.has_method("has_open_slot") and nearby_stove.has_open_slot():
+					entries.append({"text": "[F] Place Cooking Pot", "world_pos": stove_pos, "dist": 0.0})
 
 		# Give to NPC — holding a giveable item (dish, produce, can, or
 		# bottle) → "[E] Give <item> to <name>" over each nearby NPC.
@@ -930,20 +941,38 @@ func _try_add_nearest_to_basket(basket: Node) -> void:
 		if hud != null and hud.has_method("show_soft_warning"):
 			hud.show_soft_warning("Basket full")
 
-## Cooking Pot equivalent of _try_add_nearest_to_basket(), with an added
-## stove-placement priority check first. Called when the player presses E
-## while holding a Cooking Pot (is_cookpot_container duck type).
+## Called when the player presses [E] while holding a Cooking Pot.
+## Confirmed Aug 2026 priority order:
+##   1. Held pot has a finished dish → retrieve it. Always wins over
+##      everything else below.
+##   2. A nearby Stove → interact with it normally (the manual on/off
+##      toggle). This REVERTS the earlier "E is entirely blocked near a
+##      stove while holding the pot" behavior — placement moved to [F],
+##      see _try_place_held_cookpot_on_stove().
+##   3. Otherwise, stash the nearest "cookpot_storable" item (unchanged).
 func _try_use_held_cookpot(pot: Node) -> void:
-	var stove: Node = _find_nearest_open_stove()
-	if stove != null:
-		if held_item.knocked_out.is_connected(_on_item_knocked_out):
-			held_item.knocked_out.disconnect(_on_item_knocked_out)
-		stove.try_place_pot(pot)
-		held_item        = null
-		_held_from_slot  = -1
-		_is_holding_e    = false
+	if pot.has_method("is_dish_ready") and pot.is_dish_ready():
+		_try_take_dish_from_held_pot(pot)
+		return
+	var stove: Node = _find_nearest_stove()
+	if stove != null and stove.has_method("on_interact"):
+		stove.on_interact()
 		return
 	_try_add_nearest_to_cookpot(pot)
+
+## Places a HELD Cooking Pot onto `stove` via [F] (moved from [E], confirmed
+## Aug 2026). Returns false if the stove filled up between the caller's
+## check and this call, so the caller falls through to normal shelf/drop
+## handling instead of silently doing nothing.
+func _try_place_held_cookpot_on_stove(pot: Node, stove: Node) -> bool:
+	if held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.disconnect(_on_item_knocked_out)
+	if not stove.try_place_pot(pot):
+		return false
+	held_item       = null
+	_held_from_slot = -1
+	_is_holding_e   = false
+	return true
 
 ## Identical mechanism to _try_add_nearest_to_basket() — "cookpot_storable"
 ## group instead of "basket_storable", pot.try_add_item() instead of
@@ -970,6 +999,22 @@ func _try_add_nearest_to_cookpot(pot: Node) -> void:
 func _find_nearest_open_stove() -> Node:
 	return _proximity.nearest_in_group("stove", MAX_PROMPT_DIST,
 		func(n: Node) -> bool: return n.has_method("has_open_slot") and n.has_open_slot())
+
+## Like _find_nearest_open_stove(), but doesn't care whether it has an open
+## slot — used for the [E] toggle-passthrough, which just wants to interact
+## with whatever stove is nearby, not place anything on it.
+func _find_nearest_stove() -> Node:
+	var closest: Node        = null
+	var closest_dist: float  = MAX_PROMPT_DIST
+	var player_pos: Vector3  = player.global_position
+	for node: Node in get_tree().get_nodes_in_group("stove"):
+		if not is_instance_valid(node):
+			continue
+		var d: float = (node as Node3D).global_position.distance_to(player_pos)
+		if d < closest_dist:
+			closest_dist = d
+			closest = node
+	return closest
 
 ## Same group-scan reasoning as _find_nearest_open_stove().
 func _find_nearest_stove_with_pot() -> Node:
@@ -1208,6 +1253,48 @@ func _try_take_dish(pot: Node) -> void:
 	var world_root: Node = get_tree().get_root()
 	world_root.add_child(dish)
 	dish.global_position = (pot as Node3D).global_position
+	dish.fill_value = result["value"]
+	dish.bonus_pct  = result["bonus_pct"]
+	dish.dish_name  = String(result.get("name", "Cooked Dish"))
+
+	held_item       = dish
+	_held_from_slot = -1
+	if not held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.connect(_on_item_knocked_out)
+	held_item.pickup(hold_point)
+	if held_item.has_method("set_player"):
+		held_item.set_player(player)
+
+## Called when the player presses [E] while HOLDING a Cooking Pot that has
+## a finished dish inside — takes priority over placing/toggling/grabbing.
+## The pot is dropped at the player's feet (same position _quick_drop()
+## uses, since the player can only hold one item at a time) and the new
+## Dish takes its place in hand. Mirrors _try_take_dish()'s world-pot flow
+## with a drop step first.
+func _try_take_dish_from_held_pot(pot: Node) -> void:
+	var result: Dictionary = pot.serve_dish()
+	if result.is_empty():
+		return
+
+	if held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.disconnect(_on_item_knocked_out)
+
+	var drop_pos: Vector3 = player.global_position + \
+		player.global_transform.basis.z * -1.5 + Vector3(0.0, 0.2, 0.0)
+	pot.drop(_world_root, drop_pos)
+	held_item       = null
+	_held_from_slot = -1
+	_is_holding_e   = false
+
+	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
+	var dish: RigidBody3D = RigidBody3D.new()
+	dish.set_script(dish_script)
+	dish.collision_layer = 1
+	dish.collision_mask  = 1
+	dish.continuous_cd   = true
+
+	_world_root.add_child(dish)
+	dish.global_position = drop_pos
 	dish.fill_value = result["value"]
 	dish.bonus_pct  = result["bonus_pct"]
 	dish.dish_name  = String(result.get("name", "Cooked Dish"))

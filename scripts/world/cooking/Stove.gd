@@ -230,6 +230,18 @@ func has_open_slot() -> bool:
 func try_place_pot(pot: Node) -> bool:
 	if pot_ref != null:
 		return false
+	## Defensive (Aug 2026 crash fix): if this pot still thinks it belongs
+	## to a DIFFERENT stove — a stale reference left over from some other
+	## code path — clear that stove's pot_ref FIRST. Without this, the old
+	## host keeps pointing at a pot that isn't its child anymore, and the
+	## next time anything calls try_remove_pot() on IT, Godot throws an
+	## engine-level "parent != this" error trying to remove_child() a node
+	## it doesn't actually own. This was the confirmed root cause of a
+	## reported crash.
+	if "_host_stove" in pot:
+		var old_host: Variant = pot.get("_host_stove")
+		if old_host != null and old_host != self and old_host.has_method("clear_pot_ref"):
+			old_host.clear_pot_ref()
 	pot_ref = pot
 	var old_parent: Node = pot.get_parent()
 	if old_parent != null:
@@ -299,6 +311,13 @@ func try_remove_pot() -> Node:
 		return null
 	var pot: Node = pot_ref
 	pot_ref = null
+	## Defensive (Aug 2026 crash fix): if this pot's actual parent isn't us
+	## anymore — already moved elsewhere by some other path — there's
+	## nothing to remove. Drop the stale reference instead of letting Godot
+	## throw an engine-level "parent != this" error.
+	if pot.get_parent() != self:
+		_refresh_cooking_state()
+		return null
 	var world_root: Node = get_tree().get_root()
 	remove_child(pot)
 	world_root.add_child(pot)
@@ -314,6 +333,14 @@ func try_remove_pot() -> Node:
 		pot.set_host_stove(null)
 	_refresh_cooking_state()
 	return pot
+
+
+## Defensive escape hatch — clears our pot_ref WITHOUT touching the pot
+## itself (the pot has already been claimed by something else by the time
+## this runs; see try_place_pot()'s stale-reference guard above).
+func clear_pot_ref() -> void:
+	pot_ref = null
+	_refresh_cooking_state()
 
 
 # ─── Cooking-active / power-draw logic ────────────────────────────────────────
