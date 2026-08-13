@@ -16,9 +16,37 @@ const ORGANIZE_DESTINATION_GROUPS: Dictionary = {
 }
 
 static func has_cleaning_target_available(npc: NPC) -> bool:
+	## Trash already self-gates on receptacle existence at the JobBoard
+	## scan level (get_trash_items() never returns anything if
+	## _has_trash_receptacle() is false) — no extra check needed here.
 	if not JobBoard.get_trash_items().is_empty():
 		return true
-	return not JobBoard.get_organizable_items().is_empty()
+	## Aug 2026 fix — this used to return true purely on organizable items
+	## EXISTING, never checking whether anywhere exists to actually put
+	## them. With zero shelving/storage anywhere in a level, that caused
+	## CleaningActivity to be re-selected and instantly fail every single
+	## think-cycle (its destination-first _pick_next_target() gives up
+	## without ever calling set_nav_target()/nav_steer()/halt_movement(),
+	## so _movement_locked stayed false) — which _tick_stuck_recovery()
+	## misread as "trying to travel and not moving," firing
+	## _recover_from_stuck() every second with no real obstruction to
+	## find. See NPC._recover_from_stuck()'s own fix (same pass) for what
+	## that cascaded into. Checking at least one category has a live
+	## destination fixes the trigger at its actual source instead.
+	var organizable: Array = JobBoard.get_organizable_items()
+	if organizable.is_empty():
+		return false
+	var checked_categories: Dictionary = {}
+	for item: Node in organizable:
+		if not is_instance_valid(item):
+			continue
+		var category: String = classify_organizable_item(item)
+		if checked_categories.has(category):
+			continue
+		checked_categories[category] = true
+		if has_viable_destination_for_category(npc, category):
+			return true
+	return false
 
 static func find_cleaning_target(npc: NPC, exclude_ids: Dictionary = {}, exclude_categories: Dictionary = {}) -> Dictionary:
 	var candidates: Array = []
@@ -238,3 +266,84 @@ static func has_gardening_target_available(npc: NPC) -> bool:
 
 static func is_trash_item(_npc: NPC, item: Node) -> bool:
 	return JobBoard._is_trash_item(item) if JobBoard.has_method("_is_trash_item") else false
+
+# ─── Cooking (Aug 2026) ─────────────────────────────────────────────────────
+## Priority order used by CookingActivity.enter(): serve a ready dish >
+## finish an in-progress pot > start a new pot on an empty stove. All three
+## skip any stove currently claimed by another NPC (NPCItemUser.claim_item
+## treats a Stove exactly like any other claimable Node — no new claim
+## mechanism needed).
+static func find_cooking_serve_target(npc: NPC) -> Node:
+	var best: Node = null
+	var best_d: float = INF
+	for stove: Node in npc.get_tree().get_nodes_in_group("stove"):
+		if not is_instance_valid(stove):
+			continue
+		if NPCItemUser.is_claimed_by_other(stove, npc):
+			continue
+		var pot: Node = stove.pot_ref
+		if pot == null or not pot.has_method("is_dish_ready") or not pot.is_dish_ready():
+			continue
+		var d: float = NPCItemUser.flat_distance(npc.global_position, (stove as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best = stove
+	return best
+
+static func find_cooking_ingredient_target(npc: NPC) -> Node:
+	var best: Node = null
+	var best_d: float = INF
+	for stove: Node in npc.get_tree().get_nodes_in_group("stove"):
+		if not is_instance_valid(stove):
+			continue
+		if NPCItemUser.is_claimed_by_other(stove, npc):
+			continue
+		var pot: Node = stove.pot_ref
+		if pot == null or not pot.has_method("is_full") or pot.is_full():
+			continue
+		if pot.has_method("is_dish_ready") and pot.is_dish_ready():
+			continue   ## already done cooking, waiting to be served — not an ingredient target
+		var d: float = NPCItemUser.flat_distance(npc.global_position, (stove as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best = stove
+	return best
+
+static func find_cooking_pot_target(npc: NPC) -> Node:
+	var best: Node = null
+	var best_d: float = INF
+	for stove: Node in npc.get_tree().get_nodes_in_group("stove"):
+		if not is_instance_valid(stove):
+			continue
+		if NPCItemUser.is_claimed_by_other(stove, npc):
+			continue
+		if not stove.has_method("has_open_slot") or not stove.has_open_slot():
+			continue
+		var d: float = NPCItemUser.flat_distance(npc.global_position, (stove as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best = stove
+	return best
+
+## Availability check — written now (unused this pass) so a later
+## autonomous-scoring pass can plug it straight into CookingActivity.score()
+## the same way REFUEL/GARDENING's own has_..._available() functions
+## already feed their score()s.
+static func has_cooking_target_available(npc: NPC) -> bool:
+	return find_cooking_serve_target(npc) != null \
+		or find_cooking_ingredient_target(npc) != null \
+		or find_cooking_pot_target(npc) != null
+
+## Deliberately minimal — one distinguished reason (no stove built at all);
+## everything else (every stove mid-cook and genuinely nothing to do, or a
+## momentary claim clash) falls through to NPCTalkMenuUI's generic
+## empty_desc, which is accurate for those cases as-is. Matches the level
+## of detail REFUEL/CLEANING's own reason sets settled on — not every
+## possible cause needs its own string.
+static func get_cooking_unavailable_reason(npc: NPC) -> String:
+	if has_cooking_target_available(npc):
+		return ""
+	for stove: Node in npc.get_tree().get_nodes_in_group("stove"):
+		if is_instance_valid(stove):
+			return ""   ## a stove exists, just nothing actionable right now — generic message covers it
+	return "NO_STOVE"

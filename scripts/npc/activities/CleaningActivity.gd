@@ -25,6 +25,18 @@ var _skipped_ids: Dictionary = {}         ## item instance_id -> true, this sess
 var _no_storage_categories: Dictionary = {}   ## "light"/"heavy" -> true, this session — every viable destination for the category is gone/full/nonexistent
 var _basket: Basket = null                ## Aug 2026 — set once fetched, for produce collection (see _pick_next_target/_tick_produce_via_basket)
 
+## Aug 2026 — last-resort relocation for a forced (stuck-recovery) grab
+## with no real destination anywhere. Previously this case picked the
+## item up and set it right back down in the same spot (no travel
+## happened between pickup and drop), which didn't actually clear the
+## obstruction. Deliberately a genuine navmesh-pathed walk, NOT a raw
+## position teleport — the whole point is to move the item somewhere
+## real, respecting collision, unlike the nudge fallback this
+## complements for the "obstruction successfully identified" case.
+const RELOCATE_DISTANCE: float = 2.5
+var _relocating: bool = false
+var _relocate_point: Vector3 = Vector3.ZERO
+
 func _init(forced_item: RigidBody3D = null) -> void:
 	_forced_item = forced_item
 	_is_forced_session = forced_item != null
@@ -32,6 +44,8 @@ func _init(forced_item: RigidBody3D = null) -> void:
 func label() -> String:
 	if _item == null:
 		return "Cleaning"
+	if _relocating:
+		return "Clearing the way"
 	return "Cleaning (carrying)" if _destination != null else "Cleaning (fetching)"
 
 func score(npc: NPC) -> float:
@@ -195,28 +209,51 @@ func tick(npc: NPC, delta: float) -> void:
 			NPCItemUser.release_item(_item)
 			_item = null
 			return
-		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, _item.global_position) <= NPCItemUser.PICKUP_RANGE:
-			if NPCItemUser.grab_loose(npc, _item):
-				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "picked up", display_name(_item))
-				_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
-				if _destination == null:
+	npc.nav_steer(delta)
+	if NPCItemUser.flat_distance(npc.global_position, _item.global_position) <= NPCItemUser.PICKUP_RANGE:
+		if NPCItemUser.grab_loose(npc, _item):
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "picked up", display_name(_item))
+			_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
+			if _destination == null:
+				if _is_forced_session:
+					## Aug 2026 — last resort: this item is genuinely
+					## storable nowhere, but it's still the obstruction
+					## that got the NPC stuck. Setting it back down in
+					## the same spot (the old behavior) doesn't clear
+					## anything — carry it a short, real, pathed distance
+					## away first instead.
+					_relocating = true
+					_relocate_point = _pick_relocate_point(npc)
+					if NPCDebug.enabled:
+						NPCDebug.log_cleaning(npc, "relocating (no destination)", "%s has nowhere to go — carrying it clear instead of dropping in place" % display_name(_item))
+					npc.set_nav_target(_relocate_point)
+				else:
 					if NPCDebug.enabled:
 						NPCDebug.log_cleaning(npc, "no destination", "%s has nowhere to go (is_trash=%s) — setting back down" % [
 							display_name(_item), _is_trash])
 					NPCItemUser.drop_held(npc)
 					_item = null
-					if _is_forced_session:
-						_finished = true
-				elif NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "destination chosen", "%s -> %s" % [display_name(_item), _destination.name])
-			else:
-				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "pickup failed", "grab_loose() refused %s" % display_name(_item))
-				npc.job_state.record_cleaning_pickup_failure(npc, _item)   ## Aug 2026 — counts toward the give-up limit; claim/held/shelved misses elsewhere never call this
-				NPCItemUser.release_item(_item)
-				_item = null
+			elif NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "destination chosen", "%s -> %s" % [display_name(_item), _destination.name])
+		else:
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "pickup failed", "grab_loose() refused %s" % display_name(_item))
+			npc.job_state.record_cleaning_pickup_failure(npc, _item)   ## Aug 2026 — counts toward the give-up limit; claim/held/shelved misses elsewhere never call this
+			NPCItemUser.release_item(_item)
+			_item = null
+	return
+
+	## Relocate phase (forced-session, no-destination last resort)
+	if _relocating:
+		npc.nav_steer(delta)
+		if NPCItemUser.flat_distance(npc.global_position, _relocate_point) <= NPCItemUser.SNATCH_RANGE:
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "relocated", "%s dropped clear of the original spot" % display_name(_item))
+			NPCItemUser.drop_held(npc)
+			_item = null
+			_relocating = false
+			_finished = true   ## stuck-recovery grab is always exactly one item
 		return
 
 	## Travel phase
@@ -251,6 +288,18 @@ func tick(npc: NPC, delta: float) -> void:
 		_item = null
 		if _is_forced_session:
 			_finished = true   ## stuck-recovery grab is always exactly one item
+
+## Short, random-direction, navmesh-pathed relocation point for a
+## forced-grab item with nowhere real to go. Deliberately mirrors
+## _nudge_free_of_obstruction()'s random-direction fallback shape, but
+## travels there via real navigation instead of a raw position write —
+## that's the whole fix: same "move it somewhere else" goal, done through
+## collision-respecting movement instead of a blind teleport.
+func _pick_relocate_point(npc: NPC) -> Vector3:
+	var dir: Vector3 = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
+	if dir.length() < 0.01:
+		dir = Vector3(1.0, 0.0, 0.0)
+	return npc.global_position + dir.normalized() * RELOCATE_DISTANCE
 
 func done(npc: NPC) -> bool:
 	return _finished and _item == null
@@ -341,7 +390,10 @@ func _tick_stash_into_basket(npc: NPC, delta: float) -> void:
 func debug_info() -> Dictionary:
 	var phase: String = "idle"
 	if _item != null:
-		phase = "carrying" if _destination != null else "fetching"
+		if _relocating:
+			phase = "relocating"
+		else:
+			phase = "carrying" if _destination != null else "fetching"
 	return {
 		"activity": "cleaning",
 		"item": display_name(_item) if _item != null else "",

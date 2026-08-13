@@ -1409,6 +1409,12 @@ func get_refuel_unavailable_reason() -> String:
 func has_refuel_target_available() -> bool:
 	return NPCJobQueries.has_refuel_target_available(self)
 
+## Cooking (Aug 2026) — same one-distinguished-reason shape as
+## get_refuel_unavailable_reason(). Keep in sync with
+## NPCTalkMenuUI.COOKING_UNAVAILABLE_REASONS if the reason set changes.
+func get_cooking_unavailable_reason() -> String:
+	return NPCJobQueries.get_cooking_unavailable_reason(self)
+
 ## Autonomous-trigger availability check for GardeningActivity — mirrors
 ## has_cleaning_target_available()'s shape. True if ANY tray needs soil
 ## (and a spare Bag of Soil exists somewhere) OR ANY tray has an open
@@ -1816,6 +1822,22 @@ const STUCK_NPC_BACKOFF_AFTER: int = 2
 const STUCK_NPC_BACKOFF_DISTANCE: float = 2.5
 var _stuck_npc_streak: int = 0
 
+## Aug 2026 — separate streak specifically for "recovery fired but NO
+## obstruction (item or NPC) could be identified at all." The item-keyed
+## streak below (_stuck_streak_obstruction_id/_stuck_streak_count) can
+## never track this case — there's no real id to compare, so it silently
+## reset to 1 every single time, forever, meaning a genuinely unexplained
+## stall NEVER escalated or gave up. It just repeated the same blind
+## random-direction position teleport (_nudge_free_of_obstruction's
+## null-obstruction fallback) roughly once a second, indefinitely — the
+## actual mechanism behind NPCs clipping through walls and disappearing.
+## Capping it here doesn't fully eliminate the theoretical risk of one
+## unlucky teleport landing inside geometry, but reduces "run forever
+## until it eventually does" down to at most STUCK_UNKNOWN_GIVEUP_AFTER
+## attempts before standing fast instead.
+const STUCK_UNKNOWN_GIVEUP_AFTER: int = 3
+var _stuck_unknown_streak: int = 0
+
 func _tick_stuck_recovery(delta: float) -> void:
 	## Part 18 — gate on _movement_locked, not nav_finished(). Drink/Eat/
 	## Job-work all stop the NPC via their OWN range checks (PICKUP_RANGE,
@@ -1862,6 +1884,25 @@ func _recover_from_stuck() -> void:
 	velocity.x = 0.0
 	velocity.z = 0.0
 
+	## Aug 2026 fix — stop_current() only ever released whatever the
+	## interrupted activity had CLAIMED, never what it was physically
+	## HOLDING (every activity's exit() works this way, by design —
+	## PutAwayHeldItemActivity is the intended safety net for a leftover
+	## held item, but that only ever runs via normal scoring competition).
+	## force_command() — which every path below this point uses — bypasses
+	## normal scoring entirely, so that safety net never gets a turn
+	## before a brand new forced grab is attempted. grab_loose() has no
+	## guard against grabbing a second item while a first is still
+	## attached to hold_point — it just reparents the new one onto the
+	## same point without detaching the old one. That's what "holding
+	## several items stacked inside each other" actually was, and it's
+	## also why a forced CleaningActivity often did nothing at all — its
+	## own fetch phase gates on held_item being null, which this made
+	## false more often than intended. Clearing it first, unconditionally,
+	## before any recovery decision below, fixes both at once.
+	if held_item != null:
+		NPCItemUser.drop_held(self)
+
 	if stuck_npc != null:
 		## Aug 2026 — blocked by ANOTHER NPC, not an item. Forcing a
 		## CleaningActivity here would do nothing useful — the problem
@@ -1884,14 +1925,33 @@ func _recover_from_stuck() -> void:
 		return
 	_stuck_npc_streak = 0
 
-	var obstruction_id: int = stuck_item.get_instance_id() if stuck_item != null else -1
-	if obstruction_id != -1 and obstruction_id == _stuck_streak_obstruction_id:
+	if stuck_item == null:
+		## Aug 2026 fix — see STUCK_UNKNOWN_GIVEUP_AFTER's own comment.
+		## Genuinely no obstruction (item or NPC) identified. The
+		## obstruction_id-based streak below can never track this case
+		## (there's no real id to compare against), which is exactly what
+		## let an unexplained stall repeat this branch forever, once a
+		## second, each time applying a blind random-direction position
+		## teleport with zero collision awareness.
+		_stuck_unknown_streak += 1
+		if NPCDebug.enabled:
+			NPCDebug.log_stuck_escalation(self, null, _stuck_unknown_streak)
+		if _stuck_unknown_streak <= STUCK_UNKNOWN_GIVEUP_AFTER:
+			_nudge_free_of_obstruction(null, STUCK_NUDGE_DISTANCE)
+		## else: give up nudging this round — stand fast and let the
+		## brain re-score completely fresh next think-cycle instead of
+		## rolling the dice on position again with no information at all.
+		return
+	_stuck_unknown_streak = 0
+
+	var obstruction_id: int = stuck_item.get_instance_id()
+	if obstruction_id == _stuck_streak_obstruction_id:
 		_stuck_streak_count += 1
 	else:
 		_stuck_streak_count = 1
 	_stuck_streak_obstruction_id = obstruction_id
 
-	if stuck_item != null and brain != null and _stuck_streak_count < NPCJobState.CLEANING_GIVEUP_STUCK_LIMIT:
+	if brain != null and _stuck_streak_count < NPCJobState.CLEANING_GIVEUP_STUCK_LIMIT:
 		## Always fair game when it caused a stuck NPC — bypasses the
 		## normal trash/idle-time eligibility entirely, per design.
 		brain.force_command(CleaningActivity.new(stuck_item))
@@ -1907,8 +1967,7 @@ func _recover_from_stuck() -> void:
 	## change, not a movement command — movement is exactly what isn't
 	## working) and let the NEXT think-cycle decide fresh, with no forced
 	## target at all.
-	if stuck_item != null:
-		job_state.blacklist_cleaning_item(self, stuck_item, "stuck-recovery failed %d times in a row" % _stuck_streak_count)
+	job_state.blacklist_cleaning_item(self, stuck_item, "stuck-recovery failed %d times in a row" % _stuck_streak_count)
 	if NPCDebug.enabled:
 		NPCDebug.log_stuck_escalation(self, stuck_item, _stuck_streak_count)
 	_nudge_free_of_obstruction(stuck_item, STUCK_NUDGE_DISTANCE)

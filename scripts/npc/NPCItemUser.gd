@@ -224,6 +224,30 @@ static func is_edible(item: Node) -> bool:
 		return item.has_bites_left()
 	return false
 
+## Cooking (Aug 2026) — narrower than "cookpot_storable" (that group also
+## includes WaterBottle, which CookingPot's own ingredient-key lookup
+## doesn't recognize — it'd occupy a slot for zero value/zero recipe
+## match). This is exactly is_edible() minus DishItem (a dish is cooking
+## OUTPUT, not a valid input, and isn't in cookpot_storable to begin with).
+static func is_cookable_ingredient(item: Node) -> bool:
+	if item is FarmProduceItem:
+		return true
+	if item.has_method("has_bites_left"):   ## FoodCan
+		return item.has_bites_left()
+	return false
+
+## A Cooking Pot available to fetch — excludes one already resting on a
+## stove. Confirmed Aug 2026: Stove.try_place_pot() sets is_held = false
+## on the pot it hosts (matching a shelved item's own convention), so the
+## is_held check alone does NOT exclude a stove-resting pot — only
+## checking _host_stove directly does.
+static func is_cooking_pot(item: Node) -> bool:
+	if not (item is CookingPot):
+		return false
+	if ("_host_stove" in item) and item._host_stove != null:
+		return false
+	return true
+
 ## Apply one "consume step" of a held edible to the NPC's hunger. Returns
 ## true when the item is finished with (freed or empty) and the hand is clear.
 static func eat_held_step(npc: NPC) -> bool:

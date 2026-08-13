@@ -1,3 +1,42 @@
+> **Stuck-recovery held-item fix (Aug 2026):** Fixed both reported regressions from the
+> previous stuck-recovery passes — obstructions not being picked up, and items stacking inside
+> each other — with one fix: `_recover_from_stuck()` drops whatever's currently held before
+> making any recovery decision, since `force_command()` bypasses the normal scoring
+> `PutAwayHeldItemActivity` needs to clean up a leftover held item on its own. See README's own
+> entry for the full mechanism.
+
+> **Stuck-recovery relocate fix (Aug 2026):** Forced stuck-recovery grabs with no real
+> destination now genuinely relocate the item (real pathed walk, `RELOCATE_DISTANCE` = 2.5m,
+> random direction) instead of picking it up and setting it back down in the same spot. Closes
+> the gap where the "last resort, pick it up to get unstuck" mechanism didn't actually move
+> anything when no storage existed for that item.
+
+> **Cooking job (Aug 2026):** New "Cook a meal" Talk-menu command. Command-only for now —
+> `CookingActivity` is a full `NPCSessionActivity` underneath, so autonomous scoring is a
+> follow-up that only touches its own `score()` (see the comment there for the exact formula
+> shape) plus wiring `NPC.COOKING_BASE_SCORE`/`get_job_priority_weight("COOKING")`, nothing
+> structural. One command = one target (nearest actionable stove, priority: serve ready dish >
+> finish in-progress pot > start new pot) — does NOT sweep every stove in one session like
+> Refuel does across generators; flagged as a natural, easy follow-up if a full sweep is
+> wanted later. `Stove.gd`/`CookingPot.gd` untouched — both already had generic, NPC-ready
+> APIs. If a "cooking" skill is ever added to `NPC.skills`, this job's `npc.log_action()` calls
+> are the natural place to add matching `gain_skill("cooking")` calls (deliberately omitted
+> this pass — see README entry).
+
+> **Stuck-recovery fix (Aug 2026):** Fixed the reported "NPCs freeze then glitch-teleport
+> through walls and disappear" bug — root cause was `has_cleaning_target_available()` not
+> checking for destination existence (only clutter existence), which fed a false "stalled
+> travel" signal into `_tick_stuck_recovery()` on levels with zero shelving. That cascaded into
+> a second, independent bug: `_recover_from_stuck()`'s no-obstruction fallback had a streak
+> counter that could never actually escalate, so it repeated an uncapped blind random-direction
+> position teleport forever. Both fixed — see README's own entry for the full mechanism.
+> **Not fixed, flagged for later:** the capped nudge (`_nudge_free_of_obstruction`) still has no
+> actual collision/geometry check before committing a teleport — it can still theoretically
+> land an NPC inside geometry within its now-limited `STUCK_UNKNOWN_GIVEUP_AFTER` attempts, just
+> far less likely (3 rolls instead of infinite). A real fix would raycast/validate the
+> destination before committing to it — out of scope for this pass, which specifically targeted
+> the reported infinite-loop symptom.
+
 > **Command-wrapper consolidation (Aug 2026):** `CommandRestActivity`/`CommandHarvestActivity`/
 > `CommandJobActivity` now extend `NPCCommandWrapperActivity`, matching Cleaning/Refuel/
 > Gardening's Command variants. All three now correctly delegate `debug_info()` — previously

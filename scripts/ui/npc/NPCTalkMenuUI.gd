@@ -67,6 +67,7 @@ const NPC_JOB_MENU_ENTRIES: Array[Dictionary] = [
 	{"type": "CLEANING", "label": "Clean the bunker", "action_desc": "heading to clean up", "empty_desc": "nothing to clean right now"},
 	{"type": "FARMING", "label": "Tend the farm", "action_desc": "heading to tend the farm", "empty_desc": "nothing to harvest, plant, or add soil to right now"},
 	{"type": "FERTILIZE", "label": "Fertilize the trays", "action_desc": "heading to fertilize", "empty_desc": "nothing needs fertilizing, or none available"},
+	{"type": "COOKING", "label": "Cook a meal", "action_desc": "heading to cook", "empty_desc": "nothing to cook right now"},
 ]
 
 ## Aug 2026 — maps NPC.get_cleaning_unavailable_reason()'s keys to the
@@ -91,6 +92,13 @@ const REFUEL_UNAVAILABLE_REASONS: Dictionary = {
 	"ALL_GENERATORS_FULL": "every generator is already full",
 	"FUEL_CAN_CLAIMED":    "the only fuel can is already being used",
 	"NO_FUEL_CAN":         "there's no fuel can anywhere to refuel with",
+}
+
+## NPC.get_cooking_unavailable_reason(). Keep in sync with that function's
+## own doc comment if the reason set changes — deliberately minimal (see
+## NPCJobQueries.get_cooking_unavailable_reason()'s own comment for why).
+const COOKING_UNAVAILABLE_REASONS: Dictionary = {
+	"NO_STOVE": "there's no stove built yet",
 }
 
 var _npc: Node = null
@@ -556,6 +564,13 @@ func _on_job_command_pressed(job_type: String) -> void:
 		var fert_cmd: CommandGardeningActivity = CommandGardeningActivity.new()
 		fert_cmd.mode = "fertilize_only"
 		_issue_command(fert_cmd, action_desc, empty_desc)
+	elif job_type == "COOKING":
+		## Aug 2026 — same specific-reason treatment as Refuel/Cleaning.
+		if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_cooking_unavailable_reason"):
+			var creason: String = _npc.get_cooking_unavailable_reason()
+			if creason != "" and COOKING_UNAVAILABLE_REASONS.has(creason):
+				empty_desc = String(COOKING_UNAVAILABLE_REASONS[creason])
+		_issue_command(CommandCookingActivity.new(), action_desc, empty_desc)
 	else:
 		_issue_command(CommandJobActivity.new(job_type), action_desc, empty_desc)
 

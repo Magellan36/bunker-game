@@ -1684,3 +1684,55 @@ without being asked.
      inspect `done()` mid-selection, which `_make_inner()` can't express) — this is now the
      second documented exception to a shared base in this system, alongside
      `CleaningActivity.interruptible()`. No functional change to any of the three.
+107. Stuck-recovery fix (Aug 2026) — two compounding bugs. (1)
+     `has_cleaning_target_available()` only checked that clutter existed, never that a destination
+     existed for it — with zero shelving anywhere, this caused instant re-select/instant-fail
+     Cleaning loops that never touched `_movement_locked`, which `_tick_stuck_recovery()` (gated
+     only on `_movement_locked`) misread as a genuine stalled travel attempt. Fixed by checking
+     `has_viable_destination_for_category()` per organizable category before returning true. (2)
+     `_recover_from_stuck()`'s no-obstruction fallback (`stuck_item == null` and `stuck_npc ==
+     null`) had a dead streak-counter (always reset to 1, could never escalate — the id-equality
+     check requires a real id, which null never has) and fired an uncapped, collision-unaware
+     random-direction position teleport every ~1s forever — the actual mechanism behind NPCs
+     clipping through walls and disappearing, not an engine collision failure. Fixed with a
+     dedicated `_stuck_unknown_streak` capped at `STUCK_UNKNOWN_GIVEUP_AFTER` (3) attempts before
+     standing fast instead of continuing to teleport blind. Both fixes are independent — (1)
+     removes this specific trigger, (2) closes the landmine for any other future cause of a
+     genuinely undetectable stall (navmesh gap, wedged against static geometry, a similar bug in a
+     different activity).
+108. Cooking job — "Cook a meal" (Aug 2026) — new command-only job mirroring Farming's
+     resumable, stateless design: place a Cooking Pot on an open stove if needed, fetch up to 3
+     ingredients one at a time (`is_cookable_ingredient` — FarmProduceItem or a FoodCan with
+     bites left; narrower than `"cookpot_storable"`, which also includes a non-contributing
+     WaterBottle), turn the stove on, then leave — never waits through the cook timer. On a later
+     invocation, serves any ready dish first (eats it directly if the NPC's own Hunger < 55,
+     otherwise stores via the existing `find_cleaning_destination()` light/heavy router, unmodified).
+     All progress lives on the `Stove`/`CookingPot` objects, not per-NPC state, so any NPC can
+     pick up any other NPC's in-progress stove. New files: `CookingActivity.gd` (a proper
+     `NPCSessionActivity` — ready for autonomous scoring in a future pass, see its own `score()`
+     comment for the exact shape to add) and `CommandCookingActivity.gd` (the Talk-menu wrapper).
+     New: `NPCItemUser.is_cookable_ingredient()`/`is_cooking_pot()`,
+     `NPCJobQueries.find_cooking_serve_target()`/`find_cooking_ingredient_target()`/
+     `find_cooking_pot_target()`/`has_cooking_target_available()`/`get_cooking_unavailable_reason()`.
+     Zero changes to `Stove.gd`/`CookingPot.gd` — both were already generic `Node`-based APIs.
+     No new NPC skill added (deliberate — see plan's own note on this).
+109. Stuck-recovery relocate fix (Aug 2026) — a forced (stuck-recovery) grab with no real
+     destination anywhere used to pick the obstruction up and set it back down in the same spot
+     (no travel between pickup and drop), which didn't actually clear the obstruction it was
+     grabbed to resolve. Now carries it a short (`RELOCATE_DISTANCE` = 2.5m), random-direction,
+     **navmesh-pathed** walk away before dropping — deliberately real navigation, not a position
+     teleport, so it can't reproduce the earlier wall-clipping failure mode. Normal (non-forced)
+     Cleaning sessions are unaffected — they already skip whole no-storage categories and move on,
+     and per the earlier fix won't be autonomously selected at all when nothing has anywhere to go.
+110. Stuck-recovery held-item fix (Aug 2026) — `_recover_from_stuck()` now drops any
+     currently-held item, unconditionally, before making any recovery decision. Root cause: every
+     activity's `exit()` only releases claims, never physically-held items (by design —
+     `PutAwayHeldItemActivity` is the intended cleanup path), but `force_command()` (used by every
+     stuck-recovery branch) bypasses the normal scoring that safety net relies on. This let a
+     forced `CleaningActivity`'s own `held_item == null` fetch-phase gate stay permanently false
+     (so it silently did nothing — the "still not picking up obstructions" report) and, on other
+     paths that don't gate the same way, let a second item get grabbed while the first was still
+     attached to `hold_point` with nothing ever detaching it (the "holding several items stacked"
+     report). Deliberately scoped to `_recover_from_stuck()` only — not a blanket
+     `force_command()` change, since Give/Snatch handoffs legitimately rely on setting `held_item`
+     as part of their own forced entry.
