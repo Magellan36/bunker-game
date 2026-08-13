@@ -1,3 +1,11 @@
+> **Command-wrapper consolidation (Aug 2026):** `CommandRestActivity`/`CommandHarvestActivity`/
+> `CommandJobActivity` now extend `NPCCommandWrapperActivity`, matching Cleaning/Refuel/
+> Gardening's Command variants. All three now correctly delegate `debug_info()` — previously
+> silent gaps in "Print NPC Job Debug State" for anything started via a player command through
+> these three. No external call sites changed (`CommandJobActivity`'s `_init(job_type)`
+> signature is preserved). `CommandRestActivity.enter()` is a documented override, not a bug —
+> see its own file header for why.
+
 # Handover — Grow Light Pass-1 Gap Fixed, Glow Rebuilt on Native Materials (Aug 2026)
 
 ## What changed this session

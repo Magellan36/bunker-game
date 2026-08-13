@@ -1675,3 +1675,12 @@ without being asked.
      now holds only the state machine (score/interrupt/tick/force_command/stop_current). Pure
      mechanical move — no behavior change. All `NPCBrain.XActivity` external references updated
      to bare `XActivity` (global class table resolves them, same as Cleaning/Refuel/Gardening).
+106. Command-wrapper consolidation (Aug 2026) — `CommandRestActivity`, `CommandHarvestActivity`,
+     and `CommandJobActivity` migrated onto `NPCCommandWrapperActivity` (the shared base
+     `CommandCleaningActivity`/`CommandRefuelActivity`/`CommandGardeningActivity` already used).
+     Closes the same `debug_info()` delegation gap that was already found and fixed once for those
+     three — it had recurred here because these three predated that fix. `CommandRestActivity`
+     overrides `enter()` directly (documented exception: its bed-then-chair fallback needs to
+     inspect `done()` mid-selection, which `_make_inner()` can't express) — this is now the
+     second documented exception to a shared base in this system, alongside
+     `CleaningActivity.interruptible()`. No functional change to any of the three.
