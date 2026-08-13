@@ -1,3 +1,57 @@
+# Handover — Grow Light Pass-1 Gap Fixed, Glow Rebuilt on Native Materials (Aug 2026)
+
+## What changed this session
+Both fixes from the prior plan had no visible effect in testing;
+investigated and found real, different root causes for each rather than
+re-tuning the same approach.
+
+**Grow Light:** the Ctrl-gated exclusion only landed in Pass 2 of both
+`_nearest_generic_interactable()` (real `E` dispatch) and CASE 2's
+prompt-candidate builder — each of these functions runs two passes (an
+Area3D-driven one, and a StaticBody3D group-scan fallback for when
+Jolt's Area3D detection misses static bodies, which the file's own
+long-standing comments already describe as "unreliable," not
+"nonexistent"). Pass 1 had zero Grow Light awareness in either function,
+and evidently catches it often enough in real testing that the Pass-2-
+only fix never ran. Added the identical exclusion to Pass 1 in both.
+
+**Glow:** switched entirely away from a hand-rolled Fresnel
+`ShaderMaterial` to Godot's built-in `StandardMaterial3D` rim/emission/
+transparency properties. The prior blend-mode change (`blend_add` →
+`blend_mix`) produced zero visible difference in testing, which points
+at an assumption about how `GeometryInstance3D.material_overlay`
+composites a custom shader's `render_mode` declaration that isn't fully
+verifiable without running the engine directly — rather than continue
+tuning numbers on an approach that may not be behaving as modeled, this
+uses engine-native, GUI-inspectable, documented material properties
+instead: `rim_enabled`/`rim`/`rim_tint` (Godot's own fresnel/edge-glow
+implementation), `transparency`/`albedo_color` alpha (direct opacity),
+and `emission`/`emission_energy_multiplier` (baseline visibility
+independent of scene lighting).
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — Grow Light exclusion added to
+  Pass 1 of both affected functions.
+- `scripts/player/InteractionFocusGlow.gd` — rim material rebuilt on
+  `StandardMaterial3D`, replacing the custom `ShaderMaterial`/GLSL
+  entirely.
+- `docs/systems/player/README.md` — correction notes appended to both
+  existing entries.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_GROWLIGHT_PASS1_AND_GLOW_REBUILD_PLAN.md` for the full 6-item
+checklist)
+
+> **Needs-activity relocation (Aug 2026):** Completed the deferred cleanup item from the prior
+> consolidation handoff. All 19 Needs/Command activity classes (previously inner classes of
+> `NPCBrain.gd`) are now standalone top-level scripts in `scripts/npc/activities/`, exactly
+> matching the Cleaning/Refuel/Gardening pattern. `NPCBrain.gd` dropped from ~1682 lines to
+> ~196 — state machine only. Zero behavior change; verify by diffing each new file's body
+> against `NPCBrain.gd`'s git history if anything looks off. All external `NPCBrain.XActivity`
+> call sites (`NPC.gd`, `NPCTalkMenuUI.gd`) updated to bare `XActivity`.
+
 # Handover — Glow Tuning + Grow Light Fully Hidden Outside Focus Mode (Aug 2026)
 
 ## What changed this session

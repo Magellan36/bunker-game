@@ -754,9 +754,9 @@ func on_item_given(item: Node, giver_id: String = "player", giver_name: String =
 
 	var activity: NPCActivity
 	if NPCItemUser.is_edible(item):
-		activity = NPCBrain.GivenEatActivity.new()
+		activity = GivenEatActivity.new()
 	else:
-		activity = NPCBrain.GivenDrinkActivity.new()
+		activity = GivenDrinkActivity.new()
 	brain.force_command(activity)
 	activity.begin_with_item(self, item)
 
@@ -942,11 +942,11 @@ func debug_force_snatch() -> bool:
 		return false
 	if NPCItemUser.is_edible(held):
 		_debug_force_snatch = true
-		brain.force_command(NPCBrain.EatActivity.new())
+		brain.force_command(EatActivity.new())
 		return true
 	if NPCItemUser.is_drinkable_bottle(held):
 		_debug_force_snatch = true
-		brain.force_command(NPCBrain.DrinkActivity.new())
+		brain.force_command(DrinkActivity.new())
 		return true
 	return false
 
@@ -970,7 +970,7 @@ func debug_force_talk() -> bool:
 	var partner: Node = find_talk_partner()
 	if partner == null:
 		return false
-	brain.force_command(NPCBrain.TalkActivity.new())
+	brain.force_command(TalkActivity.new())
 	return true
 
 ## Force this NPC to fetch+deliver to the nearest eligible friend right
@@ -980,7 +980,7 @@ func debug_force_give_to_friend() -> bool:
 	if not has_needy_friend():
 		return false
 	_debug_force_give = true
-	brain.force_command(NPCBrain.GiveToFriendActivity.new())
+	brain.force_command(GiveToFriendActivity.new())
 	return true
 
 ## Force this NPC to snatch the nearest eligible DISLIKED NPC's matching
@@ -991,12 +991,12 @@ func debug_force_npc_snatch() -> bool:
 	_debug_force_npc_snatch = true
 	var target: Node = find_snatch_target(Callable(NPCItemUser, "is_edible"))
 	if target != null:
-		brain.force_command(NPCBrain.EatActivity.new())
+		brain.force_command(EatActivity.new())
 		return true
 	_debug_force_npc_snatch = true
 	target = find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
 	if target != null:
-		brain.force_command(NPCBrain.DrinkActivity.new())
+		brain.force_command(DrinkActivity.new())
 		return true
 	_debug_force_npc_snatch = false
 	return false
@@ -1153,7 +1153,7 @@ func is_available_to_talk() -> bool:
 func start_talk_session(initiator: NPC) -> bool:
 	if not is_available_to_talk():
 		return false
-	brain.force_command(NPCBrain.TalkActivity.new(initiator, false))
+	brain.force_command(TalkActivity.new(initiator, false))
 	return true
 
 ## Called on the partner when the initiator's session timer ends, OR on

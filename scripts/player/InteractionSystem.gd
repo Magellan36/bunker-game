@@ -650,6 +650,16 @@ func _update_prompt() -> void:
 			continue
 		if not (body.is_in_group("interactable") or body.is_in_group("pickup")):
 			continue
+		## Aug 2026 (correction) — same gap as _nearest_generic_interactable()'s
+		## Pass 1: this candidate builder ALSO has two passes (this one,
+		## driven by _tracked_bodies/Area3D signals; the StaticBody3D group
+		## scan below it). Grow Light's exclusion previously only lived in
+		## the second pass — if a grow light's body_entered ever fires on
+		## this Area3D (same "unreliable, not nonexistent" caveat as
+		## everywhere else in this file), it was appearing as a prompt
+		## candidate here regardless of Ctrl state.
+		if body.is_in_group("grow_light") and not Input.is_key_pressed(KEY_CTRL):
+			continue
 		var d: float = body.global_position.distance_to(player.global_position)
 		if d > MAX_PROMPT_DIST:
 			continue
@@ -1106,6 +1116,16 @@ func _nearest_generic_interactable() -> Dictionary:
 			if body.is_in_group("shelved"):
 				continue
 			if body is RigidBody3D and (body as RigidBody3D).freeze:
+				continue
+			## Aug 2026 (correction) — Grow Light exclusion originally only
+			## landed in Pass 2 below. Jolt's Area3D overlap detection for
+			## StaticBody3D is unreliable, NOT nonexistent — this pass can
+			## and evidently does catch it in real testing, at which point
+			## Pass 2's exclusion never runs because `closest` is already
+			## claimed here first. Inlined the Ctrl check directly (rather
+			## than reordering `focus_mode_active`'s declaration, which sits
+			## after this pass) to keep this a minimal, contained fix.
+			if body.is_in_group("grow_light") and not Input.is_key_pressed(KEY_CTRL):
 				continue
 			var d: float = body.global_position.distance_to(player.global_position)
 			if d < closest_dist:

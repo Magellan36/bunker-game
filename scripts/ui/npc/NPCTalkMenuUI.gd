@@ -484,13 +484,13 @@ func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: Stri
 			"%s: %s" % [_npc.npc_name, action_desc])
 
 func _on_command_eat_pressed() -> void:
-	_issue_command(NPCBrain.EatActivity.new(), "heading to eat", "nothing to eat nearby")
+	_issue_command(EatActivity.new(), "heading to eat", "nothing to eat nearby")
 
 func _on_command_drink_pressed() -> void:
-	_issue_command(NPCBrain.DrinkActivity.new(), "heading to get water", "no water source nearby")
+	_issue_command(DrinkActivity.new(), "heading to get water", "no water source nearby")
 
 func _on_command_rest_pressed() -> void:
-	_issue_command(NPCBrain.CommandRestActivity.new(), "heading to rest", "nowhere to rest nearby")
+	_issue_command(CommandRestActivity.new(), "heading to rest", "nowhere to rest nearby")
 
 func _on_requests_toggle_pressed() -> void:
 	_requests_expanded = not _requests_expanded
@@ -557,7 +557,7 @@ func _on_job_command_pressed(job_type: String) -> void:
 		fert_cmd.mode = "fertilize_only"
 		_issue_command(fert_cmd, action_desc, empty_desc)
 	else:
-		_issue_command(NPCBrain.CommandJobActivity.new(job_type), action_desc, empty_desc)
+		_issue_command(CommandJobActivity.new(job_type), action_desc, empty_desc)
 
 # ─── Ask About (Part 23) ─────────────────────────────────────────────────
 func _on_ask_about_player_pressed() -> void:

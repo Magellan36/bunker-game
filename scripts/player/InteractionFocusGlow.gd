@@ -28,16 +28,15 @@ class_name InteractionFocusGlow
 ## otherwise removed out from under Focus Mode mid-highlight).
 
 const PULSE_SPEED:     float = 2.0    ## radians/sec — one full breath ~3.1s
-const PULSE_AMPLITUDE: float = 0.22   ## +/-22% — "slightly more intense" (was 0.12)
-const RIM_BASE_INTENSITY: float = 0.85   ## now a genuine opacity value (see blend_mix
-                                          ## switch below) — was 1.1 under additive blend,
-                                          ## which doesn't map 1:1 to alpha
-const HALO_BASE_ALPHA:    float = 0.75   ## more opaque (was 0.55)
+const PULSE_AMPLITUDE: float = 0.22   ## +/-22% — "slightly more intense"
+const RIM_BASE_INTENSITY: float = 0.6    ## drives emission_energy_multiplier directly
+const RIM_BASE_ALPHA:     float = 0.6    ## drives the rim material's own albedo alpha
+const HALO_BASE_ALPHA:    float = 0.75   ## more opaque
 const HALO_WORLD_DIAMETER: float = 1.0   ## metres — tune in-editor per feel
 
 var _target: Node3D = null
 var _mesh_instances: Array[MeshInstance3D] = []
-var _rim_material: ShaderMaterial = null
+var _rim_material: StandardMaterial3D = null
 var _halo: Sprite3D = null
 var _pulse_time: float = 0.0
 
@@ -47,30 +46,29 @@ func _ready() -> void:
 	add_child(_halo)
 	_halo.visible = false
 
-func _build_rim_material() -> ShaderMaterial:
-	var shader := Shader.new()
-	## Aug 2026 — switched from blend_add (additive, no real concept of
-	## "opacity," just keeps stacking brightness — read as too intense/
-	## washed-out) to blend_mix (standard alpha blend), so ALPHA output
-	## genuinely controls opacity now, per direct feedback ("less intense
-	## (more opaque)"). rim_power raised slightly for a tighter, more
-	## contained edge rather than a broad glow.
-	shader.code = """
-shader_type spatial;
-render_mode blend_mix, unshaded;
-
-uniform vec4 rim_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
-uniform float rim_power : hint_range(0.5, 8.0) = 3.0;
-uniform float rim_intensity = 0.85;
-
-void fragment() {
-	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), rim_power);
-	ALBEDO = rim_color.rgb;
-	ALPHA = fresnel * rim_intensity;
-}
-"""
-	var mat := ShaderMaterial.new()
-	mat.shader = shader
+## Aug 2026 (rethought) — replaced the hand-rolled Fresnel ShaderMaterial
+## with Godot's own BUILT-IN rim/emission/transparency properties on a
+## StandardMaterial3D. The custom shader produced no visible change when
+## its render_mode was switched from blend_add to blend_mix, which points
+## at an assumption about how material_overlay composites a custom
+## shader's render_mode that I can't fully verify without the engine in
+## front of me — rather than guess at more shader code, this uses
+## engine-native, GUI-inspectable properties whose behavior is documented
+## and predictable. rim_enabled/rim/rim_tint IS Godot's own fresnel/edge-
+## highlight implementation — this is the actual "cell-shading style
+## edge glow" originally asked for, using the engine's own version of it
+## instead of reimplementing the math by hand.
+func _build_rim_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.transparency               = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color                = Color(1.0, 1.0, 1.0, 0.6)   ## direct opacity control
+	mat.rim_enabled                 = true
+	mat.rim                         = 1.0
+	mat.rim_tint                    = 0.0   ## 0 = pure light color (white), ignores albedo tint
+	mat.emission_enabled            = true
+	mat.emission                    = Color(1.0, 1.0, 1.0)
+	mat.emission_energy_multiplier  = 0.6   ## baseline visibility regardless of scene lighting
+	mat.cull_mode                   = BaseMaterial3D.CULL_DISABLED
 	return mat
 
 func _build_halo_sprite() -> Sprite3D:
@@ -142,7 +140,11 @@ func _process(delta: float) -> void:
 	_pulse_time += delta
 	var pulse: float = 1.0 + sin(_pulse_time * PULSE_SPEED) * PULSE_AMPLITUDE
 
-	_rim_material.set_shader_parameter("rim_intensity", RIM_BASE_INTENSITY * pulse)
+	## No shader uniform to drive any more — pulse the native material's
+	## own properties directly. emission_energy_multiplier for the
+	## baseline glow strength, albedo alpha for the rim's own opacity.
+	_rim_material.emission_energy_multiplier = RIM_BASE_INTENSITY * pulse
+	_rim_material.albedo_color.a = clampf(RIM_BASE_ALPHA * pulse, 0.0, 1.0)
 
 	_halo.visible = true
 	_halo.global_position = _target.global_position

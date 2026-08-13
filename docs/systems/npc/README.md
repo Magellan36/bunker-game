@@ -1668,3 +1668,10 @@ without being asked.
 104. Reproduce the empty-level-of-soil-and-seeds stack overflow repro
      from the Gardening fix plan — confirm it still terminates cleanly
      via the shared NPCSessionActivity._skipped mechanism.
+105. Needs-activity relocation (Aug 2026) — Wander/Relax/Sit/RelaxSit/Lie/RelaxLie/Drink/
+     GivenDrink/Eat/GivenEat/Talk/Snatch/GiveToFriend/Job/PassedOut/ForgetfulWander/CommandRest/
+     CommandHarvest/CommandJob moved out of `NPCBrain.gd` into their own files under
+     `scripts/npc/activities/`, mirroring the Cleaning/Refuel/Gardening pattern. `NPCBrain.gd`
+     now holds only the state machine (score/interrupt/tick/force_command/stop_current). Pure
+     mechanical move — no behavior change. All `NPCBrain.XActivity` external references updated
+     to bare `XActivity` (global class table resolves them, same as Cleaning/Refuel/Gardening).

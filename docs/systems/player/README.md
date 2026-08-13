@@ -521,6 +521,16 @@ own held item while CASE 1 scans for a different target — guarded with
   concept of opacity, it just stacks brightness, which read as too
   intense/washed-out. Halo alpha and pulse amplitude both raised
   (more opaque, stronger pulse) per direct feedback.
+  **Correction (Aug 2026):** the hand-rolled Fresnel `ShaderMaterial`
+  produced no visible change when switched from additive to alpha
+  blending, pointing at an unverifiable assumption about how
+  `material_overlay` composites a custom shader's `render_mode` —
+  replaced entirely with Godot's own built-in
+  `StandardMaterial3D.rim_enabled`/`rim`/`rim_tint` (native fresnel/edge
+  highlight) plus `transparency`/`emission` for direct, engine-documented
+  opacity and baseline-visibility control, rather than continuing to
+  tune a custom shader whose behavior in this context isn't fully
+  verifiable without the engine itself.
 
 - **Grow Light fully hidden outside Focus Mode (Aug 2026).** Previously
   de-prioritized outside Ctrl (ordinary fair-distance treatment) but
@@ -537,6 +547,14 @@ own held item while CASE 1 scans for a different target — guarded with
   check already used elsewhere in this file. Water Hookup is
   deliberately NOT included in this — far fewer per bunker, unchanged
   behavior; flagged as an easy follow-up if wanted later.
+  **Correction (Aug 2026):** the Grow Light exclusion above only landed
+  in Pass 2 of each function (the StaticBody3D group-scan workaround for
+  Jolt's unreliable Area3D detection) — Pass 1 (the Area3D-driven scan
+  that Pass 2 exists as a fallback FOR, not a replacement of) had zero
+  Grow Light awareness, and evidently does catch it often enough in
+  practice that the fix had no visible effect. Added the identical
+  exclusion to Pass 1 in both `_nearest_generic_interactable()` and
+  CASE 2's `_tracked_bodies` candidate builder.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**
