@@ -1,3 +1,42 @@
+# Handover — Glow Tuning + Grow Light Fully Hidden Outside Focus Mode (Aug 2026)
+
+## What changed this session
+Two follow-ups to the Focus Mode glow feature. (1) Tuning: the rim
+outline was using additive blending (`blend_add`), which has no real
+concept of opacity — it just stacks brightness on top of whatever's
+behind it, reading as too intense/washed-out rather than solid. Switched
+to standard alpha blend (`blend_mix`) so its `ALPHA` output genuinely
+controls opacity; raised halo alpha and pulse amplitude per direct
+feedback ("less intense (more opaque)", "pulsing slightly more
+intense"). (2) New: Grow Light is now fully hidden and non-interactable
+outside Focus Mode — not just de-prioritized as before, genuinely absent
+(no prompt, `E` does nothing to it) unless Ctrl is held. Purpose: a
+standard farming setup with many trays and a grow light over each was
+filling the view with hovering prompts; Focus Mode is now the sole
+intended way to reach one. Needed the same exclusion in two places
+(CASE 2's prompt-candidate scan and the real `E`-dispatch scan), both
+gated behind the same Ctrl check already used elsewhere in this file.
+Confirmed `GrowLight.gd` doesn't implement `set_player_in_range()`, so
+that unrelated mechanism needed no changes. Water Hookup is deliberately
+unaffected — far fewer per bunker, not part of this request.
+
+### Files modified
+- `scripts/player/InteractionFocusGlow.gd` — rim material blend mode,
+  intensity, halo alpha, and pulse amplitude retuned.
+- `scripts/player/InteractionSystem.gd` — Grow Light excluded from both
+  the CASE 2 prompt-candidate scan and `_nearest_generic_interactable()`
+  outside Focus Mode.
+- `docs/systems/player/README.md` — tuning follow-up appended to the
+  existing glow entry; new entry for the Grow Light visibility change.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_GLOW_TUNING_AND_GROWLIGHT_HIDDEN_PLAN.md` for the full 7-item
+checklist)
+
+---
+
 # Handover — Focus Mode Target Glow: Rim Outline + Soft Halo (Aug 2026)
 
 ## What changed this session

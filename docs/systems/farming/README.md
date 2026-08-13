@@ -392,6 +392,27 @@ audited this pass:
   on the old tray-wide pattern this pass** — flagged as inconsistent with
   the rest of the tray now, not yet fixed.
 
+## Tray water-hookup rotation fix + Empty Fertilizer Bottle (Aug 2026)
+- **Pipe rotation bug** — `FarmingTray._register_deferred()` was
+  registering its water hookup point with a flat world-space offset
+  (`global_position + Vector3(edge_x, ...)`), ignoring the tray's own
+  rotation. Fixed to use `to_global(Vector3(edge_x, BASIN_TOP_Y, 0.0))`,
+  which correctly carries the offset through the tray's placement
+  rotation. One-time fix at registration — trays have no post-placement
+  move/rotate feature, so no live re-registration was needed.
+  `WaterDispenser.gd` registers its own hookup with the identical flat-
+  offset pattern and likely has the same latent bug at non-default
+  rotations — out of scope here (Water/Power thread's file), flagged for
+  them separately.
+- **Empty Fertilizer Bottle** — `FertilizerItem.gd` was already dropping
+  an empty-container prop on depletion (both tiers), but it was
+  `EmptyBagItem` (soil-bag-shaped), copy-pasted from `BagOfSoilItem.gd`.
+  New `EmptyFertilizerBottleItem.gd` (plain junk pickup, same shape
+  convention as `EmptyBagItem`) now drops instead — same bottle
+  silhouette as `FertilizerItem`'s own mesh, tinted with
+  `WaterBottle._update_empty_tint()`'s grey/translucent values. One
+  shared empty look for both tiers (Normal/Pro).
+
 ## Known gaps (explicitly out of scope for this pass)
 - **Persistence**: trays/grow lights themselves save/restore fine as
   ordinary `BuildModeController._placed_objects` entries, but per-cell

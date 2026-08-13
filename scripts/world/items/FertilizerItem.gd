@@ -8,8 +8,9 @@ class_name FertilizerItem
 ##
 ## on_use() while held: finds the nearest FarmingTray in range with an open
 ## (growing, not-yet-fertilized) cell, applies fertilizer to it, consumes one
-## charge. Drops an EmptyBagItem when the last charge is used, mirroring
-## BagOfSoilItem's empty-container pattern.
+## charge. Drops an EmptyFertilizerBottleItem when the last charge is used —
+## Aug 2026 fix, previously (incorrectly) dropped a copy-pasted EmptyBagItem
+## (a soil-bag-shaped prop) instead of anything bottle-shaped.
 
 @export var tier: String = "normal"   ## "normal" or "pro"
 
@@ -121,7 +122,7 @@ func on_use() -> void:
 	_update_target_highlight(null)
 
 	if _charges <= 0:
-		EmptyBagItem.spawn_at(get_parent(), tray.global_position)
+		EmptyFertilizerBottleItem.spawn_at(get_parent(), tray.global_position)
 		queue_free()
 
 ## Bottle model — cylindrical fertilizer bottle matching the reference image.

@@ -680,6 +680,15 @@ func _update_prompt() -> void:
 			continue
 		if node.is_in_group("shelved") or node.is_in_group("shelving"):
 			continue   ## Shelves handled separately above
+		## Aug 2026 — Grow Light produces no prompt at all outside Focus
+		## Mode. A standard farming setup (many trays, a grow light over
+		## each) fills the view with hovering prompts fast; Ctrl/Focus
+		## Mode is the intended way to reach one specifically, so it's
+		## fully absent otherwise rather than just de-prioritized. Water
+		## Hookup is NOT included in this — fewer of them per bunker,
+		## unchanged behavior (see this plan's own scope note).
+		if node.is_in_group("grow_light") and not Input.is_key_pressed(KEY_CTRL):
+			continue
 		var sn3: Node3D = node as Node3D
 		var sd: float = sn3.global_position.distance_to(player.global_position)
 
@@ -1124,6 +1133,15 @@ func _nearest_generic_interactable() -> Dictionary:
 		if not node.has_method("on_interact"):
 			continue
 		if node.is_in_group("shelved"):
+			continue
+		## Aug 2026 — mirrors the CASE 2 prompt-visibility exclusion above:
+		## Grow Light isn't interactable at all outside Focus Mode, not
+		## just de-prioritized. Without this, a player standing right next
+		## to a grow light with nothing else nearby could still interact
+		## with it via plain E (ordinary fair-distance competition against
+		## nothing), even though no prompt for it was ever shown — a
+		## confusing mismatch between what's visible and what E does.
+		if node.is_in_group("grow_light") and not focus_mode_active:
 			continue
 		var n3: Node3D = node as Node3D
 		var d: float = n3.global_position.distance_to(player_pos)

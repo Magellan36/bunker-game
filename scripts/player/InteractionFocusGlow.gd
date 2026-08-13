@@ -28,9 +28,11 @@ class_name InteractionFocusGlow
 ## otherwise removed out from under Focus Mode mid-highlight).
 
 const PULSE_SPEED:     float = 2.0    ## radians/sec — one full breath ~3.1s
-const PULSE_AMPLITUDE: float = 0.12   ## +/-12% — "very gentle" per direct instruction
-const RIM_BASE_INTENSITY: float = 1.1
-const HALO_BASE_ALPHA:    float = 0.55
+const PULSE_AMPLITUDE: float = 0.22   ## +/-22% — "slightly more intense" (was 0.12)
+const RIM_BASE_INTENSITY: float = 0.85   ## now a genuine opacity value (see blend_mix
+                                          ## switch below) — was 1.1 under additive blend,
+                                          ## which doesn't map 1:1 to alpha
+const HALO_BASE_ALPHA:    float = 0.75   ## more opaque (was 0.55)
 const HALO_WORLD_DIAMETER: float = 1.0   ## metres — tune in-editor per feel
 
 var _target: Node3D = null
@@ -47,13 +49,19 @@ func _ready() -> void:
 
 func _build_rim_material() -> ShaderMaterial:
 	var shader := Shader.new()
+	## Aug 2026 — switched from blend_add (additive, no real concept of
+	## "opacity," just keeps stacking brightness — read as too intense/
+	## washed-out) to blend_mix (standard alpha blend), so ALPHA output
+	## genuinely controls opacity now, per direct feedback ("less intense
+	## (more opaque)"). rim_power raised slightly for a tighter, more
+	## contained edge rather than a broad glow.
 	shader.code = """
 shader_type spatial;
-render_mode blend_add, unshaded;
+render_mode blend_mix, unshaded;
 
 uniform vec4 rim_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
-uniform float rim_power : hint_range(0.5, 8.0) = 2.5;
-uniform float rim_intensity = 1.1;
+uniform float rim_power : hint_range(0.5, 8.0) = 3.0;
+uniform float rim_intensity = 0.85;
 
 void fragment() {
 	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), rim_power);

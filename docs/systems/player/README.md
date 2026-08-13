@@ -515,6 +515,28 @@ own held item while CASE 1 scans for a different target — guarded with
   `set_target()` call per `_update_prompt()` invocation; defensively
   checks `is_instance_valid()` every frame in its own `_process()` in
   case the target is removed mid-highlight.
+  **Tuning follow-up (Aug 2026):** rim outline switched from additive
+  (`blend_add`) to standard alpha blend (`blend_mix`) so its `ALPHA`
+  output genuinely controls opacity — additive blending has no real
+  concept of opacity, it just stacks brightness, which read as too
+  intense/washed-out. Halo alpha and pulse amplitude both raised
+  (more opaque, stronger pulse) per direct feedback.
+
+- **Grow Light fully hidden outside Focus Mode (Aug 2026).** Previously
+  de-prioritized outside Ctrl (ordinary fair-distance treatment) but
+  still visible/interactable if nothing else was competing for the
+  prompt. Now fully absent — no prompt, and `E` does nothing to it —
+  unless Ctrl/Focus Mode is held, at which point it's visible, glows,
+  and is the unconditional priority target exactly as already
+  established. Purpose: a standard farming setup (many trays, a grow
+  light over each) fills the view with hovering prompts fast; Focus
+  Mode is now the sole intended way to reach one. Two separate scans
+  needed the same exclusion (CASE 2's prompt-candidate builder in
+  `_update_prompt()`, and `_nearest_generic_interactable()`'s real `E`
+  dispatch) — both gated behind the same `Input.is_key_pressed(KEY_CTRL)`
+  check already used elsewhere in this file. Water Hookup is
+  deliberately NOT included in this — far fewer per bunker, unchanged
+  behavior; flagged as an easy follow-up if wanted later.
 
 ## Forbidden edits
 - **Don't let `held_item` bypass the `_held_from_slot` convention.**

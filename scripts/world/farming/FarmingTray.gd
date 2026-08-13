@@ -144,8 +144,18 @@ func _register_deferred() -> void:
 	## Registered at a stub on the tray's +X side (not its origin) — the
 	## actual physical point a pipe connects to, same convention WaterTestSink/
 	## WaterDispenser use for their own top-of-box stub.
+	##
+	## Aug 2026 fix — must go through to_global(), not global_position + a
+	## flat world-space offset. The flat-offset version ignored the tray's
+	## own rotation entirely, so a tray placed at any angle other than the
+	## build-mode default registered its hookup at the wrong world-space
+	## spot (always +X in WORLD space, not +X in the tray's own facing),
+	## producing a pipe that visually floats away from the tray's actual
+	## basin edge. to_global() carries the local offset through the tray's
+	## full transform (translation + Y rotation), so the registered point
+	## now always lands on the correct edge regardless of placement angle.
 	var edge_x: float = 0.45 if cell_count == 1 else 0.95
-	_node_key = wm.register_node(global_position + Vector3(edge_x, BASIN_TOP_Y, 0.0), "endpoint", self)
+	_node_key = wm.register_node(to_global(Vector3(edge_x, BASIN_TOP_Y, 0.0)), "endpoint", self)
 
 func _process(_delta: float) -> void:
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
