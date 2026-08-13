@@ -187,11 +187,24 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s" % item_name
 
+## Always returns the "DONE — Take Dish" text regardless of whether this
+## pot's own get_interact_prompt() is currently suppressing it (see below).
+## Used by Stove.get_interact_prompt()'s delegation — calling
+## get_interact_prompt() directly from there would return "" whenever the
+## pot is hosted (that suppression exists so the POT's own candidate entry
+## doesn't duplicate the STOVE's panel), which was exactly why the DONE
+## prompt never appeared while the pot sat on a stove. Confirmed Aug 2026 fix.
+func get_dish_ready_text() -> String:
+	if not _is_cooked:
+		return ""
+	return "DONE  —  [E] Take Dish  (%s, %.1f Filling)" % [_dish_name, _dish_value]
+
+
 func get_interact_prompt() -> String:
 	if _is_cooked:
 		if _host_stove != null:
 			return ""
-		return "DONE  —  [E] Take Dish  (%s, %.1f Filling)" % [_dish_name, _dish_value]
+		return get_dish_ready_text()
 	var totals: Dictionary = compute_dish_totals()
 	if totals["item_count"] <= 0:
 		return ""

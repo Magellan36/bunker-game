@@ -215,7 +215,9 @@ func on_interact() -> void:
 ## generic fallback regardless of which one is displayed — see Part G4).
 func get_interact_prompt() -> String:
 	if pot_ref != null and pot_ref.has_method("is_dish_ready") and pot_ref.is_dish_ready():
-		return pot_ref.get_interact_prompt()
+		if pot_ref.has_method("get_dish_ready_text"):
+			return pot_ref.get_dish_ready_text()
+		return pot_ref.get_interact_prompt()   ## fallback if the method's ever missing
 	if not powered_on and not _is_grid_connected():
 		return "Stove Not Connected"
 	return "[E] Turn Stove %s" % ("Off" if powered_on else "On")
