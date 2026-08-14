@@ -72,29 +72,21 @@ static func build_ghost_mesh() -> Mesh:
 	cyl.height = 0.65
 	return cyl
 
-## Data records merged back in via a Trash Bag placed into this can (see
-## _merge_bag()). Counted toward capacity but NOT individually retrievable
-## via Carry/⊕ — there's no live node to hand back, only compacted data
-## (matches how real trash works: once bagged and re-dumped, you don't fish
-## one specific can back out without re-opening the bag). Folded into the
-## contents of the NEXT bag this can produces.
-var merged_trash_data: Array[Dictionary] = []
-
-func _live_count() -> int:
-	var n: int = 0
+## Presence check — every stored item is a REAL live node now (merged-back
+## items are reconstructed, see _merge_bag()), so plain stored[] occupancy is
+## the only thing that matters; the old combined live+merged _total_count()
+## and the is_full() override are gone with the side-channel they served.
+func _has_any_stored() -> bool:
 	for s in stored:
 		if s != null:
-			n += 1
-	return n
+			return true
+	return false
 
-func _total_count() -> int:
-	return _live_count() + merged_trash_data.size()
-
-## Overrides LightStorage.is_full() — combined count (live + merged data),
-## not just live stored[] slots, so throwing in a fresh item correctly gets
-## blocked once merged-back bag data has already used up the can's capacity.
-func is_full() -> bool:
-	return _total_count() >= capacity
+## Populated ONLY when reconstruction fails (script missing/renamed since
+## the item was bagged — should not happen in normal play). Rolled into the
+## next bag this can produces so the data is never silently discarded, even
+## though it can't become a live item again without its original script.
+var _unrecoverable_records: Array[Dictionary] = []
 
 # ─── F override — store OR empty-into-bag depending on fill state ─────────
 func get_f_prompt() -> String:
@@ -106,7 +98,7 @@ func get_f_prompt() -> String:
 	if held != null and ("is_trash_bag" in held):
 		return "[F] Empty bag into trash can"
 	if held == null:
-		return "[F] Collect trash bag" if _total_count() > 0 else ""
+		return "[F] Collect trash bag" if _has_any_stored() else ""
 	if not held.is_in_group("inventory_item"):
 		return ""
 	return "" if is_full() else "[F] Throw away item"
@@ -126,7 +118,7 @@ func on_f_interact() -> bool:
 	## Empty-handed → collect whatever's in the can (partial fill is fine
 	## now — "at any point of its fullness")
 	if held == null:
-		if _total_count() > 0:
+		if _has_any_stored():
 			_empty_into_bag(_interaction_system)
 			return true
 		return false
@@ -156,12 +148,13 @@ func _empty_into_bag(isys: Node) -> void:
 		item.queue_free()
 		stored[i] = null
 
-	## Fold in anything already merged back from a previous bag — a bag
-	## collected now must include everything logically "in" the can.
-	for record: Dictionary in merged_trash_data:
+	## Fold in any reconstruction-failed records — a bag collected now must
+	## include everything logically "in" the can, even data that can't become
+	## a live item again (see _unrecoverable_records).
+	for record: Dictionary in _unrecoverable_records:
 		record["disposed_index"] = contents.size()
 		contents.append(record)
-	merged_trash_data.clear()
+	_unrecoverable_records.clear()
 
 	var bag_script: GDScript = load("res://scripts/world/items/TrashBag.gd")
 	var bag: RigidBody3D = RigidBody3D.new()
@@ -184,10 +177,12 @@ func _empty_into_bag(isys: Node) -> void:
 	isys._held_from_slot = -1
 
 func _merge_bag(bag: RigidBody3D, isys: Node) -> void:
-	var bag_count: int = 0
-	if "contents" in bag:
-		bag_count = (bag.contents as Array).size()
-	if _total_count() + bag_count > capacity:
+	var records: Array = bag.contents if "contents" in bag else []
+	var free_slots: int = 0
+	for s in stored:
+		if s == null:
+			free_slots += 1
+	if records.size() > free_slots:
 		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
 		return
 
@@ -204,43 +199,110 @@ func _merge_bag(bag: RigidBody3D, isys: Node) -> void:
 	if "is_held" in bag: bag.is_held = false
 	if "_hold_point" in bag: bag._hold_point = null
 
-	if "contents" in bag:
-		for record: Dictionary in (bag.contents as Array):
-			merged_trash_data.append(record)
-	bag.queue_free()   ## fully compacted into merged_trash_data now — nothing left to hold onto
+	## Reconstruct each record into a real item and absorb it exactly like a
+	## freshly-thrown-away item — reuses _absorb_item() unchanged, so a
+	## reconstructed FuelCan at 69% fuel is retrieved via Carry/⊕ afterward
+	## with 100% the same mechanics as anything else in the can.
+	var lost: Array[Dictionary] = []
+	for record: Dictionary in records:
+		var item: RigidBody3D = TrashCan.reconstruct_item(record, self)
+		if item != null:
+			_absorb_item(item)
+		else:
+			lost.append(record)   ## should not happen in practice — see safety net below
 
-## Generic per-item data capture via script-property reflection — works for
-## ANY inventory_item type automatically, no per-item opt-in required from
-## other threads' item scripts. Captures every public (non-underscore-
-## prefixed, by the codebase's own private-var convention) script-declared
-## property whose type is safely snapshot-able (primitives, Vector/Color,
-## Array, Dictionary). Object-typed properties (node references, e.g. a
-## cached mesh or hold-point pointer) are deliberately EXCLUDED — keeping a
-## reference to a node that's about to be freed is exactly the freed-
-## instance-reference bug class currently under separate investigation
-## elsewhere; this avoids ever creating a new instance of it.
+	if not lost.is_empty():
+		## Defense in depth: reconstruction should always succeed for any
+		## item that was ever legitimately thrown away, but if a script got
+		## moved/renamed since a bag was created, don't silently vanish the
+		## record — fold it into whatever bag this can produces next rather
+		## than dropping it on the floor (matches the "never lose an item"
+		## priority even in this should-never-happen case).
+		_unrecoverable_records.append_array(lost)
+
+	bag.queue_free()
+
+## Cached comparison set — PickupableItem's own base-class properties
+## (carry-physics bookkeeping: grace timers, hold-point ref, out-of-range
+## tracking) are never item-specific gameplay state, so they're excluded
+## regardless of name. Everything else declared on the ACTUAL subclass is
+## captured, whether public or private-by-convention — this codebase marks
+## meaningful state private too (FuelCan._fuel_remaining, Flashlight._battery),
+## so an underscore-name filter (the original design) silently drops exactly
+## the data that matters most. Never filter by name again here.
+static func _base_property_names() -> Dictionary:
+	var base_item: RigidBody3D = PickupableItem.new()
+	var names: Dictionary = {}
+	for prop: Dictionary in base_item.get_property_list():
+		names[prop.get("name", "")] = true
+	base_item.free()
+	return names
+
 static func extract_trash_record(item: RigidBody3D, disposed_index: int) -> Dictionary:
-	var item_type: String = str(item.shelf_item_type) if "shelf_item_type" in item else item.get_class()
+	var item_type: String    = str(item.shelf_item_type) if "shelf_item_type" in item else item.get_class()
 	var display_name: String = item.get_display_name() if item.has_method("get_display_name") else item_type
+	var script_path: String  = item.get_script().resource_path if item.get_script() != null else ""
+	var scene_path: String   = item.scene_file_path   ## empty for bare-script nodes — self-detecting scene-vs-script split
 
 	var data: Dictionary = {}
 	const SAFE_TYPES: Array[int] = [
 		TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING, TYPE_STRING_NAME,
 		TYPE_VECTOR2, TYPE_VECTOR3, TYPE_COLOR, TYPE_ARRAY, TYPE_DICTIONARY,
 	]
+	var base_names: Dictionary = _base_property_names()
 	for prop: Dictionary in item.get_property_list():
 		var pname: String = prop.get("name", "")
-		if pname.is_empty() or pname.begins_with("_"):
+		if pname.is_empty() or base_names.has(pname):
 			continue
 		if (prop.get("usage", 0) & PROPERTY_USAGE_SCRIPT_VARIABLE) == 0:
 			continue
 		if not SAFE_TYPES.has(prop.get("type", TYPE_NIL)):
-			continue   ## Excludes TYPE_OBJECT (node refs) and anything else unsafe to snapshot
+			continue   ## still excludes TYPE_OBJECT (node refs) — see the freed-instance-safety note this had before
 		data[pname] = item.get(pname)
 
 	return {
 		"item_type":      item_type,
 		"display_name":   display_name,
+		"script_path":    script_path,
+		"scene_path":     scene_path,
 		"disposed_index": disposed_index,
 		"data":           data,
 	}
+
+## Rebuilds a live item from a trash record — the inverse of
+## extract_trash_record(). Prefers instantiating the item's own scene when
+## it has one (restores baked collision/structure exactly — required for
+## FuelCan, FoodCan, WaterBottle, Flashlight, PurifierFilterItem, all of
+## which keep their collision shape in a companion .tscn, not in script).
+## Falls back to bare script + add_child only for the genuinely scene-less
+## procedural items (SeedItem, DishItem, FertilizerItem, EmptyBagItem,
+## EmptyFertilizerBottleItem, FarmProduceItem, BagOfSoilItem). "data" is
+## applied AFTER add_child() either way, so the item's own _ready()-set
+## defaults (e.g. a fresh FuelCan's full tank) get overwritten by the
+## restored values, not the other way around.
+static func reconstruct_item(record: Dictionary, parent: Node) -> RigidBody3D:
+	var scene_path: String  = record.get("scene_path", "")
+	var script_path: String = record.get("script_path", "")
+	var item: RigidBody3D   = null
+
+	if not scene_path.is_empty() and ResourceLoader.exists(scene_path):
+		var inst: Node = (load(scene_path) as PackedScene).instantiate()
+		if inst is RigidBody3D:
+			item = inst
+		else:
+			push_warning("TrashCan: scene '%s' root is not a RigidBody3D" % scene_path)
+			inst.queue_free()
+
+	if item == null:
+		if script_path.is_empty() or not ResourceLoader.exists(script_path):
+			push_warning("TrashCan: cannot reconstruct '%s' — no usable scene or script" % record.get("item_type", "?"))
+			return null
+		item = RigidBody3D.new()
+		item.set_script(load(script_path))
+
+	parent.add_child(item)
+	var data: Dictionary = record.get("data", {})
+	for key: String in data.keys():
+		if key in item:
+			item.set(key, data[key])
+	return item

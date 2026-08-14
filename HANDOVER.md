@@ -1,3 +1,72 @@
+# Handover — Trash Bag Full-Fidelity Recovery Fix (Aug 2026)
+
+## What changed this session
+Root-caused a real item-loss risk in the Trash Can → bag → merge
+round-trip and redesigned the merge path to reconstruct real items
+instead of compacting them into a dead data side-channel.
+
+Two compounding bugs, both fixed:
+
+1. **The underscore filter dropped exactly the state that matters.**
+   `TrashCan.extract_trash_record()` skipped any script property whose
+   name started with `_`, assuming underscore = implementation noise
+   (cached mesh refs, timers). But this codebase marks meaningful
+   gameplay state private by convention too — confirmed directly:
+   `FuelCan._fuel_remaining` and `Flashlight._battery` (the exact
+   "69% fuel" / "1/2 charges" cases). The old filter would have silently
+   captured `0` for them. Replaced with a principled base-class diff:
+   `_base_property_names()` caches `PickupableItem`'s own bookkeeping
+   vars (grace timers, hold-point ref, out-of-range tracking) and only
+   those are excluded — everything declared on the actual subclass is
+   captured regardless of naming.
+2. **`merged_trash_data` was non-retrievable by construction.** Even with
+   correct data capture, a merged-back item could never come out again as
+   a real item — only a count burned against capacity. Dropped entirely.
+
+The redesign: merging a bag now turns each data record back into a real,
+physical item (`reconstruct_item()`) and absorbs it exactly like a
+freshly-thrown item, so it's indistinguishable from any other `stored[]`
+entry — full Carry/⊕ retrieval, full fidelity, and the can reverts to
+LightStorage's stock `stored[]`/`is_full()` with no overrides.
+
+**Scene-vs-script reconstruction bug caught in review before
+implementation** (surfaced by the zero-ambiguity anchor verification): the
+original plan reconstructed items as bare `script + add_child`, but the
+eligible scene-based items (Flashlight, FoodCan, FuelCan,
+PurifierFilterItem, WaterBottle) keep their collision shape — and for
+some, their whole visual — in a companion `.tscn`, not in script. Bare
+reconstruction would have produced collision-less, un-pickable FuelCans
+and invisible items for 5 of the 12 eligible types. Now
+`extract_trash_record()` also captures `scene_file_path` and
+`reconstruct_item()` instantiates the item's own scene when one exists,
+falling back to bare-script only for the genuinely scene-less procedural
+items (BagOfSoilItem, DishItem, EmptyBagItem, EmptyFertilizerBottleItem,
+FarmProduceItem, FertilizerItem, SeedItem).
+
+Also fully closes the earlier-flagged "deconstructing a can with merged
+data discards it" caveat: reconstructed items are real `stored[]` entries,
+so `eject_all_items()` (inherited) covers them on deconstruct. A
+should-never-happen failure net remains: records that can't be
+reconstructed (script moved/renamed since bagging) fold into
+`_unrecoverable_records` and ride along in the next bag rather than being
+silently dropped.
+
+### Files modified
+- `scripts/world/furniture/TrashCan.gd` — `_base_property_names()` +
+  base-class-diff `extract_trash_record()` (now captures `script_path` +
+  `scene_path`); new `reconstruct_item()` (scene-prefer / script-fallback);
+  `_merge_bag()` reconstructs into `stored[]`; `_empty_into_bag()` folds
+  `_unrecoverable_records`; removed `merged_trash_data`, `_live_count()`,
+  `_total_count()`, the `is_full()` override; added `_has_any_stored()`.
+- `docs/systems/furniture-items/README.md` — Trash Can section updated.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see `TRASH_BAG_FULL_FIDELITY_RECOVERY_PLAN_2.md` for Brannon's full
+in-editor checklist: ~69% FuelCan + ~50% Flashlight round-trip with
+correct collision/pickable, scene-vs-script coverage, second bag hop,
+capacity 8/10 + 3-item reject, deconstruct-after-merge, regression)
+
 # Handover — Translucent-Object Outline Fix (Water Case) (Aug 2026)
 
 ## What changed this session

@@ -230,19 +230,27 @@ dispatch bug fixed: the F-dispatch's empty-handed branch now calls
 reach the can; see `docs/systems/player/README.md` for the contract
 change):
 
-- **Holding a Trash Bag** → `_merge_bag()`: the bag's `contents` records
-  are folded into the can's `merged_trash_data`, the bag is freed, and
-  the player's hand is released (full release sequence mirroring
-  `_try_store_held()`). Rejected with a "Trash can is too full" toast if
-  the combined total would exceed capacity.
+- **Holding a Trash Bag** → `_merge_bag()`: each of the bag's `contents`
+  records is RECONSTRUCTED into a real, live item via
+  `TrashCan.reconstruct_item()` (full data fidelity — fuel %, battery,
+  quality, etc. all preserved) and absorbed with the same inherited
+  `_absorb_item()` a freshly-thrown-away item uses, so merged-back items
+  are fully retrievable via Carry/⊕ afterward exactly like anything else
+  in the can. The bag is freed and the player's hand released (full
+  release sequence mirroring `_try_store_held()`). Rejected with a
+  "Trash can is too full" toast when the record count exceeds the can's
+  free slots.
 - **Empty-handed** → `_empty_into_bag()`: collect whatever's in the can
   into a new Trash Bag — works at ANY fill level (partial fill included,
   not gated to 10/10 anymore). Captures every stored item via
-  `TrashCan.extract_trash_record()`, folds in any `merged_trash_data`,
-  frees the originals, spawns a `TrashBag`, and hands it straight to the
-  player using the same safe player-side spawn point + immediate
-  hand-off as `Shelving.carry_spawn_position()` /
+  `TrashCan.extract_trash_record()`, frees the originals, spawns a
+  `TrashBag`, and hands it straight to the player using the same safe
+  player-side spawn point + immediate hand-off as
+  `Shelving.carry_spawn_position()` /
   `LightStorage.take_for_carry()` (the wall-tunneling fix).
+  Reconstruction failures (script missing/renamed since the item was
+  bagged — should never happen in normal play) are folded in via
+  `_unrecoverable_records` so that data is never silently dropped.
 - **Holding an eligible `"inventory_item"`** → store it (inherited
   `_try_store_held()`, prompt `[F] Throw away item`); blocked with a
   "Trash can is too full" toast when the can is full.
@@ -251,25 +259,39 @@ change):
 
 `extract_trash_record(item, disposed_index)` is generic per-item data
 capture via script-property reflection — works for ANY `"inventory_item"`
-type with no per-item opt-in. Captures every public (non-underscore)
-script-declared property whose type is snapshot-safe (primitives,
-Vector/Color, Array, Dictionary); `TYPE_OBJECT` (node references) is
-deliberately EXCLUDED to avoid the freed-instance-reference bug class.
-Each record: `item_type` / `display_name` / `disposed_index` / `data`.
+type with no per-item opt-in. The capture filter is a BASE-CLASS DIFF, not
+a naming heuristic: everything declared on the actual subclass is captured
+(whether public or underscore-private — this codebase marks meaningful
+state private too: `FuelCan._fuel_remaining`, `Flashlight._battery`), and
+only `PickupableItem`'s own carry-physics bookkeeping vars are excluded
+(via the cached `_base_property_names()` set). `TYPE_OBJECT` (node
+references) is deliberately EXCLUDED to avoid the freed-instance-reference
+bug class. Each record: `item_type` / `display_name` / `script_path` /
+`scene_path` / `disposed_index` / `data`. The underscore-name filter this
+replaces would have silently captured `0` for those private gameplay
+fields — exactly the fidelity loss this redesign fixes.
 
-`merged_trash_data` (records merged back from a bag): counted toward
-capacity (`is_full()` uses the combined live+merged total) but NOT
-individually retrievable via Carry/⊕ — there's no live node to hand
-back, only compacted data (matches how real trash works: once bagged
-and re-dumped, you don't fish one specific can back out without
-re-opening the bag). Merged records are folded into the contents of the
-NEXT bag the can produces. **Known v1 simplifications, flagged:**
-deconstructing a Trash Can with `merged_trash_data` present discards
-that data (there are no live nodes to eject — `stored[]`'s live items
-still eject normally via the inherited `eject_all_items()`), and the
-StorageUI still shows the 10 physical slots, so when merged data has
-eaten into capacity some visually-empty slots simply won't accept a new
-item until the can is next collected.
+Merging a bag no longer uses a side-channel at all: reconstructed items
+live in the same `stored[]` slot array as everything else, so capacity
+(`is_full()`, inherited stock) means exactly what the StorageUI grid shows,
+and deconstructing the can after a merge ejects every item — original and
+reconstructed — via the inherited `eject_all_items()`, nothing lost. The
+earlier "deconstructing a can with merged data silently discards it" caveat
+is fully closed by construction.
+
+Reconstruction source of truth (`reconstruct_item()`): prefers instantiating
+the item's own scene (captured via Godot's `scene_file_path`, self-detecting
+for any future item type) when one exists — required because the eligible
+scene-based items (Flashlight, FoodCan, FuelCan, PurifierFilterItem,
+WaterBottle) keep their collision shape (and for some, their whole visual)
+in a companion `.tscn`, not in script; bare-script `set_script()` is the
+fallback for the genuinely scene-less procedural items (BagOfSoilItem,
+DishItem, EmptyBagItem, EmptyFertilizerBottleItem, FarmProduceItem,
+FertilizerItem, SeedItem). Other scene-instantiated items with baked
+structure (CookingPot, Basket, CanCase, TestCrate) also exist but are NOT
+`"inventory_item"`-eligible and so never reach a Trash Can. `data` is
+applied after `add_child()` so `_ready()`-set defaults get overwritten by
+the restored values.
 
 **`TrashBag`** (`class_name TrashBag`, extends `PickupableItem`):
 runtime-only (no construct entry, no tile ID), created exclusively by
