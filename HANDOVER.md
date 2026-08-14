@@ -1,3 +1,44 @@
+# Handover — Outline System: Proxy-Interactable Devices Fixed (Aug 2026)
+
+## What changed this session
+Investigated whether the Sobel outline system supports GLB-imported
+models (asked directly) — the mechanism itself does (mesh discovery and
+edge detection are both origin-agnostic), but a real, different bug was
+surfacing on `WallLight` specifically: it extends `Node3D` (no physics
+body), so it uses a small `StaticBody3D` proxy
+(`PowerPriorityInteractable.gd`) purely so `InteractionSystem`'s
+proximity scan can find it. That proxy has no visual children — the
+actual model (the `industrial_wall_lamp.glb` fixture) lives under the
+WallLight root as a *sibling* of the proxy, not a descendant.
+`InteractionFocusGlow.set_target()` only ever searched downward from the
+node it was handed (the proxy), so it found zero mesh instances and no
+outline. Not GLB-specific — a proxy-architecture gap that any current or
+future `Node3D`-based device using this same established pattern would
+hit identically, regardless of whether its visuals are imported or
+procedural. (`GrowLight` was NOT affected: it's a direct `StaticBody3D`
+with its own `on_priority_interact()`, so it never used the proxy —
+verified against `GrowLight.gd`'s own header, which states the proxy
+exists only for Node3D-without-a-body hosts like WallLight.)
+
+Fixed by having `set_target()` also search from `node.host` when
+present — the exact hook `PowerPriorityInteractable.gd` already
+documents for forwarding interaction, reused here for mesh discovery.
+`TRANSLUCENT_FIX_GROUP` membership now also checks `host`, so a device
+that's both proxy-interactable and translucent doesn't hit a second,
+compounded gap later. No device file touched — the fix generalizes
+automatically to any future device adopting the same proxy pattern.
+
+### Files modified
+- `scripts/player/InteractionFocusGlow.gd` — `set_target()` also
+  searches `node.host` for mesh instances and translucent-group
+  membership when present.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_OUTLINE_PROXY_HOST_FIX_PLAN.md` for the full 4-item checklist)
+
 # Handover — Trash Bag Full-Fidelity Recovery Fix (Aug 2026)
 
 ## What changed this session

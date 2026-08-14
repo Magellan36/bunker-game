@@ -551,6 +551,27 @@ own held item while CASE 1 scans for a different target — guarded with
   `TRANSLUCENT_FIX_GROUP` extends to more objects by adding the same
   one-line group opt-in used on `WaterCase.gd`.
 
+- **Outline system: proxy-interactable devices fixed (Aug 2026,
+  `InteractionFocusGlow.gd`).** Devices that are `Node3D` (no physics
+  body) use a small `StaticBody3D` proxy (`PowerPriorityInteractable.gd`)
+  purely so `InteractionSystem`'s proximity scan can find them — the
+  proxy has no visuals of its own and forwards interaction back to a
+  `host` node (the real device) that's a *sibling*, not a descendant.
+  `set_target()` only ever searched downward from whatever node it was
+  given, so proxy-based devices got zero mesh instances and no outline —
+  confirmed on `WallLight` specifically (its GLB model lives under the
+  `host`, not the proxy) but it's a proxy-architecture gap, not a
+  GLB-specific one; any future device adopting the same pattern would
+  hit it too. Fixed by also searching from `node.host` when present (the
+  exact hook `PowerPriorityInteractable.gd` already documents for this
+  purpose) — no device file changed, fully generalizes to future
+  proxy-based devices automatically. `TRANSLUCENT_FIX_GROUP` membership
+  is now also checked on `host`, so a device that's both
+  proxy-interactable and translucent doesn't fall through a second gap.
+  (Note: `GrowLight` is NOT a proxy user — it's a direct `StaticBody3D`
+  with its own `on_priority_interact()`, so it was never affected by
+  this gap; `WallLight` is the current and only proxy-based device.)
+
 - **Grow Light fully hidden outside Focus Mode (Aug 2026).** Previously
   de-prioritized outside Ctrl (ordinary fair-distance treatment) but
   still visible/interactable if nothing else was competing for the

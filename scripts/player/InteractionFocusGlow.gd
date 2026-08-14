@@ -234,10 +234,28 @@ func set_target(node: Node3D) -> void:
 	_target = node
 	if _target != null and is_instance_valid(_target):
 		_mesh_instances = _find_mesh_instances(_target)
+		## Aug 2026 — some devices (WallLight — any Node3D-based power device
+		## using PowerPriorityInteractable.gd; GrowLight is a direct
+		## StaticBody3D and does NOT use this pattern) are interactable
+		## through a separate proxy StaticBody3D that forwards
+		## on_interact() back to a "host" node holding the actual visuals
+		## as a SIBLING, not a descendant, of the proxy. This system only
+		## searches downward from the target, so proxy-based devices got
+		## zero mesh instances and no outline at all — not GLB-specific, a
+		## proxy-architecture gap that happened to be first noticed on a
+		## GLB-based device. The proxy's `host` property is the exact hook
+		## PowerPriorityInteractable.gd already documents for forwarding
+		## interaction; reuse it here for mesh discovery.
+		var host: Node = node.get("host") if "host" in node else null
+		if host != null and host != node and is_instance_valid(host):
+			_mesh_instances.append_array(_find_mesh_instances(host))
 		for mi: MeshInstance3D in _mesh_instances:
 			_saved_layers[mi] = mi.layers
 			mi.layers = mi.layers | HIGHLIGHT_LAYER_BIT
-		if _target.is_in_group(TRANSLUCENT_FIX_GROUP):
+		var needs_stand_in: bool = _target.is_in_group(TRANSLUCENT_FIX_GROUP)
+		if host != null and is_instance_valid(host) and host.is_in_group(TRANSLUCENT_FIX_GROUP):
+			needs_stand_in = true
+		if needs_stand_in:
 			_spawn_stand_ins()
 		_quad.visible = true
 	else:
