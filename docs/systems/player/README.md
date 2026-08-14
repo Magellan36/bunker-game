@@ -535,6 +535,21 @@ own held item while CASE 1 scans for a different target — guarded with
   intense" complaint and the new "whole object white" one in the same
   pass. Halo/pulse logic untouched throughout — confirmed working
   correctly at every step of this back-and-forth.
+  **Redesign (Aug 2026):** the separate Sprite3D halo was removed
+  entirely — it read as a flat, fixed-shape gradient decal stamped at
+  the object's center regardless of what the object actually looked
+  like. Confirmed the project's `WorldEnvironment`
+  (`scenes/world/MainWorld.tscn`) already has real HDR bloom active
+  (`glow_hdr_threshold = 1.4`); the rim shader now outputs bright
+  EMISSION at the same fresnel-masked edges as the outline itself, so
+  Godot's own renderer generates the surrounding glow as a genuine
+  post-process reacting to the object's actual rendered silhouette,
+  rather than a generic same-shape-for-everything sprite. Tuned
+  tight/contained per direct instruction (steep falloff, modest
+  emission boost) rather than a wide atmospheric bleed. No changes to
+  the project's `Environment` resource — this works entirely within
+  the glow configuration already active, so nothing else in the scene
+  is affected.
 
 - **Grow Light fully hidden outside Focus Mode (Aug 2026).** Previously
   de-prioritized outside Ctrl (ordinary fair-distance treatment) but

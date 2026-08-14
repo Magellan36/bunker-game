@@ -1,3 +1,38 @@
+# Handover — Focus Mode Glow Redesigned: Real Bloom Instead of a Sprite (Aug 2026)
+
+## What changed this session
+Removed the Sprite3D halo entirely from the Focus Mode glow feature —
+it read as a flat, fixed-shape gradient decal stamped at the object's
+center, unrelated to the object's actual size or silhouette, regardless
+of tuning. Confirmed the project's `WorldEnvironment`
+(`scenes/world/MainWorld.tscn`) already has real HDR bloom active
+(`glow_enabled = true`, `glow_hdr_threshold = 1.4`, `glow_intensity =
+0.55`) before building on it. The rim shader now outputs bright
+`EMISSION` at the same fresnel-masked edges the outline's `ALPHA` already
+uses, so once those edge pixels cross the scene's existing glow
+threshold, Godot's own renderer generates the surrounding glow as a real
+post-process — it follows whatever the object's actual rendered
+silhouette is (tall/thin objects bloom tall/thin, wide/flat ones bloom
+wide/flat), rather than a generic circle. Tuned tight/contained per
+direct instruction: steep fresnel falloff (unchanged from the prior fix,
+`rim_power = 5.0`) plus a modest, single internal `EMISSION_BOOST`
+constant (`3.0`) rather than a wide atmospheric spread. No changes to
+`MainWorld.tscn` or the `Environment` resource itself — this works
+entirely within glow settings already active project-wide, so nothing
+else in the scene is affected by this change.
+
+### Files modified
+- `scripts/player/InteractionFocusGlow.gd` — halo `Sprite3D` and its
+  builder function removed entirely; rim shader gained an `EMISSION`
+  output; `_process()`/`_ready()` simplified accordingly.
+- `docs/systems/player/README.md` — redesign note appended to the
+  existing glow entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_GLOW_BLOOM_REDESIGN_PLAN.md` for the full 6-item checklist)
+
 > **Trash Can + Trash Bag (Aug 2026):** New buildable (tile 36, $50, Construct → Furniture):
 > 10-slot Light Storage whose F empties a FULL can into a runtime-only `TrashBag.gd` handed
 > straight to the player (same safe player-side spawn as carry-retrieval); E always opens the

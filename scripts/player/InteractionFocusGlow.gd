@@ -8,7 +8,8 @@ class_name InteractionFocusGlow
 ## owns its own _process() for the pulse/position animation, so it stays
 ## correct regardless of exactly how often the caller updates the target.
 ##
-## Rim outline: a single shared Fresnel ShaderMaterial applied via
+## Rim outline + real bloom, both from ONE shader, no extra node needed.
+## A single shared Fresnel ShaderMaterial applied via
 ## GeometryInstance3D.material_overlay to every MeshInstance3D found
 ## (recursively) under the target. This is an EXTRA render pass on top of
 ## each mesh's existing material — nothing about the target's own
@@ -17,9 +18,17 @@ class_name InteractionFocusGlow
 ## was authored (procedural primitives, GLB imports, multi-part
 ## assemblies like Can Case's dozen individual can visuals).
 ##
-## Soft halo: one Sprite3D, procedurally-generated radial gradient
-## texture (no external asset), billboarded to always face the camera,
-## repositioned to the target's global_position every frame.
+## Aug 2026 — the "glow around the object" is no longer a separate
+## Sprite3D (removed — read as a flat, same-shape-for-everything decal
+## stamped at the object's center, not an actual glow). Instead, the
+## rim shader outputs bright HDR EMISSION at the same fresnel-masked
+## edges as the outline itself — this project's WorldEnvironment
+## (scenes/world/MainWorld.tscn) already has real bloom active
+## (glow_hdr_threshold = 1.4), so once the edge pixels cross that
+## threshold, Godot's own renderer generates the surrounding glow
+## automatically, following the object's ACTUAL silhouette rather than
+## a fixed circular shape. Tuned tight/contained (steep rim_power,
+## modest emission boost) rather than a wide atmospheric bleed.
 ##
 ## Defensively coded against a freed target — is_instance_valid() checked
 ## every frame before touching the target or any mesh instance under it;
@@ -29,36 +38,25 @@ class_name InteractionFocusGlow
 
 const PULSE_SPEED:     float = 2.0    ## radians/sec — one full breath ~3.1s
 const PULSE_AMPLITUDE: float = 0.22   ## +/-22% — "slightly more intense"
-const RIM_BASE_INTENSITY: float = 0.75   ## multiplies the shader's already edge-restricted
-                                          ## fresnel alpha — this is the ONLY rim knob now
-const HALO_BASE_ALPHA:    float = 0.75   ## more opaque
-const HALO_WORLD_DIAMETER: float = 1.0   ## metres — tune in-editor per feel
+const RIM_BASE_INTENSITY: float = 0.75   ## drives the shader's rim_intensity uniform —
+                                          ## controls BOTH the outline's own opacity and,
+                                          ## via the shader's internal EMISSION_BOOST, how
+                                          ## far past the scene's glow threshold it pushes
 
 var _target: Node3D = null
 var _mesh_instances: Array[MeshInstance3D] = []
 var _rim_material: ShaderMaterial = null
-var _halo: Sprite3D = null
 var _pulse_time: float = 0.0
 
 func _ready() -> void:
 	_rim_material = _build_rim_material()
-	_halo = _build_halo_sprite()
-	add_child(_halo)
-	_halo.visible = false
 
-## Aug 2026 (reverted, corrected) — StandardMaterial3D.rim_enabled turned
-## out to be the wrong tool: it's an ADDITIONAL lighting-response term at
-## grazing angles, layered on top of the base albedo/emission — it does
-## NOT mask or restrict the base material to the edges. The base material
-## (opaque-ish albedo alpha + full-surface emission) was rendering across
-## the ENTIRE mesh, which is exactly the "nearly completely white whole
-## object" reported. Back to a Fresnel shader — the only technique that
-## actually restricts color to the silhouette, by driving ALPHA itself
-## from the fresnel term (near-zero facing the camera, near-full at
-## grazing/edge angles) rather than adding a bonus on top of an
-## already-fully-opaque surface. Standard alpha blend (blend_mix), not
-## additive — additive was the earlier "too intense" complaint; this
-## fixes both problems in one pass rather than re-guessing either alone.
+## Fresnel-masked outline (ALPHA, unchanged technique from the prior fix)
+## PLUS HDR EMISSION at the same masked edges, scaled by a fixed internal
+## boost so it clears the scene's glow_hdr_threshold (1.4) with headroom
+## for the pulse, without being pushed so high the bloom spreads wide.
+## EMISSION_BOOST tuned for "tight/contained" per direct instruction —
+## raise it in-editor if a wider atmospheric bleed is wanted later.
 func _build_rim_material() -> ShaderMaterial:
 	var shader := Shader.new()
 	shader.code = """
@@ -69,37 +67,19 @@ uniform vec4 rim_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 uniform float rim_power : hint_range(0.5, 12.0) = 5.0;
 uniform float rim_intensity : hint_range(0.0, 1.0) = 0.75;
 
+const float EMISSION_BOOST = 3.0;   // tight/contained — clears glow_hdr_threshold
+                                     // (1.4) with modest headroom, not blown out wide
+
 void fragment() {
 	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), rim_power);
 	ALBEDO = rim_color.rgb;
 	ALPHA = fresnel * rim_intensity;
+	EMISSION = rim_color.rgb * fresnel * rim_intensity * EMISSION_BOOST;
 }
 """
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	return mat
-
-func _build_halo_sprite() -> Sprite3D:
-	var gradient := Gradient.new()
-	gradient.set_color(0, Color(1.0, 1.0, 1.0, 0.9))
-	gradient.set_color(1, Color(1.0, 1.0, 1.0, 0.0))
-	var tex := GradientTexture2D.new()
-	tex.gradient   = gradient
-	tex.width      = 128
-	tex.height     = 128
-	tex.fill       = GradientTexture2D.FILL_RADIAL
-	tex.fill_from  = Vector2(0.5, 0.5)
-	tex.fill_to    = Vector2(1.0, 0.5)
-
-	var sprite := Sprite3D.new()
-	sprite.texture     = tex
-	sprite.billboard   = BaseMaterial3D.BILLBOARD_ENABLED
-	sprite.shaded      = false
-	sprite.transparent = true
-	sprite.double_sided = true
-	sprite.pixel_size  = HALO_WORLD_DIAMETER / float(tex.width)
-	sprite.modulate    = Color(1.0, 1.0, 1.0, 0.0)
-	return sprite
 
 ## Called once per InteractionSystem._update_prompt() invocation with the
 ## resolved Focus Mode target (or null — no highlight this frame). Only
@@ -142,14 +122,13 @@ func _process(delta: float) -> void:
 		_target = null
 
 	if _target == null:
-		_halo.visible = false
 		return
 
 	_pulse_time += delta
 	var pulse: float = 1.0 + sin(_pulse_time * PULSE_SPEED) * PULSE_AMPLITUDE
 
+	## Single value now drives both the outline's own visibility AND
+	## (via the shader's fixed EMISSION_BOOST) how far past the glow
+	## threshold the edges push — outline and bloom pulse together as
+	## one cohesive effect instead of two separately-tuned pieces.
 	_rim_material.set_shader_parameter("rim_intensity", RIM_BASE_INTENSITY * pulse)
-
-	_halo.visible = true
-	_halo.global_position = _target.global_position
-	_halo.modulate.a = HALO_BASE_ALPHA * pulse
