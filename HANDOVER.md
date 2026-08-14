@@ -1,3 +1,12 @@
+> **Trash Can + Trash Bag (Aug 2026):** New buildable (tile 36, $50, Construct → Furniture):
+> 10-slot Light Storage whose F empties a FULL can into a runtime-only `TrashBag.gd` handed
+> straight to the player (same safe player-side spawn as carry-retrieval); E always opens the
+> shared StorageUI, retrieval never disabled. Full per-item snapshot via the generic
+> `TrashCan.extract_trash_record()` reflection capture (excludes `TYPE_OBJECT` props). Also the
+> project's first AMBIENT hover panel (`TrashBagInfoPanel.gd` — new UI category: proximity
+> scan, non-modal, non-input-blocking) showing the nearest bag's prompt + contents. Light
+> Player-thread coordination: the panel only reads `player_ref` position + `get_held_item()`.
+
 > **Cooking pot cleaning immunity widened (Aug 2026):** Corrected from last pass — a pot on a
 > stove is now untouchable by Cleaning the whole time it's hosted there, not just while actively
 > cooking. `is_actively_cooking()` → `is_on_stove()`.

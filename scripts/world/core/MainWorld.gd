@@ -221,6 +221,7 @@ func _ready() -> void:
 	## StorageUI must come after inventory_manager exists and connect_world_objects
 	## has registered shelf group members, so injection covers pre-placed shelves.
 	_setup_storage_ui()
+	_setup_trash_bag_panel()
 	_setup_debug_overlay()
 	_register_save_fields()
 	get_tree().process_frame.connect(_setup_build_mode, CONNECT_ONE_SHOT)
@@ -578,6 +579,19 @@ func _setup_storage_ui() -> void:
 			shelf.set("_storage_ui", _storage_ui)
 		if "_interaction_system" in shelf:
 			shelf.set("_interaction_system", interaction_system)
+
+## Aug 2026 — the Trash Bag ambient hover panel (new UI category: proximity-
+## driven, non-modal, non-input-blocking). Created once, always present,
+## toggled visible by its own scan — see TrashBagInfoPanel.gd.
+func _setup_trash_bag_panel() -> void:
+	var panel_script: Script = load("res://scripts/ui/common/TrashBagInfoPanel.gd")
+	if panel_script == null:
+		return
+	var panel: CanvasLayer = CanvasLayer.new()
+	panel.set_script(panel_script)
+	panel.name = "TrashBagInfoPanel"
+	add_child(panel)
+	panel.set("player_ref", player)
 
 func _ensure_inventory_manager() -> void:
 	# Use scene node if it exists, otherwise create one at runtime

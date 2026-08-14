@@ -69,6 +69,7 @@ const TILE_STOVE:        int = 30   ## Cooking System — Stove, 1×1 footprint,
 const TILE_POSTER:       int = 31   ## Blank wall poster — decorative, wall-snapped like TILE_LIGHT
 const TILE_END_TABLE:    int = 32   ## End table, 1×1 footprint, 2-item light storage (Furniture)
 const TILE_DRESSER:      int = 33   ## Dresser, 2×1 footprint, 6-item light storage (Furniture)
+const TILE_TRASH_CAN:    int = 36   ## Trash can, 1×1 footprint, 10-item light storage, empties into a Trash Bag (Furniture)
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -1287,12 +1288,14 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 	## Light storage furniture (shared LightStorage base). Mirrors the Shelving
 	## branch's injection block so a unit placed mid-session is wired (E opens
 	## the shared StorageUI) and interactive right away.
-	if tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER:
+	if tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER or tile_id == TILE_TRASH_CAN:
 		var storage_script: GDScript = null
 		if tile_id == TILE_END_TABLE:
 			storage_script = load("res://scripts/world/furniture/EndTable.gd")
-		else:
+		elif tile_id == TILE_DRESSER:
 			storage_script = load("res://scripts/world/furniture/Dresser.gd")
+		else:
+			storage_script = load("res://scripts/world/furniture/TrashCan.gd")
 		var storage_node: StaticBody3D = StaticBody3D.new()
 		if storage_script != null:
 			storage_node.set_script(storage_script)
@@ -2930,7 +2933,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
 				return true
 		return false
-	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE or tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER:
+	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE or tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER or tile_id == TILE_TRASH_CAN:
 		# Tables, chairs, and the Stove sit on the floor (Y=0.5), same as
 		# Beds/Shelving/Generators/Trays above — the physics shape query hits
 		# the floor collider, causing a false "space occupied" positive.
@@ -2938,7 +2941,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 		var threshold: float = grid_size * 0.9
 		for entry: Dictionary in _placed_objects:
 			var et: int = entry.get("tile_id", -1)
-			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE and et != TILE_END_TABLE and et != TILE_DRESSER:
+			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE and et != TILE_END_TABLE and et != TILE_DRESSER and et != TILE_TRASH_CAN:
 				continue
 			var p: Vector3 = entry["world_pos"]
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
@@ -3052,6 +3055,7 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_POSTER:       return Vector2(0.05, 0.05)  ## Thin wall-flush panel — NOT the 0.40 floor-object default. The wall-snap step already validated a real wall was found; this check just needs to not second-guess that by treating Poster like a room-occupying object.
 		TILE_END_TABLE:    return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TABLE_SMALL/TILE_TRAY_SINGLE
 		TILE_DRESSER:      return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
+		TILE_TRASH_CAN:    return Vector2(0.28, 0.28)  ## 1×1, cylinder footprint slightly smaller than a table
 		TILE_LIGHT:        return Vector2(0.05, 0.05)   ## Thin wall-flush fixture — NOT the 0.40 floor-object default. Same fix/reasoning as TILE_POSTER earlier this session; the wall-snap step already validated a real wall was found, this just needs to not second-guess that with an oversized box.
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback

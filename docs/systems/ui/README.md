@@ -43,7 +43,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `menus/` | `PauseMenuUI.gd` (~330 — rewritten onto `UIKit` menu builders, Jul 2026), `GraphicsSettingsPanel.gd` (~430 — same rewrite, also fixed a long-standing off-center bug, see below), `SleepOverlay.gd` (~145), `AdminMenu.gd` (~430 — rewritten with collapsible sections + a real `ScrollContainer`, Jul 2026, see below) | ESC pause menu, graphics settings, sleep fade, admin cheats |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI. Farming shop's `FARMING_SHOP_ITEMS["Seeds"]` had a duplicate-`tile_id` bug fixed Aug 2026 (see "Farming Shop Seed tile_id Bugfix" below) and a SEPARATE bug where `PREVIEW_SOURCES` never set `seed_type` per-id, so every seed preview looked identical — fixed Aug 2026, see "Cooking Pot UI Fixes + Prompt Overlap Avoidance" below |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
-| `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain), `ItemPreviewKit.gd` (~235 — Aug 2026, shared static 3D item-preview builder used by `InventoryHUD`/`StorageUI`, see "Shared Item Preview Kit" and "Preview Scale Normalization + Deep Mesh Walk" below) | Shared fade-in helper + shared theme/drawing kit + shared 3D item-preview builder — put any future cross-panel UI utility here |
+| `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain), `ItemPreviewKit.gd` (~235 — Aug 2026, shared static 3D item-preview builder used by `InventoryHUD`/`StorageUI`, see "Shared Item Preview Kit" and "Preview Scale Normalization + Deep Mesh Walk" below), `TrashBagInfoPanel.gd` (~200 — Aug 2026, first AMBIENT hover panel — a NEW panel category, see "Ambient Hover Panels (Aug 2026)" below) | Shared fade-in helper + shared theme/drawing kit + shared 3D item-preview builder — put any future cross-panel UI utility here |
 | `notifications/` | `NotificationManager.gd` (~175) | Central toast/notification system (see "NotificationManager" below) |
 | `npc/` | `NPCTalkMenuUI.gd` | NPC E-panel (needs bars, status, skills, personality) — see `docs/systems/npc/README.md` for full detail; fixed per-stat bar colors as of Aug 2026, see "Cooking Pot UI Fixes..." below is unrelated — see the NPC doc directly for the color table |
 
@@ -809,6 +809,29 @@ than the 4px modal-panel standard, intentionally, same "smaller-scale
 identity" precedent as `StorageUI.gd`'s 14px). Confirmed with Brannon this
 project-wide change is wanted, not something to scope down to cooking
 only.
+
+## Ambient Hover Panels (Aug 2026)
+A NEW panel category introduced by the Trash Can / Trash Bag feature —
+deliberately distinct from the existing two:
+
+| Category | Trigger | Input blocking | Examples |
+|---|---|---|---|
+| Prompt line | proximity (prompt dist) | none (text only) | `InteractPrompt.gd` E/F lines |
+| Modal panel | explicit interaction (E) | yes (blocks gameplay) | `StorageUI`, `GeneratorInspectUI`, `PowerTerminalUI` |
+| **Ambient hover panel** | proximity scan (3.0 m, every 0.15 s) | none (`MOUSE_FILTER_IGNORE`, no input) | **`TrashBagInfoPanel.gd`** |
+
+`TrashBagInfoPanel.gd` (extends `CanvasLayer`, layer 50 — above prompts,
+below modals): created once by `MainWorld._setup_trash_bag_panel()`,
+injected with the player ref. No open/close state — a timer-driven scan
+shows the panel next to whichever Trash Bag is nearest to the player (held
+or on the ground/shelf), anchored to `bag.global_position + (0, 0.4, 0)`
+projected via `camera.unproject_position()`. Top line = the bag's own
+prompt line (`get_prompt_text()`, or `get_display_name()` when the player
+is already holding it); below, one line per disposed item (`display_name`
++ a single most-relevant `data` field, or "Empty"). The per-item
+`TrashBag.contents` records hold the full structured data that later
+trash/recycling features consume programmatically — the panel only reads
+for at-a-glance display. Panel built procedurally in `_build_panel()`.
 
 ## Shared Item Preview Kit (Aug 2026)
 Fixed StorageUI's 3D item previews (Shelving/Basket/End Table/Dresser),

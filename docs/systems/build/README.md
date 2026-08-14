@@ -130,6 +130,28 @@ Player-side seat/stand wiring (`seated_chair` state, movement-priority
 interaction override) lives in `Player.gd`/`InteractionSystem.gd`, not this
 system — see those docs / `HANDOVER.md` for that half of the mechanic.
 
+## Trash Can (Aug 2026)
+Tile ID **36** (`Trash Can`, $50, capacity 10) in Construct → Furniture.
+First floor-standing `LightStorage.gd` subclass with a custom F-slot:
+empties a full can into a runtime-only `TrashBag.gd` object handed
+straight to the player. See `docs/systems/furniture-items/README.md` for
+the full behavior + the hover panel (`TrashBagInfoPanel.gd`, new ambient
+UI category).
+
+Wired across the same complete set as End Table/Dresser above:
+- `BuildModeController.gd`: `TILE_TRASH_CAN` const (36); `spawn_structure()`
+  shared Light-Storage branch extended to a three-way; tile added to the
+  `_is_position_occupied_for_tile()` floor-furniture block + inner `et !=`
+  filter; `_tile_half_extents()` arm `Vector2(0.28, 0.28)` (1×1 cylinder,
+  slightly smaller than a table).
+- `BuildModeHUD.gd`: `{ "tile_id": 36, "name": "Trash Can", "price": 50 }`
+  in `CATEGORIES["Furniture"]`.
+- `GhostModelBuilder.gd`: `PROCEDURAL_PREVIEW_SOURCES` entry for 36.
+- `GhostPreview.gd`: ghost branch via `TrashCan.build_ghost_mesh()` + the
+  floor-standing `snap_pos.y = 0.5` elif extended.
+- `MainWorld.gd`: one `_setup_trash_bag_panel()` call (hover-panel wiring;
+  new — End Table/Dresser needed no MainWorld change, this one does).
+
 ## Shelf Family: Small / Medium / Large (Aug 2026)
 Tile IDs **3** (`Medium Shelf`, $75, 10 slots — the former "Shelving"),
 **34** (`Small Shelf`, $45, 6 slots), and **35** (`Large Shelf`, $180,

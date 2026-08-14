@@ -254,11 +254,14 @@ func _rebuild_ghost_mesh() -> void:
 					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
-	# ── End Table / Dresser (Light Storage): ghost from static helpers ─────────
-	if _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER:
+	# ── End Table / Dresser / Trash Can (Light Storage): ghost from static helpers ──
+	if _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER \
+			or _owner._selected_tile == _owner.TILE_TRASH_CAN:
 		var storage_script_path: String = "res://scripts/world/furniture/EndTable.gd"
 		if _owner._selected_tile == _owner.TILE_DRESSER:
 			storage_script_path = "res://scripts/world/furniture/Dresser.gd"
+		elif _owner._selected_tile == _owner.TILE_TRASH_CAN:
+			storage_script_path = "res://scripts/world/furniture/TrashCan.gd"
 		var storage_script: GDScript = load(storage_script_path)
 		if storage_script != null and storage_script.has_method("build_ghost_mesh"):
 			var ghost_mesh: Mesh = storage_script.build_ghost_mesh()
@@ -616,7 +619,8 @@ func _update_ghost() -> void:
 		snap_pos.y = 0.5   ## Floor-standing object with slight hover offset
 	elif _owner._selected_tile == _owner.TILE_TABLE_SMALL or _owner._selected_tile == _owner.TILE_TABLE_MEDIUM \
 			or _owner._selected_tile == _owner.TILE_CHAIR or _owner._selected_tile == _owner.TILE_STOVE \
-			or _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER:
+			or _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER \
+			or _owner._selected_tile == _owner.TILE_TRASH_CAN:
 		snap_pos.y = 0.5   ## Floor-standing, same hover-offset convention as farming trays
 	elif _owner._selected_tile == _owner.TILE_GROW_LIGHT_NORMAL or _owner._selected_tile == _owner.TILE_GROW_LIGHT_PRO:
 		## Not wall-snapped, not required to sit above a tray — placeable

@@ -58,6 +58,8 @@ or the environment itself (`docs/systems/environment/README.md`).
 | `furniture/LightStorage.gd` | ~300 | **NEW (Aug 2026)** Shared base for hidden-children light-item storage furniture (End Table / Dresser). Implements the StorageUI 4-method contract (see `docs/systems/ui/README.md`) + the `"shelving"`-group E/F duck-type contract; fixed-size `stored` slot array; `eject_all_items()` reparents hidden children to the world root on deconstruct/build-undo |
 | `furniture/EndTable.gd` | ~95 | **NEW (Aug 2026)** 1×1 side table, capacity 2 light storage (drawer), TILE 32, $60 |
 | `furniture/Dresser.gd` | ~95 | **NEW (Aug 2026)** 2×1 dresser, capacity 6 light storage (2×3 drawers), TILE 33, $150 |
+| `furniture/TrashCan.gd` | ~210 | **NEW (Aug 2026)** Trash can, capacity 10 light storage, TILE 36, $50. F empties a full can into a Trash Bag (handed straight to the player); E always opens StorageUI |
+| `items/TrashBag.gd` | ~60 | **NEW (Aug 2026)** Runtime-only pickupable object (no tile/menu entry) created by emptying a full Trash Can; shelf-storable (stack 1), NOT `"inventory_item"`; carries a full snapshot of the disposed items |
 
 ## Public API
 **Shared item contract** (duck-typed â€” `InteractionSystem`/`Shelving` call
@@ -217,6 +219,50 @@ stacking, no slot geometry, no visible stored meshes.
   capacity / display_name / prompt_height / grid_cols / grid_rows /
   row_labels. Both expose `static func build_ghost_mesh()` for the build
   ghost + procedural preview.
+
+**`TrashCan`** (`class_name TrashCan`, extends `LightStorage`): the
+disposal point for the future trash/recycling system. Capacity 10 (2×5
+grid). E behavior is 100% inherited (always opens the shared StorageUI,
+fully retrievable at any fill level — per design, retrieval is never
+disabled). F is overridden with fill-state-split behavior:
+
+- **Not full** + holding an eligible `"inventory_item"` → normal store
+  (inherited path, prompt reads `[F] Throw away item`).
+- **Full (10/10)** + empty hands → `_empty_into_bag()`: captures every
+  stored item via `TrashCan.extract_trash_record()`, frees the originals,
+  spawns a `TrashBag` with the records, and hands it straight to the
+  player using the same safe player-side spawn point +
+  immediate-hand-off as `Shelving.carry_spawn_position()` /
+  `LightStorage.take_for_carry()` (the wall-tunneling fix).
+- **Full** + hands occupied → soft warning, no action.
+
+`extract_trash_record(item, disposed_index)` is generic per-item data
+capture via script-property reflection — works for ANY `"inventory_item"`
+type with no per-item opt-in. Captures every public (non-underscore)
+script-declared property whose type is snapshot-safe (primitives,
+Vector/Color, Array, Dictionary); `TYPE_OBJECT` (node references) is
+deliberately EXCLUDED to avoid the freed-instance-reference bug class.
+Each record: `item_type` / `display_name` / `disposed_index` / `data`.
+
+**`TrashBag`** (`class_name TrashBag`, extends `PickupableItem`):
+runtime-only (no construct entry, no tile ID), created exclusively by
+`TrashCan._empty_into_bag()`. Deliberately NOT in the `"inventory_item"`
+group (can't enter pocket/Dresser/End Table/Trash Can), but IS
+shelf-storable (`shelf_stack_limit` 1, `shelf_item_type "trash_bag"`).
+`contents: Array[Dictionary]` holds the structured snapshot from
+`extract_trash_record()` — the data future trash/recycling features will
+consume; keep its shape stable once other systems read it. Plain black
+sphere placeholder model, procedural collision (no `.tscn`).
+
+**`TrashBagInfoPanel`** (`scripts/ui/common/TrashBagInfoPanel.gd`): a new
+UI category — ambient hover panel. Proximity-driven (3.0 m scan every
+0.15 s), non-modal, non-input-blocking (mouse filter IGNORE). Shows the
+nearest bag's existing prompt line on top (`get_prompt_text()`, or
+`get_display_name()` when it's the bag the player is already holding) and
+one line per disposed item below (`display_name` + a single most-relevant
+`data` field; "Empty" if none). Created once by MainWorld
+(`_setup_trash_bag_panel()`), injected with the player ref. See the UI
+docs for the panel category comparison.
 
 ## Signals/events consumed
 - `InteractionSystem` connects to every held item's `knocked_out` signal
