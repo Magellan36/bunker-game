@@ -1,3 +1,46 @@
+# Handover — Sobel Outline System (Full Rebuild of the Focus Highlight) (Aug 2026)
+
+## What changed this session
+Rebuilt the Focus Mode highlight from scratch as a Sobel edge-detection
+outline system, per direct instruction to go full-send and design it for
+reuse (tutorials, quest pointers, any future "highlight this object"
+need). Replaces the Fresnel material_overlay approach entirely — the
+structural reason, not a tuning preference: Fresnel only brightens
+grazing-angle surfaces, so front-facing corners/creases (sharp edges to
+the eye) stay dark; Sobel over the NORMAL buffer catches exactly those,
+and Sobel over DEPTH catches silhouettes — together, the full
+cel-shaded "ink line on every edge" look that was the goal.
+
+Architecture: fullscreen clip-space quad whose Forward+ spatial shader
+reads the depth + normal-roughness screen textures directly
+(hint_depth_texture / hint_normal_roughness_texture — the fact that made
+this buildable WITHOUT RenderingDevice/CompositorEffect-level work),
+runs 3×3 Sobel kernels over both, hard-thresholds to crisp lines, and
+multiplies by a per-object mask. The mask — the critical isolation pass
+so only the ONE focused object gets lines, not every edge on screen —
+is a SubViewport camera mirroring the main camera per-frame with
+cull_mask = render layer 11 (confirmed unused project-wide before
+claiming it), while the target's meshes get that layer bit ADDED
+(originals saved/restored — main view unaffected). Mask sampled with
+one pixel of dilation so boundary lines aren't clipped in half. Line
+pixels emit past the scene's existing glow threshold, keeping the soft
+bloom halo and pulse from the prior design.
+
+Public API unchanged (`set_target(node_or_null)`) — InteractionSystem.gd
+needed zero changes. Known boundary documented: transparent-material
+targets outline poorly (no depth/normal buffer writes); no current
+object affected. Multi-target highlighting is the flagged extension
+point (one instance + one layer per target), not yet built.
+
+### Files modified
+- `scripts/player/InteractionFocusGlow.gd` — full rewrite.
+- `docs/systems/player/README.md` — glow entry replaced wholesale.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan `PLAYER_SOBEL_OUTLINE_SYSTEM_PLAN.md` for the
+full 8-item checklist)
+
 # Handover — Focus Mode Glow Redesigned: Real Bloom Instead of a Sprite (Aug 2026)
 
 ## What changed this session
