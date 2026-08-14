@@ -351,50 +351,50 @@ func _build_fixture() -> void:
 	ring_mi.set_surface_override_material(0, cage_mat)
 	add_child(ring_mi)
 
-	## Frosted glass dome (flattened sphere behind cage)
+	## Frosted glass dome (flattened sphere behind cage — subtle, not bulbous)
 	var dome_mi: MeshInstance3D = MeshInstance3D.new()
 	var dome: SphereMesh = SphereMesh.new()
-	dome.radius = 0.14
-	dome.height = 0.10
+	dome.radius = 0.12
+	dome.height = 0.04
 	dome_mi.mesh = dome
-	dome_mi.position = Vector3(0.0, LAMP_Y_OFFSET, 0.01)
+	dome_mi.position = Vector3(0.0, LAMP_Y_OFFSET, -0.01)
 	dome_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	dome_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 	dome_mi.set_surface_override_material(0, glass_mat)
 	add_child(dome_mi)
 
-	## Cage bars — vertical (2 bars)
+	## Cage bars — vertical (2 bars, thicker and more forward)
 	for x_off: float in [-0.07, 0.07]:
 		var bar_mi: MeshInstance3D = MeshInstance3D.new()
 		var bar: BoxMesh = BoxMesh.new()
-		bar.size = Vector3(0.018, 0.30, 0.018)
+		bar.size = Vector3(0.022, 0.32, 0.022)
 		bar_mi.mesh = bar
-		bar_mi.position = Vector3(x_off, LAMP_Y_OFFSET, 0.03)
+		bar_mi.position = Vector3(x_off, LAMP_Y_OFFSET, 0.04)
 		bar_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		bar_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		bar_mi.set_surface_override_material(0, cage_mat)
 		add_child(bar_mi)
 
-	## Cage bars — horizontal (2 bars)
+	## Cage bars — horizontal (2 bars, thicker and more forward)
 	for y_off: float in [-0.07, 0.07]:
 		var bar_mi: MeshInstance3D = MeshInstance3D.new()
 		var bar: BoxMesh = BoxMesh.new()
-		bar.size = Vector3(0.30, 0.018, 0.018)
+		bar.size = Vector3(0.32, 0.022, 0.022)
 		bar_mi.mesh = bar
-		bar_mi.position = Vector3(0.0, LAMP_Y_OFFSET + y_off, 0.03)
+		bar_mi.position = Vector3(0.0, LAMP_Y_OFFSET + y_off, 0.04)
 		bar_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		bar_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		bar_mi.set_surface_override_material(0, cage_mat)
 		add_child(bar_mi)
 
-	## Center cross bars (smaller, for the crossing pattern)
+	## Center cross bars (at intersections, more forward)
 	for x_off: float in [-0.07, 0.07]:
 		for y_off: float in [-0.07, 0.07]:
 			var cross_mi: MeshInstance3D = MeshInstance3D.new()
 			var cross: BoxMesh = BoxMesh.new()
-			cross.size = Vector3(0.014, 0.014, 0.022)
+			cross.size = Vector3(0.018, 0.018, 0.026)
 			cross_mi.mesh = cross
-			cross_mi.position = Vector3(x_off, LAMP_Y_OFFSET + y_off, 0.035)
+			cross_mi.position = Vector3(x_off, LAMP_Y_OFFSET + y_off, 0.045)
 			cross_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			cross_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 			cross_mi.set_surface_override_material(0, cage_mat)
