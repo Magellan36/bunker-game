@@ -521,9 +521,11 @@ own held item while CASE 1 scans for a different target — guarded with
   systems highlight any object the same way Focus Mode does. One target
   at a time currently; multiple simultaneous highlights = one instance
   per target + distinct layer each (supported by the architecture, not
-  yet built). Known boundary: transparent-material targets outline
-  poorly (no depth/normal writes) — no current object is affected.
-  Tuning knobs: `depth_edge_threshold`/`normal_edge_threshold` uniforms
+  yet built). Transparent-material targets originally outlined poorly
+  (no depth/normal writes) — addressed for the first affected object
+  (Water Case) by the opaque stand-in system + mask-alpha edge signal,
+  see the translucent-object fix entry below. Tuning knobs:
+  `depth_edge_threshold`/`normal_edge_threshold` uniforms
   (line density), `OUTLINE_BASE_STRENGTH`, `EMISSION_BOOST`.
 
 - **Translucent-object outline fix: opaque stand-in system (Aug 2026,
