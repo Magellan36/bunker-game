@@ -22,7 +22,7 @@ func _wdbg(msg: String) -> void:
 		print(msg)
 
 # ─── Model path ───────────────────────────────────────────────────────────────
-const MODEL_PATH: String = "res://assets/models/industrial_wall_lamp.glb"
+## Procedural mesh — no GLB needed. Industrial wall lamp style.
 
 # ─── Fixture geometry constants (match GLB bounds exactly) ───────────────────
 const LAMP_W: float = 0.2735
@@ -324,30 +324,83 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _build_fixture() -> void:
-	# ── Load GLB model ────────────────────────────────────────────────────────
-	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
+	## Dark industrial metal material
+	var metal_mat: StandardMaterial3D = StandardMaterial3D.new()
+	metal_mat.albedo_color = Color(0.15, 0.15, 0.18, 1.0)
+	metal_mat.roughness    = 1.0
+	metal_mat.metallic     = 0.0
+	metal_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	metal_mat.shading_mode  = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 
-	if packed != null:
-		var model: Node3D = packed.instantiate() as Node3D
-		if model != null:
-			model.position        = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
-			model.rotation_degrees = Vector3(0.0, 180.0, 0.0)
-			_remove_collision_recursive(model)
-			add_child(model)
-			_apply_matte_override(model)
-	else:
-		# Fallback box if model missing
-		var mi: MeshInstance3D = MeshInstance3D.new()
-		var bm: BoxMesh = BoxMesh.new()
-		bm.size = Vector3(LAMP_W, LAMP_H, LAMP_D)
-		mi.mesh = bm
-		mi.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
-		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = Color(0.18, 0.18, 0.20, 1.0)
-		mat.metallic     = 0.0
-		mat.roughness    = 1.0
-		mi.set_surface_override_material(0, mat)
-		add_child(mi)
+	## Wall mounting plate (flat box against wall)
+	var plate_mi: MeshInstance3D = MeshInstance3D.new()
+	var plate: BoxMesh = BoxMesh.new()
+	plate.size = Vector3(0.18, 0.22, 0.025)
+	plate_mi.mesh = plate
+	plate_mi.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
+	plate_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	plate_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	plate_mi.set_surface_override_material(0, metal_mat)
+	add_child(plate_mi)
+
+	## Horizontal arm extending outward from plate
+	var arm_mi: MeshInstance3D = MeshInstance3D.new()
+	var arm: CylinderMesh = CylinderMesh.new()
+	arm.top_radius = 0.015
+	arm.bottom_radius = 0.015
+	arm.height = 0.18
+	arm.radial_segments = 8
+	arm_mi.mesh = arm
+	arm_mi.position = Vector3(0.0, LAMP_Y_OFFSET + 0.08, -0.10)
+	arm_mi.rotation.x = PI * 0.5   ## lay flat along -Z
+	arm_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	arm_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	arm_mi.set_surface_override_material(0, metal_mat)
+	add_child(arm_mi)
+
+	## Vertical connector from arm to shade
+	var conn_mi: MeshInstance3D = MeshInstance3D.new()
+	var conn: CylinderMesh = CylinderMesh.new()
+	conn.top_radius = 0.012
+	conn.bottom_radius = 0.012
+	conn.height = 0.06
+	conn.radial_segments = 8
+	conn_mi.mesh = conn
+	conn_mi.position = Vector3(0.0, LAMP_Y_OFFSET + 0.05, -0.18)
+	conn_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	conn_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	conn_mi.set_surface_override_material(0, metal_mat)
+	add_child(conn_mi)
+
+	## Lamp shade (cone/housing pointing downward)
+	var shade_mi: MeshInstance3D = MeshInstance3D.new()
+	var shade: CylinderMesh = CylinderMesh.new()
+	shade.top_radius = 0.01
+	shade.bottom_radius = 0.07
+	shade.height = 0.10
+	shade.radial_segments = 12
+	shade_mi.mesh = shade
+	shade_mi.position = Vector3(0.0, LAMP_Y_OFFSET - 0.02, -0.18)
+	shade_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	shade_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	shade_mi.set_surface_override_material(0, metal_mat)
+	add_child(shade_mi)
+
+	## Bulb (small emissive sphere inside shade)
+	var bulb_mi: MeshInstance3D = MeshInstance3D.new()
+	var bulb: SphereMesh = SphereMesh.new()
+	bulb.radius = 0.02
+	bulb.height = 0.04
+	bulb_mi.mesh = bulb
+	bulb_mi.position = Vector3(0.0, LAMP_Y_OFFSET - 0.01, -0.18)
+	var bulb_mat: StandardMaterial3D = StandardMaterial3D.new()
+	bulb_mat.albedo_color = Color(1.0, 0.90, 0.70, 1.0)
+	bulb_mat.emission_enabled = true
+	bulb_mat.emission = Color(1.0, 0.82, 0.50, 1.0)
+	bulb_mat.emission_energy_multiplier = 0.5
+	bulb_mat.roughness = 0.3
+	bulb_mi.set_surface_override_material(0, bulb_mat)
+	add_child(bulb_mi)
 
 	# ── OmniLight3D — sits at lamp centre, radiates in all directions ─────────
 	var omni: OmniLight3D = OmniLight3D.new()
@@ -358,7 +411,7 @@ func _build_fixture() -> void:
 	omni.light_indirect_energy = 1.0
 	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
 	omni.shadow_enabled        = false
-	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.5)
+	omni.position              = Vector3(0.0, LAMP_Y_OFFSET - 0.02, -0.18)
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
 	omni.visible = false
 	add_child(omni)
@@ -377,46 +430,9 @@ func _build_fixture() -> void:
 		proxy.set("host", self)
 
 
-# ─── Override all GLB mesh materials to be fully matte, no shadows ───────────
-func _apply_matte_override(node: Node) -> void:
-	if node is MeshInstance3D:
-		var mi: MeshInstance3D = node as MeshInstance3D
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.gi_mode     = GeometryInstance3D.GI_MODE_DISABLED
-		var mesh: Mesh = mi.mesh
-		if mesh != null:
-			for s: int in range(mesh.get_surface_count()):
-				var orig: Material = mesh.surface_get_material(s)
-				var base_color: Color = Color(0.15, 0.15, 0.18, 1.0)
-				if orig is StandardMaterial3D:
-					base_color = (orig as StandardMaterial3D).albedo_color
-				var mat: StandardMaterial3D = StandardMaterial3D.new()
-				mat.albedo_color = base_color
-				mat.metallic     = 0.0
-				mat.roughness    = 1.0
-				mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-				mat.shading_mode  = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-				mi.set_surface_override_material(s, mat)
-	for child: Node in node.get_children():
-		_apply_matte_override(child)
-
-
-# ─── Strip collision nodes from GLB import ───────────────────────────────────
-func _remove_collision_recursive(node: Node) -> void:
-	var children: Array = []
-	for child in node.get_children():
-		children.append(child)
-	for child in children:
-		if child is CollisionShape3D or child is CollisionPolygon3D:
-			child.queue_free()
-		elif child is StaticBody3D or child is RigidBody3D or child is Area3D:
-			child.queue_free()
-		else:
-			_remove_collision_recursive(child)
-
-
 # ─── Static helper: ghost mesh for BuildModeController ───────────────────────
 static func build_ghost_mesh() -> Mesh:
+	## Ghost shows the mounting plate + shade extent
 	var bm: BoxMesh = BoxMesh.new()
-	bm.size = Vector3(0.2735, 0.4300, 0.1404)
+	bm.size = Vector3(0.18, 0.22, 0.20)
 	return bm
