@@ -224,17 +224,30 @@ stacking, no slot geometry, no visible stored meshes.
 disposal point for the future trash/recycling system. Capacity 10 (2×5
 grid). E behavior is 100% inherited (always opens the shared StorageUI,
 fully retrievable at any fill level — per design, retrieval is never
-disabled). F is overridden with fill-state-split behavior:
+disabled). F is overridden with three distinct behaviors (Aug 2026 —
+dispatch bug fixed: the F-dispatch's empty-handed branch now calls
+`on_f_interact()` and honors its bool return, so collect/merge actually
+reach the can; see `docs/systems/player/README.md` for the contract
+change):
 
-- **Not full** + holding an eligible `"inventory_item"` → normal store
-  (inherited path, prompt reads `[F] Throw away item`).
-- **Full (10/10)** + empty hands → `_empty_into_bag()`: captures every
-  stored item via `TrashCan.extract_trash_record()`, frees the originals,
-  spawns a `TrashBag` with the records, and hands it straight to the
-  player using the same safe player-side spawn point +
-  immediate-hand-off as `Shelving.carry_spawn_position()` /
+- **Holding a Trash Bag** → `_merge_bag()`: the bag's `contents` records
+  are folded into the can's `merged_trash_data`, the bag is freed, and
+  the player's hand is released (full release sequence mirroring
+  `_try_store_held()`). Rejected with a "Trash can is too full" toast if
+  the combined total would exceed capacity.
+- **Empty-handed** → `_empty_into_bag()`: collect whatever's in the can
+  into a new Trash Bag — works at ANY fill level (partial fill included,
+  not gated to 10/10 anymore). Captures every stored item via
+  `TrashCan.extract_trash_record()`, folds in any `merged_trash_data`,
+  frees the originals, spawns a `TrashBag`, and hands it straight to the
+  player using the same safe player-side spawn point + immediate
+  hand-off as `Shelving.carry_spawn_position()` /
   `LightStorage.take_for_carry()` (the wall-tunneling fix).
-- **Full** + hands occupied → soft warning, no action.
+- **Holding an eligible `"inventory_item"`** → store it (inherited
+  `_try_store_held()`, prompt `[F] Throw away item`); blocked with a
+  "Trash can is too full" toast when the can is full.
+- **Holding anything else** (unrelated, non-`inventory_item`) → no-op,
+  nothing this can does with it.
 
 `extract_trash_record(item, disposed_index)` is generic per-item data
 capture via script-property reflection — works for ANY `"inventory_item"`
@@ -243,6 +256,20 @@ script-declared property whose type is snapshot-safe (primitives,
 Vector/Color, Array, Dictionary); `TYPE_OBJECT` (node references) is
 deliberately EXCLUDED to avoid the freed-instance-reference bug class.
 Each record: `item_type` / `display_name` / `disposed_index` / `data`.
+
+`merged_trash_data` (records merged back from a bag): counted toward
+capacity (`is_full()` uses the combined live+merged total) but NOT
+individually retrievable via Carry/⊕ — there's no live node to hand
+back, only compacted data (matches how real trash works: once bagged
+and re-dumped, you don't fish one specific can back out without
+re-opening the bag). Merged records are folded into the contents of the
+NEXT bag the can produces. **Known v1 simplifications, flagged:**
+deconstructing a Trash Can with `merged_trash_data` present discards
+that data (there are no live nodes to eject — `stored[]`'s live items
+still eject normally via the inherited `eject_all_items()`), and the
+StorageUI still shows the 10 physical slots, so when merged data has
+eaten into capacity some visually-empty slots simply won't accept a new
+item until the can is next collected.
 
 **`TrashBag`** (`class_name TrashBag`, extends `PickupableItem`):
 runtime-only (no construct entry, no tile ID), created exclusively by

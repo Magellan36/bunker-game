@@ -1,3 +1,61 @@
+# Handover — Trash Can F-Dispatch Fix + Partial Collect + Bag Merge (Aug 2026)
+
+## What changed this session
+**Bug fixed (F did nothing):** `InteractionSystem.gd`'s F-dispatch only
+called `shelf.on_f_interact()` inside the `held_item != null` branch —
+the empty-handed branch never reached it. Historically fine (base
+shelf `on_f_interact()` no-ops empty-handed), but TrashCan's collect
+override lives exactly there, so it never fired ("no errors, just
+nothing"). Fix is a small contract change + dispatch addition:
+`shelving`-family `on_f_interact()` now returns `bool` (true = consumed
+the press) and the F-dispatch's empty-handed branch checks it before
+falling through to the stove-pot/pickup logic — a no-op for every
+existing Shelving/EndTable/Dresser call. Legacy `on_interact()` shims
+(Shelving.gd / LightStorage.gd) call it as a bare statement, unaffected;
+grep confirmed InteractionSystem is the only external caller.
+
+**Toast migration (this feature's messages only):** the old
+`show_soft_warning` "hands full" dance is gone; TrashCan's own warnings
+("Trash can is too full") now go through `NotificationManager.notify(
+UIKit.Domain.NEUTRAL, Severity.WARNING, …)`. Not a project-wide
+migration — Shelving/LightStorage's earlier `show_soft_warning` calls
+are untouched (separate decision, per your earlier framing).
+
+**Feature extension:** collect now works at ANY fill level (not gated to
+10/10), and a Trash Bag held near a can merges its contents back in.
+Data-model decision, stated plainly: bag contents are DATA-ONLY records
+(`merged_trash_data`), not live nodes — merged records count toward
+capacity (`is_full()` = live + merged) but are not individually
+retrievable via Carry/⊕ (there's no node to hand back), and they fold
+into the contents of the NEXT bag the can produces. Why: matching the
+real-world behavior (once bagged and re-dumped you don't fish one item
+back out) and because live-node reconstruction was explicitly out of
+scope. Deconstruct trade-off, flagged not silent: deconstructing a can
+with `merged_trash_data` present discards that data (no live nodes to
+eject — `stored[]`'s live items still eject via `eject_all_items()`);
+preserving it would be a small follow-up if wanted. StorageUI still
+shows the 10 physical slots — when merged data eats into capacity, some
+visually-empty slots simply won't accept items until the can is next
+collected (known v1 simplification).
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — F-dispatch empty-handed branch
+  now checks `shelf.on_f_interact()`'s bool return (Player-thread file,
+  flagged per the cross-thread convention).
+- `scripts/world/furniture/Shelving.gd` / `LightStorage.gd` —
+  `on_f_interact()` returns bool (consumed/not).
+- `scripts/world/furniture/TrashCan.gd` — `merged_trash_data` state,
+  `_live_count()`/`_total_count()`, `is_full()` override (combined
+  count), three-way F logic (throw away / collect at any fill / merge
+  bag), `_merge_bag()`, toast-based warnings.
+- `scripts/world/items/TrashBag.gd` — `is_trash_bag` duck-type marker.
+- `docs/systems/furniture-items/README.md`, `docs/systems/player/README.md`
+  — Trash Can mechanics + the `on_f_interact()` bool contract.
+
+### Verification checklist
+(see plan `TRASH_CAN_F_DISPATCH_FIX_AND_MERGE_PLAN.md` for the full 8-item
+in-editor checklist)
+
 # Handover — Sobel Outline System (Full Rebuild of the Focus Highlight) (Aug 2026)
 
 ## What changed this session

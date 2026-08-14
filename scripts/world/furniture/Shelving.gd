@@ -298,15 +298,20 @@ func get_interact_prompt() -> String:
 func get_prompt_world_pos() -> Vector3:
 	return global_position + Vector3(0.0, unit_h + 0.3, 0.0)
 
-## F pressed — place held item onto shelf
-func on_f_interact() -> void:
+## F pressed — place held item onto shelf. Returns true if there was
+## something held to attempt placing (consumed the press), false if hands
+## were empty (a no-op today, but the return value now matters to the
+## F-dispatch's empty-handed fallback — see InteractionSystem.gd).
+func on_f_interact() -> bool:
 	if _interaction_system == null:
 		_resolve_interaction_system()
 	if _interaction_system == null:
-		return
+		return false
 	var item: RigidBody3D = _interaction_system.held_item
 	if item != null:
 		_try_place_item(item)
+		return true
+	return false
 
 ## E pressed — open the shelf UI overlay
 func on_e_interact() -> void:

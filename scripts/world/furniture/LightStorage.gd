@@ -108,14 +108,16 @@ func npc_try_place_item(npc: Node, item: RigidBody3D) -> bool:
 	return true
 
 # ─── E/F contract (mirrors Shelving.gd) ────────────────────────────────────
-func on_f_interact() -> void:
+func on_f_interact() -> bool:
 	if _interaction_system == null:
 		_resolve_interaction_system()
 	if _interaction_system == null:
-		return
+		return false
 	var item: RigidBody3D = _interaction_system.held_item
 	if item != null:
 		_try_store_held(item)
+		return true
+	return false
 
 func on_e_interact() -> void:
 	if _storage_ui == null:

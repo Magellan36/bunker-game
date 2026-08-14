@@ -137,6 +137,10 @@ Player._physics_process() → _handle_movement() (WASD/sprint/stamina)
 InteractionSystem._unhandled_input()
   → scroll wheel  → _scroll_slot(dir) → _put_item_back_to_slot()/_bring_item_to_hand_from_slot()
   → F (pickup)    → _try_pickup() / _quick_drop() / shelf.on_f_interact()
+                    (Aug 2026: shelf on_f_interact() now returns bool — the
+                    empty-handed branch checks it, so shelf-family objects can
+                    own the empty-handed press (TrashCan collect/merge) and fall
+                    through to stove-pot/pickup when it returns false)
                     (_try_pickup() also checks NPCItemUser.find_holder() —
                     picking up an NPC-held item is "Takeaway", see below)
   → E (tap)       → shelf.on_e_interact() (distance-fair vs. any held-item

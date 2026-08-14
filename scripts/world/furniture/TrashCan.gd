@@ -72,38 +72,73 @@ static func build_ghost_mesh() -> Mesh:
 	cyl.height = 0.65
 	return cyl
 
+## Data records merged back in via a Trash Bag placed into this can (see
+## _merge_bag()). Counted toward capacity but NOT individually retrievable
+## via Carry/⊕ — there's no live node to hand back, only compacted data
+## (matches how real trash works: once bagged and re-dumped, you don't fish
+## one specific can back out without re-opening the bag). Folded into the
+## contents of the NEXT bag this can produces.
+var merged_trash_data: Array[Dictionary] = []
+
+func _live_count() -> int:
+	var n: int = 0
+	for s in stored:
+		if s != null:
+			n += 1
+	return n
+
+func _total_count() -> int:
+	return _live_count() + merged_trash_data.size()
+
+## Overrides LightStorage.is_full() — combined count (live + merged data),
+## not just live stored[] slots, so throwing in a fresh item correctly gets
+## blocked once merged-back bag data has already used up the can's capacity.
+func is_full() -> bool:
+	return _total_count() >= capacity
+
 # ─── F override — store OR empty-into-bag depending on fill state ─────────
 func get_f_prompt() -> String:
-	if is_full():
-		if _interaction_system == null:
-			_resolve_interaction_system()
-		if _interaction_system != null and _interaction_system.held_item == null:
-			return "[F] Collect trash bag"
-		return ""   ## Full + hands occupied — nothing actionable
-	## Not full — same eligibility/wording logic as the base class, but
-	## "Throw away" reads better than generic "Store item" for a trash can.
 	if _interaction_system == null:
 		_resolve_interaction_system()
-	if _interaction_system == null or _interaction_system.held_item == null:
+	if _interaction_system == null:
 		return ""
-	if not _interaction_system.held_item.is_in_group("inventory_item"):
+	var held: RigidBody3D = _interaction_system.held_item
+	if held != null and ("is_trash_bag" in held):
+		return "[F] Empty bag into trash can"
+	if held == null:
+		return "[F] Collect trash bag" if _total_count() > 0 else ""
+	if not held.is_in_group("inventory_item"):
 		return ""
-	return "[F] Throw away item"
+	return "" if is_full() else "[F] Throw away item"
 
-func on_f_interact() -> void:
+func on_f_interact() -> bool:
 	if _interaction_system == null:
 		_resolve_interaction_system()
 	if _interaction_system == null:
-		return
-	if is_full():
-		if _interaction_system.held_item == null:
+		return false
+	var held: RigidBody3D = _interaction_system.held_item
+
+	## Holding a Trash Bag → merge its contents back into the can
+	if held != null and ("is_trash_bag" in held):
+		_merge_bag(held, _interaction_system)
+		return true
+
+	## Empty-handed → collect whatever's in the can (partial fill is fine
+	## now — "at any point of its fullness")
+	if held == null:
+		if _total_count() > 0:
 			_empty_into_bag(_interaction_system)
-		else:
-			var hud: Node = get_tree().get_first_node_in_group("hud")
-			if hud != null and hud.has_method("show_soft_warning"):
-				hud.show_soft_warning("Hands full — can't collect the trash bag")
-		return
-	super.on_f_interact()   ## Not full — normal store path, unchanged
+			return true
+		return false
+
+	## Holding a normal eligible item → throw it away
+	if not held.is_in_group("inventory_item"):
+		return false   ## unrelated held item, nothing this can does with it
+	if is_full():
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
+		return true
+	_try_store_held(held)   ## inherited mechanics unchanged
+	return true
 
 # ─── Empty-into-bag ─────────────────────────────────────────────────────────
 func _empty_into_bag(isys: Node) -> void:
@@ -111,20 +146,22 @@ func _empty_into_bag(isys: Node) -> void:
 	for i: int in stored.size():
 		var item: RigidBody3D = stored[i]
 		if item == null:
-			continue   ## shouldn't happen (is_full() was just verified) — defensive only
+			continue
 		contents.append(TrashCan.extract_trash_record(item, contents.size()))
-		## Defensive holder-reference clear before freeing — belt-and-
-		## suspenders consistent with npc_try_place_item()'s existing
-		## convention, even though items reaching this point should already
-		## be fully detached (frozen/hidden children, not held by anyone).
 		if "held_item" in isys and isys.held_item == item:
 			isys.held_item = null
-		var npc_list: Array = get_tree().get_nodes_in_group("npc")
-		for npc: Node in npc_list:
+		for npc: Node in get_tree().get_nodes_in_group("npc"):
 			if "held_item" in npc and npc.held_item == item:
 				npc.held_item = null
 		item.queue_free()
 		stored[i] = null
+
+	## Fold in anything already merged back from a previous bag — a bag
+	## collected now must include everything logically "in" the can.
+	for record: Dictionary in merged_trash_data:
+		record["disposed_index"] = contents.size()
+		contents.append(record)
+	merged_trash_data.clear()
 
 	var bag_script: GDScript = load("res://scripts/world/items/TrashBag.gd")
 	var bag: RigidBody3D = RigidBody3D.new()
@@ -145,6 +182,32 @@ func _empty_into_bag(isys: Node) -> void:
 		bag.pickup(isys.hold_point)
 	isys.held_item       = bag
 	isys._held_from_slot = -1
+
+func _merge_bag(bag: RigidBody3D, isys: Node) -> void:
+	var bag_count: int = 0
+	if "contents" in bag:
+		bag_count = (bag.contents as Array).size()
+	if _total_count() + bag_count > capacity:
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
+		return
+
+	## Release the bag from the player's hand — same release sequence
+	## _try_store_held() uses for a normal item (Shelving.gd pattern), since
+	## the bag is leaving the player's hand permanently either way.
+	isys._is_holding_e = false
+	if bag.has_signal("knocked_out") and bag.knocked_out.is_connected(isys._on_item_knocked_out):
+		bag.knocked_out.disconnect(isys._on_item_knocked_out)
+	if isys._held_from_slot != -1 and isys.inventory != null:
+		isys.inventory.retrieve_item(isys._held_from_slot)
+	isys.held_item       = null
+	isys._held_from_slot = -1
+	if "is_held" in bag: bag.is_held = false
+	if "_hold_point" in bag: bag._hold_point = null
+
+	if "contents" in bag:
+		for record: Dictionary in (bag.contents as Array):
+			merged_trash_data.append(record)
+	bag.queue_free()   ## fully compacted into merged_trash_data now — nothing left to hold onto
 
 ## Generic per-item data capture via script-property reflection — works for
 ## ANY inventory_item type automatically, no per-item opt-in required from

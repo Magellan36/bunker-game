@@ -169,6 +169,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				_quick_drop()
 		else:
+			## Aug 2026 — shelf-family objects can have meaningful empty-
+			## handed F behavior now (TrashCan collecting into a bag).
+			## on_f_interact() returns bool: true if it consumed the press,
+			## false if it was a no-op (nothing held to store — true for
+			## every existing Shelving/EndTable/Dresser call and for a
+			## TrashCan with nothing to collect). Checked first, mirroring
+			## the held_item branch's existing shelf-priority convention;
+			## falls through unchanged to the stove-pot/pickup logic below
+			## when false, so this is a no-op for every object except the
+			## new trash-can-with-contents case.
+			if shelf != null and shelf.has_method("on_f_interact"):
+				if shelf.on_f_interact():
+					return
 			## Empty-handed — compare the closest stove-with-pot (if any)
 			## against the closest normal pickup candidate and grab whichever
 			## is TRULY closer. Confirmed Aug 2026 fix: previously the

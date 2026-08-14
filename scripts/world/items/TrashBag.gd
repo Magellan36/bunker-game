@@ -18,6 +18,7 @@ var shelf_stack_limit: int  = 1
 var shelf_item_type: String = "trash_bag"
 
 var contents: Array[Dictionary] = []
+var is_trash_bag: bool = true
 
 var _mesh: MeshInstance3D = null
 
