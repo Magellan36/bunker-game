@@ -1,3 +1,62 @@
+# Handover — Flashlight Player Self-Shadow Exclusion (Aug 2026)
+
+## What changed this session
+Fixed the "dome" artifact where the flashlight's own SpotLight3D
+self-shadowed the player's own mesh back into the center of its beam when
+`GraphicsSettings.flashlight_shadows` is on — the light origin sits
+extremely close to the player's body (handheld, mounted at HoldPoint), so
+the player was by far the closest/largest shadow-caster to its own light
+source.
+
+Added a new exclusive render layer (layer 12,
+`Player.PLAYER_SELF_LIGHT_LAYER_BIT`) that the player's mesh is tagged with
+(REPLACING its default layer, not adding to it) and that
+`Flashlight.gd`'s SpotLight3D clears from its own `light_cull_mask` at
+creation. Every other light in the game (DirectionalLight3D, WallLight,
+future lights) keeps its default all-layers cull mask untouched, so the
+player continues being lit/shadowed normally by everything except this one
+light. Godot has no per-light "lit but not a shadow-caster" flag — only the
+combined `light_cull_mask` — so full exclusion from this one light was the
+correct trade, especially since the floor-aimed beam never visibly lit the
+player's own body in the first place.
+
+Cross-thread note: this touched `Player.gd` (Player thread) and
+`Flashlight.gd` (Furniture/Items thread) from the Graphics thread, since
+the design is a lighting/shadow decision — flagged in both files' doc
+updates and this entry so neither thread is surprised by it.
+
+### Files modified
+- `scripts/player/Player.gd` — new `PLAYER_SELF_LIGHT_LAYER`/
+  `PLAYER_SELF_LIGHT_LAYER_BIT` constants, mesh layer tagging in `_ready()`.
+- `scripts/world/items/Flashlight.gd` — one `light_cull_mask` line in
+  `_build_light()`.
+- `docs/systems/graphics/README.md` — new "Flashlight self-shadow exclusion"
+  entry, Non-responsibilities cross-reference.
+- `docs/systems/player/README.md` — new Common-edits entry (layer 12 reuse
+  rule).
+- `docs/systems/furniture-items/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Turn on Flashlight Shadow Casting in Settings, turn the flashlight on,
+   walk around — the dome/shadow blob that used to sit in the center of the
+   beam should be gone; furniture/walls/other objects should still cast
+   normal shadows into the beam.
+3. Turn Shadow Casting back off — confirm no regression (should look
+   exactly like it did before this change, since `shadow_enabled` still
+   gates the whole feature the same as always).
+4. Confirm the player's mesh still renders normally from the main camera
+   (sanity check that `mesh.layers = PLAYER_SELF_LIGHT_LAYER_BIT` didn't
+   accidentally make it invisible — camera `cull_mask` is untouched and
+   defaults to all layers, but worth eyeballing after the change).
+5. Confirm the player still casts/receives shadows normally from
+   DirectionalLight3D (e.g. a visible shadow on the floor from the room's
+   ambient/wall lighting) — this is the "everything else stays normal"
+   check.
+
+---
+
 # Handover — Tilt-Shift Depth of Field Rework (Aug 2026)
 
 ## What changed this session

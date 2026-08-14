@@ -333,6 +333,13 @@ saved via `SaveManager` â€” a fresh load resets all of it (same known gap a
 the power system â€” see `docs/systems/world-core/README.md` Persistence).
 
 ## Common edits
+- **Flashlight self-shadow exclusion (Aug 2026):** `Flashlight.gd`'s
+  SpotLight3D clears `Player.PLAYER_SELF_LIGHT_LAYER_BIT` from its
+  `light_cull_mask` at creation — see
+  `docs/systems/graphics/README.md` "Flashlight self-shadow exclusion" for
+  the full design rationale (owned there since it's a lighting/shadow
+  decision, not an item-behavior one). Don't remove this cull-mask line
+  when touching `_build_light()` for unrelated reasons.
 - **New pickup item type:** implement the shared item contract above
   (Public API), copy the `from_inventory`/dual-follow-speed/culling pattern
   from `WaterBottle.gd` (the cleanest reference implementation) rather than

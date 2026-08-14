@@ -131,6 +131,17 @@ func _build_light() -> void:
 	_spot.spot_range             = LIGHT_RANGE
 	_spot.light_energy           = LIGHT_ENERGY
 	_spot.light_color            = COL_ON
+	## Excludes the player's own mesh from this light's illumination/shadow
+	## computation entirely — a handheld light this close to the player's
+	## own body otherwise self-shadows a dome right into the center of its
+	## own beam once flashlight_shadows is on (see
+	## docs/systems/graphics/README.md "Flashlight self-shadow exclusion").
+	## Player.gd tags its mesh with ONLY this bit (see
+	## Player.PLAYER_SELF_LIGHT_LAYER_BIT for why it's a replacement, not an
+	## addition) specifically so THIS is the only light in the game that
+	## stops seeing the player — every other light keeps its default cull
+	## mask and still lights/shadows the player normally.
+	_spot.light_cull_mask = _spot.light_cull_mask & ~Player.PLAYER_SELF_LIGHT_LAYER_BIT
 	_spot.visible                = false   ## off at spawn
 	_apply_graphics_settings()
 	add_child(_spot)

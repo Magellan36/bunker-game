@@ -38,6 +38,11 @@ shadow quality/render scale/FOV, persisted independently of game saves).
   (`docs/systems/ui/README.md`) is the Control-node panel that calls into
   this system's setters/getters; `GraphicsSettings.gd` itself never touches
   a Control node.
+- **Does not own Flashlight.gd's SpotLight3D itself** — that's
+  `docs/systems/furniture-items/README.md`'s file; this doc only tracks the
+  *design* of the render-layer self-shadow-exclusion scheme (see "Flashlight
+  self-shadow exclusion" above) since it's a lighting/shadow decision, the
+  same boundary reasoning as the DOF/camera settings this doc otherwise owns.
 
 ## Files
 | File | Lines | Role |
@@ -272,6 +277,29 @@ issue and can't blur through the middle of a single tall object.
 `GraphicsSettings.dof_enabled` gate, same build-mode-forces-off rule);
 `TiltShiftDOF.gd` is a dumb forwarder instantiated dynamically by
 `MainWorld` (same pattern as `LightingDirector`).
+
+### Flashlight self-shadow exclusion
+**Problem:** with `GraphicsSettings.flashlight_shadows` on, the player's own
+mesh — extremely close to the handheld SpotLight3D's origin — cast a large
+shadow straight back into the center of its own beam (a visible "dome").
+**Fix:** `Player.gd` tags its mesh with an exclusive render layer bit
+(`PLAYER_SELF_LIGHT_LAYER_BIT`, layer 12 — see `docs/systems/player/README.md`)
+that REPLACES rather than adds to the default layer, and
+`Flashlight.gd`'s SpotLight3D clears that one bit from its own
+`light_cull_mask` at creation. Every other light in the game keeps its
+default (all-layers) cull mask, so the player continues being lit/shadowed
+normally by everything except the flashlight — this was a deliberate
+choice, not a limitation: Godot has no per-light "lit but not a
+shadow-caster" flag, only the combined light_cull_mask, and the flashlight
+never visibly lit the player's own body in the first place (floor-aimed
+beam, fixed iso pitch), so excluding it from both together costs nothing
+visible while removing the self-shadow.
+**Scope note:** only the player's own capsule mesh is excluded — furniture,
+walls, and other objects still cast normal shadows into the flashlight
+beam when `flashlight_shadows` is on. If the flashlight's own held-item
+mesh (the flashlight body itself) turns out to cast a similar smaller
+self-shadow, that's a separate, not-yet-observed issue — flag it before
+extending this same layer-bit pattern to it.
 
 ---
 
