@@ -324,83 +324,81 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _build_fixture() -> void:
-	## Dark industrial metal material
-	var metal_mat: StandardMaterial3D = StandardMaterial3D.new()
-	metal_mat.albedo_color = Color(0.15, 0.15, 0.18, 1.0)
-	metal_mat.roughness    = 1.0
-	metal_mat.metallic     = 0.0
-	metal_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-	metal_mat.shading_mode  = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	## Rusty bronze metal for cage — matches reference image
+	var cage_mat: StandardMaterial3D = StandardMaterial3D.new()
+	cage_mat.albedo_color = Color(0.45, 0.28, 0.15, 1.0)
+	cage_mat.roughness    = 0.80
+	cage_mat.metallic     = 0.45
 
-	## Wall mounting plate (flat box against wall)
-	var plate_mi: MeshInstance3D = MeshInstance3D.new()
-	var plate: BoxMesh = BoxMesh.new()
-	plate.size = Vector3(0.18, 0.22, 0.025)
-	plate_mi.mesh = plate
-	plate_mi.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
-	plate_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	plate_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-	plate_mi.set_surface_override_material(0, metal_mat)
-	add_child(plate_mi)
+	## Frosted white glass for dome
+	var glass_mat: StandardMaterial3D = StandardMaterial3D.new()
+	glass_mat.albedo_color = Color(0.90, 0.92, 0.88, 1.0)
+	glass_mat.roughness    = 0.50
+	glass_mat.metallic     = 0.0
+	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass_mat.albedo_color.a = 0.92
 
-	## Horizontal arm extending outward from plate
-	var arm_mi: MeshInstance3D = MeshInstance3D.new()
-	var arm: CylinderMesh = CylinderMesh.new()
-	arm.top_radius = 0.015
-	arm.bottom_radius = 0.015
-	arm.height = 0.18
-	arm.radial_segments = 8
-	arm_mi.mesh = arm
-	arm_mi.position = Vector3(0.0, LAMP_Y_OFFSET + 0.08, -0.10)
-	arm_mi.rotation.x = PI * 0.5   ## lay flat along -Z
-	arm_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	arm_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-	arm_mi.set_surface_override_material(0, metal_mat)
-	add_child(arm_mi)
+	## Outer mounting ring (torus)
+	var ring_mi: MeshInstance3D = MeshInstance3D.new()
+	var ring: TorusMesh = TorusMesh.new()
+	ring.inner_radius = 0.14
+	ring.outer_radius = 0.17
+	ring_mi.mesh = ring
+	ring_mi.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
+	ring_mi.rotation.x = PI * 0.5   ## lie flat against wall
+	ring_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ring_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	ring_mi.set_surface_override_material(0, cage_mat)
+	add_child(ring_mi)
 
-	## Vertical connector from arm to shade
-	var conn_mi: MeshInstance3D = MeshInstance3D.new()
-	var conn: CylinderMesh = CylinderMesh.new()
-	conn.top_radius = 0.012
-	conn.bottom_radius = 0.012
-	conn.height = 0.06
-	conn.radial_segments = 8
-	conn_mi.mesh = conn
-	conn_mi.position = Vector3(0.0, LAMP_Y_OFFSET + 0.05, -0.18)
-	conn_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	conn_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-	conn_mi.set_surface_override_material(0, metal_mat)
-	add_child(conn_mi)
+	## Frosted glass dome (flattened sphere behind cage)
+	var dome_mi: MeshInstance3D = MeshInstance3D.new()
+	var dome: SphereMesh = SphereMesh.new()
+	dome.radius = 0.14
+	dome.height = 0.10
+	dome_mi.mesh = dome
+	dome_mi.position = Vector3(0.0, LAMP_Y_OFFSET, 0.01)
+	dome_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	dome_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	dome_mi.set_surface_override_material(0, glass_mat)
+	add_child(dome_mi)
 
-	## Lamp shade (cone/housing pointing downward)
-	var shade_mi: MeshInstance3D = MeshInstance3D.new()
-	var shade: CylinderMesh = CylinderMesh.new()
-	shade.top_radius = 0.01
-	shade.bottom_radius = 0.07
-	shade.height = 0.10
-	shade.radial_segments = 12
-	shade_mi.mesh = shade
-	shade_mi.position = Vector3(0.0, LAMP_Y_OFFSET - 0.02, -0.18)
-	shade_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	shade_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-	shade_mi.set_surface_override_material(0, metal_mat)
-	add_child(shade_mi)
+	## Cage bars — vertical (2 bars)
+	for x_off: float in [-0.07, 0.07]:
+		var bar_mi: MeshInstance3D = MeshInstance3D.new()
+		var bar: BoxMesh = BoxMesh.new()
+		bar.size = Vector3(0.018, 0.30, 0.018)
+		bar_mi.mesh = bar
+		bar_mi.position = Vector3(x_off, LAMP_Y_OFFSET, 0.03)
+		bar_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		bar_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+		bar_mi.set_surface_override_material(0, cage_mat)
+		add_child(bar_mi)
 
-	## Bulb (small emissive sphere inside shade)
-	var bulb_mi: MeshInstance3D = MeshInstance3D.new()
-	var bulb: SphereMesh = SphereMesh.new()
-	bulb.radius = 0.02
-	bulb.height = 0.04
-	bulb_mi.mesh = bulb
-	bulb_mi.position = Vector3(0.0, LAMP_Y_OFFSET - 0.01, -0.18)
-	var bulb_mat: StandardMaterial3D = StandardMaterial3D.new()
-	bulb_mat.albedo_color = Color(1.0, 0.90, 0.70, 1.0)
-	bulb_mat.emission_enabled = true
-	bulb_mat.emission = Color(1.0, 0.82, 0.50, 1.0)
-	bulb_mat.emission_energy_multiplier = 0.5
-	bulb_mat.roughness = 0.3
-	bulb_mi.set_surface_override_material(0, bulb_mat)
-	add_child(bulb_mi)
+	## Cage bars — horizontal (2 bars)
+	for y_off: float in [-0.07, 0.07]:
+		var bar_mi: MeshInstance3D = MeshInstance3D.new()
+		var bar: BoxMesh = BoxMesh.new()
+		bar.size = Vector3(0.30, 0.018, 0.018)
+		bar_mi.mesh = bar
+		bar_mi.position = Vector3(0.0, LAMP_Y_OFFSET + y_off, 0.03)
+		bar_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		bar_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+		bar_mi.set_surface_override_material(0, cage_mat)
+		add_child(bar_mi)
+
+	## Center cross bars (smaller, for the crossing pattern)
+	for x_off: float in [-0.07, 0.07]:
+		for y_off: float in [-0.07, 0.07]:
+			var cross_mi: MeshInstance3D = MeshInstance3D.new()
+			var cross: BoxMesh = BoxMesh.new()
+			cross.size = Vector3(0.014, 0.014, 0.022)
+			cross_mi.mesh = cross
+			cross_mi.position = Vector3(x_off, LAMP_Y_OFFSET + y_off, 0.035)
+			cross_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			cross_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+			cross_mi.set_surface_override_material(0, cage_mat)
+			add_child(cross_mi)
 
 	# ── OmniLight3D — sits at lamp centre, radiates in all directions ─────────
 	var omni: OmniLight3D = OmniLight3D.new()
@@ -411,7 +409,7 @@ func _build_fixture() -> void:
 	omni.light_indirect_energy = 1.0
 	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
 	omni.shadow_enabled        = false
-	omni.position              = Vector3(0.0, LAMP_Y_OFFSET - 0.02, -0.18)
+	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, 0.02)
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
 	omni.visible = false
 	add_child(omni)
@@ -432,7 +430,7 @@ func _build_fixture() -> void:
 
 # ─── Static helper: ghost mesh for BuildModeController ───────────────────────
 static func build_ghost_mesh() -> Mesh:
-	## Ghost shows the mounting plate + shade extent
+	## Ghost shows the oval cage outline
 	var bm: BoxMesh = BoxMesh.new()
-	bm.size = Vector3(0.18, 0.22, 0.20)
+	bm.size = Vector3(0.34, 0.34, 0.06)
 	return bm
