@@ -44,9 +44,12 @@ func _build_mesh() -> void:
 	## Collision (procedural, not scene-authored — this object has no .tscn)
 	var col: CollisionShape3D = CollisionShape3D.new()
 	var shape: CylinderShape3D = CylinderShape3D.new()
-	shape.top_radius    = 0.24
-	shape.bottom_radius = 0.19
-	shape.height        = 0.62
+	## CylinderShape3D has no top/bottom taper (unlike the CylinderMesh above)
+	## — use a single uniform radius. Use the WIDER of the two (0.24, the
+	## top) rather than an average, so collision fully encloses the tapered
+	## visual mesh instead of letting items clip through the narrower base.
+	shape.radius = 0.24
+	shape.height = 0.62
 	col.shape = shape
 	col.position = Vector3(0.0, 0.31, 0.0)
 	add_child(col)

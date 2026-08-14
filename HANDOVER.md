@@ -84,6 +84,10 @@ else in the scene is affected by this change.
 > project's first AMBIENT hover panel (`TrashBagInfoPanel.gd` — new UI category: proximity
 > scan, non-modal, non-input-blocking) showing the nearest bag's prompt + contents. Light
 > Player-thread coordination: the panel only reads `player_ref` position + `get_held_item()`.
+> Fix (same feature): `CylinderShape3D` has no top/bottom taper (only `CylinderMesh` does) —
+> collision now uses a single uniform `radius` (0.24, the wider top) so it fully encloses the
+> tapered visual instead of using the invalid top/bottom properties, caught on first
+> build-mode entry.
 
 > **Cooking pot cleaning immunity widened (Aug 2026):** Corrected from last pass — a pot on a
 > stove is now untouchable by Cleaning the whole time it's hosted there, not just while actively
