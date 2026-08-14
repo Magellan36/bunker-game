@@ -22,7 +22,7 @@ func _wdbg(msg: String) -> void:
 		print(msg)
 
 # ─── Model path ───────────────────────────────────────────────────────────────
-## Procedural mesh — no GLB needed. Industrial wall lamp style.
+const MODEL_PATH: String = "res://assets/models/industrial_wall_lamp.glb"
 
 # ─── Fixture geometry constants (match GLB bounds exactly) ───────────────────
 const LAMP_W: float = 0.2735
@@ -75,9 +75,6 @@ var _pm_node_key: String = ""
 
 ## Track shed state so set_powered(true) knows to restore full brightness.
 var _is_shed: bool = false
-
-## Fixture parent node — rotated 90° to sit vertically on wall
-var _fixture: Node3D = null
 
 ## Lazily-created shared priority panel (PowerPriorityUI). Reused across opens.
 var _prio_ui: CanvasLayer = null
@@ -327,91 +324,30 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _build_fixture() -> void:
-	## Parent node for rotation — rotate entire fixture 90° to sit vertically
-	_fixture = Node3D.new()
-	_fixture.rotation.z = PI * 0.5
-	_fixture.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
-	add_child(_fixture)
+	# ── Load GLB model ────────────────────────────────────────────────────────
+	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
 
-	## Rusty bronze metal for cage — matches reference image
-	var cage_mat: StandardMaterial3D = StandardMaterial3D.new()
-	cage_mat.albedo_color = Color(0.45, 0.28, 0.15, 1.0)
-	cage_mat.roughness    = 0.80
-	cage_mat.metallic     = 0.45
-
-	## Frosted white glass for dome
-	var glass_mat: StandardMaterial3D = StandardMaterial3D.new()
-	glass_mat.albedo_color = Color(0.90, 0.92, 0.88, 1.0)
-	glass_mat.roughness    = 0.50
-	glass_mat.metallic     = 0.0
-	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	glass_mat.albedo_color.a = 0.92
-
-	## Outer mounting ring (torus)
-	var ring_mi: MeshInstance3D = MeshInstance3D.new()
-	var ring: TorusMesh = TorusMesh.new()
-	ring.inner_radius = 0.14
-	ring.outer_radius = 0.17
-	ring_mi.mesh = ring
-	ring_mi.rotation.x = PI * 0.5
-	ring_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	ring_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-	ring_mi.set_surface_override_material(0, cage_mat)
-	_fixture.add_child(ring_mi)
-
-	## Frosted glass dome (flattened sphere behind cage)
-	var dome_mi: MeshInstance3D = MeshInstance3D.new()
-	var dome: SphereMesh = SphereMesh.new()
-	dome.radius = 0.12
-	dome.height = 0.04
-	dome_mi.mesh = dome
-	dome_mi.position = Vector3(0.0, 0.0, -0.01)
-	dome_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	dome_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-	dome_mi.set_surface_override_material(0, glass_mat)
-	_fixture.add_child(dome_mi)
-
-	## Cage bars — curved to match dome (use torus arcs for bulbous shape)
-	## Vertical curved bars (left and right arcs)
-	for x_off: float in [-0.07, 0.07]:
-		var bar_mi: MeshInstance3D = MeshInstance3D.new()
-		var bar: TorusMesh = TorusMesh.new()
-		bar.inner_radius = 0.14
-		bar.outer_radius = 0.155
-		bar_mi.mesh = bar
-		bar_mi.position = Vector3(x_off, 0.0, 0.02)
-		bar_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		bar_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-		bar_mi.set_surface_override_material(0, cage_mat)
-		_fixture.add_child(bar_mi)
-
-	## Horizontal curved bars (top and bottom arcs)
-	for y_off: float in [-0.07, 0.07]:
-		var bar_mi: MeshInstance3D = MeshInstance3D.new()
-		var bar: TorusMesh = TorusMesh.new()
-		bar.inner_radius = 0.14
-		bar.outer_radius = 0.155
-		bar_mi.mesh = bar
-		bar_mi.position = Vector3(0.0, y_off, 0.02)
-		bar_mi.rotation.z = PI * 0.5
-		bar_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		bar_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-		bar_mi.set_surface_override_material(0, cage_mat)
-		_fixture.add_child(bar_mi)
-
-	## Center cross joints (at intersections)
-	for x_off: float in [-0.07, 0.07]:
-		for y_off: float in [-0.07, 0.07]:
-			var cross_mi: MeshInstance3D = MeshInstance3D.new()
-			var cross: SphereMesh = SphereMesh.new()
-			cross.radius = 0.014
-			cross.height = 0.028
-			cross_mi.mesh = cross
-			cross_mi.position = Vector3(x_off, y_off, 0.03)
-			cross_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			cross_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-			cross_mi.set_surface_override_material(0, cage_mat)
-			_fixture.add_child(cross_mi)
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			model.position        = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
+			model.rotation_degrees = Vector3(0.0, 180.0, 0.0)
+			_remove_collision_recursive(model)
+			add_child(model)
+			_apply_matte_override(model)
+	else:
+		# Fallback box if model missing
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		var bm: BoxMesh = BoxMesh.new()
+		bm.size = Vector3(LAMP_W, LAMP_H, LAMP_D)
+		mi.mesh = bm
+		mi.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.albedo_color = Color(0.18, 0.18, 0.20, 1.0)
+		mat.metallic     = 0.0
+		mat.roughness    = 1.0
+		mi.set_surface_override_material(0, mat)
+		add_child(mi)
 
 	# ── OmniLight3D — sits at lamp centre, radiates in all directions ─────────
 	var omni: OmniLight3D = OmniLight3D.new()
@@ -422,10 +358,10 @@ func _build_fixture() -> void:
 	omni.light_indirect_energy = 1.0
 	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
 	omni.shadow_enabled        = false
-	omni.position              = Vector3(0.0, 0.0, 0.02)
+	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.5)
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
 	omni.visible = false
-	_fixture.add_child(omni)
+	add_child(omni)
 	_omni = omni
 
 	# ── Interaction proxy — lets the player press E to set power priority ──────
@@ -441,9 +377,46 @@ func _build_fixture() -> void:
 		proxy.set("host", self)
 
 
+# ─── Override all GLB mesh materials to be fully matte, no shadows ───────────
+func _apply_matte_override(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mi: MeshInstance3D = node as MeshInstance3D
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.gi_mode     = GeometryInstance3D.GI_MODE_DISABLED
+		var mesh: Mesh = mi.mesh
+		if mesh != null:
+			for s: int in range(mesh.get_surface_count()):
+				var orig: Material = mesh.surface_get_material(s)
+				var base_color: Color = Color(0.15, 0.15, 0.18, 1.0)
+				if orig is StandardMaterial3D:
+					base_color = (orig as StandardMaterial3D).albedo_color
+				var mat: StandardMaterial3D = StandardMaterial3D.new()
+				mat.albedo_color = base_color
+				mat.metallic     = 0.0
+				mat.roughness    = 1.0
+				mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+				mat.shading_mode  = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+				mi.set_surface_override_material(s, mat)
+	for child: Node in node.get_children():
+		_apply_matte_override(child)
+
+
+# ─── Strip collision nodes from GLB import ───────────────────────────────────
+func _remove_collision_recursive(node: Node) -> void:
+	var children: Array = []
+	for child in node.get_children():
+		children.append(child)
+	for child in children:
+		if child is CollisionShape3D or child is CollisionPolygon3D:
+			child.queue_free()
+		elif child is StaticBody3D or child is RigidBody3D or child is Area3D:
+			child.queue_free()
+		else:
+			_remove_collision_recursive(child)
+
+
 # ─── Static helper: ghost mesh for BuildModeController ───────────────────────
 static func build_ghost_mesh() -> Mesh:
-	## Ghost shows the oval cage outline
 	var bm: BoxMesh = BoxMesh.new()
-	bm.size = Vector3(0.34, 0.34, 0.06)
+	bm.size = Vector3(0.2735, 0.4300, 0.1404)
 	return bm
