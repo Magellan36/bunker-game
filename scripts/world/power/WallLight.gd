@@ -76,6 +76,9 @@ var _pm_node_key: String = ""
 ## Track shed state so set_powered(true) knows to restore full brightness.
 var _is_shed: bool = false
 
+## Fixture parent node — rotated 90° to sit vertically on wall
+var _fixture: Node3D = null
+
 ## Lazily-created shared priority panel (PowerPriorityUI). Reused across opens.
 var _prio_ui: CanvasLayer = null
 ## Tracks whether the player is currently powered (for the interact prompt).
@@ -324,6 +327,12 @@ func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _build_fixture() -> void:
+	## Parent node for rotation — rotate entire fixture 90° to sit vertically
+	_fixture = Node3D.new()
+	_fixture.rotation.z = PI * 0.5
+	_fixture.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
+	add_child(_fixture)
+
 	## Rusty bronze metal for cage — matches reference image
 	var cage_mat: StandardMaterial3D = StandardMaterial3D.new()
 	cage_mat.albedo_color = Color(0.45, 0.28, 0.15, 1.0)
@@ -344,61 +353,65 @@ func _build_fixture() -> void:
 	ring.inner_radius = 0.14
 	ring.outer_radius = 0.17
 	ring_mi.mesh = ring
-	ring_mi.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
-	ring_mi.rotation.x = PI * 0.5   ## lie flat against wall
+	ring_mi.rotation.x = PI * 0.5
 	ring_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ring_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 	ring_mi.set_surface_override_material(0, cage_mat)
-	add_child(ring_mi)
+	_fixture.add_child(ring_mi)
 
-	## Frosted glass dome (flattened sphere behind cage — subtle, not bulbous)
+	## Frosted glass dome (flattened sphere behind cage)
 	var dome_mi: MeshInstance3D = MeshInstance3D.new()
 	var dome: SphereMesh = SphereMesh.new()
 	dome.radius = 0.12
 	dome.height = 0.04
 	dome_mi.mesh = dome
-	dome_mi.position = Vector3(0.0, LAMP_Y_OFFSET, -0.01)
+	dome_mi.position = Vector3(0.0, 0.0, -0.01)
 	dome_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	dome_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 	dome_mi.set_surface_override_material(0, glass_mat)
-	add_child(dome_mi)
+	_fixture.add_child(dome_mi)
 
-	## Cage bars — vertical (2 bars, thicker and more forward)
+	## Cage bars — curved to match dome (use torus arcs for bulbous shape)
+	## Vertical curved bars (left and right arcs)
 	for x_off: float in [-0.07, 0.07]:
 		var bar_mi: MeshInstance3D = MeshInstance3D.new()
-		var bar: BoxMesh = BoxMesh.new()
-		bar.size = Vector3(0.022, 0.32, 0.022)
+		var bar: TorusMesh = TorusMesh.new()
+		bar.inner_radius = 0.14
+		bar.outer_radius = 0.155
 		bar_mi.mesh = bar
-		bar_mi.position = Vector3(x_off, LAMP_Y_OFFSET, 0.04)
+		bar_mi.position = Vector3(x_off, 0.0, 0.02)
 		bar_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		bar_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		bar_mi.set_surface_override_material(0, cage_mat)
-		add_child(bar_mi)
+		_fixture.add_child(bar_mi)
 
-	## Cage bars — horizontal (2 bars, thicker and more forward)
+	## Horizontal curved bars (top and bottom arcs)
 	for y_off: float in [-0.07, 0.07]:
 		var bar_mi: MeshInstance3D = MeshInstance3D.new()
-		var bar: BoxMesh = BoxMesh.new()
-		bar.size = Vector3(0.32, 0.022, 0.022)
+		var bar: TorusMesh = TorusMesh.new()
+		bar.inner_radius = 0.14
+		bar.outer_radius = 0.155
 		bar_mi.mesh = bar
-		bar_mi.position = Vector3(0.0, LAMP_Y_OFFSET + y_off, 0.04)
+		bar_mi.position = Vector3(0.0, y_off, 0.02)
+		bar_mi.rotation.z = PI * 0.5
 		bar_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		bar_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		bar_mi.set_surface_override_material(0, cage_mat)
-		add_child(bar_mi)
+		_fixture.add_child(bar_mi)
 
-	## Center cross bars (at intersections, more forward)
+	## Center cross joints (at intersections)
 	for x_off: float in [-0.07, 0.07]:
 		for y_off: float in [-0.07, 0.07]:
 			var cross_mi: MeshInstance3D = MeshInstance3D.new()
-			var cross: BoxMesh = BoxMesh.new()
-			cross.size = Vector3(0.018, 0.018, 0.026)
+			var cross: SphereMesh = SphereMesh.new()
+			cross.radius = 0.014
+			cross.height = 0.028
 			cross_mi.mesh = cross
-			cross_mi.position = Vector3(x_off, LAMP_Y_OFFSET + y_off, 0.045)
+			cross_mi.position = Vector3(x_off, y_off, 0.03)
 			cross_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			cross_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 			cross_mi.set_surface_override_material(0, cage_mat)
-			add_child(cross_mi)
+			_fixture.add_child(cross_mi)
 
 	# ── OmniLight3D — sits at lamp centre, radiates in all directions ─────────
 	var omni: OmniLight3D = OmniLight3D.new()
@@ -409,10 +422,10 @@ func _build_fixture() -> void:
 	omni.light_indirect_energy = 1.0
 	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
 	omni.shadow_enabled        = false
-	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, 0.02)
+	omni.position              = Vector3(0.0, 0.0, 0.02)
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
 	omni.visible = false
-	add_child(omni)
+	_fixture.add_child(omni)
 	_omni = omni
 
 	# ── Interaction proxy — lets the player press E to set power priority ──────
