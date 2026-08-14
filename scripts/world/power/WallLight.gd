@@ -357,12 +357,21 @@ func _build_fixture() -> void:
 	omni.omni_attenuation      = 0.6
 	omni.light_indirect_energy = 1.0
 	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
-	omni.shadow_enabled        = false
 	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.5)
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
 	omni.visible = false
 	add_child(omni)
 	_omni = omni
+	## Aug 2026 — real-time shadow casting, generalized across all dynamic
+	## lights (Flashlight/WallLight/GrowLight) via
+	## GraphicsSettings.shadow_casting_enabled (preset-driven: HIGH/ULTRA
+	## on, LOW/MEDIUM off). Side benefit: this also stops the omni's light
+	## from bleeding straight through the wall mesh behind the fixture into
+	## whatever's on the other side — the wall now correctly occludes it
+	## once shadows are on. See docs/systems/graphics/README.md "Unified
+	## dynamic shadow casting".
+	_apply_graphics_settings()
+	GraphicsSettings.settings_changed.connect(_apply_graphics_settings)
 
 	# ── Interaction proxy — lets the player press E to set power priority ──────
 	## WallLight is a plain Node3D (no body), so we attach a small StaticBody3D
@@ -375,6 +384,16 @@ func _build_fixture() -> void:
 		proxy.position = Vector3(0.0, LAMP_Y_OFFSET, 0.0)
 		add_child(proxy)
 		proxy.set("host", self)
+
+
+## Applies GraphicsSettings.shadow_casting_enabled to this fixture's
+## OmniLight3D. Called once at build time and again on every
+## GraphicsSettings.settings_changed (preset switch or individual toggle) —
+## same live-update pattern Flashlight.gd already uses.
+func _apply_graphics_settings() -> void:
+	if _omni == null:
+		return
+	_omni.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 
 
 # ─── Override all GLB mesh materials to be fully matte, no shadows ───────────

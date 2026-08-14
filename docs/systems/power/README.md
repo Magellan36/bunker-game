@@ -197,6 +197,14 @@ UI panel.open() ← player interacts with device → reads PowerManager getters,
 ```
 
 ## Common edits
+- **Shadow casting on WallLight/GrowLight (Aug 2026):** both fixtures'
+  lights now respect `GraphicsSettings.shadow_casting_enabled` via their
+  own `_apply_graphics_settings()`, connected to
+  `GraphicsSettings.settings_changed` the same way `Flashlight.gd` does.
+  GrowLight's light is a `SpotLight3D` now, not `OmniLight3D` — see
+  `docs/systems/graphics/README.md` "Unified dynamic shadow casting" for
+  full rationale. Don't revert GrowLight to Omni without re-reading that
+  note first (it's a shadow-cost decision, not an arbitrary type choice).
 - **Add a new consumer device type:** implement `set_powered(bool)` on it,
   call `PowerManager.register_consumer(...)` in `_ready()`, add a default
   wattage/priority to `DeviceDatabase.WATT_RATINGS` /

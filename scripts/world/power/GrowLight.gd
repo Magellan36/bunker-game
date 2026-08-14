@@ -79,18 +79,21 @@ const TUBE_ENERGY_ON: float = 2.0
 ## a grow light should read as "bright grow-lamp white," not "cozy room
 ## light." Fog contribution reuses WallLight's same low-contribution fix
 ## (avoid ambient haze buildup with many lights in one room).
-const OMNI_LIGHT_ENERGY: float = 1.1
-const OMNI_LIGHT_RANGE:  float = 3.0
-const OMNI_VOLUMETRIC_FOG_ENERGY: float = 0.15
+const SPOT_LIGHT_ENERGY: float = 1.1
+const SPOT_LIGHT_RANGE:  float = 3.0
+const SPOT_VOLUMETRIC_FOG_ENERGY: float = 0.15
 ## Cheap perf guard for large farm rooms (plan §5's "if FPS dips, cull the
-## OmniLight3D node itself beyond some camera distance, keep the emissive
+## light node itself beyond some camera distance, keep the emissive
 ## mesh at all distances" — built proactively via Godot's own native
 ## distance-fade rather than a custom per-frame camera-distance check,
 ## since it costs nothing to include now. Begin distance is generous (well
-## beyond OMNI_LIGHT_RANGE) so it never visibly pops during normal play —
+## beyond SPOT_LIGHT_RANGE) so it never visibly pops during normal play —
 ## it only caps the worst case of dozens of lights rendering at once.
-const OMNI_DISTANCE_FADE_BEGIN:  float = 18.0
-const OMNI_DISTANCE_FADE_LENGTH: float = 4.0
+## (Renamed from OMNI_* Aug 2026 when this fixture's light was converted
+## from OmniLight3D to a downward-facing SpotLight3D — see
+## _build_spot_light() below.)
+const SPOT_DISTANCE_FADE_BEGIN:  float = 18.0
+const SPOT_DISTANCE_FADE_LENGTH: float = 4.0
 
 ## Polish Plan Group 0 item 20 — 4 thin corner support wires running from the
 ## cover plate up to the 3.0m ceiling directly above. WALL_HEIGHT_M mirrors
@@ -185,8 +188,10 @@ static func get_best_growth_speed_near(pos: Vector3) -> float:
 ## Tube materials — one per tube so all 3 update together in set_powered()/set_shed().
 var _tube_mats: Array[StandardMaterial3D] = []
 
-## Polish Plan Group 2 item 5 — the real OmniLight3D (WallLight pattern).
-var _omni: OmniLight3D = null
+## Polish Plan Group 2 item 5 — the real light (WallLight pattern), later
+## converted from OmniLight3D to a downward-facing SpotLight3D (Aug 2026 —
+## see _build_spot_light() below for why).
+var _spot: SpotLight3D = null
 
 ## Lazily-created shared priority panel (PowerPriorityUI). Reused across opens.
 var _prio_ui: CanvasLayer = null
@@ -358,21 +363,21 @@ func _refresh_tubes() -> void:
 		mat.emission_energy_multiplier = energy
 		mat.albedo_color = col if energy > 0.0 else Color(0.25, 0.25, 0.26, 1.0)
 
-	## Polish Plan Group 2 item 5 — real OmniLight3D mirrors the tube state
+	## Polish Plan Group 2 item 5 — real light mirrors the tube state
 	## exactly: full white when powered, faint orange when shed, dark/off
 	## otherwise (same 3-state shape as WallLight.set_powered()/set_shed()).
-	if _omni == null:
+	if _spot == null:
 		return
 	if _is_powered:
-		_omni.light_color  = TUBE_COLOR_ON
-		_omni.light_energy = OMNI_LIGHT_ENERGY
-		_omni.visible      = true
+		_spot.light_color  = TUBE_COLOR_ON
+		_spot.light_energy = SPOT_LIGHT_ENERGY
+		_spot.visible      = true
 	elif _is_shed:
-		_omni.light_color  = SHED_COLOR
-		_omni.light_energy = SHED_ENERGY
-		_omni.visible      = true
+		_spot.light_color  = SHED_COLOR
+		_spot.light_energy = SHED_ENERGY
+		_spot.visible      = true
 	else:
-		_omni.visible = false
+		_spot.visible = false
 
 ## Growth contract read by FarmPlant.gd — see file header.
 func get_active_growth_speed() -> float:
@@ -495,27 +500,59 @@ func _build_fixture() -> void:
 	add_child(shape)
 
 	_build_support_wires()
-	_build_omni_light()
+	_build_spot_light()
 
-## Polish Plan Group 2 item 5 — real OmniLight3D, sits at fixture centre
-## (same as the 3 tubes it's meant to represent). Starts dark/invisible —
-## only turns on via _refresh_tubes() once PowerManager calls set_powered().
-func _build_omni_light() -> void:
-	var omni: OmniLight3D = OmniLight3D.new()
-	omni.light_color                 = TUBE_COLOR_ON
-	omni.light_energy                = OMNI_LIGHT_ENERGY
-	omni.omni_range                  = OMNI_LIGHT_RANGE
-	omni.omni_attenuation            = 0.6
-	omni.light_indirect_energy       = 1.0
-	omni.light_volumetric_fog_energy = OMNI_VOLUMETRIC_FOG_ENERGY
-	omni.shadow_enabled              = false
-	omni.distance_fade_enabled       = true
-	omni.distance_fade_begin         = OMNI_DISTANCE_FADE_BEGIN
-	omni.distance_fade_length        = OMNI_DISTANCE_FADE_LENGTH
-	omni.position                    = Vector3.ZERO
-	omni.visible                     = false
-	add_child(omni)
-	_omni = omni
+## Aug 2026 — converted from OmniLight3D to a downward-facing SpotLight3D
+## (was Polish Plan Group 2 item 5's OmniLight3D). Two independent reasons:
+## (1) physical correctness — a grow light fixture only ever shines down
+## onto the tray below it; an all-directions Omni was lighting the ceiling/
+## walls/sideways too, which never made sense for this fixture. (2) cost —
+## SpotLight3D shadows use a single shadow map vs. Omni's 6-face cubemap,
+## which matters concretely here because SPOT_LIGHT_ENERGY/RANGE's own
+## doc-comments above already flag that a dense farm room can hold far more
+## of these than a base has wall lights.
+##
+## rotation_degrees.x = -90 points the default -Z forward direction
+## straight down — same sign convention as Flashlight.gd's BEAM_PITCH_DEG
+## (negative X pitches down; verified against that file before writing
+## this). spot_angle = 35.0 is a first-pass eyeballed value sized to cover
+## roughly a 1-2 tile tray footprint from this fixture's mounting height
+## near the ceiling (see WIRE_LENGTH/GROW_LIGHT_PLACEMENT_Y above for the
+## mount height) — tune in the Inspector if it reads too narrow/wide once
+## seen over a real placed tray in-editor; this wasn't measured against
+## FarmingTray.gd's actual footprint dimensions.
+##
+## Sits at fixture centre (same as the 3 tubes it's meant to represent).
+## Starts dark/invisible — only turns on via _refresh_tubes() once
+## PowerManager calls set_powered().
+func _build_spot_light() -> void:
+	var spot: SpotLight3D = SpotLight3D.new()
+	spot.light_color                 = TUBE_COLOR_ON
+	spot.light_energy                = SPOT_LIGHT_ENERGY
+	spot.spot_range                  = SPOT_LIGHT_RANGE
+	spot.spot_angle                  = 35.0
+	spot.spot_angle_attenuation      = 0.6
+	spot.light_indirect_energy       = 1.0
+	spot.light_volumetric_fog_energy = SPOT_VOLUMETRIC_FOG_ENERGY
+	spot.distance_fade_enabled       = true
+	spot.distance_fade_begin         = SPOT_DISTANCE_FADE_BEGIN
+	spot.distance_fade_length        = SPOT_DISTANCE_FADE_LENGTH
+	spot.position                    = Vector3.ZERO
+	spot.rotation_degrees            = Vector3(-90.0, 0.0, 0.0)
+	spot.visible                     = false
+	add_child(spot)
+	_spot = spot
+	_apply_graphics_settings()
+	GraphicsSettings.settings_changed.connect(_apply_graphics_settings)
+
+## Applies GraphicsSettings.shadow_casting_enabled to this fixture's
+## SpotLight3D. Called once at build time and again on every
+## GraphicsSettings.settings_changed (preset switch or individual toggle) —
+## same live-update pattern Flashlight.gd/WallLight.gd use.
+func _apply_graphics_settings() -> void:
+	if _spot == null:
+		return
+	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 
 ## 4 thin corner support wires (Polish Plan Group 0 item 20) — one per
 ## fixture footprint corner (matches the cover plate's 0.66×0.66 footprint,

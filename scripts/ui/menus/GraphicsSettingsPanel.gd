@@ -284,14 +284,21 @@ func _build_content() -> void:
 	_vbox.add_child(_glow_check)
 	_dof_check            = _make_checkbox("Depth of Field", _on_dof_toggled)
 	_vbox.add_child(_dof_check)
+	## Aug 2026 — generalized from flashlight-only to all dynamic
+	## shadow-casting lights (Flashlight, WallLight, GrowLight; see
+	## docs/systems/graphics/README.md "Unified dynamic shadow casting").
+	## Preset-driven now (LOW/MEDIUM off, HIGH/ULTRA on), so it lives here
+	## with the other preset-tier toggles instead of under Flashlight —
+	## the "(opt-in)" label is gone since it's an ordinary preset-tier
+	## quality setting now, not opt-in-only.
+	_shadow_check         = _make_checkbox("Shadow Casting", _on_shadow_toggled)
+	_vbox.add_child(_shadow_check)
 
 	## 5. Flashlight
 	_vbox.add_child(HSeparator.new())
 	_vbox.add_child(UIKit.make_section_label("FLASHLIGHT", _theme))
 	_vol_check            = _make_checkbox("Beam Volumetrics", _on_vol_toggled)
 	_vbox.add_child(_vol_check)
-	_shadow_check         = _make_checkbox("Shadow Casting (opt-in)", _on_shadow_toggled)
-	_vbox.add_child(_shadow_check)
 
 	## 6. Camera
 	_vbox.add_child(HSeparator.new())
@@ -354,7 +361,7 @@ func _refresh_from_settings() -> void:
 
 	## Flashlight
 	_vol_check.button_pressed       = GraphicsSettings.flashlight_volumetrics
-	_shadow_check.button_pressed    = GraphicsSettings.flashlight_shadows
+	_shadow_check.button_pressed    = GraphicsSettings.shadow_casting_enabled
 
 	## Camera
 	_fov_slider.value = GraphicsSettings.camera_fov
@@ -419,7 +426,7 @@ func _on_vol_toggled(pressed: bool) -> void:
 	GraphicsSettings.set_setting("flashlight_volumetrics", pressed)
 
 func _on_shadow_toggled(pressed: bool) -> void:
-	GraphicsSettings.set_setting("flashlight_shadows", pressed)
+	GraphicsSettings.set_setting("shadow_casting_enabled", pressed)
 
 func _on_fov_changed(value: float) -> void:
 	GraphicsSettings.set_setting_live("camera_fov", value)

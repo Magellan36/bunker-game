@@ -1,3 +1,90 @@
+# Handover — Unified Dynamic Shadow Casting (Aug 2026)
+
+## What changed this session
+Generalized `GraphicsSettings.flashlight_shadows` (opt-in-only, flashlight
+exclusive) into `shadow_casting_enabled` — a single preset-driven toggle
+(LOW/MEDIUM off, HIGH/ULTRA on, still manually overridable) that now gates
+real-time shadow casting on all three dynamic lights: Flashlight,
+WallLight, GrowLight. Settings panel's "Shadow Casting" checkbox moved from
+the Flashlight section to Advanced Quality and dropped its "(opt-in)"
+label.
+
+Each light's shape was handled according to its actual geometry rather
+than uniformly flipping a bool: Flashlight (SpotLight3D) needed no shape
+change. WallLight stays OmniLight3D (correct for a wall fixture) — turning
+its shadow on also fixes a latent bug where its light bled straight through
+the wall mesh into whatever's behind it. GrowLight was converted from
+OmniLight3D to a downward-facing SpotLight3D
+(`rotation_degrees.x = -90`, `spot_angle = 35.0`) — both for physical
+correctness (it only ever lights the tray below it) and because Spot
+shadows are a single shadow map vs. Omni's 6-face cubemap, which matters
+given a farm room can hold far more grow lights than a base has wall
+lights. Confirmed visual-only: `GrowLight.get_active_growth_speed()` is a
+pure XZ position match independent of the light node, so gameplay growth
+logic is untouched.
+
+Cross-thread note: `WallLight.gd`/`GrowLight.gd` are Power-thread files,
+touched here for the light-node/shadow wiring only.
+
+### Files modified
+- `scripts/core/GraphicsSettings.gd` — field rename, PRESETS entries,
+  `apply_preset()`/`set_setting()`/`set_setting_live()` comments and logic,
+  `_save()`/`_load()`.
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — checkbox moved section +
+  relabeled, `_refresh_from_settings()`/`_on_shadow_toggled()` renamed key.
+- `scripts/world/items/Flashlight.gd` — renamed setting reference.
+- `scripts/world/power/WallLight.gd` — shadow wiring + live-update
+  connection, new `_apply_graphics_settings()`.
+- `scripts/world/power/GrowLight.gd` — Omni→Spot conversion, `_omni`→
+  `_spot` rename, `OMNI_*`→`SPOT_*` const rename, new
+  `_apply_graphics_settings()`.
+- `docs/systems/graphics/README.md` — new "Unified dynamic shadow casting"
+  entry.
+- `docs/systems/power/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Boot at Medium (default) — no shadows from any of the three lights,
+   matches pre-change look at Medium.
+3. Switch to High or Ultra in Settings — Flashlight, WallLight, and
+   GrowLight should all now cast real shadows. Confirm:
+   - Flashlight beam: no self-shadow dome from the player (separate fix,
+     should still hold — this session doesn't touch that exclusion).
+   - WallLight: objects near a wall light correctly cast shadows; check a
+     wall light near a room boundary no longer visibly lights the room on
+     the other side of the wall.
+   - GrowLight: light now visibly points down at the tray only, not
+     sideways/upward — sanity-check `spot_angle = 35.0` actually covers a
+     real placed tray's footprint; adjust in Inspector if it's too
+     narrow/wide.
+4. Toggle "Shadow Casting" off manually while on High — all three should
+   go shadowless immediately (live update, no re-equip/re-place needed);
+   `current_preset` should flip to CUSTOM in the preset dropdown.
+5. Switch to Low/Medium preset — shadows off, checkbox reflects it.
+6. Confirm `GrowLight.get_active_growth_speed()` / plant growth is
+   unaffected by the light-shape change (should be — logic doesn't touch
+   the light node — but worth a quick sanity check in a farm room).
+7. Performance sanity check in a room with several WallLights + GrowLights
+   at Ultra — if FPS drops meaningfully more than expected, that's a real
+   signal `shadow_quality`'s atlas size or the number of simultaneous
+   shadow-casting lights needs a budget cap; report back rather than
+   silently tuning further.
+
+## Open items for Brannon
+
+- `spot_angle = 35.0` on GrowLight is eyeballed, not measured against
+  `FarmingTray.gd`'s actual footprint — first thing to check once you see
+  it placed over a real tray in-editor.
+- No hard cap was added on simultaneous shadow-casting lights. If a
+  heavily-built-out base with many WallLights/GrowLights at Ultra causes a
+  real framerate problem, that's a follow-up (e.g. limiting shadow casting
+  to the N nearest lights to the camera) — flagged, not built, since it
+  wasn't part of this ask and adding a budget system speculatively would be
+  scope creep.
+
+---
+
 # Handover — Flashlight Player Self-Shadow Exclusion (Aug 2026)
 
 ## What changed this session

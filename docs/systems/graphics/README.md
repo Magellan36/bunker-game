@@ -78,8 +78,8 @@ slider, see Known tradeoffs), `save_now()` (explicit disk write, pairs with
 `set_setting_live`). Public vars (read directly, e.g.
 `GraphicsSettings.camera_fov`): `current_preset`, `sdfgi_enabled`,
 `ssao_enabled`, `ssil_enabled`, `volumetric_fog_enabled`,
-`flashlight_volumetrics`, `flashlight_shadows` (opt-in only, default OFF —
-deliberate gameplay choice, not a perf fallback, see its own doc-comment),
+`flashlight_volumetrics`, `shadow_casting_enabled` (preset-driven Aug 2026:
+LOW/MEDIUM off, HIGH/ULTRA on — see "Unified dynamic shadow casting" below),
 `glow_enabled`, `dof_enabled`, `msaa: int`, `camera_fov: float` (NOT part of
 any preset — a comfort/motion-sickness setting, defaults to Godot's
 `Camera3D` default of 75.0), `vsync_enabled`, `window_mode`, `fps_cap`,
@@ -152,7 +152,7 @@ MainWorld._setup_tilt_shift_dof() (startup, dynamic instantiation)
 ## Common edits
 - **New graphics toggle:** add the field to `GraphicsSettings.gd`, add its
   default to each entry in `PRESETS` (or explicitly leave it out of every
-  quality preset if it's a comfort setting like `camera_fov`/`flashlight_shadows`/
+  quality preset if it's a comfort setting like `camera_fov`/
   `vsync_enabled`/`window_mode`/`fps_cap`/`render_scale` rather than a quality
   tier), wire the panel in `GraphicsSettingsPanel.gd`
   (`docs/systems/ui/README.md`), and connect the consuming system
@@ -174,7 +174,7 @@ MainWorld._setup_tilt_shift_dof() (startup, dynamic instantiation)
   hand-edits. `GraphicsSettings` itself is already a committed one-off
   exception (see Ownership above) — don't treat that as license to hand-edit
   autoloads generally going forward.
-- **Don't route `camera_fov`/`flashlight_shadows`/`vsync_enabled`/
+- **Don't route `camera_fov`/`vsync_enabled`/
   `window_mode`/`fps_cap`/`render_scale` through a preset** — all are
   deliberately preset-independent comfort/gameplay choices, not quality
   tiers (see their doc-comments in source).
@@ -279,7 +279,7 @@ issue and can't blur through the middle of a single tall object.
 `MainWorld` (same pattern as `LightingDirector`).
 
 ### Flashlight self-shadow exclusion
-**Problem:** with `GraphicsSettings.flashlight_shadows` on, the player's own
+**Problem:** with `GraphicsSettings.shadow_casting_enabled` on, the player's own
 mesh — extremely close to the handheld SpotLight3D's origin — cast a large
 shadow straight back into the center of its own beam (a visible "dome").
 **Fix:** `Player.gd` tags its mesh with an exclusive render layer bit
@@ -296,17 +296,44 @@ beam, fixed iso pitch), so excluding it from both together costs nothing
 visible while removing the self-shadow.
 **Scope note:** only the player's own capsule mesh is excluded — furniture,
 walls, and other objects still cast normal shadows into the flashlight
-beam when `flashlight_shadows` is on. If the flashlight's own held-item
+beam when `shadow_casting_enabled` is on. If the flashlight's own held-item
 mesh (the flashlight body itself) turns out to cast a similar smaller
 self-shadow, that's a separate, not-yet-observed issue — flag it before
 extending this same layer-bit pattern to it.
+
+### Unified dynamic shadow casting
+**What changed:** `GraphicsSettings.flashlight_shadows` renamed to
+`shadow_casting_enabled` and generalized from flashlight-only opt-in to all
+three dynamic lights — Flashlight, WallLight, GrowLight. Now preset-driven
+(LOW/MEDIUM off, HIGH/ULTRA on) instead of opt-in-only; still individually
+toggleable via the "Shadow Casting" checkbox (moved from the Flashlight
+section to Advanced Quality in `GraphicsSettingsPanel.gd`, since it's a
+normal preset-tier toggle now, not a flashlight-specific opt-in one).
+**Per-light shape reasoning:**
+- Flashlight (`SpotLight3D`) — no change, already directional.
+- WallLight (`OmniLight3D`) — stays Omni (correct for a wall-mounted
+  fixture with nothing behind it); just gets `shadow_enabled` wired to the
+  setting. Side benefit: this also stops the fixture's light from bleeding
+  through the wall mesh behind it into an adjacent room, since the wall now
+  correctly self-occludes once shadows are on.
+- GrowLight — **converted from `OmniLight3D` to a downward-facing
+  `SpotLight3D`** (`rotation_degrees.x = -90`, `spot_angle = 35.0`),
+  because the fixture only ever shines down onto its tray and Spot shadows
+  are dramatically cheaper than Omni's cubemap — relevant since a farm room
+  can hold far more of these than a base has wall lights. Confirmed this is
+  visual-only: `GrowLight.get_active_growth_speed()` (read by
+  `FarmPlant.gd`) is a pure XZ position match, independent of the light
+  node's shape/range.
+**Cross-thread note:** `WallLight.gd`/`GrowLight.gd` are Power-thread
+files; this session's edits there are limited to the light node
+construction/shadow wiring, no power-grid logic touched.
 
 ---
 
 ## Common edits
 - **New graphics toggle:** add the field to `GraphicsSettings.gd`, add its
   default to each entry in `PRESETS` (or explicitly leave it out of every
-  quality preset if it's a comfort setting like `camera_fov`/`flashlight_shadows`/
+  quality preset if it's a comfort setting like `camera_fov`/
   `vsync_enabled`/`window_mode`/`fps_cap`/`render_scale` rather than a quality
   tier), wire the panel in `GraphicsSettingsPanel.gd`
   (`docs/systems/ui/README.md`), and connect the consuming system
@@ -328,7 +355,7 @@ extending this same layer-bit pattern to it.
   hand-edits. `GraphicsSettings` itself is already a committed one-off
   exception (see Ownership above) — don't treat that as license to hand-edit
   autoloads generally going forward.
-- **Don't route `camera_fov`/`flashlight_shadows`/`vsync_enabled`/
+- **Don't route `camera_fov`/`vsync_enabled`/
   `window_mode`/`fps_cap`/`render_scale` through a preset** — all are
   deliberately preset-independent comfort/gameplay choices, not quality
   tiers (see their doc-comments in source).

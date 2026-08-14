@@ -134,7 +134,7 @@ func _build_light() -> void:
 	## Excludes the player's own mesh from this light's illumination/shadow
 	## computation entirely — a handheld light this close to the player's
 	## own body otherwise self-shadows a dome right into the center of its
-	## own beam once flashlight_shadows is on (see
+	## own beam once shadow casting is on (see
 	## docs/systems/graphics/README.md "Flashlight self-shadow exclusion").
 	## Player.gd tags its mesh with ONLY this bit (see
 	## Player.PLAYER_SELF_LIGHT_LAYER_BIT for why it's a replacement, not an
@@ -162,11 +162,15 @@ func _build_light() -> void:
 func _apply_graphics_settings() -> void:
 	if _spot == null:
 		return
-	## Shadow casting stays default OFF as a documented gameplay choice —
-	## handheld shadow would block the center of the cone. Explicit opt-in
-	## only, never preset-driven (GraphicsSettings.flashlight_shadows is
-	## excluded from every preset's dictionary for this exact reason).
-	_spot.shadow_enabled = GraphicsSettings.flashlight_shadows
+	## Aug 2026 — generalized to GraphicsSettings.shadow_casting_enabled,
+	## now preset-driven (HIGH/ULTRA on, LOW/MEDIUM off) and shared with
+	## WallLight/GrowLight instead of flashlight-only opt-in (see
+	## docs/systems/graphics/README.md "Unified dynamic shadow casting").
+	## The player-mesh self-shadow dome this used to cause is handled
+	## separately and still applies regardless of this setting — see
+	## Player.PLAYER_SELF_LIGHT_LAYER_BIT / the earlier
+	## FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md.
+	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 	## Per-light volumetric-fog contribution (Light3D property, independent
 	## of Environment.volumetric_fog_enabled) — lets the dust-mote beam-shaft
 	## look be toggled off for performance without disabling ambient fog

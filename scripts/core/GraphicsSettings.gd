@@ -33,11 +33,16 @@ var ssao_enabled:          bool = true
 var ssil_enabled:          bool = false
 var volumetric_fog_enabled: bool = true
 var flashlight_volumetrics: bool = true
-## Opt-in ONLY, default OFF, and deliberately NOT part of any preset —
-## Flashlight.gd's no-shadow default is a documented gameplay choice
-## (handheld shadow would block the center of the beam cone), not a
-## performance fallback. See LightingDirector.gd / graphics plan Section 2.
-var flashlight_shadows:    bool = false
+## Aug 2026 — generalized from flashlight-only to all dynamic
+## shadow-casting lights (Flashlight, WallLight, GrowLight — see
+## docs/systems/graphics/README.md "Unified dynamic shadow casting").
+## Preset-driven now (LOW/MEDIUM = false, HIGH/ULTRA = true, same as SDFGI/
+## SSAO/etc.) rather than opt-in-only — still individually toggleable via
+## the Settings panel's "Shadow Casting" checkbox, which now flips
+## current_preset to CUSTOM like every other preset-tier toggle (see
+## set_setting_live() below — camera_fov is now the only field still
+## excluded from that).
+var shadow_casting_enabled: bool = false
 var glow_enabled:          bool = true
 var dof_enabled:           bool = false
 var msaa:                  int  = Viewport.MSAA_2X
@@ -69,6 +74,7 @@ const PRESETS: Dictionary = {
 		"glow_enabled": false, "dof_enabled": false, "msaa": Viewport.MSAA_DISABLED,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
 		"anisotropic_filtering": 2, "shadow_quality": 1024, "render_scale": 1.0,
+		"shadow_casting_enabled": false,
 	},
 	Preset.MEDIUM: {
 		"sdfgi_enabled": false, "ssao_enabled": true, "ssil_enabled": false,
@@ -76,6 +82,7 @@ const PRESETS: Dictionary = {
 		"glow_enabled": true, "dof_enabled": false, "msaa": Viewport.MSAA_2X,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
 		"anisotropic_filtering": 4, "shadow_quality": 2048, "render_scale": 1.0,
+		"shadow_casting_enabled": false,
 	},
 	Preset.HIGH: {
 		"sdfgi_enabled": true, "ssao_enabled": true, "ssil_enabled": false,
@@ -83,6 +90,7 @@ const PRESETS: Dictionary = {
 		"glow_enabled": true, "dof_enabled": true, "msaa": Viewport.MSAA_2X,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_FXAA, "use_taa": false,
 		"anisotropic_filtering": 8, "shadow_quality": 4096, "render_scale": 1.0,
+		"shadow_casting_enabled": true,
 	},
 	Preset.ULTRA: {
 		"sdfgi_enabled": true, "ssao_enabled": true, "ssil_enabled": true,
@@ -90,6 +98,7 @@ const PRESETS: Dictionary = {
 		"glow_enabled": true, "dof_enabled": true, "msaa": Viewport.MSAA_4X,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": true,
 		"anisotropic_filtering": 16, "shadow_quality": 4096, "render_scale": 1.0,
+		"shadow_casting_enabled": true,
 	},
 }
 
@@ -106,9 +115,10 @@ func _ready() -> void:
 ## bug that already bit this file once from that exact class of mistake).
 ## Taking `int` here and comparing/indexing against the int-backed `Preset`
 ## enum values directly sidesteps the whole question instead of relying on
-## implicit int→enum parameter passing. flashlight_shadows is intentionally
-## untouched here — it never resets when switching presets, per the
-## "opt-in only, never preset-driven" decision.
+## implicit int→enum parameter passing. shadow_casting_enabled DOES reset
+## with the preset now (Aug 2026 — LOW/MEDIUM off, HIGH/ULTRA on), unlike
+## camera_fov, which remains untouched by every preset (see PRESETS above
+## and set_setting_live() below).
 func apply_preset(preset: int) -> void:
 	if preset == Preset.CUSTOM or not PRESETS.has(preset):
 		return
@@ -121,8 +131,9 @@ func apply_preset(preset: int) -> void:
 
 
 ## Generic single-setting override, used by GraphicsSettingsPanel's individual
-## checkboxes. Flips current_preset to CUSTOM (except for flashlight_shadows,
-## which doesn't participate in preset matching at all).
+## checkboxes. Flips current_preset to CUSTOM (except for camera_fov, the
+## only remaining field that doesn't participate in preset matching at all
+## — shadow_casting_enabled joined the normal preset-driven fields Aug 2026).
 func set_setting(field: String, value: Variant) -> void:
 	set_setting_live(field, value)
 	_save()
@@ -141,7 +152,7 @@ func set_setting_live(field: String, value: Variant) -> void:
 		"ssil_enabled":             ssil_enabled = value
 		"volumetric_fog_enabled":   volumetric_fog_enabled = value
 		"flashlight_volumetrics":   flashlight_volumetrics = value
-		"flashlight_shadows":       flashlight_shadows = value
+		"shadow_casting_enabled":   shadow_casting_enabled = value
 		"glow_enabled":             glow_enabled = value
 		"dof_enabled":              dof_enabled = value
 		"msaa":                     msaa = value
@@ -157,7 +168,7 @@ func set_setting_live(field: String, value: Variant) -> void:
 		_:	
 			push_warning("[GraphicsSettings] Unknown field: %s" % field)
 			return
-	if field != "flashlight_shadows" and field != "camera_fov":
+	if field != "camera_fov":
 		current_preset = Preset.CUSTOM
 	_apply_all()
 
@@ -225,7 +236,7 @@ func _save() -> void:
 	cfg.set_value("graphics", "ssil_enabled", ssil_enabled)
 	cfg.set_value("graphics", "volumetric_fog_enabled", volumetric_fog_enabled)
 	cfg.set_value("graphics", "flashlight_volumetrics", flashlight_volumetrics)
-	cfg.set_value("graphics", "flashlight_shadows", flashlight_shadows)
+	cfg.set_value("graphics", "shadow_casting_enabled", shadow_casting_enabled)
 	cfg.set_value("graphics", "glow_enabled", glow_enabled)
 	cfg.set_value("graphics", "dof_enabled", dof_enabled)
 	cfg.set_value("graphics", "msaa", msaa)
@@ -254,7 +265,7 @@ func _load() -> void:
 	ssil_enabled             = cfg.get_value("graphics", "ssil_enabled", ssil_enabled)
 	volumetric_fog_enabled   = cfg.get_value("graphics", "volumetric_fog_enabled", volumetric_fog_enabled)
 	flashlight_volumetrics   = cfg.get_value("graphics", "flashlight_volumetrics", flashlight_volumetrics)
-	flashlight_shadows       = cfg.get_value("graphics", "flashlight_shadows", flashlight_shadows)
+	shadow_casting_enabled   = cfg.get_value("graphics", "shadow_casting_enabled", shadow_casting_enabled)
 	glow_enabled             = cfg.get_value("graphics", "glow_enabled", glow_enabled)
 	dof_enabled              = cfg.get_value("graphics", "dof_enabled", dof_enabled)
 	msaa                     = cfg.get_value("graphics", "msaa", msaa)
