@@ -38,6 +38,11 @@ func _ready() -> void:
 	## after the CTRL manual-upright slerp (which targets Basis.IDENTITY,
 	## scale 1.0) briefly grew it toward this size as a side effect.
 	_collect_bottle_visuals()
+	## Aug 2026 — case shell and bottle materials are both alpha-transparent
+	## (see WaterCase.tscn), which don't write depth/normal in Forward+, so
+	## the Sobel outline system (InteractionFocusGlow.gd) can't detect
+	## edges here without help. Opts into its opaque-stand-in fix.
+	add_to_group("outline_needs_opaque_stand_in")
 
 ## Builds _bottle_visuals in ascending name order (Bottle_01 .. Bottle_24) from
 ## VisualRoot's children so _hide_next_bottle_visual() can pop from the end

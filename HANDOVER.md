@@ -1,3 +1,49 @@
+# Handover — Translucent-Object Outline Fix (Water Case) (Aug 2026)
+
+## What changed this session
+Fixed the Sobel outline system finding no edges on Water Case, confirmed
+root-caused to its materials' real alpha transparency (case shell 0.35,
+bottles 0.90 alpha, per `WaterCase.tscn`) — Forward+ alpha-blended
+materials don't write depth/normal, which the Sobel pass depends on
+entirely. Two separate problems, both needed fixing: the isolation
+mask itself was weak (built from the same transparent material), and
+even a perfect mask wouldn't help since the main-scene Sobel pass reads
+buffers the transparent geometry never wrote to in the first place.
+
+Added a per-object opt-in group (`outline_needs_opaque_stand_in`,
+`InteractionFocusGlow.gd`) — members get a temporary, always-opaque
+duplicate of each mesh instance (sharing the source mesh resource, no
+geometry copy) rendered exclusively on the mask's render layer (11),
+invisible to the main camera (now excludes layer 11 via a bitwise clear
+in `_ready()`, computed rather than hardcoded so it can't silently drift).
+This gives the mask viewport a guaranteed-correct solid silhouette
+regardless of the real material's transparency. Paired with a new
+mask-alpha edge detection term in the outline shader itself — comparing
+each pixel's mask alpha against its neighbors, which is redundant/
+harmless for ordinary opaque objects but becomes the only usable edge
+signal for translucent ones, since the stand-ins never render in the
+main scene and can't feed the main Sobel pass. `WaterCase.gd` is the
+first (currently only) member of the new group.
+
+Honest limitation documented, not silently glossed over: this recovers
+a correct silhouette outline, not interior creases, for translucent
+objects — the stand-ins aren't themselves Sobel-detected against their
+own depth/normal. Flagged as the natural next step (a second Sobel pass
+inside the mask viewport) if silhouette-only isn't enough once tested.
+
+### Files modified
+- `scripts/player/InteractionFocusGlow.gd` — stand-in spawn/track/
+  cleanup system; main camera cull-mask exclusion; mask-alpha edge term
+  added to the outline shader.
+- `scripts/world/items/WaterCase.gd` — one-line group opt-in.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_TRANSLUCENT_OUTLINE_STANDIN_PLAN.md` for the full 6-item
+checklist)
+
 # Handover — Trash Can F-Dispatch Fix + Partial Collect + Bag Merge (Aug 2026)
 
 ## What changed this session

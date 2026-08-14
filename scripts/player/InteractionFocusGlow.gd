@@ -42,6 +42,14 @@ const HIGHLIGHT_LAYER: int = 11            ## render layer for the mask pass —
                                             ## confirmed unused project-wide (Aug 2026)
 const HIGHLIGHT_LAYER_BIT: int = 1 << (HIGHLIGHT_LAYER - 1)
 
+## Aug 2026 — objects in this group get an opaque stand-in duplicate
+## spawned (mask-viewport-only, see _spawn_stand_ins()) because their
+## real material is alpha-transparent and writes no depth/normal data
+## for the main Sobel pass to detect. WaterCase.gd is the first/only
+## member; add more items here the same way if the same problem shows
+## up elsewhere.
+const TRANSLUCENT_FIX_GROUP: String = "outline_needs_opaque_stand_in"
+
 const PULSE_SPEED:     float = 2.0
 const PULSE_AMPLITUDE: float = 0.22
 const OUTLINE_BASE_STRENGTH: float = 0.85  ## drives the shader's outline_strength uniform
@@ -52,6 +60,10 @@ var _target: Node3D = null
 var _mesh_instances: Array[MeshInstance3D] = []
 var _saved_layers: Dictionary = {}          ## MeshInstance3D -> original layers bitmask
 
+var _stand_ins: Array[MeshInstance3D] = []          ## opaque duplicates, layer 11 ONLY
+var _stand_in_sources: Array[MeshInstance3D] = []   ## parallel array — real mesh each mirrors
+var _stand_in_material: StandardMaterial3D = null
+
 var _mask_viewport: SubViewport = null
 var _mask_camera: Camera3D = null
 var _main_camera: Camera3D = null
@@ -61,6 +73,21 @@ var _pulse_time: float = 0.0
 
 func _ready() -> void:
 	_main_camera = get_viewport().get_camera_3d()
+
+	## Aug 2026 — exclude the mask layer from the MAIN camera so opaque
+	## stand-ins (spawned for TRANSLUCENT_FIX_GROUP targets — see
+	## _spawn_stand_ins()) never double-render in the real game view.
+	## Computed via bitwise clear, not a hardcoded mask value. Real mesh
+	## instances stay visible as normal — they're still on layer 1 too,
+	## which this doesn't touch; only layer-11-EXCLUSIVE nodes (i.e. only
+	## the new stand-ins) are affected.
+	if _main_camera != null:
+		_main_camera.cull_mask = _main_camera.cull_mask & ~HIGHLIGHT_LAYER_BIT
+
+	_stand_in_material = StandardMaterial3D.new()
+	_stand_in_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_stand_in_material.albedo_color = Color(1.0, 1.0, 1.0, 1.0)
+	_stand_in_material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 
 	_mask_viewport = SubViewport.new()
 	_mask_viewport.transparent_bg = true
@@ -170,6 +197,24 @@ void fragment() {
 		edge = max(edge, step(depth_edge_threshold, depth_edge));
 		edge = max(edge, step(normal_edge_threshold, normal_edge));
 
+		// Silhouette edge derived from the MASK's own alpha, independent
+		// of depth/normal — the only signal available for translucent
+		// targets (alpha-blended materials render into the mask
+		// viewport's color output normally, they just don't write
+		// depth/normal). Redundant with the depth-based silhouette edge
+		// for ordinary opaque objects (same result, no visible change);
+		// the deciding signal for TRANSLUCENT_FIX_GROUP targets.
+		float mask_c = texture(mask_tex, SCREEN_UV).a;
+		float mask_edge = 0.0;
+		for (int mx = -1; mx <= 1; mx++) {
+			for (int my = -1; my <= 1; my++) {
+				if (mx == 0 && my == 0) continue;
+				float mn = texture(mask_tex, SCREEN_UV + vec2(float(mx), float(my)) * px * 1.5).a;
+				mask_edge = max(mask_edge, abs(mask_c - mn));
+			}
+		}
+		edge = max(edge, step(0.25, mask_edge));
+
 		float line = edge * mask * outline_strength;
 		ALBEDO = line_color.rgb;
 		ALPHA = line;
@@ -192,9 +237,30 @@ func set_target(node: Node3D) -> void:
 		for mi: MeshInstance3D in _mesh_instances:
 			_saved_layers[mi] = mi.layers
 			mi.layers = mi.layers | HIGHLIGHT_LAYER_BIT
+		if _target.is_in_group(TRANSLUCENT_FIX_GROUP):
+			_spawn_stand_ins()
 		_quad.visible = true
 	else:
 		_target = null
+
+## Aug 2026 — see TRANSLUCENT_FIX_GROUP's own comment. Spawns an
+## always-opaque duplicate of each real mesh instance, sharing the SAME
+## mesh resource (no geometry copy — cheap), tagged layer 11 ONLY so
+## only the mask camera ever sees them (main camera excludes layer 11,
+## see _ready()). Gives the mask viewport genuine solid silhouette data
+## regardless of the real object's own material transparency.
+func _spawn_stand_ins() -> void:
+	for mi: MeshInstance3D in _mesh_instances:
+		if mi.mesh == null:
+			continue
+		var stand_in := MeshInstance3D.new()
+		stand_in.mesh = mi.mesh
+		stand_in.material_override = _stand_in_material
+		stand_in.layers = HIGHLIGHT_LAYER_BIT
+		stand_in.global_transform = mi.global_transform
+		add_child(stand_in)
+		_stand_ins.append(stand_in)
+		_stand_in_sources.append(mi)
 
 func _clear_current_target() -> void:
 	for mi: MeshInstance3D in _mesh_instances:
@@ -202,6 +268,11 @@ func _clear_current_target() -> void:
 			mi.layers = _saved_layers[mi]
 	_mesh_instances.clear()
 	_saved_layers.clear()
+	for si: MeshInstance3D in _stand_ins:
+		if is_instance_valid(si):
+			si.queue_free()
+	_stand_ins.clear()
+	_stand_in_sources.clear()
 	_quad.visible = false
 
 func _find_mesh_instances(node: Node) -> Array[MeshInstance3D]:
@@ -223,6 +294,12 @@ func _process(delta: float) -> void:
 
 	if _target == null:
 		return
+
+	## Stand-ins track their real source mesh every frame — handles the
+	## target moving/rotating while highlighted (e.g. picked up).
+	for i in _stand_ins.size():
+		if is_instance_valid(_stand_ins[i]) and is_instance_valid(_stand_in_sources[i]):
+			_stand_ins[i].global_transform = _stand_in_sources[i].global_transform
 
 	## Mask camera mirrors the main camera exactly, every frame.
 	if _main_camera == null or not is_instance_valid(_main_camera):

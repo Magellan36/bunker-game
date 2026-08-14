@@ -526,6 +526,29 @@ own held item while CASE 1 scans for a different target — guarded with
   Tuning knobs: `depth_edge_threshold`/`normal_edge_threshold` uniforms
   (line density), `OUTLINE_BASE_STRENGTH`, `EMISSION_BOOST`.
 
+- **Translucent-object outline fix: opaque stand-in system (Aug 2026,
+  `InteractionFocusGlow.gd` + one-line opt-in on
+  `scripts/world/items/WaterCase.gd`).** Alpha-transparent materials
+  (Water Case's case shell at 0.35 alpha, bottles at 0.90 — confirmed via
+  `WaterCase.tscn`) don't write depth/normal in Forward+, so the Sobel
+  outline found nothing there. Fixed with two additive pieces: (1) a new
+  `outline_needs_opaque_stand_in` group — members get a temporary,
+  fully-opaque duplicate of each mesh instance (shared mesh resource, no
+  geometry copy) spawned on layer 11 only, invisible to the main camera
+  (which now excludes layer 11 via a bitwise clear, computed not
+  hardcoded), giving the mask viewport a guaranteed-crisp silhouette
+  regardless of the real material's transparency; (2) a mask-alpha edge
+  signal in the outline shader (comparing each pixel's mask alpha to its
+  neighbors) — redundant/harmless for ordinary opaque objects, but the
+  only edge source available for translucent ones, since stand-ins never
+  render in the main scene and can't feed the main Sobel pass directly.
+  Known limitation, not yet addressed: silhouette-only for translucent
+  objects — no interior creases, since stand-ins aren't Sobel-detected
+  against their own depth/normal (would need a second Sobel pass inside
+  the mask viewport itself — flagged as the natural next step if needed).
+  `TRANSLUCENT_FIX_GROUP` extends to more objects by adding the same
+  one-line group opt-in used on `WaterCase.gd`.
+
 - **Grow Light fully hidden outside Focus Mode (Aug 2026).** Previously
   de-prioritized outside Ctrl (ordinary fair-distance treatment) but
   still visible/interactable if nothing else was competing for the
