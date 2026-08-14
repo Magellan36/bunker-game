@@ -2,7 +2,8 @@ extends Node3D
 class_name InteractionFocusGlow
 ## InteractionFocusGlow.gd  —  Focus Mode target highlight (Aug 2026)
 ## ─────────────────────────────────────────────────────────────────────────
-## Rim-light outline + soft halo on whatever object Focus Mode (hold Ctrl)
+## Rim-light outline + real bloom (native, from the rim shader's own
+## HDR emission) on whatever object Focus Mode (hold Ctrl)
 ## is currently highlighting. Driven by InteractionSystem calling
 ## set_target(node_or_null) once per _update_prompt() call — this node
 ## owns its own _process() for the pulse/position animation, so it stays
