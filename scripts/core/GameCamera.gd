@@ -20,13 +20,20 @@ class_name GameCamera
 ## Yaw rotation settings
 @export var yaw_lerp_speed: float  = 6.0    ## How fast the 90° snap animates.
 
-## Depth of field (graphics plan Phase 7) — gently softens the background so
-## focus reads on whatever the flashlight/lights are hitting. Auto-disabled
-## in build mode (max placement clarity) regardless of the setting, and
-## gated on GraphicsSettings.dof_enabled otherwise.
-@export var dof_focus_distance: float = 15.0
-@export var dof_far_blur_amount: float = 0.08
-@export var dof_blur_far_transition: float = 6.0
+## Depth of field (tilt-shift rework, Aug 2026 — replaces the old
+## CameraAttributesPractical distance-based DOF; see
+## docs/systems/graphics/README.md "Tilt-shift DOF" for why). Keeps a
+## horizontal band of the screen sharp and blurs the ceiling/back-wall area
+## above it and the foreground edge below it — screen-space, NOT tied to
+## camera-to-target distance, so it stays correct at every FOV setting and
+## never partially blurs through a single tall object the way the old
+## point-focus version did. Auto-disabled in build mode (max placement
+## clarity) regardless of the setting, and gated on GraphicsSettings.dof_enabled
+## otherwise — same two rules as before, just applied to a different effect.
+@export_range(0.0, 1.0) var dof_focus_center_y: float = 0.55
+@export_range(0.0, 0.5) var dof_focus_band_half_height: float = 0.16
+@export_range(0.01, 0.5) var dof_transition_height: float = 0.22
+@export_range(0.0, 16.0) var dof_max_blur_px: float = 6.0
 
 ## Trauma-based camera shake (graphics plan Phase 7) — additive on top of
 ## the existing lerped transform, does not replace/change it. Call
@@ -38,9 +45,15 @@ class_name GameCamera
 # ─── Internal ─────────────────────────────────────────────────────────────────
 var _target: Node3D    = null
 var _build_mode: bool  = false
-var _attributes: CameraAttributesPractical = null
 var _trauma: float = 0.0
 var _shake_seed: float = 0.0
+
+## Injected by MainWorld._setup_tilt_shift_dof() right after it creates this
+## node — MainWorld also calls _apply_dof_setting() again immediately after
+## assigning this, so node-_ready()-ordering between GameCamera and
+## TiltShiftDOF doesn't matter; the null-guard in _apply_dof_setting() below
+## just needs to survive the brief window before that injection happens.
+var tilt_shift: TiltShiftDOF = null
 
 ## Current interpolated camera params (lerped each frame)
 var _cur_height:  float = 0.0
@@ -63,11 +76,6 @@ func _ready() -> void:
 	else:
 		push_warning("GameCamera: No target assigned. Set target_path in Inspector.")
 
-	_attributes = CameraAttributesPractical.new()
-	_attributes.dof_blur_far_distance   = dof_focus_distance
-	_attributes.dof_blur_far_transition = dof_blur_far_transition
-	_attributes.dof_blur_amount         = dof_far_blur_amount
-	attributes = _attributes
 	GraphicsSettings.settings_changed.connect(_apply_dof_setting)
 	GraphicsSettings.settings_changed.connect(_apply_fov_setting)
 	_apply_dof_setting()
@@ -83,11 +91,15 @@ func exit_build_mode() -> void:
 
 ## Depth of field is OFF in build mode unconditionally (max placement
 ## clarity, per graphics plan Section 5), and otherwise follows
-## GraphicsSettings.dof_enabled.
+## GraphicsSettings.dof_enabled. Forwards to the screen-space tilt-shift
+## node rather than a CameraAttributesPractical resource — see the export
+## block above for why.
 func _apply_dof_setting() -> void:
-	if _attributes == null:
+	if tilt_shift == null:
 		return
-	_attributes.dof_blur_far_enabled = (not _build_mode) and GraphicsSettings.dof_enabled
+	var active: bool = (not _build_mode) and GraphicsSettings.dof_enabled
+	tilt_shift.apply(active, dof_focus_center_y, dof_focus_band_half_height,
+			dof_transition_height, dof_max_blur_px)
 
 ## FOV is a comfort/motion-sickness preference (not preset-driven, see
 ## GraphicsSettings.camera_fov), applied unconditionally in both camera modes.

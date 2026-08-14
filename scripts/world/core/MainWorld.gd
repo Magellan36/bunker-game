@@ -158,6 +158,7 @@ var _pillar_registry: Node = null
 ## Wall-locked pipe routing (Jul 2026) — see scripts/world/structure/WallPerimeterRegistry.gd
 var _wall_perimeter_registry: Node = null
 var _lighting_director: Node = null   ## LightingDirector.gd, built via Node.new()+set_script() same as _power_manager
+var _tilt_shift_dof: TiltShiftDOF = null   ## TiltShiftDOF.gd, same dynamic-instantiation pattern
 ## _reconciler removed (Stage 5) — reconciler fully retired.
 
 # ─── Admin Menu ───────────────────────────────────────────────────────────────
@@ -211,6 +212,7 @@ func _ready() -> void:
 	_setup_water_manager()
 	_setup_lighting()
 	_setup_lighting_director()   ## Needs "power_manager" group populated above
+	_setup_tilt_shift_dof()   ## No ordering dependency — camera already exists via @onready
 	_setup_ambient_dust()
 	_connect_hud()
 	_connect_bed()
@@ -750,6 +752,31 @@ func _setup_lighting_director() -> void:
 	_lighting_director.set("world_env", world_env)
 	_lighting_director.set("hud_vignette", hud.get_node_or_null("HUDRoot/CriticalVignette"))
 	add_child(_lighting_director)
+
+## Screen-space tilt-shift DOF (Aug 2026 — replaces the old
+## CameraAttributesPractical distance-based DOF, see
+## docs/systems/graphics/README.md). Dynamically instantiated the same way
+## as LightingDirector above rather than scene-defined, so this never
+## touches MainWorld.tscn or needs a manual Godot-editor step. The
+## _apply_dof_setting() call after assignment guarantees the shader gets its
+## initial params regardless of whether GameCamera._ready() already ran.
+func _setup_tilt_shift_dof() -> void:
+	var script: GDScript = load("res://scripts/core/TiltShiftDOF.gd")
+	if script == null:
+		push_warning("[MainWorld] TiltShiftDOF.gd not found")
+		return
+	var cl: CanvasLayer = CanvasLayer.new()
+	cl.set_script(script)
+	cl.name = "TiltShiftDOF"
+	## Plan's plain `_tilt_shift_dof = CanvasLayer.new()` is a static-type
+	## error (CanvasLayer.new() is typed CanvasLayer, not TiltShiftDOF) — a
+	## temp var + runtime `as` cast after set_script() is the same thing with
+	## the analyzer satisfied, and keeps `_tilt_shift_dof` typed TiltShiftDOF
+	## so `camera.tilt_shift = _tilt_shift_dof` below stays type-safe.
+	_tilt_shift_dof = cl as TiltShiftDOF
+	add_child(_tilt_shift_dof)
+	camera.tilt_shift = _tilt_shift_dof
+	camera._apply_dof_setting()
 
 ## Ambient dark-room dust drift (graphics plan Section 4 VFX priority #2) —
 ## a single sparse, world-space GPUParticles3D covering the bunker interior.

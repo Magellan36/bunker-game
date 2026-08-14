@@ -45,6 +45,8 @@ shadow quality/render scale/FOV, persisted independently of game saves).
 | `GameCamera.gd` | ~180 | `Camera3D` — follow/build-mode transition/DOF/shake/FOV |
 | `GraphicsSettings.gd` | ~280 | Autoload — quality presets + individual toggles, own `.cfg` persistence |
 | `GraphicsSettingsPanel.gd` | ~575 | Settings UI panel — sectioned layout, live preview, full preset + individual control |
+| `TiltShiftDOF.gd` | ~45 | Screen-space tilt-shift DOF — ColorRect + shader material, dumb forwarder driven by GameCamera |
+| `tilt_shift_dof.gdshader` (`assets/shaders/`) | ~40 | Vertical-band screen-space blur — sharp band + soft ramp, no 3D depth read |
 
 ## Public API
 **`GameCamera`** (`class_name GameCamera`, extends `Camera3D`):
@@ -53,7 +55,11 @@ shadow quality/render scale/FOV, persisted independently of game saves).
 `rotate_view_left()` / `rotate_view_right()` (90° snap). Exported tuning
 vars: `follow_speed`, `height`, `pitch_degrees`, `z_offset`, `build_height`,
 `build_z_offset`, `transition_speed`, `yaw_lerp_speed`,
-`dof_focus_distance`, `dof_far_blur_amount`, `dof_blur_far_transition`,
+`dof_focus_center_y`, `dof_focus_band_half_height`, `dof_transition_height`,
+`dof_max_blur_px` (screen-space tilt-shift DOF tuning, Aug 2026 — replaced
+the old CameraAttributesPractical distance-based fields), plus
+`tilt_shift: TiltShiftDOF` (injected by
+`MainWorld._setup_tilt_shift_dof()`),
 `trauma_decay_per_sec`, `max_shake_offset`, `max_shake_rotation_deg`,
 `target_path: NodePath`.
 
@@ -131,6 +137,13 @@ GameCamera._physics_process()
   → _apply_shake(delta) (trauma decay)
 ```
 
+```
+MainWorld._setup_tilt_shift_dof() (startup, dynamic instantiation)
+  → TiltShiftDOF.gd created + added, camera.tilt_shift assigned
+  → GameCamera._apply_dof_setting() called once immediately (initial sync)
+  → thereafter driven by GraphicsSettings.settings_changed / enter_build_mode() / exit_build_mode()
+```
+
 ## Common edits
 - **New graphics toggle:** add the field to `GraphicsSettings.gd`, add its
   default to each entry in `PRESETS` (or explicitly leave it out of every
@@ -160,6 +173,11 @@ GameCamera._physics_process()
   `window_mode`/`fps_cap`/`render_scale` through a preset** — all are
   deliberately preset-independent comfort/gameplay choices, not quality
   tiers (see their doc-comments in source).
+- **Don't reintroduce point/distance-based DOF** (e.g. re-adding a
+  `CameraAttributesPractical` with `dof_blur_far_distance`) without
+  re-reading the Aug 2026 tilt-shift rework note above first — it was
+  replaced for a structural reason (fixed iso pitch + flat floor don't
+  generate enough true depth variation), not a tuning mistake.
 
 ## Known tradeoffs / tech debt
 - No automated tests.
@@ -231,6 +249,32 @@ GameCamera._physics_process()
 
 ---
 
+## Recent changes (Aug 2026) — Tilt-shift DOF rework
+
+### Tilt-shift DOF rework
+**Root cause of the old "blurs one random object, nothing else" look:**
+`dof_focus_distance = 15.0` vs. actual camera→player distance
+`sqrt(14² + 8²) ≈ 16.12` — the player was already 1.1m past the focus
+point and inside the transition band, so blur landed on the tallest
+nearby object's upper portion rather than reading as background/
+foreground depth. More fundamentally: a fixed ~55° iso pitch over a
+mostly-flat floor doesn't generate enough true depth-buffer variation for
+point/distance DOF to look intentional.
+**Fix:** replaced `CameraAttributesPractical`'s distance-based DOF with a
+screen-space tilt-shift shader (`tilt_shift_dof.gdshader` +
+`TiltShiftDOF.gd`) — a horizontal sharp band (`dof_focus_center_y` ±
+`dof_focus_band_half_height`) with a soft blur ramp
+(`dof_transition_height`) toward the top (ceiling/back wall) and bottom
+(foreground) screen edges, up to `dof_max_blur_px`. Independent of true
+3D depth, so it's immune to the FOV-slider-changes-perceived-distance
+issue and can't blur through the middle of a single tall object.
+`GameCamera.gd` remains the single source of truth (same
+`GraphicsSettings.dof_enabled` gate, same build-mode-forces-off rule);
+`TiltShiftDOF.gd` is a dumb forwarder instantiated dynamically by
+`MainWorld` (same pattern as `LightingDirector`).
+
+---
+
 ## Common edits
 - **New graphics toggle:** add the field to `GraphicsSettings.gd`, add its
   default to each entry in `PRESETS` (or explicitly leave it out of every
@@ -260,6 +304,11 @@ GameCamera._physics_process()
   `window_mode`/`fps_cap`/`render_scale` through a preset** — all are
   deliberately preset-independent comfort/gameplay choices, not quality
   tiers (see their doc-comments in source).
+- **Don't reintroduce point/distance-based DOF** (e.g. re-adding a
+  `CameraAttributesPractical` with `dof_blur_far_distance`) without
+  re-reading the Aug 2026 tilt-shift rework note above first — it was
+  replaced for a structural reason (fixed iso pitch + flat floor don't
+  generate enough true depth variation), not a tuning mistake.
 
 ## Known tradeoffs / tech debt
 - No automated tests.

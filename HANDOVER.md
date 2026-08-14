@@ -1,3 +1,71 @@
+# Handover — Tilt-Shift Depth of Field Rework (Aug 2026)
+
+## What changed this session
+Replaced `GameCamera.gd`'s point/distance-based DOF
+(`CameraAttributesPractical.dof_blur_far_*`) with a screen-space tilt-shift
+shader. Root cause of the old "blurs one random object, nothing else" look:
+`dof_focus_distance = 15.0` vs. actual camera→player distance
+`sqrt(14² + 8²) ≈ 16.12` put the player 1.1m inside the transition band, so
+blur landed on the tallest nearby object's upper portion instead of reading
+as background/foreground depth — and more fundamentally, the fixed ~55° iso
+pitch over a mostly-flat floor doesn't generate enough true depth-buffer
+variation for point-based DOF to look intentional at all.
+
+New: `assets/shaders/tilt_shift_dof.gdshader` (vertical sharp-band + soft
+blur ramp toward top/bottom screen edges, screen-space only, no depth
+buffer read) + `scripts/core/TiltShiftDOF.gd` (thin CanvasLayer/ColorRect
+forwarder, dynamically instantiated by `MainWorld` the same way
+`LightingDirector` is). `GameCamera.gd` keeps ownership of all DOF
+decision-making — same `GraphicsSettings.dof_enabled` gate, same
+build-mode-forces-off rule — just retuned to drive the new shader's
+uniforms (`dof_focus_center_y`/`dof_focus_band_half_height`/
+`dof_transition_height`/`dof_max_blur_px`) instead of the old
+`CameraAttributesPractical` fields.
+
+Two plan bugs caught during implementation (both fixed in this commit):
+1. **`fragment()` can't `return` in Godot shaders** — the plan's shader
+   used an early `return` for the blur_px < 0.05 case; restructured to an
+   `if/else` with identical logic.
+2. **`_tilt_shift_dof = CanvasLayer.new()` is a static-type error** in
+   GDScript (CanvasLayer.new() is typed `CanvasLayer`, not `TiltShiftDOF`)
+   — MainWorld's setup uses a temp `CanvasLayer` var + `as TiltShiftDOF`
+   cast after `set_script()`, keeping the var typed `TiltShiftDOF` so
+   `camera.tilt_shift = _tilt_shift_dof` stays type-safe.
+
+### Files modified
+- `assets/shaders/tilt_shift_dof.gdshader` — new.
+- `scripts/core/TiltShiftDOF.gd` — new.
+- `scripts/core/GameCamera.gd` — DOF export block, internal var, `_ready()`,
+  `_apply_dof_setting()`.
+- `scripts/world/core/MainWorld.gd` — new `_setup_tilt_shift_dof()`, call
+  site, tracking var.
+- `docs/systems/graphics/README.md` — Files table, Public API, Call graph,
+  new "Recent changes (Aug 2026)" entry, Forbidden edits.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Boot the game, confirm no "Could not find type TiltShiftDOF" errors —
+   if seen, it's the class-cache/.uid staleness gotcha (§9,
+   PROJECT_SUMMARY.md) — quit Godot, delete `.godot/`, reopen.
+3. With DOF enabled (Settings > Advanced Quality > Depth of Field) in
+   normal (non-build) mode: back wall/ceiling area and the very close
+   foreground should read visibly softer than a horizontal band roughly
+   through the player/floor-object area, which should stay sharp. No
+   single object should look randomly half-blurred.
+4. Toggle DOF off in settings — effect should disappear immediately
+   (strength → 0).
+5. Enter Build Mode — effect should force off regardless of the DOF
+   setting, same as before.
+6. Confirm HUD/menus (inventory bar, pause menu, storage UI) never look
+   blurred — only the 3D game view should ever be affected.
+7. Sanity-check at a couple of different FOV slider positions that the
+   sharp band still roughly tracks the floor/gameplay area (report back if
+   it visibly drifts — the default `dof_focus_center_y = 0.55` was picked
+   by eye from the reference screenshots at default FOV, not derived from
+   FOV-dependent math, so it's a good first-pass value but not guaranteed
+   perfect at every FOV extreme).
+
 # Handover — Outline System: Proxy-Interactable Devices Fixed (Aug 2026)
 
 ## What changed this session
