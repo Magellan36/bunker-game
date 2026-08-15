@@ -32,7 +32,18 @@ class_name CharacterShadowProxy
 ## actually are, rather than only getting a long one when a real light
 ## happens to be far away. Direction comes from the aggregate; these are
 ## "how dramatic should this look" art-direction knobs.
-const PROXY_DISTANCE: float = 6.0
+##
+## Aug 2026 fix — PROXY_DISTANCE was originally 6.0m. That's much farther
+## than a real WallLight/GrowLight ever has to reach a character standing
+## near it, so Godot's physically-based inverse-square falloff was eating
+## almost all the light before it reached the character — they read as
+## pitch-black everywhere except right next to a strong real light (where
+## the aggregate weight maxed out enough to partially survive the 6m
+## falloff), which looked like a "flicker" as the character walked near
+## lights. Shrunk to 2.5m — still enough offset for a distinctly
+## directional, longer-than-directly-overhead shadow, without demanding
+## the light punch through 2.4x the distance it needs to.
+const PROXY_DISTANCE: float = 2.5
 const PROXY_HEIGHT:   float = 1.8
 
 ## Smoothing rate (per second, framerate-independent exponential smoothing)
@@ -46,18 +57,27 @@ const SMOOTH_RATE: float = 3.0
 ## light to derive it from.
 const MIN_TOTAL_WEIGHT: float = 0.05
 
-## First-pass eyeballed values converting aggregate real-light weight into
-## this proxy's light_energy, so a character standing well-lit by nearby
-## fixtures reads at roughly the brightness they used to when directly lit
-## by those fixtures. NOT derived from a physical calculation — this is
-## the single most likely thing to need a visual tuning pass once you see
-## it in-editor (see the plan doc's "Important side effect" section: this
-## proxy is now each character's ONLY direct light source).
-const ENERGY_SCALE: float = 0.6
-const MAX_ENERGY:    float = 3.0
+## Aug 2026 fix — ENERGY_SCALE/MAX_ENERGY were originally 0.6/3.0, tuned
+## assuming the light would be close to the character. Combined with the
+## PROXY_DISTANCE fix above (6.0m → 2.5m) these needed to come up too, or
+## the character would still read dim even at the shorter distance. Erring
+## toward brighter here on purpose — too-dim makes the character invisible
+## (the actual bug reported), too-bright is a trivial follow-up tuning
+## pass, not a functional problem. Still first-pass eyeballed values, not
+## derived from a physical calculation — this remains the single most
+## likely thing to need another visual tuning pass once seen in-editor.
+const ENERGY_SCALE: float = 2.5
+const MAX_ENERGY:    float = 6.0
 
 const SPOT_ANGLE:             float = 25.0
 const SPOT_ANGLE_ATTENUATION: float = 0.5
+## Aug 2026 fix — new. Matches WallLight/GrowLight's own omni_attenuation
+## (0.6), slightly lower (gentler/flatter falloff, brighter at range) to
+## partially compensate for this light sitting farther from its target
+## (PROXY_DISTANCE) than those fixtures typically are from anything they
+## light. Godot's un-set default is a steeper curve, which was part of why
+## this read so dark before this fix.
+const SPOT_ATTENUATION: float = 0.5
 ## Deliberately near-white/neutral (not warm-amber like WallLight or
 ## grow-white like GrowLight) so it doesn't visually fight whichever real
 ## light is actually dominant nearby — it's meant to read as "this
@@ -80,6 +100,7 @@ func _ready() -> void:
 	_spot.light_color            = LIGHT_COLOR
 	_spot.spot_angle             = SPOT_ANGLE
 	_spot.spot_angle_attenuation = SPOT_ANGLE_ATTENUATION
+	_spot.spot_attenuation       = SPOT_ATTENUATION
 	_spot.spot_range             = PROXY_DISTANCE * 1.5
 	_spot.light_cull_mask        = GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
 	## Don't double up with the room's own real GI — this proxy isn't meant
@@ -98,9 +119,21 @@ func _apply_graphics_settings() -> void:
 func _process(delta: float) -> void:
 	if _owner_char == null or _spot == null:
 		return
-	if not GraphicsSettings.shadow_casting_enabled:
-		_spot.visible = false
-		return
+	## Aug 2026 fix — this used to also early-return (light off entirely)
+	## when GraphicsSettings.shadow_casting_enabled was false. That was a
+	## bug: this proxy is the character's ONLY direct light source now
+	## (every real light unconditionally excludes characters from its
+	## light_cull_mask, regardless of this setting — see WallLight.gd/
+	## GrowLight.gd/Flashlight.gd), so gating the light itself on the
+	## shadow-casting toggle made players/NPCs pitch black at the default
+	## Medium preset (shadow_casting_enabled defaults false). Whether this
+	## light casts an actual SHADOW already correctly follows the setting
+	## via _apply_graphics_settings() above (_spot.shadow_enabled) — that's
+	## the only thing that setting should control. Illumination must stay
+	## unconditional. (Separately, see PROXY_DISTANCE/ENERGY_SCALE above
+	## for the other half of this fix — the character was also badly
+	## underlit even with shadow_casting_enabled on, before this same
+	## session's constant recalibration.)
 
 	var char_pos: Vector3 = _owner_char.global_position
 	var accum: Vector3    = Vector3.ZERO

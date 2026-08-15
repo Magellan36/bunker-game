@@ -357,6 +357,18 @@ characters read too dim/bright once seen in-editor.
 (self-referential for its wielder; its own self-shadow exclusion already
 covers that case) — see the plan doc's "Scope decisions" for the full
 reasoning and what a future flashlight-highlights-NPCs feature would need.
+**Aug 2026 hotfixes (two, same root cause area):** (1) the proxy's
+illumination was briefly gated on GraphicsSettings.shadow_casting_enabled,
+making characters pitch black at the default Medium preset — fixed by
+making illumination unconditional and only gating shadow_enabled on that
+setting, as originally intended. (2) even with the proxy running, it was
+positioned too far from the character (6m) for its own energy values,
+given Godot's physically-based light falloff — characters read as
+severely underlit except right next to a strong real light. Fixed by
+shrinking PROXY_DISTANCE to 2.5m and recalibrating ENERGY_SCALE/
+MAX_ENERGY/SPOT_ATTENUATION accordingly. Both fixed in
+CharacterShadowProxy.gd; still first-pass tuned values, expect another
+visual pass once seen in-editor.
 
 ---
 

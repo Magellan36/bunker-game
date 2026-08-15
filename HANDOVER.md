@@ -93,6 +93,49 @@ all small, mechanically-driven edits, design owned by Graphics.
 
 ---
 
+# Handover — Character Shadow Proxy Underlit Hotfix v2 (Aug 2026)
+
+## What changed this session
+Two bugs in `CharacterShadowProxy.gd` from the Aggregated Character
+Shadows plan, both making players/NPCs read as far too dark:
+
+1. The proxy light's *existence* (not just its shadow-casting) was gated
+   on `GraphicsSettings.shadow_casting_enabled`, which defaults false at
+   Medium — pitch black at default settings. Fixed: illumination is now
+   unconditional; only `_spot.shadow_enabled` still follows that setting.
+2. Even with the proxy active, `PROXY_DISTANCE = 6.0` was much farther
+   than a real WallLight/GrowLight ever has to reach a character, so
+   Godot's physically-based falloff ate almost all the light before it
+   arrived — severe underlighting everywhere except right next to a
+   strong real light (reported as "flickering to briefly reveal a small
+   spot"). Fixed: `PROXY_DISTANCE` → 2.5m, `ENERGY_SCALE`/`MAX_ENERGY`
+   recalibrated upward, and a new `SPOT_ATTENUATION` constant added
+   (previously left at Godot's steeper default).
+
+### Files modified
+- `scripts/core/CharacterShadowProxy.gd` — constant recalibration, new
+  `SPOT_ATTENUATION`, removed the shadow_casting_enabled gating bug.
+- `docs/systems/graphics/README.md` — hotfix note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Boot at the default preset (Medium) — player/NPCs should now be
+   normally lit near WallLight/GrowLight.
+3. Walk through a normally-lit room — character brightness should look
+   reasonably consistent throughout the lit area, not spiking only right
+   next to individual lights.
+4. Switch to High/Ultra — character lit AND showing its one aggregated
+   shadow.
+5. If characters now look noticeably too bright, that's `ENERGY_SCALE`/
+   `MAX_ENERGY` in `CharacterShadowProxy.gd` — safe to dial down, this was
+   deliberately erred bright over dark.
+6. Walk somewhere with zero nearby WallLight/GrowLight — character should
+   still correctly dim/darken there (MIN_TOTAL_WEIGHT cutoff working as
+   intended).
+
+---
+
 > **Trash delivery loop fix (Aug 2026):** Root cause of the reported back-and-forth
 > dropping/carrying loop — `npc_deposit_trash()` was called in two places but never defined
 > anywhere, so trash "delivery" always silently no-op'd while logging success. Fixed by reusing
