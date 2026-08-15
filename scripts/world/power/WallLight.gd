@@ -358,6 +358,12 @@ func _build_fixture() -> void:
 	omni.light_indirect_energy = 1.0
 	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
 	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.5)
+	## Aug 2026 — excludes every character (player + NPCs) from this
+	## light's illumination/shadow entirely, same as Flashlight.gd already
+	## does — characters now get their light/shadow from the aggregated
+	## CharacterShadowProxy system instead of individual real lights (see
+	## docs/systems/graphics/README.md "Aggregated character shadows").
+	omni.light_cull_mask       = omni.light_cull_mask & ~GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
 	omni.visible = false
 	add_child(omni)
@@ -394,6 +400,22 @@ func _apply_graphics_settings() -> void:
 	if _omni == null:
 		return
 	_omni.shadow_enabled = GraphicsSettings.shadow_casting_enabled
+
+
+## Aug 2026 — returns this fixture's current contribution weight for
+## CharacterShadowProxy.gd's aggregate shadow-direction calculation, or 0.0
+## if currently off/out of range. See docs/systems/graphics/README.md
+## "Aggregated character shadows". Deliberately simple falloff — this only
+## needs to rank/blend multiple lights sensibly relative to each other, not
+## match the GPU's real attenuation curve exactly.
+func get_shadow_weight(from_pos: Vector3) -> float:
+	if _omni == null or not _omni.visible:
+		return 0.0
+	var dist: float = global_position.distance_to(from_pos)
+	if dist >= LIGHT_RANGE:
+		return 0.0
+	var t: float = 1.0 - (dist / LIGHT_RANGE)
+	return LIGHT_ENERGY * t * t
 
 
 # ─── Override all GLB mesh materials to be fully matte, no shadows ───────────

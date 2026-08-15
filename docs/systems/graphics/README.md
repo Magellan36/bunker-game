@@ -300,6 +300,9 @@ beam when `shadow_casting_enabled` is on. If the flashlight's own held-item
 mesh (the flashlight body itself) turns out to cast a similar smaller
 self-shadow, that's a separate, not-yet-observed issue — flag it before
 extending this same layer-bit pattern to it.
+**Superseded/generalized by "Aggregated character shadows" below** — the
+constant this section describes moved to
+`GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT`.
 
 ### Unified dynamic shadow casting
 **What changed:** `GraphicsSettings.flashlight_shadows` renamed to
@@ -327,6 +330,33 @@ normal preset-tier toggle now, not a flashlight-specific opt-in one).
 **Cross-thread note:** `WallLight.gd`/`GrowLight.gd` are Power-thread
 files; this session's edits there are limited to the light node
 construction/shadow wiring, no power-grid logic touched.
+
+### Aggregated character shadows
+**Problem:** with the game's fixed top-down isometric camera, every shadow
+from every nearby real light is visible on screen simultaneously (unlike a
+third-person-over-shoulder camera, where most would be off-screen or
+foreshortened). The starting bunker's 6 perimeter wall lights meant a
+character could show 6 independently-moving cast shadows at once while
+walking/sprinting — technically correct, but visually overwhelming.
+**Fix:** every real light (Flashlight, WallLight, GrowLight) now excludes
+characters from its `light_cull_mask` via
+`GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT` (relocated here from
+`Player.PLAYER_SELF_LIGHT_LAYER_BIT`, now shared across Player/NPC/Power/
+Furniture-Items). Each character instead owns one `CharacterShadowProxy`
+(`scripts/core/CharacterShadowProxy.gd`) — a single SpotLight3D positioned
+at a fixed distance/height from the character, aimed at them, whose
+direction and brightness are a smoothed aggregate of every nearby
+WallLight/GrowLight's weighted contribution. One shadow, direction driven
+by real nearby lights, length/drama art-directed rather than incidental.
+**Important:** since light_cull_mask gates both illumination and shadow
+together, characters now receive ALL their direct light from this one
+proxy — GI/ambient still applies normally underneath, but ENERGY_SCALE/
+MAX_ENERGY in CharacterShadowProxy.gd are the values to retune if
+characters read too dim/bright once seen in-editor.
+**Deliberately out of scope:** Flashlight isn't part of the aggregate
+(self-referential for its wielder; its own self-shadow exclusion already
+covers that case) — see the plan doc's "Scope decisions" for the full
+reasoning and what a future flashlight-highlights-NPCs feature would need.
 
 ---
 

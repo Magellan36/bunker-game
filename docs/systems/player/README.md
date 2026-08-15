@@ -171,15 +171,12 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
 ```
 
 ## Common edits
-- **New light that needs to exclude the player's mesh:** clear
-  `Player.PLAYER_SELF_LIGHT_LAYER_BIT` from that light's `light_cull_mask`
-  at creation time (see `Flashlight.gd`'s SpotLight3D for the pattern) — do
-  NOT add a second exclusive layer bit to the player's mesh; reuse this
-  same bit, since `mesh.layers` can only hold one value and Player.gd's
-  `_ready()` already REPLACES it once (not additive across multiple
-  systems). If a future light needs *some* objects excluded but not the
-  player, exclude by giving that light a narrower cull mask instead of
-  touching the player's layer.
+- **Character-shadow render layer (layer 12) moved to
+  GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT (Aug 2026)** — was
+  Player.PLAYER_SELF_LIGHT_LAYER_BIT, now shared with NPC.gd too. If a
+  future light needs to exclude characters, clear that bit from its
+  light_cull_mask (see WallLight.gd/GrowLight.gd/Flashlight.gd for the
+  pattern) — don't add a second exclusive layer bit; reuse this one.
 - **New player stat/need:** add the field + drain rate + signal to
   `PlayerStats.gd` following the `food`/`water`/`sleep` pattern; add a
   `replenish_*()` method; wire `HUD.gd` to the new signal (see

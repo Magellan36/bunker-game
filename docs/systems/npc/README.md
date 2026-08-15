@@ -1238,6 +1238,14 @@ skills, personality words, seed, mood, and irritability + label.
 These patterns are now convention — new NPC code should follow them
 without being asked.
 
+- **Aggregated character shadow (Aug 2026):** every NPC gets a
+  `CharacterShadowProxy` child (see
+  `docs/systems/graphics/README.md` "Aggregated character shadows") and
+  its mesh is tagged with `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT`
+  (REPLACING, not OR-ing onto, the default layer). Don't remove either
+  without checking that doc first — NPCs otherwise lose all direct
+  lighting (they'd only get their fallback, which is currently none other
+  than SDFGI ambient).
 - **Defensive `has_method()` guards on every cross-file NPC↔NPCBrain
   call.** NPC.gd and NPCBrain.gd are tightly coupled but always built
   separately; every cross-file call

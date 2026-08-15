@@ -21,20 +21,6 @@ extends CharacterBody3D
 @onready var interaction_area: Area3D = $InteractionArea
 @onready var interaction_system: Node = $InteractionSystem
 
-## Render layer 12 (bit index 11) — reserved EXCLUSIVELY for tagging the
-## player's own mesh so specific lights can exclude it from their
-## light_cull_mask without affecting anything else in the scene. Currently
-## used by exactly one consumer: Flashlight.gd's handheld SpotLight3D
-## excludes this bit so the player's own body doesn't self-shadow a dome
-## into the center of its own beam (see
-## docs/systems/graphics/README.md "Flashlight self-shadow exclusion").
-## Referenced from other files by class name — Player.PLAYER_SELF_LIGHT_LAYER_BIT
-## — rather than duplicating the magic number. Layer 11 is already reserved
-## by InteractionFocusGlow.gd's HIGHLIGHT_LAYER; this is the next free one —
-## check docs/systems/player/README.md before reusing layer 12 for anything else.
-const PLAYER_SELF_LIGHT_LAYER: int = 12
-const PLAYER_SELF_LIGHT_LAYER_BIT: int = 1 << (PLAYER_SELF_LIGHT_LAYER - 1)
-
 ## Stamina must recover to this before sprinting is allowed again (prevents flicker)
 @export var sprint_recover_threshold: float = 20.0
 
@@ -75,12 +61,26 @@ func _ready() -> void:
 	add_to_group("player")
 
 	## REPLACES (does not OR onto) the mesh's default render layer with its
-	## self-light-exclusion bit — see PLAYER_SELF_LIGHT_LAYER_BIT above for
-	## why this must be a replacement, not an addition. Every light's default
-	## light_cull_mask already includes every layer bit, so this is
-	## invisible to every light except the one(s) that explicitly clear this
-	## specific bit (currently just Flashlight.gd's spot).
-	mesh.layers = PLAYER_SELF_LIGHT_LAYER_BIT
+	## character-shadow bit — see GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
+	## for why this must be a replacement, not an addition. Every real
+	## light in the game now excludes this bit from its light_cull_mask
+	## (Aug 2026 — see docs/systems/graphics/README.md "Aggregated
+	## character shadows"); CharacterShadowProxy below is this character's
+	## sole direct light/shadow source now.
+	mesh.layers = GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
+
+	## Aug 2026 — aggregated shadow proxy (see
+	## docs/systems/graphics/README.md "Aggregated character shadows").
+	## Dynamically instantiated rather than scene-defined, same pattern
+	## MainWorld._setup_tilt_shift_dof() already uses — never needs a
+	## .tscn edit.
+	var shadow_proxy_script: GDScript = load("res://scripts/core/CharacterShadowProxy.gd")
+	if shadow_proxy_script != null:
+		var proxy: Node3D = Node3D.new()
+		proxy.set_script(shadow_proxy_script)
+		proxy.name = "CharacterShadowProxy"
+		add_child(proxy)
+		proxy.call("setup", self)
 
 func _physics_process(delta: float) -> void:
 	if _movement_locked:

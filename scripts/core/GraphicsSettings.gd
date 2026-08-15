@@ -43,6 +43,21 @@ var flashlight_volumetrics: bool = true
 ## set_setting_live() below — camera_fov is now the only field still
 ## excluded from that).
 var shadow_casting_enabled: bool = false
+
+## Aug 2026 — shared render layer for every character (player + NPCs)
+## whose light/shadow now comes from an aggregated CharacterShadowProxy
+## instead of real per-light shadow maps (see
+## docs/systems/graphics/README.md "Aggregated character shadows"). Every
+## real light (Flashlight/WallLight/GrowLight) clears this bit from its
+## own light_cull_mask; CharacterShadowProxy.gd is the only thing that
+## includes it. Was Player.PLAYER_SELF_LIGHT_LAYER_BIT (flashlight-only)
+## before this session generalized it — relocated here since it's now a
+## cross-thread rendering convention (Player, NPC, Power, Furniture/Items
+## all reference it), not something one thread should own. Layer 11 is
+## already reserved by InteractionFocusGlow.gd's HIGHLIGHT_LAYER — this
+## stays layer 12, the value it already had as Player's constant.
+const CHARACTER_SHADOW_LAYER: int = 12
+const CHARACTER_SHADOW_LAYER_BIT: int = 1 << (CHARACTER_SHADOW_LAYER - 1)
 var glow_enabled:          bool = true
 var dof_enabled:           bool = false
 var msaa:                  int  = Viewport.MSAA_2X

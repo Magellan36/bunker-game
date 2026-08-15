@@ -539,6 +539,12 @@ func _build_spot_light() -> void:
 	spot.distance_fade_length        = SPOT_DISTANCE_FADE_LENGTH
 	spot.position                    = Vector3.ZERO
 	spot.rotation_degrees            = Vector3(-90.0, 0.0, 0.0)
+	## Aug 2026 — excludes every character (player + NPCs) from this
+	## light's illumination/shadow entirely, same as WallLight.gd/
+	## Flashlight.gd — characters get their light/shadow from the
+	## aggregated CharacterShadowProxy system instead (see
+	## docs/systems/graphics/README.md "Aggregated character shadows").
+	spot.light_cull_mask             = spot.light_cull_mask & ~GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
 	spot.visible                     = false
 	add_child(spot)
 	_spot = spot
@@ -553,6 +559,21 @@ func _apply_graphics_settings() -> void:
 	if _spot == null:
 		return
 	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
+
+## Aug 2026 — returns this fixture's current contribution weight for
+## CharacterShadowProxy.gd's aggregate shadow-direction calculation, or 0.0
+## if currently off/out of range. See docs/systems/graphics/README.md
+## "Aggregated character shadows". Same simple-falloff approach as
+## WallLight.gd's version — only needs to rank/blend lights relative to
+## each other, not match the GPU's real attenuation curve exactly.
+func get_shadow_weight(from_pos: Vector3) -> float:
+	if _spot == null or not _spot.visible:
+		return 0.0
+	var dist: float = global_position.distance_to(from_pos)
+	if dist >= SPOT_LIGHT_RANGE:
+		return 0.0
+	var t: float = 1.0 - (dist / SPOT_LIGHT_RANGE)
+	return SPOT_LIGHT_ENERGY * t * t
 
 ## 4 thin corner support wires (Polish Plan Group 0 item 20) — one per
 ## fixture footprint corner (matches the cover plate's 0.66×0.66 footprint,

@@ -1505,6 +1505,20 @@ func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("interactable")
 
+	## Aug 2026 — same character-shadow-layer tagging + aggregated shadow
+	## proxy Player.gd uses (see
+	## docs/systems/graphics/README.md "Aggregated character shadows").
+	## REPLACES (does not OR onto) the mesh's default render layer — see
+	## GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT for why.
+	mesh.layers = GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
+	var shadow_proxy_script: GDScript = load("res://scripts/core/CharacterShadowProxy.gd")
+	if shadow_proxy_script != null:
+		var proxy: Node3D = Node3D.new()
+		proxy.set_script(shadow_proxy_script)
+		proxy.name = "CharacterShadowProxy"
+		add_child(proxy)
+		proxy.call("setup", self)
+
 	if npc_id == "":
 		npc_id = "npc_%d" % _next_npc_id
 		_next_npc_id += 1

@@ -1,3 +1,98 @@
+# Handover — Aggregated Character Shadows (Aug 2026)
+
+## What changed this session
+Replaced per-character real shadow reception (every nearby WallLight/
+GrowLight casting its own shadow onto the player/NPCs — up to 6+ at once
+around the starting bunker's perimeter lights) with one aggregated fake
+shadow per character. Every real light now excludes characters from its
+`light_cull_mask` entirely (via `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT`,
+relocated from `Player.PLAYER_SELF_LIGHT_LAYER_BIT` and now shared with
+NPCs too), and each character owns a `CharacterShadowProxy` — a single
+SpotLight3D whose direction/brightness are a smoothed, weighted aggregate
+of nearby real lights (`WallLight.get_shadow_weight()`/
+`GrowLight.get_shadow_weight()`, new public methods). Proxy position is a
+fixed distance/height from the character (art-directed for a consistently
+dramatic long shadow) with only the *direction* driven by real nearby
+lights.
+
+Important consequence: since light_cull_mask can't separate illumination
+from shadow contribution, characters now get 100% of their direct
+lighting from this one proxy instead of the real room lights — GI/ambient
+is unaffected. `CharacterShadowProxy.gd`'s `ENERGY_SCALE`/`MAX_ENERGY` are
+first-pass eyeballed values, most likely thing to need retuning.
+
+Flashlight is deliberately not part of the aggregate (self-referential for
+its wielder) — see `docs/systems/graphics/README.md` "Aggregated character
+shadows" / "Scope decisions" for the reasoning.
+
+Cross-thread note: touched `Player.gd` (Player), `NPC.gd` (NPC),
+`WallLight.gd`/`GrowLight.gd` (Power), `Flashlight.gd` (Furniture/Items) —
+all small, mechanically-driven edits, design owned by Graphics.
+
+### Files modified
+- `scripts/core/GraphicsSettings.gd` — new `CHARACTER_SHADOW_LAYER`/
+  `CHARACTER_SHADOW_LAYER_BIT` (relocated from Player.gd).
+- `scripts/core/CharacterShadowProxy.gd` — new.
+- `scripts/player/Player.gd` — removed old layer consts, updated mesh
+  tagging, instantiates `CharacterShadowProxy`.
+- `scripts/npc/NPC.gd` — same mesh tagging + proxy instantiation.
+- `scripts/world/items/Flashlight.gd` — updated cull-mask reference.
+- `scripts/world/power/WallLight.gd` — cull-mask exclusion added, new
+  `get_shadow_weight()`.
+- `scripts/world/power/GrowLight.gd` — cull-mask exclusion added, new
+  `get_shadow_weight()`.
+- `docs/systems/graphics/README.md` — new "Aggregated character shadows"
+  entry, superseded-note on the earlier flashlight-only entry.
+- `docs/systems/player/README.md`, `docs/systems/npc/README.md`,
+  `docs/systems/power/README.md` — Common-edits notes.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Boot at High/Ultra (shadow_casting_enabled on) near the 6 starting
+   perimeter lights — player should show exactly ONE shadow, not up to 6.
+3. Walk/sprint between lights — the single shadow should sweep smoothly as
+   you move, not pop/flip discretely between directions.
+4. Stand roughly equidistant from several lights (the worst case for the
+   old system) — shadow should shrink/fade toward faint rather than
+   picking a jarring arbitrary direction.
+5. Walk somewhere with zero nearby WallLight/GrowLight — proxy should
+   switch off (character lit only by ambient/GI, no floating stray light).
+6. Check a character's overall brightness near lights doesn't look
+   noticeably dimmer/brighter than before this change — if it does,
+   that's `ENERGY_SCALE`/`MAX_ENERGY` needing a tuning pass in
+   `CharacterShadowProxy.gd`, not a bug.
+7. Confirm NPCs show the same single-shadow behavior as the player.
+8. Confirm furniture/walls are completely unaffected — they still receive
+   normal per-light real shadows from every real light untouched by this
+   change; only characters changed.
+9. Toggle Shadow Casting off — both real per-object shadows AND the
+   character proxy shadow should disappear together (proxy already gates
+   on the same setting).
+10. Confirm the flashlight still works exactly as before (still excludes
+    its own wielder specifically, unaffected by this session beyond the
+    constant's rename/relocation).
+
+## Open items for Brannon
+
+- `ENERGY_SCALE = 0.6` / `MAX_ENERGY = 3.0` in `CharacterShadowProxy.gd`
+  are eyeballed, not derived — the first thing to check once characters
+  are visible in-editor near real lights (see "Important side effect").
+- `PROXY_DISTANCE = 6.0` / `PROXY_HEIGHT = 1.8` control how long/dramatic
+  the fake shadow looks — pure art direction, adjust freely, no other
+  system depends on these values.
+- The "proxy lights aren't mutually exclusive between characters" edge
+  case (see "Scope decisions") is accepted as-is given Godot's ~20-layer
+  budget — flag if it turns out to be more visible in practice than
+  expected, since a real fix would need a different approach (e.g.
+  per-character-pair dynamic layer assignment) that's more involved than
+  this plan's scope.
+- Flashlight-highlighting-NPCs (shining the flashlight on an NPC and
+  having that specifically brighten/shadow them) is explicitly not built
+  here — flagged as a possible future ask, not started.
+
+---
+
 > **Trash Can F-dispatch fairness + full/inaccessible drop-fallback (Aug 2026):** two fixes in
 > `InteractionSystem.gd`/`TrashCan.gd`. (1) The empty-handed F branch previously called
 > `shelf.on_f_interact()` unconditionally whenever ANY shelving-group object was in range — a full

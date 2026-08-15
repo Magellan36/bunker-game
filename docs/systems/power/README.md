@@ -197,6 +197,14 @@ UI panel.open() ← player interacts with device → reads PowerManager getters,
 ```
 
 ## Common edits
+- **Character exclusion on WallLight/GrowLight (Aug 2026):** both
+  fixtures' lights now exclude
+  `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT` from their
+  `light_cull_mask`, and both expose `get_shadow_weight(from_pos)` for
+  `CharacterShadowProxy.gd`'s aggregate calculation. See
+  `docs/systems/graphics/README.md` "Aggregated character shadows". If you
+  add a new light-emitting device to this thread, it should probably do
+  the same — check that doc for the pattern.
 - **Shadow casting on WallLight/GrowLight (Aug 2026):** both fixtures'
   lights now respect `GraphicsSettings.shadow_casting_enabled` via their
   own `_apply_graphics_settings()`, connected to
