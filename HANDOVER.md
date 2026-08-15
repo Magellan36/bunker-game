@@ -5,6 +5,29 @@
 > canary for "interruptible while still holding something," and a stalled-repick counter on
 > Cleaning's target-picking log.
 
+**Research Station Foundation + Trash Material Types + Empty Seed Bag (Aug 2026):** Three
+> additions toward the Research Station feature. (1) **Trash material type system** — items may
+> implement `get_trash_material() -> String` ("metal"/"plastic"/"paper"/"organic"); applied to 13
+> item files (mechanical, one method each; no other logic touched). `TrashCan.extract_trash_record()`
+> now stores `"material"` in the record's `data` when the method exists; untagged items get no key
+> (unusable for research until explicitly categorized). `SeedItem` left untagged deliberately.
+> **NEXT PASS:** actual upgrade definitions/buttons/timers/feed logic (spending trash material on
+> upgrades); `UpgradeDef.gd` stub exists as the target shape. Two confirmation flags open: (a)
+> `BagOfSoilItem` threshold implemented as strict-full (`_charges >= _max_charges`); say so if you
+> meant any-charge-left, (b) `SeedItem` material. (2) **Research Station (TILE 38)** — singleton
+> `ResearchStation.gd`, identical treatment to Build Station (spawns once near world-center, never
+> purchasable/deconstructable, movable only); `[E] Open Research Station` opens the modal
+> `ResearchStationUI` (shell only: 3 selectable tabs with per-tree separate state stubs). Opens a
+> modal UI rather than toggling a game mode, so no prompt-ownership handoff — just the standard
+> `InteractionSystem.research_ui` E/F gate (same as shelf/basket). Cross-thread item-file touches
+> flagged per convention: Farming (`BagOfSoilItem`, `FarmProduceItem`, `FertilizerItem`,
+> `EmptyFertilizerBottleItem`, `SeedItem`), Cooking (`CookingPot`, `DishItem`), general items
+> (`Basket`, `Flashlight`, `FoodCan`, `FuelCan`, `PurifierFilterItem`, `WaterBottle`). (3) **Empty
+> Seed Bag** — `EmptySeedBagItem.gd` mirrors `EmptyFertilizerBottleItem.gd`; `SeedItem` now drops
+> one when its last charge is used, in BOTH `on_use()` and the NPC `apply_at_cell()` path
+> (consistent with `BagOfSoilItem`'s both-paths spawn). Spawn position is +2m X off the Build
+> Station's computed center — verify visually in-editor that the two don't overlap.
+
 # Handover — Aggregated Character Shadows (Aug 2026)
 
 ## What changed this session

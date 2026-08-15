@@ -29,6 +29,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  Empty Bag"
 
+func get_trash_material() -> String:
+	return "plastic"
+
 ## No use prompt — junk/decorative, no on_use() at all (plan §1).
 
 ## Flatter, lighter silhouette than BagOfSoilItem's full sack.

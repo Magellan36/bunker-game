@@ -53,6 +53,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  " + get_display_name()
 
+func get_trash_material() -> String:
+	return "plastic"
+
 func _find_nearest_purifier() -> WaterPurifier:
 	var best: WaterPurifier = null
 	var best_dist: float = REPLACE_RANGE

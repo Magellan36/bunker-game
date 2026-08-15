@@ -270,6 +270,9 @@ func get_prompt_text() -> String:
 		return "[F] Pick up  Flashlight (Dead)"
 	return "[F] Pick up  Flashlight (%d%%)" % int(_battery)
 
+func get_trash_material() -> String:
+	return "metal"
+
 func get_use_prompt() -> String:
 	if _is_dead:
 		return ""

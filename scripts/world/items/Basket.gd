@@ -52,6 +52,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s" % item_name
 
+func get_trash_material() -> String:
+	return "organic"
+
 func get_interact_prompt() -> String:
 	return "[G] Open Basket"
 

@@ -104,7 +104,8 @@ func on_use() -> void:
 	_update_target_highlight(null)
 
 	if _charges <= 0:
-		queue_free()   ## No "empty packet" object — seeds don't have one, unlike soil/fertilizer bags
+		EmptySeedBagItem.spawn_at(get_parent(), tray.global_position)
+		queue_free()
 
 ## Aug 2026 (NPC Gardening thread) — index-aware counterpart to on_use(),
 ## same reasoning as BagOfSoilItem.apply_at_cell(). Uses this instance's
@@ -119,6 +120,7 @@ func apply_at_cell(tray: FarmingTray, cell_index: int) -> bool:
 	charge_changed.emit()
 	_update_target_highlight(null)
 	if _charges <= 0:
+		EmptySeedBagItem.spawn_at(get_parent(), tray.global_position)
 		queue_free()
 	return true
 

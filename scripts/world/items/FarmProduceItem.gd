@@ -51,6 +51,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s" % get_display_name()
 
+func get_trash_material() -> String:
+	return "organic"
+
 func _find_nearest_plantable_tray() -> FarmingTray:
 	if not (produce_type in REPLANTABLE_TYPES):
 		return null

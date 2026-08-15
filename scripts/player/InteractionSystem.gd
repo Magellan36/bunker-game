@@ -42,6 +42,10 @@ var shelf_ui: Node = null
 ## Set by MainWorld — BasketUI node ref; checked to suppress input while open
 var basket_ui: Node = null
 
+## Set by MainWorld — ResearchStationUI node ref; checked to suppress input
+## while open (Aug 2026, Research Station Foundation pass)
+var research_ui: Node = null
+
 # ─── State ────────────────────────────────────────────────────────────────────
 var held_item: RigidBody3D = null
 var _world_root: Node3D    = null
@@ -94,7 +98,7 @@ func _process(delta: float) -> void:
 				 ## Previously this branch also force-hid the prompt every
 				 ## frame, which would have fought BuildModeController's own
 				 ## prompt.set_prompts() call for the same node.
-	if _shelf_ui_open() or _basket_ui_open():
+	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open():
 		if prompt != null:
 			prompt.hide_prompt()
 		return
@@ -135,11 +139,15 @@ func _shelf_ui_open() -> bool:
 func _basket_ui_open() -> bool:
 	return basket_ui != null and basket_ui.is_open
 
+## Returns true if the Research Station UI overlay is open
+func _research_ui_open() -> bool:
+	return research_ui != null and research_ui.is_open
+
 func _unhandled_input(event: InputEvent) -> void:
 	if build_mode_active:
 		return   ## BuildModeController owns all input while active
-	if _shelf_ui_open() or _basket_ui_open():
-		return   ## ShelfUI/BasketUI owns all input while open
+	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open():
+		return   ## ShelfUI/BasketUI/ResearchStationUI owns all input while open
 	# ── Scroll wheel — cycle inventory slots ──
 	if event is InputEventMouseButton:
 		if event.pressed:

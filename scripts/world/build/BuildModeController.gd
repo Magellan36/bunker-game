@@ -28,6 +28,7 @@ var rock_surround: Node3D      = null   ## RockSurround node — for dig mechani
 ## Injected by MainWorld at spawn time (Part 3) — lets this controller drive
 ## the Build Station exit prompt + E-key close during build mode.
 var build_station: Node3D  = null
+var research_station: Node3D  = null   ## Aug 2026 — Research Station Foundation pass
 var interact_prompt: Node  = null   ## Same node InteractionSystem normally drives
 ## Injected by MainWorld (Part 3) so the Build Station exit can route through
 ## the shared _toggle_build_mode() — same chokepoint the station's own entry
@@ -82,6 +83,7 @@ const TILE_END_TABLE:    int = 32   ## End table, 1×1 footprint, 2-item light s
 const TILE_DRESSER:      int = 33   ## Dresser, 2×1 footprint, 6-item light storage (Furniture)
 const TILE_TRASH_CAN:    int = 36   ## Trash can, 1×1 footprint, 10-item light storage, empties into a Trash Bag (Furniture)
 const TILE_BUILD_STATION: int = 37   ## Singleton, spawns at world center, never purchasable/deconstructable, movable only
+const TILE_RESEARCH_STATION: int = 38   ## Singleton, spawns at world center, never purchasable/deconstructable, movable only
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -1479,6 +1481,24 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		bs_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return bs_node
 
+	## ── Research Station (Aug 2026) — freestanding singleton, never
+	## purchasable/deconstructable, movable only. Exclusive spawn path is
+	## MainWorld._spawn_initial_research_station(); this branch exists so that
+	## function's _spawn_placed_object() call produces the real scripted
+	## object (no generic-MeshLibrary fallback). Mirrors the build station
+	## branch above — freestanding, no wall snap.
+	if tile_id == TILE_RESEARCH_STATION:
+		var rs_script: GDScript = load("res://scripts/world/furniture/ResearchStation.gd")
+		var rs_node: StaticBody3D = StaticBody3D.new()
+		if rs_script != null:
+			rs_node.set_script(rs_script)
+		rs_node.set_meta("tile_id", TILE_RESEARCH_STATION)
+		var rspar: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		rspar.add_child(rs_node)
+		rs_node.global_position  = pos
+		rs_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return rs_node
+
 	## ── Water test sink (July 2026 groundwork pass) — rudimentary endpoint ───
 	if tile_id == TILE_WATER_SINK:
 		var ws_script: GDScript = load("res://scripts/world/water/WaterTestSink.gd")
@@ -1723,6 +1743,8 @@ func get_placed_objects_for_save() -> Array:
 			continue
 		if tile_id == TILE_BUILD_STATION:
 			continue
+		if tile_id == TILE_RESEARCH_STATION:
+			continue
 		var node: Node3D = entry.get("node")
 		if node == null or not is_instance_valid(node):
 			continue
@@ -1963,6 +1985,9 @@ func _try_deconstruct() -> void:
 		return
 	if entry.get("tile_id", -1) == TILE_BUILD_STATION:
 		_show_hud_warning("Build Station cannot be removed — use Move instead")
+		return
+	if entry.get("tile_id", -1) == TILE_RESEARCH_STATION:
+		_show_hud_warning("Research Station cannot be removed — use Move instead")
 		return
 
 	var refund: int         = entry["price"]
@@ -3004,7 +3029,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
 				return true
 		return false
-	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE or tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER or tile_id == TILE_TRASH_CAN or tile_id == TILE_BUILD_STATION:
+	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE or tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER or tile_id == TILE_TRASH_CAN or tile_id == TILE_BUILD_STATION or tile_id == TILE_RESEARCH_STATION:
 		# Tables, chairs, and the Stove sit on the floor (Y=0.5), same as
 		# Beds/Shelving/Generators/Trays above — the physics shape query hits
 		# the floor collider, causing a false "space occupied" positive.
@@ -3012,7 +3037,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 		var threshold: float = grid_size * 0.9
 		for entry: Dictionary in _placed_objects:
 			var et: int = entry.get("tile_id", -1)
-			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE and et != TILE_END_TABLE and et != TILE_DRESSER and et != TILE_TRASH_CAN and et != TILE_BUILD_STATION:
+			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE and et != TILE_END_TABLE and et != TILE_DRESSER and et != TILE_TRASH_CAN and et != TILE_BUILD_STATION and et != TILE_RESEARCH_STATION:
 				continue
 			var p: Vector3 = entry["world_pos"]
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
@@ -3128,6 +3153,7 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_DRESSER:      return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
 		TILE_TRASH_CAN:    return Vector2(0.28, 0.28)  ## 1×1, cylinder footprint slightly smaller than a table
 		TILE_BUILD_STATION: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
+		TILE_RESEARCH_STATION: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
 		TILE_LIGHT:        return Vector2(0.05, 0.05)   ## Thin wall-flush fixture — NOT the 0.40 floor-object default. Same fix/reasoning as TILE_POSTER earlier this session; the wall-snap step already validated a real wall was found, this just needs to not second-guess that with an oversized box.
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback

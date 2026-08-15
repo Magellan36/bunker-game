@@ -65,6 +65,9 @@ func get_display_name() -> String:
 		return "Empty Water Bottle"
 	return "Water Bottle"
 
+func get_trash_material() -> String:
+	return "organic" if current_fill_mL > 0.0 else "plastic"
+
 ## Water-quality colour convention — mirrored from WaterDispenserUI._quality_color()
 ## / InventoryHUD._bottle_quality_color() (0-50 red / 50.01-75 yellow / 75.01-100
 ## green, inclusive lower boundary each tier). Hex values match those consts'

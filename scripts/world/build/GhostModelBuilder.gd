@@ -59,6 +59,7 @@ const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
 	35: { "path": "res://scripts/world/furniture/LargeShelf.gd", "is_script": true },
 	36: { "path": "res://scripts/world/furniture/TrashCan.gd", "is_script": true },
 	37: { "path": "res://scripts/world/furniture/BuildStation.gd", "is_script": true },
+	38: { "path": "res://scripts/world/furniture/ResearchStation.gd", "is_script": true },
 	## NOT YET REGISTERED — flagged, not silently skipped (see testing
 	## checklist item 5): TILE_LIGHT (5, WallLight.gd — wall-mounted,
 	## no entry existed even before this plan), TILE_STOVE (30,

@@ -187,6 +187,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s" % item_name
 
+func get_trash_material() -> String:
+	return "metal"
+
 ## Always returns the "DONE — Take Dish" text regardless of whether this
 ## pot's own get_interact_prompt() is currently suppressing it (see below).
 ## Used by Stove.get_interact_prompt()'s delegation — calling

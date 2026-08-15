@@ -61,6 +61,7 @@ or the environment itself (`docs/systems/environment/README.md`).
 | `furniture/TrashCan.gd` | ~210 | **NEW (Aug 2026)** Trash can, capacity 10 light storage, TILE 36, $50. F empties a full can into a Trash Bag (handed straight to the player); E always opens StorageUI |
 | `items/TrashBag.gd` | ~60 | **NEW (Aug 2026)** Runtime-only pickupable object (no tile/menu entry) created by emptying a full Trash Can; shelf-storable (stack 1), NOT `"inventory_item"`; carries a full snapshot of the disposed items |
 | `furniture/BuildStation.gd` | ~120 | **NEW (Aug 2026)** Build Mode entry-point object — singleton (TILE 37), spawns once at the starting bunker's geometric center, never purchasable/deconstructable, movable only via the Move tool. Entering build mode uses the plain `"interactable"` contract; the exit prompt is `BuildModeController`-owned (see below). |
+| `furniture/ResearchStation.gd` | ~110 | **NEW (Aug 2026)** Research Station — singleton (TILE 38), identical treatment to Build Station (spawns once near world-center, never purchasable/deconstructable, movable only). Opens `ResearchStationUI` on E (plain `"interactable"` contract); the UI shell is the feature this pass. |
 
 ## Public API
 **Shared item contract** (duck-typed â€” `InteractionSystem`/`Shelving` call
@@ -435,6 +436,43 @@ the station's moved position is NOT persisted across save/load — it's
 excluded from `get_placed_objects_for_save()`, so after a save/reload it
 respawns at world-center. Position-persistence for either object is a real
 but separate follow-up.
+
+## Research Station (Aug 2026)
+`ResearchStation.gd` is a plain `StaticBody3D` — structurally near-identical
+to `BuildStation.gd` (same `"interactable"` group + prompt contract, same
+singleton treatment: spawns once at world start near the Build Station,
+never purchasable, never deconstructable, movable only via the Move tool).
+The difference is what `on_interact()` does: it opens a **modal UI**
+(`ResearchStationUI`) rather than toggling a global game mode, so there's
+no `InteractionSystem` prompt-ownership handoff and no `_unhandled_input()`
+involvement — just the standard modal input-blocking coordination every
+other modal UI already has (`InteractionSystem._research_ui_open()` gates
+E/F while open, same as shelf/basket).
+
+**This pass = foundation + UI shell only:**
+- Object + model (filled rectangle base + beakers/flasks, grey/steel to
+  match Table/Chair).
+- `ResearchStationUI`: 3 selectable tabs (Bunker Upgrades / Player Skills /
+  NPC Skills), each with its own separate (empty) progress-state stub.
+  **No buttons, no timers, no feed/consumption logic** — those are the
+  next pass. See `UpgradeDef.gd` for the data shape it will eventually
+  populate.
+- Trash material system (see `docs/systems/research/README.md`): items may
+  implement `get_trash_material() -> String` ("metal"/"plastic"/"paper"/
+  "organic"); `TrashCan.extract_trash_record()` records it on disposal.
+  Untagged items are unusable for research until explicitly categorized.
+
+Wiring (mirrors Build Station): `BuildModeController.TILE_RESEARCH_STATION`
+(38) + save-list skip + deconstruct guard; `GhostModelBuilder.
+PROCEDURAL_PREVIEW_SOURCES` entry; `GhostPreview` ghost branch +
+floor-snap; `MainWorld._spawn_initial_research_station()` (spawns 2m off
+the Build Station's computed center — verify visually in-editor that the
+two don't overlap) + `_setup_research_ui()`; `InteractionSystem.research_ui`
+gate.
+
+**Known, inherited limitation (flagged, not silently):** same as Build
+Station/Water Hookup — moved position is not persisted across save/load
+(respawns at its spawn point). Shared follow-up with the other singletons.
 
 ## Known tradeoffs / tech debt
 - No automated tests.

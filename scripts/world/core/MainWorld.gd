@@ -145,6 +145,9 @@ var _build_mode_active: bool    = false
 # ShelfUI/BasketUI instances) ──────────────────────────────────────────────────
 var _storage_ui: Node = null
 
+# ─── Research Station UI (Aug 2026 — Research Station Foundation pass) ───────
+var _research_ui: Node = null
+
 # ─── Power Grid ───────────────────────────────────────────────────────────────
 var _power_manager: Node = null
 
@@ -224,6 +227,7 @@ func _ready() -> void:
 	## has registered shelf group members, so injection covers pre-placed shelves.
 	_setup_storage_ui()
 	_setup_trash_bag_panel()
+	_setup_research_ui()
 	_setup_debug_overlay()
 	_register_save_fields()
 	get_tree().process_frame.connect(_setup_build_mode, CONNECT_ONE_SHOT)
@@ -594,6 +598,23 @@ func _setup_trash_bag_panel() -> void:
 	panel.name = "TrashBagInfoPanel"
 	add_child(panel)
 	panel.set("player_ref", player)
+
+## Aug 2026 — the Research Station modal UI, created once (mirrors
+## _setup_storage_ui()'s pattern) and injected into the spawn-time Research
+## Station + InteractionSystem's modal gate. Shell only this pass — 3
+## selectable tabs, placeholder content, no buttons/timers/feed logic.
+func _setup_research_ui() -> void:
+	var ui_script: Script = load("res://scripts/ui/research/ResearchStationUI.gd")
+	if ui_script == null:
+		return
+	_research_ui = CanvasLayer.new()
+	_research_ui.set_script(ui_script)
+	_research_ui.name = "ResearchStationUI"
+	add_child(_research_ui)
+
+	## Give InteractionSystem a ref so it can block E/F input while open,
+	## same as shelf_ui/basket_ui (Part 7 of the plan).
+	interaction_system.research_ui = _research_ui
 
 func _ensure_inventory_manager() -> void:
 	# Use scene node if it exists, otherwise create one at runtime
@@ -979,6 +1000,7 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	## registered with the physics server yet).
 	await _spawn_initial_water_hookup()
 	await _spawn_initial_build_station()
+	await _spawn_initial_research_station()
 
 	## Apply concrete floor texture to the GridMap's floor tile mesh.
 	## We override the material on the MeshLibrary item directly so all
@@ -1419,6 +1441,44 @@ func _spawn_initial_build_station() -> void:
 		"tile_id":       bc.TILE_BUILD_STATION,
 		"price":         0,
 		"world_pos":     center_pos,
+		"angle_deg":     0.0,
+		"player_placed": true,
+	})
+
+
+func _spawn_initial_research_station() -> void:
+	var bc: BuildModeController = _build_controller as BuildModeController
+	if bc == null:
+		push_warning("MainWorld: _spawn_initial_research_station skipped — BuildModeController not ready.")
+		return
+
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	## Same true-floor-center computation as the Build Station, offset +2m
+	## on X so the two singleton stations don't overlap (both are 2×1,
+	## half-extent 0.95 on X — 2m clears them). Same Y=0.5 floor-standing
+	## convention. Not hardcoding a guessed center literal — see
+	## _spawn_initial_build_station() for the source constants; verify
+	## visually in-editor once both are placed (flagged in the plan).
+	var center_pos: Vector3 = Vector3(
+		rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5,
+		0.5,
+		rock_surround.OFFSET_Z + float(rock_surround.bunker_width) * 0.5
+	)
+	var research_pos: Vector3 = center_pos + Vector3(2.0, 0.0, 0.0)
+
+	var body: Node3D = bc._spawn_placed_object(bc.TILE_RESEARCH_STATION, research_pos, 0.0)
+	if body != null and body.has_method("set"):
+		body.set("_research_ui", _research_ui)
+	if bc.has_method("set"):
+		bc.set("research_station", body)
+
+	bc._placed_objects.append({
+		"node":          body,
+		"tile_id":       bc.TILE_RESEARCH_STATION,
+		"price":         0,
+		"world_pos":     research_pos,
 		"angle_deg":     0.0,
 		"player_placed": true,
 	})

@@ -282,6 +282,17 @@ func _rebuild_ghost_mesh() -> void:
 					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
 		return
 
+	# ── Research Station (Aug 2026): ghost from static helper, freestanding ──
+	if _owner._selected_tile == _owner.TILE_RESEARCH_STATION:
+		var rs_script: GDScript = load("res://scripts/world/furniture/ResearchStation.gd")
+		if rs_script != null and rs_script.has_method("build_ghost_mesh"):
+			var rs_mesh: Mesh = rs_script.build_ghost_mesh()
+			if rs_mesh != null:
+				_owner._ghost.mesh = rs_mesh
+				for s: int in rs_mesh.get_surface_count():
+					_owner._ghost.set_surface_override_material(s, _owner._mat_valid)
+		return
+
 	# ── Stove (Cooking System): ghost from Stove.gd static helper ──────────────
 	if _owner._selected_tile == _owner.TILE_STOVE:
 		var stove_ghost_script: GDScript = load("res://scripts/world/cooking/Stove.gd")
@@ -632,7 +643,8 @@ func _update_ghost() -> void:
 			or _owner._selected_tile == _owner.TILE_CHAIR or _owner._selected_tile == _owner.TILE_STOVE \
 			or _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER \
 			or _owner._selected_tile == _owner.TILE_TRASH_CAN \
-			or _owner._selected_tile == _owner.TILE_BUILD_STATION:
+			or _owner._selected_tile == _owner.TILE_BUILD_STATION \
+			or _owner._selected_tile == _owner.TILE_RESEARCH_STATION:
 		snap_pos.y = 0.5   ## Floor-standing, same hover-offset convention as farming trays
 	elif _owner._selected_tile == _owner.TILE_GROW_LIGHT_NORMAL or _owner._selected_tile == _owner.TILE_GROW_LIGHT_PRO:
 		## Not wall-snapped, not required to sit above a tray — placeable

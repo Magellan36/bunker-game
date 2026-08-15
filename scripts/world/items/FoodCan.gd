@@ -35,6 +35,9 @@ func get_prompt_text() -> String:
 		return "[F] Pick up  Can (Empty)"
 	return "[F] Pick up  Food Can"
 
+func get_trash_material() -> String:
+	return "metal" if _is_empty else "organic"
+
 func get_use_prompt() -> String:
 	if _is_empty:
 		return ""   ## No use prompt when empty — nothing left to eat or cook

@@ -64,6 +64,9 @@ func get_prompt_text() -> String:
 	var pct: int = int((_fuel_remaining / FUEL_UNITS_TOTAL) * 100.0)
 	return "[F] Pick up  Jerry Can (%d%%)" % pct
 
+func get_trash_material() -> String:
+	return "metal"
+
 func get_use_prompt() -> String:
 	if _is_empty:
 		return ""

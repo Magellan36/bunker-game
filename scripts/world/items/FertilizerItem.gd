@@ -73,6 +73,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  %s (%d/%d)" % [get_display_name(), _charges, _max_charges]
 
+func get_trash_material() -> String:
+	return "organic"
+
 func _find_nearest_fertilizable_tray() -> FarmingTray:
 	var best: FarmingTray = null
 	var best_dist: float = TRAY_RANGE

@@ -37,6 +37,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  Empty Fertilizer Bottle"
 
+func get_trash_material() -> String:
+	return "plastic"
+
 ## No use prompt — junk/decorative, no on_use() at all (mirrors EmptyBagItem).
 
 ## Same body/shoulder/neck/cap cylinder shape as FertilizerItem's bottle,

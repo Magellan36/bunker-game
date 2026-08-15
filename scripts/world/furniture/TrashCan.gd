@@ -278,6 +278,9 @@ static func extract_trash_record(item: RigidBody3D, disposed_index: int) -> Dict
 			continue   ## still excludes TYPE_OBJECT (node refs) — see the freed-instance-safety note this had before
 		data[pname] = item.get(pname)
 
+	if item.has_method("get_trash_material"):
+		data["material"] = item.get_trash_material()
+
 	return {
 		"item_type":      item_type,
 		"display_name":   display_name,

@@ -186,6 +186,34 @@ appears within `BUILD_STATION_EXIT_REACH` = 2.5m of the station during
 build mode, E closes build mode). See
 `docs/systems/furniture-items/README.md` for the full feature write-up.
 
+## Research Station (Aug 2026)
+Tile ID **38** — a singleton `ResearchStation.gd` object that spawns once
+at game start alongside the Build Station (2m off the Build Station's
+computed center — verify visually in-editor that the two don't overlap),
+**never purchasable**, **never deconstructable**, movable only via the Move
+tool. `[E] Open Research Station` opens a modal UI (`ResearchStationUI`),
+unlike Build Station's game-mode toggle — so there's no
+`InteractionSystem` prompt-ownership handoff here; the standard modal
+input-blocking applies (`InteractionSystem.research_ui` gates E/F while
+open). This pass is object + UI shell only (3 selectable tabs, placeholder
+content) — see `docs/systems/research/README.md`.
+
+Excluded from the shop/purchase path entirely, exactly like Water Hookup /
+Build Station:
+- `BuildModeHUD.gd`: **no entry** (never appears in the shop).
+- `BuildModeController.gd`: `TILE_RESEARCH_STATION` const (38);
+  `get_placed_objects_for_save()` skips it; deconstruct guard shows
+  "Research Station cannot be removed — use Move instead"; tile added to
+  the `_is_position_occupied_for_tile()` floor-furniture block + inner
+  `et !=` filter; `_tile_half_extents()` arm `Vector2(0.95, 0.48)` (2×1);
+  `_spawn_placed_object()` has a dedicated branch.
+- `GhostModelBuilder.gd`: `PROCEDURAL_PREVIEW_SOURCES` entry for 38.
+- `GhostPreview.gd`: ghost branch via `ResearchStation.build_ghost_mesh()`
+  + the floor-standing `snap_pos.y = 0.5` elif extended.
+- `MainWorld.gd`: `_spawn_initial_research_station()` + `_setup_research_ui()`
+  (creates the UI once, injects `_research_ui` into the station and
+  `research_ui` into `InteractionSystem`).
+
 ## Shelf Family: Small / Medium / Large (Aug 2026)
 Tile IDs **3** (`Medium Shelf`, $75, 10 slots — the former "Shelving"),
 **34** (`Small Shelf`, $45, 6 slots), and **35** (`Large Shelf`, $180,

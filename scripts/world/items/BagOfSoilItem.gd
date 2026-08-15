@@ -64,6 +64,9 @@ func get_display_name() -> String:
 func get_prompt_text() -> String:
 	return "[F] Pick up  Bag of Soil (%d/%d)" % [_charges, _max_charges]
 
+func get_trash_material() -> String:
+	return "organic" if _charges >= _max_charges else "plastic"
+
 func _find_nearest_tray_needing_soil() -> FarmingTray:
 	var best: FarmingTray = null
 	var best_dist: float = TRAY_RANGE
