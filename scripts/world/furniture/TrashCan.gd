@@ -6,11 +6,17 @@ class_name TrashCan
 ## LightStorage — always opens the shared StorageUI, fully retrievable via
 ## Carry/⊕ at any fill level (per design: never disable retrieval).
 ##
-## F is overridden with dual behavior depending on fill state:
-##   - Not full + holding an eligible item  → normal store (inherited path)
-##   - Full (10/10) + empty hands           → empty into a new Trash Bag,
-##                                             handed directly to the player
-##   - Full + hands NOT empty               → soft warning, no action
+## F is overridden with the full trash-handling surface:
+##   - Holding a Trash Bag          → merge its contents back into the can
+##   - Empty-handed + has contents  → collect everything into a new Trash
+##                                     Bag handed directly to the player
+##                                     (partial fill fine — "at any point
+##                                     of its fullness")
+##   - Empty-handed + no contents   → no-op (falls through to pickup logic)
+##   - Holding an eligible item     → store it; if full, show a "too full"
+##                                     toast and drop the item (the same
+##                                     never-strand-the-held-item fallback
+##                                     LightStorage._try_store_held() uses)
 ## This is a clean split because LightStorage's own F-prompt/store path
 ## already goes silent once is_full() is true — there's no real overlap to
 ## resolve, just a new use for the F slot that store leaves vacant at 10/10.
@@ -138,6 +144,7 @@ func on_f_interact() -> bool:
 		return false   ## unrelated held item, nothing this can does with it
 	if is_full():
 		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
+		_interaction_system._quick_drop()   ## Established pattern (LightStorage._try_store_held()) — error, but don't strand the held item just because ITS specific destination was unavailable.
 		return true
 	_try_store_held(held)   ## inherited mechanics unchanged
 	return true
@@ -194,6 +201,7 @@ func _merge_bag(bag: RigidBody3D, isys: Node) -> void:
 			free_slots += 1
 	if records.size() > free_slots:
 		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
+		isys._quick_drop()   ## Aug 2026 fix — same never-strand fallback as above (LightStorage pattern); the bag is still isys.held_item here, before the release-and-merge sequence, so _quick_drop() works as-is.
 		return
 
 	## Release the bag from the player's hand — same release sequence

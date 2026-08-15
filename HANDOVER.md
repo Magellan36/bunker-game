@@ -1,3 +1,20 @@
+> **Trash Can F-dispatch fairness + full/inaccessible drop-fallback (Aug 2026):** two fixes in
+> `InteractionSystem.gd`/`TrashCan.gd`. (1) The empty-handed F branch previously called
+> `shelf.on_f_interact()` unconditionally whenever ANY shelving-group object was in range — a full
+> trash can could win over a genuinely closer loose item on the ground. Now gated on
+> `_nearest_shelf_distance() <= _nearest_pickup_distance()` (flat-XZ, reusing the existing
+> helper), the identical head-to-head pattern the stove-pot-vs-pickup comparison already uses.
+> (2) TrashCan's two full-capacity paths (throw-away; bag merge) previously only toasted and left
+> the held item stranded in hand — both now also `_quick_drop()` it (the established
+> `LightStorage._try_store_held()` never-strand fallback). Deliberately NOT applied to the
+> unrelated-held-item case (existing "hands full" nudge). Parse error: could not be reproduced
+> from the repo (Shelving.gd:282 is clean on main); earlier `LightStorage.gd:282` / Shelving.gd
+> cascade was a stray uncommitted `A` in a local working-tree edit, since fixed — recommend a
+> fresh pull if it resurfaces. Also cleaned TrashCan.gd's stale header comment (was still
+> describing the pre-full-fidelity "Full (10/10) + empty hands → collect" behavior).
+
+---
+
 > **Trash collection wired up + made scalable (Aug 2026):** `TrashCan` is now in the
 > `"trash_receptacle"` group — the entire trash-collection system was already built and waiting
 > on this one line. Also fixed: full-receptacle handling (previously would still walk to a full

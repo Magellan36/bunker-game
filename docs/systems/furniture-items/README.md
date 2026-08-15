@@ -236,10 +236,14 @@ change):
   quality, etc. all preserved) and absorbed with the same inherited
   `_absorb_item()` a freshly-thrown-away item uses, so merged-back items
   are fully retrievable via Carry/⊕ afterward exactly like anything else
-  in the can. The bag is freed and the player's hand released (full
-  release sequence mirroring `_try_store_held()`). Rejected with a
-  "Trash can is too full" toast when the record count exceeds the can's
-  free slots.
+in the can. The bag is freed and the player's hand released (full
+   release sequence mirroring `_try_store_held()`). Rejected with a
+   "Trash can is too full" toast AND the bag dropped to the floor
+   (never stranded in hand) when the record count exceeds the can's
+   free slots — the established `LightStorage._try_store_held()`
+   never-strand fallback, applied before the release-and-merge sequence
+   begins (the bag is still `held_item` at that point, so `_quick_drop()`
+   works as-is).
 - **Empty-handed** → `_empty_into_bag()`: collect whatever's in the can
   into a new Trash Bag — works at ANY fill level (partial fill included,
   not gated to 10/10 anymore). Captures every stored item via
@@ -252,8 +256,15 @@ change):
   bagged — should never happen in normal play) are folded in via
   `_unrecoverable_records` so that data is never silently dropped.
 - **Holding an eligible `"inventory_item"`** → store it (inherited
-  `_try_store_held()`, prompt `[F] Throw away item`); blocked with a
-  "Trash can is too full" toast when the can is full.
+   `_try_store_held()`, prompt `[F] Throw away item`); when the can is
+   full, shows a "Trash can is too full" toast AND drops the item on the
+   floor in front of the player — the same `_quick_drop()` fallback
+   `LightStorage._try_store_held()` already uses for its own full/
+   ineligible cases, so the held item is never stranded just because its
+   specific destination was unavailable. (Deliberately NOT applied to the
+   "holding an unrelated, non-eligible, non-bag item near a can with
+   contents" case — that's the existing hands-full nudge, and auto-dropping
+   would silently discard whatever the player was actually doing.)
 - **Holding anything else** (unrelated, non-`inventory_item`) → no-op,
   nothing this can does with it.
 

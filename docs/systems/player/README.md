@@ -141,6 +141,12 @@ InteractionSystem._unhandled_input()
                     empty-handed branch checks it, so shelf-family objects can
                     own the empty-handed press (TrashCan collect/merge) and fall
                     through to stove-pot/pickup when it returns false)
+                    (Aug 2026: the empty-handed shelf check is distance-fair
+                    vs. pickup candidates — gated on
+                    _nearest_shelf_distance() <= _nearest_pickup_distance(),
+                    the same head-to-head pattern as stove_dist vs.
+                    _nearest_pickup_distance() below, so a full trash can no
+                    longer beats a genuinely closer loose item)
                     (_try_pickup() also checks NPCItemUser.find_holder() —
                     picking up an NPC-held item is "Takeaway", see below)
   → E (tap)       → shelf.on_e_interact() (distance-fair vs. any held-item

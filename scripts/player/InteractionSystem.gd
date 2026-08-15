@@ -179,9 +179,20 @@ func _unhandled_input(event: InputEvent) -> void:
 			## falls through unchanged to the stove-pot/pickup logic below
 			## when false, so this is a no-op for every object except the
 			## new trash-can-with-contents case.
+			##
+			## Aug 2026 fix — this was missing the same distance-fairness
+			## check the stove-pot-vs-pickup comparison below already has:
+			## previously called unconditionally whenever ANY shelving-group
+			## object was in range, so a full trash can could win over a
+			## genuinely closer loose item on the ground. Now gated on
+			## _nearest_shelf_distance() (flat-XZ, matching how shelf reach
+			## is measured everywhere else) vs. _nearest_pickup_distance() —
+			## identical head-to-head pattern as stove_dist vs.
+			## _nearest_pickup_distance() immediately below.
 			if shelf != null and shelf.has_method("on_f_interact"):
-				if shelf.on_f_interact():
-					return
+				if _nearest_shelf_distance() <= _nearest_pickup_distance():
+					if shelf.on_f_interact():
+						return
 			## Empty-handed — compare the closest stove-with-pot (if any)
 			## against the closest normal pickup candidate and grab whichever
 			## is TRULY closer. Confirmed Aug 2026 fix: previously the
