@@ -978,6 +978,7 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	## walls were just spawned this frame and their colliders aren't
 	## registered with the physics server yet).
 	await _spawn_initial_water_hookup()
+	await _spawn_initial_build_station()
 
 	## Apply concrete floor texture to the GridMap's floor tile mesh.
 	## We override the material on the MeshLibrary item directly so all
@@ -1134,6 +1135,11 @@ func _toggle_build_mode() -> void:
 	_build_mode_active = not _build_mode_active
 
 	if _build_mode_active:
+		## Aug 2026 — drop whatever's held on build-mode entry, same as an F
+		## press. Applies uniformly to both entry paths (Build Station and
+		## the F1 dev shortcut) since they share this one toggle function.
+		if interaction_system.held_item != null:
+			interaction_system._quick_drop()
 		_build_controller.enter_build_mode()
 		camera.enter_build_mode()
 		hud.set_build_mode(true)
@@ -1380,6 +1386,44 @@ func _spawn_initial_water_hookup() -> void:
 	})
 
 
+func _spawn_initial_build_station() -> void:
+	var bc: BuildModeController = _build_controller as BuildModeController
+	if bc == null:
+		push_warning("MainWorld: _spawn_initial_build_station skipped — BuildModeController not ready.")
+		return
+
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	## True geometric center of the starting bunker floor, computed from
+	## RockSurround's own constants (the same data BunkerPregen.generate()
+	## uses to stamp the 16×8 floor) rather than a guessed literal:
+	##   OFFSET_X=-12.5, OFFSET_Z=4.5, depth=16 (X), width=8 (Z)
+	##   → center (-4.5, 8.5). Y = 0.5, the established floor-standing
+	##   convention (GhostPreview floor-snap, trays/tables/chairs).
+	var center_pos: Vector3 = Vector3(
+		rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5,
+		0.5,
+		rock_surround.OFFSET_Z + float(rock_surround.bunker_width) * 0.5
+	)
+
+	var body: Node3D = bc._spawn_placed_object(bc.TILE_BUILD_STATION, center_pos, 0.0)
+	if body != null and body.has_method("set"):
+		body.set("_main_world", self)
+	if bc.has_method("set"):
+		bc.set("build_station", body)
+		bc.set("_main_world", self)
+
+	bc._placed_objects.append({
+		"node":          body,
+		"tile_id":       bc.TILE_BUILD_STATION,
+		"price":         0,
+		"world_pos":     center_pos,
+		"angle_deg":     0.0,
+		"player_placed": true,
+	})
+
+
 func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
 	_wire_builder._on_chunk_deconstructed(chunk_origin)
 	## Water system groundwork (July 2026) — reuses this SAME boundary-change
@@ -1433,6 +1477,13 @@ func _check_abyss_items() -> void:
 func _connect_world_objects() -> void:
 	# Wire prompt to interaction system
 	interaction_system.prompt = interact_prompt
+
+	## Aug 2026 — inject the shared prompt renderer into BuildModeController
+	## so it can drive the exact same on-screen prompt UI during build mode
+	## (visual consistency "same as other objects" — reuses the existing
+	## set_prompts()/hide_prompt() node rather than a second prompt renderer).
+	if _build_controller != null:
+		_build_controller.set("interact_prompt", interact_prompt)
 
 	# Inject player_stats into any world object that has a _player_stats property.
 	# Scans both interactable and pickup groups to catch all cases.

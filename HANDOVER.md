@@ -136,6 +136,87 @@ Shadows plan, both making players/NPCs read as far too dark:
 
 ---
 
+# Handover — Build Station (Aug 2026)
+
+## What changed this session
+Added the Build Station — a singleton furniture object (`BuildStation.gd`,
+TILE 37) that spawns once at the starting bunker's geometric center at game
+start and serves as the in-fiction entry point into Build Mode. Locked
+decisions honored: F1 stays a dev/admin shortcut alongside it; permanently
+non-deconstructable (guards mirror Water Hookup's exact two sites); never
+purchasable; movable only via the Move tool; freestanding; simple primitives
+model with rolled blueprints.
+
+- Entering build mode: standard `"interactable"` contract
+  (`get_interact_prompt()`/`on_interact()`), `[E] Enter Build Mode`.
+- Exiting build mode: `InteractionSystem` is inert during build mode, so the
+  exit prompt is `BuildModeController`-owned — `_process()` shows
+  `[E] Close Build Mode` within `BUILD_STATION_EXIT_REACH` (2.5m), `E`
+  (unclaimed by draw-mode tools) closes build mode. The station + prompt +
+  `_main_world` refs are injected by `MainWorld` at spawn.
+- Centralized held-item drop on build-mode entry in
+  `MainWorld._toggle_build_mode()` — uniform across both entry paths.
+
+### The InteractionSystem prompt-ownership handoff (why)
+`InteractionSystem._process()` and `BuildModeController._process()` both run
+every frame; during build mode they'd otherwise race on the same
+prompt node. Fixed by having `InteractionSystem._process()` return
+immediately when `build_mode_active` is true (no longer force-hides the
+prompt), leaving `BuildModeController` the sole owner. `exit_build_mode()`
+hides the prompt to hand ownership cleanly back.
+
+### Files modified
+- `scripts/world/furniture/BuildStation.gd` — new (verbatim from plan).
+- `scripts/world/build/BuildModeController.gd` — `TILE_BUILD_STATION` const
+  (37); `build_station`/`interact_prompt`/`_main_world` properties +
+  `BUILD_STATION_EXIT_REACH`; save-list skip; deconstruct guard; occupancy
+  + half-extents arms; `_spawn_placed_object()` branch; `_process()` exit
+  prompt; `_unhandled_input()` E-exit; `exit_build_mode()` prompt handoff.
+- `scripts/world/build/GhostModelBuilder.gd` — PROCEDURAL_PREVIEW_SOURCES
+  entry 37.
+- `scripts/world/build/GhostPreview.gd` — ghost branch +
+  floor-snap height (0.5).
+- `scripts/world/core/MainWorld.gd` — `_spawn_initial_build_station()`
+  (true-center computation), call site, `_connect_world_objects()`
+  injection, `_toggle_build_mode()` held-item drop.
+- `scripts/player/InteractionSystem.gd` — build-mode prompt-ownership
+  handoff.
+- `docs/systems/build/README.md`, `docs/systems/furniture-items/README.md`,
+  `docs/systems/player/README.md` — docs.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist (in-editor)
+1. New game — Build Station roughly centered in the starting room; if
+   off-center, the Part 3 spawn-center computation needs a look (it derives
+   from `rock_surround` constants, not a literal).
+2. Approach it — `[E] Enter Build Mode` prompt (styled like every other);
+   E enters build mode.
+3. Held-item drop on entry — hold any item, enter via the station: drops
+   first, exactly like F. Repeat via F1 — same behavior.
+4. Exit mechanic — in build mode, away from the station: no prompt. Within
+   ~2.5m: `[E] Close Build Mode` at the station's position. E exits
+   cleanly (camera/HUD/interaction all return to normal).
+5. Draw-mode E not shadowed — mid-wire/pipe-draw E still cancels the draw
+   tool, does NOT close all of build mode.
+6. Non-deconstructable — deconstruct attempt warns, nothing happens; absent
+   from save lists.
+7. Move tool — relocates normally, ghost preview correct, occupancy works.
+8. F1 unchanged — enters/exits from anywhere regardless of proximity.
+
+## Open items for Brannon
+- **Spawn-center verification** — computed from `rock_surround` constants
+  (OFFSET_X=-12.5, OFFSET_Z=4.5, depth=16, width=8 → center X=-4.5, Z=8.5,
+  floor Y=0.5). Verify visually once in-editor.
+- **Inherited save limitation (flagged, not silently):** like Water Hookup,
+  the station's moved position isn't persisted across save/load — it
+  respawns at world-center. Position-persistence for either object is a
+  real but separate follow-up.
+- **Plan-name deviation:** the plan referenced `_ghost_half_extents_for_tile()`;
+  live code calls this `_tile_half_extents()` — the same function, applied
+  as intended.
+
+---
+
 > **Trash delivery loop fix (Aug 2026):** Root cause of the reported back-and-forth
 > dropping/carrying loop — `npc_deposit_trash()` was called in two places but never defined
 > anywhere, so trash "delivery" always silently no-op'd while logging success. Fixed by reusing

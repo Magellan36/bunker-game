@@ -25,6 +25,17 @@ var camera:       Camera3D     = null   ## GameCamera
 var world_node:   Node3D       = null   ## MainWorld — for spend_cash() / add_cash()
 var rock_surround: Node3D      = null   ## RockSurround node — for dig mechanic
 
+## Injected by MainWorld at spawn time (Part 3) — lets this controller drive
+## the Build Station exit prompt + E-key close during build mode.
+var build_station: Node3D  = null
+var interact_prompt: Node  = null   ## Same node InteractionSystem normally drives
+## Injected by MainWorld (Part 3) so the Build Station exit can route through
+## the shared _toggle_build_mode() — same chokepoint the station's own entry
+## interaction and the F1 shortcut both use.
+var _main_world: Node = null
+## Matches _nearest_shelf()'s reach convention.
+const BUILD_STATION_EXIT_REACH: float = 2.5
+
 # ─── Tile IDs (must match BunkerLayout / BuildModeHUD) ────────────────────────
 # ─── Debug ────────────────────────────────────────────────────────────────────
 ## Flip false to silence all [Undo]/[AdminSpawn]/[Build] diagnostic prints.
@@ -70,6 +81,7 @@ const TILE_POSTER:       int = 31   ## Blank wall poster — decorative, wall-sn
 const TILE_END_TABLE:    int = 32   ## End table, 1×1 footprint, 2-item light storage (Furniture)
 const TILE_DRESSER:      int = 33   ## Dresser, 2×1 footprint, 6-item light storage (Furniture)
 const TILE_TRASH_CAN:    int = 36   ## Trash can, 1×1 footprint, 10-item light storage, empties into a Trash Bag (Furniture)
+const TILE_BUILD_STATION: int = 37   ## Singleton, spawns at world center, never purchasable/deconstructable, movable only
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -421,6 +433,12 @@ func enter_build_mode() -> void:
 
 func exit_build_mode() -> void:
 	is_active = false
+	## Aug 2026 — clean handoff of prompt ownership back to
+	## InteractionSystem (its _process() resumes driving `prompt` the moment
+	## build mode ends). Without this, the Build Station exit prompt could
+	## linger one frame past build mode.
+	if interact_prompt != null:
+		interact_prompt.hide_prompt()
 	_cancel_ghost()
 	_cancel_move()
 	_clear_hover_glow()
@@ -699,6 +717,25 @@ func _process(_delta: float) -> void:
 	if not is_active or camera == null:
 		return
 
+	## Build Station exit prompt — the ONLY prompt visible during build
+	## mode, by design. InteractionSystem's own prompt logic is fully
+	## inert while build mode is active (see its _process() — it returns
+	## immediately without touching `prompt` at all now, see the
+	## InteractionSystem.gd coordination note below), so this is the sole
+	## owner of `interact_prompt` for the entire duration of build mode.
+	if build_station != null and interact_prompt != null and is_instance_valid(build_station):
+		var player_node: Node3D = get_parent()
+		var dist: float = player_node.global_position.distance_to(build_station.global_position)
+		if dist <= BUILD_STATION_EXIT_REACH:
+			interact_prompt.set_prompts([{
+				"text":      "[E] Close Build Mode",
+				"world_pos": build_station.global_position + Vector3(0.0, 1.1, 0.0),
+				"dist":      dist,
+				"icons":     [],
+			}])
+		else:
+			interact_prompt.hide_prompt()
+
 	if _wall_draw_active:
 		_update_wall_draw_refs()
 
@@ -840,6 +877,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _wall_draw_mode.handle_input(event):
 			get_viewport().set_input_as_handled()
 			return
+
+	## Build Station exit — E closes build mode entirely, but only within
+	## reach and only once no draw-mode tool has already claimed E for its
+	## own cancel/exit behavior above.
+	if event.is_action_pressed("interact") and build_station != null and is_instance_valid(build_station):
+		var player_node: Node3D = get_parent()
+		if player_node.global_position.distance_to(build_station.global_position) <= BUILD_STATION_EXIT_REACH:
+			if _main_world != null and _main_world.has_method("_toggle_build_mode"):
+				_main_world._toggle_build_mode()
+				get_viewport().set_input_as_handled()
+				return
 
 	if event is InputEventMouseButton and event.pressed:
 		match event.button_index:
@@ -1413,6 +1461,24 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		wh_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return wh_node
 
+	## ── Build Station (Aug 2026) — freestanding singleton, never purchasable/
+	## deconstructable, movable only. Exclusive spawn path is
+	## MainWorld._spawn_initial_build_station(); this branch exists so that
+	## function's _spawn_placed_object() call produces the real scripted
+	## object (no generic-MeshLibrary fallback). Mirrors the water hookup
+	## branch above — freestanding, no wall snap.
+	if tile_id == TILE_BUILD_STATION:
+		var bs_script: GDScript = load("res://scripts/world/furniture/BuildStation.gd")
+		var bs_node: StaticBody3D = StaticBody3D.new()
+		if bs_script != null:
+			bs_node.set_script(bs_script)
+		bs_node.set_meta("tile_id", TILE_BUILD_STATION)
+		var bspar: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		bspar.add_child(bs_node)
+		bs_node.global_position  = pos
+		bs_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return bs_node
+
 	## ── Water test sink (July 2026 groundwork pass) — rudimentary endpoint ───
 	if tile_id == TILE_WATER_SINK:
 		var ws_script: GDScript = load("res://scripts/world/water/WaterTestSink.gd")
@@ -1655,6 +1721,8 @@ func get_placed_objects_for_save() -> Array:
 		var tile_id: int = entry.get("tile_id", -1)
 		if tile_id == TILE_WATER_HOOKUP:
 			continue
+		if tile_id == TILE_BUILD_STATION:
+			continue
 		var node: Node3D = entry.get("node")
 		if node == null or not is_instance_valid(node):
 			continue
@@ -1892,6 +1960,9 @@ func _try_deconstruct() -> void:
 	# inventory" flow exists for it by design.
 	if entry.get("tile_id", -1) == TILE_WATER_HOOKUP:
 		_show_hud_warning("Water hookup cannot be removed — use Move instead")
+		return
+	if entry.get("tile_id", -1) == TILE_BUILD_STATION:
+		_show_hud_warning("Build Station cannot be removed — use Move instead")
 		return
 
 	var refund: int         = entry["price"]
@@ -2933,7 +3004,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
 				return true
 		return false
-	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE or tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER or tile_id == TILE_TRASH_CAN:
+	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE or tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER or tile_id == TILE_TRASH_CAN or tile_id == TILE_BUILD_STATION:
 		# Tables, chairs, and the Stove sit on the floor (Y=0.5), same as
 		# Beds/Shelving/Generators/Trays above — the physics shape query hits
 		# the floor collider, causing a false "space occupied" positive.
@@ -2941,7 +3012,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 		var threshold: float = grid_size * 0.9
 		for entry: Dictionary in _placed_objects:
 			var et: int = entry.get("tile_id", -1)
-			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE and et != TILE_END_TABLE and et != TILE_DRESSER and et != TILE_TRASH_CAN:
+			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE and et != TILE_END_TABLE and et != TILE_DRESSER and et != TILE_TRASH_CAN and et != TILE_BUILD_STATION:
 				continue
 			var p: Vector3 = entry["world_pos"]
 			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
@@ -3056,6 +3127,7 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_END_TABLE:    return Vector2(0.45, 0.45)  ## 1×1, same as TILE_TABLE_SMALL/TILE_TRAY_SINGLE
 		TILE_DRESSER:      return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
 		TILE_TRASH_CAN:    return Vector2(0.28, 0.28)  ## 1×1, cylinder footprint slightly smaller than a table
+		TILE_BUILD_STATION: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
 		TILE_LIGHT:        return Vector2(0.05, 0.05)   ## Thin wall-flush fixture — NOT the 0.40 floor-object default. Same fix/reasoning as TILE_POSTER earlier this session; the wall-snap step already validated a real wall was found, this just needs to not second-guess that with an oversized box.
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback

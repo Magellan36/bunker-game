@@ -88,7 +88,13 @@ func _on_body_exited(body: Node3D) -> void:
 		body.set_player_in_range(false)
 
 func _process(delta: float) -> void:
-	if build_mode_active or _shelf_ui_open() or _basket_ui_open():
+	if build_mode_active:
+		return   ## Aug 2026 — BuildModeController now owns the prompt display
+				 ## entirely during build mode (Build Station exit prompt).
+				 ## Previously this branch also force-hid the prompt every
+				 ## frame, which would have fought BuildModeController's own
+				 ## prompt.set_prompts() call for the same node.
+	if _shelf_ui_open() or _basket_ui_open():
 		if prompt != null:
 			prompt.hide_prompt()
 		return

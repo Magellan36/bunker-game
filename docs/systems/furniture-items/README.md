@@ -60,6 +60,7 @@ or the environment itself (`docs/systems/environment/README.md`).
 | `furniture/Dresser.gd` | ~95 | **NEW (Aug 2026)** 2×1 dresser, capacity 6 light storage (2×3 drawers), TILE 33, $150 |
 | `furniture/TrashCan.gd` | ~210 | **NEW (Aug 2026)** Trash can, capacity 10 light storage, TILE 36, $50. F empties a full can into a Trash Bag (handed straight to the player); E always opens StorageUI |
 | `items/TrashBag.gd` | ~60 | **NEW (Aug 2026)** Runtime-only pickupable object (no tile/menu entry) created by emptying a full Trash Can; shelf-storable (stack 1), NOT `"inventory_item"`; carries a full snapshot of the disposed items |
+| `furniture/BuildStation.gd` | ~120 | **NEW (Aug 2026)** Build Mode entry-point object — singleton (TILE 37), spawns once at the starting bunker's geometric center, never purchasable/deconstructable, movable only via the Move tool. Entering build mode uses the plain `"interactable"` contract; the exit prompt is `BuildModeController`-owned (see below). |
 
 ## Public API
 **Shared item contract** (duck-typed â€” `InteractionSystem`/`Shelving` call
@@ -399,6 +400,41 @@ surprised by the config value change if they touch these files next.
   StaticBody3D power-load device, not a pickup item; despite living in
   `items/` for historical reasons, it belongs conceptually with
   `docs/systems/power/README.md`'s consumer devices.**
+
+## Build Station (Aug 2026)
+`BuildStation.gd` is a plain `StaticBody3D` (NOT a `LightStorage` subclass —
+no storage behavior). It spawns once at game start at the starting bunker's
+**geometric center** (`MainWorld._spawn_initial_build_station()` computes
+this from `rock_surround`'s `OFFSET_X`/`OFFSET_Z`/`bunker_depth`/
+`bunker_width` — not a guessed literal; verify visually in-editor that it
+reads as "the middle of the room"). It is permanently non-deconstructable
+(guards mirror Water Hookup's exact two sites) and never purchasable —
+movable only via the Move tool.
+
+Two entry points into Build Mode:
+- **F1** — the dev/admin shortcut, unchanged, works from anywhere regardless
+  of proximity to the station.
+- **The station itself** — `[E] Enter Build Mode` via the standard
+  `"interactable"` contract (`get_interact_prompt()`/`on_interact()`), same
+  dispatch as Chairs and similar objects.
+
+**Centralized held-item drop:** entering build mode drops whatever's held,
+exactly like an F press. Applied centrally in
+`MainWorld._toggle_build_mode()` so BOTH entry paths behave identically.
+
+**Exit interaction (BuildModeController-owned):** `InteractionSystem`'s
+entire dispatch pipeline is inert while build mode is active, so the exit
+prompt is driven by `BuildModeController._process()` — within
+`BUILD_STATION_EXIT_REACH` (2.5m) of the station it shows
+`[E] Close Build Mode` at the station's position; E (unclaimed by any
+draw-mode tool) closes build mode. `InteractionSystem._process()` yields
+prompt ownership during build mode to avoid a same-frame race.
+
+**Known, inherited limitation (flagged, not silently):** like Water Hookup,
+the station's moved position is NOT persisted across save/load — it's
+excluded from `get_placed_objects_for_save()`, so after a save/reload it
+respawns at world-center. Position-persistence for either object is a real
+but separate follow-up.
 
 ## Known tradeoffs / tech debt
 - No automated tests.

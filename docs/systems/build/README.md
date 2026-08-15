@@ -152,6 +152,40 @@ Wired across the same complete set as End Table/Dresser above:
 - `MainWorld.gd`: one `_setup_trash_bag_panel()` call (hover-panel wiring;
   new — End Table/Dresser needed no MainWorld change, this one does).
 
+## Build Station (Aug 2026)
+Tile ID **37** — a singleton `BuildStation.gd` object that spawns once at
+the starting bunker's geometric center at game start (see
+`MainWorld._spawn_initial_build_station()`), **never purchasable**,
+**never deconstructable**, movable only via the Move tool. It is the
+in-fiction entry point into Build Mode (F1 remains a dev/admin shortcut
+alongside it, unchanged); entering drops any held item exactly like an F
+press (centralized in `MainWorld._toggle_build_mode()`, so both entry
+paths behave identically).
+
+Excluded from the shop/purchase path entirely, exactly like Water Hookup:
+- `BuildModeHUD.gd`: **no entry** (never appears in the shop).
+- `BuildModeController.gd`: `TILE_BUILD_STATION` const (37);
+  `get_placed_objects_for_save()` skips it; deconstruct guard shows
+  "Build Station cannot be removed — use Move instead"; tile added to the
+  `_is_position_occupied_for_tile()` floor-furniture block + inner `et !=`
+  filter; `_tile_half_extents()` arm `Vector2(0.95, 0.48)` (2×1, same as
+  Medium Table); `_spawn_placed_object()` has a dedicated branch.
+- `GhostModelBuilder.gd`: `PROCEDURAL_PREVIEW_SOURCES` entry for 37.
+- `GhostPreview.gd`: ghost branch via `BuildStation.build_ghost_mesh()` +
+  the floor-standing `snap_pos.y = 0.5` elif extended.
+- `MainWorld.gd`: `_spawn_initial_build_station()` (computes the true
+  floor center from `rock_surround` constants, not a literal), injects
+  `_main_world`/`build_station`/`interact_prompt` refs.
+- `InteractionSystem.gd`: `_process()`'s build-mode branch no longer
+  touches the prompt node — `BuildModeController` owns the prompt display
+  for the duration of build mode (the Build Station exit prompt; avoids a
+  same-frame ownership race between the two `_process()` loops).
+
+Exit interaction is entirely `BuildModeController`-owned (the E-prompt
+appears within `BUILD_STATION_EXIT_REACH` = 2.5m of the station during
+build mode, E closes build mode). See
+`docs/systems/furniture-items/README.md` for the full feature write-up.
+
 ## Shelf Family: Small / Medium / Large (Aug 2026)
 Tile IDs **3** (`Medium Shelf`, $75, 10 slots — the former "Shelving"),
 **34** (`Small Shelf`, $45, 6 slots), and **35** (`Large Shelf`, $180,

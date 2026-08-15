@@ -158,6 +158,11 @@ InteractionSystem._unhandled_input()
                     `FuelCan.refuel_tick()` — it no longer gates a store action)
   → G (tap)       → _store_item() / _put_item_back_to_slot() (instant, no hold/progress bar)
 InteractionSystem._process() → _update_prompt() → prompt.set_prompts(...)/hide_prompt()
+(Aug 2026: while `build_mode_active` is true, `_process()` returns immediately
+without touching `prompt` at all — `BuildModeController` owns the prompt
+display for the entire duration of build mode, driving the Build Station
+exit prompt. Ownership hands back on exit; see
+`BuildModeController.exit_build_mode()`.)
 
 NPC Give   → _try_give_to_nearest_npc() → NPC.can_receive_item() →
              InteractionSystem.release_held_item_to_npc(npc) → NPC.on_item_given()
