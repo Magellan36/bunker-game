@@ -1814,10 +1814,25 @@ closed for trash too). `_is_trash_item()`'s hardcoded per-type list replaced wit
       `CleaningActivity` falsely report itself interruptible (`_item` went null while still
       physically holding something), letting `PutAwayHeldItemActivity`'s flat score-20 win a normal
       interrupt every time, which then hit the identical bug and just dropped the item on the floor
-      instead of storing it — restarting the cycle. Fixed by reusing `npc_try_place_item()`
-      (already correctly implemented, inherited from `LightStorage`, confirmed to be the same
-      mechanism the player's own "throw away" interaction already uses) for trash delivery in both
-      files — no separate trash-specific delivery method was ever needed.
+instead of storing it — restarting the cycle. Fixed by reusing `npc_try_place_item()`
+       (already correctly implemented, inherited from `LightStorage`, confirmed to be the same
+       mechanism the player's own "throw away" interaction already uses) for trash delivery in both
+       files — no separate trash-specific delivery method was ever needed.
+
+118. Diagnostic logging improvements from the trash-loop investigation (Aug 2026). (1) New
+       `NPCDebug.log_missing_method()` — a `has_method()`-gated action call that comes back false now
+       always surfaces a `push_warning()`, not just when NPC Debug Logging is on; applied to
+       `NPCItemUser.drop_held()`'s own `drop()` call, the one other bare (no-fallback) action-call
+       site found by re-running the trash bug's `has_method()` sweep against every action-style call
+       in NPC code. (2) Delivery-outcome logs (`CleaningActivity`, `PutAwayHeldItemActivity`) now
+       append `held_item_after=` — a "delivered" line that didn't actually clear the physical hold is
+       now a one-line read. `PutAwayHeldItemActivity` previously logged its intended destination but
+       never its actual outcome at all — added. (3) New `NPCDebug.log_suspicious_interrupt()`, fired
+       from `NPCBrain._think()` whenever a normal scoring interrupt fires while the NPC still
+       physically holds an item — the general shape of bug the trash loop was, not specific to
+       Cleaning/trash. (4) `_pick_next_target()` now tracks repeat picks of the same candidate and
+       logs `"target picked (STALLED)"` distinctly once a stall is detected, instead of a wall of
+       visually-identical lines.
 
 ## How to mark an item as trash (for any thread adding new items)
 

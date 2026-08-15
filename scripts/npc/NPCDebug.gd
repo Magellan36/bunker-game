@@ -17,6 +17,21 @@ static func _fmt(npc: Node) -> String:
 		return "[NPC:%s]" % npc.npc_name
 	return "[NPC:?]"
 
+## Aug 2026 — call whenever a has_method()-gated ACTION call comes back
+## false (something meant to happen, not a plain capability query with
+## an already-planned fallback). Exists specifically because
+## npc_deposit_trash() was called from two files behind exactly this
+## kind of guard for an unknown length of time without ever being
+## defined anywhere in the codebase — has_method() silently returning
+## false is otherwise completely invisible, and the caller either had no
+## fallback at all or one that looked like an ordinary occasional
+## failure rather than a structural bug. Always fires (not gated on
+## `enabled`) since this represents an actual code defect, not routine
+## gameplay flow.
+static func log_missing_method(caller_context: String, target: Object, method_name: String) -> void:
+	push_warning("[NPCDebug] %s: %s does not implement expected method '%s()' — action silently skipped" \
+		% [caller_context, (target.get_class() if target != null else "null"), method_name])
+
 ## Activity switches — call from NPCBrain._start()/_think() interrupt path.
 static func log_activity(npc: Node, from_label: String, to_label: String) -> void:
 	if not enabled:
@@ -33,6 +48,20 @@ static func log_interrupt(npc: Node, from_label: String, from_score: float, to_l
 		return
 	print("%s INTERRUPTED: %s (score=%.2f) -> %s (score=%.2f, needed >%.2f)" \
 		% [_fmt(npc), from_label, from_score, to_label, to_score, from_score + margin])
+
+## Aug 2026 — canary for the exact bug class that produced the
+## trash-delivery loop: an activity reports itself safe to interrupt
+## (interruptible() == true) while the NPC is still physically holding
+## an item. Not automatically wrong on its own (some activities are
+## legitimately interruptible while holding something transient), but
+## distinct and loud enough that a recurring pattern here is immediately
+## greppable, instead of requiring a manual trace through scoring and
+## interrupt logic to even notice — which is what this one took.
+static func log_suspicious_interrupt(npc: Node, from_label: String, to_label: String) -> void:
+	if not enabled:
+		return
+	print("%s ⚠ SUSPICIOUS INTERRUPT: %s reported interruptible() while still holding an item -> %s" \
+		% [_fmt(npc), from_label, to_label])
 
 ## Need crossing an interest threshold (e.g. dropping below 55/60) — call
 ## from _tick_needs() or an activity's score() the first time it goes live.

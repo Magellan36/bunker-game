@@ -1,3 +1,10 @@
+**Diagnostic logging improvements (Aug 2026):** Four additions from the trash-loop
+> investigation, aimed at making a similarly-shaped bug visible from the log directly next time:
+> a generic missing-method warning (`NPCDebug.log_missing_method()`, applied to `drop_held()`'s
+> one other unguarded action call), `held_item_after=` on delivery logs, a suspicious-interrupt
+> canary for "interruptible while still holding something," and a stalled-repick counter on
+> Cleaning's target-picking log.
+
 # Handover — Aggregated Character Shadows (Aug 2026)
 
 ## What changed this session

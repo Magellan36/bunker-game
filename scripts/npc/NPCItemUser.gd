@@ -225,6 +225,13 @@ static func drop_held(npc: NPC) -> void:
 	if item.has_method("drop"):
 		item.drop(parent, npc.global_position
 			+ npc.global_transform.basis * Vector3(0.0, 0.6, -0.7))
+	else:
+		## Aug 2026 — npc.held_item was already cleared above (by
+		## design, before this check), so a missing drop() here would
+		## otherwise leave the NPC's own bookkeeping saying "holding
+		## nothing" while the item stays physically attached to
+		## hold_point — invisible the same way the trash bug was.
+		NPCDebug.log_missing_method("NPCItemUser.drop_held()", item, "drop")
 
 # ─── Consumable filters (used by activities) ──────────────────────────────
 static func is_drinkable_bottle(item: Node) -> bool:

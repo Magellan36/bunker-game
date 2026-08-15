@@ -75,10 +75,20 @@ func tick(npc: NPC, delta: float) -> void:
 		## so a fresh Cleaning session immediately found the same loose
 		## item again. npc_try_place_item() already works correctly for
 		## both cases — no is_trash branching needed here at all now.
+		var item_name: String = _item.get_display_name() if _item.has_method("get_display_name") else "an item"
 		if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
-			pass   ## stored successfully
+			## Aug 2026 — this activity never logged its actual outcome
+			## before, only the initial "heading to X" line in enter() —
+			## meaning a silent failure here (the exact shape the trash
+			## bug took) had no log trace at all on this side.
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "put away delivered", "%s stored in %s (held_item_after=%s)" % [
+					item_name, _destination.name,
+					(npc.held_item.get_display_name() if npc.held_item != null and npc.held_item.has_method("get_display_name") else "none")])
 		else:
 			NPCItemUser.drop_held(npc)   ## destination filled/changed since the initial check — just set it down rather than loop
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "put away failed", "%s dropped on the ground — %s had no room" % [item_name, _destination.name])
 		_settled = true
 
 func done(_npc: NPC) -> bool:

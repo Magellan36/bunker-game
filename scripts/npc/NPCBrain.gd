@@ -179,6 +179,12 @@ func _think() -> void:
 		## diagnosing a session getting dropped for no visible reason.
 		if NPCDebug.enabled:
 			NPCDebug.log_interrupt(_npc, _current.label(), _current.score(_npc), best.label(), best_score, SWITCH_MARGIN)
+			## Aug 2026 — canary: this exact combination (interruptible
+			## while still physically holding something) is what let the
+			## trash-delivery bug's stale _item==null state produce a
+			## normal, unremarkable-looking interrupt every time.
+			if _npc.held_item != null:
+				NPCDebug.log_suspicious_interrupt(_npc, _current.label(), best.label())
 		NPCDebug.log_activity(_npc, _current.label(), best.label())
 		_current.exit(_npc)
 		_start(best)

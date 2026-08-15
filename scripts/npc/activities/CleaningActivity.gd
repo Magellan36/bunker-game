@@ -23,6 +23,16 @@ var _session_duration: float = 0.0
 var _finished: bool = false
 var _skipped_ids: Dictionary = {}         ## item instance_id -> true, this session — confirmed no destination, never retry
 var _no_storage_categories: Dictionary = {}   ## "light"/"heavy" -> true, this session — every viable destination for the category is gone/full/nonexistent
+
+## Aug 2026 — tracks whether _pick_next_target() keeps landing on the
+## SAME candidate without ever advancing past the pick (a genuine fetch
+## in progress never re-enters this function at all — only a stalled
+## one does). Distinct log wording once this climbs makes a stall
+## immediately greppable instead of a wall of visually-identical
+## "target picked" lines with only a slowly drifting distance to
+## suggest anything's wrong.
+var _last_picked_id: int = -1
+var _last_picked_repeat_count: int = 0
 var _basket: Basket = null                ## Aug 2026 — set once fetched, for produce collection (see _pick_next_target/_tick_produce_via_basket)
 
 ## Aug 2026 — last-resort relocation for a forced (stuck-recovery) grab
@@ -121,10 +131,21 @@ func _pick_next_target(npc: NPC) -> void:
 				return
 			_item = result.get("item")
 			_is_trash = result.get("is_trash", false)
+			var _picked_id: int = _item.get_instance_id() if _item != null else -1
+			if _picked_id == _last_picked_id:
+				_last_picked_repeat_count += 1
+			else:
+				_last_picked_id = _picked_id
+				_last_picked_repeat_count = 0
 			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "target picked", "%s (%s) dist=%.1f" % [
-					display_name(_item), "trash" if _is_trash else "organizable",
-					NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position)])
+				if _last_picked_repeat_count > 0:
+					NPCDebug.log_cleaning(npc, "target picked (STALLED)", "%s (%s) dist=%.1f — same target %d times in a row without advancing" % [
+						display_name(_item), "trash" if _is_trash else "organizable",
+						NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position), _last_picked_repeat_count])
+				else:
+					NPCDebug.log_cleaning(npc, "target picked", "%s (%s) dist=%.1f" % [
+						display_name(_item), "trash" if _is_trash else "organizable",
+						NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position)])
 			if _is_trash:
 				## Aug 2026 fix — now that trash_receptacle actually exists
 				## and can fill up, trash gets the exact same
@@ -306,8 +327,14 @@ func tick(npc: NPC, delta: float) -> void:
 		if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
 			npc.log_action("Threw away %s" % item_name if _is_trash else "Put away %s" % item_name)
 			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "delivered", "%s %s at %s" % [
-					"threw away" if _is_trash else "stored", item_name, _destination.name])
+				## Aug 2026 — held_item_after appended so a "delivered"
+				## line that DIDN'T actually clear the physical hold
+				## (the exact trash-bug symptom) is a one-line read
+				## instead of needing to cross-reference interruptible()
+				## and the scoring system by hand.
+				NPCDebug.log_cleaning(npc, "delivered", "%s %s at %s (held_item_after=%s)" % [
+					"threw away" if _is_trash else "stored", item_name, _destination.name,
+					(npc.held_item.get_display_name() if npc.held_item != null and npc.held_item.has_method("get_display_name") else "none")])
 		else:
 			## Placement failed (shelf/can filled between selection and
 			## arrival) — item goes back on the ground and MUST be
