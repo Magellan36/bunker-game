@@ -65,10 +65,17 @@ func tick(npc: NPC, delta: float) -> void:
 		return
 	npc.nav_steer(delta)
 	if NPCItemUser.flat_distance(npc.global_position, (_destination as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
-		var is_trash: bool = NPCJobQueries.is_trash_item(npc, _item)
-		if is_trash and _destination.has_method("npc_deposit_trash"):
-			_destination.npc_deposit_trash(npc, _item)
-		elif not is_trash and _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
+		## Aug 2026 fix — same root cause as CleaningActivity's matching
+		## fix: npc_deposit_trash() was never defined anywhere, so the
+		## is_trash branch here could never succeed and always fell
+		## through to dropping the item on the ground right next to
+		## whatever destination it had just walked to — which is what
+		## actually broke the loop each time (drop_held() does clear
+		## npc.held_item), just onto the floor instead of into the can,
+		## so a fresh Cleaning session immediately found the same loose
+		## item again. npc_try_place_item() already works correctly for
+		## both cases — no is_trash branching needed here at all now.
+		if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
 			pass   ## stored successfully
 		else:
 			NPCItemUser.drop_held(npc)   ## destination filled/changed since the initial check — just set it down rather than loop

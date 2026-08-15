@@ -284,27 +284,40 @@ func tick(npc: NPC, delta: float) -> void:
 	npc.nav_steer(delta)
 	if NPCItemUser.flat_distance(npc.global_position, (_destination as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
 		var item_name: String = _item.get_display_name() if _item.has_method("get_display_name") else "an item"
-		if _is_trash:
-			if _destination.has_method("npc_deposit_trash"):
-				_destination.npc_deposit_trash(npc, _item)
-			npc.log_action("Threw away %s" % item_name)
+		## Aug 2026 fix — this used to branch on _is_trash and call a
+		## npc_deposit_trash() that was never defined anywhere in the
+		## codebase (confirmed via a full-repo grep before writing this
+		## fix). has_method() silently returned false every time, so
+		## trash delivery never actually happened — the item never left
+		## the NPC's hand, but the "delivered" log fired unconditionally
+		## right after anyway, and _item still went to null, which made
+		## Cleaning look falsely interruptible (interruptible() == _item
+		## == null) despite still physically holding something. That's
+		## what let PutAwayHeldItemActivity's flat score-20 win a normal
+		## interrupt over Cleaning immediately after every "fake"
+		## delivery — see PutAwayHeldItemActivity.gd's matching fix for
+		## the other half of the loop this produced.
+		## TrashCan already implements npc_try_place_item() (inherited
+		## from LightStorage) — confirmed it's the SAME mechanism the
+		## player's own "throw away" interaction uses (TrashCan.gd's
+		## on_f_interact() calls the same inherited store path — trash in
+		## this game is stored, not destroyed, until manually emptied
+		## into a bag). No reason this needed a separate method at all.
+		if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
+			npc.log_action("Threw away %s" % item_name if _is_trash else "Put away %s" % item_name)
 			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "delivered", "threw away %s at %s" % [item_name, _destination.name])
+				NPCDebug.log_cleaning(npc, "delivered", "%s %s at %s" % [
+					"threw away" if _is_trash else "stored", item_name, _destination.name])
 		else:
-			if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
-				npc.log_action("Put away %s" % item_name)
-				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "delivered", "stored %s in %s" % [item_name, _destination.name])
-			else:
-				## Placement failed (shelf filled between selection and
-				## arrival) — item goes back on the ground and MUST be
-				## released here, or it stays permanently claimed by
-				## this NPC and invisible to every other NPC's cleaning
-				## scans for the rest of the session.
-				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "delivery failed", "%s no longer had room for %s — dropping it" % [_destination.name, item_name])
-				NPCItemUser.release_item(_item)
-				NPCItemUser.drop_held(npc)
+			## Placement failed (shelf/can filled between selection and
+			## arrival) — item goes back on the ground and MUST be
+			## released here, or it stays permanently claimed by
+			## this NPC and invisible to every other NPC's cleaning
+			## scans for the rest of the session.
+			if NPCDebug.enabled:
+				NPCDebug.log_cleaning(npc, "delivery failed", "%s no longer had room for %s — dropping it" % [_destination.name, item_name])
+			NPCItemUser.release_item(_item)
+			NPCItemUser.drop_held(npc)
 		_item = null
 		if _is_forced_session:
 			_finished = true   ## stuck-recovery grab is always exactly one item

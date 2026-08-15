@@ -93,6 +93,15 @@ all small, mechanically-driven edits, design owned by Graphics.
 
 ---
 
+> **Trash delivery loop fix (Aug 2026):** Root cause of the reported back-and-forth
+> dropping/carrying loop — `npc_deposit_trash()` was called in two places but never defined
+> anywhere, so trash "delivery" always silently no-op'd while logging success. Fixed by reusing
+> the already-correct `npc_try_place_item()` for trash too, in both `CleaningActivity.gd` and
+> `PutAwayHeldItemActivity.gd`. Also ran a full sweep of every `has_method()` call from NPC code
+> against every function defined anywhere in the repo — this was the only phantom method found.
+
+---
+
 > **Trash can excluded from general light-storage routing (Aug 2026):** Fixed NPCs organizing
 > full/half-charge items (water bottles etc.) into the trash can — it was never a
 > trash-classification bug, `TrashCan`'s inherited `"shelving"` membership just made it a valid

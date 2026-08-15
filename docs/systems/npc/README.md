@@ -1804,6 +1804,20 @@ closed for trash too). `_is_trash_item()`'s hardcoded per-type list replaced wit
       `has_viable_destination_for_category()` both now skip any `"trash_receptacle"`-group
       candidate when routing a non-trash item. Trash routing itself unaffected. No changes to
       `TrashCan.gd` or any group membership.
+117. Trash delivery loop fix (Aug 2026) — root cause of the "NPC walks back and forth
+      dropping/carrying the same empty item, flickering between Idle/Wandering/Cleaning" report.
+      `npc_deposit_trash()` was called from both `CleaningActivity.gd` and
+      `PutAwayHeldItemActivity.gd` behind a `has_method()` guard, but the method was never defined
+      anywhere in the codebase — confirmed via a full-repo grep and a systematic sweep of every
+      `has_method()` target called from NPC code (60 checked, this was the only phantom one). Every
+      "trash delivered" log was false — the item never left the NPC's hand, which made
+      `CleaningActivity` falsely report itself interruptible (`_item` went null while still
+      physically holding something), letting `PutAwayHeldItemActivity`'s flat score-20 win a normal
+      interrupt every time, which then hit the identical bug and just dropped the item on the floor
+      instead of storing it — restarting the cycle. Fixed by reusing `npc_try_place_item()`
+      (already correctly implemented, inherited from `LightStorage`, confirmed to be the same
+      mechanism the player's own "throw away" interaction already uses) for trash delivery in both
+      files — no separate trash-specific delivery method was ever needed.
 
 ## How to mark an item as trash (for any thread adding new items)
 
