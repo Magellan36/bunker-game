@@ -1,3 +1,50 @@
+# Handover — Character Shadow Proxy Harsh-Lighting Hotfix v3 (Aug 2026)
+
+## What changed this session
+v2's fix for the "pitch black" bug (closer proxy light, higher energy)
+introduced a new problem, visible in a playtesting screenshot: every
+character read as hit by a hard camera flash — bright near-side, sharp
+black far-side, same intensity regardless of actual distance to any real
+light. Three compounding causes in `CharacterShadowProxy.gd`: a too-close
+light produces hard Lambertian shading on a small object regardless of
+energy tuning; the light was aimed level with the character rather than
+from above like real room lighting; and every nearby real light's weight
+summed together then hit a hard clamp, so most characters in a lit room
+pegged to the same max brightness.
+
+Fixed with a different approach than v1/v2's pure energy-number tuning:
+raised the proxy to a ~45° overhead angle (PROXY_HEIGHT now exceeds
+PROXY_DISTANCE), widened the cone (25°→50°), softened distance falloff
+(spot_attenuation 0.5→0.3), added light_size for a soft shadow gradient
+instead of a hard edge, and replaced the hard-clamped linear energy
+formula with a smooth saturating curve so characters near different
+numbers of lights actually read differently again.
+
+### Files modified
+- `scripts/core/CharacterShadowProxy.gd` — constant recalibration (angle/
+  distance/falloff/light_size), energy formula changed from linear-clamp
+  to saturating curve.
+- `docs/systems/graphics/README.md` — hotfix v3 note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. In a room with several wall lights (like the playtesting screenshot) —
+   characters should no longer look like they're hit by a flash; look for
+   a visible brightness gradient depending on actual proximity to lights,
+   not uniform intensity for everyone.
+3. Character shading should read as a soft gradient front-to-back, not a
+   hard bright/black split.
+4. Confirm the shadow itself still reads clearly directional (the whole
+   point of this system) — the softening changes shouldn't have made the
+   shadow itself invisible or overly diffuse; if it has, that's
+   SPOT_LIGHT_SIZE needing a reduction.
+5. Character brightness overall should be in a reasonable middle ground —
+   not dark like v1, not blown-out like v2. If still off in either
+   direction, MAX_ENERGY/ENERGY_CURVE_RATE are the two values to retune.
+6. Walk between lights — shadow direction should still sweep smoothly, no
+   regression from the earlier smoothing work.
+
 **Diagnostic logging improvements (Aug 2026):** Four additions from the trash-loop
 > investigation, aimed at making a similarly-shaped bug visible from the log directly next time:
 > a generic missing-method warning (`NPCDebug.log_missing_method()`, applied to `drop_held()`'s

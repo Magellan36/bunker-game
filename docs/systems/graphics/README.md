@@ -369,6 +369,21 @@ shrinking PROXY_DISTANCE to 2.5m and recalibrating ENERGY_SCALE/
 MAX_ENERGY/SPOT_ATTENUATION accordingly. Both fixed in
 CharacterShadowProxy.gd; still first-pass tuned values, expect another
 visual pass once seen in-editor.
+**Aug 2026 hotfix v3 (harsh "flash photo" look):** v2's fix for dimness
+(closer light, higher energy) caused a new problem — every character read
+as if hit by a hard camera flash, bright near-side/black far-side,
+identical intensity regardless of actual distance to a light. Root causes:
+(1) a close point light on a small object always produces a hard shading
+gradient (basic Lambertian shading physics — a desk lamp vs. the sun on a
+small object); (2) the light was aimed roughly level with the character
+rather than from above, unlike real room lighting; (3) every nearby real
+light's weight summed together then hit a hard energy clamp, so most
+characters in a normally-lit room pegged to the same maximum brightness
+regardless of position. Fixed by raising the proxy to a ~45° overhead
+angle (real distance back near the original v1 value), widening the cone,
+softening distance falloff, adding light_size for a soft shadow gradient,
+and replacing the hard clamp with a smooth saturating energy curve. Still
+first-pass values pending an actual in-editor look.
 
 ---
 
