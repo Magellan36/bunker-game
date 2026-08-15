@@ -16,11 +16,17 @@ const ORGANIZE_DESTINATION_GROUPS: Dictionary = {
 }
 
 static func has_cleaning_target_available(npc: NPC) -> bool:
-	## Trash already self-gates on receptacle existence at the JobBoard
-	## scan level (get_trash_items() never returns anything if
-	## _has_trash_receptacle() is false) — no extra check needed here.
-	if not JobBoard.get_trash_items().is_empty():
-		return true
+	## Aug 2026 fix — this used to return true purely on trash items
+	## EXISTING (receptacle-existence was already checked at the JobBoard
+	## scan level, but a full-but-existing receptacle still passed this).
+	## Same class of bug as the organizable-item fix below, now closed for
+	## trash too: also confirm the receptacle actually has room right now.
+	var trash: Array = JobBoard.get_trash_items()
+	if not trash.is_empty():
+		for receptacle: Node in npc.get_tree().get_nodes_in_group("trash_receptacle"):
+			if is_instance_valid(receptacle) and (not receptacle.has_method("has_room_for") \
+					or receptacle.has_room_for(trash[0])):
+				return true
 	## Aug 2026 fix — this used to return true purely on organizable items
 	## EXISTING, never checking whether anywhere exists to actually put
 	## them. With zero shelving/storage anywhere in a level, that caused
@@ -116,7 +122,12 @@ static func _nearest_cleaning_destination(npc: NPC, group_names: Array, item: Ri
 				continue
 			if light_storage_only and not (candidate is LightStorage):
 				continue
-			if not is_trash and item != null and candidate.has_method("has_room_for") and not candidate.has_room_for(item):
+			## Aug 2026 fix — this was previously skipped for trash
+			## entirely, meaning a full trash can still got picked as a
+			## valid destination, walked to, and failed. Trash now gets
+			## the exact same room-checked treatment a full shelf already
+			## gets.
+			if item != null and candidate.has_method("has_room_for") and not candidate.has_room_for(item):
 				continue
 			var d: float = NPCItemUser.flat_distance(npc.global_position, (candidate as Node3D).global_position)
 			if d < best_d:

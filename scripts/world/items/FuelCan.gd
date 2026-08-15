@@ -26,6 +26,12 @@ var _fuel_remaining:   float  = FUEL_UNITS_TOTAL
 var _is_empty:         bool   = false
 var _player_in_range:  bool   = false
 
+## Aug 2026 — Cleaning's generic trash convention (see JobBoard._is_trash_item()'s
+## own comment). Same reasoning as FoodCan/WaterBottle — an empty can
+## stays the same node, so this reads live state, not a one-time tag.
+func is_trash() -> bool:
+	return _is_empty
+
 func _unfreeze_after_spawn() -> void:
 	freeze = false
 

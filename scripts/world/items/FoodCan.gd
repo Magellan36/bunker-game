@@ -79,6 +79,13 @@ func take_bite() -> float:
 func has_bites_left() -> bool:
 	return not _is_empty and _bites_left > 0
 
+## Aug 2026 — Cleaning's generic trash convention (see JobBoard._is_trash_item()'s
+## own comment for the two-mechanism contract this satisfies). An empty
+## can persists as the same node rather than spawning a separate "empty"
+## item, so this is a live state check, not a one-time group tag.
+func is_trash() -> bool:
+	return not has_bites_left()
+
 # ─── Empty state ──────────────────────────────────────────────────────────────
 func _become_empty() -> void:
 	_is_empty   = true

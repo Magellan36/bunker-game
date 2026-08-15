@@ -162,16 +162,22 @@ func _has_trash_receptacle() -> bool:
 	## other change needed when that happens.
 	return not get_tree().get_nodes_in_group("trash_receptacle").is_empty()
 
-## Duck-typed, matching NPCItemUser.is_edible()/is_drinkable_bottle()'s
-## own established checks exactly — FoodCan/WaterBottle have no
-## class_name registered, so `is FoodCan` type checks wouldn't work here.
+## Aug 2026 fix — generic, scalable convention. An item is trash if EITHER:
+##   (a) it's in the "trash" group — for items that are ALWAYS trash by
+##       their existence (e.g. EmptyBagItem: one line in _ready(),
+##       add_to_group("trash"), no method needed), or
+##   (b) it has an is_trash() -> bool method that returns true — for
+##       items that are CONDITIONALLY trash based on their own state
+##       (a bottle/can/tank that empties but stays the same node).
+## This is the ENTIRE trash-classification surface now — no future item
+## type should ever require editing this function again. See
+## docs/systems/npc/README.md for the full convention writeup aimed at
+## other threads/agents wiring up new items.
 func _is_trash_item(item: Node) -> bool:
-	if item is EmptyBagItem:
+	if item.is_in_group("trash"):
 		return true
-	if item.has_method("has_bites_left") and not item.has_bites_left():
-		return true   ## empty FoodCan
-	if item.has_method("take_drink") and ("current_fill_mL" in item) and float(item.current_fill_mL) <= 0.0:
-		return true   ## empty WaterBottle
+	if item.has_method("is_trash") and item.is_trash():
+		return true
 	return false
 
 func _process(delta: float) -> void:

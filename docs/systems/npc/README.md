@@ -1777,3 +1777,45 @@ without being asked.
      redefined to `is_on_stove()`, dropping the `Stove.is_cooking()` check entirely — just checks
      `_host_stove != null`. Same two call sites as before (`grab_loose()`, JobBoard's
      organizable-item scan).
+
+115. Trash collection wired up + made scalable (Aug 2026) — `TrashCan` was never in the
+     `"trash_receptacle"` group `JobBoard._has_trash_receptacle()` gates on, so the entire
+     trash-collection system (already built: clutter counting, destination routing, skip-tracking)
+     was silently inert since it was first written. Wired up, plus two latent bugs fixed now that
+     trash actually flows: the destination-room-check was previously skipped for trash entirely (a
+     full can would still get picked, walked to, and fail — now matches full-shelf handling
+     exactly), and `has_cleaning_target_available()` returned true purely on trash *existing*, not
+     on a receptacle having room (same class of bug as the original organizable-item fix, now
+     closed for trash too). `_is_trash_item()`'s hardcoded per-type list replaced with the generic
+     convention below — no future item should ever require editing NPC-owned files again.
+
+## How to mark an item as trash (for any thread adding new items)
+
+An item is picked up by Cleaning and brought to a trash receptacle if **either**:
+
+1. **It's in the Godot group `"trash"`** — for an item that's *always* trash, by its very
+   existence (a dedicated "Empty X" class that only ever represents junk). Add one line to
+   the item's own `_ready()`:
+   ```gdscript
+   add_to_group("trash")
+   ```
+2. **It has a method `is_trash() -> bool` that returns `true`** — for an item that's
+   *conditionally* trash, based on its own internal state (a bottle/can/tank that empties but
+   stays the same node rather than spawning a separate "empty" object). Add one small method:
+   ```gdscript
+   func is_trash() -> bool:
+       return <your own empty/depleted condition>
+   ```
+   This is read live, every time — an item that stops being empty (e.g. a bottle gets
+   refilled) automatically stops being trash-eligible too, no extra bookkeeping needed.
+
+Either one is entirely sufficient — no NPC-owned file needs to change, no registration list to
+update, nothing else to wire up. Current examples of each: `EmptyBagItem`/
+`EmptyFertilizerBottleItem` use the group tag; `FoodCan`/`WaterBottle`/`FuelCan` use the method.
+
+Trash items count toward the same clutter-urgency threshold as regular clutter automatically
+(`JobBoard.get_total_clutter_count()` already sums both pools) — nothing extra needed there
+either. If you add a trash *receptacle* (an alternative to `TrashCan`), the only requirement is
+joining the `"trash_receptacle"` group and implementing `has_room_for(item)`/
+`npc_try_place_item(npc, item)` — see `TrashCan.gd`'s own `_ready()` and its inherited
+`LightStorage` methods for the reference shape.

@@ -1,3 +1,16 @@
+> **Trash collection wired up + made scalable (Aug 2026):** `TrashCan` is now in the
+> `"trash_receptacle"` group — the entire trash-collection system was already built and waiting
+> on this one line. Also fixed: full-receptacle handling (previously would still walk to a full
+> can and fail), and `has_cleaning_target_available()` not accounting for receptacle fullness
+> (same bug class as the original organizable-item fix). `_is_trash_item()` is now fully
+> generic — see README's own "How to mark an item as trash" section, which is meant to be
+> referenced directly by any thread adding new items, not just read once. Five existing item
+> types migrated to the new convention: `EmptyBagItem`/`EmptyFertilizerBottleItem` (group tag),
+> `FoodCan`/`WaterBottle`/`FuelCan` (method) — `FuelCan` is new coverage, wasn't trash-eligible
+> at all before this pass.
+
+---
+
 # Handover — Unified Dynamic Shadow Casting (Aug 2026)
 
 ## What changed this session

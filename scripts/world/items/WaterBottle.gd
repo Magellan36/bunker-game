@@ -46,6 +46,13 @@ func _ready() -> void:
 func _is_empty() -> bool:
 	return current_fill_mL <= 0.0
 
+## Aug 2026 — Cleaning's generic trash convention (see JobBoard._is_trash_item()'s
+## own comment). Same reasoning as FoodCan.is_trash() — an empty bottle
+## stays the same node, so this reads the live computed state, not a
+## one-time group tag; refilling correctly un-trashes it automatically.
+func is_trash() -> bool:
+	return _is_empty()
+
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 ## While empty, the bottle presents itself as a distinct "Empty Water Bottle"
 ## everywhere (name, ground prompt, inventory badge) instead of showing a

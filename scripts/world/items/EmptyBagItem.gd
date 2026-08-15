@@ -18,6 +18,7 @@ var _mesh: MeshInstance3D = null
 func _ready() -> void:
 	super._ready()
 	add_to_group("inventory_item")
+	add_to_group("trash")   ## Aug 2026 — always trash by existence; see JobBoard._is_trash_item()
 	_mesh = get_node_or_null("MeshInstance3D")
 	if _mesh == null:
 		_build_placeholder_mesh()

@@ -126,7 +126,26 @@ func _pick_next_target(npc: NPC) -> void:
 					display_name(_item), "trash" if _is_trash else "organizable",
 					NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position)])
 			if _is_trash:
-				break   ## trash keeps its existing post-pickup handling — commit and go
+				## Aug 2026 fix — now that trash_receptacle actually exists
+				## and can fill up, trash gets the exact same
+				## destination-first treatment organizable items already
+				## have, reusing the SAME _no_storage_categories dict with
+				## "trash" as its own category key — one full trash can
+				## stops the NPC from repeatedly walking a trash item to
+				## it and dropping it right back down, for the rest of
+				## this session, exactly like a full shelf already does
+				## for light/heavy.
+				if _no_storage_categories.has("trash"):
+					_skipped_ids[_item.get_instance_id()] = true
+					continue
+				if NPCJobQueries.find_cleaning_destination(npc, true, _item) != null:
+					break   ## viable trash destination confirmed — commit and go
+				_skipped_ids[_item.get_instance_id()] = true
+				_no_storage_categories["trash"] = true
+				if NPCDebug.enabled:
+					NPCDebug.log_cleaning(npc, "no storage for category", "%s (trash) — no viable destination exists anywhere; skipping all trash items this session" \
+						% display_name(_item))
+				continue
 			var category: String = NPCJobQueries.classify_organizable_item(_item)
 			if _item is FarmProduceItem and _basket == null:
 				var basket: Basket = _find_available_basket(npc)

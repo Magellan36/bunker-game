@@ -22,6 +22,16 @@ func _init() -> void:
 	grid_cols     = 2
 	grid_rows     = 5
 
+## Aug 2026 — the group NPCJobBoard._has_trash_receptacle() checks before
+## any trash item is ever offered to Cleaning at all. Everything else in
+## the NPC trash-collection system was already built and waiting on this
+## one line — see NPC thread's own plan/HANDOVER entry for the full
+## picture if useful context. super._ready() first preserves everything
+## LightStorage._ready() already does (shelving group, collision, mesh).
+func _ready() -> void:
+	super._ready()
+	add_to_group("trash_receptacle")
+
 func _build_mesh() -> void:
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.28, 0.32, 0.26, 1.0)   ## drab olive-grey
