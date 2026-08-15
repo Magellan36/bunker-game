@@ -93,6 +93,14 @@ all small, mechanically-driven edits, design owned by Graphics.
 
 ---
 
+> **Trash can excluded from general light-storage routing (Aug 2026):** Fixed NPCs organizing
+> full/half-charge items (water bottles etc.) into the trash can — it was never a
+> trash-classification bug, `TrashCan`'s inherited `"shelving"` membership just made it a valid
+> ordinary light-storage destination too. Excluded `"trash_receptacle"`-group objects from
+> organizable-item routing at the query layer; trash routing and `TrashCan.gd` itself untouched.
+
+---
+
 > **Trash Can F-dispatch fairness + full/inaccessible drop-fallback (Aug 2026):** two fixes in
 > `InteractionSystem.gd`/`TrashCan.gd`. (1) The empty-handed F branch previously called
 > `shelf.on_f_interact()` unconditionally whenever ANY shelving-group object was in range — a full

@@ -1794,8 +1794,16 @@ without being asked.
      full can would still get picked, walked to, and fail — now matches full-shelf handling
      exactly), and `has_cleaning_target_available()` returned true purely on trash *existing*, not
      on a receptacle having room (same class of bug as the original organizable-item fix, now
-     closed for trash too). `_is_trash_item()`'s hardcoded per-type list replaced with the generic
-     convention below — no future item should ever require editing NPC-owned files again.
+closed for trash too). `_is_trash_item()`'s hardcoded per-type list replaced with the generic
+      convention below — no future item should ever require editing NPC-owned files again.
+116. Trash can excluded from general light-storage routing (Aug 2026) — `TrashCan` inherits
+      `"shelving"` group membership from `LightStorage` (can't be removed — player-facing systems
+      depend on it), which made it a valid ordinary organizable-item destination independent of
+      trash routing, causing full/half-charge bottles etc. to get tidied into it as regular
+      clutter. Fixed at the query layer: `_nearest_cleaning_destination()` and
+      `has_viable_destination_for_category()` both now skip any `"trash_receptacle"`-group
+      candidate when routing a non-trash item. Trash routing itself unaffected. No changes to
+      `TrashCan.gd` or any group membership.
 
 ## How to mark an item as trash (for any thread adding new items)
 

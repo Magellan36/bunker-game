@@ -122,6 +122,18 @@ static func _nearest_cleaning_destination(npc: NPC, group_names: Array, item: Ri
 				continue
 			if light_storage_only and not (candidate is LightStorage):
 				continue
+			## Aug 2026 fix — a dedicated trash receptacle (TrashCan, e.g.)
+			## is ALSO "shelving" for player-facing reasons that can't
+			## change (MainWorld.gd's storage-UI wiring, InteractionSystem.gd's
+			## F-prompt discovery both depend on that group membership) —
+			## but it should never be selected as an ordinary organizable-
+			## item destination from the NPC side. This is what was
+			## sending full/half-charge water bottles etc. into the trash
+			## can as regular tidying, nothing to do with trash
+			## classification itself. Trash routing (is_trash=true) is
+			## completely unaffected — this only excludes the OTHER case.
+			if not is_trash and candidate.is_in_group("trash_receptacle"):
+				continue
 			## Aug 2026 fix — this was previously skipped for trash
 			## entirely, meaning a full trash can still got picked as a
 			## valid destination, walked to, and failed. Trash now gets
@@ -142,6 +154,11 @@ static func has_viable_destination_for_category(npc: NPC, category: String) -> b
 			if not is_instance_valid(candidate):
 				continue
 			if category == "heavy" and candidate is LightStorage:
+				continue
+			## Aug 2026 fix — same exclusion as _nearest_cleaning_destination()'s
+			## own comment: a dedicated trash receptacle shouldn't count as
+			## viable general-purpose light/heavy storage.
+			if candidate.is_in_group("trash_receptacle"):
 				continue
 			if candidate.has_method("has_free_space") and not candidate.has_free_space():
 				continue
