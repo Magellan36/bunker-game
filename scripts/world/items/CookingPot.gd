@@ -388,8 +388,23 @@ func try_add_item(item: Node) -> bool:
 	if slot == -1:
 		return false
 
+	## Confirmed Aug 2026 — an empty Food Can or Water Bottle has nothing
+	## to contribute and can't be used as an ingredient. Single point of
+	## enforcement here (rather than only in the callers) so ANY current or
+	## future path that calls try_add_item() is covered, not just the two
+	## known today (a food item's own on_use(), and the held-pot's
+	## grab-nearest-item action).
+	if is_item_empty(item):
+		return false
+
 	var restore: float = _get_item_restore_value(item)
 	var key: String     = _get_item_ingredient_key(item)
+	## Snapshotted NOW, while the live node still exists — a display-ready
+	## string like "1/2" or "67%", or "" for a full/non-partial ingredient
+	## (produce always returns ""). Read by get_slot_icon_descriptors() so
+	## the hover UI can show it without needing the original node later
+	## (which won't exist post-cook, or post-save/load restore).
+	var badge: String = _get_item_charge_badge(item)
 
 	if item.get_parent() != null:
 		item.get_parent().remove_child(item)
@@ -410,7 +425,7 @@ func try_add_item(item: Node) -> bool:
 	if "_hold_point" in item:
 		item._hold_point = null
 
-	slots[slot] = {"node": item, "restore_value": restore, "ingredient_key": key}
+	slots[slot] = {"node": item, "restore_value": restore, "ingredient_key": key, "charge_badge": badge}
 	item_added.emit(slot, item)
 	if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
 		_host_stove.notify_pot_contents_changed()
@@ -432,6 +447,7 @@ func get_save_extra() -> Dictionary:
 			slots_out.append({
 				"restore_value":  entry["restore_value"],
 				"ingredient_key": entry["ingredient_key"],
+				"charge_badge":   entry.get("charge_badge", ""),
 			})
 	return {
 		"slots":          slots_out,
@@ -454,6 +470,7 @@ func restore_saved_state(extra: Dictionary) -> void:
 				"node":           null,
 				"restore_value":  float(s.get("restore_value", 0.0)),
 				"ingredient_key": String(s.get("ingredient_key", "unknown")),
+				"charge_badge":   String(s.get("charge_badge", "")),
 			}
 	_cook_progress  = float(extra.get("cook_progress", 0.0))
 	_is_cooked      = bool(extra.get("is_cooked", false))
@@ -474,7 +491,12 @@ func get_slot_icon_descriptors() -> Array:
 	for i: int in CAPACITY:
 		var entry = slots[i]
 		if entry != null:
-			out[i] = _icon_descriptor_for_key(entry["ingredient_key"])
+			var desc: Dictionary = _icon_descriptor_for_key(entry["ingredient_key"])
+			if not desc.is_empty():
+				var badge: String = String(entry.get("charge_badge", ""))
+				if not badge.is_empty():
+					desc["badge_text"] = badge
+			out[i] = desc
 	return out
 
 ## Maps a stored ingredient_key back to a renderable icon source. Add a new
@@ -615,6 +637,37 @@ static func _get_item_ingredient_key(item: Node) -> String:
 	if "current_fill_mL" in item:
 		return "water_bottle"   ## WaterBottle has no species/flavor variation either
 	return "unknown"
+
+## Public — used by InteractionSystem to filter empty items OUT of a
+## nearest-item search (so it finds the next ELIGIBLE item instead of just
+## failing), and internally by try_add_item() as the actual enforcement
+## point. Handles both current shapes: FoodCan's "_is_empty" is a plain
+## bool VAR, WaterBottle's is a computed FUNC — duck-type both.
+static func is_item_empty(item: Node) -> bool:
+	if item.has_method("_is_empty"):
+		return item._is_empty()
+	if "_is_empty" in item:
+		return bool(item._is_empty)
+	return false   ## produce and anything else has no empty concept
+
+## Computed ONCE at insertion time (see try_add_item()) while the live item
+## node is still around — a ready-to-display string, or "" for a
+## full/non-partial ingredient (nothing shown in that case). Food Cans show
+## as a discrete fraction ("1/2") since they only ever have 2 states;
+## Water Bottles show as a percentage ("67%") since fill is continuous.
+static func _get_item_charge_badge(item: Node) -> String:
+	if "_bites_left" in item:
+		var total: int = int(item.TOTAL_BITES) if "TOTAL_BITES" in item else 2
+		var left: int  = int(item._bites_left)
+		if left >= total:
+			return ""   ## full — no badge needed
+		return "%d/%d" % [left, total]
+	if "current_fill_mL" in item:
+		var pct: int = int(round(100.0 * float(item.current_fill_mL) / float(item.MAX_FILL_ML)))
+		if pct >= 100:
+			return ""   ## full — no badge needed
+		return "%d%%" % pct
+	return ""
 
 # ─── Cross-system hand-off helper (used by Part E) ────────────────────────────
 ## Called by a food item's on_use() immediately after pot.try_add_item(self)

@@ -53,6 +53,11 @@ var _icon_viewports: Array = []
 ## happens when a slot's content actually changes, not every frame.
 var _icon_loaded_sig: Array = []
 
+## Per pool-panel-index: Array[3] of Label — small text badge overlaid in
+## each icon slot's corner for partial-charge ingredients (e.g. "1/2",
+## "67%"). Added Aug 2026.
+var _icon_badge_labels: Array = []
+
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	_template_panel.visible = false
@@ -100,6 +105,7 @@ func _process(_delta: float) -> void:
 		_pool.append(clone)
 		_icon_viewports.append(_build_icon_slots(clone))
 		_icon_loaded_sig.append(["", "", ""])
+		_icon_badge_labels.append(_build_badge_labels(clone))
 
 	# ── Phase 1: compute each panel's natural position/size/alpha and update
 	## its content. `layouts[i]` is null for a hidden entry, else a Dictionary
@@ -252,17 +258,59 @@ func _build_icon_slots(clone: PanelContainer) -> Array:
 		out[slot_i] = vp
 	return out
 
+## Small text badge (e.g. "1/2" or "67%") overlaid in each icon slot's
+## bottom-right corner, for partial-charge ingredients. Added Aug 2026 as a
+## SEPARATE pass over the same Slot0/1/2 nodes _build_icon_slots() already
+## populates, rather than modifying that function, to keep this addition
+## isolated and low-risk.
+func _build_badge_labels(clone: PanelContainer) -> Array:
+	var out: Array = [null, null, null]
+	var row: Control = clone.get_node_or_null("VBox/IconRow") as Control
+	if row == null:
+		return out
+	for slot_i: int in 3:
+		var slot: PanelContainer = row.get_node_or_null("Slot%d" % slot_i) as PanelContainer
+		if slot == null:
+			continue
+		var lbl: Label = Label.new()
+		lbl.text = ""
+		lbl.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_BOTTOM
+		lbl.add_theme_font_size_override("font_size", 10)
+		lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
+		lbl.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+		lbl.add_theme_constant_override("shadow_offset_x", 1)
+		lbl.add_theme_constant_override("shadow_offset_y", 1)
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.add_child(lbl)
+		out[slot_i] = lbl
+	return out
+
 ## Re-instantiates only the slots whose content actually changed since last
 ## frame (tracked via _icon_loaded_sig), matching BuildModeHUD's own
 ## "queue_free old Node3D children, instantiate new one" pattern.
 func _refresh_icon_slots(pool_index: int, icons: Array) -> void:
 	var vps: Array = _icon_viewports[pool_index]
 	var sigs: Array = _icon_loaded_sig[pool_index]
+	var labels: Array = _icon_badge_labels[pool_index] if pool_index < _icon_badge_labels.size() else [null, null, null]
 	for slot_i: int in 3:
 		var vp: SubViewport = vps[slot_i] if slot_i < vps.size() else null
 		if vp == null:
 			continue
 		var desc: Variant = icons[slot_i] if slot_i < icons.size() else null
+
+		## Badge text updates every frame regardless of the 3D-render skip
+		## below — it's a cheap string compare-and-set, no reason to gate it
+		## on the expensive re-instantiation check that follows.
+		var lbl: Label = labels[slot_i] if slot_i < labels.size() else null
+		if lbl != null:
+			var badge_txt: String = ""
+			if desc != null and desc is Dictionary:
+				badge_txt = String((desc as Dictionary).get("badge_text", ""))
+			if lbl.text != badge_txt:
+				lbl.text = badge_txt
+
 		var sig: String = _signature_for(desc)
 		if sigs[slot_i] == sig:
 			continue   ## unchanged since last frame — skip re-instantiation

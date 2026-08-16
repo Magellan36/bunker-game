@@ -1016,9 +1016,16 @@ func _try_place_held_cookpot_on_stove(pot: Node, stove: Node) -> bool:
 ## group instead of "basket_storable", pot.try_add_item() instead of
 ## basket.try_add_item().
 func _try_add_nearest_to_cookpot(pot: Node) -> void:
-	## held_item / shelved / frozen filtering now lives in
+	## held_item / shelved / frozen filtering lives in
 	## InteractionProximityScan (Phase 1, Aug 2026) — see its header comment.
-	var closest: RigidBody3D = _proximity.nearest_body_in_group("cookpot_storable") as RigidBody3D
+	## Predicate additionally excludes empty Food Cans/Water Bottles
+	## (confirmed Aug 2026 fix) — filtering during the SEARCH itself means
+	## an empty item sitting closest doesn't block the action entirely; the
+	## next-nearest ELIGIBLE item is found instead.
+	var closest: RigidBody3D = _proximity.nearest_body_in_group(
+		"cookpot_storable",
+		func(b: Node) -> bool: return not CookingPot.is_item_empty(b)
+	) as RigidBody3D
 
 	var hud: Node = get_tree().get_first_node_in_group("hud")
 
