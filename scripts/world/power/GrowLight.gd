@@ -539,12 +539,13 @@ func _build_spot_light() -> void:
 	spot.distance_fade_length        = SPOT_DISTANCE_FADE_LENGTH
 	spot.position                    = Vector3.ZERO
 	spot.rotation_degrees            = Vector3(-90.0, 0.0, 0.0)
-	## Aug 2026 — excludes every character (player + NPCs) from this
-	## light's illumination/shadow entirely, same as WallLight.gd/
-	## Flashlight.gd — characters get their light/shadow from the
-	## aggregated CharacterShadowProxy system instead (see
-	## docs/systems/graphics/README.md "Aggregated character shadows").
-	spot.light_cull_mask             = spot.light_cull_mask & ~GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
+	## Aug 2026 — this fixture briefly excluded characters from its
+	## light_cull_mask (Aggregated Character Shadows plan), reverted (see
+	## docs/systems/graphics/README.md "Aggregated character shadows" for
+	## the postmortem). Back to default cull mask — lights and shadows the
+	## player/NPCs completely normally. get_shadow_weight() below is
+	## kept — it's consumed by the new CharacterShadowDecal.gd system
+	## instead, and was never the buggy part.
 	spot.visible                     = false
 	add_child(spot)
 	_spot = spot
@@ -561,10 +562,11 @@ func _apply_graphics_settings() -> void:
 	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 
 ## Aug 2026 — returns this fixture's current contribution weight for
-## CharacterShadowProxy.gd's aggregate shadow-direction calculation, or 0.0
+## CharacterShadowDecal.gd's aggregate shadow-direction calculation, or 0.0
 ## if currently off/out of range. See docs/systems/graphics/README.md
-## "Aggregated character shadows". Same simple-falloff approach as
-## WallLight.gd's version — only needs to rank/blend lights relative to
+## "Character shadow decal" (and "Aggregated character shadows" for the
+## reverted prior system this method outlived). Same simple-falloff approach
+## as WallLight.gd's version — only needs to rank/blend lights relative to
 ## each other, not match the GPU's real attenuation curve exactly.
 func get_shadow_weight(from_pos: Vector3) -> float:
 	if _spot == null or not _spot.visible:

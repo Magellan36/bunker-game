@@ -131,15 +131,21 @@ func _build_light() -> void:
 	_spot.spot_range             = LIGHT_RANGE
 	_spot.light_energy           = LIGHT_ENERGY
 	_spot.light_color            = COL_ON
-	## Excludes every character (player + NPCs) from this light's
-	## illumination/shadow computation entirely — originally just to stop
-	## a handheld light from self-shadowing its own wielder (see
-	## docs/systems/graphics/README.md "Flashlight self-shadow exclusion"),
-	## now also consistent with every other real light excluding
-	## characters as part of the Aug 2026 aggregated-shadow system (see
-	## "Aggregated character shadows" in the same doc) — characters get
-	## their light/shadow from CharacterShadowProxy.gd instead.
-	_spot.light_cull_mask = _spot.light_cull_mask & ~GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
+	## Excludes the player's own mesh from this light's illumination/shadow
+	## computation entirely — a handheld light this close to the player's
+	## own body otherwise self-shadows a dome right into the center of its
+	## own beam once shadow casting is on (see
+	## docs/systems/graphics/README.md "Flashlight self-shadow exclusion").
+	## Player.gd tags its mesh with ONLY this bit (see
+	## Player.PLAYER_SELF_LIGHT_LAYER_BIT for why it's a replacement, not an
+	## addition) specifically so THIS is the only light in the game that
+	## stops seeing the player — every other light keeps its default cull
+	## mask and still lights/shadows the player normally. (Aug 2026 —
+	## reverted back to this narrower, original form after a brief detour
+	## generalizing it to exclude all characters from every light; see
+	## docs/systems/graphics/README.md "Aggregated character shadows" for
+	## the postmortem on why that was reverted.)
+	_spot.light_cull_mask = _spot.light_cull_mask & ~Player.PLAYER_SELF_LIGHT_LAYER_BIT
 	_spot.visible                = false   ## off at spawn
 	_apply_graphics_settings()
 	add_child(_spot)
@@ -166,10 +172,11 @@ func _apply_graphics_settings() -> void:
 	## docs/systems/graphics/README.md "Unified dynamic shadow casting").
 	## The player-mesh self-shadow dome this used to cause is handled
 	## separately and still applies regardless of this setting — see
-	## GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT (relocated from
-	## Player.PLAYER_SELF_LIGHT_LAYER_BIT this session — see
-	## docs/systems/graphics/README.md "Aggregated character shadows") /
-	## the earlier FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md.
+	## Player.PLAYER_SELF_LIGHT_LAYER_BIT / the earlier
+	## FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md. (Aug 2026 — this
+	## constant briefly lived on GraphicsSettings as
+	## CHARACTER_SHADOW_LAYER_BIT during the now-reverted Aggregated
+	## Character Shadows detour; it's back on Player.gd.)
 	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 	## Per-light volumetric-fog contribution (Light3D property, independent
 	## of Environment.volumetric_fog_enabled) — lets the dust-mote beam-shaft

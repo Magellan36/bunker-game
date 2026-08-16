@@ -1,3 +1,70 @@
+# Handover — Revert Aggregated Character Shadows → Cone Shadow Decal (Aug 2026)
+
+## What changed this session
+Fully reverted the Aggregated Character Shadows system (CharacterShadowProxy.gd
+and all character-exclusion light_cull_mask changes across Flashlight.gd/
+WallLight.gd/GrowLight.gd/Player.gd/NPC.gd/GraphicsSettings.gd, plus its
+three hotfix rounds) after it caused three consecutive regressions
+(pitch-black characters, underlit characters, harsh flash-photo lighting)
+while never actually needing to touch character illumination at all — the
+original complaint was specifically about the shadow the character casts,
+not how the character itself is lit.
+
+Replaced with two much narrower, independent pieces: (1)
+`GeometryInstance3D.cast_shadow = OFF` on the player/NPC mesh — stops the
+character from casting any real shadow, while leaving real illumination
+completely untouched/default; this alone fixes the original multi-shadow
+complaint. (2) `CharacterShadowDecal.gd` — a new, purely cosmetic flat mesh
+(no Light3D anywhere) that fakes one blended "cone" shadow using the same
+weighted-light-aggregate direction math the reverted proxy used, with
+length clipped by a raycast against furniture/walls so it doesn't stretch
+through solid objects.
+
+Flashlight.gd's original, narrower self-shadow exclusion
+(`Player.PLAYER_SELF_LIGHT_LAYER_BIT`, excluding only the player from the
+flashlight's own beam) is restored — that was a correct, separate fix from
+before this whole detour and was never the problem.
+
+### Files modified
+- `scripts/core/GraphicsSettings.gd` — removed relocated constant.
+- `scripts/player/Player.gd` — restored original constants, removed
+  CharacterShadowProxy, added CharacterShadowDecal.
+- `scripts/npc/NPC.gd` — removed mesh.layers override + CharacterShadowProxy,
+  added CharacterShadowDecal.
+- `scripts/world/items/Flashlight.gd` — restored original exclusion +
+  comment.
+- `scripts/world/power/WallLight.gd` — removed character exclusion,
+  kept get_shadow_weight().
+- `scripts/world/power/GrowLight.gd` — removed character exclusion, kept
+  get_shadow_weight().
+- `scripts/core/CharacterShadowProxy.gd` — deleted.
+- `scripts/core/CharacterShadowDecal.gd` — new.
+- `docs/systems/graphics/README.md`, `docs/systems/player/README.md`,
+  `docs/systems/npc/README.md`, `docs/systems/power/README.md` — reverted/
+  updated notes.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile) — pay particular
+   attention to the `const`-inside-`_ready()` flag in File 2's edit above.
+2. Confirm zero references to `CharacterShadowProxy` remain anywhere
+   (`grep -r CharacterShadowProxy` across `scripts/`).
+3. Player/NPCs no longer cast multiple real shadows near several wall
+   lights — the original complaint.
+4. Player/NPC lighting/brightness looks completely normal again — same as
+   before any of this session's work (no proxy, no exclusion beyond
+   Flashlight's original one).
+5. One soft, tapered shadow shape appears behind the character, direction
+   sweeping smoothly as they walk between lights.
+6. Walk the shadow toward a wall/piece of furniture — it should stop
+   roughly at the obstruction rather than stretching through it.
+7. Confirm the flashlight's own self-shadow-dome fix still works
+   (unrelated to this session, but touched by the revert — verify it
+   didn't regress).
+8. Toggle Shadow Casting off — real per-light shadows AND the cone decal
+   should both disappear; real character lighting is unaffected by this
+   toggle either way (it never was, pre-this-whole-detour).
+
 # Handover — Character Shadow Proxy Harsh-Lighting Hotfix v3 (Aug 2026)
 
 ## What changed this session

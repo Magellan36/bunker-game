@@ -300,9 +300,12 @@ beam when `shadow_casting_enabled` is on. If the flashlight's own held-item
 mesh (the flashlight body itself) turns out to cast a similar smaller
 self-shadow, that's a separate, not-yet-observed issue — flag it before
 extending this same layer-bit pattern to it.
-**Superseded/generalized by "Aggregated character shadows" below** — the
-constant this section describes moved to
-`GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT`.
+**Restored to its original form (Aug 2026)** — see the
+FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md from earlier this
+session. `Player.PLAYER_SELF_LIGHT_LAYER_BIT` excludes only the player's
+own mesh from `Flashlight.gd`'s own beam. Not part of the "Aggregated
+character shadows" detour below — that plan generalized this constant,
+and reverting it moved the constant back here.
 
 ### Unified dynamic shadow casting
 **What changed:** `GraphicsSettings.flashlight_shadows` renamed to
@@ -331,59 +334,50 @@ normal preset-tier toggle now, not a flashlight-specific opt-in one).
 files; this session's edits there are limited to the light node
 construction/shadow wiring, no power-grid logic touched.
 
-### Aggregated character shadows
-**Problem:** with the game's fixed top-down isometric camera, every shadow
-from every nearby real light is visible on screen simultaneously (unlike a
-third-person-over-shoulder camera, where most would be off-screen or
-foreshortened). The starting bunker's 6 perimeter wall lights meant a
-character could show 6 independently-moving cast shadows at once while
-walking/sprinting — technically correct, but visually overwhelming.
-**Fix:** every real light (Flashlight, WallLight, GrowLight) now excludes
-characters from its `light_cull_mask` via
-`GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT` (relocated here from
-`Player.PLAYER_SELF_LIGHT_LAYER_BIT`, now shared across Player/NPC/Power/
-Furniture-Items). Each character instead owns one `CharacterShadowProxy`
-(`scripts/core/CharacterShadowProxy.gd`) — a single SpotLight3D positioned
-at a fixed distance/height from the character, aimed at them, whose
-direction and brightness are a smoothed aggregate of every nearby
-WallLight/GrowLight's weighted contribution. One shadow, direction driven
-by real nearby lights, length/drama art-directed rather than incidental.
-**Important:** since light_cull_mask gates both illumination and shadow
-together, characters now receive ALL their direct light from this one
-proxy — GI/ambient still applies normally underneath, but ENERGY_SCALE/
-MAX_ENERGY in CharacterShadowProxy.gd are the values to retune if
-characters read too dim/bright once seen in-editor.
-**Deliberately out of scope:** Flashlight isn't part of the aggregate
-(self-referential for its wielder; its own self-shadow exclusion already
-covers that case) — see the plan doc's "Scope decisions" for the full
-reasoning and what a future flashlight-highlights-NPCs feature would need.
-**Aug 2026 hotfixes (two, same root cause area):** (1) the proxy's
-illumination was briefly gated on GraphicsSettings.shadow_casting_enabled,
-making characters pitch black at the default Medium preset — fixed by
-making illumination unconditional and only gating shadow_enabled on that
-setting, as originally intended. (2) even with the proxy running, it was
-positioned too far from the character (6m) for its own energy values,
-given Godot's physically-based light falloff — characters read as
-severely underlit except right next to a strong real light. Fixed by
-shrinking PROXY_DISTANCE to 2.5m and recalibrating ENERGY_SCALE/
-MAX_ENERGY/SPOT_ATTENUATION accordingly. Both fixed in
-CharacterShadowProxy.gd; still first-pass tuned values, expect another
-visual pass once seen in-editor.
-**Aug 2026 hotfix v3 (harsh "flash photo" look):** v2's fix for dimness
-(closer light, higher energy) caused a new problem — every character read
-as if hit by a hard camera flash, bright near-side/black far-side,
-identical intensity regardless of actual distance to a light. Root causes:
-(1) a close point light on a small object always produces a hard shading
-gradient (basic Lambertian shading physics — a desk lamp vs. the sun on a
-small object); (2) the light was aimed roughly level with the character
-rather than from above, unlike real room lighting; (3) every nearby real
-light's weight summed together then hit a hard energy clamp, so most
-characters in a normally-lit room pegged to the same maximum brightness
-regardless of position. Fixed by raising the proxy to a ~45° overhead
-angle (real distance back near the original v1 value), widening the cone,
-softening distance falloff, adding light_size for a soft shadow gradient,
-and replacing the hard clamp with a smooth saturating energy curve. Still
-first-pass values pending an actual in-editor look.
+### Aggregated character shadows — REVERTED, see "Character shadow decal" below
+Built Aug 2026: one aggregated fake Light3D per character, replacing real
+per-light shadow reception, to fix visual clutter from multiple real
+lights each casting their own shadow onto a character. Reverted the same
+session after three hotfix rounds (pitch-black characters, then
+severely-underlit characters, then harsh "flash photo" lighting) — the
+structural problem was that Godot's light_cull_mask ties a light's
+illumination and its shadow-casting together as one switch, so excluding
+characters from real shadows meant excluding them from real light too,
+which forced the fake proxy light to take over 100% of character
+illumination. That's a much bigger surface area than the actual complaint
+(which was specifically about the shadow CAST BY the character, never
+about how the character itself was lit), and every subsequent bug came
+from that one light being asked to simultaneously illuminate correctly,
+shadow correctly, stay bright, and look natural. See git history for the
+full three-hotfix arc if useful context for a future similar decision.
+
+### Character shadow decal
+Replaces the above. Two independent, much narrower pieces instead of one
+light doing everything:
+1. **`GeometryInstance3D.cast_shadow = SHADOW_CASTING_SETTING_OFF`** on the
+   player/NPC mesh (see Player.gd/NPC.gd) — a native per-object property
+   that stops a mesh from casting any real shadow onto anything, while it
+   keeps receiving light/shadow completely normally from every real light.
+   This alone is what fixes the original multi-shadow complaint. Real
+   character illumination is fully untouched/default again.
+2. **`CharacterShadowDecal.gd`** — a purely cosmetic, non-lit flat mesh
+   (no Light3D involved anywhere) faking one blended "cone" shadow shape,
+   using the same weighted-light-aggregate direction math the old proxy
+   used (`WallLight.gd`/`GrowLight.gd`'s `get_shadow_weight()`, kept from
+   the reverted system). Length is clipped by a raycast against
+   furniture/walls (`collision_mask = 4`) so it doesn't stretch through
+   solid objects — only length is clipped, not per-pixel shape, so it
+   still visually crosses over low obstacles up to the clip point.
+Because there's no Light3D in this system, it structurally cannot cause
+the class of bug the previous system did — worst case is a misshapen or
+misoriented decorative mesh, not a lighting regression.
+
+### Flashlight self-shadow exclusion
+(Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
+from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes
+only the player's own mesh from Flashlight.gd's own beam. Not part of the
+"Aggregated character shadows" detour above — that plan generalized this
+constant, and reverting it moved the constant back here.)
 
 ---
 

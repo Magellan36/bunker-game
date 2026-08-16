@@ -358,12 +358,13 @@ func _build_fixture() -> void:
 	omni.light_indirect_energy = 1.0
 	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
 	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.5)
-	## Aug 2026 — excludes every character (player + NPCs) from this
-	## light's illumination/shadow entirely, same as Flashlight.gd already
-	## does — characters now get their light/shadow from the aggregated
-	## CharacterShadowProxy system instead of individual real lights (see
-	## docs/systems/graphics/README.md "Aggregated character shadows").
-	omni.light_cull_mask       = omni.light_cull_mask & ~GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT
+	## Aug 2026 — this fixture briefly excluded characters from its
+	## light_cull_mask (Aggregated Character Shadows plan), reverted (see
+	## docs/systems/graphics/README.md "Aggregated character shadows" for
+	## the postmortem). Back to default cull mask — lights and shadows the
+	## player/NPCs completely normally, same as any other object in the
+	## room. get_shadow_weight() below is kept — it's consumed by the new
+	## CharacterShadowDecal.gd system instead, and was never the buggy part.
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
 	omni.visible = false
 	add_child(omni)
@@ -403,11 +404,12 @@ func _apply_graphics_settings() -> void:
 
 
 ## Aug 2026 — returns this fixture's current contribution weight for
-## CharacterShadowProxy.gd's aggregate shadow-direction calculation, or 0.0
+## CharacterShadowDecal.gd's aggregate shadow-direction calculation, or 0.0
 ## if currently off/out of range. See docs/systems/graphics/README.md
-## "Aggregated character shadows". Deliberately simple falloff — this only
-## needs to rank/blend multiple lights sensibly relative to each other, not
-## match the GPU's real attenuation curve exactly.
+## "Character shadow decal" (and "Aggregated character shadows" for the
+## reverted prior system this method outlived). Deliberately simple falloff —
+## this only needs to rank/blend multiple lights sensibly relative to each
+## other, not match the GPU's real attenuation curve exactly.
 func get_shadow_weight(from_pos: Vector3) -> float:
 	if _omni == null or not _omni.visible:
 		return 0.0
