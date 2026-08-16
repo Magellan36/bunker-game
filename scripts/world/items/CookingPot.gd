@@ -80,6 +80,14 @@ signal item_removed(slot_index: int, item: Node)
 ## recipe-list expansion, not a change to this matching logic.
 const RECIPE_MIN_SCORE: float = 1.0
 
+## Water restores HYDRATION (a completely separate stat from every other
+## ingredient's hunger-restoring Filling value), so it deliberately
+## contributes only a SMALL amount here — its real role is as a
+## recipe-enabling ingredient (broths/soups/stews), not a calorie source.
+## Scales with how full the bottle actually is, same "remaining value only"
+## convention already established for Food Cans. Confirmed Aug 2026.
+const WATER_COOK_VALUE: float = 5.0
+
 ## Static recipe table. Each entry: { "name": String, "ingredients": Array[String] }.
 ## ingredients are ingredient_key values (see _get_item_ingredient_key()).
 ## Every ingredient set below is verified unique — no two recipes share the
@@ -117,11 +125,38 @@ const RECIPES: Array[Dictionary] = [
 	{"name": "Garden Paella",                   "ingredients": ["produce_bell_pepper", "produce_tomato", "produce_garlic"]},
 	# ── Baseline (early game) ──
 	{"name": "Canned Ration",                   "ingredients": ["food_can"]},
+	{"name": "Boiled Water",                    "ingredients": ["water_bottle"]},
 	# ── Preserve / Compote (fruit-only) ──
 	{"name": "Blueberry Compote",               "ingredients": ["produce_blueberry"]},
 	{"name": "Strawberry Preserve",             "ingredients": ["produce_strawberry"]},
 	{"name": "Mixed Berry Preserve",            "ingredients": ["produce_blueberry", "produce_strawberry"]},
 	{"name": "Pumpkin Berry Compote",           "ingredients": ["produce_pumpkin", "produce_blueberry"]},
+	{"name": "Strawberry Pumpkin Preserve",     "ingredients": ["produce_strawberry", "produce_pumpkin"]},
+	# ── Water-based additions (Aug 2026) — see design note above on why
+	# water contributes a small amount rather than a large one.
+	{"name": "Vegetable Broth",                 "ingredients": ["water_bottle", "produce_carrot", "produce_onion"]},
+	{"name": "Clear Tomato Broth",               "ingredients": ["water_bottle", "produce_tomato"]},
+	{"name": "Garlic Water Broth",               "ingredients": ["water_bottle", "produce_garlic"]},
+	{"name": "Spicy Chili Broth",                "ingredients": ["water_bottle", "produce_chili_pepper"]},
+	{"name": "Basil Water Broth",                "ingredients": ["water_bottle", "produce_basil"]},
+	{"name": "Canned Ration Water Soup",         "ingredients": ["water_bottle", "food_can"]},
+	{"name": "Water Vegetable Stew",             "ingredients": ["water_bottle", "produce_potato", "produce_bell_pepper"]},
+	{"name": "Garlic Water Stew",                "ingredients": ["water_bottle", "produce_garlic", "produce_potato"]},
+	{"name": "Corn Water Stew",                  "ingredients": ["water_bottle", "produce_corn", "produce_onion"]},
+	{"name": "Garlic Water Chowder",             "ingredients": ["water_bottle", "produce_garlic", "produce_corn"]},
+	{"name": "Carrot Water Chowder",             "ingredients": ["water_bottle", "produce_carrot", "produce_corn"]},
+	{"name": "Water Garden Gumbo",               "ingredients": ["water_bottle", "produce_onion", "produce_tomato"]},
+	{"name": "Spicy Water Gumbo",                "ingredients": ["water_bottle", "produce_chili_pepper", "produce_tomato"]},
+	{"name": "Water Potato Porridge",            "ingredients": ["water_bottle", "produce_potato"]},
+	{"name": "Water Pumpkin Porridge",           "ingredients": ["water_bottle", "produce_pumpkin"]},
+	# ── Additional non-water recipes (Aug 2026) ──
+	{"name": "Three Pepper Soup",                "ingredients": ["produce_bell_pepper", "produce_chili_pepper", "produce_garlic"]},
+	{"name": "Chili Garden Stew",                "ingredients": ["produce_chili_pepper", "produce_tomato", "produce_onion"]},
+	{"name": "Tomato Basil Casserole",           "ingredients": ["produce_tomato", "produce_basil", "produce_potato"]},
+	{"name": "Spicy Pepper Casserole",           "ingredients": ["produce_bell_pepper", "produce_chili_pepper", "produce_potato"]},
+	{"name": "Chili Garlic Sauté",               "ingredients": ["produce_chili_pepper", "produce_garlic"]},
+	{"name": "Corn & Onion Sauté",               "ingredients": ["produce_corn", "produce_onion"]},
+	{"name": "Smoky Garden Paella",              "ingredients": ["produce_bell_pepper", "produce_chili_pepper", "produce_tomato"]},
 	# Pemmican intentionally has NO recipes yet — needs a meat/protein item
 	# that doesn't exist in the game. Do not approximate it with berries
 	# alone; leave it fully locked until a real meat item is added.
@@ -438,6 +473,12 @@ static func _icon_descriptor_for_key(key: String) -> Dictionary:
 		## fix. Pointing at the actual scene (which has that mesh child
 		## authored) instead of the script directly fixes it.
 		return {"scene": "res://scenes/world/FoodCan.tscn"}
+	if key == "water_bottle":
+		## Same reasoning as food_can above — WaterBottle.gd also expects a
+		## pre-built MeshInstance3D child from its scene, not a procedural
+		## mesh, so point at res://scenes/world/WaterBottle.tscn (confirmed
+		## to exist) rather than is_script mode.
+		return {"scene": "res://scenes/world/WaterBottle.tscn"}
 	return {}
 
 
@@ -533,6 +574,13 @@ static func _get_item_restore_value(item: Node) -> float:
 		## Confirmed Aug 2026 — a partially-eaten can contributes only its
 		## REMAINING value, not its original full value.
 		return float(item._bites_left) * item.FOOD_PER_BITE
+	if "current_fill_mL" in item:
+		## Water contributes a small, fill-proportional amount — see
+		## WATER_COOK_VALUE's own comment for why. A near-empty bottle
+		## contributes almost nothing, same "remaining value only"
+		## convention as Food Cans.
+		var frac: float = clampf(float(item.current_fill_mL) / float(item.MAX_FILL_ML), 0.0, 1.0)
+		return WATER_COOK_VALUE * frac
 	return 0.0
 
 static func _get_item_ingredient_key(item: Node) -> String:
@@ -540,6 +588,8 @@ static func _get_item_ingredient_key(item: Node) -> String:
 		return "produce_%s" % item.produce_type
 	if "_bites_left" in item:
 		return "food_can"   ## FoodCan has no species/flavor variation — always the same ingredient
+	if "current_fill_mL" in item:
+		return "water_bottle"   ## WaterBottle has no species/flavor variation either
 	return "unknown"
 
 # ─── Cross-system hand-off helper (used by Part E) ────────────────────────────

@@ -110,6 +110,14 @@ func get_use_prompt() -> String:
 			return "[Hold E] Refill Empty Water Bottle"
 		return "[Hold E] Refill Bottle  —  " + _fill_quality_bbcode()
 
+	if not _is_empty():
+		var pot: CookingPot = CookingPot.find_nearest_open_pot(global_position, get_tree())
+		if pot != null:
+			var preview: Dictionary = pot.preview_add(self)
+			if not preview.is_empty():
+				var bonus_txt: String = "" if preview["bonus_pct"] <= 0.0 else "  (+%d%% Diversity)" % int(round(preview["bonus_pct"] * 100.0))
+				return "[E] Add to Pot  →  %.1f Filling%s" % [preview["total"], bonus_txt]
+
 	if _is_empty():
 		return ""   ## No use prompt when empty and not at a dispenser — can't drink it
 	return "[E] Drink  —  " + _fill_quality_bbcode()
@@ -124,6 +132,12 @@ func on_use() -> void:
 
 	if _is_empty():
 		return
+
+	var pot: CookingPot = CookingPot.find_nearest_open_pot(global_position, get_tree())
+	if pot != null:
+		if pot.try_add_item(self):
+			CookingPot.release_from_player_hand(get_tree(), self)
+			return
 
 	if _player_stats == null:
 		_player_stats = get_tree().get_first_node_in_group("player_stats")
