@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_script")
 id = "water_output_2x"
-display_name = "2x Water Output"
+display_name = "2x Water Hookup Output"
 tree = "bunker"
 duration_seconds = 10.0
 material_costs = {

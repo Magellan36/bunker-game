@@ -1,3 +1,36 @@
+# Handover — Research UI Nub Fix + Title Plan (Aug 2026)
+
+## What changed this session
+Four small Research Station UI fixes, all confirmed against current code:
+1. **Dangling connector nubs** — the two outer main columns' vertical
+   connectors used to stop at the top node's bottom-edge height with
+   nothing to meet (the top node is only NODE_W wide, centered over the
+   middle column). They now run up to the top node's vertical center and
+   jog horizontally into its left/right edge; the middle column's
+   straight connector is unchanged.
+2. **Tier bar centering** — wrapped in a CenterContainer within the tile's
+   VBox (harmless even if the bar already fills the width).
+3. **Bottom margin** — tile VBox `offset_bottom` tightened -8.0 → -4.0 to
+   remove the gap beneath the tier bar. If any gap remains in-editor,
+   `box`'s stylebox `content_margin_bottom` is the alternate source.
+4. **Title center + rename** — title label centered (horizontal_alignment
+   + SIZE_EXPAND_FILL); `bunker_water_output_2x.tres` display_name
+   renamed "2x Water Output" → "2x Water Hookup Output". The tile title
+   and completion toast both pull from this field, so the rename
+   propagates with no code change.
+
+### Files modified
+- `scripts/ui/research/ResearchStationUI.gd`
+- `data/upgrades/bunker_water_output_2x.tres`
+- `HANDOVER.md` — this entry.
+
+### Verification checklist (Brannon, in-editor)
+1. Columns 2 and 4 connect into the top node's left/right sides — no
+   dangling stubs.
+2. Tier bar horizontally centered in the tile.
+3. Gap beneath the tier bar noticeably tighter — flag if any gap remains.
+4. Title reads "2x Water Hookup Output," centered, in tile and toast.
+
 # Handover — Shadow Too-Thin Fix (Aug 2026)
 
 ## What changed this session

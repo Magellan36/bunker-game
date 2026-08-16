@@ -423,7 +423,7 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 	v.offset_left   = 10.0
 	v.offset_top    = 8.0
 	v.offset_right  = -10.0
-	v.offset_bottom = -8.0
+	v.offset_bottom = -4.0   ## was -8.0 — tighter fit now that the tier bar is the last element
 	box.add_child(v)
 
 	var name_lbl: Label = Label.new()
@@ -431,6 +431,8 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 	name_lbl.add_theme_font_override("font", _font)
 	name_lbl.add_theme_font_size_override("font_size", 13)
 	name_lbl.add_theme_color_override("font_color", COLOR_TITLE)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL   ## needed for centering to have room to work inside the VBox
 	v.add_child(name_lbl)
 
 	for line: String in cost_lines:
@@ -503,8 +505,12 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 	v.add_child(btn)
 
 	## Tier-segment bar — max_tier segments filling the tile's full content
-	## width edge-to-edge (Part 3), accent-filled for the completed tiers.
-	v.add_child(_build_tier_bar(max_tier, completed_tiers, NODE_W - 20.0))
+	## width edge-to-edge (Part 3), accent-filled for the completed tiers,
+	## wrapped in a CenterContainer so it stays centered within the tile.
+	var tier_bar_wrap: CenterContainer = CenterContainer.new()
+	tier_bar_wrap.custom_minimum_size = Vector2(NODE_W - 20.0, 14.0)
+	tier_bar_wrap.add_child(_build_tier_bar(max_tier, completed_tiers, NODE_W - 20.0))
+	v.add_child(tier_bar_wrap)
 
 	if is_maxed:
 		## Horizontal "COMPLETED" banner — only when fully maxed, not after
@@ -590,11 +596,24 @@ func _build_tree_canvas(station: ResearchStation) -> void:
 			box.position = Vector2(grid_cols[c], row_ys[r])
 			_canvas.add_child(box)
 
-	## Vertical connectors: row 1 -> top node (all 3 up to the same node),
-	## then row-to-row within each column.
+	## Vertical connectors: row 1 -> top node. The middle column runs
+	## straight up into the top node's bottom edge; the two OUTER columns
+	## run up to the top node's vertical center then jog horizontally into
+	## its left/right edge (previously they stopped at row0_h with nothing
+	## to meet, leaving dangling stubs). Row-to-row lines follow after.
+	var top_node_left_x: float  = top_node.position.x
+	var top_node_right_x: float = top_node.position.x + NODE_W
+	var top_node_mid_y: float   = row0_h * 0.5
 	for c: int in 3:
 		var col_cx: float = grid_cols[c] + NODE_W * 0.5
-		_add_connection(Vector2(col_cx, row0_h), Vector2(col_cx, row1_y))
+		if c == 0:
+			_add_connection(Vector2(col_cx, row1_y), Vector2(col_cx, top_node_mid_y))
+			_add_connection(Vector2(col_cx, top_node_mid_y), Vector2(top_node_left_x, top_node_mid_y))
+		elif c == 2:
+			_add_connection(Vector2(col_cx, row1_y), Vector2(col_cx, top_node_mid_y))
+			_add_connection(Vector2(col_cx, top_node_mid_y), Vector2(top_node_right_x, top_node_mid_y))
+		else:
+			_add_connection(Vector2(col_cx, row0_h), Vector2(col_cx, row1_y))
 	for r: int in 3:
 		for c: int in 3:
 			var col_cx: float = grid_cols[c] + NODE_W * 0.5
