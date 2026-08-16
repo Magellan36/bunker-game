@@ -100,4 +100,4 @@ inv_slot_4={
 
 [rendering]
 
-rendering_device/driver.windows="d3d12"
+rendering_device/driver.windows="vulkan"
