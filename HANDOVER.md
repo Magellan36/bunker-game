@@ -1,3 +1,32 @@
+# Handover — Shadow Decal Ground Level + Instant Snap Fix (Aug 2026)
+
+## What changed this session
+Two follow-up fixes to `CharacterShadowDecal.gd` from playtesting
+feedback: (1) the shadow was rendering at the character's capsule center
+instead of the floor — fixed by reading each character's own
+`CapsuleShape3D.height` (Player and NPC differ: 2.0 vs 1.8) rather than
+assuming a fixed offset, computed once in `setup()`. (2) shadow direction
+was lerping into position the same way opacity fades, reading as lag —
+fixed by snapping direction instantly on every frame; only opacity/weight
+still smooths.
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — floor-offset computation,
+  instant direction snap, mesh placement uses floor position.
+- `docs/systems/graphics/README.md` — follow-up note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Shadow now renders flat on the actual floor, not floating at
+   torso/chest height.
+3. Shadow direction changes immediately as the character moves between
+   lights — no visible slide/lag.
+4. Confirm this looks correct for both Player and an NPC (different
+   capsule heights, both should land correctly at floor level).
+5. Opacity fade near the edge of a light's range should still look smooth
+   (unaffected by this change — only direction stopped smoothing).
+
 # Handover — Generic Upgrade System + First Real Upgrade (2x Water Output) (Aug 2026)
 
 ## What changed this session

@@ -372,6 +372,14 @@ Because there's no Light3D in this system, it structurally cannot cause
 the class of bug the previous system did — worst case is a misshapen or
 misoriented decorative mesh, not a lighting regression.
 
+**Aug 2026 follow-up fix:** the decal originally placed itself at the
+character's own origin (capsule center, not the floor) and lerped its
+direction the same way opacity fades, which read as visible lag rather
+than matching real shadow movement. Fixed: floor offset is now read from
+each character's own CapsuleShape3D height (Player and NPC use different
+capsule heights) instead of assumed; direction now snaps instantly, no
+lerp, matching how real shadows track light position with zero lag.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes

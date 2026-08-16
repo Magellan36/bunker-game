@@ -34,7 +34,7 @@ const FAR_WIDTH:  float = 1.8   ## wider at the far end — the actual "cone" sh
 const NEAR_ALPHA: float = 0.35   ## modest, soft tint — never a hard black shape
 const SHADOW_Y_OFFSET: float = 0.02   ## tiny lift above the floor to avoid z-fighting
 
-const SMOOTH_RATE: float = 3.0   ## same framerate-independent exponential smoothing the old proxy used
+const SMOOTH_RATE: float = 3.0   ## still used for opacity/weight fade only — NOT direction, see _process()
 const MIN_TOTAL_WEIGHT: float = 0.05   ## below this, no meaningful nearby light — hide the shadow
 
 ## Raycast height above the character's own origin — roughly waist height,
@@ -46,6 +46,16 @@ var _mesh_instance: MeshInstance3D = null
 var _material: StandardMaterial3D  = null
 var _current_dir: Vector3     = Vector3.FORWARD
 var _current_weight: float    = 0.0
+## Distance from the character's own origin down to the actual floor —
+## computed once in setup() from the character's own CapsuleShape3D rather
+## than a hardcoded constant, since Player (height 2.0, Godot's default,
+## unset in Player.tscn) and NPC (height 1.8, see scenes/npc/NPC.tscn) use
+## different capsule heights. Both characters are centered on their
+## capsule (no offset transform on CollisionShape3D/MeshInstance3D in
+## either .tscn), so half the capsule height is the origin-to-floor
+## distance. This is the fix for the shadow appearing at the character's
+## midpoint instead of on the ground.
+var _floor_offset: float = 1.0
 
 ## Shared across every instance — built once on first use, not per
 ## character. See _get_shared_mesh().
@@ -53,9 +63,23 @@ static var _shared_mesh: ArrayMesh = null
 
 ## Called once by Player._ready()/NPC._ready() immediately after
 ## instantiation, before add_child() finishes running this node's own
-## _ready(). Just stores the reference — _ready() below does the rest.
+## _ready(). Stores the reference and computes the floor offset — see
+## _floor_offset above.
 func setup(owner_char: Node3D) -> void:
 	_owner_char = owner_char
+	_floor_offset = _compute_floor_offset(owner_char)
+
+## Reads the character's own CapsuleShape3D height rather than hardcoding
+## a constant — see _floor_offset's comment for why. Falls back to 1.0
+## (Player's default) if the shape can't be found/isn't a capsule, so a
+## structural change elsewhere degrades gracefully instead of erroring.
+func _compute_floor_offset(owner_char: Node3D) -> float:
+	var collision_node: Node = owner_char.get_node_or_null("CollisionShape3D")
+	if collision_node is CollisionShape3D:
+		var shape: Shape3D = (collision_node as CollisionShape3D).shape
+		if shape is CapsuleShape3D:
+			return (shape as CapsuleShape3D).height * 0.5
+	return 1.0
 
 func _ready() -> void:
 	_mesh_instance = MeshInstance3D.new()
@@ -143,8 +167,13 @@ func _process(delta: float) -> void:
 		return
 
 	if accum.length() > 0.001:
-		var target_dir: Vector3 = accum.normalized()
-		_current_dir = _current_dir.lerp(target_dir, smooth_t).normalized()
+		## Snaps instantly rather than lerping — real shadows track light
+		## position with no lag at all; the smoothing here previously made
+		## the shadow visibly slide into position instead of matching real
+		## shadow movement timing. Only weight/opacity above still smooths
+		## (avoids single-frame flicker from noisy raycast/weight changes),
+		## direction does not.
+		_current_dir = accum.normalized()
 
 	## Raycast clip — stop the shadow at the first wall/furniture it would
 	## otherwise stretch through, instead of ghosting across it. Only
@@ -180,4 +209,8 @@ func _process(delta: float) -> void:
 	## away from it, negate _current_dir here or add PI to yaw.
 	var yaw: float = atan2(_current_dir.x, _current_dir.z)
 	var basis: Basis = Basis(Vector3.UP, yaw).scaled(Vector3(1.0, 1.0, actual_length))
-	global_transform = Transform3D(basis, char_pos)
+	## char_pos is the character's own origin (capsule center, NOT the
+	## floor) — subtract _floor_offset to place the shadow at actual
+	## ground level instead of the character's midpoint.
+	var floor_pos: Vector3 = char_pos - Vector3(0.0, _floor_offset, 0.0)
+	global_transform = Transform3D(basis, floor_pos)
