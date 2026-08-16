@@ -22,6 +22,9 @@ var active_upgrade: UpgradeDef   = null
 var _elapsed: float              = 0.0
 var _consumed: Dictionary        = {}   ## material -> amount already drained from stored_materials for the active research
 
+## New. Active research + is_paused together fully describe the 3 states.
+var is_paused: bool = false
+
 ## Persisted per-station, NOT on the UpgradeDef resource itself (Resources
 ## can be shared/reloaded refs — mutating a "completed" bool directly on one
 ## would be a correctness footgun). This is the real source of truth for
@@ -81,13 +84,22 @@ func start_research(upgrade: UpgradeDef) -> bool:
 	active_upgrade = upgrade
 	_elapsed   = 0.0
 	_consumed  = {}
+	is_paused  = false   ## reset a stale pause flag before starting fresh (polish-pass bug fix — flagged)
 	for material: String in upgrade.material_costs.keys():
 		_consumed[material] = 0
 	return true
 
+func pause_research() -> void:
+	if active_upgrade != null:
+		is_paused = true   ## _process() below stops advancing elapsed/consumption while true — no refund, nothing else changes
+
+func resume_research() -> void:
+	if active_upgrade != null:
+		is_paused = false
+
 func _process(delta: float) -> void:
-	if active_upgrade == null:
-		return   ## (existing _build_mesh()-only _ready() is untouched; this is a new function)
+	if active_upgrade == null or is_paused:
+		return   ## paused: elapsed/consumption both frozen, no refund
 
 	_elapsed += delta
 	var progress: float = clampf(_elapsed / active_upgrade.duration_seconds, 0.0, 1.0)
@@ -116,6 +128,7 @@ func _complete_research() -> void:
 	active_upgrade = null
 	_elapsed  = 0.0
 	_consumed = {}
+	is_paused = false   ## polish-pass bug fix — stale true would stall the next research (flagged)
 
 	if finished.has_method("set_tree_ref"):
 		finished.set_tree_ref(get_tree())

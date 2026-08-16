@@ -1,3 +1,60 @@
+# Handover — Research UI Polish Pass (Aug 2026)
+
+## What changed this session
+Applied `RESEARCH_UI_POLISH_PASS_PLAN.md` (all 7 parts) to
+`ResearchStationUI.gd` + `ResearchStation.gd`:
+1. **Material buttons** — `PanelContainer` → plain `Panel` (Panel doesn't
+   auto-resize to its child Label, which is why "Plastic"/"Organic"
+   stretched while "Metal"/"Paper" didn't); size now computed once from
+   the widest of the 4 label strings + tight padding.
+2. **Hover-bug fix (structural vs. tick split)** — `_process()` no longer
+   calls `_refresh_content()` (which destroyed + rebuilt the Research
+   button every 250ms, so Godot never re-applied hover). A new
+   `_tick_active_progress()` mutates cached `_active_progress_bar` /
+   `_active_time_label` refs in place, never touching Button/Panel nodes.
+   Full rebuilds still happen on real state changes.
+3. **Tier bar** — full-width `_build_tier_bar()` (segments fill the tile
+   edge-to-edge; `max_tier == 1` = one toggle-colored strip).
+4. **Titles** — bare `display_name` (no "Tier N -"); toasts keep the tier.
+5. **Durations** — shared `_format_duration()` ("10 Seconds"); dropped the
+   "Time to completion:" prefix.
+6. **Pause/resume** — `is_paused` + `pause_research()`/`resume_research()`
+   on the station, `_process` gate, and a 3-state button
+   (Research/Stop Research/Resume). No refund.
+7. **Branch mirror** — bottom-left branch (below row 4) replaced with a
+   true mirror of the right branch beside the grid; right diagonal re-
+   anchored to row 1. Canvas + PANEL_W grew so both fit with horizontal
+   scroll disabled.
+
+### Files modified
+- `scripts/ui/research/ResearchStationUI.gd`
+- `scripts/world/furniture/ResearchStation.gd`
+- `docs/systems/research/README.md` — polish-pass section, branch
+  topology, pause semantics.
+- `HANDOVER.md` — this entry.
+
+### Deviations flagged in the session report
+- ProgressBar added back (redesign had dropped it; the tick + checklist #6
+  need one).
+- `is_paused` reset on start/complete (plan bug fix — stale true would
+  stall the next research).
+- `PANEL_W` 834→1024 so the mirrored left + right branches stay on-canvas.
+- Panel height + content top now computed from the (much shorter) material
+  grid instead of the fixed 756/288.
+- Tick detects in-station completion and triggers the rebuild the plan
+  assumes happens on "completion".
+- `next_tier` local removed from the UI (was only used by the title).
+
+### Verification checklist (Brannon, in-editor)
+1. All 4 material buttons identical size, short/tight.
+2. Hover stays lit over the Research button with the mouse still.
+3. Tier bar fills the tile width edge-to-edge (3 segments for water).
+4. Title reads "2x Water Output"; completion toast keeps the tier.
+5. Not-started duration reads "10 Seconds".
+6. Stop Research freezes the bar, becomes "Resume", no refund; Resume
+   continues exactly from the frozen point.
+7. Bottom-left branch sits left of the grid, mirroring the right branch.
+
 # Handover — True Cone Shadow Shape (Aug 2026)
 
 ## What changed this session

@@ -24,15 +24,13 @@ const TREE_LABELS: Dictionary = {
 	"npc_skills":    "NPC Skills",
 }
 
-const PANEL_W: float = 834.0   ## plan's 640 couldn't fit 3 grid cols + right-side branch col (4 × NODE_W) in the content area — widened; flagged for visual tuning
-const PANEL_H: float = 756.0   ## plan's 620 couldn't fit the 2×2 materials grid (2 × 88px rows) + SCROLL_VISIBLE_H below it — widened; flagged
+const PANEL_W: float = 1024.0  ## widened so the mirrored left branch + right branch both stay on-canvas with horizontal scroll disabled (Part 7 of the polish pass); flagged for visual tuning
 const TAB_H:   float = 40.0
 const TAB_GAP: float = 6.0
 const HEADER_MARGIN: float = 16.0
 const MATERIAL_TOP_Y: float = 100.0   ## just below the tab row (tabs end at 92)
 
 const SCROLL_VISIBLE_H: float = 460.0   ## ~3 rows' worth visible, rest scrolls
-const CONTENT_TOP: float = 288.0   ## materials grid bottom (280) + 8
 
 const NODE_W: float = 170.0
 const NODE_H: float = 110.0      ## blank-box size
@@ -41,8 +39,6 @@ const EXTRA_LINE_H: float = 16.0 ## per extra material-cost line
 const COL_GAP: float = 30.0
 const ROW_GAP: float = 40.0
 
-const MATERIAL_BTN_W: float = NODE_W / 3.0
-const MATERIAL_BTN_H: float = NODE_H * 0.8
 const MATERIAL_COL_GAP: float = 10.0
 const MATERIAL_ROW_GAP: float = 4.0
 
@@ -55,8 +51,6 @@ const COLOR_TAB_IDLE: Color = Color(0.14, 0.14, 0.16, 0.95)
 const COLOR_TAB_ACTIVE: Color = Color(0.22, 0.30, 0.26, 1.00)
 const COLOR_ACCENT:  Color = Color(0.40, 0.75, 0.55, 1.00)   ## research-teal domain stripe
 const COLOR_CONNECTOR: Color = Color(0.55, 0.58, 0.62, 0.45)
-const COLOR_TIER_FILL: Color = Color(0.35, 0.62, 1.00, 1.00)   ## "filled blue" per plan
-const COLOR_TIER_EMPTY: Color = Color(0.22, 0.24, 0.28, 0.90)
 
 var is_open: bool = false
 var _active_tree: String = "bunker"
@@ -92,6 +86,12 @@ var _tab_buttons: Dictionary = {}   ## tree_id -> Button
 var _close_btn: Button = null
 var _font: Font = null
 
+## Cached during _build_tiered_node() — set to null whenever the node isn't
+## currently built (e.g. wrong tab active), so the passive tick never writes
+## into a stale node. See Part 2 of the polish pass (hover-bug fix).
+var _active_progress_bar: ProgressBar = null
+var _active_time_label: Label         = null
+
 ## While the panel is open, a short repeating timer refreshes progress bars /
 ## time-left labels / the persistent materials header (materials drain in the
 ## background even while a DIFFERENT tab than Bunker is selected, since the
@@ -116,6 +116,13 @@ func _build_root() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_root)
 
+	## Materials grid size computed first so the panel can size itself to fit
+	## it (short/tight buttons now, not the old 88px rows) — see Part 1.
+	var btn_size: Vector2 = _compute_material_btn_size()
+	var grid_bottom: float = MATERIAL_TOP_Y + btn_size.y * 2.0 + MATERIAL_ROW_GAP
+	var content_top: float = grid_bottom + 8.0
+	var panel_h: float     = content_top + SCROLL_VISIBLE_H + 24.0
+
 	var backdrop: ColorRect = ColorRect.new()
 	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
 	backdrop.color = Color(0.0, 0.0, 0.0, 0.50)
@@ -125,7 +132,7 @@ func _build_root() -> void:
 
 	_panel = Panel.new()
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_panel.size = Vector2(PANEL_W, PANEL_H)
+	_panel.size = Vector2(PANEL_W, panel_h)
 	var ss: StyleBoxFlat = StyleBoxFlat.new()
 	ss.bg_color = COLOR_BG
 	ss.set_corner_radius_all(8)
@@ -179,7 +186,7 @@ func _build_root() -> void:
 	_build_materials_grid()
 
 	_content_box = ScrollContainer.new()
-	_content_box.position = Vector2(16.0, CONTENT_TOP)
+	_content_box.position = Vector2(16.0, content_top)
 	_content_box.size = Vector2(PANEL_W - 32.0, SCROLL_VISIBLE_H)
 	_content_box.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_panel.add_child(_content_box)
@@ -244,11 +251,39 @@ func _process(delta: float) -> void:
 		return
 	## Background drain keeps running regardless of which tab is showing, so
 	## refresh on a short repeating timer while open (see REFRESH_INTERVAL).
+	## Only the lightweight in-place tick runs here — never a full rebuild —
+	## or the Research button would flicker on hover (Part 2 of the polish
+	## pass: Godot doesn't retro-mark freshly-rebuilt Controls as hovered).
 	_refresh_timer += delta
 	if _refresh_timer >= REFRESH_INTERVAL:
 		_refresh_timer = 0.0
 		_refresh_materials_header()
-		_refresh_content()
+		_tick_active_progress()
+
+## In-place update of the live-changing parts of the currently-active
+## research's node, if one is being displayed right now. Never touches
+## Button/Panel nodes — this is exactly what fixes the hover bug, since the
+## Control the mouse is hovering over is never destroyed by a passive tick.
+func _tick_active_progress() -> void:
+	var station: ResearchStation = _current_station
+	if station == null:
+		return
+	if station.active_upgrade == null:
+		## The research that WAS active may have just completed inside the
+		## station's own _process — rebuild so the card shows its new state
+		## (the plan's "completion triggers a rebuild" needs this detection,
+		## since completion isn't a UI action; flagged).
+		if _active_progress_bar != null or _active_time_label != null:
+			_refresh_content()
+		return
+	if _active_progress_bar == null or _active_time_label == null:
+		return   ## active research's node isn't the one currently displayed (different tab) — nothing to update
+	var upgrade: UpgradeDef = station.active_upgrade
+	var frac: float = clampf(station._elapsed / upgrade.duration_seconds, 0.0, 1.0)
+	_active_progress_bar.value = frac * 100.0
+	if not station.is_paused:
+		var remaining: float = maxf(upgrade.duration_seconds - station._elapsed, 0.0)
+		_active_time_label.text = "Time left: %s" % _format_duration(remaining)
 
 func _select_tree(tree_id: String) -> void:
 	if not TREES.has(tree_id):
@@ -278,6 +313,8 @@ func _clear_content() -> void:
 		_canvas.remove_child(child)
 		child.queue_free()
 	_connections = []
+	_active_progress_bar = null
+	_active_time_label   = null
 	if _connector_canvas != null:
 		_connector_canvas.queue_redraw()
 
@@ -296,15 +333,51 @@ func _build_blank_box() -> Control:
 	box.size = Vector2(NODE_W, NODE_H)
 	return box
 
+## Shared formatter — used for both the not-started time label (Part 5) and
+## the "Time left" label (Part 2's tick update), so both read consistently.
+## Supports seconds and minutes now (10s / 15 Minutes-style examples given);
+## hours included for future-proofing since upgrades will likely take much
+## longer eventually.
+func _format_duration(seconds: float) -> String:
+	var s: int = int(ceil(seconds))
+	if s < 60:
+		return "%d Second%s" % [s, "" if s == 1 else "s"]
+	if s < 3600:
+		var m: int = int(round(s / 60.0))
+		return "%d Minute%s" % [m, "" if m == 1 else "s"]
+	var h: int = int(round(s / 3600.0))
+	return "%d Hour%s" % [h, "" if h == 1 else "s"]
+
+## max_tier segments, evenly filling the tile's width with small gaps
+## between them. max_tier == 1 is the special case per direction: ONE
+## full-width segment/button, grey before completion, blue after — not a
+## "bar with one slot," visually just a single toggle-colored strip.
+func _build_tier_bar(max_tier: int, completed_tiers: int, tile_width: float) -> Control:
+	const SEG_GAP: float = 4.0
+	var seg_w: float = (tile_width - SEG_GAP * float(max_tier - 1)) / float(max_tier)
+	var row: Control = Control.new()
+	row.custom_minimum_size = Vector2(tile_width, 14.0)
+	for i: int in max_tier:
+		var seg: ColorRect = ColorRect.new()
+		seg.position = Vector2(float(i) * (seg_w + SEG_GAP), 0.0)
+		seg.size = Vector2(seg_w, 14.0)
+		seg.color = COLOR_ACCENT if i < completed_tiers else Color(0.30, 0.31, 0.33, 1.0)
+		row.add_child(seg)
+	return row
+
 ## The single tiered upgrade node (top of the tree). Compact stacked order
-## per the drawing: name -> materials (auto-expanding) -> time -> Research
-## button -> tier-segment bar. Only this box is taller than NODE_H.
+## per the drawing: name -> materials (auto-expanding) -> time -> progress
+## bar -> Research/Stop/Resume button -> tier-segment bar. Only this box is
+## taller than NODE_H.
 func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Control:
 	var completed_tiers: int = station.tier_progress.get(upgrade.id, 0)
 	var max_tier: int        = upgrade.get_max_tier()
 	var is_maxed: bool       = completed_tiers >= max_tier
-	var next_tier: int       = mini(completed_tiers + 1, max_tier)
-	var display_title: String = "Tier %d - %s" % [next_tier, upgrade.display_name]
+	## Per direction: no tier wording in the displayed title — the tier bar
+	## (Part 3) and future visuals communicate tier status instead. Toast
+	## notifications keep the tier number (unchanged, in
+	## ResearchStation._complete_research()).
+	var display_title: String = upgrade.display_name
 
 	## Cost lines — up to 2 materials per line; a 3rd/4th material starts a
 	## new line and grows this box taller (its own downstream connector shifts
@@ -322,6 +395,7 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 	var box_h: float = TOP_NODE_H + EXTRA_LINE_H * maxi(0, cost_lines.size() - 1)
 
 	var is_active: bool  = station.active_upgrade == upgrade
+	var is_paused: bool  = is_active and station.is_paused
 	var can_afford: bool = true
 	for material: String in upgrade.material_costs.keys():
 		if station.stored_materials.get(material, 0) < upgrade.material_costs[material]:
@@ -371,38 +445,66 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 	time_lbl.add_theme_font_override("font", _font)
 	time_lbl.add_theme_font_size_override("font_size", 11)
 	if is_active:
-		var remaining: int = ceili(maxf(upgrade.duration_seconds - station._elapsed, 0.0))
-		time_lbl.text = "Time left: %ds" % remaining
+		var remaining: float = maxf(upgrade.duration_seconds - station._elapsed, 0.0)
+		time_lbl.text = "Time left: %s" % _format_duration(remaining)
 		time_lbl.add_theme_color_override("font_color", COLOR_ACCENT)
 	else:
-		time_lbl.text = "Time to completion: %ds" % int(upgrade.duration_seconds)
+		time_lbl.text = _format_duration(upgrade.duration_seconds)
 		time_lbl.add_theme_color_override("font_color", COLOR_DIM)
 	v.add_child(time_lbl)
 
-	var btn: Button = UIKit.make_button("Research", Callable())
-	btn.disabled = is_maxed or is_active or not can_afford
+	## Progress bar — the live-changing part the passive tick updates in
+	## place (Part 2). Added back here per plan (the tiered redesign had
+	## dropped it, but the tick + checklist #6 both need one).
+	var progress_bar: ProgressBar = ProgressBar.new()
+	progress_bar.custom_minimum_size = Vector2(0.0, 10.0)
+	progress_bar.max_value = 100.0
+	progress_bar.value = 0.0
+	progress_bar.show_percentage = false
+	if is_active:
+		progress_bar.value = clampf(station._elapsed / upgrade.duration_seconds, 0.0, 1.0) * 100.0
+	v.add_child(progress_bar)
+
+	## 3-state button: Resume (paused) / Stop Research (active) / Research
+	## (idle) — Part 6 of the polish pass. Pause freezes progress with no
+	## refund; the button text/style is what communicates the state.
+	var btn: Button = UIKit.make_button("", Callable())
+	if is_paused:
+		btn.text = "Resume"
+		## default/accent style — flagged for visual tuning if it should
+		## look distinct from plain "Research"
+	elif is_active:
+		btn.text = "Stop Research"
+		var ss_stop: StyleBoxFlat = StyleBoxFlat.new()
+		ss_stop.bg_color     = Color(0.35, 0.08, 0.08, 1.0)   ## dark red
+		ss_stop.border_color = Color(0.65, 0.20, 0.20, 1.0)   ## lighter red border
+		ss_stop.set_border_width_all(1)
+		ss_stop.set_corner_radius_all(4)
+		btn.add_theme_stylebox_override("normal", ss_stop)
+		btn.add_theme_stylebox_override("hover",  ss_stop)
+	else:
+		btn.text = "Research"
+	btn.disabled = is_maxed or (not is_active and not can_afford)
 	btn.pressed.connect(func() -> void:
-		if is_maxed or is_active or not can_afford:
-			return
-		if not station.start_research(upgrade):
-			NotificationManager.notify(
-				UIKit.Domain.NEUTRAL,
-				NotificationManager.Severity.WARNING,
-				"Already researching something else")
-		_refresh_content()
+		if is_paused:
+			station.resume_research()
+		elif is_active:
+			station.pause_research()
+		else:
+			if is_maxed or not can_afford:
+				return
+			if not station.start_research(upgrade):
+				NotificationManager.notify(
+					UIKit.Domain.NEUTRAL,
+					NotificationManager.Severity.WARNING,
+					"Already researching something else")
+		_refresh_content()   ## structural change — full rebuild is correct here (Part 2 only removed the PASSIVE per-tick rebuild)
 	)
 	v.add_child(btn)
 
-	## Tier-segment bar — max_tier small segments, filled blue for the first
-	## `completed_tiers`, unfilled for the rest.
-	var bar: HBoxContainer = HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 4)
-	for i: int in max_tier:
-		var seg: ColorRect = ColorRect.new()
-		seg.custom_minimum_size = Vector2(20.0, 6.0)
-		seg.color = COLOR_TIER_FILL if i < completed_tiers else COLOR_TIER_EMPTY
-		bar.add_child(seg)
-	v.add_child(bar)
+	## Tier-segment bar — max_tier segments filling the tile's full content
+	## width edge-to-edge (Part 3), accent-filled for the completed tiers.
+	v.add_child(_build_tier_bar(max_tier, completed_tiers, NODE_W - 20.0))
 
 	if is_maxed:
 		## Horizontal "COMPLETED" banner — only when fully maxed, not after
@@ -421,6 +523,16 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 		box.add_child(banner)
 	elif not can_afford:
 		box.modulate = Color(0.55, 0.55, 0.55, 0.8)
+
+	## Cache the live-changing refs for the passive tick (Part 2) — set to
+	## null when this card isn't the active research so a later tick never
+	## writes into a stale/foreign node.
+	if is_active:
+		_active_progress_bar = progress_bar
+		_active_time_label   = time_lbl
+	else:
+		_active_progress_bar = null
+		_active_time_label   = null
 
 	return root
 
@@ -445,7 +557,10 @@ func _build_tree_canvas(station: ResearchStation) -> void:
 			break
 
 	var grid_w: float = 3.0 * NODE_W + 2.0 * COL_GAP
-	var grid_left: float = HEADER_MARGIN
+	## Shifts the whole diagram right by exactly enough to fit the mirrored
+	## left branch (NODE_W + COL_GAP left of the old grid_left) — folded
+	## into grid_left so every downstream position shifts consistently.
+	var grid_left: float = HEADER_MARGIN + NODE_W + COL_GAP
 	var grid_right: float = grid_left + grid_w
 	var branch_left: float = grid_right + COL_GAP
 	var grid_cols: Array[float] = []
@@ -486,7 +601,8 @@ func _build_tree_canvas(station: ResearchStation) -> void:
 			_add_connection(Vector2(col_cx, row_ys[r] + NODE_H), Vector2(col_cx, row_ys[r + 1]))
 
 	## Right-side branch pair (2 blank boxes) beside rows 2-3: vertical line
-	## between the pair, one diagonal from main-grid row 2 col 2.
+	## between the pair, one diagonal from main-grid row 1 col 2 (7a: was
+	## row 2's right edge).
 	var rb1: Control = _build_blank_box()
 	rb1.position = Vector2(branch_left, row2_y)
 	_canvas.add_child(rb1)
@@ -495,24 +611,29 @@ func _build_tree_canvas(station: ResearchStation) -> void:
 	_canvas.add_child(rb2)
 	var rb_cx: float = branch_left + NODE_W * 0.5
 	_add_connection(Vector2(rb_cx, row2_y + NODE_H), Vector2(rb_cx, row3_y))
-	_add_connection(Vector2(grid_cols[2] + NODE_W, row2_y + NODE_H * 0.5), Vector2(rb_cx, row2_y))
+	_add_connection(Vector2(grid_cols[2] + NODE_W, row1_y + NODE_H * 0.5), Vector2(rb_cx, row2_y))
 
-	## Bottom-left branch pair (2 blank boxes) below row 4, one diagonal from
-	## main-grid row 4 col 1.
-	var bb1: Control = _build_blank_box()
-	bb1.position = Vector2(grid_left, row4_y + NODE_H + ROW_GAP)
-	_canvas.add_child(bb1)
-	var bb2: Control = _build_blank_box()
-	bb2.position = Vector2(grid_left, row4_y + NODE_H + ROW_GAP + NODE_H + ROW_GAP)
-	_canvas.add_child(bb2)
-	var bb_cx: float = grid_left + NODE_W * 0.5
-	var bb1_y: float = row4_y + NODE_H + ROW_GAP
-	_add_connection(Vector2(bb_cx, bb1_y + NODE_H), Vector2(bb_cx, bb1_y + NODE_H + ROW_GAP))
-	_add_connection(Vector2(grid_cols[1] + NODE_W * 0.5, row4_y + NODE_H), Vector2(bb_cx, bb1_y))
+	## Left-side branch pair — horizontal mirror of the corrected right
+	## branch: same row2_y/row3_y rows, connected via a diagonal from the
+	## LEFTMOST main column's row 1 (mirroring 7a's row-1 anchor).
+	var left_branch_x: float = grid_left - COL_GAP - NODE_W
+	var lb1: Control = _build_blank_box()
+	lb1.position = Vector2(left_branch_x, row2_y)
+	_canvas.add_child(lb1)
+	var lb2: Control = _build_blank_box()
+	lb2.position = Vector2(left_branch_x, row3_y)
+	_canvas.add_child(lb2)
+	var lb_cx: float = left_branch_x + NODE_W * 0.5
+	_add_connection(Vector2(lb_cx, row2_y + NODE_H), Vector2(lb_cx, row3_y))
+	_add_connection(Vector2(grid_cols[0], row1_y + NODE_H * 0.5), Vector2(lb_cx, row2_y))
 
-	var canvas_h: float = bb1_y + NODE_H + ROW_GAP + NODE_H + 8.0
-	_canvas.custom_minimum_size = Vector2(PANEL_W - 32.0, canvas_h)
-	_canvas.size = Vector2(PANEL_W - 32.0, canvas_h)
+	## Diagram is now NODE_W + COL_GAP wider overall — grow the canvas width
+	## to match so the right branch stays fully on-canvas (horizontal scroll
+	## is disabled, so PANEL_W had to grow too — see const).
+	var canvas_h: float = row4_y + NODE_H + 8.0
+	var canvas_w: float = PANEL_W - 32.0 + NODE_W + COL_GAP
+	_canvas.custom_minimum_size = Vector2(canvas_w, canvas_h)
+	_canvas.size = Vector2(canvas_w, canvas_h)
 	_connector_canvas.size = _canvas.size
 	_connector_canvas.queue_redraw()
 
@@ -535,13 +656,28 @@ func _refresh_content() -> void:
 		return
 	_build_tree_canvas(station)
 
+## Computed once: the widest of the 4 possible label strings, plus small
+## fixed padding — applied uniformly to all four buttons regardless of
+## their own individual text length.
+func _compute_material_btn_size() -> Vector2:
+	var max_w: float = 0.0
+	for material: String in ResearchStation.MATERIAL_TYPES:
+		var sample: String = "%s: %d/%d" % [material.capitalize(), ResearchStation.STORAGE_CAP, ResearchStation.STORAGE_CAP]
+		var w: float = _font.get_string_size(sample, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+		max_w = maxf(max_w, w)
+	var text_h: float = _font.get_height(11)
+	const PAD_X: float = 10.0
+	const PAD_Y: float = 3.0   ## "nearly just the text height, tiny margin" per direction
+	return Vector2(max_w + PAD_X * 2.0, text_h + PAD_Y * 2.0)
+
 ## Pinned 2x2 materials grid (Metal/Plastic left, Paper/Organic right),
 ## absolute within the fixed header area — does NOT scroll with the tree.
 func _build_materials_grid() -> void:
+	var btn_size: Vector2 = _compute_material_btn_size()
 	var col1_x: float = HEADER_MARGIN
-	var col2_x: float = col1_x + MATERIAL_BTN_W + MATERIAL_COL_GAP
+	var col2_x: float = col1_x + btn_size.x + MATERIAL_COL_GAP
 	var row1_y: float = MATERIAL_TOP_Y
-	var row2_y: float = row1_y + MATERIAL_BTN_H + MATERIAL_ROW_GAP
+	var row2_y: float = row1_y + btn_size.y + MATERIAL_ROW_GAP
 	var cells: Array = [
 		["metal",   col1_x, row1_y],
 		["plastic", col1_x, row2_y],
@@ -550,7 +686,7 @@ func _build_materials_grid() -> void:
 	]
 	for cell: Array in cells:
 		var material: String = cell[0]
-		var panel: PanelContainer = PanelContainer.new()
+		var panel: Panel = Panel.new()   ## was PanelContainer — Panel doesn't auto-resize to content
 		panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		var ss: StyleBoxFlat = StyleBoxFlat.new()
 		ss.bg_color = Color(0.10, 0.10, 0.12, 0.95)
@@ -559,12 +695,16 @@ func _build_materials_grid() -> void:
 		ss.set_corner_radius_all(4)
 		panel.add_theme_stylebox_override("panel", ss)
 		panel.position = Vector2(float(cell[1]), float(cell[2]))
-		panel.size = Vector2(MATERIAL_BTN_W, MATERIAL_BTN_H)
+		panel.custom_minimum_size = btn_size
+		panel.size = btn_size
 		var lbl: Label = Label.new()
+		lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		lbl.offset_left = 6.0   ## small left inset for the text, not flush against the border
 		lbl.add_theme_font_override("font", _font)
 		lbl.add_theme_font_size_override("font_size", 11)
 		lbl.add_theme_color_override("font_color", COLOR_TEXT)
-		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		lbl.text = "%s: %d/%d" % [material.capitalize(), 0, ResearchStation.STORAGE_CAP]
 		panel.add_child(lbl)
 		_panel.add_child(panel)

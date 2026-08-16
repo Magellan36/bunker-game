@@ -145,14 +145,52 @@ are 3 blank `NODE_W×NODE_H` boxes each, all three row-1 boxes connecting
 upward to the same top node, then vertical lines per column; two side
 branch pairs (2 blank boxes each) connect internally with one vertical
 line and to the main grid with one diagonal. `_build_tiered_node` stacks
-name → materials (auto-expanding to a new line per 2 materials, growing
-only that box) → time → Research button → tier-segment bar (one small
-segment per tier, filled blue for completed tiers), with the "COMPLETED"
-banner only at full max. Sizing constants (`PANEL_W`/`PANEL_H`/
-`SCROLL_VISIBLE_H`/`NODE_W`/`NODE_H`/gaps) are starting values flagged
-for visual tuning — `PANEL_W`/`PANEL_H` were widened from the plan's
-640/620 so the 4-wide branch layout and the 2-row materials grid plus a
-460px scroll area all fit.
+name (no tier prefix — the tier bar communicates status) → materials
+(auto-expanding to a new line per 2 materials, growing only that box) →
+time → full-width progress bar → 3-state Research/Stop Research/Resume
+button → full-width tier-segment bar (one segment per tier, evenly
+filling the tile, accent-filled for completed tiers), with the
+"COMPLETED" banner only at full max. Layout polish pass: the canvas is
+now `NODE_W + COL_GAP` wider (the left branch pair mirrors the right,
+both beside the grid), the right branch's diagonal anchors to row 1
+(was row 2), the panel height is computed from the materials grid size,
+and `PANEL_W` is 1024 so both branches stay on-canvas with horizontal
+scroll disabled.
+
+### Polish pass (Aug 2026) — pause/resume, hover fix, material sizing
+
+- **3-state button model.** `ResearchStation.gd` gained
+  `is_paused`, `pause_research()`, `resume_research()`; `_process()` now
+  gates on `active_upgrade == null or is_paused`, so pausing freezes both
+  elapsed time and material drain. **No refund on pause — confirmed.**
+  The card's button is three-state: "Research" (idle, disabled when
+  maxed or unaffordable), "Stop Research" (active — dark-red style,
+  calls `pause_research()`), "Resume" (paused — default accent style,
+  flagged for visual tuning if it should differ). Resuming continues
+  from exactly where it froze.
+- **Hover-bug fix — structural vs. tick split.** `_process()` previously
+  called `_refresh_content()` every `REFRESH_INTERVAL`, which destroyed
+  and rebuilt every node (including the Research button) each tick —
+  Godot never retro-marks a freshly-created Control as hovered, so the
+  highlight flickered. Now the passive tick only mutates cached refs in
+  place (`_tick_active_progress()`: `_active_progress_bar`,
+  `_active_time_label`, both nulled whenever the active card isn't the
+  one displayed). Full rebuilds still happen on real state changes
+  (start/pause/resume/stop/tab switch); the tick also detects in-station
+  completion and triggers one rebuild then. Useful precedent for any
+  future UI that periodically refreshes.
+- **Material buttons.** `_build_materials_grid()` switched from
+  `PanelContainer` (auto-resizes to its child Label, so long words
+  stretched their cell) to plain `Panel` with a manually-positioned
+  Label, sized once via `_compute_material_btn_size()` from the widest
+  of the four label strings + small fixed padding — all four cells now
+  identical and short/tight. Panel height is derived from that size.
+- **Tier bar.** Full-width `_build_tier_bar()` (segments fill the tile
+  edge-to-edge; `max_tier == 1` reads as one toggle-colored strip).
+- **Titles/durations.** Titles are bare `display_name` (toasts keep the
+  tier number); durations use shared `_format_duration()` ("10 Seconds",
+  "Time left: X" only for active research — no "Time to completion:"
+  prefix).
 
 ### F7 debug — `AdminMenu.gd`
 
@@ -162,9 +200,9 @@ as everything else (uniform cap this pass; bypasses deferred).
 
 ## Deferred (explicitly out of scope this pass)
 
-- **Pause/resume UI + material reallocation on pause** — deferred; the
-  incremental model already stores everything pause would need
-  (`_elapsed`, `_consumed`) without rearchitecture.
+- **Material reallocation/refund on pause** — explicitly NOT happening
+  (confirmed); pausing just freezes `_elapsed`/consumption with no
+  refund.
 - **Reservoir/dump-trash-into-station mechanic** — not this pass;
   `add_material()` is ready to be called from whatever it turns out to be.
 - **Multi-concurrent research** — `start_research()` rejects a second
