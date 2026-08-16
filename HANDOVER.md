@@ -1,3 +1,44 @@
+# Handover — Direction-Dependent Shadow Length/Width Fix (Aug 2026)
+
+## What changed this session
+Fixed a bug where the character shadow's apparent length and width
+depended on which compass direction the contributing light(s) were in
+relative to the character — long/thin for north-south lights, stubby/
+perpendicular-stretched for east-west. Traced GameCamera.gd's actual
+offset and pitch math to rule out camera-projection foreshortening (it
+would compress the opposite axis, and wouldn't swap length/width) before
+concluding this was a code bug rather than an inherent camera effect.
+
+Most likely cause: the shadow's transform was built by rotating a
+template shape and then applying a non-uniform scale to that same
+rotated Basis — a composition I could not fully verify by hand without
+running the engine. Replaced it with an explicit construction: two
+independently-computed direction vectors (the shadow's own direction,
+scaled to length; that direction rotated 90°, scaled to width) passed
+directly into Basis's three-column constructor. No rotate-then-scale step
+remains for an axis mix-up to hide in.
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — `_process()`'s final transform
+  construction rewritten.
+- `docs/systems/graphics/README.md` — fix v4 note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Recreate both screenshots' scenarios (light roughly north-south of
+   character; light roughly east-west) — shadow length/width should now
+   read consistently between them, not swapped.
+3. Test a few other angles (not just the four cardinal directions) to
+   confirm there's no residual angle-dependent distortion at intermediate
+   directions.
+4. Confirm shadow direction itself (which way it points) is unaffected —
+   this was a length/width-only fix.
+5. Rotate the camera view (Home/End keys, if accessible) and re-check —
+   the shadow's actual world-space shape should be identical regardless
+   of current camera yaw, since this fix operates entirely in world space
+   independent of the camera.
+
 # Handover — Research UI Polish Pass (Aug 2026)
 
 ## What changed this session

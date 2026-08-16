@@ -416,6 +416,19 @@ rather than a narrow band. Width scaling simplified to plain proportional
 sizing (Player's radius as baseline) since there's no longer a specific
 near-width to calibrate to a footprint.
 
+**Aug 2026 fix v4 (direction-dependent length/width bug):** shadows from
+north-south lights read long and thin; east-west lights read stubby and
+stretched perpendicular. Ruled out camera-projection foreshortening by
+tracing GameCamera.gd's actual offset/pitch math — it would compress the
+opposite axis from what was observed, and wouldn't swap length/width.
+Root cause was most likely in how the shadow's transform composed a
+rotation (Basis(Vector3.UP, yaw)) with a subsequent non-uniform scale
+(.scaled(...)) — not fully provable by hand without running the engine.
+Fixed by replacing that composition with an explicit transform built
+directly from two independently-scaled direction vectors (forward and its
+90°-rotated perpendicular), removing any step where an axis mix-up could
+occur.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes

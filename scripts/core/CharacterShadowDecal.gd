@@ -314,15 +314,38 @@ func _process(delta: float) -> void:
 	## this is only ever multiplying this decorative mesh's own alpha.
 	_material.albedo_color = Color(1.0, 1.0, 1.0, clamp(_current_weight, 0.0, 1.0))
 
-	## atan2(x, z) aligns this node's local +Z (the mesh's authored "length"
-	## direction, see _get_shared_mesh()) with world-space _current_dir.
-	## VERIFY IN-EDITOR: if the shadow points toward the light instead of
-	## away from it, negate _current_dir here or add PI to yaw.
-	var yaw: float = atan2(_current_dir.x, _current_dir.z)
-	## Aug 2026 fix v2 — X scale is now _shadow_width_scale (per-character,
-	## computed once in setup() from their actual footprint) instead of a
-	## flat 1.0 for everyone — see that var's comment above.
-	var basis: Basis = Basis(Vector3.UP, yaw).scaled(Vector3(_shadow_width_scale, 1.0, actual_length))
+	## Aug 2026 fix v4 — replaces the earlier rotate-then-scale composition
+	## (Basis(Vector3.UP, yaw).scaled(...)), which produced shadows that
+	## were long/thin when the light was roughly north-south of the
+	## character and stubby/perpendicular-stretched when it was roughly
+	## east-west. That pattern (length and width effectively swapping
+	## depending on orientation) doesn't match camera-projection
+	## foreshortening — a fixed-pitch camera does compress one ground-plane
+	## axis relative to the other, but in the opposite direction from what
+	## was observed, and it wouldn't swap length/width like this. It reads
+	## as an axis-composition bug — most likely in how Basis.scaled()
+	## interacts with a rotation already baked into the same Basis, which
+	## isn't something I could fully verify by hand without running the
+	## engine.
+	##
+	## Rather than keep debugging that composition, this builds the
+	## transform directly from two independently-computed, already-scaled
+	## direction vectors — no rotate-then-scale step for an axis mix-up to
+	## hide in:
+	##   - `forward` = the shadow's own direction, scaled to the actual
+	##     (possibly raycast-clipped) length. This is local +Z in
+	##     _get_shared_mesh() (the mesh's length axis).
+	##   - `right` = forward rotated 90° in the horizontal plane, scaled to
+	##     the width. This is local +X (the mesh's width axis). Verified by
+	##     hand: at dir=(1,0,0), the old atan2(dir.x,dir.z) formula gave
+	##     yaw=90°, and a 90° yaw rotation of local +X should land at
+	##     world (0,0,-1) — (dir.z, 0, -dir.x) gives exactly that.
+	## Basis(x_axis, y_axis, z_axis) builds a basis directly from its three
+	## column vectors — each already carries its own correct scale, so
+	## there's no separate scale step that could apply to the wrong axis.
+	var forward: Vector3 = _current_dir * actual_length
+	var right: Vector3 = Vector3(_current_dir.z, 0.0, -_current_dir.x) * _shadow_width_scale
+	var basis: Basis = Basis(right, Vector3.UP, forward)
 	## char_pos is the character's own origin (capsule center, NOT the
 	## floor) — subtract _floor_offset to place the shadow at actual
 	## ground level instead of the character's midpoint.
