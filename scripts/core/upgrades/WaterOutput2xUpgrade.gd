@@ -1,24 +1,25 @@
 extends UpgradeDef
 class_name WaterOutput2xUpgrade
 ## WaterOutput2xUpgrade.gd
-## First real (non-placeholder) upgrade. Effect copied VERBATIM from
-## AdminMenu._on_hookup_output_double_pressed() — "2x water output" == tier
-## + 1, since WaterHookup.TIER_DAILY_ML's four tiers are each exactly double
-## the last. Same clamp-at-max-tier behavior, same reasoning, per direction
-## to copy the existing working debug function exactly.
+## First tiered upgrade. Tier count is COMPUTED from WaterHookup's own
+## TIER_DAILY_ML array (3 real completions: index 0→1, 1→2, 2→3 — NOT the
+## illustrative "4" from the reference sketch, which was showing the UI
+## pattern generically, not water output's real number). apply_effect()
+## direct-sets hookup.tier rather than replaying the old "+1" debug logic —
+## see the redesign plan's note on why direct-set is more correct once
+## progress is tracked by the station rather than the button itself.
 
-func apply_effect() -> void:
+func get_max_tier() -> int:
+	return WaterHookup.TIER_DAILY_ML.size() - 1
+
+func apply_effect(tier_reached: int) -> void:
 	var wm: WaterManager = get_tree_ref().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
 		return
 	var hookup: WaterHookup = wm.get_the_hookup()
 	if hookup == null:
 		return
-	var max_tier: int = WaterHookup.TIER_DAILY_ML.size() - 1
-	if hookup.tier >= max_tier:
-		push_warning("WaterOutput2xUpgrade: hookup already at max tier — no effect")
-		return
-	hookup.tier += 1
+	hookup.tier = clampi(tier_reached, 0, WaterHookup.TIER_DAILY_ML.size() - 1)
 
 ## Resources have no SceneTree of their own — this needs the running tree,
 ## injected by whatever calls apply_effect() (ResearchStation, Part 3).

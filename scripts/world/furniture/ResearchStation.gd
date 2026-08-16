@@ -26,7 +26,10 @@ var _consumed: Dictionary        = {}   ## material -> amount already drained fr
 ## can be shared/reloaded refs — mutating a "completed" bool directly on one
 ## would be a correctness footgun). This is the real source of truth for
 ## "has this upgrade been done."
-var completed_upgrade_ids: Array[String] = []
+## chain id -> tiers completed so far (0 = not started). Replaces last
+## pass's simple done/not-done set now that upgrades can have multiple
+## completions.
+var tier_progress: Dictionary = {}
 
 func _ready() -> void:
 	collision_layer = 5
@@ -70,8 +73,8 @@ func add_material(material: String, amount: int) -> int:
 func start_research(upgrade: UpgradeDef) -> bool:
 	if active_upgrade != null:
 		return false   ## something else already running — see design note
-	if completed_upgrade_ids.has(upgrade.id):
-		return false
+	if tier_progress.get(upgrade.id, 0) >= upgrade.get_max_tier():
+		return false   ## fully maxed
 	for material: String in upgrade.material_costs.keys():
 		if stored_materials.get(material, 0) < upgrade.material_costs[material]:
 			return false   ## not enough — button should already be greyed out, this is the authoritative re-check
@@ -108,20 +111,21 @@ func _process(delta: float) -> void:
 
 func _complete_research() -> void:
 	var finished: UpgradeDef = active_upgrade
-	completed_upgrade_ids.append(finished.id)
+	var next_tier: int = tier_progress.get(finished.id, 0) + 1
+	tier_progress[finished.id] = next_tier
 	active_upgrade = null
 	_elapsed  = 0.0
 	_consumed = {}
 
 	if finished.has_method("set_tree_ref"):
 		finished.set_tree_ref(get_tree())
-	finished.apply_effect()
+	finished.apply_effect(next_tier)
 
 	## Toast per direction — established system, not the old warning label.
 	NotificationManager.notify(
 		UIKit.Domain.NEUTRAL,
 		NotificationManager.Severity.INFO,
-		"%s research completed" % finished.display_name
+		"%s Tier %d research completed" % [finished.display_name, next_tier]
 	)
 
 # ─── Basic model — filled rectangle base + beakers/flasks, grey/steel to match Table/Chair ──

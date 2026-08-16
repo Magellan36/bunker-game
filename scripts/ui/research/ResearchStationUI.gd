@@ -24,10 +24,27 @@ const TREE_LABELS: Dictionary = {
 	"npc_skills":    "NPC Skills",
 }
 
-const PANEL_W: float = 520.0
-const PANEL_H: float = 360.0
+const PANEL_W: float = 834.0   ## plan's 640 couldn't fit 3 grid cols + right-side branch col (4 × NODE_W) in the content area — widened; flagged for visual tuning
+const PANEL_H: float = 756.0   ## plan's 620 couldn't fit the 2×2 materials grid (2 × 88px rows) + SCROLL_VISIBLE_H below it — widened; flagged
 const TAB_H:   float = 40.0
 const TAB_GAP: float = 6.0
+const HEADER_MARGIN: float = 16.0
+const MATERIAL_TOP_Y: float = 100.0   ## just below the tab row (tabs end at 92)
+
+const SCROLL_VISIBLE_H: float = 460.0   ## ~3 rows' worth visible, rest scrolls
+const CONTENT_TOP: float = 288.0   ## materials grid bottom (280) + 8
+
+const NODE_W: float = 170.0
+const NODE_H: float = 110.0      ## blank-box size
+const TOP_NODE_H: float = 150.0  ## the tiered detail box is taller than blank boxes
+const EXTRA_LINE_H: float = 16.0 ## per extra material-cost line
+const COL_GAP: float = 30.0
+const ROW_GAP: float = 40.0
+
+const MATERIAL_BTN_W: float = NODE_W / 3.0
+const MATERIAL_BTN_H: float = NODE_H * 0.8
+const MATERIAL_COL_GAP: float = 10.0
+const MATERIAL_ROW_GAP: float = 4.0
 
 const COLOR_BG:      Color = Color(0.08, 0.08, 0.09, 0.97)
 const COLOR_BORDER:  Color = Color(0.55, 0.58, 0.62, 0.70)
@@ -37,6 +54,9 @@ const COLOR_DIM:     Color = Color(0.50, 0.52, 0.55, 0.80)
 const COLOR_TAB_IDLE: Color = Color(0.14, 0.14, 0.16, 0.95)
 const COLOR_TAB_ACTIVE: Color = Color(0.22, 0.30, 0.26, 1.00)
 const COLOR_ACCENT:  Color = Color(0.40, 0.75, 0.55, 1.00)   ## research-teal domain stripe
+const COLOR_CONNECTOR: Color = Color(0.55, 0.58, 0.62, 0.45)
+const COLOR_TIER_FILL: Color = Color(0.35, 0.62, 1.00, 1.00)   ## "filled blue" per plan
+const COLOR_TIER_EMPTY: Color = Color(0.22, 0.24, 0.28, 0.90)
 
 var is_open: bool = false
 var _active_tree: String = "bunker"
@@ -63,8 +83,11 @@ var _tree_state: Dictionary = {
 var _root: Control = null
 var _panel: Panel = null
 var _title: Label = null
-var _content_box: Control = null
-var _materials_label: Label = null
+var _content_box: ScrollContainer = null
+var _canvas: Control = null
+var _connector_canvas: Control = null
+var _connections: Array = []
+var _material_labels: Dictionary = {}   ## material -> Label
 var _tab_buttons: Dictionary = {}   ## tree_id -> Button
 var _close_btn: Button = null
 var _font: Font = null
@@ -153,18 +176,23 @@ func _build_root() -> void:
 		_panel.add_child(btn)
 		_tab_buttons[tree_id] = btn
 
-	_materials_label = Label.new()
-	_materials_label.add_theme_font_override("font", _font)
-	_materials_label.add_theme_font_size_override("font_size", 12)
-	_materials_label.add_theme_color_override("font_color", COLOR_TEXT)
-	_materials_label.position = Vector2(16.0, 104.0)
-	_materials_label.size = Vector2(PANEL_W - 32.0, 20.0)
-	_panel.add_child(_materials_label)
+	_build_materials_grid()
 
-	_content_box = Control.new()
-	_content_box.position = Vector2(16.0, 130.0)
-	_content_box.size = Vector2(PANEL_W - 32.0, PANEL_H - 140.0)
+	_content_box = ScrollContainer.new()
+	_content_box.position = Vector2(16.0, CONTENT_TOP)
+	_content_box.size = Vector2(PANEL_W - 32.0, SCROLL_VISIBLE_H)
+	_content_box.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_panel.add_child(_content_box)
+
+	_canvas = Control.new()
+	_canvas.size = Vector2(PANEL_W - 32.0, SCROLL_VISIBLE_H)
+	_content_box.add_child(_canvas)
+
+	_connector_canvas = Control.new()
+	_connector_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_connector_canvas.size = _canvas.size
+	_connector_canvas.draw.connect(_on_connector_draw)
+	_canvas.add_child(_connector_canvas)
 
 	_apply_tab_styles()
 	_refresh_content()
@@ -234,42 +262,75 @@ func _select_tree(tree_id: String) -> void:
 ## panel opens and on the repeating timer while open.
 func _refresh_materials_header() -> void:
 	var station: ResearchStation = _current_station
-	if station == null:
-		_materials_label.text = ""
-		return
-	var parts: Array[String] = []
 	for material: String in ResearchStation.MATERIAL_TYPES:
-		parts.append("%s: %d/%d" % [material.capitalize(), station.stored_materials.get(material, 0), ResearchStation.STORAGE_CAP])
-	_materials_label.text = "  ".join(parts)
+		var lbl: Label = _material_labels.get(material)
+		if lbl == null:
+			continue
+		var stored: int = 0
+		if station != null:
+			stored = station.stored_materials.get(material, 0)
+		lbl.text = "%s: %d/%d" % [material.capitalize(), stored, ResearchStation.STORAGE_CAP]
 
 func _clear_content() -> void:
-	for child: Node in _content_box.get_children():
-		_content_box.remove_child(child)
+	for child: Node in _canvas.get_children():
+		if child == _connector_canvas:
+			continue
+		_canvas.remove_child(child)
 		child.queue_free()
+	_connections = []
+	if _connector_canvas != null:
+		_connector_canvas.queue_redraw()
 
-## Builds one button widget for a single upgrade — the ONLY place any
-## upgrade-specific rendering logic lives, and it's entirely data-driven off
-## the UpgradeDef passed in, never the upgrade's specific id/type. Returns a
-## self-contained Control the caller positions into _content_box.
-func _build_upgrade_button(upgrade: UpgradeDef, station: ResearchStation) -> Control:
-	## Cost line — simple, static, no dynamic "missing amount" math per
-	## direction ("just simple, no dynamic messaging needed").
-	var cost_parts: Array[String] = []
+## Blank bordered box — the structural scaffolding nodes (grid + branches),
+## no text/data at all this pass.
+func _build_blank_box() -> Control:
+	var box: PanelContainer = PanelContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_STOP
+	var ss: StyleBoxFlat = StyleBoxFlat.new()
+	ss.bg_color = Color(0.10, 0.10, 0.12, 0.95)
+	ss.border_color = COLOR_BORDER
+	ss.set_border_width_all(1)
+	ss.set_corner_radius_all(4)
+	box.add_theme_stylebox_override("panel", ss)
+	box.custom_minimum_size = Vector2(NODE_W, NODE_H)
+	box.size = Vector2(NODE_W, NODE_H)
+	return box
+
+## The single tiered upgrade node (top of the tree). Compact stacked order
+## per the drawing: name -> materials (auto-expanding) -> time -> Research
+## button -> tier-segment bar. Only this box is taller than NODE_H.
+func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Control:
+	var completed_tiers: int = station.tier_progress.get(upgrade.id, 0)
+	var max_tier: int        = upgrade.get_max_tier()
+	var is_maxed: bool       = completed_tiers >= max_tier
+	var next_tier: int       = mini(completed_tiers + 1, max_tier)
+	var display_title: String = "Tier %d - %s" % [next_tier, upgrade.display_name]
+
+	## Cost lines — up to 2 materials per line; a 3rd/4th material starts a
+	## new line and grows this box taller (its own downstream connector shifts
+	## down accordingly).
+	var cost_lines: Array[String] = []
+	var pair: Array[String] = []
 	for material: String in upgrade.material_costs.keys():
-		cost_parts.append("%dx %s" % [upgrade.material_costs[material], material.capitalize()])
-	var cost_text: String = ", ".join(cost_parts)
+		pair.append("%dx %s" % [upgrade.material_costs[material], material.capitalize()])
+		if pair.size() == 2:
+			cost_lines.append("  ".join(pair))
+			pair.clear()
+	if not pair.is_empty():
+		cost_lines.append("  ".join(pair))
 
-	var is_completed: bool = station.completed_upgrade_ids.has(upgrade.id)
-	var is_active: bool    = station.active_upgrade == upgrade
-	var can_afford: bool   = true
+	var box_h: float = TOP_NODE_H + EXTRA_LINE_H * maxi(0, cost_lines.size() - 1)
+
+	var is_active: bool  = station.active_upgrade == upgrade
+	var can_afford: bool = true
 	for material: String in upgrade.material_costs.keys():
 		if station.stored_materials.get(material, 0) < upgrade.material_costs[material]:
 			can_afford = false
 			break
 
 	var root: Control = Control.new()
-	root.custom_minimum_size = Vector2(_content_box.size.x, 92.0)
-	root.size = Vector2(_content_box.size.x, 92.0)
+	root.custom_minimum_size = Vector2(NODE_W, box_h)
+	root.size = Vector2(NODE_W, box_h)
 
 	var box: PanelContainer = PanelContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -292,30 +353,19 @@ func _build_upgrade_button(upgrade: UpgradeDef, station: ResearchStation) -> Con
 	box.add_child(v)
 
 	var name_lbl: Label = Label.new()
-	name_lbl.text = upgrade.display_name
+	name_lbl.text = display_title
 	name_lbl.add_theme_font_override("font", _font)
 	name_lbl.add_theme_font_size_override("font_size", 13)
 	name_lbl.add_theme_color_override("font_color", COLOR_TITLE)
 	v.add_child(name_lbl)
 
-	var cost_lbl: Label = Label.new()
-	cost_lbl.text = "Cost: %s" % cost_text
-	cost_lbl.add_theme_font_override("font", _font)
-	cost_lbl.add_theme_font_size_override("font_size", 11)
-	cost_lbl.add_theme_color_override("font_color", COLOR_DIM)
-	v.add_child(cost_lbl)
-
-	var progress: ProgressBar = ProgressBar.new()
-	progress.min_value = 0.0
-	progress.max_value = 100.0
-	progress.show_percentage = false
-	progress.custom_minimum_size = Vector2(0.0, 12.0)
-	if is_active:
-		var frac: float = clampf(station._elapsed / upgrade.duration_seconds, 0.0, 1.0)
-		progress.value = frac * 100.0
-	else:
-		progress.value = 0.0
-	v.add_child(progress)
+	for line: String in cost_lines:
+		var cost_lbl: Label = Label.new()
+		cost_lbl.text = line
+		cost_lbl.add_theme_font_override("font", _font)
+		cost_lbl.add_theme_font_size_override("font_size", 11)
+		cost_lbl.add_theme_color_override("font_color", COLOR_DIM)
+		v.add_child(cost_lbl)
 
 	var time_lbl: Label = Label.new()
 	time_lbl.add_theme_font_override("font", _font)
@@ -330,9 +380,9 @@ func _build_upgrade_button(upgrade: UpgradeDef, station: ResearchStation) -> Con
 	v.add_child(time_lbl)
 
 	var btn: Button = UIKit.make_button("Research", Callable())
-	btn.disabled = is_completed or is_active or not can_afford
+	btn.disabled = is_maxed or is_active or not can_afford
 	btn.pressed.connect(func() -> void:
-		if is_completed or is_active or not can_afford:
+		if is_maxed or is_active or not can_afford:
 			return
 		if not station.start_research(upgrade):
 			NotificationManager.notify(
@@ -343,9 +393,20 @@ func _build_upgrade_button(upgrade: UpgradeDef, station: ResearchStation) -> Con
 	)
 	v.add_child(btn)
 
-	if is_completed:
-		## Horizontal "COMPLETED" banner overlaid on top, visible only when
-		## is_completed — per direction.
+	## Tier-segment bar — max_tier small segments, filled blue for the first
+	## `completed_tiers`, unfilled for the rest.
+	var bar: HBoxContainer = HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 4)
+	for i: int in max_tier:
+		var seg: ColorRect = ColorRect.new()
+		seg.custom_minimum_size = Vector2(20.0, 6.0)
+		seg.color = COLOR_TIER_FILL if i < completed_tiers else COLOR_TIER_EMPTY
+		bar.add_child(seg)
+	v.add_child(bar)
+
+	if is_maxed:
+		## Horizontal "COMPLETED" banner — only when fully maxed, not after
+		## individual tiers.
 		var banner: ColorRect = ColorRect.new()
 		banner.color = Color(0.0, 0.0, 0.0, 0.72)
 		banner.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -358,12 +419,102 @@ func _build_upgrade_button(upgrade: UpgradeDef, station: ResearchStation) -> Con
 		banner_lbl.set_anchors_preset(Control.PRESET_CENTER)
 		banner.add_child(banner_lbl)
 		box.add_child(banner)
-
-	## Disabled/greyed (modulate dimmed) when NOT completed and NOT affordable
-	if not is_completed and not can_afford:
+	elif not can_afford:
 		box.modulate = Color(0.55, 0.55, 0.55, 0.8)
 
 	return root
+
+func _add_connection(a: Vector2, b: Vector2) -> void:
+	_connections.append([a, b])
+
+func _on_connector_draw() -> void:
+	for conn: Array in _connections:
+		var a: Vector2 = conn[0]
+		var b: Vector2 = conn[1]
+		_connector_canvas.draw_line(a, b, COLOR_CONNECTOR, 2.0)
+
+## Builds the node-tree layout: row-0 tiered node, 3-column grid rows 1-4,
+## two side branch pairs — all blank scaffolding except the top node.
+func _build_tree_canvas(station: ResearchStation) -> void:
+	var list: Array = _tree_upgrades.get(_active_tree, [])
+	var top_upgrade: UpgradeDef = null
+	for upgrade_node: Variant in list:
+		var upgrade: UpgradeDef = upgrade_node as UpgradeDef
+		if upgrade != null:
+			top_upgrade = upgrade
+			break
+
+	var grid_w: float = 3.0 * NODE_W + 2.0 * COL_GAP
+	var grid_left: float = HEADER_MARGIN
+	var grid_right: float = grid_left + grid_w
+	var branch_left: float = grid_right + COL_GAP
+	var grid_cols: Array[float] = []
+	for c: int in 3:
+		grid_cols.append(grid_left + float(c) * (NODE_W + COL_GAP))
+
+	## Row 0 — the tiered detail node, centered over the grid.
+	var top_node: Control = null
+	if top_upgrade != null:
+		top_node = _build_tiered_node(top_upgrade, station)
+	else:
+		top_node = _build_blank_box()
+	top_node.position = Vector2((grid_left + grid_right) * 0.5 - NODE_W * 0.5, 0.0)
+	_canvas.add_child(top_node)
+	var row0_h: float = top_node.size.y
+
+	var row1_y: float = row0_h + ROW_GAP
+	var row2_y: float = row1_y + NODE_H + ROW_GAP
+	var row3_y: float = row2_y + NODE_H + ROW_GAP
+	var row4_y: float = row3_y + NODE_H + ROW_GAP
+	var row_ys: Array[float] = [row1_y, row2_y, row3_y, row4_y]
+
+	## Rows 1-4: 3 blank boxes each.
+	for r: int in 4:
+		for c: int in 3:
+			var box: Control = _build_blank_box()
+			box.position = Vector2(grid_cols[c], row_ys[r])
+			_canvas.add_child(box)
+
+	## Vertical connectors: row 1 -> top node (all 3 up to the same node),
+	## then row-to-row within each column.
+	for c: int in 3:
+		var col_cx: float = grid_cols[c] + NODE_W * 0.5
+		_add_connection(Vector2(col_cx, row0_h), Vector2(col_cx, row1_y))
+	for r: int in 3:
+		for c: int in 3:
+			var col_cx: float = grid_cols[c] + NODE_W * 0.5
+			_add_connection(Vector2(col_cx, row_ys[r] + NODE_H), Vector2(col_cx, row_ys[r + 1]))
+
+	## Right-side branch pair (2 blank boxes) beside rows 2-3: vertical line
+	## between the pair, one diagonal from main-grid row 2 col 2.
+	var rb1: Control = _build_blank_box()
+	rb1.position = Vector2(branch_left, row2_y)
+	_canvas.add_child(rb1)
+	var rb2: Control = _build_blank_box()
+	rb2.position = Vector2(branch_left, row3_y)
+	_canvas.add_child(rb2)
+	var rb_cx: float = branch_left + NODE_W * 0.5
+	_add_connection(Vector2(rb_cx, row2_y + NODE_H), Vector2(rb_cx, row3_y))
+	_add_connection(Vector2(grid_cols[2] + NODE_W, row2_y + NODE_H * 0.5), Vector2(rb_cx, row2_y))
+
+	## Bottom-left branch pair (2 blank boxes) below row 4, one diagonal from
+	## main-grid row 4 col 1.
+	var bb1: Control = _build_blank_box()
+	bb1.position = Vector2(grid_left, row4_y + NODE_H + ROW_GAP)
+	_canvas.add_child(bb1)
+	var bb2: Control = _build_blank_box()
+	bb2.position = Vector2(grid_left, row4_y + NODE_H + ROW_GAP + NODE_H + ROW_GAP)
+	_canvas.add_child(bb2)
+	var bb_cx: float = grid_left + NODE_W * 0.5
+	var bb1_y: float = row4_y + NODE_H + ROW_GAP
+	_add_connection(Vector2(bb_cx, bb1_y + NODE_H), Vector2(bb_cx, bb1_y + NODE_H + ROW_GAP))
+	_add_connection(Vector2(grid_cols[1] + NODE_W * 0.5, row4_y + NODE_H), Vector2(bb_cx, bb1_y))
+
+	var canvas_h: float = bb1_y + NODE_H + ROW_GAP + NODE_H + 8.0
+	_canvas.custom_minimum_size = Vector2(PANEL_W - 32.0, canvas_h)
+	_canvas.size = Vector2(PANEL_W - 32.0, canvas_h)
+	_connector_canvas.size = _canvas.size
+	_connector_canvas.queue_redraw()
 
 func _refresh_content() -> void:
 	_clear_content()
@@ -380,17 +531,44 @@ func _refresh_content() -> void:
 		lbl.add_theme_color_override("font_color", COLOR_DIM)
 		lbl.position = Vector2(0.0, 8.0)
 		lbl.size = _content_box.size
-		_content_box.add_child(lbl)
+		_canvas.add_child(lbl)
 		return
-	var y: float = 0.0
-	for upgrade_node: Variant in list:
-		var upgrade: UpgradeDef = upgrade_node as UpgradeDef
-		if upgrade == null:
-			continue
-		var widget: Control = _build_upgrade_button(upgrade, station)
-		widget.position = Vector2(0.0, y)
-		_content_box.add_child(widget)
-		y += widget.size.y + 8.0
+	_build_tree_canvas(station)
+
+## Pinned 2x2 materials grid (Metal/Plastic left, Paper/Organic right),
+## absolute within the fixed header area — does NOT scroll with the tree.
+func _build_materials_grid() -> void:
+	var col1_x: float = HEADER_MARGIN
+	var col2_x: float = col1_x + MATERIAL_BTN_W + MATERIAL_COL_GAP
+	var row1_y: float = MATERIAL_TOP_Y
+	var row2_y: float = row1_y + MATERIAL_BTN_H + MATERIAL_ROW_GAP
+	var cells: Array = [
+		["metal",   col1_x, row1_y],
+		["plastic", col1_x, row2_y],
+		["paper",   col2_x, row1_y],
+		["organic", col2_x, row2_y],
+	]
+	for cell: Array in cells:
+		var material: String = cell[0]
+		var panel: PanelContainer = PanelContainer.new()
+		panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		var ss: StyleBoxFlat = StyleBoxFlat.new()
+		ss.bg_color = Color(0.10, 0.10, 0.12, 0.95)
+		ss.border_color = COLOR_BORDER
+		ss.set_border_width_all(1)
+		ss.set_corner_radius_all(4)
+		panel.add_theme_stylebox_override("panel", ss)
+		panel.position = Vector2(float(cell[1]), float(cell[2]))
+		panel.size = Vector2(MATERIAL_BTN_W, MATERIAL_BTN_H)
+		var lbl: Label = Label.new()
+		lbl.add_theme_font_override("font", _font)
+		lbl.add_theme_font_size_override("font_size", 11)
+		lbl.add_theme_color_override("font_color", COLOR_TEXT)
+		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lbl.text = "%s: %d/%d" % [material.capitalize(), 0, ResearchStation.STORAGE_CAP]
+		panel.add_child(lbl)
+		_panel.add_child(panel)
+		_material_labels[material] = lbl
 
 func _on_backdrop_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:

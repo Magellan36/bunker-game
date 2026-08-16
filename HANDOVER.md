@@ -1,3 +1,73 @@
+# Handover — Research UI Redesign: Tiered Upgrades + Node Tree (Aug 2026)
+
+## What changed this session
+Redesigned the Research Station UI into a tiered-upgrade node tree and
+made `2x Water Output` the first (only) tiered upgrade.
+
+**Tiered data model:** `UpgradeDef` gained `@export max_tier` and changed
+its effect signature to `apply_effect(tier_reached: int)` with
+**direct-set semantics** — effects SET the external system to match the
+tier just reached, they do NOT increment relative to unknown prior state
+(the station is the authoritative progress tracker; effects just sync
+external systems to it). Added `get_max_tier()`, overridable when a
+chain's true tier count is computed from the system it drives.
+`WaterOutput2xUpgrade` now computes `get_max_tier()` from
+`WaterHookup.TIER_DAILY_ML.size() - 1` (**3 real completions** — the
+sketch's "4" was illustrative, showing the UI pattern generically) and
+direct-sets `hookup.tier` instead of the old "+1" debug logic.
+
+**Tier-aware progress:** `ResearchStation.completed_upgrade_ids` →
+`tier_progress: Dictionary` (chain id → tiers completed). `start_research()`
+rejects at full max; `_complete_research()` increments the tier, passes it
+to the effect, and the toast now reads "...Tier N research completed"
+(minor self-extension beyond the ask — trivial to revert if you'd rather
+keep the flat wording).
+
+**Node-tree UI:** the old VBox of full-width cards is replaced by a
+vertical `ScrollContainer` over one fixed-size canvas: a single tiered
+detail node at top (`_build_tiered_node` — name → materials → time →
+Research → tier-segment bar, box grows per extra material line) + a
+3×4 grid of blank boxes + two side branch pairs, all connected by
+`draw_line()` on a dedicated `_connector_canvas` behind the boxes. Grid/
+branches are blank scaffolding this pass; only the top node is functional.
+The materials header became a pinned **2×2 button grid** (Metal/Plastic
+left, Paper/Organic right) that does NOT scroll with the tree; tabs and
+header position unchanged, only the content area below them changed.
+
+### Flagged deviations / tuning
+- **`PANEL_W` 640→834, `PANEL_H` 620→756** — the plan's dims couldn't fit
+  the 3 grid cols + right-side branch col (4 × `NODE_W`) and the 2-row
+  materials grid + `SCROLL_VISIBLE_H` simultaneously; widened so the
+  described layout actually fits. All `NODE_*`/`MATERIAL_*` sizing kept as
+  specified. Expect visual tuning pass in-editor.
+- Branch-pair positions/anchors are my best reading of the hand-drawn
+  sketch (right pair beside rows 2-3, bottom-left pair below row 4) —
+  approximate, adjust once rendered.
+
+### Files modified
+- `scripts/core/UpgradeDef.gd` — `max_tier` export, new `apply_effect(tier_reached)` signature, `get_max_tier()`.
+- `scripts/core/upgrades/WaterOutput2xUpgrade.gd` — computed tier count, direct-set effect.
+- `scripts/world/furniture/ResearchStation.gd` — `tier_progress`, tier-aware eligibility + completion.
+- `scripts/ui/research/ResearchStationUI.gd` — node-tree canvas, connector canvas, `_build_tiered_node`, `_build_blank_box`, 2×2 materials grid, ScrollContainer.
+- `docs/systems/research/README.md`, `HANDOVER.md` — this entry.
+
+### Verification checklist (Brannon, in-editor)
+1. **Materials grid:** Metal/Plastic left column, Paper/Organic right
+   column, aligned left edges, small column gap, stays fixed while the
+   tree below scrolls.
+2. **Top node:** "Tier 1 - 2x Water Output" on a fresh station, correct
+   cost line, "Time to completion: 10s", Research button, 3-segment tier
+   bar all unfilled.
+3. **Tier progression:** complete one research — toast "...Tier 1
+   research completed", title advances to "Tier 2 - ...", segment bar 1/3
+   filled, Water Hookup output matches the F7 debug doubler's effect.
+4. **Full maxing:** complete all 3 tiers — "COMPLETED" banner, bar fully
+   filled, further clicks do nothing.
+5. **Tree layout:** top node connects visually to 3 child boxes; grid +
+   branches roughly match the sketch; ~3 rows visible, rest scrolls.
+6. **Scope check:** tabs and materials grid positions unchanged — only the
+   content area below them changed.
+
 # Handover — Soft Shadow Shape Fix (Aug 2026)
 
 ## What changed this session

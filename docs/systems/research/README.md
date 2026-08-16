@@ -54,17 +54,21 @@ treatment to Build Station). `[E] Open Research Station` opens the modal
 `ResearchStationUI`. See `docs/systems/furniture-items/README.md` for the
 wiring summary and the inherited save-position limitation.
 
-## UI shell status (this pass)
+## UI shell status (Aug 2026)
 
 `ResearchStationUI` — modal chrome (StorageUI/WaterInfoUI conventions),
 **3 selectable tabs** (Bunker Upgrades / Player Skills / NPC Skills). The
-Bunker tab now shows real upgrade buttons (data-driven off the tree's
-`UpgradeDef` list); Player Skills / NPC Skills stay empty/placeholder this
-pass. A persistent materials header spans all three tabs
-(`Metal: 0/10  Plastic: 0/10  ...`), refreshed on open and on a repeating
-timer while the panel is open (background drain keeps running regardless
-of which tab is showing). `InteractionSystem.research_ui` gates E/F while
-open (same as shelf/basket).
+Bunker tab shows a **scrollable node-tree canvas**: a single tiered
+upgrade detail node at the top, a 3-column × 4-row grid of empty
+placeholder boxes below it, and two side branch pairs — the grid/branches
+are purely structural scaffolding (no data) this pass, confirming the
+layout works. A pinned **2×2 materials-button grid** (Metal/Plastic left
+column, Paper/Organic right, e.g. `Metal: 0/10`) replaces the old single
+row-header and does NOT scroll with the tree; both tabs and the materials
+grid sit in the fixed header area, and only the content area below them
+changed from the previous pass. Player Skills / NPC Skills stay
+empty/placeholder. `InteractionSystem.research_ui` gates E/F while open
+(same as shelf/basket).
 
 ## Upgrade system architecture (Aug 2026)
 
@@ -73,17 +77,28 @@ open (same as shelf/basket).
 `scripts/core/UpgradeDef.gd` (extends `Resource`) holds the shared data
 fields (`id`, `display_name`, `tree` — "bunker"/"player_skills"/
 "npc_skills", `duration_seconds`, `material_costs` whose keys match
-`get_trash_material()`'s return values). The EFFECT is a virtual
-`apply_effect()` each subclass overrides. "Mass-producible": a new upgrade
-is a tiny subclass + a `.tres` resource instance under
-`res://data/upgrades/` — the runtime/UI code has zero per-upgrade
-special-casing.
+`get_trash_material()`'s return values, `max_tier`). The EFFECT is a
+virtual `apply_effect(tier_reached: int)` each subclass overrides —
+called once per tier completion with the tier number JUST reached
+(1-indexed). **Direct-set semantics:** effects SET the external system to
+match `tier_reached` rather than incrementing relative to unknown prior
+state — the station is the authoritative progress tracker, effects just
+sync external systems to it. `get_max_tier()` defaults to the static
+`max_tier` export; override it when a chain's true tier count is computed
+from the system it drives. "Mass-producible": a new upgrade is a tiny
+subclass + a `.tres` resource instance under `res://data/upgrades/` —
+the runtime/UI code has zero per-upgrade special-casing.
 
-- `scripts/core/upgrades/WaterOutput2xUpgrade.gd` — the first real
-  upgrade; `apply_effect()` copies `AdminMenu._on_hookup_output_double_pressed()`
-  verbatim (tier + 1, clamped at `WaterHookup.TIER_DAILY_ML` top).
-  Resource: `res://data/upgrades/bunker_water_output_2x.tres`
-  (`{"metal": 5, "plastic": 5}`, 10s, tree "bunker").
+- `scripts/core/upgrades/WaterOutput2xUpgrade.gd` — the first **tiered**
+  upgrade. `get_max_tier()` is computed from
+  `WaterHookup.TIER_DAILY_ML.size() - 1` — **3 real completions** (index
+  0→1, 1→2, 2→3), NOT the illustrative "4" from the reference sketch
+  (that was showing the UI pattern generically, not water output's real
+  number). `apply_effect(tier_reached)` direct-sets `hookup.tier` to the
+  reached tier (clamped at the array top), replacing the old "+1" debug
+  logic. Resource: `res://data/upgrades/bunker_water_output_2x.tres`
+  (`{"metal": 5, "plastic": 5}`, 10s, tree "bunker") — no `max_tier`
+  export needed, computed live via the override.
 - Resources have no SceneTree of their own, so `apply_effect()` gets the
   running tree injected via `set_tree_ref()` right before being called.
 
@@ -100,20 +115,44 @@ it becomes.
 ### Incremental consumption model (matches "60% done = 3/5 used")
 
 Nothing is deducted at click-time; `start_research()` only checks
-eligibility (nothing else running, not already completed, enough materials
-to start) and returns false otherwise. `_process()` then drains storage in
-small floor()-quantized steps as `elapsed` advances, so at 60% completion
-a `{"plastic": 5, "metal": 5}` research has consumed exactly 3 of each —
-the station's stored count visibly ticks down. `completed_upgrade_ids` on
-the station (NOT on the shared Resource, which would be a correctness
-footgun) is the source of truth for "already done"; `_complete_research()`
-fires `apply_effect()`, clears state, and posts a toast via
-`NotificationManager`.
+eligibility (nothing else running, not fully maxed — `tier_progress`
+reached `get_max_tier()` — enough materials to start) and returns false
+otherwise. `_process()` then drains storage in small floor()-quantized
+steps as `elapsed` advances, so at 60% completion a
+`{"plastic": 5, "metal": 5}` research has consumed exactly 3 of each —
+the station's stored count visibly ticks down. Progress is tracked per
+chain as `tier_progress: Dictionary` — chain id → tiers completed so far
+(0 = not started) — on the station (NOT on the shared Resource, which
+would be a correctness footgun). `_complete_research()` increments the
+tier, passes it to `apply_effect(tier_reached)`, clears state, and posts
+a toast via `NotificationManager` ("...Tier N research completed").
 
 ### The station joins the `"research_station"` group
 
 One line in `_ready()` — this is how `AdminMenu` (F7) and future code find
 the singleton.
+
+### Node-tree content area + connector canvas
+
+The Bunker tab's content area is a `ScrollContainer` (vertical only)
+wrapping one fixed-size canvas `Control`; every node box and connector
+line is absolutely positioned on it. Connections render on a dedicated
+`_connector_canvas` (a full-size `Control` behind the node boxes) whose
+`draw` signal calls `draw_line()` once per connection — simpler/cheaper
+than per-connection `Line2D` nodes for a static diagram. Layout: row-0 is
+the single tiered detail node (`_build_tiered_node`, centered); rows 1-4
+are 3 blank `NODE_W×NODE_H` boxes each, all three row-1 boxes connecting
+upward to the same top node, then vertical lines per column; two side
+branch pairs (2 blank boxes each) connect internally with one vertical
+line and to the main grid with one diagonal. `_build_tiered_node` stacks
+name → materials (auto-expanding to a new line per 2 materials, growing
+only that box) → time → Research button → tier-segment bar (one small
+segment per tier, filled blue for completed tiers), with the "COMPLETED"
+banner only at full max. Sizing constants (`PANEL_W`/`PANEL_H`/
+`SCROLL_VISIBLE_H`/`NODE_W`/`NODE_H`/gaps) are starting values flagged
+for visual tuning — `PANEL_W`/`PANEL_H` were widened from the plan's
+640/620 so the 4-wide branch layout and the 2-row materials grid plus a
+460px scroll area all fit.
 
 ### F7 debug — `AdminMenu.gd`
 

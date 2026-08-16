@@ -15,6 +15,22 @@ class_name UpgradeDef
 @export var duration_seconds: float = 10.0
 @export var material_costs: Dictionary = {}   ## e.g. {"metal": 5, "plastic": 5} — keys match get_trash_material()'s return values
 
-## Override per upgrade. Called exactly once, the instant research completes.
-func apply_effect() -> void:
+## Total completions in this chain. Flat cost/duration across all tiers
+## this pass (per direction — balance later).
+@export var max_tier: int = 1
+
+## Called once per tier completion, passed the tier number JUST reached
+## (1-indexed). Direct-set semantics expected: subclasses should SET the
+## external system to match tier_reached, not increment it relative to
+## unknown prior state — the station is the authoritative progress tracker,
+## effects just sync external systems to match it.
+func apply_effect(tier_reached: int) -> void:
 	pass
+
+## Override when a chain's true tier count should be computed from the
+## external system it drives, rather than a static exported number (e.g.
+## Water Hookup's tier count comes from WaterHookup's own array size, not a
+## number I'd have to keep in sync by hand in a .tres file). Defaults to
+## the static export.
+func get_max_tier() -> int:
+	return max_tier
