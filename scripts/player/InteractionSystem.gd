@@ -1291,9 +1291,10 @@ func _try_take_dish(pot: Node) -> void:
 	var world_root: Node = get_tree().get_root()
 	world_root.add_child(dish)
 	dish.global_position = (pot as Node3D).global_position
-	dish.fill_value = result["value"]
-	dish.bonus_pct  = result["bonus_pct"]
-	dish.dish_name  = String(result.get("name", "Cooked Dish"))
+	dish.fill_value      = result["value"]
+	dish.bonus_pct       = result["bonus_pct"]
+	dish.dish_name       = String(result.get("name", "Cooked Dish"))
+	dish.hydration_value = float(result.get("hydration", 0.0))
 
 	held_item       = dish
 	_held_from_slot = -1
@@ -1333,9 +1334,10 @@ func _try_take_dish_from_held_pot(pot: Node) -> void:
 
 	_world_root.add_child(dish)
 	dish.global_position = drop_pos
-	dish.fill_value = result["value"]
-	dish.bonus_pct  = result["bonus_pct"]
-	dish.dish_name  = String(result.get("name", "Cooked Dish"))
+	dish.fill_value      = result["value"]
+	dish.bonus_pct       = result["bonus_pct"]
+	dish.dish_name       = String(result.get("name", "Cooked Dish"))
+	dish.hydration_value = float(result.get("hydration", 0.0))
 
 	held_item       = dish
 	_held_from_slot = -1

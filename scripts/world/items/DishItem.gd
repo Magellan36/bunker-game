@@ -7,9 +7,10 @@ class_name DishItem
 ## FarmProduceItem (no partial-bite tracking like FoodCan). Cannot be
 ## re-cooked — not in "cookpot_storable" — but can be stored in a Basket.
 
-var fill_value: float = 0.0
-var bonus_pct:  float = 0.0
-var dish_name:  String = "Cooked Dish"
+var fill_value:      float  = 0.0
+var bonus_pct:       float  = 0.0
+var dish_name:       String = "Cooked Dish"
+var hydration_value: float  = 0.0
 
 var _mesh: MeshInstance3D = null
 var _player_stats: Node = null
@@ -32,6 +33,8 @@ func get_trash_material() -> String:
 	return "organic"
 
 func get_use_prompt() -> String:
+	if hydration_value > 0.0:
+		return "[E] Eat  %s  (%.1f Filling, %.1f Hydration)" % [dish_name, fill_value, hydration_value]
 	return "[E] Eat  %s  (%.1f)" % [dish_name, fill_value]
 
 func on_use() -> void:
@@ -40,13 +43,26 @@ func on_use() -> void:
 	if _player_stats == null:
 		push_warning("DishItem: _player_stats not found.")
 		return
+	## Read BEFORE consume_as_food() — it frees this node.
+	var hydration: float = hydration_value
 	_player_stats.replenish_food(consume_as_food())
+	if hydration > 0.0 and _player_stats.has_method("replenish_water"):
+		_player_stats.replenish_water(hydration)
 
 ## Consumes this dish (frees the node) and returns the food restored.
-## Shared mutation for player + NPCs (NPC Pass 2, Part 3).
+## Shared mutation for player + NPCs (NPC Pass 2, Part 3) — return type/
+## contract UNCHANGED (still a plain float, hunger only) since NPC.gd and
+## NPCItemUser.gd both call this directly and only use it for hunger; NPCs
+## do not receive hydration from eating a dish in this pass.
+##
+## Aug 2026 fix: removed an erroneous "* (1.0 + bonus_pct)" — fill_value is
+## already the FINAL post-Diversity-Bonus total (computed once in
+## CookingPot._finish_cooking() via compute_dish_totals()["total"]), so
+## re-applying the bonus here was double-counting it for every dish eaten,
+## player and NPC alike.
 func consume_as_food() -> float:
 	queue_free()
-	return fill_value * (1.0 + bonus_pct)
+	return fill_value
 
 ## Simple placeholder — shallow plate + a food mound. No per-ingredient
 ## color-blending in this pass; flat warm color regardless of what went in.

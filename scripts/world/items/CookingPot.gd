@@ -56,6 +56,7 @@ var _cook_progress: float = 0.0
 var _is_cooked:     bool  = false
 var _dish_value:    float = 0.0
 var _dish_bonus_pct: float = 0.0
+var _dish_hydration: float = 0.0
 var _dish_name:     String = "Cooked Dish"
 
 var _mesh: MeshInstance3D = null
@@ -235,6 +236,8 @@ func get_trash_material() -> String:
 func get_dish_ready_text() -> String:
 	if not _is_cooked:
 		return ""
+	if _dish_hydration > 0.0:
+		return "DONE  —  [E] Take Dish  (%s, %.1f Filling, %.1f Hydration)" % [_dish_name, _dish_value, _dish_hydration]
 	return "DONE  —  [E] Take Dish  (%s, %.1f Filling)" % [_dish_name, _dish_value]
 
 
@@ -297,6 +300,19 @@ func _finish_cooking() -> void:
 	_dish_value     = totals["total"]
 	_dish_bonus_pct = totals["bonus_pct"]
 
+	## Hydration = the dish's final Filling total, scaled by how much of
+	## the dish's PRE-bonus value came from water. Confirmed Aug 2026 —
+	## water restores hydration, not hunger, so this is separate from (and
+	## doesn't reduce) the Filling number itself.
+	var water_sum: float = 0.0
+	for w_entry in slots:
+		if w_entry != null and w_entry["ingredient_key"] == "water_bottle":
+			water_sum += w_entry["restore_value"]
+	var water_fraction: float = 0.0
+	if totals["base_sum"] > 0.0:
+		water_fraction = water_sum / totals["base_sum"]
+	_dish_hydration = _dish_value * water_fraction
+
 	var unique_keys: Array = []
 	for entry in slots:
 		if entry != null and not unique_keys.has(entry["ingredient_key"]):
@@ -331,11 +347,17 @@ func cook_progress_fraction() -> float:
 func serve_dish() -> Dictionary:
 	if not _is_cooked:
 		return {}
-	var result: Dictionary = {"value": _dish_value, "bonus_pct": _dish_bonus_pct, "name": _dish_name}
+	var result: Dictionary = {
+		"value":     _dish_value,
+		"bonus_pct": _dish_bonus_pct,
+		"name":      _dish_name,
+		"hydration": _dish_hydration,
+	}
 	_is_cooked      = false
 	_dish_value     = 0.0
 	_dish_bonus_pct = 0.0
 	_dish_name      = "Cooked Dish"
+	_dish_hydration = 0.0
 	return result
 
 # ─── Slot helpers ─────────────────────────────────────────────────────────────
@@ -418,6 +440,7 @@ func get_save_extra() -> Dictionary:
 		"dish_value":     _dish_value,
 		"dish_bonus_pct": _dish_bonus_pct,
 		"dish_name":      _dish_name,
+		"dish_hydration": _dish_hydration,
 	}
 
 ## Applies a Dictionary from get_save_extra() onto a freshly-instantiated
@@ -437,6 +460,7 @@ func restore_saved_state(extra: Dictionary) -> void:
 	_dish_value     = float(extra.get("dish_value", 0.0))
 	_dish_bonus_pct = float(extra.get("dish_bonus_pct", 0.0))
 	_dish_name      = String(extra.get("dish_name", "Cooked Dish"))
+	_dish_hydration = float(extra.get("dish_hydration", 0.0))
 
 
 ## ─── Ingredient icon previews (Part K) ────────────────────────────────────
