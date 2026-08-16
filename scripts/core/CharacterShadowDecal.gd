@@ -20,16 +20,14 @@ class_name CharacterShadowDecal
 ## Instantiated dynamically by Player._ready()/NPC._ready(), same pattern
 ## as everything else in this file family — never needs a .tscn edit.
 ##
-## Aug 2026 fix v2 (width/opacity decoupling): the shadow's apparent width
-## used to be distorted by its own opacity — _process() multiplies the
-## whole soft gradient by the aggregate light weight, and a bigger
-## multiplier keeps more of the fade above the visibility threshold, so
-## the visible edge sits farther out (reads wider) with more lights and
-## closer in (reads narrower) with fewer, even in open floor space. Fixed
-## by tightening the edge transition near the character
-## (EDGE_SOFTNESS_NEAR) so that boundary is far less sensitive to the
-## weight multiplier, and calibrating near width per-character from their
-## actual CapsuleShape3D.radius (_shadow_width_scale).
+## Aug 2026 fix v3 (true cone, not trapezoid): v2 tightened and calibrated
+## the near edge's width but it was still fundamentally a flat line
+## (finite width) at the character's end — narrower/softer, but still a
+## discernible boundary. Replaced the whole taper with a single smooth
+## falloff starting at the centerline itself (u=0) and widening
+## continuously toward the far end — genuinely converges to a point at
+## v=0 rather than a narrow-but-nonzero-width line. See
+## _get_shared_texture() below.
 
 ## Fixed target length for the un-clipped shadow — same "art-directed, not
 ## derived from real light distance" philosophy as the old proxy's
@@ -53,35 +51,24 @@ const MIN_LENGTH:     float = 0.4   ## never shrink to a degenerate sliver right
 ## before this edge, so the rectangle's true silhouette is never visible.
 const RECT_WIDTH: float = 2.0
 
-## Texture-space shape controls (see _get_shared_texture()). NEAR_WIDTH_FRAC
-## keeps the shape's solid core tight/contained right at the character
-## (v=0) — this is the fix for "focal point needs to be more snugly
-## underneath the player" — widening only as it extends into the cone tail
-## toward FAR_WIDTH_FRAC. EDGE_SOFTNESS is the width of the soft fade zone
-## at the edge of that solid core, in the same 0(center)..1(rect edge)
-## units — this is what makes every edge a gradient instead of a cutoff.
-const NEAR_WIDTH_FRAC: float = 0.35
-const FAR_WIDTH_FRAC:  float = 0.9
-## Aug 2026 fix v2 — split into near/far instead of one flat value. A
-## wide, gradual edge transition is exactly what let the weight-driven
-## opacity multiplier (see _process()) shift the APPARENT edge position so
-## much between "1 light" and "2 lights" — see this file's top-level
-## comment update / the plan doc for the full mechanism. Tightening the
-## transition specifically near the character makes the visible boundary
-## far less sensitive to that multiplier, without touching the far tail
-## (which can stay soft/atmospheric — that part was never the complaint).
-const EDGE_SOFTNESS_NEAR: float = 0.12
-const EDGE_SOFTNESS_FAR:  float = 0.30
+## Aug 2026 fix v3 — replaces NEAR_WIDTH_FRAC/FAR_WIDTH_FRAC/
+## EDGE_SOFTNESS_NEAR/EDGE_SOFTNESS_FAR entirely. Those defined a "solid
+## core, then a fade band at its edge" — even tightened, that's still a
+## shape with SOME nonzero width at v=0, i.e. still a line. CONE_TIP_EXTENT/
+## CONE_BASE_EXTENT instead define a single smoothstep fade that starts at
+## the centerline itself (u=0) and completes by `extent` — see
+## _get_shared_texture() below. At v=0, extent is tiny (CONE_TIP_EXTENT),
+## so nearly the whole row is already fading out right from center — reads
+## as a point, not a line. extent grows toward CONE_BASE_EXTENT as v
+## increases, forming the cone's widening body. Every row is a single
+## continuous gradient — no "flat plateau then fade" anywhere, keeping the
+## fully-soft-edges property from the earlier fix intact.
+const CONE_TIP_EXTENT:  float = 0.06
+const CONE_BASE_EXTENT: float = 0.85
 ## Where along the length the fade-to-nothing begins (0=at the character,
 ## 1=the far tip) — staying solid through roughly the first half, then
 ## easing out smoothly rather than an abrupt cut at the raycast-clipped end.
 const LENGTH_FADE_START: float = 0.5
-## Aug 2026 fix v2 — new. A very brief ramp-up right at the very tip
-## (v=0..TIP_EASE_IN) instead of jumping straight to full intensity at
-## v=0 — softens the "hard line" complaint somewhat by avoiding an
-## instantaneous full-alpha start, without attempting a full 2D radial/
-## circular cap (a bigger, riskier rewrite, not done this round).
-const TIP_EASE_IN: float = 0.04
 
 const NEAR_ALPHA: float = 0.35   ## modest, soft tint — never a hard black shape, baked into the texture below
 const SHADOW_Y_OFFSET: float = 0.02   ## tiny lift above the floor to avoid z-fighting
@@ -94,6 +81,11 @@ const MIN_TOTAL_WEIGHT: float = 0.05   ## below this, no meaningful nearby light
 ## Raycast height above the character's own origin — roughly waist height,
 ## so it doesn't clip on the floor itself or pass over low obstacles.
 const RAY_HEIGHT: float = 0.8
+
+## Aug 2026 fix v3 — baseline for _shadow_width_scale's proportional
+## sizing. Player's own default CapsuleShape3D.radius (Godot's default,
+## unset in Player.tscn) — see _compute_character_dimensions() below.
+const PLAYER_REFERENCE_RADIUS: float = 0.5
 
 var _owner_char: Node3D       = null
 var _mesh_instance: MeshInstance3D = null
@@ -110,16 +102,15 @@ var _current_weight: float    = 0.0
 ## distance. This is the fix for the shadow appearing at the character's
 ## midpoint instead of on the ground.
 var _floor_offset: float = 1.0
-## Aug 2026 fix v2 — new. Per-character horizontal scale applied to the
-## shared mesh's X axis (see _process()) so the shadow's NEAR width
-## physically matches THIS character's own footprint, computed once from
-## their real CapsuleShape3D.radius — Player (radius 0.5, Godot's
-## default) and NPC (radius 0.4, see scenes/npc/NPC.tscn) are different
-## sizes and previously got the exact same guessed width regardless. Math:
-## the texture's near-core reaches its edge at u=NEAR_WIDTH_FRAC (fraction
-## of RECT_WIDTH*0.5); solving for the X-scale that makes that edge land
-## exactly at this character's footprint radius gives
-## footprint_radius / (RECT_WIDTH * 0.5 * NEAR_WIDTH_FRAC).
+## Aug 2026 fix v3 — simplified from a footprint-width-matching formula
+## (which no longer makes sense now that the near end tapers to a true
+## point, not a matched-width patch — see CONE_TIP_EXTENT above) to plain
+## proportional sizing: Player's own capsule radius is the 1.0 baseline,
+## everyone else scales relative to it. NPC (radius 0.4, see
+## scenes/npc/NPC.tscn) gets a correspondingly smaller cone than Player
+## (radius 0.5, Godot's default) — same intent (don't give a small
+## character the same size shadow as a bigger one), simpler math, no
+## dependency on the texture's internal constants.
 var _shadow_width_scale: float = 1.0
 
 ## Shared across every instance — built once on first use, not per
@@ -152,9 +143,9 @@ func _compute_character_dimensions(owner_char: Node3D) -> Dictionary:
 			var capsule: CapsuleShape3D = shape as CapsuleShape3D
 			return {
 				"floor_offset": capsule.height * 0.5,
-				"width_scale": capsule.radius / (RECT_WIDTH * 0.5 * NEAR_WIDTH_FRAC),
+				"width_scale": capsule.radius / PLAYER_REFERENCE_RADIUS,
 			}
-	return {"floor_offset": 1.0, "width_scale": 0.5 / (RECT_WIDTH * 0.5 * NEAR_WIDTH_FRAC)}
+	return {"floor_offset": 1.0, "width_scale": 1.0}
 
 func _ready() -> void:
 	_mesh_instance = MeshInstance3D.new()
@@ -221,18 +212,20 @@ static func _get_shared_mesh() -> ArrayMesh:
 ## generated pixel-by-pixel in code, same as the rest of this codebase's
 ## procedural-content conventions.
 ##
-## For each row (v = 0 at the character's end, 1 at the far tip):
+## Aug 2026 fix v3 — true cone, not trapezoid. For each row (v = 0 at the
+## character's end, 1 at the far tip):
 ##   - length_falloff fades the whole row to 0 alpha starting at
 ##     LENGTH_FADE_START and finishing by v=1 — the far tip vanishes
 ##     smoothly instead of an abrupt cut where the raycast clips it.
-##   - half_width_frac grows from NEAR_WIDTH_FRAC (v=0, tight/contained —
-##     this is the "focal point snug under the player" fix) to
-##     FAR_WIDTH_FRAC (widening into the soft cone tail).
+##   - extent grows from CONE_TIP_EXTENT (v=0, tiny — see that const's
+##     comment) to CONE_BASE_EXTENT (v=1, the cone's widening body).
 ## For each column (u = 0 at center, 1 at the rectangle's own edge):
-##   - width_falloff fades to 0 over an EDGE_SOFTNESS-wide band starting at
-##     that row's half_width_frac — this is the fix for hard, unblended
-##     left/right edges ("flat wall of shadow"). Every edge in every
-##     direction is now a gradient, never a straight cutoff.
+##   - width_falloff is ONE smoothstep spanning u=0 (the centerline
+##     itself) to `extent` — not a separate "solid core then edge fade."
+##     At v=0 this means nearly the entire row is already fading out right
+##     from center, reading as a point rather than a line — this is the
+##     actual fix for the persistent "hard line at the origin" complaint
+##     that survived the v2 tightening pass.
 ## Final per-pixel alpha = NEAR_ALPHA * length_falloff * width_falloff.
 static func _get_shared_texture() -> ImageTexture:
 	if _shared_texture != null:
@@ -240,18 +233,11 @@ static func _get_shared_texture() -> ImageTexture:
 	var img: Image = Image.create(TEX_WIDTH, TEX_HEIGHT, false, Image.FORMAT_RGBA8)
 	for y: int in range(TEX_HEIGHT):
 		var v: float = float(y) / float(TEX_HEIGHT - 1)
-		## Aug 2026 fix v2 — multiplied by a brief tip ease-in (see
-		## TIP_EASE_IN above) so the very start isn't an instant jump to
-		## full alpha.
-		var length_falloff: float = (1.0 - smoothstep(LENGTH_FADE_START, 1.0, v)) * smoothstep(0.0, TIP_EASE_IN, v)
-		var half_width_frac: float = lerp(NEAR_WIDTH_FRAC, FAR_WIDTH_FRAC, smoothstep(0.0, 1.0, v))
-		## Aug 2026 fix v2 — edge softness now varies with v (tight near
-		## the character, soft toward the far tip) instead of one flat
-		## value — see EDGE_SOFTNESS_NEAR/FAR above for why.
-		var edge_softness: float = lerp(EDGE_SOFTNESS_NEAR, EDGE_SOFTNESS_FAR, smoothstep(0.0, 1.0, v))
+		var length_falloff: float = 1.0 - smoothstep(LENGTH_FADE_START, 1.0, v)
+		var extent: float = lerp(CONE_TIP_EXTENT, CONE_BASE_EXTENT, smoothstep(0.0, 1.0, v))
 		for x: int in range(TEX_WIDTH):
 			var u: float = absf((float(x) / float(TEX_WIDTH - 1)) * 2.0 - 1.0)
-			var width_falloff: float = 1.0 - smoothstep(half_width_frac - edge_softness, half_width_frac, u)
+			var width_falloff: float = 1.0 - smoothstep(0.0, extent, u)
 			var a: float = clamp(length_falloff * width_falloff, 0.0, 1.0) * NEAR_ALPHA
 			img.set_pixel(x, y, Color(0.0, 0.0, 0.0, a))
 	_shared_texture = ImageTexture.create_from_image(img)

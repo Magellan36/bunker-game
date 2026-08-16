@@ -405,6 +405,17 @@ _process(). A brief tip ease-in was added to soften the near cap's start,
 though a true circular/radial cap was deliberately not attempted this
 round (flagged as a bigger, riskier rewrite for later if still needed).
 
+**Aug 2026 fix v3 (true cone):** v2's width tightening/calibration still
+left a flat line at the character's end (narrower, softer, but still a
+finite-width boundary — exactly what kept showing up as "two connected
+points defining a line" in playtesting). Replaced the two-stage "solid
+core then edge fade" formula with a single continuous smoothstep fade
+starting at the centerline itself, widening toward the far end — a true
+cone/wedge shape that genuinely converges to a point at the character
+rather than a narrow band. Width scaling simplified to plain proportional
+sizing (Player's radius as baseline) since there's no longer a specific
+near-width to calibrate to a footprint.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes

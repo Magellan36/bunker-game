@@ -1,3 +1,42 @@
+# Handover — True Cone Shadow Shape (Aug 2026)
+
+## What changed this session
+The character shadow decal's near end was still reading as a flat line
+even after two rounds of width tightening/calibration — because it was
+still, structurally, a shape with nonzero width at the character's end,
+just a narrower and softer one. Root cause: the "solid core, then a fade
+band at its edge" formula inherently has SOME width at v=0 no matter how
+tight the edge softness gets.
+
+Replaced with a single continuous falloff starting at the centerline
+itself and widening toward the far end — a genuine cone/wedge shape.
+At the character's end the fade's extent is tiny, so nearly the entire
+row is already fading out right from the center point, with no residual
+width to read as a line. Width scaling simplified to plain proportional
+sizing relative to Player's own capsule radius, since matching a specific
+near-width to the character's footprint no longer applies once the near
+end is a true point.
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — shape constants replaced
+  (CONE_TIP_EXTENT/CONE_BASE_EXTENT), texture generation rewritten to a
+  single-stage falloff, width-scale calculation simplified.
+- `docs/systems/graphics/README.md` — fix v3 note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. The shadow's near end should now read as converging to a point
+   directly under/behind the character — no discernible flat line or
+   boundary at the origin, from any light configuration (single light,
+   two lights at any angle).
+3. The shape should still widen smoothly toward the far end (the cone
+   body) and fade out at the tip — no hard edges anywhere.
+4. Confirm this holds for both Player and NPC, with NPC's cone
+   proportionally smaller.
+5. Re-check the specific two-lights-at-±45° scenario from earlier
+   screenshots — should no longer show the "connected line" artifact.
+
 # Handover — Shadow Width/Opacity Decoupling Fix (Aug 2026)
 
 ## What changed this session
