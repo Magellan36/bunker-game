@@ -1,3 +1,33 @@
+# Handover — Shadow Too-Thin Fix (Aug 2026)
+
+## What changed this session
+The character shadow's width used to grow across its entire length,
+reaching full width only right at the far tip — which is also where the
+length-based fade had already made it nearly invisible. The portion
+actually visible/opaque never got close to full width, reading as much
+thinner than the character. Fixed by giving width its own, faster growth
+curve (CONE_WIDTH_GROWTH_END) independent of the length fade — it now
+reaches full width early and holds there, so the solidly-opaque part of
+the shadow is genuinely at full width. Also bumped the width ceiling
+slightly (CONE_BASE_EXTENT 0.85 → 0.9).
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — new `CONE_WIDTH_GROWTH_END`
+  constant, `CONE_BASE_EXTENT` bumped, texture generation loop updated.
+- `docs/systems/graphics/README.md` — fix v5 note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Shadow's body should now read at least as wide as the character through
+   most of its visible length, not just briefly at the very tip.
+3. Near-origin taper (the "true cone point" fix) should be unaffected —
+   still converges to a point right at the character, not a line.
+4. Far tip should still fade out smoothly, no hard cutoff.
+5. If it now reads too wide, `CONE_BASE_EXTENT` is the value to dial back
+   down; if the width ramps up too abruptly/late, `CONE_WIDTH_GROWTH_END`
+   is the one to adjust (lower = faster ramp).
+
 # Handover — Direction-Dependent Shadow Length/Width Fix (Aug 2026)
 
 ## What changed this session

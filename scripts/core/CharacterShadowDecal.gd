@@ -64,7 +64,21 @@ const RECT_WIDTH: float = 2.0
 ## continuous gradient — no "flat plateau then fade" anywhere, keeping the
 ## fully-soft-edges property from the earlier fix intact.
 const CONE_TIP_EXTENT:  float = 0.06
-const CONE_BASE_EXTENT: float = 0.85
+## Aug 2026 fix v5 — bumped from 0.85. See CONE_WIDTH_GROWTH_END below for
+## the more important part of this fix (how QUICKLY this gets reached);
+## this alone is a minor increase in ceiling.
+const CONE_BASE_EXTENT: float = 0.9
+## Aug 2026 fix v5 — new. The width used to grow across the ENTIRE length
+## (smoothstep(0, 1, v)), reaching CONE_BASE_EXTENT only right at v=1 —
+## exactly where LENGTH_FADE_START has already faded it most of the way to
+## invisible. The shape's nominal max width was fine, but the actually-
+## visible/opaque portion never got anywhere near it, reading as much
+## thinner than the character overall. Now the width ramps up on its own,
+## faster timeline (see CONE_WIDTH_GROWTH_END), reaching full width well
+## before the length fade starts taking it away — so the character-width
+## test happens while the shape is still solidly opaque, not as it's
+## already vanishing.
+const CONE_WIDTH_GROWTH_END: float = 0.3
 ## Where along the length the fade-to-nothing begins (0=at the character,
 ## 1=the far tip) — staying solid through roughly the first half, then
 ## easing out smoothly rather than an abrupt cut at the raycast-clipped end.
@@ -218,7 +232,10 @@ static func _get_shared_mesh() -> ArrayMesh:
 ##     LENGTH_FADE_START and finishing by v=1 — the far tip vanishes
 ##     smoothly instead of an abrupt cut where the raycast clips it.
 ##   - extent grows from CONE_TIP_EXTENT (v=0, tiny — see that const's
-##     comment) to CONE_BASE_EXTENT (v=1, the cone's widening body).
+##     comment) to CONE_BASE_EXTENT, reaching it by CONE_WIDTH_GROWTH_END
+##     (well before the length fade starts, so the shape is at full width
+##     while still solidly opaque — see that const's comment) and holding
+##     there for the remaining length.
 ## For each column (u = 0 at center, 1 at the rectangle's own edge):
 ##   - width_falloff is ONE smoothstep spanning u=0 (the centerline
 ##     itself) to `extent` — not a separate "solid core then edge fade."
@@ -234,7 +251,7 @@ static func _get_shared_texture() -> ImageTexture:
 	for y: int in range(TEX_HEIGHT):
 		var v: float = float(y) / float(TEX_HEIGHT - 1)
 		var length_falloff: float = 1.0 - smoothstep(LENGTH_FADE_START, 1.0, v)
-		var extent: float = lerp(CONE_TIP_EXTENT, CONE_BASE_EXTENT, smoothstep(0.0, 1.0, v))
+		var extent: float = lerp(CONE_TIP_EXTENT, CONE_BASE_EXTENT, smoothstep(0.0, CONE_WIDTH_GROWTH_END, v))
 		for x: int in range(TEX_WIDTH):
 			var u: float = absf((float(x) / float(TEX_WIDTH - 1)) * 2.0 - 1.0)
 			var width_falloff: float = 1.0 - smoothstep(0.0, extent, u)

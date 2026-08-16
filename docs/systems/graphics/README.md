@@ -429,6 +429,15 @@ directly from two independently-scaled direction vectors (forward and its
 90°-rotated perpendicular), removing any step where an axis mix-up could
 occur.
 
+**Aug 2026 fix v5 (too thin):** the true-cone fix (v3) spread width growth
+across the entire shape length, reaching full width only at the far tip —
+exactly where the length fade had already made it nearly invisible. The
+still-opaque portion never read as wide as the character. Fixed by
+decoupling width growth from length-fade timing (CONE_WIDTH_GROWTH_END) —
+width now reaches its max well before the fade starts, so the visible part
+of the shadow is actually at full width, not still growing into it as it
+disappears.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes
