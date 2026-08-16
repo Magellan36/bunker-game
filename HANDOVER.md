@@ -1,3 +1,52 @@
+# Handover — Shadow Width/Opacity Decoupling Fix (Aug 2026)
+
+## What changed this session
+Root-caused why the character shadow read as wide/blocky near two lights
+and narrow near one, even in open floor space with nothing clipping the
+raycast: the opacity multiplier (driven by aggregate light weight) was
+being applied across the whole soft gradient, which shifts how far out the
+visible edge of a fade appears — higher weight (more lights) makes more of
+the fade stay above the visibility threshold (reads wider), lower weight
+does the opposite (reads narrower). Same shape, different apparent size,
+purely a side effect of how opacity interacted with a gradual fade.
+
+Fixed by tightening the edge transition specifically near the character
+(a much crisper falloff there vs. the far tail, which stays soft/
+atmospheric) so the visible boundary is far less sensitive to the weight
+multiplier. Also added per-character width calibration — the shadow's
+near width now matches each character's own actual CapsuleShape3D.radius
+(Player and NPC are different sizes) instead of a single guessed constant
+used for both. A brief ease-in was added at the very tip to soften the
+near cap's start, though a fully round/radial cap was deliberately not
+attempted — flagged as a larger, separate rewrite if still needed after
+this pass.
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — split edge softness into near/
+  far, added tip ease-in, added per-character width-scale calibration
+  (`_compute_character_dimensions()` replaces `_compute_floor_offset()`),
+  applied width scale in `_process()`.
+- `docs/systems/graphics/README.md` — fix v2 note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Stand near two lights at roughly ±45° from facing, in open floor space
+   (no obstruction) — shadow should no longer look noticeably
+   wider/blockier than the single-light case.
+3. Stand facing a single light directly — shadow should no longer look
+   noticeably narrower than the two-light case; both should read close to
+   the same physical width now.
+4. Confirm the near width visually matches the character's own footprint
+   — not clearly wider or narrower than their model.
+5. Confirm an NPC's shadow is also correctly sized to ITS (smaller)
+   footprint, not the player's.
+6. The far end can still flare out somewhat (per your confirmation that's
+   fine) — check it doesn't look zeroed-out or oddly cut off now.
+7. Near cap should read at least somewhat rounder than before, though not
+   a perfect circle — if it's still clearly a flat line, that's the
+   flagged limitation (no true radial cap this round), not a regression.
+
 # Handover — Research UI Redesign: Tiered Upgrades + Node Tree (Aug 2026)
 
 ## What changed this session

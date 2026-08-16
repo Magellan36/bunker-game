@@ -389,6 +389,22 @@ core right at the character's feet, widening into a soft cone tail, fully
 soft-edged in every direction. The mesh itself simplified to a plain
 UV-mapped rectangle — all shape/softness logic now lives in the texture.
 
+**Aug 2026 fix v2 (width-opacity decoupling):** the shadow's width was
+getting visually distorted by its own opacity — multiplying a soft
+gradient's fade by a bigger weight (more nearby lights) makes more of that
+fade stay visible, so the apparent edge sits farther out (reads wider);
+a smaller weight (one light) does the opposite (reads narrower). Same
+underlying shape, different APPARENT size, purely from the opacity
+multiplier. Fixed by tightening the edge transition close to the
+character (EDGE_SOFTNESS_NEAR, much crisper than the far tail) so the
+visible boundary there is far less sensitive to the weight multiplier.
+Also: near-width now calibrated per-character from their actual
+CapsuleShape3D.radius (Player/NPC differ) instead of one guessed constant
+for both, via a new _shadow_width_scale applied to the mesh's X scale in
+_process(). A brief tip ease-in was added to soften the near cap's start,
+though a true circular/radial cap was deliberately not attempted this
+round (flagged as a bigger, riskier rewrite for later if still needed).
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes

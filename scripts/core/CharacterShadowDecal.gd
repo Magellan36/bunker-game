@@ -19,6 +19,17 @@ class_name CharacterShadowDecal
 ##
 ## Instantiated dynamically by Player._ready()/NPC._ready(), same pattern
 ## as everything else in this file family — never needs a .tscn edit.
+##
+## Aug 2026 fix v2 (width/opacity decoupling): the shadow's apparent width
+## used to be distorted by its own opacity — _process() multiplies the
+## whole soft gradient by the aggregate light weight, and a bigger
+## multiplier keeps more of the fade above the visibility threshold, so
+## the visible edge sits farther out (reads wider) with more lights and
+## closer in (reads narrower) with fewer, even in open floor space. Fixed
+## by tightening the edge transition near the character
+## (EDGE_SOFTNESS_NEAR) so that boundary is far less sensitive to the
+## weight multiplier, and calibrating near width per-character from their
+## actual CapsuleShape3D.radius (_shadow_width_scale).
 
 ## Fixed target length for the un-clipped shadow — same "art-directed, not
 ## derived from real light distance" philosophy as the old proxy's
@@ -51,11 +62,26 @@ const RECT_WIDTH: float = 2.0
 ## units — this is what makes every edge a gradient instead of a cutoff.
 const NEAR_WIDTH_FRAC: float = 0.35
 const FAR_WIDTH_FRAC:  float = 0.9
-const EDGE_SOFTNESS:   float = 0.35
+## Aug 2026 fix v2 — split into near/far instead of one flat value. A
+## wide, gradual edge transition is exactly what let the weight-driven
+## opacity multiplier (see _process()) shift the APPARENT edge position so
+## much between "1 light" and "2 lights" — see this file's top-level
+## comment update / the plan doc for the full mechanism. Tightening the
+## transition specifically near the character makes the visible boundary
+## far less sensitive to that multiplier, without touching the far tail
+## (which can stay soft/atmospheric — that part was never the complaint).
+const EDGE_SOFTNESS_NEAR: float = 0.12
+const EDGE_SOFTNESS_FAR:  float = 0.30
 ## Where along the length the fade-to-nothing begins (0=at the character,
 ## 1=the far tip) — staying solid through roughly the first half, then
 ## easing out smoothly rather than an abrupt cut at the raycast-clipped end.
 const LENGTH_FADE_START: float = 0.5
+## Aug 2026 fix v2 — new. A very brief ramp-up right at the very tip
+## (v=0..TIP_EASE_IN) instead of jumping straight to full intensity at
+## v=0 — softens the "hard line" complaint somewhat by avoiding an
+## instantaneous full-alpha start, without attempting a full 2D radial/
+## circular cap (a bigger, riskier rewrite, not done this round).
+const TIP_EASE_IN: float = 0.04
 
 const NEAR_ALPHA: float = 0.35   ## modest, soft tint — never a hard black shape, baked into the texture below
 const SHADOW_Y_OFFSET: float = 0.02   ## tiny lift above the floor to avoid z-fighting
@@ -84,6 +110,17 @@ var _current_weight: float    = 0.0
 ## distance. This is the fix for the shadow appearing at the character's
 ## midpoint instead of on the ground.
 var _floor_offset: float = 1.0
+## Aug 2026 fix v2 — new. Per-character horizontal scale applied to the
+## shared mesh's X axis (see _process()) so the shadow's NEAR width
+## physically matches THIS character's own footprint, computed once from
+## their real CapsuleShape3D.radius — Player (radius 0.5, Godot's
+## default) and NPC (radius 0.4, see scenes/npc/NPC.tscn) are different
+## sizes and previously got the exact same guessed width regardless. Math:
+## the texture's near-core reaches its edge at u=NEAR_WIDTH_FRAC (fraction
+## of RECT_WIDTH*0.5); solving for the X-scale that makes that edge land
+## exactly at this character's footprint radius gives
+## footprint_radius / (RECT_WIDTH * 0.5 * NEAR_WIDTH_FRAC).
+var _shadow_width_scale: float = 1.0
 
 ## Shared across every instance — built once on first use, not per
 ## character. See _get_shared_mesh()/_get_shared_texture().
@@ -92,23 +129,32 @@ static var _shared_texture: ImageTexture = null
 
 ## Called once by Player._ready()/NPC._ready() immediately after
 ## instantiation, before add_child() finishes running this node's own
-## _ready(). Stores the reference and computes the floor offset — see
-## _floor_offset above.
+## _ready(). Stores the reference and computes both per-character
+## dimensions — see _floor_offset/_shadow_width_scale above.
 func setup(owner_char: Node3D) -> void:
 	_owner_char = owner_char
-	_floor_offset = _compute_floor_offset(owner_char)
+	var dims: Dictionary = _compute_character_dimensions(owner_char)
+	_floor_offset = dims["floor_offset"]
+	_shadow_width_scale = dims["width_scale"]
 
-## Reads the character's own CapsuleShape3D height rather than hardcoding
-## a constant — see _floor_offset's comment for why. Falls back to 1.0
-## (Player's default) if the shape can't be found/isn't a capsule, so a
-## structural change elsewhere degrades gracefully instead of erroring.
-func _compute_floor_offset(owner_char: Node3D) -> float:
+## Reads the character's own CapsuleShape3D (height AND radius) rather
+## than hardcoding constants — see _floor_offset's and
+## _shadow_width_scale's comments for why. Falls back to Player's own
+## defaults (height 2.0, radius 0.5) if the shape can't be found/isn't a
+## capsule, so a structural change elsewhere degrades gracefully instead
+## of erroring. Combined into one function (was two separate lookups) to
+## avoid querying the same CollisionShape3D twice.
+func _compute_character_dimensions(owner_char: Node3D) -> Dictionary:
 	var collision_node: Node = owner_char.get_node_or_null("CollisionShape3D")
 	if collision_node is CollisionShape3D:
 		var shape: Shape3D = (collision_node as CollisionShape3D).shape
 		if shape is CapsuleShape3D:
-			return (shape as CapsuleShape3D).height * 0.5
-	return 1.0
+			var capsule: CapsuleShape3D = shape as CapsuleShape3D
+			return {
+				"floor_offset": capsule.height * 0.5,
+				"width_scale": capsule.radius / (RECT_WIDTH * 0.5 * NEAR_WIDTH_FRAC),
+			}
+	return {"floor_offset": 1.0, "width_scale": 0.5 / (RECT_WIDTH * 0.5 * NEAR_WIDTH_FRAC)}
 
 func _ready() -> void:
 	_mesh_instance = MeshInstance3D.new()
@@ -194,11 +240,18 @@ static func _get_shared_texture() -> ImageTexture:
 	var img: Image = Image.create(TEX_WIDTH, TEX_HEIGHT, false, Image.FORMAT_RGBA8)
 	for y: int in range(TEX_HEIGHT):
 		var v: float = float(y) / float(TEX_HEIGHT - 1)
-		var length_falloff: float = 1.0 - smoothstep(LENGTH_FADE_START, 1.0, v)
+		## Aug 2026 fix v2 — multiplied by a brief tip ease-in (see
+		## TIP_EASE_IN above) so the very start isn't an instant jump to
+		## full alpha.
+		var length_falloff: float = (1.0 - smoothstep(LENGTH_FADE_START, 1.0, v)) * smoothstep(0.0, TIP_EASE_IN, v)
 		var half_width_frac: float = lerp(NEAR_WIDTH_FRAC, FAR_WIDTH_FRAC, smoothstep(0.0, 1.0, v))
+		## Aug 2026 fix v2 — edge softness now varies with v (tight near
+		## the character, soft toward the far tip) instead of one flat
+		## value — see EDGE_SOFTNESS_NEAR/FAR above for why.
+		var edge_softness: float = lerp(EDGE_SOFTNESS_NEAR, EDGE_SOFTNESS_FAR, smoothstep(0.0, 1.0, v))
 		for x: int in range(TEX_WIDTH):
 			var u: float = absf((float(x) / float(TEX_WIDTH - 1)) * 2.0 - 1.0)
-			var width_falloff: float = 1.0 - smoothstep(half_width_frac - EDGE_SOFTNESS, half_width_frac, u)
+			var width_falloff: float = 1.0 - smoothstep(half_width_frac - edge_softness, half_width_frac, u)
 			var a: float = clamp(length_falloff * width_falloff, 0.0, 1.0) * NEAR_ALPHA
 			img.set_pixel(x, y, Color(0.0, 0.0, 0.0, a))
 	_shared_texture = ImageTexture.create_from_image(img)
@@ -280,7 +333,10 @@ func _process(delta: float) -> void:
 	## VERIFY IN-EDITOR: if the shadow points toward the light instead of
 	## away from it, negate _current_dir here or add PI to yaw.
 	var yaw: float = atan2(_current_dir.x, _current_dir.z)
-	var basis: Basis = Basis(Vector3.UP, yaw).scaled(Vector3(1.0, 1.0, actual_length))
+	## Aug 2026 fix v2 — X scale is now _shadow_width_scale (per-character,
+	## computed once in setup() from their actual footprint) instead of a
+	## flat 1.0 for everyone — see that var's comment above.
+	var basis: Basis = Basis(Vector3.UP, yaw).scaled(Vector3(_shadow_width_scale, 1.0, actual_length))
 	## char_pos is the character's own origin (capsule center, NOT the
 	## floor) — subtract _floor_offset to place the shadow at actual
 	## ground level instead of the character's midpoint.
