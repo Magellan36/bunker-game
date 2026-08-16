@@ -109,6 +109,9 @@ func _ready() -> void:
 		{ "name": "ECONOMY", "rows": [
 			["+ $%s Cash" % _format_thousands(ADMIN_CASH_STEP), _on_add_cash_pressed],
 		]},
+		{ "name": "RESEARCH", "rows": [
+			["+10 Each Material Type", _on_add_research_materials_pressed],
+		]},
 	{ "name": "FARMING", "rows": [
 		["Spawn Potato", _on_spawn_potato_pressed],
 		["Spawn Blueberry", _on_spawn_blueberry_pressed],
@@ -401,6 +404,9 @@ func _get_player_stats() -> PlayerStats:
 
 func _get_water_manager() -> WaterManager:
 	return get_tree().get_first_node_in_group("water_manager") as WaterManager
+
+func _get_research_station() -> ResearchStation:
+	return get_tree().get_first_node_in_group("research_station") as ResearchStation
 
 func _get_status_effects() -> StatusEffectsContainer:
 	var hud: Node = get_tree().get_first_node_in_group("hud")
@@ -739,6 +745,17 @@ func _on_hookup_output_double_pressed() -> void:
 		push_warning("[AdminMenu] hookup already at max tier (%d) — output unchanged" % max_tier)
 		return
 	hookup.tier += 1
+
+## Debug-only — clamped at the same STORAGE_CAP everything else respects.
+## Per direction, exceptions/bypasses to the cap may be added later; this
+## pass applies the cap uniformly, including here.
+func _on_add_research_materials_pressed() -> void:
+	var station: ResearchStation = _get_research_station()
+	if station == null:
+		push_warning("[AdminMenu] research station not found — material cheat skipped")
+		return
+	for material: String in ResearchStation.MATERIAL_TYPES:
+		station.add_material(material, 10)
 
 ## Shared spawner for the three FARMING rows. Mirrors
 ## FarmingShopHelper.spawn_purchased_item()'s positioning exactly (player

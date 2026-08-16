@@ -1,3 +1,85 @@
+# Handover — Generic Upgrade System + First Real Upgrade (2x Water Output) (Aug 2026)
+
+## What changed this session
+Turned the placeholder Research Station shell into a real, working upgrade
+system end-to-end, with the first non-placeholder upgrade (2x water
+output).
+
+**Generic data model:** `UpgradeDef.gd` is now the real base class
+(Resource) — shared data fields (`id`/`display_name`/`tree`/
+`duration_seconds`/`material_costs`, keys matching `get_trash_material()`
+return values) plus a virtual `apply_effect()` each subclass overrides.
+New upgrades = tiny subclass + `.tres` resource; runtime/UI code has zero
+per-upgrade special-casing. First real upgrade:
+`WaterOutput2xUpgrade.gd` + `res://data/upgrades/bunker_water_output_2x.tres`
+(`{"metal": 5, "plastic": 5}`, 10s, bunker tree) — effect copied verbatim
+from the existing working F7 debug doubler (`_on_hookup_output_double_pressed`,
+tier + 1 clamped at `WaterHookup.TIER_DAILY_ML` top).
+
+**Material storage:** `ResearchStation` holds `stored_materials`
+(metal/plastic/paper/organic), each capped at `STORAGE_CAP = 10`.
+`add_material()` clamps + returns actual added. No deposit/remove logic yet
+(reservoir mechanic deferred).
+
+**Incremental consumption model (per the "60% complete = 3/5 used"
+example):** nothing deducted at click-time — `start_research()` is a
+pure eligibility check (nothing else running, not completed, enough
+materials). `_process()` drains storage in floor()-quantized steps as
+elapsed advances, so the station's stored count visibly ticks down over
+the research. `completed_upgrade_ids` lives on the station (NOT the shared
+Resource — a correctness footgun). `_complete_research()` calls
+`apply_effect()` + posts a `NotificationManager` toast.
+
+**UI:** `ResearchStationUI` Bunker tab now builds real data-driven upgrade
+buttons (`_build_upgrade_button()`, one reusable routine): title, static
+cost line, ProgressBar, time-left/to-completion label, disabled/greyed
+when not affordable, "COMPLETED" banner overlay, click → `start_research()`
+with a "Already researching something else" toast on refusal. Persistent
+materials header spans all 3 tabs, refreshed on open + a repeating
+in-panel timer (background drain runs regardless of tab).
+
+**F7 debug:** new `RESEARCH` section — `+10 Each Material Type` via
+`_get_research_station()` → `add_material()`, clamped at the same cap.
+`ResearchStation` joins the `"research_station"` group for this lookup.
+
+### Design decisions / deferred (explicit, not forgotten)
+- **Incremental vs upfront deduction** — went with your incremental example
+  exactly; the double-spend edge case only becomes real with concurrency
+  or pause/reallocate (neither exists yet — one active research globally).
+- **Pause** — deferred; incremental model already stores `_elapsed`/
+  `_consumed`, so pause is later just UI + a "stop advancing time" flag.
+- **Reservoir/dump-trash-into-station** — not this pass; `add_material()`
+  is ready for whatever it becomes.
+- **Multi-concurrent research** — `start_research()` rejects a second
+  research globally. Revisit once Player Skills/NPC Skills have upgrades.
+- **Storage-cap bypass** — flat 10 everywhere this pass.
+
+### Files modified
+- `scripts/core/UpgradeDef.gd` — stub → real base class.
+- `scripts/core/upgrades/WaterOutput2xUpgrade.gd` — new subclass.
+- `data/upgrades/bunker_water_output_2x.tres` — new resource.
+- `scripts/world/furniture/ResearchStation.gd` — storage, active state,
+  `_process()` incremental tick, `_complete_research()`, `"research_station"` group.
+- `scripts/ui/research/ResearchStationUI.gd` — data-driven buttons,
+  materials header, in-panel refresh timer, real content.
+- `scripts/ui/menus/AdminMenu.gd` — RESEARCH section + handler.
+- `docs/systems/research/README.md`, `HANDOVER.md` — this entry.
+
+### Verification checklist (Brannon, in-editor)
+1. With 0 stored materials, the "2x Water Output" button is greyed/
+   disabled, cost reads "5x Plastic, 5x Metal".
+2. F7 → RESEARCH → "+10 Each Material Type" — header across all 3 tabs
+   shows 10/10 for all four materials; capped (no overflow on repeat).
+3. Start research — progress bar fills, "Time left" counts down from 10s.
+   Close UI, wait ~6s, reopen — ~60% progress, ~7/10 plastic + 7/10 metal
+   in the header (background ticking + incremental drain both work).
+4. Completion — toast "2x Water Output research completed"; "COMPLETED"
+   banner sticks; Water Hookup output doubled (indistinguishable from the
+   F7 debug doubler).
+5. Re-clicking a completed button does nothing.
+6. Double-start guard — `start_research()` refuses a second research
+   (button path shows the "already researching something else" toast).
+
 # Handover — Revert Aggregated Character Shadows → Cone Shadow Decal (Aug 2026)
 
 ## What changed this session

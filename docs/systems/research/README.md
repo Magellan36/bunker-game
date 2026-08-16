@@ -57,22 +57,89 @@ wiring summary and the inherited save-position limitation.
 ## UI shell status (this pass)
 
 `ResearchStationUI` — modal chrome (StorageUI/WaterInfoUI conventions),
-**3 selectable tabs** (Bunker Upgrades / Player Skills / NPC Skills), each
-with its own separate (empty) progress-state stub. **No buttons, no
-timers, no feed logic yet** — next pass. `InteractionSystem.research_ui`
-gates E/F while open (same as shelf/basket).
+**3 selectable tabs** (Bunker Upgrades / Player Skills / NPC Skills). The
+Bunker tab now shows real upgrade buttons (data-driven off the tree's
+`UpgradeDef` list); Player Skills / NPC Skills stay empty/placeholder this
+pass. A persistent materials header spans all three tabs
+(`Metal: 0/10  Plastic: 0/10  ...`), refreshed on open and on a repeating
+timer while the panel is open (background drain keeps running regardless
+of which tab is showing). `InteractionSystem.research_ui` gates E/F while
+open (same as shelf/basket).
 
-## UpgradeDef (stub)
+## Upgrade system architecture (Aug 2026)
 
-`scripts/core/UpgradeDef.gd` — the data shape for a single upgrade
-(`id`, `display_name`, `tree`, `duration_seconds`, `material_costs` — keys
-match `get_trash_material()` return values, `completed`). NOT instantiated
-anywhere yet; expect it to grow.
+### Data model — `UpgradeDef` base + tiny subclasses
+
+`scripts/core/UpgradeDef.gd` (extends `Resource`) holds the shared data
+fields (`id`, `display_name`, `tree` — "bunker"/"player_skills"/
+"npc_skills", `duration_seconds`, `material_costs` whose keys match
+`get_trash_material()`'s return values). The EFFECT is a virtual
+`apply_effect()` each subclass overrides. "Mass-producible": a new upgrade
+is a tiny subclass + a `.tres` resource instance under
+`res://data/upgrades/` — the runtime/UI code has zero per-upgrade
+special-casing.
+
+- `scripts/core/upgrades/WaterOutput2xUpgrade.gd` — the first real
+  upgrade; `apply_effect()` copies `AdminMenu._on_hookup_output_double_pressed()`
+  verbatim (tier + 1, clamped at `WaterHookup.TIER_DAILY_ML` top).
+  Resource: `res://data/upgrades/bunker_water_output_2x.tres`
+  (`{"metal": 5, "plastic": 5}`, 10s, tree "bunker").
+- Resources have no SceneTree of their own, so `apply_effect()` gets the
+  running tree injected via `set_tree_ref()` right before being called.
+
+### Material storage — `ResearchStation.gd`
+
+`stored_materials: Dictionary` per the four `MATERIAL_TYPES`
+(`{"metal": 0, "plastic": 0, "paper": 0, "organic": 0}`), each capped at
+`STORAGE_CAP = 10`. `add_material(material, amount)` clamps at the cap and
+returns the actual amount added. **No `remove_material` or
+deposit-trash-into-station logic yet** — the reservoir/dump mechanic is
+explicitly deferred; this storage math is ready to be called by whatever
+it becomes.
+
+### Incremental consumption model (matches "60% done = 3/5 used")
+
+Nothing is deducted at click-time; `start_research()` only checks
+eligibility (nothing else running, not already completed, enough materials
+to start) and returns false otherwise. `_process()` then drains storage in
+small floor()-quantized steps as `elapsed` advances, so at 60% completion
+a `{"plastic": 5, "metal": 5}` research has consumed exactly 3 of each —
+the station's stored count visibly ticks down. `completed_upgrade_ids` on
+the station (NOT on the shared Resource, which would be a correctness
+footgun) is the source of truth for "already done"; `_complete_research()`
+fires `apply_effect()`, clears state, and posts a toast via
+`NotificationManager`.
+
+### The station joins the `"research_station"` group
+
+One line in `_ready()` — this is how `AdminMenu` (F7) and future code find
+the singleton.
+
+### F7 debug — `AdminMenu.gd`
+
+New `RESEARCH` section with one row, `"+10 Each Material Type"`, calling
+`_on_add_research_materials_pressed()` — clamped at the same `STORAGE_CAP`
+as everything else (uniform cap this pass; bypasses deferred).
+
+## Deferred (explicitly out of scope this pass)
+
+- **Pause/resume UI + material reallocation on pause** — deferred; the
+  incremental model already stores everything pause would need
+  (`_elapsed`, `_consumed`) without rearchitecture.
+- **Reservoir/dump-trash-into-station mechanic** — not this pass;
+  `add_material()` is ready to be called from whatever it turns out to be.
+- **Multi-concurrent research** — `start_research()` rejects a second
+  research while one is active, globally (not per-tree). Revisit once
+  Player Skills / NPC Skills have actual upgrades. The double-spend edge
+  case only becomes real with concurrency or pause/reallocate — neither
+  exists yet, so reservation-locking is deliberately not built.
+- **Storage-cap upgrade/bypass exceptions** — flat 10 this pass.
+- **Player Skills / NPC Skills tab content** — empty/placeholder.
 
 ## Next-pass roadmap (explicitly deferred)
 
-- Actual upgrade definitions, buttons, timers, progress UI.
-- Feed/consumption logic (spending trash material on an upgrade).
+- Player Skills / NPC Skills upgrade definitions + buttons (add a `.tres`
+  + tiny subclass to `_tree_upgrades`).
 - `SeedItem`'s material category (pending your input).
 - `BagOfSoilItem` threshold confirmation (strict-full vs any-charge).
 - True room-center verification for both singleton stations (visual check).

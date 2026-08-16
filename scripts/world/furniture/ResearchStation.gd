@@ -10,10 +10,29 @@ class_name ResearchStation
 
 var _research_ui: Node = null   ## Injected by MainWorld at spawn time, same pattern as BuildStation's _main_world
 
+const MATERIAL_TYPES: Array[String] = ["metal", "plastic", "paper", "organic"]
+const STORAGE_CAP: int = 10   ## Final-version cap, upgradeable later via this same menu — wired now per direction, not a placeholder.
+
+var stored_materials: Dictionary = {"metal": 0, "plastic": 0, "paper": 0, "organic": 0}
+
+## Exactly one research can be active at a time, globally, this pass — see
+## the design note at the top of this plan for why multi-concurrent/pause
+## isn't built yet and what it'll need when it is.
+var active_upgrade: UpgradeDef   = null
+var _elapsed: float              = 0.0
+var _consumed: Dictionary        = {}   ## material -> amount already drained from stored_materials for the active research
+
+## Persisted per-station, NOT on the UpgradeDef resource itself (Resources
+## can be shared/reloaded refs — mutating a "completed" bool directly on one
+## would be a correctness footgun). This is the real source of truth for
+## "has this upgrade been done."
+var completed_upgrade_ids: Array[String] = []
+
 func _ready() -> void:
 	collision_layer = 5
 	collision_mask  = 0
 	add_to_group("interactable")
+	add_to_group("research_station")
 	_build_mesh()
 
 func get_interact_prompt() -> String:
@@ -25,6 +44,85 @@ func on_interact() -> void:
 
 func get_prompt_world_pos() -> Vector3:
 	return global_position + Vector3(0.0, 1.1, 0.0)
+
+## Adds amount of a material, clamped at STORAGE_CAP. Returns the actual
+## amount added (may be less than requested if the cap was hit) — callers
+## that care (e.g. a future toast for "storage full, X wasted") can use this;
+## the F7 debug button (Part 5) doesn't need to.
+func add_material(material: String, amount: int) -> int:
+	if not stored_materials.has(material):
+		return 0
+	var before: int = stored_materials[material]
+	stored_materials[material] = clampi(before + amount, 0, STORAGE_CAP)
+	return stored_materials[material] - before
+
+## Not built this pass — deliberately no "remove_material" or "deposit trash
+## into reservoir" logic at all. Storage math above is self-contained and
+## ready to be called from whatever the future reservoir/dump feature turns
+## out to be; nothing here assumes how materials arrive.
+
+## Attempts to begin researching an upgrade. Returns false (leaving state
+## untouched) if another research is already running, the upgrade is already
+## completed, or the station doesn't currently hold enough of each required
+## material. Nothing is deducted at click-time — eligibility is just a check;
+## the pool drains incrementally in _process() as elapsed time advances (see
+## the design note at the top of the plan).
+func start_research(upgrade: UpgradeDef) -> bool:
+	if active_upgrade != null:
+		return false   ## something else already running — see design note
+	if completed_upgrade_ids.has(upgrade.id):
+		return false
+	for material: String in upgrade.material_costs.keys():
+		if stored_materials.get(material, 0) < upgrade.material_costs[material]:
+			return false   ## not enough — button should already be greyed out, this is the authoritative re-check
+	active_upgrade = upgrade
+	_elapsed   = 0.0
+	_consumed  = {}
+	for material: String in upgrade.material_costs.keys():
+		_consumed[material] = 0
+	return true
+
+func _process(delta: float) -> void:
+	if active_upgrade == null:
+		return   ## (existing _build_mesh()-only _ready() is untouched; this is a new function)
+
+	_elapsed += delta
+	var progress: float = clampf(_elapsed / active_upgrade.duration_seconds, 0.0, 1.0)
+
+	## Incremental drain — only the DELTA since last tick leaves storage,
+	## matching the "60% done = 3/5 used" example exactly. floor() keeps
+	## consumption monotonic and never overshoots before completion; the
+	## final tick snaps to the exact full cost rather than trusting
+	## floor(cost * 1.0) to land exactly on cost (it does, but this is
+	## explicit and immune to float rounding at the boundary).
+	for material: String in active_upgrade.material_costs.keys():
+		var cost: int    = active_upgrade.material_costs[material]
+		var target: int  = cost if progress >= 1.0 else int(floor(cost * progress))
+		var step: int    = target - _consumed[material]
+		if step > 0:
+			stored_materials[material] = maxi(0, stored_materials[material] - step)
+			_consumed[material] = target
+
+	if progress >= 1.0:
+		_complete_research()
+
+func _complete_research() -> void:
+	var finished: UpgradeDef = active_upgrade
+	completed_upgrade_ids.append(finished.id)
+	active_upgrade = null
+	_elapsed  = 0.0
+	_consumed = {}
+
+	if finished.has_method("set_tree_ref"):
+		finished.set_tree_ref(get_tree())
+	finished.apply_effect()
+
+	## Toast per direction — established system, not the old warning label.
+	NotificationManager.notify(
+		UIKit.Domain.NEUTRAL,
+		NotificationManager.Severity.INFO,
+		"%s research completed" % finished.display_name
+	)
 
 # ─── Basic model — filled rectangle base + beakers/flasks, grey/steel to match Table/Chair ──
 func _build_mesh() -> void:

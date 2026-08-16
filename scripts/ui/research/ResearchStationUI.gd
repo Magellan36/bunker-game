@@ -40,6 +40,16 @@ const COLOR_ACCENT:  Color = Color(0.40, 0.75, 0.55, 1.00)   ## research-teal do
 
 var is_open: bool = false
 var _active_tree: String = "bunker"
+var _current_station: ResearchStation = null
+
+## List of UpgradeDefs per tree — this pass, "bunker" has exactly one entry
+## (the water output resource from Part 1); the other two trees stay empty,
+## matching last pass's placeholder-content state for those tabs.
+var _tree_upgrades: Dictionary = {
+	"bunker":        [preload("res://data/upgrades/bunker_water_output_2x.tres")],
+	"player_skills": [],
+	"npc_skills":    [],
+}
 
 ## Per-tree state, kept SEPARATE per your requirement ("separate tabs/trees
 ## with separate individual progress") — placeholder/empty this pass, real
@@ -53,10 +63,18 @@ var _tree_state: Dictionary = {
 var _root: Control = null
 var _panel: Panel = null
 var _title: Label = null
-var _content: Label = null
+var _content_box: Control = null
+var _materials_label: Label = null
 var _tab_buttons: Dictionary = {}   ## tree_id -> Button
 var _close_btn: Button = null
 var _font: Font = null
+
+## While the panel is open, a short repeating timer refreshes progress bars /
+## time-left labels / the persistent materials header (materials drain in the
+## background even while a DIFFERENT tab than Bunker is selected, since the
+## research keeps running regardless of which tab is showing).
+var _refresh_timer: float = 0.0
+const REFRESH_INTERVAL: float = 0.25
 
 func _ready() -> void:
 	layer   = 60
@@ -135,14 +153,18 @@ func _build_root() -> void:
 		_panel.add_child(btn)
 		_tab_buttons[tree_id] = btn
 
-	_content = Label.new()
-	_content.add_theme_font_override("font", _font)
-	_content.add_theme_font_size_override("font_size", 13)
-	_content.add_theme_color_override("font_color", COLOR_TEXT)
-	_content.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_content.position = Vector2(16.0, 108.0)
-	_content.size = Vector2(PANEL_W - 32.0, PANEL_H - 124.0)
-	_panel.add_child(_content)
+	_materials_label = Label.new()
+	_materials_label.add_theme_font_override("font", _font)
+	_materials_label.add_theme_font_size_override("font_size", 12)
+	_materials_label.add_theme_color_override("font_color", COLOR_TEXT)
+	_materials_label.position = Vector2(16.0, 104.0)
+	_materials_label.size = Vector2(PANEL_W - 32.0, 20.0)
+	_panel.add_child(_materials_label)
+
+	_content_box = Control.new()
+	_content_box.position = Vector2(16.0, 130.0)
+	_content_box.size = Vector2(PANEL_W - 32.0, PANEL_H - 140.0)
+	_panel.add_child(_content_box)
 
 	_apply_tab_styles()
 	_refresh_content()
@@ -170,19 +192,35 @@ func _apply_tab_styles() -> void:
 		if btn != null:
 			_style_tab(btn, tree_id == _active_tree)
 
-func open(_station: Node) -> void:
+func open(station: Node) -> void:
 	is_open = true
+	_current_station = station as ResearchStation
 	visible = true
-	set_process(false)
+	set_process(true)
+	_refresh_timer = 0.0
 	_center_panel()
 	_apply_tab_styles()
+	_refresh_materials_header()
 	_refresh_content()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 func close() -> void:
 	is_open = false
+	_current_station = null
 	visible = false
+	set_process(false)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _process(delta: float) -> void:
+	if not is_open:
+		return
+	## Background drain keeps running regardless of which tab is showing, so
+	## refresh on a short repeating timer while open (see REFRESH_INTERVAL).
+	_refresh_timer += delta
+	if _refresh_timer >= REFRESH_INTERVAL:
+		_refresh_timer = 0.0
+		_refresh_materials_header()
+		_refresh_content()
 
 func _select_tree(tree_id: String) -> void:
 	if not TREES.has(tree_id):
@@ -191,11 +229,168 @@ func _select_tree(tree_id: String) -> void:
 	_apply_tab_styles()
 	_refresh_content()
 
+## One label/icon per MATERIAL_TYPES entry: "Metal: 3/10" etc., always
+## visible regardless of _active_tree — built once, refreshed every time the
+## panel opens and on the repeating timer while open.
+func _refresh_materials_header() -> void:
+	var station: ResearchStation = _current_station
+	if station == null:
+		_materials_label.text = ""
+		return
+	var parts: Array[String] = []
+	for material: String in ResearchStation.MATERIAL_TYPES:
+		parts.append("%s: %d/%d" % [material.capitalize(), station.stored_materials.get(material, 0), ResearchStation.STORAGE_CAP])
+	_materials_label.text = "  ".join(parts)
+
+func _clear_content() -> void:
+	for child: Node in _content_box.get_children():
+		_content_box.remove_child(child)
+		child.queue_free()
+
+## Builds one button widget for a single upgrade — the ONLY place any
+## upgrade-specific rendering logic lives, and it's entirely data-driven off
+## the UpgradeDef passed in, never the upgrade's specific id/type. Returns a
+## self-contained Control the caller positions into _content_box.
+func _build_upgrade_button(upgrade: UpgradeDef, station: ResearchStation) -> Control:
+	## Cost line — simple, static, no dynamic "missing amount" math per
+	## direction ("just simple, no dynamic messaging needed").
+	var cost_parts: Array[String] = []
+	for material: String in upgrade.material_costs.keys():
+		cost_parts.append("%dx %s" % [upgrade.material_costs[material], material.capitalize()])
+	var cost_text: String = ", ".join(cost_parts)
+
+	var is_completed: bool = station.completed_upgrade_ids.has(upgrade.id)
+	var is_active: bool    = station.active_upgrade == upgrade
+	var can_afford: bool   = true
+	for material: String in upgrade.material_costs.keys():
+		if station.stored_materials.get(material, 0) < upgrade.material_costs[material]:
+			can_afford = false
+			break
+
+	var root: Control = Control.new()
+	root.custom_minimum_size = Vector2(_content_box.size.x, 92.0)
+	root.size = Vector2(_content_box.size.x, 92.0)
+
+	var box: PanelContainer = PanelContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_STOP
+	var ss: StyleBoxFlat = StyleBoxFlat.new()
+	ss.bg_color = Color(0.10, 0.10, 0.12, 0.95)
+	ss.border_color = COLOR_BORDER
+	ss.set_border_width_all(1)
+	ss.set_corner_radius_all(4)
+	box.add_theme_stylebox_override("panel", ss)
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(box)
+
+	var v: VBoxContainer = VBoxContainer.new()
+	v.add_theme_constant_override("separation", 3)
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.offset_left   = 10.0
+	v.offset_top    = 8.0
+	v.offset_right  = -10.0
+	v.offset_bottom = -8.0
+	box.add_child(v)
+
+	var name_lbl: Label = Label.new()
+	name_lbl.text = upgrade.display_name
+	name_lbl.add_theme_font_override("font", _font)
+	name_lbl.add_theme_font_size_override("font_size", 13)
+	name_lbl.add_theme_color_override("font_color", COLOR_TITLE)
+	v.add_child(name_lbl)
+
+	var cost_lbl: Label = Label.new()
+	cost_lbl.text = "Cost: %s" % cost_text
+	cost_lbl.add_theme_font_override("font", _font)
+	cost_lbl.add_theme_font_size_override("font_size", 11)
+	cost_lbl.add_theme_color_override("font_color", COLOR_DIM)
+	v.add_child(cost_lbl)
+
+	var progress: ProgressBar = ProgressBar.new()
+	progress.min_value = 0.0
+	progress.max_value = 100.0
+	progress.show_percentage = false
+	progress.custom_minimum_size = Vector2(0.0, 12.0)
+	if is_active:
+		var frac: float = clampf(station._elapsed / upgrade.duration_seconds, 0.0, 1.0)
+		progress.value = frac * 100.0
+	else:
+		progress.value = 0.0
+	v.add_child(progress)
+
+	var time_lbl: Label = Label.new()
+	time_lbl.add_theme_font_override("font", _font)
+	time_lbl.add_theme_font_size_override("font_size", 11)
+	if is_active:
+		var remaining: int = ceili(maxf(upgrade.duration_seconds - station._elapsed, 0.0))
+		time_lbl.text = "Time left: %ds" % remaining
+		time_lbl.add_theme_color_override("font_color", COLOR_ACCENT)
+	else:
+		time_lbl.text = "Time to completion: %ds" % int(upgrade.duration_seconds)
+		time_lbl.add_theme_color_override("font_color", COLOR_DIM)
+	v.add_child(time_lbl)
+
+	var btn: Button = UIKit.make_button("Research", Callable())
+	btn.disabled = is_completed or is_active or not can_afford
+	btn.pressed.connect(func() -> void:
+		if is_completed or is_active or not can_afford:
+			return
+		if not station.start_research(upgrade):
+			NotificationManager.notify(
+				UIKit.Domain.NEUTRAL,
+				NotificationManager.Severity.WARNING,
+				"Already researching something else")
+		_refresh_content()
+	)
+	v.add_child(btn)
+
+	if is_completed:
+		## Horizontal "COMPLETED" banner overlaid on top, visible only when
+		## is_completed — per direction.
+		var banner: ColorRect = ColorRect.new()
+		banner.color = Color(0.0, 0.0, 0.0, 0.72)
+		banner.set_anchors_preset(Control.PRESET_FULL_RECT)
+		banner.mouse_filter = Control.MOUSE_FILTER_STOP
+		var banner_lbl: Label = Label.new()
+		banner_lbl.text = "COMPLETED"
+		banner_lbl.add_theme_font_override("font", _font)
+		banner_lbl.add_theme_font_size_override("font_size", 14)
+		banner_lbl.add_theme_color_override("font_color", COLOR_ACCENT)
+		banner_lbl.set_anchors_preset(Control.PRESET_CENTER)
+		banner.add_child(banner_lbl)
+		box.add_child(banner)
+
+	## Disabled/greyed (modulate dimmed) when NOT completed and NOT affordable
+	if not is_completed and not can_afford:
+		box.modulate = Color(0.55, 0.55, 0.55, 0.8)
+
+	return root
+
 func _refresh_content() -> void:
-	## Placeholder only this pass — real per-tree content (upgrade
-	## buttons/timers) is next pass's work.
-	var label: String = String(TREE_LABELS.get(_active_tree, _active_tree))
-	_content.text = "%s — upgrades coming in a later pass.\n\n(No feed/consumption logic yet; this shell proves the tab layout.)" % label
+	_clear_content()
+	_refresh_materials_header()
+	var station: ResearchStation = _current_station
+	if station == null:
+		return
+	var list: Array = _tree_upgrades.get(_active_tree, [])
+	if list.is_empty():
+		var lbl: Label = Label.new()
+		lbl.text = "%s — upgrades coming in a later pass.\n\n(No upgrades defined for this tree yet.)" % String(TREE_LABELS.get(_active_tree, _active_tree))
+		lbl.add_theme_font_override("font", _font)
+		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.add_theme_color_override("font_color", COLOR_DIM)
+		lbl.position = Vector2(0.0, 8.0)
+		lbl.size = _content_box.size
+		_content_box.add_child(lbl)
+		return
+	var y: float = 0.0
+	for upgrade_node: Variant in list:
+		var upgrade: UpgradeDef = upgrade_node as UpgradeDef
+		if upgrade == null:
+			continue
+		var widget: Control = _build_upgrade_button(upgrade, station)
+		widget.position = Vector2(0.0, y)
+		_content_box.add_child(widget)
+		y += widget.size.y + 8.0
 
 func _on_backdrop_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
