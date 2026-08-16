@@ -28,11 +28,39 @@ class_name CharacterShadowDecal
 const TARGET_LENGTH: float = 3.5
 const MIN_LENGTH:     float = 0.4   ## never shrink to a degenerate sliver right up against a wall
 
-const NEAR_WIDTH: float = 0.6   ## roughly the character's own footprint
-const FAR_WIDTH:  float = 1.8   ## wider at the far end — the actual "cone" shape
+## Aug 2026 fix — the shape used to be vertex-colored geometry (a 6-vertex
+## trapezoid), which only faded alpha along its LENGTH — the left/right
+## edges were a hard, unblended straight cut, which is exactly what read
+## as a "flat wall of shadow" instead of something soft sourced from the
+## character. Vertex-color gradients across a handful of straight
+## triangles can't give a genuinely soft, round falloff in every
+## direction — replaced with a small procedurally-generated alpha texture
+## (see _get_shared_texture()) mapped onto a plain rectangle, so the shape
+## itself carries a smooth gradient on all sides instead of relying on
+## mesh geometry for any part of the taper. RECT_WIDTH is just the
+## rectangle's bounding size — the texture's own alpha reaches 0 well
+## before this edge, so the rectangle's true silhouette is never visible.
+const RECT_WIDTH: float = 2.0
 
-const NEAR_ALPHA: float = 0.35   ## modest, soft tint — never a hard black shape
+## Texture-space shape controls (see _get_shared_texture()). NEAR_WIDTH_FRAC
+## keeps the shape's solid core tight/contained right at the character
+## (v=0) — this is the fix for "focal point needs to be more snugly
+## underneath the player" — widening only as it extends into the cone tail
+## toward FAR_WIDTH_FRAC. EDGE_SOFTNESS is the width of the soft fade zone
+## at the edge of that solid core, in the same 0(center)..1(rect edge)
+## units — this is what makes every edge a gradient instead of a cutoff.
+const NEAR_WIDTH_FRAC: float = 0.35
+const FAR_WIDTH_FRAC:  float = 0.9
+const EDGE_SOFTNESS:   float = 0.35
+## Where along the length the fade-to-nothing begins (0=at the character,
+## 1=the far tip) — staying solid through roughly the first half, then
+## easing out smoothly rather than an abrupt cut at the raycast-clipped end.
+const LENGTH_FADE_START: float = 0.5
+
+const NEAR_ALPHA: float = 0.35   ## modest, soft tint — never a hard black shape, baked into the texture below
 const SHADOW_Y_OFFSET: float = 0.02   ## tiny lift above the floor to avoid z-fighting
+const TEX_WIDTH:  int = 64
+const TEX_HEIGHT: int = 128   ## 2:1 aspect, matches this shape's roughly length:width proportions
 
 const SMOOTH_RATE: float = 3.0   ## still used for opacity/weight fade only — NOT direction, see _process()
 const MIN_TOTAL_WEIGHT: float = 0.05   ## below this, no meaningful nearby light — hide the shadow
@@ -58,8 +86,9 @@ var _current_weight: float    = 0.0
 var _floor_offset: float = 1.0
 
 ## Shared across every instance — built once on first use, not per
-## character. See _get_shared_mesh().
+## character. See _get_shared_mesh()/_get_shared_texture().
 static var _shared_mesh: ArrayMesh = null
+static var _shared_texture: ImageTexture = null
 
 ## Called once by Player._ready()/NPC._ready() immediately after
 ## instantiation, before add_child() finishes running this node's own
@@ -88,7 +117,13 @@ func _ready() -> void:
 	_material = StandardMaterial3D.new()
 	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_material.vertex_color_use_as_albedo = true
+	## Aug 2026 fix — texture-driven shape now (see the const block above
+	## and _get_shared_texture() below), not vertex color. albedo_color
+	## still works as a multiplier on top of the texture's own alpha —
+	## _process() uses it exactly the same way it used to for the
+	## aggregate-weight opacity fade.
+	_material.albedo_texture = _get_shared_texture()
+	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
 	_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_mesh_instance.material_override = _material
 
@@ -100,37 +135,74 @@ func _ready() -> void:
 	_mesh_instance.visible     = false
 	add_child(_mesh_instance)
 
-## Builds the canonical unit-length trapezoid once and caches it — every
+## Builds the canonical unit-length rectangle once and caches it — every
 ## character's decal reuses the same Mesh resource, only material/
-## transform differ per-instance. Spans local Z=0 (narrow, at the
-## character) to Z=1 (wide, far end); _process() below non-uniformly
-## scales this along Z each frame to the actual current shadow length,
-## rather than rebuilding geometry every frame.
+## transform differ per-instance. Spans local Z=0 (character end) to Z=1
+## (far end); _process() below non-uniformly scales this along Z each
+## frame to the actual current shadow length, rather than rebuilding
+## geometry every frame. Aug 2026 fix — this used to be a hand-tapered
+## trapezoid with vertex-color alpha; the taper/softness now lives
+## entirely in _get_shared_texture()'s generated gradient instead, so this
+## mesh is just a plain flat rectangle with explicit UVs (0,0)-(1,1)
+## mapping directly to the texture — no ambiguity about which mesh axis
+## maps to which texture axis since both are authored here together.
 static func _get_shared_mesh() -> ArrayMesh:
 	if _shared_mesh != null:
 		return _shared_mesh
 	var st: SurfaceTool = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var y: float = SHADOW_Y_OFFSET
-	var hw_near: float = NEAR_WIDTH * 0.5
-	var hw_far:  float = FAR_WIDTH * 0.5
-	var v_near_l: Vector3 = Vector3(-hw_near, y, 0.0)
-	var v_near_r: Vector3 = Vector3( hw_near, y, 0.0)
-	var v_far_l:  Vector3 = Vector3(-hw_far,  y, 1.0)
-	var v_far_r:  Vector3 = Vector3( hw_far,  y, 1.0)
-	var c_near: Color = Color(0.0, 0.0, 0.0, NEAR_ALPHA)
-	var c_far:  Color = Color(0.0, 0.0, 0.0, 0.0)
+	var hw: float = RECT_WIDTH * 0.5
+	var v_near_l: Vector3 = Vector3(-hw, y, 0.0)
+	var v_near_r: Vector3 = Vector3( hw, y, 0.0)
+	var v_far_l:  Vector3 = Vector3(-hw, y, 1.0)
+	var v_far_r:  Vector3 = Vector3( hw, y, 1.0)
 
-	st.set_color(c_near); st.add_vertex(v_near_l)
-	st.set_color(c_near); st.add_vertex(v_near_r)
-	st.set_color(c_far);  st.add_vertex(v_far_r)
+	st.set_uv(Vector2(0.0, 0.0)); st.add_vertex(v_near_l)
+	st.set_uv(Vector2(1.0, 0.0)); st.add_vertex(v_near_r)
+	st.set_uv(Vector2(1.0, 1.0)); st.add_vertex(v_far_r)
 
-	st.set_color(c_near); st.add_vertex(v_near_l)
-	st.set_color(c_far);  st.add_vertex(v_far_r)
-	st.set_color(c_far);  st.add_vertex(v_far_l)
+	st.set_uv(Vector2(0.0, 0.0)); st.add_vertex(v_near_l)
+	st.set_uv(Vector2(1.0, 1.0)); st.add_vertex(v_far_r)
+	st.set_uv(Vector2(0.0, 1.0)); st.add_vertex(v_far_l)
 
 	_shared_mesh = st.commit()
 	return _shared_mesh
+
+## Aug 2026 — new. Procedurally builds the soft shadow shape as an alpha
+## gradient image, once, cached and reused by every character (same
+## sharing philosophy as _get_shared_mesh()). No external art asset —
+## generated pixel-by-pixel in code, same as the rest of this codebase's
+## procedural-content conventions.
+##
+## For each row (v = 0 at the character's end, 1 at the far tip):
+##   - length_falloff fades the whole row to 0 alpha starting at
+##     LENGTH_FADE_START and finishing by v=1 — the far tip vanishes
+##     smoothly instead of an abrupt cut where the raycast clips it.
+##   - half_width_frac grows from NEAR_WIDTH_FRAC (v=0, tight/contained —
+##     this is the "focal point snug under the player" fix) to
+##     FAR_WIDTH_FRAC (widening into the soft cone tail).
+## For each column (u = 0 at center, 1 at the rectangle's own edge):
+##   - width_falloff fades to 0 over an EDGE_SOFTNESS-wide band starting at
+##     that row's half_width_frac — this is the fix for hard, unblended
+##     left/right edges ("flat wall of shadow"). Every edge in every
+##     direction is now a gradient, never a straight cutoff.
+## Final per-pixel alpha = NEAR_ALPHA * length_falloff * width_falloff.
+static func _get_shared_texture() -> ImageTexture:
+	if _shared_texture != null:
+		return _shared_texture
+	var img: Image = Image.create(TEX_WIDTH, TEX_HEIGHT, false, Image.FORMAT_RGBA8)
+	for y: int in range(TEX_HEIGHT):
+		var v: float = float(y) / float(TEX_HEIGHT - 1)
+		var length_falloff: float = 1.0 - smoothstep(LENGTH_FADE_START, 1.0, v)
+		var half_width_frac: float = lerp(NEAR_WIDTH_FRAC, FAR_WIDTH_FRAC, smoothstep(0.0, 1.0, v))
+		for x: int in range(TEX_WIDTH):
+			var u: float = absf((float(x) / float(TEX_WIDTH - 1)) * 2.0 - 1.0)
+			var width_falloff: float = 1.0 - smoothstep(half_width_frac - EDGE_SOFTNESS, half_width_frac, u)
+			var a: float = clamp(length_falloff * width_falloff, 0.0, 1.0) * NEAR_ALPHA
+			img.set_pixel(x, y, Color(0.0, 0.0, 0.0, a))
+	_shared_texture = ImageTexture.create_from_image(img)
+	return _shared_texture
 
 func _process(delta: float) -> void:
 	if _owner_char == null or _mesh_instance == null:

@@ -380,6 +380,15 @@ each character's own CapsuleShape3D height (Player and NPC use different
 capsule heights) instead of assumed; direction now snaps instantly, no
 lerp, matching how real shadows track light position with zero lag.
 
+**Aug 2026 shape fix:** the original vertex-color trapezoid only faded
+alpha along its length — the left/right edges were a hard, unblended
+straight cut, reading as a "flat wall" rather than something sourced from
+the character. Replaced with a procedurally-generated soft alpha texture
+(_get_shared_texture()) mapped onto a plain rectangle: a tight, contained
+core right at the character's feet, widening into a soft cone tail, fully
+soft-edged in every direction. The mesh itself simplified to a plain
+UV-mapped rectangle — all shape/softness logic now lives in the texture.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes

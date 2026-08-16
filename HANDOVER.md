@@ -1,3 +1,38 @@
+# Handover — Soft Shadow Shape Fix (Aug 2026)
+
+## What changed this session
+`CharacterShadowDecal.gd`'s shape was a hard-edged vertex-color trapezoid
+— alpha only faded along its length, leaving the left/right edges as an
+unblended straight cut, which read as a "flat wall of shadow" rather than
+something sourced from the character. Replaced with a procedurally-
+generated soft alpha texture (64×128, no external asset) mapped onto a
+plain rectangle: a tight, contained core right at the character's feet
+(fixing "focal point needs to be more snugly underneath the player"),
+widening into a soft cone tail, fading smoothly on every edge in every
+direction (fixing both the "flat wall" look and "blurred and natural
+looking" — including holding up without relying on the character mesh to
+cover any hard boundary, since none exists anymore).
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — shape constants replaced,
+  texture generation added, mesh simplified to a plain UV rectangle,
+  material switched from vertex-color to texture-driven albedo.
+- `docs/systems/graphics/README.md` — shape fix note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Shadow now reads as a soft, rounded shape anchored right under the
+   character, not a flat-edged band.
+3. No visible hard edges anywhere around the shape's silhouette — check
+   all sides (near, far, left, right).
+4. Direction/length/occlusion-clipping behavior unchanged from before —
+   this was a shape-only fix.
+5. If the shape still looks too wide or too subtle, `NEAR_WIDTH_FRAC`/
+   `FAR_WIDTH_FRAC`/`EDGE_SOFTNESS` in `CharacterShadowDecal.gd` are the
+   values to retune — each has a one-line comment explaining what it
+   controls.
+
 # Handover — Rendering Driver Switch, Vulkan/D3D12 (Aug 2026)
 
 ## What changed this session
