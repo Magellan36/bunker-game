@@ -1,3 +1,65 @@
+# Handover — Rendering Driver Switch, Vulkan/D3D12 (Aug 2026)
+
+## What changed this session
+Added a "Rendering Driver" option (Vulkan/D3D12) to Settings > Rendering,
+addressing a DXGI_ERROR_DEVICE_REMOVED crash under D3D12 on an RX 580
+(already project-level-fixed by pinning project.godot to Vulkan; this adds
+a player-facing way to opt back into D3D12 on hardware where it works).
+
+The driver can't change mid-session (Godot engine limitation) — this is a
+restart-based setting. Two-tier apply: (1) an explicit "Restart Now"
+confirm dialog relaunches the same executable via `OS.create_process()`
+with `--rendering-driver <value>`, immediately applying the choice; (2) a
+best-effort `override.cfg` written next to the executable makes the choice
+durable across a future plain relaunch too, without ever touching the
+tracked/committed `project.godot`. `GraphicsSettings.rendering_driver` is
+deliberately excluded from PRESETS/`set_setting_live()` — it has its own
+setter (`set_rendering_driver()`) since it can't apply live like everything
+else in that file.
+
+Flagged for follow-up verification: the `override.cfg` mechanism (Tier 2)
+is based on documented Godot behavior, not tested against an actual
+exported build of this project yet — if it doesn't pick up as expected,
+Tier 1 (the in-app relaunch button) still fully covers the original ask.
+
+### Files modified
+- `scripts/core/GraphicsSettings.gd` — new `RENDERING_DRIVERS` const,
+  `rendering_driver`/`session_start_rendering_driver` vars,
+  `set_rendering_driver()`, persistence in `_save()`/`_load()`.
+- `scripts/ui/menus/GraphicsSettingsPanel.gd` — new Rendering Driver row,
+  restart-required confirm dialog, `OS.create_process()` relaunch,
+  `override.cfg` writer.
+- `docs/systems/graphics/README.md` — new "Rendering driver switch" entry.
+- `HANDOVER.md` — this entry.
+- `project.godot` — NOT modified; committed default stays
+  `rendering_device/driver.windows="vulkan"`.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Fresh install (no cfg, no override.cfg) — boots Vulkan, Settings shows
+   "Vulkan" selected.
+3. Switch to D3D12 in Settings — confirm dialog appears; "Later" leaves
+   the game running unaffected on Vulkan for the rest of this session.
+4. Switch to D3D12, click "Restart Now" — game relaunches; on hardware
+   where D3D12 works, boots successfully; check for an `override.cfg` next
+   to the executable containing the D3D12 override afterward.
+5. **On the RX 580 (or equivalent) this bug originated on:** confirm
+   selecting D3D12 and restarting actually reproduces the original crash —
+   this is expected/correct (the option exists for OTHER hardware where
+   D3D12 works; this card should stick with Vulkan). Confirms the option
+   doesn't accidentally "fix" the underlying driver issue, just exposes
+   the choice.
+6. After a successful D3D12 relaunch, close the game via the normal exit
+   flow (not Alt+F4) and reopen it via a plain double-click (not through
+   any in-app button) — if override.cfg is working as expected, it should
+   still boot D3D12. If it boots Vulkan instead, Tier 2 isn't behaving as
+   assumed — note this and fall back to documenting that only the in-app
+   restart button reliably applies the choice.
+7. Switch back to Vulkan, confirm the relaunch flow works symmetrically.
+8. Confirm `project.godot` is untouched by any of the above (diff against
+   git — should show zero changes to that file after any amount of
+   in-game driver switching).
+
 # Handover — Shadow Decal Ground Level + Instant Snap Fix (Aug 2026)
 
 ## What changed this session

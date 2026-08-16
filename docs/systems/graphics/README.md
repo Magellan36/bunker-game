@@ -387,6 +387,49 @@ only the player's own mesh from Flashlight.gd's own beam. Not part of the
 "Aggregated character shadows" detour above — that plan generalized this
 constant, and reverting it moved the constant back here.)
 
+### Rendering driver switch
+Origin: DXGI_ERROR_DEVICE_REMOVED crash on an RX 580 under D3D12 — the
+D3D12 backend died on the first scene-shader pipeline before any game
+script ran. Fixed at the project level by pinning
+`rendering_device/driver.windows="vulkan"` in `project.godot` (committed
+default, unchanged by this feature). This adds a player-facing "Rendering
+Driver" option (Vulkan/D3D12) in Settings > Rendering, for hardware where
+D3D12 works fine and may perform better.
+
+**Hard constraint:** the driver is selected at engine startup, before any
+script runs — cannot change mid-session, full stop. This is a
+restart-based setting, not a live one:
+`GraphicsSettings.rendering_driver`/`set_rendering_driver()` are
+deliberately NOT part of PRESETS or `set_setting_live()`.
+
+**Two-tier apply mechanism** (`GraphicsSettingsPanel.gd`):
+1. **Tier 1 (relaunch now):** `OS.create_process()` spawns a new instance
+   with `--rendering-driver <value>` on the command line, then quits the
+   current one — only after the player confirms via a restart-required
+   dialog. High confidence — same override mechanism this bug's own fix
+   already proved works.
+2. **Tier 2 (durability):** best-effort writes an `override.cfg` next to
+   the executable (Godot reads this before rendering device selection,
+   without touching the tracked project.godot) so the choice also survives
+   a future PLAIN relaunch, not just the in-app button. Lower confidence —
+   flagged for verification against a real exported build. Failure here
+   never blocks Tier 1.
+
+`GraphicsSettings.session_start_rendering_driver` is captured once, at the
+end of `_load()` — it's what the engine is actually running under this
+session (by construction of the relaunch flow above), and is the correct
+comparison point for "does this new choice actually require a restart,"
+not `rendering_driver` itself (which may already have been overwritten by
+the time the comparison runs).
+
+**Known limitation:** if the player picks a new driver and dismisses the
+restart prompt ("Later"), then later closes the game through any means
+other than actually restarting, the NEXT launch only reflects the new
+choice if Tier 2's override.cfg write succeeded and Godot's override.cfg
+loading behaves as expected for this project's export — see the
+confidence note above. Tier 1 (the explicit in-app button) always works
+regardless.
+
 ---
 
 ## Common edits

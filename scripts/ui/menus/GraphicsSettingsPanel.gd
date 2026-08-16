@@ -20,7 +20,7 @@ extends CanvasLayer
 ## Scope: full graphics overhaul (Phase 0-5). Implements:
 ##   1. Quality Preset selector (Low/Medium/High/Ultra)
 ##   2. Display section (Window Mode, Resolution, VSync, FPS Cap)
-##   3. Rendering section (AA combo, Anisotropic, Shadow Quality, Render Scale)
+##   3. Rendering section (Rendering Driver, AA combo, Anisotropic, Shadow Quality, Render Scale)
 ##   4. Advanced Quality (SDFGI, SSAO, SSIL, Volumetric Fog, Glow, DOF)
 ##   5. Flashlight section (Volumetrics, Shadows)
 ##   6. Camera (FOV)
@@ -42,10 +42,21 @@ var _vsync_check:        CheckBox = null
 var _fps_cap_option:     OptionButton = null
 
 ## Rendering
+var _rendering_driver_option: OptionButton = null
 var _aa_option:          OptionButton = null
 var _aniso_option:       OptionButton = null
 var _shadow_quality_option: OptionButton = null
 var _render_scale_slider: HSlider = null
+
+## Aug 2026 — restart-required confirm dialog for the rendering driver
+## change, see _show_restart_required_dialog(). Stored so a second attempt
+## to open it (e.g. rapid double-click) doesn't stack two — same
+## "never stack two" defensiveness PauseMenuUI.gd's own confirm dialog
+## uses; this is a separate, self-contained implementation rather than a
+## shared UIKit helper, since no such shared helper exists yet and adding
+## one is out of scope for this change (see docs/systems/graphics/README.md
+## "Rendering driver switch" for the note on why this isn't extracted).
+var _restart_confirm_layer: CanvasLayer = null
 
 ## Advanced Quality
 var _sdfgi_check:          CheckBox = null
@@ -89,6 +100,10 @@ const RESOLUTION_VALUES: Array[Vector2i] = [Vector2i(1280, 720), Vector2i(1600, 
 ## FPS cap options
 const FPS_CAP_LABELS: Array[String] = ["Uncapped", "30", "60", "90", "120", "144", "240"]
 const FPS_CAP_VALUES: Array[int] = [0, 30, 60, 90, 120, 144, 240]
+
+## Rendering driver options — values must match GraphicsSettings.RENDERING_DRIVERS.
+const RENDERING_DRIVER_LABELS: Array[String] = ["Vulkan", "D3D12"]
+const RENDERING_DRIVER_VALUES: Array[String] = ["vulkan", "d3d12"]
 
 ## Anisotropic filtering options
 const ANISO_LABELS: Array[String] = ["Off", "2x", "4x", "8x", "16x"]
@@ -226,6 +241,19 @@ func _build_content() -> void:
 	_vbox.add_child(HSeparator.new())
 	_vbox.add_child(UIKit.make_section_label("RENDERING", _theme))
 
+	## Rendering Driver — Aug 2026. Restart-required setting, see
+	## docs/systems/graphics/README.md "Rendering driver switch". Placed
+	## first in this section since it's the most consequential/rare change
+	## here (everything else below applies live).
+	var driver_row: HBoxContainer = HBoxContainer.new()
+	_vbox.add_child(driver_row)
+	driver_row.add_child(UIKit.make_row_label("Rendering Driver", _theme))
+	_rendering_driver_option = OptionButton.new()
+	for lbl: String in RENDERING_DRIVER_LABELS:
+		_rendering_driver_option.add_item(lbl)
+	_rendering_driver_option.item_selected.connect(_on_rendering_driver_changed)
+	driver_row.add_child(_rendering_driver_option)
+
 	## Anti-Aliasing combo
 	var aa_row: HBoxContainer = HBoxContainer.new()
 	_vbox.add_child(aa_row)
@@ -340,6 +368,7 @@ func _refresh_from_settings() -> void:
 	_fps_cap_option.selected = FPS_CAP_VALUES.find(GraphicsSettings.fps_cap)
 
 	## Rendering
+	_rendering_driver_option.selected = RENDERING_DRIVER_VALUES.find(GraphicsSettings.rendering_driver)
 	## AA combo: find matching entry
 	for i: int in AA_OPTIONS.size():
 		var opt: Dictionary = AA_OPTIONS[i]
@@ -386,6 +415,19 @@ func _on_vsync_toggled(pressed: bool) -> void:
 func _on_fps_cap_changed(index: int) -> void:
 	GraphicsSettings.set_setting("fps_cap", FPS_CAP_VALUES[index])
 
+## Aug 2026 — Rendering Driver. Saves immediately (so the choice survives
+## even if the player never confirms a restart), then shows the restart
+## prompt only if this differs from what's ACTUALLY running this session
+## (GraphicsSettings.session_start_rendering_driver — see that var's
+## comment for why it's the correct comparison point, not
+## GraphicsSettings.rendering_driver itself). Picking the driver that's
+## already active (e.g. toggling back) needs no restart at all.
+func _on_rendering_driver_changed(index: int) -> void:
+	var new_driver: String = RENDERING_DRIVER_VALUES[index]
+	GraphicsSettings.set_rendering_driver(new_driver)
+	if new_driver != GraphicsSettings.session_start_rendering_driver:
+		_show_restart_required_dialog(new_driver)
+
 func _on_aa_changed(index: int) -> void:
 	var opt: Dictionary = AA_OPTIONS[index]
 	GraphicsSettings.set_setting("msaa", opt.msaa)
@@ -397,6 +439,121 @@ func _on_aniso_changed(index: int) -> void:
 
 func _on_shadow_quality_changed(index: int) -> void:
 	GraphicsSettings.set_setting("shadow_quality", SHADOW_QUALITY_VALUES[index])
+
+
+# ─── Rendering driver: restart-required confirm dialog + relaunch ───────────
+## Aug 2026. Deliberately self-contained here rather than a shared UIKit
+## helper — PauseMenuUI.gd has its own separate, near-identical "minimalist
+## confirm dialog, no ConfirmationDialog node" implementation (see that
+## file). Extracting a shared version is reasonable future cleanup but out
+## of scope for this change; flagged rather than silently duplicated
+## without acknowledgment.
+func _show_restart_required_dialog(pending_driver: String) -> void:
+	_close_restart_required_dialog()   ## never stack two
+
+	_restart_confirm_layer = CanvasLayer.new()
+	_restart_confirm_layer.layer = 215   ## above this panel (210), below NotificationManager (220)
+	add_child(_restart_confirm_layer)
+
+	var dim: ColorRect = ColorRect.new()
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.0, 0.0, 0.0, 0.55)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_restart_confirm_layer.add_child(dim)
+
+	var panel: Panel = UIKit.build_centered_panel(360.0, 150.0, _theme)
+	var panel_style: StyleBoxFlat = panel.get_theme_stylebox("panel") as StyleBoxFlat
+	panel_style.content_margin_left   = 16.0
+	panel_style.content_margin_right  = 16.0
+	panel_style.content_margin_top    = 14.0
+	panel_style.content_margin_bottom = 14.0
+	_restart_confirm_layer.add_child(panel)
+
+	var vbox: VBoxContainer = VBoxContainer.new()
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	var lbl: Label = Label.new()
+	lbl.text = "Restart required to switch the rendering driver. Restart now?"
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	lbl.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
+	lbl.add_theme_color_override("font_color", _theme.text)
+	lbl.add_theme_font_override("font", UIKit.font())
+	vbox.add_child(lbl)
+
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(row)
+
+	var yes_btn: Button = UIKit.make_button("Restart Now", func() -> void:
+		_close_restart_required_dialog()
+		_relaunch_with_driver(pending_driver))
+	yes_btn.custom_minimum_size = Vector2(140.0, 30.0)
+	row.add_child(yes_btn)
+
+	var no_btn: Button = UIKit.make_button("Later", _close_restart_required_dialog)
+	no_btn.custom_minimum_size = Vector2(100.0, 30.0)
+	row.add_child(no_btn)
+
+
+func _close_restart_required_dialog() -> void:
+	if _restart_confirm_layer != null and is_instance_valid(_restart_confirm_layer):
+		_restart_confirm_layer.queue_free()
+
+
+## Spawns a new instance of this same executable with the driver override
+## on the command line, then quits the current one. `OS.create_process()`
+## (not `OS.execute()` — that call blocks waiting for the child process to
+## exit, which would hang here) returns a PID immediately and does not tie
+## the new process's lifetime to this one, which is exactly what's needed
+## for "launch my replacement, then get out of the way." Godot applies
+## --rendering-driver as a CLI-level override regardless of what's baked
+## into project.godot — this is the same override mechanism already
+## proven by this bug's own fix (driver.windows="vulkan" pinned there).
+##
+## Guards against a failed spawn: if create_process() returns -1, the new
+## instance never launched — do NOT quit in that case, or the player is
+## left with no game running at all. Also best-effort writes an
+## override.cfg next to the executable so the choice survives a future
+## PLAIN restart too, not just this one — see
+## docs/systems/graphics/README.md "Rendering driver switch" Tier 2 for
+## why this is separate from, and less certain than, the relaunch itself;
+## failure here is logged but never blocks the relaunch.
+func _relaunch_with_driver(driver: String) -> void:
+	_write_override_cfg(driver)
+
+	var exe_path: String = OS.get_executable_path()
+	var args: PackedStringArray = ["--rendering-driver", driver]
+	var pid: int = OS.create_process(exe_path, args)
+	if pid == -1:
+		push_error("[GraphicsSettingsPanel] Failed to relaunch with --rendering-driver %s — staying on current session." % driver)
+		return
+	get_tree().quit()
+
+
+## Tier 2 durability (see docs/systems/graphics/README.md "Rendering
+## driver switch") — an override.cfg next to the executable, read by
+## Godot at the very start of boot, before rendering device selection,
+## without touching the tracked/committed project.godot. Best-effort: a
+## failed write (e.g. no permission in the install directory) is logged
+## and otherwise ignored — Tier 1 (the immediate relaunch above) already
+## fully applies the choice for right now regardless of whether this
+## succeeds.
+func _write_override_cfg(driver: String) -> void:
+	var dir: String = OS.get_executable_path().get_base_dir()
+	var override_path: String = dir.path_join("override.cfg")
+	var cfg: ConfigFile = ConfigFile.new()
+	## Loading first (ignoring failure — file may not exist yet) preserves
+	## any other override values a future feature might add here, instead
+	## of clobbering the whole file.
+	cfg.load(override_path)
+	cfg.set_value("rendering", "rendering_device/driver.windows", driver)
+	var err: int = cfg.save(override_path)
+	if err != OK:
+		push_warning("[GraphicsSettingsPanel] Could not write override.cfg (err %d) — rendering driver choice will only apply via in-app restart, not a plain relaunch." % err)
 
 func _on_render_scale_changed(value: float) -> void:
 	GraphicsSettings.set_setting_live("render_scale", value)

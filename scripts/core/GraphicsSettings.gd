@@ -20,6 +20,15 @@ enum Preset { LOW, MEDIUM, HIGH, ULTRA, CUSTOM }
 
 const CFG_PATH: String = "user://graphics_settings.cfg"
 
+## Aug 2026 — Rendering Driver switch (Vulkan/D3D12). See
+## docs/systems/graphics/README.md "Rendering driver switch" for the full
+## design — short version: the driver is locked in at engine startup and
+## CANNOT change mid-session (Godot hard limitation, not something this
+## code works around), so this is a restart-based setting: save the
+## choice, relaunch to apply it. Windows-only (this project's stated
+## target platform) — matches project.godot's `driver.windows` key.
+const RENDERING_DRIVERS: Array[String] = ["vulkan", "d3d12"]
+
 ## Plain `int` rather than `Preset` — see apply_preset()'s header comment for
 ## why (avoids any int/enum ambiguity at the call boundary entirely).
 var current_preset: int = Preset.MEDIUM
@@ -58,6 +67,24 @@ var camera_fov: float = 75.0
 var vsync_enabled: bool = true
 var window_mode: int = DisplayServer.WINDOW_MODE_FULLSCREEN
 var fps_cap: int = 0   ## 0 = uncapped
+
+## Aug 2026 — the player's SAVED rendering driver preference. Deliberately
+## NOT part of PRESETS and NOT wired into set_setting_live() — it can't
+## apply live (see RENDERING_DRIVERS comment above), so lumping it in with
+## the fields that call _apply_all() every change would be misleading. Use
+## set_rendering_driver() below instead. Matches project.godot's committed
+## default ("vulkan") — this var is what changes on disk, never the
+## committed project file itself.
+var rendering_driver: String = "vulkan"
+
+## Captured ONCE, at the end of _load() below — the driver value that was
+## on disk when THIS session booted, which by construction of the relaunch
+## flow (see GraphicsSettingsPanel.gd's _relaunch_with_driver()) is what
+## the engine is actually running under right now. Comparing a pending new
+## choice against this (not against `rendering_driver`, which may already
+## have been overwritten by the time the comparison happens) is how the
+## panel decides whether to show "restart required."
+var session_start_rendering_driver: String = "vulkan"
 
 ## Anti-aliasing overhaul (Phase 3)
 var screen_space_aa: int = Viewport.SCREEN_SPACE_AA_DISABLED
@@ -180,6 +207,21 @@ func save_now() -> void:
 	_save()
 
 
+## Aug 2026 — dedicated setter for rendering_driver, deliberately separate
+## from set_setting_live(). That function assumes every field it touches
+## can be applied live via _apply_all() and flips current_preset to
+## CUSTOM — neither is true here (see RENDERING_DRIVERS comment). This
+## just updates the value and saves immediately; GraphicsSettingsPanel.gd
+## is responsible for deciding whether to show the restart prompt and for
+## actually relaunching.
+func set_rendering_driver(value: String) -> void:
+	if not RENDERING_DRIVERS.has(value):
+		push_warning("[GraphicsSettings] Unknown rendering driver: %s" % value)
+		return
+	rendering_driver = value
+	_save()
+
+
 func _apply_all() -> void:
 	_apply_to_environment()
 	_apply_to_viewport()
@@ -250,6 +292,7 @@ func _save() -> void:
 	cfg.set_value("graphics", "vsync_enabled", vsync_enabled)
 	cfg.set_value("graphics", "window_mode", window_mode)
 	cfg.set_value("graphics", "fps_cap", fps_cap)
+	cfg.set_value("graphics", "rendering_driver", rendering_driver)
 	cfg.set_value("graphics", "anisotropic_filtering", anisotropic_filtering)
 	cfg.set_value("graphics", "shadow_quality", shadow_quality)
 	cfg.set_value("graphics", "render_scale", render_scale)
@@ -279,3 +322,8 @@ func _load() -> void:
 	vsync_enabled            = cfg.get_value("graphics", "vsync_enabled", vsync_enabled)
 	window_mode              = cfg.get_value("graphics", "window_mode", window_mode)
 	fps_cap                  = cfg.get_value("graphics", "fps_cap", fps_cap)
+	rendering_driver         = cfg.get_value("graphics", "rendering_driver", rendering_driver)
+	## Snapshot AFTER the load above — see session_start_rendering_driver's
+	## declaration comment for why this must be captured here, once, and
+	## never reassigned afterward.
+	session_start_rendering_driver = rendering_driver
