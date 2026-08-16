@@ -40,6 +40,7 @@ theme_override_styles/panel = SubResource("PromptPanelStyle")
 [node name="IconRow" type="Control" parent="Panel/VBox"]
 custom_minimum_size = Vector2(108, 37)
 visible = false
+size_flags_horizontal = 4
 
 [node name="Slot0" type="PanelContainer" parent="Panel/VBox/IconRow"]
 position = Vector2(0, 5)
