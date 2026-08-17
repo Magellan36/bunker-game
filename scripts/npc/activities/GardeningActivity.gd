@@ -341,6 +341,27 @@ func tick(npc: NPC, delta: float) -> void:
 			if _item == null or not is_instance_valid(_item):
 				_pick_next_task(npc)
 				return
+			## Aug 2026 fix — _item is cached once in _tick_fetch() and
+			## never re-synced against npc.held_item for the rest of the
+			## travel/apply sequence. is_instance_valid() only confirms
+			## the OBJECT still exists — it says nothing about whether
+			## the NPC still OWNS it. Takeaway (Player.release_held_item_to_npc()
+			## path) can legitimately take this exact item away mid-job,
+			## which correctly nulls npc.held_item but has no way to know
+			## about this activity's separate cached copy. Without this
+			## check, apply_at_cell()/on_use() below would act on an item
+			## now sitting in the PLAYER's hand — and if that call
+			## happens to deplete its last charge, it queue_free()s the
+			## item the player is currently holding, leaving
+			## player.held_item a dangling reference. Confirmed root
+			## cause of "Trying to assign invalid previously freed
+			## instance" crashes surfacing later in unrelated objects'
+			## get_f_prompt() (TrashCan, ResearchStation, and likely any
+			## other of the ~20 files that read held_item directly).
+			if npc.held_item != _item:
+				_item = null
+				_pick_next_task(npc)
+				return
 			var applied: bool = true
 			if _current_task == "fertilize":
 				## Unchanged, tray-wide — see this file's header comment on

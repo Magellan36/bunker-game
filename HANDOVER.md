@@ -1,3 +1,51 @@
+# Handover — Root Cause Fixed: `held_item` Freed-Instance Crashes (Aug 2026)
+
+## What changed this session
+Root-caused two reported crashes ("Trying to assign invalid previously
+freed instance" in `TrashCan.get_f_prompt()` and
+`ResearchStation.get_chute_f_prompt()`, on unrelated objects in separate
+play sessions) to a single source, rather than patching either read
+site: `GardeningActivity.gd` caches the item it's working with once
+(`_tick_fetch()`, into `_item`), then never re-syncs that cache against
+`npc.held_item` for the rest of a multi-frame travel/apply sequence. Its
+only safety check before acting (`is_instance_valid(_item)`) confirms
+the object still exists, not that the NPC still owns it. Confirmed via
+`NPC.on_item_taken_by_player()` (the Takeaway handler) that Takeaway
+correctly nulls the NPC's own `held_item` when the player takes an item
+mid-job — but has no way to know about the activity's separate cached
+copy, and doesn't touch it. The activity then keeps calling
+`apply_at_cell()`/`on_use()` on an item now sitting in the player's
+hand; if that call depletes the item's last charge, it `queue_free()`s
+the exact object the player is currently holding, leaving
+`player.held_item` dangling with no error at that moment. The crash
+only surfaces later, in whichever of the ~20+ files that read
+`held_item` directly without a validity guard happens to run next —
+which is why the two reports pointed at completely unrelated objects
+(a Trash Can, a Research Station chute) rather than anything obviously
+connected to gardening.
+
+Fixed at the source rather than patching symptom sites: the activity now
+checks `npc.held_item == _item` immediately before acting, in addition
+to the existing `is_instance_valid()` check, and gracefully abandons the
+task (same fallback already used elsewhere in this function) if the
+player has taken the item away. Protects both the fertilize (`on_use()`)
+and seed/soil (`apply_at_cell()`) branches with one guard. Every one of
+the ~20+ unguarded `held_item` read sites across the codebase is
+protected by this fix without touching any of them individually, since
+the corruption can no longer happen in the first place.
+
+### Files modified
+- `scripts/npc/activities/GardeningActivity.gd` — added ownership
+  re-validation before acting on the cached item reference.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_HELD_ITEM_ROOT_CAUSE_FIX_PLAN.md` for the full 5-item checklist)
+
+---
+
 ## [Aug 2026] Research Station — icon size correction
 
 Follow-up to the material/clock icon pass: `MATERIAL_ICON_SIZE` shrunk

@@ -384,6 +384,28 @@ own held item while CASE 1 scans for a different target — guarded with
   without this, standing near a full/ineligible storage object could
   leave a player unable to drop (or, transitively, pick anything else
   up) without first walking out of that storage object's ~2.5 m reach.
+- **Root-caused and fixed `held_item` freed-instance crashes (Aug 2026,
+  fix in `scripts/npc/activities/GardeningActivity.gd` — NPC-owned,
+  fixed directly rather than handed off, per explicit instruction).**
+  Reported as two unrelated-looking crashes ("Trying to assign invalid
+  previously freed instance" in `TrashCan.get_f_prompt()` and
+  `ResearchStation.get_chute_f_prompt()`) — both were symptoms of the
+  same corruption, not independent bugs. Root cause: `GardeningActivity`
+  caches the item it's working with once (`_tick_fetch()`), never
+  re-syncing it against `npc.held_item` for the rest of a multi-frame
+  job. If the player Takeaway's that exact item from the NPC mid-job,
+  `npc.held_item` correctly goes null (existing Takeaway behavior,
+  unchanged), but the activity's separate cached copy doesn't know and
+  keeps acting on it — `apply_at_cell()`/`on_use()` can `queue_free()`
+  it on depleting its last charge, freeing the item the PLAYER is now
+  holding. `player.held_item` goes dangling silently; the crash only
+  fires later, in whichever of the ~20+ files that read `held_item`
+  directly (no `is_instance_valid()` guard) happens to run next —
+  explaining why the two reports pointed at unrelated objects. Fixed at
+  the source: the activity now re-validates `npc.held_item == _item`
+  immediately before acting, not just that `_item` still exists,
+  mirroring the same ownership-vs-existence distinction already behind
+  `NPCItemUser.grab_loose()`'s `is_held` guard for the reverse direction.
 
 ## Basket Prompt Fix (Jul 2026)
 - **Root cause**: `_update_prompt()` split into CASE 1 (holding item, returns
