@@ -52,6 +52,24 @@ const COLOR_TAB_ACTIVE: Color = Color(0.22, 0.30, 0.26, 1.00)
 const COLOR_ACCENT:  Color = Color(0.40, 0.75, 0.55, 1.00)   ## research-teal domain stripe
 const COLOR_CONNECTOR: Color = Color(0.55, 0.58, 0.62, 0.45)
 
+## Material icon textures — replace the "Metal:"/"Plastic:" etc. name text
+## in the materials header grid. Keys match ResearchStation.MATERIAL_TYPES.
+const MATERIAL_ICONS: Dictionary = {
+	"metal":   preload("res://assets/icons/icon_material_metal.png"),
+	"plastic": preload("res://assets/icons/icon_material_plastic.png"),
+	"paper":   preload("res://assets/icons/icon_material_paper.png"),
+	"organic": preload("res://assets/icons/icon_material_organic.png"),
+}
+const MATERIAL_ICON_SIZE: Vector2 = Vector2(16.0, 16.0)
+const MATERIAL_ICON_BUFFER: float = 6.0    ## left inset for the icon
+const MATERIAL_COUNT_BUFFER: float = 6.0   ## right inset for the "x/10" label
+
+## Clock icon shown to the left of the duration / "Time left" text on each
+## research card. Interior of the ring is pre-filled opaque white; outside
+## the ring stays transparent — do not swap for a differently-prepared file.
+const CLOCK_ICON_TEXTURE: Texture2D = preload("res://assets/icons/icon_clock.png")
+const CLOCK_ICON_SIZE: Vector2 = Vector2(12.0, 12.0)
+
 var is_open: bool = false
 var _active_tree: String = "bunker"
 var _current_station: ResearchStation = null
@@ -304,7 +322,7 @@ func _refresh_materials_header() -> void:
 		var stored: int = 0
 		if station != null:
 			stored = station.stored_materials.get(material, 0)
-		lbl.text = "%s: %d/%d" % [material.capitalize(), stored, ResearchStation.STORAGE_CAP]
+		lbl.text = "%d/%d" % [stored, ResearchStation.STORAGE_CAP]
 
 func _clear_content() -> void:
 	for child: Node in _canvas.get_children():
@@ -446,6 +464,7 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 	var time_lbl: Label = Label.new()
 	time_lbl.add_theme_font_override("font", _font)
 	time_lbl.add_theme_font_size_override("font_size", 11)
+	time_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if is_active:
 		var remaining: float = maxf(upgrade.duration_seconds - station._elapsed, 0.0)
 		time_lbl.text = "Time left: %s" % _format_duration(remaining)
@@ -453,7 +472,21 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 	else:
 		time_lbl.text = _format_duration(upgrade.duration_seconds)
 		time_lbl.add_theme_color_override("font_color", COLOR_DIM)
-	v.add_child(time_lbl)
+
+	## Clock icon sits to the left of time_lbl in both states (not-started
+	## duration and active countdown) — there's only one text slot for this
+	## value, so both read consistently rather than the icon appearing only
+	## during the countdown.
+	var time_row: HBoxContainer = HBoxContainer.new()
+	time_row.add_theme_constant_override("separation", 4)
+	var clock_icon: TextureRect = TextureRect.new()
+	clock_icon.texture = CLOCK_ICON_TEXTURE
+	clock_icon.custom_minimum_size = CLOCK_ICON_SIZE
+	clock_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	clock_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	time_row.add_child(clock_icon)
+	time_row.add_child(time_lbl)
+	v.add_child(time_row)
 
 	## Progress bar — the live-changing part the passive tick updates in
 	## place (Part 2). Added back here per plan (the tiered redesign had
@@ -716,15 +749,27 @@ func _build_materials_grid() -> void:
 		panel.position = Vector2(float(cell[1]), float(cell[2]))
 		panel.custom_minimum_size = btn_size
 		panel.size = btn_size
+		var icon_rect: TextureRect = TextureRect.new()
+		icon_rect.texture = MATERIAL_ICONS[material]
+		icon_rect.custom_minimum_size = MATERIAL_ICON_SIZE
+		icon_rect.size = MATERIAL_ICON_SIZE
+		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon_rect.position = Vector2(MATERIAL_ICON_BUFFER, (btn_size.y - MATERIAL_ICON_SIZE.y) * 0.5)
+		panel.add_child(icon_rect)
+
+		## Count-only label now, right-aligned — the icon above replaces the
+		## material name text. _material_labels keeps its existing name/type
+		## so _refresh_materials_header() needs only a format-string change.
 		var lbl: Label = Label.new()
 		lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-		lbl.offset_left = 6.0   ## small left inset for the text, not flush against the border
+		lbl.offset_right = -MATERIAL_COUNT_BUFFER   ## small right inset, not flush against the border
 		lbl.add_theme_font_override("font", _font)
 		lbl.add_theme_font_size_override("font_size", 11)
 		lbl.add_theme_color_override("font_color", COLOR_TEXT)
-		lbl.text = "%s: %d/%d" % [material.capitalize(), 0, ResearchStation.STORAGE_CAP]
+		lbl.text = "%d/%d" % [0, ResearchStation.STORAGE_CAP]
 		panel.add_child(lbl)
 		_panel.add_child(panel)
 		_material_labels[material] = lbl

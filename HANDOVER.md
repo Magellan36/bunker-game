@@ -1,3 +1,38 @@
+## [Aug 2026] Research Station — material icons + clock icon
+
+`ResearchStationUI.gd`'s materials-header grid now shows an icon
+(left-aligned) + `x/10` count (right-aligned) per material cell, instead
+of `"Metal: 3/10"`-style text. Research cards show a clock icon to the
+left of the duration/"Time left" text. Five new assets added under
+`assets/icons/`: `icon_material_metal.png`, `icon_material_paper.png`,
+`icon_material_organic.png`, `icon_material_plastic.png`, `icon_clock.png`
+(clock's ring interior pre-filled opaque white, exterior transparent —
+don't re-source this file from a plain outline version). No behavior
+changes — display only. See `docs/systems/research/README.md`'s "Icon
+pass" note for details.
+
+---
+
+## [Aug 2026] Cooking Pot — emptied containers eject; finished dish stays in pot
+
+`CookingPot.gd`: adding a Food Can or Water Bottle as an ingredient now
+EMPTIES it (Food Can `_become_empty()`; Water Bottle `current_fill_mL =
+0.0` + `_update_empty_tint()`) and ejects the empty container into the
+world beside the pot via the new `_eject_emptied_container()` helper —
+only the abstract ingredient data (restore value, ingredient key, charge
+badge) stays in the slot, with `node: null` (the same shape a
+restored-from-save slot already has). Produce is unaffected (still
+freeze/hide/reparent). `_finish_cooking()` no longer clears `slots[]` —
+it only frees lingering produce node references and nulls them, keeping
+the ingredient icons/badges visible — and `serve_dish()` is now where
+`slots[]` actually empties. Result: a done-but-untaken dish keeps showing
+its ingredient icons, `is_full()` stays true (player must take the dish),
+and the prompt shows `DONE — [E] Take Dish (...)`; taking the dish clears
+the icon row to empty circles. Save/load round-trips a done-but-untaken
+pot with no changes (it just serializes whatever's in `slots[]`).
+
+---
+
 # Handover — Shadow Intensity-vs-Distance Fix (Aug 2026)
 
 ## What changed this session

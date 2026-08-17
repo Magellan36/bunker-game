@@ -63,12 +63,25 @@ upgrade detail node at the top, a 3-column × 4-row grid of empty
 placeholder boxes below it, and two side branch pairs — the grid/branches
 are purely structural scaffolding (no data) this pass, confirming the
 layout works. A pinned **2×2 materials-button grid** (Metal/Plastic left
-column, Paper/Organic right, e.g. `Metal: 0/10`) replaces the old single
-row-header and does NOT scroll with the tree; both tabs and the materials
-grid sit in the fixed header area, and only the content area below them
-changed from the previous pass. Player Skills / NPC Skills stay
-empty/placeholder. `InteractionSystem.research_ui` gates E/F while open
-(same as shelf/basket).
+column, Paper/Organic right) replaces the old single row-header and does
+NOT scroll with the tree; both tabs and the materials grid sit in the
+fixed header area, and only the content area below them changed from the
+previous pass. Player Skills / NPC Skills stay empty/placeholder.
+`InteractionSystem.research_ui` gates E/F while open (same as
+shelf/basket).
+
+**Icon pass (Aug 2026):** each materials-grid cell now shows a material
+icon (left-aligned, `MATERIAL_ICON_BUFFER` inset) and a bare `x/10` count
+(right-aligned, `MATERIAL_COUNT_BUFFER` inset) as two separate nodes,
+replacing the old single `"Metal: 3/10"`-style Label. Icons: gray rolled
+sheet = Metal, white curled sheet = Paper, leaf = Organic, blue rolled
+sheet = Plastic — see `MATERIAL_ICONS` in `ResearchStationUI.gd`. Button/
+panel sizing is unchanged (`_compute_material_btn_size()` still sizes off
+the old name-based sample strings purely as a ruler; nothing changed
+there). Research cards also gained a clock icon (`CLOCK_ICON_TEXTURE`,
+interior pre-filled white, exterior transparent) immediately left of the
+duration/"Time left" text, in both the not-started and active-countdown
+states.
 
 ## Upgrade system architecture (Aug 2026)
 
@@ -185,6 +198,10 @@ scroll disabled.
   Label, sized once via `_compute_material_btn_size()` from the widest
   of the four label strings + small fixed padding — all four cells now
   identical and short/tight. Panel height is derived from that size.
+  (Aug 2026 icon pass: the Label was split into a `TextureRect` icon +
+  a right-aligned count-only Label; `_compute_material_btn_size()`
+  itself was left untouched on purpose so the cell footprint didn't
+  change.)
 - **Tier bar.** Full-width `_build_tier_bar()` (segments fill the tile
   edge-to-edge; `max_tier == 1` reads as one toggle-colored strip).
 - **Titles/durations.** Titles are bare `display_name` (toasts keep the

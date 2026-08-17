@@ -319,13 +319,21 @@ func _finish_cooking() -> void:
 			unique_keys.append(entry["ingredient_key"])
 	_dish_name = resolve_dish_name(unique_keys)
 
+	## Confirmed Aug 2026 — the finished dish stays "in the pot": slot DATA
+	## (ingredient_key/restore_value/charge_badge) is kept so the icon row
+	## keeps showing what was used, all the way until the player actually
+	## takes the dish (serve_dish() is where slots[] finally clears — see
+	## below). Only lingering PRODUCE node references get freed here (they
+	## were hidden inside the pot the whole time, visually "consumed" —
+	## Food Can/Water Bottle ingredients never carry a node reference this
+	## far, since they were emptied and ejected at ADD time instead).
 	for i: int in CAPACITY:
 		var entry = slots[i]
 		if entry != null:
 			var node: Node = entry["node"]
 			if is_instance_valid(node):
-				node.queue_free()   ## consumed into the dish — no longer a separate item
-			slots[i] = null
+				node.queue_free()
+			entry["node"] = null
 	_cook_progress = 0.0
 	_is_cooked = true
 	if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
@@ -358,6 +366,13 @@ func serve_dish() -> Dictionary:
 	_dish_bonus_pct = 0.0
 	_dish_name      = "Cooked Dish"
 	_dish_hydration = 0.0
+	## Confirmed Aug 2026 — the pot only actually empties once the dish is
+	## taken. Before this point, slots[] intentionally stayed populated
+	## (with node references already cleared in _finish_cooking()) so the
+	## ingredient icons kept showing while the finished dish sat waiting to
+	## be taken.
+	for i: int in CAPACITY:
+		slots[i] = null
 	return result
 
 # ─── Slot helpers ─────────────────────────────────────────────────────────────
@@ -399,13 +414,37 @@ func try_add_item(item: Node) -> bool:
 
 	var restore: float = _get_item_restore_value(item)
 	var key: String     = _get_item_ingredient_key(item)
-	## Snapshotted NOW, while the live node still exists — a display-ready
-	## string like "1/2" or "67%", or "" for a full/non-partial ingredient
-	## (produce always returns ""). Read by get_slot_icon_descriptors() so
-	## the hover UI can show it without needing the original node later
-	## (which won't exist post-cook, or post-save/load restore).
+	## Snapshotted NOW, while the live item still has its ORIGINAL
+	## fill/bites state — a display-ready string like "1/2" or "67%", or ""
+	## for a full/non-partial ingredient (produce always returns ""). Read
+	## by get_slot_icon_descriptors() so the hover UI can show it without
+	## needing the original node later (which won't exist post-cook, or
+	## post-save/load restore).
 	var badge: String = _get_item_charge_badge(item)
 
+	## Confirmed Aug 2026 — a Food Can or Water Bottle used as an
+	## ingredient gets EMPTIED and dropped beside the pot, exactly the same
+	## state transition as normal consumption to 0%, rather than being
+	## frozen and hidden inside the pot like produce. Only the abstract
+	## ingredient data goes "into" the pot for these two types —
+	## slots[slot]["node"] stays null for them (same shape a restored-from-
+	## save slot already has).
+	if ("_bites_left" in item) or ("current_fill_mL" in item):
+		if item.has_method("_become_empty"):
+			item._become_empty()
+		elif "current_fill_mL" in item:
+			item.current_fill_mL = 0.0
+			if item.has_method("_update_empty_tint"):
+				item._update_empty_tint()
+		_eject_emptied_container(item)
+		slots[slot] = {"node": null, "restore_value": restore, "ingredient_key": key, "charge_badge": badge}
+		item_added.emit(slot, item)
+		if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
+			_host_stove.notify_pot_contents_changed()
+		return true
+
+	## Produce (and anything else with no empty concept) — unchanged:
+	## freeze, hide, reparent as a child of the pot.
 	if item.get_parent() != null:
 		item.get_parent().remove_child(item)
 	add_child(item)
@@ -430,6 +469,31 @@ func try_add_item(item: Node) -> bool:
 	if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
 		_host_stove.notify_pot_contents_changed()
 	return true
+
+## Drops a just-emptied Food Can / Water Bottle into the world right next
+## to the pot, fully interactable (normal physics, pickup-able) — NOT
+## reparented into the pot itself, unlike produce. Mirrors remove_item()'s
+## existing "return to world" logic.
+func _eject_emptied_container(item: Node) -> void:
+	var world_root: Node = get_tree().get_root()
+	if item.get_parent() != null:
+		item.get_parent().remove_child(item)
+	world_root.add_child(item)
+	item.global_position = global_position + Vector3(0.2, 0.3, 0.2)
+	item.visible = true
+	if item is RigidBody3D:
+		var rb: RigidBody3D = item as RigidBody3D
+		rb.freeze           = false
+		rb.freeze_mode      = RigidBody3D.FREEZE_MODE_KINEMATIC
+		rb.gravity_scale    = 1.0
+		rb.collision_layer  = 1
+		rb.collision_mask   = 1
+		rb.linear_velocity  = Vector3.ZERO
+		rb.angular_velocity = Vector3.ZERO
+	if "is_held" in item:
+		item.is_held = false
+	if "_hold_point" in item:
+		item._hold_point = null
 
 ## ─── Save/Load (Part J) ───────────────────────────────────────────────────
 ## Returns this pot's full cookable state as a JSON-friendly Dictionary.
