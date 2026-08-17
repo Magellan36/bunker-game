@@ -18,9 +18,13 @@ class_name CharacterShadowStandIn
 
 ## Stand-in height as a fraction of the character's own real height.
 ## Shorter = a shorter, less dramatic shadow at any light angle (this is
-## the actual "make the shadow less long" control) — first-pass value,
-## adjust freely, this is a single number with no other coupled effects.
-const HEIGHT_FACTOR: float = 0.5
+## the actual "make the shadow less long" control) — single number with
+## no other coupled effects, adjust freely.
+## Lowered from 0.5 to 0.35 (Aug 2026) per direct request for a shorter
+## shadow at any given light angle. If still too long/short after
+## in-editor review, retune this value alone — nothing else in this file
+## or its callers needs to change.
+const HEIGHT_FACTOR: float = 0.35
 
 ## Fallbacks if the character's own CollisionShape3D/CapsuleShape3D can't
 ## be found — matches Player.tscn's own defaults (Godot's default capsule:

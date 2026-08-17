@@ -374,14 +374,20 @@ the full iteration arc if useful context for a future similar decision.
 ### Character shadow stand-in
 Replaces the above. Real shadow-casting, using a shortened invisible
 stand-in mesh instead of the character's actual (tall) visible model:
-`CharacterShadowStandIn.attach()` builds a capsule roughly half the
-character's real height (`HEIGHT_FACTOR`), positioned so its own base
-lands at the exact same floor contact point the character's real feet are
-at — not shrunk from the character's center, which would lift it off the
-ground. Set to `SHADOW_CASTING_SETTING_SHADOWS_ONLY` (never rendered to
-camera, fully participates in real shadow mapping). Tagged with the same
+`CharacterShadowStandIn.attach()` builds a capsule at `HEIGHT_FACTOR` of
+the character's real height, positioned so its own base lands at the
+exact same floor contact point the character's real feet are at — not
+shrunk from the character's center, which would lift it off the ground.
+Set to `SHADOW_CASTING_SETTING_SHADOWS_ONLY` (never rendered to camera,
+fully participates in real shadow mapping). Tagged with the same
 `Player.PLAYER_SELF_LIGHT_LAYER_BIT` the visible mesh already has, so
 Flashlight's existing self-shadow exclusion covers it too.
+
+`HEIGHT_FACTOR` lowered from `0.5` to `0.35` (Aug 2026) for a shorter
+shadow at any given light angle — direct request, no in-editor
+playtesting feedback yet on this specific value. Still a single number
+with no other coupled effects; retune freely if it needs adjusting
+further.
 
 No per-frame script anywhere in this system — the stand-in is a plain
 child mesh, positioned once; real shadow mapping re-renders it every

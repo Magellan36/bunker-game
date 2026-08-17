@@ -1,3 +1,32 @@
+# Handover — Character Shadow Stand-In: Shorter (Aug 2026)
+
+## What changed this session
+`CharacterShadowStandIn.HEIGHT_FACTOR` lowered from `0.5` to `0.35` per
+direct request for a shorter character shadow at any given light angle.
+Single-constant change — no structural or logic changes, no other file
+touched besides docs.
+
+### Files modified
+- `scripts/core/CharacterShadowStandIn.gd` — `HEIGHT_FACTOR` constant
+  and its doc-comment.
+- `docs/systems/graphics/README.md` — "Character shadow stand-in"
+  section updated to reflect the new value.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Load a scene with a character near a light (WallLight or Flashlight),
+   observe the shadow — should be visibly shorter than before at the
+   same light angle/distance.
+3. Confirm the shadow's base still lands at the character's actual floor
+   contact point (no floating/detached shadow) — the `y_offset` math is
+   unchanged, only `HEIGHT_FACTOR` itself moved, so this should hold
+   automatically, but visually confirm.
+4. Confirm no other visual regression on the character's own mesh
+   (`cast_shadow = OFF` on the real mesh is untouched by this change).
+
+---
+
 # Handover — Flashlight Self-Shadow Dome, Actual Fix (Aug 2026)
 
 ## What changed this session
