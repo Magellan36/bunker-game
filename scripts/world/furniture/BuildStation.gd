@@ -36,47 +36,54 @@ func get_prompt_world_pos() -> Vector3:
 	return global_position + Vector3(0.0, 1.1, 0.0)
 
 # ─── Basic model — 2×1 tabletop + rolled blueprints, simple per design direction ──
+const TABLE_GLB_PATH: String = "res://assets/models/table01.glb"
+
 func _build_mesh() -> void:
-	var mat_wood: StandardMaterial3D = StandardMaterial3D.new()
-	mat_wood.albedo_color = Color(0.42, 0.30, 0.20, 1.0)
-	mat_wood.roughness = 0.85
+	## Load GLB table model as base
+	var packed: PackedScene = load(TABLE_GLB_PATH) if ResourceLoader.exists(TABLE_GLB_PATH) else null
+	var top_y: float = 0.77   ## LEG_HEIGHT + tabletop thickness
 
-	## Legs — mirrors Table.gd's leg convention (4 cylinders), scaled to a
-	## 2×1 (1.90 × 0.90) footprint, same as Medium Table.
-	const LEG_HEIGHT: float = 0.72
-	var leg_positions: Array[Vector2] = [
-		Vector2(-0.85, -0.35), Vector2(0.85, -0.35),
-		Vector2(-0.85,  0.35), Vector2(0.85,  0.35),
-	]
-	for p: Vector2 in leg_positions:
-		var leg_mi: MeshInstance3D = MeshInstance3D.new()
-		var leg_mesh: CylinderMesh = CylinderMesh.new()
-		leg_mesh.top_radius = 0.035
-		leg_mesh.bottom_radius = 0.035
-		leg_mesh.height = LEG_HEIGHT
-		leg_mi.mesh = leg_mesh
-		leg_mi.position = Vector3(p.x, LEG_HEIGHT * 0.5, p.y)
-		leg_mi.set_surface_override_material(0, mat_wood)
-		add_child(leg_mi)
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			model.position = Vector3(0.0, 0.0, 0.0)
+			_remove_collision_recursive(model)
+			add_child(model)
+			top_y = 0.82   ## slightly above GLB tabletop surface
+	else:
+		## Fallback procedural table if GLB fails
+		var mat_wood: StandardMaterial3D = StandardMaterial3D.new()
+		mat_wood.albedo_color = Color(0.42, 0.30, 0.20, 1.0)
+		mat_wood.roughness = 0.85
+		const LEG_HEIGHT: float = 0.72
+		var leg_positions: Array[Vector2] = [
+			Vector2(-0.85, -0.35), Vector2(0.85, -0.35),
+			Vector2(-0.85,  0.35), Vector2(0.85,  0.35),
+		]
+		for p: Vector2 in leg_positions:
+			var leg_mi: MeshInstance3D = MeshInstance3D.new()
+			var leg_mesh: CylinderMesh = CylinderMesh.new()
+			leg_mesh.top_radius = 0.035
+			leg_mesh.bottom_radius = 0.035
+			leg_mesh.height = LEG_HEIGHT
+			leg_mi.mesh = leg_mesh
+			leg_mi.position = Vector3(p.x, LEG_HEIGHT * 0.5, p.y)
+			leg_mi.set_surface_override_material(0, mat_wood)
+			add_child(leg_mi)
+		var top_mi: MeshInstance3D = MeshInstance3D.new()
+		var top_mesh: BoxMesh = BoxMesh.new()
+		top_mesh.size = Vector3(1.90, 0.05, 0.90)
+		top_mi.mesh = top_mesh
+		top_mi.position = Vector3(0.0, LEG_HEIGHT + 0.025, 0.0)
+		top_mi.set_surface_override_material(0, mat_wood)
+		add_child(top_mi)
+		top_mi.create_trimesh_collision()
+		for child in top_mi.get_children():
+			if child is StaticBody3D:
+				(child as StaticBody3D).collision_layer = 5
+				(child as StaticBody3D).collision_mask = 0
 
-	## Tabletop, with collision (mirrors Table.gd's create_trimesh_collision pattern)
-	var top_mi: MeshInstance3D = MeshInstance3D.new()
-	var top_mesh: BoxMesh = BoxMesh.new()
-	top_mesh.size = Vector3(1.90, 0.05, 0.90)
-	top_mi.mesh = top_mesh
-	top_mi.position = Vector3(0.0, LEG_HEIGHT + 0.025, 0.0)
-	top_mi.set_surface_override_material(0, mat_wood)
-	add_child(top_mi)
-	top_mi.create_trimesh_collision()
-	for child in top_mi.get_children():
-		if child is StaticBody3D:
-			(child as StaticBody3D).collision_layer = 5
-			(child as StaticBody3D).collision_mask  = 0
-
-	var top_y: float = LEG_HEIGHT + 0.05
-
-	## Rolled blueprints — a few flattened cylinders laid on their sides,
-	## off-white/tan, loosely stacked. Simple primitives per design direction.
+	## Rolled blueprints
 	var mat_paper: StandardMaterial3D = StandardMaterial3D.new()
 	mat_paper.albedo_color = Color(0.88, 0.83, 0.68, 1.0)
 	mat_paper.roughness = 0.95
@@ -98,8 +105,7 @@ func _build_mesh() -> void:
 		roll_mi.set_surface_override_material(0, mat_paper)
 		add_child(roll_mi)
 
-	## A small toolbox-like box, other side of the table — one more "basic
-	## shape object" per the request, simple grey box.
+	## Toolbox
 	var mat_metal: StandardMaterial3D = StandardMaterial3D.new()
 	mat_metal.albedo_color = Color(0.35, 0.36, 0.38, 1.0)
 	mat_metal.metallic = 0.3
@@ -111,6 +117,19 @@ func _build_mesh() -> void:
 	box_mi.position = Vector3(0.55, top_y + 0.08, -0.15)
 	box_mi.set_surface_override_material(0, mat_metal)
 	add_child(box_mi)
+
+## Helper: strip collision nodes from GLB import
+func _remove_collision_recursive(node: Node) -> void:
+	var children: Array = []
+	for child in node.get_children():
+		children.append(child)
+	for child in children:
+		if child is CollisionShape3D or child is CollisionPolygon3D:
+			child.queue_free()
+		elif child is StaticBody3D or child is RigidBody3D or child is Area3D:
+			child.queue_free()
+		else:
+			_remove_collision_recursive(child)
 
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()

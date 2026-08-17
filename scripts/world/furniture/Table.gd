@@ -5,6 +5,7 @@ class_name Table
 ## 2 = medium 2×1) — same footprint numbers as FarmingTray (0.90×0.90 /
 ## 1.90×0.90) so it reads as visually consistent furniture at the same scale.
 ## Not interactable yet — pure static decoration/placement object for now.
+## Cell_count = 2 loads table01.glb model.
 
 const LEG_HEIGHT: float        = 0.72   ## Matches FarmingTray.LEG_HEIGHT
 const TABLETOP_THICKNESS: float = 0.05
@@ -12,7 +13,9 @@ const TABLETOP_Y: float        = LEG_HEIGHT + TABLETOP_THICKNESS * 0.5
 
 const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)
 
-@export var cell_count: int = 1   ## 1 = small table, 2 = medium table
+const TABLE_GLB_PATH: String = "res://assets/models/table01.glb"
+
+@export var cell_count: int = 1   ## 1 = small table, 2 = medium table (GLB)
 
 ## Full-fidelity preview mode (see Bed.gd / Shelving.gd for the full
 ## convention writeup) — set TRUE by BuildModeHUD's construct-tab preview
@@ -34,6 +37,46 @@ func _footprint() -> Vector2:
 	return Vector2(x, 0.90)
 
 func _build_mesh() -> void:
+	## Cell_count = 2: load GLB model
+	if cell_count == 2:
+		var packed: PackedScene = load(TABLE_GLB_PATH) if ResourceLoader.exists(TABLE_GLB_PATH) else null
+		if packed != null:
+			var model: Node3D = packed.instantiate() as Node3D
+			if model != null:
+				model.position = Vector3(0.0, 0.0, 0.0)
+				_remove_collision_recursive(model)
+				add_child(model)
+				## Add collision from the model's bounds
+				var aabb: AABB = _get_model_bounds(model)
+				var cshape: CollisionShape3D = CollisionShape3D.new()
+				var box: BoxShape3D = BoxShape3D.new()
+				box.size = aabb.size
+				cshape.shape = box
+				cshape.position = Vector3(0.0, aabb.size.y * 0.5, 0.0)
+				cshape.collision_layer = 5
+				cshape.collision_mask = 0
+				add_child(cshape)
+				return
+		## Fallback if GLB fails: procedural box
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		var bm: BoxMesh = BoxMesh.new()
+		bm.size = Vector3(1.90, LEG_HEIGHT + TABLETOP_THICKNESS, 0.90)
+		mi.mesh = bm
+		mi.position = Vector3(0.0, (LEG_HEIGHT + TABLETOP_THICKNESS) * 0.5, 0.0)
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.albedo_color = COLOR_METAL
+		mat.metallic = 0.5
+		mat.roughness = 0.4
+		mi.set_surface_override_material(0, mat)
+		add_child(mi)
+		mi.create_trimesh_collision()
+		for child in mi.get_children():
+			if child is StaticBody3D:
+				(child as StaticBody3D).collision_layer = 5
+				(child as StaticBody3D).collision_mask = 0
+		return
+
+	## Cell_count = 1: procedural mesh (original behavior)
 	var fp: Vector2 = _footprint()
 	var footprint_x: float = fp.x
 	var footprint_z: float = fp.y
@@ -76,6 +119,32 @@ func _build_mesh() -> void:
 		if child is StaticBody3D:
 			(child as StaticBody3D).collision_layer = 5
 			(child as StaticBody3D).collision_mask  = 0
+
+## Helper: get AABB bounds of a model
+func _get_model_bounds(model: Node3D) -> AABB:
+	var bounds: AABB = AABB()
+	for child in model.get_children():
+		if child is MeshInstance3D:
+			var mi: MeshInstance3D = child as MeshInstance3D
+			if mi.mesh != null:
+				var aabb: AABB = mi.get_aabb()
+				bounds = bounds.merge(aabb)
+	if bounds == AABB():
+		bounds = AABB(Vector3(-0.95, 0.0, -0.45), Vector3(1.90, 0.80, 0.90))
+	return bounds
+
+## Helper: strip collision nodes from GLB import
+func _remove_collision_recursive(node: Node) -> void:
+	var children: Array = []
+	for child in node.get_children():
+		children.append(child)
+	for child in children:
+		if child is CollisionShape3D or child is CollisionPolygon3D:
+			child.queue_free()
+		elif child is StaticBody3D or child is RigidBody3D or child is Area3D:
+			child.queue_free()
+		else:
+			_remove_collision_recursive(child)
 
 static func build_ghost_mesh(cell_count: int = 1) -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
