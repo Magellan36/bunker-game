@@ -7,10 +7,6 @@ extends PickupableItem
 const FOOD_PER_BITE: float  = 12.5   ## 25 / 2 — half the can per eat
 const TOTAL_BITES: int      = 2
 
-## GLB model — loaded in place of the procedural cylinder.
-const MODEL_PATH: String = "res://assets/models/can.glb"
-const MODEL_SCALE: Vector3 = Vector3(1.0, 1.0, 1.0)   ## Adjust after visual check
-
 ## Shelf stacking — 6 cans per slot, stand upright in two rows of 3
 var shelf_stack_limit: int   = 6
 var shelf_item_type: String  = "food_can"
@@ -28,73 +24,7 @@ func _ready() -> void:
 	add_to_group("inventory_item")
 	add_to_group("basket_storable")
 	add_to_group("cookpot_storable")
-	## Load GLB model, replacing the procedural cylinder from the .tscn
-	_load_glb_model()
-
-func _load_glb_model() -> void:
-	## Remove the procedural MeshInstance3D from the .tscn
-	var old_mesh: Node = get_node_or_null("MeshInstance3D")
-	if old_mesh != null:
-		old_mesh.queue_free()
-
-	## Load GLB
-	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
-	if packed == null:
-		push_warning("FoodCan: GLB missing at %s — using placeholder" % MODEL_PATH)
-		_mesh = MeshInstance3D.new()
-		_mesh.mesh = CylinderMesh.new()
-		(_mesh.mesh as CylinderMesh).top_radius = 0.04
-		(_mesh.mesh as CylinderMesh).bottom_radius = 0.04
-		(_mesh.mesh as CylinderMesh).height = 0.12
-		add_child(_mesh)
-		return
-
-	var model: Node3D = packed.instantiate() as Node3D
-	if model == null:
-		return
-
-	## Strip GLB collision (RigidBody3D has its own CollisionShape3D from .tscn)
-	_strip_model_collision(model)
-
-	## Scale and position — zero offset, apply scale
-	model.position = Vector3.ZERO
-	model.scale = MODEL_SCALE
-	_recenter_glb_mesh(model)
-	add_child(model)
-
-	## Grab the first MeshInstance3D for empty-state tinting
-	_mesh = _find_first_mesh(model)
-	if _mesh == null:
-		push_warning("FoodCan: no MeshInstance3D found in GLB")
-
-## Recursively find first MeshInstance3D
-func _find_first_mesh(node: Node) -> MeshInstance3D:
-	if node is MeshInstance3D:
-		return node as MeshInstance3D
-	for child: Node in node.get_children():
-		var result: MeshInstance3D = _find_first_mesh(child)
-		if result != null:
-			return result
-	return null
-
-## Strip collision from GLB descendants
-func _strip_model_collision(node: Node) -> void:
-	if node is CollisionObject3D:
-		var co: CollisionObject3D = node as CollisionObject3D
-		co.collision_layer = 0
-		co.collision_mask  = 0
-	for child: Node in node.get_children():
-		_strip_model_collision(child)
-
-## Zero inner MeshInstance3D position (Godot glTF importer wrapper node)
-func _recenter_glb_mesh(node: Node) -> bool:
-	if node is MeshInstance3D:
-		(node as MeshInstance3D).position = Vector3.ZERO
-		return true
-	for child: Node in node.get_children():
-		if _recenter_glb_mesh(child):
-			return true
-	return false
+	_mesh = get_node_or_null("MeshInstance3D")
 
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_display_name() -> String:
