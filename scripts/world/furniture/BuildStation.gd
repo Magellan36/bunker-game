@@ -37,43 +37,45 @@ func get_prompt_world_pos() -> Vector3:
 
 # ─── Basic model — 2×1 tabletop + rolled blueprints, simple per design direction ──
 func _build_mesh() -> void:
+	const LEG_HEIGHT: float = 0.72
+	const TABLETOP_THICKNESS: float = 0.05
+
+	## Table legs + tabletop now come from the same wooden_table.glb model
+	## used by Table.gd's Medium (2×1) table — same footprint (1.90×0.90),
+	## same scale factors. See PLAN_table01_glb_swap.md for the source
+	## measurements/scale derivation; keep both sites' scale constant in
+	## sync if the asset is ever re-authored.
+	const MODEL_PATH: String = "res://assets/models/wooden_table.glb"
+	const MODEL_SCALE: Vector3 = Vector3(0.6333, 0.5946, 0.4638)
+
+	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			## MUST explicitly zero position — see Table.gd's identical note;
+			## the source file's node has a baked scene-placement offset that
+			## is not part of the mesh's own shape.
+			model.position = Vector3.ZERO
+			model.scale    = MODEL_SCALE
+			_strip_model_collision(model)
+			add_child(model)
+	else:
+		push_warning("BuildStation.gd: wooden_table.glb missing at %s — falling back to no table visual" % MODEL_PATH)
+
+	## Invisible collision box, same dimensions/position the procedural
+	## tabletop's create_trimesh_collision() used to produce.
+	var col_shape: CollisionShape3D = CollisionShape3D.new()
+	var box: BoxShape3D = BoxShape3D.new()
+	box.size = Vector3(1.90, TABLETOP_THICKNESS, 0.90)
+	col_shape.shape = box
+	col_shape.position = Vector3(0.0, LEG_HEIGHT + 0.025, 0.0)
+	add_child(col_shape)
+
+	var top_y: float = LEG_HEIGHT + 0.05
+
 	var mat_wood: StandardMaterial3D = StandardMaterial3D.new()
 	mat_wood.albedo_color = Color(0.42, 0.30, 0.20, 1.0)
 	mat_wood.roughness = 0.85
-
-	## Legs — mirrors Table.gd's leg convention (4 cylinders), scaled to a
-	## 2×1 (1.90 × 0.90) footprint, same as Medium Table.
-	const LEG_HEIGHT: float = 0.72
-	var leg_positions: Array[Vector2] = [
-		Vector2(-0.85, -0.35), Vector2(0.85, -0.35),
-		Vector2(-0.85,  0.35), Vector2(0.85,  0.35),
-	]
-	for p: Vector2 in leg_positions:
-		var leg_mi: MeshInstance3D = MeshInstance3D.new()
-		var leg_mesh: CylinderMesh = CylinderMesh.new()
-		leg_mesh.top_radius = 0.035
-		leg_mesh.bottom_radius = 0.035
-		leg_mesh.height = LEG_HEIGHT
-		leg_mi.mesh = leg_mesh
-		leg_mi.position = Vector3(p.x, LEG_HEIGHT * 0.5, p.y)
-		leg_mi.set_surface_override_material(0, mat_wood)
-		add_child(leg_mi)
-
-	## Tabletop, with collision (mirrors Table.gd's create_trimesh_collision pattern)
-	var top_mi: MeshInstance3D = MeshInstance3D.new()
-	var top_mesh: BoxMesh = BoxMesh.new()
-	top_mesh.size = Vector3(1.90, 0.05, 0.90)
-	top_mi.mesh = top_mesh
-	top_mi.position = Vector3(0.0, LEG_HEIGHT + 0.025, 0.0)
-	top_mi.set_surface_override_material(0, mat_wood)
-	add_child(top_mi)
-	top_mi.create_trimesh_collision()
-	for child in top_mi.get_children():
-		if child is StaticBody3D:
-			(child as StaticBody3D).collision_layer = 5
-			(child as StaticBody3D).collision_mask  = 0
-
-	var top_y: float = LEG_HEIGHT + 0.05
 
 	## Rolled blueprints — a few flattened cylinders laid on their sides,
 	## off-white/tan, loosely stacked. Simple primitives per design direction.
@@ -111,6 +113,18 @@ func _build_mesh() -> void:
 	box_mi.position = Vector3(0.55, top_y + 0.08, -0.15)
 	box_mi.set_surface_override_material(0, mat_metal)
 	add_child(box_mi)
+
+## Recursively disables collision on every CollisionObject3D descendant of
+## an instanced model. Duplicated from Table.gd's identical helper (not
+## shared — these are two separate script classes with no common base to
+## hang a shared method on without a bigger refactor; not in scope here).
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
 
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()

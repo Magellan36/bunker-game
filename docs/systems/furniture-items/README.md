@@ -444,6 +444,12 @@ excluded from `get_placed_objects_for_save()`, so after a save/reload it
 respawns at world-center. Position-persistence for either object is a real
 but separate follow-up.
 
+**Visual (Aug 2026):** the station's tabletop+legs now load
+`assets/models/wooden_table.glb` (same model/scale as `Table.gd`'s Medium
+table — see `docs/systems/build/README.md` Furniture section for the full
+note, incl. the baked node-offset zeroing and stripped-collision
+convention).
+
 ## Research Station (Aug 2026)
 `ResearchStation.gd` is a plain `StaticBody3D` — structurally near-identical
 to `BuildStation.gd` (same `"interactable"` group + prompt contract, same

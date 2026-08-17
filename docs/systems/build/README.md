@@ -90,6 +90,23 @@ scripts following the same pattern as `Shelving.gd`/`Bed.gd`:
   light-specific one), blank beige canvas + dark frame, meant as the
   baseline for future wall decor.
 
+**Aug 2026 — Medium Table + Build Station now use a real GLB model.**
+`Table.gd`'s `cell_count == 2` path and `BuildStation.gd`'s tabletop both
+now load `assets/models/wooden_table.glb` (non-uniform scale
+`Vector3(0.6333, 0.5946, 0.4638)`, applied in code rather than the
+`.import` file since the required correction isn't uniform) instead of
+building a procedural leg+top mesh. `cell_count == 1` (Small Table) is
+UNCHANGED — still fully procedural, the GLB doesn't fit that footprint.
+Collision for both is now a separate invisible `BoxShape3D` matching the
+exact same footprint/position the old procedural
+`top_mi.create_trimesh_collision()` produced — decoupled from the visual
+mesh since the model's own imported collision is always stripped (see
+`_strip_model_collision()` in both files). The source asset's single glTF
+node carries a baked `(-1.7, 0, 0.7)` scene-placement translation that is
+NOT part of the mesh's own shape — every instantiation site explicitly
+zeroes `model.position` after `instantiate()` rather than trusting the
+import; don't remove that line if this code is ever touched again.
+
 ## Light Storage: End Table / Dresser (Aug 2026)
 Tile IDs **32** (`End Table`, $60, capacity 2) and **33** (`Dresser`,
 $150, capacity 6) in Construct → Furniture — floor-standing hidden-

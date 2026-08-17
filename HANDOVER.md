@@ -1,3 +1,61 @@
+# Handover — Medium Table + Build Station: Procedural Mesh → wooden_table.glb (Aug 2026)
+
+## What changed this session
+Replaced the procedural leg+tabletop mesh in `Table.gd` (Medium/2×1 table
+only — Small/1×1 table is unchanged, still fully procedural) and
+`BuildStation.gd` (tabletop only — blueprint rolls/toolbox unchanged) with
+a real imported model, `assets/models/wooden_table.glb`. The source
+asset's raw dimensions (3.0m × 1.29m × 1.94m) didn't match either script's
+authored footprint (1.90 × 0.77 × 0.90) closely enough for a uniform
+scale, so a non-uniform per-axis scale (`0.6333, 0.5946, 0.4638`) was
+applied in code to hit the exact target footprint/height — flagged as a
+deviation from a "clean" uniform-scale import; recommend an in-editor
+visual check for distortion. The source file's single glTF node also
+carries a baked scene-placement translation `(-1.7, 0, 0.7)` unrelated to
+the mesh's own shape — every instantiation site now explicitly zeroes
+`model.position` after `instantiate()` rather than trusting the import
+transform (same defensive pattern `WallLight._build_fixture()` already
+uses). Collision on both objects is now a separate invisible
+`BoxShape3D` at the same dimensions/position the old procedural
+`create_trimesh_collision()` produced, since the model's own imported
+collision is stripped unconditionally.
+
+### Files modified
+- `assets/models/wooden_table.glb` — new asset.
+- `scripts/world/furniture/Table.gd` — `cell_count == 2` branch in
+  `_build_mesh()`, new `_build_mesh_from_model()`, new
+  `_strip_model_collision()`.
+- `scripts/world/furniture/BuildStation.gd` — tabletop/legs block in
+  `_build_mesh()` replaced, new `_strip_model_collision()`.
+- `docs/systems/build/README.md` — Furniture section updated.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Construct → Furniture → Medium Table: spinning preview shows the real
+   wooden table model, not a grey box.
+3. Place a Medium Table — model renders centered on the ghost/placement
+   position, no visible offset (checks the `model.position = Vector3.ZERO`
+   fix actually took).
+4. Model's footprint visually matches the placement ghost/ghost tint box
+   (1.90 × 0.90) reasonably closely — some proportion distortion from the
+   non-uniform scale is expected and OK, a wildly wrong footprint is not.
+5. Walk into the table from multiple sides — collision blocks at the same
+   1.90×0.90 footprint the old procedural table did (invisible collision
+   box, not the visual mesh).
+6. Small Table (1×1, tile 27) — completely unaffected, still renders the
+   old procedural metal legs+top.
+7. Build Station — table portion shows the same wooden model; blueprint
+   rolls and toolbox still render in their same relative positions on top
+   of it (checks `top_y` still resolves correctly for the code below the
+   replaced block).
+8. Save/load a level with a placed Medium Table — model reloads correctly
+   (uses the same `_spawn_placed_object()` path as before, no save-format
+   changes were made, so this should be a non-issue, but worth a quick
+   check).
+
+---
+
 # Handover — Character Shadow Stand-In: Shorter (Aug 2026)
 
 ## What changed this session

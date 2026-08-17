@@ -12,6 +12,9 @@ const TABLETOP_Y: float        = LEG_HEIGHT + TABLETOP_THICKNESS * 0.5
 
 const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)
 
+const MEDIUM_TABLE_MODEL_PATH: String = "res://assets/models/wooden_table.glb"
+const MEDIUM_TABLE_MODEL_SCALE: Vector3 = Vector3(0.6333, 0.5946, 0.4638)
+
 @export var cell_count: int = 1   ## 1 = small table, 2 = medium table
 
 ## Full-fidelity preview mode (see Bed.gd / Shelving.gd for the full
@@ -37,6 +40,10 @@ func _build_mesh() -> void:
 	var fp: Vector2 = _footprint()
 	var footprint_x: float = fp.x
 	var footprint_z: float = fp.y
+
+	if cell_count == 2:
+		_build_mesh_from_model(footprint_x, footprint_z)
+		return
 
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = COLOR_METAL
@@ -76,6 +83,54 @@ func _build_mesh() -> void:
 		if child is StaticBody3D:
 			(child as StaticBody3D).collision_layer = 5
 			(child as StaticBody3D).collision_mask  = 0
+
+## Medium (2×1) table only — loads the real wooden_table.glb model instead
+## of the procedural leg+top mesh. Collision is a separate, invisible
+## BoxShape3D matching the tabletop's exact footprint/position (same
+## dimensions the procedural top_mi.create_trimesh_collision() produced),
+## attached directly to this StaticBody3D — decoupled from the visual mesh
+## since the GLB's own collision is stripped (ghost/preview convention:
+## never trust an imported model's collision, see GhostModelBuilder.gd's
+## strip_collision() for the parallel case in ghost previews).
+func _build_mesh_from_model(footprint_x: float, footprint_z: float) -> void:
+	var packed: PackedScene = load(MEDIUM_TABLE_MODEL_PATH) if ResourceLoader.exists(MEDIUM_TABLE_MODEL_PATH) else null
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			## MUST explicitly zero position — the source file's single node
+			## has a baked (-1.7, 0, 0.7) scene-placement offset that is NOT
+			## part of the mesh's own shape. Trusting the imported transform
+			## would render the table badly off-center. See plan header.
+			model.position = Vector3.ZERO
+			model.scale    = MEDIUM_TABLE_MODEL_SCALE
+			_strip_model_collision(model)
+			add_child(model)
+	else:
+		push_warning("Table.gd: wooden_table.glb missing at %s — falling back to no visual mesh for the 2x1 table" % MEDIUM_TABLE_MODEL_PATH)
+
+	## Invisible collision box, exact same dimensions/position as the
+	## procedural tabletop's collision used to be.
+	var col_shape: CollisionShape3D = CollisionShape3D.new()
+	var box: BoxShape3D = BoxShape3D.new()
+	box.size = Vector3(footprint_x, TABLETOP_THICKNESS, footprint_z)
+	col_shape.shape = box
+	col_shape.position = Vector3(0.0, TABLETOP_Y, 0.0)
+	add_child(col_shape)
+
+## Recursively disables collision on every CollisionObject3D descendant of
+## an instanced model — same responsibility as
+## GhostModelBuilder.strip_collision(), duplicated here (not called) since
+## this is a REAL placed object, not a ghost, and GhostModelBuilder is
+## build-mode-preview-scoped. If a second real (non-ghost) model-loading
+## site needs this same helper, promote it to a shared static utility
+## rather than a third copy.
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
 
 static func build_ghost_mesh(cell_count: int = 1) -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
