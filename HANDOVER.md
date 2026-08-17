@@ -1,3 +1,51 @@
+# Handover — Shadow Size Response Fix (Aug 2026)
+
+## What changed this session
+v6's opacity-saturation fix (recalibrating against OPACITY_REFERENCE_WEIGHT)
+didn't produce a noticeable difference in practice — its reference value
+(1.5) was still low enough that ordinary multi-light coverage in this
+bunker kept weight past it most of the time, so opacity still read as
+near-constant. Raised the reference substantially (1.5 → 4.0).
+
+More significantly: shadow LENGTH was always the flat TARGET_LENGTH
+regardless of how close or strong the nearby light was — only direction
+ever visibly changed, which reads as mechanical/robotic no matter how well
+opacity is tuned, since a fixed-size shape spinning around the character
+is a much more obvious "this isn't reacting to anything" signal than a
+subtle darkness gradient. Length now scales with the same aggregate
+weight that drives opacity — shrinking toward ~30% of full length when
+weak/far, stretching toward full length when close to a strong light —
+layered underneath the existing raycast wall/furniture clip exactly as
+before. Width is untouched.
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — new `MIN_LENGTH_FACTOR`/
+  `LENGTH_REFERENCE_WEIGHT` constants, `OPACITY_REFERENCE_WEIGHT` raised,
+  `_process()` now computes a weight-scaled target length used by the
+  raycast and clip.
+- `docs/systems/graphics/README.md` — fix v7 note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Walk from right next to a single wall light out to the edge of its
+   range — shadow should now visibly SHRINK (not just fade) as you move
+   away, well before it disappears entirely.
+3. Stand near 2-3 overlapping lights — shadow should be at or near full
+   length and full opacity (expected).
+4. Confirm the raycast wall/furniture clip still works — a long
+   (high-weight) shadow should still stop at an obstruction instead of
+   passing through it.
+5. If the size range feels too subtle or too extreme,
+   `MIN_LENGTH_FACTOR`/`LENGTH_REFERENCE_WEIGHT` are the values to retune
+   — lower `MIN_LENGTH_FACTOR` for a more dramatic minimum, adjust
+   `LENGTH_REFERENCE_WEIGHT` for how much weight it takes to reach full
+   length.
+6. Overall movement should now read as more organic/less mechanical —
+   this was the actual goal; if it still feels robotic, the next lever to
+   check would be SMOOTH_RATE (how quickly weight itself responds to
+   movement) rather than another size/opacity recalibration.
+
 ## [Aug 2026] Research Station — material icons + clock icon
 
 `ResearchStationUI.gd`'s materials-header grid now shows an icon

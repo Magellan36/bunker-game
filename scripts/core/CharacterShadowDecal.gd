@@ -37,6 +37,20 @@ class_name CharacterShadowDecal
 const TARGET_LENGTH: float = 3.5
 const MIN_LENGTH:     float = 0.4   ## never shrink to a degenerate sliver right up against a wall
 
+## Aug 2026 fix v7 — new. Length used to be flat TARGET_LENGTH regardless
+## of how close/strong the nearby light(s) were — only direction and
+## opacity varied, and opacity's variation turned out to be imperceptible
+## in practice (see OPACITY_REFERENCE_WEIGHT's updated comment below), so
+## the shadow read as an identically-shaped decal that just spins to face
+## away from whichever light dominates — "robotic." This makes LENGTH
+## itself respond to weight: near a strong/close light, the shadow
+## stretches out toward TARGET_LENGTH (still subject to the raycast clip
+## below); far/weak, it shrinks toward TARGET_LENGTH * MIN_LENGTH_FACTOR.
+## Width is deliberately NOT touched by this — it took several rounds to
+## get sized correctly against the character and isn't part of this fix.
+const MIN_LENGTH_FACTOR: float = 0.3
+const LENGTH_REFERENCE_WEIGHT: float = 2.5
+
 ## Aug 2026 fix — the shape used to be vertex-colored geometry (a 6-vertex
 ## trapezoid), which only faded alpha along its LENGTH — the left/right
 ## edges were a hard, unblended straight cut, which is exactly what read
@@ -100,7 +114,17 @@ const MIN_TOTAL_WEIGHT: float = 0.05   ## below this, no meaningful nearby light
 ## rescales weight against a reference value tuned so opacity visibly
 ## ramps across a light's more typical range instead of saturating
 ## immediately — see _process() below.
-const OPACITY_REFERENCE_WEIGHT: float = 1.5
+##
+## Aug 2026 fix v7 — v6's value (1.5) still saturated almost everywhere in
+## practice: this bunker's actual wall-light density means _current_weight
+## commonly sums past 1.5 from ordinary multi-light coverage, not just
+## from standing unusually close to one fixture, so the "visible ramp"
+## v6 intended rarely showed up during normal play. Raised substantially
+## so a meaningfully wider range of everyday positions — not just the
+## extremes — shows a real difference. Paired with LENGTH_REFERENCE_WEIGHT
+## above so weight now visibly affects both size and darkness, not just
+## darkness alone.
+const OPACITY_REFERENCE_WEIGHT: float = 4.0
 
 ## Raycast height above the character's own origin — roughly waist height,
 ## so it doesn't clip on the floor itself or pass over low obstacles.
@@ -313,6 +337,16 @@ func _process(delta: float) -> void:
 		## direction does not.
 		_current_dir = accum.normalized()
 
+	## Aug 2026 fix v7 — target length now scales with _current_weight
+	## instead of always being the flat TARGET_LENGTH — see
+	## MIN_LENGTH_FACTOR/LENGTH_REFERENCE_WEIGHT above. This is what
+	## actually varies the shadow's SIZE with distance/strength, not just
+	## its opacity — a much more noticeable, less "robotic" effect than
+	## opacity alone. Still subject to the raycast clip below exactly the
+	## same way TARGET_LENGTH always was.
+	var length_factor: float = smoothstep(0.0, LENGTH_REFERENCE_WEIGHT, _current_weight)
+	var weighted_target_length: float = lerp(TARGET_LENGTH * MIN_LENGTH_FACTOR, TARGET_LENGTH, length_factor)
+
 	## Raycast clip — stop the shadow at the first wall/furniture it would
 	## otherwise stretch through, instead of ghosting across it. Only
 	## clips LENGTH (a single hit distance), not per-pixel shape — the
@@ -320,7 +354,7 @@ func _process(delta: float) -> void:
 	## clipped against up to that point; it just won't extend past it. See
 	## the plan doc's "What this does NOT do" for the accepted tradeoff.
 	var from: Vector3 = char_pos + Vector3(0.0, RAY_HEIGHT, 0.0)
-	var to: Vector3   = from + _current_dir * TARGET_LENGTH
+	var to: Vector3   = from + _current_dir * weighted_target_length
 	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
 	## Layer 3 bit = value 4 — "placed objects" (walls + furniture), same
@@ -329,7 +363,7 @@ func _process(delta: float) -> void:
 	## self-hits the very character casting it.
 	query.collision_mask = 4
 	var hit: Dictionary = space.intersect_ray(query)
-	var actual_length: float = TARGET_LENGTH
+	var actual_length: float = weighted_target_length
 	if not hit.is_empty():
 		actual_length = from.distance_to(hit["position"])
 	actual_length = max(actual_length, MIN_LENGTH)

@@ -447,6 +447,17 @@ Fixed by normalizing against OPACITY_REFERENCE_WEIGHT via smoothstep, so
 opacity visibly ramps across a light's more typical range. Being near
 several lights at once can still saturate to full opacity — intentional.
 
+**Aug 2026 fix v7 (still robotic after v6):** v6's opacity fix was real
+but its reference value (1.5) was still too low for this bunker's actual
+light density — weight commonly exceeded it from ordinary multi-light
+coverage, so opacity still read as constant almost everywhere. Raised to
+4.0. More importantly, length was always flat TARGET_LENGTH regardless of
+light distance/strength — only direction and (barely-perceptible) opacity
+varied, which reads as mechanical no matter how the opacity curve is
+tuned. Length now scales with the same aggregate weight (down to ~30% of
+full length at minimum), layered underneath the existing raycast clip.
+Width is untouched.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes
