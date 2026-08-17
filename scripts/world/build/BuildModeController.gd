@@ -3153,7 +3153,7 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		TILE_DRESSER:      return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
 		TILE_TRASH_CAN:    return Vector2(0.28, 0.28)  ## 1×1, cylinder footprint slightly smaller than a table
 		TILE_BUILD_STATION: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
-		TILE_RESEARCH_STATION: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
+		TILE_RESEARCH_STATION: return Vector2(1.425, 0.48)  ## 3×1 (Aug 2026 chute pass — widened 1.5x from the 2x1 base; was Vector2(0.95, 0.48))
 		TILE_LIGHT:        return Vector2(0.05, 0.05)   ## Thin wall-flush fixture — NOT the 0.40 floor-object default. Same fix/reasoning as TILE_POSTER earlier this session; the wall-snap step already validated a real wall was found, this just needs to not second-guess that with an oversized box.
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback

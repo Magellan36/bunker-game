@@ -49,12 +49,28 @@ func get_trash_material() -> String:
 ## Research Station object (TILE 38)
 
 `ResearchStation.gd` — singleton, spawns once flush against the bunker's
-north wall (confirmed: the wall nearer player spawn) at game start, never
-purchasable, never deconstructable, movable only (identical treatment to
-Build Station). `[E] Open Research Station` opens the modal
-`ResearchStationUI`. See `docs/systems/furniture-items/README.md` for the
-wiring summary, exact placement formula, and the inherited save-position
-limitation.
+north wall (confirmed: the wall nearer player spawn), offset +4 from the
+wall's center, at game start, never purchasable, never deconstructable,
+movable only (identical treatment to Build Station). `[E] Open Research
+Station` opens the modal `ResearchStationUI`. See
+`docs/systems/furniture-items/README.md` for the wiring summary, exact
+placement formula, and the inherited save-position limitation.
+
+**Material feed chute (Aug 2026):** the station is now 1.5x its original
+width (3 units instead of 2) — the added left portion is a chute that
+feeds `stored_materials` directly, replacing the F7 debug button as the
+real player-facing way in. Hold any item that implements
+`get_trash_material()` (nearly everything in `inventory_item` now does —
+only `SeedItem` doesn't) and press F near the chute specifically (its own
+`ResearchStationChute.gd` interaction proxy, separate from the main
+station body) to feed it: the item is destroyed, 1 unit of its material is
+added, or — if that material's already at the 10/10 cap — the feed is
+rejected entirely and the item stays in hand. A held Trash Bag drains all
+of its records at once; records that fit are consumed, records whose
+material is capped stay behind in the same (shrunk) bag still in the
+player's hand. See `ResearchStation.gd`'s `_feed_single_item()` /
+`_feed_bag()` for the exact logic. The F7 debug button is unaffected —
+still there for quick testing.
 
 ## UI shell status (Aug 2026)
 

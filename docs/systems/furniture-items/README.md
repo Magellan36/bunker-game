@@ -465,12 +465,32 @@ E/F while open, same as shelf/basket).
 Wiring (mirrors Build Station): `BuildModeController.TILE_RESEARCH_STATION`
 (38) + save-list skip + deconstruct guard; `GhostModelBuilder.
 PROCEDURAL_PREVIEW_SOURCES` entry; `GhostPreview` ghost branch +
-floor-snap; `MainWorld._spawn_initial_research_station()` (Aug 2026:
-moved to spawn flush against the bunker's north wall — the wall nearer
-player spawn — X centered along the wall's run, Z = `OFFSET_Z +
-half_extent.y`, same wall-flush idiom `BunkerPregen.gd` uses for its
-pregen lights; was previously "2m off the Build Station's center") +
-`_setup_research_ui()`; `InteractionSystem.research_ui` gate.
+floor-snap; `MainWorld._spawn_initial_research_station()` (spawns flush
+against the bunker's north wall — the wall nearer player spawn — X =
+wall-run-center + 4, Z = `OFFSET_Z + half_extent.y`, same wall-flush idiom
+`BunkerPregen.gd` uses for its pregen lights) + `_setup_research_ui()`;
+`InteractionSystem.research_ui` gate.
+
+**Chute pass (Aug 2026):** footprint widened 1.5x (`_tile_half_extents()`
+`Vector2(0.95, 0.48)` → `Vector2(1.425, 0.48)`, width only —
+`build_ghost_mesh()` updated to match). `ResearchStation._build_mesh()`
+now parents the original (unchanged) research slab + beakers under a
+shifted `main_block` Node3D so the object's local origin stays centered on
+the new combined footprint, and adds a chute housing + feed slot visual in
+the newly-freed left portion. New file `ResearchStationChute.gd` — a
+`PowerPriorityInteractable.gd`-style host-forwarding proxy body, positioned
+at the chute's mouth, giving the chute its own independent interaction
+range from the rest of the station (E still opens the UI via forwarding;
+F is the new feed action, handled entirely on `ResearchStation.gd` via
+`get_chute_f_prompt()`/`on_chute_f_interact()`). To make F reach a
+non-shelving interactable at all, `InteractionSystem.gd` gained generic F
+dispatch (Aug 2026 Option A): `_nearest_f_interactable()` scans the
+`interactable` group for bodies implementing `get_f_prompt()` +
+`on_f_interact()` with a currently non-empty prompt (excluding `shelving`,
+which keeps its existing dedicated path), feeding both the F-prompt
+display (CASE 1 + CASE 2) and the F-press routing (held + empty-handed,
+distance-fair vs. pickup). See `docs/systems/research/README.md`'s
+"Material feed chute" note for the feed logic itself.
 
 **Known, inherited limitation (flagged, not silently):** same as Build
 Station/Water Hookup — moved position is not persisted across save/load

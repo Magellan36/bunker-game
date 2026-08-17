@@ -1469,9 +1469,14 @@ func _spawn_initial_research_station() -> void:
 	## BuildModeController.DEFAULT_ORIENT_INDEX, local +Z (front) already
 	## points world +Z (south/into the room) at angle 0, which is correct
 	## with the object's back against this north wall.
+	## X shifted +4 from the room's own center per direction (confirmed:
+	## literal world X=4 would sit outside the bunker — interior X only
+	## runs to 3.5, less once the station's own half-width is subtracted —
+	## so this is +4 relative to cx_mid, landing at -0.5, comfortably
+	## inside the bunker regardless of the Aug 2026 widened footprint).
 	var half_extent: Vector2 = bc._tile_half_extents(bc.TILE_RESEARCH_STATION)
 	var research_pos: Vector3 = Vector3(
-		rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5,
+		rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5 + 4.0,
 		0.5,
 		rock_surround.OFFSET_Z + half_extent.y
 	)

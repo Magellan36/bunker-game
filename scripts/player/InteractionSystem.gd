@@ -177,11 +177,17 @@ func _unhandled_input(event: InputEvent) -> void:
 				if open_stove != null:
 					if _try_place_held_cookpot_on_stove(held_item, open_stove):
 						return
-			## Holding something — try placing on nearby shelf first, else drop
+			## Holding something — try placing on nearby shelf first, else a
+			## nearby non-shelving F-capable interactable (Aug 2026 Option A —
+			## e.g. ResearchStationChute feeds the held item), else drop.
 			if shelf != null and shelf.has_method("on_f_interact"):
 				shelf.on_f_interact()
 			else:
-				_quick_drop()
+				var f_body: Node3D = _nearest_f_interactable()
+				if f_body != null:
+					f_body.on_f_interact()
+				else:
+					_quick_drop()
 		else:
 			## Aug 2026 — shelf-family objects can have meaningful empty-
 			## handed F behavior now (TrashCan collecting into a bag).
@@ -206,6 +212,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			if shelf != null and shelf.has_method("on_f_interact"):
 				if _nearest_shelf_distance() <= _nearest_pickup_distance():
 					if shelf.on_f_interact():
+						return
+			## Aug 2026 Option A — same pattern for non-shelving F-capable
+			## interactables (e.g. ResearchStationChute), empty-handed.
+			## _nearest_f_interactable() only returns bodies whose
+			## get_f_prompt() is currently non-empty, so this is a no-op for
+			## the chute (nothing held → empty prompt) and only matters for
+			## bodies with real empty-handed F behavior; distance-fairness
+			## vs. a genuinely closer pickup, mirroring the shelf branch.
+			var f_body: Node3D = _nearest_f_interactable()
+			if f_body != null and f_body.has_method("on_f_interact"):
+				if _f_interactable_distance(f_body) <= _nearest_pickup_distance():
+					if f_body.on_f_interact():
 						return
 			## Empty-handed — compare the closest stove-with-pot (if any)
 			## against the closest normal pickup candidate and grab whichever
@@ -594,6 +612,19 @@ func _update_prompt() -> void:
 					shelf_pos = nearby_shelf.get_prompt_world_pos()
 				entries.append({ "text": "\n".join(shelf_lines), "world_pos": shelf_pos, "dist": 0.0 })
 
+		# Generic F-capable interactable nearby (Aug 2026 Option A) — e.g.
+		# the Research Station chute's feed prompt while holding an item it
+		# can accept. Separate panel above the body, mirroring the shelf
+		# block above; only appears when get_f_prompt() has something to say.
+		var f_body: Node3D = _nearest_f_interactable()
+		if f_body != null:
+			var f_line: String = f_body.get_f_prompt()
+			if not f_line.is_empty():
+				var f_pos: Vector3 = f_body.global_position
+				if f_body.has_method("get_prompt_world_pos"):
+					f_pos = f_body.get_prompt_world_pos()
+				entries.append({ "text": f_line, "world_pos": f_pos, "dist": 0.0 })
+
 		# Basket held → "[E] Add to Basket" over each nearby storable item.
 		# CASE 2 further down never runs while something is held (this whole
 		# block returns before reaching it), so this can only live here.
@@ -839,6 +870,10 @@ func _update_prompt() -> void:
 					var ep: String = body.get_e_prompt()
 					if ep != "": lines.append(ep)
 		elif body.is_in_group("interactable") and not body.is_in_group("pickup"):
+			if body.has_method("get_f_prompt"):
+				var ifp: String = body.get_f_prompt()
+				if not ifp.is_empty():
+					lines.append(ifp)
 			if body.has_method("get_interact_prompt"):
 				var ip: String = body.get_interact_prompt()
 				if ip != "": lines.append(ip)
@@ -960,6 +995,40 @@ func _nearest_shelf_distance() -> float:
 	var player_xz: Vector2 = Vector2(player.global_position.x, player.global_position.z)
 	var shelf_xz: Vector2  = Vector2(shelf.global_position.x, shelf.global_position.z)
 	return shelf_xz.distance_to(player_xz)
+
+# ─── Nearest generic F-capable interactable (Aug 2026 Option A) ────────────
+## Non-shelving "interactable" bodies that implement the F contract
+## (get_f_prompt + on_f_interact) get F dispatch the same way shelves do.
+## Excludes the shelving group (already handled by _nearest_shelf() above)
+## and requires get_f_prompt() to be currently non-empty, so a body with
+## nothing F can do right now (e.g. ResearchStationChute with nothing
+## held — its forwarded get_chute_f_prompt() returns "") never claims the
+## key. Same flat-XZ 2.5 m reach as _nearest_shelf().
+func _nearest_f_interactable() -> Node3D:
+	var player_xz: Vector2 = Vector2(player.global_position.x, player.global_position.z)
+	var closest: Node3D     = null
+	var closest_dist: float = 2.5
+	for body: Node in get_tree().get_nodes_in_group("interactable"):
+		if not is_instance_valid(body):
+			continue
+		if not (body is Node3D):
+			continue
+		var b3: Node3D = body as Node3D
+		if b3.is_in_group("shelving"):
+			continue
+		if not (b3.has_method("get_f_prompt") and b3.has_method("on_f_interact")):
+			continue
+		if b3.get_f_prompt().is_empty():
+			continue
+		var d: float = Vector2(b3.global_position.x, b3.global_position.z).distance_to(player_xz)
+		if d < closest_dist:
+			closest_dist = d
+			closest = b3
+	return closest
+
+func _f_interactable_distance(body: Node3D) -> float:
+	var player_xz: Vector2 = Vector2(player.global_position.x, player.global_position.z)
+	return Vector2(body.global_position.x, body.global_position.z).distance_to(player_xz)
 
 ## E while holding a Basket — finds the nearest "basket_storable" world item
 ## in reach and stashes it, instead of calling the basket's own on_use().

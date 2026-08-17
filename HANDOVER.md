@@ -38,6 +38,61 @@ angle). No other Research Station behavior changed.
 
 ---
 
+## [Aug 2026] Research Station — widened + material feed chute + reposition
+
+Three changes in one pass:
+1. Repositioned +4 on X from the wall-run center (was literal X=4 first
+   requested — that's outside the bunker; corrected to "+4 relative to
+   center" = X=-0.5 after flagging the bounds problem). Still flush
+   against the north wall, Z/Y/angle unchanged from the prior pass.
+2. Footprint widened 1.5x (2 units → 3 units, width only) —
+   `_tile_half_extents()`, `build_ghost_mesh()` both updated.
+3. New material feed chute on the left side of the widened footprint —
+   the real player-facing way to fill `stored_materials`, replacing the
+   F7 debug button as the primary path (F7 still exists for testing).
+   Hold an item with `get_trash_material()` (nearly everything now has
+   it — only `SeedItem` doesn't), press F near the chute (its own
+   `ResearchStationChute.gd` proxy, independent interaction range from
+   the main station body) — item destroyed, 1 unit of its material
+   added, or rejected entirely if that material's already at cap. A held
+   Trash Bag drains all records at once with per-material partial-drain
+   (capped-out records stay behind in the same, shrunk bag). Design
+   confirmed across several rounds — key-press feed not physics drop-in,
+   whole-bag drain, reject-at-cap for single items, partial-drain-with-
+   leftover for bags. See `docs/systems/research/README.md`'s "Material
+   feed chute" note for full logic.
+
+**Deviation from the plan (Option A, approved):** the plan had the chute
+proxy join only the `interactable` group and assumed that gave it F
+dispatch. It doesn't — `InteractionSystem` only dispatched F (prompt +
+press) to the `shelving` group. Instead of changing the proxy to the
+dual-group Shelving/LightStorage pattern, `InteractionSystem.gd` gained
+generic F dispatch for non-shelving `interactable` bodies (Aug 2026
+Option A): `_nearest_f_interactable()` + `_f_interactable_distance()`,
+wired into the held-item F branch (feed before drop), the empty-handed F
+branch (distance-fair vs. pickup), and both prompt assembly paths. The
+proxy file is exactly as the plan wrote it. Reach is the standard 2.5 m
+flat-XZ shelf reach, so the feed prompt can appear up to 2.5 m around the
+chute mouth (overlapping the widened station's left portion) rather than
+being tightly gated to the chute itself — flagged for in-editor check.
+
+### Files modified
+- `scripts/world/build/BuildModeController.gd` — `_tile_half_extents()`
+  widened for `TILE_RESEARCH_STATION`.
+- `scripts/world/core/MainWorld.gd` — spawn X = wall-run-center + 4.
+- `scripts/world/furniture/ResearchStation.gd` — `_build_mesh()`
+  widened + chute visual + proxy spawn; `_interaction_system` resolver;
+  `get_chute_f_prompt()`/`on_chute_f_interact()`/`_feed_single_item()`/
+  `_feed_bag()`; `build_ghost_mesh()` widened.
+- `scripts/world/furniture/ResearchStationChute.gd` — NEW host-forwarding
+  proxy (interactable group only, per plan).
+- `scripts/player/InteractionSystem.gd` — generic F dispatch for
+  non-shelving interactables (Option A deviation).
+- `docs/systems/research/README.md`, `docs/systems/furniture-items/
+  README.md`, `HANDOVER.md` — this entry.
+
+---
+
 # Handover — Shadow Direction Turn-Rate Cap (Aug 2026)
 
 ## What changed this session

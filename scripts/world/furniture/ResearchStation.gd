@@ -10,6 +10,10 @@ class_name ResearchStation
 
 var _research_ui: Node = null   ## Injected by MainWorld at spawn time, same pattern as BuildStation's _main_world
 
+## Aug 2026 chute pass — station didn't need this before (on_interact() is
+## parameterless). Same lazy-resolve pattern LightStorage.gd/TrashCan.gd use.
+var _interaction_system: Node = null
+
 const MATERIAL_TYPES: Array[String] = ["metal", "plastic", "paper", "organic"]
 const STORAGE_CAP: int = 10   ## Final-version cap, upgradeable later via this same menu — wired now per direction, not a placeholder.
 
@@ -51,6 +55,11 @@ func on_interact() -> void:
 func get_prompt_world_pos() -> Vector3:
 	return global_position + Vector3(0.0, 1.1, 0.0)
 
+func _resolve_interaction_system() -> void:
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player != null:
+		_interaction_system = player.get_node_or_null("InteractionSystem")
+
 ## Adds amount of a material, clamped at STORAGE_CAP. Returns the actual
 ## amount added (may be less than requested if the cap was hit) — callers
 ## that care (e.g. a future toast for "storage full, X wasted") can use this;
@@ -62,10 +71,140 @@ func add_material(material: String, amount: int) -> int:
 	stored_materials[material] = clampi(before + amount, 0, STORAGE_CAP)
 	return stored_materials[material] - before
 
-## Not built this pass — deliberately no "remove_material" or "deposit trash
-## into reservoir" logic at all. Storage math above is self-contained and
-## ready to be called from whatever the future reservoir/dump feature turns
-## out to be; nothing here assumes how materials arrive.
+## ── Chute feed (Aug 2026) ───────────────────────────────────────────────
+## F, from the chute proxy only (ResearchStationChute.gd) — feeds the
+## player's held item/bag into stored_materials via add_material() above.
+## A held single item is fully consumed (destroyed) for 1 unit of its
+## get_trash_material() result. A held Trash Bag drains ALL viable records
+## at once: records that fit are consumed and removed; records whose
+## material is already at cap (checked against a running tally as the
+## drain proceeds, not just the station's state before the bag started)
+## stay behind — the SAME bag stays in the player's hand, just shrunk to
+## the leftover records, or is fully consumed if nothing's left over.
+## Confirmed with the person (three separate rounds): key-press feed (not
+## physics drop-in), whole-bag drain, reject-entirely at cap for a single
+## item, partial-drain-with-leftover for a bag.
+func get_chute_f_prompt() -> String:
+	if _interaction_system == null:
+		_resolve_interaction_system()
+	if _interaction_system == null:
+		return ""
+	var held: Node = _interaction_system.held_item
+	if held == null:
+		return ""
+	if "is_trash_bag" in held:
+		return "[F] Feed Trash Bag into chute"
+	if held.is_in_group("inventory_item") and held.has_method("get_trash_material"):
+		return "[F] Feed item into chute"
+	return ""
+
+func on_chute_f_interact() -> bool:
+	if _interaction_system == null:
+		_resolve_interaction_system()
+	if _interaction_system == null:
+		return false
+	var held: RigidBody3D = _interaction_system.held_item
+	if held == null:
+		return false
+
+	if "is_trash_bag" in held:
+		_feed_bag(held, _interaction_system)
+		return true
+
+	if held.is_in_group("inventory_item") and held.has_method("get_trash_material"):
+		_feed_single_item(held, _interaction_system)
+		return true
+
+	return false
+
+func _feed_single_item(item: RigidBody3D, isys: Node) -> void:
+	var material: String = item.get_trash_material()
+	if not stored_materials.has(material):
+		return   ## defensive — get_trash_material() should always return a known type
+	if stored_materials[material] >= STORAGE_CAP:
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "%s storage is full" % material.capitalize())
+		return   ## reject entirely — item stays in hand, nothing consumed (confirmed)
+
+	## Release from InteractionSystem — identical sequence to
+	## LightStorage._try_store_held() / TrashCan's store path, just
+	## destroying the item afterward instead of absorbing it into storage.
+	isys._is_holding_e = false
+	if item.has_signal("knocked_out") and item.knocked_out.is_connected(isys._on_item_knocked_out):
+		item.knocked_out.disconnect(isys._on_item_knocked_out)
+	if isys._held_from_slot != -1 and isys.inventory != null:
+		isys.inventory.retrieve_item(isys._held_from_slot)
+	isys.held_item       = null
+	isys._held_from_slot = -1
+
+	add_material(material, 1)
+	item.queue_free()
+	NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "+1 %s" % material.capitalize())
+
+func _feed_bag(bag: RigidBody3D, isys: Node) -> void:
+	var records: Array = bag.contents if "contents" in bag else []
+	if records.is_empty():
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Bag is empty")
+		return
+
+	## Running per-material tally — lets a bag with several of the same
+	## material correctly stop partway through once THIS drain pass would
+	## push that material over the cap, not just checked against the
+	## station's state before the bag started.
+	var running: Dictionary = {}
+	for m: String in MATERIAL_TYPES:
+		running[m] = stored_materials[m]
+
+	var leftover: Array[Dictionary] = []
+	var fed_counts: Dictionary = {}
+	for record: Dictionary in records:
+		var material: String = record.get("data", {}).get("material", "")
+		if material == "" or not stored_materials.has(material):
+			leftover.append(record)   ## untagged (e.g. a bagged Seed) — can't be recycled, kept
+			continue
+		if running[material] >= STORAGE_CAP:
+			leftover.append(record)   ## this material's full — kept, per confirmed partial-drain behavior
+			continue
+		running[material] += 1
+		fed_counts[material] = fed_counts.get(material, 0) + 1
+
+	for material: String in fed_counts.keys():
+		add_material(material, fed_counts[material])
+
+	var fed_total: int = 0
+	for material: String in fed_counts.keys():
+		fed_total += fed_counts[material]
+
+	if fed_total == 0:
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Nothing in the bag could be fed right now")
+		return
+
+	if leftover.is_empty():
+		## Fully drained — consume the bag entirely, same release sequence
+		## TrashCan._merge_bag() uses for a bag leaving the player's hand.
+		isys._is_holding_e = false
+		if bag.has_signal("knocked_out") and bag.knocked_out.is_connected(isys._on_item_knocked_out):
+			bag.knocked_out.disconnect(isys._on_item_knocked_out)
+		if isys._held_from_slot != -1 and isys.inventory != null:
+			isys.inventory.retrieve_item(isys._held_from_slot)
+		isys.held_item       = null
+		isys._held_from_slot = -1
+		bag.queue_free()
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "Fed %d items into Research Station — bag emptied" % fed_total)
+	else:
+		## Partial drain — bag stays in the player's hand, shrunk to just
+		## the leftover records. No new bag object needed: this is the
+		## SAME live bag node, never released from the player's hand to
+		## begin with, just with its contents array reduced — simpler
+		## than TrashCan's from-scratch bag creation.
+		for i: int in leftover.size():
+			leftover[i]["disposed_index"] = i
+		bag.contents = leftover
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "Fed %d items — %d stayed in the bag (storage full)" % [fed_total, leftover.size()])
+
+## Not built this pass — deliberately no "remove_material" logic beyond the
+## chute above. Storage math (add_material()) is self-contained and was
+## already ready for exactly this before the chute existed; nothing here
+## assumed how materials would arrive.
 
 ## Attempts to begin researching an upgrade. Returns false (leaving state
 ## untouched) if another research is already running, the upgrade is already
@@ -142,11 +281,31 @@ func _complete_research() -> void:
 	)
 
 # ─── Basic model — filled rectangle base + beakers/flasks, grey/steel to match Table/Chair ──
+## Aug 2026 chute pass: total footprint widened 1.5x (1.90 → 2.85 local X)
+## to make room for a chute on the left. The ORIGINAL 1.90-wide research
+## slab + beakers below is completely unchanged internally — it's now
+## parented under `main_block`, a Node3D shifted +MAIN_BLOCK_CENTER_X so
+## the whole assembly's local origin (0,0,0) sits at the CENTER of the new
+## combined 2.85-wide footprint (required for _tile_half_extents()'s
+## symmetric-about-origin bounds check to stay accurate). The chute itself
+## occupies the remaining left portion, centered at CHUTE_CENTER_X.
 func _build_mesh() -> void:
+	const CHUTE_WIDTH: float          = 0.95    ## 2.85 total - 1.90 original = 0.95 added
+	const MAIN_BLOCK_WIDTH: float     = 1.90    ## unchanged original slab width
+	const HALF_WIDTH_NEW: float       = 1.425   ## matches BuildModeController._tile_half_extents() Section 1.1
+	const MAIN_BLOCK_CENTER_X: float  = HALF_WIDTH_NEW - MAIN_BLOCK_WIDTH * 0.5   ## 0.475
+	const CHUTE_CENTER_X: float       = -HALF_WIDTH_NEW + CHUTE_WIDTH * 0.5        ## -0.95
+
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.60, 0.62, 0.65, 1.0)   ## Table.gd/Chair.gd's COLOR_METAL, verified current value
 	mat.metallic = 0.3
 	mat.roughness = 0.55
+
+	## Original research slab + beakers, unchanged internally, now parented
+	## under this shifted container instead of directly under self.
+	var main_block: Node3D = Node3D.new()
+	main_block.position = Vector3(MAIN_BLOCK_CENTER_X, 0.0, 0.0)
+	add_child(main_block)
 
 	## Filled rectangle base — same 2×1 (1.90 × 0.90) footprint as Build
 	## Station/Medium Table, but solid floor-to-top rather than four legs +
@@ -158,7 +317,7 @@ func _build_mesh() -> void:
 	base_mi.mesh = base_mesh
 	base_mi.position = Vector3(0.0, TOP_Y * 0.5, 0.0)
 	base_mi.set_surface_override_material(0, mat)
-	add_child(base_mi)
+	main_block.add_child(base_mi)
 	base_mi.create_trimesh_collision()
 	for child in base_mi.get_children():
 		if child is StaticBody3D:
@@ -186,9 +345,49 @@ func _build_mesh() -> void:
 		flask_mi.mesh = flask_mesh
 		flask_mi.position = spec["pos"]
 		flask_mi.set_surface_override_material(0, mat_glass)
-		add_child(flask_mi)
+		main_block.add_child(flask_mi)
+
+	## ── Chute (Aug 2026) — material input on the left side, feeds
+	## stored_materials (the "bottom half" of the station, i.e. its storage
+	## rather than the research/tier system). A tall narrow housing so it
+	## reads as its own intake tower distinct from the flat research slab,
+	## plus a dark recessed slot near the top marking the feed opening.
+	const CHUTE_HOUSING_HEIGHT: float = 1.05
+	var chute_mi: MeshInstance3D = MeshInstance3D.new()
+	var chute_mesh: BoxMesh = BoxMesh.new()
+	chute_mesh.size = Vector3(CHUTE_WIDTH - 0.10, CHUTE_HOUSING_HEIGHT, 0.80)
+	chute_mi.mesh = chute_mesh
+	chute_mi.position = Vector3(CHUTE_CENTER_X, CHUTE_HOUSING_HEIGHT * 0.5, 0.0)
+	chute_mi.set_surface_override_material(0, mat)
+	add_child(chute_mi)
+	chute_mi.create_trimesh_collision()
+	for child in chute_mi.get_children():
+		if child is StaticBody3D:
+			(child as StaticBody3D).collision_layer = 5
+			(child as StaticBody3D).collision_mask  = 0
+
+	var mat_slot: StandardMaterial3D = StandardMaterial3D.new()
+	mat_slot.albedo_color = Color(0.08, 0.08, 0.09, 1.0)
+	mat_slot.roughness = 0.9
+	var slot_mi: MeshInstance3D = MeshInstance3D.new()
+	var slot_mesh: BoxMesh = BoxMesh.new()
+	slot_mesh.size = Vector3(CHUTE_WIDTH - 0.30, 0.08, 0.55)
+	slot_mi.mesh = slot_mesh
+	slot_mi.position = Vector3(CHUTE_CENTER_X, CHUTE_HOUSING_HEIGHT - 0.12, 0.0)
+	slot_mi.set_surface_override_material(0, mat_slot)
+	add_child(slot_mi)
+
+	## Feed interaction proxy — see ResearchStationChute.gd's own doc
+	## comment for why this is a separate StaticBody3D rather than F
+	## handling living on the main station body.
+	var chute_proxy_script: GDScript = load("res://scripts/world/furniture/ResearchStationChute.gd")
+	var chute_proxy: StaticBody3D = StaticBody3D.new()
+	chute_proxy.set_script(chute_proxy_script)
+	chute_proxy.position = Vector3(CHUTE_CENTER_X, CHUTE_HOUSING_HEIGHT - 0.12, 0.45)
+	add_child(chute_proxy)
+	chute_proxy.set("host", self)
 
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
-	box.size = Vector3(1.90, 0.95, 0.90)
+	box.size = Vector3(2.85, 0.95, 0.90)   ## Aug 2026 chute pass — widened 1.5x (was 1.90)
 	return box
