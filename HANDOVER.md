@@ -1,3 +1,74 @@
+# Handover — Character Shadow Stand-In (Real Shadows, Aug 2026)
+
+## What changed this session
+Replaced the fake shadow decal system (`CharacterShadowDecal.gd` — custom
+direction/length/opacity logic approximating a shadow) with real
+shadow-casting via a shortened, invisible stand-in mesh
+(`CharacterShadowStandIn.gd`). The character's actual visible mesh still
+doesn't cast its own shadow (`cast_shadow = OFF`, unchanged); a separate
+capsule roughly half their real height, positioned with its own base at
+the same floor contact point their real feet are at, casts a genuine
+shadow in its place via `SHADOW_CASTING_SETTING_SHADOWS_ONLY`. Because
+it's real shadow-map geometry, direction/falloff/multi-light response are
+all handled by the engine automatically — no per-frame script, no custom
+math, none of the tuning surface the decal system needed across many
+rounds.
+
+Per direct instruction: no lights are excluded from casting shadows on
+characters this round. Characters can still show multiple real shadows
+near multiple lights — only the shadow's *length* (via the stand-in's
+reduced height) was addressed. If that's not enough on its own,
+excluding WallLight from character shadows specifically (via the same
+light_cull_mask mechanism already used for Flashlight's self-shadow fix)
+is the documented next step, not started here.
+
+**Small deviation (flagged):** `WallLight.gd`/`GrowLight.gd` each had
+two comment blocks claiming `get_shadow_weight()` was "consumed by the
+CharacterShadowDecal.gd system" — stale after this deletion (that system
+was its only consumer; the methods are now dead code). Updated those four
+comments to say so; the methods themselves were left in place (out of
+plan scope to remove).
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — deleted.
+- `scripts/core/CharacterShadowStandIn.gd` — new.
+- `scripts/player/Player.gd` — decal instantiation replaced with a single
+  `CharacterShadowStandIn.attach(self)` call.
+- `scripts/npc/NPC.gd` — same.
+- `scripts/world/power/WallLight.gd` — stale decal-consumer comments
+  updated (dead-code note only; deviation, see above).
+- `scripts/world/power/GrowLight.gd` — same.
+- `docs/systems/graphics/README.md` — new "Character shadow stand-in"
+  entry, decal entry marked replaced.
+- `docs/systems/player/README.md`, `docs/systems/npc/README.md` —
+  updated Common-edits pointers.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Confirm zero references to `CharacterShadowDecal` remain
+   (`grep -r CharacterShadowDecal scripts/`) — comment mentions of the
+   removed system in the new file/Player.gd are historical context, no
+   runtime references remain.
+3. Characters now cast a real shadow from every real light (WallLight,
+   GrowLight) — confirm it's visibly shorter/less dramatic than before
+   the decal system existed, not just present.
+4. Confirm the stand-in mesh is never visible to the camera directly,
+   from any angle.
+5. Confirm the stand-in's shadow base lines up with the character's own
+   feet — no visible gap or float between the character and where their
+   shadow starts.
+6. Confirm Flashlight's self-shadow-dome fix still holds — no dome
+   reappearing in the beam from the (now real-shadow-casting) stand-in.
+7. Confirm real shadows correctly respond to `GraphicsSettings.
+   shadow_casting_enabled` and quality presets exactly as they already
+   did for every other object — this system doesn't add any new toggle,
+   it rides entirely on existing real-shadow infrastructure.
+8. If shadow length still feels too dramatic, `HEIGHT_FACTOR` in
+   `CharacterShadowStandIn.gd` is the single value to lower.
+
+---
+
 # Handover — Root Cause Fixed: `held_item` Freed-Instance Crashes (Aug 2026)
 
 ## What changed this session

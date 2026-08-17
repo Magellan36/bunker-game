@@ -351,124 +351,40 @@ from that one light being asked to simultaneously illuminate correctly,
 shadow correctly, stay bright, and look natural. See git history for the
 full three-hotfix arc if useful context for a future similar decision.
 
-### Character shadow decal
-Replaces the above. Two independent, much narrower pieces instead of one
-light doing everything:
-1. **`GeometryInstance3D.cast_shadow = SHADOW_CASTING_SETTING_OFF`** on the
-   player/NPC mesh (see Player.gd/NPC.gd) — a native per-object property
-   that stops a mesh from casting any real shadow onto anything, while it
-   keeps receiving light/shadow completely normally from every real light.
-   This alone is what fixes the original multi-shadow complaint. Real
-   character illumination is fully untouched/default again.
-2. **`CharacterShadowDecal.gd`** — a purely cosmetic, non-lit flat mesh
-   (no Light3D involved anywhere) faking one blended "cone" shadow shape,
-   using the same weighted-light-aggregate direction math the old proxy
-   used (`WallLight.gd`/`GrowLight.gd`'s `get_shadow_weight()`, kept from
-   the reverted system). Length is clipped by a raycast against
-   furniture/walls (`collision_mask = 4`) so it doesn't stretch through
-   solid objects — only length is clipped, not per-pixel shape, so it
-   still visually crosses over low obstacles up to the clip point.
-Because there's no Light3D in this system, it structurally cannot cause
-the class of bug the previous system did — worst case is a misshapen or
-misoriented decorative mesh, not a lighting regression.
+### Character shadow decal — REPLACED, see "Character shadow stand-in" below
+Built and iterated on across many rounds Aug 2026: a fake, non-lit,
+procedurally-shaped decal approximating a shadow, with custom direction/
+length/opacity logic reconstructing what real shadow-mapping already does
+for free. Replaced after playtesting concluded dynamic player-built
+lighting layouts would always outrun custom approximation logic, and that
+losing real shadow behavior wasn't worth the tradeoff. See git history for
+the full iteration arc if useful context for a future similar decision.
 
-**Aug 2026 follow-up fix:** the decal originally placed itself at the
-character's own origin (capsule center, not the floor) and lerped its
-direction the same way opacity fades, which read as visible lag rather
-than matching real shadow movement. Fixed: floor offset is now read from
-each character's own CapsuleShape3D height (Player and NPC use different
-capsule heights) instead of assumed; direction now snaps instantly, no
-lerp, matching how real shadows track light position with zero lag.
+### Character shadow stand-in
+Replaces the above. Real shadow-casting, using a shortened invisible
+stand-in mesh instead of the character's actual (tall) visible model:
+`CharacterShadowStandIn.attach()` builds a capsule roughly half the
+character's real height (`HEIGHT_FACTOR`), positioned so its own base
+lands at the exact same floor contact point the character's real feet are
+at — not shrunk from the character's center, which would lift it off the
+ground. Set to `SHADOW_CASTING_SETTING_SHADOWS_ONLY` (never rendered to
+camera, fully participates in real shadow mapping). Tagged with the same
+`Player.PLAYER_SELF_LIGHT_LAYER_BIT` the visible mesh already has, so
+Flashlight's existing self-shadow exclusion covers it too.
 
-**Aug 2026 shape fix:** the original vertex-color trapezoid only faded
-alpha along its length — the left/right edges were a hard, unblended
-straight cut, reading as a "flat wall" rather than something sourced from
-the character. Replaced with a procedurally-generated soft alpha texture
-(_get_shared_texture()) mapped onto a plain rectangle: a tight, contained
-core right at the character's feet, widening into a soft cone tail, fully
-soft-edged in every direction. The mesh itself simplified to a plain
-UV-mapped rectangle — all shape/softness logic now lives in the texture.
+No per-frame script anywhere in this system — the stand-in is a plain
+child mesh, positioned once; real shadow mapping re-renders it every
+frame automatically as it moves with its parent, same as any other object
+in the scene.
 
-**Aug 2026 fix v2 (width-opacity decoupling):** the shadow's width was
-getting visually distorted by its own opacity — multiplying a soft
-gradient's fade by a bigger weight (more nearby lights) makes more of that
-fade stay visible, so the apparent edge sits farther out (reads wider);
-a smaller weight (one light) does the opposite (reads narrower). Same
-underlying shape, different APPARENT size, purely from the opacity
-multiplier. Fixed by tightening the edge transition close to the
-character (EDGE_SOFTNESS_NEAR, much crisper than the far tail) so the
-visible boundary there is far less sensitive to the weight multiplier.
-Also: near-width now calibrated per-character from their actual
-CapsuleShape3D.radius (Player/NPC differ) instead of one guessed constant
-for both, via a new _shadow_width_scale applied to the mesh's X scale in
-_process(). A brief tip ease-in was added to soften the near cap's start,
-though a true circular/radial cap was deliberately not attempted this
-round (flagged as a bigger, riskier rewrite for later if still needed).
-
-**Aug 2026 fix v3 (true cone):** v2's width tightening/calibration still
-left a flat line at the character's end (narrower, softer, but still a
-finite-width boundary — exactly what kept showing up as "two connected
-points defining a line" in playtesting). Replaced the two-stage "solid
-core then edge fade" formula with a single continuous smoothstep fade
-starting at the centerline itself, widening toward the far end — a true
-cone/wedge shape that genuinely converges to a point at the character
-rather than a narrow band. Width scaling simplified to plain proportional
-sizing (Player's radius as baseline) since there's no longer a specific
-near-width to calibrate to a footprint.
-
-**Aug 2026 fix v4 (direction-dependent length/width bug):** shadows from
-north-south lights read long and thin; east-west lights read stubby and
-stretched perpendicular. Ruled out camera-projection foreshortening by
-tracing GameCamera.gd's actual offset/pitch math — it would compress the
-opposite axis from what was observed, and wouldn't swap length/width.
-Root cause was most likely in how the shadow's transform composed a
-rotation (Basis(Vector3.UP, yaw)) with a subsequent non-uniform scale
-(.scaled(...)) — not fully provable by hand without running the engine.
-Fixed by replacing that composition with an explicit transform built
-directly from two independently-scaled direction vectors (forward and its
-90°-rotated perpendicular), removing any step where an axis mix-up could
-occur.
-
-**Aug 2026 fix v5 (too thin):** the true-cone fix (v3) spread width growth
-across the entire shape length, reaching full width only at the far tip —
-exactly where the length fade had already made it nearly invisible. The
-still-opaque portion never read as wide as the character. Fixed by
-decoupling width growth from length-fade timing (CONE_WIDTH_GROWTH_END) —
-width now reaches its max well before the fade starts, so the visible part
-of the shadow is actually at full width, not still growing into it as it
-disappears.
-
-**Aug 2026 fix v6 (intensity vs. distance):** opacity was a raw
-clamp(weight, 0, 1) — since even one nearby light's weight exceeds 1.0
-well before you're actually close to it, this saturated to full opacity
-across most of a light's practical range, reading as constant-strength
-shadow almost everywhere rather than genuinely fading with distance.
-Fixed by normalizing against OPACITY_REFERENCE_WEIGHT via smoothstep, so
-opacity visibly ramps across a light's more typical range. Being near
-several lights at once can still saturate to full opacity — intentional.
-
-**Aug 2026 fix v7 (still robotic after v6):** v6's opacity fix was real
-but its reference value (1.5) was still too low for this bunker's actual
-light density — weight commonly exceeded it from ordinary multi-light
-coverage, so opacity still read as constant almost everywhere. Raised to
-4.0. More importantly, length was always flat TARGET_LENGTH regardless of
-light distance/strength — only direction and (barely-perceptible) opacity
-varied, which reads as mechanical no matter how the opacity curve is
-tuned. Length now scales with the same aggregate weight (down to ~30% of
-full length at minimum), layered underneath the existing raycast clip.
-Width is untouched.
-
-**Aug 2026 fix v8 (spinning in multi-light areas):** the instant direction
-snap (added to fix an earlier lag complaint) had no protection against
-large sudden swings, which read as visible spinning whenever several
-lights were competing rather than reinforcing each other. Replaced with a
-maximum turn-rate cap instead of a flat lerp — small continuous
-adjustments while walking still resolve within one frame (no
-reintroduced lag), only a large jump gets visibly swept. The cap itself
-scales with "confidence" (accum.length() / total_weight — how much the
-contributing lights agree on a direction vs. cancel out): fast when one
-light clearly dominates, slower when several are pulling from competing
-directions, which is exactly the ambiguous case that was spinning before.
+**Deliberately not done this round (per direct instruction):** no light
+is excluded from casting shadows on characters — WallLight, GrowLight,
+and Flashlight (beyond its pre-existing self-shadow exclusion) are
+untouched. Characters still show multiple real shadows near multiple
+lights, same as any object would. If shadow length via `HEIGHT_FACTOR`
+alone doesn't fully address the "too dramatic" complaint, excluding
+WallLight from character shadows specifically is the documented next
+option — not started here.
 
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md

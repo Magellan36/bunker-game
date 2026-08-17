@@ -1238,14 +1238,15 @@ skills, personality words, seed, mood, and irritability + label.
 These patterns are now convention — new NPC code should follow them
 without being asked.
 
-- **Character shadow decal (Aug 2026):** every NPC gets a
-  `CharacterShadowDecal` child (see
-  `docs/systems/graphics/README.md` "Character shadow decal") and its
-  mesh has `cast_shadow` off. The earlier Aug 2026
-  `CharacterShadowProxy` light-based system (and the
-  `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT` mesh-layers override)
-  was reverted — see that doc's postmortem before touching character
-  lighting again.
+- **Character shadow stand-in (Aug 2026):** every NPC gets a
+  `CharacterShadowStandIn` child mesh (see
+  `docs/systems/graphics/README.md` "Character shadow stand-in") and its
+  own mesh has `cast_shadow` off. The earlier Aug 2026
+  `CharacterShadowProxy` light-based system, the `CharacterShadowDecal`
+  fake-shadow system it replaced, and the
+  `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT` mesh-layers override
+  were all removed/reverted — see that doc's postmortem before touching
+  character lighting again.
 - **Defensive `has_method()` guards on every cross-file NPC↔NPCBrain
   call.** NPC.gd and NPCBrain.gd are tightly coupled but always built
   separately; every cross-file call

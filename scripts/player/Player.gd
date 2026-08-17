@@ -94,20 +94,12 @@ func _ready() -> void:
 	## as before any of this session's work.
 	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	## Aug 2026 — cosmetic-only cone shadow decal, replaces the reverted
-	## CharacterShadowProxy system entirely. See
-	## docs/systems/graphics/README.md "Character shadow decal" — critically,
-	## this involves NO Light3D node and cannot affect how the player is
-	## lit; it only draws a flat, soft, tapered shadow shape on the floor.
-	## Dynamically instantiated, same pattern as everything else here —
-	## never needs a .tscn edit.
-	var shadow_decal_script: GDScript = load("res://scripts/core/CharacterShadowDecal.gd")
-	if shadow_decal_script != null:
-		var decal: Node3D = Node3D.new()
-		decal.set_script(shadow_decal_script)
-		decal.name = "CharacterShadowDecal"
-		add_child(decal)
-		decal.call("setup", self)
+	## Aug 2026 — real shadow-casting via a shortened invisible stand-in,
+	## replacing the CharacterShadowDecal fake-shadow system entirely (see
+	## docs/systems/graphics/README.md "Character shadow stand-in"). No
+	## per-frame logic — real shadow mapping does the work; this call just
+	## builds and attaches the stand-in mesh once.
+	CharacterShadowStandIn.attach(self)
 
 func _physics_process(delta: float) -> void:
 	if _movement_locked:

@@ -1505,27 +1505,14 @@ func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("interactable")
 
-	## Aug 2026 — cosmetic-only cone shadow decal (see
-	## docs/systems/graphics/README.md "Character shadow decal"). NPCs
-	## never got the flashlight-only self-shadow-exclusion Player.gd has
-	## (flashlights are player-held only), so unlike Player.gd there's no
-	## mesh.layers override here — NPCs are lit/shadowed completely
-	## normally by every real light, same as before any of this session's
-	## work. This decal is purely additive and involves no Light3D node.
-	var shadow_decal_script: GDScript = load("res://scripts/core/CharacterShadowDecal.gd")
-	if shadow_decal_script != null:
-		var decal: Node3D = Node3D.new()
-		decal.set_script(shadow_decal_script)
-		decal.name = "CharacterShadowDecal"
-		add_child(decal)
-		decal.call("setup", self)
-
 	## Aug 2026 — stops this mesh from casting ANY real shadow onto the
-	## world (the original multi-shadow-clutter complaint, now handled by
-	## the cosmetic decal below instead). Native per-object property —
-	## does NOT touch this mesh's own illumination/receiving at all; the
-	## NPC still gets lit/shadowed normally by every real light.
+	## world; a shortened invisible stand-in casts a real shadow in its
+	## place instead (see docs/systems/graphics/README.md "Character
+	## shadow stand-in"). Native per-object property — does NOT touch this
+	## mesh's own illumination/receiving at all; the NPC still gets lit/
+	## shadowed normally by every real light.
 	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	CharacterShadowStandIn.attach(self)
 
 	if npc_id == "":
 		npc_id = "npc_%d" % _next_npc_id

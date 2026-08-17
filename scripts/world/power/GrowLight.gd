@@ -544,8 +544,10 @@ func _build_spot_light() -> void:
 	## docs/systems/graphics/README.md "Aggregated character shadows" for
 	## the postmortem). Back to default cull mask — lights and shadows the
 	## player/NPCs completely normally. get_shadow_weight() below is
-	## kept — it's consumed by the new CharacterShadowDecal.gd system
-	## instead, and was never the buggy part.
+	## retained as dead code — its only consumer was the fake-shadow decal
+	## system, replaced by the stand-in system (see
+	## docs/systems/graphics/README.md "Character shadow stand-in");
+	## kept, not scheduled for removal.
 	spot.visible                     = false
 	add_child(spot)
 	_spot = spot
@@ -561,13 +563,14 @@ func _apply_graphics_settings() -> void:
 		return
 	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 
-## Aug 2026 — returns this fixture's current contribution weight for
-## CharacterShadowDecal.gd's aggregate shadow-direction calculation, or 0.0
-## if currently off/out of range. See docs/systems/graphics/README.md
-## "Character shadow decal" (and "Aggregated character shadows" for the
-## reverted prior system this method outlived). Same simple-falloff approach
-## as WallLight.gd's version — only needs to rank/blend lights relative to
-## each other, not match the GPU's real attenuation curve exactly.
+## Aug 2026 — returns this fixture's current contribution weight for the
+## removed fake-shadow decal system's aggregate shadow-direction
+## calculation, or 0.0 if currently off/out of range. Dead code since that
+## system was replaced by the stand-in approach (see
+## docs/systems/graphics/README.md "Character shadow stand-in"); kept, not
+## scheduled for removal. Same simple-falloff approach as WallLight.gd's
+## version — only needs to rank/blend lights relative to each other, not
+## match the GPU's real attenuation curve exactly.
 func get_shadow_weight(from_pos: Vector3) -> float:
 	if _spot == null or not _spot.visible:
 		return 0.0

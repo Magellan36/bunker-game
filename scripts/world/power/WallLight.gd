@@ -363,8 +363,10 @@ func _build_fixture() -> void:
 	## docs/systems/graphics/README.md "Aggregated character shadows" for
 	## the postmortem). Back to default cull mask — lights and shadows the
 	## player/NPCs completely normally, same as any other object in the
-	## room. get_shadow_weight() below is kept — it's consumed by the new
-	## CharacterShadowDecal.gd system instead, and was never the buggy part.
+	## room. get_shadow_weight() below is retained as dead code — its only
+	## consumer was the fake-shadow decal system, replaced by the stand-in
+	## system (see docs/systems/graphics/README.md "Character shadow
+	## stand-in"); kept, not scheduled for removal.
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
 	omni.visible = false
 	add_child(omni)
@@ -403,13 +405,14 @@ func _apply_graphics_settings() -> void:
 	_omni.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 
 
-## Aug 2026 — returns this fixture's current contribution weight for
-## CharacterShadowDecal.gd's aggregate shadow-direction calculation, or 0.0
-## if currently off/out of range. See docs/systems/graphics/README.md
-## "Character shadow decal" (and "Aggregated character shadows" for the
-## reverted prior system this method outlived). Deliberately simple falloff —
-## this only needs to rank/blend multiple lights sensibly relative to each
-## other, not match the GPU's real attenuation curve exactly.
+## Aug 2026 — returns this fixture's current contribution weight for the
+## removed fake-shadow decal system's aggregate shadow-direction
+## calculation, or 0.0 if currently off/out of range. Dead code since that
+## system was replaced by the stand-in approach (see
+## docs/systems/graphics/README.md "Character shadow stand-in"); kept, not
+## scheduled for removal. Deliberately simple falloff — this only needs to
+## rank/blend multiple lights sensibly relative to each other, not match
+## the GPU's real attenuation curve exactly.
 func get_shadow_weight(from_pos: Vector3) -> float:
 	if _omni == null or not _omni.visible:
 		return 0.0

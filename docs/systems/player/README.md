@@ -177,10 +177,11 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
 
 ## Common edits
 - **Character shadowing/layer 12 (Aug 2026):** See
-  `docs/systems/graphics/README.md` "Character shadow decal" — the Aug
+  `docs/systems/graphics/README.md` "Character shadow stand-in" — the Aug
   2026 aggregated-shadow-light approach that briefly lived here (moving
   `PLAYER_SELF_LIGHT_LAYER_BIT` to
-  `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT`) was reverted; if touching
+  `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT`) was reverted, as were
+  the fake-shadow decal and proxy systems that followed; if touching
   character lighting again, read that doc's postmortem first.
 - **New player stat/need:** add the field + drain rate + signal to
   `PlayerStats.gd` following the `food`/`water`/`sleep` pattern; add a
