@@ -78,6 +78,18 @@ func _build_mesh() -> void:
 	body_mat.roughness    = 0.75
 	body_mat.metallic     = 0.6
 	handle_mi.set_surface_override_material(0, body_mat)
+	## Aug 2026 — the earlier flashlight self-shadow fix only excluded the
+	## PLAYER's own body from this light's shadow; it never addressed the
+	## flashlight's own housing meshes (this one, head_mi, lens_mi below),
+	## which sit essentially touching the SpotLight3D itself (_spot is at
+	## local Z=0.20; this handle's own geometry extends right up near it).
+	## That's almost certainly the actual dome — the flashlight casting a
+	## shadow of its own housing directly into the center of its own beam,
+	## independent of the player entirely. Global cast_shadow=OFF here
+	## rather than another light_cull_mask exclusion — nothing would ever
+	## want a shadow from a tiny handheld prop anyway, from any light, so
+	## there's no reason to scope this to the flashlight's own spot only.
+	handle_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(handle_mi)
 	_body_mesh = handle_mi
 
@@ -97,6 +109,9 @@ func _build_mesh() -> void:
 	head_mat.roughness    = 0.65
 	head_mat.metallic     = 0.7
 	head_mi.set_surface_override_material(0, head_mat)
+	## Aug 2026 — see handle_mi's comment above. This one sits even closer
+	## to the light (local Z=0.15 vs. the spot's own Z=0.20).
+	head_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(head_mi)
 
 	## Lens cap — thin glowing disk at the very tip
@@ -117,6 +132,11 @@ func _build_mesh() -> void:
 	_lens_mat.emission_energy_multiplier = 0.0
 	_lens_mat.shading_mode               = BaseMaterial3D.SHADING_MODE_UNSHADED
 	lens_mi.set_surface_override_material(0, _lens_mat)
+	## Aug 2026 — see handle_mi's comment above. This is the closest of the
+	## three to the light (local Z=0.182 vs. the spot's own Z=0.20, just
+	## 0.018 apart — essentially touching) and the most likely single
+	## biggest contributor to the dome.
+	lens_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(lens_mi)
 
 func _build_light() -> void:

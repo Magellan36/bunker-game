@@ -353,6 +353,13 @@ the power system â€” see `docs/systems/world-core/README.md` Persistence).
   the full design rationale (owned there since it's a lighting/shadow
   decision, not an item-behavior one). Don't remove this cull-mask line
   when touching `_build_light()` for unrelated reasons.
+  **Correction (Aug 2026):** that cull-mask exclusion alone never fixed
+  the dome — the flashlight's own housing meshes (handle/head/lens in
+  `_build_mesh()`) sit essentially touching the SpotLight3D and were
+  never excluded. They now carry `cast_shadow =
+  SHADOW_CASTING_SETTING_OFF` (globally, not light-scoped); the player-body
+  exclusion stays as-is alongside it. See the graphics README entry for
+  the full writeup.
 - **New pickup item type:** implement the shared item contract above
   (Public API), copy the `from_inventory`/dual-follow-speed/culling pattern
   from `WaterBottle.gd` (the cleanest reference implementation) rather than

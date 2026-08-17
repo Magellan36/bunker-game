@@ -306,6 +306,17 @@ session. `Player.PLAYER_SELF_LIGHT_LAYER_BIT` excludes only the player's
 own mesh from `Flashlight.gd`'s own beam. Not part of the "Aggregated
 character shadows" detour below — that plan generalized this constant,
 and reverting it moved the constant back here.
+**Aug 2026 correction:** the above exclusion (player's body via
+`light_cull_mask`) never actually resolved the dome — confirmed still
+correctly wired, just addressing the wrong occluder. The flashlight's own
+housing meshes (handle/head/lens, built in `Flashlight.gd`'s
+`_build_mesh()`) sit essentially touching the `SpotLight3D` itself and
+were never excluded from anything. Fixed with `cast_shadow =
+SHADOW_CASTING_SETTING_OFF` on all three, globally rather than
+light-scoped — no light in the game needs a shadow from a tiny handheld
+prop, so the extra precision of a `light_cull_mask` exclusion isn't worth
+it here. The player-body exclusion stays in place alongside this; it
+wasn't wrong, just insufficient alone.
 
 ### Unified dynamic shadow casting
 **What changed:** `GraphicsSettings.flashlight_shadows` renamed to

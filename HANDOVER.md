@@ -1,3 +1,47 @@
+# Handover — Flashlight Self-Shadow Dome, Actual Fix (Aug 2026)
+
+## What changed this session
+The original flashlight self-shadow fix (way earlier this project) never
+actually worked — confirmed via playtesting feedback, then confirmed via
+source inspection that its player-body exclusion was still correctly
+wired, just not addressing the real cause. Flashlight.gd builds its own
+housing meshes (handle, head, lens) essentially touching the SpotLight3D
+itself (lens at local Z=0.182, light at Z=0.20) — none of them were ever
+excluded from casting a shadow. That's almost certainly the actual dome.
+
+Fixed with cast_shadow = SHADOW_CASTING_SETTING_OFF on all three prop
+meshes, globally (not scoped to just the flashlight's own light via
+light_cull_mask, unlike the player-body approach) — there's no scenario
+where any light needs a shadow from a tiny handheld prop, so a flat
+exclusion is both simpler and guaranteed correct. The existing
+player-body light_cull_mask exclusion is unchanged and stays in place
+alongside this.
+
+### Files modified
+- `scripts/world/items/Flashlight.gd` — cast_shadow = OFF added to
+  handle_mi, head_mi, lens_mi in `_build_mesh()`.
+- `docs/systems/graphics/README.md`,
+  `docs/systems/furniture-items/README.md` — correction notes.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Turn on Shadow Casting in Settings, equip and turn on the flashlight —
+   the dome/shadow blob that used to sit in the center of the beam should
+   now actually be gone (previous fix attempt did not resolve this).
+3. Confirm the flashlight's visual appearance (handle/head/lens) is
+   otherwise unchanged — this only affects shadow-casting, not rendering/
+   lighting/materials.
+4. Confirm furniture/walls/other objects still cast normal shadows into
+   the beam when Shadow Casting is on (unaffected by this fix).
+5. Re-verify the player-body exclusion is still doing something useful on
+   its own — with the housing fix in place, walk the player's own body
+   through the beam at an angle where their body (not the flashlight
+   prop) would be the near occluder, and confirm no separate dome
+   reappears from that.
+
+---
+
 # Handover — Character Shadow Stand-In (Real Shadows, Aug 2026)
 
 ## What changed this session
