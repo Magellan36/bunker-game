@@ -1,3 +1,39 @@
+# Handover — wooden_table.glb Off-Center Fix (Aug 2026)
+
+## What changed this session
+Fixed the Medium Table / Build Station's new wooden_table.glb model
+rendering ~1m off-center (reported: "shifted about half a table-width to
+the left"). Root cause: Godot's glTF importer wraps an imported scene in
+a generated root node representing the file's "Scene" — the file's real
+node (here, the mesh-bearing `table01` node, which carries a stray
+`(-1.7, 0, 0.7)` scene-placement translation unrelated to the mesh's own
+shape) is nested one level BELOW that wrapper. The prior session's fix
+zeroed the wrapper's position (`packed.instantiate()`'s return value) —
+already zero, a no-op — leaving the inner node's real offset untouched,
+which then got multiplied through by the applied scale. New
+`_recenter_glb_mesh()` (duplicated in both `Table.gd` and
+`BuildStation.gd`, matching the existing `_strip_model_collision()`
+duplication convention) walks down to the actual `MeshInstance3D` and
+zeros its local position directly.
+
+### Files modified
+- `scripts/world/furniture/Table.gd` — new `_recenter_glb_mesh()`, call
+  added in `_build_mesh_from_model()`.
+- `scripts/world/furniture/BuildStation.gd` — same, in `_build_mesh()`.
+- `docs/systems/build/README.md` — correction note appended.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Place a Medium Table — model renders centered on the placement
+   position/ghost, no left/forward offset.
+3. Build Station — table portion centered; blueprint rolls/toolbox still
+   sit correctly on top of it (unaffected by this fix, sanity-check only).
+4. Small Table (1×1) — still unaffected (procedural, never touched this
+   code path).
+
+---
+
 # Handover — Medium Table + Build Station: Procedural Mesh → wooden_table.glb (Aug 2026)
 
 ## What changed this session

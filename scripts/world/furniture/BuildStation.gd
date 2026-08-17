@@ -57,6 +57,7 @@ func _build_mesh() -> void:
 			## is not part of the mesh's own shape.
 			model.position = Vector3.ZERO
 			model.scale    = MODEL_SCALE
+			_recenter_glb_mesh(model)
 			_strip_model_collision(model)
 			add_child(model)
 	else:
@@ -125,6 +126,17 @@ func _strip_model_collision(node: Node) -> void:
 		co.collision_mask  = 0
 	for child: Node in node.get_children():
 		_strip_model_collision(child)
+
+## See Table.gd's identical helper for the full explanation (Godot's
+## glTF-import wrapper-node behavior).
+func _recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if _recenter_glb_mesh(child):
+			return true
+	return false
 
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()

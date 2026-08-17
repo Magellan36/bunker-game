@@ -107,6 +107,19 @@ NOT part of the mesh's own shape — every instantiation site explicitly
 zeroes `model.position` after `instantiate()` rather than trusting the
 import; don't remove that line if this code is ever touched again.
 
+**Correction (same session):** the initial `model.position = Vector3.ZERO`
+fix targeted the wrong node — Godot's glTF importer always wraps an
+imported scene in a generated root representing the file's "Scene", with
+the file's real node(s) (and their own baked transforms) nested one level
+below it. `packed.instantiate()` returns that wrapper, so zeroing its
+position was a no-op; the actual `(-1.7, 0, 0.7)` offset lived on the
+inner mesh node. Both `Table.gd` and `BuildStation.gd` now also call a
+new `_recenter_glb_mesh()` helper that finds the real `MeshInstance3D`
+descendant and zeros its local position directly. Any future GLB load
+site in this codebase should check for this same wrapper layer rather
+than assuming the instantiated root is the node carrying the file's real
+transform.
+
 ## Light Storage: End Table / Dresser (Aug 2026)
 Tile IDs **32** (`End Table`, $60, capacity 2) and **33** (`Dresser`,
 $150, capacity 6) in Construct → Furniture — floor-standing hidden-

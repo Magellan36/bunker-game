@@ -103,6 +103,7 @@ func _build_mesh_from_model(footprint_x: float, footprint_z: float) -> void:
 			## would render the table badly off-center. See plan header.
 			model.position = Vector3.ZERO
 			model.scale    = MEDIUM_TABLE_MODEL_SCALE
+			_recenter_glb_mesh(model)
 			_strip_model_collision(model)
 			add_child(model)
 	else:
@@ -131,6 +132,26 @@ func _strip_model_collision(node: Node) -> void:
 		co.collision_mask  = 0
 	for child: Node in node.get_children():
 		_strip_model_collision(child)
+
+## Godot's glTF importer always wraps an imported scene in an extra
+## generated root node (representing the file's "Scene"), with the file's
+## real node(s) nested one level below it as children — the top-level
+## model.position reset alone does NOT reach a translation baked onto an
+## inner node. Recursively finds the first MeshInstance3D descendant and
+## zeros ITS local position. Safe specifically because wooden_table.glb's
+## vertex data is already centered on that node's own local origin (see
+## PLAN_table01_glb_swap.md's accessor min/max analysis) — this only
+## eliminates a stray node-level offset, it doesn't recompute a new
+## center, so it would NOT be safe to reuse blindly on a future multi-part
+## model where sub-mesh offsets are intentional.
+func _recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if _recenter_glb_mesh(child):
+			return true
+	return false
 
 static func build_ghost_mesh(cell_count: int = 1) -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
