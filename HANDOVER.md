@@ -25,6 +25,19 @@ confirmed-good scale) now that it will actually take effect on screen.
 
 ---
 
+## [Aug 2026] Research Station — moved to spawn against the north wall
+
+`MainWorld._spawn_initial_research_station()` now places the station
+flush against the bunker's north wall (confirmed with the person: north
+= the wall nearer player spawn, OFFSET_Z=4.5 boundary) instead of 2m off
+the Build Station's center. X centered along the wall's run, Z = wall
+coordinate + the object's own half-depth (0.48) — same "wall + inset"
+formula BunkerPregen.gd already uses for its pregen lights on that same
+wall. Angle unchanged (0.0 — front already faces into the room at that
+angle). No other Research Station behavior changed.
+
+---
+
 # Handover — Shadow Direction Turn-Rate Cap (Aug 2026)
 
 ## What changed this session

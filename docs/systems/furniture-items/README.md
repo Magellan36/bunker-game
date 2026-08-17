@@ -465,10 +465,12 @@ E/F while open, same as shelf/basket).
 Wiring (mirrors Build Station): `BuildModeController.TILE_RESEARCH_STATION`
 (38) + save-list skip + deconstruct guard; `GhostModelBuilder.
 PROCEDURAL_PREVIEW_SOURCES` entry; `GhostPreview` ghost branch +
-floor-snap; `MainWorld._spawn_initial_research_station()` (spawns 2m off
-the Build Station's computed center — verify visually in-editor that the
-two don't overlap) + `_setup_research_ui()`; `InteractionSystem.research_ui`
-gate.
+floor-snap; `MainWorld._spawn_initial_research_station()` (Aug 2026:
+moved to spawn flush against the bunker's north wall — the wall nearer
+player spawn — X centered along the wall's run, Z = `OFFSET_Z +
+half_extent.y`, same wall-flush idiom `BunkerPregen.gd` uses for its
+pregen lights; was previously "2m off the Build Station's center") +
+`_setup_research_ui()`; `InteractionSystem.research_ui` gate.
 
 **Known, inherited limitation (flagged, not silently):** same as Build
 Station/Water Hookup — moved position is not persisted across save/load

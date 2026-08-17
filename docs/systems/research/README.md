@@ -48,11 +48,13 @@ func get_trash_material() -> String:
 
 ## Research Station object (TILE 38)
 
-`ResearchStation.gd` — singleton, spawns once near world-center at game
-start, never purchasable, never deconstructable, movable only (identical
-treatment to Build Station). `[E] Open Research Station` opens the modal
+`ResearchStation.gd` — singleton, spawns once flush against the bunker's
+north wall (confirmed: the wall nearer player spawn) at game start, never
+purchasable, never deconstructable, movable only (identical treatment to
+Build Station). `[E] Open Research Station` opens the modal
 `ResearchStationUI`. See `docs/systems/furniture-items/README.md` for the
-wiring summary and the inherited save-position limitation.
+wiring summary, exact placement formula, and the inherited save-position
+limitation.
 
 ## UI shell status (Aug 2026)
 

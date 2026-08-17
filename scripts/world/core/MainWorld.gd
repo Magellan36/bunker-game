@@ -1455,18 +1455,26 @@ func _spawn_initial_research_station() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 
-	## Same true-floor-center computation as the Build Station, offset +2m
-	## on X so the two singleton stations don't overlap (both are 2×1,
-	## half-extent 0.95 on X — 2m clears them). Same Y=0.5 floor-standing
-	## convention. Not hardcoding a guessed center literal — see
-	## _spawn_initial_build_station() for the source constants; verify
-	## visually in-editor once both are placed (flagged in the plan).
-	var center_pos: Vector3 = Vector3(
+	## Flush against the north wall (confirmed with the person: north = the
+	## wall nearer player spawn, the bunker's low-Z boundary, OFFSET_Z=4.5 —
+	## matches BunkerPregen.gd's own "wall_top = north wall" convention used
+	## for its pregen light placement). X is centered along the wall's run
+	## (same cx_mid = OFFSET_X + depth*0.5 constant BunkerPregen.gd computes
+	## for that same wall's light). Z sits at OFFSET_Z + this object's own
+	## half-depth (0.48, from _tile_half_extents(TILE_RESEARCH_STATION)) —
+	## same "wall coordinate + inset" idiom BunkerPregen.gd uses for its
+	## wall-flush lights (LWHT), just with this object's own footprint as
+	## the inset instead of a light's thin fixture inset. Y=0.5 floor-
+	## standing convention, unchanged. Angle 0.0 unchanged — per
+	## BuildModeController.DEFAULT_ORIENT_INDEX, local +Z (front) already
+	## points world +Z (south/into the room) at angle 0, which is correct
+	## with the object's back against this north wall.
+	var half_extent: Vector2 = bc._tile_half_extents(bc.TILE_RESEARCH_STATION)
+	var research_pos: Vector3 = Vector3(
 		rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5,
 		0.5,
-		rock_surround.OFFSET_Z + float(rock_surround.bunker_width) * 0.5
+		rock_surround.OFFSET_Z + half_extent.y
 	)
-	var research_pos: Vector3 = center_pos + Vector3(2.0, 0.0, 0.0)
 
 	var body: Node3D = bc._spawn_placed_object(bc.TILE_RESEARCH_STATION, research_pos, 0.0)
 	if body != null and body.has_method("set"):
