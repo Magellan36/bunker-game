@@ -91,6 +91,16 @@ const TEX_HEIGHT: int = 128   ## 2:1 aspect, matches this shape's roughly length
 
 const SMOOTH_RATE: float = 3.0   ## still used for opacity/weight fade only — NOT direction, see _process()
 const MIN_TOTAL_WEIGHT: float = 0.05   ## below this, no meaningful nearby light — hide the shadow
+## Aug 2026 fix v6 — opacity used to be a raw clamp(_current_weight, 0, 1).
+## Since even one nearby light's weight (e.g. WallLight's up to 2.0 right
+## next to it) exceeds 1.0 well before you're actually close to it, that
+## clamp saturated to full opacity across most of a light's practical
+## range — the shadow read as constant strength almost everywhere, only
+## fading right at the very edge where a light stops reaching at all. This
+## rescales weight against a reference value tuned so opacity visibly
+## ramps across a light's more typical range instead of saturating
+## immediately — see _process() below.
+const OPACITY_REFERENCE_WEIGHT: float = 1.5
 
 ## Raycast height above the character's own origin — roughly waist height,
 ## so it doesn't clip on the floor itself or pass over low obstacles.
@@ -329,7 +339,17 @@ func _process(delta: float) -> void:
 	## one distant light shouldn't show as strong a shadow as one standing
 	## under several. Purely cosmetic — no risk to actual lighting since
 	## this is only ever multiplying this decorative mesh's own alpha.
-	_material.albedo_color = Color(1.0, 1.0, 1.0, clamp(_current_weight, 0.0, 1.0))
+## Aug 2026 fix v6 — smoothstep against OPACITY_REFERENCE_WEIGHT instead
+	## of a raw clamp(_current_weight, 0, 1) — see that const's comment for
+	## why. This is the actual "shadow gets weaker with distance" fix:
+	## _current_weight already falls off with distance via each light's
+	## get_shadow_weight(), but the old clamp saturated almost immediately,
+	## making that falloff invisible in practice. Standing near several
+	## lights at once can still push _current_weight well past
+	## OPACITY_REFERENCE_WEIGHT and saturate to full opacity — that's
+	## correct, not a regression (being near several lights SHOULD read as
+	## fully, solidly shadowed).
+	_material.albedo_color = Color(1.0, 1.0, 1.0, smoothstep(0.0, OPACITY_REFERENCE_WEIGHT, _current_weight))
 
 	## Aug 2026 fix v4 — replaces the earlier rotate-then-scale composition
 	## (Basis(Vector3.UP, yaw).scaled(...)), which produced shadows that

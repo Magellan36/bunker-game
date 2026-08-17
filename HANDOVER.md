@@ -1,3 +1,43 @@
+# Handover — Shadow Intensity-vs-Distance Fix (Aug 2026)
+
+## What changed this session
+The character shadow's opacity was computed as
+clamp(_current_weight, 0, 1) — since a single nearby light's weight
+easily exceeds 1.0 well before you're actually close to it, this clamp
+saturated to full opacity across most of a light's practical range. The
+underlying distance falloff was always there (each light's
+get_shadow_weight() already reduces with distance), but it was invisible
+in practice because opacity pegged to max almost immediately and only
+dropped right at the extreme edge of a light's reach — reading as
+constant-strength, more like a decal fixed to the character's feet than a
+dynamic shadow.
+
+Fixed by normalizing the weight against a tuned reference value via
+smoothstep instead of a raw clamp, so opacity now visibly ramps across a
+light's more typical range. Near multiple overlapping lights it can still
+saturate to full opacity, which is correct — that's meant to read as
+solidly shadowed.
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — new `OPACITY_REFERENCE_WEIGHT`
+  constant, opacity calculation changed from clamp to smoothstep.
+- `docs/systems/graphics/README.md` — fix v6 note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Walk from right next to a single wall light out to the edge of its
+   range — shadow opacity should now visibly fade throughout that walk,
+   not stay at full strength until suddenly disappearing.
+3. Stand near 2-3 overlapping lights — shadow should still read as fully,
+   solidly opaque (expected, not a bug).
+4. Confirm the shadow still disappears entirely once genuinely out of
+   range of everything (MIN_TOTAL_WEIGHT threshold, unchanged).
+5. If the falloff still feels too abrupt or too gradual,
+   OPACITY_REFERENCE_WEIGHT is the one value to retune — lower = saturates
+   sooner (closer to old behavior), higher = fades more gradually across a
+   wider range.
+
 # Handover — Research UI Nub Fix + Title Plan (Aug 2026)
 
 ## What changed this session

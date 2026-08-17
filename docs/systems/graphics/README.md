@@ -438,6 +438,15 @@ width now reaches its max well before the fade starts, so the visible part
 of the shadow is actually at full width, not still growing into it as it
 disappears.
 
+**Aug 2026 fix v6 (intensity vs. distance):** opacity was a raw
+clamp(weight, 0, 1) — since even one nearby light's weight exceeds 1.0
+well before you're actually close to it, this saturated to full opacity
+across most of a light's practical range, reading as constant-strength
+shadow almost everywhere rather than genuinely fading with distance.
+Fixed by normalizing against OPACITY_REFERENCE_WEIGHT via smoothstep, so
+opacity visibly ramps across a light's more typical range. Being near
+several lights at once can still saturate to full opacity — intentional.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes
