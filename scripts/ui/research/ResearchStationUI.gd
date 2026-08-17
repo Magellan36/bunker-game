@@ -60,7 +60,7 @@ const MATERIAL_ICONS: Dictionary = {
 	"paper":   preload("res://assets/icons/icon_material_paper.png"),
 	"organic": preload("res://assets/icons/icon_material_organic.png"),
 }
-const MATERIAL_ICON_SIZE: Vector2 = Vector2(9.0, 9.0)
+const MATERIAL_ICON_SIZE: Vector2 = Vector2(12.0, 12.0)
 const MATERIAL_ICON_BUFFER: float = 6.0    ## left inset for the icon
 const MATERIAL_COUNT_BUFFER: float = 6.0   ## right inset for the "x/10" label
 
@@ -68,7 +68,7 @@ const MATERIAL_COUNT_BUFFER: float = 6.0   ## right inset for the "x/10" label
 ## research card. Interior of the ring is pre-filled opaque white; outside
 ## the ring stays transparent — do not swap for a differently-prepared file.
 const CLOCK_ICON_TEXTURE: Texture2D = preload("res://assets/icons/icon_clock.png")
-const CLOCK_ICON_SIZE: Vector2 = Vector2(8.0, 8.0)
+const CLOCK_ICON_SIZE: Vector2 = Vector2(12.0, 12.0)
 
 var is_open: bool = false
 var _active_tree: String = "bunker"
@@ -751,10 +751,17 @@ func _build_materials_grid() -> void:
 		panel.size = btn_size
 		var icon_rect: TextureRect = TextureRect.new()
 		icon_rect.texture = MATERIAL_ICONS[material]
-		icon_rect.custom_minimum_size = MATERIAL_ICON_SIZE
-		icon_rect.size = MATERIAL_ICON_SIZE
+		## expand_mode/stretch_mode MUST be set before .size below — Control's
+		## size setter clamps to the current minimum size at call time, and a
+		## TextureRect's minimum size is its texture's native dimensions until
+		## expand_mode is changed off the EXPAND_KEEP_SIZE default. Setting
+		## .size first silently clamps it back up to the full 100x100 source
+		## texture regardless of MATERIAL_ICON_SIZE's value — this was the
+		## actual bug behind icons rendering full-sized.
 		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon_rect.custom_minimum_size = MATERIAL_ICON_SIZE
+		icon_rect.size = MATERIAL_ICON_SIZE
 		icon_rect.position = Vector2(MATERIAL_ICON_BUFFER, (btn_size.y - MATERIAL_ICON_SIZE.y) * 0.5)
 		panel.add_child(icon_rect)
 

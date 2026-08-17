@@ -8,6 +8,23 @@ No other change — same textures, same positioning/alignment code.
 
 ---
 
+## [Aug 2026] Research Station — material icon sizing bug, real fix
+
+Correction to the previous "shrink icon sizes" pass: that fix changed
+the wrong thing. Material icons were rendering at full 100x100 texture
+size regardless of `MATERIAL_ICON_SIZE`'s value, because `icon_rect.size`
+was being assigned *before* `icon_rect.expand_mode` — Godot clamps a
+`.size` assignment to the control's minimum size at that moment, and a
+TextureRect's minimum size is its native texture size until expand_mode
+is changed off the default. Reordered so expand_mode/stretch_mode are
+set before `.size`; this is the real fix, not a size-constant change.
+`CLOCK_ICON_SIZE` reverted 8->12 (it was never buggy — the previous
+shrink was an unnecessary side effect of misdiagnosing the material icon
+issue). `MATERIAL_ICON_SIZE` set to 12 (matches the clock icon's
+confirmed-good scale) now that it will actually take effect on screen.
+
+---
+
 # Handover — Shadow Size Response Fix (Aug 2026)
 
 ## What changed this session
