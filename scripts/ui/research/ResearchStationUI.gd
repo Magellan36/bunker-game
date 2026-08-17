@@ -60,7 +60,7 @@ const MATERIAL_ICONS: Dictionary = {
 	"paper":   preload("res://assets/icons/icon_material_paper.png"),
 	"organic": preload("res://assets/icons/icon_material_organic.png"),
 }
-const MATERIAL_ICON_SIZE: Vector2 = Vector2(16.0, 16.0)
+const MATERIAL_ICON_SIZE: Vector2 = Vector2(9.0, 9.0)
 const MATERIAL_ICON_BUFFER: float = 6.0    ## left inset for the icon
 const MATERIAL_COUNT_BUFFER: float = 6.0   ## right inset for the "x/10" label
 
@@ -68,7 +68,7 @@ const MATERIAL_COUNT_BUFFER: float = 6.0   ## right inset for the "x/10" label
 ## research card. Interior of the ring is pre-filled opaque white; outside
 ## the ring stays transparent — do not swap for a differently-prepared file.
 const CLOCK_ICON_TEXTURE: Texture2D = preload("res://assets/icons/icon_clock.png")
-const CLOCK_ICON_SIZE: Vector2 = Vector2(12.0, 12.0)
+const CLOCK_ICON_SIZE: Vector2 = Vector2(8.0, 8.0)
 
 var is_open: bool = false
 var _active_tree: String = "bunker"

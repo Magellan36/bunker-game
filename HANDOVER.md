@@ -1,3 +1,13 @@
+## [Aug 2026] Research Station — icon size correction
+
+Follow-up to the material/clock icon pass: `MATERIAL_ICON_SIZE` shrunk
+16→9px, `CLOCK_ICON_SIZE` shrunk 12→8px. The original sizes nearly
+filled the materials-grid button height (~20px), reading as
+oversized/"full-sized" rather than a small accent next to the text.
+No other change — same textures, same positioning/alignment code.
+
+---
+
 # Handover — Shadow Size Response Fix (Aug 2026)
 
 ## What changed this session
