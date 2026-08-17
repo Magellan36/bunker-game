@@ -104,6 +104,22 @@ const TEX_WIDTH:  int = 64
 const TEX_HEIGHT: int = 128   ## 2:1 aspect, matches this shape's roughly length:width proportions
 
 const SMOOTH_RATE: float = 3.0   ## still used for opacity/weight fade only — NOT direction, see _process()
+
+## Aug 2026 fix v8 — replaces the instant direction snap. That fix was
+## right for the common case (one dominant light — real shadows track
+## instantly) but had no protection against large, sudden swings, which
+## showed up as visible spinning whenever several lights were competing
+## rather than reinforcing each other (their aggregate direction can jump
+## through a wide arc as the player moves). Rather than bring back a flat
+## lerp (which would reintroduce the original lag complaint for the simple
+## case), direction now moves at a maximum turn rate instead — small
+## continuous adjustments stay under the cap and still read as instant;
+## only a large sudden jump gets visibly swept rather than teleported. The
+## cap itself is modulated by "confidence" (see _process()) — fast when
+## one light clearly dominates, slower when several are pulling from
+## competing directions. Both values are in degrees per second.
+const MAX_TURN_SPEED_HIGH_CONFIDENCE: float = 480.0
+const MAX_TURN_SPEED_LOW_CONFIDENCE:  float = 90.0
 const MIN_TOTAL_WEIGHT: float = 0.05   ## below this, no meaningful nearby light — hide the shadow
 ## Aug 2026 fix v6 — opacity used to be a raw clamp(_current_weight, 0, 1).
 ## Since even one nearby light's weight (e.g. WallLight's up to 2.0 right
@@ -328,14 +344,38 @@ func _process(delta: float) -> void:
 		_mesh_instance.visible = false
 		return
 
-	if accum.length() > 0.001:
-		## Snaps instantly rather than lerping — real shadows track light
-		## position with no lag at all; the smoothing here previously made
-		## the shadow visibly slide into position instead of matching real
-		## shadow movement timing. Only weight/opacity above still smooths
-		## (avoids single-frame flicker from noisy raycast/weight changes),
-		## direction does not.
-		_current_dir = accum.normalized()
+	if accum.length() > 0.001 and total_weight > 0.0:
+		var target_dir: Vector3 = accum.normalized()
+		## Aug 2026 fix v8 — "confidence": how much the contributing
+		## lights' pulls reinforce each other vs. cancel out. 1.0 means
+		## every light's weight is aligned in the same direction (a single
+		## dominant light, or several that happen to agree) — the
+		## aggregate direction is well-defined and can turn fast. Near 0
+		## means lights are pulling from competing directions with little
+		## net agreement — exactly the ambiguous multi-light case that was
+		## causing rapid spinning under the old instant-snap. accum's
+		## magnitude is naturally smaller than the plain sum of weights
+		## whenever the individual pulls don't line up, so this ratio
+		## falls out of numbers already being computed above — no new
+		## per-light data needed.
+		var confidence: float = clamp(accum.length() / total_weight, 0.0, 1.0)
+		var max_turn_deg: float = lerp(MAX_TURN_SPEED_LOW_CONFIDENCE, MAX_TURN_SPEED_HIGH_CONFIDENCE, confidence)
+		var angle_between: float = _current_dir.angle_to(target_dir)
+		if angle_between > 0.0001:
+			## Vector3.slerp() interpolates along the shortest arc between
+			## two (already-normalized) vectors without needing a manually
+			## chosen rotation axis/sign — turn_fraction is how far along
+			## that arc to move this frame to stay at or under the capped
+			## angular speed. Small changes (angle_between already under
+			## the per-frame cap) resolve to turn_fraction >= 1.0, i.e.
+			## reach the target this frame — same as the instant-snap
+			## behavior for ordinary walking. Only a large sudden target
+			## change gets throttled.
+			var max_turn_rad: float = deg_to_rad(max_turn_deg) * delta
+			var turn_fraction: float = clamp(max_turn_rad / angle_between, 0.0, 1.0)
+			_current_dir = _current_dir.slerp(target_dir, turn_fraction).normalized()
+		else:
+			_current_dir = target_dir
 
 	## Aug 2026 fix v7 — target length now scales with _current_weight
 	## instead of always being the flat TARGET_LENGTH — see

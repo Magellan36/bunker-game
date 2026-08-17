@@ -458,6 +458,18 @@ tuned. Length now scales with the same aggregate weight (down to ~30% of
 full length at minimum), layered underneath the existing raycast clip.
 Width is untouched.
 
+**Aug 2026 fix v8 (spinning in multi-light areas):** the instant direction
+snap (added to fix an earlier lag complaint) had no protection against
+large sudden swings, which read as visible spinning whenever several
+lights were competing rather than reinforcing each other. Replaced with a
+maximum turn-rate cap instead of a flat lerp — small continuous
+adjustments while walking still resolve within one frame (no
+reintroduced lag), only a large jump gets visibly swept. The cap itself
+scales with "confidence" (accum.length() / total_weight — how much the
+contributing lights agree on a direction vs. cancel out): fast when one
+light clearly dominates, slower when several are pulling from competing
+directions, which is exactly the ambiguous case that was spinning before.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes

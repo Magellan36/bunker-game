@@ -25,6 +25,52 @@ confirmed-good scale) now that it will actually take effect on screen.
 
 ---
 
+# Handover — Shadow Direction Turn-Rate Cap (Aug 2026)
+
+## What changed this session
+Replaced the instant direction snap in `CharacterShadowDecal.gd` (which
+fixed an earlier lag complaint but had no protection against large sudden
+angular swings) with a maximum turn-rate cap. In a bunker with several
+lights contributing at once, the aggregate shadow direction could jump
+through a wide arc very quickly whenever the lights' individual pulls
+were competing rather than reinforcing each other — reported as visible
+spinning as the player moved through multi-light areas.
+
+Direction now moves toward its target at a capped degrees-per-second
+rate rather than either an instant snap or a flat lerp. Small continuous
+adjustments (ordinary walking) stay under the cap and still read as
+instant, preserving the earlier lag fix; only a large sudden target
+change gets visibly swept over a fraction of a second instead of
+teleporting. The cap itself is scaled by a "confidence" value — the ratio
+of the aggregate direction vector's magnitude to the plain sum of
+contributing weights — so a single dominant light still turns fast, while
+several competing lights (the actual spinning scenario) turn more calmly.
+Uses `Vector3.slerp()` for the arc interpolation rather than manually
+picking a rotation axis, avoiding the class of sign/axis bug from an
+earlier fix in this same file.
+
+### Files modified
+- `scripts/core/CharacterShadowDecal.gd` — new
+  `MAX_TURN_SPEED_HIGH_CONFIDENCE`/`MAX_TURN_SPEED_LOW_CONFIDENCE`
+  constants, direction update in `_process()` replaced with the
+  confidence-scaled turn-rate-capped version.
+- `docs/systems/graphics/README.md` — fix v8 note.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Walk normally near a single light — direction should still feel
+   immediate/responsive, no perceptible lag reintroduced.
+3. Walk through an area with several lights at competing angles (the
+   original spinning scenario) — shadow direction should sweep calmly
+   rather than spin/flicker rapidly between directions.
+4. Force a large sudden direction change (e.g. walk quickly past a light
+   at close range) — shadow should visibly sweep to the new direction
+   over a brief moment rather than teleporting instantly.
+5. If ordinary movement now feels laggy, `MAX_TURN_SPEED_HIGH_CONFIDENCE`
+   is too low — raise it. If multi-light areas still spin too fast,
+   `MAX_TURN_SPEED_LOW_CONFIDENCE` is too high — lower it.
+
 # Handover — Shadow Size Response Fix (Aug 2026)
 
 ## What changed this session
