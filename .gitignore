@@ -1,5 +1,11 @@
 # Godot 4+ specific ignores
 .godot/
+# Stale accidental nested copy of the project's own root config files
+# (merged in via f1b6c7e) — removed from git; keep it ignored so a
+# recreated copy never gets tracked again. Its project.godot was a
+# d3d12 leftover that made Godot warn "Detected another project.godot"
+# on every launch.
+bunker-game/
 /android/
 .env
 *.tmp
