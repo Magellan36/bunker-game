@@ -112,6 +112,19 @@ to a plain static copy of the mesh instead. Swap hairstyles by changing
 `.gltf`/`.bin`/textures the same way — the extraction logic is generic,
 not specific to `Hair_Buzzed`.
 
+**Materials (Aug 2026 fix pass):** the imported hairstyle's own material
+wasn't rendering (flat grey despite the source textures being present),
+so `_build_hair_material()` builds and force-assigns a `StandardMaterial3D`
+at runtime instead, same approach `_build_skin_material()` already uses
+for the body.
+
+**Position tuning (Aug 2026 fix pass):** the head-attach transform (see
+the "Aug 2026 deviation" comment in `_setup_hair()`) is a close heuristic,
+not an exact cross-skeleton retarget, so `hair_position_offset`/
+`hair_rotation_offset_deg` (both exported, both zero by default) are
+available on `PlayerModel`'s root node for a manual nudge in the
+Inspector if a hairstyle sits slightly off — retune by eye, not math.
+
 **Not done here (clothing):** researched Quaternius's catalog for a
 matching modern/survival outfit pack — none exists for this rig yet,
 only a medieval "Modular Character Outfits - Fantasy" set. Deferred per

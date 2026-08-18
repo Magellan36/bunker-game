@@ -85,6 +85,17 @@ const SKIN_ROUGHNESS_PATH: String = "res://assets/models/player/textures/T_Super
 const HAIR_SCENE_PATH: String = "res://assets/models/player/hair/Hair_Buzzed.gltf"
 const HAIR_MESH_NODE_NAME: String = "Hair_Buzzed"
 
+## Aug 2026 fix pass — the mesh's own imported material wasn't
+## rendering (came in flat grey; textures ARE present on disk, so this
+## bypasses whatever import quirk was in play rather than chasing it
+## blind), same approach already proven for the body in
+## _build_skin_material(). Kept as separate constants/a separate
+## function rather than generalizing _build_skin_material() — different
+## texture set, and hair's material needs double-sided rendering, which
+## the body's doesn't.
+const HAIR_ALBEDO_PATH: String = "res://assets/models/player/hair/T_Hair_1_BaseColor.png"
+const HAIR_NORMAL_PATH: String = "res://assets/models/player/hair/T_Hair_1_Normal.png"
+
 ## Maps the plain state names used below ("idle"/"walk"/"run") to the
 ## full animation-name strings actually registered in PlayerModel.tscn's
 ## AnimationPlayer. The three clip libraries (idle_lib/walk_lib/run_lib)
@@ -284,6 +295,33 @@ static func _find_bone_name(skeleton: Skeleton3D, bone_hint: String) -> String:
 			return bone_name
 	return ""
 
+## Aug 2026 fix pass — see HAIR_ALBEDO_PATH above.
+func _build_hair_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	var albedo: Texture2D = load(HAIR_ALBEDO_PATH)
+	var normal: Texture2D = load(HAIR_NORMAL_PATH)
+	if albedo != null:
+		mat.albedo_texture = albedo
+	if normal != null:
+		mat.normal_enabled = true
+		mat.normal_texture = normal
+	## Source glTF material had doubleSided = true (thin hair-card
+	## geometry needs both faces rendered, unlike the closed-surface
+	## body mesh) — preserved explicitly since we're bypassing the
+	## imported material entirely now.
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return mat
+
+## Small manual correction on top of the computed head-attach transform
+## below — the attach math is a close heuristic (see the "Aug 2026
+## deviation" comment further down), not an exact cross-skeleton
+## retarget, so a small persistent mismatch is expected. Nudge these
+## directly in the Inspector while watching the live result rather than
+## guessing at the underlying transform math further; degrees for
+## rotation since that's more intuitive to tune by eye than radians.
+@export var hair_position_offset: Vector3 = Vector3.ZERO
+@export var hair_rotation_offset_deg: Vector3 = Vector3.ZERO
+
 ## Attaches the configured hairstyle to our OWN Mixamo skeleton's Head
 ## bone. The source asset is a skinned mesh bound to a completely
 ## different (Quaternius-native) reference armature — we don't reuse
@@ -344,10 +382,24 @@ func _setup_hair(skeleton: Skeleton3D) -> void:
 	attachment.bone_name = head_bone_name
 	skeleton.add_child(attachment)
 
+	var offset_basis: Basis = Basis.from_euler(Vector3(
+		deg_to_rad(hair_rotation_offset_deg.x),
+		deg_to_rad(hair_rotation_offset_deg.y),
+		deg_to_rad(hair_rotation_offset_deg.z),
+	))
+	var tuned_transform: Transform3D = bind_transform * Transform3D(offset_basis, hair_position_offset)
+
 	var hair_mesh := MeshInstance3D.new()
 	hair_mesh.name = "Hair"
 	hair_mesh.mesh = hair_mesh_src.mesh
-	hair_mesh.transform = bind_transform
+	hair_mesh.transform = tuned_transform
+	## Aug 2026 fix pass — see HAIR_ALBEDO_PATH above. Applied to every
+	## surface the same way the body's skin material is, in case this
+	## hairstyle ever has more than one (Hair_Buzzed only has one today).
+	var hair_material: StandardMaterial3D = _build_hair_material()
+	if hair_mesh.mesh != null:
+		for surf_i in hair_mesh.mesh.get_surface_count():
+			hair_mesh.set_surface_override_material(surf_i, hair_material)
 	## Same self-light/shadow treatment as the body mesh (see the main
 	## mesh loop in _ready()) — applied directly here since this mesh is
 	## created AFTER that loop already ran.
