@@ -133,6 +133,27 @@ site in this codebase should check for this same wrapper layer rather
 than assuming the instantiated root is the node carrying the file's real
 transform.
 
+## Cooking Pot: Procedural Mesh → 4-State GLB Model (Aug 2026)
+
+`CookingPot.gd` now loads one of 4 real models based on
+`count_filled()` (0/1/2/3 ingredients) instead of building a single
+static procedural mesh: `pot.glb` (empty) and `pot-stew-1/2/3.glb`
+(stew visibly rising as ingredients are added — see
+`docs/systems/models/glb-stew-level-generation.md` for how the 3 stew
+levels were generated from a single empty/full asset pair). Uniform
+scale `0.8315` (unlike Table/Chair's non-uniform fits — the pot's
+collision is a rotationally-symmetric `CylinderShape3D`, so there's no
+axis-aligned footprint forcing a non-uniform match, and uniform scaling
+preserves the real asset proportions with zero distortion). Collision
+(`CylinderShape3D`, radius 0.28 / height 0.30) is now built ONCE in
+`_build_collision()`, decoupled from the swappable visual child —
+unlike Table/BuildStation/Chair, this asset's source nodes had no
+wrapper-translation bug, so `_recenter_glb_mesh()` is present but
+inert here (kept for consistency). `_update_pot_visual()` is called
+from every slot-count-changing site (`try_add_item()` ×2,
+`remove_item()`, `serve_dish()`, `restore_saved_state()`) and no-ops
+if the fill state hasn't actually changed.
+
 ## Light Storage: End Table / Dresser (Aug 2026)
 Tile IDs **32** (`End Table`, $60, capacity 2) and **33** (`Dresser`,
 $150, capacity 6) in Construct → Furniture — floor-standing hidden-

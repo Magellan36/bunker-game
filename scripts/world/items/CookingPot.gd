@@ -59,7 +59,19 @@ var _dish_bonus_pct: float = 0.0
 var _dish_hydration: float = 0.0
 var _dish_name:     String = "Cooked Dish"
 
+const POT_MODEL_PATH_EMPTY:  String = "res://assets/models/pot.glb"
+const POT_MODEL_PATH_STEW_1: String = "res://assets/models/pot-stew-1.glb"
+const POT_MODEL_PATH_STEW_2: String = "res://assets/models/pot-stew-2.glb"
+const POT_MODEL_PATH_STEW_3: String = "res://assets/models/pot-stew-3.glb"
+const POT_MODEL_SCALE: Vector3 = Vector3(0.8315, 0.8315, 0.8315)
+
 var _mesh: MeshInstance3D = null
+var _model_node: Node3D = null
+## Last count_filled() the visual was actually built for. -1 = not built
+## yet. Lets _update_pot_visual() skip a needless reload when called after
+## something that doesn't change the fill count (e.g. a save/load restore
+## that lands on the same count).
+var _visual_state: int = -1
 
 signal item_added(slot_index: int, item: Node)
 signal item_removed(slot_index: int, item: Node)
@@ -215,7 +227,8 @@ func _ready() -> void:
 	slots.resize(CAPACITY)
 	_mesh = get_node_or_null("MeshInstance3D")
 	if _mesh == null:
-		_build_placeholder_mesh()
+		_build_collision()
+		_update_pot_visual()
 
 func get_display_name() -> String:
 	return item_name
@@ -373,6 +386,7 @@ func serve_dish() -> Dictionary:
 	## be taken.
 	for i: int in CAPACITY:
 		slots[i] = null
+	_update_pot_visual()
 	return result
 
 # ─── Slot helpers ─────────────────────────────────────────────────────────────
@@ -441,6 +455,7 @@ func try_add_item(item: Node) -> bool:
 		item_added.emit(slot, item)
 		if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
 			_host_stove.notify_pot_contents_changed()
+		_update_pot_visual()
 		return true
 
 	## Produce (and anything else with no empty concept) — unchanged:
@@ -468,6 +483,7 @@ func try_add_item(item: Node) -> bool:
 	item_added.emit(slot, item)
 	if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
 		_host_stove.notify_pot_contents_changed()
+	_update_pot_visual()
 	return true
 
 ## Drops a just-emptied Food Can / Water Bottle into the world right next
@@ -542,6 +558,7 @@ func restore_saved_state(extra: Dictionary) -> void:
 	_dish_bonus_pct = float(extra.get("dish_bonus_pct", 0.0))
 	_dish_name      = String(extra.get("dish_name", "Cooked Dish"))
 	_dish_hydration = float(extra.get("dish_hydration", 0.0))
+	_update_pot_visual()
 
 
 ## ─── Ingredient icon previews (Part K) ────────────────────────────────────
@@ -630,6 +647,7 @@ func remove_item(slot_idx: int) -> Node:
 	item_removed.emit(slot_idx, item)
 	if _host_stove != null and _host_stove.has_method("notify_pot_contents_changed"):
 		_host_stove.notify_pot_contents_changed()
+	_update_pot_visual()
 	return item
 
 # ─── Filling value / Diversity Bonus math (Part F) ────────────────────────────
@@ -782,86 +800,83 @@ static func find_nearest_open_pot(pos: Vector3, tree: SceneTree, search_radius: 
 				best = node as CookingPot
 	return best
 
-# ─── Placeholder mesh ─────────────────────────────────────────────────────────
-## Basic stock-pot silhouette: wide short cylinder body with an indented
-## top opening, plus a darker rim ring and two small side handles. Same
-## width class as Basket (top_radius 0.28).
-func _build_placeholder_mesh() -> void:
-	_mesh = MeshInstance3D.new()
-	var body: CylinderMesh = CylinderMesh.new()
-	body.top_radius    = 0.28
-	body.bottom_radius = 0.26
-	body.height        = 0.30
-	_mesh.mesh = body
-	_mesh.position = Vector3(0.0, 0.15, 0.0)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.62, 0.63, 0.65, 1.0)   ## brushed steel
-	mat.metallic     = 0.75
-	mat.roughness    = 0.35
-	_mesh.set_surface_override_material(0, mat)
-	add_child(_mesh)
-
-	## Rim ring — open torus around the top edge, not a solid disc.
-	var rim_mi: MeshInstance3D = MeshInstance3D.new()
-	var rim: TorusMesh = TorusMesh.new()
-	rim.inner_radius = 0.24
-	rim.outer_radius = 0.29
-	rim.rings = 22
-	rim.ring_segments = 12
-	rim_mi.mesh = rim
-	rim_mi.position = Vector3(0.0, 0.29, 0.0)
-	var rim_mat: StandardMaterial3D = StandardMaterial3D.new()
-	rim_mat.albedo_color = Color(0.35, 0.36, 0.38, 1.0)
-	rim_mat.metallic     = 0.60
-	rim_mat.roughness    = 0.45
-	rim_mi.set_surface_override_material(0, rim_mat)
-	add_child(rim_mi)
-
-	## Top indentation — deep cavity so the pot reads as open/hollow in-game.
-	## Extends slightly above the body top so the opening is visible from above.
-	var cavity_mi: MeshInstance3D = MeshInstance3D.new()
-	var cavity: CylinderMesh = CylinderMesh.new()
-	cavity.top_radius    = 0.24
-	cavity.bottom_radius = 0.22
-	cavity.height        = 0.22
-	cavity_mi.mesh = cavity
-	cavity_mi.position = Vector3(0.0, 0.19, 0.0)
-	var cavity_mat: StandardMaterial3D = StandardMaterial3D.new()
-	cavity_mat.albedo_color = Color(0.09, 0.10, 0.11, 1.0)
-	cavity_mat.metallic     = 0.40
-	cavity_mat.roughness    = 0.78
-	cavity_mi.set_surface_override_material(0, cavity_mat)
-	add_child(cavity_mi)
-
-	## Inner lip around the cavity to reinforce the rolled pot edge look.
-	var inner_lip_mi: MeshInstance3D = MeshInstance3D.new()
-	var inner_lip: TorusMesh = TorusMesh.new()
-	inner_lip.inner_radius = 0.22
-	inner_lip.outer_radius = 0.245
-	inner_lip.rings = 22
-	inner_lip.ring_segments = 10
-	inner_lip_mi.mesh = inner_lip
-	inner_lip_mi.position = Vector3(0.0, 0.286, 0.0)
-	inner_lip_mi.set_surface_override_material(0, rim_mat)
-	add_child(inner_lip_mi)
-
-	## Two handle nubs, opposite sides
-	for side in [-1.0, 1.0]:
-		var handle_mi: MeshInstance3D = MeshInstance3D.new()
-		var handle: BoxMesh = BoxMesh.new()
-		handle.size = Vector3(0.05, 0.03, 0.03)
-		handle_mi.mesh = handle
-		handle_mi.position = Vector3(side * 0.31, 0.20, 0.0)
-		handle_mi.set_surface_override_material(0, rim_mat)
-		add_child(handle_mi)
-
-	## Real collision shape on the RigidBody3D itself — matches Basket's
-	## documented reasoning (a nested MeshInstance3D.create_trimesh_collision()
-	## would leave this body with no collider and it would fall through the floor).
+# ─── Real model + collision ────────────────────────────────────────────────
+## Collision is built ONCE, independent of fill state — same physical size
+## the placeholder used, unchanged: CylinderShape3D radius 0.28 / height
+## 0.30. Matches Basket's documented reasoning for using a direct
+## CollisionShape3D on this RigidBody3D rather than
+## MeshInstance3D.create_trimesh_collision() (which would leave this body
+## with no collider at all once the mesh is a swappable child instead of a
+## permanent one).
+func _build_collision() -> void:
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var cyl_shape: CylinderShape3D = CylinderShape3D.new()
 	cyl_shape.radius = 0.28
 	cyl_shape.height = 0.30
 	shape.shape = cyl_shape
-	shape.position = _mesh.position
+	shape.position = Vector3(0.0, 0.15, 0.0)
 	add_child(shape)
+
+## Picks and (re)builds the pot's visual model to match the CURRENT
+## count_filled() — empty / 1 / 2 / 3 ingredients, each a distinct GLB with
+## the stew liquid at a different height (see PLAN_cookingpot_glb_swap.md
+## for how the 3 stew levels were generated). No-ops if the visual is
+## already correct for the current count, so callers can call this freely
+## after every state change without worrying about redundant reloads.
+func _update_pot_visual() -> void:
+	var count: int = clampi(count_filled(), 0, CAPACITY)
+	if count == _visual_state:
+		return
+	_visual_state = count
+
+	if _model_node != null and is_instance_valid(_model_node):
+		_model_node.queue_free()
+		_model_node = null
+
+	var path: String = POT_MODEL_PATH_EMPTY
+	if count == 1:
+		path = POT_MODEL_PATH_STEW_1
+	elif count == 2:
+		path = POT_MODEL_PATH_STEW_2
+	elif count >= 3:
+		path = POT_MODEL_PATH_STEW_3
+
+	var packed: PackedScene = load(path) if ResourceLoader.exists(path) else null
+	if packed == null:
+		push_warning("CookingPot.gd: model missing at %s — falling back to no visual mesh" % path)
+		return
+	var model: Node3D = packed.instantiate() as Node3D
+	if model == null:
+		return
+	model.position = Vector3.ZERO
+	model.scale    = POT_MODEL_SCALE
+	_recenter_glb_mesh(model)
+	_strip_model_collision(model)
+	add_child(model)
+	_model_node = model
+
+## Recursively disables collision on every CollisionObject3D descendant of
+## an instanced model. Duplicated per-file, matching the existing
+## Table.gd/Chair.gd/BuildStation.gd convention.
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
+
+## Godot's glTF importer always wraps an imported scene in an extra
+## generated root node — see Table.gd's identical helper for the full
+## explanation. pot.glb/pot-stew-*.glb's source nodes have NO baked
+## translation (confirmed via direct inspection, unlike table01.glb/
+## chair01.glb), so this is a defensive no-op here, not a required fix —
+## kept for consistency with every other model-load site in this codebase.
+func _recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if _recenter_glb_mesh(child):
+			return true
+	return false
