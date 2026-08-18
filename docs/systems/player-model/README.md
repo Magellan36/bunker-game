@@ -126,11 +126,14 @@ exact automatic mapping right would need a real cross-skeleton retarget,
 not a one-line transform. Simplified instead: `_setup_hair()` now uses
 plain `Transform3D.IDENTITY` (trusting `BoneAttachment3D` alone to track
 the real bone position) and `hair_position_offset`/
-`hair_rotation_offset_deg` (exported on `PlayerModel`'s root node, both
-zero by default) are the ONLY placement mechanism — tune by eye in the
-Inspector. Starting suggestion if tuning from scratch: something near
-`Vector3(0, 0.1, 0)` for the position offset, since Mixamo's Head bone
-origin sits at the base of the skull, not the crown.
+`hair_rotation_offset_deg` (exported on `PlayerModel`'s root node) are
+the ONLY placement mechanism. The position default is baked from
+headless measurement — `Vector3(0.0, -1.546469, 0.005373)` — because the
+hair mesh's geometry is authored ~1.73 above its own origin in the
+source frame and our Head bone's rest basis is identity, so the mesh
+origin has to drop ~-1.55 to land the geometry on the crown (measured
+hair center `y≈0.77` vs crown `y≈0.81` at rest). Adjust by eye in the
+Inspector if a few centimeters off; degrees for rotation.
 
 **Not done here (clothing):** researched Quaternius's catalog for a
 matching modern/survival outfit pack — none exists for this rig yet,

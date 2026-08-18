@@ -321,7 +321,7 @@ func _build_hair_material() -> StandardMaterial3D:
 ## anymore, so these are the ONLY mechanism). Nudge in the Inspector
 ## while watching the live result; degrees for rotation since that's
 ## more intuitive to tune by eye than radians.
-@export var hair_position_offset: Vector3 = Vector3.ZERO
+@export var hair_position_offset: Vector3 = Vector3(0.0, -1.546469, 0.005373)
 @export var hair_rotation_offset_deg: Vector3 = Vector3.ZERO
 
 ## Attaches the configured hairstyle to our OWN Mixamo skeleton's Head
@@ -366,12 +366,13 @@ func _setup_hair(skeleton: Skeleton3D) -> void:
 	## hair_position_offset/hair_rotation_offset_deg below (already
 	## exported) are the ONLY placement mechanism now — tune those in the
 	## Inspector while watching the live result instead of me re-deriving
-	## matrix math blind a third time. A reasonable starting point if
-	## tuning from scratch: Mixamo's Head bone origin sits at the base of
-	## the skull/top of the neck, not the crown, so hair authored to sit
-	## on top of a head will likely need a modest +Y (and maybe slight
-	## +Z/forward) nudge from zero — start near
-	## hair_position_offset = Vector3(0, 0.1, 0) and adjust by eye.
+	## matrix math blind a third time. The default hair_position_offset
+	## below is baked from headless measurement (not by-eye): the hair
+	## mesh's geometry is authored ~1.73 above its own origin in the
+	## source frame, and our Head bone (rest basis = identity) sits at
+	## the base of the skull, so the mesh origin must be dropped
+	## ~-1.55 to put the geometry on the crown. Adjust from there by eye
+	## if a few centimeters off.
 	var bind_transform: Transform3D = Transform3D.IDENTITY
 
 	var attachment := BoneAttachment3D.new()
