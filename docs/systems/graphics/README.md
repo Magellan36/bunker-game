@@ -383,11 +383,11 @@ fully participates in real shadow mapping). Tagged with the same
 `Player.PLAYER_SELF_LIGHT_LAYER_BIT` the visible mesh already has, so
 Flashlight's existing self-shadow exclusion covers it too.
 
-`HEIGHT_FACTOR` lowered from `0.5` to `0.35` (Aug 2026) for a shorter
-shadow at any given light angle — direct request, no in-editor
-playtesting feedback yet on this specific value. Still a single number
-with no other coupled effects; retune freely if it needs adjusting
-further.
+`HEIGHT_FACTOR` lowered to `0.3` (Aug 2026) — a further step down from
+the earlier `0.35` pass — for a shorter shadow at any given light angle;
+direct request, no in-editor playtesting feedback yet on this specific
+value. Still a single number with no other coupled effects; retune freely
+if it needs adjusting further.
 
 No per-frame script anywhere in this system — the stand-in is a plain
 child mesh, positioned once; real shadow mapping re-renders it every
