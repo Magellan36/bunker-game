@@ -23,6 +23,16 @@ const BLEND_TIME: float = 0.15
 ## actually happening on screen, not raw input state.
 const RUN_SPEED_FRACTION: float = 0.85
 
+## How quickly the model's VISUAL facing catches up to Player's actual
+## (instant) rotation.y — Player.gd itself still snaps immediately, this
+## only smooths what's on screen. Same exponential-decay convention as
+## PickupableItem.gd's UPRIGHT_SLERP_SPEED: t = speed * delta each frame,
+## so it naturally eases in as it approaches the target rather than
+## moving at a constant angular rate. ~90% converged in about 0.2s at
+## this value. Exported so it's tunable in the Inspector without a code
+## edit — higher = snappier/more responsive, lower = more floaty.
+@export var turn_speed: float = 12.0
+
 ## Aligns the model's own floor (Mixamo's export convention: origin at
 ## the floor, between the feet) with the CharacterBody3D's real floor
 ## (which sits at -height/2 from the capsule's center, NOT at local
@@ -70,6 +80,7 @@ var _player: CharacterBody3D = null
 var _anim_player: AnimationPlayer = null
 var _current_state: String = ""
 var _skin_material: StandardMaterial3D = null
+var _visual_yaw: float = 0.0
 
 func _build_skin_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -122,6 +133,12 @@ func _ready() -> void:
 	if parent is CharacterBody3D:
 		_player = parent as CharacterBody3D
 
+	## Starts already matching Player's real facing so there's no
+	## spurious spin-up turn at spawn (would otherwise lerp from 0 to
+	## wherever Player actually starts facing).
+	if _player != null:
+		_visual_yaw = _player.rotation.y
+
 	## Aug 2026 fix pass — see "Root cause #1: hovering" in
 	## PLAYER_MODEL_FLOOR_FACING_FIX_PLAN.md. Same math
 	## CharacterShadowStandIn.gd uses: floor sits at -height/2 from the
@@ -168,8 +185,18 @@ func _ready() -> void:
 
 	_print_diagnostics(skeleton)
 
-func _process(_delta: float) -> void:
-	if _player == null or _anim_player == null:
+func _process(delta: float) -> void:
+	if _player == null:
+		return
+
+	## Smooth visual turn — see "Smooth Facing Turn" plan for the math.
+	## Player.gd's own rotation.y still snaps instantly every frame;
+	## this only eases what's rendered, everything reading Player's real
+	## rotation elsewhere is unaffected.
+	_visual_yaw = lerp_angle(_visual_yaw, _player.rotation.y, clampf(turn_speed * delta, 0.0, 1.0))
+	rotation.y = _visual_yaw - _player.rotation.y
+
+	if _anim_player == null:
 		return
 	var speed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
 	var next_state: String = "idle"

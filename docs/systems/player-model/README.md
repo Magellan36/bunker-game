@@ -106,6 +106,18 @@ Y rotation correcting Mixamo's forward-axis convention against Godot's
 own `-Z` forward — a model-space fix, not a movement-code change;
 `Player.gd`'s facing math is untouched.
 
+**Smooth visual turning (Aug 2026):** `Player.gd`'s own `rotation.y`
+still snaps instantly every frame — unchanged, out of Player-Model
+scope. `PlayerModelController` decouples the *visible* model's rotation
+from that: it tracks its own `_visual_yaw`, lerps it toward Player's
+real rotation each frame (`turn_speed`, exported, exponential-decay
+convergence — same convention as `PickupableItem.slerp_to_upright()`),
+then sets its own local `rotation.y` so the composed global rotation
+(`Player.rotation.y + PlayerModel.rotation.y`) lands on the smoothed
+value. Only the rendered mesh eases into turns; the hold point, any
+facing checks, and everything else reading `Player.rotation.y` directly
+still sees the true instant value, untouched.
+
 ## Known false lead
 The "green circle at the player's feet" reported during this pass was
 **not** a Player-Model bug — it was `scripts/world/build/
