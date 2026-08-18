@@ -52,6 +52,7 @@ shadow quality/render scale/FOV, persisted independently of game saves).
 | `GraphicsSettingsPanel.gd` | ~575 | Settings UI panel — sectioned layout, live preview, full preset + individual control |
 | `TiltShiftDOF.gd` | ~45 | Screen-space tilt-shift DOF — ColorRect + shader material, dumb forwarder driven by GameCamera |
 | `tilt_shift_dof.gdshader` (`assets/shaders/`) | ~40 | Vertical-band screen-space blur — sharp band + soft ramp, no 3D depth read |
+| `CharacterShadowStandIn.gd` | ~95 | Capsule shadow stand-in — NPCs only as of Aug 2026, see "Character shadow stand-in" below |
 
 ## Public API
 **`GameCamera`** (`class_name GameCamera`, extends `Camera3D`):
@@ -371,17 +372,26 @@ lighting layouts would always outrun custom approximation logic, and that
 losing real shadow behavior wasn't worth the tradeoff. See git history for
 the full iteration arc if useful context for a future similar decision.
 
-### Character shadow stand-in
-Replaces the above. Real shadow-casting, using a shortened invisible
-stand-in mesh instead of the character's actual (tall) visible model:
-`CharacterShadowStandIn.attach()` builds a capsule at `HEIGHT_FACTOR` of
-the character's real height, positioned so its own base lands at the
-exact same floor contact point the character's real feet are at — not
-shrunk from the character's center, which would lift it off the ground.
-Set to `SHADOW_CASTING_SETTING_SHADOWS_ONLY` (never rendered to camera,
-fully participates in real shadow mapping). Tagged with the same
+### Character shadow stand-in (NPCs only, as of Aug 2026)
+Real shadow-casting, using a shortened invisible stand-in mesh instead
+of the character's actual (tall) visible model: `CharacterShadowStandIn.attach()`
+builds a capsule at `HEIGHT_FACTOR` of the character's real height,
+positioned so its own base lands at the exact same floor contact point
+the character's real feet are at — not shrunk from the character's
+center, which would lift it off the ground. Set to
+`SHADOW_CASTING_SETTING_SHADOWS_ONLY` (never rendered to camera, fully
+participates in real shadow mapping). Tagged with the same
 `Player.PLAYER_SELF_LIGHT_LAYER_BIT` the visible mesh already has, so
 Flashlight's existing self-shadow exclusion covers it too.
+
+**As of the player-model rework, this system is NPC-only.** `NPC.gd`
+still uses a plain placeholder `$MeshInstance3D` (no animated body yet),
+so a capsule stand-in remains the right fit there. The player's own
+shadow now comes from a different mechanism — see "Player model-based
+shadow" below — since the player's visible mesh is no longer a capsule
+placeholder. `CharacterShadowStandIn.gd` itself is unchanged by that
+switch; `HEIGHT_FACTOR` continues to control only the NPC capsule
+shadow's length.
 
 `HEIGHT_FACTOR` lowered to `0.3` (Aug 2026) — a further step down from
 the earlier `0.35` pass — for a shorter shadow at any given light angle;
@@ -402,6 +412,52 @@ lights, same as any object would. If shadow length via `HEIGHT_FACTOR`
 alone doesn't fully address the "too dramatic" complaint, excluding
 WallLight from character shadows specifically is the documented next
 option — not started here.
+
+### Player model-based shadow (Aug 2026)
+Replaces the capsule stand-in for the player only, now that the player
+has a real animated model (`PlayerModel.tscn`/`PlayerModelController.gd`,
+Player-Model subsystem) instead of a capsule placeholder. Rather than
+approximating the new silhouette with hand-built primitives — which
+would be static and wouldn't reflect walk/run limb motion — this reuses
+the exact same system that renders the real player: a second, complete
+instance of `PlayerModel.tscn` (`Player.tscn`'s `PlayerModelShadow`
+node), scaled to `0.3` on Y only via a baked `Transform3D` (matching
+`CharacterShadowStandIn.HEIGHT_FACTOR`'s value, for continuity — not yet
+confirmed in-editor against the new silhouette specifically).
+
+Because `PlayerModelController._process()` already drives its animation
+state purely by reading the sibling `Player` node's public `velocity`/
+`rotation.y`, a second instance placed as another sibling of `Player`
+plays the identical idle/walk/run state in lockstep automatically — no
+mirroring code needed. Floor alignment, self-light layer tagging
+(`PLAYER_SELF_LIGHT_LAYER_BIT`), turn smoothing, and skin material
+application are all inherited for free, since it's running the same
+controller code unmodified.
+
+The one behavioral difference between the two instances is a single new
+`@export var is_shadow_only: bool` on `PlayerModelController.gd`
+(default `false`, so the real instance is unaffected) — when `true`, its
+meshes get `SHADOW_CASTING_SETTING_SHADOWS_ONLY` instead of `OFF`. Only
+`PlayerModelShadow` sets this to `true`, via a scene-level property
+override.
+
+`scripts/player/Player.gd` no longer calls `CharacterShadowStandIn.attach(self)`
+— the new shadow instance is wired declaratively in `Player.tscn`, not
+via a `_ready()` call. `CharacterShadowStandIn.gd` itself is untouched
+and remains in use for NPCs (see above).
+
+**Deliberately not done this round:**
+- NPCs are not migrated to this system — they still have no animated
+  model, so the capsule stand-in remains correct for them.
+- Performance cost of doubling the player's skeletal animation
+  evaluation (two `AnimationPlayer`s, two skinning passes) is
+  unmeasured — expected trivial for a single character, not verified
+  against a real profiling pass.
+- The `0.3` Y-scale value is carried over from the capsule system's
+  tuning, not re-validated against how a scaled-down full body actually
+  reads in-editor — retune the `Transform3D` in `Player.tscn` directly
+  if it needs adjusting, same single-line-change pattern as
+  `HEIGHT_FACTOR` before it.
 
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md

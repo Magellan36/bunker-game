@@ -33,6 +33,16 @@ const RUN_SPEED_FRACTION: float = 0.85
 ## edit — higher = snappier/more responsive, lower = more floaty.
 @export var turn_speed: float = 12.0
 
+## When true, every visual mesh under this model casts a real shadow but
+## is never rendered to camera (Godot's SHADOWS_ONLY mode) instead of
+## the default fully-invisible-to-shadows OFF. Set on a SECOND, scaled-
+## down instance of this same scene (see Player.tscn's "PlayerModelShadow"
+## node) so the player's shadow reflects the actual animated silhouette
+## instead of a capsule stand-in — see docs/systems/graphics/README.md
+## "Player model-based shadow". Default false: the primary, real
+## PlayerModel instance is completely unaffected by this flag existing.
+@export var is_shadow_only: bool = false
+
 ## Aligns the model's own floor (Mixamo's export convention: origin at
 ## the floor, between the feet) with the CharacterBody3D's real floor
 ## (which sits at -height/2 from the capsule's center, NOT at local
@@ -178,7 +188,11 @@ func _ready() -> void:
 		var mi: MeshInstance3D = node as MeshInstance3D
 		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
 			mi.layers = _player.PLAYER_SELF_LIGHT_LAYER_BIT
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.cast_shadow = (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+			if is_shadow_only
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		)
 		## Aug 2026 fix pass — see SKIN_ALBEDO_PATH above.
 		if mi.mesh != null:
 			for surf_i in mi.mesh.get_surface_count():

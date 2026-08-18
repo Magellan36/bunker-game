@@ -1,3 +1,61 @@
+# Handover — Player Shadow: Model-Based, Replaces Pill Stand-In (Aug 2026)
+
+## What changed this session
+The player's shadow no longer comes from `CharacterShadowStandIn.gd`'s
+capsule (now that the player has a real animated model instead of a
+capsule placeholder). Replaced with a second, complete instance of
+`PlayerModel.tscn` (`PlayerModelShadow` in `Player.tscn`), scaled to 0.3
+on Y only, with a new `is_shadow_only` export on `PlayerModelController.gd`
+(default false — real model unaffected) flipping its meshes from
+`cast_shadow = OFF` to `SHADOWS_ONLY`. Because `PlayerModelController`
+already drives animation state from the sibling `Player` node's public
+state, the shadow instance stays in lockstep with the real model's
+idle/walk/run automatically — no mirroring code.
+
+### Files modified
+- `scripts/player/PlayerModelController.gd` — new `is_shadow_only`
+  export (default `false`), `cast_shadow` line now conditional on it.
+- `scenes/player/Player.tscn` — new `PlayerModelShadow` node (second
+  instance of `PlayerModel.tscn`, scaled Y=0.3, `is_shadow_only = true`).
+- `scripts/player/Player.gd` — removed the now-superseded
+  `CharacterShadowStandIn.attach(self)` call and its comment.
+- `docs/systems/graphics/README.md` — "Character shadow stand-in"
+  rescoped to NPCs-only; new "Player model-based shadow" subsection;
+  Files table updated.
+- `HANDOVER.md` — this entry.
+
+### NOT changed
+- `scripts/core/CharacterShadowStandIn.gd` — untouched, still used by
+  `NPC.gd` for its (still capsule-placeholder) visual.
+- `scripts/npc/NPC.gd` — untouched.
+
+### Flag for Player-Model thread
+`PlayerModelController.gd` gained one exported bool + one conditional
+line (Graphics-owned change, default preserves existing behavior for
+the real model instance). `Player.tscn` gained one new sibling node
+instancing `PlayerModel.tscn` a second time. Neither changes anything
+about the Player-Model subsystem's own responsibilities — flagging per
+standing cross-thread convention.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes (headless compile).
+2. Load a scene with the player near a light — shadow should now read
+   as a humanoid silhouette (visible limb shapes), not a capsule blob.
+3. Walk and run — the shadow's pose should visibly animate in sync with
+   the real model (no lag, no desync in gait).
+4. Confirm the shadow's base still lands at the correct floor contact
+   point (no floating/detached shadow) — floor-offset math is inherited
+   unchanged from `PlayerModelController._ready()`.
+5. Confirm the REAL player model still renders normally (textured,
+   visible, still doesn't cast its own shadow) — `is_shadow_only`
+   defaults to `false` so this should be unaffected, but visually
+   confirm nothing regressed.
+6. If the shadow reads as too long/short at the `0.3` Y-scale, retune
+   the `Transform3D` in `Player.tscn`'s `PlayerModelShadow` node
+   directly — single line, no other file involved.
+
+---
+
 # Handover — Player Model: Floor Offset + Facing Fix + Green-Circle Root Cause (Aug 2026)
 
 ## What changed this session

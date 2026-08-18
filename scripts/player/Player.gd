@@ -85,13 +85,15 @@ func _ready() -> void:
 	## since the real character model can have more than one
 	## MeshInstance3D. See docs/systems/player-model/README.md.
 	##
-	## Aug 2026 — real shadow-casting via a shortened invisible stand-in,
-	## replacing the CharacterShadowDecal fake-shadow system entirely (see
-	## docs/systems/graphics/README.md "Character shadow stand-in"). No
-	## per-frame logic — real shadow mapping does the work; this call just
-	## builds and attaches the stand-in mesh once. Unaffected by the
-	## Player-Model change above — this only ever reads $CollisionShape3D.
-	CharacterShadowStandIn.attach(self)
+	## Aug 2026 — the capsule-based CharacterShadowStandIn system (still
+	## used by NPC.gd, unaffected by this change) has been replaced for
+	## the Player specifically by a second, scaled-down PlayerModel
+	## instance ("PlayerModelShadow" in Player.tscn) that casts a real
+	## shadow reflecting the actual animated silhouette instead of a
+	## pill shape — see docs/systems/graphics/README.md "Player
+	## model-based shadow". Nothing to call here: the shadow instance is
+	## wired declaratively in the scene file and drives its own animation
+	## state by reading this same Player node, same as the real model.
 
 func _physics_process(delta: float) -> void:
 	if _movement_locked:

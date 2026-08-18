@@ -20,10 +20,14 @@ this system exists beyond instancing `PlayerModel.tscn` as a child.
 - Does not own movement, stamina, or input — reads only already-public
   `CharacterBody3D.velocity` (engine builtin) and `Player.sprint_speed`
   (`@export`).
-- Does not own the character's collision shape or the shadow stand-in —
-  both remain on `Player.tscn`'s root `$CollisionShape3D`, read by
-  `CharacterShadowStandIn.gd` (Graphics subsystem), untouched by this
-  system.
+- Does not own the character's collision shape or the shadow stand-in.
+  The collision shape remains on `Player.tscn`'s root `$CollisionShape3D`.
+  The shadow itself (Aug 2026) comes from a second `PlayerModel.tscn`
+  instance (`PlayerModelShadow` in `Player.tscn`, Graphics-owned) with
+  `PlayerModelController.is_shadow_only = true` — see
+  docs/systems/graphics/README.md "Player model-based shadow". That flag
+  is the one Graphics-driven addition to this controller; default
+  `false` leaves every other instance, including the real one, unaffected.
 
 ## Files
 | File | Role |
