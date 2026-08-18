@@ -347,15 +347,24 @@ func _build_mesh() -> void:
 		flask_mi.set_surface_override_material(0, mat_glass)
 		main_block.add_child(flask_mi)
 
-	## ── Chute (Aug 2026) — material input on the left side, feeds
-	## stored_materials (the "bottom half" of the station, i.e. its storage
-	## rather than the research/tier system). A tall narrow housing so it
-	## reads as its own intake tower distinct from the flat research slab,
-	## plus a dark recessed slot near the top marking the feed opening.
+	## ── Chute (Aug 2026, wedge pass) — material input on the left side,
+	## feeds stored_materials (the "bottom half" of the station, i.e. its
+	## storage rather than the research/tier system). PrismMesh wedge —
+	## tall at the outer/left mouth, sloping down to a near-zero point
+	## right where it meets the main block — reads as an actual funnel
+	## feeding into the box's side, not a second flat tower. Per the
+	## person's own reference diagram.
+	##
+	## left_to_right = 0.0 puts the top edge directly above the LEFT
+	## bottom edge, which collapses the RIGHT side to ~zero height (tall
+	## left, pointed right — mouth away from the box, taper feeding into
+	## it). Unverified visually — if it renders mirrored, flip this single
+	## value to 1.0.
 	const CHUTE_HOUSING_HEIGHT: float = 1.05
 	var chute_mi: MeshInstance3D = MeshInstance3D.new()
-	var chute_mesh: BoxMesh = BoxMesh.new()
+	var chute_mesh: PrismMesh = PrismMesh.new()
 	chute_mesh.size = Vector3(CHUTE_WIDTH - 0.10, CHUTE_HOUSING_HEIGHT, 0.80)
+	chute_mesh.left_to_right = 0.0
 	chute_mi.mesh = chute_mesh
 	chute_mi.position = Vector3(CHUTE_CENTER_X, CHUTE_HOUSING_HEIGHT * 0.5, 0.0)
 	chute_mi.set_surface_override_material(0, mat)
@@ -366,24 +375,30 @@ func _build_mesh() -> void:
 			(child as StaticBody3D).collision_layer = 5
 			(child as StaticBody3D).collision_mask  = 0
 
+	## Opening marker — sits at the tall (left) mouth now, not centered
+	## across what used to be a flat top. CHUTE_MOUTH_X is the wedge's
+	## own left edge (tall side) + a small inset so the marker reads as
+	## just inside the opening rather than hanging off it.
+	const CHUTE_MOUTH_X: float = CHUTE_CENTER_X - (CHUTE_WIDTH - 0.10) * 0.5 + 0.20
 	var mat_slot: StandardMaterial3D = StandardMaterial3D.new()
 	mat_slot.albedo_color = Color(0.08, 0.08, 0.09, 1.0)
 	mat_slot.roughness = 0.9
 	var slot_mi: MeshInstance3D = MeshInstance3D.new()
 	var slot_mesh: BoxMesh = BoxMesh.new()
-	slot_mesh.size = Vector3(CHUTE_WIDTH - 0.30, 0.08, 0.55)
+	slot_mesh.size = Vector3(0.35, 0.08, 0.55)
 	slot_mi.mesh = slot_mesh
-	slot_mi.position = Vector3(CHUTE_CENTER_X, CHUTE_HOUSING_HEIGHT - 0.12, 0.0)
+	slot_mi.position = Vector3(CHUTE_MOUTH_X, CHUTE_HOUSING_HEIGHT - 0.10, 0.0)
 	slot_mi.set_surface_override_material(0, mat_slot)
 	add_child(slot_mi)
 
-	## Feed interaction proxy — see ResearchStationChute.gd's own doc
-	## comment for why this is a separate StaticBody3D rather than F
-	## handling living on the main station body.
+	## Feed interaction proxy — repositioned to the tall mouth (was
+	## centered across the old flat top). See ResearchStationChute.gd's
+	## own doc comment for why this is a separate StaticBody3D rather than
+	## F handling living on the main station body.
 	var chute_proxy_script: GDScript = load("res://scripts/world/furniture/ResearchStationChute.gd")
 	var chute_proxy: StaticBody3D = StaticBody3D.new()
 	chute_proxy.set_script(chute_proxy_script)
-	chute_proxy.position = Vector3(CHUTE_CENTER_X, CHUTE_HOUSING_HEIGHT - 0.12, 0.45)
+	chute_proxy.position = Vector3(CHUTE_MOUTH_X, CHUTE_HOUSING_HEIGHT - 0.10, 0.45)
 	add_child(chute_proxy)
 	chute_proxy.set("host", self)
 
