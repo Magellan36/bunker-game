@@ -154,7 +154,12 @@ func _add_pool_slot() -> void:
 	## here with cam.size=1.2 and no rotation match to Inventory/Build,
 	## which is why most item meshes rendered as a near-invisible speck.
 	## See ItemPreviewKit.gd for the formula every preview consumer shares.
-	var vp: SubViewport = ItemPreviewKit.build_viewport(_root, PREVIEW_SIZE)
+	## cam_size_multiplier 1.25 (Aug 2026) — zooms out 25% relative to the
+	## standard ratio; previews were clipping the viewport edge at 1.0.
+	## Applies to every StorageUI consumer uniformly (Shelving/Basket/End
+	## Table/Dresser all share this one call site) — keeps the one-shared-
+	## formula principle intact rather than special-casing any single type.
+	var vp: SubViewport = ItemPreviewKit.build_viewport(_root, PREVIEW_SIZE, 1.25)
 
 	var slot_bg: Panel = Panel.new()
 	var slot_ss: StyleBoxFlat = StyleBoxFlat.new()

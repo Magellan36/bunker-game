@@ -1,3 +1,23 @@
+# Handover — Storage Preview Zoom-Out Fix (Aug 2026)
+
+## What changed this session
+Storage UI previews (Shelving/Basket/End Table/Dresser — all share one
+call site in StorageUI.gd) were clipping the viewport edge, especially
+on larger items. Added an optional `cam_size_multiplier` parameter to
+`ItemPreviewKit.build_viewport()` (default 1.0, so Inventory's proven
+zoom is untouched) and set StorageUI's call to 1.25 — a 25% zoom-out
+applied uniformly across every storage type from this one change.
+
+### Files modified
+- `scripts/ui/common/ItemPreviewKit.gd` — new optional parameter.
+- `scripts/ui/inventory/StorageUI.gd` — one call-site update.
+- `docs/systems/ui/README.md` — addendum to the preview kit section.
+
+### Verification checklist
+(see `STORAGE_PREVIEW_ZOOM_OUT_PLAN.md` for the full checklist)
+
+---
+
 # Handover — Character Shadow Stand-In: Shorter — HEIGHT_FACTOR 0.3 (Aug 2026)
 
 ## What changed this session

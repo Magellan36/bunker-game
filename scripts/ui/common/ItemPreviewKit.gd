@@ -22,7 +22,11 @@ class_name ItemPreviewKit
 ## the origin from Vector3(0.8, 0.8, 0.8); zoom (`cam.size`) scales
 ## linearly with the viewport's pixel size via CAM_SIZE_PER_PIXEL so
 ## different-sized preview slots (Inventory's 64px vs Storage's 96px) show
-## an item at the SAME real-world scale, not a different zoom level. Mesh
+## an item at the SAME real-world scale, not a different zoom level — a
+## consumer can additionally zoom out/in relative to that shared ratio via
+## build_viewport()'s optional cam_size_multiplier (Aug 2026 — StorageUI
+## uses 1.25, its previews were clipping the viewport edge at the
+## standard ratio) without changing the ratio for anyone else. Mesh
 ## rotation is fixed (no spin) at ROTATION_DEFAULT, matching
 ## BuildModeHUD.PREVIEW_ROTATION_DEFAULT's resting pose exactly. Mesh
 ## source: item.get_inventory_mesh() first, else every MeshInstance3D
@@ -147,7 +151,14 @@ static func _duplicate_visual_tree(item: Node3D) -> Node3D:
 ## OmniLight3D) sized for `pixel_size` px square, added as a child of
 ## `parent`. Returns the SubViewport — callers keep their own array of
 ## these, plus `vp.get_texture()` for whatever TextureRect displays it.
-static func build_viewport(parent: Node, pixel_size: int) -> SubViewport:
+##
+## `cam_size_multiplier` (Aug 2026, default 1.0 — every existing caller
+## keeps Inventory's exact proven zoom unchanged) scales the computed
+## cam.size on top of the normal CAM_SIZE_PER_PIXEL ratio, for a consumer
+## that needs to zoom out/in relative to that shared ratio without
+## touching it for everyone. StorageUI passes 1.25 — its previews were
+## clipping the viewport edge at the standard ratio.
+static func build_viewport(parent: Node, pixel_size: int, cam_size_multiplier: float = 1.0) -> SubViewport:
 	var vp := SubViewport.new()
 	vp.size = Vector2i(pixel_size, pixel_size)
 	vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
@@ -158,7 +169,7 @@ static func build_viewport(parent: Node, pixel_size: int) -> SubViewport:
 
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = CAM_SIZE_PER_PIXEL * float(pixel_size)
+	cam.size = CAM_SIZE_PER_PIXEL * float(pixel_size) * cam_size_multiplier
 	vp.add_child(cam)   ## Must be in tree before look_at()
 	cam.position = CAM_POSITION
 	cam.look_at(Vector3.ZERO, Vector3.UP)

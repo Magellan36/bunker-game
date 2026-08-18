@@ -851,6 +851,12 @@ linearly with each consumer's preview pixel size (derived from
 (Inventory's 64px vs Storage's 96px) show items at the same real-world
 scale rather than a different zoom level per file.
 
+`build_viewport()` also takes an optional `cam_size_multiplier` (default
+1.0) for a consumer that needs to zoom out/in relative to the shared
+CAM_SIZE_PER_PIXEL ratio without changing it for everyone else.
+StorageUI passes 1.25 (Aug 2026) — its previews were clipping the
+viewport edge at the standard ratio; Inventory stays at the default.
+
 **Deliberately NOT adopted by `BuildModeHUD.gd`** — Build's construct/shop
 previews layer a continuous hover-spin (a rotated pivot node in
 `_process()`) on top of the same resting pose (`PREVIEW_ROTATION_DEFAULT`
