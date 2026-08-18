@@ -90,6 +90,19 @@ scripts following the same pattern as `Shelving.gd`/`Bed.gd`:
   light-specific one), blank beige canvas + dark frame, meant as the
   baseline for future wall decor.
 
+**Aug 2026 — Chair now uses a real GLB model.** `Chair.gd` loads
+`assets/models/wooden_chair.glb` (non-uniform scale `Vector3(0.8946,
+0.7102, 0.7667)`) instead of building a procedural leg+seat+backrest
+mesh. Facing was verified (not assumed) by reading the source file's raw
+vertex buffer: the tall backrest vertices cluster on the model's own -Z
+side, matching Chair.gd's actual backrest-at--Z convention, so no
+rotation was needed. Collision is a separate invisible `BoxShape3D` at
+the seat's exact footprint/position, decoupled from the visual mesh
+(model's own imported collision is stripped). Same wrapper-translation
+handling as the Medium Table fix — see that entry for the general
+explanation; this file's node carried its own stray `(-4.1, 0, 0.8)`
+offset, corrected the same way via `_recenter_glb_mesh()`.
+
 **Aug 2026 — Medium Table + Build Station now use a real GLB model.**
 `Table.gd`'s `cell_count == 2` path and `BuildStation.gd`'s tabletop both
 now load `assets/models/wooden_table.glb` (non-uniform scale

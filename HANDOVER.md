@@ -1,3 +1,41 @@
+# Handover — Chair: Procedural Mesh → wooden_chair.glb (Aug 2026)
+
+## What changed this session
+Replaced Chair.gd's procedural leg+seat+backrest mesh with
+`assets/models/wooden_chair.glb`. Non-uniform scale
+`(0.8946, 0.7102, 0.7667)` applied (source proportions didn't match the
+0.625×1.125×0.625 target closely enough for uniform). Facing verified via
+raw vertex inspection (backrest-height vertices are on the source's own
+-Z side, matching Chair.gd's actual convention) — no rotation applied.
+Same glTF-import wrapper-node fix as the Medium Table
+(`_recenter_glb_mesh()`) applied here too — this source file also had a
+stray node-level translation, `(-4.1, 0, 0.8)`. The model's raw bounding
+box is asymmetric on Z (backrest extends further one way than the seat
+front) — this is normal chair geometry, not corrected, don't "fix" it if
+revisiting this file.
+
+### Files modified
+- `assets/models/wooden_chair.glb` — new asset.
+- `scripts/world/furniture/Chair.gd` — `_build_mesh()` replaced, new
+  `_strip_model_collision()` + `_recenter_glb_mesh()`.
+- `docs/systems/build/README.md` — Furniture section updated.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Construct → Furniture → Chair: preview shows the real wooden chair,
+   centered, not offset.
+3. Place a Chair, sit (E) — player faces the same direction the backrest
+   implies (away from the backrest, over the open +Z front) same as
+   before the swap.
+4. Multiple chairs placed at different rotations — backrest orientation
+   rotates correctly with the object (sanity check that no fixed-world
+   rotation was accidentally baked in instead of relying on the object's
+   own transform).
+5. Collision still blocks at the same 0.625×0.625 footprint.
+
+---
+
 # Handover — Storage Preview Zoom-Out Fix (Aug 2026)
 
 ## What changed this session

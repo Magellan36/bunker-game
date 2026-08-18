@@ -16,6 +16,9 @@ const FOOTPRINT: float    = 0.625   ## was 0.50 → ×1.25
 
 const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)   ## Matches Table.gd
 
+const CHAIR_MODEL_PATH: String = "res://assets/models/wooden_chair.glb"
+const CHAIR_MODEL_SCALE: Vector3 = Vector3(0.8946, 0.7102, 0.7667)
+
 ## How far the player sinks below the seat surface while "seated" (placeholder
 ## for a proper sit animation — see class comment).
 const SIT_SINK: float     = 0.30
@@ -40,52 +43,57 @@ func _ready() -> void:
 	collision_mask  = 0
 
 func _build_mesh() -> void:
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = COLOR_METAL
-	mat.metallic  = 0.5
-	mat.roughness = 0.4
+	var packed: PackedScene = load(CHAIR_MODEL_PATH) if ResourceLoader.exists(CHAIR_MODEL_PATH) else null
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			model.position = Vector3.ZERO
+			model.scale    = CHAIR_MODEL_SCALE
+			_recenter_glb_mesh(model)
+			_strip_model_collision(model)
+			add_child(model)
+	else:
+		push_warning("Chair.gd: wooden_chair.glb missing at %s — falling back to no visual mesh" % CHAIR_MODEL_PATH)
 
-	## 4 thin legs under the seat corners.
-	var leg_positions: Array[Vector2] = [
-		Vector2(-FOOTPRINT * 0.5 + 0.05, -FOOTPRINT * 0.5 + 0.05),
-		Vector2( FOOTPRINT * 0.5 - 0.05, -FOOTPRINT * 0.5 + 0.05),
-		Vector2(-FOOTPRINT * 0.5 + 0.05,  FOOTPRINT * 0.5 - 0.05),
-		Vector2( FOOTPRINT * 0.5 - 0.05,  FOOTPRINT * 0.5 - 0.05),
-	]
-	for p: Vector2 in leg_positions:
-		var leg_mi: MeshInstance3D = MeshInstance3D.new()
-		var leg_mesh: CylinderMesh = CylinderMesh.new()
-		leg_mesh.top_radius = 0.02
-		leg_mesh.bottom_radius = 0.02
-		leg_mesh.height = LEG_HEIGHT
-		leg_mesh.radial_segments = 8
-		leg_mi.mesh = leg_mesh
-		leg_mi.position = Vector3(p.x, LEG_HEIGHT * 0.5, p.y)
-		leg_mi.set_surface_override_material(0, mat)
-		add_child(leg_mi)
+	## Invisible collision box, same footprint/position seat_mi's
+	## create_trimesh_collision() used to produce.
+	var col_shape: CollisionShape3D = CollisionShape3D.new()
+	var box: BoxShape3D = BoxShape3D.new()
+	box.size = Vector3(FOOTPRINT, SEAT_THICKNESS, FOOTPRINT)
+	col_shape.shape = box
+	col_shape.position = Vector3(0.0, SEAT_Y, 0.0)
+	add_child(col_shape)
 
-	## Seat slab.
-	var seat_mi:   MeshInstance3D = MeshInstance3D.new()
-	var seat_mesh: BoxMesh        = BoxMesh.new()
-	seat_mesh.size = Vector3(FOOTPRINT, SEAT_THICKNESS, FOOTPRINT)
-	seat_mi.mesh   = seat_mesh
-	seat_mi.position = Vector3(0.0, SEAT_Y, 0.0)
-	seat_mi.set_surface_override_material(0, mat)
-	add_child(seat_mi)
-	seat_mi.create_trimesh_collision()
-	for child in seat_mi.get_children():
-		if child is StaticBody3D:
-			(child as StaticBody3D).collision_layer = 5
-			(child as StaticBody3D).collision_mask  = 0
+## Recursively disables collision on every CollisionObject3D descendant of
+## an instanced model. Duplicated per-file, matching the existing
+## Table.gd/BuildStation.gd convention (no shared base to hang this on
+## without a bigger refactor — out of scope here).
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
 
-	## Backrest — thin vertical slab at the -Z edge (back of chair; +Z is "front"/open side).
-	var back_mi:   MeshInstance3D = MeshInstance3D.new()
-	var back_mesh: BoxMesh        = BoxMesh.new()
-	back_mesh.size = Vector3(FOOTPRINT, BACK_HEIGHT, 0.05)
-	back_mi.mesh   = back_mesh
-	back_mi.position = Vector3(0.0, SEAT_Y + BACK_HEIGHT * 0.5, -FOOTPRINT * 0.5 + 0.025)
-	back_mi.set_surface_override_material(0, mat)
-	add_child(back_mi)
+## Godot's glTF importer always wraps an imported scene in an extra
+## generated root node representing the file's "Scene" — the file's real
+## node (here, "chair01", carrying a stray (-4.1, 0, 0.8) scene-placement
+## translation unrelated to the mesh's own shape) is nested one level
+## below it. packed.instantiate() returns the wrapper, not that node, so
+## zeroing the wrapper's position alone is a no-op. Recursively finds the
+## actual MeshInstance3D descendant and zeros ITS local position — safe
+## here since the mesh's own vertex data needs no recentering beyond
+## removing this stray offset (see plan header re: the Z-axis asymmetry,
+## which is real chair geometry, not something this should also correct).
+func _recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if _recenter_glb_mesh(child):
+			return true
+	return false
 
 # ─── Interaction ────────────────────────────────────────────────────────────
 func on_interact() -> void:
