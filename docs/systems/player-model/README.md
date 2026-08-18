@@ -83,6 +83,16 @@ node itself.
   the controller would bind to the FBX's player instead and nothing would
   animate.
 
+## Materials (Aug 2026 fix pass)
+`male.fbx` ships with UV layers but no texture data (Mixamo auto-rig
+exports never include textures). `PlayerModelController._build_skin_material()`
+builds one `StandardMaterial3D` from `assets/models/player/textures/`
+(copied from `WIP/FINAL/Textures/`) and applies it to every surface on
+every `MeshInstance3D` found under the model — including eyes/eyebrows,
+which will read as skin-colored rather than white/dark until a follow-up
+assigns per-surface materials by name (would need to confirm surface
+index-to-part mapping in-editor first).
+
 ## Known tradeoffs / tech debt
 - No held-item hand-bone attachment yet — `InteractionSystem.gd`'s
   `HoldPoint` (Player-subsystem-owned) is still a fixed `Node3D` offset

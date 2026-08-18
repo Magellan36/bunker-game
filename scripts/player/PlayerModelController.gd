@@ -23,6 +23,20 @@ const BLEND_TIME: float = 0.15
 ## actually happening on screen, not raw input state.
 const RUN_SPEED_FRACTION: float = 0.85
 
+## Body skin material — Aug 2026 fix pass. male.fbx (Mixamo export) ships
+## UV layers (SuperHero_MaleDiffuseUVLayer/EyesDiffuseUVLayer/
+## EyebrowsDiffuseUVLayer, confirmed via `strings male.fbx`) but zero
+## embedded or referenced texture data — Mixamo's auto-rig export never
+## includes textures, only the source Quaternius kit's separate
+## Textures/ folder has them. Applied uniformly across every surface for
+## now, the simplest correct-enough first pass to restore visibility —
+## eyes/eyebrows will read as skin-colored rather than white/dark until
+## a follow-up assigns per-surface materials by name. Flagged in
+## docs/systems/player-model/README.md, not a blocker here.
+const SKIN_ALBEDO_PATH: String = "res://assets/models/player/textures/T_Superhero_Male_Dark.png"
+const SKIN_NORMAL_PATH: String = "res://assets/models/player/textures/T_Superhero_Male_Normal.png"
+const SKIN_ROUGHNESS_PATH: String = "res://assets/models/player/textures/T_Superhero_Male_Roughness.png"
+
 ## Maps the plain state names used below ("idle"/"walk"/"run") to the
 ## full animation-name strings actually registered in PlayerModel.tscn's
 ## AnimationPlayer. The three clip libraries (idle_lib/walk_lib/run_lib)
@@ -39,6 +53,53 @@ const ANIMATION_NAMES: Dictionary = {
 var _player: CharacterBody3D = null
 var _anim_player: AnimationPlayer = null
 var _current_state: String = ""
+var _skin_material: StandardMaterial3D = null
+
+func _build_skin_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	var albedo: Texture2D = load(SKIN_ALBEDO_PATH)
+	var normal: Texture2D = load(SKIN_NORMAL_PATH)
+	var rough: Texture2D = load(SKIN_ROUGHNESS_PATH)
+	if albedo != null:
+		mat.albedo_texture = albedo
+	if normal != null:
+		mat.normal_enabled = true
+		mat.normal_texture = normal
+	if rough != null:
+		mat.roughness_texture = rough
+	return mat
+
+## Confirms root_motion_track actually resolves to a real bone on the
+## given skeleton, rather than trusting whatever NodePath happens to be
+## set. Aug 2026 fix pass — see the "Confirmed gap #2" note in
+## PLAYER_MODEL_GREEN_CIRCLE_FIX_PLAN.md for why this replaced a
+## simpler "only fill in if empty" check.
+static func _root_motion_track_valid(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> bool:
+	var track: NodePath = anim_player.root_motion_track
+	if track == NodePath():
+		return false
+	var bone_name: String = track.get_concatenated_subnames()
+	return skeleton.find_bone(bone_name) != -1
+
+## One-time diagnostic print — Aug 2026, added specifically to root-cause
+## the "green circle" report without guessing blind. Safe to delete once
+## the character reliably renders correctly on a playtest; only prints
+## once per spawn, not per-frame.
+func _print_diagnostics(skeleton: Skeleton3D) -> void:
+	var mesh_instances: Array[Node] = _find_all_of_type(self, "MeshInstance3D")
+	print("[PlayerModelController] mesh_instances_found=", mesh_instances.size())
+	for node in mesh_instances:
+		var mi: MeshInstance3D = node as MeshInstance3D
+		print("[PlayerModelController]   ", mi.name,
+			" local_aabb_size=", mi.get_aabb().size,
+			" global_pos=", mi.global_position,
+			" visible=", mi.visible)
+	if skeleton != null:
+		print("[PlayerModelController] skeleton_bone_count=", skeleton.get_bone_count(),
+			" skeleton_global_pos=", skeleton.global_position)
+	if _anim_player != null:
+		print("[PlayerModelController] root_motion_track=", _anim_player.root_motion_track,
+			" has_idle=", _anim_player.has_animation("idle_lib/idle"))
 
 func _ready() -> void:
 	var parent: Node = get_parent()
@@ -54,22 +115,29 @@ func _ready() -> void:
 	## this node — a real character can end up with more than one
 	## MeshInstance3D (body + separately-skinned hair/eyebrows in a
 	## future pass).
+	_skin_material = _build_skin_material()
 	for node in _find_all_of_type(self, "MeshInstance3D"):
 		var mi: MeshInstance3D = node as MeshInstance3D
 		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
 			mi.layers = _player.PLAYER_SELF_LIGHT_LAYER_BIT
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		## Aug 2026 fix pass — see SKIN_ALBEDO_PATH above.
+		if mi.mesh != null:
+			for surf_i in mi.mesh.get_surface_count():
+				mi.set_surface_override_material(surf_i, _skin_material)
 
 	if _anim_player != null:
-		## Fallback in case the manual editor step (Part 4, step 5) was
-		## skipped or the imported bone name differs from expectation —
-		## safe to leave in permanently either way, it's a no-op once
-		## root_motion_track is already set correctly in the scene file.
-		if skeleton != null and _anim_player.root_motion_track == NodePath():
+		## Aug 2026 fix pass — ALWAYS re-validate rather than only when
+		## empty. PlayerModel.tscn hardcodes root_motion_track by hand;
+		## the old `== NodePath()` guard skipped past a wrong-but-
+		## non-empty value without ever checking it actually resolves.
+		if skeleton != null and not _root_motion_track_valid(_anim_player, skeleton):
 			var hips: NodePath = _find_bone_path(_anim_player, skeleton, "Hips")
 			if hips != NodePath():
 				_anim_player.root_motion_track = hips
 		_play_state("idle")
+
+	_print_diagnostics(skeleton)
 
 func _process(_delta: float) -> void:
 	if _player == null or _anim_player == null:

@@ -1,3 +1,32 @@
+# Handover — Player Model Fix Pass: Textures + Root-Motion Validation + Diagnostics (Aug 2026)
+
+## What changed this session
+Follow-up to the player-model import pass (c57d106): the character was
+rendering as an untextured/effectively-invisible "green circle". Fixed
+the missing texture (Mixamo auto-rig exports ship zero texture data —
+only UV layers — so every surface was on Godot's default material):
+`PlayerModelController` now builds one `StandardMaterial3D` from the
+Quaternius kit's skin textures (copied to
+`assets/models/player/textures/`) and applies it to every surface of
+every mesh under the model, uniformly. Also made the root-motion
+self-heal actually validate: `_root_motion_track_valid()` now checks the
+hardcoded track resolves to a real bone and only falls back to the
+`Hips` bone search when it doesn't (the old `== NodePath()` guard never
+fired because the scene always sets a non-empty value). Added one-time
+diagnostic prints to `_ready()` (mesh AABB/position/visibility,
+skeleton bone count, root-motion track + idle availability) to
+root-cause the report on the next playtest if it's still wrong.
+
+## Things to know / flags
+- Debug menu → Visible Collision Shapes being ON is itself a candidate
+  for the "green circle" (Godot's debug collision color is translucent
+  teal/green and the player's capsule reads as a circle from the iso
+  camera). Toggle it off before assuming the texture fix was wrong.
+- If the next playtest still shows nothing, the printed
+  `local_aabb_size` tells us which hypothesis: ~(0.4-0.6, 1.7-1.9,
+  0.3-0.4) = normal human; ~(0.01, 0.02, 0.01) = FBX cm→m unit scale
+  issue, fix is a `root_scale` correction on male.fbx's import.
+
 # Handover — Player Model: Male Body + Idle/Walk/Run Import (Aug 2026)
 
 ## What changed this session
