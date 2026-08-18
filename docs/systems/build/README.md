@@ -160,6 +160,50 @@ applies uniformly to all 4 swapped states since it's set once per model
 load rather than per-state. Pot stays upright (Y-axis only); this just
 turns the handles to face the intended direction.
 
+## Dish Item: Procedural Mesh → Random GLB Model Pool (Aug 2026)
+
+`DishItem.gd` no longer builds a placeholder plate+mound from
+`CylinderMesh`/`SphereMesh` primitives. `_ready()` now calls
+`_build_collision()` (unchanged `SphereShape3D` radius 0.12 at
+(0, 0.05, 0)) plus a new `_build_dish_visual()` that randomly picks ONE
+model from a pool keyed off `hydration_value`:
+- dishes WITH water (`hydration_value > 0.0`) → one of the 2 plates:
+  `plate-dinner.glb` or `plate-sauerkraut.glb`;
+- dishes WITHOUT water → one of all 4: both plates **plus**
+  `skewer.glb` and `skewer-vegetables.glb`.
+
+Skewers are ADDITIONAL options for the no-water pool, not a replacement
+set — both pools include the 2 plates. The pick happens once at spawn;
+a dish's visual never changes afterward (same "build once in `_ready()`"
+convention as every other model-swap in this codebase). Uniform scale
+`0.4261` (single radius 0.4459 for the plates, so X/Z/Y share one
+factor). All 4 models were verified by direct GLB inspection: identity
+transform on the top-level node (a MeshInstance3D itself), so
+`_recenter_glb_mesh()` is inert here — kept for consistency, and its
+stop-after-first-match behavior is load-bearing for the multi-part
+skewers (a stick node with artist-positioned "meat"/"vegetables"
+children); do not generalize it into a recurse-and-zero-everything
+helper.
+
+**Spawn-ordering fix (same session):** `hydration_value` (plus
+`fill_value`/`bonus_pct`/`dish_name`) must be assigned BEFORE
+`add_child()` — `_ready()` runs synchronously inside `add_child()`, so
+the old post-add ordering meant the visual pick always saw the default
+`0.0` and every dish rendered as a plate. Fixed at all 3 dish-spawn
+sites: `InteractionSystem._try_take_dish()` and
+`_try_take_dish_from_held_pot()`, and `CookingActivity._take_dish()`
+(the three were already near-identical spawn blocks; this keeps them in
+sync).
+
+**⚠️ Textures outstanding:** all 4 GLBs reference an external texture by
+relative path (`Textures/colormap.png`, the same shared swatch atlas the
+pot/food-can use — already committed under `assets/models/Textures/`).
+The dish asset pack shipped without per-model texture files, so the
+models import against the shared atlas; whether that atlas' swatches
+match the plates'/skewers' UV layout must be confirmed in-editor
+(checklist item 7). If wrong, the fix is to provide the pack's own
+`colormap.png` (or re-swatched copies) under `assets/models/Textures/`.
+
 ## Food Can: Procedural Mesh → GLB Model (Aug 2026)
 
 `FoodCan.gd` now loads `assets/models/can.glb` (full) or

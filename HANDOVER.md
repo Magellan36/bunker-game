@@ -1,3 +1,63 @@
+# Handover — Dish Item: Procedural Mesh → Random GLB Model Pool (Aug 2026)
+
+## What changed this session
+`DishItem.gd`'s placeholder plate+mound (procedural `CylinderMesh` +
+`SphereMesh`) is gone. `_ready()` now builds collision (unchanged
+`SphereShape3D` radius 0.12 at (0, 0.05, 0)) and calls a new
+`_build_dish_visual()` that randomly picks ONE of 4 real models based on
+`hydration_value`: dishes WITH water → the 2 plates (`plate-dinner.glb`,
+`plate-sauerkraut.glb`); dishes WITHOUT water → all 4 (both plates PLUS
+`skewer.glb` and `skewer-vegetables.glb`). Skewers are ADDITIONAL
+no-water options, not a replacement set. Uniform scale `0.4261`
+(plate radius 0.4459, so one factor fits all axes). All 4 assets were
+verified by direct GLB inspection (identity top-level MeshInstance3D,
+plate radius/heights, skewer multi-part children with intentional
+offsets) — `_recenter_glb_mesh()`'s stop-after-first-match is what keeps
+the multi-part skewers' artist-positioned "meat"/"vegetables" children
+intact; do not generalize it.
+
+### Critical bug fixed (same session) — spawn-ordering
+The visual pick reads `hydration_value` in `_ready()`, which Godot fires
+synchronously inside `add_child()` — but all 3 dish-spawn sites assigned
+`hydration_value`/`fill_value`/`bonus_pct`/`dish_name` AFTER the
+`add_child()` call, so `_ready()` always saw the default `0.0` and every
+dish would have rendered as a plate (the old code had no visual
+dependence on these values, which is why the latent bug went unnoticed
+until now). Fixed by moving the 4 assignments before `add_child()` at
+all 3 sites: `InteractionSystem._try_take_dish()`,
+`InteractionSystem._try_take_dish_from_held_pot()`, and
+`CookingActivity._take_dish()` (mirrors the player flow exactly).
+
+### ⚠️ Textures outstanding (NOT blocked, but unverified)
+All 4 GLBs reference `Textures/colormap.png` externally — the same
+shared swatch atlas the pot/food-can use, already committed under
+`assets/models/Textures/`. The dish pack shipped without per-model
+texture files, so imports resolve against the shared atlas. Whether the
+shared atlas' swatch layout matches the plates'/skewers' UVs must be
+confirmed in-editor (checklist item 7) — the plan author expected these
+to render broken; if they look wrong, provide the pack's own
+`colormap.png` (or re-swatched copies) and re-import.
+
+### Files modified
+- `assets/models/plate-dinner.glb`, `plate-sauerkraut.glb`,
+  `skewer.glb`, `skewer-vegetables.glb` — new assets (copied from
+  `F:\Bunker Game\models\GLB format\`, no generation performed).
+- `scripts/world/items/DishItem.gd` — `_ready()` rewritten; new
+  `MODEL_SCALE` const + `MODELS_WITH_WATER`/`MODELS_WITHOUT_WATER`
+  pools + `_model_node` var; new `_build_dish_visual()`,
+  `_build_collision()`, `_strip_model_collision()`,
+  `_recenter_glb_mesh()`; `_build_placeholder_mesh()` removed.
+- `scripts/player/InteractionSystem.gd` — `_try_take_dish()` and
+  `_try_take_dish_from_held_pot()`: property assignments moved before
+  `add_child()`.
+- `scripts/npc/activities/CookingActivity.gd` — `_take_dish()`: same
+  reordering.
+- `docs/systems/build/README.md` — new "Dish Item" subsection.
+
+### Verification
+Import + headless parse clean. In-game checklist items 2–7 (model
+variety, water/no-water weighting, eat/drop flows) are Brannon's.
+
 # Handover — Food Can: Procedural Mesh → can.glb / can-empty.glb (Aug 2026)
 
 ## What changed this session

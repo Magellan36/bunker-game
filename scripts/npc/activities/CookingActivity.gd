@@ -262,13 +262,16 @@ func _take_dish(npc: NPC) -> void:
 	dish.collision_layer = 1
 	dish.collision_mask  = 1
 	dish.continuous_cd   = true
-	var world_root: Node = npc.get_tree().get_root()
-	world_root.add_child(dish)
-	dish.global_position = (_stove as Node3D).global_position
+	## Must be set before add_child() — see InteractionSystem._try_take_dish()'s
+	## identical comment. Mirrors that fix exactly.
 	dish.fill_value      = float(result["value"])
 	dish.bonus_pct       = float(result["bonus_pct"])
 	dish.dish_name       = String(result.get("name", "Cooked Dish"))
 	dish.hydration_value = float(result.get("hydration", 0.0))
+
+	var world_root: Node = npc.get_tree().get_root()
+	world_root.add_child(dish)
+	dish.global_position = (_stove as Node3D).global_position
 	dish.pickup(npc.hold_point)
 	npc.held_item = dish
 

@@ -1364,13 +1364,18 @@ func _try_take_dish(pot: Node) -> void:
 	dish.collision_mask  = 1
 	dish.continuous_cd   = true
 
-	var world_root: Node = get_tree().get_root()
-	world_root.add_child(dish)
-	dish.global_position = (pot as Node3D).global_position
+	## Must be set BEFORE add_child() — DishItem._ready() reads
+	## hydration_value to pick its visual model, and add_child() fires
+	## _ready() synchronously. Setting these after add_child() (the old
+	## order) meant _ready() always saw the pre-assignment default value.
 	dish.fill_value      = result["value"]
 	dish.bonus_pct       = result["bonus_pct"]
 	dish.dish_name       = String(result.get("name", "Cooked Dish"))
 	dish.hydration_value = float(result.get("hydration", 0.0))
+
+	var world_root: Node = get_tree().get_root()
+	world_root.add_child(dish)
+	dish.global_position = (pot as Node3D).global_position
 
 	held_item       = dish
 	_held_from_slot = -1
@@ -1408,12 +1413,15 @@ func _try_take_dish_from_held_pot(pot: Node) -> void:
 	dish.collision_mask  = 1
 	dish.continuous_cd   = true
 
-	_world_root.add_child(dish)
-	dish.global_position = drop_pos
+	## See _try_take_dish()'s identical comment — must be set before
+	## add_child() fires _ready().
 	dish.fill_value      = result["value"]
 	dish.bonus_pct       = result["bonus_pct"]
 	dish.dish_name       = String(result.get("name", "Cooked Dish"))
 	dish.hydration_value = float(result.get("hydration", 0.0))
+
+	_world_root.add_child(dish)
+	dish.global_position = drop_pos
 
 	held_item       = dish
 	_held_from_slot = -1
