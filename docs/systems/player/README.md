@@ -176,6 +176,14 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
 ```
 
 ## Common edits
+- **Player-Model subsystem introduced (Aug 2026):** the player's visible
+  body is now a real skinned/animated character (see
+  `docs/systems/player-model/README.md`), not the old placeholder
+  capsule. `Player.gd` lost its `mesh` onready var and the two lines that
+  set its layer/shadow-cast exclusion directly — that responsibility
+  moved to `PlayerModelController.gd`, generalized to handle more than
+  one `MeshInstance3D`. `CharacterShadowStandIn.attach(self)` is
+  unaffected (only ever reads `$CollisionShape3D`).
 - **Character shadowing/layer 12 (Aug 2026):** See
   `docs/systems/graphics/README.md` "Character shadow stand-in" — the Aug
   2026 aggregated-shadow-light approach that briefly lived here (moving

@@ -1,0 +1,20 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="PackedScene" uid="uid://b2s864bjtlv0s" path="res://assets/models/player/male.fbx" id="1_male"]
+[ext_resource type="Script" path="res://scripts/player/PlayerModelController.gd" id="2_script"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_lib.res" id="3_idle"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_lib.res" id="4_walk"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/run_lib.res" id="5_run"]
+
+[node name="PlayerModel" type="Node3D"]
+script = ExtResource("2_script")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+"idle_lib": ExtResource("3_idle"),
+"walk_lib": ExtResource("4_walk"),
+"run_lib": ExtResource("5_run")
+}
+root_motion_track = NodePath("MaleModel/Skeleton3D:mixamorig_Hips")
+
+[node name="MaleModel" parent="." instance=ExtResource("1_male")]

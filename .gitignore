@@ -10,3 +10,6 @@ bunker-game/
 .env
 *.tmp
 task.md
+# Godot 4.4+ auto-generated script UID sidecars — regenerated on demand,
+# never need to be in VCS (this repo uses inline uid= headers instead).
+*.uid

@@ -1,3 +1,39 @@
+# Handover — Player Model: Male Body + Idle/Walk/Run Import (Aug 2026)
+
+## What changed this session
+New Player-Model subsystem: the player's visual body is no longer the
+placeholder `CapsuleMesh` but a real Mixamo-rigged male character with
+idle/walk/run locomotion animation. `assets/models/WIP/FINAL/Male
+Locomotion Pack/`'s `male.fbx` + `idle.fbx` / `walking.fbx` / `standard
+run.fbx` were moved to `assets/models/player/` (renamed walk.fbx/run.fbx)
+— the only WIP assets this pass touched; the rest of WIP is untouched.
+Verified against the two other male candidates in WIP (Farming Pack male
+is a different retarget session, Quaternius Superhero rig is non-Mixamo).
+New `scenes/player/PlayerModel.tscn` (instances male.fbx + an
+`AnimationPlayer` with three `AnimationLibrary` resources under
+`assets/models/player/anims/`) + `scripts/player/PlayerModelController.gd`
+(layer/shadow-cast exclusion for all meshes, root-motion fallback,
+idle/walk/run selection from real velocity). `Player.gd` lost 3 lines
+(mesh onready var + layer/shadow-cast setup) — now owned by the
+controller; `CharacterShadowStandIn.attach(self)` unaffected (only reads
+$CollisionShape3D).
+
+## Things to know / flags
+- The animation libraries were generated headlessly (clip animations are
+  named `mixamo_com` inside the FBX; the extraction/rebasing/loop baking
+  lives in `tools/build_player_model.gd`). Animation names in the wrapper
+  are `idle_lib/idle`, `walk_lib/walk`, `run_lib/run` (separate
+  AnimationLibrary files force the prefix) — `PlayerModelController.gd`
+  maps plain state names to these. Track paths were rebased to the
+  wrapper hierarchy (`MaleModel/Skeleton3D:...`) since AnimationMixer
+  resolves tracks relative to the AnimationPlayer's parent, and the
+  wrapper's AnimationPlayer must stay the FIRST child of PlayerModel (the
+  imported FBX scene carries its own internal AnimationPlayer — see
+  `docs/systems/player-model/README.md`).
+- In-editor verification checklist (plan's Part 9) still to run: model
+  visible + scaled, feet on floor, idle/walk/run track correctly, shadow
+  stand-in intact, flashlight no longer self-shadows.
+
 # Handover — Dish Item: Random Model Pool + Soup-Name Override (Aug 2026)
 
 ## What changed this session

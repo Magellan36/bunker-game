@@ -16,7 +16,6 @@ extends CharacterBody3D
 @export var stamina_regen: float = 8.0
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
-@onready var mesh: MeshInstance3D = $MeshInstance3D
 @onready var collision: CollisionShape3D = $CollisionShape3D
 @onready var interaction_area: Area3D = $InteractionArea
 @onready var interaction_system: Node = $InteractionSystem
@@ -79,26 +78,19 @@ func _ready() -> void:
 	## player ref via get_first_node_in_group("player") without needing a direct reference.
 	add_to_group("player")
 
-	## REPLACES (does not OR onto) the mesh's default render layer with its
-	## self-light-exclusion bit — see PLAYER_SELF_LIGHT_LAYER_BIT above for
-	## why this must be a replacement, not an addition. Every light's
-	## default light_cull_mask already includes every layer bit, so this is
-	## invisible to every light except the one that explicitly clears this
-	## specific bit (Flashlight.gd's spot — see that file).
-	mesh.layers = PLAYER_SELF_LIGHT_LAYER_BIT
-	## Aug 2026 — stops this mesh from casting ANY real shadow onto the
-	## world (the original multi-shadow-clutter complaint, now handled by
-	## the cosmetic decal below instead). Native per-object property —
-	## does NOT touch this mesh's own illumination/receiving at all; the
-	## player still gets lit/shadowed normally by every real light, same
-	## as before any of this session's work.
-	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-
+	## Aug 2026 (Player-Model subsystem) — the visible mesh's self-light/
+	## shadow-cast exclusion is now applied generically by
+	## PlayerModelController.gd (scripts/player/PlayerModelController.gd,
+	## attached to the PlayerModel child scene) instead of hardcoded here,
+	## since the real character model can have more than one
+	## MeshInstance3D. See docs/systems/player-model/README.md.
+	##
 	## Aug 2026 — real shadow-casting via a shortened invisible stand-in,
 	## replacing the CharacterShadowDecal fake-shadow system entirely (see
 	## docs/systems/graphics/README.md "Character shadow stand-in"). No
 	## per-frame logic — real shadow mapping does the work; this call just
-	## builds and attaches the stand-in mesh once.
+	## builds and attaches the stand-in mesh once. Unaffected by the
+	## Player-Model change above — this only ever reads $CollisionShape3D.
 	CharacterShadowStandIn.attach(self)
 
 func _physics_process(delta: float) -> void:
