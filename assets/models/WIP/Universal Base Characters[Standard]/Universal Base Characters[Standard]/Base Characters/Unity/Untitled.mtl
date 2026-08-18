@@ -1,0 +1,35 @@
+# Blender 5.1.2 MTL File: 'None'
+# www.blender.org
+
+newmtl MI_Eyes
+Ns 428.429718
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd C:/Dropbox/Work/Blender/_FreeModels/_Unfinished/Universal Base Characters/Base Characters/textures/T_Eye_Brown.png
+map_Bump -bm 1.000000 C:/Dropbox/Work/Blender/_FreeModels/_Unfinished/Universal Base Characters/Base Characters/textures/T_Eye_Normal.png
+
+newmtl MI_Hair_2
+Ns 31.425623
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd C:/Dropbox/Work/Blender/_FreeModels/_Unfinished/Universal Base Characters/Base Characters/textures/T_Hair_2_BaseColor.png
+map_Bump -bm 1.000000 C:/Dropbox/Work/Blender/_FreeModels/_Unfinished/Universal Base Characters/Base Characters/textures/T_Hair_2_Normal.png
+
+newmtl MI_Superhero_Female
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd C:/Dropbox/Work/Blender/_FreeModels/_Unfinished/Universal Base Characters/Base Characters/textures/T_Superhero_Female_Dark_BaseColor.png
+map_Ns C:/Dropbox/Work/Blender/_FreeModels/_Unfinished/Universal Base Characters/Base Characters/textures/T_Superhero_Female_Roughness.png
+map_Bump -bm 1.000000 C:/Dropbox/Work/Blender/_FreeModels/_Unfinished/Universal Base Characters/Base Characters/textures/T_Superhero_Female_Normal.png
