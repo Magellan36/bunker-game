@@ -316,30 +316,22 @@ func _build_hair_material() -> StandardMaterial3D:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return mat
 
-## Small manual correction on top of the computed head-attach transform
-## below — the attach math is a close heuristic (see the "Aug 2026
-## deviation" comment further down), not an exact cross-skeleton
-## retarget, so a small persistent mismatch is expected. Nudge these
-## directly in the Inspector while watching the live result rather than
-## guessing at the underlying transform math further; degrees for
-## rotation since that's more intuitive to tune by eye than radians.
+## Manual placement on top of the identity bone-attach transform below
+## (see _setup_hair() — there is no automatic cross-skeleton placement
+## anymore, so these are the ONLY mechanism). Nudge in the Inspector
+## while watching the live result; degrees for rotation since that's
+## more intuitive to tune by eye than radians.
 @export var hair_position_offset: Vector3 = Vector3.ZERO
 @export var hair_rotation_offset_deg: Vector3 = Vector3.ZERO
 
 ## Attaches the configured hairstyle to our OWN Mixamo skeleton's Head
 ## bone. The source asset is a skinned mesh bound to a completely
 ## different (Quaternius-native) reference armature — we don't reuse
-## that skin or skeleton at all. Instead: read the source mesh's own
-## bind-pose transform for its "Head" joint (Skin.get_bind_pose() —
-## exact per-asset value, not a guessed/hardcoded offset, since this
-## differs slightly between hairstyle files), then apply that same
-## transform to a plain static copy of the mesh, parented under a new
-## BoneAttachment3D bound to OUR skeleton's Head bone. Valid specifically
-## because the source mesh is 100% rigidly weighted to its own Head
-## joint (verified by direct binary inspection, not assumed) — a static
-## mesh at the bind transform is visually identical to true skinning
-## here, without needing to remap joint indices onto a different
-## skeleton entirely.
+## that skin or skeleton at all. A static copy of the mesh is parented
+## under a new BoneAttachment3D bound to OUR skeleton's Head bone with a
+## plain identity local transform; placement is entirely manual via
+## hair_position_offset / hair_rotation_offset_deg (see the second fix
+## pass comment below for why there's no automatic placement).
 func _setup_hair(skeleton: Skeleton3D) -> void:
 	if skeleton == null:
 		return
@@ -352,14 +344,15 @@ func _setup_hair(skeleton: Skeleton3D) -> void:
 		hair_root.free()
 		return
 
-	var bind_transform: Transform3D = Transform3D.IDENTITY
-	var found_bind: bool = false
-	for i in hair_mesh_src.skin.get_bind_count():
-		if hair_mesh_src.skin.get_bind_name(i) == "Head":
-			bind_transform = hair_mesh_src.skin.get_bind_pose(i)
-			found_bind = true
-			break
-	if not found_bind:
+	## Aug 2026, second fix pass: the SOURCE skin's own bind-pose data is
+	## no longer used to compute a transform (two automatic attempts at
+	## that — the original plan's raw bind pose, then a rest-pose-inverse
+	## heuristic — landed at the feet/hips, then the mid-section
+	## respectively; both wrong, and this can't be iterated on further
+	## without seeing the live result). This check now only confirms the
+	## asset is a genuinely rigged hair mesh (sanity guard), nothing more.
+	var has_valid_skin: bool = hair_mesh_src.skin.get_bind_count() > 0
+	if not has_valid_skin:
 		hair_root.free()
 		return
 
@@ -368,19 +361,18 @@ func _setup_hair(skeleton: Skeleton3D) -> void:
 		hair_root.free()
 		return
 
-	## Aug 2026 deviation from the plan doc (flagged): the plan used
-	## hair_mesh.transform = skin.get_bind_pose("Head") directly. That
-	## inverse-bind matrix is authored in the SOURCE armature's frame and
-	## only composes to identity when multiplied by a head transform with
-	## the source's own orientation — our Mixamo head's rest basis is
-	## rotated ~10 deg off it (verified headlessly: hair landed at the
-	## feet/hips). Using OUR head bone's rest global inverse instead gives
-	## exactly the plan's intended result: identity composition at rest
-	## (hair renders at its authored head position) and the hair rides the
-	## head's animated deviation like true skinning would.
-	var head_bone_idx: int = skeleton.find_bone(head_bone_name)
-	var our_head_rest: Transform3D = skeleton.get_bone_global_rest(head_bone_idx)
-	bind_transform = our_head_rest.affine_inverse()
+	## Plain identity — trust BoneAttachment3D alone to track the bone's
+	## real live position (that part has always worked correctly).
+	## hair_position_offset/hair_rotation_offset_deg below (already
+	## exported) are the ONLY placement mechanism now — tune those in the
+	## Inspector while watching the live result instead of me re-deriving
+	## matrix math blind a third time. A reasonable starting point if
+	## tuning from scratch: Mixamo's Head bone origin sits at the base of
+	## the skull/top of the neck, not the crown, so hair authored to sit
+	## on top of a head will likely need a modest +Y (and maybe slight
+	## +Z/forward) nudge from zero — start near
+	## hair_position_offset = Vector3(0, 0.1, 0) and adjust by eye.
+	var bind_transform: Transform3D = Transform3D.IDENTITY
 
 	var attachment := BoneAttachment3D.new()
 	attachment.bone_name = head_bone_name

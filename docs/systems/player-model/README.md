@@ -118,12 +118,19 @@ so `_build_hair_material()` builds and force-assigns a `StandardMaterial3D`
 at runtime instead, same approach `_build_skin_material()` already uses
 for the body.
 
-**Position tuning (Aug 2026 fix pass):** the head-attach transform (see
-the "Aug 2026 deviation" comment in `_setup_hair()`) is a close heuristic,
-not an exact cross-skeleton retarget, so `hair_position_offset`/
-`hair_rotation_offset_deg` (both exported, both zero by default) are
-available on `PlayerModel`'s root node for a manual nudge in the
-Inspector if a hairstyle sits slightly off — retune by eye, not math.
+**Position tuning (Aug 2026, second fix pass):** two automatic attempts
+at computing the head-attach transform both landed wrong (feet/hips,
+then mid-section) — the source hairstyle's skin data is authored against
+a completely different reference skeleton than ours, and getting an
+exact automatic mapping right would need a real cross-skeleton retarget,
+not a one-line transform. Simplified instead: `_setup_hair()` now uses
+plain `Transform3D.IDENTITY` (trusting `BoneAttachment3D` alone to track
+the real bone position) and `hair_position_offset`/
+`hair_rotation_offset_deg` (exported on `PlayerModel`'s root node, both
+zero by default) are the ONLY placement mechanism — tune by eye in the
+Inspector. Starting suggestion if tuning from scratch: something near
+`Vector3(0, 0.1, 0)` for the position offset, since Mixamo's Head bone
+origin sits at the base of the skull, not the crown.
 
 **Not done here (clothing):** researched Quaternius's catalog for a
 matching modern/survival outfit pack — none exists for this rig yet,
