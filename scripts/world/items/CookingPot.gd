@@ -849,6 +849,7 @@ func _update_pot_visual() -> void:
 	if model == null:
 		return
 	model.position = Vector3.ZERO
+	model.rotation.y = deg_to_rad(90.0)
 	model.scale    = POT_MODEL_SCALE
 	_recenter_glb_mesh(model)
 	_strip_model_collision(model)

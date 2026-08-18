@@ -154,6 +154,12 @@ from every slot-count-changing site (`try_add_item()` ×2,
 `remove_item()`, `serve_dish()`, `restore_saved_state()`) and no-ops
 if the fill state hasn't actually changed.
 
+**Correction (same session):** added a 90° Y-axis rotation
+(`model.rotation.y = deg_to_rad(90.0)`) in `_update_pot_visual()` —
+applies uniformly to all 4 swapped states since it's set once per model
+load rather than per-state. Pot stays upright (Y-axis only); this just
+turns the handles to face the intended direction.
+
 ## Light Storage: End Table / Dresser (Aug 2026)
 Tile IDs **32** (`End Table`, $60, capacity 2) and **33** (`Dresser`,
 $150, capacity 6) in Construct → Furniture — floor-standing hidden-

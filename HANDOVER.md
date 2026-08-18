@@ -1,3 +1,28 @@
+# Handover — Cooking Pot: 90° Model Rotation Fix (Aug 2026)
+
+## What changed this session
+Added a 90° Y-axis rotation to the Cooking Pot's swapped visual model
+(`_update_pot_visual()` in `CookingPot.gd`) — the imported model's
+handles were facing the wrong way relative to the game's expected
+orientation. Single-line fix, applied once in the shared model-load
+function so it automatically covers all 4 fill-state models (empty +
+3 stew levels) rather than needing repeating per state.
+
+### Files modified
+- `scripts/world/items/CookingPot.gd` — `_update_pot_visual()`.
+- `docs/systems/build/README.md` — correction note appended.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Pick up a pot — handles now face the correct direction relative to
+   however "front" is read in-game (matches what Brannon confirmed
+   visually).
+3. Cycle through all 4 fill states (add/remove ingredients) — rotation
+   is consistent across every state, not just the empty one.
+
+---
+
 # Handover — Cooking Pot: Procedural Mesh → 4-State GLB Model (Aug 2026)
 
 ## What changed this session
