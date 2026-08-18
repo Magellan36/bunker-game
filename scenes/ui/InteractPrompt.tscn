@@ -16,8 +16,8 @@ border_width_right = 1
 border_width_bottom = 1
 content_margin_left = 12.0
 content_margin_right = 12.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
+content_margin_top = 2.0
+content_margin_bottom = 2.0
 
 [sub_resource type="StyleBoxFlat" id="CircleSlot"]
 bg_color = Color(0, 0, 0, 0.35)
@@ -40,7 +40,6 @@ theme_override_styles/panel = SubResource("PromptPanelStyle")
 [node name="IconRow" type="Control" parent="Panel/VBox"]
 custom_minimum_size = Vector2(108, 37)
 visible = false
-size_flags_horizontal = 4
 
 [node name="Slot0" type="PanelContainer" parent="Panel/VBox/IconRow"]
 position = Vector2(0, 5)
