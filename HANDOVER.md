@@ -1,3 +1,32 @@
+# Handover — Player Shadow Follow-Up: Hair Silhouette (Aug 2026)
+
+## What changed this session
+Follow-up to the model-based player shadow (`69b3c64`), which predated
+the hair-attachment system and so didn't scope `_setup_hair()`'s own
+`cast_shadow` line. That line hardcoded `OFF` regardless of
+`is_shadow_only`, so the shadow instance's hair never cast a shadow —
+fixed to use the same conditional the body mesh loop already uses.
+Also quieted the shadow instance's duplicate `_print_diagnostics()`
+console spam at spawn (optional, no behavior change).
+
+### Files modified
+- `scripts/player/PlayerModelController.gd` — `_setup_hair()`'s
+  `cast_shadow` line now conditional on `is_shadow_only`; diagnostics
+  print gated to skip the shadow instance.
+- `docs/systems/graphics/README.md` — follow-up note added to "Player
+  model-based shadow".
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Shadow silhouette now includes a head/hair bump, not just the body.
+3. Only one diagnostics block prints at spawn (from the real instance).
+4. Real instance's hair still renders normally, still doesn't cast its
+   own shadow directly (unaffected — `is_shadow_only` still defaults
+   `false` there).
+
+---
+
 # Handover — Player Shadow: Model-Based, Replaces Pill Stand-In (Aug 2026)
 
 ## What changed this session

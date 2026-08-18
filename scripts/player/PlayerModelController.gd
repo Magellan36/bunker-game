@@ -222,7 +222,11 @@ func _ready() -> void:
 				_anim_player.root_motion_track = hips
 		_play_state("idle")
 
-	_print_diagnostics(skeleton)
+	## Aug 2026 follow-up: skip the diagnostic print for the shadow
+	## instance — purely console-noise cleanup (duplicate block at
+	## spawn), no behavior change either way.
+	if not is_shadow_only:
+		_print_diagnostics(skeleton)
 
 func _process(delta: float) -> void:
 	if _player == null:
@@ -402,10 +406,18 @@ func _setup_hair(skeleton: Skeleton3D) -> void:
 			hair_mesh.set_surface_override_material(surf_i, hair_material)
 	## Same self-light/shadow treatment as the body mesh (see the main
 	## mesh loop in _ready()) — applied directly here since this mesh is
-	## created AFTER that loop already ran.
+	## created AFTER that loop already ran. Aug 2026 follow-up: this line
+	## used to hardcode OFF regardless of is_shadow_only, which meant the
+	## PlayerModelShadow instance's hair never cast a shadow either —
+	## the silhouette was missing hair mass. Now matches the body mesh
+	## loop's conditional exactly.
 	if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
 		hair_mesh.layers = _player.PLAYER_SELF_LIGHT_LAYER_BIT
-	hair_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	hair_mesh.cast_shadow = (
+		GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		if is_shadow_only
+		else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	)
 	attachment.add_child(hair_mesh)
 
 	hair_root.free()

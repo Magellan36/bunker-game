@@ -459,6 +459,13 @@ and remains in use for NPCs (see above).
   if it needs adjusting, same single-line-change pattern as
   `HEIGHT_FACTOR` before it.
 
+**Aug 2026 follow-up:** `_setup_hair()` (added by the hair-attachment
+system, `8b5780a`, which landed between this plan's base commit and its
+application) builds its hair mesh after the main mesh loop and
+originally hardcoded `cast_shadow = OFF`, missing the `is_shadow_only`
+conditional entirely — the shadow silhouette had no hair mass. Fixed to
+match the body mesh loop's conditional exactly.
+
 ### Flashlight self-shadow exclusion
 (Restored to its original form — see the FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md
 from earlier this session. Player.PLAYER_SELF_LIGHT_LAYER_BIT excludes
