@@ -93,6 +93,27 @@ which will read as skin-colored rather than white/dark until a follow-up
 assigns per-surface materials by name (would need to confirm surface
 index-to-part mapping in-editor first).
 
+## Hair (Aug 2026)
+`PlayerModelController._setup_hair()` attaches `assets/models/player/
+hair/Hair_Buzzed.gltf` (source: `WIP/FINAL/Hairstyles/"Rigged to Head
+Bone"/`) onto our Mixamo skeleton's own Head bone via a runtime-created
+`BoneAttachment3D`. That source asset ships skinned to a *different*
+(Quaternius-native) reference armature, not ours — confirmed by direct
+binary inspection that it's 100% rigidly weighted to its own Head joint,
+so rather than remapping skin weights onto our skeleton, the mesh's own
+bind-pose transform for that joint (`Skin.get_bind_pose()`, read at
+runtime, not hardcoded — differs slightly per hairstyle file) is applied
+to a plain static copy of the mesh instead. Swap hairstyles by changing
+`HAIR_SCENE_PATH`/`HAIR_MESH_NODE_NAME` and copying the new file's
+`.gltf`/`.bin`/textures the same way — the extraction logic is generic,
+not specific to `Hair_Buzzed`.
+
+**Not done here (clothing):** researched Quaternius's catalog for a
+matching modern/survival outfit pack — none exists for this rig yet,
+only a medieval "Modular Character Outfits - Fantasy" set. Deferred per
+direct instruction; revisit direction (re-texture vs. adapt the fantasy
+pack vs. source elsewhere) before attempting clothing.
+
 ## Floor alignment & facing (Aug 2026)
 `PlayerModelController._ready()` offsets `PlayerModel`'s own position by
 `-(capsule_height / 2)` to align the model's floor (Mixamo convention:
