@@ -93,6 +93,29 @@ which will read as skin-colored rather than white/dark until a follow-up
 assigns per-surface materials by name (would need to confirm surface
 index-to-part mapping in-editor first).
 
+## Floor alignment & facing (Aug 2026)
+`PlayerModelController._ready()` offsets `PlayerModel`'s own position by
+`-(capsule_height / 2)` to align the model's floor (Mixamo convention:
+origin between the feet) with the `CharacterBody3D`'s real floor (which
+sits below the capsule's center, where this node is instanced) — same
+math `CharacterShadowStandIn.gd` uses for the shadow proxy, kept in sync
+deliberately. `MODEL_FLOOR_FUDGE` is available if per-asset origin
+variance ever needs a small additional correction; `0.0` until verified
+needed. `MaleModel`'s `PlayerModel.tscn` transform carries a static 180°
+Y rotation correcting Mixamo's forward-axis convention against Godot's
+own `-Z` forward — a model-space fix, not a movement-code change;
+`Player.gd`'s facing math is untouched.
+
+## Known false lead
+The "green circle at the player's feet" reported during this pass was
+**not** a Player-Model bug — it was `scripts/world/build/
+PlacementIndicator.gd` (Build-Mode/Furniture-thread file), a
+build-preview disc that had no show/hide wiring anywhere in the codebase
+and defaulted to visible from game start, unrelated to and predating
+this subsystem. Defaulted to hidden as a flagged one-line fix; real
+show/hide wiring for Build Mode placement preview is that thread's task,
+not covered here.
+
 ## Known tradeoffs / tech debt
 - No held-item hand-bone attachment yet — `InteractionSystem.gd`'s
   `HoldPoint` (Player-subsystem-owned) is still a fixed `Node3D` offset

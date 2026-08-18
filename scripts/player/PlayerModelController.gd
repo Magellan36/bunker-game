@@ -23,6 +23,22 @@ const BLEND_TIME: float = 0.15
 ## actually happening on screen, not raw input state.
 const RUN_SPEED_FRACTION: float = 0.85
 
+## Aligns the model's own floor (Mixamo's export convention: origin at
+## the floor, between the feet) with the CharacterBody3D's real floor
+## (which sits at -height/2 from the capsule's center, NOT at local
+## (0,0,0) — PlayerModel is instanced at the capsule's center by
+## default). Same fallback values as CharacterShadowStandIn.gd uses for
+## the shadow proxy, kept in sync deliberately — if the collision
+## capsule is ever retuned, both systems should be retuned together.
+const FALLBACK_CAPSULE_HEIGHT: float = 2.0
+
+## If the model still shows a small gap or clip through the floor after
+## this offset, it means the Mixamo rig's own local origin isn't exactly
+## at floor level (small per-asset authoring variance) — add a small
+## correction here rather than touching the dynamic capsule-height math
+## above. Zero until verified needed in-editor.
+const MODEL_FLOOR_FUDGE: float = 0.0
+
 ## Body skin material — Aug 2026 fix pass. male.fbx (Mixamo export) ships
 ## UV layers (SuperHero_MaleDiffuseUVLayer/EyesDiffuseUVLayer/
 ## EyebrowsDiffuseUVLayer, confirmed via `strings male.fbx`) but zero
@@ -105,6 +121,19 @@ func _ready() -> void:
 	var parent: Node = get_parent()
 	if parent is CharacterBody3D:
 		_player = parent as CharacterBody3D
+
+	## Aug 2026 fix pass — see "Root cause #1: hovering" in
+	## PLAYER_MODEL_FLOOR_FACING_FIX_PLAN.md. Same math
+	## CharacterShadowStandIn.gd uses: floor sits at -height/2 from the
+	## capsule's own center, which is where this node is instanced.
+	var capsule_height: float = FALLBACK_CAPSULE_HEIGHT
+	if _player != null:
+		var collision_node: Node = _player.get_node_or_null("CollisionShape3D")
+		if collision_node is CollisionShape3D:
+			var shape: Shape3D = (collision_node as CollisionShape3D).shape
+			if shape is CapsuleShape3D:
+				capsule_height = (shape as CapsuleShape3D).height
+	position.y = -(capsule_height * 0.5) + MODEL_FLOOR_FUDGE
 
 	_anim_player = _find_first_of_type(self, "AnimationPlayer") as AnimationPlayer
 	var skeleton: Skeleton3D = _find_first_of_type(self, "Skeleton3D") as Skeleton3D

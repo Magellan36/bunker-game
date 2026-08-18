@@ -1,3 +1,36 @@
+# Handover — Player Model: Floor Offset + Facing Fix + Green-Circle Root Cause (Aug 2026)
+
+## What changed this session
+- **Hovering (~1m gap) fixed:** `PlayerModelController._ready()` now
+  offsets `PlayerModel`'s own `position.y` by `-(capsule_height / 2)` —
+  the model's floor (Mixamo exports origin between the feet) vs. the
+  `CharacterBody3D`'s floor, which sits below the capsule's center where
+  the model is instanced. Same math `CharacterShadowStandIn.gd` already
+  used for the shadow proxy; reads the real collision shape dynamically,
+  with `FALLBACK_CAPSULE_HEIGHT = 2.0` and `MODEL_FLOOR_FUDGE = 0.0`
+  (fudge reserved for per-asset origin variance if a small residual
+  gap/clip shows in-editor).
+- **Backwards/moonwalk facing fixed:** `MaleModel` in `PlayerModel.tscn`
+  now carries a static 180° Y rotation (Mixamo model space vs. Godot's
+  `-Z` forward). Model-space fix only — no movement code touched;
+  `Player.gd`'s facing math is unchanged.
+- **Green circle root-caused (NOT a player-model bug):** it's
+  `scripts/world/build/PlacementIndicator.gd`, a Build-Mode/Furniture-
+  thread file — a flat glowing green build-preview disc with zero
+  show/hide wiring anywhere in the codebase, so it rendered constantly
+  at the player's feet from game start, predating this subsystem.
+  **Flagged for that thread:** defaulted to hidden (`mesh.visible =
+  false`) as a safe one-line fix; real placement-preview show/hide wiring
+  is Build Mode's task, not covered here.
+
+## Things to know / flags
+- `MODEL_FLOOR_FUDGE` sign convention: positive raises the model,
+  negative sinks it. If the playtest shows a small residual gap/sink,
+  report direction + rough size (e.g. "floating ~5cm") so the fudge can
+  be set with the right sign rather than guessed.
+- Verification checklist from the plan: feet touch floor (no gap/clip),
+  W-forward no longer looks backwards, green circle gone at spawn.
+
 # Handover — Player Model Fix Pass: Textures + Root-Motion Validation + Diagnostics (Aug 2026)
 
 ## What changed this session

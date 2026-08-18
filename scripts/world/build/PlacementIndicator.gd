@@ -27,6 +27,15 @@ func _build_indicator() -> void:
 
 	mesh.mesh = cyl
 	mesh.material_override = mat
+	## Aug 2026 (flagged by Player-Model subsystem, not owned here) —
+	## this was defaulting to Godot's own MeshInstance3D default
+	## (visible = true) with nothing anywhere in the codebase ever
+	## showing/hiding it (grepped for placement_indicator/
+	## PlacementIndicator repo-wide — no other references at all), so it
+	## rendered constantly at the player's feet from game start. Default
+	## to hidden; wire real show/hide calls here whenever Build Mode
+	## actually drives a placement-preview flow through this node.
+	mesh.visible = false
 
 # Pulse the indicator scale for a subtle alive feel
 var _t: float = 0.0
