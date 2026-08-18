@@ -12,14 +12,27 @@ var bonus_pct:       float  = 0.0
 var dish_name:       String = "Cooked Dish"
 var hydration_value: float  = 0.0
 
-const MODEL_SCALE: Vector3 = Vector3(0.4261, 0.4261, 0.4261)
+const MODEL_SCALE: Vector3      = Vector3(0.4261, 0.4261, 0.4261)   ## plate-dinner / plate-sauerkraut / skewer / skewer-vegetables
+const BOWL_SOUP_SCALE: Vector3  = Vector3(0.7024, 0.7024, 0.7024)   ## bowl-soup.glb — separate asset pack, computed from its own dimensions
 
-## Both pools include the two plates — skewers are ADDITIONAL options for
-## no-water dishes, not a replacement set. Confirmed spec: no-water dishes
-## pick among all 4; water dishes pick only the 2 plates.
+const MODEL_BOWL_SOUP: String = "res://assets/models/bowl-soup.glb"
+
+## Checked FIRST, overrides the water/no-water pool entirely — a dish
+## whose name contains any of these (case-sensitive, matches the actual
+## recipe-name capitalization used throughout CookingPot.gd's recipe
+## table) always uses bowl-soup.glb, no randomness. Several Soup-named
+## recipes (e.g. "Tomato Basil Soup") don't use a water_bottle ingredient
+## and so have hydration_value == 0.0 — name is the correct signal here,
+## not hydration, which is why this check happens before and independent
+## of the hydration-based pool below.
+const SOUP_LIKE_NAME_KEYWORDS: Array[String] = ["Soup", "Broth", "Stew", "Chowder"]
+
+## Both non-override pools include the two plates — skewers/bowl-soup are
+## ADDITIONAL options layered on top, not replacement sets.
 const MODELS_WITH_WATER: Array[String] = [
 	"res://assets/models/plate-dinner.glb",
 	"res://assets/models/plate-sauerkraut.glb",
+	"res://assets/models/bowl-soup.glb",
 ]
 const MODELS_WITHOUT_WATER: Array[String] = [
 	"res://assets/models/plate-dinner.glb",
@@ -39,15 +52,26 @@ func _ready() -> void:
 	_build_collision()
 	_build_dish_visual()
 
-## One-time random pick from the water/no-water pool, per the design
-## spec: dishes WITH water (hydration_value > 0.0) only ever show one of
-## the 2 plate variants; dishes WITHOUT water pick among all 4 (both
-## plates AND both skewers). Picked once here at spawn — a dish's visual
-## never changes after that, same "build once in _ready()" convention as
-## every other model-swap in this codebase.
+## Picks and loads this dish's visual model, once, at spawn. Soup-like
+## names (see SOUP_LIKE_NAME_KEYWORDS) always win regardless of hydration
+## — checked first. Otherwise falls through to the water/no-water pool.
 func _build_dish_visual() -> void:
-	var pool: Array[String] = MODELS_WITH_WATER if hydration_value > 0.0 else MODELS_WITHOUT_WATER
-	var path: String = pool[randi() % pool.size()]
+	var path: String
+	var scale: Vector3
+
+	var is_soup_like: bool = false
+	for kw: String in SOUP_LIKE_NAME_KEYWORDS:
+		if dish_name.contains(kw):
+			is_soup_like = true
+			break
+
+	if is_soup_like:
+		path  = MODEL_BOWL_SOUP
+		scale = BOWL_SOUP_SCALE
+	else:
+		var pool: Array[String] = MODELS_WITH_WATER if hydration_value > 0.0 else MODELS_WITHOUT_WATER
+		path  = pool[randi() % pool.size()]
+		scale = BOWL_SOUP_SCALE if path == MODEL_BOWL_SOUP else MODEL_SCALE
 
 	var packed: PackedScene = load(path) if ResourceLoader.exists(path) else null
 	if packed == null:
@@ -57,7 +81,7 @@ func _build_dish_visual() -> void:
 	if model == null:
 		return
 	model.position = Vector3.ZERO
-	model.scale    = MODEL_SCALE
+	model.scale    = scale
 	_recenter_glb_mesh(model)
 	_strip_model_collision(model)
 	add_child(model)
@@ -130,7 +154,7 @@ func _strip_model_collision(node: Node) -> void:
 ## generated root node — see Table.gd's identical helper for the full
 ## explanation. Finds the FIRST MeshInstance3D and zeros only its local
 ## position, then stops — deliberately does NOT recurse further once
-## found. All 4 of this file's models have an identity-transform root
+## found. All 5 of this file's models have an identity-transform root
 ## node already (no wrapper bug to fix, confirmed via direct inspection),
 ## so this is inert here — kept for consistency. IMPORTANT: skewer.glb /
 ## skewer-vegetables.glb are multi-part models (a stick node with

@@ -1,3 +1,59 @@
+# Handover — Dish Item: Random Model Pool + Soup-Name Override (Aug 2026)
+
+## What changed this session
+DishItem now picks one of 5 real models at spawn: `plate-dinner.glb` /
+`plate-sauerkraut.glb` (always eligible), `skewer.glb` /
+`skewer-vegetables.glb` (no-water dishes only), and `bowl-soup.glb`
+(forced whenever `dish_name` contains "Soup"/"Broth"/"Stew"/"Chowder" —
+checked BEFORE and independent of the water/no-water pool, since several
+Soup-named recipes don't actually use a water_bottle ingredient; also a
+random 3rd option in the water pool for the currently-unreached case of
+a hydrating dish that isn't liquid-named). The spawn-ordering bug that
+the previous DishItem session fixed (dish_name/hydration_value set after
+add_child(), which fires _ready() synchronously) was already resolved at
+all 3 spawn sites in that prior commit — this session verified it's in
+place and built the soup override on top; if it had been left unfixed it
+would have broken BOTH the water-pool logic AND the new soup-name
+override. Two separate scale constants: `MODEL_SCALE` (0.4261) for the
+plate/skewer pack (confirmed shared source units via matching radii),
+`BOWL_SOUP_SCALE` (0.7024) computed independently for bowl-soup.glb
+since it wasn't confirmed to share those units.
+
+### Files modified
+- `assets/models/bowl-soup.glb` — new asset (texture NOT yet provided —
+  see note below). (The 4 plate/skewer assets landed in the prior Dish
+  Item session.)
+- `scripts/world/items/DishItem.gd` — `_build_dish_visual()` rewritten
+  with the soup-name override + per-model scale selection; new
+  `BOWL_SOUP_SCALE`, `MODEL_BOWL_SOUP`, `SOUP_LIKE_NAME_KEYWORDS`
+  constants; `bowl-soup.glb` added to `MODELS_WITH_WATER`.
+- `docs/systems/build/README.md` — Dish Item subsection updated for the
+  soup override + 5th model.
+- `HANDOVER.md` — this entry.
+
+### ⚠️ Outstanding — textures needed
+All 5 `.glb` files reference `Textures/colormap.png` by external
+relative path, same as `can.glb`. No texture file was provided this
+session for any of them. Models will render broken/missing-texture
+until Brannon supplies them and they're placed correctly under
+`assets/models/`.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Cook and take any Soup/Broth/Stew/Chowder-named dish (e.g. "Tomato
+   Basil Soup", which has NO water ingredient) — always shows
+   `bowl-soup.glb`, never a plate or skewer, confirming the override
+   beats the water/no-water pool rather than being subsumed by it.
+3. Cook and take a non-liquid-named dish WITH water (if the recipe table
+   ever adds one) — random among plate-dinner/plate-sauerkraut/bowl-soup.
+4. Cook and take a non-liquid-named dish WITHOUT water — random among
+   all 4 plate/skewer variants across repeated tries, never bowl-soup.
+5. NPC-cooked dishes (`CookingActivity`) — same override + pool behavior
+   as the player path.
+6. Collision/pickup radius unchanged regardless of which model rendered.
+7. Once textures are supplied: visually confirm no pink-checkerboard/
+   missing-texture material on any of the 5.
+
 # Handover — Dish Item: Procedural Mesh → Random GLB Model Pool (Aug 2026)
 
 ## What changed this session

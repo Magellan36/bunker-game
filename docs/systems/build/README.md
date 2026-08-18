@@ -160,49 +160,47 @@ applies uniformly to all 4 swapped states since it's set once per model
 load rather than per-state. Pot stays upright (Y-axis only); this just
 turns the handles to face the intended direction.
 
-## Dish Item: Procedural Mesh → Random GLB Model Pool (Aug 2026)
+## Dish Item: Procedural Mesh → Random GLB Model Pool + Soup Override (Aug 2026)
 
-`DishItem.gd` no longer builds a placeholder plate+mound from
-`CylinderMesh`/`SphereMesh` primitives. `_ready()` now calls
-`_build_collision()` (unchanged `SphereShape3D` radius 0.12 at
-(0, 0.05, 0)) plus a new `_build_dish_visual()` that randomly picks ONE
-model from a pool keyed off `hydration_value`:
-- dishes WITH water (`hydration_value > 0.0`) → one of the 2 plates:
-  `plate-dinner.glb` or `plate-sauerkraut.glb`;
-- dishes WITHOUT water → one of all 4: both plates **plus**
-  `skewer.glb` and `skewer-vegetables.glb`.
+`DishItem.gd` now picks its visual model at spawn (`_build_dish_visual()`,
+called once from `_ready()`) instead of a single generic placeholder.
+Checked in order: (1) if `dish_name` contains "Soup"/"Broth"/"Stew"/
+"Chowder" (case-sensitive, matches CookingPot.gd's actual recipe-name
+capitalization), `bowl-soup.glb` is used unconditionally — this check is
+name-based and independent of `hydration_value` on purpose, since several
+Soup-named recipes (e.g. "Tomato Basil Soup") don't use a water_bottle
+ingredient and would otherwise fall into the no-water pool despite
+visually being a soup. (2) Otherwise, `hydration_value > 0.0` picks
+randomly among `plate-dinner.glb` / `plate-sauerkraut.glb` /
+`bowl-soup.glb`; `hydration_value <= 0.0` picks randomly among
+`plate-dinner.glb` / `plate-sauerkraut.glb` / `skewer.glb` /
+`skewer-vegetables.glb`. Against the current 50-recipe table, ~37
+recipes (every Soup/Broth/Stew/Chowder name) hit the override; the
+remaining ~13 fall through to the pool (all non-hydrating in the current
+table, so the water-pool's bowl-soup option is presently unreached but
+specified correctly for future recipes).
 
-Skewers are ADDITIONAL options for the no-water pool, not a replacement
-set — both pools include the 2 plates. The pick happens once at spawn;
-a dish's visual never changes afterward (same "build once in `_ready()`"
-convention as every other model-swap in this codebase). Uniform scale
-`0.4261` (single radius 0.4459 for the plates, so X/Z/Y share one
-factor). All 4 models were verified by direct GLB inspection: identity
-transform on the top-level node (a MeshInstance3D itself), so
-`_recenter_glb_mesh()` is inert here — kept for consistency, and its
-stop-after-first-match behavior is load-bearing for the multi-part
-skewers (a stick node with artist-positioned "meat"/"vegetables"
-children); do not generalize it into a recurse-and-zero-everything
-helper.
+Two separate uniform scale constants — `plate-dinner`/`plate-sauerkraut`/
+`skewer`/`skewer-vegetables` share `MODEL_SCALE` (`0.4261`, verified same
+source asset pack via matching plate radii); `bowl-soup.glb` has its own
+`BOWL_SOUP_SCALE` (`0.7024`) computed independently since its bounding-
+box asymmetry wasn't confirmed to share the same source units.
 
-**Spawn-ordering fix (same session):** `hydration_value` (plus
-`fill_value`/`bonus_pct`/`dish_name`) must be assigned BEFORE
-`add_child()` — `_ready()` runs synchronously inside `add_child()`, so
-the old post-add ordering meant the visual pick always saw the default
-`0.0` and every dish rendered as a plate. Fixed at all 3 dish-spawn
-sites: `InteractionSystem._try_take_dish()` and
-`_try_take_dish_from_held_pot()`, and `CookingActivity._take_dish()`
-(the three were already near-identical spawn blocks; this keeps them in
-sync).
+**Required a pre-existing ordering bug fix** (same root cause found and
+fixed for both `dish_name` and `hydration_value`): both were being set
+AFTER `add_child()` at all 3 spawn sites — `add_child()` fires `_ready()`
+synchronously, so the model-pick logic would always have seen the
+pre-assignment defaults. Fixed by moving the property assignments before
+`add_child()` at all 3 sites (`InteractionSystem.gd` ×2,
+`CookingActivity.gd` ×1).
 
-**⚠️ Textures outstanding:** all 4 GLBs reference an external texture by
-relative path (`Textures/colormap.png`, the same shared swatch atlas the
-pot/food-can use — already committed under `assets/models/Textures/`).
-The dish asset pack shipped without per-model texture files, so the
-models import against the shared atlas; whether that atlas' swatches
-match the plates'/skewers' UV layout must be confirmed in-editor
-(checklist item 7). If wrong, the fix is to provide the pack's own
-`colormap.png` (or re-swatched copies) under `assets/models/Textures/`.
+**`_recenter_glb_mesh()` note**: skewer models' multi-part composition
+depends on this helper stopping after the first match. Don't change
+that.
+
+**Textures not yet provided** for any of the 5 new assets (same
+external-relative-path pattern as `can.glb`) — will render broken until
+each model's expected `Textures/colormap.png` is supplied.
 
 ## Food Can: Procedural Mesh → GLB Model (Aug 2026)
 
