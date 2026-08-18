@@ -160,6 +160,24 @@ applies uniformly to all 4 swapped states since it's set once per model
 load rather than per-state. Pot stays upright (Y-axis only); this just
 turns the handles to face the intended direction.
 
+## Food Can: Procedural Mesh → GLB Model (Aug 2026)
+
+`FoodCan.gd` now loads `assets/models/can.glb` (full) or
+`assets/models/can-empty.glb` (empty — same geometry, label recolored
+grey; see `docs/systems/models/glb-swatch-texture-editing.md`) instead of
+a `CylinderMesh` authored directly in `FoodCan.tscn`. The mesh moved out
+of the `.tscn` and into code (`_update_can_visual()`, matching the
+Table/Chair/CookingPot convention) — `_become_empty()` now swaps the
+whole model instead of tinting a `material_override`. Constrained
+non-uniform scale `Vector3(0.2667, 0.3750, 0.2667)` — uniform on X/Z to
+keep the can circular (not oval), separate on Y since diameter and height
+don't share a scale factor. Collision (`CylinderShape3D`, radius 0.04 /
+height 0.12) is unchanged, still authored directly in the `.tscn`. The
+CookingPot ingredient-icon preview (`scenes/world/FoodCan.tscn` via
+`InteractPrompt.gd`'s scene-mode path) was confirmed still compatible —
+that path properly runs `_ready()` on the instantiated scene, unlike the
+`is_script` mode a past fix had to work around.
+
 ## Light Storage: End Table / Dresser (Aug 2026)
 Tile IDs **32** (`End Table`, $60, capacity 2) and **33** (`Dresser`,
 $150, capacity 6) in Construct → Furniture — floor-standing hidden-

@@ -17,14 +17,18 @@ var _bites_left: int    = TOTAL_BITES   ## Counts down 2 → 1 → 0 (empty)
 var _is_empty: bool     = false
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
-var _mesh: MeshInstance3D = null   ## For tinting when empty
+const CAN_MODEL_PATH_FULL:  String = "res://assets/models/can.glb"
+const CAN_MODEL_PATH_EMPTY: String = "res://assets/models/can-empty.glb"
+const CAN_MODEL_SCALE: Vector3 = Vector3(0.2667, 0.3750, 0.2667)
+
+var _model_node: Node3D = null   ## Currently-instanced visual (full or empty variant)
 
 func _ready() -> void:
 	super._ready()
 	add_to_group("inventory_item")
 	add_to_group("basket_storable")
 	add_to_group("cookpot_storable")
-	_mesh = get_node_or_null("MeshInstance3D")
+	_update_can_visual()
 
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_display_name() -> String:
@@ -93,10 +97,60 @@ func is_trash() -> bool:
 func _become_empty() -> void:
 	_is_empty   = true
 	_bites_left = 0
+	_update_can_visual()
 
-	# Tint mesh to washed-out grey — signals empty to the player
-	if _mesh != null:
-		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = Color(0.55, 0.55, 0.55, 0.7)
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_mesh.material_override = mat
+# ─── Real model swap (full ↔ empty) ────────────────────────────────────────
+## Swaps the visual model between the full can (assets/models/can.glb)
+## and the empty can (assets/models/can-empty.glb — same geometry, label
+## replaced with a grey variant of the can's own existing palette colors;
+## see PLAN_foodcan_glb_swap.md for exactly how that texture was derived).
+## Called once at _ready() (full) and once from _become_empty() (empty).
+## FoodCan only ever transitions one-way — full to empty, never back — so
+## unlike CookingPot's _update_pot_visual() this doesn't need a
+## last-built-state guard against redundant reloads; it's only ever
+## called twice per can, total, across its whole lifetime.
+func _update_can_visual() -> void:
+	if _model_node != null and is_instance_valid(_model_node):
+		_model_node.queue_free()
+		_model_node = null
+
+	var path: String = CAN_MODEL_PATH_EMPTY if _is_empty else CAN_MODEL_PATH_FULL
+	var packed: PackedScene = load(path) if ResourceLoader.exists(path) else null
+	if packed == null:
+		push_warning("FoodCan.gd: model missing at %s — falling back to no visual mesh" % path)
+		return
+	var model: Node3D = packed.instantiate() as Node3D
+	if model == null:
+		return
+	model.position = Vector3.ZERO
+	model.scale    = CAN_MODEL_SCALE
+	_recenter_glb_mesh(model)
+	_strip_model_collision(model)
+	add_child(model)
+	_model_node = model
+
+## Recursively disables collision on every CollisionObject3D descendant of
+## an instanced model. Duplicated per-file, matching the existing
+## Table.gd/Chair.gd/BuildStation.gd/CookingPot.gd convention.
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
+
+## Godot's glTF importer always wraps an imported scene in an extra
+## generated root node — see Table.gd's identical helper for the full
+## explanation. can.glb/can-empty.glb's source nodes have NO baked
+## translation (confirmed via direct inspection), so this is a defensive
+## no-op here, not a required fix — kept for consistency with every other
+## model-load site in this codebase.
+func _recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if _recenter_glb_mesh(child):
+			return true
+	return false
