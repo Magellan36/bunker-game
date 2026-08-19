@@ -35,6 +35,19 @@ func _init():
 		for ti in anim.get_track_count():
 			var tp: NodePath = anim.track_get_path(ti)
 			anim.track_set_path(ti, NodePath("MaleModel/" + str(tp)))
+		## Aug 2026 fix — every clip pins Hips' POSITION track to ~y=0.01
+		## (the FBX scene origin, floor level), ~1.03m below its actual
+		## rest height (~1.044) — sinking the whole animated body during
+		## normal playback. The player doesn't use root motion, so this
+		## isn't providing any real movement, just breaking the pose.
+		## Iterated backward since removing a track shifts every later
+		## index down. Only removes Hips' POSITION track — its rotation
+		## track (hip sway) and every other bone's tracks are untouched.
+		for ti2 in range(anim.get_track_count() - 1, -1, -1):
+			var track_path: NodePath = anim.track_get_path(ti2)
+			if anim.track_get_type(ti2) == Animation.TYPE_POSITION_3D \
+					and "Hips" in track_path.get_concatenated_subnames():
+				anim.remove_track(ti2)
 		var lib := AnimationLibrary.new()
 		lib.add_animation(key, anim)
 		var path: String = "res://assets/models/player/anims/" + LIB_NAMES[key] + ".res"

@@ -314,3 +314,31 @@ diagnostic print (gated off for the shadow instance to avoid doubling
 console noise) reports `had_real_collision`/`capsule_height`/
 `applied_position_y` for every real spawn — delete once nobody needs it
 anymore.
+
+## Hips-sink root cause (Aug 2026)
+The "sinking" reports across this whole investigation were caused by the
+baked animation clips' Hips position track, not the floor-offset math
+(which was correct the entire time). Every clip pinned `mixamorig_Hips`
+to ~y=0.01 (the FBX scene origin, floor level) versus its real skeleton
+rest height (~1.044), sinking the animated body ~1.03m below where the
+(correctly-computed) model root actually sat — during normal playback
+the whole skeleton, not just the root, rode the baked value.
+
+Fixed in `tools/build_player_model.gd`: the Hips **position** track is
+stripped from all six clips at bake time, so the bone falls back to its
+skeleton rest pose (correct standing height) while every other track
+(including Hips' own rotation for hip sway) is untouched. Deleting the
+track rather than baking a fixed +1.034 correction is deliberately
+robust across genders — each skeleton falls back to its *own* rest
+height rather than hardcoding one gender's number onto both. This also
+removes the small Hips-Z forward drift flagged in walk/run.
+
+Also corrects an earlier documented misunderstanding: `root_motion_track`
+being set to the Hips bone does NOT exclude that track's translation
+from posing the bone — it only exposes the motion via
+`get_root_motion_position()` for code that chooses to consume it; the
+bone is still posed with its full baked translation otherwise, and
+`Player.gd` never cancels it back out (it moves via `move_and_slide()`,
+no `get_root_motion_*()` calls). `_root_motion_track_valid()` only
+checked that the NodePath resolved to a real bone, so it had no way to
+catch that the bone's own keyframe values were the problem.
