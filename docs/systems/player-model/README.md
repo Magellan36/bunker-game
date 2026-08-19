@@ -199,3 +199,18 @@ not covered here.
   `MaleModel/Skeleton3D` hierarchy — renaming or moving that instance in
   `PlayerModel.tscn` requires regenerating the `.res` libraries
   (`tools/build_player_model.gd`).
+
+## Overall scale (Aug 2026)
+`PlayerModel` and `PlayerModelShadow` both carry a `1.25` uniform scale
+in `Player.tscn` (the model was reported too small). Pure scene-level
+change — `PlayerModelController.gd` never touches `.basis`/scale at
+runtime, only `.position.y` for floor alignment, so this composes safely
+with everything else in this doc. `PlayerModelShadow`'s existing `0.3`
+Y-only squash (shortened-shadow look) is scaled proportionally alongside
+it — `0.375 = 0.3 × 1.25` — if that ratio (not the `1.25` factor) is ever
+retuned, keep the two scale values' ratio in sync manually, they're not
+computed from each other. The collision capsule in `Player.tscn` is
+intentionally left at its original size (hitbox is movement/physics
+territory, not this subsystem's) — the character now renders ~25% bigger
+than its capsule, which may look slightly off at close range and is a
+known, flagged tradeoff.
