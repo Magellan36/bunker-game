@@ -20,10 +20,12 @@ script = ExtResource("1_wr5hl")
 
 [node name="PlayerModel" parent="." instance=ExtResource("4_pmodel")]
 transform = Transform3D(1.25, 0, 0, 0, 1.25, 0, 0, 0, 1.25, 0, 0, 0)
+use_character_creation_data = true
 
 [node name="PlayerModelShadow" parent="." instance=ExtResource("4_pmodel")]
 transform = Transform3D(1.25, 0, 0, 0, 0.375, 0, 0, 0, 1.25, 0, 0, 0)
 is_shadow_only = true
+use_character_creation_data = true
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1528080123 groups=["Player"]]
 shape = SubResource("CapsuleShape3D_wr5hl")

@@ -1,3 +1,75 @@
+# Handover — Character Creation Screen: Gender / Hairstyle / Hair Color (Aug 2026)
+
+## What changed this session
+Added a bare-bones pre-game character creation screen as the project's new
+boot scene (`project.godot`'s `run/main_scene`). Player picks gender, then
+hairstyle + hair color, then Start → `MainWorld.tscn`. Choices are stored
+in a new `CharacterCreationData` autoload and read by the player's spawned
+model via `PlayerModelController.use_character_creation_data`.
+
+### Runtime body & hairstyles (the big refactor)
+`PlayerModel.tscn` no longer statically instances `male.fbx` —
+`PlayerModelController._ready()` now instantiates the body at runtime from
+`BODY_SCENE_PATHS[gender]`, applies per-gender skin from
+`SKIN_TEXTURES`, and attaches the hairstyle mesh from the `HAIRSTYLES`
+dict. New female assets: `female.fbx` (import override
+`root_scale=100.0` — Godot default `1.0` made her ~100× too small) +
+`T_Superhero_Female_*` textures + 5 hair glTFs.
+
+### Key gotchas (deviations from the plan, worth reading)
+- **Runtime body MUST be named `MaleModel`** (plan said `BodyModel`): every
+  baked animation track is `MaleModel/Skeleton3D:mixamorig_*`, and both
+  male/female FBX scenes expose the skeleton as a direct child named
+  `Skeleton3D`. Any other name = hundreds of unresolvable-track warnings
+  and no animation.
+- The 12-scalar `Transform3D(...)` constructor is NOT callable from
+  GDScript — used `Transform3D(Basis(Vector3.UP, PI), Vector3.ZERO)` for
+  the body's 180° Y facing.
+- `node_paths` must be a `[node name=...]` **header** attribute in a
+  `.tscn`, not a body property, or exported Node refs stay null.
+- Only the `buzzed` hairstyle's `position_offset`
+  (`(0.0, -1.576469, 0.057)`) is playtested-correct; the other 5 styles
+  share it as a starting guess and likely need per-style Inspector nudges.
+- Vendored `addons/jts_colorpickerkit/` is **JT's Color Picker Kit,
+  Apache-2.0** (keep its LICENSE/README in the folder). Its sprite
+  references a UID this project imports differently → benign first-load
+  warning, resolves by path.
+
+### Files added
+- `addons/jts_colorpickerkit/` — vendored runtime color picker.
+- `scenes/ui/character_creation/CharacterCreation.tscn` + `scripts/ui/
+  character_creation/CharacterCreationScreen.gd` +
+  `CharacterPreviewViewport.gd`.
+- `scripts/core/CharacterCreationData.gd` — autoload.
+- `assets/models/player/female.fbx` (+`.import` scale override),
+  `assets/models/player/textures/T_Superhero_Female_*`,
+  `assets/models/player/hair/{Hair_BuzzedFemale,Hair_SimpleParted,Hair_Beard,Hair_Buns,Hair_Long}*` + `T_Hair_2_*` textures.
+- `docs/systems/character-creation/README.md`; player-model README updated
+  (runtime body, HAIRSTYLES, per-style offset caveat).
+
+### Files modified
+- `scripts/player/PlayerModelController.gd` — runtime body/skin/hairstyle
+  selection (see above); `use_character_creation_data` export.
+- `scenes/player/PlayerModel.tscn` — static body + `root_motion_track`
+  removed; `scenes/player/Player.tscn` — both model instances opted in.
+- `project.godot` — `main_scene` = CharacterCreation.tscn;
+  `CharacterCreationData` autoload added before `WorldManager`.
+
+### Verification checklist
+1. Boot the project — character creation screen loads (no script errors;
+   `tools/godot_check.sh` passes).
+2. Pick Female → hairstyle list rebuilds (5 buttons, no Beard), preview
+   swaps to the female body instantly.
+3. Pick "Long" → long hair attaches to the preview; drag the color picker
+   → preview hair repaints live; male/female both animate (idle) with no
+   `couldn't resolve track` warnings in the log.
+4. Start → MainWorld loads; the spawned player matches your picks.
+   Verified headless: `verify_cc` (16/16 PASS) + `verify_cc_screen`
+   (all screen-flow checks, 0 failures), boot gate EXITCODE=0.
+5. NPCs unaffected — still male/buzzed/dark-brown (flag stays `false`).
+
+---
+
 # Handover — Stove Model Fix: Leftover 100× Scale Matrix (Aug 2026)
 
 ## What changed this session

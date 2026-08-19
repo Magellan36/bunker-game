@@ -1,0 +1,98 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/character_creation/CharacterCreationScreen.gd" id="1_screen"]
+[ext_resource type="Script" path="res://scripts/ui/character_creation/CharacterPreviewViewport.gd" id="2_viewport"]
+[ext_resource type="PackedScene" uid="uid://ogtcmx5ymiyw" path="res://addons/jts_colorpickerkit/plugin/color-picker.tscn" id="3_picker"]
+
+[sub_resource type="Environment" id="Environment_preview"]
+background_mode = 1
+background_color = Color(0.13, 0.13, 0.14, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.7, 0.7, 0.7, 1)
+ambient_light_energy = 0.8
+
+[node name="CharacterCreation" type="Control" node_paths=PackedStringArray("gender_panel", "hair_panel", "male_button", "female_button", "hairstyle_button_container", "color_picker_instance", "start_button", "preview_root")]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_screen")
+gender_panel = NodePath("HBoxContainer/Left/VBoxContainer/GenderPanel")
+hair_panel = NodePath("HBoxContainer/Left/VBoxContainer/HairPanel")
+male_button = NodePath("HBoxContainer/Left/VBoxContainer/GenderPanel/Male")
+female_button = NodePath("HBoxContainer/Left/VBoxContainer/GenderPanel/Female")
+hairstyle_button_container = NodePath("HBoxContainer/Left/VBoxContainer/HairPanel/HairstyleButtons")
+color_picker_instance = NodePath("HBoxContainer/Left/VBoxContainer/HairPanel/ColorPickerInstance")
+start_button = NodePath("HBoxContainer/Left/VBoxContainer/HairPanel/Start")
+preview_root = NodePath("HBoxContainer/Right/SubViewport/PreviewRoot")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Left" type="Control" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/Left"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="GenderPanel" type="VBoxContainer" parent="HBoxContainer/Left/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Male" type="Button" parent="HBoxContainer/Left/VBoxContainer/GenderPanel"]
+layout_mode = 2
+text = "Male"
+
+[node name="Female" type="Button" parent="HBoxContainer/Left/VBoxContainer/GenderPanel"]
+layout_mode = 2
+text = "Female"
+
+[node name="HairPanel" type="VBoxContainer" parent="HBoxContainer/Left/VBoxContainer"]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="HairstyleButtons" type="HFlowContainer" parent="HBoxContainer/Left/VBoxContainer/HairPanel"]
+layout_mode = 2
+
+[node name="ColorPickerInstance" parent="HBoxContainer/Left/VBoxContainer/HairPanel" instance=ExtResource("3_picker")]
+layout_mode = 2
+custom_minimum_size = Vector2(300, 400)
+
+[node name="Start" type="Button" parent="HBoxContainer/Left/VBoxContainer/HairPanel"]
+layout_mode = 2
+text = "Start"
+
+[node name="Right" type="SubViewportContainer" parent="HBoxContainer" node_paths=PackedStringArray("camera")]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+stretch = true
+script = ExtResource("2_viewport")
+camera = NodePath("SubViewport/PreviewCamera")
+
+[node name="SubViewport" type="SubViewport" parent="HBoxContainer/Right"]
+size = Vector2i(960, 1080)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="HBoxContainer/Right/SubViewport"]
+environment = SubResource("Environment_preview")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="HBoxContainer/Right/SubViewport"]
+rotation = Vector3(-0.785398, 0.523599, 0)
+
+[node name="PreviewCamera" type="Camera3D" parent="HBoxContainer/Right/SubViewport"]
+
+[node name="PreviewRoot" type="Node3D" parent="HBoxContainer/Right/SubViewport"]

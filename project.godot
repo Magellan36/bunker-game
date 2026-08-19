@@ -11,12 +11,13 @@ config_version=5
 [application]
 
 config/name="BunkerGame"
-run/main_scene="uid://cxxbgstudgwck"
+run/main_scene="res://scenes/ui/character_creation/CharacterCreation.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
 
+CharacterCreationData="*res://scripts/core/CharacterCreationData.gd"
 WorldManager="*uid://bs5q8ntodn0tk"
 SaveManager="*res://scripts/world/core/SaveManager.gd"
 DeviceDatabase="*uid://beaovkailgag2"
@@ -97,7 +98,3 @@ inv_slot_4={
 [physics]
 
 3d/physics_engine="Jolt Physics"
-
-[rendering]
-
-rendering_device/driver.windows="vulkan"

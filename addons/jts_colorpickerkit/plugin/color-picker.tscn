@@ -1,0 +1,778 @@
+[gd_scene load_steps=22 format=3 uid="uid://ogtcmx5ymiyw"]
+
+[ext_resource type="Script" path="res://addons/jts_colorpickerkit/plugin/scripts/UI_ColorPickerInstance.gd" id="1_wtgpe"]
+[ext_resource type="Shader" path="res://addons/jts_colorpickerkit/plugin/shaders/x-mark.gdshader" id="2_yfo7h"]
+[ext_resource type="Texture2D" uid="uid://csprtk2kq15ut" path="res://addons/jts_colorpickerkit/plugin/sprites/square-1x1.png" id="3_qjhi3"]
+[ext_resource type="Script" path="res://addons/jts_colorpickerkit/plugin/scripts/UI_DraggableHeader.gd" id="4_gknpk"]
+[ext_resource type="Shader" path="res://addons/jts_colorpickerkit/plugin/shaders/color-picker-gradient.gdshader" id="5_v6c82"]
+[ext_resource type="Script" path="res://addons/jts_colorpickerkit/plugin/scripts/UI_ColorPickerSV.gd" id="6_ndntk"]
+[ext_resource type="Shader" path="res://addons/jts_colorpickerkit/plugin/shaders/boxed-handle.gdshader" id="7_5uruj"]
+[ext_resource type="Shader" path="res://addons/jts_colorpickerkit/plugin/shaders/hue-slider.gdshader" id="8_cqhmg"]
+[ext_resource type="Script" path="res://addons/jts_colorpickerkit/plugin/scripts/UI_ColorPickerHueSlider.gd" id="9_ju2fi"]
+[ext_resource type="Shader" path="res://addons/jts_colorpickerkit/plugin/shaders/alpha-slider.gdshader" id="10_gtqmd"]
+[ext_resource type="Script" path="res://addons/jts_colorpickerkit/plugin/scripts/UI_ColorPickerAlphaSlider.gd" id="11_h1fjt"]
+[ext_resource type="Script" path="res://addons/jts_colorpickerkit/plugin/scripts/UI_ColorPickerHexSlider.gd" id="12_n1s6n"]
+[ext_resource type="Script" path="res://addons/jts_colorpickerkit/plugin/scripts/UI_NumberInputSlider.gd" id="13_a28yx"]
+[ext_resource type="Script" path="res://addons/jts_colorpickerkit/plugin/scripts/UI_ColorPickerHexcode.gd" id="14_qqhxk"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_2hugr"]
+shader = ExtResource("2_yfo7h")
+shader_parameter/thickness = 0.3
+shader_parameter/smoothness = 0.001
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_6h4b7"]
+shader = ExtResource("5_v6c82")
+shader_parameter/hue_color = Color(1, 0, 0.0166664, 1)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ju4kp"]
+shader = ExtResource("7_5uruj")
+shader_parameter/fill_color = Color(1, 0, 0, 1)
+shader_parameter/outline_color = Color(1, 1, 1, 1)
+shader_parameter/control_size = Vector2(8, 8)
+shader_parameter/outline_thickness = 1.0
+shader_parameter/radius_corner = 1.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_5qvdt"]
+shader = ExtResource("8_cqhmg")
+shader_parameter/horizontal_mode = 0.0
+shader_parameter/RED_COLOR = Color(1, 0, 0, 1)
+shader_parameter/YELLOW_COLOR = Color(1, 1, 0, 1)
+shader_parameter/GREEN_COLOR = Color(0, 1, 0, 1)
+shader_parameter/CYAN_COLOR = Color(0, 1, 1, 1)
+shader_parameter/BLUE_COLOR = Color(0, 0, 1, 1)
+shader_parameter/MAGENTA_COLOR = Color(1, 0, 1, 1)
+shader_parameter/offset_y = 0.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_0b22y"]
+shader = ExtResource("7_5uruj")
+shader_parameter/fill_color = Color(1, 0, 0, 1)
+shader_parameter/outline_color = Color(1, 1, 1, 1)
+shader_parameter/control_size = Vector2(34, 16)
+shader_parameter/outline_thickness = 2.0
+shader_parameter/radius_corner = 2.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ad7vx"]
+shader = ExtResource("10_gtqmd")
+shader_parameter/lighter_trans = Color(0.5, 0.5, 0.5, 1)
+shader_parameter/darker_trans = Color(0.25, 0.25, 0.25, 1)
+shader_parameter/image_ratio = Vector2(8, 40)
+shader_parameter/fixed_scale = 1.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_bcqku"]
+shader = ExtResource("7_5uruj")
+shader_parameter/fill_color = Color(1, 0, 0, 1)
+shader_parameter/outline_color = Color(1, 1, 1, 1)
+shader_parameter/control_size = Vector2(34, 16)
+shader_parameter/outline_thickness = 2.0
+shader_parameter/radius_corner = 2.0
+
+[node name="ColorPicker" type="Control" node_paths=PackedStringArray("_sv_gradient", "_hue_slider", "_alpha_slider", "_hexcode_editor", "_rgb_mode_btn", "_hsv_mode_btn", "_red_slider", "_green_slider", "_blue_slider", "_hue_v_slider", "_saturation_v_slider", "_value_v_slider", "_alpha_v_slider")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_wtgpe")
+_sv_gradient = NodePath("Contents/SV/ColorPicker/TexturedGradients")
+_hue_slider = NodePath("Contents/SV/HueSlider/HueAreaPick")
+_alpha_slider = NodePath("Contents/SV/AlphaSlider/AlphaAreaPick")
+_hexcode_editor = NodePath("Contents/Properties/HEXCODE")
+_rgb_mode_btn = NodePath("Contents/Properties/Modes/RGB MODE")
+_hsv_mode_btn = NodePath("Contents/Properties/Modes/HSV MODE")
+_red_slider = NodePath("Contents/Properties/RGB/Red")
+_green_slider = NodePath("Contents/Properties/RGB/Green")
+_blue_slider = NodePath("Contents/Properties/RGB/Blue")
+_hue_v_slider = NodePath("Contents/Properties/HSV/Hue")
+_saturation_v_slider = NodePath("Contents/Properties/HSV/Saturation")
+_value_v_slider = NodePath("Contents/Properties/HSV/Value")
+_alpha_v_slider = NodePath("Contents/Properties/Alpha Slider")
+_picked_color = Color(0.40986, 0.1944, 0.81, 1)
+
+[node name="Background Panel" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.392157)
+
+[node name="Contents" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -138.0
+offset_top = -171.0
+offset_right = 132.0
+offset_bottom = 213.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PanelBG" type="ColorRect" parent="Contents"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.215902, 0.215902, 0.215902, 1)
+
+[node name="Header" type="Control" parent="Contents"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 32.0
+grow_horizontal = 2
+
+[node name="HPanelBG" type="ColorRect" parent="Contents/Header"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.370364, 0.370364, 0.370364, 1)
+
+[node name="VAlign" type="VBoxContainer" parent="Contents/Header"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+alignment = 1
+
+[node name="HeaderText" type="RichTextLabel" parent="Contents/Header/VAlign"]
+layout_mode = 2
+mouse_filter = 2
+bbcode_enabled = true
+text = "[center][b]PICK COLOR[/b][/center]"
+fit_content = true
+
+[node name="CloseBtn" type="TextureButton" parent="Contents/Header"]
+material = SubResource("ShaderMaterial_2hugr")
+clip_contents = true
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.1
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 4.0
+offset_bottom = -4.0
+texture_normal = ExtResource("3_qjhi3")
+texture_pressed = ExtResource("3_qjhi3")
+texture_hover = ExtResource("3_qjhi3")
+texture_disabled = ExtResource("3_qjhi3")
+texture_focused = ExtResource("3_qjhi3")
+stretch_mode = 5
+
+[node name="Draggable" type="Control" parent="Contents/Header" node_paths=PackedStringArray("_target_root")]
+layout_mode = 1
+anchor_left = 0.12
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_default_cursor_shape = 6
+script = ExtResource("4_gknpk")
+_target_root = NodePath("../..")
+
+[node name="SV" type="Control" parent="Contents"]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 0.6
+offset_top = 32.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ColorPicker" type="Control" parent="Contents/SV"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -128.0
+offset_top = -89.3
+offset_right = 52.0
+offset_bottom = 90.7
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TexturedGradients" type="TextureRect" parent="Contents/SV/ColorPicker" node_paths=PackedStringArray("_handle_object", "_handle_tex")]
+material = SubResource("ShaderMaterial_6h4b7")
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.04
+anchor_top = 0.04
+anchor_right = 0.96
+anchor_bottom = 0.96
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+texture = ExtResource("3_qjhi3")
+script = ExtResource("6_ndntk")
+_handle_object = NodePath("PinPosition")
+_handle_tex = NodePath("PinPosition/ColoredPin")
+
+[node name="PinPosition" type="Control" parent="Contents/SV/ColorPicker/TexturedGradients"]
+anchors_preset = 0
+offset_right = 8.0
+offset_bottom = 8.0
+mouse_filter = 2
+
+[node name="ColoredPin" type="TextureRect" parent="Contents/SV/ColorPicker/TexturedGradients/PinPosition"]
+material = SubResource("ShaderMaterial_ju4kp")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("3_qjhi3")
+
+[node name="HueSlider" type="Control" parent="Contents/SV"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = 52.0
+offset_top = -89.3
+offset_right = 84.0
+offset_bottom = 90.7
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HueAreaPick" type="TextureRect" parent="Contents/SV/HueSlider" node_paths=PackedStringArray("_handle_root", "_handle_tex")]
+material = SubResource("ShaderMaterial_5qvdt")
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 8.0
+offset_right = -2.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("3_qjhi3")
+script = ExtResource("9_ju2fi")
+_handle_root = NodePath("Handle")
+_handle_tex = NodePath("Handle/ColoredPin")
+
+[node name="Handle" type="Control" parent="Contents/SV/HueSlider/HueAreaPick"]
+layout_mode = 1
+anchors_preset = 14
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -2.0
+offset_top = -8.0
+offset_right = 2.0
+offset_bottom = 8.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="ColoredPin" type="TextureRect" parent="Contents/SV/HueSlider/HueAreaPick/Handle"]
+material = SubResource("ShaderMaterial_0b22y")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("3_qjhi3")
+
+[node name="AlphaSlider" type="Control" parent="Contents/SV"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = 88.0
+offset_top = -89.3
+offset_right = 120.0
+offset_bottom = 90.7
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AlphaAreaPick" type="TextureRect" parent="Contents/SV/AlphaSlider" node_paths=PackedStringArray("_handle_root", "_handle_tex")]
+material = SubResource("ShaderMaterial_ad7vx")
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 2.0
+offset_top = 8.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("3_qjhi3")
+script = ExtResource("11_h1fjt")
+_handle_root = NodePath("Handle")
+_handle_tex = NodePath("Handle/ColoredPin")
+
+[node name="Handle" type="Control" parent="Contents/SV/AlphaSlider/AlphaAreaPick"]
+layout_mode = 1
+anchors_preset = 14
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -2.0
+offset_top = -8.0
+offset_right = 2.0
+offset_bottom = 8.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="ColoredPin" type="TextureRect" parent="Contents/SV/AlphaSlider/AlphaAreaPick/Handle"]
+material = SubResource("ShaderMaterial_bcqku")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("3_qjhi3")
+
+[node name="Properties" type="Control" parent="Contents"]
+layout_mode = 1
+anchor_top = 0.6
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PPanelBG" type="ColorRect" parent="Contents/Properties"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.288518, 0.288518, 0.288518, 1)
+
+[node name="Modes" type="Control" parent="Contents/Properties"]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 0.2
+grow_horizontal = 2
+
+[node name="RGB MODE" type="Button" parent="Contents/Properties/Modes"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.5
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "RGB"
+
+[node name="HSV MODE" type="Button" parent="Contents/Properties/Modes"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.5
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "HSV"
+
+[node name="RGB" type="Control" parent="Contents/Properties"]
+layout_mode = 1
+anchor_top = 0.2
+anchor_right = 1.0
+anchor_bottom = 0.8
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Red" type="Control" parent="Contents/Properties/RGB" node_paths=PackedStringArray("_slider", "_line_input")]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = -8.0
+offset_bottom = 28.0
+grow_horizontal = 2
+script = ExtResource("12_n1s6n")
+_slider = NodePath("Slider")
+_line_input = NodePath("VEdit")
+
+[node name="Hint" type="RichTextLabel" parent="Contents/Properties/RGB/Red"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.1
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+bbcode_enabled = true
+text = "[b]R[/b]"
+
+[node name="Slider" type="HSlider" parent="Contents/Properties/RGB/Red"]
+self_modulate = Color(1, 0, 0, 1)
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.1
+anchor_right = 0.775
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+max_value = 255.0
+value = 127.0
+rounded = true
+
+[node name="VEdit" type="LineEdit" parent="Contents/Properties/RGB/Red"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.8
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/minimum_character_width = 0
+theme_override_font_sizes/font_size = 12
+text = "255"
+placeholder_text = "0-255"
+
+[node name="Green" type="Control" parent="Contents/Properties/RGB" node_paths=PackedStringArray("_slider", "_line_input")]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 8.0
+offset_top = 32.0
+offset_right = -8.0
+offset_bottom = 56.0
+grow_horizontal = 2
+script = ExtResource("12_n1s6n")
+_slider = NodePath("Slider")
+_line_input = NodePath("VEdit")
+
+[node name="Hint" type="RichTextLabel" parent="Contents/Properties/RGB/Green"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.1
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+bbcode_enabled = true
+text = "[b]G[/b]"
+
+[node name="Slider" type="HSlider" parent="Contents/Properties/RGB/Green"]
+self_modulate = Color(0, 1, 0, 1)
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.1
+anchor_right = 0.775
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+max_value = 255.0
+value = 127.0
+rounded = true
+
+[node name="VEdit" type="LineEdit" parent="Contents/Properties/RGB/Green"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.8
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/minimum_character_width = 0
+theme_override_font_sizes/font_size = 12
+text = "255"
+placeholder_text = "0-255"
+
+[node name="Blue" type="Control" parent="Contents/Properties/RGB" node_paths=PackedStringArray("_slider", "_line_input")]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 8.0
+offset_top = 60.0
+offset_right = -8.0
+offset_bottom = 84.0
+grow_horizontal = 2
+script = ExtResource("12_n1s6n")
+_slider = NodePath("Slider")
+_line_input = NodePath("VEdit")
+
+[node name="Hint" type="RichTextLabel" parent="Contents/Properties/RGB/Blue"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.1
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+bbcode_enabled = true
+text = "[b]B[/b]"
+
+[node name="Slider" type="HSlider" parent="Contents/Properties/RGB/Blue"]
+self_modulate = Color(0, 0, 1, 1)
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.1
+anchor_right = 0.775
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+max_value = 255.0
+value = 127.0
+rounded = true
+
+[node name="VEdit" type="LineEdit" parent="Contents/Properties/RGB/Blue"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.8
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/minimum_character_width = 0
+theme_override_font_sizes/font_size = 12
+text = "255"
+placeholder_text = "0-255"
+
+[node name="HSV" type="Control" parent="Contents/Properties"]
+process_mode = 4
+visible = false
+layout_mode = 1
+anchor_top = 0.2
+anchor_right = 1.0
+anchor_bottom = 0.8
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Hue" type="Control" parent="Contents/Properties/HSV" node_paths=PackedStringArray("_slider", "_line_input")]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = -8.0
+offset_bottom = 28.0
+grow_horizontal = 2
+script = ExtResource("13_a28yx")
+_slider = NodePath("Slider")
+_line_input = NodePath("VEdit")
+
+[node name="Hint" type="RichTextLabel" parent="Contents/Properties/HSV/Hue"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.1
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+bbcode_enabled = true
+text = "[b]H[/b]"
+
+[node name="Slider" type="HSlider" parent="Contents/Properties/HSV/Hue"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.1
+anchor_right = 0.775
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+max_value = 1.0
+step = 0.001
+value = 0.5
+
+[node name="VEdit" type="LineEdit" parent="Contents/Properties/HSV/Hue"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.8
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/minimum_character_width = 0
+theme_override_font_sizes/font_size = 12
+text = "0.5"
+placeholder_text = "0-1"
+
+[node name="Saturation" type="Control" parent="Contents/Properties/HSV" node_paths=PackedStringArray("_slider", "_line_input")]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 8.0
+offset_top = 32.0
+offset_right = -8.0
+offset_bottom = 56.0
+grow_horizontal = 2
+script = ExtResource("13_a28yx")
+_slider = NodePath("Slider")
+_line_input = NodePath("VEdit")
+
+[node name="Hint" type="RichTextLabel" parent="Contents/Properties/HSV/Saturation"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.1
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+bbcode_enabled = true
+text = "[b]S[/b]"
+
+[node name="Slider" type="HSlider" parent="Contents/Properties/HSV/Saturation"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.1
+anchor_right = 0.775
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+max_value = 1.0
+step = 0.001
+value = 0.5
+
+[node name="VEdit" type="LineEdit" parent="Contents/Properties/HSV/Saturation"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.8
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/minimum_character_width = 0
+theme_override_font_sizes/font_size = 12
+text = "0.5"
+placeholder_text = "0-1"
+
+[node name="Value" type="Control" parent="Contents/Properties/HSV" node_paths=PackedStringArray("_slider", "_line_input")]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 8.0
+offset_top = 60.0
+offset_right = -8.0
+offset_bottom = 84.0
+grow_horizontal = 2
+script = ExtResource("13_a28yx")
+_slider = NodePath("Slider")
+_line_input = NodePath("VEdit")
+
+[node name="Hint" type="RichTextLabel" parent="Contents/Properties/HSV/Value"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.1
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+bbcode_enabled = true
+text = "[b]V[/b]"
+
+[node name="Slider" type="HSlider" parent="Contents/Properties/HSV/Value"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.1
+anchor_right = 0.775
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+max_value = 1.0
+step = 0.001
+value = 0.5
+
+[node name="VEdit" type="LineEdit" parent="Contents/Properties/HSV/Value"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.8
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/minimum_character_width = 0
+theme_override_font_sizes/font_size = 12
+text = "0.5"
+placeholder_text = "0-1"
+
+[node name="HEXCODE" type="LineEdit" parent="Contents/Properties"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -93.0
+offset_top = -32.4
+offset_right = -8.0
+offset_bottom = -4.40001
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/minimum_character_width = 0
+theme_override_font_sizes/font_size = 14
+text = "#FFFFFF"
+placeholder_text = "#XXXXXX"
+script = ExtResource("14_qqhxk")
+
+[node name="Alpha Slider" type="Control" parent="Contents/Properties" node_paths=PackedStringArray("_slider", "_line_input")]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 12.0
+offset_top = 122.0
+offset_right = -102.0
+offset_bottom = 146.0
+grow_horizontal = 2
+script = ExtResource("13_a28yx")
+_slider = NodePath("Slider")
+_line_input = NodePath("VEdit")
+
+[node name="Hint" type="RichTextLabel" parent="Contents/Properties/Alpha Slider"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.1
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+bbcode_enabled = true
+text = "[b]A[/b]"
+
+[node name="Slider" type="HSlider" parent="Contents/Properties/Alpha Slider"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.1
+anchor_right = 0.775
+anchor_bottom = 1.0
+offset_left = 4.4
+offset_right = -0.899994
+grow_horizontal = 2
+grow_vertical = 2
+max_value = 1.0
+step = 0.001
+value = 0.5
+
+[node name="VEdit" type="LineEdit" parent="Contents/Properties/Alpha Slider"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.8
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/minimum_character_width = 0
+theme_override_font_sizes/font_size = 12
+text = "0.5"
+placeholder_text = "0-1"
+
+[connection signal="pressed" from="Contents/Header/CloseBtn" to="." method="set_process_mode" binds= [4]]
+[connection signal="pressed" from="Contents/Header/CloseBtn" to="." method="set_visible" binds= [false]]
+[connection signal="pressed" from="Contents/Properties/Modes/RGB MODE" to="Contents/Properties/RGB" method="set_process_mode" binds= [0]]
+[connection signal="pressed" from="Contents/Properties/Modes/RGB MODE" to="Contents/Properties/RGB" method="set_visible" binds= [true]]
+[connection signal="pressed" from="Contents/Properties/Modes/RGB MODE" to="Contents/Properties/HSV" method="set_process_mode" binds= [4]]
+[connection signal="pressed" from="Contents/Properties/Modes/RGB MODE" to="Contents/Properties/HSV" method="set_visible" binds= [false]]
+[connection signal="pressed" from="Contents/Properties/Modes/HSV MODE" to="Contents/Properties/RGB" method="set_process_mode" binds= [4]]
+[connection signal="pressed" from="Contents/Properties/Modes/HSV MODE" to="Contents/Properties/RGB" method="set_visible" binds= [false]]
+[connection signal="pressed" from="Contents/Properties/Modes/HSV MODE" to="Contents/Properties/HSV" method="set_process_mode" binds= [0]]
+[connection signal="pressed" from="Contents/Properties/Modes/HSV MODE" to="Contents/Properties/HSV" method="set_visible" binds= [true]]

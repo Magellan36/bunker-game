@@ -69,32 +69,87 @@ const MODEL_FLOOR_FUDGE: float = 0.0
 ## eyes/eyebrows will read as skin-colored rather than white/dark until
 ## a follow-up assigns per-surface materials by name. Flagged in
 ## docs/systems/player-model/README.md, not a blocker here.
-const SKIN_ALBEDO_PATH: String = "res://assets/models/player/textures/T_Superhero_Male_Dark.png"
-const SKIN_NORMAL_PATH: String = "res://assets/models/player/textures/T_Superhero_Male_Normal.png"
-const SKIN_ROUGHNESS_PATH: String = "res://assets/models/player/textures/T_Superhero_Male_Roughness.png"
+const SKIN_TEXTURES: Dictionary = {
+	"male": {
+		"albedo": "res://assets/models/player/textures/T_Superhero_Male_Dark.png",
+		"normal": "res://assets/models/player/textures/T_Superhero_Male_Normal.png",
+		"roughness": "res://assets/models/player/textures/T_Superhero_Male_Roughness.png",
+	},
+	"female": {
+		"albedo": "res://assets/models/player/textures/T_Superhero_Female_Dark_BaseColor.png",
+		"normal": "res://assets/models/player/textures/T_Superhero_Female_Normal.png",
+		"roughness": "res://assets/models/player/textures/T_Superhero_Female_Roughness.png",
+	},
+}
 
-## Hairstyle — Aug 2026. Sourced from WIP/FINAL/Hairstyles/"Rigged to
+## Aug 2026 — which body FBX to instantiate at runtime (see _ready()).
+## Both share the identical mixamorig: skeleton, confirmed directly —
+## every existing animation library plays on either unmodified.
+const BODY_SCENE_PATHS: Dictionary = {
+	"male": "res://assets/models/player/male.fbx",
+	"female": "res://assets/models/player/female.fbx",
+}
+
+## Aug 2026 — opt-in flag for reading CharacterCreationData (gender/
+## hairstyle_key/hair_tint_color) instead of the hardcoded defaults
+## below. Set true on Player.tscn's PlayerModel/PlayerModelShadow nodes
+## and on the character-creation screen's live preview instance. Left
+## false (the default) for NPCs and anything else — nothing about NPC
+## appearance changes based on what the player picks for themselves.
+@export var use_character_creation_data: bool = false
+
+## Hairstyles — Aug 2026. Sourced from WIP/FINAL/Hairstyles/"Rigged to
 ## Head Bone"/ (not "Origin at 0" — that variant has no bind-pose data
 ## to extract, see the plan doc for why "Rigged to Head Bone" was
 ## chosen despite looking more complex). Confirmed via direct binary
-## inspection: 100% of this mesh's vertex weight is on its own "Head"
-## joint, so it's treated as a rigid prop, not truly re-skinned.
-## Swap hairstyles by changing these two constants — everything else in
-## _setup_hair() is generic per-asset extraction, not specific to this
-## particular style.
-const HAIR_SCENE_PATH: String = "res://assets/models/player/hair/Hair_Buzzed.gltf"
-const HAIR_MESH_NODE_NAME: String = "Hair_Buzzed"
-
-## Aug 2026 fix pass — the mesh's own imported material wasn't
-## rendering (came in flat grey; textures ARE present on disk, so this
-## bypasses whatever import quirk was in play rather than chasing it
-## blind), same approach already proven for the body in
-## _build_skin_material(). Kept as separate constants/a separate
-## function rather than generalizing _build_skin_material() — different
-## texture set, and hair's material needs double-sided rendering, which
-## the body's doesn't.
-const HAIR_ALBEDO_PATH: String = "res://assets/models/player/hair/T_Hair_1_BaseColor.png"
-const HAIR_NORMAL_PATH: String = "res://assets/models/player/hair/T_Hair_1_Normal.png"
+## inspection: 100% of each mesh's vertex weight is on its own "Head"
+## joint, so they're treated as rigid props, not truly re-skinned.
+## Everything in _setup_hair() is generic per-asset extraction, not
+## specific to any particular style.
+const HAIRSTYLES: Dictionary = {
+	"buzzed": {
+		"scene": "res://assets/models/player/hair/Hair_Buzzed.gltf",
+		"mesh_node": "Hair_Buzzed",
+		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
+		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
+		"position_offset": Vector3(0.0, -1.576469, 0.057),
+	},
+	"buzzed_female": {
+		"scene": "res://assets/models/player/hair/Hair_BuzzedFemale.gltf",
+		"mesh_node": "Hair_BuzzedFemale",
+		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
+		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
+		"position_offset": Vector3(0.0, -1.576469, 0.057),
+	},
+	"simple_parted": {
+		"scene": "res://assets/models/player/hair/Hair_SimpleParted.gltf",
+		"mesh_node": "Hair_SimpleParted",
+		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
+		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
+		"position_offset": Vector3(0.0, -1.576469, 0.057),
+	},
+	"beard": {
+		"scene": "res://assets/models/player/hair/Hair_Beard.gltf",
+		"mesh_node": "Hair_Beard",
+		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
+		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
+		"position_offset": Vector3(0.0, -1.576469, 0.057),
+	},
+	"buns": {
+		"scene": "res://assets/models/player/hair/Hair_Buns.gltf",
+		"mesh_node": "Hair_Buns",
+		"albedo": "res://assets/models/player/hair/T_Hair_2_BaseColor.png",
+		"normal": "res://assets/models/player/hair/T_Hair_2_Normal.png",
+		"position_offset": Vector3(0.0, -1.576469, 0.057),
+	},
+	"long": {
+		"scene": "res://assets/models/player/hair/Hair_Long.gltf",
+		"mesh_node": "Hair_Long",
+		"albedo": "res://assets/models/player/hair/T_Hair_2_BaseColor.png",
+		"normal": "res://assets/models/player/hair/T_Hair_2_Normal.png",
+		"position_offset": Vector3(0.0, -1.576469, 0.057),
+	},
+}
 
 ## Aug 2026 — T_Hair_1_BaseColor.png is a neutral/untinted strand-shading
 ## texture, not a real hair color (opened it directly and confirmed —
@@ -128,11 +183,12 @@ var _current_state: String = ""
 var _skin_material: StandardMaterial3D = null
 var _visual_yaw: float = 0.0
 
-func _build_skin_material() -> StandardMaterial3D:
+func _build_skin_material(gender: String) -> StandardMaterial3D:
+	var textures: Dictionary = SKIN_TEXTURES.get(gender, SKIN_TEXTURES["male"])
 	var mat := StandardMaterial3D.new()
-	var albedo: Texture2D = load(SKIN_ALBEDO_PATH)
-	var normal: Texture2D = load(SKIN_NORMAL_PATH)
-	var rough: Texture2D = load(SKIN_ROUGHNESS_PATH)
+	var albedo: Texture2D = load(textures["albedo"])
+	var normal: Texture2D = load(textures["normal"])
+	var rough: Texture2D = load(textures["roughness"])
 	if albedo != null:
 		mat.albedo_texture = albedo
 	if normal != null:
@@ -185,6 +241,36 @@ func _ready() -> void:
 	if _player != null:
 		_visual_yaw = _player.rotation.y
 
+	## Aug 2026 — Character Creation. Only opted-in instances (Player's
+	## real body + its shadow copy, and the creation screen's own
+	## preview) read the player's chosen gender/hairstyle/color; NPCs
+	## and anything else keep these hardcoded defaults untouched.
+	var gender: String = "male"
+	var hairstyle_key: String = "buzzed"
+	if use_character_creation_data:
+		gender = CharacterCreationData.gender
+		hairstyle_key = CharacterCreationData.hairstyle_key
+		hair_tint_color = CharacterCreationData.hair_tint_color
+
+	## Body is now instantiated at runtime instead of being a static
+	## child baked into PlayerModel.tscn (see that scene — the old
+	## "MaleModel" node is gone from the .tscn). It's named "MaleModel"
+	## anyway because every baked AnimationLibrary track is NodePath
+	## "MaleModel/Skeleton3D:mixamorig_*" (the .fbx scenes expose their
+	## skeleton as a direct child literally named "Skeleton3D", same for
+	## male and female) — a different name here would make all six
+	## animation libraries fail to resolve their tracks. Same 180°
+	## Y-rotation fix as the original male-only pass (Mixamo forward-axis
+	## vs. Godot's own -Z forward), applied generically to whichever body
+	## loads — not independently re-verified for the female body, flagged
+	## in the plan doc.
+	var body_scene_path: String = BODY_SCENE_PATHS.get(gender, BODY_SCENE_PATHS["male"])
+	var body_scene: PackedScene = load(body_scene_path)
+	var body: Node3D = body_scene.instantiate()
+	body.name = "MaleModel"
+	body.transform = Transform3D(Basis(Vector3.UP, PI), Vector3.ZERO)
+	add_child(body)
+
 	## Aug 2026 fix pass — see "Root cause #1: hovering" in
 	## PLAYER_MODEL_FLOOR_FACING_FIX_PLAN.md. Same math
 	## CharacterShadowStandIn.gd uses: floor sits at -height/2 from the
@@ -207,7 +293,7 @@ func _ready() -> void:
 	## this node — a real character can end up with more than one
 	## MeshInstance3D (body + separately-skinned hair/eyebrows in a
 	## future pass).
-	_skin_material = _build_skin_material()
+	_skin_material = _build_skin_material(gender)
 	for node in _find_all_of_type(self, "MeshInstance3D"):
 		var mi: MeshInstance3D = node as MeshInstance3D
 		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
@@ -217,12 +303,12 @@ func _ready() -> void:
 			if is_shadow_only
 			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		)
-		## Aug 2026 fix pass — see SKIN_ALBEDO_PATH above.
+		## Aug 2026 fix pass — see SKIN_TEXTURES above.
 		if mi.mesh != null:
 			for surf_i in mi.mesh.get_surface_count():
 				mi.set_surface_override_material(surf_i, _skin_material)
 
-	_setup_hair(skeleton)
+	_setup_hair(skeleton, hairstyle_key)
 
 	if _anim_player != null:
 		## Aug 2026 fix pass — ALWAYS re-validate rather than only when
@@ -327,11 +413,11 @@ static func _find_bone_name(skeleton: Skeleton3D, bone_hint: String) -> String:
 			return bone_name
 	return ""
 
-## Aug 2026 fix pass — see HAIR_ALBEDO_PATH above.
-func _build_hair_material() -> StandardMaterial3D:
+## Aug 2026 fix pass — see HAIRSTYLES' per-style albedo/normal above.
+func _build_hair_material(style: Dictionary) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
-	var albedo: Texture2D = load(HAIR_ALBEDO_PATH)
-	var normal: Texture2D = load(HAIR_NORMAL_PATH)
+	var albedo: Texture2D = load(style["albedo"])
+	var normal: Texture2D = load(style["normal"])
 	if albedo != null:
 		mat.albedo_texture = albedo
 		mat.albedo_color = hair_tint_color
@@ -345,12 +431,15 @@ func _build_hair_material() -> StandardMaterial3D:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return mat
 
-## Manual placement on top of the identity bone-attach transform below
-## (see _setup_hair() — there is no automatic cross-skeleton placement
-## anymore, so these are the ONLY mechanism). Nudge in the Inspector
-## while watching the live result; degrees for rotation since that's
-## more intuitive to tune by eye than radians.
-@export var hair_position_offset: Vector3 = Vector3(0.0, -1.576469, 0.057)
+## Aug 2026 — now an ADDITIONAL fine-tune on top of whichever style's
+## own base position_offset in HAIRSTYLES (was previously the sole
+## placement mechanism, hardcoded to "buzzed"'s tuned value — now that
+## multiple styles share this controller, that value moved into
+## HAIRSTYLES as "buzzed"'s own entry, and these two exports go back to
+## a neutral zero delta). Nudge in the Inspector while watching the live
+## result if a specific style needs a small correction beyond its
+## dictionary default.
+@export var hair_position_offset: Vector3 = Vector3.ZERO
 @export var hair_rotation_offset_deg: Vector3 = Vector3.ZERO
 
 ## Attaches the configured hairstyle to our OWN Mixamo skeleton's Head
@@ -361,14 +450,15 @@ func _build_hair_material() -> StandardMaterial3D:
 ## plain identity local transform; placement is entirely manual via
 ## hair_position_offset / hair_rotation_offset_deg (see the second fix
 ## pass comment below for why there's no automatic placement).
-func _setup_hair(skeleton: Skeleton3D) -> void:
+func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String) -> void:
 	if skeleton == null:
 		return
-	var hair_scene: PackedScene = load(HAIR_SCENE_PATH)
+	var style: Dictionary = HAIRSTYLES.get(hairstyle_key, HAIRSTYLES["buzzed"])
+	var hair_scene: PackedScene = load(style["scene"])
 	if hair_scene == null:
 		return
 	var hair_root: Node = hair_scene.instantiate()
-	var hair_mesh_src: MeshInstance3D = hair_root.find_child(HAIR_MESH_NODE_NAME, true, false) as MeshInstance3D
+	var hair_mesh_src: MeshInstance3D = hair_root.find_child(style["mesh_node"], true, false) as MeshInstance3D
 	if hair_mesh_src == null or hair_mesh_src.skin == null:
 		hair_root.free()
 		return
@@ -390,27 +480,13 @@ func _setup_hair(skeleton: Skeleton3D) -> void:
 		hair_root.free()
 		return
 
-	## Plain identity — trust BoneAttachment3D alone to track the bone's
-	## real live position (that part has always worked correctly).
-	## hair_position_offset/hair_rotation_offset_deg below (already
-	## exported) are the ONLY placement mechanism now — tune those in the
-	## Inspector while watching the live result instead of me re-deriving
-	## matrix math blind a third time. The default hair_position_offset
-	## below is baked from headless measurement (not by-eye): the hair
-	## mesh's geometry is authored ~1.73 above its own origin in the
-	## source frame, and our Head bone (rest basis = identity) sits at
-	## the base of the skull, so the mesh origin must be dropped
-	## ~-1.55 to put the geometry on the crown. The +0.057 Z is the
-	## forward/back correction from the same headless pass: with only the
-	## Y dropped, the cap's front edge sat ~6cm short of the forehead
-	## while its back overhung the skull by ~4cm (the cap sat ~5cm too
-	## far back). Headless measurement of the deformed skull (crown and
-	## head-band extents, mapped via get_bone_global_pose * bind) centers
-	## the cap within the skull's front-to-back extent. Verified in-game
-	## after that pass; small +/- Y adjustments were applied in later
-	## passes (hair sat a bit too high, then a hair too low — settled on
-	## -1.576469). Adjust from there by eye if a few centimeters off.
-	var bind_transform: Transform3D = Transform3D.IDENTITY
+	## Base offset now comes from this style's own HAIRSTYLES entry
+	## (see the dict's doc comment above for why only "buzzed"'s value
+	## is actually playtested-correct) — hair_position_offset/
+	## hair_rotation_offset_deg (both zero by default now) apply as an
+	## additional delta on top, for a quick per-style correction without
+	## touching the dictionary.
+	var base_offset: Vector3 = style.get("position_offset", Vector3.ZERO)
 
 	var attachment := BoneAttachment3D.new()
 	attachment.bone_name = head_bone_name
@@ -421,16 +497,17 @@ func _setup_hair(skeleton: Skeleton3D) -> void:
 		deg_to_rad(hair_rotation_offset_deg.y),
 		deg_to_rad(hair_rotation_offset_deg.z),
 	))
-	var tuned_transform: Transform3D = bind_transform * Transform3D(offset_basis, hair_position_offset)
+	var tuned_transform: Transform3D = Transform3D(offset_basis, base_offset + hair_position_offset)
 
 	var hair_mesh := MeshInstance3D.new()
 	hair_mesh.name = "Hair"
 	hair_mesh.mesh = hair_mesh_src.mesh
 	hair_mesh.transform = tuned_transform
-	## Aug 2026 fix pass — see HAIR_ALBEDO_PATH above. Applied to every
-	## surface the same way the body's skin material is, in case this
-	## hairstyle ever has more than one (Hair_Buzzed only has one today).
-	var hair_material: StandardMaterial3D = _build_hair_material()
+	## Aug 2026 fix pass — see HAIRSTYLES' per-style albedo/normal above.
+	## Applied to every surface the same way the body's skin material is,
+	## in case this hairstyle ever has more than one (Hair_Buzzed only
+	## has one today).
+	var hair_material: StandardMaterial3D = _build_hair_material(style)
 	if hair_mesh.mesh != null:
 		for surf_i in hair_mesh.mesh.get_surface_count():
 			hair_mesh.set_surface_override_material(surf_i, hair_material)

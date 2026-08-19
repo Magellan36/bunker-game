@@ -32,7 +32,7 @@ this system exists beyond instancing `PlayerModel.tscn` as a child.
 ## Files
 | File | Role |
 |---|---|
-| `scenes/player/PlayerModel.tscn` | Instances the imported `male.fbx` body + `AnimationPlayer` with idle/walk/run libraries; instanced as a child of `Player.tscn`'s `CharacterBody3D` root. |
+| `scenes/player/PlayerModel.tscn` | `AnimationPlayer` with idle/walk/run libraries + `PlayerModelController.gd`, which instantiates the body itself at runtime (see "Runtime body & character creation" below); instanced as a child of `Player.tscn`'s `CharacterBody3D` root. |
 | `scripts/player/PlayerModelController.gd` | Attached to `PlayerModel.tscn`'s root — see Responsibilities above. |
 | `assets/models/player/male.fbx` | Mixamo-rigged base male body (`mixamorig:` skeleton). Source: `assets/models/WIP/FINAL/Male Locomotion Pack/`, Quaternius, CC0. |
 | `assets/models/player/idle.fbx` / `walk.fbx` / `run.fbx` | Matched Mixamo animation clips (same skeleton) for the body above. Imported as separate `AnimationLibrary` resources under `assets/models/player/anims/`. |
@@ -122,10 +122,12 @@ binary inspection that it's 100% rigidly weighted to its own Head joint,
 so rather than remapping skin weights onto our skeleton, the mesh's own
 bind-pose transform for that joint (`Skin.get_bind_pose()`, read at
 runtime, not hardcoded — differs slightly per hairstyle file) is applied
-to a plain static copy of the mesh instead. Swap hairstyles by changing
-`HAIR_SCENE_PATH`/`HAIR_MESH_NODE_NAME` and copying the new file's
-`.gltf`/`.bin`/textures the same way — the extraction logic is generic,
-not specific to `Hair_Buzzed`.
+to a plain static copy of the mesh instead. Swap hairstyles by copying the
+new file's `.gltf`/`.bin`/textures into `assets/models/player/hair/` and
+adding an entry to the `HAIRSTYLES` dictionary (key → scene path + mesh
+node name + base `position_offset`) — the extraction logic is generic,
+not specific to `Hair_Buzzed`. See "Runtime body & character creation"
+below.
 
 **Materials (Aug 2026 fix pass):** the imported hairstyle's own material
 wasn't rendering (flat grey despite the source textures being present),
@@ -140,10 +142,12 @@ a completely different reference skeleton than ours, and getting an
 exact automatic mapping right would need a real cross-skeleton retarget,
 not a one-line transform. Simplified instead: `_setup_hair()` now uses
 plain `Transform3D.IDENTITY` (trusting `BoneAttachment3D` alone to track
-the real bone position) and `hair_position_offset`/
-`hair_rotation_offset_deg` (exported on `PlayerModel`'s root node) are
-the ONLY placement mechanism. The position default is baked from
-headless measurement — `Vector3(0.0, -1.576469, 0.057)` — because the
+the real bone position) plus a per-style base offset carried in the
+`HAIRSTYLES` dictionary (see "Runtime body & character creation" below).
+`hair_position_offset`/`hair_rotation_offset_deg` (exported on
+`PlayerModel`'s root node) remain as an ADDITIONAL nudge on top of the
+style's base offset — both now default to `0.0`. The baked base offset
+for `buzzed` is `Vector3(0.0, -1.576469, 0.057)` — because the
 hair mesh's geometry is authored ~1.73 above its own origin in the
 source frame and our Head bone's rest basis is identity, so the mesh
 origin has to drop ~-1.55 to land the geometry on the crown (measured
@@ -268,3 +272,35 @@ judgment call needed — a real carry-run clip was provided). Swapping any
 one of the three carry clips later follows the exact same steps as
 swapping the base run animation (see "Running animation" above) — just
 substitute the `_carry`-suffixed filename/dict keys.
+
+## Runtime body & character creation (Aug 2026)
+`PlayerModel.tscn` no longer statically instances the `male.fbx` body —
+`PlayerModelController._ready()` instantiates the body scene itself at
+runtime and adds it under the root:
+
+- **Which body:** `BODY_SCENE_PATHS[gender]`, where `gender` comes from
+  `CharacterCreationData` (`"male"` default) only when
+  `use_character_creation_data = true`; otherwise hardcoded male. The
+  selected skin is applied per-gender from `SKIN_TEXTURES` (female →
+  `T_Superhero_Female_Dark_BaseColor.png`, male → `T_Superhero_Male_...`).
+- **Node name is load-bearing: `MaleModel`.** Every baked animation
+  library's track paths are `MaleModel/Skeleton3D:mixamorig_*`, and the
+  FBX's imported scene exposes its skeleton as a direct child literally
+  named `Skeleton3D` for both male and female, so the runtime body must
+  keep the exact name `MaleModel` or every animation track fails to
+  resolve (hundreds of warnings, nothing animates). Do not rename.
+- **Facing:** the runtime body is added with
+  `Transform3D(Basis(Vector3.UP, PI), Vector3.ZERO)` — the 180° static Y
+  rotation that used to live on the scene now happens in code because the
+  body is dynamic. Note the 12-scalar `Transform3D(...)` literal is NOT
+  callable from GDScript; use the `Basis`+`Vector3` form.
+- **Female import override:** `female.fbx` imports at
+  `root_scale = 100.0` to match `male.fbx` (Godot's default `1.0` left
+  the female body ~100× too small); that override lives in
+  `assets/models/player/female.fbx.import`.
+- **Who reacts to `CharacterCreationData`:** only instances with
+  `use_character_creation_data = true` (`Player.tscn`'s `PlayerModel` +
+  `PlayerModelShadow`, and the creation screen's preview). Everything else
+  (NPCs, default) keeps the identical hardcoded male/buzzed/dark-brown
+  look as before — see `docs/systems/character-creation/README.md` for the
+  full screen flow.

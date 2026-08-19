@@ -1,6 +1,5 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=8 format=3]
 
-[ext_resource type="PackedScene" uid="uid://b2s864bjtlv0s" path="res://assets/models/player/male.fbx" id="1_male"]
 [ext_resource type="Script" path="res://scripts/player/PlayerModelController.gd" id="2_script"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_lib.res" id="3_idle"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_lib.res" id="4_walk"]
@@ -21,7 +20,3 @@ libraries = {
 "walk_carry_lib": ExtResource("7_walk_carry"),
 "run_carry_lib": ExtResource("8_run_carry")
 }
-root_motion_track = NodePath("MaleModel/Skeleton3D:mixamorig_Hips")
-
-[node name="MaleModel" parent="." instance=ExtResource("1_male")]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
