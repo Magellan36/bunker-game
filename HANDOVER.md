@@ -1,5 +1,18 @@
 # Handover — Character Creation: Sidebar Categories, Hair Thumbnails, Swatch Palette (Aug 2026)
 
+## Follow-up: sidebar top/bottom + universal left/right margins
+Pure `CharacterCreation.tscn` layout pass, no script changes. Added a
+`SidebarMargin` `MarginContainer` (24px left/right) around the sidebar's
+content and a `CategoryPanelMargin` around the panel content; fixed 32px
+`TopMargin`/`BottomMargin` spacers at the start/end of `CategoriesGroup`
+so "Body" and "Accessories" sit 32px from the sidebar's top/bottom while
+the 4 flexible spacers still divide the space between the 5 buttons.
+`Randomise`/`Complete` now live inside `SidebarContent` (still pinned to
+the bottom) so they get the same 24px inset. `BodyPanel`/`HairPanel`
+switched from manual `anchors_preset` to plain container placement under
+the margin container. Probe (`verify_cc_margin`) 24/24 PASS at 1920×1080,
+boot gate EXITCODE=0.
+
 ## Follow-up: layout spacing, proportions, camera facing, swatch visibility
 Second pass on the same screen. Sidebar category buttons now live in an
 expanding inner `CategoriesGroup` (4 expanding `Control` spacers between
