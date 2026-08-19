@@ -1,3 +1,41 @@
+# Handover — Stove Model Fix: Leftover 100× Scale Matrix (Aug 2026)
+
+## What changed this session
+Fixed the just-shipped Stove model rendering ~100× too large in-world.
+Root cause: `assets/models/stove.glb`'s single mesh-bearing node used a
+raw glTF `matrix` field (not decomposed translation/rotation/scale) to
+carry a leftover, never-detected 100×-scale-plus-rotation transform from
+the original FBX→glTF conversion (via `assimp export`) — separate from,
+and compounding with, the intentional vertex-level orientation fix
+applied afterward. Every verification done in the original plan (bounding-
+box math, scatter-plot renders) worked directly with raw vertex data and
+never exercised node transforms, so this was invisible until placed
+in-world. Fixed by removing the leftover matrix from the asset — verified
+both nodes now have no matrix/TRS override (clean identity) and the
+mesh's bounding box matches the originally-intended dimensions. No code
+changes needed — `Stove.gd`'s scale constant was correct all along.
+
+### Files modified
+- `assets/models/stove.glb` — replaced with corrected file (matrix
+  removed).
+- `docs/systems/build/README.md` — correction note appended to the
+  existing Stove subsection.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Place a Stove — renders at the intended ~0.85 × 1.16 × 0.78m size,
+   NOT enormous relative to the bunker.
+3. Construct-menu spinning preview — same correct size.
+4. Re-verify collision blocks at the correct footprint (0.85 × 0.7768) —
+   should already be fine since collision was never derived from the
+   broken visual scale, but worth confirming nothing looks mismatched
+   now that the visual is fixed.
+5. Cooking Pot still sits correctly on top of the (now correctly-sized)
+   model.
+
+---
+
 # Handover — NPC Shadow Parity: Same Model-Based Shadow as Player (Aug 2026)
 
 ## What changed this session

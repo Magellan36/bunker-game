@@ -775,3 +775,18 @@ needed there.
 No texture files needed for this asset — all 5 materials
 (Black/LightMetal/DarkMetal/White/Glass) are flat diffuse colors with no
 image textures, unlike every prior GLB in this project.
+
+**Correction (same session):** the originally-shipped `stove.glb` had a
+leftover, undetected node transform — a raw glTF `matrix` field (not the
+decomposed translation/rotation/scale fields every prior wrapper-offset
+check looked for) left over from the original FBX→glTF conversion step,
+carrying its own un-fixed 100×-scale-plus-rotation. It compounded with
+the intentional vertex-level orientation fix applied afterward, causing
+the placed Stove to render roughly 100× too large ("several times larger
+than the bunker"). Fixed by removing the leftover matrix from the
+asset — no code changes were needed, `Stove.gd`'s `MODEL_SCALE` was
+always correct. **Lesson for future FBX/assimp-derived assets**: check
+for a raw `matrix` field on every node, not just
+`translation`/`rotation`/`scale` individually — glTF nodes can use
+either form, and this codebase's existing wrapper-offset checks so far
+only looked for the decomposed form.
