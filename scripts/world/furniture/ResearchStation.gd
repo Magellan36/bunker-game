@@ -361,12 +361,37 @@ func _build_mesh() -> void:
 	## it). Unverified visually — if it renders mirrored, flip this single
 	## value to 1.0.
 	const CHUTE_HOUSING_HEIGHT: float = 1.05
+
+	## Riser — the wedge no longer tapers all the way to the floor. This
+	## short box is the vertical wall at the box-side end: floor to
+	## TOP_Y/3 (≈0.25, "about 1/3rd up the side" of the research station
+	## per direction), spanning the full chute footprint. The ramp below
+	## sits on top of this instead of on the floor directly.
+	const RISER_HEIGHT: float = TOP_Y / 3.0
+	var riser_mi: MeshInstance3D = MeshInstance3D.new()
+	var riser_mesh: BoxMesh = BoxMesh.new()
+	riser_mesh.size = Vector3(CHUTE_WIDTH - 0.10, RISER_HEIGHT, 0.80)
+	riser_mi.mesh = riser_mesh
+	riser_mi.position = Vector3(CHUTE_CENTER_X, RISER_HEIGHT * 0.5, 0.0)
+	riser_mi.set_surface_override_material(0, mat)
+	add_child(riser_mi)
+	riser_mi.create_trimesh_collision()
+	for child in riser_mi.get_children():
+		if child is StaticBody3D:
+			(child as StaticBody3D).collision_layer = 5
+			(child as StaticBody3D).collision_mask  = 0
+
+	## Ramp — same wedge as before, just shortened by RISER_HEIGHT and
+	## raised to sit on top of the riser. Tall end stays at the same
+	## absolute height as before (RISER_HEIGHT + RAMP_HEIGHT = 1.05,
+	## unchanged), so the mouth/opening marker below needs no repositioning.
+	const RAMP_HEIGHT: float = CHUTE_HOUSING_HEIGHT - RISER_HEIGHT
 	var chute_mi: MeshInstance3D = MeshInstance3D.new()
 	var chute_mesh: PrismMesh = PrismMesh.new()
-	chute_mesh.size = Vector3(CHUTE_WIDTH - 0.10, CHUTE_HOUSING_HEIGHT, 0.80)
+	chute_mesh.size = Vector3(CHUTE_WIDTH - 0.10, RAMP_HEIGHT, 0.80)
 	chute_mesh.left_to_right = 0.0
 	chute_mi.mesh = chute_mesh
-	chute_mi.position = Vector3(CHUTE_CENTER_X, CHUTE_HOUSING_HEIGHT * 0.5, 0.0)
+	chute_mi.position = Vector3(CHUTE_CENTER_X, RISER_HEIGHT + RAMP_HEIGHT * 0.5, 0.0)
 	chute_mi.set_surface_override_material(0, mat)
 	add_child(chute_mi)
 	chute_mi.create_trimesh_collision()
