@@ -5,7 +5,7 @@ var popup_window: Window
 
 func _enter_tree():
 	# Load your popup scene
-	var popup_scene = preload("res://addons/godot_sandbox/downloader.tscn")
+	var popup_scene = preload("res://godot_sandbox/downloader.tscn")
 	popup_window = popup_scene.instantiate()
 	popup_window.close_requested.connect(popup_window.hide)
 	

@@ -30,6 +30,24 @@ var _dragging: bool = false
 
 func _ready() -> void:
 	_update_camera()
+	_apply_graphics_settings()
+
+## Aug 2026 — GPU-crash mitigation. The preview SubViewport (960x1080) is
+## the heaviest 3D render target on the character-creation screen; its MSAA
+## is forced off and its 3D render scale is routed through the existing
+## GraphicsSettings autoload so a lowered render_scale actually reduces the
+## preview's GPU load instead of only affecting the in-world viewport. The
+## preview is one static skinned mesh — MSAA here is visually imperceptible,
+## and the Forward+ MSAA buffer it would otherwise reserve is exactly the
+## kind of render-target pressure that triggered the RENDER_LIST_OPAQUE
+## allocation failure on the RX 580 (see godotcrash.txt investigation).
+func _apply_graphics_settings() -> void:
+	var vp := get_node_or_null("SubViewport") as SubViewport
+	if vp == null:
+		return
+	vp.msaa_3d = Viewport.MSAA_DISABLED
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = GraphicsSettings.render_scale
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
