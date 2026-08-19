@@ -343,18 +343,33 @@ no `get_root_motion_*()` calls). `_root_motion_track_valid()` only
 checked that the NodePath resolved to a real bone, so it had no way to
 catch that the bone's own keyframe values were the problem.
 
-## Per-hairstyle position offsets (Aug 2026)
-Every `position_offset` in `HAIRSTYLES` is now computed from that style's
-own mesh center (decoded from its `.gltf` `POSITION` accessor bounds),
-relative to `buzzed`'s known-good, playtested offset — not copy-pasted
-from `buzzed` anymore (previously every style after `"buzzed"` shared its
-exact value, so all five were placed with a mesh tuned for a completely
-different geometry). The method: `style_offset = buzzed_offset +
-(buzzed_mesh_center − style_mesh_center)` per axis, so each style's mesh
-center lands at the same head-relative spot as `buzzed`'s. This assumes
-the shared reference-frame correction is consistent across styles from
-the same Quaternius kit — a computed best estimate, not a second live
-tuning pass. If a new hairstyle is ever added, compute its offset the
-same way as a starting point rather than reusing `buzzed`'s value
-directly — it should land much closer than a blind copy, though still
-worth a quick visual check since it is not a live-tuned number.
+## Per-hairstyle position offsets (Aug 2026, 2nd pass)
+Every `position_offset` in `HAIRSTYLES` is derived from the SOURCE
+inverse-bind matrices, not the mesh geometry, using the formula
+`style_offset = buzzed_offset + (head_world_buzzed − head_world_style)`
+per axis, where `head_world` is the source armature's Head bone world
+position (recovered from the `.gltf` `inverseBindMatrices` buffer for
+the joint named "Head"). The mesh-geometry-center terms cancel out of
+that derivation — only the head-bone world delta matters — so:
+
+- The six assets actually span TWO different reference armatures, not
+  one: `buzzed`/`simple_parted`/`beard` share armature A (Head bone
+  world y ≈ 1.5998, ~−15.4° x-rot) and `buzzed_female`/`buns`/`long`
+  share armature B (Head bone world y ≈ 1.5496, ~−23.6° x-rot).
+- Armature A styles therefore reuse `buzzed`'s exact offset (identical
+  head bone), which also correctly preserves the beard's geometry sitting
+  ~11cm lower on the jaw than the scalp styles — a chin piece is *meant*
+  to be lower, and normalizing its center up to the scalp anchor (the
+  first pass) moved it up onto the face.
+- Armature B styles get one shared delta `(+0.0502 y, −0.0065 z)`.
+
+The first pass instead normalized each mesh's raw `POSITION`-accessor
+AABB center onto `buzzed`'s anchor, which was internally consistent but
+mathematically wrong: it lifted the beard ~11cm off the jaw and
+mis-set every other style by 1–4cm. Caveat that remains: armature B's
+head is also rotated ~8° more than armature A's, and placement is
+translation-only today (`hair_rotation_offset_deg` defaults to 0), so a
+perfect match there may still want a small per-style rotation nudge on
+top of the corrected offset. If a new hairstyle is ever added, compute
+its offset from the source bind matrices with the formula above, and
+check which armature group it belongs to.

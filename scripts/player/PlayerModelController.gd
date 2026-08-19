@@ -106,6 +106,19 @@ const BODY_SCENE_PATHS: Dictionary = {
 ## joint, so they're treated as rigid props, not truly re-skinned.
 ## Everything in _setup_hair() is generic per-asset extraction, not
 ## specific to any particular style.
+## Aug 2026 (2nd pass): the six assets actually span TWO different
+## reference armatures, not one — buzzed/simple_parted/beard share
+## armature A (Head bone world y=1.5998, ~-15.4deg x-rot), while
+## buzzed_female/buns/long share armature B (Head bone world y=1.5496,
+## ~-23.6deg x-rot). Per-style offsets are derived as
+##   offset = buzzed_offset + (head_world_buzzed - head_world_style)
+## (from the source inverse-bind matrices). The mesh-geometry-center
+## terms cancel out of that derivation entirely — only the head-bone
+## world delta matters, so armature A styles reuse buzzed's exact value
+## and armature B styles get one shared small delta (+0.0502 y, -0.0065
+## z). The first pass instead normalized each mesh's raw AABB center to
+## buzzed's anchor, which lifted the beard ~11cm up off the jaw and
+## mis-set every other style by 1-4cm.
 const HAIRSTYLES: Dictionary = {
 	"buzzed": {
 		"scene": "res://assets/models/player/hair/Hair_Buzzed.gltf",
@@ -119,42 +132,48 @@ const HAIRSTYLES: Dictionary = {
 		"mesh_node": "Hair_BuzzedFemale",
 		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
-		## Aug 2026 — computed from this style's own mesh center
-		## (decoded directly from its .gltf POSITION accessor), not
-		## copied from "buzzed" — see the plan doc for the method.
-		"position_offset": Vector3(0.0, -1.533489, 0.06035),
+		## Armature B (Head world y=1.5496): delta from buzzed's head
+		## is +0.0502 y, -0.0065 z — computed from the source
+		## inverse-bind matrices, not the mesh AABB center.
+		"position_offset": Vector3(0.0, -1.526269, 0.0505),
 	},
 	"simple_parted": {
 		"scene": "res://assets/models/player/hair/Hair_SimpleParted.gltf",
 		"mesh_node": "Hair_SimpleParted",
 		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
-		"position_offset": Vector3(-0.00229, -1.597779, 0.05911),
+		## Armature A — identical head bone to buzzed's, so the same
+		## offset; this style's own (higher) center places it right.
+		"position_offset": Vector3(0.0, -1.576469, 0.057),
 	},
 	"beard": {
 		"scene": "res://assets/models/player/hair/Hair_Beard.gltf",
 		"mesh_node": "Hair_Beard",
 		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
-		## Aug 2026 — largest correction of the five: Beard's mesh
-		## center sits noticeably lower and further forward (chin/jaw)
-		## than the scalp-hair styles', matching the screenshot showing
-		## it floating across the whole face at the old shared offset.
-		"position_offset": Vector3(0.0, -1.467079, 0.00007),
+		## Armature A — identical head bone to buzzed's. The beard's mesh
+		## center sits ~11cm lower than the scalp styles' BECAUSE it
+		## belongs on the jaw; the first pass's anchor-normalization
+		## lifted it up onto the face, which is exactly the reported
+		## problem. The same offset as buzzed preserves that correct
+		## jaw placement.
+		"position_offset": Vector3(0.0, -1.576469, 0.057),
 	},
 	"buns": {
 		"scene": "res://assets/models/player/hair/Hair_Buns.gltf",
 		"mesh_node": "Hair_Buns",
 		"albedo": "res://assets/models/player/hair/T_Hair_2_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_2_Normal.png",
-		"position_offset": Vector3(0.0, -1.502239, 0.06015),
+		## Armature B — see buzzed_female's note; same derived delta.
+		"position_offset": Vector3(0.0, -1.526269, 0.0505),
 	},
 	"long": {
 		"scene": "res://assets/models/player/hair/Hair_Long.gltf",
 		"mesh_node": "Hair_Long",
 		"albedo": "res://assets/models/player/hair/T_Hair_2_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_2_Normal.png",
-		"position_offset": Vector3(0.0, -1.486689, 0.0708),
+		## Armature B — see buzzed_female's note; same derived delta.
+		"position_offset": Vector3(0.0, -1.526269, 0.0505),
 	},
 }
 
