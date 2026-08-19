@@ -321,7 +321,7 @@ func _build_hair_material() -> StandardMaterial3D:
 ## anymore, so these are the ONLY mechanism). Nudge in the Inspector
 ## while watching the live result; degrees for rotation since that's
 ## more intuitive to tune by eye than radians.
-@export var hair_position_offset: Vector3 = Vector3(0.0, -1.546469, 0.057)
+@export var hair_position_offset: Vector3 = Vector3(0.0, -1.566469, 0.057)
 @export var hair_rotation_offset_deg: Vector3 = Vector3.ZERO
 
 ## Attaches the configured hairstyle to our OWN Mixamo skeleton's Head
@@ -377,7 +377,9 @@ func _setup_hair(skeleton: Skeleton3D) -> void:
 	## while its back overhung the skull by ~4cm (the cap sat ~5cm too
 	## far back). Headless measurement of the deformed skull (crown and
 	## head-band extents, mapped via get_bone_global_pose * bind) centers
-	## the cap within the skull's front-to-back extent. Adjust from there
+	## the cap within the skull's front-to-back extent. Verified in-game
+	## after that pass; a further -0.02 Y was applied in the next pass
+	## (hair sat a tiny bit too high on the skull). Adjust from there
 	## by eye if a few centimeters off.
 	var bind_transform: Transform3D = Transform3D.IDENTITY
 
