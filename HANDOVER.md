@@ -1,5 +1,23 @@
 # Handover — Character Creation: Sidebar Categories, Hair Thumbnails, Swatch Palette (Aug 2026)
 
+## Follow-up: layout spacing, proportions, camera facing, swatch visibility
+Second pass on the same screen. Sidebar category buttons now live in an
+expanding inner `CategoriesGroup` (4 expanding `Control` spacers between
+the 5 buttons) so they spread evenly instead of clumping at the top;
+`Randomise`/`Complete` stay direct `Sidebar` children and stay pinned at
+the bottom. Proportions switched from fixed pixel widths to
+`size_flags_horizontal = 3` + `size_flags_stretch_ratio` 1/2/3
+(Sidebar/CategoryPanel/Preview) — resolution-independent 1:2:3 split.
+`BodyPanel`/`HairPanel` got `alignment = 1` (center) + separation 24/16.
+`CharacterPreviewViewport.gd` starts `_yaw = PI` so the camera sits at
+`-Z` (the character's front after the 180° Mixamo fix) instead of its
+back, and framing retuned (`look_at` 1.0, distance 2.2, pitch -0.05)
+for the ~2.1 m scaled character. Swatch bug: `flat = true` suppressed
+Godot buttons' normal-state background entirely, hiding every swatch
+until hover — removed (normal/hover/pressed styleboxes are all
+overridden anyway). Verify probe (`verify_cc_layout`) 21/21 PASS at
+1920×1080, boot gate EXITCODE=0.
+
 ## What changed this session
 Replaced the linear Gender→Hair wizard with a persistent **sidebar**
 (Body/Face/Hair/Features/Accessories) + a category panel that swaps on

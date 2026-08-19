@@ -6,15 +6,26 @@ extends SubViewportContainer
 ## game ever loads.
 
 @export var camera: Camera3D = null
-@export var look_at_point: Vector3 = Vector3(0.0, 1.4, 0.0)  ## roughly chest height
-@export var distance: float = 3.0
+## Aug 2026 — retuned for the character's actual scaled height (~2.1 m
+## after the 1.25x model scale) now that both the facing and floor-
+## offset fixes are in — the old values were tuned blind before either
+## existed. ~1.0 m (roughly navel/lower-torso height) centers a
+## standing figure of that height reasonably in frame at this distance.
+@export var look_at_point: Vector3 = Vector3(0.0, 1.0, 0.0)
+@export var distance: float = 2.2
 @export var min_distance: float = 1.2
-@export var max_distance: float = 6.0
+@export var max_distance: float = 5.0
 @export var orbit_speed: float = 0.005
 @export var zoom_speed: float = 0.25
 
-var _yaw: float = 0.0
-var _pitch: float = -0.1
+## Aug 2026 — yaw starts at PI, not 0. At yaw 0 the camera sits at +Z
+## looking toward -Z; the character's front faces -Z (Godot's own
+## forward convention, after PlayerModelController's 180° Mixamo-axis
+## fix) — so a camera at +Z is looking at the character from behind
+## where its face points, i.e. its back. PI puts the camera on the
+## correct side to see the front by default.
+var _yaw: float = PI
+var _pitch: float = -0.05
 var _dragging: bool = false
 
 func _ready() -> void:

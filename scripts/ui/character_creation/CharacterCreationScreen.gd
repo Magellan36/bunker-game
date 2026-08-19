@@ -228,7 +228,12 @@ func _build_color_swatches() -> void:
 	for c in HAIR_COLOR_SWATCHES:
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(32, 32)
-		btn.flat = true
+		## NOT flat — Godot's flat buttons skip drawing a background in
+		## their idle/normal state by design, which was hiding every
+		## swatch's color until hovered even though the stylebox
+		## override below was correctly set the whole time. Redundant
+		## with flat anyway now that normal/hover/pressed are all
+		## explicitly overridden with the same color.
 		var style := StyleBoxFlat.new()
 		style.bg_color = c
 		style.set_corner_radius_all(4)

@@ -17,11 +17,11 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_screen")
-category_body_button = NodePath("HBoxContainer/Sidebar/CategoryBody")
-category_face_button = NodePath("HBoxContainer/Sidebar/CategoryFace")
-category_hair_button = NodePath("HBoxContainer/Sidebar/CategoryHair")
-category_features_button = NodePath("HBoxContainer/Sidebar/CategoryFeatures")
-category_accessories_button = NodePath("HBoxContainer/Sidebar/CategoryAccessories")
+category_body_button = NodePath("HBoxContainer/Sidebar/CategoriesGroup/CategoryBody")
+category_face_button = NodePath("HBoxContainer/Sidebar/CategoriesGroup/CategoryFace")
+category_hair_button = NodePath("HBoxContainer/Sidebar/CategoriesGroup/CategoryHair")
+category_features_button = NodePath("HBoxContainer/Sidebar/CategoriesGroup/CategoryFeatures")
+category_accessories_button = NodePath("HBoxContainer/Sidebar/CategoriesGroup/CategoryAccessories")
 body_panel = NodePath("HBoxContainer/CategoryPanel/BodyPanel")
 hair_panel = NodePath("HBoxContainer/CategoryPanel/HairPanel")
 male_button = NodePath("HBoxContainer/CategoryPanel/BodyPanel/Male")
@@ -41,33 +41,50 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="Sidebar" type="VBoxContainer" parent="HBoxContainer"]
-custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.0
+size_flags_vertical = 3
+
+[node name="CategoriesGroup" type="VBoxContainer" parent="HBoxContainer/Sidebar"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="CategoryBody" type="Button" parent="HBoxContainer/Sidebar"]
+[node name="CategoryBody" type="Button" parent="HBoxContainer/Sidebar/CategoriesGroup"]
 layout_mode = 2
 text = "Body"
 
-[node name="CategoryFace" type="Button" parent="HBoxContainer/Sidebar"]
+[node name="Spacer1" type="Control" parent="HBoxContainer/Sidebar/CategoriesGroup"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CategoryFace" type="Button" parent="HBoxContainer/Sidebar/CategoriesGroup"]
 layout_mode = 2
 text = "Face"
 
-[node name="CategoryHair" type="Button" parent="HBoxContainer/Sidebar"]
+[node name="Spacer2" type="Control" parent="HBoxContainer/Sidebar/CategoriesGroup"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CategoryHair" type="Button" parent="HBoxContainer/Sidebar/CategoriesGroup"]
 layout_mode = 2
 text = "Hair"
 
-[node name="CategoryFeatures" type="Button" parent="HBoxContainer/Sidebar"]
+[node name="Spacer3" type="Control" parent="HBoxContainer/Sidebar/CategoriesGroup"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CategoryFeatures" type="Button" parent="HBoxContainer/Sidebar/CategoriesGroup"]
 layout_mode = 2
 text = "Features"
 
-[node name="CategoryAccessories" type="Button" parent="HBoxContainer/Sidebar"]
-layout_mode = 2
-text = "Accessories"
-
-[node name="Spacer" type="Control" parent="HBoxContainer/Sidebar"]
+[node name="Spacer4" type="Control" parent="HBoxContainer/Sidebar/CategoriesGroup"]
 layout_mode = 2
 size_flags_vertical = 3
+
+[node name="CategoryAccessories" type="Button" parent="HBoxContainer/Sidebar/CategoriesGroup"]
+layout_mode = 2
+text = "Accessories"
 
 [node name="Randomise" type="Button" parent="HBoxContainer/Sidebar"]
 layout_mode = 2
@@ -78,8 +95,9 @@ layout_mode = 2
 text = "Complete"
 
 [node name="CategoryPanel" type="Control" parent="HBoxContainer"]
-custom_minimum_size = Vector2(320, 0)
 layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 2.0
 size_flags_vertical = 3
 
 [node name="BodyPanel" type="VBoxContainer" parent="HBoxContainer/CategoryPanel"]
@@ -89,6 +107,8 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_constants/separation = 24
+alignment = 1
 
 [node name="Male" type="Button" parent="HBoxContainer/CategoryPanel/BodyPanel"]
 layout_mode = 2
@@ -106,6 +126,8 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_constants/separation = 16
+alignment = 1
 
 [node name="HairStyleLabel" type="Label" parent="HBoxContainer/CategoryPanel/HairPanel"]
 layout_mode = 2
@@ -126,6 +148,7 @@ columns = 5
 [node name="Preview" type="SubViewportContainer" parent="HBoxContainer" node_paths=PackedStringArray("camera")]
 layout_mode = 2
 size_flags_horizontal = 3
+size_flags_stretch_ratio = 3.0
 size_flags_vertical = 3
 stretch = true
 script = ExtResource("2_viewport")
