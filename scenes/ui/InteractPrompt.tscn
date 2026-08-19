@@ -22,8 +22,8 @@ content_margin_bottom = 2.0
 anti_aliasing = true
 anti_aliasing_size = 1.5
 shadow_color = Color(0, 0, 0, 0.2)
-shadow_size = 4
-shadow_offset = Vector2(4, 4)
+shadow_size = 3
+shadow_offset = Vector2(3, 3)
 
 [sub_resource type="StyleBoxFlat" id="CircleSlot"]
 bg_color = Color(0, 0, 0, 0.35)
