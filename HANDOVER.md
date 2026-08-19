@@ -1,5 +1,22 @@
 # Handover — Character Creation: Sidebar Categories, Hair Thumbnails, Swatch Palette (Aug 2026)
 
+## Follow-up: floor-raycast diagnostic (diagnostic only, no behavior change)
+Added `_print_floor_raycast_diagnostic()` to `PlayerModelController.gd`,
+called once at spawn right after `_print_diagnostics()` (skipped for the
+shadow instance). The floor_offset print from the previous pass only
+proves the model matches wherever the `CharacterBody3D` capsule
+physically rests — it can't see a mismatch between the physics floor and
+the visual floor. The new diagnostic casts straight down from the
+skeleton's position (0.5 m up, 5 m down) and prints
+`[PlayerModelController] floor_raycast: hit_y=... skeleton_y=... diff=...`.
+Interpretation on next playtest: `diff` near 0 → physics and model agree
+(not a position/collision mismatch; look at camera-angle perspective);
+clearly non-zero → collision/level-geometry problem in `MainWorld` or the
+spawn point, route to whoever owns that with the exact diff. Also: cheap
+no-code test — stand adjacent to a small table (same depth, not diagonal
+in the isometric view) and re-check the height difference. Boot gate
+EXITCODE=0.
+
 ## Follow-up: sidebar top/bottom + universal left/right margins
 Pure `CharacterCreation.tscn` layout pass, no script changes. Added a
 `SidebarMargin` `MarginContainer` (24px left/right) around the sidebar's

@@ -230,6 +230,35 @@ func _print_diagnostics(skeleton: Skeleton3D) -> void:
 		print("[PlayerModelController] root_motion_track=", _anim_player.root_motion_track,
 			" has_idle=", _anim_player.has_animation("idle_lib/idle"))
 
+## One-time floor-raycast diagnostic — Aug 2026, added after a report
+## that the character's head appeared level with a "small table" (far
+## too short for a standing human), which seems to conflict with the
+## floor_offset print already confirmed self-consistent last pass. That
+## self-consistency only proves the model is correctly aligned to
+## wherever the CharacterBody3D's capsule physically rests — it can't
+## detect a mismatch between the physics floor and the visual floor a
+## player actually sees. Casts straight down from the skeleton's own
+## position and compares the hit point to the skeleton's own Y — a
+## meaningful non-zero diff here points at collision/level geometry,
+## not this file. No-op (skipped, not printed) if there's no player or
+## skeleton to check, or nothing within 5m below to hit.
+func _print_floor_raycast_diagnostic(skeleton: Skeleton3D) -> void:
+	if _player == null or skeleton == null:
+		return
+	var space_state: PhysicsDirectSpaceState3D = _player.get_world_3d().direct_space_state
+	var from: Vector3 = skeleton.global_position + Vector3(0, 0.5, 0)
+	var to: Vector3 = skeleton.global_position + Vector3(0, -5.0, 0)
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = [_player.get_rid()]
+	var hit: Dictionary = space_state.intersect_ray(query)
+	if hit.has("position"):
+		var hit_y: float = (hit["position"] as Vector3).y
+		print("[PlayerModelController] floor_raycast: hit_y=", hit_y,
+			" skeleton_y=", skeleton.global_position.y,
+			" diff=", skeleton.global_position.y - hit_y)
+	else:
+		print("[PlayerModelController] floor_raycast: no hit within 5m below skeleton")
+
 func _ready() -> void:
 	var parent: Node = get_parent()
 	if parent is CharacterBody3D:
@@ -354,6 +383,7 @@ func _ready() -> void:
 	## spawn), no behavior change either way.
 	if not is_shadow_only:
 		_print_diagnostics(skeleton)
+		_print_floor_raycast_diagnostic(skeleton)
 
 func _process(delta: float) -> void:
 	if _player == null:
