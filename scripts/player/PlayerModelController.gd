@@ -122,13 +122,15 @@ const BODY_SCENE_PATHS: Dictionary = {
 ## Aug 2026 (3rd pass, live feedback): all six Y offsets lowered by a
 ## uniform -0.02 (2cm) — everything still read slightly too high in the
 ## character creator. Relative placement between styles is unchanged.
+## Aug 2026 (4th pass, live feedback): all six Z offsets moved back
+## (behind the model, toward -Z) by a uniform -0.0025 (0.25cm).
 const HAIRSTYLES: Dictionary = {
 	"buzzed": {
 		"scene": "res://assets/models/player/hair/Hair_Buzzed.gltf",
 		"mesh_node": "Hair_Buzzed",
 		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
-		"position_offset": Vector3(0.0, -1.596469, 0.057),
+		"position_offset": Vector3(0.0, -1.596469, 0.0545),
 	},
 	"buzzed_female": {
 		"scene": "res://assets/models/player/hair/Hair_BuzzedFemale.gltf",
@@ -138,7 +140,7 @@ const HAIRSTYLES: Dictionary = {
 		## Armature B (Head world y=1.5496): delta from buzzed's head
 		## is +0.0502 y, -0.0065 z — computed from the source
 		## inverse-bind matrices, not the mesh AABB center.
-		"position_offset": Vector3(0.0, -1.546269, 0.0505),
+		"position_offset": Vector3(0.0, -1.546269, 0.048),
 	},
 	"simple_parted": {
 		"scene": "res://assets/models/player/hair/Hair_SimpleParted.gltf",
@@ -147,7 +149,7 @@ const HAIRSTYLES: Dictionary = {
 		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
 		## Armature A — identical head bone to buzzed's, so the same
 		## offset; this style's own (higher) center places it right.
-		"position_offset": Vector3(0.0, -1.596469, 0.057),
+		"position_offset": Vector3(0.0, -1.596469, 0.0545),
 	},
 	"beard": {
 		"scene": "res://assets/models/player/hair/Hair_Beard.gltf",
@@ -160,7 +162,7 @@ const HAIRSTYLES: Dictionary = {
 		## lifted it up onto the face, which is exactly the reported
 		## problem. The same offset as buzzed preserves that correct
 		## jaw placement.
-		"position_offset": Vector3(0.0, -1.596469, 0.057),
+		"position_offset": Vector3(0.0, -1.596469, 0.0545),
 	},
 	"buns": {
 		"scene": "res://assets/models/player/hair/Hair_Buns.gltf",
@@ -168,7 +170,7 @@ const HAIRSTYLES: Dictionary = {
 		"albedo": "res://assets/models/player/hair/T_Hair_2_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_2_Normal.png",
 		## Armature B — see buzzed_female's note; same derived delta.
-		"position_offset": Vector3(0.0, -1.546269, 0.0505),
+		"position_offset": Vector3(0.0, -1.546269, 0.048),
 	},
 	"long": {
 		"scene": "res://assets/models/player/hair/Hair_Long.gltf",
@@ -176,7 +178,7 @@ const HAIRSTYLES: Dictionary = {
 		"albedo": "res://assets/models/player/hair/T_Hair_2_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_2_Normal.png",
 		## Armature B — see buzzed_female's note; same derived delta.
-		"position_offset": Vector3(0.0, -1.546269, 0.0505),
+		"position_offset": Vector3(0.0, -1.546269, 0.048),
 	},
 }
 
