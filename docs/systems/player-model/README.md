@@ -128,7 +128,7 @@ plain `Transform3D.IDENTITY` (trusting `BoneAttachment3D` alone to track
 the real bone position) and `hair_position_offset`/
 `hair_rotation_offset_deg` (exported on `PlayerModel`'s root node) are
 the ONLY placement mechanism. The position default is baked from
-headless measurement — `Vector3(0.0, -1.586469, 0.057)` — because the
+headless measurement — `Vector3(0.0, -1.576469, 0.057)` — because the
 hair mesh's geometry is authored ~1.73 above its own origin in the
 source frame and our Head bone's rest basis is identity, so the mesh
 origin has to drop ~-1.55 to land the geometry on the crown (measured
@@ -139,9 +139,9 @@ Y dropped, the cap's front edge sat ~6cm short of the forehead while
 its back overhung the skull ~4cm; +0.057 centers the cap within the
 skull's front-to-back extent (verified: cap front/back end up ~8mm
 clear of the head band on both sides, hair center world
-`(0.0, 0.78, -0.037)`). The `-1.586469` Y includes follow-up -0.02
-adjustments applied after in-game confirmation that the hair sat a bit
-too high on the skull (hair center now `y≈0.74`). Adjust by eye in the
+`(0.0, 0.78, -0.037)`). The `-1.576469` Y reflects small +/- adjustments
+applied after in-game confirmation of how the hair sits on the skull
+(hair center now `y≈0.75`). Adjust by eye in the
 Inspector if a few centimeters off; degrees for rotation.
 
 **Not done here (clothing):** researched Quaternius's catalog for a
