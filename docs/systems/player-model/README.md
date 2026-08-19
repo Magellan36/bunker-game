@@ -342,3 +342,19 @@ bone is still posed with its full baked translation otherwise, and
 no `get_root_motion_*()` calls). `_root_motion_track_valid()` only
 checked that the NodePath resolved to a real bone, so it had no way to
 catch that the bone's own keyframe values were the problem.
+
+## Per-hairstyle position offsets (Aug 2026)
+Every `position_offset` in `HAIRSTYLES` is now computed from that style's
+own mesh center (decoded from its `.gltf` `POSITION` accessor bounds),
+relative to `buzzed`'s known-good, playtested offset — not copy-pasted
+from `buzzed` anymore (previously every style after `"buzzed"` shared its
+exact value, so all five were placed with a mesh tuned for a completely
+different geometry). The method: `style_offset = buzzed_offset +
+(buzzed_mesh_center − style_mesh_center)` per axis, so each style's mesh
+center lands at the same head-relative spot as `buzzed`'s. This assumes
+the shared reference-frame correction is consistent across styles from
+the same Quaternius kit — a computed best estimate, not a second live
+tuning pass. If a new hairstyle is ever added, compute its offset the
+same way as a starting point rather than reusing `buzzed`'s value
+directly — it should land much closer than a blind copy, though still
+worth a quick visual check since it is not a live-tuned number.

@@ -119,35 +119,42 @@ const HAIRSTYLES: Dictionary = {
 		"mesh_node": "Hair_BuzzedFemale",
 		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
-		"position_offset": Vector3(0.0, -1.576469, 0.057),
+		## Aug 2026 — computed from this style's own mesh center
+		## (decoded directly from its .gltf POSITION accessor), not
+		## copied from "buzzed" — see the plan doc for the method.
+		"position_offset": Vector3(0.0, -1.533489, 0.06035),
 	},
 	"simple_parted": {
 		"scene": "res://assets/models/player/hair/Hair_SimpleParted.gltf",
 		"mesh_node": "Hair_SimpleParted",
 		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
-		"position_offset": Vector3(0.0, -1.576469, 0.057),
+		"position_offset": Vector3(-0.00229, -1.597779, 0.05911),
 	},
 	"beard": {
 		"scene": "res://assets/models/player/hair/Hair_Beard.gltf",
 		"mesh_node": "Hair_Beard",
 		"albedo": "res://assets/models/player/hair/T_Hair_1_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_1_Normal.png",
-		"position_offset": Vector3(0.0, -1.576469, 0.057),
+		## Aug 2026 — largest correction of the five: Beard's mesh
+		## center sits noticeably lower and further forward (chin/jaw)
+		## than the scalp-hair styles', matching the screenshot showing
+		## it floating across the whole face at the old shared offset.
+		"position_offset": Vector3(0.0, -1.467079, 0.00007),
 	},
 	"buns": {
 		"scene": "res://assets/models/player/hair/Hair_Buns.gltf",
 		"mesh_node": "Hair_Buns",
 		"albedo": "res://assets/models/player/hair/T_Hair_2_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_2_Normal.png",
-		"position_offset": Vector3(0.0, -1.576469, 0.057),
+		"position_offset": Vector3(0.0, -1.502239, 0.06015),
 	},
 	"long": {
 		"scene": "res://assets/models/player/hair/Hair_Long.gltf",
 		"mesh_node": "Hair_Long",
 		"albedo": "res://assets/models/player/hair/T_Hair_2_BaseColor.png",
 		"normal": "res://assets/models/player/hair/T_Hair_2_Normal.png",
-		"position_offset": Vector3(0.0, -1.576469, 0.057),
+		"position_offset": Vector3(0.0, -1.486689, 0.0708),
 	},
 }
 
