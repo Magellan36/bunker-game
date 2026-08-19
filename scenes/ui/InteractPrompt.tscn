@@ -5,11 +5,12 @@
 
 [sub_resource type="StyleBoxFlat" id="PromptPanelStyle"]
 bg_color = Color(0.08, 0.08, 0.09, 0.88)
-border_color = Color(0.55, 0.58, 0.62, 0.60)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
+border_color = Color(0.55, 0.58, 0.62, 0.45)
+border_blend = true
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -18,6 +19,11 @@ content_margin_left = 12.0
 content_margin_right = 12.0
 content_margin_top = 2.0
 content_margin_bottom = 2.0
+anti_aliasing = true
+anti_aliasing_size = 1.5
+shadow_color = Color(0, 0, 0, 0.4)
+shadow_size = 6
+shadow_offset = Vector2(0, 3)
 
 [sub_resource type="StyleBoxFlat" id="CircleSlot"]
 bg_color = Color(0, 0, 0, 0.35)
@@ -25,6 +31,8 @@ corner_radius_top_left = 16
 corner_radius_top_right = 16
 corner_radius_bottom_right = 16
 corner_radius_bottom_left = 16
+anti_aliasing = true
+anti_aliasing_size = 1.5
 
 [node name="InteractPrompt" type="CanvasLayer"]
 layer = 5
