@@ -10,23 +10,33 @@ class_name Stove
 ## — see those files for the established convention this follows.
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-const WATTS:    float   = 200.0
-const BOX_SIZE: Vector3 = Vector3(0.85, 0.55, 0.85)   ## grey box body
-const BURNER_RADIUS: float = 0.32
-const BURNER_HEIGHT: float = 0.03
+const WATTS: float = 200.0
 
-const BODY_TOP_PLATE_H: float = 0.035
-const BODY_FOOT_H: float = 0.06
+## Real-model footprint/height, replacing the old procedural BOX_SIZE.
+## Source: assets/models/stove.glb (Kitchen_Oven_Large), uniform scale
+## 0.7257 applied to fit the existing 1×1 tile — see
+## PLAN_stove_glb_swap.md for the full derivation, including why this is
+## uniform (preserves the model's real proportions) rather than forced
+## square like the old placeholder. NOT square — 0.85 × 0.7768 footprint,
+## 1.1558 tall. Every other file that depended on the old square 0.85/0.55
+## values (BuildModeController._tile_half_extents(), MoveDuplicateTool.gd)
+## has been updated to match — see that plan's dependency list if this
+## ever needs to change again.
+const MODEL_PATH:  String  = "res://assets/models/stove.glb"
+const MODEL_SCALE: Vector3 = Vector3(0.7257, 0.7257, 0.7257)
+const FOOTPRINT_X: float = 0.85
+const FOOTPRINT_Z: float = 0.7768
+const MODEL_HEIGHT: float = 1.1558
 
-const COLOR_BODY:      Color = Color(0.29, 0.30, 0.31, 1.0)
-const COLOR_BODY_WEAR: Color = Color(0.36, 0.37, 0.38, 1.0)
-const COLOR_BURNER:    Color = Color(0.06, 0.06, 0.06, 1.0)
 const COLOR_LIGHT_ON:  Color = Color(0.30, 1.00, 0.40, 1.0)   ## green, matches HeavyConsumerTest's COLOR_ON
 const COLOR_LIGHT_OFF: Color = Color(0.25, 0.05, 0.05, 1.0)   ## dark red / unlit
 
-## Local position (relative to Stove root) where a placed Cooking Pot sits,
-## centered on top of the burner. = BOX_SIZE.y + BURNER_HEIGHT.
-const POT_LOCAL_POS: Vector3 = Vector3(0.0, 0.58, 0.0)
+## Local position (relative to Stove root) where a placed Cooking Pot
+## sits — the flat top of the real model (confirmed with Brannon; the
+## source model reads as an oven-tower cabinet with no distinct
+## "burner" geometry, so the very top surface is the intended cooking
+## spot). Was 0.58 under the old procedural box.
+const POT_LOCAL_POS: Vector3 = Vector3(0.0, 1.1558, 0.0)
 
 # ─── State ────────────────────────────────────────────────────────────────────
 var _pm_node_key: String = ""
@@ -51,11 +61,28 @@ func _ready() -> void:
 	if not _is_preview_only:
 		add_to_group("interactable")
 		add_to_group("stove")
+	_build_collision()
 	_build_fixture()
 	set_powered(false)   ## Safety net — matches GrowLight's convention
 	if _is_preview_only:
 		return
 	call_deferred("_register_deferred")
+
+
+## Collision built once, independent of the visual model — matches every
+## other model-swap in this codebase. Direct CollisionShape3D on this
+## StaticBody3D (Stove already extends StaticBody3D — no nested-body
+## trimesh-collision indirection needed). Box spans the full real
+## footprint/height so it blocks movement the same way the tall real
+## model visually reads (unlike thin furniture, this is a floor-to-top
+## obstacle the player walks around, not over).
+func _build_collision() -> void:
+	var shape: CollisionShape3D = CollisionShape3D.new()
+	var box: BoxShape3D = BoxShape3D.new()
+	box.size = Vector3(FOOTPRINT_X, MODEL_HEIGHT, FOOTPRINT_Z)
+	shape.shape = box
+	shape.position = Vector3(0.0, MODEL_HEIGHT * 0.5, 0.0)
+	add_child(shape)
 
 
 func _exit_tree() -> void:
@@ -398,144 +425,37 @@ func _refresh_indicator() -> void:
 
 
 # ─── Visual build ──────────────────────────────────────────────────────────
+## Loads the real Kitchen_Oven_Large model. Every procedural body/feet/
+## burner-ring/knob element the old placeholder built is now supplied by
+## the real mesh — only the indicator light survives, since it's the one
+## piece of functional (not decorative) geometry: it visually reports
+## live powered_on state, which the imported static model can't do on
+## its own. See PLAN_stove_glb_swap.md for the full source-asset
+## breakdown and why this particular model has no distinct "burner"
+## geometry (it reads as an oven-tower cabinet, not an open cooktop).
 func _build_fixture() -> void:
-	## Main body
-	var body_mi: MeshInstance3D = MeshInstance3D.new()
-	var body_mesh: BoxMesh = BoxMesh.new()
-	body_mesh.size = BOX_SIZE
-	body_mi.mesh   = body_mesh
-	body_mi.position = Vector3(0.0, BOX_SIZE.y * 0.5, 0.0)
-	var body_mat: StandardMaterial3D = StandardMaterial3D.new()
-	body_mat.albedo_color = COLOR_BODY
-	body_mat.roughness    = 0.88
-	body_mat.metallic     = 0.30
-	body_mi.set_surface_override_material(0, body_mat)
-	add_child(body_mi)
+	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			model.position = Vector3.ZERO
+			model.scale    = MODEL_SCALE
+			_recenter_glb_mesh(model)
+			_strip_model_collision(model)
+			add_child(model)
+	else:
+		push_warning("Stove.gd: model missing at %s — falling back to no visual mesh" % MODEL_PATH)
 
-	body_mi.create_trimesh_collision()
-	for child in body_mi.get_children():
-		if child is StaticBody3D:
-			(child as StaticBody3D).collision_layer = 5
-			(child as StaticBody3D).collision_mask  = 0
-
-	## Slightly lighter top plate for worn enamel/steel variation
-	var top_plate_mi: MeshInstance3D = MeshInstance3D.new()
-	var top_plate_mesh: BoxMesh = BoxMesh.new()
-	top_plate_mesh.size = Vector3(BOX_SIZE.x - 0.06, BODY_TOP_PLATE_H, BOX_SIZE.z - 0.06)
-	top_plate_mi.mesh = top_plate_mesh
-	top_plate_mi.position = Vector3(0.0, BOX_SIZE.y - BODY_TOP_PLATE_H * 0.5 - 0.005, 0.0)
-	var top_plate_mat: StandardMaterial3D = StandardMaterial3D.new()
-	top_plate_mat.albedo_color = COLOR_BODY_WEAR
-	top_plate_mat.roughness = 0.84
-	top_plate_mat.metallic = 0.38
-	top_plate_mi.set_surface_override_material(0, top_plate_mat)
-	add_child(top_plate_mi)
-
-	## Four short feet so the body does not read like a floating cube
-	var foot_mat: StandardMaterial3D = StandardMaterial3D.new()
-	foot_mat.albedo_color = Color(0.18, 0.18, 0.19, 1.0)
-	foot_mat.roughness = 0.80
-	foot_mat.metallic = 0.35
-	var foot_positions: Array[Vector3] = [
-		Vector3(-0.34, BODY_FOOT_H * 0.5, -0.34),
-		Vector3( 0.34, BODY_FOOT_H * 0.5, -0.34),
-		Vector3(-0.34, BODY_FOOT_H * 0.5,  0.34),
-		Vector3( 0.34, BODY_FOOT_H * 0.5,  0.34),
-	]
-	for p: Vector3 in foot_positions:
-		var foot_mi: MeshInstance3D = MeshInstance3D.new()
-		var foot_mesh: BoxMesh = BoxMesh.new()
-		foot_mesh.size = Vector3(0.07, BODY_FOOT_H, 0.07)
-		foot_mi.mesh = foot_mesh
-		foot_mi.position = p
-		foot_mi.set_surface_override_material(0, foot_mat)
-		add_child(foot_mi)
-
-	## Burner ring assembly — cast-iron style ring with supports
-	var burner_mat: StandardMaterial3D = StandardMaterial3D.new()
-	burner_mat.albedo_color = COLOR_BURNER
-	burner_mat.roughness    = 0.94
-	burner_mat.metallic     = 0.06
-
-	var ring_outer_r: float = BURNER_RADIUS * 0.86
-	var ring_inner_r: float = BURNER_RADIUS * 0.56
-	var ring_major: float = (ring_outer_r + ring_inner_r) * 0.5
-	var ring_minor: float = (ring_outer_r - ring_inner_r) * 0.5
-	var ring_y: float = BOX_SIZE.y + 0.018
-
-	var burner_ring_mi: MeshInstance3D = MeshInstance3D.new()
-	var burner_ring_mesh: TorusMesh = TorusMesh.new()
-	burner_ring_mesh.inner_radius = ring_major - ring_minor
-	burner_ring_mesh.outer_radius = ring_major + ring_minor
-	burner_ring_mesh.rings = 30
-	burner_ring_mesh.ring_segments = 14
-	burner_ring_mi.mesh = burner_ring_mesh
-	burner_ring_mi.position = Vector3(0.0, ring_y, 0.0)
-	burner_ring_mi.set_surface_override_material(0, burner_mat)
-	add_child(burner_ring_mi)
-
-	var burner_inner_ring_mi: MeshInstance3D = MeshInstance3D.new()
-	var burner_inner_ring_mesh: TorusMesh = TorusMesh.new()
-	burner_inner_ring_mesh.inner_radius = BURNER_RADIUS * 0.24
-	burner_inner_ring_mesh.outer_radius = BURNER_RADIUS * 0.31
-	burner_inner_ring_mesh.rings = 24
-	burner_inner_ring_mesh.ring_segments = 10
-	burner_inner_ring_mi.mesh = burner_inner_ring_mesh
-	burner_inner_ring_mi.position = Vector3(0.0, ring_y - 0.002, 0.0)
-	burner_inner_ring_mi.set_surface_override_material(0, burner_mat)
-	add_child(burner_inner_ring_mi)
-
-	var spoke_len: float = BURNER_RADIUS * 0.28
-	var spoke_w: float = 0.05
-	var spoke_h: float = 0.024
-	for i: int in range(4):
-		var ang: float = deg_to_rad(45.0 + float(i) * 90.0)
-		var dir: Vector3 = Vector3(cos(ang), 0.0, sin(ang))
-		var spoke_mi: MeshInstance3D = MeshInstance3D.new()
-		var spoke_mesh: BoxMesh = BoxMesh.new()
-		spoke_mesh.size = Vector3(spoke_len, spoke_h, spoke_w)
-		spoke_mi.mesh = spoke_mesh
-		spoke_mi.position = Vector3(dir.x * (BURNER_RADIUS * 0.16), ring_y - 0.001, dir.z * (BURNER_RADIUS * 0.16))
-		spoke_mi.rotation_degrees = Vector3(0.0, -rad_to_deg(ang), 0.0)
-		spoke_mi.set_surface_override_material(0, burner_mat)
-		add_child(spoke_mi)
-
-	## Burner base disc below the ring
-	var burner_base_mi: MeshInstance3D = MeshInstance3D.new()
-	var burner_base_mesh: CylinderMesh = CylinderMesh.new()
-	burner_base_mesh.top_radius = BURNER_RADIUS * 0.58
-	burner_base_mesh.bottom_radius = BURNER_RADIUS * 0.58
-	burner_base_mesh.height = 0.016
-	burner_base_mesh.radial_segments = 20
-	burner_base_mi.mesh = burner_base_mesh
-	burner_base_mi.position = Vector3(0.0, BOX_SIZE.y + 0.008, 0.0)
-	burner_base_mi.set_surface_override_material(0, burner_mat)
-	add_child(burner_base_mi)
-
-	## Front control knob
-	var knob_mi: MeshInstance3D = MeshInstance3D.new()
-	var knob_mesh: CylinderMesh = CylinderMesh.new()
-	knob_mesh.top_radius = 0.05
-	knob_mesh.bottom_radius = 0.05
-	knob_mesh.height = 0.04
-	knob_mesh.radial_segments = 16
-	knob_mi.mesh = knob_mesh
-	knob_mi.rotation_degrees = Vector3(90.0, 0.0, 0.0)
-	knob_mi.position = Vector3(0.0, BOX_SIZE.y * 0.52, BOX_SIZE.z * 0.5 + 0.03)
-	var knob_mat: StandardMaterial3D = StandardMaterial3D.new()
-	knob_mat.albedo_color = Color(0.13, 0.13, 0.14, 1.0)
-	knob_mat.roughness = 0.72
-	knob_mat.metallic = 0.30
-	knob_mi.set_surface_override_material(0, knob_mat)
-	add_child(knob_mi)
-
-	## Indicator light — small emissive sphere on the front face
+	## Indicator light — small emissive sphere, repositioned onto the new
+	## model's front-upper area (was BOX_SIZE-relative, now
+	## MODEL_HEIGHT/FOOTPRINT_Z-relative, same 0.75-height / front-face
+	## placement ratio as before).
 	_indicator_mi = MeshInstance3D.new()
 	var ind_mesh: SphereMesh = SphereMesh.new()
 	ind_mesh.radius = 0.035
 	ind_mesh.height = 0.07
 	_indicator_mi.mesh = ind_mesh
-	_indicator_mi.position = Vector3(0.0, BOX_SIZE.y * 0.75, BOX_SIZE.z * 0.5 + 0.02)
+	_indicator_mi.position = Vector3(0.0, MODEL_HEIGHT * 0.75, FOOTPRINT_Z * 0.5 + 0.02)
 	_indicator_mat = StandardMaterial3D.new()
 	_indicator_mat.albedo_color     = COLOR_LIGHT_OFF
 	_indicator_mat.emission_enabled = true
@@ -545,13 +465,41 @@ func _build_fixture() -> void:
 	_indicator_mi.set_surface_override_material(0, _indicator_mat)
 	add_child(_indicator_mi)
 
+## Recursively disables collision on every CollisionObject3D descendant of
+## an instanced model. Duplicated per-file, matching the established
+## convention across every prior model-swap in this codebase.
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
+
+## Godot's glTF importer always wraps an imported scene in an extra
+## generated root node — see Table.gd's identical helper for the full
+## explanation. stove.glb's source node has an identity transform
+## (confirmed via direct inspection), so this is inert here — kept for
+## consistency.
+func _recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if _recenter_glb_mesh(child):
+			return true
+	return false
+
 
 ## Side-effect-free ghost mesh for build-mode previews — same convention as
 ## HeavyConsumerTest.build_ghost_mesh(): no registration, no groups, no
-## signals, just the plain mesh. Body box only (burner disc omitted from the
-## ghost as a minor cosmetic simplification — GhostPreview only renders ONE
-## mesh resource per tile).
+## signals, just the plain mesh. Non-square now, matching the real
+## model's footprint (was a uniform BOX_SIZE cube-ish box under the old
+## placeholder) — this box IS the accurate size cue in the walking
+## placement ghost; the full detailed model shows separately in the
+## Construct-menu spinning preview via the existing GhostModelBuilder
+## registration, unaffected by this change.
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
-	box.size = BOX_SIZE
+	box.size = Vector3(FOOTPRINT_X, MODEL_HEIGHT, FOOTPRINT_Z)
 	return box

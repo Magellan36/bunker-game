@@ -210,10 +210,13 @@ func _spawn_move_ghost(tile_id: int) -> void:
 			if stove_m != null:
 				_owner._move_ghost.mesh     = stove_m
 				## BoxMesh is centered on its own origin — offset up by half
-				## its height (BOX_SIZE.y * 0.5 = 0.55 * 0.5) so it renders
-				## resting on the floor instead of floating, same convention
-				## as the Tray branch immediately above this one.
-				_owner._move_ghost.position = Vector3(0.0, 0.275, 0.0)
+				## its height so it renders resting on the floor instead of
+				## floating, same convention as the Tray branch immediately
+				## above this one. Was 0.275 (half of the old 0.55 BOX_SIZE
+				## height) — updated to half of the real model's height
+				## (1.1558 / 2) after the Aug 2026 GLB swap. See
+				## PLAN_stove_glb_swap.md.
+				_owner._move_ghost.position = Vector3(0.0, 0.5779, 0.0)
 				for s: int in stove_m.get_surface_count():
 					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
 	else:

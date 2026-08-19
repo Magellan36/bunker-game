@@ -720,3 +720,58 @@ Player enters build mode (BuildModeHUD tool_selected / enter_build_mode())
   (`TILE_GROW_LIGHT_NORMAL`/`TILE_GROW_LIGHT_PRO`) went through the normal
   ghost-preview path with no framework changes — see
   `docs/systems/farming/README.md`.
+
+## Stove: Procedural Box → Kitchen_Oven_Large Model (Aug 2026)
+
+`Stove.gd` now loads `assets/models/stove.glb` instead of building a
+procedural box+burner-ring+knob fixture. Source was an `.fbx`
+(`Kitchen_Oven_Large`) — converted to `.glb` for inspection/consistency
+with the rest of the pipeline, which surfaced a real axis-orientation
+bug in the conversion tool (Z-up preserved instead of converted to
+glTF's Y-up; fixed by baking a -90°-about-X correction into the vertex/
+normal data directly, verified against `assimp info`'s independently-
+computed bounding box before trusting it). Uniform scale `0.7257`,
+chosen to fit the model's larger horizontal dimension (X) into the
+existing 1×1 tile's old `0.85` footprint size — confirmed with Brannon
+to scale DOWN rather than expand Stove to a multi-tile object. Resulting
+footprint is genuinely **non-square** (`0.85 × 0.7768`) and taller
+(`1.1558` vs. the old `0.55`) than the placeholder it replaces.
+
+**Every dependent numeric value updated to match** — this model isn't
+square, so anything hard-coding the old symmetric `BOX_SIZE` would have
+silently desynced:
+- `Stove.POT_LOCAL_POS` — now `1.1558` (top of the real model; confirmed
+  with Brannon — this model has no distinct "burner" geometry, reading
+  instead as an oven-tower cabinet, so the pot sits on the flat top).
+- `Stove.build_ghost_mesh()` — now a non-square box matching the real
+  footprint/height.
+- `BuildModeController._tile_half_extents()`'s `TILE_STOVE` entry — now
+  `Vector2(0.425, 0.3884)`, was square `(0.42, 0.42)`.
+- `MoveDuplicateTool.gd`'s Stove move-ghost floor-offset — now
+  `0.5779` (half the new height), was `0.275`.
+
+Every procedural decorative element the old placeholder built (top
+plate, 4 feet, full burner-ring assembly, control knob) is now supplied
+by the real model and was removed from `_build_fixture()`. The
+indicator light is the one exception — kept and repositioned, since it
+communicates live `powered_on` state that a static imported mesh can't
+express on its own.
+
+Collision changed from a `create_trimesh_collision()`-derived nested
+body to a direct `CollisionShape3D`/`BoxShape3D` on the `StaticBody3D`
+itself, spanning the full real footprint AND height (floor to top) —
+this is a tall floor-to-ceiling-relative obstacle now, not thin
+furniture, so collision blocks movement the same way the model visually
+reads.
+
+**Ghost preview note**: per this codebase's existing convention (see
+Table.gd), the in-world walking ghost is intentionally a plain box, not
+the full mesh — updating its dimensions to the real footprint IS what
+"accurate ghost preview" means here. The Construct-menu spinning preview
+shows the actual detailed model already, automatically, via the existing
+`GhostModelBuilder` `is_script: true` registration — no separate change
+needed there.
+
+No texture files needed for this asset — all 5 materials
+(Black/LightMetal/DarkMetal/White/Glass) are flat diffuse colors with no
+image textures, unlike every prior GLB in this project.

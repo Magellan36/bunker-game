@@ -1,3 +1,67 @@
+# Handover — Stove: Procedural Box → Kitchen_Oven_Large Model (Aug 2026)
+
+## What changed this session
+Replaced Stove.gd's procedural box+burner+knob fixture with a real
+model, `assets/models/stove.glb` (source: `Kitchen_Oven_Large.fbx`).
+Found and fixed a real axis-orientation bug in the FBX→glTF conversion
+tool before any of the size work could happen — the converted file
+preserved the source's native Z-up data instead of reorienting to
+glTF's Y-up, which would have imported the oven lying on its side; fixed
+by baking a corrective rotation into the raw vertex/normal buffers,
+verified numerically and with a rendered sanity-check image before
+trusting the result. Uniform scale `0.7257` fits the model into the
+existing 1×1 tile (confirmed with Brannon: scale down, don't expand the
+tile footprint) — but the model itself is NOT square, so the resulting
+footprint (`0.85 × 0.7768`) and height (`1.1558`, vs. the old `0.55`)
+are both genuinely different from the old placeholder's symmetric box.
+Per Brannon's explicit ask, propagated that non-square footprint to
+every place that had hard-coded the old square dimensions:
+`BuildModeController._tile_half_extents()`'s `TILE_STOVE` entry and
+`MoveDuplicateTool.gd`'s Stove move-ghost floor-offset — both found by
+grepping for Stove/BOX_SIZE references, not assumed. Cooking Pot now
+sits on the flat top of the model (confirmed with Brannon — this
+model has no distinct burner geometry, it reads as an oven-tower
+cabinet). Every procedural decorative element the old fixture built is
+gone, supplied by the real mesh now, except the indicator light (kept —
+it's functional, not decorative).
+
+### Files modified
+- `assets/models/stove.glb` — new asset (axis-corrected, see above).
+- `scripts/world/cooking/Stove.gd` — `_ready()`, `_build_fixture()`
+  replaced; new `_build_collision()`, `_strip_model_collision()`,
+  `_recenter_glb_mesh()`; `POT_LOCAL_POS`, `build_ghost_mesh()` updated.
+- `scripts/world/build/BuildModeController.gd` — `TILE_STOVE`'s
+  `_tile_half_extents()` entry updated.
+- `scripts/world/build/MoveDuplicateTool.gd` — Stove move-ghost
+  floor-offset updated.
+- `docs/systems/build/README.md` — new Stove subsection.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Construct → Cooking → Stove: spinning preview shows the real oven
+   model, upright (not on its side — this was a real risk this session,
+   worth double-checking), correctly proportioned.
+3. Place a Stove — walking ghost box matches the real model's footprint/
+   height reasonably closely (non-square now, taller than before).
+4. Placed Stove — model renders centered, upright, no positioning
+   artifacts.
+5. Place a Cooking Pot on the stove — sits visually on the flat top of
+   the real model, not floating above it or clipping into it.
+6. Walk around a placed Stove from multiple sides — collision blocks at
+   the new footprint (0.85 × 0.7768), not the old square 0.85 × 0.85.
+7. Toggle the stove on/off — indicator light still visible and correctly
+   positioned on the new model's front face, changes color/emission as
+   before.
+8. Move/duplicate tool — pick up and move a placed Stove; its ghost
+   rests on the floor correctly (not floating/sunken — checks the
+   MoveDuplicateTool.gd offset fix).
+9. Place a Stove close to a bunker wall — confirm it doesn't clip
+   through (checks the `_tile_half_extents()` fix actually applied
+   correctly for both X and Z, not just one axis).
+10. Save/load a level with a placed, powered-on Stove with a pot on it —
+    restores correctly, pot still visually on top.
+
 # Handover — Player Shadow Follow-Up: Hair Silhouette (Aug 2026)
 
 ## What changed this session
