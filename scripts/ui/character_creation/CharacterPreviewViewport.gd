@@ -11,7 +11,11 @@ extends SubViewportContainer
 ## offset fixes are in — the old values were tuned blind before either
 ## existed. ~1.0 m (roughly navel/lower-torso height) centers a
 ## standing figure of that height reasonably in frame at this distance.
-@export var look_at_point: Vector3 = Vector3(0.0, 1.0, 0.0)
+##
+## Aug 2026, second pass — now that the actual Hips-sink fix (a
+## different bug from the floor-offset one) is in, the camera reads as
+## sitting slightly too high; dropped a bit further.
+@export var look_at_point: Vector3 = Vector3(0.0, 0.8, 0.0)
 @export var distance: float = 2.2
 @export var min_distance: float = 1.2
 @export var max_distance: float = 5.0
@@ -26,7 +30,15 @@ extends SubViewportContainer
 ## correct side to see the front by default.
 var _yaw: float = PI
 var _pitch: float = -0.05
-var _dragging: bool = false
+var _dragging_orbit: bool = false
+var _dragging_pan: bool = false
+
+## Aug 2026 — middle-click-drag pan. Scaled by the current zoom distance
+## in _gui_input() below (not a flat pixel-to-world ratio) so panning
+## feels consistent whether zoomed in close or backed out — the same
+## mouse-pixel drag should cover the same FRACTION of the visible frame
+## at any zoom level, not the same absolute world distance.
+@export var pan_speed: float = 0.0015
 
 func _ready() -> void:
 	_update_camera()
@@ -52,19 +64,41 @@ func _apply_graphics_settings() -> void:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT:
-			_dragging = mb.pressed
+		## Aug 2026 — left AND right button both drive the same
+		## horizontal-only orbit now (previously left-only, and
+		## previously also adjusted pitch — see _pitch's fixed value
+		## above, no longer touched here at all).
+		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
+			_dragging_orbit = mb.pressed
+		elif mb.button_index == MOUSE_BUTTON_MIDDLE:
+			_dragging_pan = mb.pressed
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
 			distance = clampf(distance - zoom_speed, min_distance, max_distance)
 			_update_camera()
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
 			distance = clampf(distance + zoom_speed, min_distance, max_distance)
 			_update_camera()
-	elif event is InputEventMouseMotion and _dragging:
+	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
-		_yaw -= mm.relative.x * orbit_speed
-		_pitch = clampf(_pitch - mm.relative.y * orbit_speed, -1.3, 1.3)
-		_update_camera()
+		if _dragging_orbit:
+			## Yaw only — _pitch is never touched by dragging anymore,
+			## so the camera only ever swings left/right around the
+			## character, never tilts up/down.
+			_yaw -= mm.relative.x * orbit_speed
+			_update_camera()
+		elif _dragging_pan:
+			## Screen-relative pan: camera's OWN current right/up
+			## vectors, not world X/Z — so a horizontal drag always
+			## pans horizontally on screen and a vertical drag always
+			## pans vertically, regardless of the current yaw. The
+			## viewing angle itself (_yaw/_pitch/distance) never
+			## changes here, only what point it's centered on.
+			var cam_right: Vector3 = camera.global_transform.basis.x
+			var cam_up: Vector3 = camera.global_transform.basis.y
+			var pan_scale: float = pan_speed * distance
+			look_at_point -= cam_right * mm.relative.x * pan_scale
+			look_at_point += cam_up * mm.relative.y * pan_scale
+			_update_camera()
 
 func _update_camera() -> void:
 	if camera == null:
