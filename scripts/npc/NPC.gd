@@ -1512,10 +1512,15 @@ func _ready() -> void:
 	## has a bare $MeshInstance3D. See docs/systems/player-model/README.md
 	## "Shared with NPCs".
 	##
-	## Aug 2026 — real shadow-casting via a shortened invisible stand-in
-	## (see docs/systems/graphics/README.md "Character shadow stand-in").
-	## Unaffected by the above — only ever reads $CollisionShape3D.
-	CharacterShadowStandIn.attach(self)
+	## Aug 2026 (shadow parity pass) — the capsule-based
+	## CharacterShadowStandIn system has been replaced by a second,
+	## scaled-down CharacterModel instance ("CharacterModelShadow" in
+	## NPC.tscn), same treatment Player.gd already got — see
+	## docs/systems/graphics/README.md "Player model-based shadow"
+	## (now shared with NPCs). Nothing to call here: the shadow instance
+	## is wired declaratively in the scene file and drives its own
+	## animation state by reading this same NPC node, same as the real
+	## model.
 
 	if npc_id == "":
 		npc_id = "npc_%d" % _next_npc_id

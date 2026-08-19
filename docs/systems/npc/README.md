@@ -78,9 +78,13 @@ animations/scale as the player) as a child named `CharacterModel`.
 `NPC.gd` lost its `mesh` onready var and the one line that set its
 shadow-cast exclusion directly — see
 `docs/systems/player-model/README.md` "Shared with NPCs" for the
-full picture. `CharacterShadowStandIn.attach(self)` is unaffected. No
-per-NPC visual customization yet (all NPCs currently look identical) —
-that's intentionally deferred, not an oversight.
+full picture. No per-NPC visual customization yet (all NPCs currently
+look identical) — that's intentionally deferred, not an oversight.
+
+**Shadow (Aug 2026, shadow-parity follow-up):** `CharacterShadowStandIn.attach(self)`
+is gone too — NPCs now get the same real-silhouette shadow Player has,
+via a second `CharacterModelShadow` instance in `NPC.tscn`. See
+`docs/systems/graphics/README.md` "Player model-based shadow".
 
 ## Key Systems
 
@@ -1249,15 +1253,18 @@ skills, personality words, seed, mood, and irritability + label.
 These patterns are now convention — new NPC code should follow them
 without being asked.
 
-- **Character shadow stand-in (Aug 2026):** every NPC gets a
-  `CharacterShadowStandIn` child mesh (see
-  `docs/systems/graphics/README.md` "Character shadow stand-in") and its
-  own mesh has `cast_shadow` off. The earlier Aug 2026
-  `CharacterShadowProxy` light-based system, the `CharacterShadowDecal`
-  fake-shadow system it replaced, and the
-  `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT` mesh-layers override
-  were all removed/reverted — see that doc's postmortem before touching
-  character lighting again.
+- **Character shadow, model-based (Aug 2026, superseding the earlier
+  capsule-stand-in convention below):** every NPC gets a second,
+  scaled-down `CharacterModelShadow` instance of the same
+  `PlayerModel.tscn` it already renders with, flagged
+  `is_shadow_only = true` (see `docs/systems/graphics/README.md`
+  "Player model-based shadow"). The capsule-based
+  `CharacterShadowStandIn` approach that preceded it — itself preceded
+  by the `CharacterShadowProxy` light-based system, the
+  `CharacterShadowDecal` fake-shadow system, and the
+  `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT` mesh-layers override,
+  all removed/reverted — is no longer called by any NPC; see that doc's
+  postmortem before touching character lighting again.
 - **Defensive `has_method()` guards on every cross-file NPC↔NPCBrain
   call.** NPC.gd and NPCBrain.gd are tightly coupled but always built
   separately; every cross-file call

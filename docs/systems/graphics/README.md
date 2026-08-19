@@ -372,7 +372,7 @@ lighting layouts would always outrun custom approximation logic, and that
 losing real shadow behavior wasn't worth the tradeoff. See git history for
 the full iteration arc if useful context for a future similar decision.
 
-### Character shadow stand-in (NPCs only, as of Aug 2026)
+### Character shadow stand-in (legacy, unused as of Aug 2026)
 Real shadow-casting, using a shortened invisible stand-in mesh instead
 of the character's actual (tall) visible model: `CharacterShadowStandIn.attach()`
 builds a capsule at `HEIGHT_FACTOR` of the character's real height,
@@ -384,14 +384,14 @@ participates in real shadow mapping). Tagged with the same
 `Player.PLAYER_SELF_LIGHT_LAYER_BIT` the visible mesh already has, so
 Flashlight's existing self-shadow exclusion covers it too.
 
-**As of the player-model rework, this system is NPC-only.** `NPC.gd`
-still uses a plain placeholder `$MeshInstance3D` (no animated body yet),
-so a capsule stand-in remains the right fit there. The player's own
-shadow now comes from a different mechanism — see "Player model-based
-shadow" below — since the player's visible mesh is no longer a capsule
-placeholder. `CharacterShadowStandIn.gd` itself is unchanged by that
-switch; `HEIGHT_FACTOR` continues to control only the NPC capsule
-shadow's length.
+**As of the NPC shadow-parity pass, this system has no active callers.**
+It was NPC-only for a while (the player switched first — see "Player
+model-based shadow" below), but NPCs have now been moved onto the same
+model-based shadow mechanism. `CharacterShadowStandIn.gd` itself is
+unmodified and left in the codebase — not deleted — in case a future
+capsule-only placeholder character type needs it again; delete it if
+that need never materializes. `HEIGHT_FACTOR` is inert with no callers
+using it.
 
 `HEIGHT_FACTOR` lowered to `0.3` (Aug 2026) — a further step down from
 the earlier `0.35` pass — for a shorter shadow at any given light angle;
@@ -442,13 +442,21 @@ meshes get `SHADOW_CASTING_SETTING_SHADOWS_ONLY` instead of `OFF`. Only
 override.
 
 `scripts/player/Player.gd` no longer calls `CharacterShadowStandIn.attach(self)`
-— the new shadow instance is wired declaratively in `Player.tscn`, not
-via a `_ready()` call. `CharacterShadowStandIn.gd` itself is untouched
-and remains in use for NPCs (see above).
+— the shadow instance is wired declaratively in `Player.tscn`, not via a
+`_ready()` call. `CharacterShadowStandIn.gd` itself is untouched (see
+above — now unused by any active caller).
+
+**Shared with NPCs (Aug 2026):** once NPCs were moved onto the same
+`PlayerModel.tscn`/`PlayerModelController.gd` system Player uses
+(`a7aeadf`), the same shadow treatment was extended to them too —
+`NPC.tscn` gained a `CharacterModelShadow` sibling instance (same
+`is_shadow_only = true` pattern, same `1.25` overall scale composed with
+the `0.3` Y-only squash → `0.375`), and `NPC.gd` no longer calls
+`CharacterShadowStandIn.attach(self)`, mirroring `Player.gd`'s earlier
+change exactly. No `PlayerModelController.gd` changes were needed —
+`is_shadow_only` was already generic over any parent `CharacterBody3D`.
 
 **Deliberately not done this round:**
-- NPCs are not migrated to this system — they still have no animated
-  model, so the capsule stand-in remains correct for them.
 - Performance cost of doubling the player's skeletal animation
   evaluation (two `AnimationPlayer`s, two skinning passes) is
   unmeasured — expected trivial for a single character, not verified

@@ -1,3 +1,48 @@
+# Handover — NPC Shadow Parity: Same Model-Based Shadow as Player (Aug 2026)
+
+## What changed this session
+Closed the gap flagged in `a7aeadf`'s own doc note: NPCs share
+`PlayerModel.tscn` with the player (model, hair, animations, `1.25`
+scale) but were left on the old `CharacterShadowStandIn` capsule stand-in
+for their shadow. NPCs now get the identical real-silhouette shadow
+mechanism Player already has — a second, scaled-down
+`CharacterModelShadow` instance per NPC, `is_shadow_only = true`. No
+`PlayerModelController.gd` changes needed; that export was already
+generic over any `CharacterBody3D` parent.
+
+### Files modified
+- `scenes/npc/NPC.tscn` — new `CharacterModelShadow` sibling instance
+  (same `PlayerModel.tscn`, `1.25`/`0.375` scale, `is_shadow_only = true`).
+- `scripts/npc/NPC.gd` — removed `CharacterShadowStandIn.attach(self)`.
+- `docs/systems/graphics/README.md` — "Character shadow stand-in"
+  rescoped to legacy/unused; "Player model-based shadow" updated with a
+  "Shared with NPCs" note.
+- `docs/systems/player-model/README.md` — "Shared with NPCs" final
+  paragraph updated (was flagging this as deferred; now done).
+- `docs/systems/npc/README.md` — "Visual model" section and
+  "Established Conventions" bullet updated.
+- `HANDOVER.md` — this entry.
+
+### NOT changed
+- `scripts/player/PlayerModelController.gd` — no changes needed.
+- `scripts/core/CharacterShadowStandIn.gd` — left in place, unmodified,
+  now unused by any active caller (flagged in docs, not deleted).
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Spawn/observe an NPC near a light — shadow should read as a humanoid
+   silhouette (same as the player's), not a capsule blob.
+3. NPC walk/wander animation should stay in sync with its own shadow's
+   pose (same lockstep mechanism as Player).
+4. Confirm the real, visible `CharacterModel` instance is unaffected —
+   `is_shadow_only` defaults `false`.
+5. If the shadow reads at the wrong length for NPCs specifically, retune
+   `NPC.tscn`'s `CharacterModelShadow` transform directly — independent
+   of Player's `PlayerModelShadow` transform, no shared constant to keep
+   in sync beyond matching them by convention.
+
+---
+
 # Handover — Stove: Procedural Box → Kitchen_Oven_Large Model (Aug 2026)
 
 ## What changed this session

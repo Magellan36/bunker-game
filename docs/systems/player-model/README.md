@@ -247,8 +247,13 @@ subsystem" naming are now slightly inaccurate given NPCs share it too;
 left as-is for this pass rather than a disruptive rename — worth
 revisiting alongside the customization pass.
 
-NPCs were **not** upgraded to the newer real-silhouette shadow system
-(`PlayerModelShadow`/`is_shadow_only`, see the "Overall scale" section
-above) — they keep the original `CharacterShadowStandIn` capsule-based
-shortened stand-in, untouched. Possible follow-up if visual parity there
-matters later, not part of this pass.
+**Update (Aug 2026, shadow-parity follow-up):** NPCs have since been
+upgraded to the same real-silhouette shadow system Player uses —
+`NPC.tscn` gained a `CharacterModelShadow` sibling instance (same
+`is_shadow_only = true` pattern as `Player.tscn`'s `PlayerModelShadow`,
+same `1.25` scale composed with the `0.3` Y-only squash → `0.375`), and
+`NPC.gd` no longer calls `CharacterShadowStandIn.attach(self)`. See
+`docs/systems/graphics/README.md` "Player model-based shadow" (now
+shared with NPCs) for the full mechanism — unchanged from the player's
+version, since `PlayerModelController.gd`'s `is_shadow_only` export was
+already generic over any parent `CharacterBody3D`.
