@@ -97,6 +97,12 @@ func _rebuild_preview() -> void:
 	## this the moment the node enters the tree.
 	_preview_instance.set("use_character_creation_data", true)
 	preview_root.add_child(_preview_instance)
+	## Matches Player.tscn's PlayerModel scale — see
+	## scenes/player/Player.tscn's transform override. Set after
+	## add_child() (safe — independent of the position.y the controller
+	## already set during _ready()) so the preview actually looks like
+	## the character that spawns in-game, not undersized.
+	_preview_instance.scale = Vector3(1.25, 1.25, 1.25)
 
 func _on_start_pressed() -> void:
 	get_tree().change_scene_to_file(NEXT_SCENE_PATH)

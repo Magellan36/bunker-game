@@ -304,3 +304,13 @@ runtime and adds it under the root:
   (NPCs, default) keeps the identical hardcoded male/buzzed/dark-brown
   look as before — see `docs/systems/character-creation/README.md` for the
   full screen flow.
+
+## Floor-offset guard (Aug 2026)
+The floor-alignment offset in `_ready()` only applies when there's a
+real `CharacterBody3D` parent with a `CapsuleShape3D` to align against
+— it used to apply unconditionally, which sank the character-creation
+screen's parentless preview instance by a meter for no reason. A
+diagnostic print (gated off for the shadow instance to avoid doubling
+console noise) reports `had_real_collision`/`capsule_height`/
+`applied_position_y` for every real spawn — delete once nobody needs it
+anymore.

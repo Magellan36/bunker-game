@@ -275,14 +275,42 @@ func _ready() -> void:
 	## PLAYER_MODEL_FLOOR_FACING_FIX_PLAN.md. Same math
 	## CharacterShadowStandIn.gd uses: floor sits at -height/2 from the
 	## capsule's own center, which is where this node is instanced.
+	##
+	## Aug 2026, second fix pass — this offset only makes sense relative
+	## to an actual CharacterBody3D's collision capsule. It was being
+	## applied unconditionally even with no such parent (the character-
+	## creation screen's standalone preview, parented to a plain
+	## Node3D) — falling back to FALLBACK_CAPSULE_HEIGHT and shoving the
+	## preview down by a meter for a "real floor" that doesn't exist in
+	## that context. Confirmed directly against CharacterCreation.tscn:
+	## no CharacterBody3D parent, no floor geometry either — this should
+	## be a pure no-op there, not a shove.
 	var capsule_height: float = FALLBACK_CAPSULE_HEIGHT
+	var had_real_collision: bool = false
 	if _player != null:
 		var collision_node: Node = _player.get_node_or_null("CollisionShape3D")
 		if collision_node is CollisionShape3D:
 			var shape: Shape3D = (collision_node as CollisionShape3D).shape
 			if shape is CapsuleShape3D:
 				capsule_height = (shape as CapsuleShape3D).height
-	position.y = -(capsule_height * 0.5) + MODEL_FLOOR_FUDGE
+				had_real_collision = true
+	position.y = -(capsule_height * 0.5) + MODEL_FLOOR_FUDGE if had_real_collision else 0.0
+
+	## Aug 2026 — diagnostic for the REAL spawned Player/NPC path
+	## specifically (as opposed to the preview, fixed above). I
+	## couldn't find a code-level regression there by reading the
+	## files — Player.tscn's structure and the collision capsule are
+	## both unchanged from the last confirmed-working state. If this
+	## still prints "had_real_collision=false" for an actual in-game
+	## Player or NPC (not the creation screen), that pins down exactly
+	## what's failing to resolve; if it prints "true" with a sane
+	## capsule_height and this still looks sunk, the bug is elsewhere
+	## and this rules out the floor-offset code as the cause. Report
+	## back the exact printed line rather than just "still sunk."
+	if not is_shadow_only:
+		print("[PlayerModelController] floor_offset: had_real_collision=", had_real_collision,
+			" capsule_height=", capsule_height, " applied_position_y=", position.y,
+			" parent=", (parent.name if parent != null else "null"))
 
 	_anim_player = _find_first_of_type(self, "AnimationPlayer") as AnimationPlayer
 	var skeleton: Skeleton3D = _find_first_of_type(self, "Skeleton3D") as Skeleton3D
