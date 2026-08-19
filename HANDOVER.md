@@ -1,3 +1,65 @@
+# Handover — Character Creation: Sidebar Categories, Hair Thumbnails, Swatch Palette (Aug 2026)
+
+## What changed this session
+Replaced the linear Gender→Hair wizard with a persistent **sidebar**
+(Body/Face/Hair/Features/Accessories) + a category panel that swaps on
+selection, matching the reference UI. Only Body (gender) and Hair (style +
+color) are functional; Face/Features/Accessories are laid out and visible
+but `disabled = true` with a "Coming soon" tooltip (no system behind them
+yet). Added **Randomise** (gender + valid hairstyle + palette color in one
+click, UI synced) and renamed Start → **Complete**.
+
+**Hair style thumbnails** reuse `ItemPreviewKit.gd` (`scripts/ui/common/`
+— the shared live-3D-preview tool InventoryHUD/StorageUI already use),
+NOT a separate implementation: each thumbnail is a `Button` with a
+full-rect `SubViewportContainer` on top (`mouse_filter = IGNORE` so it
+doesn't eat clicks) wrapping `ItemPreviewKit.build_viewport()` fed a
+standalone hair-mesh node built like `PlayerModelController._build_hair_material()`.
+
+**Hair color** swapped from the vendored full picker to a curated
+`HAIR_COLOR_SWATCHES` palette (10 realistic colors, `StyleBoxFlat` swatch
+buttons, selected gets a white border). The picker addon stays vendored +
+unreferenced for a future "Advanced" toggle.
+
+### Key gotchas (deviations worth reading)
+- **`ItemPreviewKit.build_viewport()`/`set_item()` need the viewport and
+  item INSIDE the SceneTree** — building them on a detached button spams
+  "not inside tree" errors and leaves empty thumbnails. The button is
+  added to the container first, then the thumbnail is populated, and the
+  preview node is attached to the viewport before `set_item()` (its
+  `clear()` re-frees it defensively).
+- Hair glTF mesh node names check: `find_child(style["mesh_node"])` in
+  `_build_hair_preview_node` works (same pattern as the real
+  `_setup_hair()`).
+
+### Files modified
+- `scenes/ui/character_creation/CharacterCreation.tscn` — full rewrite
+  (sidebar + category panel + preview; color-picker instance removed).
+- `scripts/ui/character_creation/CharacterCreationScreen.gd` — full
+  rewrite (category switching, thumbnails, swatches, Randomise,
+  Complete). `PlayerModelController.gd`/`CharacterCreationData.gd`/
+  `CharacterPreviewViewport.gd` untouched.
+
+### Docs
+`docs/systems/character-creation/README.md` — Purpose/Files/Flow updated
+for the sidebar layout; vendored-picker section now notes it's
+unreferenced; new section on thumbnails/swatches/Randomise.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Sidebar: all five categories; Face/Features/Accessories visibly
+   disabled with "Coming soon" tooltip; Body/Hair switch the panel.
+3. Hair panel shows rendered 3D thumbnails (distinguishable by shape),
+   clicking one highlights it and updates the live preview.
+4. Swatches: white border on the selected one; clicking repaints preview
+   hair + all thumbnails.
+5. Randomise changes all three at once with UI synced.
+6. Complete → MainWorld with customization intact.
+   Verified headless: `verify_cc_sidebar` probe 31/31 PASS, boot gate
+   EXITCODE=0.
+
+---
+
 # Handover — Character Creation Screen: Gender / Hairstyle / Hair Color (Aug 2026)
 
 ## What changed this session
