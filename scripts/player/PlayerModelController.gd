@@ -96,6 +96,16 @@ const HAIR_MESH_NODE_NAME: String = "Hair_Buzzed"
 const HAIR_ALBEDO_PATH: String = "res://assets/models/player/hair/T_Hair_1_BaseColor.png"
 const HAIR_NORMAL_PATH: String = "res://assets/models/player/hair/T_Hair_1_Normal.png"
 
+## Aug 2026 — T_Hair_1_BaseColor.png is a neutral/untinted strand-shading
+## texture, not a real hair color (opened it directly and confirmed —
+## it's pale grey/beige as authored, same for T_Hair_2; the source glTF
+## material doesn't set baseColorFactor either, so this was never going
+## to render as real hair color without an explicit tint). Multiplied
+## into albedo_color below, standard PBR base-color behavior. Exported
+## so a different hair color is a one-field Inspector change, not a
+## code edit.
+@export var hair_tint_color: Color = Color(0.12, 0.08, 0.05)
+
 ## Maps the plain state names used below ("idle"/"walk"/"run") to the
 ## full animation-name strings actually registered in PlayerModel.tscn's
 ## AnimationPlayer. The three clip libraries (idle_lib/walk_lib/run_lib)
@@ -306,6 +316,7 @@ func _build_hair_material() -> StandardMaterial3D:
 	var normal: Texture2D = load(HAIR_NORMAL_PATH)
 	if albedo != null:
 		mat.albedo_texture = albedo
+		mat.albedo_color = hair_tint_color
 	if normal != null:
 		mat.normal_enabled = true
 		mat.normal_texture = normal

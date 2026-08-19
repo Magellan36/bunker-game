@@ -97,6 +97,21 @@ which will read as skin-colored rather than white/dark until a follow-up
 assigns per-surface materials by name (would need to confirm surface
 index-to-part mapping in-editor first).
 
+**Hair tint (Aug 2026):** `T_Hair_1_BaseColor.png`/`T_Hair_2_BaseColor.png`
+are both neutral/untinted strand-shading textures, not real hair color —
+opened directly and confirmed pale grey/beige, and the source glTF
+material doesn't set a `baseColorFactor` tint either. `hair_tint_color`
+(exported on `PlayerModel`'s root node, default a dark brown) is
+multiplied into the hair material's `albedo_color` to supply actual
+pigment — change hair color by editing that one field, not the texture.
+
+**Running animation (Aug 2026):** `assets/models/player/run.fbx` was
+replaced with a different source clip (same Mixamo skeleton, same
+`mixamo.com` internal stack name — fully compatible, no code changes).
+`tools/build_player_model.gd` re-baked from it the same way it always
+has; if the running animation ever needs swapping again, that's the only
+step required (replace the file at that path, re-run the bake script).
+
 ## Hair (Aug 2026)
 `PlayerModelController._setup_hair()` attaches `assets/models/player/
 hair/Hair_Buzzed.gltf` (source: `WIP/FINAL/Hairstyles/"Rigged to Head
