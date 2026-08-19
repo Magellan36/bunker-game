@@ -51,7 +51,6 @@ func _assign_random_name() -> void:
 	npc_name = available[randi() % available.size()]
 
 # ─── Node refs ────────────────────────────────────────────────────────────
-@onready var mesh: MeshInstance3D = $MeshInstance3D
 @onready var collision: CollisionShape3D = $CollisionShape3D
 
 var nav_agent: NavigationAgent3D = null
@@ -1505,13 +1504,17 @@ func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("interactable")
 
-	## Aug 2026 — stops this mesh from casting ANY real shadow onto the
-	## world; a shortened invisible stand-in casts a real shadow in its
-	## place instead (see docs/systems/graphics/README.md "Character
-	## shadow stand-in"). Native per-object property — does NOT touch this
-	## mesh's own illumination/receiving at all; the NPC still gets lit/
-	## shadowed normally by every real light.
-	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	## Aug 2026 (Player-Model subsystem, flagged) — the visible mesh's
+	## shadow-cast exclusion is now handled generically by
+	## PlayerModelController.gd (attached to the CharacterModel child
+	## scene, res://scenes/player/PlayerModel.tscn — same scene Player
+	## uses) instead of a hardcoded line here, since NPC.tscn no longer
+	## has a bare $MeshInstance3D. See docs/systems/player-model/README.md
+	## "Shared with NPCs".
+	##
+	## Aug 2026 — real shadow-casting via a shortened invisible stand-in
+	## (see docs/systems/graphics/README.md "Character shadow stand-in").
+	## Unaffected by the above — only ever reads $CollisionShape3D.
 	CharacterShadowStandIn.attach(self)
 
 	if npc_id == "":

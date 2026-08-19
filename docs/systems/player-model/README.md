@@ -229,3 +229,26 @@ intentionally left at its original size (hitbox is movement/physics
 territory, not this subsystem's) — the character now renders ~25% bigger
 than its capsule, which may look slightly off at close range and is a
 known, flagged tradeoff.
+
+## Shared with NPCs (Aug 2026)
+`scenes/npc/NPC.tscn` now instances this exact same `PlayerModel.tscn` —
+same model, same hair, same idle/walk/run animations, same `1.25` scale
+as the player, replacing NPCs' old smaller placeholder capsule
+(`radius 0.4`/`height 1.8` vs. Player's un-overridden `0.5`/`2.0` — that
+size difference is gone; both now use the same defaults).
+`PlayerModelController.gd` needed zero changes to support this — it was
+already written generically against `get_parent()` as any
+`CharacterBody3D`, not specifically `Player`, with safe fallbacks
+anywhere it reads a Player-specific property (`sprint_speed`,
+`PLAYER_SELF_LIGHT_LAYER_BIT`). No per-NPC customization yet (hairstyle
+variety, body variation) — deliberately deferred to a later pass.
+`class_name PlayerModelController` and this doc's own "Player-Model
+subsystem" naming are now slightly inaccurate given NPCs share it too;
+left as-is for this pass rather than a disruptive rename — worth
+revisiting alongside the customization pass.
+
+NPCs were **not** upgraded to the newer real-silhouette shadow system
+(`PlayerModelShadow`/`is_shadow_only`, see the "Overall scale" section
+above) — they keep the original `CharacterShadowStandIn` capsule-based
+shortened stand-in, untouched. Possible follow-up if visual parity there
+matters later, not part of this pass.

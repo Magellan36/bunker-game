@@ -71,6 +71,17 @@ directly commanded by the player. Persists through save/load.
 
 ---
 
+## Visual model (Aug 2026, flagged — owned by Player-Model subsystem)
+`NPC.tscn`'s old placeholder capsule mesh is gone — NPCs now instance
+`res://scenes/player/PlayerModel.tscn` (same scene, same model/hair/
+animations/scale as the player) as a child named `CharacterModel`.
+`NPC.gd` lost its `mesh` onready var and the one line that set its
+shadow-cast exclusion directly — see
+`docs/systems/player-model/README.md` "Shared with NPCs" for the
+full picture. `CharacterShadowStandIn.attach(self)` is unaffected. No
+per-NPC visual customization yet (all NPCs currently look identical) —
+that's intentionally deferred, not an oversight.
+
 ## Key Systems
 
 ### Navigation
