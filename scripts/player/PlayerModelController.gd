@@ -117,6 +117,9 @@ const ANIMATION_NAMES: Dictionary = {
 	"idle": "idle_lib/idle",
 	"walk": "walk_lib/walk",
 	"run": "run_lib/run",
+	"idle_carry": "idle_carry_lib/idle_carry",
+	"walk_carry": "walk_carry_lib/walk_carry",
+	"run_carry": "run_carry_lib/run_carry",
 }
 
 var _player: CharacterBody3D = null
@@ -258,7 +261,22 @@ func _process(delta: float) -> void:
 		if "sprint_speed" in _player:
 			sprint_speed = _player.sprint_speed
 		next_state = "run" if speed >= sprint_speed * RUN_SPEED_FRACTION else "walk"
+	if _is_holding_item():
+		next_state += "_carry"
 	_play_state(next_state)
+
+## Works for both Player (get_held_item(), a method — see Player.gd) and
+## NPC (held_item, a plain property — see NPC.gd) without needing either
+## file to expose a shared interface. Returns false for anything that
+## has neither, rather than erroring.
+func _is_holding_item() -> bool:
+	if _player == null:
+		return false
+	if _player.has_method("get_held_item"):
+		return _player.get_held_item() != null
+	if "held_item" in _player:
+		return _player.held_item != null
+	return false
 
 func _play_state(state: String) -> void:
 	var anim_name: String = ANIMATION_NAMES.get(state, state)

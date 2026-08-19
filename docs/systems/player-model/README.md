@@ -257,3 +257,14 @@ same `1.25` scale composed with the `0.3` Y-only squash → `0.375`), and
 shared with NPCs) for the full mechanism — unchanged from the player's
 version, since `PlayerModelController.gd`'s `is_shadow_only` export was
 already generic over any parent `CharacterBody3D`.
+
+## Carry-state animations (Aug 2026)
+`idle_carry`/`walk_carry`/`run_carry` play instead of the plain
+locomotion states whenever `_is_holding_item()` is true — checks
+`Player.get_held_item()` where that method exists, falls back to a
+plain `held_item` property read for NPC, no changes needed to either
+file. Full parity across all three states (no fallback-to-plain-run
+judgment call needed — a real carry-run clip was provided). Swapping any
+one of the three carry clips later follows the exact same steps as
+swapping the base run animation (see "Running animation" above) — just
+substitute the `_carry`-suffixed filename/dict keys.

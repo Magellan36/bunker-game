@@ -1,10 +1,13 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="PackedScene" uid="uid://b2s864bjtlv0s" path="res://assets/models/player/male.fbx" id="1_male"]
 [ext_resource type="Script" path="res://scripts/player/PlayerModelController.gd" id="2_script"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_lib.res" id="3_idle"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_lib.res" id="4_walk"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/run_lib.res" id="5_run"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_carry_lib.res" id="6_idle_carry"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_carry_lib.res" id="7_walk_carry"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/run_carry_lib.res" id="8_run_carry"]
 
 [node name="PlayerModel" type="Node3D"]
 script = ExtResource("2_script")
@@ -13,7 +16,10 @@ script = ExtResource("2_script")
 libraries = {
 "idle_lib": ExtResource("3_idle"),
 "walk_lib": ExtResource("4_walk"),
-"run_lib": ExtResource("5_run")
+"run_lib": ExtResource("5_run"),
+"idle_carry_lib": ExtResource("6_idle_carry"),
+"walk_carry_lib": ExtResource("7_walk_carry"),
+"run_carry_lib": ExtResource("8_run_carry")
 }
 root_motion_track = NodePath("MaleModel/Skeleton3D:mixamorig_Hips")
 

@@ -4,11 +4,17 @@ const CLIP_PATHS := {
 	"idle": "res://assets/models/player/idle.fbx",
 	"walk": "res://assets/models/player/walk.fbx",
 	"run": "res://assets/models/player/run.fbx",
+	"idle_carry": "res://assets/models/player/idle_carry.fbx",
+	"walk_carry": "res://assets/models/player/walk_carry.fbx",
+	"run_carry": "res://assets/models/player/run_carry.fbx",
 }
 const LIB_NAMES := {
 	"idle": "idle_lib",
 	"walk": "walk_lib",
 	"run": "run_lib",
+	"idle_carry": "idle_carry_lib",
+	"walk_carry": "walk_carry_lib",
+	"run_carry": "run_carry_lib",
 }
 
 func _init():
