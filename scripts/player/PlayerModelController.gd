@@ -69,6 +69,17 @@ const MODEL_FLOOR_FUDGE: float = 0.0
 ## eyes/eyebrows will read as skin-colored rather than white/dark until
 ## a follow-up assigns per-surface materials by name. Flagged in
 ## docs/systems/player-model/README.md, not a blocker here.
+## Aug 2026 fix — Eyes/Eyebrows are separate sub-meshes in male.fbx/
+## female.fbx (confirmed via their own distinct UV layer names,
+## EyesDiffuseUVLayer/EyebrowsDiffuseUVLayer) that were incorrectly
+## receiving the body's skin material — see _build_eye_material()/
+## _build_eyebrow_material() and the mesh loop below. A real eye
+## texture exists in the source kit; there's no dedicated eyebrow
+## texture anywhere in it, so eyebrows get a flat color instead (see
+## _build_eyebrow_material()).
+const EYE_ALBEDO_PATH: String = "res://assets/models/player/textures/T_Eye_Brown.png"
+const EYE_NORMAL_PATH: String = "res://assets/models/player/textures/T_Eye_Normal.png"
+
 const SKIN_TEXTURES: Dictionary = {
 	"male": {
 		"albedo": "res://assets/models/player/textures/T_Superhero_Male_Dark.png",
@@ -262,6 +273,25 @@ func _build_skin_material(gender: String) -> StandardMaterial3D:
 		mat.roughness_texture = rough
 	return mat
 
+func _build_eye_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	var albedo: Texture2D = load(EYE_ALBEDO_PATH)
+	var normal: Texture2D = load(EYE_NORMAL_PATH)
+	if albedo != null:
+		mat.albedo_texture = albedo
+	if normal != null:
+		mat.normal_enabled = true
+		mat.normal_texture = normal
+	return mat
+
+## No dedicated eyebrow texture exists anywhere in the source kit
+## (checked) — a flat color is the simplest correct fix, and reuses
+## hair_tint_color rather than adding a separate eyebrow-color concept.
+func _build_eyebrow_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = hair_tint_color
+	return mat
+
 ## Confirms root_motion_track actually resolves to a real bone on the
 ## given skeleton, rather than trusting whatever NodePath happens to be
 ## set. Aug 2026 fix pass — see the "Confirmed gap #2" note in
@@ -417,6 +447,13 @@ func _ready() -> void:
 	## MeshInstance3D (body + separately-skinned hair/eyebrows in a
 	## future pass).
 	_skin_material = _build_skin_material(gender)
+	var eye_material: StandardMaterial3D = _build_eye_material()
+	var eyebrow_material: StandardMaterial3D = _build_eyebrow_material()
+	## This loop runs before _setup_hair() attaches anything, so at this
+	## point it only ever sees male.fbx/female.fbx's own three sub-
+	## meshes — SuperHero_Male(_Female), Eyes, Eyebrows — never the
+	## later-attached Hair/Beard meshes, which get their own dedicated
+	## materials in _setup_hair()/_build_hair_material() instead.
 	for node in _find_all_of_type(self, "MeshInstance3D"):
 		var mi: MeshInstance3D = node as MeshInstance3D
 		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
@@ -426,10 +463,16 @@ func _ready() -> void:
 			if is_shadow_only
 			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		)
-		## Aug 2026 fix pass — see SKIN_TEXTURES above.
+		## Aug 2026 fix pass — Eyes/Eyebrows no longer get the body's
+		## skin material (see EYE_ALBEDO_PATH above for why).
+		var material_to_apply: StandardMaterial3D = _skin_material
+		if mi.name == "Eyes":
+			material_to_apply = eye_material
+		elif mi.name == "Eyebrows":
+			material_to_apply = eyebrow_material
 		if mi.mesh != null:
 			for surf_i in mi.mesh.get_surface_count():
-				mi.set_surface_override_material(surf_i, _skin_material)
+				mi.set_surface_override_material(surf_i, material_to_apply)
 
 	_setup_hair(skeleton, hairstyle_key, gender)
 	if beard_enabled:

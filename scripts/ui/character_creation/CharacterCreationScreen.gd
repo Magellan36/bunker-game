@@ -280,7 +280,7 @@ func _on_swatch_picked(btn: Button, c: Color) -> void:
 	## tint too (cheap — six small static meshes, not a full body
 	## rebuild).
 	if _preview_instance != null:
-		for mesh_name in ["Hair", "Beard"]:
+		for mesh_name in ["Hair", "Beard", "Eyebrows"]:
 			for mesh_instance in _find_named_meshes(_preview_instance, mesh_name):
 				for surf_i in mesh_instance.mesh.get_surface_count():
 					var mat: Material = mesh_instance.get_surface_override_material(surf_i)

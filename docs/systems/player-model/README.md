@@ -92,10 +92,8 @@ node itself.
 exports never include textures). `PlayerModelController._build_skin_material()`
 builds one `StandardMaterial3D` from `assets/models/player/textures/`
 (copied from `WIP/FINAL/Textures/`) and applies it to every surface on
-every `MeshInstance3D` found under the model — including eyes/eyebrows,
-which will read as skin-colored rather than white/dark until a follow-up
-assigns per-surface materials by name (would need to confirm surface
-index-to-part mapping in-editor first).
+every `MeshInstance3D` found under the model, except `Eyes`/`Eyebrows`
+— see "Eyes & Eyebrows materials" below.
 
 **Hair tint (Aug 2026):** `T_Hair_1_BaseColor.png`/`T_Hair_2_BaseColor.png`
 are both neutral/untinted strand-shading textures, not real hair color —
@@ -390,3 +388,16 @@ styles so relative placement between them is unchanged; the male is
 unaffected.
 If the female needs further tuning, edit those two constants rather than
 the shared dict.
+
+## Eyes & Eyebrows materials (Aug 2026)
+`Eyes`/`Eyebrows` are separate sub-meshes within `male.fbx`/`female.fbx`
+(own UV layers) — the material loop in `_ready()` must stay name-selective
+for these two rather than reverting to a blanket "apply skin material to
+every MeshInstance3D" loop, or this regresses. Eyes get a real texture
+(`T_Eye_Brown`/`T_Eye_Normal`, copied from the source kit); eyebrows get
+a flat color from `hair_tint_color` since no dedicated eyebrow texture
+exists anywhere in the kit — the `Eyebrows_Regular`/`Eyebrows_Female`
+assets are a separate *attachable* eyebrow-mesh system (parallel to
+hairstyles) that would need its own selector if real eyebrow
+variety/texture is wanted later, not a texture to bolt onto the body's
+built-in eyebrow mesh.
