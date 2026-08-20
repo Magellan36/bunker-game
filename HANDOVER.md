@@ -1,3 +1,87 @@
+# Handover — Second `held_item` Freed-Instance Crash Root-Caused and Fixed (Aug 2026)
+
+## What changed this session
+Root-caused a crash reported as `Player.get_held_item()`: "Trying to
+return a previously freed instance," triggered by eating a cooked dish,
+surfacing via `PlayerModelController._process()`'s per-frame poll of
+`get_held_item()`. Different mechanism from the prior `GardeningActivity`
+fix — no NPC or Takeaway involved. Confirmed the chain directly:
+`DishItem.on_use()` → `consume_as_food()` → `queue_free()` (eating a
+dish frees it — expected, ordinary behavior, same pattern `FoodCan`/
+`WaterBottle`/`SeedItem`/`FertilizerItem`/`BagOfSoilItem`/
+`PurifierFilterItem` all use). The bug was in the caller: the generic
+held-item E dispatch in `InteractionSystem.gd` calls `held_item.on_use()`/
+`on_interact()` and never checked afterward whether that call just freed
+the item — every other place in the codebase that calls something
+capable of freeing a held/claimed item already re-validates immediately
+after (`_try_give_to_nearest_npc()`'s existing check, and the
+`GardeningActivity` fix from last session); this one branch was the
+exception. Left `held_item` dangling for however long until something
+unrelated happened to read it — which is why the crash surfaced in a
+completely different system (`PlayerModelController.gd`) with no
+apparent connection to eating.
+
+Fixed by re-validating `is_instance_valid(held_item)` immediately after
+the `on_use()`/`on_interact()` call and clearing bookkeeping right there,
+same frame, before control returns to anything else. Also hardened
+`Player.get_held_item()` as defense-in-depth: it was reading
+`interaction_system.held_item` as a property up to three separate times
+(the null check, the validity check argument, and the final return) —
+couldn't fully rule out inconsistency across repeated access on a
+just-freed reference from static analysis alone, so simplified to one
+read into a local variable, reused for validation and the return. Zero
+behavior change in the normal case, removes a redundant-reads risk
+regardless of the exact underlying cause.
+
+### Files modified
+- `scripts/player/InteractionSystem.gd` — generic held-item dispatch now
+  re-validates and cleans up after `on_use()`/`on_interact()`.
+- `scripts/player/Player.gd` — `get_held_item()` reads the field once
+  into a local instead of three separate property accesses.
+- `docs/systems/player/README.md` — new Common-edits entry.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+(see Player subsystem plan
+`PLAYER_ON_USE_HELD_ITEM_FREED_FIX_PLAN.md` for the full 5-item
+checklist)
+
+# Handover — Research Station: Box Base → wooden_table.glb (Aug 2026)
+
+## What changed this session
+Research Station's solid grey-box base is now the same wooden_table.glb
+model already used by Table.gd's Medium (2×1) table — no new asset
+added. Scale is dedicated to this use (`0.6333, 0.5792, 0.4638`),
+targeting this station's own TOP_Y (0.75) rather than reusing Table.gd's
+constant (0.77), so nothing else in this file (flask positions, riser
+height, chute geometry — all TOP_Y-relative) needed to change. Collision
+was deliberately kept as a solid full-height box matching the old
+box's exact extents, decoupled from the visual — the real model has open
+legs, but the collision does NOT follow that shape, so the station is
+still a fully solid obstacle. This was a judgment call, flagged
+explicitly in the plan; revisit if walk-under-the-legs behavior is
+wanted instead (one-line change, noted in the plan).
+
+### Files modified
+- `scripts/world/furniture/ResearchStation.gd` — `_build_mesh()`'s base
+  block replaced; new `_strip_model_collision()`, `_recenter_glb_mesh()`.
+- `docs/systems/build/README.md` — Research Station entry updated.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+1. `tools/godot_check.sh` passes.
+2. Research Station (spawns at world start, singleton) — base now shows
+   the real wooden table model instead of a flat grey box.
+3. Flasks still sit correctly on top, no floating/clipping (checks
+   TOP_Y=0.75 still matches the model's actual scaled top surface).
+4. Chute/riser/ramp assembly unaffected, still attached correctly on the
+   left side.
+5. Walk into the station from the front/sides — still fully blocks
+   movement (collision unchanged, solid box, not open legs).
+6. Move the station (Move/Duplicate tool) — ghost box unaffected, same
+   2.85 × 0.95 × 0.90 as before.
+7. Open the Research Station UI (E) — unaffected, sanity check only.
+
 # Handover — Character Creation: Sidebar Categories, Hair Thumbnails, Swatch Palette (Aug 2026)
 
 ## Follow-up: floor-raycast diagnostic (diagnostic only, no behavior change)

@@ -171,7 +171,15 @@ func _handle_interaction_input() -> void:
 func get_held_item() -> Node:
 	if interaction_system == null:
 		return null
-	if interaction_system.held_item != null and not is_instance_valid(interaction_system.held_item):
+	## Aug 2026 (hardened) — read the field exactly once into a local
+	## rather than up to three separate property accesses
+	## (!=null check, is_instance_valid() argument, final return). Can't
+	## fully verify from static analysis whether repeated access on a
+	## just-freed reference is perfectly consistent across all three
+	## reads, and there's no reason to take that risk when reading once
+	## and reusing the local costs nothing.
+	var item: Node = interaction_system.held_item
+	if item != null and not is_instance_valid(item):
 		## Freed externally without going through the normal drop/give
 		## cleanup — self-heal the same way InteractionSystem._update_prompt()'s
 		## existing guard already does for this exact scenario (see that
@@ -181,7 +189,8 @@ func get_held_item() -> Node:
 		## enough, or _held_from_slot is left stale.
 		interaction_system.held_item       = null
 		interaction_system._held_from_slot = -1
-	return interaction_system.held_item
+		return null
+	return item
 
 ## Called by NPC-side code the instant a snatch succeeds — by that point
 ## the item has already been physically reassigned to the NPC

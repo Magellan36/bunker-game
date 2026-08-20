@@ -293,6 +293,23 @@ func _unhandled_input(event: InputEvent) -> void:
 				held_item.on_use()
 			elif held_item.has_method("on_interact"):
 				held_item.on_interact()
+			## Aug 2026 fix — on_use()/on_interact() can free `self` as a
+			## side effect (DishItem/FarmProduceItem/FoodCan/WaterBottle/
+			## SeedItem/FertilizerItem/BagOfSoilItem/PurifierFilterItem all
+			## do this when a consumable runs out — confirmed via
+			## DishItem.consume_as_food()'s queue_free()). Nothing here
+			## ever checked afterward, leaving held_item pointing at a
+			## freed object until some UNRELATED system's own per-frame
+			## read happened to notice — confirmed root cause of
+			## Player.get_held_item()'s "Trying to return a previously
+			## freed instance" crash (PlayerModelController.gd polls it
+			## every frame, unaware this dispatch just left a gap).
+			## Closes it immediately, same frame, before anything else
+			## gets a chance to read the dangling reference.
+			if not is_instance_valid(held_item):
+				held_item       = null
+				_held_from_slot = -1
+				_is_holding_e   = false
 			return
 
 		## Shelf nearby — reached only if empty-handed, or holding

@@ -289,6 +289,13 @@ func _complete_research() -> void:
 ## combined 2.85-wide footprint (required for _tile_half_extents()'s
 ## symmetric-about-origin bounds check to stay accurate). The chute itself
 ## occupies the remaining left portion, centered at CHUTE_CENTER_X.
+## Reuses the same real model Table.gd's Medium (2×1) table loads — see
+## PLAN_researchstation_table_base_swap.md for why the scale differs
+## slightly from Table.gd's own constant (targets this station's TOP_Y =
+## 0.75, not Table.gd's 0.77).
+const BASE_MODEL_PATH:  String  = "res://assets/models/wooden_table.glb"
+const BASE_MODEL_SCALE: Vector3 = Vector3(0.6333, 0.5792, 0.4638)
+
 func _build_mesh() -> void:
 	const CHUTE_WIDTH: float          = 0.95    ## 2.85 total - 1.90 original = 0.95 added
 	const MAIN_BLOCK_WIDTH: float     = 1.90    ## unchanged original slab width
@@ -307,22 +314,32 @@ func _build_mesh() -> void:
 	main_block.position = Vector3(MAIN_BLOCK_CENTER_X, 0.0, 0.0)
 	add_child(main_block)
 
-	## Filled rectangle base — same 2×1 (1.90 × 0.90) footprint as Build
-	## Station/Medium Table, but solid floor-to-top rather than four legs +
-	## thin top, per design direction.
+	## Real model base (Aug 2026) — same wooden_table.glb Table.gd's
+	## Medium table uses, scaled to this station's own TOP_Y instead of
+	## Table.gd's. Collision stays a solid full-height box matching the
+	## OLD procedural box's exact extents/position — decoupled from the
+	## now-open-legged visual on purpose (see plan header: default choice
+	## was to keep this a fully solid obstacle, not let players walk
+	## between the legs).
 	const TOP_Y: float = 0.75
-	var base_mi: MeshInstance3D = MeshInstance3D.new()
-	var base_mesh: BoxMesh = BoxMesh.new()
-	base_mesh.size = Vector3(1.90, TOP_Y, 0.90)
-	base_mi.mesh = base_mesh
-	base_mi.position = Vector3(0.0, TOP_Y * 0.5, 0.0)
-	base_mi.set_surface_override_material(0, mat)
-	main_block.add_child(base_mi)
-	base_mi.create_trimesh_collision()
-	for child in base_mi.get_children():
-		if child is StaticBody3D:
-			(child as StaticBody3D).collision_layer = 5
-			(child as StaticBody3D).collision_mask  = 0
+	var packed: PackedScene = load(BASE_MODEL_PATH) if ResourceLoader.exists(BASE_MODEL_PATH) else null
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			model.position = Vector3.ZERO
+			model.scale    = BASE_MODEL_SCALE
+			_recenter_glb_mesh(model)
+			_strip_model_collision(model)
+			main_block.add_child(model)
+	else:
+		push_warning("ResearchStation.gd: wooden_table.glb missing at %s — falling back to no base visual" % BASE_MODEL_PATH)
+
+	var base_col: CollisionShape3D = CollisionShape3D.new()
+	var base_box: BoxShape3D = BoxShape3D.new()
+	base_box.size = Vector3(1.90, TOP_Y, 0.90)
+	base_col.shape = base_box
+	base_col.position = Vector3(0.0, TOP_Y * 0.5, 0.0)
+	main_block.add_child(base_col)
 
 	## Beakers/flasks — a few simple primitives, tinted "liquid" glass look.
 	var mat_glass: StandardMaterial3D = StandardMaterial3D.new()
@@ -427,7 +444,32 @@ func _build_mesh() -> void:
 	add_child(chute_proxy)
 	chute_proxy.set("host", self)
 
+## Recursively disables collision on every CollisionObject3D descendant of
+## an instanced model. Duplicated per-file, matching the established
+## convention across every prior model-swap in this codebase.
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
+
+## Godot's glTF importer always wraps an imported scene in an extra
+## generated root node — see Table.gd's identical helper for the full
+## explanation. wooden_table.glb's source node has an identity transform
+## (already confirmed clean in the original Table.gd plan), so this is
+## inert here — kept for consistency.
+func _recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if _recenter_glb_mesh(child):
+			return true
+	return false
+
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
-	box.size = Vector3(2.85, 0.95, 0.90)   ## Aug 2026 chute pass — widened 1.5x (was 1.90)
+	box.size = Vector3(2.85, 0.95, 0.90)   ## Aug 2026 chute pass — widened 1.5x (was 1.90). Unaffected by the base-model swap — same overall footprint.
 	return box

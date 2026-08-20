@@ -344,6 +344,17 @@ Build Station:
   (creates the UI once, injects `_research_ui` into the station and
   `research_ui` into `InteractionSystem`).
 
+**Aug 2026 — base model swap.** Research Station's solid procedural box
+base is now the same real `wooden_table.glb` model Table.gd's Medium
+(2×1) table uses (scale `Vector3(0.6333, 0.5792, 0.4638)` — X/Z match
+Table.gd's, Y differs because this station's TOP_Y is 0.75, not
+Table.gd's 0.77). Flasks/riser/chute/slot marker are unchanged, all
+still positioned relative to TOP_Y. Collision was deliberately KEPT as a
+solid full-height box matching the old procedural box's exact extents —
+not switched to Table.gd's thin-tabletop-only collision — so the station
+remains a fully solid obstacle despite the visual now showing open table
+legs. Revisit this decision if leg-gap walkability is ever wanted.
+
 ## Shelf Family: Small / Medium / Large (Aug 2026)
 Tile IDs **3** (`Medium Shelf`, $75, 10 slots — the former "Shelving"),
 **34** (`Small Shelf`, $45, 6 slots), and **35** (`Large Shelf`, $180,

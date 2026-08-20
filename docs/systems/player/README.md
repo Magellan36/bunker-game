@@ -184,6 +184,26 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   moved to `PlayerModelController.gd`, generalized to handle more than
   one `MeshInstance3D`. `CharacterShadowStandIn.attach(self)` is
   unaffected (only ever reads `$CollisionShape3D`).
+- **Root-caused and fixed a second `held_item` freed-instance crash
+  (Aug 2026) — `on_use()`/`on_interact()` self-consumption never
+  checked afterward.** Reported as `Player.get_held_item()`: "Trying to
+  return a previously freed instance," via
+  `PlayerModelController._process()` polling it every frame, right
+  after eating a cooked dish. Different mechanism from the prior
+  `GardeningActivity` fix (no NPC/Takeaway involved this time): the
+  generic held-item E dispatch in `InteractionSystem.gd` calls
+  `held_item.on_use()`/`on_interact()` and never checked whether that
+  call just freed the item — confirmed via `DishItem.consume_as_food()`
+  (`queue_free()` on eat), the same pattern `FoodCan`/`WaterBottle`/
+  `SeedItem`/`FertilizerItem`/`BagOfSoilItem`/`PurifierFilterItem` all
+  use. Left `held_item` dangling until some unrelated system's own read
+  happened to notice. Fixed by re-validating with `is_instance_valid()`
+  immediately after the call and clearing bookkeeping right there — same
+  discipline as `_try_give_to_nearest_npc()`'s existing check and the
+  `GardeningActivity` fix, now applied to the one dispatch branch that
+  hadn't gotten it. Also hardened `Player.get_held_item()` to read
+  `held_item` exactly once into a local rather than up to three separate
+  property accesses — defense-in-depth, zero behavior change.
 - **Character shadowing/layer 12 (Aug 2026):** See
   `docs/systems/graphics/README.md` "Character shadow stand-in" — the Aug
   2026 aggregated-shadow-light approach that briefly lived here (moving
