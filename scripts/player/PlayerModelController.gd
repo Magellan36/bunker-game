@@ -200,13 +200,14 @@ const HAIRSTYLES: Dictionary = {
 const FEMALE_HAIR_DELTA: Vector3 = Vector3(0.0, -0.005, -0.005)
 
 ## Aug 2026 — additional female-only backward (toward -Z) shift per style,
-## applied on top of FEMALE_HAIR_DELTA's Z. Live feedback: most styles
-## still read too far forward on the female, so they get an extra -0.0075
-## (0.75cm). long is deliberately 0.0 — it already sat right.
+## applied on top of FEMALE_HAIR_DELTA's Z. Live feedback pass: every
+## non-long style was brought to land on the SAME effective z as buns
+## (0.028): base_z + FEMALE_HAIR_DELTA.z + this = 0.028. long is
+## deliberately 0.0 — it already sat right.
 const FEMALE_HAIR_EXTRA_BACK_Z: Dictionary = {
-	"buzzed": -0.0075,
-	"simple_parted": -0.0075,
-	"beard": -0.0075,
+	"buzzed": -0.014,
+	"simple_parted": -0.014,
+	"beard": -0.014,
 	"buzzed_female": -0.0075,
 	"buns": -0.0075,
 	"long": 0.0,
