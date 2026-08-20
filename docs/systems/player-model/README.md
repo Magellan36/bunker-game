@@ -3,6 +3,182 @@
 **Read this before opening `PlayerModelController.gd` or
 `scenes/player/PlayerModel.tscn`.**
 
+## Native-rig rebuild (Aug 2026, IN PROGRESS)
+
+**Status: retarget complete (headless), visual checkpoint outstanding.**
+This section supersedes the Mixamo-era sections below where they conflict.
+Plan: `PLAYER_MODEL_NATIVE_RIG_REBUILD_PLAN.md` (since removed; the
+surviving record is this README section). The mechanical retarget is done
+and verified headlessly; the remaining items are in-editor visual checks
+(forward-facing, hair bind-pose placement, material rendering) that cannot
+be confirmed without rendering.
+
+### What's being replaced
+The base body is switching from the Mixamo-retargeted `male.fbx`/
+`female.fbx` to Quaternius's native rigs
+`assets/models/player/Superhero_Male_FullBody.gltf` /
+`Superhero_Female_FullBody.gltf` (copied from
+`assets/models/WIP/Universal Base Characters[Standard]/.../Godot - UE/`,
+which the editor has already imported in place). Reason: the recurring
+cross-skeleton friction with every Quaternius-sourced asset since — hair
+placement first, then this outfit pack — traces back to the body being on
+Mixamo's `mixamorig:` skeleton while everything else is native UE4/UE5
+Mannequin-named. Putting the body on the same skeleton the hairstyles were
+always rigged for is the actual fix that the manual per-style hair offsets
+were papering over.
+
+**Retargeted (not dropped):** `walk`, `run`, `idle_carry`, `walk_carry`,
+`run_carry`, and `idle` — `idle` only as a placeholder until a replacement
+is picked from UAL1/UAL2 or elsewhere; do NOT mistake the current idle for
+a deliberate choice.
+
+### Bone-name convention change
+`mixamorig:*` → profile names. The Part-2 retarget renames BOTH the native
+skeleton and every Mixamo clip onto Godot's built-in Humanoid profile, so
+both pipelines end up on the same bone names (`Hips`, `Spine`, `Chest`,
+`UpperChest`, `Neck`, `Head`, `LeftUpperArm`, ...). The root/hip bone is
+`Hips` in both — `PlayerModelController.gd`'s `_find_bone_path(..., "Hips")`
+fallback resolves identically for the Mixamo and native pipelines. The
+native `root` bone is intentionally left unmapped (keeps its baked −90° X
+rotation that orients the body Z-up). Full Mixamo→native mapping lives in
+the two BoneMap resources (`bone_map_mixamo.tres` / `bone_map_native.tres`).
+
+### How the retarget was done (headless, not manual editor clicks)
+Godot's built-in scene importer exposes per-node retarget options through
+the `_subresources.nodes` block of each `.import` file (the same block the
+Advanced Import Settings dialog writes). `tools/apply_retarget_imports.gd`
+writes that block for all 8 files: `retarget/bone_map` (one of the two
+BoneMap resources above) plus the renamer/rest-fixer defaults. On reimport
+the import pipeline renames the skeleton node to `GeneralSkeleton`
+(unique-name flag set), renames bones to profile names, and retargets the
+animation tracks to `%GeneralSkeleton:<profile bone>`. The track paths in
+the rebuilt `.res` libraries are `MaleModel/%GeneralSkeleton:Hips` etc. —
+the `%` unique-name prefix resolves through the body's `Armature` wrapper
+node, so no path change was needed in the build tooling.
+
+**Verified headlessly (no rendering needed):** all 52 tracks in each of the
+six rebuilt `.res` libraries resolve to the real skeleton on both the male
+and female native bodies (`UNRESOLVED_TRACK_NODES=0`); idle playback moves
+the legs ~0.002 rad/s (healthy subtle idle), run moves them ~0.58 rad; the
+Hips position track is removed as before (sink fix), so no root motion.
+
+**Verified by direct inspection of both gltf files (not assumed):** both
+have 69 nodes / 65 skin joints, identical structure; mesh nodes
+`Superhero_Male`/`Superhero_Female`, `Eyes`, `Eyebrows` are direct
+children of the `Armature` root; hierarchy is `Armature → root → pelvis →
+spine_01…` (there IS a `root` node above `pelvis`, unlike Mixamo, where
+`Hips` has no parent node — exactly what Godot's retarget system absorbs).
+
+### Corrections to the plan (found during prep)
+- **There is NO baked-in hair mesh in either native file.** Only three
+  meshes exist (body, `Eyes`, `Eyebrows`). The `MI_Hair_1` (male) /
+  `MI_Hair_2` (female) materials that the plan assumed were a baked-in
+  hairstyle are actually assigned to the **`Eyebrows`** mesh geometry
+  ("Face" in the male file). The plan's "hide the baked-in hair" step is
+  therefore N/A — but the eyebrow mesh wearing a hair-texture material is
+  exactly the sort of thing to eyeball at the Part-2 checkpoint; if the
+  brows render oddly, our runtime material override (below) already
+  replaces that material with the flat `hair_tint_color` eyebrow material.
+- **Orientation:** the native file's `root` node carries a baked −90° X
+  rotation (Blender Y-up→Z-up correction). Playtest VERIFIED that this does
+  NOT fix the forward axis — the in-game body and all its animations
+  rendered backwards until the same 180° Y flip the Mixamo body uses was
+  applied to the body node. Both rigs now share that flip.
+- **Skin material:** the native import's own materials reference the real
+  textures (`T_Superhero_*`, `T_Eye_*`, `T_Hair_*` — confirmed in the gltf
+  image list). The `_build_skin_material()` runtime override may no longer
+  be needed; attempt removing it and verify the baked materials render —
+  keep the function as fallback if not.
+- **Hair placement:** with the body on the native skeleton the hairstyles
+  were rigged for, the original automatic bind-pose placement (instead of
+  the manual per-style `position_offset` system) should work for the first
+  time. Plan Part 5: try that first, reset all manual offsets (including
+  the female deltas) to zero, re-verify from scratch. The old numbers are
+  tied to the Mixamo skeleton's geometry — do not carry them forward.
+
+### Part-2 editor steps (DONE — done headlessly, not by manual clicks)
+1. Both gltf files are in `assets/models/player/` and imported (the new
+   copies import on the next scan).
+2. Retarget mapping was authored as two BoneMap resources
+   (`bone_map_native.tres` mapping the native skeleton onto the Humanoid
+   profile with `root` unmapped; `bone_map_mixamo.tres` mapping
+   `mixamorig_*` onto the same profile) and wired into the `_subresources`
+   node settings of all 8 `.import` files (see "How the retarget was done"
+   above). This is the same configuration the Advanced Import Settings →
+   Retarget/Rest Pose section would produce by hand.
+3. With both skeletons mapped onto the same Humanoid profile, the animation
+   FBXs are reimported "retargeted to" the native skeleton — Godot computes
+   the rest-pose correction, nothing here is pre-baked.
+4. Checkpoint before continuing: native body stands correctly (no hover,
+   forward-facing correct — checked fresh, not assumed) with idle playing.
+   **Remaining visual check — do this in the editor/playtest now.**
+5. Then re-check walk/run/carry individually. **Remaining visual check.**
+
+### Part-4/5 code changes (prepared behind `native_rig`, default off)
+All the controller-side switches are already in `PlayerModelController.gd`
+behind a new `@export var native_rig: bool = false` (default = existing
+Mixamo behavior, byte-for-byte unchanged): `NATIVE_BODY_SCENE_PATHS` (the
+two gltf paths) selected when the flag is on; the root-motion fallback
+looks for `"Hips"` (the retargeted profile name — this replaces the
+plan-era `"pelvis"` note, see the bone-name section above); the body
+instantiates with an identity transform (NO assumed 180° fix — forward-
+facing flagged unverified); the runtime skin/eye/eyebrow material override
+is skipped so the native import's own baked materials render; and
+`_setup_hair()` uses the source skin's own Head bind pose with ZERO manual
+offsets (all Mixamo-era offsets — `position_offset`, `FEMALE_HAIR_DELTA`,
+`FEMALE_HAIR_EXTRA_BACK_Z`, the female-beard +3cm — deliberately not
+applied on native).
+
+The flag is only the controller half. The other half: PlayerModel.tscn's
+six `AnimationLibrary` references must point at RETARGETED `.res` resources
+before the flag is flipped — with the old Mixamo-rebased libraries the
+tracks won't resolve against the native skeleton and nothing animates.
+Sequence: do the editor retarget (Part 2), get the retargeted resources,
+wire them into PlayerModel.tscn, THEN flip `native_rig` on the Player/NPC/
+preview instances and go through the checklist. Docs get updated with
+whichever "should work, verify" items turn out true/false after testing.
+
+**Current state (Aug 2026):** the retarget + rebuild are done (see above),
+the six `.res` libraries are the retargeted ones, and `native_rig = true`
+is now set on Player.tscn's `PlayerModel`/`PlayerModelShadow`, NPC.tscn's
+`CharacterModel`/`CharacterModelShadow`, and the character-creation
+preview. The remaining item is the visual checkpoint (forward-facing, hair
+bind-pose placement, baked materials rendering) — everything mechanical is
+verified headlessly.
+
+### Part-3 build tooling
+`tools/build_player_model.gd` still packages the retargeted clips: it loads
+each retargeted `.scn`'s `mixamo_com` animation, rebases the track paths
+(`%GeneralSkeleton:...` → `MaleModel/%GeneralSkeleton:...`), removes the
+Hips position track (sink fix), and saves each as an `AnimationLibrary`.
+Confirmed still needed — the `%` unique-name prefix keeps the rebase
+resolving through the native body's `Armature` wrapper, so the tooling's
+role is unchanged, just operating on profile-named bones now.
+`tools/build_player_model_editor.gd` is the same logic as an EditorScript.
+
+### Checklist (staged)
+- [x] Retarget configuration authored (two BoneMap resources) and applied
+      to all 8 `.import` files via `_subresources.nodes`
+- [x] All 8 files reimported with retarget active (skeleton node renamed to
+      `GeneralSkeleton`, bones renamed to profile names, tracks retargeted
+      to `%GeneralSkeleton:*`)
+- [x] Six `.res` animation libraries rebuilt from retargeted clips; all 52
+      tracks per library resolve on both male and female native bodies
+      (headless-verified, `UNRESOLVED_TRACK_NODES=0`); idle/run playback
+      drives the skeleton sanely
+- [x] `native_rig = true` set on Player, NPC, and preview instances
+- [x] VISUAL CHECKPOINT: body stands correctly with `idle`; forward-facing
+      corrected with the same 180° Y flip both rigs use (playtest-confirmed
+      backwards before the fix)
+- [ ] VISUAL: walk/run/carry each look right on the native body
+- [ ] VISUAL: hair bind-pose placement (source skin's own Head bind pose,
+      zero manual offsets) lands correctly; reset/re-derive if not
+- [ ] VISUAL: baked body/eye/eyebrow materials render (no runtime override
+      on native; fall back to the builders if not)
+- [ ] Female body same checks (mapping transfers from male — verified
+      headlessly that its tracks resolve; visual only)
+- [ ] NPC randomization + character-creation end-to-end with new body/animations
+
 ## Purpose
 Owns the player's visual body: skeleton, skinned mesh, and locomotion
 animation. Distinct from the Player subsystem (`docs/systems/player/

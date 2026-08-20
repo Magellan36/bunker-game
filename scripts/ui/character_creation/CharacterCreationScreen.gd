@@ -330,6 +330,7 @@ func _rebuild_preview() -> void:
 	## Set BEFORE add_child() — PlayerModelController._ready() reads
 	## this the moment the node enters the tree.
 	_preview_instance.set("use_character_creation_data", true)
+	_preview_instance.set("native_rig", true)
 	preview_root.add_child(_preview_instance)
 	## Matches Player.tscn's PlayerModel scale (see that scene's
 	## transform override) so the preview looks like the real in-game

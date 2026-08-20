@@ -101,6 +101,15 @@ const BODY_SCENE_PATHS: Dictionary = {
 	"female": "res://assets/models/player/female.fbx",
 }
 
+## Aug 2026 native-rig rebuild — the Quaternius-native bodies, selected
+## instead of BODY_SCENE_PATHS when native_rig is true. See the flag's
+## doc comment and the README "Native-rig rebuild" section for the switch
+## sequence and what's verified vs. still unverified on this body.
+const NATIVE_BODY_SCENE_PATHS: Dictionary = {
+	"male": "res://assets/models/player/Superhero_Male_FullBody.gltf",
+	"female": "res://assets/models/player/Superhero_Female_FullBody.gltf",
+}
+
 ## Aug 2026 — opt-in flag for reading CharacterCreationData (gender/
 ## hairstyle_key/hair_tint_color) instead of the hardcoded defaults
 ## below. Set true on Player.tscn's PlayerModel/PlayerModelShadow nodes
@@ -116,6 +125,19 @@ const BODY_SCENE_PATHS: Dictionary = {
 ## exclusive in practice with use_character_creation_data — an instance
 ## should only ever have one of the two set true.
 @export var randomize_appearance: bool = false
+
+## Aug 2026 native-rig rebuild — opt-in switch for the Quaternius-native
+## base body (Superhero_Male/Female_FullBody.gltf) replacing the
+## Mixamo-retargeted male.fbx/female.fbx. Default false: behavior is the
+## existing Mixamo path, unchanged. Set true ONLY after the Part-2 editor
+## retarget is done AND PlayerModel.tscn's animation libraries point at
+## retargeted .res resources — this flag only switches the body/hair/
+## material logic; the animation resources are the other half of the
+## switch (see README "Native-rig rebuild" + the plan doc). Forward-facing
+## is now VERIFIED (the 180° Y flip is applied in _ready(), confirmed in
+## playtest); hair bind-pose placement is checked but still needs a visual
+## look-over at the checkpoint.
+@export var native_rig: bool = false
 
 ## Gender-applicability mirror of CharacterCreationScreen.gd's
 ## HAIRSTYLE_OPTIONS, used only for NPC random rolls (the UI script's
@@ -452,10 +474,20 @@ func _ready() -> void:
 	## vs. Godot's own -Z forward), applied generically to whichever body
 	## loads — not independently re-verified for the female body, flagged
 	## in the plan doc.
-	var body_scene_path: String = BODY_SCENE_PATHS.get(gender, BODY_SCENE_PATHS["male"])
+	var body_scene_path: String = (
+		NATIVE_BODY_SCENE_PATHS.get(gender, NATIVE_BODY_SCENE_PATHS["male"])
+		if native_rig
+		else BODY_SCENE_PATHS.get(gender, BODY_SCENE_PATHS["male"])
+	)
 	var body_scene: PackedScene = load(body_scene_path)
 	var body: Node3D = body_scene.instantiate()
 	body.name = "MaleModel"
+	## Aug 2026 native-rig rebuild, VERIFIED in playtest: the native body
+	## also faces backwards (same as the Mixamo body did) — the baked -90° X
+	## rotation on its root orients the skeleton Y-up but does NOT correct
+	## the forward axis, so the body and every animation render mirrored
+	## when the player moves along Godot's -Z forward. Apply the same 180° Y
+	## flip both rigs need.
 	body.transform = Transform3D(Basis(Vector3.UP, PI), Vector3.ZERO)
 	add_child(body)
 
@@ -509,12 +541,11 @@ func _ready() -> void:
 	## this node — a real character can end up with more than one
 	## MeshInstance3D (body + separately-skinned hair/eyebrows in a
 	## future pass).
-	_skin_material = _build_skin_material(gender)
-	var eye_material: StandardMaterial3D = _build_eye_material()
-	var eyebrow_material: StandardMaterial3D = _build_eyebrow_material()
+	_skin_material = _build_skin_material(gender) if not native_rig else null
+	var eye_material: StandardMaterial3D = _build_eye_material() if not native_rig else null
+	var eyebrow_material: StandardMaterial3D = _build_eyebrow_material() if not native_rig else null
 	## This loop runs before _setup_hair() attaches anything, so at this
-	## point it only ever sees male.fbx/female.fbx's own three sub-
-	## meshes — SuperHero_Male(_Female), Eyes, Eyebrows — never the
+	## point it only ever sees the body file's own sub-meshes — never the
 	## later-attached Hair/Beard meshes, which get their own dedicated
 	## materials in _setup_hair()/_build_hair_material() instead.
 	for node in _find_all_of_type(self, "MeshInstance3D"):
@@ -526,16 +557,21 @@ func _ready() -> void:
 			if is_shadow_only
 			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		)
-		## Aug 2026 fix pass — Eyes/Eyebrows no longer get the body's
-		## skin material (see EYE_ALBEDO_PATH above for why).
-		var material_to_apply: StandardMaterial3D = _skin_material
-		if mi.name == "Eyes":
-			material_to_apply = eye_material
-		elif mi.name == "Eyebrows":
-			material_to_apply = eyebrow_material
-		if mi.mesh != null:
-			for surf_i in mi.mesh.get_surface_count():
-				mi.set_surface_override_material(surf_i, material_to_apply)
+		## Aug 2026 native-rig rebuild: on the native body the gltf import's
+		## own baked materials are used as-is (they reference the real
+		## textures — verified in the source file), so the runtime
+		## skin/eye/eyebrow overrides below are Mixamo-path-only. If the
+		## baked materials fail to render at the checkpoint, re-enable this
+		## block for native too — the builders stay as fallback.
+		if not native_rig:
+			var material_to_apply: StandardMaterial3D = _skin_material
+			if mi.name == "Eyes":
+				material_to_apply = eye_material
+			elif mi.name == "Eyebrows":
+				material_to_apply = eyebrow_material
+			if mi.mesh != null:
+				for surf_i in mi.mesh.get_surface_count():
+					mi.set_surface_override_material(surf_i, material_to_apply)
 
 	_setup_hair(skeleton, hairstyle_key, gender)
 	if beard_enabled:
@@ -551,7 +587,12 @@ func _ready() -> void:
 		## the old `== NodePath()` guard skipped past a wrong-but-
 		## non-empty value without ever checking it actually resolves.
 		if skeleton != null and not _root_motion_track_valid(_anim_player, skeleton):
-			var hips: NodePath = _find_bone_path(_anim_player, skeleton, "Hips")
+			## Aug 2026 native-rig rebuild — with the Part-2 retarget config the
+			## native skeleton's hip bone is ALSO renamed to the humanoid-profile
+			## "Hips" (bone_map_native.tres maps pelvis->Hips), so both pipelines
+			## resolve the same way here.
+			var hips: NodePath = _find_bone_path(
+				_anim_player, skeleton, "Hips")
 			if hips != NodePath():
 				_anim_player.root_motion_track = hips
 		_play_state("idle")
@@ -706,15 +747,17 @@ func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String, at
 	if hair_mesh_src == null or hair_mesh_src.skin == null:
 		hair_root.free()
 		return
+	var hair_skin: Skin = hair_mesh_src.skin
 
 	## Aug 2026, second fix pass: the SOURCE skin's own bind-pose data is
-	## no longer used to compute a transform (two automatic attempts at
-	## that — the original plan's raw bind pose, then a rest-pose-inverse
-	## heuristic — landed at the feet/hips, then the mid-section
-	## respectively; both wrong, and this can't be iterated on further
-	## without seeing the live result). This check now only confirms the
-	## asset is a genuinely rigged hair mesh (sanity guard), nothing more.
-	var has_valid_skin: bool = hair_mesh_src.skin.get_bind_count() > 0
+	## no longer used to compute a transform on the Mixamo body (two
+	## automatic attempts — the original plan's raw bind pose, then a
+	## rest-pose-inverse heuristic — landed at the feet/hips, then the
+	## mid-section respectively; both wrong because the hairstyles were
+	## rigged against a DIFFERENT reference armature than our Mixamo body).
+	## This check now only confirms the asset is a genuinely rigged hair
+	## mesh (sanity guard), nothing more.
+	var has_valid_skin: bool = hair_skin.get_bind_count() > 0
 	if not has_valid_skin:
 		hair_root.free()
 		return
@@ -723,22 +766,6 @@ func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String, at
 	if head_bone_name == "":
 		hair_root.free()
 		return
-
-	## Base offset now comes from this style's own HAIRSTYLES entry
-	## (see the dict's doc comment above for why only "buzzed"'s value
-	## is actually playtested-correct) — hair_position_offset/
-	## hair_rotation_offset_deg (both zero by default now) apply as an
-	## additional delta on top, for a quick per-style correction without
-	## touching the dictionary.
-	var base_offset: Vector3 = style.get("position_offset", Vector3.ZERO)
-	if gender == "female":
-		base_offset += FEMALE_HAIR_DELTA
-		base_offset.z += FEMALE_HAIR_EXTRA_BACK_Z.get(hairstyle_key, 0.0)
-		## Aug 2026 — beard-specific, on top of the generic female
-		## delta above (which was tuned for scalp hair, not jaw
-		## placement). Female beard sat 3cm too low.
-		if hairstyle_key == "beard":
-			base_offset.y += 0.03
 
 	var attachment := BoneAttachment3D.new()
 	attachment.bone_name = head_bone_name
@@ -749,7 +776,48 @@ func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String, at
 		deg_to_rad(hair_rotation_offset_deg.y),
 		deg_to_rad(hair_rotation_offset_deg.z),
 	))
-	var tuned_transform: Transform3D = Transform3D(offset_basis, base_offset + hair_position_offset)
+	var base_offset: Vector3 = Vector3.ZERO
+	var tuned_transform: Transform3D
+	if native_rig:
+		## Aug 2026 native-rig rebuild (Part 5 of the plan) — with the body
+		## on the same native skeleton the hairstyles were rigged for, the
+		## source skin's own Head bind pose should place each style
+		## correctly with ZERO manual offset for the first time. The
+		## Mixamo-era manual offsets (HAIRSTYLES position_offset,
+		## FEMALE_HAIR_DELTA, FEMALE_HAIR_EXTRA_BACK_Z, the female beard
+		## +3cm) are all derived from the OLD skeleton's geometry and
+		## deliberately NOT applied here. "Should work, verify before
+		## trusting" — if the bind pose lands wrong at the checkpoint, fall
+		## back to the manual path and re-derive fresh numbers.
+		var bind_index: int = -1
+		for i in hair_skin.get_bind_count():
+			if hair_skin.get_bind_name(i) == "Head":
+				bind_index = i
+				break
+		if bind_index == -1:
+			hair_root.free()
+			attachment.free()
+			return
+		tuned_transform = Transform3D(offset_basis, hair_position_offset) * hair_skin.get_bind_pose(bind_index)
+		print("[PlayerModelController] native hair: style=", hairstyle_key,
+			" bind_pose=", hair_skin.get_bind_pose(bind_index))
+	else:
+		## Base offset comes from this style's own HAIRSTYLES entry
+		## (see the dict's doc comment above for why only "buzzed"'s value
+		## is actually playtested-correct) — hair_position_offset/
+		## hair_rotation_offset_deg (both zero by default now) apply as an
+		## additional delta on top, for a quick per-style correction without
+		## touching the dictionary.
+		base_offset = style.get("position_offset", Vector3.ZERO)
+		if gender == "female":
+			base_offset += FEMALE_HAIR_DELTA
+			base_offset.z += FEMALE_HAIR_EXTRA_BACK_Z.get(hairstyle_key, 0.0)
+			## Aug 2026 — beard-specific, on top of the generic female
+			## delta above (which was tuned for scalp hair, not jaw
+			## placement). Female beard sat 3cm too low.
+			if hairstyle_key == "beard":
+				base_offset.y += 0.03
+		tuned_transform = Transform3D(offset_basis, base_offset + hair_position_offset)
 
 	var hair_mesh := MeshInstance3D.new()
 	hair_mesh.name = attachment_mesh_name

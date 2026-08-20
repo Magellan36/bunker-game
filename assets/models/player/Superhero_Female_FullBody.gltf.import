@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bdf5nqg1715nh"
-path="res://.godot/imported/walk_carry.fbx-e8fa1df9d05e6f8ea893ede651d8b0b7.scn"
+uid="uid://cmqe083rvyjr8"
+path="res://.godot/imported/Superhero_Female_FullBody.gltf-636fc9f9cbba667d484245249dad2825.scn"
 
 [deps]
 
-source_file="res://assets/models/player/walk_carry.fbx"
-dest_files=["res://.godot/imported/walk_carry.fbx-e8fa1df9d05e6f8ea893ede651d8b0b7.scn"]
+source_file="res://assets/models/player/Superhero_Female_FullBody.gltf"
+dest_files=["res://.godot/imported/Superhero_Female_FullBody.gltf-636fc9f9cbba667d484245249dad2825.scn"]
 
 [params]
 
@@ -32,7 +32,7 @@ meshes/force_disable_compression=false
 skins/use_named_skins=true
 animation/import=true
 animation/fps=30
-animation/trimming=true
+animation/trimming=false
 animation/remove_immutable_tracks=true
 animation/import_rest_as_RESET=false
 import_script/path=""
@@ -41,8 +41,8 @@ materials/extract_format=0
 materials/extract_path=""
 _subresources={
 "nodes": {
-"PATH:Skeleton3D": {
-"retarget/bone_map": Resource("res://assets/models/player/bone_map_mixamo.tres"),
+"PATH:Armature/Skeleton3D": {
+"retarget/bone_map": Resource("res://assets/models/player/bone_map_native.tres"),
 "retarget/bone_renamer/rename_bones": true,
 "retarget/bone_renamer/unique_node/make_unique": true,
 "retarget/bone_renamer/unique_node/skeleton_name": "GeneralSkeleton",
@@ -56,7 +56,6 @@ _subresources={
 }
 }
 }
-fbx/importer=0
-fbx/allow_geometry_helper_nodes=false
-fbx/embedded_image_handling=1
-fbx/naming_version=2
+gltf/naming_version=2
+gltf/embedded_image_handling=1
+gltf/texture_map_mode=1
