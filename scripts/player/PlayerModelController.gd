@@ -204,11 +204,13 @@ const FEMALE_HAIR_DELTA: Vector3 = Vector3(0.0, -0.005, -0.005)
 ## non-long style was brought to land on the SAME effective z as buns
 ## (0.028): base_z + FEMALE_HAIR_DELTA.z + this = 0.028. long is
 ## deliberately 0.0 — it already sat right.
+## Aug 2026 (per-style follow-ups): simple_parted pushed a further 0.2cm
+## back (-0.002), buzzed_female a further 0.05cm back (-0.0005).
 const FEMALE_HAIR_EXTRA_BACK_Z: Dictionary = {
 	"buzzed": -0.014,
-	"simple_parted": -0.014,
+	"simple_parted": -0.016,
 	"beard": -0.014,
-	"buzzed_female": -0.0075,
+	"buzzed_female": -0.008,
 	"buns": -0.0075,
 	"long": 0.0,
 }
