@@ -10,7 +10,7 @@ ambient_light_source = 2
 ambient_light_color = Color(0.7, 0.7, 0.7, 1)
 ambient_light_energy = 0.8
 
-[node name="CharacterCreation" type="Control" node_paths=PackedStringArray("category_body_button", "category_hair_button", "category_features_button", "category_accessories_button", "body_panel", "hair_panel", "male_button", "female_button", "hairstyle_button_container", "color_swatch_container", "beard_toggle", "randomise_button", "complete_button", "preview_root")]
+[node name="CharacterCreation" type="Control" node_paths=PackedStringArray("category_body_button", "category_hair_button", "category_features_button", "category_accessories_button", "body_panel", "hair_panel", "male_button", "female_button", "hairstyle_button_container", "color_swatch_container", "beard_button_container", "randomise_button", "complete_button", "preview_root")]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -27,7 +27,7 @@ male_button = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPane
 female_button = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPanel/Female")
 hairstyle_button_container = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/HairstyleButtons")
 color_swatch_container = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/ColorSwatches")
-beard_toggle = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/BeardToggle")
+beard_button_container = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/BeardButtonContainer")
 randomise_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/Randomise")
 complete_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/Complete")
 preview_root = NodePath("HBoxContainer/Preview/SubViewport/PreviewRoot")
@@ -159,9 +159,8 @@ columns = 5
 layout_mode = 2
 text = "Beard"
 
-[node name="BeardToggle" type="CheckButton" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+[node name="BeardButtonContainer" type="HBoxContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
 layout_mode = 2
-text = "Enabled"
 
 [node name="Preview" type="SubViewportContainer" parent="HBoxContainer" node_paths=PackedStringArray("camera")]
 layout_mode = 2

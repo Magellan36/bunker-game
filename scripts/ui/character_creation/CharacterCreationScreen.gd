@@ -26,7 +26,7 @@ const HAIRSTYLE_OPTIONS: Array[Dictionary] = [
 	{"key": "buns", "label": "Buns", "genders": ["male", "female"]},
 ]
 ## Beard moved out of HAIRSTYLE_OPTIONS — it's independently toggleable
-## (see beard_toggle below) and combinable with any hairstyle above, for
+## (see beard_button_container below) and combinable with any hairstyle above, for
 ## either gender, rather than a mutually-exclusive pick. Still looked up
 ## from PlayerModelController.HAIRSTYLES["beard"] wherever needed
 ## (thumbnail rendering doesn't apply here since it's a toggle, not a
@@ -67,7 +67,9 @@ const THUMBNAIL_PIXEL_SIZE: int = 72
 @export var female_button: Button = null
 @export var hairstyle_button_container: Container = null
 @export var color_swatch_container: Container = null
-@export var beard_toggle: CheckButton = null
+@export var beard_button_container: Container = null
+
+var _beard_button: Button = null
 
 @export var randomise_button: Button = null
 @export var complete_button: Button = null
@@ -111,8 +113,20 @@ func _ready() -> void:
 	else:
 		male_button.button_pressed = true
 
-	beard_toggle.button_pressed = CharacterCreationData.beard_enabled
-	beard_toggle.toggled.connect(_on_beard_toggled)
+	_beard_button = Button.new()
+	_beard_button.custom_minimum_size = Vector2(THUMBNAIL_PIXEL_SIZE, THUMBNAIL_PIXEL_SIZE)
+	_beard_button.toggle_mode = true
+	## Deliberately no button_group — independent toggle, not part of
+	## the mutually-exclusive hairstyle set. Combinable with any
+	## hairstyle.
+	_beard_button.tooltip_text = "Beard"
+	## Same thumbnail-rendering call the hairstyle grid uses — must be
+	## in the tree first, same reason as _rebuild_hairstyle_buttons()
+	## already documents below.
+	beard_button_container.add_child(_beard_button)
+	_populate_hairstyle_thumbnail(_beard_button, {"key": "beard"})
+	_beard_button.button_pressed = CharacterCreationData.beard_enabled
+	_beard_button.toggled.connect(_on_beard_toggled)
 
 	randomise_button.pressed.connect(_on_randomise_pressed)
 	complete_button.pressed.connect(_on_complete_pressed)
@@ -337,7 +351,7 @@ func _on_randomise_pressed() -> void:
 	CharacterCreationData.hairstyle_key = picked_option["key"]
 	CharacterCreationData.hair_tint_color = HAIR_COLOR_SWATCHES[_rng.randi() % HAIR_COLOR_SWATCHES.size()]
 	CharacterCreationData.beard_enabled = _rng.randi() % 2 == 0
-	beard_toggle.button_pressed = CharacterCreationData.beard_enabled
+	_beard_button.button_pressed = CharacterCreationData.beard_enabled
 
 	_build_color_swatches()
 	_rebuild_hairstyle_buttons()

@@ -401,3 +401,27 @@ assets are a separate *attachable* eyebrow-mesh system (parallel to
 hairstyles) that would need its own selector if real eyebrow
 variety/texture is wanted later, not a texture to bolt onto the body's
 built-in eyebrow mesh.
+
+## Beard as thumbnail toggle + NPC randomization (Aug 2026)
+Beard is now a rendered thumbnail toggle in the creation screen,
+reusing the hairstyle grid's thumbnail renderer (not a checkbox, not a
+separate UI system). Unlike the hairstyle buttons it deliberately sits
+in no `button_group`, so it toggles independently and combines with any
+hairstyle; `CharacterCreationData.beard_enabled` drives the player
+character only.
+
+Female beard placement carries an additional +3cm Y correction on top of
+the generic female-armature delta (`FEMALE_HAIR_DELTA`), applied
+beard-only inside `_setup_hair()` — the generic delta was tuned for
+scalp hair, not jaw placement, and the female beard read 3cm too low.
+
+NPCs now randomize gender/hairstyle/color/beard per-instance via the
+`randomize_appearance` export (distinct from
+`use_character_creation_data`, which mirrors the player's choices) —
+set on NPC.tscn's `CharacterModel`/`CharacterModelShadow` nodes. The two
+instances per NPC synchronize through node metadata on their shared
+parent (the NPC `CharacterBody3D`): whichever runs `_ready()` first
+rolls and `set_meta()`s the result, the second reads it back, so a
+body and its shadow always match. Female NPCs are never given a beard —
+enforced with an explicit guard (`rolled_beard = false` after the
+male-only roll), not just "didn't happen to roll it".

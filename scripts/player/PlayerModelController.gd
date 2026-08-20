@@ -109,6 +109,40 @@ const BODY_SCENE_PATHS: Dictionary = {
 ## appearance changes based on what the player picks for themselves.
 @export var use_character_creation_data: bool = false
 
+## Aug 2026 — opt-in flag for NPCs: each NPC rolls its OWN random
+## gender/hairstyle/color/beard on spawn, independent of both the
+## player's CharacterCreationData choice and every other NPC. Set true
+## on NPC.tscn's CharacterModel/CharacterModelShadow nodes. Mutually
+## exclusive in practice with use_character_creation_data — an instance
+## should only ever have one of the two set true.
+@export var randomize_appearance: bool = false
+
+## Gender-applicability mirror of CharacterCreationScreen.gd's
+## HAIRSTYLE_OPTIONS, used only for NPC random rolls (the UI script's
+## own list isn't reachable from here — this is the model layer, it
+## shouldn't depend on UI-layer script for data). Keep in sync if
+## hairstyles are ever added/removed from either list.
+const HAIRSTYLES_BY_GENDER: Dictionary = {
+	"male": ["buzzed", "simple_parted", "long", "buns"],
+	"female": ["buzzed_female", "simple_parted", "long", "buns"],
+}
+
+## Mirrors CharacterCreationScreen.gd's HAIR_COLOR_SWATCHES — same
+## reasoning as HAIRSTYLES_BY_GENDER above, kept independent rather than
+## cross-referenced.
+const RANDOM_HAIR_COLORS: Array[Color] = [
+	Color(0.02, 0.02, 0.02),
+	Color(0.12, 0.08, 0.05),
+	Color(0.25, 0.15, 0.08),
+	Color(0.45, 0.30, 0.15),
+	Color(0.55, 0.42, 0.20),
+	Color(0.75, 0.60, 0.30),
+	Color(0.35, 0.12, 0.05),
+	Color(0.55, 0.25, 0.08),
+	Color(0.55, 0.55, 0.55),
+	Color(0.85, 0.85, 0.82),
+]
+
 ## Hairstyles — Aug 2026. Sourced from WIP/FINAL/Hairstyles/"Rigged to
 ## Head Bone"/ (not "Origin at 0" — that variant has no bind-pose data
 ## to extract, see the plan doc for why "Rigged to Head Bone" was
@@ -376,6 +410,35 @@ func _ready() -> void:
 		hairstyle_key = CharacterCreationData.hairstyle_key
 		hair_tint_color = CharacterCreationData.hair_tint_color
 		beard_enabled = CharacterCreationData.beard_enabled
+	elif randomize_appearance and _player != null:
+		## Whichever of this NPC's two PlayerModelController instances
+		## (CharacterModel/CharacterModelShadow) runs _ready() first
+		## rolls and stashes the result on their shared parent (the NPC
+		## CharacterBody3D itself, via Godot's built-in node metadata —
+		## no NPC.gd changes needed); the second instance just reads it
+		## back, so the model and its shadow always match.
+		if not _player.has_meta("_char_random_gender"):
+			var rolled_gender: String = "male" if randi() % 2 == 0 else "female"
+			var valid_styles: Array = HAIRSTYLES_BY_GENDER.get(rolled_gender, HAIRSTYLES_BY_GENDER["male"])
+			var rolled_style: String = valid_styles[randi() % valid_styles.size()]
+			var rolled_color: Color = RANDOM_HAIR_COLORS[randi() % RANDOM_HAIR_COLORS.size()]
+			## Strictly no beard on female — never part of the random
+			## roll for female NPCs, not just "didn't happen to roll
+			## it". The explicit final override below is a deliberate
+			## second guard on top of the male-only roll, not
+			## redundant: if this logic is ever reordered or extended
+			## later, female still can't end up with a beard.
+			var rolled_beard: bool = rolled_gender == "male" and randi() % 2 == 0
+			if rolled_gender == "female":
+				rolled_beard = false
+			_player.set_meta("_char_random_gender", rolled_gender)
+			_player.set_meta("_char_random_hairstyle", rolled_style)
+			_player.set_meta("_char_random_color", rolled_color)
+			_player.set_meta("_char_random_beard", rolled_beard)
+		gender = _player.get_meta("_char_random_gender")
+		hairstyle_key = _player.get_meta("_char_random_hairstyle")
+		hair_tint_color = _player.get_meta("_char_random_color")
+		beard_enabled = _player.get_meta("_char_random_beard")
 
 	## Body is now instantiated at runtime instead of being a static
 	## child baked into PlayerModel.tscn (see that scene — the old
@@ -671,6 +734,11 @@ func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String, at
 	if gender == "female":
 		base_offset += FEMALE_HAIR_DELTA
 		base_offset.z += FEMALE_HAIR_EXTRA_BACK_Z.get(hairstyle_key, 0.0)
+		## Aug 2026 — beard-specific, on top of the generic female
+		## delta above (which was tuned for scalp hair, not jaw
+		## placement). Female beard sat 3cm too low.
+		if hairstyle_key == "beard":
+			base_offset.y += 0.03
 
 	var attachment := BoneAttachment3D.new()
 	attachment.bone_name = head_bone_name
