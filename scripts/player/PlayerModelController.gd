@@ -340,10 +340,12 @@ func _ready() -> void:
 	## and anything else keep these hardcoded defaults untouched.
 	var gender: String = "male"
 	var hairstyle_key: String = "buzzed"
+	var beard_enabled: bool = false
 	if use_character_creation_data:
 		gender = CharacterCreationData.gender
 		hairstyle_key = CharacterCreationData.hairstyle_key
 		hair_tint_color = CharacterCreationData.hair_tint_color
+		beard_enabled = CharacterCreationData.beard_enabled
 
 	## Body is now instantiated at runtime instead of being a static
 	## child baked into PlayerModel.tscn (see that scene — the old
@@ -430,6 +432,12 @@ func _ready() -> void:
 				mi.set_surface_override_material(surf_i, _skin_material)
 
 	_setup_hair(skeleton, hairstyle_key, gender)
+	if beard_enabled:
+		## Second, independent call into the same placement logic the
+		## main hairstyle already drives — see the attachment_mesh_name
+		## param's doc comment. "Beard" instead of "Hair" so the
+		## creation screen's swatch re-tint can repaint both by name.
+		_setup_hair(skeleton, "beard", gender, "Beard")
 
 	if _anim_player != null:
 		## Aug 2026 fix pass — ALWAYS re-validate rather than only when
@@ -572,7 +580,15 @@ func _build_hair_material(style: Dictionary) -> StandardMaterial3D:
 ## plain identity local transform; placement is entirely manual via
 ## hair_position_offset / hair_rotation_offset_deg (see the second fix
 ## pass comment below for why there's no automatic placement).
-func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String) -> void:
+## Aug 2026 — attachment_mesh_name added so a second call (for the
+## beard, see the _ready() call site) can produce a distinctly-named
+## mesh ("Beard") instead of colliding with the main hairstyle's
+## "Hair" — CharacterCreationScreen.gd's swatch re-tint logic looks
+## for both names so beard color always follows the selected hair
+## color. Every other line of this function is completely unaware
+## beard is a special case at all; it's just attaching a second style
+## by key, exactly like the first.
+func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String, attachment_mesh_name: String = "Hair") -> void:
 	if skeleton == null:
 		return
 	var style: Dictionary = HAIRSTYLES.get(hairstyle_key, HAIRSTYLES["buzzed"])
@@ -625,7 +641,7 @@ func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String) ->
 	var tuned_transform: Transform3D = Transform3D(offset_basis, base_offset + hair_position_offset)
 
 	var hair_mesh := MeshInstance3D.new()
-	hair_mesh.name = "Hair"
+	hair_mesh.name = attachment_mesh_name
 	hair_mesh.mesh = hair_mesh_src.mesh
 	hair_mesh.transform = tuned_transform
 	## Aug 2026 fix pass — see HAIRSTYLES' per-style albedo/normal above.

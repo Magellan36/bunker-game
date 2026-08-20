@@ -10,7 +10,7 @@ ambient_light_source = 2
 ambient_light_color = Color(0.7, 0.7, 0.7, 1)
 ambient_light_energy = 0.8
 
-[node name="CharacterCreation" type="Control" node_paths=PackedStringArray("category_body_button", "category_face_button", "category_hair_button", "category_features_button", "category_accessories_button", "body_panel", "hair_panel", "male_button", "female_button", "hairstyle_button_container", "color_swatch_container", "randomise_button", "complete_button", "preview_root")]
+[node name="CharacterCreation" type="Control" node_paths=PackedStringArray("category_body_button", "category_hair_button", "category_features_button", "category_accessories_button", "body_panel", "hair_panel", "male_button", "female_button", "hairstyle_button_container", "color_swatch_container", "beard_toggle", "randomise_button", "complete_button", "preview_root")]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -18,7 +18,6 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_screen")
 category_body_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup/CategoryBody")
-category_face_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup/CategoryFace")
 category_hair_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup/CategoryHair")
 category_features_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup/CategoryFeatures")
 category_accessories_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup/CategoryAccessories")
@@ -28,6 +27,7 @@ male_button = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPane
 female_button = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPanel/Female")
 hairstyle_button_container = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/HairstyleButtons")
 color_swatch_container = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/ColorSwatches")
+beard_toggle = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/BeardToggle")
 randomise_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/Randomise")
 complete_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/Complete")
 preview_root = NodePath("HBoxContainer/Preview/SubViewport/PreviewRoot")
@@ -69,14 +69,6 @@ layout_mode = 2
 text = "Body"
 
 [node name="Spacer1" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="CategoryFace" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
-layout_mode = 2
-text = "Face"
-
-[node name="Spacer2" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
 layout_mode = 2
 size_flags_vertical = 3
 
@@ -162,6 +154,14 @@ text = "Hair Colour"
 [node name="ColorSwatches" type="GridContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
 layout_mode = 2
 columns = 5
+
+[node name="BeardLabel" type="Label" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+layout_mode = 2
+text = "Beard"
+
+[node name="BeardToggle" type="CheckButton" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+layout_mode = 2
+text = "Enabled"
 
 [node name="Preview" type="SubViewportContainer" parent="HBoxContainer" node_paths=PackedStringArray("camera")]
 layout_mode = 2

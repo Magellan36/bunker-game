@@ -11,3 +11,6 @@ extends Node
 var gender: String = "male"
 var hairstyle_key: String = "buzzed"
 var hair_tint_color: Color = Color(0.12, 0.08, 0.05)
+## Independent of hairstyle_key — combinable with any hairstyle, not a
+## mutually-exclusive style choice. Applies to either gender.
+var beard_enabled: bool = false

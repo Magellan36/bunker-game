@@ -1,9 +1,10 @@
 extends Control
-## Bare-bones character creation — sidebar category layout (Body/Face/
-## Hair/Features/Accessories), matching the reference UI's shape. Only
-## Body (gender) and Hair (style + color) are functional right now —
-## Face/Features/Accessories are laid out and visible per request but
-## disabled, since there's no underlying system for them yet.
+## Bare-bones character creation — sidebar category layout (Body/Hair/
+## Features/Accessories), matching the reference UI's shape. Only Body
+## (gender) and Hair (style + color + an independent beard toggle) are
+## functional right now — Features/Accessories are laid out and visible
+## per request but disabled, since there's no underlying system for them
+## yet.
 ## Runs as the project's boot scene (see project.godot's run/main_scene)
 ## before MainWorld ever loads. Every choice writes into the
 ## CharacterCreationData autoload; PlayerModelController.gd reads it at
@@ -23,8 +24,13 @@ const HAIRSTYLE_OPTIONS: Array[Dictionary] = [
 	{"key": "simple_parted", "label": "Simple Parted", "genders": ["male", "female"]},
 	{"key": "long", "label": "Long", "genders": ["male", "female"]},
 	{"key": "buns", "label": "Buns", "genders": ["male", "female"]},
-	{"key": "beard", "label": "Beard", "genders": ["male"]},
 ]
+## Beard moved out of HAIRSTYLE_OPTIONS — it's independently toggleable
+## (see beard_toggle below) and combinable with any hairstyle above, for
+## either gender, rather than a mutually-exclusive pick. Still looked up
+## from PlayerModelController.HAIRSTYLES["beard"] wherever needed
+## (thumbnail rendering doesn't apply here since it's a toggle, not a
+## selectable grid option).
 
 ## Curated realistic palette rather than the reference's full rainbow
 ## grid — a grounded survival game, not a stylized vampire game. Purely
@@ -50,7 +56,6 @@ const NEXT_SCENE_PATH: String = "res://scenes/world/MainWorld.tscn"
 const THUMBNAIL_PIXEL_SIZE: int = 72
 
 @export var category_body_button: Button = null
-@export var category_face_button: Button = null
 @export var category_hair_button: Button = null
 @export var category_features_button: Button = null
 @export var category_accessories_button: Button = null
@@ -62,6 +67,7 @@ const THUMBNAIL_PIXEL_SIZE: int = 72
 @export var female_button: Button = null
 @export var hairstyle_button_container: Container = null
 @export var color_swatch_container: Container = null
+@export var beard_toggle: CheckButton = null
 
 @export var randomise_button: Button = null
 @export var complete_button: Button = null
@@ -78,17 +84,16 @@ var _rng := RandomNumberGenerator.new()
 func _ready() -> void:
 	_rng.randomize()
 
-	for btn in [category_body_button, category_face_button, category_hair_button,
+	for btn in [category_body_button, category_hair_button,
 			category_features_button, category_accessories_button]:
 		btn.toggle_mode = true
 		btn.button_group = _category_group
-	## Face/Features/Accessories have no system behind them yet — laid
-	## out per request, not wired. Remove `disabled = true` here once
-	## each one gets its own real panel in a later pass.
-	category_face_button.disabled = true
+	## Features/Accessories have no system behind them yet — laid out
+	## per request, not wired. Remove `disabled = true` here once each
+	## one gets its own real panel in a later pass. Face dropped
+	## entirely (not applicable to a top-down bunker sim).
 	category_features_button.disabled = true
 	category_accessories_button.disabled = true
-	category_face_button.tooltip_text = "Coming soon"
 	category_features_button.tooltip_text = "Coming soon"
 	category_accessories_button.tooltip_text = "Coming soon"
 
@@ -105,6 +110,9 @@ func _ready() -> void:
 		female_button.button_pressed = true
 	else:
 		male_button.button_pressed = true
+
+	beard_toggle.button_pressed = CharacterCreationData.beard_enabled
+	beard_toggle.toggled.connect(_on_beard_toggled)
 
 	randomise_button.pressed.connect(_on_randomise_pressed)
 	complete_button.pressed.connect(_on_complete_pressed)
@@ -236,6 +244,10 @@ func _on_hairstyle_picked(key: String) -> void:
 	CharacterCreationData.hairstyle_key = key
 	_rebuild_preview()
 
+func _on_beard_toggled(pressed: bool) -> void:
+	CharacterCreationData.beard_enabled = pressed
+	_rebuild_preview()
+
 func _build_color_swatches() -> void:
 	for child in color_swatch_container.get_children():
 		child.queue_free()
@@ -268,11 +280,12 @@ func _on_swatch_picked(btn: Button, c: Color) -> void:
 	## tint too (cheap — six small static meshes, not a full body
 	## rebuild).
 	if _preview_instance != null:
-		for mesh_instance in _find_named_meshes(_preview_instance, "Hair"):
-			for surf_i in mesh_instance.mesh.get_surface_count():
-				var mat: Material = mesh_instance.get_surface_override_material(surf_i)
-				if mat is StandardMaterial3D:
-					(mat as StandardMaterial3D).albedo_color = c
+		for mesh_name in ["Hair", "Beard"]:
+			for mesh_instance in _find_named_meshes(_preview_instance, mesh_name):
+				for surf_i in mesh_instance.mesh.get_surface_count():
+					var mat: Material = mesh_instance.get_surface_override_material(surf_i)
+					if mat is StandardMaterial3D:
+						(mat as StandardMaterial3D).albedo_color = c
 	_rebuild_hairstyle_buttons()
 
 func _select_swatch(btn: Button) -> void:
@@ -323,6 +336,8 @@ func _on_randomise_pressed() -> void:
 	var picked_option: Dictionary = valid_options[_rng.randi() % valid_options.size()]
 	CharacterCreationData.hairstyle_key = picked_option["key"]
 	CharacterCreationData.hair_tint_color = HAIR_COLOR_SWATCHES[_rng.randi() % HAIR_COLOR_SWATCHES.size()]
+	CharacterCreationData.beard_enabled = _rng.randi() % 2 == 0
+	beard_toggle.button_pressed = CharacterCreationData.beard_enabled
 
 	_build_color_swatches()
 	_rebuild_hairstyle_buttons()
