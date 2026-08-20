@@ -1,3 +1,103 @@
+# Handover — Peasant outfit attached via direct skin reassignment (Aug 2026)
+
+## What changed this session
+The Player's character now wears the Quaternius Peasant outfit
+(always-on; no creation-screen selection yet, same rollout order hair
+followed). `PlayerModelController._setup_outfit()` attaches 4 skinned
+pieces per gender (Arms/Body/Feet/Legs from
+`assets/models/player/outfits/Male_Peasant.gltf` /
+`Female_Peasant.gltf`) via direct skin/skeleton reassignment — the first
+part of the character that uses proper skin binding rather than the
+BoneAttachment3D/bind-pose tricks hair and beard require.
+
+Two things made the direct approach work, and both were verified headless
+rather than assumed:
+1. The outfit's raw gltf skin joints are an exact 65/65 match (same
+   names, same order) for the native skeletons. Verified by parsing both
+   raw gltf files.
+2. The outfit gltf files must be imported with the SAME
+   `bone_map_native.tres` retarget as the native bodies. This was NOT in
+   the original plan and is the important correction found during
+   implementation: without it, the raw imported bone names (`pelvis`,
+   `spine_01`, ...) don't match our live skeleton's retargeted
+   Humanoid-profile names (`Hips`, `Spine`, ...), and the plan's naive
+   `piece.skeleton = NodePath("..")` would leave every bind bone
+   unresolved. Added the identical `_subresources` block to
+   `Male_Peasant.gltf.import` / `Female_Peasant.gltf.import` and
+   reimported; after that, a headless probe confirmed all 65 bind bones
+   on all 8 outfit meshes resolve against our skeleton (0 unresolved).
+
+At runtime, each outfit mesh is reparented directly under our own
+skeleton with `skeleton = NodePath("..")`; the outfit scene's own bundled
+skeleton is discarded. Baked materials used as-is (PBR texture sets,
+including `MI_Regular_Male` for the male's exposed hand/forearm skin) —
+no runtime material code.
+
+### Files modified
+- `scripts/player/PlayerModelController.gd` — new `OUTFIT_SCENE_PATHS`
+  const, `_setup_outfit()` (direct skin reassignment, native-only),
+  called in `_ready()` before hair.
+- `assets/models/player/outfits/*` — new: Male/Female_Peasant.gltf+bin,
+  T_Peasant_* textures, T_Regular_Male_* textures, and `.import` files
+  carrying the same native retarget config as the bodies.
+- `docs/systems/player-model/README.md` — new "Outfit (Peasant)" section,
+  updated clothing note + checklist.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+- [x] Raw gltf joints identical to native (65/65, names+order)
+- [x] Outfit scenes imported with native retarget; bind bones resolve
+      against our skeleton (0 unresolved, both genders)
+- [x] Headless boot + MainWorld load clean (no SCRIPT ERROR/Parse Error);
+      4 Outfit_* pieces attached and visible on preview + player
+- [ ] VISUAL: outfit covers torso/arms/legs/feet and deforms naturally
+      through idle/walk/run/carry (deformation is the real test)
+- [ ] VISUAL: male exposed hand/forearm skin shows skin texture, not a
+      missing/default material
+- [ ] VISUAL: outfit tracks scale/floor/facing; note any serious
+      z-fighting/clipping vs. the nude body underneath
+
+# Handover — Native-rig eyebrows now tint with hair_tint_color (Aug 2026)
+
+## What changed this session
+Eyebrows never matched the hair color on the native-rig path — wrong from
+load and never fixed by swatch clicks. Two code facts explained both
+symptoms with one root cause:
+
+1. `_ready()` only built the flat `hair_tint_color` eyebrow material when
+   `native_rig == false` (it was `null` on native), so native bodies kept
+   the gltf-baked eyebrow material — which in both source files is the
+   UNTINTED hair material (`MI_Hair_1` male / `MI_Hair_2` female bound to
+   the `Eyebrows` sub-mesh; the male's node is named `Eyebrows` but its
+   mesh resource is literally named `Face` — a harmless export quirk). No
+   dedicated eyebrow texture exists in the kit, so that baked material
+   renders pale/neutral instead of `hair_tint_color`.
+2. The creation screen's live repaint reads
+   `get_surface_override_material()` for `["Hair", "Beard", "Eyebrows"]`
+   and silently skips anything without an override. Hair/Beard get
+   overrides in `_setup_hair()`, but native eyebrows never did — so
+   swatch clicks repainted hair/beard while skipping eyebrows entirely.
+
+Fixed by building the eyebrow material unconditionally and applying the
+override to the `Eyebrows` node on BOTH paths (skin/eye overrides remain
+Mixamo-only — their baked textures are real). The repaint in
+`CharacterCreationScreen.gd` now finds the override and tints brows in
+place, unchanged.
+
+### Files modified
+- `scripts/player/PlayerModelController.gd` — eyebrow material built on
+  both paths; mesh loop applies it to the `Eyebrows` node regardless of
+  `native_rig`.
+- `docs/systems/player-model/README.md` — native-rig override notes and
+  "Eyes & Eyebrows materials" section updated.
+- `HANDOVER.md` — this entry.
+
+### Verification checklist
+- [x] Headless boot clean (no SCRIPT ERROR / Parse Error); creation
+      preview + player native-rig body both build, Eyebrows mesh present
+- [ ] VISUAL: brows match hair color at load
+- [ ] VISUAL: swatch change repaints brows in place (creation screen)
+
 # Handover — Second `held_item` Freed-Instance Crash Root-Caused and Fixed (Aug 2026)
 
 ## What changed this session

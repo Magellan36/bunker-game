@@ -122,8 +122,10 @@ two gltf paths) selected when the flag is on; the root-motion fallback
 looks for `"Hips"` (the retargeted profile name — this replaces the
 plan-era `"pelvis"` note, see the bone-name section above); the body
 instantiates with an identity transform (NO assumed 180° fix — forward-
-facing flagged unverified); the runtime skin/eye/eyebrow material override
-is skipped so the native import's own baked materials render; and
+facing flagged unverified); the runtime skin/eye material override is
+skipped so the native import's own baked materials render — except the
+eyebrow override, which applies on BOTH paths (see "Eyes & Eyebrows
+materials"); and
 `_setup_hair()` uses the source skin's own Head bind pose with ZERO manual
 offsets (all Mixamo-era offsets — `position_offset`, `FEMALE_HAIR_DELTA`,
 `FEMALE_HAIR_EXTRA_BACK_Z`, the female-beard +3cm — deliberately not
@@ -173,8 +175,17 @@ role is unchanged, just operating on profile-named bones now.
 - [ ] VISUAL: walk/run/carry each look right on the native body
 - [ ] VISUAL: hair bind-pose placement (source skin's own Head bind pose,
       zero manual offsets) lands correctly; reset/re-derive if not
-- [ ] VISUAL: baked body/eye/eyebrow materials render (no runtime override
-      on native; fall back to the builders if not)
+- [ ] VISUAL: baked body/eye materials render on native (no runtime
+      override for those); eyebrow material now runtime-overridden on both
+      paths — brows should match hair_tint_color at load and after a
+      swatch change
+- [ ] VISUAL: Peasant outfit renders on both genders, covers
+      torso/arms/legs/feet, deforms naturally through idle/walk/run/carry
+      (bind bones headless-verified 65/65; deformation is the real test)
+- [ ] VISUAL: male exposed hand/forearm skin (`MI_Regular_Male` part of
+      Arms) shows the skin texture, not a missing/default material
+- [ ] VISUAL: outfit tracks scale/floor/facing like the body; note any
+      serious z-fighting/clipping vs. the nude body underneath
 - [ ] Female body same checks (mapping transfers from male — verified
       headlessly that its tracks resolve; visual only)
 - [ ] NPC randomization + character-creation end-to-end with new body/animations
@@ -339,9 +350,52 @@ Inspector if a few centimeters off; degrees for rotation.
 
 **Not done here (clothing):** researched Quaternius's catalog for a
 matching modern/survival outfit pack — none exists for this rig yet,
-only a medieval "Modular Character Outfits - Fantasy" set. Deferred per
-direct instruction; revisit direction (re-texture vs. adapt the fantasy
-pack vs. source elsewhere) before attempting clothing.
+only a medieval "Modular Character Outfits - Fantasy" set. The Peasant
+outfit from that set is now attached always-on (see the "Outfit
+(Peasant)" section below); no character-creation UI selection this pass,
+same rollout order hair followed. Revisit direction (re-texture vs.
+adapt the fantasy pack vs. source elsewhere) before a second outfit.
+
+## Outfit (Peasant, Aug 2026)
+`PlayerModelController._setup_outfit()` attaches
+`assets/models/player/outfits/Male_Peasant.gltf` /
+`Female_Peasant.gltf` (source: `WIP/FINAL/Modular Character Outfits -
+Fantasy[Standard]/.../glTF (Godot-Unreal)/Outfits`; 4 pieces per gender:
+Arms / Body / Feet / Legs) to the native body via DIRECT skin/skeleton
+reassignment — the first piece of the character that could use proper
+skin binding instead of the BoneAttachment3D/bind-pose tricks hair and
+beard need.
+
+**Why it binds directly:** the outfit's skin joints are an exact 65/65
+match (same names, same order) for the native skeletons specifically —
+verified by parsing both raw gltf files, and again headlessly against the
+imported scenes. Two requirements make that true in the imported data:
+
+1. The outfit gltf files are imported with the SAME `bone_map_native.tres`
+   retarget as the native bodies (added to
+   `Male_Peasant.gltf.import` / `Female_Peasant.gltf.import`
+   `_subresources`), so the outfit scene's skeleton and skins use the
+   Humanoid-profile bone names OUR skeleton has. Without this, the raw
+   gltf names (`pelvis`, etc.) don't match the retargeted live skeleton
+   (`Hips`, etc.) and nothing binds.
+2. The mesh pieces are reparented directly under OUR skeleton at runtime
+   with `skeleton = NodePath("..")`, discarding the outfit scene's own
+   bundled skeleton. Each outfit mesh's `skin` resolves all 65 bind bones
+   against our skeleton (headless-verified, 0 unresolved).
+
+**Not a generic pattern:** only valid because of the exact joint match +
+shared retarget. For any future asset that isn't bone-identical, use the
+hair-style bind-pose/BoneAttachment3D approach instead.
+
+**Materials:** the outfit's baked materials are used as-is (base
+color/normal/ORM texture sets per material, including `MI_Regular_Male`
+for the male's exposed hand/forearm skin) — no runtime material code, in
+line with the native body's own baked materials precedent.
+
+**Known cosmetic caveat (not a blocker this pass):** the nude body mesh
+stays fully rendered underneath, so expect minor z-fighting/clipping
+where the outfit overlaps the body at movement extremes. A later pass can
+hide the covered body pieces when an outfit is worn.
 
 ## Floor alignment & facing (Aug 2026)
 `PlayerModelController._ready()` offsets `PlayerModel`'s own position by
@@ -577,6 +631,20 @@ assets are a separate *attachable* eyebrow-mesh system (parallel to
 hairstyles) that would need its own selector if real eyebrow
 variety/texture is wanted later, not a texture to bolt onto the body's
 built-in eyebrow mesh.
+
+On the native-rig path the baked eyebrow material is `MI_Hair_1` (male) /
+`MI_Hair_2` (female) — the UNTINTED hair texture, because the source
+kit's hair material is what the eyebrow sub-mesh is bound to in the gltf
+(the male's `Eyebrows` node even references a mesh resource literally
+named `Face`; harmless). That reads wrong next to `hair_tint_color`, so
+the eyebrow override applies on BOTH paths (unlike skin/eyes, which keep
+their baked materials on native): `_ready()` builds the flat eyebrow
+material unconditionally and the mesh loop applies it to the `Eyebrows`
+node via `set_surface_override_material()`. That override is also what
+the creation screen's swatch repaint needs — it reads
+`get_surface_override_material()` for `["Hair", "Beard", "Eyebrows"]`
+and silently skips anything without an override, which is why eyebrows
+never tinted on native before this fix.
 
 ## Beard as thumbnail toggle + NPC randomization (Aug 2026)
 Beard is now a rendered thumbnail toggle in the creation screen,

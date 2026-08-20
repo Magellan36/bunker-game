@@ -101,6 +101,18 @@ const BODY_SCENE_PATHS: Dictionary = {
 	"female": "res://assets/models/player/female.fbx",
 }
 
+## Aug 2026 — Peasant outfit. Only meaningful under native_rig — its
+## skin joints are an exact match (65/65, same names, same order,
+## confirmed by direct comparison) for the native skeleton specifically,
+## not the old Mixamo one, so this is never attempted when native_rig
+## is false. Note: the outfit gltf files are imported with the same
+## bone_map_native.tres retarget as the native bodies, so the imported
+## scene uses the Humanoid-profile bone names that OUR skeleton has.
+const OUTFIT_SCENE_PATHS: Dictionary = {
+	"male": "res://assets/models/player/outfits/Male_Peasant.gltf",
+	"female": "res://assets/models/player/outfits/Female_Peasant.gltf",
+}
+
 ## Aug 2026 native-rig rebuild — the Quaternius-native bodies, selected
 ## instead of BODY_SCENE_PATHS when native_rig is true. See the flag's
 ## doc comment and the README "Native-rig rebuild" section for the switch
@@ -543,7 +555,13 @@ func _ready() -> void:
 	## future pass).
 	_skin_material = _build_skin_material(gender) if not native_rig else null
 	var eye_material: StandardMaterial3D = _build_eye_material() if not native_rig else null
-	var eyebrow_material: StandardMaterial3D = _build_eyebrow_material() if not native_rig else null
+	## Unlike skin/eyes there's no dedicated eyebrow texture in the
+	## source kit, so the gltf-baked material is just the untinted hair
+	## texture (MI_Hair_1/MI_Hair_2) and reads wrong next to
+	## hair_tint_color. Build the flat-color eyebrow material on BOTH
+	## paths so native-rig eyebrows match hair color at load and stay
+	## repaintable from the creation screen.
+	var eyebrow_material: StandardMaterial3D = _build_eyebrow_material()
 	## This loop runs before _setup_hair() attaches anything, so at this
 	## point it only ever sees the body file's own sub-meshes — never the
 	## later-attached Hair/Beard meshes, which get their own dedicated
@@ -560,18 +578,25 @@ func _ready() -> void:
 		## Aug 2026 native-rig rebuild: on the native body the gltf import's
 		## own baked materials are used as-is (they reference the real
 		## textures — verified in the source file), so the runtime
-		## skin/eye/eyebrow overrides below are Mixamo-path-only. If the
-		## baked materials fail to render at the checkpoint, re-enable this
-		## block for native too — the builders stay as fallback.
+		## skin/eye overrides below are Mixamo-path-only. The eyebrow
+		## override is the exception and applies on BOTH paths — there's
+		## no eyebrow texture in the kit, so the baked material is just
+		## the untinted hair texture and must be replaced with the
+		## flat-color hair-tint material (see the builder above).
+		var material_to_apply: StandardMaterial3D = null
 		if not native_rig:
-			var material_to_apply: StandardMaterial3D = _skin_material
+			material_to_apply = _skin_material
 			if mi.name == "Eyes":
 				material_to_apply = eye_material
 			elif mi.name == "Eyebrows":
 				material_to_apply = eyebrow_material
-			if mi.mesh != null:
-				for surf_i in mi.mesh.get_surface_count():
-					mi.set_surface_override_material(surf_i, material_to_apply)
+		elif mi.name == "Eyebrows":
+			material_to_apply = eyebrow_material
+		if material_to_apply != null and mi.mesh != null:
+			for surf_i in mi.mesh.get_surface_count():
+				mi.set_surface_override_material(surf_i, material_to_apply)
+
+	_setup_outfit(skeleton, gender)
 
 	_setup_hair(skeleton, hairstyle_key, gender)
 	if beard_enabled:
@@ -735,6 +760,49 @@ func _build_hair_material(style: Dictionary) -> StandardMaterial3D:
 ## color. Every other line of this function is completely unaware
 ## beard is a special case at all; it's just attaching a second style
 ## by key, exactly like the first.
+## Aug 2026 — direct skin/skeleton reassignment, not a BoneAttachment3D
+## rig like hair/beard use. Only valid because the outfit's skin joints
+## are confirmed identical to our own skeleton (same source rig, and both
+## imported through bone_map_native.tres so the bone names match) — for
+## any future asset where that ISN'T true, this is the wrong pattern to
+## copy, use the hair-style bind-pose/BoneAttachment3D approach instead.
+func _setup_outfit(skeleton: Skeleton3D, gender: String) -> void:
+	if skeleton == null or not native_rig:
+		return
+	var outfit_scene_path: String = OUTFIT_SCENE_PATHS.get(gender, OUTFIT_SCENE_PATHS["male"])
+	var outfit_scene: PackedScene = load(outfit_scene_path)
+	if outfit_scene == null:
+		return
+	var outfit_root: Node = outfit_scene.instantiate()
+	for src_node in _find_all_of_type(outfit_root, "MeshInstance3D"):
+		var src: MeshInstance3D = src_node as MeshInstance3D
+		var piece := MeshInstance3D.new()
+		piece.name = "Outfit_" + src.name
+		piece.mesh = src.mesh
+		piece.skin = src.skin
+		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
+			piece.layers = _player.PLAYER_SELF_LIGHT_LAYER_BIT
+		piece.cast_shadow = (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+			if is_shadow_only
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		)
+		## Parented directly under our own skeleton (not the outfit's own
+		## bundled one, which gets discarded below) — skeleton = ".."
+		## points back at its own new parent. This is the whole trick:
+		## the mesh's skin data already references bone names that exist
+		## on OUR skeleton, so Godot binds and deforms it correctly using
+		## our skeleton's live pose, no retargeting math needed.
+		skeleton.add_child(piece)
+		piece.skeleton = NodePath("..")
+	outfit_root.free()
+
+## Aug 2026 — hair styles are their own scenes (bone-attached under the
+## skeleton), driven entirely by the per-style HAIRSTYLES data. This
+## function is called once per hairstyle (see the beard call in
+## _ready()); the attachment_mesh_name param is how the same logic
+## attaches both the main hair mesh (named "Hair") and the beard mesh
+## (named "Beard") without special-casing either inline.
 func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String, attachment_mesh_name: String = "Hair") -> void:
 	if skeleton == null:
 		return
