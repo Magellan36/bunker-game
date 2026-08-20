@@ -18,7 +18,7 @@ extends Control
 ## "female" as a sensible bare-bones default; the rest offered for
 ## either. Purely a UI-list filter, doesn't touch PlayerModelController.
 const HAIRSTYLE_OPTIONS: Array[Dictionary] = [
-	{"key": "buzzed", "label": "Buzzed", "genders": ["male", "female"]},
+	{"key": "buzzed", "label": "Buzzed", "genders": ["male"]},
 	{"key": "buzzed_female", "label": "Buzzed (Fem)", "genders": ["female"]},
 	{"key": "simple_parted", "label": "Simple Parted", "genders": ["male", "female"]},
 	{"key": "long", "label": "Long", "genders": ["male", "female"]},
@@ -121,6 +121,21 @@ func _show_category(category: String) -> void:
 
 func _on_gender_picked(gender: String) -> void:
 	CharacterCreationData.gender = gender
+	## If the current hairstyle is no longer offered for this gender
+	## (e.g. Buzzed after switching female — it's male-only now), fall
+	## back to the first valid option rather than a stale selection with
+	## no highlighted button.
+	var fallback_key := ""
+	var still_valid := false
+	for option in HAIRSTYLE_OPTIONS:
+		if not (option["genders"] as Array).has(gender):
+			continue
+		if fallback_key == "":
+			fallback_key = option["key"]
+		if option["key"] == CharacterCreationData.hairstyle_key:
+			still_valid = true
+	if not still_valid and fallback_key != "":
+		CharacterCreationData.hairstyle_key = fallback_key
 	_rebuild_hairstyle_buttons()
 	_rebuild_preview()
 
