@@ -383,7 +383,9 @@ bone-relative placement is equivalent and no per-style re-derivation was
 needed. Live feedback still showed her hair reading slightly too high
 and too forward, so a small uniform correction is applied at runtime:
 `FEMALE_HAIR_DELTA` (`PlayerModelController.gd`, added to every style's
-offset when gender is `"female"`). Uniform across all six styles so
-relative placement between them is unchanged; the male is unaffected.
-If the female needs further tuning, edit that one constant rather than
+offset when gender is `"female"`). A follow-up pass pushed every style
+except `long` a further 0.75cm back via `FEMALE_HAIR_EXTRA_BACK_Z`
+(per-style, so `long` stays put). Uniform across styles so relative
+placement between them is unchanged; the male is unaffected.
+If the female needs further tuning, edit those two constants rather than
 the shared dict.
