@@ -208,7 +208,7 @@ const FEMALE_HAIR_DELTA: Vector3 = Vector3(0.0, -0.005, -0.005)
 ## 0.2cm, buzzed_female a further 0.05cm back (-0.0005).
 const FEMALE_HAIR_EXTRA_BACK_Z: Dictionary = {
 	"buzzed": -0.014,
-	"simple_parted": -0.018,
+	"simple_parted": -0.020,
 	"beard": -0.014,
 	"buzzed_female": -0.008,
 	"buns": -0.0075,
