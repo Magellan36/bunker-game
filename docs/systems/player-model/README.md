@@ -373,3 +373,17 @@ perfect match there may still want a small per-style rotation nudge on
 top of the corrected offset. If a new hairstyle is ever added, compute
 its offset from the source bind matrices with the formula above, and
 check which armature group it belongs to.
+
+## Female body hair placement (Aug 2026)
+The female body (`female.fbx`) uses the exact same `HAIRSTYLES` offsets
+as the male — verified from both FBX `BindPose` matrices that the
+`mixamorig:Head` bone has bit-identical world orientation across genders
+(180° Y in FBX space; same `root_scale = 100.0` import), so the
+bone-relative placement is equivalent and no per-style re-derivation was
+needed. Live feedback still showed her hair reading slightly too high
+and too forward, so a small uniform correction is applied at runtime:
+`FEMALE_HAIR_DELTA` (`PlayerModelController.gd`, added to every style's
+offset when gender is `"female"`). Uniform across all six styles so
+relative placement between them is unchanged; the male is unaffected.
+If the female needs further tuning, edit that one constant rather than
+the shared dict.

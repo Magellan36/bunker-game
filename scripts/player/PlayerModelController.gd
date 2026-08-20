@@ -125,6 +125,11 @@ const BODY_SCENE_PATHS: Dictionary = {
 ## Aug 2026 (4th pass, live feedback): all six Z offsets moved back
 ## (behind the model, toward -Z) by -0.0025 three times, then -0.0015,
 ## then -0.001 (1.0cm total).
+## Aug 2026 (female pass, live feedback): the female body inherits these
+## exact male-tuned offsets (shared dict, identical Head-bone orientation
+## verified from both FBX bind poses), but the hair still read slightly
+## too high and too forward on her. A small uniform female-only delta is
+## applied at runtime below (FEMALE_HAIR_DELTA) so the male stays locked.
 const HAIRSTYLES: Dictionary = {
 	"buzzed": {
 		"scene": "res://assets/models/player/hair/Hair_Buzzed.gltf",
@@ -182,6 +187,15 @@ const HAIRSTYLES: Dictionary = {
 		"position_offset": Vector3(0.0, -1.546269, 0.0405),
 	},
 }
+
+## Aug 2026 — female-only placement correction, added to every style's
+## position_offset when the body gender is "female". The female body
+## shares the exact male-tuned HAIRSTYLES values (see the dict comment),
+## but live feedback showed her hair still sitting slightly too high and
+## too forward, so she gets a small extra uniform shift (down, back).
+## Uniform across styles so relative placement between them is unchanged;
+## tweak freely while iterating, the male is unaffected.
+const FEMALE_HAIR_DELTA: Vector3 = Vector3(0.0, -0.005, -0.005)
 
 ## Aug 2026 — T_Hair_1_BaseColor.png is a neutral/untinted strand-shading
 ## texture, not a real hair color (opened it directly and confirmed —
@@ -397,7 +411,7 @@ func _ready() -> void:
 			for surf_i in mi.mesh.get_surface_count():
 				mi.set_surface_override_material(surf_i, _skin_material)
 
-	_setup_hair(skeleton, hairstyle_key)
+	_setup_hair(skeleton, hairstyle_key, gender)
 
 	if _anim_player != null:
 		## Aug 2026 fix pass — ALWAYS re-validate rather than only when
@@ -540,7 +554,7 @@ func _build_hair_material(style: Dictionary) -> StandardMaterial3D:
 ## plain identity local transform; placement is entirely manual via
 ## hair_position_offset / hair_rotation_offset_deg (see the second fix
 ## pass comment below for why there's no automatic placement).
-func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String) -> void:
+func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String, gender: String) -> void:
 	if skeleton == null:
 		return
 	var style: Dictionary = HAIRSTYLES.get(hairstyle_key, HAIRSTYLES["buzzed"])
@@ -577,6 +591,8 @@ func _setup_hair(skeleton: Skeleton3D, hairstyle_key: String) -> void:
 	## additional delta on top, for a quick per-style correction without
 	## touching the dictionary.
 	var base_offset: Vector3 = style.get("position_offset", Vector3.ZERO)
+	if gender == "female":
+		base_offset += FEMALE_HAIR_DELTA
 
 	var attachment := BoneAttachment3D.new()
 	attachment.bone_name = head_bone_name
