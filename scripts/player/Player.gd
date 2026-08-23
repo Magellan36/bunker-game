@@ -78,6 +78,15 @@ func _ready() -> void:
 	## player ref via get_first_node_in_group("player") without needing a direct reference.
 	add_to_group("player")
 
+	## Controller support guard (Aug 2026) — the Xbox gamepad bindings are
+	## defined in project.godot's Input Map, but the editor rewrites that
+	## file from its in-memory state and can silently drop hand-added
+	## joypad events. Re-adding them here makes the pad work in-game
+	## regardless of what project.godot currently contains. Idempotent
+	## (no-ops when a binding is already present) and purely additive —
+	## keyboard bindings and movement logic are untouched.
+	_ensure_joypad_bindings()
+
 	## Aug 2026 (Player-Model subsystem) — the visible mesh's self-light/
 	## shadow-cast exclusion is now applied generically by
 	## PlayerModelController.gd (scripts/player/PlayerModelController.gd,
@@ -223,3 +232,43 @@ func _unhandled_input(event: InputEvent) -> void:
 	if Input.is_action_pressed("move_left") or Input.is_action_pressed("move_right") \
 			or Input.is_action_pressed("move_up") or Input.is_action_pressed("move_down"):
 		seated_chair.on_interact()
+
+## ── Controller support guard (Aug 2026) ───────────────────────────────
+## The gamepad bindings below mirror project.godot's [input] section so
+## they can be re-applied at runtime if the editor's project.godot rewrite
+## dropped them. All three helpers are idempotent — they only ADD an event
+## when the exact binding is missing, and never touch the keyboard events.
+func _ensure_joypad_bindings() -> void:
+	_ensure_joy_axis("move_left", JOY_AXIS_LEFT_X, -1.0)
+	_ensure_joy_axis("move_right", JOY_AXIS_LEFT_X, 1.0)
+	_ensure_joy_axis("move_up", JOY_AXIS_LEFT_Y, -1.0)
+	_ensure_joy_axis("move_down", JOY_AXIS_LEFT_Y, 1.0)
+	_ensure_joy_axis("sprint", JOY_AXIS_TRIGGER_RIGHT, 1.0)
+	_ensure_joy_button("interact", JOY_BUTTON_A)
+	_ensure_joy_button("pickup", JOY_BUTTON_X)
+	_ensure_joy_button("store_item", JOY_BUTTON_Y)
+	_ensure_joy_button("inv_slot_1", JOY_BUTTON_DPAD_UP)
+	_ensure_joy_button("inv_slot_2", JOY_BUTTON_DPAD_RIGHT)
+	_ensure_joy_button("inv_slot_3", JOY_BUTTON_DPAD_DOWN)
+	_ensure_joy_button("inv_slot_4", JOY_BUTTON_DPAD_LEFT)
+
+func _ensure_joy_axis(action: String, axis: int, value: float) -> void:
+	if not InputMap.has_action(action):
+		return
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventJoypadMotion and ev.axis == axis and is_equal_approx(ev.axis_value, value):
+			return
+	var ne := InputEventJoypadMotion.new()
+	ne.axis = axis
+	ne.axis_value = value
+	InputMap.action_add_event(action, ne)
+
+func _ensure_joy_button(action: String, idx: int) -> void:
+	if not InputMap.has_action(action):
+		return
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventJoypadButton and ev.button_index == idx:
+			return
+	var ne := InputEventJoypadButton.new()
+	ne.button_index = idx
+	InputMap.action_add_event(action, ne)
