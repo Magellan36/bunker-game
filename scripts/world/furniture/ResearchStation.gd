@@ -334,12 +334,17 @@ func _build_mesh() -> void:
 	else:
 		push_warning("ResearchStation.gd: wooden_table.glb missing at %s — falling back to no base visual" % BASE_MODEL_PATH)
 
+	## Main-block collision. MUST be a direct child of THIS StaticBody3D
+	## (not of main_block, which is a plain Node3D) — a CollisionShape3D
+	## nested under a non-CollisionObject3D does not register with the
+	## physics server, so the table body would be walk-through. Position is
+	## main_block's X offset + the old box's own offset to land identically.
 	var base_col: CollisionShape3D = CollisionShape3D.new()
 	var base_box: BoxShape3D = BoxShape3D.new()
 	base_box.size = Vector3(1.90, TOP_Y, 0.90)
 	base_col.shape = base_box
-	base_col.position = Vector3(0.0, TOP_Y * 0.5, 0.0)
-	main_block.add_child(base_col)
+	base_col.position = Vector3(MAIN_BLOCK_CENTER_X, TOP_Y * 0.5, 0.0)
+	add_child(base_col)
 
 	## Beakers/flasks — a few simple primitives, tinted "liquid" glass look.
 	var mat_glass: StandardMaterial3D = StandardMaterial3D.new()

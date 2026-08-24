@@ -1,0 +1,9 @@
+[gd_scene format=3 uid="uid://bnfeitkhvupqi"]
+
+[ext_resource type="PackedScene" uid="uid://b7y3xxqu65ydf" path="res://assets/models/player/adventurer/Adventurer_Male.fbx" id="1_fg4en"]
+
+[node name="AdventurerRetargetTest" type="Node3D" unique_id=993892772]
+
+[node name="AdventurerBody" type="Node3D" parent="." unique_id=1040062513 instance=ExtResource("1_fg4en")]
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1227195143]

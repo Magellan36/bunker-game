@@ -79,11 +79,23 @@ var _carry_bulk_radius: float = -1.0
 ## it upright while held would fight the entire point of holding one.
 var allow_manual_upright: bool = true
 
+## Set TRUE by preview systems (GhostModelBuilder.build_real_instance /
+## BuildModeHUD's shop previews) BEFORE add_child(), so this instance builds
+## its real visuals for a thumbnail but skips every world side-effect
+## (joining the "pickup" group, creating a NavigationObstacle3D). Without
+## it, preview instances run their full _ready() inside an isolated
+## SubViewport yet still join tree-wide groups — and NPC/interaction group-
+## scans treat them as real items at ~world origin. Same convention as
+## Stove.gd/GeneratorObject.gd etc. — see GhostModelBuilder.gd's
+## build_real_instance() doc.
+var _is_preview_only: bool = false
+
 func _ready() -> void:
-	add_to_group("pickup")
+	if not _is_preview_only:
+		add_to_group("pickup")
+		_maybe_create_nav_obstacle()
 	contact_monitor = true
 	max_contacts_reported = 4
-	_maybe_create_nav_obstacle()
 
 ## NPC Pass 2, Part 11 — heavy loose items (mass >= HEAVY_OBSTACLE_MASS)
 ## get a NavigationObstacle3D child so every NavigationAgent3D in the world
@@ -96,7 +108,7 @@ func _ready() -> void:
 ## between the two classes — keep both values in sync if either changes).
 const HEAVY_OBSTACLE_MASS: float = 3.0
 const OBSTACLE_MIN_RADIUS: float = 0.3   ## floor so a tiny/degenerate shape
-                                         ## never produces a near-zero obstacle
+										 ## never produces a near-zero obstacle
 
 var _nav_obstacle: NavigationObstacle3D = null
 
@@ -244,7 +256,7 @@ func pickup(hold_point: Node3D) -> void:
 		_carry_bulk_radius = _compute_obstacle_radius()
 	if _nav_obstacle != null:
 		_nav_obstacle.avoidance_enabled = false   ## don't drag a moving
-		                                          ## "wall" around while carried
+												  ## "wall" around while carried
 	_set_held_culling(true)
 	_on_pickup_extra()
 	picked_up.emit()
@@ -265,7 +277,7 @@ func drop(_world_parent: Node3D, drop_position: Vector3) -> void:
 	linear_velocity = Vector3.ZERO
 	if _nav_obstacle != null:
 		_nav_obstacle.avoidance_enabled = true   ## back on the floor — resume
-		                                         ## acting as a real obstacle
+												 ## acting as a real obstacle
 	add_to_group("pickup")
 	_set_held_culling(false)
 	_on_drop_extra()
@@ -339,5 +351,18 @@ const UPRIGHT_SLERP_SPEED: float = 10.0
 ## one step per call.
 func slerp_to_upright(delta: float, speed: float) -> void:
 	var t: float = clampf(speed * delta, 0.0, 1.0)
-	global_transform.basis = global_transform.basis.slerp(Basis.IDENTITY, t).orthonormalized()
+	## Aug 2026 fix — Basis.slerp() requires the STARTING basis to already
+	## be a valid, orthonormal rotation (no scale/shear) to decompose into a
+	## quaternion internally; feeding it anything else throws "must be
+	## normalized" and returns a degenerate Quaternion(), which written back
+	## into global_transform.basis corrupts it further — a feedback loop
+	## that showed up live as the SAME error recurring with progressively
+	## different (drifting) scale magnitudes across a session (confirmed via
+	## two real error logs: ~0.977 and ~0.829 uniform scale on what should
+	## be a scale-1.0 rotation). Orthonormalizing the CURRENT basis before
+	## ever handing it to .slerp() sanitizes it every single call, so a
+	## slightly-corrupted basis can never reach the failing call and the
+	## loop can't start, regardless of how the drift originates upstream.
+	var current_rotation: Basis = global_transform.basis.orthonormalized()
+	global_transform.basis = current_rotation.slerp(Basis.IDENTITY, t).orthonormalized()
 	angular_velocity = Vector3.ZERO

@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://cef22lwtiq52y"]
+
+[ext_resource type="PackedScene" uid="uid://tnp5nktvegmw" path="res://assets/models/player/adventurer/Adventurer_Female.fbx" id="1_57yqi"]
+
+[node name="Scratch" type="Node3D" unique_id=119317833]
+
+[node name="TestF" type="Node3D" parent="." unique_id=840195141 instance=ExtResource("1_57yqi")]

@@ -57,16 +57,16 @@ script = ExtResource("6_hyoe7")
 metadata/_editor_floor_ = Vector3(0, -10, 0)
 
 [node name="TestCrate" parent="." unique_id=403391416 instance=ExtResource("7_hyoe7")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.4199386, 1.2792261, 6.354368)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -3.2606716, 1, 4.999317)
 
 [node name="TestCrate2" parent="." unique_id=1217058405 instance=ExtResource("7_hyoe7")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.2895627, 2.0754392, 9.643324)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -4.074338, 1, 4.999235)
 
 [node name="TestCrate3" parent="." unique_id=225141603 instance=ExtResource("7_hyoe7")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.2783616, 1.8624859, 10.118909)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -3.6740847, 1.6276402, 4.999235)
 
 [node name="Bed" parent="." unique_id=1752025624 instance=ExtResource("8_ucaxc")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.9681697, 0.7, 5.0227137)
+transform = Transform3D(1.1924881e-08, 0, -1, 0, 1, 0, 1, 0, 1.1924881e-08, 2.8917665, 0.7, 7.9250135)
 
 [node name="HUD" parent="." unique_id=635934083 groups=["HUD"] instance=ExtResource("4_m1c1d")]
 
@@ -87,10 +87,10 @@ visible = false
 [node name="InteractPrompt" parent="." unique_id=2143683521 instance=ExtResource("12_sp2fq")]
 
 [node name="WaterCase" parent="." unique_id=1917208067 instance=ExtResource("13_jq3pf")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.898078, 1.0583196, 6.6327133)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.2291546, 1, 4.901)
 
 [node name="CanCase" parent="." unique_id=1125724952 instance=ExtResource("14_b88p2")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5438236, 0.9118345, 8.593805)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.084995, 1, 4.901)
 item_name = "Can Case"
 
 [node name="InventoryManager" type="Node" parent="." unique_id=2072364134]

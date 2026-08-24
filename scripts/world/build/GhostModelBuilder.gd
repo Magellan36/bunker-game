@@ -147,6 +147,29 @@ static func strip_collision(node: Node) -> void:
 	for child: Node in node.get_children():
 		strip_collision(child)
 
+## Removes a preview instance (and every descendant) from ALL scene-tree
+## groups. Preview thumbnails are built from the objects' REAL scripts/
+## scenes, so their _ready() runs and joins world groups ("pickup",
+## "interactable", "wall_lights", "inventory_item", "cooking_pot", ...).
+## Those instances live in isolated SubViewports (own_world_3d) whose 3D
+## world contributes no transform, so their global_position resolves to
+## ~world origin — yet group membership is TREE-WIDE. Tree-wide group scans
+## (NPC job queries, InteractionSystem prompts, PowerManager lookups) would
+## otherwise treat them as real items buried at (0,0,0), northeast of the
+## bunker. Call AFTER add_child() so every _ready()-time join is already
+## done, then wipe them. Rendering is unaffected — groups have no visual
+## role, so the thumbnail still shows. This is the sweeping backstop to the
+## per-class `_is_preview_only` guards: it catches group joins from ANY
+## current or future previewed class, including child nodes (e.g. WallLight's
+## PowerPriorityInteractable proxy).
+static func strip_groups(node: Node) -> void:
+	if not is_instance_valid(node):
+		return
+	for g: StringName in node.get_groups():
+		node.remove_from_group(g)
+	for child: Node in node.get_children():
+		strip_groups(child)
+
 ## Second-tier fallback for MeshLibrary-backed tiles (Pillar, Floor) that
 ## have no procedural script. Returns null if tile_id isn't a valid
 ## MeshLibrary item either — final fallback is still the caller's own

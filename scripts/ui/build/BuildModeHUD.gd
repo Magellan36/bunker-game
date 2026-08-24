@@ -1035,6 +1035,11 @@ func _refresh_submenu_previews() -> void:
 		pivot2.rotation_degrees = PREVIEW_ROTATION_DEFAULT
 		vp.add_child(pivot2)
 		pivot2.add_child(inst)
+		## Safety net: wipe any groups this instance's _ready() still joined
+		## (construct classes lacking the _is_preview_only guard, e.g.
+		## WallLight's wall_lights group / priority proxy). See
+		## GhostModelBuilder.strip_groups().
+		GhostModelBuilder.strip_groups(inst)
 		_sub_mesh_instances[i] = pivot2
 
 		## Combined AABB, correctly accounting for each mesh's own offset
@@ -1090,6 +1095,13 @@ func _refresh_shop_previews() -> void:
 		inst.set_process(false)
 		inst.set_physics_process(false)
 
+		## Preview-only guard — MUST be set before add_child() so _ready()
+		## sees it (see PickupableItem._is_preview_only). Without it, every
+		## shop preview's real _ready() joined world groups ("pickup",
+		## "interactable", ...) and tree-wide NPC/interaction group-scans
+		## treated them as real items buried at ~world origin.
+		inst.set("_is_preview_only", true)
+
 		## Pivot fix (Jul 2026) — same reasoning as the construct-item loop
 		## above: rotate a fixed pivot wrapping the instance, not the
 		## instance itself, so it spins around its true visual center.
@@ -1097,6 +1109,11 @@ func _refresh_shop_previews() -> void:
 		pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
 		vp.add_child(pivot)
 		pivot.add_child(inst)
+		## Safety net: wipe any groups this instance's _ready() still joined
+		## (and any its children joined, e.g. WallLight's priority proxy).
+		## See GhostModelBuilder.strip_groups() — group membership is
+		## tree-wide, even though these instances are world-isolated.
+		GhostModelBuilder.strip_groups(inst)
 		_shop_mesh_instances[i] = pivot
 
 		# Combined AABB, correctly accounting for each mesh's own offset
@@ -1338,37 +1355,49 @@ func _draw_dig_confirm() -> void:
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
 	var font: Font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
 
+	## UI-convention pass (Aug 2026): this dialog used to hand-roll the same
+	## kiwi-green scheme ConfirmDialogUI.gd was originally modeled on and has
+	## since moved off of (see that file's header comment). Migrated onto
+	## the same UIKit NEUTRAL palette + shared UIKit.draw_rounded_rect()/
+	## draw_backdrop() primitives so the two dialogs read as the same family
+	## again. Local _draw_rounded_on()/_draw_rounded_outline_on() below are
+	## still used elsewhere in this file (toolbar, cancel button, border) —
+	## not removed, just no longer called from here.
 	const PANEL_W: float = 320.0
 	const PANEL_H: float = 130.0
 	const BTN_W:   float = 110.0
 	const BTN_H:   float = 38.0
-	const CR:      float = 8.0
+	const CR:      float = 4.0   ## UIKit.CORNER_RADIUS default — matches every other panel
+	const BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
+	const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
+	const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
+	const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
+	const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
+	const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
 
 	var px: float = (vp_size.x - PANEL_W) * 0.5
 	var py: float = (vp_size.y - PANEL_H) * 0.5
 	var panel_rect: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
 
-	# Dark semi-transparent background (full screen dim)
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp_size), Color(0.0, 0.0, 0.0, 0.55), true)
+	## Full-screen dim backdrop — shared UIKit primitive (alpha 0.55 preserved).
+	UIKit.draw_backdrop(_canvas, vp_size, 0.55)
 
-	# Panel background
-	_draw_rounded_on(_canvas, panel_rect, CR, Color(0.08, 0.10, 0.07, 0.96))
-	# Panel border — kiwi green
-	_draw_rounded_outline_on(_canvas, panel_rect, CR, Color(0.42, 0.87, 0.15, 0.80), 2.0)
+	## Panel background + border — shared UIKit primitive/palette.
+	UIKit.draw_rounded_rect(_canvas, panel_rect, BG_COLOR, BORDER_COLOR, 2.0, CR)
 
 	# Title
 	var title: String = "EXPAND BUNKER"
 	var tsz: Vector2 = font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15)
 	_canvas.draw_string(font,
 		Vector2(px + PANEL_W * 0.5 - tsz.x * 0.5, py + 28.0),
-		title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.52, 0.97, 0.20, 1.0))
+		title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, HEADER_COLOR)
 
-	# Cost line
+	# Cost line (dim/secondary role — same tone every other panel's secondary text uses)
 	var sub: String = "$1,500"
 	var ssz: Vector2 = font.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
 	_canvas.draw_string(font,
 		Vector2(px + PANEL_W * 0.5 - ssz.x * 0.5, py + 50.0),
-		sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.95, 0.75, 0.30, 1.0))
+		sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DIM_COLOR)
 
 	# YES button
 	var gap: float = 16.0
@@ -1376,24 +1405,26 @@ func _draw_dig_confirm() -> void:
 	var yes_x: float = px + (PANEL_W - total_btns_w) * 0.5
 	var btn_y: float = py + PANEL_H - BTN_H - 18.0
 	_dig_confirm_yes_rect = Rect2(yes_x, btn_y, BTN_W, BTN_H)
-	_draw_rounded_on(_canvas, _dig_confirm_yes_rect, 6.0, Color(0.12, 0.30, 0.08, 0.90))
-	_draw_rounded_outline_on(_canvas, _dig_confirm_yes_rect, 6.0, Color(0.42, 0.87, 0.15, 0.90), 1.5)
+	## Green bg / OK_COLOR accent — same affirmative-action pattern
+	## GeneratorInspectUI's START button / ConfirmDialogUI's YES button use.
+	UIKit.draw_rounded_rect(_canvas, _dig_confirm_yes_rect, Color(0.06, 0.30, 0.12, 1.0), OK_COLOR, 1.5, 6.0)
 	var yes_lbl: String = "YES"
 	var ylsz: Vector2 = font.get_string_size(yes_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13)
 	_canvas.draw_string(font,
 		Vector2(yes_x + BTN_W * 0.5 - ylsz.x * 0.5, btn_y + BTN_H * 0.5 + 5.0),
-		yes_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.80, 1.0, 0.60, 1.0))
+		yes_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, OK_COLOR)
 
 	# NO button
 	var no_x: float = yes_x + BTN_W + gap
 	_dig_confirm_no_rect = Rect2(no_x, btn_y, BTN_W, BTN_H)
-	_draw_rounded_on(_canvas, _dig_confirm_no_rect, 6.0, Color(0.25, 0.08, 0.08, 0.90))
-	_draw_rounded_outline_on(_canvas, _dig_confirm_no_rect, 6.0, Color(0.85, 0.22, 0.18, 0.80), 1.5)
+	## Red bg / CRIT_COLOR accent — same destructive-action pattern
+	## GeneratorInspectUI's SHUT DOWN button / ConfirmDialogUI's NO button use.
+	UIKit.draw_rounded_rect(_canvas, _dig_confirm_no_rect, Color(0.42, 0.08, 0.06, 1.0), CRIT_COLOR, 1.5, 6.0)
 	var no_lbl: String = "NO"
 	var nlsz: Vector2 = font.get_string_size(no_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13)
 	_canvas.draw_string(font,
 		Vector2(no_x + BTN_W * 0.5 - nlsz.x * 0.5, btn_y + BTN_H * 0.5 + 5.0),
-		no_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1.0, 0.75, 0.70, 1.0))
+		no_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, CRIT_COLOR)
 
 func _draw_border() -> void:
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size

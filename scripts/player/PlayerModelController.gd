@@ -1,6 +1,23 @@
 class_name PlayerModelController
 extends Node3D
 ## PlayerModelController.gd
+##
+## ============================================================
+## PACKED AWAY — Aug 2026, V1 simplification. NOT DELETED, NOT wired
+## into any live scene right now. Player.tscn and the character-creation
+## screen both moved to AdventurerModelController.gd / AdventurerModel.tscn
+## instead (two complete Quaternius "Adventurer" models — one per gender,
+## no per-piece customization). This whole file — the outfit system, the
+## hairstyle/beard/hair-color system, the native-rig switch, the retexture
+## work — is preserved exactly as it stood, for reintroduction once real
+## customization art/scope is ready for a later version. See
+## docs/systems/player-model/README.md "V1 simplification — Adventurer
+## models" for the full reasoning and how to bring it back (short version:
+## point Player.tscn's PlayerModel/PlayerModelShadow nodes at
+## PlayerModel.tscn again instead of AdventurerModel.tscn, and re-enable
+## CharacterCreationScreen.gd's Hair category button).
+## ============================================================
+##
 ## Player-Model subsystem — owns the player's VISUAL body only: applying
 ## the same self-light/shadow exclusion the old capsule placeholder had,
 ## and picking which locomotion animation (idle/walk/run) plays based on
@@ -112,6 +129,39 @@ const OUTFIT_SCENE_PATHS: Dictionary = {
 	"male": "res://assets/models/player/outfits/Male_Peasant.gltf",
 	"female": "res://assets/models/player/outfits/Female_Peasant.gltf",
 }
+
+## Aug 2026 (2nd rework) — Peasant outfit clip fix, REPLACED. The
+## previous "option B" approach (a from-scratch per-vertex band/radius
+## heuristic trying to guess which skin triangles a garment geometrically
+## covers) was solving a problem this asset was never designed to have.
+## Confirmed directly from the asset creator's own documentation
+## (Modular Character Outfits - Fantasy's Readme.txt, read directly from
+## the source pack on disk): "When using the clothing, only the head of
+## the model is required. Using the full body will result in clipping."
+## The outfit's own modular pieces (Body/Legs/Feet/Arms) are meant to BE
+## the entire visible torso/limbs/hands on their own — they were never
+## authored to align precisely with the base body's silhouette, which is
+## exactly why the old per-triangle band/radius/poke-allowance system
+## kept finding new gaps no matter how it was tuned (collar, hip, and
+## finally the hands). Per the pack's own itch.io changelog (v2.0), the
+## Arms piece deliberately bakes in its own skin-toned arm/hand geometry
+## ("included the human arms on Peasant_Male, now all models work with
+## just the head") specifically so the base body's real arm/hand is
+## never needed — the "double hands" reported in testing was the real
+## bare hand rendering underneath the outfit's own correctly-designed
+## one, not a duplicate node and not a bug in the glove mesh itself.
+## The fix is now simply: keep only Head/neck-dominant body skin visible
+## whenever an outfit is equipped, and hide everything else outright —
+## no per-garment geometry comparison, no live-pose sampling, no band/
+## radius/allowance tuning to chase. This is pose-INDEPENDENT (a fixed
+## per-bone decision, not a live-geometry one), so it runs once,
+## synchronously, at outfit-setup time — see _hide_body_below_head().
+const HEAD_REGION_BONE_MARKERS: Array[String] = ["head", "neck"]
+
+## Aug 2026 retexture — flat boot color, applied as a surface override
+## material in _setup_outfit()'s piece loop instead of baking into the
+## shared texture atlas. See that call site's doc comment for why.
+const BOOT_ALBEDO_COLOR: Color = Color(0.055, 0.032, 0.018)
 
 ## Aug 2026 native-rig rebuild — the Quaternius-native bodies, selected
 ## instead of BODY_SCENE_PATHS when native_rig is true. See the flag's
@@ -774,12 +824,32 @@ func _setup_outfit(skeleton: Skeleton3D, gender: String) -> void:
 	if outfit_scene == null:
 		return
 	var outfit_root: Node = outfit_scene.instantiate()
+	var pieces: Array[MeshInstance3D] = []
 	for src_node in _find_all_of_type(outfit_root, "MeshInstance3D"):
 		var src: MeshInstance3D = src_node as MeshInstance3D
 		var piece := MeshInstance3D.new()
 		piece.name = "Outfit_" + src.name
 		piece.mesh = src.mesh
 		piece.skin = src.skin
+		pieces.append(piece)
+	outfit_root.free()
+	if pieces.is_empty():
+		return
+
+	## Realign the outfit's baked skin binds to the body's rest pose
+	## (identity skinning) — see _rewrite_outfit_skin_binds()'s own doc
+	## comment. A separate concern from body-hiding below: this is about
+	## the outfit rendering in the right place, not about what body skin
+	## stays visible under it.
+	for piece in pieces:
+		_rewrite_outfit_skin_binds(skeleton, piece)
+	## Aug 2026 (2nd rework) — hide everything but the head/neck now that
+	## an outfit is confirmed equipped. See HEAD_REGION_BONE_MARKERS' doc
+	## comment for why. Synchronous — no more await/frame-sampling needed,
+	## since which bone a vertex belongs to doesn't depend on live pose.
+	_hide_body_below_head(skeleton)
+
+	for piece in pieces:
 		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
 			piece.layers = _player.PLAYER_SELF_LIGHT_LAYER_BIT
 		piece.cast_shadow = (
@@ -787,6 +857,23 @@ func _setup_outfit(skeleton: Skeleton3D, gender: String) -> void:
 			if is_shadow_only
 			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		)
+		## Aug 2026 retexture — boots get a flat, very dark brown material
+		## instead of the shared outfit texture atlas. A pixel-level fix on
+		## the atlas kept reverting a specific patch of the boot shaft back
+		## to its original pale color for reasons that resisted diagnosis
+		## (not caching, masking, lighting, or the shared UV-overlap logic —
+		## see docs/systems/player-model/README.md "Boot retexture" for the
+		## dead ends ruled out); a flat material sidesteps that pipeline
+		## entirely and is also just what a solid "very dark brown boots"
+		## look calls for — no texture detail is lost that the design
+		## actually needed.
+		if "feet" in piece.name.to_lower():
+			var boot_mat := StandardMaterial3D.new()
+			boot_mat.albedo_color = BOOT_ALBEDO_COLOR
+			boot_mat.roughness = 0.55
+			if piece.mesh != null:
+				for surf_i in piece.mesh.get_surface_count():
+					piece.set_surface_override_material(surf_i, boot_mat)
 		## Parented directly under our own skeleton (not the outfit's own
 		## bundled one, which gets discarded below) — skeleton = ".."
 		## points back at its own new parent. This is the whole trick:
@@ -795,7 +882,167 @@ func _setup_outfit(skeleton: Skeleton3D, gender: String) -> void:
 		## our skeleton's live pose, no retargeting math needed.
 		skeleton.add_child(piece)
 		piece.skeleton = NodePath("..")
-	outfit_root.free()
+
+## The single skinned body mesh (Superhero_Female / SuperHero_Male) under
+## this controller. The Eyes/Eyebrows sub-meshes are filtered out by the
+## name check; outfit pieces aren't attached yet when this runs.
+func _find_body_mesh() -> MeshInstance3D:
+	for node in _find_all_of_type(self, "MeshInstance3D"):
+		var mi: MeshInstance3D = node as MeshInstance3D
+		if mi.skin != null and mi.name.to_lower().contains("superhero"):
+			return mi
+	return null
+
+## Hides every body-mesh vertex EXCEPT those dominantly weighted to a
+## head/neck bone (see HEAD_REGION_BONE_MARKERS' doc comment above for
+## the design rationale). Synchronous and pose-INDEPENDENT: which bone a
+## vertex is dominantly skinned to never changes with animation, so
+## unlike the old band/radius system this needs no live-pose sampling,
+## no idle/carry-state handling, no awaits at all — it runs once, right
+## when the outfit is attached.
+func _hide_body_below_head(skeleton: Skeleton3D) -> void:
+	var body_mesh: MeshInstance3D = _find_body_mesh()
+	if body_mesh == null or body_mesh.mesh == null or body_mesh.skin == null:
+		return
+	var keep_binds := {}
+	for b in body_mesh.skin.get_bind_count():
+		var bone_name: String = body_mesh.skin.get_bind_name(b).to_lower()
+		for marker in HEAD_REGION_BONE_MARKERS:
+			if marker in bone_name:
+				keep_binds[b] = true
+				break
+	var covered := PackedByteArray()
+	for s in body_mesh.mesh.get_surface_count():
+		var arrays := body_mesh.mesh.surface_get_arrays(s)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var joints: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+		var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+		for vi in verts.size():
+			var dominant: int = -1
+			var dw := -1.0
+			for w in 4:
+				var bj: int = joints[vi * 4 + w]
+				var bw: float = weights[vi * 4 + w]
+				if bw > dw:
+					dw = bw
+					dominant = bj
+			covered.append(0 if keep_binds.has(dominant) else 1)
+	_split_body_mesh(body_mesh, covered)
+
+## Realigns a piece's skin bind poses to identity skinning on the body
+## skeleton: each bind pose becomes body-rest^-1 for its (name-matched)
+## bone, so skel_global * bind == I at rest and the piece renders exactly
+## at its authored coordinates while still following the animation. The
+## male Peasant gltf was baked against a different rest pose and was
+## displaced 2-4cm otherwise; the female gltf already ships rest^-1, so
+## this is a no-op there. A fresh Skin is built (never mutating the
+## imported resource, which is shared across every spawn).
+func _rewrite_outfit_skin_binds(skeleton: Skeleton3D, piece: MeshInstance3D) -> void:
+	if piece.skin == null:
+		return
+	var new_skin := Skin.new()
+	new_skin.set_bind_count(piece.skin.get_bind_count())
+	for b in piece.skin.get_bind_count():
+		new_skin.set_bind_name(b, piece.skin.get_bind_name(b))
+		new_skin.set_bind_pose(b, piece.skin.get_bind_pose(b))
+	for b in piece.skin.get_bind_count():
+		var bone_name: String = piece.skin.get_bind_name(b)
+		if bone_name == "":
+			continue
+		var bone_idx: int = skeleton.find_bone(bone_name)
+		if bone_idx == -1:
+			continue
+		new_skin.set_bind_pose(b, skeleton.get_bone_global_rest(bone_idx).affine_inverse())
+	piece.skin = new_skin
+
+## Rebuilds the body mesh without the covered triangles (conservative:
+## a triangle is dropped if any of its vertices is covered). Preserves
+## per-surface materials and surface count so the existing surface
+## material overrides keep applying.
+func _split_body_mesh(body_mesh: MeshInstance3D, covered: PackedByteArray) -> void:
+	var old_mesh: Mesh = body_mesh.mesh
+	var materials: Array = []
+	for s in old_mesh.get_surface_count():
+		materials.append(old_mesh.surface_get_material(s))
+	var new_mesh := ArrayMesh.new()
+	var offset := 0
+	for s in old_mesh.get_surface_count():
+		var arrays := old_mesh.surface_get_arrays(s)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		if indices.is_empty():
+			indices = PackedInt32Array(range(verts.size()))
+		var remap := PackedInt32Array()
+		remap.resize(verts.size())
+		remap.fill(-1)
+		var kept_count := 0
+		for vi in verts.size():
+			if covered[offset + vi] == 0:
+				remap[vi] = kept_count
+				kept_count += 1
+		var out_arrays: Array = []
+		out_arrays.resize(Mesh.ARRAY_MAX)
+		for key in [Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL, Mesh.ARRAY_TANGENT,
+				Mesh.ARRAY_COLOR, Mesh.ARRAY_TEX_UV, Mesh.ARRAY_TEX_UV2,
+				Mesh.ARRAY_BONES, Mesh.ARRAY_WEIGHTS]:
+			var src: Variant = arrays[key]
+			if src == null:
+				continue
+			out_arrays[key] = _remap_surface_array(key, src, remap, verts.size())
+		var out_indices := PackedInt32Array()
+		for t in indices.size() / 3:
+			var i0: int = indices[t * 3]
+			var i1: int = indices[t * 3 + 1]
+			var i2: int = indices[t * 3 + 2]
+			if remap[i0] != -1 and remap[i1] != -1 and remap[i2] != -1:
+				out_indices.append(remap[i0])
+				out_indices.append(remap[i1])
+				out_indices.append(remap[i2])
+		out_arrays[Mesh.ARRAY_INDEX] = out_indices
+		new_mesh.add_surface_from_arrays(old_mesh.surface_get_primitive_type(s), out_arrays)
+		offset += verts.size()
+	for s in materials.size():
+		new_mesh.surface_set_material(s, materials[s])
+	body_mesh.mesh = new_mesh
+
+## Rebuilds one surface array keeping only the vertices whose remap entry
+## is >= 0. Stride handling: TANGENT/WEIGHTS/BONES are 4 elements per
+## vertex, everything else is one element per vertex.
+static func _remap_surface_array(key: int, src: Variant, remap: PackedInt32Array, src_size: int) -> Variant:
+	match key:
+		Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL:
+			var out3 := PackedVector3Array()
+			for vi in src_size:
+				if remap[vi] != -1:
+					out3.append(src[vi])
+			return out3
+		Mesh.ARRAY_TANGENT, Mesh.ARRAY_WEIGHTS:
+			var outf := PackedFloat32Array()
+			for vi in src_size:
+				if remap[vi] != -1:
+					for e in 4:
+						outf.append(src[vi * 4 + e])
+			return outf
+		Mesh.ARRAY_COLOR:
+			var outc := PackedColorArray()
+			for vi in src_size:
+				if remap[vi] != -1:
+					outc.append(src[vi])
+			return outc
+		Mesh.ARRAY_TEX_UV, Mesh.ARRAY_TEX_UV2:
+			var out2 := PackedVector2Array()
+			for vi in src_size:
+				if remap[vi] != -1:
+					out2.append(src[vi])
+			return out2
+		Mesh.ARRAY_BONES:
+			var outi := PackedInt32Array()
+			for vi in src_size:
+				if remap[vi] != -1:
+					for e in 4:
+						outi.append(src[vi * 4 + e])
+			return outi
+	return null
 
 ## Aug 2026 — hair styles are their own scenes (bone-attached under the
 ## skeleton), driven entirely by the per-style HAIRSTYLES data. This

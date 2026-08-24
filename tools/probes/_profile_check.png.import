@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c6kfkvuoiddvl"
-path="res://.godot/imported/T_Peasant_BaseColor.png-37513bc14ff10fc2a16bc5659e98dbf5.ctex"
+uid="uid://scj0gri4nab5"
+path="res://.godot/imported/_profile_check.png-8118e3b5fbb85ce4f30ec11ddbdbe0fb.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/models/player/outfits/T_Peasant_BaseColor.png"
-dest_files=["res://.godot/imported/T_Peasant_BaseColor.png-37513bc14ff10fc2a16bc5659e98dbf5.ctex"]
+source_file="res://tools/probes/_profile_check.png"
+dest_files=["res://.godot/imported/_profile_check.png-8118e3b5fbb85ce4f30ec11ddbdbe0fb.ctex"]
 
 [params]
 

@@ -1417,19 +1417,12 @@ func _spawn_initial_build_station() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 
-	## True geometric center of the starting bunker floor, computed from
-	## RockSurround's own constants (the same data BunkerPregen.generate()
-	## uses to stamp the 16×8 floor) rather than a guessed literal:
-	##   OFFSET_X=-12.5, OFFSET_Z=4.5, depth=16 (X), width=8 (Z)
-	##   → center (-4.5, 8.5). Y = 0.5, the established floor-standing
-	##   convention (GhostPreview floor-snap, trays/tables/chairs).
-	var center_pos: Vector3 = Vector3(
-		rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5,
-		0.5,
-		rock_surround.OFFSET_Z + float(rock_surround.bunker_width) * 0.5
-	)
+	## Position/angle taken verbatim from the BuildSandbox reference scene
+	## (scenes/world/BuildSandbox.tscn) — the sandbox floor is calibrated to
+	## the real bunker floor top (y 0.45), so these translate 1:1.
+	var center_pos: Vector3 = Vector3(-11.897, 0.45, 8.5)
 
-	var body: Node3D = bc._spawn_placed_object(bc.TILE_BUILD_STATION, center_pos, 0.0)
+	var body: Node3D = bc._spawn_placed_object(bc.TILE_BUILD_STATION, center_pos, 90.0)
 	if body != null and body.has_method("set"):
 		body.set("_main_world", self)
 	if bc.has_method("set"):
@@ -1441,7 +1434,7 @@ func _spawn_initial_build_station() -> void:
 		"tile_id":       bc.TILE_BUILD_STATION,
 		"price":         0,
 		"world_pos":     center_pos,
-		"angle_deg":     0.0,
+		"angle_deg":     90.0,
 		"player_placed": true,
 	})
 
@@ -1464,8 +1457,9 @@ func _spawn_initial_research_station() -> void:
 	## half-depth (0.48, from _tile_half_extents(TILE_RESEARCH_STATION)) —
 	## same "wall coordinate + inset" idiom BunkerPregen.gd uses for its
 	## wall-flush lights (LWHT), just with this object's own footprint as
-	## the inset instead of a light's thin fixture inset. Y=0.5 floor-
-	## standing convention, unchanged. Angle 0.0 unchanged — per
+	## the inset instead of a light's thin fixture inset. Y=0.45 — the real
+	## bunker floor top (BuildSandbox-calibrated), per the reference.
+	## Angle 0.0 unchanged — per
 	## BuildModeController.DEFAULT_ORIENT_INDEX, local +Z (front) already
 	## points world +Z (south/into the room) at angle 0, which is correct
 	## with the object's back against this north wall.
@@ -1477,7 +1471,7 @@ func _spawn_initial_research_station() -> void:
 	var half_extent: Vector2 = bc._tile_half_extents(bc.TILE_RESEARCH_STATION)
 	var research_pos: Vector3 = Vector3(
 		rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5 + 4.0,
-		0.5,
+		0.45,
 		rock_surround.OFFSET_Z + half_extent.y
 	)
 

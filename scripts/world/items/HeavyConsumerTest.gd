@@ -144,7 +144,7 @@ func on_interact() -> void:
 
 	if _prio_ui.has_method("open"):
 		## show_load_toggle = true → panel includes the on/off load switch.
-		_prio_ui.call("open", str(get_instance_id()), "Load Test (500W)", true)
+		_prio_ui.call("open", str(get_instance_id()), "Load Test (500W)", true, global_position)
 
 
 func _on_prio_closed() -> void:

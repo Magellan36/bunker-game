@@ -407,7 +407,7 @@ func on_interact() -> void:
 
 	var display_name: String = "Grow Light" if tier == "normal" else "Grow Light (Pro)"
 	if _prio_ui.has_method("open"):
-		_prio_ui.call("open", str(get_instance_id()), display_name, false)
+		_prio_ui.call("open", str(get_instance_id()), display_name, false, global_position)
 
 func get_interact_prompt() -> String:
 	var label: String = "Grow Light" if tier == "normal" else "Grow Light (Pro)"

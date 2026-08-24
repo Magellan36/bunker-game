@@ -30,6 +30,7 @@ var _spot:       SpotLight3D        = null
 var _dust:       GPUParticles3D     = null   ## beam dust motes, see DustMotes.gd
 var _body_mesh:  MeshInstance3D     = null
 var _lens_mat:   StandardMaterial3D = null
+var _model:      Node3D             = null   ## flipped visual-model container, see _build_mesh
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 const COL_ON:   Color = Color(1.0,  0.98, 0.88, 1.0)   ## warm white
@@ -60,6 +61,16 @@ func _ready() -> void:
 func _build_mesh() -> void:
 	## Flashlight body: cylinder (handle) + wider cylinder (head) + lens cap.
 	## Everything lies along local +Z so the light points forward naturally.
+	##
+	## Aug 2026 — the whole model sits under a "Model" container that is
+	## reversed 180° around Y, so the head/lens visually point the correct
+	## way in the player's hand. Only the model is flipped — the
+	## SpotLight3D, dust, collision, and auto-aim logic are unchanged.
+	var model: Node3D = Node3D.new()
+	model.name = "Model"
+	model.rotation_degrees = Vector3(0.0, 180.0, 0.0)
+	add_child(model)
+	_model = model
 
 	## Handle — thin long cylinder along +Z
 	var handle_mi: MeshInstance3D = MeshInstance3D.new()
@@ -90,7 +101,7 @@ func _build_mesh() -> void:
 	## want a shadow from a tiny handheld prop anyway, from any light, so
 	## there's no reason to scope this to the flashlight's own spot only.
 	handle_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(handle_mi)
+	model.add_child(handle_mi)
 	_body_mesh = handle_mi
 
 	## Head — wider, shorter, pushed forward along +Z
@@ -112,7 +123,7 @@ func _build_mesh() -> void:
 	## Aug 2026 — see handle_mi's comment above. This one sits even closer
 	## to the light (local Z=0.15 vs. the spot's own Z=0.20).
 	head_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(head_mi)
+	model.add_child(head_mi)
 
 	## Lens cap — thin glowing disk at the very tip
 	var lens_mi: MeshInstance3D = MeshInstance3D.new()
@@ -137,7 +148,7 @@ func _build_mesh() -> void:
 	## 0.018 apart — essentially touching) and the most likely single
 	## biggest contributor to the dome.
 	lens_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(lens_mi)
+	model.add_child(lens_mi)
 
 func _build_light() -> void:
 	_spot = SpotLight3D.new()
@@ -173,10 +184,17 @@ func _build_light() -> void:
 	## Dust motes drifting through the beam — dust-mote scope was flagged for
 	## VFX priority #1 in the graphics plan. Emitting is toggled with the
 	## beam in _refresh_state(); off at spawn to match _spot.
+	## Parented to the flipped model container (not the spot) so the dust
+	## reverses 180° WITH the model — position mirrors the original spot-
+	## relative +0.35 into model-local +0.35, which the container's 180° Y
+	## flip lands at the head side of the flashlight.
 	_dust = DustMotes.create_beam_dust(CONE_OUTER)
-	_dust.position = Vector3(0.0, 0.0, 0.15)
+	_dust.position = Vector3(0.0, 0.0, 0.35)
 	_dust.emitting = false
-	_spot.add_child(_dust)
+	if _model != null:
+		_model.add_child(_dust)
+	else:
+		_spot.add_child(_dust)
 	## Live-update if the player flips a toggle while holding this flashlight.
 	GraphicsSettings.settings_changed.connect(_apply_graphics_settings)
 
@@ -243,6 +261,13 @@ func _refresh_state() -> void:
 
 # ─── Physics + orientation ────────────────────────────────────────────────────
 func _physics_process(delta: float) -> void:
+	## Auto-off when not held (stored in inventory or dropped) — the beam is
+	## only meant to be on in the player's hand, and a stashed flashlight
+	## shouldn't keep draining its battery (Aug 2026).
+	if not is_held and _on:
+		_on = false
+		_refresh_state()
+
 	## Battery drain
 	if _on and not _is_dead:
 		_battery -= BATTERY_DRAIN * delta

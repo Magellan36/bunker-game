@@ -73,6 +73,17 @@ var power_priority: int = 1
 ## unregister the wire node in _exit_tree(). Empty until registered.
 var _pm_node_key: String = ""
 
+## Set TRUE by preview systems (GhostModelBuilder.build_real_instance)
+## BEFORE add_child(), so a preview thumbnail still builds its fixture
+## visuals but skips joining the "wall_lights" group AND skips registering a
+## real PowerManager wire node/consumer. Previously missing this guard while
+## being registered in PROCEDURAL_PREVIEW_SOURCES, so every Build Mode
+## Construct-menu preview created a live phantom power node at the preview
+## instance's ~world-origin position (underground, NE of the bunker). Same
+## convention as Stove.gd/GeneratorObject.gd — see GhostModelBuilder.gd's
+## build_real_instance() doc.
+var _is_preview_only: bool = false
+
 ## Track shed state so set_powered(true) knows to restore full brightness.
 var _is_shed: bool = false
 
@@ -84,12 +95,13 @@ var _is_powered: bool = false
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	set_meta("tile_id", 5)
-	add_to_group("wall_lights")
+	if not _is_preview_only:
+		add_to_group("wall_lights")
+		## Defer power registration so global_position is correct.
+		## add_child() sets position AFTER _ready() runs, so calling
+		## register_wire_node() here would snap to Vector3.ZERO.
+		call_deferred("_register_wire_deferred")
 	_build_fixture()
-	## Defer power registration so global_position is correct.
-	## add_child() sets position AFTER _ready() runs, so calling
-	## register_wire_node() here would snap to Vector3.ZERO.
-	call_deferred("_register_wire_deferred")
 
 func _exit_tree() -> void:
 	## Unregister from the power graph when removed from the scene.
@@ -166,7 +178,7 @@ func on_priority_interact() -> void:
 			_prio_ui.priority_changed.connect(_on_prio_changed)
 
 	if _prio_ui.has_method("open"):
-		_prio_ui.call("open", str(get_instance_id()), "Wall Light", false)
+		_prio_ui.call("open", str(get_instance_id()), "Wall Light", false, global_position)
 
 func get_priority_prompt() -> String:
 	return "[E] Wall Light"

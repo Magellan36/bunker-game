@@ -8,6 +8,22 @@ Then read only the README for the subsystem being modified.
 
 ---
 
+# Tool Access
+
+This project has live MCP tool access to Blender, Godot, and this
+machine's real filesystem — not just a sandboxed code environment.
+These tools are hidden behind `tool_search` until explicitly searched
+for; call it before concluding a capability isn't available.
+
+**Read `docs/AGENT_TOOLS_GUIDE.md` before starting any task that touches
+player models, scenes, assets, or anything that would normally require
+opening Blender or the Godot editor by hand.** It covers tool discovery,
+the two-separate-filesystems gotcha, Blender/Godot-specific quirks, and
+the diagnostic workflow for seeing what's actually happening in a
+running game (which has no direct screenshot access).
+
+---
+
 # Project Overview
 
 Bunker Game is a Godot 4 colony survival game centered on building and maintaining a bunker before and after the collapse of civilization.

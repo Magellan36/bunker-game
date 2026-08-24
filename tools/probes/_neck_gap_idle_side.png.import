@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c6kfkvuoiddvl"
-path="res://.godot/imported/T_Peasant_BaseColor.png-37513bc14ff10fc2a16bc5659e98dbf5.ctex"
+uid="uid://kllgh4154dx6"
+path="res://.godot/imported/_neck_gap_idle_side.png-daf1d904972cb40c0a37868240fbca8c.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/models/player/outfits/T_Peasant_BaseColor.png"
-dest_files=["res://.godot/imported/T_Peasant_BaseColor.png-37513bc14ff10fc2a16bc5659e98dbf5.ctex"]
+source_file="res://tools/probes/_neck_gap_idle_side.png"
+dest_files=["res://.godot/imported/_neck_gap_idle_side.png-daf1d904972cb40c0a37868240fbca8c.ctex"]
 
 [params]
 

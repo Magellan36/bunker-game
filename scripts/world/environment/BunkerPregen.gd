@@ -257,17 +257,13 @@ func generate() -> Dictionary:
 	## the initial pregen rock-surround setup) and re-runs on every dig.
 	## Light reconnection is handled there too via _auto_connect_to_nearby_wires.
 
-	## ── Pass 7: schedule 2 fuel cans leaning against left wall ──────────────
-	## Cans are RigidBody3D items — they must be spawned into MainWorld (our parent),
-	## not via build_controller which handles static structure tiles only.
-	## LWHT = light wall-half-thickness already computed above (recompute here for clarity).
-	var cz_third2:    float = offset_z + float(width) / 3.0
-	var cz_twothird2: float = offset_z + float(width) * 2.0 / 3.0
-	var can_x: float  = wall_left + 0.65   ## ~0.65m inset from left wall face
-	var can_y: float  = 0.5                ## safe above-floor Y; gravity settles the can naturally
+	## ── Pass 7: schedule 2 fuel cans against the left wall ──────────────────
+	## Positions/rotations taken verbatim from the BuildSandbox reference scene
+	## (scenes/world/BuildSandbox.tscn), which is calibrated to the real bunker
+	## floor top (y 0.45).
 	_fuel_can_positions = [
-		Vector3(can_x, can_y, cz_third2),
-		Vector3(can_x, can_y, cz_twothird2),
+		Vector3(-11.85, 1.0, 7.1666665),
+		Vector3(-11.617799, 1.3810868, 9.223419),
 	]
 	call_deferred("_spawn_fuel_cans")
 
@@ -316,6 +312,9 @@ func _spawn_fuel_cans() -> void:
 		push_warning("BunkerPregen: FuelCan.tscn not found — skipping pregen cans")
 		return
 
+	## Exact rotations from the BuildSandbox reference (was: random lean).
+	var can_rotations: Array[float] = [0.0, 40.0]
+	var idx := 0
 	for pos: Vector3 in _fuel_can_positions:
 		var can: RigidBody3D = can_scene.instantiate() as RigidBody3D
 		## Freeze kinematically BEFORE entering the scene tree so physics doesn't
@@ -325,8 +324,8 @@ func _spawn_fuel_cans() -> void:
 		can.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 		world_parent.add_child(can)
 		can.global_position = pos
-		## Slight rotation so they look leaned/natural, not perfectly aligned
-		can.rotation_degrees = Vector3(0.0, randf_range(-15.0, 15.0), 0.0)
+		can.rotation_degrees = Vector3(0.0, can_rotations[idx], 0.0)
+		idx += 1
 		## Unfreeze after one physics frame — body is now positioned correctly
 		can.call_deferred("_unfreeze_after_spawn")
 

@@ -3,6 +3,86 @@
 **Read this before opening `PlayerModelController.gd` or
 `scenes/player/PlayerModel.tscn`.**
 
+## V1 simplification — Adventurer models (Aug 2026, CURRENT)
+
+**This is the current live system. Everything else in this document
+(Native-rig rebuild, Outfit/Peasant, Hairstyles, character-creation
+customization) describes the PACKED-AWAY system — preserved exactly as
+it stood, not deleted, not currently wired into any scene. Read this
+section first; treat the rest of the doc as historical/reference
+material for when customization is reintroduced.**
+
+**Why:** the full customization system below (swappable outfits,
+hairstyles, hair color, beard, the native-rig retarget work) hit
+diminishing returns for a V1 — a long chain of clipping/texture/rigging
+fixes for character assets that don't match the game's intended
+aesthetic in the first place, while free-model constraints meant
+continued fighting with mismatched asset packs. Decision: ship V1 with
+two complete, pre-made models — one per gender — and revisit real
+customization once dedicated art/scope is available for a later version.
+
+**What changed:**
+- **New models:** Quaternius's "Ultimate Modular Men" (Feb 2022) and
+  "Ultimate Modular Women" (April 2022) packs, specifically each pack's
+  pre-assembled "Adventurer" character (grey hair/beige clothes/backpack
+  for male; brown hair/green clothes/backpack for female) — copied from
+  `F:\Bunker Game\models\player models\FINAL\` into
+  `assets/models/player/adventurer/Adventurer_Male.fbx` /
+  `Adventurer_Female.fbx`. Each is ONE complete, self-contained body —
+  no per-piece swapping, no separate outfit/hair meshes to attach. Flat
+  per-part material colors (no texture files at all — confirmed directly
+  against the source pack), so none of the texture-pipeline issues the
+  Peasant outfit had apply here.
+- **New rig, same animations, verified working:** this pack uses a
+  DIFFERENT bone-naming convention (`Hips`/`Chest`/`UpperArm.L`/`Hand.L`,
+  CamelCase-dot) than the existing native skeleton
+  (`pelvis`/`spine_03`/`upperarm_l`, lowercase-underscore). Rather than
+  hand-retargeting the animation library, this project's EXISTING Godot
+  Humanoid-retarget infrastructure was reused: a new
+  `assets/models/player/adventurer/bone_map_adventurer.tres` (same
+  `BoneMap`/`SkeletonProfileHumanoid` format as `bone_map_native.tres`)
+  maps this rig's bones onto Godot's Humanoid profile, and both
+  `Adventurer_Male.fbx.import`/`Adventurer_Female.fbx.import` carry the
+  same `retarget/bone_renamer` + `rest_fixer` `_subresources` block as
+  every other body/animation file in this project (see "How the retarget
+  was done" below for the mechanism) — so the skeleton renames to the
+  same shared `GeneralSkeleton` convention the existing idle/walk/run/
+  `*_carry` animation library already targets. **Verified directly in
+  the Godot editor** (not just headlessly): both the male and female
+  Adventurer bodies play the existing `idle` animation correctly,
+  natural standing pose, no broken/twisted limbs — confirmed by direct
+  playtest.
+- **Scale:** verified near-identical to the previous native body
+  (Adventurer ~1.856m tall vs. the old body's ~1.810m, ~2.5% difference)
+  — no rescaling needed.
+- **New, simpler controller:** `scripts/player/AdventurerModelController.gd`
+  + `scenes/player/AdventurerModel.tscn` REPLACE
+  `PlayerModelController.gd`/`PlayerModel.tscn` in `Player.tscn`. Reuses
+  the same proven floor-alignment, visual-turn-smoothing, animation-state
+  (idle/walk/run/`*_carry`), and root-motion-track-resolution logic, but
+  drops everything outfit/hairstyle-related — the model is complete on
+  its own, nothing to attach. Gender still comes from
+  `CharacterCreationData.gender` (the creation screen's Body category is
+  still functional); nothing else on that autoload is read.
+- **Character creation UI:** `CharacterCreationScreen.gd`'s Hair category
+  joined Features/Accessories as disabled with a "Coming soon" tooltip
+  (same pattern those two already used). Body/gender selection still
+  works and drives which Adventurer model loads. The hairstyle/color/
+  beard-picking code is left in the file, entirely unused (Hair category
+  is unreachable) — packed away, not deleted, per the same reasoning
+  above.
+- **NOT touched:** `PlayerModelController.gd`, `PlayerModel.tscn`, the
+  outfit assets, the hairstyle assets, `bone_map_native.tres` — all
+  preserved exactly as they stood. No NPC scene exists in the project
+  yet, so nothing NPC-side needed updating.
+
+**To bring the old system back later:** point `Player.tscn`'s
+`PlayerModel`/`PlayerModelShadow` nodes at `PlayerModel.tscn` again
+(instead of `AdventurerModel.tscn`), and re-enable
+`CharacterCreationScreen.gd`'s `category_hair_button` (remove its
+`disabled = true` / tooltip lines). Everything else in this document
+still describes that system accurately.
+
 ## Native-rig rebuild (Aug 2026, IN PROGRESS)
 
 **Status: retarget complete (headless), visual checkpoint outstanding.**
@@ -179,13 +259,23 @@ role is unchanged, just operating on profile-named bones now.
       override for those); eyebrow material now runtime-overridden on both
       paths — brows should match hair_tint_color at load and after a
       swatch change
-- [ ] VISUAL: Peasant outfit renders on both genders, covers
-      torso/arms/legs/feet, deforms naturally through idle/walk/run/carry
-      (bind bones headless-verified 65/65; deformation is the real test)
+- [x] VISUAL: Peasant outfit renders on both genders, covers
+      torso/arms/legs/feet (REWORKED Aug 2026 — base body now hidden
+      entirely below the head/neck per the asset's own documented design,
+      see "Peasant outfit clip fix" above; the previous per-garment
+      geometry-matching approach is superseded). Deformation through
+      idle/walk/run/carry is a non-issue now since the split no longer
+      depends on live pose at all — confirmed by a real play-test
+      (script-validate clean, no runtime errors, expected mesh count).
+      Still wants one more direct visual look-over to confirm the
+      seam at the neck/collar reads naturally.
 - [ ] VISUAL: male exposed hand/forearm skin (`MI_Regular_Male` part of
       Arms) shows the skin texture, not a missing/default material
-- [ ] VISUAL: outfit tracks scale/floor/facing like the body; note any
-      serious z-fighting/clipping vs. the nude body underneath
+- [ ] VISUAL: outfit tracks scale/floor/facing like the body; no
+      pokes/z-fighting vs. the body (REWORKED Aug 2026 — no longer a
+      geometry-matching problem at all now that the base body is hidden
+      below the head/neck outright, see "Peasant outfit clip fix" above;
+      visual confirmation of the neck/collar seam still outstanding)
 - [ ] Female body same checks (mapping transfers from male — verified
       headlessly that its tracks resolve; visual only)
 - [ ] NPC randomization + character-creation end-to-end with new body/animations
@@ -392,10 +482,122 @@ color/normal/ORM texture sets per material, including `MI_Regular_Male`
 for the male's exposed hand/forearm skin) — no runtime material code, in
 line with the native body's own baked materials precedent.
 
-**Known cosmetic caveat (not a blocker this pass):** the nude body mesh
-stays fully rendered underneath, so expect minor z-fighting/clipping
-where the outfit overlaps the body at movement extremes. A later pass can
-hide the covered body pieces when an outfit is worn.
+**Peasant outfit clip fix (Aug 2026, REWORKED — supersedes "option B"
+below the checklist mention of it):** the previous approach (per-vertex
+band/radius/poke-allowance heuristic trying to geometrically guess which
+body triangles a garment covers) was solving a problem this asset was
+never designed to have, and kept surfacing new gaps no matter how it was
+tuned (collar, hip/waistband, then the hands). Root cause found by
+reading the asset pack's own documentation instead of continuing to
+guess from geometry: Quaternius's "Modular Character Outfits - Fantasy"
+Readme.txt states plainly, "When using the clothing, only the head of
+the model is required. Using the full body will result in clipping."
+The outfit's modular pieces (Body/Legs/Feet/Arms) are meant to BE the
+entire visible torso/limbs/hands on their own, not to align precisely
+with the base body's silhouette — confirmed further by the pack's own
+itch.io changelog (v2.0): the Arms piece deliberately bakes in its own
+skin-toned arm/hand geometry ("included the human arms on Peasant_Male,
+now all models work with just the head") specifically so the base
+body's real arm/hand is never needed. The reported "double hands" during
+testing was the real bare hand still rendering underneath the outfit's
+own correctly-designed one — not a duplicate node, and not a bug in the
+glove mesh's geometry (which legitimately contains two intentionally-
+layered surfaces: a fabric cuff + a skin-toned insert).
+
+The fix in `_setup_outfit()` is now a single synchronous function,
+`_hide_body_below_head()`: every body vertex is hidden UNLESS its
+dominant bone matches `HEAD_REGION_BONE_MARKERS` (`"head"`/`"neck"`
+substrings). No per-garment geometry comparison, no band/radius/
+poke-allowance tuning, no live-pose sampling across idle/walk/run/carry
+states — since which bone a vertex is skinned to never changes with
+animation, the split is pose-INDEPENDENT and runs once, right when the
+outfit is attached, with no `await`. This replaced roughly 250 lines
+across `OUTFIT_BAND_HEIGHT`, `OUTFIT_POKE_ALLOWANCE`,
+`OUTFIT_BEHIND_ALLOWANCE`, `OUTFIT_CAP_Z_ALLOWANCE`, `OUTFIT_BONE_MARKERS`,
+`OUTFIT_PIECE_TYPES`, `OUTFIT_BAND_DILATION`, `OUTFIT_POSE_SAMPLES`,
+`OUTFIT_CARRY_STATES_TO_SAMPLE`, and the functions `_split_at_live_pose`,
+`_outfit_piece_profile`, `_deformed_piece_positions`,
+`_body_mesh_covered_flags` — all now deleted. `_rewrite_outfit_skin_binds()`
+(bind-pose realignment, a separate concern about the OUTFIT rendering in
+the right place, not about what body skin stays visible) is unchanged
+and still runs first, same as before.
+
+**Lesson for future asset integration on this project:** before building
+any from-scratch geometric workaround for a clipping/fit problem with a
+third-party asset pack, read that pack's own README/changelog first —
+this one was sitting on disk (and echoed on the publisher's itch.io page)
+the entire time this system was being built and re-tuned.
+
+_Superseded section below, kept for history:_
+
+The nude body mesh no longer stays fully rendered underneath the outfit. Diagnosis (headless,
+geometry-level): the outfit is a TIGHT garment over the fully-rendered
+nude body, so the body skin sits 1-5cm proud of (and sometimes
+coincident with) the garment surface — the body pokes through and
+z-fights with the clothes on BOTH genders. Separately, the male outfit
+gltf was baked against a different rest pose than the male body (56/65
+bones differ 2-3.4cm, confirmed by comparing the two gltf rest poses), so
+at runtime the male outfit was also displaced 2-4cm outward. Two changes
+in `_setup_outfit()` fix both:
+
+1. **Bind-pose realignment (male):** every outfit piece's skin bind pose
+   is rewritten to `skeleton.get_bone_global_rest(bone).affine_inverse()`
+   (identity skinning) so the piece renders exactly at its authored
+   coordinates on the body's rest pose while still following animations.
+   The female gltf already ships `rest⁻¹`, so this is a verified no-op
+   there; a fresh `Skin` is built so the shared imported resource is
+   never mutated.
+2. **Body-region split (both genders):** after realignment, each piece's
+   per-height envelope (radial `[r_min, r_max]`, `z` extent per
+   `OUTFIT_BAND_HEIGHT` band) is computed from the piece's own deformed
+   vertices, and each body vertex is hidden when ALL of: its height band
+   has garment geometry, its radius falls inside the piece's envelope
+   plus a PER-PIECE-TYPE poke allowance (`OUTFIT_POKE_ALLOWANCE`:
+   arms 5cm / body 6cm / legs 10cm / feet 12cm — sized to the measured
+   ankle/thigh pokes, see the follow-up below), AND its dominant bone is
+   in that piece's hide-set. The bone-region gate is what keeps genuinely
+   bare skin safe: torso pieces may only hide `hips/spine/chest`-weighted
+   vertices, legs pieces `hips/upperleg/lowerleg`, feet pieces
+   `lowerleg/foot/toes/ball`, and the (flat outer-arm) Arms panels
+   `shoulder/upperarm/lowerarm` (the hand/finger bones are deliberately
+   EXCLUDED — in the idle pose the flat sleeve panel and the hanging hand
+   share the same band/radius/z, so hiding hand-bone skin would eat the
+   visible hand). Because the armpit/shoulder and hand are deliberately
+   NOT in the torso/legs sets, a tight garment's enlarged envelope can
+   never swallow them even though they sit right at the garment's edge.
+   Covered triangles are then dropped from the body mesh (conservative: a
+   triangle is dropped if any vertex is covered) — head, neck, inner arms,
+   and hands stay visible; torso/legs/feet and outer-arm skin under the
+   garment vanish.
+
+   **Split runs at the LIVE pose, not rest:** the body always plays the
+   idle loop (auto-started), and the idle pose holds the legs slightly
+   apart — kept shin/ankle skin moves ~10cm outward vs. the T-pose rest,
+   so a rest-pose split leaves idle-visible pokes. `_split_at_live_pose()`
+   awaits `OUTFIT_POSE_SAMPLES = 8` frames of the playing idle loop,
+   unions the per-frame covered-vertex flags, then splits once — the
+   `get_bone_global_pose()` path (`use_live_pose = true`) is threaded
+   through `_outfit_piece_profile()` and `_body_mesh_covered_flags()`.
+
+   **Piece-type bug (the actual root cause of the persisting leg pokes):**
+   `_outfit_piece_type()` originally used `mesh_name.get_slice("_", -1)`.
+   Godot's `get_slice()` does not index from the end with -1, so every
+   piece fell back to `"body"` — the legs/feet/arms hide-sets were never
+   consulted and ALL leg/ankle skin pokes survived the split. Fixed with
+   `mesh_name.substr(mesh_name.rfind("_") + 1)`. This is why the first
+   verification pass looked "male slightly better, female just as bad":
+   the torso-only split (all pieces typed "body") removed chest skin under
+   the blouse but never touched the legs/feet.
+
+   **Verified headlessly on a real Player.tscn boot for both genders:**
+   after the split, body vertex counts drop to male 3936 / female 3770
+   (from ~6600/6400), every bare region (head, neck, hands, inner arms,
+   armpits, inner ankles) survives, and a full-animation poke probe
+   (idle/walk/run, 6 poses each, correct all-garment coverage check)
+   reports **0 real pokes for both genders**. The only remaining
+   "3.6cm" reading from the naive per-band radius comparison is the
+   hanging hand beside the thigh (finger bones) — the hand itself, not a
+   garment poke.
 
 ## Floor alignment & facing (Aug 2026)
 `PlayerModelController._ready()` offsets `PlayerModel`'s own position by

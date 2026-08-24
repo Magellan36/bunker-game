@@ -3,7 +3,7 @@
 [ext_resource type="Script" uid="uid://uj0st7fog8y1" path="res://scripts/player/Player.gd" id="1_wr5hl"]
 [ext_resource type="Script" uid="uid://ii3myfl6drek" path="res://scripts/player/InteractionSystem.gd" id="2_4kuee"]
 [ext_resource type="Script" uid="uid://cr1112kv3ow48" path="res://scripts/world/build/PlacementIndicator.gd" id="3_524rm"]
-[ext_resource type="PackedScene" path="res://scenes/player/PlayerModel.tscn" id="4_pmodel"]
+[ext_resource type="PackedScene" path="res://scenes/player/AdventurerModel.tscn" id="4_amodel"]
 
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_o8nba"]
 
@@ -18,16 +18,12 @@ radius = 1.8
 [node name="Player" type="CharacterBody3D" unique_id=431542057]
 script = ExtResource("1_wr5hl")
 
-[node name="PlayerModel" parent="." instance=ExtResource("4_pmodel")]
+[node name="PlayerModel" parent="." instance=ExtResource("4_amodel")]
 transform = Transform3D(1.25, 0, 0, 0, 1.25, 0, 0, 0, 1.25, 0, 0, 0)
-use_character_creation_data = true
-native_rig = true
 
-[node name="PlayerModelShadow" parent="." instance=ExtResource("4_pmodel")]
+[node name="PlayerModelShadow" parent="." instance=ExtResource("4_amodel")]
 transform = Transform3D(1.25, 0, 0, 0, 0.375, 0, 0, 0, 1.25, 0, 0, 0)
 is_shadow_only = true
-use_character_creation_data = true
-native_rig = true
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1528080123 groups=["Player"]]
 shape = SubResource("CapsuleShape3D_wr5hl")

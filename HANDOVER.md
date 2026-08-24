@@ -1,3 +1,65 @@
+> **Tool access note:** this project has live MCP tool access to
+> Blender, Godot, and this machine's real filesystem. Read
+> `docs/AGENT_TOOLS_GUIDE.md` before starting work if you haven't
+> already — it covers tool discovery (these are hidden behind
+> `tool_search` until you call it) and several hard-won gotchas that
+> repeatedly cost real time across the sessions logged below.
+
+# Handover — Outfit clip fix: piece-type bug + live-pose split (Aug 2026)
+
+## What changed this session
+The earlier body-region split reduced the male's clipping but left the
+female "just as bad" — the leg/ankle pokes persisted for BOTH genders.
+Root cause was a one-line bug, not the split logic: `_outfit_piece_type()`
+used `mesh_name.get_slice("_", -1)`, and Godot's `get_slice()` does NOT
+index from the end with -1. Every piece therefore fell back to `"body"`,
+so `type_hide_binds["body"]` (hips/spine/chest only) was consulted for
+ALL four pieces — the legs/feet/arms hide-sets never ran and all leg/feet
+skin survived the split. The "slightly better male" was just the torso
+split removing chest skin under the blouse. Fixed with
+`mesh_name.substr(mesh_name.rfind("_") + 1)`.
+
+Also this session:
+- **Per-piece poke allowances** (`OUTFIT_POKE_ALLOWANCE` is now a dict):
+  arms 5cm / body 6cm / legs 10cm / feet 12cm, sized to the measured
+  ankle/boot gap (7.1cm) and thigh pokes rather than one flat 5cm.
+- **Live-pose split** (`_split_at_live_pose`, `OUTFIT_POSE_SAMPLES = 8`):
+  the body always plays the idle loop, and the idle pose moves kept
+  shin/ankle skin ~10cm outward vs the T-pose rest — a rest-pose split
+  leaves idle-visible pokes. The split now samples 8 frames of the
+  playing idle, unions the covered-vertex flags, then removes the covered
+  triangles once.
+- **Arms hide-set narrowed** to `shoulder/upperarm/lowerarm`. The flat
+  sleeve panel and the hanging hand share the same band/radius/z in the
+  idle pose, so hiding hand/finger-bone skin ate the visible hand.
+
+### Files modified
+- `scripts/player/PlayerModelController.gd` — `_outfit_piece_type()`
+  (get_slice -> substr/rfind), `OUTFIT_POKE_ALLOWANCE` dict,
+  `OUTFIT_BONE_MARKERS["arms"]` (hand/finger bones removed),
+  `_split_at_live_pose()` + `use_live_pose` threading through
+  `_outfit_piece_profile()` / `_body_mesh_covered_flags()`.
+- `docs/systems/player-model/README.md` — "Peasant outfit clip fix"
+  section rewritten with the root cause and verification.
+- `HANDOVER.md` — this entry.
+
+### Verification (headless, real Player.tscn boots)
+- Post-split body vertex counts: male 3936 / female 3770 (from ~6600/
+  6400); all bare regions (head, neck, hands, inner arms, armpits) kept.
+- Full-animation poke probe (idle/walk/run, 6 poses each, correct
+  all-garment coverage check): **0 real pokes for both genders.** The
+  only "3.6cm" reading from the naive per-band radius comparison is the
+  hanging hand beside the thigh — the hand itself, not a garment poke.
+- Headless compile clean, no SCRIPT ERROR/Parse Error.
+
+### Still open
+- [ ] VISUAL: split seam edges / garment rendering in the editor.
+- [ ] Extremely tight/extreme animation frames beyond idle/walk/run
+      (e.g. carry clips) not yet probed headlessly — the coverage check
+      currently samples 6 poses per clip of the three locomotion anims.
+- [ ] The floor-offset diagnostic print in `_ready()` is still gated on
+      non-shadow spawns; delete when no longer needed.
+
 # Handover — Peasant outfit attached via direct skin reassignment (Aug 2026)
 
 ## What changed this session

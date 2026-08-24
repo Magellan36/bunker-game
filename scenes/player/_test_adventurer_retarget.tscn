@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://0mk4hd3ls0ku"]
+
+[ext_resource type="Script" path="res://scenes/player/_test_adventurer_retarget.gd" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://b7y3xxqu65ydf" path="res://assets/models/player/adventurer/Adventurer_Male.fbx" id="2_body"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_lib.res" id="3_idle"]
+
+[node name="AdventurerRetargetTest" type="Node3D" unique_id=690130527]
+script = ExtResource("1_script")
+
+[node name="AdventurerBody" parent="." unique_id=358788719 instance=ExtResource("2_body")]
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1279799320]
+libraries/idle_lib = ExtResource("3_idle")

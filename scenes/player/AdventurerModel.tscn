@@ -1,0 +1,22 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/player/AdventurerModelController.gd" id="1_script"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_lib.res" id="2_idle"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_lib.res" id="3_walk"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/run_lib.res" id="4_run"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_carry_lib.res" id="5_idle_carry"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_carry_lib.res" id="6_walk_carry"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/run_carry_lib.res" id="7_run_carry"]
+
+[node name="AdventurerModel" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+"idle_lib": ExtResource("2_idle"),
+"walk_lib": ExtResource("3_walk"),
+"run_lib": ExtResource("4_run"),
+"idle_carry_lib": ExtResource("5_idle_carry"),
+"walk_carry_lib": ExtResource("6_walk_carry"),
+"run_carry_lib": ExtResource("7_run_carry")
+}

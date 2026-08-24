@@ -94,20 +94,27 @@ var _panel_canvas: Control     = null
 var _panel_open:   bool        = false
 var _font: Font = null
 
-## Panel dimensions
+## Panel dimensions (PANEL_H +18 vs. the old value — the state badge
+## moved to its own row below the title so it no longer shares a line
+## with the relocated top-right close button; every row below cascades
+## off sep_y so this one bump keeps the existing bottom margin intact.)
 const PANEL_W: float = 280.0
-const PANEL_H: float = 190.0
+const PANEL_H: float = 208.0
 const PAD:     float = 14.0
 
-## UI colours (matching BreakerBox style)
-const UI_BG:     Color = Color(0.05, 0.08, 0.05, 0.96)
-const UI_BORDER: Color = Color(0.28, 0.85, 0.32, 0.75)
-const UI_TEXT:   Color = Color(0.80, 0.95, 0.82, 0.95)
-const UI_DIM:    Color = Color(0.45, 0.55, 0.45, 0.85)
-const UI_ON:     Color = Color(0.20, 0.90, 0.35, 1.0)
-const UI_OFF:    Color = Color(0.90, 0.28, 0.15, 1.0)
-const UI_WARN:   Color = Color(1.00, 0.72, 0.10, 1.0)
-const UI_HEADER: Color = Color(0.22, 0.75, 0.28, 1.0)
+## UI colours — POWER domain (convention-alignment pass: this panel used
+## to hand-roll its own green scheme; now matches GeneratorInspectUI.gd /
+## PowerTerminalUI.gd's shared palette. Names kept identical so every call
+## site below still resolves — only the values changed.)
+const UI_BG:     Color = Color(0.08, 0.08, 0.09, 0.97)
+const UI_BORDER: Color = Color(0.55, 0.58, 0.62, 0.70)
+const UI_TEXT:   Color = Color(0.85, 0.86, 0.88, 0.95)
+const UI_DIM:    Color = Color(0.50, 0.52, 0.55, 0.80)
+const UI_ON:     Color = Color(0.35, 0.85, 1.00, 1.00)
+const UI_OFF:    Color = Color(1.00, 0.35, 0.30, 1.00)
+const UI_WARN:   Color = Color(1.00, 0.72, 0.10, 1.00)
+const UI_HEADER: Color = Color(0.80, 0.82, 0.86, 1.00)
+const UI_ACCENT: Color = Color(0.90, 0.80, 0.20, 1.00)   ## power domain top stripe
 
 ## Hit-test rects (screen-space, built during draw)
 var _rect_close:     Rect2 = Rect2()
@@ -298,23 +305,29 @@ func _on_panel_draw() -> void:
 	## Dim background
 	_panel_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.42), true)
 
-	## Panel bg + border
+	## Panel bg + border (rounded — matches every other panel via
+	## UIKit.draw_rounded_rect) + domain identity stripe (this panel never
+	## had one before).
 	_panel_rect = Rect2(px, py, PANEL_W, PANEL_H)
-	_panel_canvas.draw_rect(_panel_rect, UI_BG, true)
-	_panel_canvas.draw_rect(_panel_rect, UI_BORDER, false, 2.0)
+	UIKit.draw_rounded_rect(_panel_canvas, _panel_rect, UI_BG, UI_BORDER, 2.0)
+	UIKit.draw_domain_stripe(_panel_canvas, _panel_rect, UI_ACCENT)
 
-	## ── Title ─────────────────────────────────────────────────────────────────
+	## ── Title (top-left, clear of the top-right close button — Jul 2026
+	## +6px top-padding convention, matches GeneratorInspectUI's cy start) ──────
 	var cfg: Dictionary = TIER_CONFIG[battery_tier]
-	var title_y: float  = py + PAD + 11.0
+	var title_y: float  = py + 26.0
 	_ds("🔋 " + (cfg["label"] as String).to_upper(), Vector2(px + PAD, title_y), UI_HEADER, 13)
 
-	## ── State ─────────────────────────────────────────────────────────────────
+	## ── State badge (own row below title, same pattern as
+	## GeneratorInspectUI's backup/tripped badge line — no longer squeezed
+	## next to the title now that the close button lives up here too) ──────────
+	var state_y: float = title_y + 18.0
 	var state: String = _state_string()
 	var state_col: Color = _state_color()
-	_ds(state, Vector2(px + PANEL_W - PAD - 80.0, title_y), state_col, 11)
+	_ds(state, Vector2(px + PAD, state_y), state_col, 11)
 
 	## ── Separator ─────────────────────────────────────────────────────────────
-	var sep_y: float = title_y + 16.0
+	var sep_y: float = state_y + 14.0
 	_panel_canvas.draw_line(Vector2(px + PAD, sep_y), Vector2(px + PANEL_W - PAD, sep_y),
 		UI_BORDER * Color(1, 1, 1, 0.5), 1.0)
 
@@ -370,12 +383,12 @@ func _on_panel_draw() -> void:
 	_panel_canvas.draw_rect(pill_rect, pill_col, false, 1.5)
 	_ds("ON" if _enabled else "OFF", Vector2(pill_x + 9.0, pill_y + 12.0), Color(1, 1, 1, 0.95), 9)
 
-	## ── Close + footer ────────────────────────────────────────────────────────
-	_rect_close = Rect2(px + PANEL_W - PAD - 24.0, py + PANEL_H - PAD - 20.0, 24.0, 20.0)
-	_panel_canvas.draw_rect(_rect_close, Color(0.25, 0.06, 0.06, 0.90), true)
-	_panel_canvas.draw_rect(_rect_close, UI_OFF * Color(1, 1, 1, 0.7), false, 1.5)
-	_ds("✕", Vector2(_rect_close.position.x + 5.0, _rect_close.position.y + 14.0),
-		Color(1.0, 0.7, 0.7, 1.0), 11)
+	## ── Close button (top-right, shared × icon — was bottom-right with a
+	## hand-drawn ✕; every other panel's close button lives top-right via
+	## UIKit.draw_close_icon, so this now matches) + footer ────────────────────
+	_rect_close = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
+	UIKit.draw_rounded_rect(_panel_canvas, _rect_close, Color(0.10, 0.06, 0.06, 0.90), UI_OFF, 1.5)
+	UIKit.draw_close_icon(_panel_canvas, _rect_close)
 	_ds("[ESC] close", Vector2(px + PAD, py + PANEL_H - PAD - 10.0), UI_DIM, 9)
 
 
