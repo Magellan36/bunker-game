@@ -13,3 +13,11 @@ task.md
 # Godot 4.4+ auto-generated script UID sidecars — regenerated on demand,
 # never need to be in VCS (this repo uses inline uid= headers instead).
 *.uid
+
+# Dev/agent scratch — not project content
+# 280 MB Quaternius source-pack zip (import sidecars live next to it, the
+# zip itself is a large binary the repo never needs).
+assets/models/WIP/FINAL/Modular Character Outfits - Fantasy\[Standard\].zip
+_dup_diag.log
+godot_sandbox/
+.claude/
