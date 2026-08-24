@@ -87,6 +87,8 @@ var _inc_btn:    Button  = null   ## ►  raise tier number (toward luxury)
 var _toggle_btn: Button  = null   ## optional load on/off
 var _close_btn:  Button  = null
 var _is_open:    bool    = false
+## Auto-close when the player walks away from the device (Aug 2026).
+var _proximity: Node = null
 
 # Cached layout anchors filled during draw, used to position buttons.
 var _arrow_row_y: float = 0.0
@@ -96,6 +98,15 @@ var _toggle_row_y: float = 0.0
 func _ready() -> void:
 	layer   = 60
 	visible = false
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
+	## Auto-close when the player walks away from the device (Aug 2026).
+	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
+	_proximity.ui = self
+	add_child(_proximity)
 	set_process(false)
 
 	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
@@ -117,7 +128,7 @@ func _build_controls() -> void:
 	_dec_btn.flat         = false
 	_dec_btn.clip_text    = false
 	_dec_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_dec_btn.focus_mode   = Control.FOCUS_NONE
+	_dec_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_dec_btn.text         = "◄"
 	_dec_btn.pressed.connect(_on_dec_pressed)
 	add_child(_dec_btn)
@@ -126,7 +137,7 @@ func _build_controls() -> void:
 	_inc_btn.flat         = false
 	_inc_btn.clip_text    = false
 	_inc_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_inc_btn.focus_mode   = Control.FOCUS_NONE
+	_inc_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_inc_btn.text         = "►"
 	_inc_btn.pressed.connect(_on_inc_pressed)
 	add_child(_inc_btn)
@@ -135,14 +146,14 @@ func _build_controls() -> void:
 	_toggle_btn.flat         = true
 	_toggle_btn.clip_text    = false
 	_toggle_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_toggle_btn.focus_mode   = Control.FOCUS_NONE
+	_toggle_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_toggle_btn.pressed.connect(_on_toggle_pressed)
 	add_child(_toggle_btn)
 
 	_close_btn = Button.new()
 	_close_btn.flat         = true
 	_close_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_close_btn.focus_mode   = Control.FOCUS_NONE
+	_close_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_close_btn.pressed.connect(close)
 	add_child(_close_btn)
 
@@ -152,10 +163,20 @@ func _build_controls() -> void:
 ##   display_name      — shown in the header
 ##   show_load_toggle  — true to show an on/off load switch (e.g. test box)
 func open(device_id: String, display_name: String,
-		show_load_toggle: bool = false) -> void:
+		show_load_toggle: bool = false, anchor_world: Vector3 = Vector3.INF) -> void:
 	_device_id    = device_id
 	_display_name = display_name
 	_show_toggle  = show_load_toggle
+
+	## Anchor the walk-away auto-close to the device when the caller provides
+	## it; otherwise fall back to the player's position at open (Aug 2026).
+	if _proximity != null:
+		if anchor_world != Vector3.INF:
+			_proximity.anchor = anchor_world
+		else:
+			var player: Node = get_tree().get_first_node_in_group("player")
+			if player != null:
+				_proximity.anchor = player.global_position
 
 	_pull_status()   ## fetch initial priority/watts/status from PowerManager
 

@@ -160,6 +160,19 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				return
 
+	# ── D-pad right/left — cycle inventory slots (controller, Aug 2026) ──
+	# Mirrors the wheel so both input styles behave the same: right = scroll
+	# down (next slot), left = scroll up (previous slot). Inherits the
+	# build-mode/UI-open guards above, same as every other action here.
+	if event.is_action_pressed("inv_cycle_next"):
+		_scroll_slot(1)
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("inv_cycle_prev"):
+		_scroll_slot(-1)
+		get_viewport().set_input_as_handled()
+		return
+
 	# F — pickup / drop / shelf place
 	if event.is_action_pressed("pickup"):
 		## If shelf UI is open, F does nothing (UI owns interaction)
@@ -365,7 +378,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_released("interact"):
 		_is_holding_e = false
 
-	# G — store / put away held item (instant, no progress bar)
+	# G — store / put away held item (instant, no progress bar). The same
+	# button toggles back when empty-handed: it pulls a stored item to hand
+	# (prefers the selected slot, falls back to the first occupied one).
 	if event.is_action_pressed("store_item"):
 		if held_item != null and ("is_basket_container" in held_item):
 			if basket_ui != null and basket_ui.has_method("open"):
@@ -379,6 +394,22 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif inventory != null and not inventory.is_full() and _item_is_storable(held_item):
 				_store_item()
 			get_viewport().set_input_as_handled()
+			return
+		## Empty-handed — pull a stored item back to hand.
+		if inventory != null:
+			var take_from: int = -1
+			if selected_slot != -1 and inventory.slots[selected_slot] != null:
+				take_from = selected_slot
+			else:
+				for si in inventory.slots.size():
+					if inventory.slots[si] != null:
+						take_from = si
+						break
+			if take_from != -1:
+				selected_slot = take_from
+				_bring_item_to_hand_from_slot(take_from)
+				_update_hud_selection()
+				get_viewport().set_input_as_handled()
 
 # ─── Scroll slot logic ────────────────────────────────────────────────────────
 func _scroll_slot(direction: int) -> void:
@@ -755,7 +786,7 @@ func _update_prompt() -> void:
 		## this Area3D (same "unreliable, not nonexistent" caveat as
 		## everywhere else in this file), it was appearing as a prompt
 		## candidate here regardless of Ctrl state.
-		if body.is_in_group("grow_light") and not Input.is_key_pressed(KEY_CTRL):
+		if body.is_in_group("grow_light") and not FocusMode.is_active():
 			continue
 		var d: float = body.global_position.distance_to(player.global_position)
 		if d > MAX_PROMPT_DIST:
@@ -794,7 +825,7 @@ func _update_prompt() -> void:
 		## fully absent otherwise rather than just de-prioritized. Water
 		## Hookup is NOT included in this — fewer of them per bunker,
 		## unchanged behavior (see this plan's own scope note).
-		if node.is_in_group("grow_light") and not Input.is_key_pressed(KEY_CTRL):
+		if node.is_in_group("grow_light") and not FocusMode.is_active():
 			continue
 		var sn3: Node3D = node as Node3D
 		var sd: float = sn3.global_position.distance_to(player.global_position)
@@ -961,7 +992,7 @@ func _update_prompt() -> void:
 	## glow follows is_focus_target generically, whatever object that
 	## happens to land on.
 	if _focus_glow != null:
-		if focus_idx != -1 and Input.is_key_pressed(KEY_CTRL):
+		if focus_idx != -1 and FocusMode.is_active():
 			_focus_glow.set_target(entry_bodies[focus_idx])
 		else:
 			_focus_glow.set_target(null)
@@ -1301,7 +1332,7 @@ func _nearest_generic_interactable() -> Dictionary:
 			## claimed here first. Inlined the Ctrl check directly (rather
 			## than reordering `focus_mode_active`'s declaration, which sits
 			## after this pass) to keep this a minimal, contained fix.
-			if body.is_in_group("grow_light") and not Input.is_key_pressed(KEY_CTRL):
+			if body.is_in_group("grow_light") and not FocusMode.is_active():
 				continue
 			var d: float = body.global_position.distance_to(player.global_position)
 			if d < closest_dist:
@@ -1320,7 +1351,7 @@ func _nearest_generic_interactable() -> Dictionary:
 	## whatever Focus Mode was highlighting the whole time Ctrl was held
 	## (reported: Water Hookup/Grow Light correctly shown as the only
 	## prompt, but E still hit the nearer Wall Light/tray instead).
-	var focus_mode_active: bool = Input.is_key_pressed(KEY_CTRL)
+	var focus_mode_active: bool = FocusMode.is_active()
 	for node: Node in get_tree().get_nodes_in_group("interactable"):
 		if not is_instance_valid(node):
 			continue

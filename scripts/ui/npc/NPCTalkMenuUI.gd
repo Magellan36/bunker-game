@@ -107,6 +107,8 @@ var _panel: Panel = null
 var _vbox: VBoxContainer = null
 var _is_open: bool = false
 var _refresh_timer: float = 0.0
+## Auto-close when the player walks away from the NPC (Aug 2026).
+var _proximity: Node = null
 
 ## Live-updating widgets, rebuilt on open
 var _need_fills: Dictionary = {}    ## need name -> ColorRect (fill)
@@ -135,10 +137,28 @@ const BAR_TRACK_W: float = 200.0
 func _ready() -> void:
 	layer = 70
 	visible = false
+	## Auto-close when the player walks away from the NPC (Aug 2026).
+	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
+	_proximity.ui = self
+	add_child(_proximity)
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
 
 func open(npc_name: String, npc: Node = null) -> void:
 	_npc = npc
 	_is_open = true
+	## Anchor the auto-close to the NPC if we have one, else the player's
+	## position at open (Aug 2026).
+	if _proximity != null:
+		if npc != null and is_instance_valid(npc):
+			_proximity.anchor = npc.global_position
+		else:
+			var player: Node = get_tree().get_first_node_in_group("player")
+			if player != null:
+				_proximity.anchor = player.global_position
 	visible = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_build(npc_name)

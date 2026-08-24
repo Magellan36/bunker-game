@@ -22,6 +22,19 @@ extends SubViewportContainer
 @export var orbit_speed: float = 0.005
 @export var zoom_speed: float = 0.25
 
+## Aug 2026 — right stick orbits the preview (gamepad support), mirroring
+## the mouse-drag yaw swing. Radians per second at full stick deflection;
+## tunable, matching the feel of mouse-orbit at this distance.
+@export var stick_orbit_speed: float = 1.5
+## Aug 2026 — right-stick Y pans the preview vertically, mirroring
+## middle-mouse drag. World units per second at full deflection, scaled by
+## the current zoom distance (same relationship pan_speed uses), so the
+## feel stays consistent at any zoom.
+@export var stick_pan_speed: float = 0.5
+## Right-stick magnitude below which no orbit happens (avoids drift from a
+## resting stick).
+const STICK_DEADZONE: float = 0.3
+
 ## Aug 2026 — yaw starts at PI, not 0. At yaw 0 the camera sits at +Z
 ## looking toward -Z; the character's front faces -Z (Godot's own
 ## forward convention, after PlayerModelController's 180° Mixamo-axis
@@ -43,6 +56,23 @@ var _dragging_pan: bool = false
 func _ready() -> void:
 	_update_camera()
 	_apply_graphics_settings()
+
+## Aug 2026 — right stick orbits (X) and pans vertically (Y) the preview,
+## mirroring mouse-drag orbit and middle-mouse-drag pan. Polled in _process
+## so a held stick keeps moving; analog (small push = slow movement).
+func _process(delta: float) -> void:
+	if not is_visible_in_tree():
+		return
+	var rx := Input.get_joy_axis(0, JOY_AXIS_RIGHT_X)
+	var ry := Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y)
+	if absf(rx) > STICK_DEADZONE:
+		_yaw -= rx * stick_orbit_speed * delta
+		_update_camera()
+	if absf(ry) > STICK_DEADZONE:
+		## Screen-relative vertical pan, same as middle-mouse drag:
+		## move look_at_point along the camera's own up vector.
+		look_at_point += camera.global_transform.basis.y * ry * (stick_pan_speed * distance) * delta
+		_update_camera()
 
 ## Aug 2026 — GPU-crash mitigation. The preview SubViewport (960x1080) is
 ## the heaviest 3D render target on the character-creation screen; its MSAA

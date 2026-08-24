@@ -70,6 +70,14 @@ const MATERIAL_COUNT_BUFFER: float = 6.0   ## right inset for the "x/10" label
 const CLOCK_ICON_TEXTURE: Texture2D = preload("res://assets/icons/icon_clock.png")
 const CLOCK_ICON_SIZE: Vector2 = Vector2(12.0, 12.0)
 
+# ─── Controller prompt icons (Aug 2026) ───────────────────────────────────────
+## Same 16px pixel set InteractPrompt/StorageUI use. A shows in front of the
+## Research button (activates it); LB/RB badge the tab bar (cycle trees).
+const XBOX_A_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_A.png")
+const XBOX_LB_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_LB.png")
+const XBOX_RB_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_RB.png")
+const TAB_BADGE_SIZE: float = 20.0
+
 var is_open: bool = false
 var _active_tree: String = "bunker"
 var _current_station: ResearchStation = null
@@ -104,6 +112,16 @@ var _tab_buttons: Dictionary = {}   ## tree_id -> Button
 var _close_btn: Button = null
 var _font: Font = null
 
+## Controller (Aug 2026): LB/RB cycle badges pinned to the bunker (LB) and
+## NPC Skills (RB) tab buttons, shown in controller mode.
+var _lb_badge: TextureRect = null
+var _rb_badge: TextureRect = null
+## The top tiered node's SELECTION OVERLAY (focus target) + its Research
+## button — the A-activated target. Set during _build_tiered_node(), nulled
+## on content clear.
+var _top_tile_box: Control = null
+var _research_btn: Button = null
+
 ## Cached during _build_tiered_node() — set to null whenever the node isn't
 ## currently built (e.g. wrong tab active), so the passive tick never writes
 ## into a stale node. See Part 2 of the polish pass (hover-bug fix).
@@ -121,6 +139,14 @@ func _ready() -> void:
 	layer   = 60
 	visible = false
 	set_process(false)
+
+	## Controller navigation (Aug 2026) — d-pad moves focus across the
+	## research TILES (white outline on the selected one); B closes. RB/LB
+	## cycle the tabs (handled in _unhandled_input); A activates the focused
+	## tile's Research button. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
 
 	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
 	if _font == null:
@@ -181,11 +207,13 @@ func _build_root() -> void:
 	_close_btn.add_theme_font_size_override("font_size", 16)
 	_close_btn.add_theme_color_override("font_color", COLOR_TEXT)
 	_close_btn.pressed.connect(close)
+	_close_btn.focus_mode = Control.FOCUS_NONE   ## mouse-only; B closes
 	_close_btn.position = Vector2(PANEL_W - 42.0, 10.0)
 	_close_btn.size = Vector2(32.0, 32.0)
 	_panel.add_child(_close_btn)
 
-	## 3 tab buttons across the top, wired to _select_tree()
+	## 3 tab buttons across the top, wired to _select_tree(). RB/LB cycle
+	## them; they are NOT d-pad targets (FOCUS_NONE).
 	var tab_w: float = (PANEL_W - 32.0 - TAB_GAP * 2.0) / 3.0
 	for i: int in TREES.size():
 		var tree_id: String = TREES[i]
@@ -200,6 +228,12 @@ func _build_root() -> void:
 		btn.size = Vector2(tab_w, TAB_H)
 		_panel.add_child(btn)
 		_tab_buttons[tree_id] = btn
+		## LB badge on the first tab (Bunker Upgrades) and RB badge on the
+		## last tab (NPC Skills) — controller mode only.
+		if tree_id == TREES[0]:
+			_lb_badge = _make_tab_badge(btn, XBOX_LB_ICON, true)
+		elif tree_id == TREES[TREES.size() - 1]:
+			_rb_badge = _make_tab_badge(btn, XBOX_RB_ICON, false)
 
 	_build_materials_grid()
 
@@ -245,6 +279,43 @@ func _apply_tab_styles() -> void:
 		if btn != null:
 			_style_tab(btn, tree_id == _active_tree)
 
+## Controller tab badge (Aug 2026): a small icon pinned to a corner of a tab
+## button (LB top-left on the first tab, RB top-right on the last), shown in
+## controller mode via _refresh_controller_hints().
+func _make_tab_badge(btn: Button, icon: Texture2D, top_left: bool) -> TextureRect:
+	var badge := TextureRect.new()
+	badge.texture = icon
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.visible = false
+	badge.set_anchors_preset(Control.PRESET_TOP_LEFT if top_left else Control.PRESET_TOP_RIGHT)
+	badge.offset_left   = 2.0 if top_left else -TAB_BADGE_SIZE - 2.0
+	badge.offset_top    = 2.0
+	badge.offset_right  = 2.0 + TAB_BADGE_SIZE if top_left else -2.0
+	badge.offset_bottom = 2.0 + TAB_BADGE_SIZE
+	btn.add_child(badge)
+	return badge
+
+## Makes a research tile d-pad selectable via a transparent overlay Control.
+## The tiles themselves are PanelContainers, which the nav's focusable
+## collection skips (Container exclusion) — so a plain Control overlay is the
+## focus target. It draws a white rounded selection outline when focused
+## (same style as the other controller selection indicators). Returns the
+## overlay so callers can track the top tile.
+func _enable_tile_selection(box: Control) -> Control:
+	var sel := Control.new()
+	sel.name = "TileSelector"
+	sel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sel.focus_mode = Control.FOCUS_ALL
+	sel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var focus_ss: StyleBoxFlat = StyleBoxFlat.new()
+	focus_ss.draw_center = false
+	focus_ss.border_color = Color.WHITE
+	focus_ss.set_border_width_all(2)
+	focus_ss.set_corner_radius_all(4)
+	sel.add_theme_stylebox_override("focus", focus_ss)
+	box.add_child(sel)
+	return sel
+
 func open(station: Node) -> void:
 	is_open = true
 	_current_station = station as ResearchStation
@@ -277,6 +348,32 @@ func _process(delta: float) -> void:
 		_refresh_timer = 0.0
 		_refresh_materials_header()
 		_tick_active_progress()
+	## Controller (Aug 2026): keep a tile selected in controller mode and
+	## refresh the prompt hints (A icon, LB/RB tab badges).
+	if InputMode.is_controller():
+		if get_viewport().gui_get_focus_owner() == null and _top_tile_box != null:
+			_top_tile_box.grab_focus()
+	_refresh_controller_hints()
+
+## Controller prompt hints (Aug 2026): shows the Xbox A icon in front of the
+## Research button and the LB/RB tab-cycle badges, all only in controller
+## mode. Tile selection outlines are the boxes' own focus styleboxes — no
+## per-frame mutation needed.
+func _refresh_controller_hints() -> void:
+	var controller: bool = InputMode.is_controller()
+	if _research_btn != null and is_instance_valid(_research_btn):
+		_research_btn.icon = XBOX_A_ICON if controller else null
+	if _lb_badge != null:
+		_lb_badge.visible = controller
+	if _rb_badge != null:
+		_rb_badge.visible = controller
+
+## RB (right) / LB (left) cycle the tree tabs, wrapping.
+func _cycle_tree(dir: int) -> void:
+	var idx: int = TREES.find(_active_tree)
+	if idx == -1:
+		return
+	_select_tree(TREES[(idx + dir + TREES.size()) % TREES.size()])
 
 ## In-place update of the live-changing parts of the currently-active
 ## research's node, if one is being displayed right now. Never touches
@@ -333,6 +430,8 @@ func _clear_content() -> void:
 	_connections = []
 	_active_progress_bar = null
 	_active_time_label   = null
+	_top_tile_box        = null
+	_research_btn        = null
 	if _connector_canvas != null:
 		_connector_canvas.queue_redraw()
 
@@ -349,6 +448,7 @@ func _build_blank_box() -> Control:
 	box.add_theme_stylebox_override("panel", ss)
 	box.custom_minimum_size = Vector2(NODE_W, NODE_H)
 	box.size = Vector2(NODE_W, NODE_H)
+	_enable_tile_selection(box)
 	return box
 
 ## Shared formatter — used for both the not-started time label (Part 5) and
@@ -434,6 +534,9 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 	box.add_theme_stylebox_override("panel", ss)
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_child(box)
+	## This tile's overlay is the d-pad selection target; A activates its
+	## Research button (recorded below).
+	_top_tile_box = _enable_tile_selection(box)
 
 	var v: VBoxContainer = VBoxContainer.new()
 	v.add_theme_constant_override("separation", 3)
@@ -535,6 +638,11 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 					"Already researching something else")
 		_refresh_content()   ## structural change — full rebuild is correct here (Part 2 only removed the PASSIVE per-tick rebuild)
 	)
+	## Tile-selection model (Aug 2026): the d-pad selects the TILE, not this
+	## button; A on the tile activates it. A's icon is shown in front of the
+	## text in controller mode (see _refresh_controller_hints).
+	btn.focus_mode = Control.FOCUS_NONE
+	_research_btn = btn
 	v.add_child(btn)
 
 	## Tier-segment bar — max_tier segments filling the tile's full content
@@ -793,4 +901,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		var k: int = (event as InputEventKey).keycode
 		if k == KEY_ESCAPE or k == KEY_E:
 			close()
+			get_viewport().set_input_as_handled()
+	## Controller (Aug 2026): RB/LB cycle tabs; A activates the focused
+	## tile's Research button. (D-pad/tile navigation and B-close are the
+	## nav's job in _input; B is consumed there before this runs.)
+	elif event is InputEventJoypadButton and event.pressed:
+		if event.button_index == JOY_BUTTON_LEFT_SHOULDER:
+			_cycle_tree(-1)
+			get_viewport().set_input_as_handled()
+		elif event.button_index == JOY_BUTTON_RIGHT_SHOULDER:
+			_cycle_tree(1)
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("interact"):
+			var focused: Control = get_viewport().gui_get_focus_owner()
+			if focused != null and _top_tile_box != null and focused == _top_tile_box \
+					and _research_btn != null and is_instance_valid(_research_btn) \
+					and not _research_btn.disabled:
+				_research_btn.emit_signal("pressed")
 			get_viewport().set_input_as_handled()

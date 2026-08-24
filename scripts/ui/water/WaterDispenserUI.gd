@@ -74,6 +74,8 @@ const PANEL_H: float = 454.0
 
 var _dispenser: WaterDispenser = null
 var _is_open: bool = false
+## Auto-close when the player walks away from the dispenser (Aug 2026).
+var _proximity: Node = null
 
 # Cached layout anchors filled during draw, used to position live controls.
 var _slider_row_y: float = 0.0
@@ -93,6 +95,15 @@ var _inc_btn:     Button  = null   ## ► raise priority tier
 func _ready() -> void:
 	layer   = 60
 	visible = false
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
+	## Auto-close when the player walks away from the dispenser (Aug 2026).
+	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
+	_proximity.ui = self
+	add_child(_proximity)
 	set_process(false)
 
 	_font = UIKit.font()
@@ -121,7 +132,7 @@ func _build_controls() -> void:
 	_toggle_btn.flat         = true
 	_toggle_btn.clip_text    = false
 	_toggle_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_toggle_btn.focus_mode   = Control.FOCUS_NONE
+	_toggle_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_toggle_btn.pressed.connect(_on_toggle_pressed)
 	add_child(_toggle_btn)
 
@@ -129,7 +140,7 @@ func _build_controls() -> void:
 	_dec_btn.flat         = false
 	_dec_btn.clip_text    = false
 	_dec_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_dec_btn.focus_mode   = Control.FOCUS_NONE
+	_dec_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_dec_btn.text         = "◄"
 	_dec_btn.pressed.connect(_on_dec_pressed)
 	add_child(_dec_btn)
@@ -138,7 +149,7 @@ func _build_controls() -> void:
 	_inc_btn.flat         = false
 	_inc_btn.clip_text    = false
 	_inc_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_inc_btn.focus_mode   = Control.FOCUS_NONE
+	_inc_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_inc_btn.text         = "►"
 	_inc_btn.pressed.connect(_on_inc_pressed)
 	add_child(_inc_btn)
@@ -146,7 +157,7 @@ func _build_controls() -> void:
 	_close_btn = Button.new()
 	_close_btn.flat         = true
 	_close_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_close_btn.focus_mode   = Control.FOCUS_NONE
+	_close_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_close_btn.pressed.connect(close)
 	add_child(_close_btn)
 
@@ -191,6 +202,8 @@ func _make_grabber_texture() -> Texture2D:
 func open(dispenser: WaterDispenser) -> void:
 	_dispenser = dispenser
 	_is_open   = true
+	if _proximity != null:
+		_proximity.anchor = dispenser.global_position
 	visible    = true
 	set_process(true)
 	_close_btn.visible   = true

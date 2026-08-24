@@ -39,6 +39,8 @@ var inventory_hud: Node        = null
 var _target: Node3D    = null
 var is_open: bool      = false
 var _config: Dictionary = {}
+## Auto-close when the player walks away from the storage object (Aug 2026).
+var _proximity: Node   = null
 
 ## Every key get_ui_config() may provide, with a safe fallback — read via
 ## _cfg(key) so a storage object's config dict only needs to specify keys
@@ -84,6 +86,14 @@ const _INV_ICON_TEXTURE: Texture2D = preload("res://assets/icons/icon_plus.png")
 ## square, so this scales them uniformly with no distortion).
 const ICON_MAX_WIDTH: int = 22
 
+# ─── Controller button hints (Aug 2026) ───────────────────────────────────────
+## Small Xbox button icon badges overlaid on the action buttons in controller
+## mode: A = carry (primary), Y = store to inventory (inv). 16px pixel icons,
+## same set InteractPrompt uses.
+const XBOX_A_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_A.png")
+const XBOX_Y_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_Y.png")
+const HINT_BADGE_SIZE: int = 16
+
 const C_BG:          Color = Color(0.08, 0.08, 0.08, 0.92)
 const C_SLOT_BG:     Color = Color(0.13, 0.13, 0.13, 1.00)
 const C_SLOT_BORDER: Color = Color(0.28, 0.28, 0.28, 1.00)
@@ -105,11 +115,25 @@ var _empty_labels: Array = []
 var _badge_labels: Array = []
 var _primary_btns: Array = []
 var _inv_btns: Array     = []
+## Per-slot controller selection highlight (Aug 2026) — a focusable overlay
+## over each item preview. D-pad navigates THESE (the stored objects), not
+## the action buttons; A/Y act on the selected slot.
+var _slot_selectors: Array = []
 
 func _ready() -> void:
 	layer = 10
 	_build_root()
 	visible = false
+	## Controller navigation (Aug 2026) — d-pad moves focus across the slot
+	## action buttons; A activates the focused button; B closes this UI.
+	## See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
+	## Auto-close when the player walks away from the storage object (Aug 2026).
+	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
+	_proximity.ui = self
+	add_child(_proximity)
 
 func _build_root() -> void:
 	_root = Control.new()
@@ -202,6 +226,18 @@ func _add_pool_slot() -> void:
 	var inv_btn: Button = _make_icon_button(slot_idx, false)
 	_panel.add_child(inv_btn)
 
+	## Controller selection overlay (Aug 2026) — focusable and fully
+	## transparent (a plain Control draws nothing). D-pad navigates these
+	## (the stored objects); A/Y act on the focused slot. The selection
+	## indicator is the slot's own rounded outline turning white (see
+	## _refresh_controller_hints).
+	var selector: Control = Control.new()
+	selector.name = "SlotSelector"
+	selector.size = Vector2(PREVIEW_SIZE, PREVIEW_SIZE)
+	selector.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	selector.focus_mode = Control.FOCUS_ALL
+	_panel.add_child(selector)
+
 	_viewports.append(vp)
 	_vp_rects.append(tr)
 	_slot_bgs.append(slot_bg)
@@ -209,6 +245,7 @@ func _add_pool_slot() -> void:
 	_badge_labels.append(badge)
 	_primary_btns.append(primary_btn)
 	_inv_btns.append(inv_btn)
+	_slot_selectors.append(selector)
 
 ## Icon/tooltip/color for the primary button are applied generically here
 ## and then OVERWRITTEN per the active config in _apply_primary_button_style()
@@ -223,6 +260,9 @@ func _make_icon_button(slot_idx: int, is_primary: bool) -> Button:
 	btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	btn.add_theme_constant_override("icon_max_width", ICON_MAX_WIDTH)
+	## Mouse-only: controller navigation selects the SLOT (its preview
+	## overlay), not these action buttons — A/Y act on the selected slot.
+	btn.focus_mode = Control.FOCUS_NONE
 
 	var ss: StyleBoxFlat = StyleBoxFlat.new()
 	ss.set_corner_radius_all(int(BTN_SIZE * 0.25))
@@ -245,6 +285,22 @@ func _make_icon_button(slot_idx: int, is_primary: bool) -> Button:
 		inv_pressed.bg_color = C_BTN_INV.darkened(0.15)
 		btn.add_theme_stylebox_override("pressed", inv_pressed)
 		btn.pressed.connect(func() -> void: _on_inv_pressed(slot_idx))
+
+	## Controller hint badge (Aug 2026) — small Xbox icon in the corner of
+	## the button, visible only in controller mode (see
+	## _refresh_controller_hints): A = carry on the primary button, Y = store
+	## to inventory on the inv button.
+	var hint_badge: TextureRect = TextureRect.new()
+	hint_badge.name = "XboxBadge"
+	hint_badge.texture = XBOX_A_ICON if is_primary else XBOX_Y_ICON
+	hint_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hint_badge.visible = false
+	hint_badge.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	hint_badge.offset_left   = -HINT_BADGE_SIZE - 1
+	hint_badge.offset_top    = -HINT_BADGE_SIZE - 1
+	hint_badge.offset_right  = -1
+	hint_badge.offset_bottom = -1
+	btn.add_child(hint_badge)
 
 	return btn
 
@@ -279,6 +335,8 @@ func open(target: Node3D) -> void:
 
 	_target = target
 	_config = target.get_ui_config()
+	if _proximity != null:
+		_proximity.anchor = target.global_position
 	is_open = true
 	visible = true
 
@@ -289,6 +347,9 @@ func open(target: Node3D) -> void:
 	_apply_primary_button_style()
 	_layout_panel()
 	_populate_slots()
+	_refresh_controller_hints()
+	if InputMode.is_controller():
+		_grab_initial_focus()
 
 	## Standing convention (July 2026) — see UIFade.gd.
 	UIFade.fade_in(_root)
@@ -364,6 +425,7 @@ func _position_slot_visuals(visual_idx: int, sx: float, sy: float) -> void:
 	tr.position          = Vector2(sx, sy)
 	empty_lbl.position   = Vector2(sx, sy)
 	badge.position        = Vector2(sx + 4, sy + 4)
+	_slot_selectors[visual_idx].position = Vector2(sx, sy)
 
 	var btn_y: float = sy + PREVIEW_SIZE + 6.0
 	primary.size = Vector2(BTN_SIZE, BTN_SIZE)
@@ -408,6 +470,9 @@ func _set_slot(visual_idx: int, item, count: int) -> void:
 	empty_lbl.visible = not has_item
 	tr.visible          = has_item
 	primary.visible      = has_item
+	## Only occupied slots are controller-selectable — empty slots hide their
+	## selection overlay so the nav skips them entirely.
+	_slot_selectors[visual_idx].visible = has_item
 
 	var show_inv: bool = has_item and item != null and item.is_in_group("inventory_item")
 	inv_b.visible = show_inv
@@ -447,6 +512,58 @@ func _clear_viewport(visual_idx: int) -> void:
 func _clear_all_viewports() -> void:
 	for i: int in _pool_size:
 		_clear_viewport(i)
+
+# ─── Controller support (Aug 2026) ────────────────────────────────────────────
+## Shows/hides the Xbox hint badges on the SELECTED slot's action buttons
+## based on controller mode (last-input-wins): A = carry (primary), Y =
+## store to inventory (inv). Button visibility cascades, so a hidden
+## button's badge isn't drawn even when controller mode is on. Also turns
+## the SELECTED slot's rounded outline white (same style as other
+## controller selection indicators); unselected slots stay gray.
+func _refresh_controller_hints() -> void:
+	var controller: bool = InputMode.is_controller()
+	var selected: int = _selected_slot()
+	for i: int in _primary_btns.size():
+		var is_sel: bool = (i == selected)
+		var pb: Button = _primary_btns[i]
+		var pb_badge: Control = pb.get_node_or_null("XboxBadge")
+		if pb_badge != null:
+			pb_badge.visible = controller and is_sel and pb.visible
+		var ib: Button = _inv_btns[i]
+		var ib_badge: Control = ib.get_node_or_null("XboxBadge")
+		if ib_badge != null:
+			ib_badge.visible = controller and is_sel and ib.visible
+		## Selected slot outline -> white, unselected -> gray.
+		var slot_ss: StyleBoxFlat = _slot_bgs[i].get_theme_stylebox("panel") as StyleBoxFlat
+		if slot_ss != null:
+			if controller and is_sel:
+				slot_ss.border_color = Color.WHITE
+				slot_ss.set_border_width_all(2)
+			else:
+				slot_ss.border_color = C_SLOT_BORDER
+				slot_ss.set_border_width_all(1)
+
+## Slot index whose selection overlay currently holds focus, or -1.
+func _selected_slot() -> int:
+	for i: int in _slot_selectors.size():
+		if _slot_selectors[i].has_focus():
+			return i
+	return -1
+
+## Focuses the first occupied slot's selection overlay so A/Y work
+## immediately when the UI opens in controller mode.
+func _grab_initial_focus() -> void:
+	for i: int in _slot_selectors.size():
+		if _primary_btns[i].visible:
+			_slot_selectors[i].grab_focus()
+			return
+
+func _process(_delta: float) -> void:
+	if not is_open:
+		return
+	if InputMode.is_controller() and _selected_slot() == -1:
+		_grab_initial_focus()
+	_refresh_controller_hints()
 
 # ─── Button callbacks ─────────────────────────────────────────────────────────
 func _on_primary_pressed(visual_idx: int) -> void:
@@ -494,9 +611,31 @@ func _on_backdrop_input(event: InputEvent) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_open:
 		return
-	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact") \
-			or event.is_action_pressed("store_item"):
+	## B / ESC (ui_cancel) closes. (Joypad B is consumed earlier by the nav's
+	## close_on_cancel; ESC comes through here.)
+	if event.is_action_pressed("ui_cancel"):
 		close()
 		get_viewport().set_input_as_handled()
+	## A / Y (joypad) act on the SELECTED slot: A = carry (primary button),
+	## Y = store to inventory (inv button).
+	elif event is InputEventJoypadButton:
+		var si: int = _selected_slot()
+		if event.is_action_pressed("interact") and si != -1 and _primary_btns[si].visible:
+			_on_primary_pressed(si)
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("store_item") and si != -1 and _inv_btns[si].visible:
+			_on_inv_pressed(si)
+			get_viewport().set_input_as_handled()
+		else:
+			## Consume every other pad press so the game underneath never
+			## responds.
+			get_viewport().set_input_as_handled()
+	## Keyboard E/G still close (pre-controller behavior) — the mouse is the
+	## pointer for keyboard players.
+	elif event is InputEventKey and (event.is_action_pressed("interact") or event.is_action_pressed("store_item")):
+		close()
+		get_viewport().set_input_as_handled()
+	## Consume every other key/mouse press while open so the game underneath
+	## (interact, pickup, etc.) never responds.
 	elif event is InputEventKey or event is InputEventMouseButton:
 		get_viewport().set_input_as_handled()

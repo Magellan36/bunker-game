@@ -67,6 +67,11 @@ var connected_zone_index: int = -1
 func _ready() -> void:
 	layer   = 50
 	visible = false
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
 	## Always process — background sampling runs even when closed.
 	## _on_draw is only triggered when open (via queue_redraw in open()).
 	set_process(true)

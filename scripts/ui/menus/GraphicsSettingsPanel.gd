@@ -122,6 +122,11 @@ func _ready() -> void:
 	layer = 210   ## Above PauseMenuUI (layer 200)
 	_build_ui()
 	visible = false
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
 
 func open() -> void:
 	visible = true

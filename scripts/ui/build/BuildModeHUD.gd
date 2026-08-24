@@ -218,6 +218,13 @@ const COLOR_TEXT:   Color = Color(0.80, 0.78, 0.72, 0.95)
 const TOOL_LABELS:  Array = ["Construct", "Deconstruct", "Duplicate", "Move", "Undo", "Wire", "Pipe", "Shop"]
 const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌", "🚰", "🛒"]
 
+# ─── Controller prompt icons (Aug 2026) ───────────────────────────────────────
+## LB/RB tab-cycle badges on the toolbar (LB top-left of Construct, RB
+## top-right of Shop), shown in controller mode. Same 32px as ResearchStation.
+const XBOX_LB_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_LB.png")
+const XBOX_RB_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_RB.png")
+const TOOL_BADGE_SIZE: float = 20.0
+
 ## Submenu
 const SUB_W:        float = 160.0
 const SUB_ITEM_H:   float = 72.0   ## Height per row in submenu
@@ -380,6 +387,11 @@ var _submenu_open:    bool  = false
 ## Two-level menu state: "root" = category list, "items" = item list for _active_category
 var _submenu_level:    String = "root"
 var _active_category:  String = ""
+## Controller (Aug 2026): d-pad / LB-RB select a toolbar tab (A opens it);
+## d-pad up/down scrolls the open submenu (A picks). Highlighted in
+## controller mode.
+var _sel_tool: int = TOOL_CONSTRUCT
+var _submenu_cursor: int = 0
 ## Which data source the submenu is currently browsing — "construct"
 ## (CATEGORIES, tile ghost-preview placement) or "farming" (FARMING_SHOP_ITEMS,
 ## buy → spawn near player). See _current_categories()/_open_submenu().
@@ -599,6 +611,52 @@ func _unhandled_input(event: InputEvent) -> void:
 			if was != _cancel_hovered:
 				_canvas.queue_redraw()
 
+	# ── Controller (Aug 2026) — build-mode menu only ─────────────────────────
+	## d-pad / LB-RB cycle the toolbar tabs; d-pad up/down scrolls the open
+	## submenu; A opens/selects; B closes the submenu. The rock-dig confirm
+	## dialog stays mouse-only for now (guard below).
+	if dig_confirm_open:
+		return
+	if event is InputEventJoypadButton and event.pressed:
+		if event.button_index == JOY_BUTTON_LEFT_SHOULDER or event.button_index == JOY_BUTTON_DPAD_LEFT:
+			_sel_tool = (_sel_tool - 1 + TOOL_LABELS.size()) % TOOL_LABELS.size()
+			_canvas.queue_redraw()
+			get_viewport().set_input_as_handled()
+			return
+		elif event.button_index == JOY_BUTTON_RIGHT_SHOULDER or event.button_index == JOY_BUTTON_DPAD_RIGHT:
+			_sel_tool = (_sel_tool + 1) % TOOL_LABELS.size()
+			_canvas.queue_redraw()
+			get_viewport().set_input_as_handled()
+			return
+		elif event.button_index == JOY_BUTTON_DPAD_UP:
+			if _submenu_open:
+				_submenu_cursor = maxi(_submenu_cursor - 1, 0)
+				_canvas.queue_redraw()
+			get_viewport().set_input_as_handled()
+			return
+		elif event.button_index == JOY_BUTTON_DPAD_DOWN:
+			if _submenu_open:
+				_submenu_cursor = mini(_submenu_cursor + 1, _submenu_current_rows() - 1)
+				_canvas.queue_redraw()
+			get_viewport().set_input_as_handled()
+			return
+		elif event.button_index == JOY_BUTTON_A:
+			if _submenu_open:
+				_on_submenu_item_selected(_submenu_cursor)
+			else:
+				_on_toolbar_click(_sel_tool)
+			get_viewport().set_input_as_handled()
+			return
+		elif event.button_index == JOY_BUTTON_B:
+			if _submenu_open:
+				_close_submenu()
+			get_viewport().set_input_as_handled()
+			return
+		else:
+			## Consume other pad presses so they never reach the world.
+			get_viewport().set_input_as_handled()
+			return
+
 # ─── Toolbar click handler ────────────────────────────────────────────────────
 func _on_toolbar_click(slot: int) -> void:
 	if slot == TOOL_CONSTRUCT:
@@ -670,6 +728,7 @@ func _open_submenu(source: String = "construct") -> void:
 	_submenu_open  = true
 	_submenu_level = "root"
 	_active_category = ""
+	_submenu_cursor = 0
 	_submenu_root.visible = true
 	_position_submenu()
 	_canvas.queue_redraw()
@@ -806,6 +865,9 @@ func _on_submenu_draw(ctrl: Control) -> void:
 			# Hover highlight
 			if row_rect.has_point(mouse_local):
 				ctrl.draw_rect(row_rect, Color(0.42, 0.87, 0.15, 0.15), true)
+			# Controller cursor (Aug 2026) — d-pad selection highlight
+			if InputMode.is_controller() and i == _submenu_cursor:
+				ctrl.draw_rect(row_rect, Color(0.42, 0.87, 0.15, 0.28), true)
 
 			# Separator
 			if i < cat_keys.size() - 1:
@@ -853,6 +915,9 @@ func _on_submenu_draw(ctrl: Control) -> void:
 		var back_rect: Rect2 = Rect2(0, SUB_PAD, SUB_W, SUB_ITEM_H)
 		if back_rect.has_point(mouse_local):
 			ctrl.draw_rect(back_rect, Color(0.42, 0.87, 0.15, 0.12), true)
+		## Controller cursor (Aug 2026) on the Back row (submenu cursor == 0).
+		if InputMode.is_controller() and _submenu_cursor == 0:
+			ctrl.draw_rect(back_rect, Color(0.42, 0.87, 0.15, 0.28), true)
 		ctrl.draw_string(font, Vector2(SUB_PAD, SUB_PAD + 32.0),
 			"‹ Back", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.55, 0.75, 0.45, 1.0))
 		ctrl.draw_string(font, Vector2(SUB_PAD, SUB_PAD + 48.0),
@@ -872,6 +937,9 @@ func _on_submenu_draw(ctrl: Control) -> void:
 			# Hover highlight
 			if row_rect.has_point(mouse_local):
 				ctrl.draw_rect(row_rect, Color(0.42, 0.87, 0.15, 0.15), true)
+			# Controller cursor (Aug 2026) — item rows are cursor 1..n.
+			if InputMode.is_controller() and _submenu_cursor == i + 1:
+				ctrl.draw_rect(row_rect, Color(0.42, 0.87, 0.15, 0.28), true)
 
 			# Separator (not after last)
 			if i < cat_items.size() - 1:
@@ -942,6 +1010,7 @@ func _on_submenu_item_selected(item: int) -> void:
 			return
 		_active_category = cat_keys[item]
 		_submenu_level   = "items"
+		_submenu_cursor  = 0   ## start at the first item
 		_position_submenu()   ## row count changed — resize/reposition panel
 		_canvas.queue_redraw()
 		return
@@ -951,6 +1020,7 @@ func _on_submenu_item_selected(item: int) -> void:
 		## Back row
 		_submenu_level   = "root"
 		_active_category = ""
+		_submenu_cursor  = 0
 		_position_submenu()
 		_canvas.queue_redraw()
 		return
@@ -1474,6 +1544,17 @@ func _draw_toolbar() -> void:
 				or (i == TOOL_FARMING and _submenu_open and _submenu_source == "farming"))
 		var bcol: Color = COLOR_SEL if (is_active or undo_flash) else COLOR_BORDER
 		_draw_rounded_outline_on(_canvas, rect, SLOT_CORNER, bcol, 2.0)
+
+		## Controller (Aug 2026): white outline on the d-pad selected tab
+		## (distinct from the active tool's teal outline), and LB/RB cycle
+		## badges on the first (Construct) / last (Shop) tabs.
+		if InputMode.is_controller():
+			if i == _sel_tool:
+				_draw_rounded_outline_on(_canvas, rect, SLOT_CORNER, Color.WHITE, 3.0)
+			if i == 0:
+				_canvas.draw_texture_rect(XBOX_LB_ICON, Rect2(x + 2.0, y + 2.0, TOOL_BADGE_SIZE, TOOL_BADGE_SIZE), false)
+			elif i == TOOL_LABELS.size() - 1:
+				_canvas.draw_texture_rect(XBOX_RB_ICON, Rect2(x + SLOT_W - TOOL_BADGE_SIZE - 2.0, y + 2.0, TOOL_BADGE_SIZE, TOOL_BADGE_SIZE), false)
 
 		# Icon
 		var icon: String    = TOOL_ICONS[i]

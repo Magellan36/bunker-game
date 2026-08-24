@@ -75,6 +75,8 @@ const SEED_LOCK_LABEL_H: float = 16.0   ## "SEED LOCK" label above the dropdown
 
 var _tray: FarmingTray = null
 var _is_open: bool = false
+## Auto-close when the player walks away from the tray (Aug 2026).
+var _proximity: Node = null
 
 var _arrow_row_y: float = 0.0
 var _current_panel_h: float = 300.0
@@ -107,13 +109,22 @@ func _ready() -> void:
 	add_child(_canvas)
 	_canvas.draw.connect(_on_draw)
 
-	_build_controls()
+_build_controls()
+	## Auto-close when the player walks away from the tray (Aug 2026).
+	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
+	_proximity.ui = self
+	add_child(_proximity)
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
 
 func _build_controls() -> void:
 	_dec_btn = Button.new()
 	_dec_btn.clip_text    = false
 	_dec_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_dec_btn.focus_mode   = Control.FOCUS_NONE
+	_dec_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_dec_btn.text         = "◄"
 	_dec_btn.pressed.connect(_on_dec_pressed)
 	add_child(_dec_btn)
@@ -121,7 +132,7 @@ func _build_controls() -> void:
 	_inc_btn = Button.new()
 	_inc_btn.clip_text    = false
 	_inc_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_inc_btn.focus_mode   = Control.FOCUS_NONE
+	_inc_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_inc_btn.text         = "►"
 	_inc_btn.pressed.connect(_on_inc_pressed)
 	add_child(_inc_btn)
@@ -129,7 +140,7 @@ func _build_controls() -> void:
 	_close_btn = Button.new()
 	_close_btn.flat         = true
 	_close_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_close_btn.focus_mode   = Control.FOCUS_NONE
+	_close_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 	_close_btn.pressed.connect(close)
 	add_child(_close_btn)
 
@@ -143,7 +154,7 @@ func _build_controls() -> void:
 		var dd: OptionButton = OptionButton.new()
 		dd.theme        = dd_theme
 		dd.mouse_filter = Control.MOUSE_FILTER_STOP
-		dd.focus_mode   = Control.FOCUS_NONE
+		dd.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
 		dd.fit_to_longest_item = false
 		dd.clip_text    = true
 		var captured_i: int = i
@@ -154,6 +165,8 @@ func _build_controls() -> void:
 func open(tray: FarmingTray) -> void:
 	_tray    = tray
 	_is_open = true
+	if _proximity != null:
+		_proximity.anchor = tray.global_position
 	visible  = true
 	set_process(true)
 	_close_btn.visible = true

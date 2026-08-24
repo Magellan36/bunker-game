@@ -66,6 +66,11 @@ var _swatch_buttons: Array[Button] = []
 func _ready() -> void:
 	layer   = 60   ## Above PowerTerminalUI (layer 50) so it opens on top of it.
 	visible = false
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
 	_build_ui()
 
 

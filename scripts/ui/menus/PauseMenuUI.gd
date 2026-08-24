@@ -41,6 +41,11 @@ func _ready() -> void:
 	layer = 200   ## Above HUD (default ~1) and AdminMenu (128).
 	_build_ui()
 	visible = false
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
+	controller_nav.ui_root = self
+	add_child(controller_nav)
 
 
 # ─── Open / close ───────────────────────────────────────────────────────────

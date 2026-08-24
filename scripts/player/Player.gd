@@ -42,12 +42,26 @@ extends CharacterBody3D
 const PLAYER_SELF_LIGHT_LAYER: int = 12
 const PLAYER_SELF_LIGHT_LAYER_BIT: int = 1 << (PLAYER_SELF_LIGHT_LAYER - 1)
 
+## Controller facing (Aug 2026): the right stick steers where the model
+## faces. Exponential smoothing rate for lerp_angle (rad/s) — higher = more
+## snappy, lower = floatier. Tune to taste; 12.0 reads smooth but responsive.
+const TURN_SMOOTH_SPEED: float = 12.0
+## Squared length threshold below which the right stick is considered idle
+## (falls back to facing the movement direction). Input.get_vector already
+## applies each action's 0.2 deadzone; this is a small extra guard against
+## residual stick noise near center.
+const AIM_DEADZONE_SQ: float = 0.01
+
 ## Set each frame by MainWorld to match the camera's current yaw.
 ## Movement input is rotated by this so controls always feel camera-relative.
 var camera_yaw_rad: float = 0.0
 var _is_moving: bool = false
 var _is_sprinting: bool = false
 var _sprint_locked: bool = false  ## true when exhausted, blocks sprint until threshold met
+## Latched by a left-stick click (Aug 2026): while true, the player keeps
+## running as long as they're moving. Cleared automatically when the player
+## stops moving or runs out of stamina, or by clicking the stick again.
+var _sprint_toggle: bool = false
 
 ## Current stamina 0–100. Drive this from PlayerStats if you have one,
 ## or use it standalone — HUD reads it via set_stamina().
@@ -135,9 +149,18 @@ func _handle_movement(delta: float) -> void:
 	if _sprint_locked and stamina >= sprint_recover_threshold:
 		_sprint_locked = false
 
-	# Sprint only while moving, shift held, not locked out
-	var wants_sprint: bool = Input.is_action_pressed("sprint") and direction.length_squared() > 0.0
+	# Sprint only while moving, not locked out. Hold works via the keyboard
+	# (Shift) or holding the stick click; the left-stick click also LATCHES
+	# running via _sprint_toggle (see _unhandled_input), so a quick click
+	# keeps the player running without holding anything.
+	var wants_sprint: bool = (Input.is_action_pressed("sprint") or _sprint_toggle) \
+		and direction.length_squared() > 0.0
 	_is_sprinting = wants_sprint and not _sprint_locked
+
+	## Auto-cancel the toggle when the player stops moving or runs out of
+	## stamina — back to a normal walking state, no surprise auto-resume.
+	if direction.length_squared() <= 0.0 or _sprint_locked:
+		_sprint_toggle = false
 
 	# Drain / regen stamina
 	if _is_sprinting:
@@ -153,13 +176,26 @@ func _handle_movement(delta: float) -> void:
 	if direction.length_squared() > 0.0:
 		velocity = velocity.lerp(direction * target_speed, acceleration * delta)
 		_is_moving = true
-
-		# Face movement direction
-		var angle: float = atan2(-direction.x, -direction.z)
-		rotation.y = angle
 	else:
 		velocity = velocity.lerp(Vector3.ZERO, friction * delta)
 		_is_moving = false
+
+	## Facing (Aug 2026 controller pass) — right stick (aim) steers the
+	## facing angle and takes priority; otherwise the character faces its
+	## movement direction as before. Both are rotated by camera yaw so they
+	## stay camera-relative, matching the movement vector above. Turning
+	## eases toward the target angle with frame-rate-independent exponential
+	## smoothing (lerp_angle, see @GlobalScope.lerp_angle) instead of
+	## snapping, which is the standard smooth-turning pattern for twin-stick
+	## aiming in Godot.
+	var aim_dir: Vector2 = Input.get_vector("aim_left", "aim_right", "aim_up", "aim_down")
+	var target_angle: float = rotation.y
+	if aim_dir.length_squared() > AIM_DEADZONE_SQ:
+		var aim_raw: Vector3 = Vector3(aim_dir.x, 0.0, aim_dir.y).rotated(Vector3.UP, camera_yaw_rad)
+		target_angle = atan2(-aim_raw.x, -aim_raw.z)
+	elif direction.length_squared() > 0.0:
+		target_angle = atan2(-direction.x, -direction.z)
+	rotation.y = lerp_angle(rotation.y, target_angle, 1.0 - exp(-TURN_SMOOTH_SPEED * delta))
 
 	move_and_slide()
 
@@ -218,6 +254,23 @@ func release_held_item_to_npc(npc: Node) -> bool:
 	return interaction_system.release_held_item_to_npc(npc) if interaction_system != null else false
 
 func _unhandled_input(event: InputEvent) -> void:
+	## Right-stick click toggles Focus Mode (Aug 2026) — same interaction
+	## highlighting Ctrl gives, latched instead of held. Ctrl still works
+	## as a hold; see the FocusMode autoload.
+	if event is InputEventJoypadButton and event.button_index == JOY_BUTTON_RIGHT_STICK and event.pressed:
+		FocusMode.toggle()
+		get_viewport().set_input_as_handled()
+		return
+	## Left-stick click toggles sprint (Aug 2026) — a quick click latches
+	## running until the player stops, clicks again, or runs out of stamina.
+	## Only from a joypad so keyboard Shift keeps its hold-to-sprint feel.
+	## Consumed even in menus (movement is locked there anyway, so the
+	## toggle flip is guarded below).
+	if event is InputEventJoypadButton and event.button_index == JOY_BUTTON_LEFT_STICK and event.pressed:
+		if not _movement_locked:
+			_sprint_toggle = not _sprint_toggle
+		get_viewport().set_input_as_handled()
+		return
 	if seated_chair == null or not is_instance_valid(seated_chair):
 		return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
@@ -243,14 +296,18 @@ func _ensure_joypad_bindings() -> void:
 	_ensure_joy_axis("move_right", JOY_AXIS_LEFT_X, 1.0)
 	_ensure_joy_axis("move_up", JOY_AXIS_LEFT_Y, -1.0)
 	_ensure_joy_axis("move_down", JOY_AXIS_LEFT_Y, 1.0)
-	_ensure_joy_axis("sprint", JOY_AXIS_TRIGGER_RIGHT, 1.0)
+	_ensure_joy_button("sprint", JOY_BUTTON_LEFT_STICK)
 	_ensure_joy_button("interact", JOY_BUTTON_A)
 	_ensure_joy_button("pickup", JOY_BUTTON_X)
 	_ensure_joy_button("store_item", JOY_BUTTON_Y)
 	_ensure_joy_button("inv_slot_1", JOY_BUTTON_DPAD_UP)
-	_ensure_joy_button("inv_slot_2", JOY_BUTTON_DPAD_RIGHT)
 	_ensure_joy_button("inv_slot_3", JOY_BUTTON_DPAD_DOWN)
-	_ensure_joy_button("inv_slot_4", JOY_BUTTON_DPAD_LEFT)
+	_ensure_joy_button("inv_cycle_next", JOY_BUTTON_DPAD_RIGHT)
+	_ensure_joy_button("inv_cycle_prev", JOY_BUTTON_DPAD_LEFT)
+	_ensure_joy_axis("aim_left", JOY_AXIS_RIGHT_X, -1.0)
+	_ensure_joy_axis("aim_right", JOY_AXIS_RIGHT_X, 1.0)
+	_ensure_joy_axis("aim_up", JOY_AXIS_RIGHT_Y, -1.0)
+	_ensure_joy_axis("aim_down", JOY_AXIS_RIGHT_Y, 1.0)
 
 func _ensure_joy_axis(action: String, axis: int, value: float) -> void:
 	if not InputMap.has_action(action):

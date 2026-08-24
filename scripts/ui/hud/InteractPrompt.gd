@@ -37,6 +37,23 @@ const FADE_END:   float = 3.2
 const ICON_VP_SIZE: int = 40
 const ICON_CAM_SIZE: float = 0.6
 
+# ─── Key / button icons (Aug 2026) ────────────────────────────────────────────
+## Inline icon size in the prompt RichTextLabel (px). The source art is 16px
+## pixel icons — keep at native size unless it reads too small in-game.
+const PROMPT_ICON_SIZE: int = 16
+const PROMPT_ICON_DIR: String = "res://assets/ui/prompts/"
+## Keyboard: prompt-key token -> key-cap icon file name.
+const KEY_CAPS: Dictionary = {
+	"E": "E", "F": "F", "G": "G",
+	"0": "0", "1": "1", "2": "2", "3": "3", "4": "4",
+	"5": "5", "6": "6", "7": "7", "8": "8", "9": "9",
+}
+## Controller: prompt-key token -> Xbox button icon file name, matching the
+## game's controller bindings (interact=A, pickup=X, store=Y).
+const XBOX_BUTTONS: Dictionary = {
+	"E": "XBOX_A", "F": "XBOX_X", "G": "XBOX_Y",
+}
+
 # ─── State ────────────────────────────────────────────────────────────────────
 ## What the caller wants shown this frame.
 ## Array of { text: String, world_pos: Vector3, dist: float, icons: Array (optional) }
@@ -61,6 +78,8 @@ var _icon_badge_labels: Array = []
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	_template_panel.visible = false
+	## Inline key/button icons are rendered as BBCode images.
+	_template_label.bbcode_enabled = true
 
 func _process(_delta: float) -> void:
 	var camera: Camera3D = get_viewport().get_camera_3d()
@@ -92,7 +111,7 @@ func _process(_delta: float) -> void:
 	## entry — basket/cookpot/give-to-NPC/held-item's-own-action) default
 	## to shown via the `true` fallback below: Focus Mode intentionally
 	## has no effect while holding an item this pass.
-	var focus_mode: bool = Input.is_key_pressed(KEY_CTRL)
+	var focus_mode: bool = FocusMode.is_active()
 	var display_list: Array = _active
 	if focus_mode:
 		display_list = _active.filter(func(e: Dictionary) -> bool: return bool(e.get("is_focus_target", true)))
@@ -133,8 +152,9 @@ func _process(_delta: float) -> void:
 
 		var lbl: RichTextLabel = p.get_node_or_null("VBox/Label") as RichTextLabel
 		var txt: String = entry.get("text", "")
-		if lbl != null and lbl.text != txt:
-			lbl.text = txt
+		var rendered: String = _prompt_to_bbcode(txt)
+		if lbl != null and lbl.text != rendered:
+			lbl.text = rendered
 
 		var icons: Array = entry.get("icons", [])
 		var icon_row: Control = p.get_node_or_null("VBox/IconRow") as Control
@@ -365,6 +385,49 @@ func _signature_for(desc: Variant) -> String:
 		return ""
 	var d: Dictionary = desc as Dictionary
 	return "%s|%s" % [d.get("scene", ""), d.get("produce_type", "")]
+
+# ─── Key / button icon rendering (Aug 2026) ───────────────────────────────────
+## Converts a prompt string like "[F] Pick up  Flashlight" into BBCode for the
+## RichTextLabel, replacing [E]/[F]/[G] key tokens with inline key-cap or Xbox
+## button icons based on the current InputMode (last-input-wins). EVERYTHING
+## else is passed through VERBATIM — the label is BBCode-enabled and must keep
+## parsing its own tags (e.g. [color=#...]) exactly as it did before icons.
+func _prompt_to_bbcode(prompt: String) -> String:
+	var controller: bool = InputMode.is_controller()
+	var out := ""
+	var i := 0
+	while i < prompt.length():
+		if prompt[i] == "[":
+			var token: String = _match_key_token(prompt, i)
+			if token != "":
+				out += _token_bbcode(token, controller)
+				i += 3
+				continue
+		out += prompt[i]
+		i += 1
+	return out
+
+## Returns the single-char key token at prompt[i] (i points at '[') if
+## prompt[i..i+2] is exactly "[X]" with X a known key, else "".
+func _match_key_token(prompt: String, i: int) -> String:
+	if i + 2 >= prompt.length() or prompt[i + 2] != "]":
+		return ""
+	var c := prompt[i + 1]
+	if "EFG0123456789".contains(c):
+		return c
+	return ""
+
+## Builds the inline-image BBCode for a key token, or falls back to the
+## literal "[X]" text if the current input mode has no icon for it.
+func _token_bbcode(token: String, controller: bool) -> String:
+	var file: String = ""
+	if controller and XBOX_BUTTONS.has(token):
+		file = XBOX_BUTTONS[token]
+	elif KEY_CAPS.has(token):
+		file = KEY_CAPS[token]
+	if file == "":
+		return "[%s]" % token
+	return "[img width=%d height=%d]%s%s.png[/img]" % [PROMPT_ICON_SIZE, PROMPT_ICON_SIZE, PROMPT_ICON_DIR, file]
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 ## Primary API — call every frame from InteractionSystem._update_prompt().
