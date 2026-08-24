@@ -102,7 +102,7 @@ func get_bed_stand_position() -> Vector3:
 static func build_ghost_mesh() -> Mesh:
 	var st: SurfaceTool = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var W: float = 2.0; var H: float = 0.5; var D: float = 1.0
+	var W: float = 2.5; var H: float = 0.5; var D: float = 1.0
 	# Build a simple box centred at (0, H/2, 0)
 	var hx: float = W * 0.5; var hy: float = H * 0.5; var hz: float = D * 0.5
 	var verts: Array[Array] = [
