@@ -35,6 +35,19 @@ window/size/viewport_height=1080
 window/size/mode=3
 window/size/borderless=true
 
+[gui]
+
+; UI text smoothness (Aug 2026) — subpixel positioning smooths small text
+; (was Disabled); hinting None removes the crunchy hinted glyph edges.
+theme/default_font_subpixel_positioning=1
+theme/default_font_hinting=0
+
+[rendering]
+
+; Canvas/UI texture filtering — explicitly Linear (the project default was
+; being relied on; guarantees icons/previews/texture-rect UI aren't Nearest).
+textures/canvas_textures/default_texture_filter=1
+
 [dotnet]
 
 project/assembly_name="BunkerGame"
