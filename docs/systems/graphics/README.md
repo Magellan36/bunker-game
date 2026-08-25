@@ -207,9 +207,9 @@ MainWorld._setup_tilt_shift_dof() (startup, dynamic instantiation)
   slider from disk-write-spamming on every drag frame — any other
   continuous-drag setting added in the future should use the same split
   rather than calling `set_setting()` every frame.
-- `GraphicsSettings` not yet a committed autoload (see Ownership) — every
-  fresh clone requires Brannon to manually register it once in the editor
-  before the project will compile/run.
+- `GraphicsSettings` IS a committed autoload (see Ownership) — the old
+  "not yet a committed autoload" note that used to live here was stale and
+  is removed; fresh clones register it from the committed project.godot.
 
 ## Extension points
 - New quality-tier-dependent systems should read `GraphicsSettings.<field>`
@@ -540,6 +540,21 @@ loading behaves as expected for this project's export — see the
 confidence note above. Tier 1 (the explicit in-app button) always works
 regardless.
 
+### Dynamic Resolution (opt-in, default OFF)
+`dynamic_resolution_enabled` (Settings > Advanced Quality > "Dynamic
+Resolution (Auto Frame Rate)") makes the LIVE render scale auto-adjust
+between `DR_SCALE_FLOOR` (0.8) and the user's `render_scale` ceiling to
+hold the target frame budget (fps_cap → display refresh → 60). Hysteresis
+(5 consecutive over-budget frames to step down, 30 under-budget to step up,
+0.05 steps, 0.15 s cooldown) keeps it from oscillating on single spikes.
+Upscaling stays BILINEAR (FSR 1.0 read as pixelated/soft on this art and
+even degraded the full-res case). **Default OFF by design:** this game is
+CPU-bound (physics/objects), and DR only buys back GPU time — on a CPU
+bottleneck it just sits at the lowered scale, hazily, for zero gain. It's a
+safeguard for GPU-bound setups only. Preview SubViewports are unaffected
+(register_preview_viewport mirrors MSAA, not scale). Preset-INDEPENDENT,
+like `camera_fov`.
+
 ---
 
 ## Common edits
@@ -583,9 +598,9 @@ regardless.
   slider from disk-write-spamming on every drag frame — any other
   continuous-drag setting added in the future should use the same split
   rather than calling `set_setting()` every frame.
-- `GraphicsSettings` not yet a committed autoload (see Ownership) — every
-  fresh clone requires Brannon to manually register it once in the editor
-  before the project will compile/run.
+- `GraphicsSettings` IS a committed autoload (see Ownership) — the old
+  "not yet a committed autoload" note that used to live here was stale and
+  is removed; fresh clones register it from the committed project.godot.
 
 ## Extension points
 - New quality-tier-dependent systems should read `GraphicsSettings.<field>`

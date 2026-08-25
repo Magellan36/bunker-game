@@ -72,6 +72,16 @@ func _store_to_slot(item: RigidBody3D, slot: int) -> void:
 	item.remove_from_group("pickup")
 	if item.has_method("deactivate_dynamic_state"):
 		item.deactivate_dynamic_state()   ## stored = physics/contacts/obstacle off (Aug 2026)
+	## Container-type items (CanCase, Basket, etc.) join "interactable"
+	## permanently in their own _ready() so InteractionSystem's per-frame
+	## prompt scan can find them while loose. A frozen stored item still
+	## passes that scan's is_frozen_rigid filter, so without this it keeps
+	## paying the scan's per-node cost forever even though it can never
+	## produce a prompt from inside a slot. Mirror it back on when the item
+	## leaves storage.
+	if item.is_in_group("interactable"):
+		item.set_meta("_was_interactable", true)
+		item.remove_from_group("interactable")
 	# Clear held state — prevents ghost physics running while hidden
 	if "is_held" in item:
 		item.is_held = false
@@ -95,6 +105,9 @@ func activate_item(slot: int) -> RigidBody3D:
 	item.angular_velocity = Vector3.ZERO
 	if item.has_method("restore_dynamic_state"):
 		item.restore_dynamic_state()   ## held again — re-enable physics/contacts (Aug 2026)
+	if item.has_meta("_was_interactable"):
+		item.add_to_group("interactable")
+		item.remove_meta("_was_interactable")
 	# Don't add back to "pickup" group — item is in hand, not on ground
 	return item
 
@@ -112,6 +125,9 @@ func deactivate_item(slot: int) -> void:
 	item.collision_mask  = 0
 	if item.has_method("deactivate_dynamic_state"):
 		item.deactivate_dynamic_state()   ## back to stored — physics/contacts/obstacle off (Aug 2026)
+	if item.is_in_group("interactable"):
+		item.set_meta("_was_interactable", true)
+		item.remove_from_group("interactable")
 	if "is_held" in item:
 		item.is_held = false
 	if "_hold_point" in item:
@@ -138,6 +154,9 @@ func retrieve_item(slot: int) -> RigidBody3D:
 	item.angular_velocity = Vector3.ZERO
 	if item.has_method("restore_dynamic_state"):
 		item.restore_dynamic_state()   ## dropped to the world — live again (Aug 2026)
+	if item.has_meta("_was_interactable"):
+		item.add_to_group("interactable")
+		item.remove_meta("_was_interactable")
 
 	inventory_changed.emit()
 	return item
@@ -157,6 +176,9 @@ func remove_item(slot: int, drop_position: Vector3) -> void:
 	item.collision_layer = 1
 	item.collision_mask  = 1
 	item.add_to_group("pickup")
+	if item.has_meta("_was_interactable"):
+		item.add_to_group("interactable")
+		item.remove_meta("_was_interactable")
 
 	if item.has_method("drop"):
 		item.drop(_world_root, drop_position)

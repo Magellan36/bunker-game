@@ -94,6 +94,29 @@ var anisotropic_filtering: int = 4
 var shadow_quality: int = 2048
 var render_scale: float = 1.0
 
+## Shadow LOD (Aug 2026) — distance-gated shadow casting for player-placed
+## fixtures (WallLight/GrowLight). WallLight/GrowLight are Build-Mode
+## devices with no cap on how many can exist in a base — at HIGH/ULTRA
+## (shadow_casting_enabled = true) a large base can have far more
+## simultaneous shadow-casting lights than the scene ever had before Build
+## Mode existed. Godot has no per-light "render this shadow cheaper at
+## distance" knob, so the practical version of "far shadows cost less" is a
+## binary gate: a light beyond SHADOW_LOD_FAR_RADIUS of the player has its
+## shadow_enabled forced off (skips the render pass entirely — the cheapest
+## possible state); once shadow_enabled is back on within
+## SHADOW_LOD_NEAR_RADIUS, Godot's own shadow-atlas allocator naturally
+## favors it over anything else still in range. NEAR < FAR on purpose
+## (hysteresis) so a light hovering right at the boundary can't flip on/off
+## every scan as the player's distance jitters by a few cm. Scanned on a
+## throttle (SHADOW_LOD_SCAN_INTERVAL), same reasoning as JobBoard's 2s
+## rescan — this only needs to react to the player walking around, not to
+## run every frame. Entirely skipped when shadow_casting_enabled is false
+## (LOW/MEDIUM or Custom-off) — nothing to gate, zero cost.
+const SHADOW_LOD_NEAR_RADIUS: float = 14.0
+const SHADOW_LOD_FAR_RADIUS:  float = 18.0
+const SHADOW_LOD_SCAN_INTERVAL: float = 0.5
+var _shadow_lod_scan_timer: float = 0.0
+
 ## Dynamic Resolution (Aug 2026) — the LIVE render scale auto-adjusts
 ## between DR_SCALE_FLOOR and the user's `render_scale` (the quality
 ## ceiling) to hold the target frame budget (fps_cap if set, else the
@@ -334,6 +357,7 @@ func _apply_to_viewport() -> void:
 ## without oscillating on a single spike. Preview SubViewports are
 ## unaffected (register_preview_viewport only mirrors MSAA, not scale).
 func _process(delta: float) -> void:
+	_update_shadow_lod(delta)
 	if not dynamic_resolution_enabled:
 		return
 	_dr_frame_avg = lerpf(_dr_frame_avg, delta, DR_EMA_ALPHA)
@@ -370,6 +394,30 @@ func _target_frame_budget() -> float:
 	if refresh > 0:
 		return 1.0 / float(refresh)
 	return 1.0 / 60.0
+
+## Shadow LOD scan (Aug 2026, see SHADOW_LOD_* header comment above) —
+## throttled to SHADOW_LOD_SCAN_INTERVAL, skipped entirely when shadows are
+## globally off. Every "shadow_lod_lights" member gets a fresh distance
+## check against the player each time this fires; each light owns its own
+## hysteresis state (update_shadow_lod()) so this scan doesn't need to
+## track per-light state itself.
+func _update_shadow_lod(delta: float) -> void:
+	if not shadow_casting_enabled:
+		return
+	_shadow_lod_scan_timer -= delta
+	if _shadow_lod_scan_timer > 0.0:
+		return
+	_shadow_lod_scan_timer = SHADOW_LOD_SCAN_INTERVAL
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var player: Node3D = tree.get_first_node_in_group("player") as Node3D
+	if player == null:
+		return
+	var player_pos: Vector3 = player.global_position
+	for light: Node in tree.get_nodes_in_group("shadow_lod_lights"):
+		if is_instance_valid(light) and light.has_method("update_shadow_lod"):
+			light.update_shadow_lod(player_pos)
 
 ## 3D item-preview SubViewports (Aug 2026) — apply MSAA so the models in
 ## inventory/storage/build/prompt previews aren't jagged (SubViewports

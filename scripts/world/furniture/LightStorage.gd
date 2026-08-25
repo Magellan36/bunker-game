@@ -205,6 +205,7 @@ func _absorb_item(item: RigidBody3D) -> void:
 	item.add_to_group("shelved")   ## reuse the ecosystem-wide "stored" exclusion group
 	if item.has_method("deactivate_dynamic_state"):
 		item.deactivate_dynamic_state()   ## stored = physics/contacts/obstacle off (Aug 2026)
+	item.remove_from_group("pickup")   ## leave the world-item scans (Aug 2026)
 	if item.get_parent() != null:
 		item.get_parent().remove_child(item)
 	add_child(item)
@@ -335,6 +336,7 @@ func eject_all_items() -> void:
 		item.angular_velocity = Vector3.ZERO
 		if item.has_method("restore_dynamic_state"):
 			item.restore_dynamic_state()   ## ejected to the floor — live again (Aug 2026)
+		item.add_to_group("pickup")   ## back in the world-item scans (Aug 2026)
 		var world_root: Node3D = get_tree().get_first_node_in_group("world")
 		if world_root == null:
 			world_root = get_parent()

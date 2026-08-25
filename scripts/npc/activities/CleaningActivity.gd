@@ -437,6 +437,16 @@ func _tick_stash_into_basket(npc: NPC, delta: float) -> void:
 	_item.visible = false
 	if _item.has_method("deactivate_dynamic_state"):
 		_item.deactivate_dynamic_state()   ## stashed = physics/contacts/obstacle off (Aug 2026)
+	## Leave the world-item scans + mark ecosystem-stored, same as
+	## Basket.try_add_item (Aug 2026).
+	_item.remove_from_group("pickup")
+	_item.add_to_group("shelved")
+	## Same "interactable" fix as Basket.try_add_item (Aug 2026) — without
+	## it, an item NPC-stashed here bypasses that method and keeps paying
+	## InteractionSystem's per-frame prompt-scan cost forever.
+	if _item.is_in_group("interactable"):
+		_item.set_meta("_was_interactable", true)
+		_item.remove_from_group("interactable")
 	if "is_held" in _item:
 		_item.is_held = false
 	_basket.slots[slot_index] = _item

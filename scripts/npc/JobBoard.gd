@@ -296,7 +296,10 @@ func _scan_cleaning(seen: Dictionary) -> void:
 	for item: Node in get_tree().get_nodes_in_group("pickup"):
 		if not is_instance_valid(item) or not ("is_held" in item):
 			continue
-		if item.is_held or item.is_in_group("shelved"):
+		## Frozen bodies (stored/shelved/placed) are never cleaning candidates —
+		## defensive catch on top of the group/held/shelved exclusions (Aug 2026).
+		if item.is_held or item.is_in_group("shelved") \
+				or (item is RigidBody3D and (item as RigidBody3D).freeze):
 			continue
 		## Aug 2026 — a pot resting on a stove sits perfectly still
 		## (is_held is false the whole time it's hosted, same convention

@@ -117,6 +117,19 @@ func try_add_item(item: RigidBody3D) -> bool:
 	item.angular_velocity  = Vector3.ZERO
 	if item.has_method("deactivate_dynamic_state"):
 		item.deactivate_dynamic_state()   ## stashed = physics/contacts/obstacle off (Aug 2026)
+	## Leave the world-item scans and mark ecosystem-stored (Aug 2026) — without
+	## these, a stashed-but-invisible item still passed JobBoard's cleaning scan
+	## (it was never marked "shelved", so NPCs could grab it out of the basket).
+	item.remove_from_group("pickup")
+	item.add_to_group("shelved")
+	## A frozen, "shelved" item is still walked by InteractionSystem's
+	## per-frame "interactable" scan (it just gets skipped once the loop
+	## sees the "shelved" tag) — leaving container-type items (CanCase,
+	## another Basket, etc.) in "interactable" forever pays that per-node
+	## cost indefinitely. Pull them out while stashed, restore on removal.
+	if item.is_in_group("interactable"):
+		item.set_meta("_was_interactable", true)
+		item.remove_from_group("interactable")
 	if "is_held" in item:
 		item.is_held = false
 	if "_hold_point" in item:
@@ -153,6 +166,11 @@ func remove_item(slot_idx: int) -> RigidBody3D:
 	item.angular_velocity  = Vector3.ZERO
 	if item.has_method("restore_dynamic_state"):
 		item.restore_dynamic_state()   ## back to a live item (Aug 2026)
+	item.add_to_group("pickup")   ## back in the world-item scans (Aug 2026)
+	item.remove_from_group("shelved")
+	if item.has_meta("_was_interactable"):
+		item.add_to_group("interactable")
+		item.remove_meta("_was_interactable")
 	item.global_position   = global_position + Vector3(0.0, 0.3, 0.0)
 
 	item_removed.emit(slot_idx, item)

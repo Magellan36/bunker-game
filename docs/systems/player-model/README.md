@@ -282,6 +282,68 @@ that was not touched by this pass — if NPC sitting shows the same
 fixed-approach-point or facing-restoration gaps the player had before
 this fix, that file needs the analogous treatment.
 
+### Seat-height correction (Aug 2026, 5th pass — the actual final fix)
+
+Everything above this subsection made the sit animation *internally
+consistent* (feet genuinely grounded during standing frames, a
+physically-natural knee-bend when seated) — but internal consistency
+and matching THIS SPECIFIC CHAIR's actual seat height are two different
+problems, and fixing the first does not automatically fix the second.
+After the feet-calibration fix above, the character still rendered
+sitting well above the chair's actual seat surface — confirmed by
+measuring the REAL, running Godot result directly (not a Blender-space
+assumption): the seated Hips bone's actual world Y sat **0.3316m above
+`Chair.SEAT_Y`** for the male body, **0.4398m above** for the female
+(different skeleton proportions between the two Adventurer bodies).
+Both numbers are large — confirming this was a real, substantial gap,
+not a rounding-level issue.
+
+**Why the earlier Blender-only verification missed this:** every check
+in the "Sit animation root-offset fix" section above was done entirely
+within Blender's own coordinate space — confirming the CLIP's internal
+consistency (feet-to-rest residual near zero, etc.), never cross-checked
+against the actual live Godot result. The clip's own natural
+standing→seated hip drop is a property of the skeleton's own geometry
+alone (knee-bend on a fixed floor anchor); it has zero awareness of any
+particular chair's `SEAT_Y`. Those two numbers only happen to match if
+you verify it — which hadn't been done until this pass.
+
+**Measurement method:** a temporary headless diagnostic
+(`tools/_ground_truth_sit_check.gd`, since deleted — reconstructable
+from this description if ever needed again) loaded the real
+`Adventurer_Male.fbx`/`Adventurer_Female.fbx` body directly (bypassing
+`AdventurerModelController.gd`, since that script needs the
+`CharacterCreationData` autoload, unavailable in bare `godot --headless
+--script` execution), attached the actual `sit_lib.res` library, forced
+the pose to the middle of the seated loop via `AnimationPlayer.seek()`
+(synchronous, no real-time frame waiting needed — `await process_frame`
+does not pump in bare `--script` mode, confirmed by a timeout on the
+first attempt), then read the real `Skeleton3D.get_bone_global_pose()`
+for `Hips` and compared directly against `Chair.SEAT_Y`.
+
+**The fix:** `SEAT_HEIGHT_CORRECTION` (`AdventurerModelController.gd`),
+a gender-keyed dictionary of the exact measured gaps above. Applied
+inside `_lerp_sit_position()` (the same function driving the X/Z
+approach↔seat slide) as a THIRD, curve-synced lerp on
+`player.global_position.y` — eases in over `SIT_DOWN_CURVE` while
+sitting down, eases back out over `STAND_UP_CURVE` while standing, using
+the exact same per-clip motion-shape timing already established for the
+horizontal slide (see the section above) rather than an instant snap.
+The correction is relative to `_chair_approach_pos.y` (the floor height
+captured at the moment the player pressed E, itself already correct
+since the whole sequence's floor anchor never otherwise moves), so it
+composes correctly regardless of the actual floor height the interaction
+happened at.
+
+**If this ever needs re-measuring** (chair `SEAT_Y` changes, a body's
+rig changes, a third gender/body variant is added): reconstruct the
+deleted diagnostic script from the method description above — the key
+points are (1) bypass `AdventurerModelController.gd` and load the body +
+`sit_lib.res` directly to avoid the autoload dependency, (2) use
+`AnimationPlayer.seek()` not real-time waiting, (3) read
+`Skeleton3D.get_bone_global_pose(skeleton.find_bone("Hips"))` for the
+real world position, not a Blender-space measurement.
+
 ## Native-rig rebuild (Aug 2026, IN PROGRESS)
 
 **Status: retarget complete (headless), visual checkpoint outstanding.**

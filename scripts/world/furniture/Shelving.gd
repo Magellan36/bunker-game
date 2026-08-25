@@ -552,6 +552,18 @@ func _place_item_in_slot(item: RigidBody3D, slot_idx: int, stack_idx: int) -> vo
 		## Shelved = frozen + physics off + not an RVO obstacle (Aug 2026).
 		if item.has_method("deactivate_dynamic_state"):
 			item.deactivate_dynamic_state()
+		## Leave the "pickup" group so the world-item scans (cleaning every 2s,
+		## NPC fetch, etc.) never iterate stored items at all (Aug 2026).
+		item.remove_from_group("pickup")
+		## A frozen, "shelved" item still gets walked (and skipped) by
+		## InteractionSystem's per-frame "interactable" scan — container-type
+		## items (CanCase, WaterCase, Basket, …) join that group permanently
+		## in their own _ready(), so without this every shelved one of those
+		## pays the scan's per-node cost for the rest of the game regardless
+		## of storage state. Pull them out while shelved.
+		if item.is_in_group("interactable"):
+			item.set_meta("_was_interactable", true)
+			item.remove_from_group("interactable")
 	)
 
 ## NPC Pass 2, Part 3 — NPC-side retrieval. Mirrors retrieve_to_carry()'s
@@ -662,6 +674,9 @@ func retrieve_to_carry(slot_idx: int, isys: Node) -> bool:
 	## Remove shelved guard so pickup is allowed again
 	if item.is_in_group("shelved"):
 		item.remove_from_group("shelved")
+	if item.has_meta("_was_interactable"):
+		item.add_to_group("interactable")
+		item.remove_meta("_was_interactable")
 
 	item.freeze           = false
 	item.freeze_mode      = RigidBody3D.FREEZE_MODE_KINEMATIC
@@ -702,6 +717,9 @@ func retrieve_to_inventory(slot_idx: int, inv: Node) -> bool:
 	## Remove shelved guard before handing to inventory
 	if item.is_in_group("shelved"):
 		item.remove_from_group("shelved")
+	if item.has_meta("_was_interactable"):
+		item.add_to_group("interactable")
+		item.remove_meta("_was_interactable")
 
 	item.freeze          = false
 	item.visible         = true
@@ -732,6 +750,9 @@ func eject_all_items() -> void:
 				world_root.add_child(item)
 			if item.is_in_group("shelved"):
 				item.remove_from_group("shelved")
+			if item.has_meta("_was_interactable"):
+				item.add_to_group("interactable")
+				item.remove_meta("_was_interactable")
 			item.freeze          = false
 			item.freeze_mode     = RigidBody3D.FREEZE_MODE_KINEMATIC
 			item.gravity_scale   = 1.0
@@ -741,6 +762,7 @@ func eject_all_items() -> void:
 			item.angular_velocity = Vector3.ZERO
 			if item.has_method("restore_dynamic_state"):
 				item.restore_dynamic_state()   ## ejected to the floor — live again (Aug 2026)
+			item.add_to_group("pickup")   ## back in the world-item scans (Aug 2026)
 			item.global_position = global_position + Vector3(
 				randf_range(-0.5, 0.5), 0.8, randf_range(-0.4, 0.4))
 			item.apply_central_impulse(Vector3(

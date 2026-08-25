@@ -162,7 +162,17 @@ static func _duplicate_visual_tree(item: Node3D) -> Node3D:
 static func build_viewport(parent: Node, pixel_size: int, cam_size_multiplier: float = 1.0) -> SubViewport:
 	var vp := SubViewport.new()
 	vp.size = Vector2i(pixel_size, pixel_size)
-	vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+	## Aug 2026 fix — these previews never rotate or animate (ROTATION_DEFAULT
+	## is a fixed resting pose), but UPDATE_WHEN_VISIBLE re-renders this
+	## SubViewport's entire isolated World3D (own camera + light + mesh)
+	## EVERY FRAME regardless, for as long as it's visible. With StorageUI's
+	## grid this is one full extra render pass per occupied slot per frame —
+	## the more full the storage, the laggier opening/viewing it gets, for
+	## zero visual benefit since nothing in the scene ever changes on its
+	## own. UPDATE_ONCE renders exactly one frame then Godot auto-reverts it
+	## to UPDATE_DISABLED; set_item()/clear() re-arm it only when the actual
+	## content changes.
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	vp.transparent_bg = true
 	vp.own_world_3d    = true
 	vp.disable_3d      = false
@@ -258,3 +268,9 @@ static func clear(vp: SubViewport) -> void:
 	for child in vp.get_children():
 		if child is Node3D and child is not Camera3D and child is not OmniLight3D:
 			child.queue_free()
+	## Re-arm one render (see build_viewport()'s update-mode comment) —
+	## content is changing (to new item content if set_item() called us, or
+	## to genuinely empty if a caller cleared a now-empty slot directly), so
+	## the viewport needs one fresh frame rather than keeping whatever it
+	## last rendered forever under UPDATE_DISABLED.
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE

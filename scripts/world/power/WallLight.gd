@@ -100,6 +100,15 @@ var _is_preview_only: bool = false
 ## Track shed state so set_powered(true) knows to restore full brightness.
 var _is_shed: bool = false
 
+## Shadow LOD (Aug 2026, see GraphicsSettings.SHADOW_LOD_* header comment)
+## — this fixture's own hysteresis state so GraphicsSettings' periodic scan
+## doesn't need to track per-light state itself. Starts true so a freshly
+## placed/loaded light isn't wrongly shadow-culled before the first scan
+## ever runs (a beat where it'd otherwise be near the player with no
+## shadow) — the first real scan corrects it either way within
+## SHADOW_LOD_SCAN_INTERVAL.
+var _shadow_lod_near: bool = true
+
 ## Lazily-created shared priority panel (PowerPriorityUI). Reused across opens.
 var _prio_ui: CanvasLayer = null
 ## Tracks whether the player is currently powered (for the interact prompt).
@@ -110,6 +119,7 @@ func _ready() -> void:
 	set_meta("tile_id", 5)
 	if not _is_preview_only:
 		add_to_group("wall_lights")
+		add_to_group("shadow_lod_lights")   ## Aug 2026 — distance-gated shadows, see GraphicsSettings.gd
 		## Defer power registration so global_position is correct.
 		## add_child() sets position AFTER _ready() runs, so calling
 		## register_wire_node() here would snap to Vector3.ZERO.
@@ -437,7 +447,29 @@ func _build_fixture() -> void:
 func _apply_graphics_settings() -> void:
 	if _omni == null:
 		return
-	_omni.shadow_enabled = GraphicsSettings.shadow_casting_enabled
+	## Global switch always wins outright: OFF forces this fixture dark
+	## regardless of distance; ON re-arms distance gating rather than
+	## forcing shadows on for a possibly-far fixture — the next
+	## GraphicsSettings shadow-LOD scan (within SHADOW_LOD_SCAN_INTERVAL)
+	## corrects it down again if the player isn't actually nearby.
+	_omni.shadow_enabled = GraphicsSettings.shadow_casting_enabled and _shadow_lod_near
+
+
+## Shadow LOD (Aug 2026) — called by GraphicsSettings' periodic scan (see its
+## SHADOW_LOD_* header comment for the hysteresis rationale). NEAR_RADIUS <
+## FAR_RADIUS on purpose: only flips state when the player crosses whichever
+## boundary is relevant to the CURRENT state, so hovering between the two
+## radii can't toggle every scan.
+func update_shadow_lod(player_pos: Vector3) -> void:
+	if _omni == null:
+		return
+	var dist: float = global_position.distance_to(player_pos)
+	if _shadow_lod_near and dist > GraphicsSettings.SHADOW_LOD_FAR_RADIUS:
+		_shadow_lod_near = false
+		_omni.shadow_enabled = false
+	elif not _shadow_lod_near and dist < GraphicsSettings.SHADOW_LOD_NEAR_RADIUS:
+		_shadow_lod_near = true
+		_omni.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 
 
 ## Aug 2026 — returns this fixture's current contribution weight for the

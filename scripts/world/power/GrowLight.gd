@@ -115,6 +115,12 @@ var _pm_node_key: String = ""
 var _is_powered:  bool   = false
 var _is_shed:     bool   = false
 
+## Shadow LOD (Aug 2026, see GraphicsSettings.SHADOW_LOD_* header comment and
+## WallLight.gd's identical mechanism) — this fixture's own hysteresis
+## state; starts true so a freshly placed/loaded light isn't wrongly
+## shadow-culled before the first scan.
+var _shadow_lod_near: bool = true
+
 ## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
 ## construct-tab preview code BEFORE add_child(), so this instance builds
 ## its real visual exactly like a placed object but skips every
@@ -210,6 +216,7 @@ func _ready() -> void:
 		return
 	add_to_group("interactable")
 	add_to_group("grow_light")
+	add_to_group("shadow_lod_lights")   ## Aug 2026 — distance-gated shadows, see GraphicsSettings.gd
 	## A7 safety net — guarantee fixture starts off before any PowerManager
 	## solve can potentially set it powered.
 	set_powered(false)
@@ -561,7 +568,27 @@ func _build_spot_light() -> void:
 func _apply_graphics_settings() -> void:
 	if _spot == null:
 		return
-	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
+	## Global switch always wins outright: OFF forces this fixture dark
+	## regardless of distance; ON re-arms distance gating rather than
+	## forcing shadows on for a possibly-far fixture — the next
+	## GraphicsSettings shadow-LOD scan corrects it down again if the
+	## player isn't actually nearby. Mirrors WallLight.gd exactly.
+	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled and _shadow_lod_near
+
+
+## Shadow LOD (Aug 2026) — called by GraphicsSettings' periodic scan.
+## Mirrors WallLight.gd's identical method; see that file's comment for the
+## hysteresis rationale.
+func update_shadow_lod(player_pos: Vector3) -> void:
+	if _spot == null:
+		return
+	var dist: float = global_position.distance_to(player_pos)
+	if _shadow_lod_near and dist > GraphicsSettings.SHADOW_LOD_FAR_RADIUS:
+		_shadow_lod_near = false
+		_spot.shadow_enabled = false
+	elif not _shadow_lod_near and dist < GraphicsSettings.SHADOW_LOD_NEAR_RADIUS:
+		_shadow_lod_near = true
+		_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
 
 ## Aug 2026 — returns this fixture's current contribution weight for the
 ## removed fake-shadow decal system's aggregate shadow-direction

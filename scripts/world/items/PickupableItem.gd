@@ -108,8 +108,6 @@ func _ready() -> void:
 	if not _is_preview_only:
 		add_to_group("pickup")
 		_maybe_create_nav_obstacle()
-	contact_monitor = true
-	max_contacts_reported = 4
 
 ## NPC Pass 2, Part 11 — heavy loose items (mass >= HEAVY_OBSTACLE_MASS)
 ## get a NavigationObstacle3D child so every NavigationAgent3D in the world
@@ -148,20 +146,23 @@ func set_nav_obstacle_enabled(enabled: bool) -> void:
 ## ─── Deactivate / restore for stored & placed items (Aug 2026) ──────────────
 ## A frozen item (placed, shelved, basket-stashed, stove-resting, in an
 ## inventory slot, etc.) still burns CPU every frame even though its physics
-## body isn't simulated: the per-item _physics_process callback, the
-## contact_monitor flag, and — most expensively — the NavigationObstacle3D
-## avoidance (RVO) all keep running regardless of the frozen state.
-## deactivate_dynamic_state() kills all three for the item's stored lifetime;
-## restore_dynamic_state() brings them back when it becomes dynamic again
-## (pickup/drop/knockout handle the held-vs-loose avoidance split).
+## body isn't simulated: the per-item _physics_process callback and —
+## most expensively — the NavigationObstacle3D avoidance (RVO) both keep
+## running regardless of the frozen state. deactivate_dynamic_state() kills
+## both for the item's stored lifetime; restore_dynamic_state() brings them
+## back when it becomes dynamic again (pickup/drop/knockout handle the
+## held-vs-loose avoidance split).
+##
+## contact_monitor is no longer touched here — no code anywhere connects to
+## a PickupableItem's own body_shape_entered/exited, so it was pure physics-
+## server overhead on every active item (not just stored ones) for no
+## payoff. Removed entirely in _ready() rather than toggled.
 func deactivate_dynamic_state() -> void:
 	set_physics_process(false)
-	contact_monitor = false
 	set_nav_obstacle_enabled(false)
 
 func restore_dynamic_state() -> void:
 	set_physics_process(true)
-	contact_monitor = true
 	set_nav_obstacle_enabled(true)
 
 ## Generic, shape-agnostic bounding-circle radius computed from this item's
