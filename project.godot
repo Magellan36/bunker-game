@@ -30,10 +30,16 @@ JobBoard="*res://scripts/npc/JobBoard.gd"
 
 [display]
 
-window/size/viewport_width=1920
-window/size/viewport_height=1080
+; Aug 2026 — 2× supersampling EXPERIMENT: the viewport renders at 4K and is
+; downscaled to the window (stretch mode=viewport), smoothing the 2D UI as
+; well as 3D. GPU-heavy; isolated in its own commit so it can be reverted
+; cleanly if the perf cost is too high. Base is 1920×1080; 1:1 on 4K displays.
+window/size/viewport_width=3840
+window/size/viewport_height=2160
 window/size/mode=3
 window/size/borderless=true
+window/stretch/mode=2
+window/stretch/aspect=1
 
 [gui]
 
