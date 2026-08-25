@@ -115,6 +115,8 @@ func try_add_item(item: RigidBody3D) -> bool:
 	item.collision_mask    = 0
 	item.linear_velocity   = Vector3.ZERO
 	item.angular_velocity  = Vector3.ZERO
+	if item.has_method("deactivate_dynamic_state"):
+		item.deactivate_dynamic_state()   ## stashed = physics/contacts/obstacle off (Aug 2026)
 	if "is_held" in item:
 		item.is_held = false
 	if "_hold_point" in item:
@@ -149,6 +151,8 @@ func remove_item(slot_idx: int) -> RigidBody3D:
 	item.collision_mask    = 1
 	item.linear_velocity   = Vector3.ZERO
 	item.angular_velocity  = Vector3.ZERO
+	if item.has_method("restore_dynamic_state"):
+		item.restore_dynamic_state()   ## back to a live item (Aug 2026)
 	item.global_position   = global_position + Vector3(0.0, 0.3, 0.0)
 
 	item_removed.emit(slot_idx, item)

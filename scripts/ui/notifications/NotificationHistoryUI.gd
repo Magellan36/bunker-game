@@ -45,7 +45,11 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_reposition)
 
 	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color     = Color(0.06, 0.06, 0.07, 0.90)
+	## RGB from the shared UI/bg (Aug 2026 consistency pass), alpha kept at
+	## this panel's distinct 0.90 — a passive sub-panel reads less solid
+	## than a modal's 0.97.
+	var hist_bg: Color = UIKit.theme_color("UI", "bg", Color(0.06, 0.06, 0.07, 0.90))
+	style.bg_color     = Color(hist_bg.r, hist_bg.g, hist_bg.b, 0.90)
 	style.border_color = Color(0.32, 0.32, 0.35, 0.85)
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(4)

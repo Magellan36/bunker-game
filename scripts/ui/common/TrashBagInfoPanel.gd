@@ -25,8 +25,12 @@ const SCAN_RADIUS: float       = 3.0
 const SCAN_INTERVAL_SEC: float = 0.15
 const ANCHOR_OFFSET: Vector3   = Vector3(0.0, 0.4, 0.0)
 
-const FONT_SIZE_TITLE: int = 14
-const FONT_SIZE_ROW:    int = 12
+## Font sizes snapped onto the shared UI scale (Aug 2026 consistency pass) —
+## were bare 14/12; now theme-sourced (title→state 11, row→label 10). NOTE:
+## this shrinks the ambient panel's text slightly — verify visually; revert
+## the mapping if it reads too small.
+var FONT_SIZE_TITLE: int = 11
+var FONT_SIZE_ROW:    int = 10
 
 const COLOR_BG:      Color = Color(0.08, 0.08, 0.10, 0.92)
 const COLOR_BORDER:  Color = Color(0.45, 0.45, 0.50, 0.70)
@@ -46,6 +50,8 @@ var _list_box: VBoxContainer = null
 func _ready() -> void:
 	layer   = 50   ## above the F/E prompt layer, below modal panels
 	visible = false
+	FONT_SIZE_TITLE = UIKit.theme_font_size("UI", "state", FONT_SIZE_TITLE)
+	FONT_SIZE_ROW    = UIKit.theme_font_size("UI", "label", FONT_SIZE_ROW)
 	_build_panel()
 
 func _build_panel() -> void:

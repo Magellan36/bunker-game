@@ -46,6 +46,7 @@ func tick(npc: NPC, delta: float) -> void:
 		## the NPC just parks with zero velocity).
 		if _chair.has_method("npc_try_sit") and _chair.npc_try_sit(npc):
 			_seated = true
+			npc.seated_chair = _chair
 			var t: Transform3D = _chair.get_seat_transform()
 			npc.global_position = t.origin
 			npc.rotation.y = t.basis.get_euler().y
@@ -64,6 +65,7 @@ func exit(npc: NPC) -> void:
 			_chair.npc_stand(npc)
 		npc.global_position = _chair.get_stand_position()
 	_seated = false
+	npc.seated_chair = null
 	_chair = null
 
 func _find_free_chair(npc: NPC) -> Node:

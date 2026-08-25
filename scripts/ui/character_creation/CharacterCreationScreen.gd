@@ -25,8 +25,8 @@ extends Control
 ## CharacterCreationData autoload; AdventurerModelController.gd reads it
 ## at _ready() for the actual in-game body (see that file). Nothing here
 ## touches real gameplay systems — this whole screen and everything on
-## it is discarded the moment MainWorld loads via change_scene_to_file()
-## below.
+## it is discarded the moment Complete routes through the LoadingScreen to
+## MainWorld (change_scene_to_file() below).
 
 ## key must match a HAIRSTYLES key in PlayerModelController.gd exactly.
 ## Aug 2026 — UNUSED in V1, see the packed-away note above.
@@ -55,7 +55,10 @@ const HAIR_COLOR_SWATCHES: Array[Color] = [
 ## Aug 2026 — points at the new AdventurerModel.tscn (V1's single
 ## complete-body model) instead of the old customizable PlayerModel.tscn.
 const PREVIEW_SCENE_PATH: String = "res://scenes/player/AdventurerModel.tscn"
-const NEXT_SCENE_PATH: String = "res://scenes/world/MainWorld.tscn"
+## Aug 2026 — Complete now goes through the LoadingScreen first (threaded
+## MainWorld load + fixed display time) instead of swapping straight to the
+## world, so the bunker build-up happens behind a branded screen.
+const NEXT_SCENE_PATH: String = "res://scenes/ui/LoadingScreen.tscn"
 const THUMBNAIL_PIXEL_SIZE: int = 72
 
 @export var category_body_button: Button = null

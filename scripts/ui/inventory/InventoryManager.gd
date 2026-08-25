@@ -70,6 +70,8 @@ func _store_to_slot(item: RigidBody3D, slot: int) -> void:
 	item.collision_layer = 0
 	item.collision_mask  = 0
 	item.remove_from_group("pickup")
+	if item.has_method("deactivate_dynamic_state"):
+		item.deactivate_dynamic_state()   ## stored = physics/contacts/obstacle off (Aug 2026)
 	# Clear held state — prevents ghost physics running while hidden
 	if "is_held" in item:
 		item.is_held = false
@@ -91,6 +93,8 @@ func activate_item(slot: int) -> RigidBody3D:
 	item.collision_mask  = 1
 	item.linear_velocity  = Vector3.ZERO
 	item.angular_velocity = Vector3.ZERO
+	if item.has_method("restore_dynamic_state"):
+		item.restore_dynamic_state()   ## held again — re-enable physics/contacts (Aug 2026)
 	# Don't add back to "pickup" group — item is in hand, not on ground
 	return item
 
@@ -106,6 +110,8 @@ func deactivate_item(slot: int) -> void:
 	item.visible         = false
 	item.collision_layer = 0
 	item.collision_mask  = 0
+	if item.has_method("deactivate_dynamic_state"):
+		item.deactivate_dynamic_state()   ## back to stored — physics/contacts/obstacle off (Aug 2026)
 	if "is_held" in item:
 		item.is_held = false
 	if "_hold_point" in item:
@@ -130,6 +136,8 @@ func retrieve_item(slot: int) -> RigidBody3D:
 	item.add_to_group("pickup")
 	item.linear_velocity  = Vector3.ZERO
 	item.angular_velocity = Vector3.ZERO
+	if item.has_method("restore_dynamic_state"):
+		item.restore_dynamic_state()   ## dropped to the world — live again (Aug 2026)
 
 	inventory_changed.emit()
 	return item

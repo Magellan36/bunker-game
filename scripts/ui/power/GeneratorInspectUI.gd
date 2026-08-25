@@ -16,26 +16,97 @@ signal closed
 signal backup_toggled(enabled: bool)
 signal power_toggled(running: bool)
 
-# ─── Palette (matches bunker military/brutalist theme) ────────────────────────
-const BG_COLOR:       Color = Color(0.08, 0.08, 0.09, 0.97)
-const BORDER_COLOR:   Color = Color(0.55, 0.58, 0.62, 0.70)
-const HEADER_COLOR:   Color = Color(0.80, 0.82, 0.86, 1.00)
-const TEXT_COLOR:     Color = Color(0.85, 0.86, 0.88, 0.95)
-const DIM_COLOR:      Color = Color(0.50, 0.52, 0.55, 0.80)
-const WARN_COLOR:     Color = Color(1.00, 0.72, 0.10, 1.00)
-const CRIT_COLOR:     Color = Color(1.00, 0.35, 0.30, 1.00)
-const OK_COLOR:       Color = Color(0.35, 0.85, 1.00, 1.00)
-const ACCENT_BACKUP:  Color = Color(0.30, 0.68, 1.00, 1.00)   ## unchanged, functional not identity
-const ACCENT_COLOR:   Color = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
-const BTN_ON_COLOR:   Color = Color(0.14, 0.72, 0.30, 1.00)
-const BTN_OFF_COLOR:  Color = Color(0.55, 0.14, 0.10, 1.00)
-const TRIPPED_COLOR:  Color = Color(0.95, 0.60, 0.08, 1.00)
-const OFFLINE_COLOR:  Color = Color(0.60, 0.60, 0.60, 1.00)   ## Grey for OFFLINE grid
-const OVERLOADED_COLOR: Color = Color(1.00, 0.85, 0.20, 1.00)   ## Yellow for OVERLOADED
+# ─── Palette + geometry (sourced from BunkerTheme — the UI design catalog,
+## see assets/fonts/BunkerTheme.tres). Loaded in _load_theme() (from _ready);
+## these defaults are fallbacks if the theme resource is missing.
+var BG_COLOR:       Color = Color(0.08, 0.08, 0.09, 0.97)
+## Shared backdrop dim — read from UI/backdrop_alpha_permille (Aug 2026).
+var _backdrop_alpha: float = 0.60
+var BORDER_COLOR:   Color = Color(0.55, 0.58, 0.62, 0.70)
+var HEADER_COLOR:   Color = Color(0.80, 0.82, 0.86, 1.00)
+var TEXT_COLOR:     Color = Color(0.85, 0.86, 0.88, 0.95)
+var DIM_COLOR:      Color = Color(0.50, 0.52, 0.55, 0.80)
+var WARN_COLOR:     Color = Color(1.00, 0.72, 0.10, 1.00)
+var CRIT_COLOR:     Color = Color(1.00, 0.35, 0.30, 1.00)
+var OK_COLOR:       Color = Color(0.35, 0.85, 1.00, 1.00)
+var ACCENT_BACKUP:  Color = Color(0.30, 0.68, 1.00, 1.00)   ## unchanged, functional not identity
+var ACCENT_COLOR:   Color = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
+var BTN_ON_COLOR:   Color = Color(0.14, 0.72, 0.30, 1.00)
+var BTN_OFF_COLOR:  Color = Color(0.55, 0.14, 0.10, 1.00)
+var TRIPPED_COLOR:  Color = Color(0.95, 0.60, 0.08, 1.00)
+var OFFLINE_COLOR:  Color = Color(0.60, 0.60, 0.60, 1.00)   ## Grey for OFFLINE grid
+var OVERLOADED_COLOR: Color = Color(1.00, 0.85, 0.20, 1.00)   ## Yellow for OVERLOADED
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
-const PANEL_W: float = 480.0
-const PANEL_H: float = 490.0   ## Extra height for grid state row
+var PANEL_W: float = 480.0
+var PANEL_H: float = 490.0   ## Extra height for grid state row
+
+## Component geometry / colors read from BunkerTheme's GeneratorUI section.
+var _bar_h: float = 14.0
+var _fuel_warn: float = 50.0
+var _fuel_crit: float = 20.0
+var _health_warn: float = 50.0
+var _health_crit: float = 25.0
+var _power_btn_w: float = 160.0
+var _power_btn_h: float = 44.0
+var _toggle_btn_h: float = 50.0
+var _pill_w: float = 50.0
+var _pill_h: float = 26.0
+var _start_bg: Color = Color(0.08, 0.28, 0.12, 1.0)
+var _running_bg: Color = Color(0.42, 0.08, 0.06, 1.0)
+var _standby_bg: Color = Color(0.06, 0.30, 0.12, 1.0)
+var _pill_on: Color = Color(0.30, 0.68, 1.00, 1.00)
+var _pill_off: Color = Color(0.20, 0.22, 0.20, 1.0)
+var _pill_knob: Color = Color(0.92, 0.95, 0.92, 1.0)
+var _bar_groove: Color = Color(0.12, 0.14, 0.12, 0.90)
+var _bar_border: Color = Color(0.28, 0.35, 0.28, 0.50)
+## Cached BunkerTheme reference (set in _load_theme) — used for the
+## ActionButton stylebox lookups (START / SHUT DOWN power button).
+var _theme: Theme = null
+
+## Pulls every palette + component value from BunkerTheme so the theme is the
+## single source of truth (tweak there, this panel follows).
+func _load_theme() -> void:
+	var t: Theme = load("res://assets/fonts/BunkerTheme.tres") as Theme
+	if t == null:
+		return
+	_theme = t
+	BG_COLOR = t.get_color("bg", "UI")
+	BORDER_COLOR = t.get_color("border", "UI")
+	HEADER_COLOR = t.get_color("header", "UI")
+	TEXT_COLOR = t.get_color("text", "UI")
+	DIM_COLOR = t.get_color("dim", "UI")
+	OK_COLOR = t.get_color("ok", "UI")
+	WARN_COLOR = t.get_color("warn", "UI")
+	CRIT_COLOR = t.get_color("crit", "UI")
+	ACCENT_COLOR = t.get_color("power_accent", "UI")
+	ACCENT_BACKUP = t.get_color("accent_backup", "UI")
+	BTN_ON_COLOR = t.get_color("btn_on", "GeneratorUI")
+	BTN_OFF_COLOR = t.get_color("btn_off", "GeneratorUI")
+	TRIPPED_COLOR = t.get_color("tripped", "GeneratorUI")
+	OFFLINE_COLOR = t.get_color("offline", "GeneratorUI")
+	OVERLOADED_COLOR = t.get_color("overloaded", "GeneratorUI")
+	_start_bg = t.get_color("start_bg", "GeneratorUI")
+	_running_bg = t.get_color("running_bg", "GeneratorUI")
+	_standby_bg = t.get_color("standby_bg", "GeneratorUI")
+	_pill_on = t.get_color("backup_pill_on", "GeneratorUI")
+	_pill_off = t.get_color("backup_pill_off", "GeneratorUI")
+	_pill_knob = t.get_color("pill_knob", "GeneratorUI")
+	_bar_groove = t.get_color("bar_groove", "GeneratorUI")
+	_bar_border = t.get_color("bar_border", "GeneratorUI")
+	PANEL_W = t.get_constant("panel_w", "GeneratorUI")
+	PANEL_H = t.get_constant("panel_h", "GeneratorUI")
+	_bar_h = t.get_constant("bar_h", "GeneratorUI")
+	_fuel_warn = t.get_constant("fuel_warn_thresh", "GeneratorUI")
+	_fuel_crit = t.get_constant("fuel_crit_thresh", "GeneratorUI")
+	_health_warn = t.get_constant("health_warn_thresh", "GeneratorUI")
+	_health_crit = t.get_constant("health_crit_thresh", "GeneratorUI")
+	_power_btn_w = t.get_constant("power_btn_w", "GeneratorUI")
+	_power_btn_h = t.get_constant("power_btn_h", "GeneratorUI")
+	_toggle_btn_h = t.get_constant("toggle_btn_h", "GeneratorUI")
+	_pill_w = t.get_constant("backup_pill_w", "GeneratorUI")
+	_pill_h = t.get_constant("backup_pill_h", "GeneratorUI")
+	_backdrop_alpha = float(UIKit.theme_constant("UI", "backdrop_alpha_permille", 600)) / 1000.0
 
 # ─── Live data (set by open()) ────────────────────────────────────────────────
 var _display_name:  String = "Generator"
@@ -60,6 +131,7 @@ var _power_btn_y:     float    = 0.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
+	_load_theme()
 	layer   = 60
 	visible = false
 	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
@@ -111,10 +183,10 @@ func _reposition_controls() -> void:
 
 	var toggle_y: float = _toggle_btn_y if _toggle_btn_y > 0.0 else (py + 260.0)
 	_toggle_btn.position = Vector2(px + 20.0, toggle_y - 4.0)
-	_toggle_btn.size     = Vector2(PANEL_W - 40.0, 50.0)
+	_toggle_btn.size     = Vector2(PANEL_W - 40.0, _toggle_btn_h)
 
-	var btn_w: float = 160.0
-	var btn_h: float = 44.0
+	var btn_w: float = _power_btn_w
+	var btn_h: float = _power_btn_h
 	var btn_x: float = px + (PANEL_W - btn_w) * 0.5
 	var btn_y: float = _power_btn_y if _power_btn_y > 0.0 else (toggle_y + 70.0)
 	_power_btn.position = Vector2(btn_x, btn_y)
@@ -127,51 +199,67 @@ func _reposition_controls() -> void:
 func _style_power_btn() -> void:
 	if _power_btn == null:
 		return
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.corner_radius_top_left     = 6
-	style.corner_radius_top_right    = 6
-	style.corner_radius_bottom_left  = 6
-	style.corner_radius_bottom_right = 6
-
+	var style: StyleBoxFlat = null
+	var label: String
+	var text_col: Color
 	if _grid_tripped and not _is_running:
 		## Grid is tripped — show START button so player can reset+restart manually.
 		## Pressing it calls GeneratorObject._on_power_toggled(true) which calls
 		## pm.reset_main_breaker() then starts this generator.
-		style.bg_color     = Color(0.08, 0.28, 0.12, 1.0)
-		style.border_color = TRIPPED_COLOR
-		style.border_width_top    = 2
-		style.border_width_bottom = 2
-		style.border_width_left   = 2
-		style.border_width_right  = 2
-		_power_btn.text        = "START"
-		_power_btn.disabled    = false
-		_power_btn.add_theme_color_override("font_color", BTN_ON_COLOR)
+		style = _action_style("start_tripped")
+		label = "START"
+		text_col = _action_text_color("text_tripped", BTN_ON_COLOR)
 	elif _is_running:
-		style.bg_color     = Color(0.42, 0.08, 0.06, 1.0)
-		style.border_color = CRIT_COLOR
-		style.border_width_top    = 2
-		style.border_width_bottom = 2
-		style.border_width_left   = 2
-		style.border_width_right  = 2
-		_power_btn.text     = "SHUT DOWN"
-		_power_btn.disabled = false
-		_power_btn.add_theme_color_override("font_color", CRIT_COLOR)
+		style = _action_style("shutdown")
+		label = "SHUT DOWN"
+		text_col = _action_text_color("text_shutdown", CRIT_COLOR)
 	else:
-		style.bg_color     = Color(0.06, 0.30, 0.12, 1.0)
-		style.border_color = OK_COLOR
-		style.border_width_top    = 2
-		style.border_width_bottom = 2
-		style.border_width_left   = 2
-		style.border_width_right  = 2
-		_power_btn.text     = "START"
-		_power_btn.disabled = false
-		_power_btn.add_theme_color_override("font_color", OK_COLOR)
-
+		style = _action_style("start")
+		label = "START"
+		text_col = _action_text_color("text_start", OK_COLOR)
+	_power_btn.text     = label
+	_power_btn.disabled = false
+	_power_btn.add_theme_color_override("font_color", text_col)
 	_power_btn.add_theme_stylebox_override("normal",   style)
 	_power_btn.add_theme_stylebox_override("hover",    style)
 	_power_btn.add_theme_stylebox_override("pressed",  style)
 	_power_btn.add_theme_stylebox_override("disabled", style)
-	_power_btn.add_theme_font_size_override("font_size", 14)
+	_power_btn.add_theme_font_size_override("font_size",
+		_theme.get_font_size("font_size", "ActionButton") if _theme != null else 14)
+
+## Returns the ActionButton stylebox from BunkerTheme (the source of truth for
+## the START / SHUT DOWN element), falling back to a locally-built StyleBoxFlat
+## from the theme-sourced vars if the theme resource is missing.
+func _action_style(name: String) -> StyleBoxFlat:
+	if _theme != null:
+		var sb := _theme.get_stylebox(name, "ActionButton") as StyleBoxFlat
+		if sb != null:
+			return sb
+	var sb2 := StyleBoxFlat.new()
+	sb2.corner_radius_top_left     = 6
+	sb2.corner_radius_top_right    = 6
+	sb2.corner_radius_bottom_left  = 6
+	sb2.corner_radius_bottom_right = 6
+	sb2.set_border_width_all(2)
+	match name:
+		"start":
+			sb2.bg_color = _standby_bg
+			sb2.border_color = OK_COLOR
+		"start_tripped":
+			sb2.bg_color = _start_bg
+			sb2.border_color = TRIPPED_COLOR
+		"shutdown":
+			sb2.bg_color = _running_bg
+			sb2.border_color = CRIT_COLOR
+	return sb2
+
+## ActionButton text color from BunkerTheme, falling back to the given color.
+func _action_text_color(name: String, fallback: Color) -> Color:
+	if _theme != null:
+		var c := _theme.get_color(name, "ActionButton")
+		if c.a > 0.0:
+			return c
+	return fallback
 
 # ─── Open / Close ─────────────────────────────────────────────────────────────
 
@@ -242,8 +330,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 # ─── Process — keep redrawing while open ──────────────────────────────────────
+## Redraw throttle (Aug 2026 optimization) — live readouts don't need 60Hz.
+const REDRAW_INTERVAL: float = 0.1
+var _redraw_accum: float = 0.0
+
 func _process(_delta: float) -> void:
-	if _is_open:
+	if not _is_open:
+		return
+	_redraw_accum += _delta
+	if _redraw_accum >= REDRAW_INTERVAL:
+		_redraw_accum = 0.0
 		_canvas.queue_redraw()
 
 # ─── Draw ─────────────────────────────────────────────────────────────────────
@@ -255,7 +351,7 @@ func _on_draw() -> void:
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - PANEL_H) * 0.5
 
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
+	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, _backdrop_alpha), true)
 
 	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
 	var border_col: Color = TRIPPED_COLOR if _grid_tripped else BORDER_COLOR
@@ -287,7 +383,7 @@ func _on_draw() -> void:
 
 	## Separator
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0)
+		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0, true)
 	cy += 12.0
 
 	# ── Stats row ─────────────────────────────────────────────────────────────
@@ -322,12 +418,12 @@ func _on_draw() -> void:
 
 	# ── Fuel bar ──────────────────────────────────────────────────────────────
 	cy = _draw_bar("FUEL", _fuel, cx, cy, PANEL_W - 48.0,
-		OK_COLOR, WARN_COLOR, CRIT_COLOR, 50.0, 20.0)
+		OK_COLOR, WARN_COLOR, CRIT_COLOR, _fuel_warn, _fuel_crit)
 	cy += 10.0
 
 	# ── HP bar ────────────────────────────────────────────────────────────────
 	cy = _draw_bar("CONDITION", _health, cx, cy, PANEL_W - 48.0,
-		OK_COLOR, WARN_COLOR, CRIT_COLOR, 50.0, 25.0)
+		OK_COLOR, WARN_COLOR, CRIT_COLOR, _health_warn, _health_crit)
 	cy += 20.0
 
 	# ── Backup toggle row ─────────────────────────────────────────────────────
@@ -341,18 +437,18 @@ func _on_draw() -> void:
 	_draw_str("When enabled, this generator idles until grid power fails.",
 		Vector2(cx + 4.0, cy + 20.0), DIM_COLOR, 9)
 
-	var pill_w: float   = 50.0
-	var pill_h: float   = 26.0
+	var pill_w: float   = _pill_w
+	var pill_h: float   = _pill_h
 	var pill_x: float   = px + PANEL_W - 24.0 - pill_w
 	var pill_y: float   = cy + 10.0
 	var pill_r: float   = pill_h * 0.5
-	var pill_col: Color = ACCENT_BACKUP if _is_backup else Color(0.20, 0.22, 0.20, 1.0)
+	var pill_col: Color = _pill_on if _is_backup else _pill_off
 	_canvas.draw_rect(Rect2(pill_x + pill_r, pill_y, pill_w - pill_r * 2.0, pill_h),
 		pill_col, true)
 	_canvas.draw_circle(Vector2(pill_x + pill_r, pill_y + pill_r), pill_r, pill_col)
 	_canvas.draw_circle(Vector2(pill_x + pill_w - pill_r, pill_y + pill_r), pill_r, pill_col)
 	var knob_cx: float = pill_x + (pill_w - pill_r) if _is_backup else (pill_x + pill_r)
-	_canvas.draw_circle(Vector2(knob_cx, pill_y + pill_r), pill_r - 3.0, Color(0.92, 0.95, 0.92, 1.0))
+	_canvas.draw_circle(Vector2(knob_cx, pill_y + pill_r), pill_r - 3.0, _pill_knob)
 
 	cy += 46.0
 	cy += 12.0
@@ -400,9 +496,8 @@ func _draw_bar(label: String, value: float,
 	_draw_str(pct_str, Vector2(x + bar_w - 30.0, y), TEXT_COLOR, 10)
 	y += 14.0
 
-	const BAR_H: float = 14.0
-	_canvas.draw_rect(Rect2(x, y, bar_w, BAR_H), Color(0.12, 0.14, 0.12, 0.90), true)
-	_canvas.draw_rect(Rect2(x, y, bar_w, BAR_H), Color(0.28, 0.35, 0.28, 0.50), false, 1.0)
+	_canvas.draw_rect(Rect2(x, y, bar_w, _bar_h), _bar_groove, true)
+	_canvas.draw_rect(Rect2(x, y, bar_w, _bar_h), _bar_border, false, 1.0)
 
 	var fill_w: float = bar_w * clampf(value, 0.0, 100.0) / 100.0
 	var fill_col: Color = col_ok
@@ -411,14 +506,14 @@ func _draw_bar(label: String, value: float,
 	elif value <= warn_thresh:
 		fill_col = col_warn
 	if fill_w > 2.0:
-		_canvas.draw_rect(Rect2(x, y, fill_w, BAR_H), fill_col, true)
+		_canvas.draw_rect(Rect2(x, y, fill_w, _bar_h), fill_col, true)
 
 	for pct: float in [25.0, 50.0, 75.0]:
 		var tx: float = x + bar_w * pct / 100.0
-		_canvas.draw_line(Vector2(tx, y), Vector2(tx, y + BAR_H),
-			Color(0.0, 0.0, 0.0, 0.30), 1.0)
+		_canvas.draw_line(Vector2(tx, y), Vector2(tx, y + _bar_h),
+			Color(0.0, 0.0, 0.0, 0.30), 1.0, true)
 
-	return y + BAR_H + 4.0
+	return y + _bar_h + 4.0
 
 # ─── String helper ────────────────────────────────────────────────────────────
 func _draw_str(text: String, pos: Vector2, color: Color, size: int) -> void:

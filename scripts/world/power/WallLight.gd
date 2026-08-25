@@ -42,6 +42,10 @@ const LIGHT_COLOR:  Color = Color(1.0, 0.82, 0.50, 1.0)
 ## instead of flooding the whole room via raw light energy.
 const LIGHT_ENERGY: float = 2.0
 const LIGHT_RANGE:  float = 10.0
+## Emissive bulb energy (Aug 2026) — intentionally LOW: the warm amber bulb
+## should read as a subtle glow, not a bright blob (the GLB's emissive asset
+## was authored as a generic white glow; see _apply_matte_override).
+const BULB_EMISSION_ENERGY: float = 0.4
 ## Per-light volumetric-fog contribution (July 2026 lighting-blowout fix).
 ## Godot's default is 1.0 (full contribution) — left at default, every wall
 ## light was scattering its full warm glow through the whole fog volume,
@@ -61,6 +65,15 @@ var power_watts: float = 40.0
 
 ## Internal reference to the OmniLight3D — needed for set_powered() / set_shed()
 var _omni: OmniLight3D = null
+
+## Emissive bulb (Aug 2026) — the GLB's authored emissive texture is preserved
+## through the matte override so the bulb itself glows (1:1 with the model's
+## look), driven by the same power/shed state as the omni. Null until the
+## emissive surface is found during _apply_matte_override().
+var _bulb_material: StandardMaterial3D = null
+## Authored emission tint/energy — what "lit" looks like per the model.
+var _bulb_lit_color:  Color = Color(1, 1, 1, 1)
+var _bulb_lit_energy: float = 1.0
 
 ## Priority tier: 1 (critical) … 5 (luxury). Wall lights default to 1
 ## (critical/never-shed) — both pregen level-start lights and player-placed
@@ -121,38 +134,48 @@ func _exit_tree() -> void:
 ## so the light goes fully dark.
 func set_powered(on: bool) -> void:
 	_is_powered = on
-	if _omni == null:
-		return
 	if on:
 		## Restore full brightness — clear shed state.
 		_is_shed = false
-		_omni.light_color  = LIGHT_COLOR
-		_omni.light_energy = LIGHT_ENERGY
-		_omni.visible      = true
-	else:
-		## Hard power-cut — always go fully dark regardless of shed state.
-		## PowerManager clears shed before calling set_powered(false), but
-		## this guard ensures correctness even if called out of order.
-		_is_shed      = false
-		_omni.visible = false
+	if _omni != null:
+		if on:
+			_omni.light_color  = LIGHT_COLOR
+			_omni.light_energy = LIGHT_ENERGY
+			_omni.visible      = true
+		else:
+			## Hard power-cut — always go fully dark regardless of shed state.
+			_omni.visible = false
+	_apply_bulb_state()
 
 
 ## Called by PowerManager._apply_shed_to_consumer() when this light is
 ## load-shed during an overloaded grid. Shows a faint orange glow instead of going dark.
 ## The player can see the light is "on" but starved for power.
 func set_shed(shed_on: bool) -> void:
-	if _omni == null:
-		return
 	_is_shed = shed_on
-	if shed_on:
-		_omni.light_color  = SHED_COLOR
-		_omni.light_energy = SHED_ENERGY
-		_omni.visible      = true   ## dimly visible — not off
+	if _omni != null:
+		if shed_on:
+			_omni.light_color  = SHED_COLOR
+			_omni.light_energy = SHED_ENERGY
+			_omni.visible      = true   ## dimly visible — not off
+	_apply_bulb_state()
+
+
+## Mirrors the omni's power/shed state onto the emissive bulb material so the
+## bulb itself glows: full warmth when powered, faint orange when shed, dark
+## on a hard power-cut. The emission color/energy are the model's authored
+## values (texture carries the warmth), overridden to orange for shed.
+func _apply_bulb_state() -> void:
+	if _bulb_material == null:
+		return
+	if _is_powered:
+		_bulb_material.emission = _bulb_lit_color
+		_bulb_material.emission_energy_multiplier = _bulb_lit_energy
+	elif _is_shed:
+		_bulb_material.emission = SHED_COLOR
+		_bulb_material.emission_energy_multiplier = _bulb_lit_energy * 0.2
 	else:
-		## Un-shed: restore full brightness if the grid is still live.
-		## PowerManager will call set_powered(true) shortly after clearing shed,
-		## so we just let that handle the full restore. Only clear the flag here.
-		_is_shed = false
+		_bulb_material.emission_energy_multiplier = 0.0
 
 
 # ─── Priority interaction (forwarded by PowerPriorityInteractable proxy) ─────
@@ -436,6 +459,11 @@ func get_shadow_weight(from_pos: Vector3) -> float:
 
 
 # ─── Override all GLB mesh materials to be fully matte, no shadows ───────────
+## Aug 2026 — surfaces that carry the model's authored EMISSIVE texture keep
+## it (the bulb region glows, 1:1 with the authored look); everything else is
+## flattened to flat matte exactly as before. The emissive surface is stored
+## in _bulb_material so _apply_bulb_state() can drive its glow from the power
+## / shed state.
 func _apply_matte_override(node: Node) -> void:
 	if node is MeshInstance3D:
 		var mi: MeshInstance3D = node as MeshInstance3D
@@ -445,17 +473,65 @@ func _apply_matte_override(node: Node) -> void:
 		if mesh != null:
 			for s: int in range(mesh.get_surface_count()):
 				var orig: Material = mesh.surface_get_material(s)
-				var base_color: Color = Color(0.15, 0.15, 0.18, 1.0)
+				var sm: StandardMaterial3D = null
 				if orig is StandardMaterial3D:
-					base_color = (orig as StandardMaterial3D).albedo_color
-				var mat: StandardMaterial3D = StandardMaterial3D.new()
-				mat.albedo_color = base_color
-				mat.metallic     = 0.0
-				mat.roughness    = 1.0
-				mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-				mat.shading_mode  = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-				mi.set_surface_override_material(s, mat)
-	for child: Node in node.get_children():
+					sm = orig as StandardMaterial3D
+				var base_color: Color = Color(0.15, 0.15, 0.18, 1.0)
+				if sm != null:
+					base_color = sm.albedo_color
+
+				## GLASS SHADE (Aug 2026, Option 3) — the model's translucent
+				## shade/cage. Preserve its authored transparency + textures so
+				## the warm bulb glows through it, instead of flattening it to
+				## an opaque matte like the body. Checked FIRST so any surface
+				## the import marked transparent is never bulb/matte.
+				if sm != null and sm.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+					var glass := StandardMaterial3D.new()
+					glass.albedo_color    = base_color
+					glass.albedo_texture  = sm.albedo_texture
+					glass.transparency    = sm.transparency
+					glass.alpha_scissor_threshold = sm.alpha_scissor_threshold
+					glass.normal_enabled  = sm.normal_enabled
+					glass.normal_texture  = sm.normal_texture
+					glass.roughness_texture = sm.roughness_texture
+					glass.roughness       = sm.roughness
+					glass.metallic        = 0.0
+					glass.specular_mode   = sm.specular_mode
+					glass.shading_mode    = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+					glass.cull_mode       = BaseMaterial3D.CULL_DISABLED   ## shade visible from both sides
+					mi.set_surface_override_material(s, glass)
+					continue
+
+				## Bulb surface — solid WARM amber emission (the model's emissive
+				## texture is a generic white blob that reads as a bright white
+				## paste; a solid warm emission on the bulb surface reads as a
+				## lit lamp and stays subtle). Energy starts dark, driven by
+				## _apply_bulb_state().
+				if sm != null and sm.emission_enabled and sm.emission_texture != null:
+					var mat := StandardMaterial3D.new()
+					mat.albedo_color = base_color
+					mat.metallic     = 0.0
+					mat.roughness    = 1.0
+					mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+					mat.shading_mode  = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+					mat.emission = LIGHT_COLOR
+					mat.emission_energy_multiplier = 0.0
+					mat.emission_enabled = true
+					_bulb_material  = mat
+					_bulb_lit_color = LIGHT_COLOR
+					_bulb_lit_energy = BULB_EMISSION_ENERGY
+					mi.set_surface_override_material(s, mat)
+					continue
+
+				## Plain matte body — everything else, exactly as before.
+				var mat2 := StandardMaterial3D.new()
+				mat2.albedo_color = base_color
+				mat2.metallic     = 0.0
+				mat2.roughness    = 1.0
+				mat2.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+				mat2.shading_mode  = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+				mi.set_surface_override_material(s, mat2)
+	for child in node.get_children():
 		_apply_matte_override(child)
 
 

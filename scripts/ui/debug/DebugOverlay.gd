@@ -42,7 +42,7 @@ func _ready() -> void:
 	layer   = 99
 	visible = false
 
-	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
+	_font = UIKit.font()   ## shared cached font (was a per-instance load)
 	if _font == null:
 		_font = ThemeDB.fallback_font
 
@@ -83,10 +83,10 @@ func _on_draw() -> void:
 	var px: float    = 12.0
 	var py: float    = vp.y * 0.05   ## 5% from top
 
-	# Panel bg + border
+	# Panel bg + border (Aug 2026 consistency pass — shared rounded-rect
+	# primitive, was two square draw_rect calls)
 	var panel_rect: Rect2 = Rect2(px, py, PANEL_W, panel_h)
-	_canvas.draw_rect(panel_rect, BG, true)
-	_canvas.draw_rect(panel_rect, BORD, false, 1.5)
+	UIKit.draw_rounded_rect(_canvas, panel_rect, BG, BORD, 1.5)
 
 	# Rows
 	var ry: float = py + PAD + ROW_H * 0.75

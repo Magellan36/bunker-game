@@ -228,6 +228,15 @@ func deactivate() -> void:
 	_clear_ghost()
 	_clear_cost_label()
 
+## Cancels the in-progress pipe placement but STAYS in the pipe tool (Aug
+## 2026 — controller B; also what RMB / E do). The mode stays active so the
+## player can immediately start a new run.
+func cancel_placement() -> void:
+	_phase = 0
+	_source_key = ""
+	_clear_ghost()
+	_clear_cost_label()
+
 func _process(_delta: float) -> void:
 	if not _active:
 		return
@@ -251,25 +260,19 @@ func handle_input(event: InputEvent) -> bool:
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			## Cancels the in-progress placement and stays IN the pipe tool
 			## (July 2026 correction — a prior pass wrongly made this exit
-			## all the way back to Construct tool; Brannon flagged that E
+			## all the way back to Construct tool; Brannan flagged that E
 			## "isn't working" because it was really just leaving pipe mode
 			## entirely, which was never the ask). Does NOT emit
 			## pipe_tool_exit_requested — that signal now only fires from
 			## an actual tool-switch elsewhere (toolbar button).
-			_phase = 0
-			_source_key = ""
-			_clear_ghost()
-			_clear_cost_label()
+			cancel_placement()
 			return true
 
 	if event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE or event.keycode == KEY_E:
 			## Same correction as RMB above — cancels the current
 			## drag/placement, stays in the pipe tool. No tool-exit.
-			_phase = 0
-			_source_key = ""
-			_clear_ghost()
-			_clear_cost_label()
+			cancel_placement()
 			return true
 
 	return false

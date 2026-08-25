@@ -7,15 +7,14 @@ extends SubViewportContainer
 
 @export var camera: Camera3D = null
 ## Aug 2026 — retuned for the character's actual scaled height (~2.1 m
-## after the 1.25x model scale) now that both the facing and floor-
-## offset fixes are in — the old values were tuned blind before either
-## existed. ~1.0 m (roughly navel/lower-torso height) centers a
-## standing figure of that height reasonably in frame at this distance.
+## after the 1.25x model scale). Measured bones (scaled): feet y≈0.06,
+## pelvis/Hips y≈1.12, head y≈1.98. The old 0.8 aimed below the pelvis,
+## pushing the figure too high in frame.
 ##
-## Aug 2026, second pass — now that the actual Hips-sink fix (a
-## different bug from the floor-offset one) is in, the camera reads as
-## sitting slightly too high; dropped a bit further.
-@export var look_at_point: Vector3 = Vector3(0.0, 0.8, 0.0)
+## Aug 2026, third pass — centered on the stomach/navel region (~1.1),
+## which both centers the figure vertically and lands the aim on the
+## abdomen as requested.
+@export var look_at_point: Vector3 = Vector3(0.0, 1.2, 0.0)
 @export var distance: float = 2.2
 @export var min_distance: float = 1.2
 @export var max_distance: float = 5.0

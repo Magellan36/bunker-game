@@ -1,7 +1,7 @@
 extends CanvasLayer
 ## BuildModeHUD.gd
 ## Full build-mode overlay:
-##   - Pulsing kiwi-green screen border
+##   - Pulsing teal screen border
 ##   - "BUILD MODE" banner + red cancel X button (top-left)
 ##   - Bottom toolbar: Construct / Deconstruct / Duplicate / Move / Undo
 ##   - Construct submenu: vertical panel above toolbar with 3D previews, names, prices
@@ -199,12 +199,14 @@ func get_item_price(tile_id: int) -> int:
 	return 0
 
 # ─── Visual constants ──────────────────────────────────────────────────────────
-const KIWI:         Color = Color(0.42, 0.87, 0.15, 1.0)
+## Accent color — teal #40716F (Aug 2026 facelift; was kiwi-green). The
+## identity color: screen border, toolbar selection, submenu border.
+const ACCENT:       Color = Color(0.251, 0.443, 0.435, 1.0)
 const BORDER_W:     float = 4.0
 const BORDER_INSET: float = 6.0
 
 const BANNER_BG:    Color = Color(0.06, 0.14, 0.04, 0.88)
-const BANNER_TEXT:  Color = Color(0.52, 0.97, 0.20, 1.0)
+const BANNER_TEXT:  Color = Color(0.251, 0.443, 0.435, 1.0)
 
 ## Toolbar
 const SLOT_W:       float = 100.0
@@ -213,7 +215,7 @@ const SLOT_GAP:     float = 8.0
 const SLOT_CORNER:  float = 8.0
 const COLOR_BG:     Color = Color(0.10, 0.10, 0.10, 0.82)
 const COLOR_BORDER: Color = Color(0.25, 0.25, 0.25, 0.90)
-const COLOR_SEL:    Color = Color(0.42, 0.87, 0.15, 1.0)
+const COLOR_SEL:    Color = Color(0.251, 0.443, 0.435, 1.0)
 const COLOR_TEXT:   Color = Color(0.80, 0.78, 0.72, 0.95)
 const TOOL_LABELS:  Array = ["Construct", "Deconstruct", "Duplicate", "Move", "Undo", "Wire", "Pipe", "Shop"]
 const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌", "🚰", "🛒"]
@@ -232,7 +234,7 @@ const SUB_VP_SIZE:  int   = 52     ## SubViewport px for 3D preview
 const SUB_GAP:      float = 6.0
 const SUB_PAD:      float = 10.0
 const SUB_BG:       Color = Color(0.08, 0.10, 0.07, 0.94)
-const SUB_BORDER:   Color = Color(0.42, 0.87, 0.15, 0.60)
+const SUB_BORDER:   Color = Color(0.251, 0.443, 0.435, 0.60)
 const PRICE_COLOR:  Color = Color(0.35, 0.95, 0.30, 1.0)
 
 ## Item preview pose/animation (Jul 2026). Default resting pose: rotated
@@ -362,6 +364,10 @@ var _sub_mesh_instances: Array  = []   ## MeshInstance3D per construct item (par
 var _shop_viewports:      Array = []
 var _shop_vp_textures:    Array = []
 var _shop_mesh_instances: Array = []
+## True once the construct + shop previews have been built (staggered across
+## frames — see _build_submenu_previews_staggered). The previews persist and
+## are reused across build-mode sessions, so this only ever builds once.
+var _submenu_previews_ready: bool = false
 ## Which submenu row is currently hovered — used by _process() to know
 ## which preview (construct or shop pool) to spin, and to snap every other
 ## one back to PREVIEW_ROTATION_DEFAULT. -1 = none hovered / not on an item row.
@@ -392,6 +398,19 @@ var _active_category:  String = ""
 ## controller mode.
 var _sel_tool: int = TOOL_CONSTRUCT
 var _submenu_cursor: int = 0
+## Mirrors BuildModeController's ghost state (set via set_ghost_active) — used
+## so the controller A button knows when a placement/draw is active and must
+## place instead of clicking tabs.
+var _ghost_active: bool = false
+## Mirrors BuildModeController's wall-draw state (tool 0 + WallDrawMode):
+## walls have no ghost, so the HUD must know wall-draw is active to block the
+## tabs / make B exit the placement. See set_wall_draw_active().
+var _wall_draw_active: bool = false
+## The submenu that launched the current placement (source/level/category),
+## recorded at construct item pick. B restores it when it cancels a
+## placement. Empty = the placement came from a toolbar tool (wire/pipe)
+## with no submenu to return to.
+var _placement_menu: Dictionary = {}
 ## Which data source the submenu is currently browsing — "construct"
 ## (CATEGORIES, tile ghost-preview placement) or "farming" (FARMING_SHOP_ITEMS,
 ## buy → spawn near player). See _current_categories()/_open_submenu().
@@ -403,10 +422,18 @@ var _cancel_hovered:  bool  = false
 var _undo_flash_t:    float = 0.0
 const UNDO_FLASH_TIME: float = 0.25
 
-## Rock dig confirm dialog state
-var dig_confirm_open: bool  = false
-var _dig_confirm_yes_rect: Rect2 = Rect2()
-var _dig_confirm_no_rect:  Rect2 = Rect2()
+## Rock dig confirm dialog state — mirrors whether the shared ConfirmDialogUI
+## is open (BuildModeController guards on this, so it must stay in sync).
+var dig_confirm_open: bool = false
+## Lazy-instantiated shared confirm dialog (Aug 2026 consistency pass — the
+## old hand-rolled _draw_dig_confirm() is gone; everything routes through
+## ConfirmDialogUI.gd now).
+var _dig_confirm_dialog: CanvasLayer = null
+## Controller (Aug 2026) — true while the player is within reach of the Build
+## Station (set by BuildModeController each frame). While true, A is reserved
+## for "Exit Build Mode" and every other A action (menu select, tab click,
+## placement) is suppressed in the A branch below.
+var _exit_available: bool = false
 
 # ─── Ready ────────────────────────────────────────────────────────────────────
 func _ready() -> void:
@@ -482,8 +509,10 @@ func show_hud() -> void:
 	## Standing convention (July 2026) — see UIFade.gd.
 	UIFade.fade_in(_canvas)
 	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
-	# Rebuild submenu viewports now that gridmap should be set
-	_refresh_submenu_previews()
+	## NOTE: the construct/shop previews are deliberately NOT built here —
+	## building ~55 of them synchronously (or even staggered) on build-mode
+	## entry was the entry stutter. They build lazily, staggered, the first
+	## time a submenu opens (_open_submenu).
 
 func hide_hud() -> void:
 	visible = false
@@ -498,10 +527,23 @@ func set_active_tool(tool_id: int) -> void:
 
 ## Called by BuildModeController when a ghost is active — show cancel X
 func set_ghost_active(active: bool) -> void:
+	_ghost_active = active
 	_cancel_btn.visible = active
 	# Close submenu when ghost goes active
 	if active and _submenu_open:
 		_close_submenu()
+
+## Called by BuildModeController when wall-draw mode starts/stops (walls have
+## no ghost — see _wall_draw_active).
+func set_wall_draw_active(active: bool) -> void:
+	_wall_draw_active = active
+	if active and _submenu_open:
+		_close_submenu()
+
+## Called by BuildModeController every frame — true while the player is in
+## reach of the Build Station, where A must ALWAYS exit build mode.
+func set_exit_available(available: bool) -> void:
+	_exit_available = available
 
 ## Open / close the construct submenu externally
 func open_construct_menu() -> void:
@@ -514,44 +556,69 @@ func close_construct_menu() -> void:
 
 ## Open the rock dig confirmation dialog
 func open_dig_confirm() -> void:
+	_ensure_dig_confirm_dialog()
 	dig_confirm_open = true
-	_canvas.queue_redraw()
+	_set_dig_dialog_cursor(true)
+	_dig_confirm_dialog.open("EXPAND BUNKER", "$1,500")
 
 ## Close the rock dig confirmation dialog without emitting signals
 func close_dig_confirm() -> void:
 	dig_confirm_open = false
-	_canvas.queue_redraw()
+	_set_dig_dialog_cursor(false)
+	if _dig_confirm_dialog != null and is_instance_valid(_dig_confirm_dialog):
+		_dig_confirm_dialog.call("close")
+
+## While the shared ConfirmDialogUI (layer 70) is open above this HUD's
+## layer-10 tool cursor, the OS cursor must show — it always renders topmost,
+## so the player can see where they're clicking — and the in-engine tool
+## cursor is hidden for the dialog's duration (Aug 2026). Restored to
+## build-mode HIDDEN + hammer on close. Controller mode is untouched
+## (InputMode keeps the OS cursor hidden there; the dialog's d-pad selection
+## outline is its own cursor).
+func _set_dig_dialog_cursor(open: bool) -> void:
+	if _cursor != null:
+		_cursor.visible = not open
+	if open:
+		if not InputMode.is_controller():
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
+
+## Lazily create the shared ConfirmDialogUI and route its signals onto the
+## build-mode dig signals (BuildModeController connects to those).
+func _ensure_dig_confirm_dialog() -> void:
+	if _dig_confirm_dialog != null and is_instance_valid(_dig_confirm_dialog):
+		return
+	var dlg_script: GDScript = load("res://scripts/ui/common/ConfirmDialogUI.gd")
+	if dlg_script == null:
+		push_warning("[BuildModeHUD] ConfirmDialogUI.gd not found")
+		return
+	_dig_confirm_dialog = CanvasLayer.new()
+	_dig_confirm_dialog.set_script(dlg_script)
+	_dig_confirm_dialog.name = "ConfirmDialogUI"
+	add_child(_dig_confirm_dialog)
+	_dig_confirm_dialog.confirmed.connect(_on_dig_confirm_yes)
+	_dig_confirm_dialog.cancelled.connect(_on_dig_confirm_no)
+
+func _on_dig_confirm_yes() -> void:
+	dig_confirm_open = false
+	_set_dig_dialog_cursor(false)
+	dig_confirmed.emit()
+
+func _on_dig_confirm_no() -> void:
+	dig_confirm_open = false
+	_set_dig_dialog_cursor(false)
+	dig_cancelled.emit()
 
 # ─── Input ────────────────────────────────────────────────────────────────────
 func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
 		return
 
-	# ── Rock dig confirm dialog — intercept ALL input while open ──────────────
+	# ── Rock dig confirm dialog — the shared ConfirmDialogUI owns ALL input
+	# while open (its _unhandled_input eats everything; YES/NO/B/ESC/A). The
+	# build HUD just bails so nothing here double-handles it. ───────────────
 	if dig_confirm_open:
-		if event is InputEventMouseButton and event.pressed \
-				and event.button_index == MOUSE_BUTTON_LEFT:
-			var pos: Vector2 = event.position
-			if _dig_confirm_yes_rect.has_point(pos):
-				dig_confirm_open = false
-				_canvas.queue_redraw()
-				dig_confirmed.emit()
-				get_viewport().set_input_as_handled()
-				return
-			elif _dig_confirm_no_rect.has_point(pos):
-				dig_confirm_open = false
-				_canvas.queue_redraw()
-				dig_cancelled.emit()
-				get_viewport().set_input_as_handled()
-				return
-		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-			dig_confirm_open = false
-			_canvas.queue_redraw()
-			dig_cancelled.emit()
-			get_viewport().set_input_as_handled()
-			return
-		# Eat all other input
-		get_viewport().set_input_as_handled()
 		return
 
 	# Escape: close submenu if open, else cancel ghost
@@ -613,19 +680,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	# ── Controller (Aug 2026) — build-mode menu only ─────────────────────────
 	## d-pad / LB-RB cycle the toolbar tabs; d-pad up/down scrolls the open
-	## submenu; A opens/selects; B closes the submenu. The rock-dig confirm
-	## dialog stays mouse-only for now (guard below).
-	if dig_confirm_open:
-		return
+	## submenu; A opens/selects; B closes the submenu. (The rock-dig confirm
+	## dialog is a separate ConfirmDialogUI that owns its own input.)
 	if event is InputEventJoypadButton and event.pressed:
 		if event.button_index == JOY_BUTTON_LEFT_SHOULDER or event.button_index == JOY_BUTTON_DPAD_LEFT:
-			_sel_tool = (_sel_tool - 1 + TOOL_LABELS.size()) % TOOL_LABELS.size()
-			_canvas.queue_redraw()
+			_change_selected_tool(-1)
 			get_viewport().set_input_as_handled()
 			return
 		elif event.button_index == JOY_BUTTON_RIGHT_SHOULDER or event.button_index == JOY_BUTTON_DPAD_RIGHT:
-			_sel_tool = (_sel_tool + 1) % TOOL_LABELS.size()
-			_canvas.queue_redraw()
+			_change_selected_tool(+1)
 			get_viewport().set_input_as_handled()
 			return
 		elif event.button_index == JOY_BUTTON_DPAD_UP:
@@ -641,15 +704,48 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		elif event.button_index == JOY_BUTTON_A:
+			## Aug 2026 — the Build Station "Exit Build Mode" action ALWAYS
+			## wins while in reach: fall through unhandled so the controller
+			## exits build mode, beating menu/submenu selection, tab clicks,
+			## and placement.
+			if _exit_available:
+				return
+			## A = left-click in build mode:
+			##  1. open submenu      → select the submenu item
+			##  2. placing / drawing → place (fall through to the controller;
+			##                          the ghost BLOCKS the tabs)
+			##  3. cursor over a tab → click that tab
+			##  4. deconstruct/dup/move → act on the object under the cursor
+			##                          (fall through to the controller)
+			##  5. otherwise         → activate the LB/RB-selected tab
 			if _submenu_open:
 				_on_submenu_item_selected(_submenu_cursor)
-			else:
-				_on_toolbar_click(_sel_tool)
+				get_viewport().set_input_as_handled()
+				return
+			if _ghost_active or _wall_draw_active \
+				or active_tool == TOOL_WIRE or active_tool == TOOL_WATER_PIPE:
+				return
+			var slot: int = _cursor_over_toolbar_slot()
+			if slot != -1:
+				_on_toolbar_click(slot)
+				get_viewport().set_input_as_handled()
+				return
+			if active_tool == 1 or active_tool == 2 or active_tool == 3:
+				return
+			_on_toolbar_click(_sel_tool)
 			get_viewport().set_input_as_handled()
 			return
 		elif event.button_index == JOY_BUTTON_B:
-			if _submenu_open:
-				_close_submenu()
+			## B exits an active placement (object ghost, wall draw, wire/pipe
+			## draw) and restores the submenu that launched it. With no
+			## placement active it walks the submenu back up one level (items
+			## → root categories), then exits entirely at the root level.
+			if _ghost_active or _wall_draw_active \
+				or active_tool == TOOL_WIRE or active_tool == TOOL_WATER_PIPE:
+				cancel_requested.emit()
+				_restore_placement_menu()
+			elif _submenu_open:
+				_submenu_back()
 			get_viewport().set_input_as_handled()
 			return
 		else:
@@ -676,6 +772,7 @@ func _on_toolbar_click(slot: int) -> void:
 		## Wire draw tool — toggle on/off (clicking again deselects)
 		_close_submenu()
 		cancel_requested.emit()
+		_placement_menu = {}
 		if active_tool == TOOL_WIRE:
 			active_tool = TOOL_CONSTRUCT
 			tool_selected.emit(TOOL_CONSTRUCT)
@@ -686,6 +783,7 @@ func _on_toolbar_click(slot: int) -> void:
 		## Water pipe draw tool (July 2026) — same toggle-on/off shape as Wire above.
 		_close_submenu()
 		cancel_requested.emit()
+		_placement_menu = {}
 		if active_tool == TOOL_WATER_PIPE:
 			active_tool = TOOL_CONSTRUCT
 			tool_selected.emit(TOOL_CONSTRUCT)
@@ -707,8 +805,68 @@ func _on_toolbar_click(slot: int) -> void:
 		# Any other tool: close submenu, cancel ghost, switch tool
 		_close_submenu()
 		cancel_requested.emit()
+		_placement_menu = {}
 		active_tool = slot
 		tool_selected.emit(slot)
+	_canvas.queue_redraw()
+
+# ─── Controller selection / menu-follow helpers ───────────────────────────────
+## Index of the toolbar slot under the cursor, or -1. Mirrors the slot rect
+## math in _draw_toolbar() exactly.
+func _cursor_over_toolbar_slot() -> int:
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var count: int  = TOOL_LABELS.size()
+	var total_w: float = SLOT_W * count + SLOT_GAP * (count - 1)
+	var start_x: float = (vp.x - total_w) * 0.5
+	var y: float       = vp.y - SLOT_H - 20.0
+	for i in count:
+		var rect := Rect2(start_x + i * (SLOT_W + SLOT_GAP), y, SLOT_W, SLOT_H)
+		if rect.has_point(_mouse_pos):
+			return i
+	return -1
+
+## Tabs that open a submenu (Construct / Shop).
+func _is_menu_tab(tool: int) -> bool:
+	return tool == TOOL_CONSTRUCT or tool == TOOL_FARMING
+
+func _menu_source_for(tool: int) -> String:
+	return "farming" if tool == TOOL_FARMING else "construct"
+
+## LB/RB / d-pad selection change (Aug 2026). Cycling ALWAYS selects the
+## tool immediately — the old tool is de-selected (ghost/draw cancelled by
+## the controller's tool_selected handler) and the new one becomes active,
+## no A press needed to switch. Menu tabs follow the selection: scrolling
+## onto one re-opens ITS menu when a menu was already open; a closed menu
+## stays closed until A / cursor opens it (A on a menu tab opens it — see
+## the A branch).
+func _change_selected_tool(dir: int) -> void:
+	var was_open: bool = _submenu_open
+	_sel_tool = (_sel_tool + dir + TOOL_LABELS.size()) % TOOL_LABELS.size()
+
+	if _sel_tool == active_tool:
+		_canvas.queue_redraw()
+		return
+
+	if not _is_menu_tab(_sel_tool):
+		## Non-menu tool (wire/pipe/deconstruct/duplicate/move/undo) —
+		## switch to it now, closing any open submenu.
+		if _submenu_open:
+			_close_submenu()
+		_placement_menu = {}
+		active_tool = _sel_tool
+		tool_selected.emit(_sel_tool)
+		_canvas.queue_redraw()
+		return
+
+	## Menu tab (Construct / Shop) — make it active, then follow the menu if
+	## one was already open.
+	cancel_requested.emit()
+	active_tool = _sel_tool
+	tool_selected.emit(_sel_tool)
+	if was_open:
+		if _submenu_open:
+			_close_submenu()
+		_open_submenu(_menu_source_for(_sel_tool))
 	_canvas.queue_redraw()
 
 # ─── Submenu ──────────────────────────────────────────────────────────────────
@@ -731,6 +889,11 @@ func _open_submenu(source: String = "construct") -> void:
 	_submenu_cursor = 0
 	_submenu_root.visible = true
 	_position_submenu()
+	## Build the previews lazily the FIRST time a submenu opens (not on
+	## build-mode entry) — deferred + staggered so opening the menu never
+	## hitches. Text rows show immediately; previews pop in as they build.
+	if not _submenu_previews_ready:
+		call_deferred("_build_submenu_previews_staggered")
 	_canvas.queue_redraw()
 
 func _close_submenu() -> void:
@@ -738,6 +901,41 @@ func _close_submenu() -> void:
 	_submenu_level   = "root"
 	_active_category = ""
 	_submenu_root.visible = false
+	_canvas.queue_redraw()
+
+## Go back ONE level in the submenu (B / controller): from the items level
+## back up to the root categories of the same menu, and only from the root
+## level fully close the menu (exiting build-mode browsing). Mirrors the
+## items-level "‹ Back" row.
+func _submenu_back() -> void:
+	if _submenu_open and _submenu_level == "items":
+		_submenu_level   = "root"
+		_active_category = ""
+		_submenu_cursor  = 0
+		_position_submenu()
+		_canvas.queue_redraw()
+	else:
+		_close_submenu()
+
+## Reopen the submenu that launched the current placement (recorded in
+## _placement_menu at construct item pick), at the same level + category so
+## the player picks up where they left off. No-op if the placement didn't
+## come from a submenu (toolbar tools like wire/pipe).
+func _restore_placement_menu() -> void:
+	if _placement_menu.is_empty():
+		return
+	var src: String      = _placement_menu.get("source", "construct")
+	var level: String    = _placement_menu.get("level", "root")
+	var category: String = _placement_menu.get("category", "")
+	_placement_menu = {}
+	if _submenu_open:
+		_close_submenu()
+	_open_submenu(src)
+	if level == "items":
+		_active_category = category
+		_submenu_level   = "items"
+		_submenu_cursor  = 0
+		_position_submenu()
 	_canvas.queue_redraw()
 
 func _submenu_current_rows() -> int:
@@ -781,6 +979,7 @@ func _build_submenu() -> Control:
 		vp.disable_3d      = false
 		vp.own_world_3d    = true
 		root.add_child(vp)
+		GraphicsSettings.register_preview_viewport(vp)
 
 		var cam: Camera3D = Camera3D.new()
 		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -813,6 +1012,7 @@ func _build_submenu() -> Control:
 		vp2.disable_3d      = false
 		vp2.own_world_3d    = true
 		root.add_child(vp2)
+		GraphicsSettings.register_preview_viewport(vp2)
 
 		var cam2: Camera3D = Camera3D.new()
 		cam2.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -842,7 +1042,10 @@ func _build_submenu() -> Control:
 	return root
 
 func _on_submenu_draw(ctrl: Control) -> void:
-	var font: Font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
+	var font: Font = UIKit.font()
+	var fs_value: int = UIKit.theme_font_size("UI", "value", 13)
+	var fs_label: int = UIKit.theme_font_size("UI", "label", 10)
+	var fs_state: int = UIKit.theme_font_size("UI", "state", 11)
 	var rows: int  = _submenu_current_rows()
 	var sub_h: float = SUB_ITEM_H * rows + SUB_PAD * 2.0
 	var rect: Rect2  = Rect2(Vector2.ZERO, Vector2(SUB_W, sub_h))
@@ -864,17 +1067,17 @@ func _on_submenu_draw(ctrl: Control) -> void:
 
 			# Hover highlight
 			if row_rect.has_point(mouse_local):
-				ctrl.draw_rect(row_rect, Color(0.42, 0.87, 0.15, 0.15), true)
+				ctrl.draw_rect(row_rect, Color(0.251, 0.443, 0.435, 0.15), true)
 			# Controller cursor (Aug 2026) — d-pad selection highlight
 			if InputMode.is_controller() and i == _submenu_cursor:
-				ctrl.draw_rect(row_rect, Color(0.42, 0.87, 0.15, 0.28), true)
+				ctrl.draw_rect(row_rect, Color(0.251, 0.443, 0.435, 0.28), true)
 
 			# Separator
 			if i < cat_keys.size() - 1:
 				ctrl.draw_line(
 					Vector2(SUB_PAD, row_y + SUB_ITEM_H),
 					Vector2(SUB_W - SUB_PAD, row_y + SUB_ITEM_H),
-					Color(0.3, 0.3, 0.3, 0.6), 1.0)
+					Color(0.3, 0.3, 0.3, 0.6), 1.0, true)
 
 			# Category icon prefix
 			const CAT_ICONS: Dictionary = {
@@ -895,13 +1098,13 @@ func _on_submenu_draw(ctrl: Control) -> void:
 
 			# Category name
 			ctrl.draw_string(font, Vector2(SUB_PAD + 28.0, row_y + 29.0),
-				cat_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, COLOR_TEXT)
+				cat_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs_value, COLOR_TEXT)
 
 			# Item count badge
 			var n: int = cats[cat_name].size()
 			var badge: String = "%d item%s" % [n, "s" if n != 1 else ""]
 			ctrl.draw_string(font, Vector2(SUB_PAD + 28.0, row_y + 47.0),
-				badge, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.55, 0.55, 0.55, 0.9))
+				badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs_label, Color(0.55, 0.55, 0.55, 0.9))
 
 			# Chevron → right edge
 			ctrl.draw_string(font, Vector2(SUB_W - 18.0, row_y + 32.0),
@@ -914,19 +1117,19 @@ func _on_submenu_draw(ctrl: Control) -> void:
 		# Row 0: Back button
 		var back_rect: Rect2 = Rect2(0, SUB_PAD, SUB_W, SUB_ITEM_H)
 		if back_rect.has_point(mouse_local):
-			ctrl.draw_rect(back_rect, Color(0.42, 0.87, 0.15, 0.12), true)
+			ctrl.draw_rect(back_rect, Color(0.251, 0.443, 0.435, 0.12), true)
 		## Controller cursor (Aug 2026) on the Back row (submenu cursor == 0).
 		if InputMode.is_controller() and _submenu_cursor == 0:
-			ctrl.draw_rect(back_rect, Color(0.42, 0.87, 0.15, 0.28), true)
+			ctrl.draw_rect(back_rect, Color(0.251, 0.443, 0.435, 0.28), true)
 		ctrl.draw_string(font, Vector2(SUB_PAD, SUB_PAD + 32.0),
-			"‹ Back", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.55, 0.75, 0.45, 1.0))
+			"‹ Back", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.251, 0.443, 0.435, 1.0))
 		ctrl.draw_string(font, Vector2(SUB_PAD, SUB_PAD + 48.0),
-			_active_category, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.45, 0.65, 0.38, 0.85))
+			_active_category, HORIZONTAL_ALIGNMENT_LEFT, -1, fs_label, Color(0.251, 0.443, 0.435, 0.85))
 		# Separator under back
 		ctrl.draw_line(
 			Vector2(SUB_PAD, SUB_PAD + SUB_ITEM_H),
 			Vector2(SUB_W - SUB_PAD, SUB_PAD + SUB_ITEM_H),
-			Color(0.42, 0.87, 0.15, 0.35), 1.0)
+			Color(0.251, 0.443, 0.435, 0.35), 1.0, true)
 
 		# Items
 		for i: int in cat_items.size():
@@ -936,17 +1139,17 @@ func _on_submenu_draw(ctrl: Control) -> void:
 
 			# Hover highlight
 			if row_rect.has_point(mouse_local):
-				ctrl.draw_rect(row_rect, Color(0.42, 0.87, 0.15, 0.15), true)
+				ctrl.draw_rect(row_rect, Color(0.251, 0.443, 0.435, 0.15), true)
 			# Controller cursor (Aug 2026) — item rows are cursor 1..n.
 			if InputMode.is_controller() and _submenu_cursor == i + 1:
-				ctrl.draw_rect(row_rect, Color(0.42, 0.87, 0.15, 0.28), true)
+				ctrl.draw_rect(row_rect, Color(0.251, 0.443, 0.435, 0.28), true)
 
 			# Separator (not after last)
 			if i < cat_items.size() - 1:
 				ctrl.draw_line(
 					Vector2(SUB_PAD, row_y + SUB_ITEM_H),
 					Vector2(SUB_W - SUB_PAD, row_y + SUB_ITEM_H),
-					Color(0.3, 0.3, 0.3, 0.6), 1.0)
+					Color(0.3, 0.3, 0.3, 0.6), 1.0, true)
 
 			# 3D preview viewport — construct items look up their flat index in
 			# CONSTRUCT_ITEMS; shop items (Soil/Seeds/Fertilizer/Resources/
@@ -977,9 +1180,9 @@ func _on_submenu_draw(ctrl: Control) -> void:
 			# Name + price
 			var name_x: float = SUB_PAD + SUB_VP_SIZE + SUB_GAP
 			ctrl.draw_string(font, Vector2(name_x, row_y + 26.0),
-				item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, COLOR_TEXT)
+				item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, fs_value, COLOR_TEXT)
 			ctrl.draw_string(font, Vector2(name_x, row_y + 44.0),
-				"$%d" % item["price"], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, PRICE_COLOR)
+				"$%d" % item["price"], HORIZONTAL_ALIGNMENT_LEFT, -1, fs_state, PRICE_COLOR)
 
 ## Returns the row index (0-based) within the current submenu level, or -1.
 func _get_submenu_item_at(pos: Vector2) -> int:
@@ -1035,6 +1238,13 @@ func _on_submenu_item_selected(item: int) -> void:
 	if _submenu_source == "construct":
 		## Placeable tile — emit for BuildModeController to start a ghost,
 		## then close the submenu (picking a tile always closes it).
+		## Record the submenu so B can restore it after cancelling the
+		## placement (see _restore_placement_menu).
+		_placement_menu = {
+			"source": _submenu_source,
+			"level": _submenu_level,
+			"category": _active_category,
+		}
 		construct_item_chosen.emit(tile_id)
 		_close_submenu()
 	else:
@@ -1044,155 +1254,183 @@ func _on_submenu_item_selected(item: int) -> void:
 		farming_item_chosen.emit(tile_id)
 		_canvas.queue_redraw()
 
-func _refresh_submenu_previews() -> void:
-	## Load meshes from MeshLibrary into the SubViewports
-	if gridmap == null:
+## Builds every construct + shop preview ONCE, staggered a few per frame, so
+## entering build mode never hitches on a synchronous ~55-item build (the
+## former _refresh_submenu_previews — the build-mode entry stutter). Static
+## previews are set to render-once (UPDATE_ONCE + update_worlds); only the
+## hovered one spins live (see _update_preview_hover_spin).
+func _build_submenu_previews_staggered() -> void:
+	if _submenu_previews_ready:
 		return
-	var lib: MeshLibrary = gridmap.mesh_library
-	if lib == null:
+	if gridmap == null or gridmap.mesh_library == null:
 		return
-
+	_submenu_previews_ready = true
+	## Construct previews are cheap MeshLibrary fetches — several per frame.
+	## Shop previews instantiate real item scenes (.glb / scripts) — heavier,
+	## so one per frame.
+	const CONSTRUCT_CHUNK: int = 4
 	for i in CONSTRUCT_ITEMS.size():
-		if i >= _sub_viewports.size():
-			break
-		var tile_id: int  = CONSTRUCT_ITEMS[i]["tile_id"]
-		var vp: SubViewport = _sub_viewports[i]
+		_build_construct_preview(i)
+		if i % CONSTRUCT_CHUNK == CONSTRUCT_CHUNK - 1:
+			await get_tree().process_frame
+	for i in PREVIEW_SOURCES.size():
+		_build_shop_preview(i)
+		await get_tree().process_frame
 
-		# Remove any old pivot/mesh
-		for child in vp.get_children():
-			if child is Node3D and child is not Camera3D and child is not OmniLight3D:
-				child.queue_free()
+## Sets a preview viewport's render mode: UPDATE_WHEN_VISIBLE while it's the
+## hovered (spinning) preview, UPDATE_ONCE otherwise so static previews cost
+## one render instead of one per frame. UPDATE_ONCE renders its content a
+## single time on the next frame (even while the submenu is hidden) and keeps
+## that texture, which the submenu draws via ViewportTexture.
+func _set_preview_viewport_live(vp: SubViewport, live: bool) -> void:
+	if vp == null:
+		return
+	vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE if live else SubViewport.UPDATE_ONCE
 
-		## MeshLibrary item — existing single-mesh path, unchanged.
-		if lib.get_item_list().has(tile_id):
-			var mesh: Mesh = lib.get_item_mesh(tile_id)
-			if mesh != null:
-				## Pivot fix (Jul 2026) — rotating the MeshInstance3D directly spins
-				## it around ITS OWN local origin, which usually isn't the mesh's
-				## true visual center (most meshes aren't authored centered on their
-				## own origin) — it visibly swings around a corner instead of
-				## spinning in place. Fix: wrap it in a pivot Node3D that sits fixed
-				## at the viewport center; offset the mesh WITHIN the pivot instead,
-				## and rotate the pivot. _sub_mesh_instances now stores this pivot
-				## (not the raw MeshInstance3D) — _update_preview_hover_spin() needs
-				## no changes for this specific reason, it just rotates whatever's
-				## in the array.
-				var pivot: Node3D = Node3D.new()
-				pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-				vp.add_child(pivot)
+## Builds one construct-item preview (MeshLibrary mesh, or a full-fidelity
+## procedural scene for non-tile items). Called once by the staggered build.
+func _build_construct_preview(i: int) -> void:
+	if i >= _sub_viewports.size():
+		return
+	if gridmap == null or gridmap.mesh_library == null:
+		return
+	var tile_id: int  = CONSTRUCT_ITEMS[i]["tile_id"]
+	var vp: SubViewport = _sub_viewports[i]
 
-				var mi: MeshInstance3D = MeshInstance3D.new()
-				mi.mesh = mesh
-				pivot.add_child(mi)
-				_sub_mesh_instances[i] = pivot
+	# Remove any old pivot/mesh
+	for child in vp.get_children():
+		if child is Node3D and child is not Camera3D and child is not OmniLight3D:
+			child.queue_free()
 
-				# Center mesh within the pivot (the pivot itself never moves)
-				if mi.mesh != null:
-					var aabb: AABB = mi.mesh.get_aabb()
-					mi.position = -aabb.get_center()
-					pivot.scale = Vector3.ONE * _preview_normalize_scale(aabb)
-				continue
+	var lib: MeshLibrary = gridmap.mesh_library
 
-		## No MeshLibrary entry — try a full-fidelity procedural preview
-		## instead of leaving this slot blank. See _build_procedural_preview_instance().
-		var inst: Node3D = _build_procedural_preview_instance(tile_id)
-		if inst == null:
-			continue   ## no source registered for this tile — stays text-only, same as before
-		inst.set_process(false)
-		inst.set_physics_process(false)
+	## MeshLibrary item — existing single-mesh path, unchanged.
+	if lib.get_item_list().has(tile_id):
+		var mesh: Mesh = lib.get_item_mesh(tile_id)
+		if mesh != null:
+			## Pivot fix (Jul 2026) — wrap the mesh in a fixed pivot so it
+			## spins around its true visual center. _sub_mesh_instances stores
+			## the pivot (see _update_preview_hover_spin).
+			var pivot: Node3D = Node3D.new()
+			pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+			vp.add_child(pivot)
 
-		var pivot2: Node3D = Node3D.new()
-		pivot2.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-		vp.add_child(pivot2)
-		pivot2.add_child(inst)
-		## Safety net: wipe any groups this instance's _ready() still joined
-		## (construct classes lacking the _is_preview_only guard, e.g.
-		## WallLight's wall_lights group / priority proxy). See
-		## GhostModelBuilder.strip_groups().
-		GhostModelBuilder.strip_groups(inst)
-		_sub_mesh_instances[i] = pivot2
+			var mi: MeshInstance3D = MeshInstance3D.new()
+			mi.mesh = mesh
+			pivot.add_child(mi)
+			_sub_mesh_instances[i] = pivot
 
-		## Combined AABB, correctly accounting for each mesh's own offset
-		## from `inst` — see _combined_local_aabb()'s own header for why the
-		## old raw-merge version here was wrong.
-		var aabb_result: Dictionary = _combined_local_aabb(inst)
-		if aabb_result["found_any"]:
-			var combined: AABB = aabb_result["aabb"]
-			inst.position = -combined.get_center()
-			pivot2.scale = Vector3.ONE * _preview_normalize_scale(combined)
+			# Center mesh within the pivot (the pivot itself never moves)
+			if mi.mesh != null:
+				var aabb: AABB = mi.mesh.get_aabb()
+				mi.position = -aabb.get_center()
+				pivot.scale = Vector3.ONE * _preview_normalize_scale(aabb)
+			_set_preview_viewport_live(vp, false)
+			return
 
-	_refresh_shop_previews()
+	## No MeshLibrary entry — try a full-fidelity procedural preview
+	## instead of leaving this slot blank. See _build_procedural_preview_instance().
+	var inst: Node3D = _build_procedural_preview_instance(tile_id)
+	if inst == null:
+		_set_preview_viewport_live(vp, false)
+		return   ## no source registered for this tile — stays text-only
+	inst.set_process(false)
+	inst.set_physics_process(false)
+
+	var pivot2: Node3D = Node3D.new()
+	pivot2.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+	vp.add_child(pivot2)
+	pivot2.add_child(inst)
+	## Safety net: wipe any groups this instance's _ready() still joined
+	## (construct classes lacking the _is_preview_only guard). See
+	## GhostModelBuilder.strip_groups().
+	GhostModelBuilder.strip_groups(inst)
+	_sub_mesh_instances[i] = pivot2
+
+	## Combined AABB, correctly accounting for each mesh's own offset.
+	var aabb_result: Dictionary = _combined_local_aabb(inst)
+	if aabb_result["found_any"]:
+		var combined: AABB = aabb_result["aabb"]
+		inst.position = -combined.get_center()
+		pivot2.scale = Vector3.ONE * _preview_normalize_scale(combined)
+	_set_preview_viewport_live(vp, false)
 
 # ─── Cancel button ────────────────────────────────────────────────────────────
 ## the whole node tree renders, so imported models (e.g. FuelCan's .glb)
 ## work the same as procedurally-built meshes (e.g. BagOfSoilItem). The
 ## instance's own game logic is disabled (set_process/set_physics_process
 ## false) since it's a display-only stand-in, never actually held or used.
-func _refresh_shop_previews() -> void:
+## Builds one shop-item preview from its PREVIEW_SOURCES entry (instantiating
+## the item's own scene/script). Preview-only guard + group strip keep these
+## out of the live world. Called once by the staggered build.
+func _build_shop_preview(i: int) -> void:
+	if i >= _shop_viewports.size():
+		return
 	var shop_ids: Array = PREVIEW_SOURCES.keys()
-	for i: int in shop_ids.size():
-		if i >= _shop_viewports.size():
-			break
-		var info: Dictionary = PREVIEW_SOURCES[shop_ids[i]]
-		var vp: SubViewport = _shop_viewports[i]
-		for child in vp.get_children():
-			if child is Node3D and child is not Camera3D and child is not OmniLight3D:
-				child.queue_free()
+	if i >= shop_ids.size():
+		return
+	var info: Dictionary = PREVIEW_SOURCES[shop_ids[i]]
+	var vp: SubViewport = _shop_viewports[i]
+	for child in vp.get_children():
+		if child is Node3D and child is not Camera3D and child is not OmniLight3D:
+			child.queue_free()
 
-		var inst: Node3D = null
-		if bool(info.get("is_script", false)):
-			var script: GDScript = load(String(info["scene"])) as GDScript
-			if script == null:
-				continue
-			inst = script.new()
-			## Aug 2026 fix — must be set BEFORE the node enters the tree, so
-			## SeedItem.gd's own _ready() builds its placeholder mesh with the
-			## correct species color instead of the "tomato" default.
-			if info.has("seed_type") and "seed_type" in inst:
-				inst.set("seed_type", info["seed_type"])
-		else:
-			var packed: PackedScene = load(String(info["scene"])) as PackedScene
-			if packed == null:
-				continue
-			inst = packed.instantiate() as Node3D
-		if inst == null:
-			continue
+	var inst: Node3D = null
+	if bool(info.get("is_script", false)):
+		var script: GDScript = load(String(info["scene"])) as GDScript
+		if script == null:
+			_set_preview_viewport_live(vp, false)
+			return
+		inst = script.new()
+		## Aug 2026 fix — must be set BEFORE the node enters the tree, so
+		## SeedItem.gd's own _ready() builds its placeholder mesh with the
+		## correct species color instead of the "tomato" default.
+		if info.has("seed_type") and "seed_type" in inst:
+			inst.set("seed_type", info["seed_type"])
+	else:
+		var packed: PackedScene = load(String(info["scene"])) as PackedScene
+		if packed == null:
+			_set_preview_viewport_live(vp, false)
+			return
+		inst = packed.instantiate() as Node3D
+	if inst == null:
+		_set_preview_viewport_live(vp, false)
+		return
 
-		if inst is RigidBody3D:
-			var rb: RigidBody3D = inst as RigidBody3D
-			rb.freeze = true
-			rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-		inst.set_process(false)
-		inst.set_physics_process(false)
+	if inst is RigidBody3D:
+		var rb: RigidBody3D = inst as RigidBody3D
+		rb.freeze = true
+		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	inst.set_process(false)
+	inst.set_physics_process(false)
 
-		## Preview-only guard — MUST be set before add_child() so _ready()
-		## sees it (see PickupableItem._is_preview_only). Without it, every
-		## shop preview's real _ready() joined world groups ("pickup",
-		## "interactable", ...) and tree-wide NPC/interaction group-scans
-		## treated them as real items buried at ~world origin.
-		inst.set("_is_preview_only", true)
+	## Preview-only guard — MUST be set before add_child() so _ready() sees
+	## it (see PickupableItem._is_preview_only). Without it, every shop
+	## preview's real _ready() joined world groups ("pickup", "interactable",
+	## ...) and tree-wide NPC/interaction group-scans treated them as real
+	## items buried at ~world origin.
+	inst.set("_is_preview_only", true)
 
-		## Pivot fix (Jul 2026) — same reasoning as the construct-item loop
-		## above: rotate a fixed pivot wrapping the instance, not the
-		## instance itself, so it spins around its true visual center.
-		var pivot: Node3D = Node3D.new()
-		pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-		vp.add_child(pivot)
-		pivot.add_child(inst)
-		## Safety net: wipe any groups this instance's _ready() still joined
-		## (and any its children joined, e.g. WallLight's priority proxy).
-		## See GhostModelBuilder.strip_groups() — group membership is
-		## tree-wide, even though these instances are world-isolated.
-		GhostModelBuilder.strip_groups(inst)
-		_shop_mesh_instances[i] = pivot
+	## Pivot fix (Jul 2026) — same reasoning as the construct-item builder:
+	## rotate a fixed pivot wrapping the instance, not the instance itself.
+	var pivot: Node3D = Node3D.new()
+	pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
+	vp.add_child(pivot)
+	pivot.add_child(inst)
+	## Safety net: wipe any groups this instance's _ready() still joined
+	## (and any its children joined, e.g. WallLight's priority proxy).
+	## See GhostModelBuilder.strip_groups() — group membership is
+	## tree-wide, even though these instances are world-isolated.
+	GhostModelBuilder.strip_groups(inst)
+	_shop_mesh_instances[i] = pivot
 
-		# Combined AABB, correctly accounting for each mesh's own offset
-		# from `inst` — see _combined_local_aabb()'s own header.
-		var aabb_result: Dictionary = _combined_local_aabb(inst)
-		if aabb_result["found_any"]:
-			var combined: AABB = aabb_result["aabb"]
-			inst.position = -combined.get_center()
-			pivot.scale = Vector3.ONE * _preview_normalize_scale(combined)
+	# Combined AABB, correctly accounting for each mesh's own offset.
+	var aabb_result: Dictionary = _combined_local_aabb(inst)
+	if aabb_result["found_any"]:
+		var combined: AABB = aabb_result["aabb"]
+		inst.position = -combined.get_center()
+		pivot.scale = Vector3.ONE * _preview_normalize_scale(combined)
+	_set_preview_viewport_live(vp, false)
 
 # ─── Cancel button ────────────────────────────────────────────────────────────
 func _build_cancel_button() -> Control:
@@ -1220,14 +1458,16 @@ func _reposition_cancel_btn() -> void:
 
 ## Item preview hover animation (Jul 2026). Only meaningful while the
 ## submenu is open and on the Items level (root-level category rows have
-## no preview). Spins whichever row's preview is under the mouse
-## clockwise; every other preview snaps straight back to
+## no preview). Spins whichever row's preview is "selected" — the row under
+## the mouse in mouse/keyboard mode, the d-pad-selected row (Aug 2026) in
+## controller mode. Every other preview snaps straight back to
 ## PREVIEW_ROTATION_DEFAULT with no easing, per spec.
 func _update_preview_hover_spin(delta: float) -> void:
 	var new_hover: int = -1
 	var new_is_shop: bool = false
 	if _submenu_open and _submenu_level == "items":
-		var row: int = _get_submenu_item_at(_mouse_pos)
+		var row: int = _submenu_cursor if InputMode.is_controller() \
+			else _get_submenu_item_at(_mouse_pos)
 		if row >= 1:   ## row 0 is the Back button, never a preview
 			var cats: Dictionary = _current_categories()
 			var cat_items: Array = cats.get(_active_category, [])
@@ -1244,16 +1484,31 @@ func _update_preview_hover_spin(delta: float) -> void:
 					new_is_shop = true
 
 	if new_hover != _hovered_preview_index or new_is_shop != _hovered_preview_is_shop:
-		# Snap the PREVIOUSLY hovered preview back to its default pose.
+		# Snap the PREVIOUSLY hovered preview back to its default pose and drop
+		# it to render-once (it's no longer spinning).
+		var old_vp: SubViewport = _get_hover_viewport(_hovered_preview_is_shop, _hovered_preview_index)
+		if old_vp != null:
+			_set_preview_viewport_live(old_vp, false)
 		var old_mi: Node3D = _get_hover_pivot(_hovered_preview_is_shop, _hovered_preview_index)
 		if old_mi != null and is_instance_valid(old_mi):
 			old_mi.rotation_degrees = PREVIEW_ROTATION_DEFAULT
 		_hovered_preview_index = new_hover
 		_hovered_preview_is_shop = new_is_shop
+		# The newly hovered preview spins live.
+		var new_vp: SubViewport = _get_hover_viewport(new_is_shop, new_hover)
+		if new_vp != null:
+			_set_preview_viewport_live(new_vp, true)
 
 	var mi: Node3D = _get_hover_pivot(_hovered_preview_is_shop, _hovered_preview_index)
 	if mi != null and is_instance_valid(mi):
 		mi.rotation_degrees.y += PREVIEW_HOVER_SPIN_DEG_PER_SEC * delta
+
+func _get_hover_viewport(is_shop: bool, index: int) -> SubViewport:
+	if index < 0:
+		return null
+	if is_shop:
+		return _shop_viewports[index] if index < _shop_viewports.size() else null
+	return _sub_viewports[index] if index < _sub_viewports.size() else null
 
 func _get_hover_pivot(is_shop: bool, index: int) -> Node3D:
 	if index < 0:
@@ -1269,16 +1524,14 @@ func _on_cancel_draw(btn: Control) -> void:
 		else Color(0.80, 0.12, 0.12, 0.95)
 	var border: Color = Color(0.90, 0.25, 0.25, 0.80)
 
-	# Rounded bg
-	_draw_rounded_on(btn, r, cr, bg)
-	# Border
-	btn.draw_rect(r, border, false, 1.5)
+	# Rounded fill + border (border now follows the corners — was square)
+	UIKit.draw_rounded_rect(btn, r, bg, border, 1.5, cr)
 
 	# X mark
 	var pad: float = 9.0
 	var xc: Color  = Color(1.0, 0.85, 0.85, 1.0)
-	btn.draw_line(Vector2(pad, pad), Vector2(r.size.x - pad, r.size.y - pad), xc, 2.5)
-	btn.draw_line(Vector2(r.size.x - pad, pad), Vector2(pad, r.size.y - pad), xc, 2.5)
+	btn.draw_line(Vector2(pad, pad), Vector2(r.size.x - pad, r.size.y - pad), xc, 2.5, true)
+	btn.draw_line(Vector2(r.size.x - pad, pad), Vector2(pad, r.size.y - pad), xc, 2.5, true)
 
 # ─── Main canvas draw (border + toolbar) ──────────────────────────────────────
 func _on_canvas_draw() -> void:
@@ -1287,8 +1540,6 @@ func _on_canvas_draw() -> void:
 	_draw_dupe_rotate_overlay()
 	_draw_rock_chunk_overlay()
 	_draw_toolbar()
-	if dig_confirm_open:
-		_draw_dig_confirm()
 	# Trigger submenu redraw
 	if _submenu_open and _submenu_root.visible:
 		var draw_ctrl: Control = _submenu_root.get_node_or_null("SubDraw")
@@ -1332,7 +1583,7 @@ func _draw_deconstruct_overlay() -> void:
 	# Border — brighter red outline
 	var border_col: Color = Color(1.0, 0.25, 0.18, 0.90)
 	for i: int in pts.size():
-		_canvas.draw_line(pts[i], pts[(i + 1) % pts.size()], border_col, 2.0)
+		_canvas.draw_line(pts[i], pts[(i + 1) % pts.size()], border_col, 2.0, true)
 
 ## Draws a light-blue semi-transparent tile overlay when Duplicate or Move tool
 ## is active (phase 0 hover) and the cursor is hovering over a placed object.
@@ -1363,7 +1614,7 @@ func _draw_dupe_rotate_overlay() -> void:
 	# Border — brighter blue outline
 	var border_col: Color = Color(0.35, 0.75, 1.0, 0.90)
 	for i: int in pts.size():
-		_canvas.draw_line(pts[i], pts[(i + 1) % pts.size()], border_col, 2.0)
+		_canvas.draw_line(pts[i], pts[(i + 1) % pts.size()], border_col, 2.0, true)
 
 ## Draws a red semi-transparent 4×4 footprint overlay when the Deconstruct tool
 ## is hovering over a rock chunk. Includes a $2500 cost label above the chunk.
@@ -1400,14 +1651,16 @@ func _draw_rock_chunk_overlay() -> void:
 	# Border — brighter red outline, slightly thicker than deconstruct overlay
 	var border_col: Color = Color(1.0, 0.25, 0.18, 0.90)
 	for i: int in pts.size():
-		_canvas.draw_line(pts[i], pts[(i + 1) % pts.size()], border_col, 2.5)
+		_canvas.draw_line(pts[i], pts[(i + 1) % pts.size()], border_col, 2.5, true)
 
 	# Cost label — centered above the chunk's world position
 	# Project a point ~1 unit above the chunk center for label anchor
 	var label_world: Vector3 = hovered_rock_chunk_world_pos + Vector3(0.0, 1.0, 0.0)
 	var label_screen: Vector2 = camera.unproject_position(label_world)
 	var cost_str: String = "$1,500"
-	var font: Font = ThemeDB.fallback_font
+	## Iosevka like the rest of Build Mode — was ThemeDB.fallback_font
+	## (Godot's generic default), a small but visible typeface mismatch.
+	var font: Font = UIKit.font()
 	var font_size: int = 14
 	var text_size: Vector2 = font.get_string_size(cost_str, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 	var text_pos: Vector2  = label_screen - Vector2(text_size.x * 0.5, 0.0)
@@ -1419,87 +1672,14 @@ func _draw_rock_chunk_overlay() -> void:
 			-1, font_size, Color(1.0, 0.45, 0.35, 1.0))
 
 ## Draws a centered Yes/No confirmation panel for rock dig.
-## Stores button rects in _dig_confirm_yes_rect / _dig_confirm_no_rect
-## so _unhandled_input can hit-test them.
-func _draw_dig_confirm() -> void:
-	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	var font: Font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
-
-	## UI-convention pass (Aug 2026): this dialog used to hand-roll the same
-	## kiwi-green scheme ConfirmDialogUI.gd was originally modeled on and has
-	## since moved off of (see that file's header comment). Migrated onto
-	## the same UIKit NEUTRAL palette + shared UIKit.draw_rounded_rect()/
-	## draw_backdrop() primitives so the two dialogs read as the same family
-	## again. Local _draw_rounded_on()/_draw_rounded_outline_on() below are
-	## still used elsewhere in this file (toolbar, cancel button, border) —
-	## not removed, just no longer called from here.
-	const PANEL_W: float = 320.0
-	const PANEL_H: float = 130.0
-	const BTN_W:   float = 110.0
-	const BTN_H:   float = 38.0
-	const CR:      float = 4.0   ## UIKit.CORNER_RADIUS default — matches every other panel
-	const BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
-	const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
-	const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
-	const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
-	const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
-	const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
-
-	var px: float = (vp_size.x - PANEL_W) * 0.5
-	var py: float = (vp_size.y - PANEL_H) * 0.5
-	var panel_rect: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
-
-	## Full-screen dim backdrop — shared UIKit primitive (alpha 0.55 preserved).
-	UIKit.draw_backdrop(_canvas, vp_size, 0.55)
-
-	## Panel background + border — shared UIKit primitive/palette.
-	UIKit.draw_rounded_rect(_canvas, panel_rect, BG_COLOR, BORDER_COLOR, 2.0, CR)
-
-	# Title
-	var title: String = "EXPAND BUNKER"
-	var tsz: Vector2 = font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15)
-	_canvas.draw_string(font,
-		Vector2(px + PANEL_W * 0.5 - tsz.x * 0.5, py + 28.0),
-		title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, HEADER_COLOR)
-
-	# Cost line (dim/secondary role — same tone every other panel's secondary text uses)
-	var sub: String = "$1,500"
-	var ssz: Vector2 = font.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
-	_canvas.draw_string(font,
-		Vector2(px + PANEL_W * 0.5 - ssz.x * 0.5, py + 50.0),
-		sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DIM_COLOR)
-
-	# YES button
-	var gap: float = 16.0
-	var total_btns_w: float = BTN_W * 2.0 + gap
-	var yes_x: float = px + (PANEL_W - total_btns_w) * 0.5
-	var btn_y: float = py + PANEL_H - BTN_H - 18.0
-	_dig_confirm_yes_rect = Rect2(yes_x, btn_y, BTN_W, BTN_H)
-	## Green bg / OK_COLOR accent — same affirmative-action pattern
-	## GeneratorInspectUI's START button / ConfirmDialogUI's YES button use.
-	UIKit.draw_rounded_rect(_canvas, _dig_confirm_yes_rect, Color(0.06, 0.30, 0.12, 1.0), OK_COLOR, 1.5, 6.0)
-	var yes_lbl: String = "YES"
-	var ylsz: Vector2 = font.get_string_size(yes_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13)
-	_canvas.draw_string(font,
-		Vector2(yes_x + BTN_W * 0.5 - ylsz.x * 0.5, btn_y + BTN_H * 0.5 + 5.0),
-		yes_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, OK_COLOR)
-
-	# NO button
-	var no_x: float = yes_x + BTN_W + gap
-	_dig_confirm_no_rect = Rect2(no_x, btn_y, BTN_W, BTN_H)
-	## Red bg / CRIT_COLOR accent — same destructive-action pattern
-	## GeneratorInspectUI's SHUT DOWN button / ConfirmDialogUI's NO button use.
-	UIKit.draw_rounded_rect(_canvas, _dig_confirm_no_rect, Color(0.42, 0.08, 0.06, 1.0), CRIT_COLOR, 1.5, 6.0)
-	var no_lbl: String = "NO"
-	var nlsz: Vector2 = font.get_string_size(no_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13)
-	_canvas.draw_string(font,
-		Vector2(no_x + BTN_W * 0.5 - nlsz.x * 0.5, btn_y + BTN_H * 0.5 + 5.0),
-		no_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, CRIT_COLOR)
+## The rock-dig confirm dialog is now the shared ConfirmDialogUI (see
+## open_dig_confirm) — the old hand-rolled _draw_dig_confirm() +
+## _dig_confirm_yes_rect/_dig_confirm_no_rect hit-testing is gone.
 
 func _draw_border() -> void:
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
 	var pulse: float     = 0.45 + sin(_pulse_t) * 0.45
-	var col: Color       = Color(KIWI.r, KIWI.g, KIWI.b, pulse)
+	var col: Color       = Color(ACCENT.r, ACCENT.g, ACCENT.b, pulse)
 	var ins: float       = BORDER_INSET
 	var r: Rect2         = Rect2(ins, ins, vp_size.x - ins * 2.0, vp_size.y - ins * 2.0)
 	var cr: float        = 12.0
@@ -1507,10 +1687,10 @@ func _draw_border() -> void:
 	for pass_i in 3:
 		var w: float = BORDER_W - pass_i * 0.8
 		var c: Color = Color(col.r, col.g, col.b, col.a * (1.0 - pass_i * 0.25))
-		_canvas.draw_line(r.position + Vector2(cr, 0),          r.position + Vector2(r.size.x-cr, 0),         c, w)
-		_canvas.draw_line(r.position + Vector2(cr, r.size.y),   r.position + Vector2(r.size.x-cr, r.size.y),  c, w)
-		_canvas.draw_line(r.position + Vector2(0, cr),          r.position + Vector2(0, r.size.y-cr),         c, w)
-		_canvas.draw_line(r.position + Vector2(r.size.x, cr),   r.position + Vector2(r.size.x, r.size.y-cr),  c, w)
+		_canvas.draw_line(r.position + Vector2(cr, 0),          r.position + Vector2(r.size.x-cr, 0),         c, w, true)
+		_canvas.draw_line(r.position + Vector2(cr, r.size.y),   r.position + Vector2(r.size.x-cr, r.size.y),  c, w, true)
+		_canvas.draw_line(r.position + Vector2(0, cr),          r.position + Vector2(0, r.size.y-cr),         c, w, true)
+		_canvas.draw_line(r.position + Vector2(r.size.x, cr),   r.position + Vector2(r.size.x, r.size.y-cr),  c, w, true)
 		_canvas.draw_polyline(_arc(r.position + Vector2(cr, cr), cr, PI, PI*1.5), c, w, true)
 		_canvas.draw_polyline(_arc(r.position + Vector2(r.size.x-cr, cr), cr, PI*1.5, TAU), c, w, true)
 		_canvas.draw_polyline(_arc(r.position + Vector2(cr, r.size.y-cr), cr, PI*0.5, PI), c, w, true)
@@ -1518,7 +1698,8 @@ func _draw_border() -> void:
 
 func _draw_toolbar() -> void:
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	var font: Font       = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
+	var font: Font       = UIKit.font()
+	var fs_small: int    = UIKit.theme_font_size("UI", "small", 9)
 	var count: int       = TOOL_LABELS.size()
 	var total_w: float   = SLOT_W * count + SLOT_GAP * (count - 1)
 	var start_x: float   = (vp_size.x - total_w) * 0.5
@@ -1535,22 +1716,20 @@ func _draw_toolbar() -> void:
 		var slot_bg: Color  = COLOR_BG
 		if undo_flash:
 			var frac: float = _undo_flash_t / UNDO_FLASH_TIME
-			slot_bg = COLOR_BG.lerp(Color(0.12, 0.30, 0.08, 0.88), frac)
-
-		_draw_rounded_on(_canvas, rect, SLOT_CORNER, slot_bg)
+			slot_bg = COLOR_BG.lerp(Color(0.10, 0.28, 0.27, 0.88), frac)
 
 		var is_active: bool = (not is_undo) and \
 			((i == active_tool) or (i == TOOL_CONSTRUCT and _submenu_open and _submenu_source == "construct") \
 				or (i == TOOL_FARMING and _submenu_open and _submenu_source == "farming"))
 		var bcol: Color = COLOR_SEL if (is_active or undo_flash) else COLOR_BORDER
-		_draw_rounded_outline_on(_canvas, rect, SLOT_CORNER, bcol, 2.0)
+		UIKit.draw_rounded_rect(_canvas, rect, slot_bg, bcol, 2.0, SLOT_CORNER)
 
 		## Controller (Aug 2026): white outline on the d-pad selected tab
 		## (distinct from the active tool's teal outline), and LB/RB cycle
 		## badges on the first (Construct) / last (Shop) tabs.
 		if InputMode.is_controller():
 			if i == _sel_tool:
-				_draw_rounded_outline_on(_canvas, rect, SLOT_CORNER, Color.WHITE, 3.0)
+				UIKit.draw_rounded_rect(_canvas, rect, Color(0, 0, 0, 0), Color.WHITE, 3.0, SLOT_CORNER)
 			if i == 0:
 				_canvas.draw_texture_rect(XBOX_LB_ICON, Rect2(x + 2.0, y + 2.0, TOOL_BADGE_SIZE, TOOL_BADGE_SIZE), false)
 			elif i == TOOL_LABELS.size() - 1:
@@ -1564,13 +1743,9 @@ func _draw_toolbar() -> void:
 
 		# Label
 		var lbl: String     = TOOL_LABELS[i]
-		var lsz: Vector2    = font.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 9)
+		var lsz: Vector2    = font.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, fs_small)
 		_canvas.draw_string(font, Vector2(x + SLOT_W*0.5 - lsz.x*0.5, y + SLOT_H - 8.0),
-			lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, COLOR_TEXT)
-
-		# Active dot (not for Undo — it's not a persistent mode)
-		if is_active:
-			_canvas.draw_circle(Vector2(x + SLOT_W*0.5, y + 2.5), 3.0, COLOR_SEL)
+			lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, fs_small, COLOR_TEXT)
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 func _get_toolbar_slot_at(pos: Vector2) -> int:
@@ -1606,21 +1781,3 @@ func _make_stylebox(bg: Color, border: Color, corners: Vector4i) -> StyleBoxFlat
 	s.content_margin_top    = 6.0
 	s.content_margin_bottom = 6.0
 	return s
-
-func _draw_rounded_on(ctrl: CanvasItem, rect: Rect2, cr: float, col: Color) -> void:
-	ctrl.draw_rect(Rect2(rect.position + Vector2(cr, 0), Vector2(rect.size.x - cr*2, rect.size.y)), col, true)
-	ctrl.draw_rect(Rect2(rect.position + Vector2(0, cr), Vector2(rect.size.x, rect.size.y - cr*2)), col, true)
-	ctrl.draw_circle(rect.position + Vector2(cr, cr), cr, col)
-	ctrl.draw_circle(rect.position + Vector2(rect.size.x-cr, cr), cr, col)
-	ctrl.draw_circle(rect.position + Vector2(cr, rect.size.y-cr), cr, col)
-	ctrl.draw_circle(rect.position + Vector2(rect.size.x-cr, rect.size.y-cr), cr, col)
-
-func _draw_rounded_outline_on(ctrl: CanvasItem, rect: Rect2, cr: float, col: Color, w: float) -> void:
-	ctrl.draw_line(rect.position + Vector2(cr, 0),           rect.position + Vector2(rect.size.x-cr, 0),          col, w)
-	ctrl.draw_line(rect.position + Vector2(cr, rect.size.y), rect.position + Vector2(rect.size.x-cr, rect.size.y), col, w)
-	ctrl.draw_line(rect.position + Vector2(0, cr),           rect.position + Vector2(0, rect.size.y-cr),           col, w)
-	ctrl.draw_line(rect.position + Vector2(rect.size.x, cr), rect.position + Vector2(rect.size.x, rect.size.y-cr), col, w)
-	ctrl.draw_polyline(_arc(rect.position + Vector2(cr, cr), cr, PI, PI*1.5), col, w, true)
-	ctrl.draw_polyline(_arc(rect.position + Vector2(rect.size.x-cr, cr), cr, PI*1.5, TAU), col, w, true)
-	ctrl.draw_polyline(_arc(rect.position + Vector2(cr, rect.size.y-cr), cr, PI*0.5, PI), col, w, true)
-	ctrl.draw_polyline(_arc(rect.position + Vector2(rect.size.x-cr, rect.size.y-cr), cr, 0.0, PI*0.5), col, w, true)

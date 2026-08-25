@@ -435,6 +435,8 @@ func _tick_stash_into_basket(npc: NPC, delta: float) -> void:
 	_item.global_position = _basket.global_position
 	_item.freeze = true
 	_item.visible = false
+	if _item.has_method("deactivate_dynamic_state"):
+		_item.deactivate_dynamic_state()   ## stashed = physics/contacts/obstacle off (Aug 2026)
 	if "is_held" in _item:
 		_item.is_held = false
 	_basket.slots[slot_index] = _item

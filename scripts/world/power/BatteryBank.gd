@@ -94,27 +94,48 @@ var _panel_canvas: Control     = null
 var _panel_open:   bool        = false
 var _font: Font = null
 
-## Panel dimensions (PANEL_H +18 vs. the old value — the state badge
-## moved to its own row below the title so it no longer shares a line
+## Panel dimensions + UI palette + component geometry — sourced from
+## BunkerTheme (the UI design catalog, assets/fonts/BunkerTheme.tres).
+## Loaded in _load_theme() (from _ready); these defaults are fallbacks if
+## the theme resource is missing. PANEL_H +18 vs. the old value — the state
+## badge moved to its own row below the title so it no longer shares a line
 ## with the relocated top-right close button; every row below cascades
-## off sep_y so this one bump keeps the existing bottom margin intact.)
-const PANEL_W: float = 280.0
-const PANEL_H: float = 208.0
-const PAD:     float = 14.0
+## off sep_y so this one bump keeps the existing bottom margin intact.
+var PANEL_W: float = 280.0
+var PANEL_H: float = 208.0
+var PAD:     float = 14.0
 
 ## UI colours — POWER domain (convention-alignment pass: this panel used
 ## to hand-roll its own green scheme; now matches GeneratorInspectUI.gd /
 ## PowerTerminalUI.gd's shared palette. Names kept identical so every call
 ## site below still resolves — only the values changed.)
-const UI_BG:     Color = Color(0.08, 0.08, 0.09, 0.97)
-const UI_BORDER: Color = Color(0.55, 0.58, 0.62, 0.70)
-const UI_TEXT:   Color = Color(0.85, 0.86, 0.88, 0.95)
-const UI_DIM:    Color = Color(0.50, 0.52, 0.55, 0.80)
-const UI_ON:     Color = Color(0.35, 0.85, 1.00, 1.00)
-const UI_OFF:    Color = Color(1.00, 0.35, 0.30, 1.00)
-const UI_WARN:   Color = Color(1.00, 0.72, 0.10, 1.00)
-const UI_HEADER: Color = Color(0.80, 0.82, 0.86, 1.00)
-const UI_ACCENT: Color = Color(0.90, 0.80, 0.20, 1.00)   ## power domain top stripe
+var UI_BG:     Color = Color(0.08, 0.08, 0.09, 0.97)
+var UI_BORDER: Color = Color(0.55, 0.58, 0.62, 0.70)
+var UI_TEXT:   Color = Color(0.85, 0.86, 0.88, 0.95)
+var UI_DIM:    Color = Color(0.50, 0.52, 0.55, 0.80)
+var UI_ON:     Color = Color(0.35, 0.85, 1.00, 1.00)
+var UI_OFF:    Color = Color(1.00, 0.35, 0.30, 1.00)
+var UI_WARN:   Color = Color(1.00, 0.72, 0.10, 1.00)
+var UI_HEADER: Color = Color(0.80, 0.82, 0.86, 1.00)
+var UI_ACCENT: Color = Color(0.90, 0.80, 0.20, 1.00)   ## power domain top stripe
+
+## Panel component geometry / thresholds from BunkerTheme's BatteryUI section.
+var STRIP_EMPTY:   Color = Color(0.25, 0.25, 0.25, 1.0)
+var BAR_GROOVE:    Color = Color(0.12, 0.12, 0.12, 0.90)
+var CHARGE_BAR_W:  float = 252.0
+var CHARGE_BAR_H:  float = 8.0
+var HP_BAR_H:      float = 6.0
+var PILL_W:        float = 42.0
+var PILL_H:        float = 18.0
+## Font sizes from BunkerTheme's BatteryUI section (Aug 2026 scale pass).
+var FONT_TITLE: int = 16   ## bumped via "BatteryUI/font_sizes/title"
+var FONT_BODY:  int = 10
+var FONT_STATE: int = 11
+var FONT_VALUE: int = 13   ## numeric readouts (charge %, health %)
+var FONT_SMALL: int = 9    ## pill ON/OFF text, footer hint
+var _charge_crit:  float = 0.15
+var _charge_warn:  float = 0.40
+var _backdrop_alpha: float = 0.42
 
 ## Hit-test rects (screen-space, built during draw)
 var _rect_close:     Rect2 = Rect2()
@@ -126,7 +147,39 @@ var _panel_rect:     Rect2 = Rect2()
 # LIFECYCLE
 # ══════════════════════════════════════════════════════════════════════════════
 
+## Pulls every panel palette + geometry value from BunkerTheme so the theme is
+## the single source of truth (tweak there, this panel follows).
+func _load_theme() -> void:
+	UI_BG     = UIKit.theme_color("UI", "bg",     UI_BG)
+	UI_BORDER = UIKit.theme_color("UI", "border", UI_BORDER)
+	UI_HEADER = UIKit.theme_color("UI", "header", UI_HEADER)
+	UI_TEXT   = UIKit.theme_color("UI", "text",   UI_TEXT)
+	UI_DIM    = UIKit.theme_color("UI", "dim",    UI_DIM)
+	UI_ON     = UIKit.theme_color("UI", "ok",     UI_ON)
+	UI_WARN   = UIKit.theme_color("UI", "warn",   UI_WARN)
+	UI_OFF    = UIKit.theme_color("BatteryUI", "off", UI_OFF)
+	UI_ACCENT = UIKit.theme_color("UI", "power_accent", UI_ACCENT)
+	STRIP_EMPTY  = UIKit.theme_color("BatteryUI", "strip_empty", STRIP_EMPTY)
+	BAR_GROOVE   = UIKit.theme_color("BatteryUI", "bar_groove", BAR_GROOVE)
+	PANEL_W      = float(UIKit.theme_constant("BatteryUI", "panel_w", 280))
+	PANEL_H      = float(UIKit.theme_constant("BatteryUI", "panel_h", 208))
+	PAD          = float(UIKit.theme_constant("BatteryUI", "pad", 14))
+	CHARGE_BAR_W = float(UIKit.theme_constant("BatteryUI", "charge_bar_w", 252))
+	CHARGE_BAR_H = float(UIKit.theme_constant("BatteryUI", "charge_bar_h", 8))
+	HP_BAR_H     = float(UIKit.theme_constant("BatteryUI", "hp_bar_h", 6))
+	PILL_W       = float(UIKit.theme_constant("BatteryUI", "pill_w", 42))
+	PILL_H       = float(UIKit.theme_constant("BatteryUI", "pill_h", 18))
+	FONT_TITLE = UIKit.theme_font_size("BatteryUI", "title", 16)
+	FONT_BODY  = UIKit.theme_font_size("BatteryUI", "body", 10)
+	FONT_STATE = UIKit.theme_font_size("BatteryUI", "state", 11)
+	FONT_VALUE = UIKit.theme_font_size("BatteryUI", "value", 13)
+	FONT_SMALL = UIKit.theme_font_size("BatteryUI", "small", 9)
+	_charge_crit = UIKit.theme_constant("BatteryUI", "charge_crit_permille", 150) / 1000.0
+	_charge_warn = UIKit.theme_constant("BatteryUI", "charge_warn_permille", 400) / 1000.0
+	_backdrop_alpha = UIKit.theme_constant("BatteryUI", "backdrop_alpha_permille", 420) / 1000.0
+
 func _ready() -> void:
+	_load_theme()
 	battery_tier = clamp(battery_tier, 0, 2)
 	collision_layer = 5
 	collision_mask  = 0
@@ -294,6 +347,22 @@ func _close_panel() -> void:
 	_panel_layer.visible = false
 
 
+## Shared bar row (Aug 2026 scale pass — mirrors GeneratorInspectUI's
+## _draw_bar): one line with a label (FONT_BODY) and a value string
+## (FONT_VALUE), then a filled bar of the given width/height below. Returns
+## the next row's Y.
+func _draw_bar(label: String, value_str: String, frac: float,
+		x: float, y: float, bar_w: float, bar_h: float,
+		fill_col: Color) -> float:
+	_ds(label, Vector2(x, y), UI_TEXT, FONT_BODY)
+	_ds(value_str, Vector2(x + 80.0, y), UI_TEXT, FONT_VALUE)
+	var bar_y: float = y + 14.0
+	_panel_canvas.draw_rect(Rect2(x, bar_y, bar_w, bar_h), BAR_GROOVE, true)
+	_panel_canvas.draw_rect(Rect2(x, bar_y, bar_w * clampf(frac, 0.0, 1.0), bar_h), fill_col, true)
+	_panel_canvas.draw_rect(Rect2(x, bar_y, bar_w, bar_h), UI_BORDER * Color(1, 1, 1, 0.40), false, 1.0)
+	return bar_y + bar_h + 12.0
+
+
 func _on_panel_draw() -> void:
 	if not _panel_open:
 		return
@@ -303,93 +372,77 @@ func _on_panel_draw() -> void:
 	var py: float   = (vp.y - PANEL_H) * 0.5
 
 	## Dim background
-	_panel_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.42), true)
+	_panel_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, _backdrop_alpha), true)
 
 	## Panel bg + border (rounded — matches every other panel via
-	## UIKit.draw_rounded_rect) + domain identity stripe (this panel never
-	## had one before).
+	## UIKit.draw_rounded_rect) + domain identity stripe.
 	_panel_rect = Rect2(px, py, PANEL_W, PANEL_H)
 	UIKit.draw_rounded_rect(_panel_canvas, _panel_rect, UI_BG, UI_BORDER, 2.0)
 	UIKit.draw_domain_stripe(_panel_canvas, _panel_rect, UI_ACCENT)
 
-	## ── Title (top-left, clear of the top-right close button — Jul 2026
-	## +6px top-padding convention, matches GeneratorInspectUI's cy start) ──────
+	## ── Content column (Aug 2026 scale pass) — proportionally-spaced layout
+	## sized for the new 480×320 panel, mirroring GeneratorInspectUI's shape:
+	## title → state badge → separator → bars → separator → toggle → footer. ──
+	var cx: float = px + PAD            ## PAD = 24 — shared content_inset
+	var cy: float = py + 26.0           ## shared top_padding
+
+	## Title (clear of the top-right close button)
 	var cfg: Dictionary = TIER_CONFIG[battery_tier]
-	var title_y: float  = py + 26.0
-	_ds("🔋 " + (cfg["label"] as String).to_upper(), Vector2(px + PAD, title_y), UI_HEADER, 13)
+	_ds("🔋 " + (cfg["label"] as String).to_upper(), Vector2(cx, cy), UI_HEADER, FONT_TITLE)
+	cy += 28.0
 
-	## ── State badge (own row below title, same pattern as
-	## GeneratorInspectUI's backup/tripped badge line — no longer squeezed
-	## next to the title now that the close button lives up here too) ──────────
-	var state_y: float = title_y + 18.0
-	var state: String = _state_string()
-	var state_col: Color = _state_color()
-	_ds(state, Vector2(px + PAD, state_y), state_col, 11)
+	## State badge
+	_ds(_state_string(), Vector2(cx, cy), _state_color(), FONT_STATE)
+	cy += 24.0
 
-	## ── Separator ─────────────────────────────────────────────────────────────
-	var sep_y: float = state_y + 14.0
-	_panel_canvas.draw_line(Vector2(px + PAD, sep_y), Vector2(px + PANEL_W - PAD, sep_y),
-		UI_BORDER * Color(1, 1, 1, 0.5), 1.0)
+	## Separator
+	_panel_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - PAD, cy),
+		UI_BORDER * Color(1, 1, 1, 0.5), 1.0, true)
+	cy += 16.0
 
-	## ── Charge bar ────────────────────────────────────────────────────────────
-	var bar_y: float = sep_y + 14.0
-	_ds("Charge", Vector2(px + PAD, bar_y), UI_TEXT, 10)
+	## Charge bar
 	var pct: float = clampf(_charge_wh / maxf(_capacity_wh, 1.0), 0.0, 1.0)
 	var pct_int: int = int(pct * 100.0)
-	_ds("%d%%  (%.0f / %.0f Wh)" % [pct_int, _charge_wh, _capacity_wh],
-		Vector2(px + 66.0, bar_y), _pct_color(pct), 10)
+	var charge_str: String = "%d%%  (%.0f / %.0f Wh)" % [pct_int, _charge_wh, _capacity_wh]
+	cy = _draw_bar("Charge", charge_str, pct, cx, cy, CHARGE_BAR_W, CHARGE_BAR_H, _pct_color(pct))
 
-	var bbar_y: float = bar_y + 14.0
-	var bbar_w: float = PANEL_W - PAD * 2.0
-	_panel_canvas.draw_rect(Rect2(px + PAD, bbar_y, bbar_w, 8.0),
-		Color(0.12, 0.12, 0.12, 0.90), true)
-	_panel_canvas.draw_rect(Rect2(px + PAD, bbar_y, bbar_w * pct, 8.0),
-		_pct_color(pct), true)
-	_panel_canvas.draw_rect(Rect2(px + PAD, bbar_y, bbar_w, 8.0),
-		UI_BORDER * Color(1, 1, 1, 0.40), false, 1.0)
+	## HP bar (placeholder at 100%)
+	cy = _draw_bar("Health", "100%", 1.0, cx, cy, CHARGE_BAR_W, HP_BAR_H, UI_ON)
 
-	## ── HP bar (placeholder at 100%) ──────────────────────────────────────────
-	var hp_y: float = bbar_y + 20.0
-	_ds("Health", Vector2(px + PAD, hp_y), UI_TEXT, 10)
-	_ds("100%", Vector2(px + 66.0, hp_y), UI_ON, 10)
-	_panel_canvas.draw_rect(Rect2(px + PAD, hp_y + 12.0, bbar_w, 6.0),
-		Color(0.12, 0.12, 0.12, 0.90), true)
-	_panel_canvas.draw_rect(Rect2(px + PAD, hp_y + 12.0, bbar_w, 6.0),
-		UI_ON, true)
-	_panel_canvas.draw_rect(Rect2(px + PAD, hp_y + 12.0, bbar_w, 6.0),
-		UI_BORDER * Color(1, 1, 1, 0.40), false, 1.0)
-
-	## ── Separator ─────────────────────────────────────────────────────────────
-	var sep2_y: float = hp_y + 26.0
-	_panel_canvas.draw_line(Vector2(px + PAD, sep2_y), Vector2(px + PANEL_W - PAD, sep2_y),
+	## Separator
+	_panel_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - PAD, cy),
 		UI_BORDER * Color(1, 1, 1, 0.35), 1.0)
+	cy += 12.0
 
-	## ── On / Off toggle ───────────────────────────────────────────────────────
-	var tog_y: float = sep2_y + 10.0
-	var row_rect: Rect2 = Rect2(px + PAD, tog_y, PANEL_W - PAD * 2.0, 30.0)
+	## ── On / Off toggle row (46px tall) — sliding-knob pill, matching the
+	## Generator/Water pill convention ─────────────────────────────────────────
+	var row_rect: Rect2 = Rect2(cx, cy, PANEL_W - PAD * 2.0, 46.0)
+	_rect_toggle = row_rect
 	_panel_canvas.draw_rect(row_rect, Color(0.10, 0.14, 0.10, 0.60), true)
 	_panel_canvas.draw_rect(row_rect, UI_BORDER * Color(1, 1, 1, 0.35), false, 1.0)
-	_ds("Battery unit", Vector2(px + PAD + 6.0, tog_y + 18.0), UI_TEXT, 10)
+	_ds("Battery unit", Vector2(cx + 10.0, cy + 18.0), UI_TEXT, FONT_BODY)
+	_ds("Supplies stored power", Vector2(cx + 10.0, cy + 32.0), UI_DIM, FONT_SMALL)
+	var pill_x: float = px + PANEL_W - PAD - PILL_W - 6.0
+	var pill_y: float = cy + (46.0 - PILL_H) * 0.5
+	var pill_r: float = PILL_H * 0.5
+	var pill_col: Color = UI_ON if _enabled else Color(0.20, 0.22, 0.20, 1.0)
+	_panel_canvas.draw_rect(Rect2(pill_x + pill_r, pill_y, PILL_W - pill_r * 2.0, PILL_H), pill_col, true)
+	_panel_canvas.draw_circle(Vector2(pill_x + pill_r, pill_y + pill_r), pill_r, pill_col)
+	_panel_canvas.draw_circle(Vector2(pill_x + PILL_W - pill_r, pill_y + pill_r), pill_r, pill_col)
+	var knob_cx: float = (pill_x + PILL_W - pill_r) if _enabled else (pill_x + pill_r)
+	_panel_canvas.draw_circle(Vector2(knob_cx, pill_y + pill_r), pill_r - 3.0, Color(1, 1, 1, 0.95))
+	cy += 46.0 + 12.0
 
-	## Pill toggle
-	var pill_w: float = 42.0
-	var pill_h: float = 18.0
-	var pill_x: float = px + PANEL_W - PAD - pill_w - 4.0
-	var pill_y: float = tog_y + 6.0
-	_rect_toggle = Rect2(px + PAD, tog_y, PANEL_W - PAD * 2.0, 30.0)
-	var pill_rect: Rect2 = Rect2(pill_x, pill_y, pill_w, pill_h)
-	var pill_col: Color  = UI_ON if _enabled else UI_DIM
-	_panel_canvas.draw_rect(pill_rect, pill_col * Color(1, 1, 1, 0.75), true)
-	_panel_canvas.draw_rect(pill_rect, pill_col, false, 1.5)
-	_ds("ON" if _enabled else "OFF", Vector2(pill_x + 9.0, pill_y + 12.0), Color(1, 1, 1, 0.95), 9)
+	## Separator
+	_panel_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - PAD, cy),
+		UI_BORDER * Color(1, 1, 1, 0.30), 1.0)
+	cy += 14.0
 
-	## ── Close button (top-right, shared × icon — was bottom-right with a
-	## hand-drawn ✕; every other panel's close button lives top-right via
-	## UIKit.draw_close_icon, so this now matches) + footer ────────────────────
+	## ── Close button (top-right, shared × icon) + footer ─────────────────────
 	_rect_close = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
 	UIKit.draw_rounded_rect(_panel_canvas, _rect_close, Color(0.10, 0.06, 0.06, 0.90), UI_OFF, 1.5)
 	UIKit.draw_close_icon(_panel_canvas, _rect_close)
-	_ds("[ESC] close", Vector2(px + PAD, py + PANEL_H - PAD - 10.0), UI_DIM, 9)
+	_ds("[ESC] close", Vector2(cx, py + PANEL_H - PAD - 6.0), UI_DIM, FONT_SMALL)
 
 
 func _on_panel_input(event: InputEvent) -> void:
@@ -566,9 +619,9 @@ func _state_color() -> Color:
 
 
 func _pct_color(ratio: float) -> Color:
-	if ratio <= 0.0:    return COLOR_STRIP_EMPTY
-	if ratio <= 0.15:   return UI_OFF
-	if ratio <= 0.40:   return UI_WARN
+	if ratio <= 0.0:          return STRIP_EMPTY
+	if ratio <= _charge_crit: return UI_OFF
+	if ratio <= _charge_warn: return UI_WARN
 	return UI_ON
 
 

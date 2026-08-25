@@ -129,6 +129,7 @@ var _requests_box: VBoxContainer = null
 var _requests_expanded: bool = false
 var _jobs_box: VBoxContainer = null
 var _jobs_expanded: bool = false
+var _talk_button: Button = null
 var _log_time_labels: Array[Label] = []
 var _log_text_labels: Array[Label] = []
 
@@ -161,12 +162,21 @@ func open(npc_name: String, npc: Node = null) -> void:
 				_proximity.anchor = player.global_position
 	visible = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	## Registered so InteractionSystem can gate world input (interact/A) while
+	## this panel is open — see InteractionSystem._npc_ui_open().
+	add_to_group("npc_talk_ui")
 	_build(npc_name)
+	## Controller (Aug 2026) — start with focus on Talk so A works immediately
+	## and the d-pad has a sensible anchor; without this the first A press
+	## (no focus) would do nothing.
+	if InputMode.is_controller() and _talk_button != null:
+		_talk_button.grab_focus()
 
 func close() -> void:
 	_is_open = false
 	visible = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	remove_from_group("npc_talk_ui")
 	_teardown()
 
 func _teardown() -> void:
@@ -191,6 +201,7 @@ func _teardown() -> void:
 	_status_label = null
 	_command_box = null
 	_relationship_box = null
+	_talk_button = null
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
@@ -379,7 +390,8 @@ func _build(npc_name: String) -> void:
 				Callable(self, "_on_ask_about_npc_pressed").bind(target_id)))
 
 	## Buttons
-	_vbox.add_child(UIKit.make_button("Talk", _on_talk_pressed))
+	_talk_button = UIKit.make_button("Talk", _on_talk_pressed)
+	_vbox.add_child(_talk_button)
 	_vbox.add_child(UIKit.make_button("Close", close))
 
 	## Action Log (Aug 2026) — collapsed by default on every fresh open,

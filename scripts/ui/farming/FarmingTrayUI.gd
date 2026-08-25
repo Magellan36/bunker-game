@@ -35,43 +35,58 @@ extends CanvasLayer
 signal closed
 
 var _theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.FARMING)   ## Jul 2026 — joined the unified panel system, green stripe
+## Shared backdrop dim — read from UI/backdrop_alpha_permille (Aug 2026).
+var _backdrop_alpha: float = 0.60
 
 ## Same universal green→red priority legend as WaterDispenserUI.gd/PowerPriorityUI.gd.
-const PRIO_COLORS: Array[Color] = [
+## Sourced from BunkerTheme in _load_theme(); these defaults are the fallbacks.
+var PRIO_COLORS: Array[Color] = [
 	Color(0.30, 1.00, 0.46, 1.00),
 	Color(0.62, 0.92, 0.32, 1.00),
 	Color(0.98, 0.85, 0.20, 1.00),
 	Color(1.00, 0.58, 0.16, 1.00),
 	Color(1.00, 0.30, 0.20, 1.00),
 ]
-const PRIORITY_MIN: int = 1
-const PRIORITY_MAX: int = 5
+var PRIORITY_MIN: int = 1
+var PRIORITY_MAX: int = 5
 
-const PANEL_W: float = 380.0
+var PANEL_W: float = 380.0
 
 ## Growth bar fill — single flat color, NOT a gradient (matches WaterInfoUI's/
 ## the purifier filter meter's own flat-fill convention).
-const GROWTH_BAR_COLOR: Color = Color(0.89, 0.68, 0.19, 1.0)   ## #e3ad30
-const WARN_COLOR: Color = Color(1.00, 0.72, 0.10, 1.00)
-const READY_COLOR: Color = Color(0.30, 1.00, 0.46, 1.00)
-const NOT_READY_COLOR: Color = Color(1.00, 0.30, 0.20, 1.00)
+var GROWTH_BAR_COLOR: Color = Color(0.89, 0.68, 0.19, 1.0)   ## #e3ad30
+var WARN_COLOR: Color = Color(1.00, 0.72, 0.10, 1.00)
+var READY_COLOR: Color = Color(0.30, 1.00, 0.46, 1.00)
+var NOT_READY_COLOR: Color = Color(1.00, 0.30, 0.20, 1.00)
+
+## Warning-bubble / plant-block fills (sourced from BunkerTheme in _load_theme).
+var WARNING_BUBBLE_BG: Color = Color(0.14, 0.10, 0.04, 0.75)
+var PLANT_BLOCK_BG: Color = Color(0.09, 0.10, 0.11, 0.70)
 
 ## ── Fixed-section metrics (used by both _layout_metrics() and _on_draw()) ──
-const TOP_PAD: float = 20.0
-const HEADER_H: float = 44.0
-const CONNECTION_H: float = 40.0
-const WATER_BLOCK_H: float = 70.0   ## label + value + bar + gap
+var TOP_PAD: float = 20.0
+var HEADER_H: float = 44.0
+var CONNECTION_H: float = 40.0
+var WATER_BLOCK_H: float = 70.0   ## label + value + bar + gap
 const BUBBLE_H: float = 52.0
 const BUBBLE_GAP_AFTER: float = 16.0
 ## Seed Lock plan (Aug 2026) — +34 to PLANT_BLOCK_H for the seed-lock
 ## dropdown row appended to every cell block (occupied or empty).
-const PLANT_BLOCK_H: float = 160.0   ## was 126 (Fertilizer plan) — +34 seed-lock row
+var PLANT_BLOCK_H: float = 160.0   ## was 126 (Fertilizer plan) — +34 seed-lock row
 const EMPTY_CELL_BLOCK_H: float = 96.0   ## title + status line + seed-lock row, no growth/health
-const PLANT_BLOCK_GAP: float = 10.0
-const PRIORITY_BLOCK_H: float = 112.0
-const BOTTOM_PAD: float = 20.0
-const SEED_LOCK_DD_H: float = 28.0
+var PLANT_BLOCK_GAP: float = 10.0
+var PRIORITY_BLOCK_H: float = 112.0
+var BOTTOM_PAD: float = 20.0
+var SEED_LOCK_DD_H: float = 28.0
 const SEED_LOCK_LABEL_H: float = 16.0   ## "SEED LOCK" label above the dropdown
+
+## Component geometry read from BunkerTheme's FarmingTrayUI section (the
+## values equal the old local computations, so look is unchanged).
+var bar_w: float = 332.0        ## PANEL_W - 48.0 (was computed locally)
+var bar_h: float = 14.0
+var block_bar_w: float = 320.0  ## bar_w - 12.0 (was computed locally)
+var block_bar_h: float = 10.0
+var arrow_size: float = 48.0
 
 var _tray: FarmingTray = null
 var _is_open: bool = false
@@ -97,7 +112,43 @@ var _inc_btn:   Button  = null
 var _seed_lock_dd:      Array[OptionButton] = [null, null]
 var _seed_lock_options: Array = [[], []]   ## Array[Array[String]], parallel to each dd's items
 
+## Pulls every palette + component value from BunkerTheme so the theme is the
+## single source of truth (tweak there, this panel follows).
+func _load_theme() -> void:
+	PRIO_COLORS = [
+		UIKit.theme_color("UI", "prio_1", Color(0.30, 1.00, 0.46, 1.00)),
+		UIKit.theme_color("UI", "prio_2", Color(0.62, 0.92, 0.32, 1.00)),
+		UIKit.theme_color("UI", "prio_3", Color(0.98, 0.85, 0.20, 1.00)),
+		UIKit.theme_color("UI", "prio_4", Color(1.00, 0.58, 0.16, 1.00)),
+		UIKit.theme_color("UI", "prio_5", Color(1.00, 0.30, 0.20, 1.00)),
+	]
+	PRIORITY_MIN = UIKit.theme_constant("UI", "priority_min", 1)
+	PRIORITY_MAX = UIKit.theme_constant("UI", "priority_max", 5)
+	GROWTH_BAR_COLOR = UIKit.theme_color("FarmingTrayUI", "growth_bar", Color(0.89, 0.68, 0.19, 1.0))
+	WARN_COLOR = UIKit.theme_color("UI", "warn", Color(1.00, 0.72, 0.10, 1.00))
+	READY_COLOR = UIKit.theme_color("FarmingTrayUI", "ready", Color(0.30, 1.00, 0.46, 1.00))
+	NOT_READY_COLOR = UIKit.theme_color("FarmingTrayUI", "not_ready", Color(1.00, 0.30, 0.20, 1.00))
+	WARNING_BUBBLE_BG = UIKit.theme_color("FarmingTrayUI", "warning_bubble_bg", Color(0.14, 0.10, 0.04, 0.75))
+	PLANT_BLOCK_BG = UIKit.theme_color("FarmingTrayUI", "plant_block_bg", Color(0.09, 0.10, 0.11, 0.70))
+	PANEL_W = float(UIKit.theme_constant("FarmingTrayUI", "panel_w", 380))
+	bar_w = float(UIKit.theme_constant("FarmingTrayUI", "bar_w", 332))
+	bar_h = float(UIKit.theme_constant("FarmingTrayUI", "bar_h", 14))
+	block_bar_w = float(UIKit.theme_constant("FarmingTrayUI", "block_bar_w", 320))
+	block_bar_h = float(UIKit.theme_constant("FarmingTrayUI", "block_bar_h", 10))
+	arrow_size = float(UIKit.theme_constant("FarmingTrayUI", "arrow_size", 48))
+	TOP_PAD = float(UIKit.theme_constant("FarmingTrayUI", "top_pad", 20))
+	HEADER_H = float(UIKit.theme_constant("FarmingTrayUI", "header_h", 44))
+	CONNECTION_H = float(UIKit.theme_constant("FarmingTrayUI", "connection_h", 40))
+	WATER_BLOCK_H = float(UIKit.theme_constant("FarmingTrayUI", "water_block_h", 70))
+	PLANT_BLOCK_H = float(UIKit.theme_constant("FarmingTrayUI", "plant_block_h", 160))
+	PLANT_BLOCK_GAP = float(UIKit.theme_constant("FarmingTrayUI", "plant_block_gap", 10))
+	PRIORITY_BLOCK_H = float(UIKit.theme_constant("FarmingTrayUI", "priority_block_h", 112))
+	BOTTOM_PAD = float(UIKit.theme_constant("FarmingTrayUI", "bottom_pad", 20))
+	SEED_LOCK_DD_H = float(UIKit.theme_constant("FarmingTrayUI", "seed_lock_dd_h", 28))
+	_backdrop_alpha = float(UIKit.theme_constant("UI", "backdrop_alpha_permille", 600)) / 1000.0
+
 func _ready() -> void:
+	_load_theme()
 	layer   = 60
 	visible = false
 	set_process(false)
@@ -109,7 +160,7 @@ func _ready() -> void:
 	add_child(_canvas)
 	_canvas.draw.connect(_on_draw)
 
-_build_controls()
+	_build_controls()
 	## Auto-close when the player walks away from the tray (Aug 2026).
 	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
 	_proximity.ui = self
@@ -216,13 +267,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		if Rect2(px, py, PANEL_W, _current_panel_h).has_point((event as InputEventMouseButton).position):
 			get_viewport().set_input_as_handled()
 
+## Redraw throttle (Aug 2026 optimization) — live plant status doesn't need 60Hz.
+const REDRAW_INTERVAL: float = 0.1
+var _redraw_accum: float = 0.0
+
 func _process(_delta: float) -> void:
 	if not _is_open:
 		return
 	if _tray == null or not is_instance_valid(_tray):
 		close()
 		return
-	## Live-refresh (Seed Lock plan) — the player can pick up/drop/use
+	_redraw_accum += _delta
+	if _redraw_accum < REDRAW_INTERVAL:
+		return
+	_redraw_accum = 0.0
+	## Live-refresh (Seed Lock plan) �?" the player can pick up/drop/use
 	## seeds while this panel is open (e.g. walk to a shelf mid-session),
 	## so the available-types list needs to track that. Cheap no-op most
 	## frames thanks to the option-set comparison inside the function.
@@ -365,7 +424,7 @@ func _reposition_controls() -> void:
 	_close_btn.size     = Vector2(30.0, 30.0)
 
 	var arrow_y: float = _arrow_row_y if _arrow_row_y > 0.0 else (py + _current_panel_h - PRIORITY_BLOCK_H + 40.0)
-	var arrow_sz: Vector2 = Vector2(48.0, 48.0)
+	var arrow_sz: Vector2 = Vector2(arrow_size, arrow_size)
 	_dec_btn.size = arrow_sz
 	_inc_btn.size = arrow_sz
 	_dec_btn.position = Vector2(px + 36.0, arrow_y)
@@ -419,7 +478,7 @@ func _on_draw() -> void:
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - _current_panel_h) * 0.5
 
-	UIKit.draw_backdrop(_canvas, vp, 0.60)
+	UIKit.draw_backdrop(_canvas, vp, _backdrop_alpha)
 	var panel: Rect2 = Rect2(px, py, PANEL_W, _current_panel_h)
 	UIKit.draw_panel(_canvas, panel, _theme)
 	UIKit.draw_domain_stripe(_canvas, panel, _theme.accent)
@@ -448,8 +507,6 @@ func _on_draw() -> void:
 	_draw_str("%.0f / %.0f mL/day" % [received, demand], Vector2(cx, cy + 14.0), _theme.text, 13)
 	cy += 32.0
 
-	var bar_w: float = PANEL_W - 48.0
-	var bar_h: float = 14.0
 	UIKit.draw_bar(_canvas, Rect2(cx, cy, bar_w, bar_h), water_fraction, _theme)
 	cy += bar_h + 24.0
 
@@ -458,7 +515,7 @@ func _on_draw() -> void:
 	## edge-triggered — that's a separate, out-of-scope low-health toast).
 	if show_bubble:
 		var bubble_rect: Rect2 = Rect2(cx - 4.0, cy - 4.0, bar_w + 8.0, BUBBLE_H - 8.0)
-		_canvas.draw_rect(bubble_rect, Color(0.14, 0.10, 0.04, 0.75), true)
+		_canvas.draw_rect(bubble_rect, WARNING_BUBBLE_BG, true)
 		_canvas.draw_rect(bubble_rect, Color(WARN_COLOR.r, WARN_COLOR.g, WARN_COLOR.b, 0.55), false, 1.0)
 		var pct: int = int(round(water_fraction * 100.0))
 		var msg: String = "Water levels insufficient (%d%% of demand met) — this will slow plant growth." % pct
@@ -494,7 +551,7 @@ func _on_draw() -> void:
 ## READY/NOT READY) and returns the new `cy` after it (plus the inter-block gap).
 func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> float:
 	var block_rect: Rect2 = Rect2(cx - 4.0, cy - 4.0, bar_w + 8.0, PLANT_BLOCK_H - PLANT_BLOCK_GAP)
-	_canvas.draw_rect(block_rect, Color(0.09, 0.10, 0.11, 0.70), true)
+	_canvas.draw_rect(block_rect, PLANT_BLOCK_BG, true)
 	_canvas.draw_rect(block_rect, Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45), false, 1.0)
 
 	var bx: float = cx + 6.0
@@ -549,8 +606,6 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 		_draw_str(status_text, Vector2(bx, by), countdown_col, 11)
 	by += 16.0
 
-	var block_bar_w: float = bar_w - 12.0
-	var block_bar_h: float = 10.0
 	UIKit.draw_bar(_canvas, Rect2(bx, by, block_bar_w, block_bar_h), plant.progress, _theme, GROWTH_BAR_COLOR)
 	by += 26.0
 
@@ -579,7 +634,7 @@ func _draw_plant_block(plant: FarmPlant, cx: float, cy: float, bar_w: float) -> 
 ## BEFORE something is planted.
 func _draw_empty_cell_block(t: FarmingTray, cell_index: int, cx: float, cy: float, bar_w: float) -> float:
 	var block_rect: Rect2 = Rect2(cx - 4.0, cy - 4.0, bar_w + 8.0, EMPTY_CELL_BLOCK_H - PLANT_BLOCK_GAP)
-	_canvas.draw_rect(block_rect, Color(0.09, 0.10, 0.11, 0.70), true)
+	_canvas.draw_rect(block_rect, PLANT_BLOCK_BG, true)
 	_canvas.draw_rect(block_rect, Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45), false, 1.0)
 
 	var bx: float = cx + 6.0

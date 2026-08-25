@@ -703,3 +703,16 @@ own held item while CASE 1 scans for a different target — guarded with
   and gate `InteractionSystem` the same way `build_mode_active`/`shelf_ui`
   already are (a new `Node`-typed "blocks input" flag if a third modal type
   is ever added, rather than hardcoding a 3rd special case inline).
+
+## Controller support
+
+All world input (movement, sprint/L3 + latch, interact/A, pickup/X,
+store/Y, inventory d-pad cycling, right-stick facing, R3 focus toggle,
+`Player._ensure_joypad_bindings` boot guard, Start → pause) plus the
+`InteractionSystem` gating (any open controller-nav UI owns the pad) is
+documented in `docs/systems/controller/README.md`.
+
+**Important:** `Player.get_held_item()` uses an **untyped** read + an
+`is_instance_valid()` gate (see the known-bugs section of that doc) — a
+typed `var x: Node = held_item` throws on a dead ref, and freed refs compare
+`== null` in Godot 4. Do not reintroduce typed reads of `held_item`.

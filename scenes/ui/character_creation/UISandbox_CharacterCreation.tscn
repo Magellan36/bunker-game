@@ -1,0 +1,265 @@
+[gd_scene format=3 uid="uid://b33nxcg4gg2kq"]
+
+[sub_resource type="StyleBoxFlat" id="sb_sidebar"]
+bg_color = Color(0.1, 0.1, 0.12, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25, 0.25, 0.25, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="sb_category"]
+bg_color = Color(0.09, 0.09, 0.11, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25, 0.25, 0.25, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="sb_preview"]
+bg_color = Color(0.13, 0.13, 0.14, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.3, 0.32, 1)
+
+[node name="UISandbox_CharacterCreation" type="Control" unique_id=856361170]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Canvas" type="ColorRect" parent="." unique_id=1158516542]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.055, 0.055, 0.065, 1)
+
+[node name="HBox" type="HBoxContainer" parent="." unique_id=1864879137]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 0
+
+[node name="Sidebar" type="PanelContainer" parent="HBox" unique_id=1056591766]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("sb_sidebar")
+
+[node name="SidebarMargin" type="MarginContainer" parent="HBox/Sidebar" unique_id=1587815507]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_right = 24
+
+[node name="SidebarContent" type="VBoxContainer" parent="HBox/Sidebar/SidebarMargin" unique_id=954541228]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SidebarHeader" type="Label" parent="HBox/Sidebar/SidebarMargin/SidebarContent" unique_id=900870927]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.42, 0.87, 0.15, 1)
+text = "SIDEBAR - CATEGORIES"
+
+[node name="CategoriesGroup" type="VBoxContainer" parent="HBox/Sidebar/SidebarMargin/SidebarContent" unique_id=909930518]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="TopMargin" type="Control" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=988175960]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+
+[node name="CategoryBody" type="Button" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=783911423]
+layout_mode = 2
+text = "Body"
+
+[node name="Spacer1" type="Control" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=17772333]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CategoryHair" type="Button" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=168484633]
+layout_mode = 2
+text = "Hair"
+
+[node name="Spacer3" type="Control" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=236751070]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CategoryFeatures" type="Button" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=181500970]
+layout_mode = 2
+text = "Features"
+
+[node name="Spacer4" type="Control" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=1065175890]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CategoryAccessories" type="Button" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=560608800]
+layout_mode = 2
+text = "Accessories"
+
+[node name="BottomMargin" type="Control" parent="HBox/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=688725499]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+
+[node name="SidebarSpacer" type="Control" parent="HBox/Sidebar/SidebarMargin/SidebarContent" unique_id=703922346]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Randomise" type="Button" parent="HBox/Sidebar/SidebarMargin/SidebarContent" unique_id=725062464]
+layout_mode = 2
+text = "Randomise"
+
+[node name="Complete" type="Button" parent="HBox/Sidebar/SidebarMargin/SidebarContent" unique_id=1734820225]
+layout_mode = 2
+text = "Complete"
+
+[node name="CategoryPanel" type="PanelContainer" parent="HBox" unique_id=460722992]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+size_flags_stretch_ratio = 2.0
+theme_override_styles/panel = SubResource("sb_category")
+
+[node name="CategoryPanelMargin" type="MarginContainer" parent="HBox/CategoryPanel" unique_id=910020898]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_right = 24
+
+[node name="CategoryPanelContent" type="VBoxContainer" parent="HBox/CategoryPanel/CategoryPanelMargin" unique_id=1251280649]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="CategoryHeader" type="Label" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent" unique_id=847787758]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.42, 0.87, 0.15, 1)
+text = "CATEGORY PANEL"
+
+[node name="BodyPanel" type="VBoxContainer" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent" unique_id=748397875]
+layout_mode = 2
+theme_override_constants/separation = 24
+alignment = 1
+
+[node name="Male" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/BodyPanel" unique_id=985659615]
+layout_mode = 2
+text = "Male"
+
+[node name="Female" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/BodyPanel" unique_id=2104388985]
+layout_mode = 2
+text = "Female"
+
+[node name="HairPanel" type="VBoxContainer" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent" unique_id=409297247]
+layout_mode = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="HairStyleLabel" type="Label" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel" unique_id=1494100934]
+layout_mode = 2
+text = "Hair Style"
+
+[node name="HairstyleButtons" type="GridContainer" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel" unique_id=1953062174]
+layout_mode = 2
+columns = 3
+
+[node name="StyleBuzzed" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/HairstyleButtons" unique_id=682474660]
+layout_mode = 2
+text = "Buzzed"
+
+[node name="StyleSimple" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/HairstyleButtons" unique_id=140783185]
+layout_mode = 2
+text = "Simple"
+
+[node name="StyleLong" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/HairstyleButtons" unique_id=2015333716]
+layout_mode = 2
+text = "Long"
+
+[node name="StyleBuns" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/HairstyleButtons" unique_id=488765804]
+layout_mode = 2
+text = "Buns"
+
+[node name="StyleBuzzedF" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/HairstyleButtons" unique_id=2037985708]
+layout_mode = 2
+text = "Buzzed F"
+
+[node name="HairColourLabel" type="Label" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel" unique_id=1570224333]
+layout_mode = 2
+text = "Hair Colour"
+
+[node name="ColorSwatches" type="GridContainer" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel" unique_id=1828736304]
+layout_mode = 2
+columns = 5
+
+[node name="Swatch1" type="ColorRect" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/ColorSwatches" unique_id=1002868402]
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+color = Color(0.13, 0.09, 0.05, 1)
+
+[node name="Swatch2" type="ColorRect" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/ColorSwatches" unique_id=1580192165]
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+color = Color(0.3, 0.2, 0.1, 1)
+
+[node name="Swatch3" type="ColorRect" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/ColorSwatches" unique_id=1306823908]
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+color = Color(0.55, 0.36, 0.16, 1)
+
+[node name="Swatch4" type="ColorRect" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/ColorSwatches" unique_id=1688012446]
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+color = Color(0.85, 0.75, 0.6, 1)
+
+[node name="Swatch5" type="ColorRect" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/ColorSwatches" unique_id=1808080963]
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+color = Color(0.15, 0.15, 0.16, 1)
+
+[node name="BeardLabel" type="Label" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel" unique_id=401569740]
+layout_mode = 2
+text = "Beard"
+
+[node name="BeardButtonContainer" type="HBoxContainer" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel" unique_id=7801650]
+layout_mode = 2
+
+[node name="BeardOn" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/BeardButtonContainer" unique_id=1480765724]
+layout_mode = 2
+text = "On"
+
+[node name="BeardOff" type="Button" parent="HBox/CategoryPanel/CategoryPanelMargin/CategoryPanelContent/HairPanel/BeardButtonContainer" unique_id=1323095307]
+layout_mode = 2
+text = "Off"
+
+[node name="Preview" type="Panel" parent="HBox" unique_id=670662180]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+size_flags_stretch_ratio = 3.0
+theme_override_styles/panel = SubResource("sb_preview")
+
+[node name="PreviewLabel" type="Label" parent="HBox/Preview" unique_id=1557425837]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.45, 0.45, 0.48, 1)
+text = "3D PREVIEW AREA"
+horizontal_alignment = 1
+vertical_alignment = 1

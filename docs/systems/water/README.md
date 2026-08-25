@@ -2190,3 +2190,13 @@ not the "distance to center" bug class §6 had) and the wall-locked-routing
 commit itself (`_trace_wall_locked_path()` already deferred to the
 freeform tracer for any anchored/split destination before this fix, so it
 was never bypassing the split system).
+
+## Controller support
+
+The water-dispenser UI's flow-rate slider is fully controller-driven: it is
+d-pad selectable, left/right adjusts by 1 mL/day per press, and holding the
+d-pad auto-repeats with acceleration (up to 100 steps/sec, with each step
+ramping up to 500 mL/day) so the full 3000 mL/day range is quick. The grabber
+circle gains a white outline while selected (hover in mouse, focus in
+controller). Details in `docs/systems/controller/README.md` (§
+ControllerUINavigation slider support, § Per-UI matrix — Water).

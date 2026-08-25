@@ -56,7 +56,13 @@ var _render_scale_slider: HSlider = null
 ## shared UIKit helper, since no such shared helper exists yet and adding
 ## one is out of scope for this change (see docs/systems/graphics/README.md
 ## "Rendering driver switch" for the note on why this isn't extracted).
-var _restart_confirm_layer: CanvasLayer = null
+## Lazy-instantiated shared ConfirmDialogUI (Aug 2026 consistency pass) for
+## the restart-required prompt — replaces the hand-rolled layer. Layer 215
+## (above this panel's 210, below NotificationManager's 220).
+var _restart_confirm_dialog: CanvasLayer = null
+var _restart_driver_connected: bool = false
+## The driver pending a restart — read by the confirmed handler at emit time.
+var _pending_restart_driver: String = ""
 
 ## Advanced Quality
 var _sdfgi_check:          CheckBox = null
@@ -69,6 +75,9 @@ var _dof_check:            CheckBox = null
 ## Flashlight
 var _vol_check:            CheckBox = null
 var _shadow_check:         CheckBox = null
+
+## Dynamic Resolution (Aug 2026) — see GraphicsSettings.dynamic_resolution_enabled.
+var _dr_check:             CheckBox = null
 
 ## Camera
 var _fov_slider:           HSlider = null
@@ -122,10 +131,12 @@ func _ready() -> void:
 	layer = 210   ## Above PauseMenuUI (layer 200)
 	_build_ui()
 	visible = false
-	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
-	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus
+	## (movement is locked while this is open), B closes this UI. See
+	## scripts/ui/common/ControllerUINavigation.gd.
 	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	controller_nav.ui_root = self
+	controller_nav.stick_navigation = true
 	add_child(controller_nav)
 
 func open() -> void:
@@ -326,6 +337,13 @@ func _build_content() -> void:
 	## quality setting now, not opt-in-only.
 	_shadow_check         = _make_checkbox("Shadow Casting", _on_shadow_toggled)
 	_vbox.add_child(_shadow_check)
+	## Dynamic Resolution (Aug 2026) — standalone toggle in Advanced Quality
+	## so its label can say exactly what it does (this one isn't a preset
+	## tier, it's a frame-rate safeguard layered on top of the user's Render
+	## Scale ceiling).
+	_dr_check            = _make_checkbox("Dynamic Resolution (Auto Frame Rate)", _on_dr_toggled)
+	_dr_check.tooltip_text = "Automatically lowers render resolution when frame rate drops and restores it once performance recovers. Uses the Render Scale slider as the quality ceiling."
+	_vbox.add_child(_dr_check)
 
 	## 5. Flashlight
 	_vbox.add_child(HSeparator.new())
@@ -340,8 +358,8 @@ func _build_content() -> void:
 	_vbox.add_child(fov_row)
 	fov_row.add_child(UIKit.make_row_label("Camera FOV", _theme))
 	_fov_slider = HSlider.new()
-	_fov_slider.min_value = 60.0
-	_fov_slider.max_value = 100.0
+	_fov_slider.min_value = 45.0
+	_fov_slider.max_value = 75.0
 	_fov_slider.step = 1.0
 	_fov_slider.custom_minimum_size = Vector2(120.0, 0.0)
 	_fov_slider.value_changed.connect(_on_fov_changed)
@@ -396,6 +414,7 @@ func _refresh_from_settings() -> void:
 	## Flashlight
 	_vol_check.button_pressed       = GraphicsSettings.flashlight_volumetrics
 	_shadow_check.button_pressed    = GraphicsSettings.shadow_casting_enabled
+	_dr_check.button_pressed        = GraphicsSettings.dynamic_resolution_enabled
 
 	## Camera
 	_fov_slider.value = GraphicsSettings.camera_fov
@@ -447,66 +466,31 @@ func _on_shadow_quality_changed(index: int) -> void:
 
 
 # ─── Rendering driver: restart-required confirm dialog + relaunch ───────────
-## Aug 2026. Deliberately self-contained here rather than a shared UIKit
-## helper — PauseMenuUI.gd has its own separate, near-identical "minimalist
-## confirm dialog, no ConfirmationDialog node" implementation (see that
-## file). Extracting a shared version is reasonable future cleanup but out
-## of scope for this change; flagged rather than silently duplicated
-## without acknowledgment.
+## Aug 2026 — now routed through the shared ConfirmDialogUI (the old
+## hand-rolled restart-required layer is gone).
 func _show_restart_required_dialog(pending_driver: String) -> void:
-	_close_restart_required_dialog()   ## never stack two
+	_ensure_restart_confirm_dialog()
+	_restart_confirm_dialog.open("RESTART REQUIRED",
+		"Switch rendering driver to %s and restart now?" % pending_driver)
+	## Spawn-once/reuse — connect confirmed to the relaunch exactly once.
+	if not _restart_driver_connected:
+		_restart_confirm_dialog.confirmed.connect(
+			func() -> void: _relaunch_with_driver(_pending_restart_driver))
+		_restart_driver_connected = true
+	_pending_restart_driver = pending_driver
 
-	_restart_confirm_layer = CanvasLayer.new()
-	_restart_confirm_layer.layer = 215   ## above this panel (210), below NotificationManager (220)
-	add_child(_restart_confirm_layer)
-
-	var dim: ColorRect = ColorRect.new()
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0.0, 0.0, 0.0, 0.55)
-	dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	_restart_confirm_layer.add_child(dim)
-
-	var panel: Panel = UIKit.build_centered_panel(360.0, 150.0, _theme)
-	var panel_style: StyleBoxFlat = panel.get_theme_stylebox("panel") as StyleBoxFlat
-	panel_style.content_margin_left   = 16.0
-	panel_style.content_margin_right  = 16.0
-	panel_style.content_margin_top    = 14.0
-	panel_style.content_margin_bottom = 14.0
-	_restart_confirm_layer.add_child(panel)
-
-	var vbox: VBoxContainer = VBoxContainer.new()
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	vbox.add_theme_constant_override("separation", 12)
-	panel.add_child(vbox)
-
-	var lbl: Label = Label.new()
-	lbl.text = "Restart required to switch the rendering driver. Restart now?"
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	lbl.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-	lbl.add_theme_color_override("font_color", _theme.text)
-	lbl.add_theme_font_override("font", UIKit.font())
-	vbox.add_child(lbl)
-
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(row)
-
-	var yes_btn: Button = UIKit.make_button("Restart Now", func() -> void:
-		_close_restart_required_dialog()
-		_relaunch_with_driver(pending_driver))
-	yes_btn.custom_minimum_size = Vector2(140.0, 30.0)
-	row.add_child(yes_btn)
-
-	var no_btn: Button = UIKit.make_button("Later", _close_restart_required_dialog)
-	no_btn.custom_minimum_size = Vector2(100.0, 30.0)
-	row.add_child(no_btn)
-
-
-func _close_restart_required_dialog() -> void:
-	if _restart_confirm_layer != null and is_instance_valid(_restart_confirm_layer):
-		_restart_confirm_layer.queue_free()
+func _ensure_restart_confirm_dialog() -> void:
+	if _restart_confirm_dialog != null and is_instance_valid(_restart_confirm_dialog):
+		return
+	var dlg_script: GDScript = load("res://scripts/ui/common/ConfirmDialogUI.gd")
+	if dlg_script == null:
+		push_warning("[GraphicsSettingsPanel] ConfirmDialogUI.gd not found")
+		return
+	_restart_confirm_dialog = CanvasLayer.new()
+	_restart_confirm_dialog.set_script(dlg_script)
+	_restart_confirm_dialog.name = "ConfirmDialogUI"
+	_restart_confirm_dialog.set("stacking_layer", 215)
+	add_child(_restart_confirm_dialog)
 
 
 ## Spawns a new instance of this same executable with the driver override
@@ -589,6 +573,9 @@ func _on_vol_toggled(pressed: bool) -> void:
 
 func _on_shadow_toggled(pressed: bool) -> void:
 	GraphicsSettings.set_setting("shadow_casting_enabled", pressed)
+
+func _on_dr_toggled(pressed: bool) -> void:
+	GraphicsSettings.set_setting("dynamic_resolution_enabled", pressed)
 
 func _on_fov_changed(value: float) -> void:
 	GraphicsSettings.set_setting_live("camera_fov", value)

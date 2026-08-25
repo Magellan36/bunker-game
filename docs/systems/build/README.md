@@ -452,6 +452,27 @@ maintaining separate logic.
   renderable object: build the visual first, *then* gate side effects on
   preview status.
 - **`strip_collision()`** — call this **only after the instance is inside the SceneTree** — `add_child()` on an out-of-tree parent does not fire `_ready()`, so a strip at that point runs too early and gets undone. `_spawn_ghost()` therefore adds the ghost root to the tree **BEFORE** `_rebuild_ghost_mesh()` runs; do not reorder. An end-of-frame deferred re-strip is also applied (Fix 2) to catch any script that configures collision via `call_deferred` after its `_ready()`.
+- **`strip_groups()` (Aug 2026 — phantom-object cluster fix):** preview
+  instances are built from the objects' REAL scripts/scenes inside isolated
+  SubViewports (`own_world_3d = true` — correct for render/physics
+  isolation), but their `_ready()` still joins TREE-WIDE groups
+  (`pickup`, `interactable`, `wall_lights`, `inventory_item`,
+  `cooking_pot`, ...). A SubViewport contributes no 3D transform, so each
+  preview instance's `global_position` resolves to ~world origin — and
+  every tree-wide group scan (NPC job queries, InteractionSystem prompts,
+  PowerManager lookups) treated them as real items buried NE of the bunker:
+  NPCs routed to origin, phantom pickup prompts appeared, and WallLight
+  (which lacked the preview guard) registered a phantom power node.
+  `strip_groups(node)` removes a preview instance and ALL descendants from
+  every group; it's called after `add_child` in both
+  `_refresh_submenu_previews()` and `_refresh_shop_previews()`. Backed by
+  `_is_preview_only` added to `PickupableItem` (base — skips the pickup
+  group + nav obstacle) and `WallLight` (skips `wall_lights` + power
+  registration), and `_refresh_shop_previews()` now sets the flag before
+  `add_child` (the construct path already did via `build_real_instance()`).
+  Keep the group-strip call in place even as new previewed classes are
+  added — it's the safety net that catches group joins from classes that
+  don't honor the flag.
 - **`apply_ghost_tint()`** — recursively recolors every mesh surface under
   a ghost root to translucent green/red, replacing whatever real
   materials/textures the object has. Works for any number of mesh parts.
@@ -801,3 +822,16 @@ for a raw `matrix` field on every node, not just
 `translation`/`rotation`/`scale` individually — glTF nodes can use
 either form, and this codebase's existing wrapper-offset checks so far
 only looked for the decomposed form.
+
+## Controller support
+
+Build mode has a fully custom gamepad scheme — the shared
+`ControllerUINavigation` does **not** drive it. Everything (right-stick
+cursor with deadzone/smoothing/quadratic speed, A = place at the cursor,
+B = cancel placement — wire/pipe **stay on their tab** — and restore the
+launching submenu, LB/RB + d-pad tabs that **auto-select** the tool,
+LT/RT rotate, the rock-dig confirm dialog, and the always-priority
+"Exit Build Mode" A prompt) is documented in
+`docs/systems/controller/README.md` (§ Build mode). Read that section before
+changing any build-mode input handling — several behaviors are intentional
+tuning decisions, not bugs.

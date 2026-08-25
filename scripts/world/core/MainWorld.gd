@@ -627,9 +627,12 @@ func _ensure_inventory_manager() -> void:
 		add_child(inventory_manager)
 
 func _unhandled_input(event: InputEvent) -> void:
-	# ESC — toggle pause menu (only when not in build mode; build mode owns
-	# its own ESC handling via BuildModeHUD for closing submenus/cancelling).
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+	# ESC / Start — toggle pause menu (only when not in build mode; build
+	# mode owns its own ESC handling via BuildModeHUD for closing
+	# submenus/cancelling). Start is the controller's pause button.
+	if (event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE) \
+			or (event is InputEventJoypadButton and event.pressed \
+				and event.button_index == JOY_BUTTON_START):
 		if not _build_mode_active:
 			_toggle_pause_menu()
 			get_viewport().set_input_as_handled()
@@ -903,22 +906,88 @@ func _wire_chair(chair: Node) -> void:
 	chair.set_meta("_seat_wired", true)
 
 	var the_chair: Node = chair
+	## Aug 2026 fix — previously snapped player.global_position to
+	## get_seat_transform()'s elevated seat-height Y the INSTANT E was
+	## pressed, before any animation played — so "standing" at the start
+	## of stand_to_sit rendered at seat height instead of the floor, and
+	## (symmetrically) the end of sit_to_stand rendered "halfway in the
+	## seat" until the position got released. Root cause: with the Hip
+	## root-offset fix (see docs/systems/player-model/README.md "Sit
+	## animation root-offset fix"), the animation's OWN baked Hip motion
+	## already correctly shows the full rise/lower between standing and
+	## seated heights relative to a FIXED floor-level anchor — exactly the
+	## same convention idle/walk/run already use (their root motion is
+	## never consumed either). The game code doesn't need to move the Y
+	## (height) anchor at all during the sit sequence — the clip does that.
+	## X/Z DO still need to snap here though (Aug 2026, 2nd pass): without
+	## it the player keeps whatever horizontal spot they were standing at
+	## when they pressed E, which usually isn't centered on the seat.
+	## Aug 2026 fix (2nd pass) — no longer snaps X/Z instantly either. The
+	## player's CURRENT position (wherever they were standing when they
+	## pressed E — already near the chair, since interaction range put
+	## them there) becomes the "approach" anchor; the chair's own seat X/Z
+	## becomes the "seat" anchor. AdventurerModelController eases the
+	## player smoothly between the two, in sync with the stand_to_sit /
+	## sit_to_stand clip's own playback progress (see _lerp_sit_xz() in
+	## that file) — sitting down eases back into the chair, standing up
+	## eases forward off it, instead of either direction snapping.
 	chair.seat_requested.connect(func() -> void:
 		if the_chair.has_method("set_seated"):
 			the_chair.set_seated(true)
 		var t: Transform3D = the_chair.get_seat_transform()
-		player.global_position = t.origin
 		player.rotation.y = t.basis.get_euler().y
+		the_chair.set_meta("_seated_facing_y", player.rotation.y)   ## NEW — restored on stand
 		player.velocity = Vector3.ZERO
 		player.set_physics_process(false)
+		var model: Node = player.get_node_or_null("PlayerModel")
+		if model != null:
+			## Aug 2026 fix (3rd pass) — FIXED approach point (~half a chair
+			## width in front of the seat) instead of the player's actual
+			## position when E was pressed. The clip is authored assuming a
+			## fixed travel distance/timing, so a variable start point (near
+			## vs. far from the chair depending on approach angle) made the
+			## slide look wrong. -t.basis.z is the chair's own "open front"
+			## direction (the model faces +PI from this — toward the
+			## backrest — while seated; see AdventurerModelController.gd).
+			const APPROACH_OFFSET: float = 0.4   ## ~half a chair width
+			var approach_pos: Vector3 = t.origin + t.basis.z * APPROACH_OFFSET
+			model.set("_chair_approach_pos", approach_pos)
+			model.set("_chair_seat_pos", Vector3(t.origin.x, approach_pos.y, t.origin.z))
 		player.seated_chair = the_chair   ## NEW
 	)
+	## Aug 2026 fix — the player used to snap free (position + physics)
+	## the instant E was pressed, well before the sit_to_stand animation
+	## (2.25s) finished playing — clearing seated_chair immediately still
+	## correctly triggers AdventurerModelController's stand-up animation
+	## (it only checks whether seated_chair is null), but the player's
+	## actual position/physics now stay anchored at the chair until that
+	## model emits stand_animation_finished, so the character doesn't
+	## visibly teleport away mid-animation. Connects to PlayerModel (not
+	## the Shadow instance, which is otherwise identical) once per chair,
+	## same guard pattern (_seat_wired) as the rest of this function.
 	chair.stand_requested.connect(func() -> void:
 		if the_chair.has_method("set_seated"):
 			the_chair.set_seated(false)
-		player.global_position = the_chair.get_stand_position()
-		player.set_physics_process(true)
-		player.seated_chair = null   ## NEW
+		player.seated_chair = null   ## NEW — still cleared immediately, starts the animation
+		var model: Node = player.get_node_or_null("PlayerModel")
+		if model != null and model.has_signal("stand_animation_finished"):
+			model.stand_animation_finished.connect(func() -> void:
+				player.global_position = the_chair.get_stand_position()
+				## Aug 2026 — face the same direction the player was oriented
+				## the whole time they sat, restored explicitly here in case
+				## anything (camera-look sync, etc) nudged rotation.y while
+				## seated.
+				if the_chair.has_meta("_seated_facing_y"):
+					player.rotation.y = the_chair.get_meta("_seated_facing_y")
+				player.set_physics_process(true)
+			, CONNECT_ONE_SHOT)
+		else:
+			## Fallback if the model node/signal isn't found for some reason
+			## — old immediate behavior, better than getting stuck seated forever.
+			player.global_position = the_chair.get_stand_position()
+			if the_chair.has_meta("_seated_facing_y"):
+				player.rotation.y = the_chair.get_meta("_seated_facing_y")
+			player.set_physics_process(true)
 	)
 
 func _connect_inventory() -> void:
@@ -980,6 +1049,16 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 
 	# Give BuildModeHUD the camera so it can project 3D→2D for the deconstruct overlay
 	_build_hud.camera = camera
+
+	## Prebuild the construct/shop previews in the BACKGROUND right after
+	## startup (staggered a few per frame) instead of on first menu open —
+	## so opening the Construct/Shop menu later is instant. The build only
+	## ever runs once (BuildModeHUD._submenu_previews_ready guards it), and
+	## the _open_submenu fallback still triggers it if this hasn't finished
+	## by the time a menu is opened.
+	if _build_hud != null and gm != null:
+		_build_hud.gridmap = gm
+		_build_hud.call_deferred("_build_submenu_previews_staggered")
 
 	## Connect rock chunk signals → auto-fill handlers
 	if rock_surround != null and rock_surround.has_signal("chunk_deconstructed"):

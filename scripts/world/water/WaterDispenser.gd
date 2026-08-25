@@ -53,6 +53,8 @@ var current_fill_mL: float = 0.0
 ## (day_duration_seconds, default 1440 real seconds = 24 real minutes), not
 ## a literal real-world 24-hour day. See _process() below.
 var _player_stats: Node = null
+## Cached WaterManager ref — lazy-resolved once (was a per-frame group scan).
+var _wm: WaterManager = null
 
 ## Blended volume-weighted from incoming hookup water (see _process()) —
 ## also now the SOURCE quality read by WaterBottle.bottle_refill_tick() when
@@ -144,7 +146,10 @@ func _process(delta: float) -> void:
 	## dispenser left at, say, 5000 could silently end up "requesting" more
 	## than the network can give it the moment some OTHER device's priority
 	## or demand changes elsewhere, even with this panel closed.
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	var wm: WaterManager = _wm
+	if wm == null:
+		wm = get_tree().get_first_node_in_group("water_manager") as WaterManager
+		_wm = wm
 	if wm == null:
 		return
 	var dynamic_max: float = wm.get_dynamic_max_mL_per_day(_node_key, priority)

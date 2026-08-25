@@ -27,28 +27,39 @@ signal closed
 
 # ─── Palette (neutral admin/military — distinct from water's blue, power's
 # green) ───────────────────────────────────────────────────────────────────
-const BG_COLOR:     Color = Color(0.08, 0.08, 0.10, 0.97)
-const BORDER_COLOR: Color = Color(0.55, 0.58, 0.42, 0.85)   ## dull olive/brass accent
-const HEADER_COLOR: Color = Color(0.80, 0.82, 0.62, 1.00)
-const TEXT_COLOR:   Color = Color(0.85, 0.87, 0.80, 0.95)
-const DIM_COLOR:    Color = Color(0.55, 0.58, 0.52, 0.80)
-const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
+## Sourced from BunkerTheme's AdminUI section in _load_theme(); these
+## defaults are the fallbacks if the theme resource is missing.
+var BG_COLOR:     Color = Color(0.08, 0.08, 0.10, 0.97)
+## Shared backdrop dim — read from UI/backdrop_alpha_permille (Aug 2026).
+var _backdrop_alpha: float = 0.60
+var BORDER_COLOR: Color = Color(0.55, 0.58, 0.42, 0.85)   ## dull olive/brass accent
+var HEADER_COLOR: Color = Color(0.80, 0.82, 0.62, 1.00)
+var TEXT_COLOR:   Color = Color(0.85, 0.87, 0.80, 0.95)
+var DIM_COLOR:    Color = Color(0.55, 0.58, 0.52, 0.80)
+var CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
+
+## Section header / row button backgrounds (sourced from BunkerTheme in
+## _load_theme — same values as the old literals, look unchanged).
+var SECTION_BG:       Color = Color(0.16, 0.17, 0.13, 0.55)
+var SECTION_BG_HOVER: Color = Color(0.22, 0.23, 0.18, 0.75)
+var ROW_BG:           Color = Color(0.14, 0.15, 0.13, 0.90)
+var ROW_BG_HOVER:     Color = Color(0.22, 0.23, 0.18, 0.95)
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
-const PANEL_W: float = 320.0
-const PANEL_H: float = 480.0   ## Jul 2026 — fixed again (was computed from
-                                ## row count, which is what let it grow to
-                                ## ~1250px). Overflow content scrolls instead.
-const ROW_H:   float = 34.0
-const ROW_GAP: float = 6.0
-const SECTION_GAP: float = 10.0   ## vertical gap between one section and the next
+var PANEL_W: float = 320.0
+var PANEL_H: float = 480.0   ## Jul 2026 — fixed again (was computed from
+                             ## row count, which is what let it grow to
+                             ## ~1250px). Overflow content scrolls instead.
+var ROW_H:   float = 34.0
+var ROW_GAP: float = 6.0
+var SECTION_GAP: float = 10.0   ## vertical gap between one section and the next
 
 const ADMIN_POWER_STEP_WATTS: float = 1000.0
 const QUALITY_SCALE_DOWN: float = 0.5    ## "-50%" halves current quality
 const QUALITY_SCALE_UP:   float = 1.5    ## "+50%" raises current quality by half
 
 const TEST_EFFECT_DURATION: float = 10.0
-const TEST_EFFECT_COLOR: Color = Color(0.86, 0.57, 0.19, 1.0)   ## matches StatusEffectIcon's own default (Jul 2026 — darkened 5%)
+var TEST_EFFECT_COLOR: Color = Color(0.86, 0.57, 0.19, 1.0)   ## matches StatusEffectIcon's own default (Jul 2026 — darkened 5%)
 
 const ADMIN_CASH_STEP: int = 100000          ## "+$100,000" economy cheat row
 
@@ -84,14 +95,39 @@ var _section_expanded: Array[bool] = []
 ## undeclared property is a silent no-op).
 var world_node: MainWorld = null
 
+## Pulls every palette + component value from BunkerTheme's AdminUI section
+## so the theme is the single source of truth (this panel keeps its own
+## olive/brass palette — distinct from the shared UI palette).
+func _load_theme() -> void:
+	BG_COLOR = UIKit.theme_color("AdminUI", "bg", Color(0.08, 0.08, 0.10, 0.97))
+	BORDER_COLOR = UIKit.theme_color("AdminUI", "border", Color(0.55, 0.58, 0.42, 0.85))
+	HEADER_COLOR = UIKit.theme_color("AdminUI", "header", Color(0.80, 0.82, 0.62, 1.00))
+	TEXT_COLOR = UIKit.theme_color("AdminUI", "text", Color(0.85, 0.87, 0.80, 0.95))
+	DIM_COLOR = UIKit.theme_color("AdminUI", "dim", Color(0.55, 0.58, 0.52, 0.80))
+	CRIT_COLOR = UIKit.theme_color("AdminUI", "crit", Color(1.00, 0.35, 0.30, 1.00))
+	TEST_EFFECT_COLOR = UIKit.theme_color("AdminUI", "test_effect", Color(0.86, 0.57, 0.19, 1.0))
+	SECTION_BG = UIKit.theme_color("AdminUI", "section_bg", Color(0.16, 0.17, 0.13, 0.55))
+	SECTION_BG_HOVER = UIKit.theme_color("AdminUI", "section_bg_hover", Color(0.22, 0.23, 0.18, 0.75))
+	ROW_BG = UIKit.theme_color("AdminUI", "row_bg", Color(0.14, 0.15, 0.13, 0.90))
+	ROW_BG_HOVER = UIKit.theme_color("AdminUI", "row_bg_hover", Color(0.22, 0.23, 0.18, 0.95))
+	PANEL_W = float(UIKit.theme_constant("AdminUI", "panel_w", 320))
+	PANEL_H = float(UIKit.theme_constant("AdminUI", "panel_h", 480))
+	ROW_H = float(UIKit.theme_constant("AdminUI", "row_h", 34))
+	ROW_GAP = float(UIKit.theme_constant("AdminUI", "row_gap", 6))
+	SECTION_GAP = float(UIKit.theme_constant("AdminUI", "section_gap", 10))
+	_backdrop_alpha = float(UIKit.theme_constant("UI", "backdrop_alpha_permille", 600)) / 1000.0
+
 func _ready() -> void:
+	_load_theme()
 	layer   = 128   ## On top of everything (PauseMenuUI sits above at 200)
 	visible = false
 	set_process(false)
-	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
-	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus
+	## (movement is locked while this is open), B closes this UI. See
+	## scripts/ui/common/ControllerUINavigation.gd.
 	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	controller_nav.ui_root = self
+	controller_nav.stick_navigation = true
 	add_child(controller_nav)
 
 	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
@@ -195,12 +231,12 @@ func _build_scroll_area() -> void:
 	var scroll_theme: Theme = Theme.new()
 	var grabber: StyleBoxFlat = StyleBoxFlat.new()
 	grabber.bg_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.65)
-	grabber.set_corner_radius_all(3)
+	grabber.set_corner_radius_all(4)
 	var grabber_hi: StyleBoxFlat = grabber.duplicate() as StyleBoxFlat
 	grabber_hi.bg_color = Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.85)
 	var track: StyleBoxFlat = StyleBoxFlat.new()
 	track.bg_color = Color(0.0, 0.0, 0.0, 0.25)
-	track.set_corner_radius_all(3)
+	track.set_corner_radius_all(4)
 	scroll_theme.set_stylebox("grabber", "VScrollBar", grabber)
 	scroll_theme.set_stylebox("grabber_highlight", "VScrollBar", grabber_hi)
 	scroll_theme.set_stylebox("grabber_pressed", "VScrollBar", grabber_hi)
@@ -257,11 +293,11 @@ func _style_section_header(btn: Button) -> void:
 	btn.add_theme_color_override("font_color", HEADER_COLOR)
 	btn.add_theme_color_override("font_hover_color", HEADER_COLOR)
 	var normal: StyleBoxFlat = StyleBoxFlat.new()
-	normal.bg_color = Color(0.16, 0.17, 0.13, 0.55)
+	normal.bg_color = SECTION_BG
 	normal.set_corner_radius_all(4)
 	normal.content_margin_left = 8.0
 	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
-	hover.bg_color = Color(0.22, 0.23, 0.18, 0.75)
+	hover.bg_color = SECTION_BG_HOVER
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover", hover)
 	btn.add_theme_stylebox_override("pressed", hover)
@@ -271,12 +307,12 @@ func _style_row_btn(btn: Button) -> void:
 		btn.add_theme_font_override("font", _font)
 	btn.add_theme_font_size_override("font_size", 13)
 	var normal: StyleBoxFlat = StyleBoxFlat.new()
-	normal.bg_color     = Color(0.14, 0.15, 0.13, 0.90)
+	normal.bg_color     = ROW_BG
 	normal.border_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55)
 	normal.set_border_width_all(1)
 	normal.set_corner_radius_all(4)
 	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
-	hover.bg_color     = Color(0.22, 0.23, 0.18, 0.95)
+	hover.bg_color     = ROW_BG_HOVER
 	hover.border_color = Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.85)
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover",  hover)
@@ -345,8 +381,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		if panel.has_point(event.position):
 			get_viewport().set_input_as_handled()
 
+## Redraw throttle (Aug 2026 optimization) — the static list doesn't need 60Hz.
+const REDRAW_INTERVAL: float = 0.1
+var _redraw_accum: float = 0.0
+
 func _process(_delta: float) -> void:
-	if _is_open:
+	if not _is_open:
+		return
+	_redraw_accum += _delta
+	if _redraw_accum >= REDRAW_INTERVAL:
+		_redraw_accum = 0.0
 		_canvas.queue_redraw()
 
 # ─── Draw ─────────────────────────────────────────────────────────────────────
@@ -358,7 +402,7 @@ func _on_draw() -> void:
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - PANEL_H) * 0.5
 
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
+	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, _backdrop_alpha), true)
 
 	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
 	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 2.0)
@@ -368,8 +412,8 @@ func _on_draw() -> void:
 	UIKit.draw_rounded_rect(_canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), CRIT_COLOR, 1.5)
 	var cp: Vector2 = close_rect.position
 	var cs: Vector2 = close_rect.size
-	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
-	_canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), Color(1.0, 0.7, 0.7, 1.0), 2.0)
+	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0, true)
+	_canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), Color(1.0, 0.7, 0.7, 1.0), 2.0, true)
 
 	var cx: float = px + 20.0
 	var cy: float = py + 26.0
@@ -378,7 +422,7 @@ func _on_draw() -> void:
 	cy += 28.0
 
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0)
+		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0, true)
 
 	_draw_str("[ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), DIM_COLOR, 9)
 

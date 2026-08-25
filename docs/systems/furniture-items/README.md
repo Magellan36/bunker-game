@@ -509,6 +509,46 @@ distance-fair vs. pickup). See `docs/systems/research/README.md`'s
 Station/Water Hookup — moved position is not persisted across save/load
 (respawns at its spawn point). Shared follow-up with the other singletons.
 
+## Chair sitting (Aug 2026 — sit-animation sequence)
+
+Chairs drive a full sit/stand flow with imported animations. Flow:
+
+- **Player:** `MainWorld._wire_chair()` connects each chair's
+  `seat_requested`/`stand_requested` signals. On sit: the player is
+  repositioned to `get_seat_transform()`, physics frozen,
+  `Player.seated_chair` set. On stand: repositioned to
+  `get_stand_position()`, physics re-enabled, `seated_chair` cleared.
+- **NPC:** `SitActivity` / `RelaxSitActivity` (delegation variant) claim
+  the chair via `npc_try_sit()`, park the NPC at `get_seat_transform()`,
+  set `NPC.seated_chair` (mirrors the player), and clear it on exit.
+- **Animation:** `AdventurerModelController.gd` reads the parent's
+  `seated_chair` and plays the sequence `stand_to_sit → sit (looped) →
+  sit_to_stand` (see `docs/systems/player-model/ANIMATIONS.md` "Sit
+  animation sequence"). The model faces 180° (the chair backrest) for the
+  whole seated duration.
+
+`Chair.gd` constants (all visual-tune knobs):
+- `SEAT_Y` = 0.5625 (seat surface height).
+- `SEAT_RAISE` = 0.40 — extra height above `SEAT_Y` the anchor is set to.
+  Rationale: the imported sit pose drops the pelvis to local y≈0.607
+  (measured from the sit clip's Hips root-motion track), so anchoring at
+  exactly `SEAT_Y` sank the model ~0.39 into the seat.
+- `SEAT_FORWARD` = 0.15 — nudge toward the chair's open front (−Z, local),
+  so the model doesn't read as pushed back into the backrest.
+- `STAND_DIST` = 0.85 — how far in front of the chair the player/NPC is
+  placed on standing (bumped from 0.65 so `sit_to_stand` begins clearly in
+  front, not on top of the chair).
+- The old `SIT_SINK` placeholder (sank the player below the seat surface
+  pre-animation) is removed.
+
+**Known outstanding issue (Blender task):** the sit clips carry baked
+root offsets that don't align to the model origin — the seated pose's hip
+root sits at local z≈−0.25 to −0.49, so the model appears off-center /
+behind the chair. `SEAT_RAISE`/`SEAT_FORWARD` partially mask it. The clean
+fix is re-exporting the three clips in Blender with the skeleton root at
+the character origin during the seated pose (identical across all three).
+Then re-tune (likely near-zero) `SEAT_RAISE`/`SEAT_FORWARD`.
+
 ## Known tradeoffs / tech debt
 - No automated tests.
 - Item/shelf/furniture state isn't saved (see Persistence).

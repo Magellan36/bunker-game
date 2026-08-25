@@ -17,33 +17,91 @@ extends CanvasLayer
 
 signal closed
 
-# ─── Layout constants ─────────────────────────────────────────────────────────
-const BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
-const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
-const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.0)
-const TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
-const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
-const WARN_COLOR:   Color = Color(1.0,  0.72, 0.10, 1.0)
-const CRIT_COLOR:   Color = Color(1.0,  0.35, 0.30, 1.0)
-const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.0)
-const ACCENT_BACKUP: Color = Color(0.30, 0.68, 1.00, 1.0)  ## Blue — backup generator rows (unchanged, functional not identity)
-const ACCENT_COLOR: Color = Color(0.90, 0.80, 0.20, 1.0)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
+# ─── Palette + geometry (sourced from BunkerTheme — the UI design catalog,
+## see assets/fonts/BunkerTheme.tres). Loaded in _load_theme() (from _ready);
+## these defaults are fallbacks if the theme resource is missing.
+var BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
+## Shared backdrop dim — read from UI/backdrop_alpha_permille (Aug 2026).
+var _backdrop_alpha: float = 0.60
+var BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
+var HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.0)
+var TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
+var DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
+var WARN_COLOR:   Color = Color(1.0,  0.72, 0.10, 1.0)
+var CRIT_COLOR:   Color = Color(1.0,  0.35, 0.30, 1.0)
+var OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.0)
+var ACCENT_BACKUP: Color = Color(0.30, 0.68, 1.00, 1.0)  ## Blue — backup generator rows (unchanged, functional not identity)
+var ACCENT_COLOR: Color = Color(0.90, 0.80, 0.20, 1.0)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
 
 const FONT_SIZE_H:  int = 14
 const FONT_SIZE_N:  int = 11
 const FONT_SIZE_S:  int = 10
 
-const PANEL_W:      float = 780.0
-const PANEL_H:      float = 560.0
-const SECTION_PAD:  float = 12.0
-const COL_GAP:      float = 16.0
+var PANEL_W:      float = 780.0
+var PANEL_H:      float = 560.0
+var SECTION_PAD:  float = 12.0
+var COL_GAP:      float = 16.0
+
+## Component geometry / colors read from BunkerTheme's PowerTerminalUI section.
+var GRAPH_H:        float = 70.0
+var MINI_BAR_W:     float = 60.0
+var MINI_BAR_H:     float = 7.0
+var ARROW_W:        float = 14.0
+var ARROW_H:        float = 13.0
+var MAX_ROWS:       int   = 8
+var MAX_REMOTE:     int   = 5
+var HISTORY_LEN:    int   = 60
+var MINI_BAR_GROOVE:    Color = Color(0.15, 0.15, 0.15, 0.9)
+var GRAPH_BG:           Color = Color(0.06, 0.10, 0.06, 0.95)
+var GRAPH_BORDER:       Color = Color(0.28, 0.50, 0.30, 0.60)
+var GRAPH_CAPACITY:     Color = Color(0.30, 0.60, 0.30, 0.55)
+var RESET_BG:           Color = Color(0.25, 0.05, 0.05, 0.90)
+var RESET_BG_INACTIVE:  Color = Color(0.14, 0.14, 0.14, 0.80)
+
+## Pulls every palette + component value from BunkerTheme so the theme is the
+## single source of truth (tweak there, this panel follows).
+func _load_theme() -> void:
+	BG_COLOR = UIKit.theme_color("UI", "bg", BG_COLOR)
+	BORDER_COLOR = UIKit.theme_color("UI", "border", BORDER_COLOR)
+	HEADER_COLOR = UIKit.theme_color("UI", "header", HEADER_COLOR)
+	TEXT_COLOR = UIKit.theme_color("UI", "text", TEXT_COLOR)
+	DIM_COLOR = UIKit.theme_color("UI", "dim", DIM_COLOR)
+	WARN_COLOR = UIKit.theme_color("UI", "warn", WARN_COLOR)
+	CRIT_COLOR = UIKit.theme_color("UI", "crit", CRIT_COLOR)
+	OK_COLOR = UIKit.theme_color("UI", "ok", OK_COLOR)
+	ACCENT_BACKUP = UIKit.theme_color("UI", "accent_backup", ACCENT_BACKUP)
+	ACCENT_COLOR = UIKit.theme_color("UI", "power_accent", ACCENT_COLOR)
+	PANEL_W = UIKit.theme_constant("PowerTerminalUI", "panel_w", int(PANEL_W))
+	PANEL_H = UIKit.theme_constant("PowerTerminalUI", "panel_h", int(PANEL_H))
+	SECTION_PAD = UIKit.theme_constant("PowerTerminalUI", "section_pad", int(SECTION_PAD))
+	COL_GAP = UIKit.theme_constant("PowerTerminalUI", "col_gap", int(COL_GAP))
+	GRAPH_H = UIKit.theme_constant("PowerTerminalUI", "graph_h", int(GRAPH_H))
+	MINI_BAR_W = UIKit.theme_constant("PowerTerminalUI", "mini_bar_w", int(MINI_BAR_W))
+	MINI_BAR_H = UIKit.theme_constant("PowerTerminalUI", "mini_bar_h", int(MINI_BAR_H))
+	ARROW_W = UIKit.theme_constant("PowerTerminalUI", "arrow_w", int(ARROW_W))
+	ARROW_H = UIKit.theme_constant("PowerTerminalUI", "arrow_h", int(ARROW_H))
+	MAX_ROWS = UIKit.theme_constant("PowerTerminalUI", "max_rows", MAX_ROWS)
+	MAX_REMOTE = UIKit.theme_constant("PowerTerminalUI", "max_remote", MAX_REMOTE)
+	HISTORY_LEN = UIKit.theme_constant("PowerTerminalUI", "history_len", HISTORY_LEN)
+	MINI_BAR_GROOVE = UIKit.theme_color("PowerTerminalUI", "mini_bar_groove", MINI_BAR_GROOVE)
+	GRAPH_BG = UIKit.theme_color("PowerTerminalUI", "graph_bg", GRAPH_BG)
+	GRAPH_BORDER = UIKit.theme_color("PowerTerminalUI", "graph_border", GRAPH_BORDER)
+	GRAPH_CAPACITY = UIKit.theme_color("PowerTerminalUI", "graph_capacity", GRAPH_CAPACITY)
+	RESET_BG = UIKit.theme_color("PowerTerminalUI", "reset_bg", RESET_BG)
+	RESET_BG_INACTIVE = UIKit.theme_color("PowerTerminalUI", "reset_bg_inactive", RESET_BG_INACTIVE)
+	ZONE_PALETTE[0] = UIKit.theme_color("PowerTerminalUI", "zone_0", ZONE_PALETTE[0])
+	ZONE_PALETTE[1] = UIKit.theme_color("PowerTerminalUI", "zone_1", ZONE_PALETTE[1])
+	ZONE_PALETTE[2] = UIKit.theme_color("PowerTerminalUI", "zone_2", ZONE_PALETTE[2])
+	ZONE_PALETTE[3] = UIKit.theme_color("PowerTerminalUI", "zone_3", ZONE_PALETTE[3])
+	ZONE_PALETTE[4] = UIKit.theme_color("PowerTerminalUI", "zone_4", ZONE_PALETTE[4])
+	ZONE_PALETTE[5] = UIKit.theme_color("PowerTerminalUI", "zone_5", ZONE_PALETTE[5])
+	_backdrop_alpha = float(UIKit.theme_constant("UI", "backdrop_alpha_permille", 600)) / 1000.0
 
 # ─── History graph — PERSISTS across open/close ───────────────────────────────
 ## These are intentionally NOT cleared on close() so the graph retains its
 ## history when the player reopens the terminal.
 var _draw_history: PackedFloat32Array = PackedFloat32Array()
 var _cap_history:  PackedFloat32Array = PackedFloat32Array()
-const HISTORY_LEN: int   = 60    ## samples — ~60 seconds at 1 sample/s
 var _sample_timer: float = 0.0
 const SAMPLE_INTERVAL: float = 1.0
 
@@ -65,6 +123,7 @@ var connected_zone_index: int = -1
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
+	_load_theme()
 	layer   = 50
 	visible = false
 	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
@@ -167,6 +226,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 # ─── Process — collect history samples (always runs, even when closed) ────────
+## Redraw throttle (Aug 2026 optimization) — the live graph doesn't need 60Hz.
+const REDRAW_INTERVAL: float = 0.1
+var _redraw_accum: float = 0.0
+
 func _process(delta: float) -> void:
 	## Sample the power manager every SAMPLE_INTERVAL regardless of visibility.
 	## This keeps load history continuous so the graph isn't flat after a reopen.
@@ -183,9 +246,13 @@ func _process(delta: float) -> void:
 			if _cap_history.size() > HISTORY_LEN:
 				_cap_history.remove_at(0)
 
-	## Only request a redraw while the terminal is actually visible.
+	## Only request a redraw while the terminal is actually visible, throttled
+	## (Aug 2026 optimization — the live graph/history doesn't need 60Hz).
 	if _is_open:
-		_canvas.queue_redraw()
+		_redraw_accum += delta
+		if _redraw_accum >= REDRAW_INTERVAL:
+			_redraw_accum = 0.0
+			_canvas.queue_redraw()
 
 # ─── Draw ─────────────────────────────────────────────────────────────────────
 func _on_draw() -> void:
@@ -194,7 +261,7 @@ func _on_draw() -> void:
 	var py: float    = (vp.y - PANEL_H) * 0.5
 
 	# Full-screen dim
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
+	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, _backdrop_alpha), true)
 
 	# Panel background
 	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
@@ -327,7 +394,7 @@ func _on_draw() -> void:
 	# Separator
 	var sep_y: float = py + 42.0
 	_canvas.draw_line(Vector2(px + SECTION_PAD, sep_y),
-		Vector2(px + PANEL_W - SECTION_PAD, sep_y), BORDER_COLOR, 1.0)
+		Vector2(px + PANEL_W - SECTION_PAD, sep_y), BORDER_COLOR, 1.0, true)
 
 	# ── Layout: two columns ───────────────────────────────────────────────────
 	var col1_x: float = px + SECTION_PAD
@@ -393,10 +460,10 @@ func _draw_generators_section(snap: Dictionary, x: float, y: float, w: float) ->
 
 		# Mini fuel bar
 		var bar_x: float = x + w - 64.0
-		var bar_w: float = 60.0
-		var bar_h: float = 7.0
+		var bar_w: float = MINI_BAR_W
+		var bar_h: float = MINI_BAR_H
 		_canvas.draw_rect(Rect2(bar_x, y - 10.0, bar_w, bar_h),
-			Color(0.15, 0.15, 0.15, 0.9), true)
+			MINI_BAR_GROOVE, true)
 		_canvas.draw_rect(Rect2(bar_x, y - 10.0, bar_w * fuel / 100.0, bar_h),
 			fuel_col, true)
 		y += 16.0
@@ -430,10 +497,10 @@ func _draw_batteries_section(snap: Dictionary, x: float, y: float, w: float) -> 
 		_draw_string_at(line, Vector2(x, y), batt_col, FONT_SIZE_S)
 
 		var bar_x: float = x + w - 64.0
-		var bar_h: float = 7.0
-		_canvas.draw_rect(Rect2(bar_x, y - 10.0, 60.0, bar_h),
-			Color(0.15, 0.15, 0.15, 0.9), true)
-		_canvas.draw_rect(Rect2(bar_x, y - 10.0, 60.0 * pct / 100.0, bar_h),
+		var bar_h: float = MINI_BAR_H
+		_canvas.draw_rect(Rect2(bar_x, y - 10.0, MINI_BAR_W, bar_h),
+			MINI_BAR_GROOVE, true)
+		_canvas.draw_rect(Rect2(bar_x, y - 10.0, MINI_BAR_W * pct / 100.0, bar_h),
 			batt_col, true)
 		y += 16.0
 
@@ -495,7 +562,7 @@ func _draw_batteries_section(snap: Dictionary, x: float, y: float, w: float) -> 
 			if not remote_bats.is_empty():
 				y += 4.0
 				_canvas.draw_line(Vector2(x, y), Vector2(x + w - 16.0, y),
-					Color(0.30, 0.68, 1.00, 0.30), 1.0)
+					Color(0.30, 0.68, 1.00, 0.30), 1.0, true)
 				y += 5.0
 				_draw_string_at("  ─ SHARED (via pass-battery breaker) ─",
 					Vector2(x, y), Color(0.30, 0.68, 1.00, 0.85), FONT_SIZE_S)
@@ -632,10 +699,9 @@ func _draw_graph_section(x: float, y: float, w: float) -> float:
 	_draw_section_header("LOAD HISTORY  (60s)", x, y)
 	y += 18.0
 
-	const GRAPH_H: float = 70.0
 	var graph_rect: Rect2 = Rect2(x, y, w, GRAPH_H)
-	_canvas.draw_rect(graph_rect, Color(0.06, 0.10, 0.06, 0.95), true)
-	_canvas.draw_rect(graph_rect, Color(0.28, 0.50, 0.30, 0.60), false, 1.0)
+	_canvas.draw_rect(graph_rect, GRAPH_BG, true)
+	_canvas.draw_rect(graph_rect, GRAPH_BORDER, false, 1.0)
 
 	var n: int = _draw_history.size()
 	if n >= 2:
@@ -654,7 +720,7 @@ func _draw_graph_section(x: float, y: float, w: float) -> float:
 			pts_cap.append(Vector2(fx, fy))
 		if pts_cap.size() >= 2:
 			for i: int in pts_cap.size() - 1:
-				_canvas.draw_line(pts_cap[i], pts_cap[i+1], Color(0.30, 0.60, 0.30, 0.55), 1.0)
+				_canvas.draw_line(pts_cap[i], pts_cap[i+1], GRAPH_CAPACITY, 1.0, true)
 
 		# Draw line (bright green)
 		var pts_draw: PackedVector2Array = PackedVector2Array()
@@ -664,7 +730,7 @@ func _draw_graph_section(x: float, y: float, w: float) -> float:
 			pts_draw.append(Vector2(fx, fy))
 		if pts_draw.size() >= 2:
 			for i: int in pts_draw.size() - 1:
-				_canvas.draw_line(pts_draw[i], pts_draw[i+1], OK_COLOR, 1.5)
+				_canvas.draw_line(pts_draw[i], pts_draw[i+1], OK_COLOR, 1.5, true)
 
 	y += GRAPH_H + 8.0
 	return y
@@ -693,7 +759,6 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 		Vector2(x, y), DIM_COLOR, FONT_SIZE_S)
 	y += 14.0
 
-	const MAX_ROWS: int = 8
 	var shown: int = 0
 	for con: Dictionary in consumers:
 		if shown >= MAX_ROWS:
@@ -716,8 +781,8 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 
 		## ── Priority arrows on the right edge of the row ──────────────────
 		## Layout: [◄] P# [►]   (◄ lowers priority number, ► raises it)
-		var arrow_w: float = 14.0
-		var arrow_h: float = 13.0
+		var arrow_w: float = ARROW_W
+		var arrow_h: float = ARROW_H
 		var right_x: float = x + w - SECTION_PAD - (arrow_w * 2.0 + 26.0)
 		var row_top: float = y - 9.0
 
@@ -802,14 +867,13 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 				## Sub-header.
 				y += 4.0
 				_canvas.draw_line(Vector2(x, y), Vector2(x + w - 16.0, y),
-					remote_col * Color(1, 1, 1, 0.30), 1.0)
+					remote_col * Color(1, 1, 1, 0.30), 1.0, true)
 				y += 5.0
 				_draw_string_at("  ─ REMOTE (powered by this zone) ─",
 					Vector2(x, y), remote_col * Color(1, 1, 1, 0.85), FONT_SIZE_S)
 				y += 13.0
 
 				var remote_shown: int = 0
-				const MAX_REMOTE: int = 5
 				for rc: Dictionary in remote_cons:
 					if remote_shown >= MAX_REMOTE:
 						_draw_string_at("    … +%d more" % (remote_cons.size() - remote_shown),
@@ -838,7 +902,7 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 ## Use _zone_col(index) below — it pulls from PowerManager at alpha 1.0 so this
 ## UI can never desync from the world wires.  The const below is ONLY a fallback
 ## mirror used if PowerManager isn't reachable; keep it identical to PM's RGB.
-const ZONE_PALETTE: Array[Color] = [
+var ZONE_PALETTE: Array[Color] = [
 	Color(0.35, 0.80, 1.00, 1.0),   ## 0 light blue  (default zone)
 	Color(0.10, 0.95, 0.35, 1.0),   ## 1 green
 	Color(0.95, 0.18, 0.10, 1.0),   ## 2 red
@@ -913,8 +977,7 @@ func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> f
 		btn_active = (grid_state == 3)   ## 3 = TRIPPED (grid-wide fallback)
 
 	var btn_col: Color = CRIT_COLOR if btn_active else DIM_COLOR
-	var btn_bg:  Color = Color(0.25, 0.05, 0.05, 0.90) if btn_active \
-		else Color(0.14, 0.14, 0.14, 0.80)
+	var btn_bg:  Color = RESET_BG if btn_active else RESET_BG_INACTIVE
 	_canvas.draw_rect(_reset_grid_rect, btn_bg, true)
 	_canvas.draw_rect(_reset_grid_rect, btn_col * Color(1,1,1,0.70), false, 1.5)
 	var btn_label: String
@@ -1038,7 +1101,7 @@ func _draw_breakers_section(snap: Dictionary, x: float, y: float, w: float) -> f
 
 		## Separator between zones.
 		_canvas.draw_line(Vector2(x, y), Vector2(x + w - SECTION_PAD, y),
-			z_col * Color(1, 1, 1, 0.20), 1.0)
+			z_col * Color(1, 1, 1, 0.20), 1.0, true)
 		y += 5.0
 
 	return y + 4.0
@@ -1049,7 +1112,7 @@ func _draw_section_header(title: String, x: float, y: float) -> void:
 	_canvas.draw_line(
 		Vector2(x, y + 3.0),
 		Vector2(x + 180.0, y + 3.0),
-		Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.45), 1.0)
+		Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.45), 1.0, true)
 
 func _draw_string_at(text: String, pos: Vector2, color: Color, size: int) -> void:
 	# Shadow pass

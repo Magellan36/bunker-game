@@ -326,6 +326,11 @@ func open(station: Node) -> void:
 	_apply_tab_styles()
 	_refresh_materials_header()
 	_refresh_content()
+	## Controller (Aug 2026) — auto-select the top-most research on open so
+	## A is immediately ready to research (the _process null-focus fallback
+	## below is a safety net; this fires instantly).
+	if InputMode.is_controller() and _top_tile_box != null:
+		_top_tile_box.grab_focus()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 func close() -> void:
@@ -406,6 +411,10 @@ func _select_tree(tree_id: String) -> void:
 	_active_tree = tree_id
 	_apply_tab_styles()
 	_refresh_content()
+	## Controller (Aug 2026) — auto-select the top-most research of the new
+	## tab so A is immediately ready after an LB/RB tab change.
+	if InputMode.is_controller() and _top_tile_box != null:
+		_top_tile_box.grab_focus()
 
 ## One label/icon per MATERIAL_TYPES entry: "Metal: 3/10" etc., always
 ## visible regardless of _active_tree — built once, refreshed every time the
@@ -690,7 +699,7 @@ func _on_connector_draw() -> void:
 	for conn: Array in _connections:
 		var a: Vector2 = conn[0]
 		var b: Vector2 = conn[1]
-		_connector_canvas.draw_line(a, b, COLOR_CONNECTOR, 2.0)
+		_connector_canvas.draw_line(a, b, COLOR_CONNECTOR, 2.0, true)
 
 ## Builds the node-tree layout: row-0 tiered node, 3-column grid rows 1-4,
 ## two side branch pairs — all blank scaffolding except the top node.

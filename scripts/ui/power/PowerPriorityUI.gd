@@ -38,22 +38,26 @@ signal closed
 signal priority_changed(id: String, value: int)
 signal load_toggled(id: String, on: bool)
 
-# ─── Palette (matches bunker military/brutalist theme) ────────────────────────
-const BG_COLOR:       Color = Color(0.08, 0.08, 0.09, 0.97)
-const BORDER_COLOR:   Color = Color(0.55, 0.58, 0.62, 0.70)
-const HEADER_COLOR:   Color = Color(0.80, 0.82, 0.86, 1.00)
-const TEXT_COLOR:     Color = Color(0.85, 0.86, 0.88, 0.95)
-const DIM_COLOR:      Color = Color(0.50, 0.52, 0.55, 0.80)
-const WARN_COLOR:     Color = Color(1.00, 0.72, 0.10, 1.00)
-const CRIT_COLOR:     Color = Color(1.00, 0.35, 0.30, 1.00)
-const OK_COLOR:       Color = Color(0.35, 0.85, 1.00, 1.00)
-const SHED_COLOR:     Color = Color(1.00, 0.55, 0.10, 1.00)   ## orange = shed (unchanged, functional not identity)
-const OFF_COLOR:      Color = Color(0.55, 0.55, 0.55, 1.00)   ## grey = switched off (unchanged, functional not identity)
-const ACCENT_TOGGLE:  Color = Color(0.30, 0.68, 1.00, 1.00)   ## unchanged, functional not identity
-const ACCENT_COLOR:   Color = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
+# ─── Palette + geometry (sourced from BunkerTheme — the UI design catalog,
+## see assets/fonts/BunkerTheme.tres). Loaded in _load_theme() (from _ready);
+## these defaults are fallbacks if the theme resource is missing.
+var BG_COLOR:       Color = Color(0.08, 0.08, 0.09, 0.97)
+## Shared backdrop dim — read from UI/backdrop_alpha_permille (Aug 2026).
+var _backdrop_alpha: float = 0.60
+var BORDER_COLOR:   Color = Color(0.55, 0.58, 0.62, 0.70)
+var HEADER_COLOR:   Color = Color(0.80, 0.82, 0.86, 1.00)
+var TEXT_COLOR:     Color = Color(0.85, 0.86, 0.88, 0.95)
+var DIM_COLOR:      Color = Color(0.50, 0.52, 0.55, 0.80)
+var WARN_COLOR:     Color = Color(1.00, 0.72, 0.10, 1.00)
+var CRIT_COLOR:     Color = Color(1.00, 0.35, 0.30, 1.00)
+var OK_COLOR:       Color = Color(0.35, 0.85, 1.00, 1.00)
+var SHED_COLOR:     Color = Color(1.00, 0.55, 0.10, 1.00)   ## orange = shed (unchanged, functional not identity)
+var OFF_COLOR:      Color = Color(0.55, 0.55, 0.55, 1.00)   ## grey = switched off (unchanged, functional not identity)
+var ACCENT_TOGGLE:  Color = Color(0.30, 0.68, 1.00, 1.00)   ## unchanged, functional not identity
+var ACCENT_COLOR:   Color = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
 
 ## Priority tier accent colours — green (safe/critical) → red (luxury/shed first).
-const PRIO_COLORS: Array[Color] = [
+var PRIO_COLORS: Array[Color] = [
 	Color(0.30, 1.00, 0.46, 1.00),  ## 1 — critical (green)
 	Color(0.62, 0.92, 0.32, 1.00),  ## 2 — important (lime)
 	Color(0.98, 0.85, 0.20, 1.00),  ## 3 — standard (yellow)
@@ -61,14 +65,67 @@ const PRIO_COLORS: Array[Color] = [
 	Color(1.00, 0.30, 0.20, 1.00),  ## 5 — luxury (red)
 ]
 
-const PRIORITY_MIN: int = 1
-const PRIORITY_MAX: int = 5
+var PRIORITY_MIN: int = 1
+var PRIORITY_MAX: int = 5
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
-const PANEL_W: float = 440.0
+var PANEL_W: float = 440.0
 ## Base height; grows when the load toggle row is shown.
-const PANEL_H_BASE:   float = 360.0
-const PANEL_H_TOGGLE: float = 420.0
+var PANEL_H_BASE:   float = 360.0
+var PANEL_H_TOGGLE: float = 420.0
+
+## Component geometry / colors read from BunkerTheme's PowerPriorityUI section.
+var num_size:   int   = 40
+var row_h:      float = 56.0
+var chip_w:     float = 96.0
+var pip_gap:    float = 6.0
+var pip_h:      float = 8.0
+var arrow_size: float = 56.0
+var pill_w:     float = 50.0
+var pill_h:     float = 26.0
+var ARROW_BG:          Color = Color(0.12, 0.16, 0.12, 1.0)
+var ARROW_BG_HOVER:    Color = Color(0.18, 0.24, 0.18, 1.0)
+var ARROW_BG_DISABLED: Color = Color(0.10, 0.11, 0.10, 1.0)
+var PILL_KNOB:         Color = Color(0.92, 0.95, 0.92, 1.0)
+
+## Pulls every palette + component value from BunkerTheme so the theme is the
+## single source of truth (tweak there, this panel follows).
+func _load_theme() -> void:
+	BG_COLOR = UIKit.theme_color("UI", "bg", BG_COLOR)
+	BORDER_COLOR = UIKit.theme_color("UI", "border", BORDER_COLOR)
+	HEADER_COLOR = UIKit.theme_color("UI", "header", HEADER_COLOR)
+	TEXT_COLOR = UIKit.theme_color("UI", "text", TEXT_COLOR)
+	DIM_COLOR = UIKit.theme_color("UI", "dim", DIM_COLOR)
+	WARN_COLOR = UIKit.theme_color("UI", "warn", WARN_COLOR)
+	CRIT_COLOR = UIKit.theme_color("UI", "crit", CRIT_COLOR)
+	OK_COLOR = UIKit.theme_color("UI", "ok", OK_COLOR)
+	SHED_COLOR = UIKit.theme_color("PowerPriorityUI", "shed", SHED_COLOR)
+	OFF_COLOR = UIKit.theme_color("UI", "off_grey", OFF_COLOR)
+	ACCENT_TOGGLE = UIKit.theme_color("UI", "accent_toggle", ACCENT_TOGGLE)
+	ACCENT_COLOR = UIKit.theme_color("UI", "power_accent", ACCENT_COLOR)
+	PRIO_COLORS[0] = UIKit.theme_color("UI", "prio_1", PRIO_COLORS[0])
+	PRIO_COLORS[1] = UIKit.theme_color("UI", "prio_2", PRIO_COLORS[1])
+	PRIO_COLORS[2] = UIKit.theme_color("UI", "prio_3", PRIO_COLORS[2])
+	PRIO_COLORS[3] = UIKit.theme_color("UI", "prio_4", PRIO_COLORS[3])
+	PRIO_COLORS[4] = UIKit.theme_color("UI", "prio_5", PRIO_COLORS[4])
+	PRIORITY_MIN = UIKit.theme_constant("UI", "priority_min", PRIORITY_MIN)
+	PRIORITY_MAX = UIKit.theme_constant("UI", "priority_max", PRIORITY_MAX)
+	PANEL_W = UIKit.theme_constant("PowerPriorityUI", "panel_w", int(PANEL_W))
+	PANEL_H_BASE = UIKit.theme_constant("PowerPriorityUI", "panel_h_base", int(PANEL_H_BASE))
+	PANEL_H_TOGGLE = UIKit.theme_constant("PowerPriorityUI", "panel_h_toggle", int(PANEL_H_TOGGLE))
+	num_size = UIKit.theme_constant("PowerPriorityUI", "num_size", num_size)
+	row_h = UIKit.theme_constant("PowerPriorityUI", "row_h", int(row_h))
+	chip_w = UIKit.theme_constant("PowerPriorityUI", "chip_w", int(chip_w))
+	pip_gap = UIKit.theme_constant("PowerPriorityUI", "pip_gap", int(pip_gap))
+	pip_h = UIKit.theme_constant("PowerPriorityUI", "pip_h", int(pip_h))
+	arrow_size = UIKit.theme_constant("PowerPriorityUI", "arrow_size", int(arrow_size))
+	pill_w = UIKit.theme_constant("PowerPriorityUI", "pill_w", int(pill_w))
+	pill_h = UIKit.theme_constant("PowerPriorityUI", "pill_h", int(pill_h))
+	ARROW_BG = UIKit.theme_color("PowerPriorityUI", "arrow_bg", ARROW_BG)
+	ARROW_BG_HOVER = UIKit.theme_color("PowerPriorityUI", "arrow_bg_hover", ARROW_BG_HOVER)
+	ARROW_BG_DISABLED = UIKit.theme_color("PowerPriorityUI", "arrow_bg_disabled", ARROW_BG_DISABLED)
+	PILL_KNOB = UIKit.theme_color("PowerPriorityUI", "pill_knob", PILL_KNOB)
+	_backdrop_alpha = float(UIKit.theme_constant("UI", "backdrop_alpha_permille", 600)) / 1000.0
 
 # ─── Live data (set by open(), refreshed each frame from PowerManager) ─────────
 var _device_id:      String = ""
@@ -96,6 +153,7 @@ var _toggle_row_y: float = 0.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
+	_load_theme()
 	layer   = 60
 	visible = false
 	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
@@ -255,9 +313,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
+## Redraw throttle (Aug 2026 optimization) — live status doesn't need 60Hz.
+const REDRAW_INTERVAL: float = 0.1
+var _redraw_accum: float = 0.0
+
 func _process(_delta: float) -> void:
 	if not _is_open:
 		return
+	_redraw_accum += _delta
+	if _redraw_accum < REDRAW_INTERVAL:
+		return
+	_redraw_accum = 0.0
 	## Keep status live (shedding can change while the panel is open, e.g. the
 	## player drops priority and the item sheds instantly).
 	_pull_status()
@@ -307,7 +373,7 @@ func _reposition_controls() -> void:
 	## Arrow buttons flank the big priority number. Y is set during draw; until
 	## the first draw runs we fall back to a sensible default.
 	var arrow_y: float = _arrow_row_y if _arrow_row_y > 0.0 else (py + 150.0)
-	var arrow_sz: Vector2 = Vector2(56.0, 56.0)
+	var arrow_sz: Vector2 = Vector2(arrow_size, arrow_size)
 	_dec_btn.size = arrow_sz
 	_inc_btn.size = arrow_sz
 	_dec_btn.position = Vector2(px + 40.0, arrow_y)
@@ -328,11 +394,11 @@ func _style_arrow_btn(btn: Button, enabled: bool) -> void:
 	btn.disabled = not enabled
 	btn.add_theme_font_override("font", _font)
 	btn.add_theme_font_size_override("font_size", 26)
-	var base: Color = Color(0.12, 0.16, 0.12, 1.0) if enabled else Color(0.10, 0.11, 0.10, 1.0)
+	var base: Color = ARROW_BG if enabled else ARROW_BG_DISABLED
 	var fg:   Color = HEADER_COLOR if enabled else Color(0.30, 0.34, 0.30, 1.0)
 	for sname: String in ["normal", "hover", "pressed", "disabled", "focus"]:
 		var sb: StyleBoxFlat = StyleBoxFlat.new()
-		sb.bg_color = base if sname != "hover" else Color(0.18, 0.24, 0.18, 1.0)
+		sb.bg_color = base if sname != "hover" else ARROW_BG_HOVER
 		sb.border_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55 if enabled else 0.2)
 		sb.set_border_width_all(1)
 		sb.set_corner_radius_all(4)
@@ -352,7 +418,7 @@ func _on_draw() -> void:
 	var py: float   = (vp.y - ph) * 0.5
 
 	## Dim backdrop
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
+	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, _backdrop_alpha), true)
 
 	## Panel
 	var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
@@ -375,7 +441,7 @@ func _on_draw() -> void:
 
 	## Separator
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0)
+		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0, true)
 	cy += 14.0
 
 	# ── Status + wattage row ────────────────────────────────────────────────────
@@ -394,17 +460,14 @@ func _on_draw() -> void:
 
 	# ── Priority changer ────────────────────────────────────────────────────────
 	_arrow_row_y = cy
-	var row_h: float = 56.0
 
 	## Big centered priority number, colour-coded by tier.
 	var pcol: Color = PRIO_COLORS[clampi(_priority - 1, 0, PRIO_COLORS.size() - 1)]
 	var num_str: String = str(_priority)
-	var num_size: int = 40
 	var num_w: float = _font.get_string_size(num_str, HORIZONTAL_ALIGNMENT_LEFT, -1, num_size).x
 	var num_x: float = px + (PANEL_W - num_w) * 0.5
 	var num_y: float = cy + row_h * 0.5 + float(num_size) * 0.35
 	## Tier chip background behind the number
-	var chip_w: float = 96.0
 	var chip_x: float = px + (PANEL_W - chip_w) * 0.5
 	var chip_rect: Rect2 = Rect2(chip_x, cy, chip_w, row_h)
 	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.14), true)
@@ -420,13 +483,12 @@ func _on_draw() -> void:
 
 	## Tier pip strip (5 segments, current highlighted)
 	var pip_total_w: float = PANEL_W - 120.0
-	var pip_gap: float = 6.0
 	var pip_w: float = (pip_total_w - pip_gap * 4.0) / 5.0
 	var pip_x: float = px + 60.0
 	for i: int in range(5):
 		var tier: int = i + 1
 		var col: Color = PRIO_COLORS[i]
-		var rect: Rect2 = Rect2(pip_x + float(i) * (pip_w + pip_gap), cy, pip_w, 8.0)
+		var rect: Rect2 = Rect2(pip_x + float(i) * (pip_w + pip_gap), cy, pip_w, pip_h)
 		if tier == _priority:
 			_canvas.draw_rect(rect, col, true)
 		else:
@@ -457,8 +519,6 @@ func _on_draw() -> void:
 		_draw_str("Toggle whether this device draws from the grid.",
 			Vector2(cx + 4.0, cy + 20.0), DIM_COLOR, 9)
 		## Pill switch
-		var pill_w: float = 50.0
-		var pill_h: float = 26.0
 		var pill_x: float = px + PANEL_W - 24.0 - pill_w
 		var pill_y: float = cy + 10.0
 		var pill_r: float = pill_h * 0.5
@@ -467,7 +527,7 @@ func _on_draw() -> void:
 		_canvas.draw_circle(Vector2(pill_x + pill_r, pill_y + pill_r), pill_r, pill_col)
 		_canvas.draw_circle(Vector2(pill_x + pill_w - pill_r, pill_y + pill_r), pill_r, pill_col)
 		var knob_cx: float = (pill_x + pill_w - pill_r) if _active else (pill_x + pill_r)
-		_canvas.draw_circle(Vector2(knob_cx, pill_y + pill_r), pill_r - 3.0, Color(0.92, 0.95, 0.92, 1.0))
+		_canvas.draw_circle(Vector2(knob_cx, pill_y + pill_r), pill_r - 3.0, PILL_KNOB)
 		cy += 50.0
 
 	## Footer hint

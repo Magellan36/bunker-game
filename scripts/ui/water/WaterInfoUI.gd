@@ -24,15 +24,17 @@ extends CanvasLayer
 signal closed
 
 # ─── Palette (blue accent — distinct from the power system's green theme) ────
-const BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
-const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
-const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
-const TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
-const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
-const OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
-const WARN_COLOR:   Color = Color(1.00, 0.72, 0.10, 1.00)
-const CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
-const ACCENT_COLOR: Color = Color(0.40, 0.75, 1.00, 1.00)   ## Jul 2026 — blue, this panel's top-stripe color
+var BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
+## Shared backdrop dim — read from UI/backdrop_alpha_permille (Aug 2026).
+var _backdrop_alpha: float = 0.60
+var BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
+var HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
+var TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
+var DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
+var OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
+var WARN_COLOR:   Color = Color(1.00, 0.72, 0.10, 1.00)
+var CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
+var ACCENT_COLOR: Color = Color(0.40, 0.75, 1.00, 1.00)   ## Jul 2026 — blue, this panel's top-stripe color
 
 ## Water QUALITY specifically uses a dedicated red/yellow/green scheme (Jul
 ## 2026, Brannon's explicit spec) — deliberately separate from OK_COLOR
@@ -43,53 +45,63 @@ const ACCENT_COLOR: Color = Color(0.40, 0.75, 1.00, 1.00)   ## Jul 2026 — blue
 ## WaterDispenserUI.gd's own _quality_color() — this water UI system
 ## duplicates small per-file helpers rather than sharing a base class (no
 ## class_name on either panel script), see that file's own comment.
-const QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
+var QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
 
 ## Priority tier accent colours (Jul 2026 — demand-priority wiring) — same
 ## green→red universal tier legend as PowerPriorityUI.gd's PRIO_COLORS; this
 ## isn't a "power vs water" palette, it's a cross-system meaning (1=critical,
 ## 5=luxury/first-starved), so it's intentionally reused verbatim rather than
 ## re-themed blue.
-const PRIO_COLORS: Array[Color] = [
+var PRIO_COLORS: Array[Color] = [
 	Color(0.30, 1.00, 0.46, 1.00),  ## 1 — critical (green)
 	Color(0.62, 0.92, 0.32, 1.00),  ## 2 — important (lime)
 	Color(0.98, 0.85, 0.20, 1.00),  ## 3 — standard (yellow)
 	Color(1.00, 0.58, 0.16, 1.00),  ## 4 — low (orange)
 	Color(1.00, 0.30, 0.20, 1.00),  ## 5 — luxury (red)
 ]
-const PRIORITY_MIN: int = 1
-const PRIORITY_MAX: int = 5
+var PRIORITY_MIN: int = 1
+var PRIORITY_MAX: int = 5
 
 ## Flow-Based Filter Wear plan §2.1 (Jul 2026) — purifier FLOW readout color
 ## bands. Deliberately SEPARATE constants from WaterPurifier.gd's own
 ## FLOW_WEAR_HALF_ML/FLOW_WEAR_MAX_ML (2000/4000) — these are UI-only
 ## breakpoints (2500/4000), not the wear formula's inputs. Do not merge the
 ## two sets; they're independent on purpose (per plan §2.1's explicit note).
-const FLOW_COLOR_GREEN_MAX:  float = 2499.0   ## 0 – 2499 mL/day: normal (blue, OK_COLOR)
-const FLOW_COLOR_YELLOW_MAX: float = 3999.0   ## 2500 – 3999 mL/day: yellow (WARN_COLOR)
+var FLOW_COLOR_GREEN_MAX:  float = 2499.0   ## 0 – 2499 mL/day: normal (blue, OK_COLOR)
+var FLOW_COLOR_YELLOW_MAX: float = 3999.0   ## 2500 – 3999 mL/day: yellow (WARN_COLOR)
 ## 4000+ mL/day: red (CRIT_COLOR)
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
-const PANEL_W: float = 380.0
+var PANEL_W: float = 380.0
 ## Hookup panel has no priority row; sink panel grows to fit the ◄ N ► tier
 ## changer added Jul 2026 — see _panel_height(). Purifier panel is the
 ## smallest — read-only, two quality numbers, no priority row.
-const PANEL_H_SOURCE:   float = 230.0
-const PANEL_H_SINK:     float = 350.0
+var PANEL_H_SOURCE:   float = 230.0
+var PANEL_H_SINK:     float = 350.0
 ## Purifier panel grew (Jul 2026, Purifier Filter plan) to fit the new
 ## FILTER QUALITY bar row — see _draw_purifier_stats().
-const PANEL_H_PURIFIER: float = 270.0
+var PANEL_H_PURIFIER: float = 270.0
 ## Extra height added on top of PANEL_H_PURIFIER for the FLOW row (Flow-
 ## Based Filter Wear plan §2) — always shown, so it's baked into the base
 ## constant's growth rather than dynamic.
-const PANEL_H_PURIFIER_FLOW_ROW: float = 44.0
+var PANEL_H_PURIFIER_FLOW_ROW: float = 44.0
 ## Extra height per warning-bubble line, only added when the bubble is
 ## actually showing — see _panel_height()/_purifier_bubble_line_count().
 ## Same "grows/shrinks with live conditions, recomputed every frame" pattern
 ## FarmingTrayUI.gd's own water-warning bubble already established.
-const PURIFIER_BUBBLE_HEADER_H: float = 28.0
-const PURIFIER_BUBBLE_LINE_H:   float = 16.0
-const PURIFIER_BUBBLE_GAP_AFTER: float = 16.0
+var PURIFIER_BUBBLE_HEADER_H: float = 28.0
+var PURIFIER_BUBBLE_LINE_H:   float = 16.0
+var PURIFIER_BUBBLE_GAP_AFTER: float = 16.0
+
+## Component geometry read from BunkerTheme's WaterInfoUI section (see
+## _load_theme() — these defaults are fallbacks if the theme is missing).
+var _bar_w: float = 332.0   ## PANEL_W - 48.0
+var _bar_h: float = 14.0
+var _arrow_size: float = 48.0
+var _pip_gap: float = 5.0
+var _pip_h: float = 7.0
+var _chip_w: float = 84.0
+var _chip_row_h: float = 48.0
 
 # ─── Live data (set by open()) ────────────────────────────────────────────────
 var _display_name: String = "Water Device"
@@ -106,7 +118,45 @@ var _inc_btn:  Button  = null   ## ► raise priority tier (sink only)
 var _is_open:  bool    = false
 var _arrow_row_y: float = 0.0   ## filled during draw, used to position dec/inc
 
+## Pulls every palette + component value from BunkerTheme so the theme is the
+## single source of truth (tweak there, this panel follows).
+func _load_theme() -> void:
+	BG_COLOR = UIKit.theme_color("UI", "bg", BG_COLOR)
+	BORDER_COLOR = UIKit.theme_color("UI", "border", BORDER_COLOR)
+	HEADER_COLOR = UIKit.theme_color("UI", "header", HEADER_COLOR)
+	TEXT_COLOR = UIKit.theme_color("UI", "text", TEXT_COLOR)
+	DIM_COLOR = UIKit.theme_color("UI", "dim", DIM_COLOR)
+	OK_COLOR = UIKit.theme_color("UI", "ok", OK_COLOR)
+	WARN_COLOR = UIKit.theme_color("UI", "warn", WARN_COLOR)
+	CRIT_COLOR = UIKit.theme_color("UI", "crit", CRIT_COLOR)
+	ACCENT_COLOR = UIKit.theme_color("UI", "water_accent", ACCENT_COLOR)
+	QUALITY_GOOD_COLOR = UIKit.theme_color("UI", "quality_good", QUALITY_GOOD_COLOR)
+	PRIO_COLORS = [
+		UIKit.theme_color("UI", "prio_1", Color(0.30, 1.00, 0.46, 1.00)),
+		UIKit.theme_color("UI", "prio_2", Color(0.62, 0.92, 0.32, 1.00)),
+		UIKit.theme_color("UI", "prio_3", Color(0.98, 0.85, 0.20, 1.00)),
+		UIKit.theme_color("UI", "prio_4", Color(1.00, 0.58, 0.16, 1.00)),
+		UIKit.theme_color("UI", "prio_5", Color(1.00, 0.30, 0.20, 1.00)),
+	]
+	PRIORITY_MIN = UIKit.theme_constant("UI", "priority_min", PRIORITY_MIN)
+	PRIORITY_MAX = UIKit.theme_constant("UI", "priority_max", PRIORITY_MAX)
+	FLOW_COLOR_GREEN_MAX = UIKit.theme_constant("WaterInfoUI", "flow_green_max", int(FLOW_COLOR_GREEN_MAX))
+	FLOW_COLOR_YELLOW_MAX = UIKit.theme_constant("WaterInfoUI", "flow_yellow_max", int(FLOW_COLOR_YELLOW_MAX))
+	PANEL_W = UIKit.theme_constant("WaterInfoUI", "panel_w", int(PANEL_W))
+	PANEL_H_SOURCE = UIKit.theme_constant("WaterInfoUI", "panel_h_source", int(PANEL_H_SOURCE))
+	PANEL_H_SINK = UIKit.theme_constant("WaterInfoUI", "panel_h_sink", int(PANEL_H_SINK))
+	PANEL_H_PURIFIER = UIKit.theme_constant("WaterInfoUI", "panel_h_purifier", int(PANEL_H_PURIFIER))
+	_bar_w = UIKit.theme_constant("WaterInfoUI", "bar_w", int(_bar_w))
+	_bar_h = UIKit.theme_constant("WaterInfoUI", "bar_h", int(_bar_h))
+	_arrow_size = UIKit.theme_constant("WaterInfoUI", "arrow_size", int(_arrow_size))
+	_pip_gap = UIKit.theme_constant("WaterInfoUI", "pip_gap", int(_pip_gap))
+	_pip_h = UIKit.theme_constant("WaterInfoUI", "pip_h", int(_pip_h))
+	_chip_w = UIKit.theme_constant("WaterInfoUI", "chip_w", int(_chip_w))
+	_chip_row_h = UIKit.theme_constant("WaterInfoUI", "chip_row_h", int(_chip_row_h))
+	_backdrop_alpha = float(UIKit.theme_constant("UI", "backdrop_alpha_permille", 600)) / 1000.0
+
 func _ready() -> void:
+	_load_theme()
 	layer   = 60
 	visible = false
 	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
@@ -210,7 +260,7 @@ func _reposition_controls() -> void:
 
 	if _mode == "sink":
 		var arrow_y: float = _arrow_row_y if _arrow_row_y > 0.0 else (py + 190.0)
-		var arrow_sz: Vector2 = Vector2(48.0, 48.0)
+		var arrow_sz: Vector2 = Vector2(_arrow_size, _arrow_size)
 		_dec_btn.size = arrow_sz
 		_inc_btn.size = arrow_sz
 		_dec_btn.position = Vector2(px + 36.0, arrow_y)
@@ -314,8 +364,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 # ─── Process — keep redrawing (live stats) while open ────────────────────────
+## Redraw throttle (Aug 2026 optimization) — live flow doesn't need 60Hz.
+const REDRAW_INTERVAL: float = 0.1
+var _redraw_accum: float = 0.0
+
 func _process(_delta: float) -> void:
-	if _is_open:
+	if not _is_open:
+		return
+	_redraw_accum += _delta
+	if _redraw_accum >= REDRAW_INTERVAL:
+		_redraw_accum = 0.0
 		_canvas.queue_redraw()
 
 # ─── Draw ─────────────────────────────────────────────────────────────────────
@@ -328,7 +386,7 @@ func _on_draw() -> void:
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - ph) * 0.5
 
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.60), true)
+	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, _backdrop_alpha), true)
 
 	var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
 	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 2.0)
@@ -348,7 +406,7 @@ func _on_draw() -> void:
 
 	## Separator
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0)
+		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0, true)
 	cy += 16.0
 
 	match _mode:
@@ -506,7 +564,7 @@ func _draw_purifier_bubble(purifier: WaterPurifier, wm: WaterManager, cx: float,
 	if lines.is_empty():
 		return cy
 
-	var bar_w: float = PANEL_W - 48.0
+	var bar_w: float = _bar_w
 	var bubble_h: float = PURIFIER_BUBBLE_HEADER_H + float(lines.size()) * PURIFIER_BUBBLE_LINE_H
 	var bubble_rect: Rect2 = Rect2(cx, cy, bar_w, bubble_h)
 	_canvas.draw_rect(bubble_rect, Color(0.14, 0.10, 0.04, 0.75), true)
@@ -540,8 +598,8 @@ func _draw_filter_row(purifier: WaterPurifier, cx: float, cy: float) -> float:
 	cy += 32.0
 
 	var fill_frac: float = clampf(fq / 100.0, 0.0, 1.0)
-	var bar_w: float = PANEL_W - 48.0
-	var bar_h: float = 14.0
+	var bar_w: float = _bar_w
+	var bar_h: float = _bar_h
 	var bar_bg: Rect2 = Rect2(cx, cy, bar_w, bar_h)
 	_canvas.draw_rect(bar_bg, Color(0.08, 0.10, 0.12, 0.85), true)
 	if fill_frac > 0.0:
@@ -567,7 +625,7 @@ func _draw_priority_row(cx: float, cy: float) -> float:
 	cy += 18.0
 
 	_arrow_row_y = cy
-	var row_h: float = 48.0
+	var row_h: float = _chip_row_h
 	var pcol: Color = PRIO_COLORS[clampi(prio - 1, 0, PRIO_COLORS.size() - 1)]
 	var num_str: String = str(prio)
 	var num_size: int = 32
@@ -575,7 +633,7 @@ func _draw_priority_row(cx: float, cy: float) -> float:
 	var px: float = cx - 24.0   ## back out to panel's left edge (cx = px+24)
 	var num_x: float = px + (PANEL_W - num_w) * 0.5
 	var num_y: float = cy + row_h * 0.5 + float(num_size) * 0.35
-	var chip_w: float = 84.0
+	var chip_w: float = _chip_w
 	var chip_rect: Rect2 = Rect2(px + (PANEL_W - chip_w) * 0.5, cy, chip_w, row_h)
 	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.14), true)
 	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.85), false, 2.0)
@@ -588,12 +646,12 @@ func _draw_priority_row(cx: float, cy: float) -> float:
 	cy += 20.0
 
 	var pip_total_w: float = PANEL_W - 108.0
-	var pip_gap: float = 5.0
+	var pip_gap: float = _pip_gap
 	var pip_w: float = (pip_total_w - pip_gap * 4.0) / 5.0
 	var pip_x: float = px + 54.0
 	for i: int in range(5):
 		var col: Color = PRIO_COLORS[i]
-		var rect: Rect2 = Rect2(pip_x + float(i) * (pip_w + pip_gap), cy, pip_w, 7.0)
+		var rect: Rect2 = Rect2(pip_x + float(i) * (pip_w + pip_gap), cy, pip_w, _pip_h)
 		if i + 1 == prio:
 			_canvas.draw_rect(rect, col, true)
 		else:

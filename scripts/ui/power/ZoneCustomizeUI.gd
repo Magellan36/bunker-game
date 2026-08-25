@@ -38,17 +38,23 @@ signal name_changed(zone_key: String, new_name: String)
 signal color_changed(zone_key: String, new_color: Color)
 
 # ─── Palette — matches PowerTerminalUI/PowerPriorityUI military theme ───────
-const BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
-const BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
-const HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
-const TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
-const DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
-const ACCENT_COLOR: Color = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
+## All palette + geometry values sourced from BunkerTheme (the UI design
+## catalog, assets/fonts/BunkerTheme.tres). Loaded in _load_theme() (from
+## _ready); these defaults are fallbacks if the theme resource is missing.
+var BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
+## Shared backdrop dim — read from UI/backdrop_alpha_permille (Aug 2026).
+var _backdrop_alpha: float = 0.60
+var BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
+var HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
+var TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
+var DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
+var ACCENT_COLOR: Color = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), this panel's top-stripe color
 
-const PANEL_W:      float = 300.0
-const SWATCH_SIZE:  float = 44.0
-const SWATCH_GAP:   int   = 8
-const GRID_COLS:    int   = 4
+var PANEL_W:        float = 300.0
+var SWATCH_SIZE:    float = 44.0
+var SWATCH_GAP:     int   = 8
+var GRID_COLS:      int   = 4
+var panel_offset_y: float = 130.0
 
 var _zone_key: String = ""
 
@@ -63,7 +69,25 @@ var _color_box:      VBoxContainer = null
 var _swatch_buttons: Array[Button] = []
 
 
+## Pulls every palette + geometry value from BunkerTheme so the theme is the
+## single source of truth (tweak there, this panel follows).
+func _load_theme() -> void:
+	BG_COLOR     = UIKit.theme_color("UI", "bg",     BG_COLOR)
+	BORDER_COLOR = UIKit.theme_color("UI", "border", BORDER_COLOR)
+	HEADER_COLOR = UIKit.theme_color("UI", "header", HEADER_COLOR)
+	TEXT_COLOR   = UIKit.theme_color("UI", "text",   TEXT_COLOR)
+	DIM_COLOR    = UIKit.theme_color("UI", "dim",    DIM_COLOR)
+	ACCENT_COLOR = UIKit.theme_color("UI", "power_accent", ACCENT_COLOR)
+	PANEL_W      = float(UIKit.theme_constant("ZoneCustomizeUI", "panel_w", 300))
+	SWATCH_SIZE  = float(UIKit.theme_constant("ZoneCustomizeUI", "swatch_size", 44))
+	SWATCH_GAP   = UIKit.theme_constant("ZoneCustomizeUI", "swatch_gap", 8)
+	GRID_COLS    = UIKit.theme_constant("ZoneCustomizeUI", "grid_cols", 4)
+	panel_offset_y = float(UIKit.theme_constant("ZoneCustomizeUI", "panel_offset_y", 130))
+	_backdrop_alpha = float(UIKit.theme_constant("UI", "backdrop_alpha_permille", 600)) / 1000.0
+
+
 func _ready() -> void:
+	_load_theme()
 	layer   = 60   ## Above PowerTerminalUI (layer 50) so it opens on top of it.
 	visible = false
 	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
@@ -77,14 +101,14 @@ func _ready() -> void:
 func _build_ui() -> void:
 	var backdrop: ColorRect = ColorRect.new()
 	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
-	backdrop.color        = Color(0.0, 0.0, 0.0, 0.60)
+	backdrop.color        = Color(0.0, 0.0, 0.0, _backdrop_alpha)
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(backdrop)
 
 	_panel = Panel.new()
 	_panel.custom_minimum_size = Vector2(PANEL_W, 0.0)
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_panel.position -= Vector2(PANEL_W * 0.5, 130.0)
+	_panel.position -= Vector2(PANEL_W * 0.5, panel_offset_y)
 	var style: StyleBoxFlat = StyleBoxFlat.new()
 	style.bg_color     = BG_COLOR
 	style.border_color = BORDER_COLOR

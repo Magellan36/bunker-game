@@ -8,7 +8,6 @@ class_name GameCamera
 # ─── Exports ──────────────────────────────────────────────────────────────────
 @export var follow_speed: float    = 8.0    ## Lerp speed for position follow.
 @export var height: float          = 14.0   ## Camera height in normal mode.
-@export var pitch_degrees: float   = 55.0   ## Iso pitch angle (45–60 looks best).
 @export var z_offset: float        = 8.0    ## Pull-back on Z in normal mode.
 @export var target_path: NodePath  = NodePath()
 
@@ -57,7 +56,6 @@ var tilt_shift: TiltShiftDOF = null
 
 ## Current interpolated camera params (lerped each frame)
 var _cur_height:  float = 0.0
-var _cur_pitch:   float = 0.0
 var _cur_z_off:   float = 0.0
 
 ## Yaw orbit (snaps to 0 / 90 / 180 / 270)
@@ -66,7 +64,6 @@ var _cur_yaw_rad:    float = 0.0   ## Current interpolated yaw in radians
 
 func _ready() -> void:
 	_cur_height    = height
-	_cur_pitch     = pitch_degrees
 	_cur_z_off     = z_offset
 	_cur_yaw_rad   = 0.0
 	_target_yaw_rad = 0.0
@@ -128,14 +125,14 @@ func _physics_process(delta: float) -> void:
 	_apply_shake(delta)
 
 func _lerp_camera_params(delta: float) -> void:
+	## Pitch is derived from the current height/z-offset (see _follow_target),
+	## so only the position params lerp here — the camera pitches to follow.
 	var t: float = transition_speed * delta
 	if _build_mode:
 		_cur_height = lerp(_cur_height, build_height,  t)
-		_cur_pitch  = lerp(_cur_pitch,  90.0,           t)
 		_cur_z_off  = lerp(_cur_z_off,  build_z_offset, t)
 	else:
 		_cur_height = lerp(_cur_height, height,        t)
-		_cur_pitch  = lerp(_cur_pitch,  pitch_degrees,  t)
 		_cur_z_off  = lerp(_cur_z_off,  z_offset,       t)
 
 	## Yaw lerp — everything in radians so lerp_angle works correctly
@@ -149,15 +146,19 @@ func _follow_target(delta: float) -> void:
 	var desired_pos: Vector3 = _target.global_position + offset
 	global_position = desired_pos
 
-	## In build mode the camera is nearly straight down — look_at breaks with
-	## Vector3.UP as the up vector (gimbal lock). Use yaw-derived forward instead.
-	if _cur_pitch > 80.0:
-		## rotation.y must use the same sign as the offset rotation and player
-		## movement (both use +_cur_yaw_rad). Negating here caused build-mode
-		## controls to move opposite to the camera's visual facing.
-		rotation = Vector3(deg_to_rad(-_cur_pitch), _cur_yaw_rad, 0.0)
-	else:
-		look_at(_target.global_position, Vector3.UP)
+	## ONE consistent orientation for both modes (Aug 2026 fix). Pitch is
+	## derived from the CURRENT offset (height vs z-offset) so the camera
+	## always points exactly at the target and the iso → top-down transition
+	## is smooth. Previously this switched between look_at() and an explicit
+	## Euler once _cur_pitch crossed 80°, and the two formulas computed the
+	## angle differently (look_at uses atan2(height, z_off) ≈ 80.7° at the
+	## switch vs the param's 80.1°) — a visible snap mid-transition. The
+	## explicit rotation also avoids look_at()'s gimbal-lock instability near
+	## straight-down, so no branch switch is needed at all.
+	rotation = Vector3(
+		-atan2(_cur_height, _cur_z_off),
+		_cur_yaw_rad,
+		0.0)
 
 ## Additive trauma-based shake, applied ON TOP of the position/rotation
 ## _follow_target() just set — never replaces it, so shake decaying to zero

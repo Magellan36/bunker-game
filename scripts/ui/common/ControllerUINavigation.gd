@@ -52,7 +52,27 @@ const NAV_GROUP: String = "controller_ui_nav"
 ## snapping to something almost directly behind the current focus.
 const MIN_DIR_DOT: float = 0.3
 
+## Slider d-pad hold-repeat (Aug 2026): a focused Slider owns horizontal
+## d-pad (one step per press; left/right). Holding a direction for the first
+## second does nothing extra, then repeats start and ACCELERATE toward
+## SLIDER_MIN_INTERVAL (100 steps/sec) over SLIDER_RAMP_TIME.
+const SLIDER_HOLD_DELAY: float    = 1.0
+const SLIDER_START_INTERVAL: float = 0.2     ## ~5 steps/sec when repeat kicks in
+const SLIDER_MIN_INTERVAL: float   = 0.01    ## 100 steps/sec
+const SLIDER_RAMP_TIME: float      = 3.0     ## seconds of holding to reach max rate
+## While held, each repeat's STEP also ramps from 1× the slider's step up to
+## this multiplier — so the flow-rate slider (step = 1 mL/day) accelerates
+## 1 → 500 mL/day per repeat, letting a player sweep a large range quickly.
+const SLIDER_REPEAT_MAX_STEP_MULT: float = 500.0
+
 var _move_cooldown: float = 0.0
+
+## Slider auto-repeat state.
+var _slider_repeat_dir: int    = 0
+var _slider_hold_time: float   = 0.0
+var _slider_interval: float    = SLIDER_START_INTERVAL
+var _slider_repeat_timer: float = 0.0
+var _slider_step_mult: float   = 1.0
 
 func _ready() -> void:
 	if ui_root == null:
@@ -81,17 +101,32 @@ func _process(delta: float) -> void:
 	if _move_cooldown > 0.0:
 		_move_cooldown -= delta
 	if not _active():
+		_slider_repeat_dir = 0
 		return
+	if not _is_topmost():
+		## A higher-layer controller UI is open — it owns the pad.
+		_slider_repeat_dir = 0
+		return
+	_tick_slider_repeat(delta)
 	_try_stick_move()
 
 func _input(event: InputEvent) -> void:
 	if not _active():
 		return
+	## A HIGHER-layer open controller UI owns the pad while it's open —
+	## back off (consume nothing) so it receives d-pad/B/A (e.g. the pause
+	## menu's nav must not eat B/d-pad while a confirm dialog is stacked
+	## above it).
+	if not _is_topmost():
+		return
 	## B — close/cancel this UI. Only the topmost open controller UI closes
-	## (see _is_topmost), so stacked UIs cancel one at a time.
+	## (see _is_topmost), so stacked UIs cancel one at a time. B is consumed
+	## ONLY when it actually closes — a close_on_cancel=false nav lets B fall
+	## through to the UI's own _unhandled_input (e.g. ConfirmDialogUI needs B
+	## to emit its cancelled signal).
 	if event is InputEventJoypadButton and event.button_index == JOY_BUTTON_B and event.pressed:
-		get_viewport().set_input_as_handled()
-		if close_on_cancel and _is_topmost():
+		if close_on_cancel:
+			get_viewport().set_input_as_handled()
 			_close_ui()
 		return
 	## D-pad — direct cardinal move, one step per press.
@@ -103,6 +138,18 @@ func _input(event: InputEvent) -> void:
 			DPAD_LEFT:  dir = Vector2(-1.0, 0.0)
 			DPAD_RIGHT: dir = Vector2(1.0, 0.0)
 		if dir != Vector2.ZERO:
+			if dir.y == 0.0 and _is_focused_slider():
+				## A focused Slider owns horizontal d-pad (Aug 2026): one step
+				## now, then a held direction auto-repeats with acceleration —
+				## see _tick_slider_repeat().
+				_adjust_focused_slider(int(dir.x))
+				_start_slider_repeat(int(dir.x))
+				get_viewport().set_input_as_handled()
+				return
+			## If this UI has no focusable controls (hand-drawn panels), let
+			## d-pad fall through so the UI can handle it itself.
+			if _collect_focusables().is_empty():
+				return
 			_move_focus(dir)
 			get_viewport().set_input_as_handled()
 			return
@@ -116,6 +163,13 @@ func _active() -> bool:
 	if ui_root == null or not ui_root.is_inside_tree():
 		return false
 	return _node_visible(ui_root)
+
+## Public wrapper for the visibility check — other systems ask "is this UI
+## open right now?" via this (e.g. InteractionSystem gates A's world
+## fall-through while ANY controller-nav UI is open, so a press can't open a
+## different UI by mistake).
+func is_active() -> bool:
+	return _active()
 
 ## Robust visibility check that works for both Control roots and
 ## CanvasLayer roots (CanvasLayer is a Node, NOT a CanvasItem — it has no
@@ -173,11 +227,15 @@ func _try_stick_move() -> void:
 		return
 	_move_focus(stick.normalized())
 
-## Moves focus to the control most in `dir` (angle-based "best guess").
-## Candidates must lie at least MIN_DIR_DOT along the pressed direction.
-## The best one is the MOST ALIGNED with the direction (highest dot product);
-## ties are broken by closeness. This way a diagonal press heads toward the
-## diagonally-placed button rather than the nearer-but-off-axis one.
+## Moves focus to the control most in `dir`. Nearest-ahead scoring (Aug 2026):
+## among candidates within MIN_DIR_DOT of the pressed direction, the CLOSEST
+## wins, with a 2x penalty on off-axis distance — so a slightly-farther
+## on-column button beats a near diagonal one, and pressing up from a bottom
+## row (e.g. a priority ◄/►) lands on the nearest button in the row above
+## instead of leaping to a far-away vertically-aligned one (the old
+## "most-aligned wins" rule, which caused the bottom-row jump). Pressing
+## toward an empty edge stays put. First press (no current focus) accepts
+## anything in the general direction and falls back to the first focusable.
 func _move_focus(dir: Vector2) -> void:
 	if _move_cooldown > 0.0:
 		return
@@ -190,9 +248,10 @@ func _move_focus(dir: Vector2) -> void:
 	if has_current:
 		from = (current as Control).get_global_rect().get_center()
 
+	var ndir: Vector2 = dir.normalized()
 	var best: Control = null
-	var best_dot := -INF
-	var best_dist := INF
+	var best_along: float = INF
+	var best_perp: float = INF
 	## Anchor for the no-current-focus case: the UI root's center when it's a
 	## Control, else the origin (CanvasLayer roots have no rect).
 	var base := Vector2.ZERO
@@ -207,15 +266,25 @@ func _move_focus(dir: Vector2) -> void:
 		var dist: float = delta.length()
 		if dist < 0.001:
 			continue
-		var dot: float = delta.normalized().dot(dir.normalized())
+		var dot: float = delta.normalized().dot(ndir)
 		if not has_current:
-			## No current focus — accept anything in the pressed direction.
+			## No current focus — accept anything in the general direction.
 			dot = maxf(dot, 0.0)
 		if dot < MIN_DIR_DOT:
 			continue
-		if dot > best_dot or (dot == best_dot and dist < best_dist):
-			best_dot = dot
-			best_dist = dist
+		## Nearest-ahead (Aug 2026): the CLOSEST candidate in the pressed
+		## direction wins — forward distance (along) is the PRIMARY key and
+		## horizontal offset (perp) only breaks ties. This keeps vertical
+		## lists (graphics settings' stacked option rows) stepping exactly
+		## one row at a time even when controls sit at different X positions
+		## (wide OptionButtons vs. narrow CheckBoxes), while bottom-row
+		## priority buttons still land on the nearest button above instead of
+		## leaping to a far-away vertically-aligned one.
+		var along: float = delta.dot(ndir)
+		var perp: float = (delta - ndir * along).length()
+		if along < best_along or (along == best_along and perp < best_perp):
+			best_along = along
+			best_perp  = perp
 			best = c
 
 	if best == null:
@@ -227,6 +296,53 @@ func _move_focus(dir: Vector2) -> void:
 		return
 	best.grab_focus()
 	_move_cooldown = move_repeat_delay
+
+# ─── Slider d-pad support (Aug 2026) ──────────────────────────────────────────
+func _is_focused_slider() -> bool:
+	var f: Control = get_viewport().gui_get_focus_owner()
+	return f is Slider
+
+func _adjust_focused_slider(dir: int, step_mult: float = 1.0) -> void:
+	var f: Control = get_viewport().gui_get_focus_owner()
+	if not (f is Slider):
+		return
+	var sl: Slider = f as Slider
+	var step: float = sl.step if sl.step > 0.0 else 1.0
+	sl.value = clampf(sl.value + step * step_mult * float(dir), sl.min_value, sl.max_value)
+
+func _start_slider_repeat(dir: int) -> void:
+	_slider_repeat_dir   = dir
+	_slider_hold_time    = 0.0
+	_slider_interval     = SLIDER_START_INTERVAL
+	_slider_repeat_timer = 0.0
+	_slider_step_mult    = 1.0
+
+## Polled every frame: while a d-pad direction is held on a focused Slider,
+## nothing happens during the first SLIDER_HOLD_DELAY (the initial press
+## already stepped once), then the value repeats at an interval that ramps
+## from SLIDER_START_INTERVAL up to SLIDER_MIN_INTERVAL (100 steps/sec) while
+## each step simultaneously ramps from 1× the slider's step up to
+## SLIDER_REPEAT_MAX_STEP_MULT (e.g. 1 → 500 mL/day on the flow-rate slider).
+func _tick_slider_repeat(delta: float) -> void:
+	if _slider_repeat_dir == 0:
+		return
+	if not _is_focused_slider():
+		_slider_repeat_dir = 0
+		return
+	var held_btn: int = JOY_BUTTON_DPAD_LEFT if _slider_repeat_dir < 0 else JOY_BUTTON_DPAD_RIGHT
+	if not Input.is_joy_button_pressed(0, held_btn):
+		_slider_repeat_dir = 0
+		return
+	_slider_hold_time += delta
+	if _slider_hold_time < SLIDER_HOLD_DELAY:
+		return
+	var t: float = clampf((_slider_hold_time - SLIDER_HOLD_DELAY) / SLIDER_RAMP_TIME, 0.0, 1.0)
+	_slider_interval  = lerpf(SLIDER_START_INTERVAL, SLIDER_MIN_INTERVAL, t)
+	_slider_step_mult = lerpf(1.0, SLIDER_REPEAT_MAX_STEP_MULT, t)
+	_slider_repeat_timer -= delta
+	if _slider_repeat_timer <= 0.0:
+		_adjust_focused_slider(_slider_repeat_dir, _slider_step_mult)
+		_slider_repeat_timer = _slider_interval
 
 func _collect_focusables() -> Array:
 	var out: Array = []

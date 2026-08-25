@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://dg546as2sd7ym"]
 
-[ext_resource type="Script" path="res://scripts/ui/character_creation/CharacterCreationScreen.gd" id="1_screen"]
-[ext_resource type="Script" path="res://scripts/ui/character_creation/CharacterPreviewViewport.gd" id="2_viewport"]
+[ext_resource type="Script" uid="uid://b73x061x5dq7k" path="res://scripts/ui/character_creation/CharacterCreationScreen.gd" id="1_screen"]
+[ext_resource type="Script" uid="uid://hnh2e5yhaxj1" path="res://scripts/ui/character_creation/CharacterPreviewViewport.gd" id="2_viewport"]
+[ext_resource type="Theme" path="res://assets/fonts/BunkerTheme.tres" id="3_theme"]
 
 [sub_resource type="Environment" id="Environment_preview"]
 background_mode = 1
@@ -10,12 +11,14 @@ ambient_light_source = 2
 ambient_light_color = Color(0.7, 0.7, 0.7, 1)
 ambient_light_energy = 0.8
 
-[node name="CharacterCreation" type="Control" node_paths=PackedStringArray("category_body_button", "category_hair_button", "category_features_button", "category_accessories_button", "body_panel", "hair_panel", "male_button", "female_button", "hairstyle_button_container", "color_swatch_container", "beard_button_container", "randomise_button", "complete_button", "preview_root")]
+[node name="CharacterCreation" type="Control" unique_id=629571484 node_paths=PackedStringArray("category_body_button", "category_hair_button", "category_features_button", "category_accessories_button", "body_panel", "hair_panel", "male_button", "female_button", "hairstyle_button_container", "color_swatch_container", "beard_button_container", "randomise_button", "complete_button", "preview_root")]
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+theme = ExtResource("3_theme")
 script = ExtResource("1_screen")
 category_body_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup/CategoryBody")
 category_hair_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup/CategoryHair")
@@ -28,11 +31,11 @@ female_button = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPa
 hairstyle_button_container = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/HairstyleButtons")
 color_swatch_container = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/ColorSwatches")
 beard_button_container = NodePath("HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel/BeardButtonContainer")
-randomise_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/Randomise")
-complete_button = NodePath("HBoxContainer/Sidebar/SidebarMargin/SidebarContent/Complete")
+randomise_button = NodePath("HBoxContainer/CategoryPanel/BottomButtons/Randomise")
+complete_button = NodePath("HBoxContainer/CategoryPanel/BottomButtons/Complete")
 preview_root = NodePath("HBoxContainer/Preview/SubViewport/PreviewRoot")
 
-[node name="HBoxContainer" type="HBoxContainer" parent="."]
+[node name="HBoxContainer" type="HBoxContainer" parent="." unique_id=977773613]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -40,77 +43,72 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Sidebar" type="VBoxContainer" parent="HBoxContainer"]
+[node name="Sidebar" type="VBoxContainer" parent="HBoxContainer" unique_id=989390043]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_stretch_ratio = 1.0
 size_flags_vertical = 3
 
-[node name="SidebarMargin" type="MarginContainer" parent="HBoxContainer/Sidebar"]
+[node name="SidebarMargin" type="MarginContainer" parent="HBoxContainer/Sidebar" unique_id=1128925088]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/margin_left = 24
 theme_override_constants/margin_right = 24
 
-[node name="SidebarContent" type="VBoxContainer" parent="HBoxContainer/Sidebar/SidebarMargin"]
+[node name="SidebarContent" type="VBoxContainer" parent="HBoxContainer/Sidebar/SidebarMargin" unique_id=1618484996]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="CategoriesGroup" type="VBoxContainer" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent"]
+[node name="CategoriesGroup" type="VBoxContainer" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent" unique_id=1330648118]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="TopMargin" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="TopMargin" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=820958169]
+custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
-custom_minimum_size = Vector2(0, 32)
 
-[node name="CategoryBody" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="CategoryBody" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=537200197]
 layout_mode = 2
+custom_minimum_size = Vector2(0, 50)
 text = "Body"
 
-[node name="Spacer1" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="Spacer1" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=1090021682]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="CategoryHair" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="CategoryHair" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=1048361222]
 layout_mode = 2
+custom_minimum_size = Vector2(0, 50)
 text = "Hair"
 
-[node name="Spacer3" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="Spacer3" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=1807556018]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="CategoryFeatures" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="CategoryFeatures" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=1314034892]
 layout_mode = 2
+custom_minimum_size = Vector2(0, 50)
 text = "Features"
 
-[node name="Spacer4" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="Spacer4" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=1705582810]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="CategoryAccessories" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="CategoryAccessories" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=1193837202]
 layout_mode = 2
+custom_minimum_size = Vector2(0, 50)
 text = "Accessories"
 
-[node name="BottomMargin" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup"]
+[node name="BottomMargin" type="Control" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent/CategoriesGroup" unique_id=454185552]
+custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
-custom_minimum_size = Vector2(0, 32)
 
-[node name="Randomise" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent"]
-layout_mode = 2
-text = "Randomise"
-
-[node name="Complete" type="Button" parent="HBoxContainer/Sidebar/SidebarMargin/SidebarContent"]
-layout_mode = 2
-text = "Complete"
-
-[node name="CategoryPanel" type="Control" parent="HBoxContainer"]
+[node name="CategoryPanel" type="Control" parent="HBoxContainer" unique_id=555696433]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_stretch_ratio = 2.0
 size_flags_vertical = 3
+size_flags_stretch_ratio = 2.0
 
-[node name="CategoryPanelMargin" type="MarginContainer" parent="HBoxContainer/CategoryPanel"]
+[node name="CategoryPanelMargin" type="MarginContainer" parent="HBoxContainer/CategoryPanel" unique_id=466189440]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -120,66 +118,96 @@ grow_vertical = 2
 theme_override_constants/margin_left = 24
 theme_override_constants/margin_right = 24
 
-[node name="BodyPanel" type="VBoxContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin"]
+[node name="BodyPanel" type="VBoxContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin" unique_id=1513058038]
 layout_mode = 2
 theme_override_constants/separation = 24
 alignment = 1
 
-[node name="Male" type="Button" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPanel"]
+[node name="Male" type="Button" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPanel" unique_id=424603419]
 layout_mode = 2
+custom_minimum_size = Vector2(0, 50)
 text = "Male"
 
-[node name="Female" type="Button" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPanel"]
+[node name="Female" type="Button" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/BodyPanel" unique_id=291034266]
 layout_mode = 2
+custom_minimum_size = Vector2(0, 50)
 text = "Female"
 
-[node name="HairPanel" type="VBoxContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin"]
+[node name="HairPanel" type="VBoxContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin" unique_id=1824155028]
 visible = false
 layout_mode = 2
 theme_override_constants/separation = 16
 alignment = 1
 
-[node name="HairStyleLabel" type="Label" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+[node name="HairStyleLabel" type="Label" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel" unique_id=1568314323]
 layout_mode = 2
 text = "Hair Style"
 
-[node name="HairstyleButtons" type="GridContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+[node name="HairstyleButtons" type="GridContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel" unique_id=705570353]
 layout_mode = 2
 columns = 3
 
-[node name="HairColourLabel" type="Label" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+[node name="HairColourLabel" type="Label" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel" unique_id=1731951513]
 layout_mode = 2
 text = "Hair Colour"
 
-[node name="ColorSwatches" type="GridContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+[node name="ColorSwatches" type="GridContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel" unique_id=1923797791]
 layout_mode = 2
 columns = 5
 
-[node name="BeardLabel" type="Label" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+[node name="BeardLabel" type="Label" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel" unique_id=661216267]
 layout_mode = 2
 text = "Beard"
 
-[node name="BeardButtonContainer" type="HBoxContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel"]
+[node name="BeardButtonContainer" type="HBoxContainer" parent="HBoxContainer/CategoryPanel/CategoryPanelMargin/HairPanel" unique_id=1025510253]
 layout_mode = 2
 
-[node name="Preview" type="SubViewportContainer" parent="HBoxContainer" node_paths=PackedStringArray("camera")]
+[node name="BottomButtons" type="HBoxContainer" parent="HBoxContainer/CategoryPanel"]
+layout_mode = 1
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+offset_left = 24.0
+offset_top = -58.0
+offset_right = -24.0
+offset_bottom = -8.0
+alignment = 0
+theme_override_constants/separation = 8
+
+[node name="Randomise" type="Button" parent="HBoxContainer/CategoryPanel/BottomButtons" unique_id=2139214158]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_stretch_ratio = 3.0
+custom_minimum_size = Vector2(0, 50)
+text = "Randomise"
+
+[node name="Complete" type="Button" parent="HBoxContainer/CategoryPanel/BottomButtons" unique_id=1731409223]
+layout_mode = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 50)
+text = "Complete"
+
+[node name="Preview" type="SubViewportContainer" parent="HBoxContainer" unique_id=591712535 node_paths=PackedStringArray("camera")]
+layout_mode = 2
+size_flags_horizontal = 3
 size_flags_vertical = 3
+size_flags_stretch_ratio = 3.0
 stretch = true
 script = ExtResource("2_viewport")
 camera = NodePath("SubViewport/PreviewCamera")
 
-[node name="SubViewport" type="SubViewport" parent="HBoxContainer/Preview"]
-size = Vector2i(960, 1080)
+[node name="SubViewport" type="SubViewport" parent="HBoxContainer/Preview" unique_id=1912318684]
+handle_input_locally = false
+size = Vector2i(957, 1080)
+render_target_update_mode = 4
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="HBoxContainer/Preview/SubViewport"]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="HBoxContainer/Preview/SubViewport" unique_id=946483443]
 environment = SubResource("Environment_preview")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="HBoxContainer/Preview/SubViewport"]
-rotation = Vector3(-0.785398, 0.523599, 0)
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="HBoxContainer/Preview/SubViewport" unique_id=1265183126]
+transform = Transform3D(0.86602527, -0.3535535, 0.35355362, 0, 0.7071069, 0.70710665, -0.50000024, -0.6123722, 0.61237246, 0, 0, 0)
 
-[node name="PreviewCamera" type="Camera3D" parent="HBoxContainer/Preview/SubViewport"]
+[node name="PreviewCamera" type="Camera3D" parent="HBoxContainer/Preview/SubViewport" unique_id=1657093333]
 
-[node name="PreviewRoot" type="Node3D" parent="HBoxContainer/Preview/SubViewport"]
+[node name="PreviewRoot" type="Node3D" parent="HBoxContainer/Preview/SubViewport" unique_id=967437447]

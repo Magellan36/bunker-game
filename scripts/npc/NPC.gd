@@ -1485,6 +1485,11 @@ func _tick_needs(delta: float) -> void:
 ## stale travel-direction velocity.
 var _movement_locked: bool = false
 
+## The chair this NPC is currently seated in, or null. Mirrors Player.gd's
+## seated_chair so the shared AdventurerModelController can drive the sit
+## animations for both. Set/cleared by SitActivity/RelaxSitActivity.
+var seated_chair: Node3D = null
+
 func halt_movement(delta: float) -> void:
 	_movement_locked = true
 	velocity.x = lerp(velocity.x, 0.0, acceleration * delta)

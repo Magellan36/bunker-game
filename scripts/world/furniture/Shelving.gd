@@ -549,6 +549,9 @@ func _place_item_in_slot(item: RigidBody3D, slot_idx: int, stack_idx: int) -> vo
 		item.collision_mask  = 0
 		item.global_position = target_pos
 		item.global_rotation = target_rot
+		## Shelved = frozen + physics off + not an RVO obstacle (Aug 2026).
+		if item.has_method("deactivate_dynamic_state"):
+			item.deactivate_dynamic_state()
 	)
 
 ## NPC Pass 2, Part 3 — NPC-side retrieval. Mirrors retrieve_to_carry()'s
@@ -706,6 +709,8 @@ func retrieve_to_inventory(slot_idx: int, inv: Node) -> bool:
 	item.collision_mask  = 1
 	item.linear_velocity  = Vector3.ZERO
 	item.angular_velocity = Vector3.ZERO
+	if item.has_method("restore_dynamic_state"):
+		item.restore_dynamic_state()   ## back to a live item (Aug 2026)
 
 	inv.add_item(item)
 	item_retrieved.emit(slot_idx, item)
@@ -734,6 +739,8 @@ func eject_all_items() -> void:
 			item.collision_mask  = 1
 			item.linear_velocity  = Vector3.ZERO
 			item.angular_velocity = Vector3.ZERO
+			if item.has_method("restore_dynamic_state"):
+				item.restore_dynamic_state()   ## ejected to the floor — live again (Aug 2026)
 			item.global_position = global_position + Vector3(
 				randf_range(-0.5, 0.5), 0.8, randf_range(-0.4, 0.4))
 			item.apply_central_impulse(Vector3(

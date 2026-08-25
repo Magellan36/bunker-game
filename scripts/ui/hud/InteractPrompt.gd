@@ -240,6 +240,39 @@ func _resolve_overlaps(layouts: Array) -> void:
 ## panel's IconRow (Slot0/Slot1/Slot2), matching BuildModeHUD's shop-preview
 ## viewport setup. Returns the 3 SubViewports so _process() can address
 ## them by index.
+## Cached true-circle slot background (see _make_circle_texture).
+static var _circle_tex: Texture2D = null
+
+## Generates a TRUE circle texture (translucent dark fill + soft dark-grey
+## outline). StyleBoxFlat corner_radius draws a SQUIRCLE — four corner arcs
+## with straight edges and visible AA seams, not a real circle — so the slot
+## background is baked as an image instead (used via StyleBoxTexture).
+func _make_circle_texture() -> Texture2D:
+	if _circle_tex != null:
+		return _circle_tex
+	const SIZE: int = 64
+	const C: float = 31.5
+	const R_FILL: float = 27.0    ## inner translucent fill radius
+	const R_OUT: float = 31.0     ## outline outer radius
+	const RING_CENTER: float = 29.0   ## outline peak radius
+	const RING_HALF_W: float = 2.0
+	var img := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	for y in range(SIZE):
+		for x in range(SIZE):
+			var d := Vector2(float(x) - C, float(y) - C).length()
+			var col := Color(0, 0, 0, 0)
+			if d <= R_FILL:
+				col = Color(0, 0, 0, 0.35)   ## existing translucent fill
+			elif d <= R_OUT:
+				## soft dark-grey outline ring — peaks at RING_CENTER and fades
+				## both inward (into the fill) and outward (soft outer edge).
+				var t: float = absf(d - RING_CENTER) / RING_HALF_W
+				col = Color(0.35, 0.36, 0.38, 0.55 * clampf(1.0 - t, 0.0, 1.0))
+			img.set_pixel(x, y, col)
+	_circle_tex = ImageTexture.create_from_image(img)
+	return _circle_tex
+
 func _build_icon_slots(clone: PanelContainer) -> Array:
 	var out: Array = [null, null, null]
 	var row: Control = clone.get_node_or_null("VBox/IconRow") as Control
@@ -249,6 +282,11 @@ func _build_icon_slots(clone: PanelContainer) -> Array:
 		var slot: PanelContainer = row.get_node_or_null("Slot%d" % slot_i) as PanelContainer
 		if slot == null:
 			continue
+		## True circle background (baked texture) — replaces the template's
+		## squircle StyleBoxFlat so the ring renders as a smooth circle.
+		var sb := StyleBoxTexture.new()
+		sb.texture = _make_circle_texture()
+		slot.add_theme_stylebox_override("panel", sb)
 		var vpc: SubViewportContainer = SubViewportContainer.new()
 		vpc.stretch = true
 		vpc.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -261,6 +299,7 @@ func _build_icon_slots(clone: PanelContainer) -> Array:
 		vp.disable_3d     = false
 		vp.own_world_3d   = true
 		vpc.add_child(vp)
+		GraphicsSettings.register_preview_viewport(vp)
 
 		var cam: Camera3D = Camera3D.new()
 		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -398,24 +437,47 @@ func _prompt_to_bbcode(prompt: String) -> String:
 	var i := 0
 	while i < prompt.length():
 		if prompt[i] == "[":
-			var token: String = _match_key_token(prompt, i)
-			if token != "":
-				out += _token_bbcode(token, controller)
-				i += 3
+			var raw: String = _match_key_token(prompt, i)
+			if raw != "":
+				## raw is "[X]" or "[<action> X]" — the key is the char before
+				## the closing bracket; the action word (e.g. "Hold") renders
+				## as plain text ahead of the icon, so "[Hold E] Refill Bottle"
+				## shows as "Hold <A-icon>  Refill Bottle".
+				var key: String  = raw[raw.length() - 2]
+				var word: String = raw.substr(1, raw.length() - 4) if raw.length() > 3 else ""
+				out += (word + " " if word != "" else "") + _token_bbcode(key, controller)
+				i += raw.length()
 				continue
 		out += prompt[i]
 		i += 1
 	return out
 
-## Returns the single-char key token at prompt[i] (i points at '[') if
-## prompt[i..i+2] is exactly "[X]" with X a known key, else "".
+## Returns the FULL bracketed key token at prompt[i] — either "[X]" or a
+## "[<action> X]" hold-style token like "[Hold E]" — or "" if prompt[i]
+## isn't a key token. Callers skip exactly raw.length() characters.
 func _match_key_token(prompt: String, i: int) -> String:
-	if i + 2 >= prompt.length() or prompt[i + 2] != "]":
+	if i + 2 >= prompt.length() or prompt[i] != "[":
 		return ""
-	var c := prompt[i + 1]
-	if "EFG0123456789".contains(c):
-		return c
+	## Fast path: "[X]" exactly.
+	if prompt[i + 2] == "]":
+		if _is_key_char(prompt[i + 1]):
+			return "[%s]" % prompt[i + 1]
+		return ""
+	## "[<action> X]" path — scan a letters-only word, then require
+	## "<space><key>]". Collides with nothing in BBCode ([color=..], [/img],
+	## [center], etc. all fail this shape check).
+	var j: int = i + 1
+	while j < prompt.length() and prompt[j] != " " and prompt[j] != "]" \
+			and prompt[j].is_valid_identifier():
+		j += 1
+	if j + 2 >= prompt.length():
+		return ""
+	if prompt[j] == " " and _is_key_char(prompt[j + 1]) and prompt[j + 2] == "]":
+		return "[%s %s]" % [prompt.substr(i + 1, j - (i + 1)), prompt[j + 1]]
 	return ""
+
+func _is_key_char(c: String) -> bool:
+	return "EFG0123456789".contains(c)
 
 ## Builds the inline-image BBCode for a key token, or falls back to the
 ## literal "[X]" text if the current input mode has no icon for it.

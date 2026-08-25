@@ -19,12 +19,29 @@ const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)   ## Matches Table.gd
 const CHAIR_MODEL_PATH: String = "res://assets/models/wooden_chair.glb"
 const CHAIR_MODEL_SCALE: Vector3 = Vector3(0.8946, 0.7102, 0.7667)
 
-## How far the player sinks below the seat surface while "seated" (placeholder
-## for a proper sit animation — see class comment).
-const SIT_SINK: float     = 0.30
+## Aug 2026 sit-animation pass — SUPERSEDED note, kept for history: this
+## used to compensate for a baked root-offset bug in the sit clips (the
+## imported sit pose dropped the pelvis to local y≈0.607 relative to the
+## model origin, sinking the model into the seat unless masked here).
+## That bug is now fixed at the SOURCE — the sit/stand_to_sit/sit_to_stand
+## clips were re-exported from Blender with their Hips position data
+## recentered so the seated pose lands exactly at the skeleton's own rest
+## position (verified directly: sub-micron residual, consistent across
+## all three clips), and the extraction pipeline strips the Hips position
+## track entirely (same convention every other animation in this project
+## already uses, since root motion is never consumed). See
+## docs/systems/player-model/README.md "Sit animation root-offset fix"
+## for the full writeup. Reset to 0 as the new baseline — the model
+## should now land correctly with no compensation at all; re-tune
+## in-editor only if the seat height/depth genuinely looks off once
+## visually checked, not to mask a positioning bug.
+const SEAT_RAISE: float   = 0.0
+const SEAT_FORWARD: float = 0.0
+
 ## How far in front of the chair (along local +Z, away from the backrest)
-## the player is placed on standing up.
-const STAND_DIST: float   = 0.65   ## was 0.55
+## the player is placed on standing up. Bumped 0.65 → 0.85 (Aug 2026) so the
+## sit_to_stand animation begins clearly in front of the chair, not on top of it.
+const STAND_DIST: float   = 0.85
 
 var _is_preview_only: bool = false   ## Same convention as Bed.gd/Shelving.gd — see those files' comment for the full writeup.
 
@@ -139,10 +156,12 @@ func npc_stand(npc: Node) -> void:
 		_npc_sitter = null
 
 # ─── Positioning API (consumed by MainWorld — see Part 3) ──────────────────
-## World transform the player should be moved to while seated. Y is sunk
-## below the seat surface by SIT_SINK (placeholder for a real sit animation).
+## World transform the player should be moved to while seated. Anchored at the
+## seat surface plus SEAT_RAISE (so the imported sit pose's pelvis lands on the
+## seat instead of sinking into it) and nudged SEAT_FORWARD toward the chair's
+## open front. See the constants' doc comment for the tuning rationale.
 func get_seat_transform() -> Transform3D:
-	var local_pos: Vector3 = Vector3(0.0, SEAT_Y - SIT_SINK, 0.0)
+	var local_pos: Vector3 = Vector3(0.0, SEAT_Y + SEAT_RAISE, -SEAT_FORWARD)
 	var world_pos: Vector3 = global_transform * local_pos
 	var t: Transform3D = Transform3D(global_transform.basis, world_pos)
 	return t

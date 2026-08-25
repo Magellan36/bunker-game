@@ -69,8 +69,8 @@ the old CameraAttributesPractical distance-based fields), plus
 `trauma_decay_per_sec`, `max_shake_offset`, `max_shake_rotation_deg`,
 `target_path: NodePath`.
 
-**`GraphicsSettings`** (autoload — see Ownership for why it's NOT yet
-registered in committed `project.godot`): `apply_preset(preset: int)` (LOW=0/
+**`GraphicsSettings`** (autoload — registered in committed `project.godot`'s
+`[autoload]` section): `apply_preset(preset: int)` (LOW=0/
 MEDIUM=1/HIGH=2/ULTRA=3/CUSTOM=4 — plain `int`, NOT the `Preset` enum type,
 see Forbidden edits), `set_setting(field: String, value: Variant)` (persists
 to disk immediately), `set_setting_live(field: String, value: Variant)`
@@ -86,6 +86,22 @@ any preset — a comfort/motion-sickness setting, defaults to Godot's
 `Camera3D` default of 75.0), `vsync_enabled`, `window_mode`, `fps_cap`,
 `screen_space_aa`, `use_taa`, `anisotropic_filtering`, `shadow_quality`,
 `render_scale`.
+
+## Persistence across sessions (Aug 2026)
+
+Settings persist to `user://graphics_settings.cfg` (`_save()` on every
+preset/field change) and load in the autoload's `_ready()` (`_load()` +
+`_apply_all()`). Display (VSync, window mode, FPS cap) and viewport (MSAA,
+render scale, AA) settings apply correctly at boot — they don't need any
+scene. **Environment settings (SDFGI, SSAO, volumetric fog, glow) had a
+startup gap:** the autoload boots BEFORE MainWorld exists, so
+`_apply_to_environment()` found no `"world_environment"` node and silently
+no-opped — saved values sat at the scene's authored defaults until the
+first settings toggle. Fixed by connecting `get_tree().node_added` in
+`_ready()` and re-running `_apply_to_environment()` whenever a
+`"world_environment"` group node enters the tree (fires once per world
+load, idempotent). Lights/camera/DOF already re-sync via their own
+`settings_changed` connections.
 
 ## Signals produced
 | File | Signal | Params | Fires when |

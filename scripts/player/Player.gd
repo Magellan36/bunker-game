@@ -188,9 +188,13 @@ func _handle_movement(delta: float) -> void:
 	## smoothing (lerp_angle, see @GlobalScope.lerp_angle) instead of
 	## snapping, which is the standard smooth-turning pattern for twin-stick
 	## aiming in Godot.
+	##
+	## Aug 2026 build mode: the right stick is reserved for the build-mode
+	## cursor / deconstruct / duplicate tools, so the look-steer is disabled
+	## while in build mode — the character then faces its movement direction.
 	var aim_dir: Vector2 = Input.get_vector("aim_left", "aim_right", "aim_up", "aim_down")
 	var target_angle: float = rotation.y
-	if aim_dir.length_squared() > AIM_DEADZONE_SQ:
+	if aim_dir.length_squared() > AIM_DEADZONE_SQ and not _build_mode_active():
 		var aim_raw: Vector3 = Vector3(aim_dir.x, 0.0, aim_dir.y).rotated(Vector3.UP, camera_yaw_rad)
 		target_angle = atan2(-aim_raw.x, -aim_raw.z)
 	elif direction.length_squared() > 0.0:
@@ -198,6 +202,13 @@ func _handle_movement(delta: float) -> void:
 	rotation.y = lerp_angle(rotation.y, target_angle, 1.0 - exp(-TURN_SMOOTH_SPEED * delta))
 
 	move_and_slide()
+
+## True while Build Mode is active (InteractionSystem.build_mode_active, set
+## by MainWorld on enter/exit). Build mode reserves the right stick for the
+## cursor / deconstruct / duplicate tools, so the player's look-steer is
+## disabled then (see the facing block above).
+func _build_mode_active() -> bool:
+	return interaction_system != null and interaction_system.build_mode_active
 
 func _handle_interaction_input() -> void:
 	if Input.is_action_just_pressed("interact"):
@@ -216,26 +227,24 @@ func _handle_interaction_input() -> void:
 func get_held_item() -> Node:
 	if interaction_system == null:
 		return null
-	## Aug 2026 (hardened) — read the field exactly once into a local
-	## rather than up to three separate property accesses
-	## (!=null check, is_instance_valid() argument, final return). Can't
-	## fully verify from static analysis whether repeated access on a
-	## just-freed reference is perfectly consistent across all three
-	## reads, and there's no reason to take that risk when reading once
-	## and reusing the local costs nothing.
-	var item: Node = interaction_system.held_item
-	if item != null and not is_instance_valid(item):
-		## Freed externally without going through the normal drop/give
-		## cleanup — self-heal the same way InteractionSystem._update_prompt()'s
-		## existing guard already does for this exact scenario (see that
-		## function's own comment), rather than handing back a dangling
-		## reference to whatever NPC-side code called this. Clears both
-		## fields, matching that guard exactly — held_item alone isn't
-		## enough, or _held_from_slot is left stale.
-		interaction_system.held_item       = null
-		interaction_system._held_from_slot = -1
-		return null
-	return item
+	## Aug 2026 (hardened, twice): the local is deliberately UNTYPED and the
+	## validity gate is is_instance_valid() ALONE. The original typed read
+	## (`var item: Node = held_item`) threw "Trying to assign invalid
+	## previously freed instance" before any guard could run; the first fix's
+	## `item != null and not is_instance_valid(item)` guard then slipped
+	## through because in Godot 4 a freed reference can compare EQUAL to
+	## null, so the dangling ref still reached `return item` and threw
+	## "Trying to return a previously freed instance". is_instance_valid()
+	## is the only check that reliably sees through that.
+	var item = interaction_system.held_item
+	if is_instance_valid(item):
+		return item
+	## Freed or null. Clear any stale reference (a no-op when the player is
+	## genuinely empty-handed) so the dangling ref self-heals exactly once
+	## instead of erroring every frame.
+	interaction_system.held_item       = null
+	interaction_system._held_from_slot = -1
+	return null
 
 ## Called by NPC-side code the instant a snatch succeeds — by that point
 ## the item has already been physically reassigned to the NPC

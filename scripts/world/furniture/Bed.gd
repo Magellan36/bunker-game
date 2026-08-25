@@ -77,7 +77,7 @@ func npc_stand(npc: Node) -> void:
 ## through the mattress (see Chair.gd's SEAT_Y for precedent — it needed the
 ## same kind of after-the-fact adjustment).
 const LIE_SURFACE_Y: float = 0.5
-const LIE_SINK: float = 0.15   ## slight recess into the mattress, mirrors Chair's SIT_SINK
+const LIE_SINK: float = 0.15   ## slight recess into the mattress, mirrors the old Chair.SIT_SINK (removed — the chair now anchors at the seat surface)
 
 ## World transform an NPC should be moved to while lying down: sunk slightly
 ## into the mattress, and rotated 90° around the bed's local Z so the

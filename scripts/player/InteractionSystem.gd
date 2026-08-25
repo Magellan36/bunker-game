@@ -98,7 +98,8 @@ func _process(delta: float) -> void:
 				 ## Previously this branch also force-hid the prompt every
 				 ## frame, which would have fought BuildModeController's own
 				 ## prompt.set_prompts() call for the same node.
-	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open():
+	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open() or _npc_ui_open() \
+			or _any_controller_ui_open():
 		if prompt != null:
 			prompt.hide_prompt()
 		return
@@ -143,11 +144,38 @@ func _basket_ui_open() -> bool:
 func _research_ui_open() -> bool:
 	return research_ui != null and research_ui.is_open
 
+## Returns true if any NPC talk menu UI is open (Aug 2026). Each NPC lazily
+## creates its own menu instance and the player can only talk to one at a
+## time, so "any open" is the correct check. Without this, an A/interact
+## press while the talk menu is open (e.g. with no button focused) fell
+## through to the world interact path, which re-fired NPC.on_interact() and
+## rebuilt the menu — making the controller buttons appear dead.
+func _npc_ui_open() -> bool:
+	for n: Node in get_tree().get_nodes_in_group("npc_talk_ui"):
+		if n != null and ("is_open" in n) and bool(n.get("is_open")):
+			return true
+	return false
+
+## True while ANY controller-nav UI is open (Aug 2026). Every modal UI
+## (storage, power, water, farming, research, NPC talk, pause, admin,
+## character creation, …) attaches a ControllerUINavigation, which registers
+## in the "controller_ui_nav" group while its ui_root is visible. While one
+## is open, A must belong to IT until it closes (exit click, B, or
+## walk-away) — a press with nothing focused must never fall through to the
+## world interact and pop open a DIFFERENT UI near the player.
+func _any_controller_ui_open() -> bool:
+	for nav: Node in get_tree().get_nodes_in_group("controller_ui_nav"):
+		if nav != null and nav.has_method("is_active"):
+			if nav.call("is_active"):
+				return true
+	return false
+
 func _unhandled_input(event: InputEvent) -> void:
 	if build_mode_active:
 		return   ## BuildModeController owns all input while active
-	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open():
-		return   ## ShelfUI/BasketUI/ResearchStationUI owns all input while open
+	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open() or _npc_ui_open() \
+			or _any_controller_ui_open():
+		return   ## An open UI owns all input while it's open (Aug 2026 — ANY controller-nav UI)
 	# ── Scroll wheel — cycle inventory slots ──
 	if event is InputEventMouseButton:
 		if event.pressed:
@@ -319,7 +347,21 @@ func _unhandled_input(event: InputEvent) -> void:
 			## every frame, unaware this dispatch just left a gap).
 			## Closes it immediately, same frame, before anything else
 			## gets a chance to read the dangling reference.
-			if not is_instance_valid(held_item):
+			## Second fix: queue_free() DEFERS the actual free to end-of-
+			## frame, so is_instance_valid() alone is still TRUE right
+			## after on_use() and the reference dangled until the NEXT
+			## frame — exactly the soil-bag-into-tray repro. Added
+			## is_queued_for_deletion() to catch pending frees too (the
+			## `or` short-circuits, so it only runs when the item is
+			## still valid).
+			if not is_instance_valid(held_item) or held_item.is_queued_for_deletion():
+				## Third fix (Aug 2026): items stay in their slot even while
+				## held, so a consumed-and-freed item left its SLOT dangling
+				## too — the next inventory_changed handed the dead ref to
+				## the HUD previews (ItemPreviewKit.set_item crash). Clear
+				## the slot before resetting the held state.
+				if _held_from_slot != -1 and inventory != null:
+					inventory.clear_slot(_held_from_slot)
 				held_item       = null
 				_held_from_slot = -1
 				_is_holding_e   = false
@@ -580,6 +622,9 @@ func _update_prompt() -> void:
 		return
 
 	# ── Guard: held_item freed externally (build mode deconstruct, etc.) ─────
+	## is_instance_valid() alone — `held_item != null` does NOT catch a freed
+	## reference, which can compare equal to null in Godot 4 (see the same
+	## fix in Player.get_held_item).
 	if held_item != null and not is_instance_valid(held_item):
 		held_item       = null
 		_held_from_slot = -1

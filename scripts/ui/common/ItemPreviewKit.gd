@@ -152,12 +152,13 @@ static func _duplicate_visual_tree(item: Node3D) -> Node3D:
 ## `parent`. Returns the SubViewport — callers keep their own array of
 ## these, plus `vp.get_texture()` for whatever TextureRect displays it.
 ##
-## `cam_size_multiplier` (Aug 2026, default 1.0 — every existing caller
-## keeps Inventory's exact proven zoom unchanged) scales the computed
+## `cam_size_multiplier` (Aug 2026, default 1.0) scales the computed
 ## cam.size on top of the normal CAM_SIZE_PER_PIXEL ratio, for a consumer
 ## that needs to zoom out/in relative to that shared ratio without
-## touching it for everyone. StorageUI passes 1.25 — its previews were
-## clipping the viewport edge at the standard ratio.
+## touching it for everyone. InventoryHUD and StorageUI both pass 1.5
+## (a genuine 1.5x zoom-out — the mesh is normalized against the base
+## size, not the multiplied one, so this visibly pulls objects back and
+## stops the previews clipping their viewport edges).
 static func build_viewport(parent: Node, pixel_size: int, cam_size_multiplier: float = 1.0) -> SubViewport:
 	var vp := SubViewport.new()
 	vp.size = Vector2i(pixel_size, pixel_size)
@@ -166,10 +167,15 @@ static func build_viewport(parent: Node, pixel_size: int, cam_size_multiplier: f
 	vp.own_world_3d    = true
 	vp.disable_3d      = false
 	parent.add_child(vp)
+	GraphicsSettings.register_preview_viewport(vp)
 
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.size = CAM_SIZE_PER_PIXEL * float(pixel_size) * cam_size_multiplier
+	## Stash the unmultiplied ortho size so set_item() normalizes the mesh
+	## against THIS (not the final cam.size) — otherwise the mesh is scaled
+	## up to fill the same 85% of the frame and the zoom is a no-op.
+	cam.set_meta("preview_base_size", CAM_SIZE_PER_PIXEL * float(pixel_size))
 	vp.add_child(cam)   ## Must be in tree before look_at()
 	cam.position = CAM_POSITION
 	cam.look_at(Vector3.ZERO, Vector3.UP)
@@ -232,7 +238,12 @@ static func set_item(vp: SubViewport, item: Node) -> void:
 				cam = c as Camera3D
 				break
 		if cam != null:
-			pivot.scale = Vector3.ONE * _preview_normalize_scale(combined, cam.size)
+			## Normalize against the BASE (unmultiplied) ortho size so a
+			## cam_size_multiplier zoom actually pulls the object back —
+			## using the final cam.size would re-scale the mesh to fill the
+			## same fraction and make the zoom invisible.
+			var base_size: float = cam.get_meta("preview_base_size", cam.size)
+			pivot.scale = Vector3.ONE * _preview_normalize_scale(combined, base_size)
 	## else: no meshes found (shouldn't happen — wrapper.get_child_count()
 	## was already checked above) — pivot stays at origin, scale 1.0.
 

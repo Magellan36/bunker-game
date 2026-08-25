@@ -6,13 +6,10 @@ extends Node
 ## are kept apart). Persists to user://graphics_settings.cfg, independent of
 ## save slots.
 ##
-## NOT YET REGISTERED AS AN AUTOLOAD — per the known Godot class-cache /
-## project.godot-autoload-ownership gotcha, Brannon adds this manually via
-## Project Settings > Autoload (name it exactly "GraphicsSettings") after
-## pulling, rather than us hand-editing project.godot's [autoload] section.
-## Every other script referencing the bare identifier `GraphicsSettings`
-## (GraphicsSettingsPanel.gd, later Flashlight.gd/GameCamera.gd wiring) will
-## show "Could not find type" errors until that registration is done.
+## Registered as an autoload ("GraphicsSettings") in project.godot's
+## [autoload] section — other scripts reference it via the bare identifier
+## `GraphicsSettings` (GraphicsSettingsPanel.gd, Flashlight.gd, GameCamera.gd,
+## WallLight.gd, GrowLight.gd, CharacterPreviewViewport.gd, ...).
 
 signal settings_changed
 
@@ -40,8 +37,8 @@ var current_preset: int = Preset.MEDIUM
 var sdfgi_enabled:         bool = false
 var ssao_enabled:          bool = true
 var ssil_enabled:          bool = false
-var volumetric_fog_enabled: bool = true
-var flashlight_volumetrics: bool = true
+var volumetric_fog_enabled: bool = false
+var flashlight_volumetrics: bool = false
 ## Aug 2026 — generalized from flashlight-only to all dynamic
 ## shadow-casting lights (Flashlight, WallLight, GrowLight — see
 ## docs/systems/graphics/README.md "Unified dynamic shadow casting").
@@ -60,8 +57,10 @@ var msaa:                  int  = Viewport.MSAA_2X
 ## Camera FOV (graphics plan Phase 7) — NOT part of any preset (a comfort/
 ## motion-sickness preference, not a quality tier), read directly by
 ## GameCamera.gd via its own settings_changed connection, same pattern as
-## Flashlight.gd. Godot's Camera3D default is 75.0.
-var camera_fov: float = 75.0
+## Flashlight.gd. Default lowered 75→60 (Aug 2026) so the iso camera sits
+## meaningfully closer to the player out of the box; the slider range is
+## 45–75 centered on it. Godot's raw Camera3D default is 75.0.
+var camera_fov: float = 60.0
 
 ## Display settings (Phase 2) — device/display behavior, not quality tier
 var vsync_enabled: bool = true
@@ -95,6 +94,48 @@ var anisotropic_filtering: int = 4
 var shadow_quality: int = 2048
 var render_scale: float = 1.0
 
+## Dynamic Resolution (Aug 2026) — the LIVE render scale auto-adjusts
+## between DR_SCALE_FLOOR and the user's `render_scale` (the quality
+## ceiling) to hold the target frame budget (fps_cap if set, else the
+## display refresh rate, else 60). Preset-INDEPENDENT comfort/performance
+## setting like camera_fov — never routed through PRESETS. Disabled =
+## the fixed `render_scale` is applied exactly as before (bilinear);
+## enabled = the controller owns the scale (still BILINEAR upscaling —
+## FSR 1.0 reads pixelated/soft here and degrades the full-res case).
+##
+## OFF by default (Aug 2026): this game is CPU-bound (physics/objects), and
+## DR only buys back GPU time — on a CPU bottleneck it just sits at the
+## lowered scale forever, making the whole screen hazy for zero gain. It's
+## an opt-in safeguard for GPU-bound setups only.
+var dynamic_resolution_enabled: bool = false
+
+## DR tuning: steps of DR_STEP; needs DR_DOWN_FRAMES consecutive
+## over-budget frames to lower (ramps down fast on a sustained drop) and
+## DR_UP_FRAMES consecutive comfortable frames to raise (restores slowly);
+## DR_COOLDOWN forces a gap between steps so one spike can't ratchet twice.
+## DR_SCALE_FLOOR is deliberately HIGH (0.8) — DR is a subtle safeguard, and
+## a deep floor downscales the whole screen into visible pixelation.
+const DR_SCALE_FLOOR: float = 0.8
+const DR_STEP: float = 0.05
+const DR_DOWN_FRAMES: int = 5
+const DR_UP_FRAMES: int = 30
+const DR_COOLDOWN: float = 0.15
+## Frame-time EMA blend (lower = smoother, slower response).
+const DR_EMA_ALPHA: float = 0.15
+## Only step down when the EMA exceeds the budget by this much, so an
+## exactly-at-target frame can't trigger a needless drop.
+const DR_DOWN_TOLERANCE: float = 1.02
+## Below this fraction of the budget counts as "comfortable" (raise allowed).
+const DR_UP_THRESHOLD: float = 0.8
+
+## The LIVE scale currently applied (<= render_scale). Owned by the DR
+## controller while enabled; tracks render_scale while disabled.
+var _dr_scale: float = 1.0
+var _dr_frame_avg: float = 0.0
+var _dr_over_budget_frames: int = 0
+var _dr_under_budget_frames: int = 0
+var _dr_cooldown: float = 0.0
+
 const PRESETS: Dictionary = {
 	Preset.LOW: {
 		"sdfgi_enabled": false, "ssao_enabled": true, "ssil_enabled": false,
@@ -106,7 +147,7 @@ const PRESETS: Dictionary = {
 	},
 	Preset.MEDIUM: {
 		"sdfgi_enabled": false, "ssao_enabled": true, "ssil_enabled": false,
-		"volumetric_fog_enabled": true, "flashlight_volumetrics": true,
+		"volumetric_fog_enabled": false, "flashlight_volumetrics": false,
 		"glow_enabled": true, "dof_enabled": false, "msaa": Viewport.MSAA_2X,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
 		"anisotropic_filtering": 4, "shadow_quality": 2048, "render_scale": 1.0,
@@ -134,6 +175,19 @@ const PRESETS: Dictionary = {
 func _ready() -> void:
 	_load()
 	_apply_all()
+	## The autoload boots before MainWorld exists, so _apply_to_environment()
+	## finds no "world_environment" node yet and saved SDFGI/SSAO/volumetrics/
+	## glow would sit at the scene's authored defaults until the first toggle.
+	## Re-apply whenever a WorldEnvironment enters the tree (fires once per
+	## world load) so saved settings take effect at startup.
+	get_tree().node_added.connect(_on_node_added)
+
+
+## Re-applies the environment settings when the world scene's WorldEnvironment
+## node enters the tree. Idempotent — safe to fire on every world load.
+func _on_node_added(node: Node) -> void:
+	if node.is_in_group("world_environment"):
+		_apply_to_environment()
 
 
 ## Applies a named preset. Takes a plain `int` rather than `Preset` — the
@@ -188,7 +242,8 @@ func set_setting_live(field: String, value: Variant) -> void:
 		"use_taa":                  use_taa = value
 		"anisotropic_filtering":    anisotropic_filtering = value
 		"shadow_quality":           shadow_quality = value
-		"render_scale":             render_scale = value
+		"render_scale":             render_scale = value; _dr_scale = value
+		"dynamic_resolution_enabled": dynamic_resolution_enabled = value
 		"camera_fov":               camera_fov = value
 		"vsync_enabled":            vsync_enabled = value
 		"window_mode":              window_mode = value
@@ -196,7 +251,7 @@ func set_setting_live(field: String, value: Variant) -> void:
 		_:	
 			push_warning("[GraphicsSettings] Unknown field: %s" % field)
 			return
-	if field != "camera_fov":
+	if field != "camera_fov" and field != "dynamic_resolution_enabled":
 		current_preset = Preset.CUSTOM
 	_apply_all()
 
@@ -259,8 +314,85 @@ func _apply_to_viewport() -> void:
 	tree.root.msaa_3d = msaa
 	tree.root.screen_space_aa = screen_space_aa
 	tree.root.use_taa = use_taa
-	get_viewport().scaling_3d_scale = render_scale
-	get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	if dynamic_resolution_enabled:
+		## BILINEAR upscaling throughout — the same mode the render-scale
+		## slider used before DR existed, so a given scale looks exactly as
+		## crisp as it always did (FSR 1.0 reads pixelated on this art and
+		## even softens the 1.0 case). The controller owns
+		## scaling_3d_scale between DR_SCALE_FLOOR and the user's ceiling.
+		get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		get_viewport().scaling_3d_scale = _dr_scale
+	else:
+		_dr_scale = render_scale
+		get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		get_viewport().scaling_3d_scale = render_scale
+
+## Dynamic Resolution controller (Aug 2026). Runs every frame while DR is
+## enabled: smooths the frame time, compares against the target budget, and
+## only moves the live scale after enough consecutive slow/fast frames
+## (hysteresis) plus a cooldown gap — so it reacts to sustained drops
+## without oscillating on a single spike. Preview SubViewports are
+## unaffected (register_preview_viewport only mirrors MSAA, not scale).
+func _process(delta: float) -> void:
+	if not dynamic_resolution_enabled:
+		return
+	_dr_frame_avg = lerpf(_dr_frame_avg, delta, DR_EMA_ALPHA)
+	if _dr_cooldown > 0.0:
+		_dr_cooldown -= delta
+		return
+	var budget: float = _target_frame_budget()
+	if _dr_frame_avg > budget * DR_DOWN_TOLERANCE:
+		_dr_over_budget_frames += 1
+		_dr_under_budget_frames = 0
+		if _dr_over_budget_frames >= DR_DOWN_FRAMES:
+			_dr_scale = maxf(DR_SCALE_FLOOR, _dr_scale - DR_STEP)
+			_dr_over_budget_frames = 0
+			_dr_cooldown = DR_COOLDOWN
+			get_viewport().scaling_3d_scale = _dr_scale
+	elif _dr_frame_avg < budget * DR_UP_THRESHOLD:
+		_dr_under_budget_frames += 1
+		_dr_over_budget_frames = 0
+		if _dr_under_budget_frames >= DR_UP_FRAMES:
+			_dr_scale = minf(render_scale, _dr_scale + DR_STEP)
+			_dr_under_budget_frames = 0
+			_dr_cooldown = DR_COOLDOWN
+			get_viewport().scaling_3d_scale = _dr_scale
+	else:
+		_dr_over_budget_frames = 0
+		_dr_under_budget_frames = 0
+
+## The frame budget DR holds against: the player's fps_cap if one is set,
+## else the current display's refresh rate, else a 60 fps fallback.
+func _target_frame_budget() -> float:
+	if fps_cap > 0:
+		return 1.0 / float(fps_cap)
+	var refresh: int = DisplayServer.screen_get_refresh_rate(DisplayServer.window_get_current_screen())
+	if refresh > 0:
+		return 1.0 / float(refresh)
+	return 1.0 / 60.0
+
+## 3D item-preview SubViewports (Aug 2026) — apply MSAA so the models in
+## inventory/storage/build/prompt previews aren't jagged (SubViewports
+## default to MSAA_DISABLED and do NOT inherit the main viewport's setting).
+## Registers a viewport to follow the current msaa and settings changes;
+## auto-disconnects when the viewport leaves the tree.
+##
+## Preview MSAA is CAPPED at 2X: these viewports are small (40-96px) and
+## displayed downscaled, so 4X/8X there allocates a per-viewport
+## multisampled resolve for essentially invisible benefit — a build submenu
+## holding ~20 previews would otherwise multiply the heaviest AA cost. The
+## main viewport still follows the player's full choice.
+func register_preview_viewport(vp: SubViewport) -> void:
+	if vp == null:
+		return
+	var capped_msaa: int = mini(msaa, Viewport.MSAA_2X)
+	vp.msaa_3d = capped_msaa
+	var apply := func() -> void:
+		if is_instance_valid(vp):
+			vp.msaa_3d = mini(msaa, Viewport.MSAA_2X)
+	settings_changed.connect(apply)
+	vp.tree_exited.connect(func() -> void:
+		settings_changed.disconnect(apply))
 
 ## Display settings (VSync, window mode, FPS cap, anisotropic filtering, shadow quality)
 func _apply_to_display() -> void:
@@ -288,14 +420,12 @@ func _save() -> void:
 	cfg.set_value("graphics", "anisotropic_filtering", anisotropic_filtering)
 	cfg.set_value("graphics", "shadow_quality", shadow_quality)
 	cfg.set_value("graphics", "render_scale", render_scale)
+	cfg.set_value("graphics", "dynamic_resolution_enabled", dynamic_resolution_enabled)
 	cfg.set_value("graphics", "camera_fov", camera_fov)
 	cfg.set_value("graphics", "vsync_enabled", vsync_enabled)
 	cfg.set_value("graphics", "window_mode", window_mode)
 	cfg.set_value("graphics", "fps_cap", fps_cap)
 	cfg.set_value("graphics", "rendering_driver", rendering_driver)
-	cfg.set_value("graphics", "anisotropic_filtering", anisotropic_filtering)
-	cfg.set_value("graphics", "shadow_quality", shadow_quality)
-	cfg.set_value("graphics", "render_scale", render_scale)
 	cfg.save(CFG_PATH)
 
 
@@ -318,6 +448,7 @@ func _load() -> void:
 	anisotropic_filtering    = cfg.get_value("graphics", "anisotropic_filtering", anisotropic_filtering)
 	shadow_quality           = cfg.get_value("graphics", "shadow_quality", shadow_quality)
 	render_scale             = cfg.get_value("graphics", "render_scale", render_scale)
+	dynamic_resolution_enabled = cfg.get_value("graphics", "dynamic_resolution_enabled", dynamic_resolution_enabled)
 	camera_fov               = cfg.get_value("graphics", "camera_fov", camera_fov)
 	vsync_enabled            = cfg.get_value("graphics", "vsync_enabled", vsync_enabled)
 	window_mode              = cfg.get_value("graphics", "window_mode", window_mode)

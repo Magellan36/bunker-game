@@ -83,6 +83,205 @@ customization once dedicated art/scope is available for a later version.
 `disabled = true` / tooltip lines). Everything else in this document
 still describes that system accurately.
 
+## Sit animation root-offset fix (Aug 2026, CURRENT)
+
+**Builds on the V1 Adventurer system above — read that section first.**
+Adds a full stand/sit/stand-up sequence (`stand_to_sit`/`sit`/
+`sit_to_stand` clips) to `AdventurerModelController.gd`, driven by
+`MainWorld.gd`'s `_wire_chair()`. The clips themselves needed a real
+fix at the source; this section documents what was actually wrong and
+how it was fixed, since it took several wrong turns to get right and
+the final approach isn't obvious from the code alone.
+
+**Source files:** `assets/models/player/stand_to_sit.fbx` / `sitting.fbx`
+/ `sit_to_stand.fbx`, originally copied from `F:\Bunker Game\models\
+player models\FINAL\Stand To Sit.fbx` / `Sitting.fbx` / `Sit To
+Stand.fbx` (same source location as the rest of this pack). Extracted
+into `assets/models/player/anims/stand_to_sit_lib.res` / `sit_lib.res` /
+`sit_to_stand_lib.res` via `tools/build_sit_animations.gd` (same
+track-rebase + Hips-position-track-removal pattern
+`tools/build_player_model.gd` already established for the other six
+clips — root motion is never consumed anywhere in this project, so no
+clip should carry a baked Hips position track at all).
+
+**The original problem:** the handed-off clips had a baked Hips
+position offset that didn't correspond to the game's own anchor point,
+so the character rendered sunk into/behind the chair.
+
+**First fix attempt (WRONG — left in git history, not repeated here in
+detail): recentering Hips to REST position was the wrong target.**
+The first pass measured the Hips bone's position at the seated frame
+and shifted the whole clip so Hips landed exactly at the skeleton's own
+REST pose position — reasoning that rest position is what every other
+animation (idle/walk/run, which have no Hips position track at all)
+implicitly uses. This was wrong: REST position is *standing* hip
+height, not seated hip height. Forcing seated Hips up to standing
+height while the clip's own (untouched) leg-bend rotations still
+expected a much lower hip position meant the legs could no longer reach
+the floor — confirmed directly in Blender: with this fix, seated
+`LeftFoot` sat at world Z≈0.005 vs. its true rest/floor value of
+Z≈0.0009 (in the source file's native scale), i.e. visibly floating.
+Symptom in-game: feet lifting off the ground, hips reading too high,
+and (because the game code's horizontal chair-approach slide was ALSO
+timed against this same wrong data) a "hovering" quality to the whole
+sit-down motion.
+
+**Correct fix: calibrate against the FEET at each clip's own genuine
+STANDING frame, not the Hips at the seated frame.**
+
+- `stand_to_sit.fbx`: frame 1 is a real standing pose. Shifted the whole
+  clip (a constant delta on the Hips position curve — preserves all
+  relative motion, just recenters it) so `LeftFoot`/`RightFoot`'s
+  average world position at frame 1 exactly matches their REST-pose
+  position (residual confirmed at ~1e-7, effectively exact). The seated
+  endpoint (frame 135) is NOT independently forced to anything — it's
+  whatever this single correction naturally produces, which turned out
+  physically correct: seated Hip-above-foot height (~half the standing
+  value) matches a normal bent-knee sitting posture (thigh
+  ~horizontal, shin ~vertical) almost exactly.
+- `sit_to_stand.fbx`: mirror approach, calibrated against its OWN
+  genuine standing frame (the LAST frame, since this clip runs
+  seated→standing). Also revealed real baked forward-stepping motion
+  (a large depth/Y-axis component in the correction) — i.e. the
+  original clip has the character genuinely walk forward as they stand
+  up. Fully corrected out, consistent with this project's root-motion-
+  never-consumed convention — the game's own code decides how far the
+  character travels after standing (`Chair.get_stand_position()`), not
+  the clip.
+- `sitting.fbx`: no standing frame of its own (it's a pure held seated
+  loop) — calibrated instead against `stand_to_sit.fbx`'s own
+  (already-corrected) exported seated-frame foot position, so all three
+  clips agree on the exact same seated pose for a seamless handoff.
+  Confirmed: seated Hip Z across all three clips lands within ~0.0005 of
+  each other (in the source file's native scale) after this pass.
+
+**Verification method:** all three fixes were verified the same way —
+sample a bone's world position via Blender's own evaluated depsgraph
+(`arm_obj.evaluated_get(depsgraph)`, NOT the raw pose bone matrix, which
+caches stale values across frame changes unless the depsgraph is
+explicitly re-evaluated), compare against a known-good reference
+(REST pose for the bone in question), confirm near-zero residual, THEN
+export and independently re-import the exported file fresh to confirm
+the fix actually survived the FBX export/reimport round-trip (it
+didn't, twice, for reasons below) before considering a clip done.
+
+**Non-obvious pitfalls hit along the way (all now avoided, listed for
+next time this kind of fix is needed):**
+- **Blender pose evaluation caches stale results after editing keyframe
+  data directly via the F-Curve API**, even after calling `frame_set()`
+  again on the SAME frame number (Blender treats it as a no-op and
+  skips re-evaluation) — a `scene.frame_set(0)` "dummy" frame change
+  before setting the real target frame forces a genuine re-evaluation.
+  A HARD refresh (`arm_obj.animation_data.action = None` then
+  reassigning the action) was needed after bulk keyframe edits
+  specifically — confirmed the raw keyframe data WAS correctly edited
+  in cases where the evaluated pose still read stale, isolating this as
+  a pose-cache issue, not a data-write bug.
+- **World axis ≠ intuitive index.** This rig's vertical axis is world
+  Z, not Y (confirmed unambiguously via Head-bone-minus-Foot-bone
+  position, which is large only in Z — the bounding-box "largest
+  extent" test is NOT reliable for this because a T-pose's arm span is
+  a similar magnitude to standing height, so X and Z both come out
+  large). Pose-space bone `.location` axes are ALSO permuted relative
+  to world axes for this specific rig (empirically verified via a
+  perturb-one-axis-and-observe-world-effect Jacobian, not assumed):
+  local X → world X (negated), local Y → world Z, local Z → world Y.
+  Any correction computed in world space needs this Jacobian applied
+  before writing it back to a bone's local `.location` curve, or the
+  correction lands on the wrong axis entirely (produced a very visibly
+  wrong result once, caught by comparing residual magnitude against the
+  original error rather than assuming a small residual = success).
+- **FBX export bakes the SCENE's frame_start/frame_end, not the
+  action's own frame_range.** After a `bpy.ops.wm.read_homefile()`
+  reset (used partway through to clear accumulating cross-file state
+  confusion), the scene's frame range reverts to Blender's default
+  (1-250) — if not explicitly re-synced to the imported action's real
+  range before export, the exported clip silently gets the WRONG
+  duration (produced exactly 1.15s for every clip regardless of its
+  true length, since 250 frames at whatever stale fps happened to
+  divide out that way). Always set `scene.frame_start`/`frame_end` from
+  `action.frame_range` explicitly, immediately before every export —
+  don't rely on import-time auto-sync surviving a reset.
+- **The retarget `.import` config's `PATH:` key must match the ACTUAL
+  node hierarchy of the file being imported, exactly.** Re-exporting
+  from Blender added an extra `Armature` wrapper node the original
+  handoff's `.import` files didn't expect (`PATH:Skeleton3D` — the
+  skeleton at the scene root — vs. the re-exported file's real
+  `PATH:Armature/Skeleton3D`). Godot doesn't error when this key
+  doesn't match anything; it silently skips retargeting entirely,
+  leaving raw `mixamorig_*` bone names and non-Humanoid track paths in
+  the imported animation — which reads exactly like a "broken/no
+  animation" bug (confirmed this was the direct cause of an earlier
+  reported "freeze, no animation plays" symptom). If a clip is ever
+  re-exported from Blender, re-verify the node hierarchy matches what
+  the `.import` file's retarget block expects — don't assume it's
+  unchanged.
+- **Always delete the cached `.godot/imported/<file>-<hash>.scn` before
+  reimporting after an `.import` config change** — plain reimport has
+  been observed to not reliably re-read edited `.import` params.
+- **When the editor is open, prefer `godot --headless --path <project>
+  --import` / `--script <path>` via a direct subprocess call over
+  driving the same actions through the editor's own MCP connection** —
+  a separate headless process while the editor has the project open can
+  hang indefinitely (project lock contention), and driving actions
+  through the editor while a person is also actively using it races
+  against whatever scene tab they currently have focused. The headless
+  subprocess path avoids both classes of problem entirely, provided the
+  editor is closed first.
+
+**Positioning/timing (`AdventurerModelController.gd` +
+`MainWorld.gd`'s `_wire_chair()`), now that the clip data itself is
+correct:**
+
+- Root anchor stays at **floor level for the entire sequence** — this
+  now works correctly because the fix above means the clips' own baked
+  Hip motion ALREADY shows the full, physically-correct standing↔seated
+  height change relative to a fixed floor anchor (mirroring exactly how
+  idle/walk/run already have zero baked Hips position data and rely
+  entirely on a fixed anchor + the skeleton's own rest/posed geometry).
+  No code-side Y adjustment is needed or applied anywhere in the
+  sequence — two earlier attempts at a code-side Y correction (documented
+  and then removed from this file's own git history) were band-aids for
+  the wrong root cause and are no longer present.
+- **Horizontal (X/Z) motion** eases between a FIXED approach point
+  (`t.origin + t.basis.z * APPROACH_OFFSET`, ~half a chair width in
+  front of the seat — NOT the player's actual position when E was
+  pressed, which made the slide's distance/timing inconsistent) and the
+  chair's seat center, via `_lerp_sit_xz()`. The interpolation follows
+  `SIT_DOWN_CURVE`/`STAND_UP_CURVE` — 21-point lookup tables sampled
+  directly from each clip's own baked Hip vertical-motion shape in
+  Blender, NOT raw animation time — because the real motion is strongly
+  non-linear (e.g. `stand_to_sit` stays essentially standing for the
+  first ~10% of the clip, does almost the entire drop across the next
+  ~55%, then holds for the remaining ~35%) and driving the horizontal
+  slide by raw time put it badly out of sync with the vertical motion,
+  reading as "hovering" rather than settling into the chair.
+- Both `PlayerModel` and `PlayerModelShadow` are separate
+  `AdventurerModelController` instances under the same player node,
+  both independently reaching the sit-phase logic every frame (it only
+  checks the shared `seated_chair`) — the XZ-lerp calls are explicitly
+  guarded to `not is_shadow_only`, since without that guard the shadow
+  instance's own (never externally set) anchor points fought the real
+  instance over the same shared `player.global_position` every frame,
+  snapping the player to world origin.
+- The player's position/physics stay anchored at the chair (not
+  released to `Chair.get_stand_position()`) until
+  `AdventurerModelController.stand_animation_finished` actually fires
+  — i.e. until the sit_to_stand clip genuinely completes, not the
+  instant E is pressed to stand up.
+- The chair remembers the player's exact seated-facing yaw
+  (`the_chair.set_meta("_seated_facing_y", ...)`, set in
+  `seat_requested`) and re-applies it once `stand_animation_finished`
+  fires, protecting against anything (camera-look sync, etc.) nudging
+  rotation while seated.
+
+**Known gap:** all of the above is wired in `MainWorld.gd`'s
+`_wire_chair()`, which only handles the PLAYER. NPCs sit via a separate
+path (`scripts/npc/activities/SitActivity.gd`/`RelaxSitActivity.gd`)
+that was not touched by this pass — if NPC sitting shows the same
+fixed-approach-point or facing-restoration gaps the player had before
+this fix, that file needs the analogous treatment.
+
 ## Native-rig rebuild (Aug 2026, IN PROGRESS)
 
 **Status: retarget complete (headless), visual checkpoint outstanding.**

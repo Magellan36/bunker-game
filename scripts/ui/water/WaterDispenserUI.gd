@@ -44,33 +44,45 @@ var _theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.WATER)
 ## the RECEIVING rate's "on target" state — a different meaning).
 ## Thresholds (inclusive boundaries): 0-50% red, 50.01-75% yellow,
 ## 75.01-100% green.
-const QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
+var QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
 
 ## Delegates to WaterQualityColor.get_color() (Jul 2026, extracted shared
 ## helper — was a local copy of the same thresholds duplicated from
 ## WaterInfoUI.gd before).
 func _quality_color(quality: float) -> Color:
 	return WaterQualityColor.get_color(quality)
-const OFF_COLOR:    Color = Color(0.55, 0.55, 0.55, 1.00)
-const ACCENT_TOGGLE: Color = Color(0.30, 0.68, 1.00, 1.00)
+var OFF_COLOR:    Color = Color(0.55, 0.55, 0.55, 1.00)
+var ACCENT_TOGGLE: Color = Color(0.30, 0.68, 1.00, 1.00)
 
 ## Same universal green→red priority legend as PowerPriorityUI.gd /
 ## WaterInfoUI.gd's sink panel — reused verbatim, not re-themed.
-const PRIO_COLORS: Array[Color] = [
+var PRIO_COLORS: Array[Color] = [
 	Color(0.30, 1.00, 0.46, 1.00),
 	Color(0.62, 0.92, 0.32, 1.00),
 	Color(0.98, 0.85, 0.20, 1.00),
 	Color(1.00, 0.58, 0.16, 1.00),
 	Color(1.00, 0.30, 0.20, 1.00),
 ]
-const PRIORITY_MIN: int = 1
-const PRIORITY_MAX: int = 5
+var PRIORITY_MIN: int = 1
+var PRIORITY_MAX: int = 5
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
-const PANEL_W: float = 400.0
+var PANEL_W: float = 400.0
 ## Jul 2026: +24 to make room for the new fill bar/gauge row added below
 ## STORAGE without changing spacing anywhere else in the panel.
-const PANEL_H: float = 454.0
+var PANEL_H: float = 454.0
+
+## Component geometry / colors read from BunkerTheme's WaterDispenserUI section
+## (see _load_theme() — these defaults are fallbacks if the theme is missing).
+var _slider_h: float = 20.0
+var _pill_w: float = 50.0
+var _pill_h: float = 24.0
+var _arrow_size: float = 48.0
+var _pip_gap: float = 5.0
+var _pip_h: float = 7.0
+var _chip_w: float = 84.0
+var _slider_groove: Color = Color(0.10, 0.13, 0.16, 1.0)
+var _pill_knob: Color = Color(0.92, 0.95, 0.97, 1.0)
 
 var _dispenser: WaterDispenser = null
 var _is_open: bool = false
@@ -87,12 +99,48 @@ var _canvas:      Control = null
 var _font:        Font    = null
 var _close_btn:   Button  = null
 var _rate_slider: HSlider = null
+## Grabber textures — the plain circle and the white-outlined "selected"
+## variant (controller focus / mouse hover). See _style_slider().
+var _grabber_tex_normal: Texture2D = null
+var _grabber_tex_selected: Texture2D = null
+## True while the cursor is over the slider (mouse_entered/exited) — HSlider
+## has no is_hovered(), so hover state is tracked here.
+var _slider_hovered: bool = false
 var _toggle_btn:  Button  = null   ## invisible hit-area over the drawn on/off pill
 var _dec_btn:     Button  = null   ## ◄ lower priority tier
 var _inc_btn:     Button  = null   ## ► raise priority tier
 
 
+## Pulls every palette + component value from BunkerTheme so the theme is the
+## single source of truth (tweak there, this panel follows).
+func _load_theme() -> void:
+	QUALITY_GOOD_COLOR = UIKit.theme_color("UI", "quality_good", QUALITY_GOOD_COLOR)
+	OFF_COLOR = UIKit.theme_color("UI", "off_grey", OFF_COLOR)
+	ACCENT_TOGGLE = UIKit.theme_color("UI", "accent_toggle", ACCENT_TOGGLE)
+	PRIO_COLORS = [
+		UIKit.theme_color("UI", "prio_1", Color(0.30, 1.00, 0.46, 1.00)),
+		UIKit.theme_color("UI", "prio_2", Color(0.62, 0.92, 0.32, 1.00)),
+		UIKit.theme_color("UI", "prio_3", Color(0.98, 0.85, 0.20, 1.00)),
+		UIKit.theme_color("UI", "prio_4", Color(1.00, 0.58, 0.16, 1.00)),
+		UIKit.theme_color("UI", "prio_5", Color(1.00, 0.30, 0.20, 1.00)),
+	]
+	PRIORITY_MIN = UIKit.theme_constant("UI", "priority_min", PRIORITY_MIN)
+	PRIORITY_MAX = UIKit.theme_constant("UI", "priority_max", PRIORITY_MAX)
+	PANEL_W = UIKit.theme_constant("WaterDispenserUI", "panel_w", int(PANEL_W))
+	PANEL_H = UIKit.theme_constant("WaterDispenserUI", "panel_h", int(PANEL_H))
+	_slider_h = UIKit.theme_constant("WaterDispenserUI", "slider_h", int(_slider_h))
+	_pill_w = UIKit.theme_constant("WaterDispenserUI", "pill_w", int(_pill_w))
+	_pill_h = UIKit.theme_constant("WaterDispenserUI", "pill_h", int(_pill_h))
+	_arrow_size = UIKit.theme_constant("WaterDispenserUI", "arrow_size", int(_arrow_size))
+	_pip_gap = UIKit.theme_constant("WaterDispenserUI", "pip_gap", int(_pip_gap))
+	_pip_h = UIKit.theme_constant("WaterDispenserUI", "pip_h", int(_pip_h))
+	_chip_w = UIKit.theme_constant("WaterDispenserUI", "chip_w", int(_chip_w))
+	_slider_groove = UIKit.theme_color("WaterDispenserUI", "slider_groove", _slider_groove)
+	_pill_knob = UIKit.theme_color("WaterDispenserUI", "pill_knob", _pill_knob)
+
+
 func _ready() -> void:
+	_load_theme()
 	layer   = 60
 	visible = false
 	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
@@ -122,8 +170,8 @@ func _build_controls() -> void:
 	_rate_slider = HSlider.new()
 	_rate_slider.min_value = 0.0
 	_rate_slider.max_value = 0.0   ## set live every frame from the dynamic max
-	_rate_slider.step      = 10.0
-	_rate_slider.focus_mode = Control.FOCUS_NONE
+	_rate_slider.step      = 1.0   ## d-pad adjusts by 1 mL/day (Aug 2026)
+	_rate_slider.focus_mode = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026); L/R adjusts, see ControllerUINavigation
 	_style_slider(_rate_slider)
 	_rate_slider.value_changed.connect(_on_rate_changed)
 	add_child(_rate_slider)
@@ -164,7 +212,7 @@ func _build_controls() -> void:
 
 func _style_slider(slider: HSlider) -> void:
 	var groove: StyleBoxFlat = StyleBoxFlat.new()
-	groove.bg_color = Color(0.10, 0.13, 0.16, 1.0)
+	groove.bg_color = _slider_groove
 	groove.border_color = Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45)
 	groove.set_border_width_all(1)
 	groove.set_corner_radius_all(3)
@@ -180,22 +228,60 @@ func _style_slider(slider: HSlider) -> void:
 	slider.add_theme_stylebox_override("grabber_area", fill)
 	slider.add_theme_stylebox_override("grabber_area_highlight", fill)
 
-	var grabber: Texture2D = _make_grabber_texture()
-	slider.add_theme_icon_override("grabber", grabber)
-	slider.add_theme_icon_override("grabber_highlight", grabber)
-	slider.add_theme_icon_override("grabber_disabled", grabber)
+	var grabber_normal: Texture2D = _make_grabber_texture(false)
+	var grabber_selected: Texture2D = _make_grabber_texture(true)
+	_grabber_tex_normal   = grabber_normal
+	_grabber_tex_selected = grabber_selected
+	slider.add_theme_icon_override("grabber", grabber_normal)
+	slider.add_theme_icon_override("grabber_highlight", grabber_normal)
+	slider.add_theme_icon_override("grabber_disabled", grabber_normal)
+	## Selection outline (Aug 2026): driven MANUALLY by _update_grabber_icon()
+	## rather than relying on Godot's grabber_highlight, which also shows on
+	## focus — a mouse click leaves the slider focused, so the highlight
+	## would otherwise stay after the cursor leaves. Here it shows ONLY while
+	## the cursor hovers it (mouse) or it's focused in controller mode, and
+	## clears the moment neither applies. A transparent focus stylebox stops
+	## the default focus rectangle from double-marking the slider.
+	slider.focus_entered.connect(_update_grabber_icon)
+	slider.focus_exited.connect(_update_grabber_icon)
+	slider.mouse_entered.connect(func() -> void:
+		_slider_hovered = true
+		_update_grabber_icon())
+	slider.mouse_exited.connect(func() -> void:
+		_slider_hovered = false
+		_update_grabber_icon())
+	slider.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
 
-func _make_grabber_texture() -> Texture2D:
-	var img: Image = Image.create(14, 14, false, Image.FORMAT_RGBA8)
+func _make_grabber_texture(with_outline: bool) -> Texture2D:
+	const SIZE: int = 20
+	const R_FILL: float = 6.5
+	const R_OUTER: float = 9.0
+	var img: Image = Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
-	for y: int in range(14):
-		for x: int in range(14):
-			var dx: float = float(x) - 6.5
-			var dy: float = float(y) - 6.5
-			if dx * dx + dy * dy <= 42.0:
+	var c: float = (SIZE - 1) * 0.5
+	for y: int in range(SIZE):
+		for x: int in range(SIZE):
+			var d: float = Vector2(float(x) - c, float(y) - c).length()
+			if d <= R_FILL:
 				img.set_pixel(x, y, _theme.header)
+			elif with_outline and d <= R_OUTER:
+				img.set_pixel(x, y, Color.WHITE)
 	return ImageTexture.create_from_image(img)
+
+func _update_grabber_icon() -> void:
+	if _rate_slider == null or _grabber_tex_normal == null or _grabber_tex_selected == null:
+		return
+	## Mouse: outline only while the cursor is over the slider (tracked via
+	## mouse_entered/exited — HSlider has no is_hovered()). Controller:
+	## outline only while the slider is focused. A stray focus from a mouse
+	## click must NOT keep it lit once the cursor leaves.
+	var selected: bool = _slider_hovered \
+		or (InputMode.is_controller() and _rate_slider.has_focus())
+	var tex: Texture2D = _grabber_tex_selected if selected else _grabber_tex_normal
+	_rate_slider.add_theme_icon_override("grabber", tex)
+	_rate_slider.add_theme_icon_override("grabber_highlight", tex)
+	_rate_slider.queue_redraw()
 
 
 # ─── Open / Close ─────────────────────────────────────────────────────────────
@@ -253,12 +339,20 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 # ─── Live refresh ─────────────────────────────────────────────────────────────
+## Redraw throttle (Aug 2026 optimization) — live rate/fill doesn't need 60Hz.
+const REDRAW_INTERVAL: float = 0.1
+var _redraw_accum: float = 0.0
+
 func _process(_delta: float) -> void:
 	if not _is_open:
 		return
 	if _dispenser == null or not is_instance_valid(_dispenser):
 		close()
 		return
+	_redraw_accum += _delta
+	if _redraw_accum < REDRAW_INTERVAL:
+		return
+	_redraw_accum = 0.0
 	_reposition_controls()
 	_canvas.queue_redraw()
 
@@ -312,7 +406,7 @@ func _reposition_controls() -> void:
 
 	var slider_y: float = _slider_row_y if _slider_row_y > 0.0 else (py + 150.0)
 	_rate_slider.position = Vector2(px + 24.0, slider_y)
-	_rate_slider.size      = Vector2(PANEL_W - 48.0, 20.0)
+	_rate_slider.size      = Vector2(PANEL_W - 48.0, _slider_h)
 
 	## On/off pill hit-area.
 	var toggle_y: float = _toggle_row_y if _toggle_row_y > 0.0 else (py + 260.0)
@@ -321,7 +415,7 @@ func _reposition_controls() -> void:
 
 	## Priority arrows.
 	var arrow_y: float = _arrow_row_y if _arrow_row_y > 0.0 else (py + 330.0)
-	var arrow_sz: Vector2 = Vector2(48.0, 48.0)
+	var arrow_sz: Vector2 = Vector2(_arrow_size, _arrow_size)
 	_dec_btn.size = arrow_sz
 	_inc_btn.size = arrow_sz
 	_dec_btn.position = Vector2(px + 36.0, arrow_y)
@@ -376,7 +470,7 @@ func _on_draw() -> void:
 	_draw_str("WATER DISPENSER", Vector2(cx, cy), _theme.header, 16)
 	cy += 28.0
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45), 1.0)
+		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45), 1.0, true)
 	cy += 16.0
 
 	# ── Fill level ───────────────────────────────────────────────────────────
@@ -449,8 +543,8 @@ func _on_draw() -> void:
 	var state_str: String = "ON" if d.is_on else "OFF"
 	var state_col: Color = ACCENT_TOGGLE if d.is_on else OFF_COLOR
 	## Pill switch
-	var pill_w: float = 50.0
-	var pill_h: float = 24.0
+	var pill_w: float = _pill_w
+	var pill_h: float = _pill_h
 	var pill_x: float = px + PANEL_W - 24.0 - pill_w - 46.0
 	var pill_y: float = cy - 2.0
 	var pill_r: float = pill_h * 0.5
@@ -459,7 +553,7 @@ func _on_draw() -> void:
 	_canvas.draw_circle(Vector2(pill_x + pill_r, pill_y + pill_r), pill_r, pill_col)
 	_canvas.draw_circle(Vector2(pill_x + pill_w - pill_r, pill_y + pill_r), pill_r, pill_col)
 	var knob_cx: float = (pill_x + pill_w - pill_r) if d.is_on else (pill_x + pill_r)
-	_canvas.draw_circle(Vector2(knob_cx, pill_y + pill_r), pill_r - 3.0, Color(0.92, 0.95, 0.97, 1.0))
+	_canvas.draw_circle(Vector2(knob_cx, pill_y + pill_r), pill_r - 3.0, _pill_knob)
 	_draw_str(state_str, Vector2(pill_x + pill_w + 10.0, cy), state_col, 12)
 	cy += 46.0
 
@@ -478,7 +572,7 @@ func _on_draw() -> void:
 	var num_w: float = _font.get_string_size(num_str, HORIZONTAL_ALIGNMENT_LEFT, -1, num_size).x
 	var num_x: float = px + (PANEL_W - num_w) * 0.5
 	var num_y: float = cy + row_h * 0.5 + float(num_size) * 0.35
-	var chip_w: float = 84.0
+	var chip_w: float = _chip_w
 	var chip_rect: Rect2 = Rect2(px + (PANEL_W - chip_w) * 0.5, cy, chip_w, row_h)
 	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.14), true)
 	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.85), false, 2.0)
@@ -491,12 +585,12 @@ func _on_draw() -> void:
 	cy += 20.0
 
 	var pip_total_w: float = PANEL_W - 108.0
-	var pip_gap: float = 5.0
+	var pip_gap: float = _pip_gap
 	var pip_w: float = (pip_total_w - pip_gap * 4.0) / 5.0
 	var pip_x: float = px + 54.0
 	for i: int in range(5):
 		var col: Color = PRIO_COLORS[i]
-		var rect: Rect2 = Rect2(pip_x + float(i) * (pip_w + pip_gap), cy, pip_w, 7.0)
+		var rect: Rect2 = Rect2(pip_x + float(i) * (pip_w + pip_gap), cy, pip_w, _pip_h)
 		if i + 1 == d.priority:
 			_canvas.draw_rect(rect, col, true)
 		else:

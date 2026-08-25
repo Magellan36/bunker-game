@@ -5,6 +5,58 @@
 > `tool_search` until you call it) and several hard-won gotchas that
 > repeatedly cost real time across the sessions logged below.
 
+# Handover - sit animations, animation pipeline, controller pass (Aug 2026)
+
+Large multi-stream session. Two NEW docs to read for detail:
+`docs/systems/player-model/ANIMATIONS.md` (current animation pipeline) and
+`docs/systems/controller/README.md` (gamepad pass).
+
+## Sit animation sequence (chair)
+Player/NPC play `stand_to_sit -> sit (looped) -> sit_to_stand` when
+sitting. Source clips from `F:\Bunker Game\models\player models\FINAL\`
+imported into `assets/models/player/anims/` as `stand_to_sit_lib`,
+`sit_lib`, `sit_to_stand_lib` (.res). Wired into `AdventurerModel.tscn`,
+a `_sit_phase` state machine in `AdventurerModelController.gd`, and
+`seated_chair` on both Player and NPC (NPC set in SitActivity/
+RelaxSitActivity). `Chair.gd`: `SEAT_RAISE`(0.40), `SEAT_FORWARD`(0.15),
+`STAND_DIST`(0.85); `SIT_SINK` removed.
+**Outstanding (Blender task):** the sit clips have baked root offsets that
+misalign the seated pose (off-center/behind the chair). Full handoff doc
+was written for the next agent.
+
+## Animation pipeline / replacements
+- `idle.fbx` replaced with `NEW_Idle.fbx` (**Maximo** rig - different bone
+  naming than Mixamo). Created `bone_map_maximo.tres`; the retarget
+  `.import` block must use `PATH:CharacterArmature/Skeleton3D` (not
+  `PATH:Skeleton3D`) for nested skeletons.
+- Gender-specific idle clips: `idle_male_lib` (Male Locomotion Pack) and
+  `idle_female_lib` (Female Basic Locomotion Pack); walk/run stayed shared.
+  Selected via `MALE_ANIMATION_NAMES`/`FEMALE_ANIMATION_NAMES` +
+  `_resolve_anim_name()`.
+- Crossfades: `BLEND_TIME` 0.3, `LOCOMOTION_BLEND_TIME` 0.5 for
+  idle<->walk<->run (both genders).
+- CRITICAL import gotcha: after editing an `.import` file, DELETE the stale
+  `.godot/imported/<name>-<md5>.scn` before `--headless --import`, else the
+  new params are silently not re-read.
+
+## Other fixes
+- **Phantom-object cluster** (items at world origin NE of bunker): build
+  preview instances in SubViewports joined tree-wide groups at ~origin.
+  Fixed with `GhostModelBuilder.strip_groups()` + `_is_preview_only` on
+  PickupableItem/WallLight + shop-preview flag. See
+  `docs/systems/build/README.md` "Ghost Model System".
+- **Graphics settings persistence**: env settings (SDFGI/SSAO/volumetrics/
+  glow) now re-apply when the WorldEnvironment enters the tree (was: only
+  after the first toggle). See `docs/systems/graphics/README.md`.
+- **Character-creation preview camera**: aim centered on stomach/navel
+  (`look_at_point.y = 1.2`).
+- **BuildSandbox.tscn** sandbox scene + object position translation into
+  MainWorld/MainWorld.gd (see the sandbox's own scene file).
+- New files: `bone_map_maximo.tres`, sit/idle/male/female animation
+  libraries, `male_locomotion/` + `female_locomotion/` source FBX,
+  `docs/systems/player-model/ANIMATIONS.md`,
+  `docs/systems/controller/README.md`.
+
 # Handover — Outfit clip fix: piece-type bug + live-pose split (Aug 2026)
 
 ## What changed this session

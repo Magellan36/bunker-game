@@ -255,3 +255,10 @@ as everything else (uniform cap this pass; bypasses deferred).
 - `SeedItem`'s material category (pending your input).
 - `BagOfSoilItem` threshold confirmation (strict-full vs any-charge).
 - True room-center verification for both singleton stations (visual check).
+
+## Controller support
+
+The research UI auto-selects the **top-most** research on open and on every
+tab change (LB/RB cycle tabs; A starts the focused tile's research; B
+closes). Details in `docs/systems/controller/README.md` (§ Per-UI matrix —
+Research station).

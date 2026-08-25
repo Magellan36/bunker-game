@@ -26,7 +26,11 @@ var _prev_mouse_mode: Input.MouseMode = Input.MOUSE_MODE_CAPTURED
 var _blur_rect:   ColorRect = null
 var _panel:       Panel     = null
 var _vbox:        VBoxContainer = null
-var _confirm_layer: CanvasLayer = null   ## separate top layer for the exit-confirm dialog
+## Lazy-instantiated shared ConfirmDialogUI (Aug 2026 consistency pass) —
+## replaces the hand-rolled exit-confirm layer. Layer 210, above the pause
+## menu (200). Set to 210 via the dialog's stacking_layer export.
+var _confirm_dialog: CanvasLayer = null
+var _exit_confirmed_connected: bool = false
 var _settings_panel: CanvasLayer = null  ## lazy-instantiated GraphicsSettingsPanel, same pattern as MainWorld's own lazy PauseMenuUI instantiation
 var _history_ui: Control = null          ## NotificationHistoryUI, sibling of _panel — shows/hides for free with this CanvasLayer's own visible toggle
 
@@ -41,10 +45,12 @@ func _ready() -> void:
 	layer = 200   ## Above HUD (default ~1) and AdminMenu (128).
 	_build_ui()
 	visible = false
-	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
+	## Controller navigation (Aug 2026) — d-pad + left stick drive focus
+	## (stick_navigation is safe here: movement is locked while paused),
 	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
 	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	controller_nav.ui_root = self
+	controller_nav.stick_navigation = true
 	add_child(controller_nav)
 
 
@@ -96,7 +102,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
 		## If the exit-confirm dialog is open, ESC cancels that first instead
 		## of closing the whole pause menu underneath it.
-		if _confirm_layer != null:
+		if _confirm_dialog != null and _confirm_dialog.has_method("is_open") \
+				and _confirm_dialog.call("is_open"):
 			_close_confirm_dialog()
 		else:
 			close()
@@ -238,69 +245,31 @@ func _on_settings_pressed() -> void:
 		_settings_panel.open()
 
 func _on_exit_pressed() -> void:
-	_open_confirm_dialog(
-		"Exit to desktop? Any unsaved progress will be lost.",
-		func() -> void: get_tree().quit())
+	_ensure_confirm_dialog()
+	_confirm_dialog.open("Exit to desktop?", "Any unsaved progress will be lost.")
+	## Spawn-once/reuse dialog — connect confirmed to quit exactly once (the
+	## dialog is only ever opened by the Exit button here, so confirmed is
+	## always "quit").
+	if not _exit_confirmed_connected:
+		_confirm_dialog.confirmed.connect(func() -> void: get_tree().quit())
+		_exit_confirmed_connected = true
 
 
-# ─── Minimalist confirm dialog (custom, no ConfirmationDialog node — keeps
-## the same plain Control-node style as the rest of this menu) ────────────────
-func _open_confirm_dialog(message: String, on_confirm: Callable) -> void:
-	_close_confirm_dialog()   ## safety: never stack two
-
-	var theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.NEUTRAL)
-
-	_confirm_layer = CanvasLayer.new()
-	_confirm_layer.layer = 210   ## above the pause menu itself
-	add_child(_confirm_layer)
-
-	var dim: ColorRect = ColorRect.new()
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0.0, 0.0, 0.0, 0.55)
-	dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	_confirm_layer.add_child(dim)
-
-	## Same theme.bg/theme.border as the main panel (Jul 2026 fix — this
-	## used to be a third, slightly different gray).
-	var panel: Panel = UIKit.build_centered_panel(360.0, 140.0, theme)
-	var panel_style: StyleBoxFlat = panel.get_theme_stylebox("panel") as StyleBoxFlat
-	panel_style.content_margin_left   = 16.0
-	panel_style.content_margin_right  = 16.0
-	panel_style.content_margin_top    = 14.0
-	panel_style.content_margin_bottom = 14.0
-	_confirm_layer.add_child(panel)
-
-	var vbox: VBoxContainer = VBoxContainer.new()
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	vbox.add_theme_constant_override("separation", 12)
-	panel.add_child(vbox)
-
-	var lbl: Label = Label.new()
-	lbl.text = message
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	lbl.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-	lbl.add_theme_color_override("font_color", theme.text)
-	lbl.add_theme_font_override("font", UIKit.font())
-	vbox.add_child(lbl)
-
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(row)
-
-	var yes_btn: Button = UIKit.make_button("Yes", func() -> void:
-		_close_confirm_dialog()
-		on_confirm.call())
-	yes_btn.custom_minimum_size = Vector2(100.0, 30.0)
-	row.add_child(yes_btn)
-
-	var no_btn: Button = UIKit.make_button("No", _close_confirm_dialog)
-	no_btn.custom_minimum_size = Vector2(100.0, 30.0)
-	row.add_child(no_btn)
+## Lazy-create the shared ConfirmDialogUI above the pause menu's layer.
+func _ensure_confirm_dialog() -> void:
+	if _confirm_dialog != null and is_instance_valid(_confirm_dialog):
+		return
+	var dlg_script: GDScript = load("res://scripts/ui/common/ConfirmDialogUI.gd")
+	if dlg_script == null:
+		push_warning("[PauseMenuUI] ConfirmDialogUI.gd not found")
+		return
+	_confirm_dialog = CanvasLayer.new()
+	_confirm_dialog.set_script(dlg_script)
+	_confirm_dialog.name = "ConfirmDialogUI"
+	_confirm_dialog.set("stacking_layer", 210)
+	add_child(_confirm_dialog)
 
 
 func _close_confirm_dialog() -> void:
-	if _confirm_layer != null and is_instance_valid(_confirm_layer):
-		_confirm_layer.queue_free()
-	_confirm_layer = null
+	if _confirm_dialog != null and is_instance_valid(_confirm_dialog):
+		_confirm_dialog.call("close")

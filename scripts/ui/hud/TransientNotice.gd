@@ -58,7 +58,8 @@ func _on_draw() -> void:
 	if _text.is_empty():
 		return
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	var tsz: Vector2 = _font.get_string_size(_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+	var fs: int = UIKit.theme_font_size("UI", "value", 13)   ## shared scale (was a bare 14)
+	var tsz: Vector2 = _font.get_string_size(_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
 	var pad: Vector2 = Vector2(20.0, 14.0)
 	var panel_size: Vector2 = tsz + pad * 2.0
 	## Top-center, below where most water/power panels open (those are
@@ -66,7 +67,8 @@ func _on_draw() -> void:
 	var px: float = (vp_size.x - panel_size.x) * 0.5
 	var py: float = 70.0
 	var rect: Rect2 = Rect2(px, py, panel_size.x, panel_size.y)
-	_canvas.draw_rect(rect, BG_COLOR, true)
-	_canvas.draw_rect(rect, BORDER_COLOR, false, 1.5)
+	## Shared rounded-rect primitive (Aug 2026 consistency pass — was two
+	## square draw_rect calls; default CORNER_RADIUS).
+	UIKit.draw_rounded_rect(_canvas, rect, BG_COLOR, BORDER_COLOR, 1.5)
 	_canvas.draw_string(_font, Vector2(px + pad.x, py + pad.y + tsz.y * 0.7),
-		_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, TEXT_COLOR)
+		_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, TEXT_COLOR)

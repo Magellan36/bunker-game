@@ -942,3 +942,16 @@ functionally conflict regardless of how the other one is implemented.
 - Any new shared cross-panel utility (like `UIFade`, `UIKit`) belongs in
   `scripts/ui/common/`, written as a small static-function `RefCounted`
   utility — not duplicated inline per-panel.
+
+## Controller support
+
+Every interactive panel attaches `ControllerUINavigation`
+(`scripts/ui/common/ControllerUINavigation.gd`): d-pad + optional left-stick
+focus (nearest-ahead scoring — vertical lists step one row at a time),
+B-close (topmost-aware across stacked CanvasLayers), slider d-pad adjust
+with hold-to-accelerate repeat, runtime A/B → `ui_accept`/`ui_cancel`, and
+public `is_active()` used by `InteractionSystem` to gate all world input
+while any nav UI is open. The per-UI wiring matrix, the mouse-motion
+deadzone, and the OS-cursor hiding live in
+`docs/systems/controller/README.md` — read it before adding controller
+support to a new panel.

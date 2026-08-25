@@ -662,7 +662,7 @@ func _on_settings_draw() -> void:
 		_settings_canvas.draw_line(
 			Vector2(mid_x, swatch_y + 3.0),
 			Vector2(mid_x, swatch_y + swatch_size - 3.0),
-			UI_BORDER * Color(1, 1, 1, 0.4), 1.0)
+			UI_BORDER * Color(1, 1, 1, 0.4), 1.0, true)
 
 	## ── State label ───────────────────────────────────────────────────────────
 	var state_y: float = title_y + 20.0

@@ -645,6 +645,12 @@ func _cancel() -> void:
 	_phase      = 0
 	_source_key = ""
 
+## Cancels the in-progress wire placement but STAYS in the wire tool (Aug
+## 2026 — controller B; mirrors the pipe tool's RMB/E cancel semantics).
+## The mode keeps processing so the player can immediately start a new wire.
+func cancel_placement() -> void:
+	_cancel()
+
 # ─── Grid snap helpers ────────────────────────────────────────────────────────
 const _WIRE_GRID: float = 0.25   ## must match PowerManager.SNAP_GRID
 ## Canonical wire height — must match MainWorld._rebuild_auto_wires WIRE_Y.

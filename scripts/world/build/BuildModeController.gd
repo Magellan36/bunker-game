@@ -18,6 +18,22 @@ class_name BuildModeController
 @export var ray_length:  float = 50.0  ## How far the placement raycast travels
 @export var grid_size:   float = 0.25  ## Snap grid cell size (quarter-unit grid)
 
+## Radial deadzone for the controller build cursor (0..1 of the raw right
+## stick). Below this the cursor is idle; above it the stick is re-normalized
+## with a smooth ramp so there is no jump at the edge of the deadzone. 0.2
+## matches Godot's default joypad deadzone and covers typical resting stick
+## offset/drift.
+const CURSOR_DEADZONE: float = 0.2
+## Cursor speed at full stick deflection, as a fraction of viewport height
+## per second (so it scales with resolution).
+const CURSOR_MAX_SPEED: float = 0.55
+## Exponential-smoothing rate for the stick aim (1/s). Higher = the cursor
+## tracks the stick more tightly but is noisier; lower = smoother but laggier.
+const CURSOR_SMOOTH: float = 12.0
+## LT / RT trigger threshold (axes report 0..1) — above this the trigger
+## counts as "pressed" for the rotate-once-per-press edge detection.
+const TRIGGER_THRESHOLD: float = 0.5
+
 # ─── External refs (set by MainWorld) ─────────────────────────────────────────
 var gridmap:      GridMap      = null   ## The BunkerLayout GridMap (floor only)
 var build_hud:    CanvasLayer  = null   ## BuildModeHUD node
@@ -200,6 +216,12 @@ var _active_tool:         int   = 0   ## Mirrors BuildModeHUD tool IDs (0=Constr
 var _selected_tile:       int   = TILE_WALL
 var _selected_tile_price: int   = 50
 var _ghost_active:        bool  = false
+## LT / RT trigger edge-detection state (rotate once per press).
+var _lt_held:             bool  = false
+var _rt_held:             bool  = false
+## Exponential-smoothed right-stick aim driving the build cursor — kills the
+## per-frame noise/jitter of the raw stick.
+var _cursor_aim_smoothed: Vector2 = Vector2.ZERO
 
 var _ghost:       MeshInstance3D = null
 var _ghost_valid: bool           = false
@@ -452,6 +474,8 @@ func exit_build_mode() -> void:
 	if _wall_draw_active and _wall_draw_mode != null:
 		_wall_draw_mode.deactivate()
 		_wall_draw_active = false
+		if build_hud != null:
+			build_hud.set_wall_draw_active(false)
 
 	if build_hud != null:
 		build_hud.hide_hud()
@@ -518,6 +542,8 @@ func _on_tool_selected(tool_id: int) -> void:
 	if _wall_draw_active and tool_id != 0 and _wall_draw_mode != null:
 		_wall_draw_mode.deactivate()
 		_wall_draw_active = false
+		if build_hud != null:
+			build_hud.set_wall_draw_active(false)
 
 	_active_tool = tool_id
 	_cancel_ghost()
@@ -569,6 +595,8 @@ func _on_construct_item_chosen(tile_id: int) -> void:
 		if not _wall_draw_active:
 			_wall_draw_active = true
 			_wall_draw_mode.activate()
+			if build_hud != null:
+				build_hud.set_wall_draw_active(true)
 		else:
 			if _wall_draw_mode.has_method("sync_selected_tier_from_controller"):
 				_wall_draw_mode.call("sync_selected_tier_from_controller")
@@ -581,6 +609,8 @@ func _on_construct_item_chosen(tile_id: int) -> void:
 	if _wall_draw_active and _wall_draw_mode != null:
 		_wall_draw_mode.deactivate()
 		_wall_draw_active = false
+		if build_hud != null:
+			build_hud.set_wall_draw_active(false)
 
 	_active_tool  = 0
 	_ghost_active = true
@@ -603,6 +633,21 @@ func _on_farming_item_chosen(item_id: int) -> void:
 
 func _on_cancel_requested() -> void:
 	_cancel_ghost()
+	## B cancels an active placement (Aug 2026). Walls have no ghost, so
+	## cancel them separately (and they live under the Construct tab anyway).
+	## Wire/pipe cancel the in-progress placement but STAY selected in their
+	## own tool — B must not jump back to the Construct tab.
+	if _wall_draw_active and _wall_draw_mode != null:
+		_wall_draw_mode.deactivate()
+		_wall_draw_active = false
+		if build_hud != null:
+			build_hud.set_wall_draw_active(false)
+	elif _active_tool == TOOL_WIRE and _wire_draw_mode != null:
+		if _wire_draw_mode.has_method("cancel_placement"):
+			_wire_draw_mode.call("cancel_placement")
+	elif _active_tool == TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
+		if _water_pipe_draw_mode.has_method("cancel_placement"):
+			_water_pipe_draw_mode.call("cancel_placement")
 	# If in move phase 1, cancel returns to hover phase
 	if _move_phase == 1:
 		_cancel_move_confirm()
@@ -719,24 +764,65 @@ func _process(_delta: float) -> void:
 	if not is_active or camera == null:
 		return
 
+	## Aug 2026 controller cursor — the right stick drives the build cursor by
+	## warping the OS mouse: every raycast/hover helper reads
+	## get_mouse_position(), so the ghost / deconstruct / duplicate / move /
+	## wire / pipe cursors all follow automatically. The look-steer is
+	## disabled in build mode (Player.gd) so the stick is free for this.
+	## (BuildModeHUD already hides the OS cursor and draws its own crosshair.)
+	## Mouse-motion mode-flipping is suppressed while the stick drives, since
+	## warping emits real mouse events (see InputMode).
+	if InputMode.is_controller():
+		_update_controller_cursor(_delta)
+	else:
+		InputMode.set_suppress_mouse_motion(false)
+
+	## LT / RT rotate the placement ghost (Aug 2026) — mirrors the mouse wheel.
+	## Triggers report as axes (not buttons), so poll with edge detection to
+	## rotate once per press.
+	var lt := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_LEFT)
+	var rt := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT)
+	if lt >= TRIGGER_THRESHOLD:
+		if not _lt_held:
+			_lt_held = true
+			if _ghost_active:
+				_rotate_ccw()
+	else:
+		_lt_held = false
+	if rt >= TRIGGER_THRESHOLD:
+		if not _rt_held:
+			_rt_held = true
+			if _ghost_active:
+				_rotate_cw()
+	else:
+		_rt_held = false
+
 	## Build Station exit prompt — the ONLY prompt visible during build
 	## mode, by design. InteractionSystem's own prompt logic is fully
 	## inert while build mode is active (see its _process() — it returns
 	## immediately without touching `prompt` at all now, see the
 	## InteractionSystem.gd coordination note below), so this is the sole
 	## owner of `interact_prompt` for the entire duration of build mode.
-	if build_station != null and interact_prompt != null and is_instance_valid(build_station):
+	var in_reach: bool = false
+	if build_station != null and is_instance_valid(build_station):
 		var player_node: Node3D = get_parent()
 		var dist: float = player_node.global_position.distance_to(build_station.global_position)
-		if dist <= BUILD_STATION_EXIT_REACH:
-			interact_prompt.set_prompts([{
-				"text":      "[E] Close Build Mode",
-				"world_pos": build_station.global_position + Vector3(0.0, 1.1, 0.0),
-				"dist":      dist,
-				"icons":     [],
-			}])
-		else:
-			interact_prompt.hide_prompt()
+		in_reach = dist <= BUILD_STATION_EXIT_REACH
+		if interact_prompt != null:
+			if in_reach:
+				interact_prompt.set_prompts([{
+					"text":      "[E] Close Build Mode",
+					"world_pos": build_station.global_position + Vector3(0.0, 1.1, 0.0),
+					"dist":      dist,
+					"icons":     [],
+				}])
+			else:
+				interact_prompt.hide_prompt()
+	## Controller (Aug 2026) — tell the HUD whether A is reserved for
+	## "Exit Build Mode", so its A branch lets the press fall through to
+	## the exit check in _unhandled_input instead of acting on the menu.
+	if build_hud != null:
+		build_hud.set_exit_available(in_reach)
 
 	if _wall_draw_active:
 		_update_wall_draw_refs()
@@ -853,6 +939,80 @@ func _process(_delta: float) -> void:
 			build_hud.hovered_dupe_rotate_pos = Vector3(-9999.0, -9999.0, -9999.0)
 
 # ─── Input ────────────────────────────────────────────────────────────────────
+## Builds a synthetic left-mouse-button press at the current cursor position
+## so the controller A button can drive the same click paths as the mouse.
+func _synthesize_left_click() -> InputEventMouseButton:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = true
+	ev.position = get_viewport().get_mouse_position()
+	return ev
+
+## Aug 2026 controller — A acts as a left-click at the cursor: wall/pipe/wire
+## draw modes place a segment per click, the placement ghost constructs, and
+## the deconstruct/duplicate/move tools act on the object under the cursor.
+## Mirrors _unhandled_input's own left-click routing order exactly.
+func _controller_action() -> bool:
+	var click := _synthesize_left_click()
+	if _active_tool == TOOL_WIRE and _wire_draw_mode != null:
+		if _wire_draw_mode.handle_input(click):
+			return true
+	if _active_tool == TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
+		if _water_pipe_draw_mode.handle_input(click):
+			return true
+	if _wall_draw_active and _wall_draw_mode != null:
+		if _wall_draw_mode.handle_input(click):
+			return true
+	if _ghost_active and _active_tool == 0:
+		_try_construct()
+		return true
+	match _active_tool:
+		1: _try_deconstruct(); return true
+		2: _try_duplicate(); return true
+		3: _try_move_click(); return true
+	return false
+
+## Analog controller-cursor update (Aug 2026): reads the RAW right stick
+## (bypassing the action deadzone so there is a single natural one), applies a
+## radial deadzone with a smooth ramp, exponential-smooths the aim to kill
+## jitter, then moves at a quadratic speed curve (slight pushes = fine
+## control, full deflection = fast). Warps the OS mouse so every raycast and
+## hover helper follows the cursor. While the stick is active, mouse-MOTION
+## mode-flipping is suppressed — warping emits real mouse events, and without
+## this InputMode would flap between controller and mouse every frame,
+## flickering every UI prompt.
+func _update_controller_cursor(delta: float) -> void:
+	var raw := Vector2(
+		Input.get_joy_axis(0, JOY_AXIS_RIGHT_X),
+		Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y),
+	)
+	var mag := raw.length()
+	if mag < CURSOR_DEADZONE:
+		## Stick at rest — snap the smoothed aim to zero instead of letting it
+		## coast, so the cursor stops dead (no release-linger) and resting
+		## stick offset/noise can never crawl it.
+		_cursor_aim_smoothed = Vector2.ZERO
+		InputMode.set_suppress_mouse_motion(false)
+		return
+	## Re-normalize with a smooth ramp: 0 at the deadzone edge → 1 at full.
+	raw = raw / mag * ((mag - CURSOR_DEADZONE) / (1.0 - CURSOR_DEADZONE))
+	_cursor_aim_smoothed = _cursor_aim_smoothed.lerp(
+		raw, 1.0 - exp(-CURSOR_SMOOTH * delta))
+	## Suppress InputMode's mouse-motion flip while the cursor is moving.
+	InputMode.set_suppress_mouse_motion(true)
+	if _cursor_aim_smoothed.length() <= 0.001:
+		return
+	## Quadratic speed response: length_squared() of the 0..1 aim.
+	var speed: float = CURSOR_MAX_SPEED * _cursor_aim_smoothed.length_squared()
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var step: Vector2 = _cursor_aim_smoothed.normalized() * (vp.y * speed * delta)
+	var new_pos: Vector2 = get_viewport().get_mouse_position() + step
+	## Keep the cursor inside the window (warping clamps anyway, but this keeps
+	## the drawn crosshair and the raycast origin consistent).
+	new_pos.x = clampf(new_pos.x, 0.0, vp.x)
+	new_pos.y = clampf(new_pos.y, 0.0, vp.y)
+	Input.warp_mouse(new_pos)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_active:
 		return
@@ -860,6 +1020,20 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Block all input while dig confirm dialog is open (except it handles its own input)
 	if build_hud != null and build_hud.dig_confirm_open:
 		return
+
+	## Build Station exit — E / A closes build mode, ALWAYS taking priority
+	## over every other build-mode action (placing, drawing, tool actions)
+	## while the player is within reach of the station. Checked FIRST, before
+	## the draw-mode delegation below, so a wall/wire/pipe segment can't
+	## steal A. The HUD's A branch lets A fall through here too whenever
+	## _exit_available is set (see set_exit_available / _process).
+	if event.is_action_pressed("interact") and build_station != null and is_instance_valid(build_station):
+		var player_node: Node3D = get_parent()
+		if player_node.global_position.distance_to(build_station.global_position) <= BUILD_STATION_EXIT_REACH:
+			if _main_world != null and _main_world.has_method("_toggle_build_mode"):
+				_main_world._toggle_build_mode()
+				get_viewport().set_input_as_handled()
+				return
 
 	# ── Wire tool: delegate ALL input to WireDrawMode ────────────────────────
 	# Handles mouse (LMB place, RMB cancel/exit) and keyboard (E/Escape = exit).
@@ -880,16 +1054,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 
-	## Build Station exit — E closes build mode entirely, but only within
-	## reach and only once no draw-mode tool has already claimed E for its
-	## own cancel/exit behavior above.
-	if event.is_action_pressed("interact") and build_station != null and is_instance_valid(build_station):
-		var player_node: Node3D = get_parent()
-		if player_node.global_position.distance_to(build_station.global_position) <= BUILD_STATION_EXIT_REACH:
-			if _main_world != null and _main_world.has_method("_toggle_build_mode"):
-				_main_world._toggle_build_mode()
-				get_viewport().set_input_as_handled()
-				return
+	## Aug 2026 controller — A acts as a left-click at the cursor (place /
+	## deconstruct / duplicate / move / wall-pipe-wire draw). BuildModeHUD
+	## lets A fall through here only for world actions, not UI ones. (The
+	## Build Station exit check above runs FIRST and always wins in reach.)
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_A:
+		if _controller_action():
+			get_viewport().set_input_as_handled()
+		return
 
 	if event is InputEventMouseButton and event.pressed:
 		match event.button_index:
@@ -1047,6 +1219,8 @@ func _on_wall_tool_exit_requested() -> void:
 	if _wall_draw_mode != null:
 		_wall_draw_mode.deactivate()
 	_wall_draw_active = false
+	if build_hud != null:
+		build_hud.set_wall_draw_active(false)
 	_active_tool = 0
 	_ghost_active = true
 	_spawn_ghost()

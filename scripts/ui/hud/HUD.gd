@@ -19,6 +19,11 @@ const FADE_IN_DURATION: float = 0.6
 var _fade_t: float = 0.0
 var _fading_in: bool = true
 
+## Soft-warning toast backing — deliberately WARM (military amber tone),
+## distinct from the neutral UI/bg used by modal panels; kept as a named
+## constant so the intent is explicit (Aug 2026 consistency pass).
+const WARNING_TOAST_BG: Color = Color(0.08, 0.07, 0.06, 0.82)
+
 # ─── Critical vignette ────────────────────────────────────────────────────────
 ## Pulses a red edge vignette when any stat is critical (< 20%)
 var _vignette_t: float  = 0.0
@@ -121,7 +126,7 @@ func spawn_float_label(screen_pos: Vector2, amount: int, positive: bool) -> void
 
 	var lbl: Label = Label.new()
 	lbl.text = ("+$%d" if positive else "-$%d") % amount
-	lbl.add_theme_font_size_override("font_size", 18)
+	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "float_label", 18))
 	var col: Color = Color(0.30, 0.95, 0.35, 1.0) if positive else Color(0.95, 0.28, 0.22, 1.0)
 	lbl.add_theme_color_override("font_color", col)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -179,7 +184,7 @@ func show_cash_delta(amount: int, positive: bool) -> void:
 
 	var lbl: Label = Label.new()
 	lbl.text = ("+$%d" if positive else "-$%d") % amount
-	lbl.add_theme_font_size_override("font_size", 12)
+	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "cash_delta", 12))
 	var col: Color = Color(0.30, 0.95, 0.35, 1.0) if positive else Color(0.95, 0.28, 0.22, 1.0)
 	lbl.add_theme_color_override("font_color", col)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -218,7 +223,7 @@ func show_soft_warning(text: String) -> void:
 	# Build the label
 	var lbl: Label = Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "warning", 14))
 	lbl.add_theme_color_override("font_color", Color(0.92, 0.78, 0.55, 1.0))  # warm amber — military style
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -227,7 +232,7 @@ func show_soft_warning(text: String) -> void:
 	var panel: PanelContainer = PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color            = Color(0.08, 0.07, 0.06, 0.82)
+	style.bg_color            = WARNING_TOAST_BG
 	style.corner_radius_top_left     = 4
 	style.corner_radius_top_right    = 4
 	style.corner_radius_bottom_left  = 4

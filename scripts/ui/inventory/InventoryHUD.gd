@@ -89,7 +89,7 @@ func show_error_message(text: String) -> void:
 
 func _build_viewports() -> void:
 	for i in 4:
-		var vp: SubViewport = ItemPreviewKit.build_viewport(self, int(SLOT_SIZE))
+		var vp: SubViewport = ItemPreviewKit.build_viewport(self, int(SLOT_SIZE), 1.5)
 		_viewports.append(vp)
 
 		# Grab the texture handle once — stays valid
@@ -123,10 +123,15 @@ func refresh_previews() -> void:
 	queue_redraw()
 
 func _set_preview(slot_idx: int, item) -> void:
-	## Delegates to the shared kit (Aug 2026) — see ItemPreviewKit.gd for
-	## the mesh-fetch/rotation/centering formula. Every other preview
-	## consumer (StorageUI) uses this exact same call.
-	ItemPreviewKit.set_item(_viewports[slot_idx], item)
+	## A slot can hold a stale freed reference (e.g. an item consumed while
+	## held before its slot was cleared). is_instance_valid() is the only
+	## reliable check — a freed ref can compare equal to null in Godot 4 —
+	## so only ever hand set_item() a null or genuinely-valid item, never a
+	## dead reference (its typed param would throw on it).
+	if item == null:
+		ItemPreviewKit.set_item(_viewports[slot_idx], null)
+	elif is_instance_valid(item):
+		ItemPreviewKit.set_item(_viewports[slot_idx], item)
 
 # ─── Draw ─────────────────────────────────────────────────────────────────────
 func _draw() -> void:

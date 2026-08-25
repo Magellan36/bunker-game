@@ -60,6 +60,20 @@ var _hold_point: Node3D     = null
 var _grace_timer: float       = 0.0
 var _out_of_range_time: float = 0.0
 
+## Settle-to-sleep (Aug 2026) — a furnished bunker quickly fills with loose
+## RigidBody3D items (produce, cans, bottles, …) and each AWAKE body is a
+## per-tick physics cost. Godot's own auto-sleep (0.5 m/s) usually handles
+## it, but stacked/jittering bodies can stay awake indefinitely. Once an
+## unheld item is genuinely still for SETTLE_FRAMES, force `sleeping = true`
+## to drop it out of the physics step entirely; pickup() wakes it again.
+## Self-managing: any contact (player/NPC bump) wakes it and the counter
+## restarts. Frozen (placed/shelved) bodies skip this entirely.
+const SETTLE_VELOCITY: float = 0.06    ## m/s
+const SETTLE_ANGULAR: float = 0.12     ## rad/s
+const SETTLE_FRAMES: int = 25          ## ~0.4 s of stillness at 60 Hz
+
+var _settle_frames: int = 0
+
 ## Real collision-shape footprint, computed lazily on first pickup() (see
 ## below) rather than in _ready() — Basket/CookingPot build their
 ## CollisionShape3D procedurally AFTER their own _ready() calls super()
@@ -131,6 +145,25 @@ func set_nav_obstacle_enabled(enabled: bool) -> void:
 	if _nav_obstacle != null:
 		_nav_obstacle.avoidance_enabled = enabled
 
+## ─── Deactivate / restore for stored & placed items (Aug 2026) ──────────────
+## A frozen item (placed, shelved, basket-stashed, stove-resting, in an
+## inventory slot, etc.) still burns CPU every frame even though its physics
+## body isn't simulated: the per-item _physics_process callback, the
+## contact_monitor flag, and — most expensively — the NavigationObstacle3D
+## avoidance (RVO) all keep running regardless of the frozen state.
+## deactivate_dynamic_state() kills all three for the item's stored lifetime;
+## restore_dynamic_state() brings them back when it becomes dynamic again
+## (pickup/drop/knockout handle the held-vs-loose avoidance split).
+func deactivate_dynamic_state() -> void:
+	set_physics_process(false)
+	contact_monitor = false
+	set_nav_obstacle_enabled(false)
+
+func restore_dynamic_state() -> void:
+	set_physics_process(true)
+	contact_monitor = true
+	set_nav_obstacle_enabled(true)
+
 ## Generic, shape-agnostic bounding-circle radius computed from this item's
 ## ACTUAL collision geometry (every CollisionShape3D child, compound shapes
 ## included) rather than a hardcoded per-item guess — same "trust the real
@@ -158,7 +191,9 @@ func _compute_obstacle_radius() -> float:
 # ─── Physics: follow hold point + knockout check ─────────────────────────────
 func _physics_process(delta: float) -> void:
 	if not is_held or _hold_point == null:
+		_apply_settle_sleep()
 		return
+	_settle_frames = 0
 
 	if _grace_timer > 0.0:
 		_grace_timer -= delta
@@ -204,6 +239,22 @@ func _physics_process(delta: float) -> void:
 			and Input.is_key_pressed(KEY_CTRL):
 		slerp_to_upright(delta, UPRIGHT_SLERP_SPEED)
 
+## Loose, at-rest item → force it to sleep so it stops costing a physics
+## step every tick. Only genuinely-settled, unheld, unfrozen bodies apply;
+## moving bodies just reset the counter. Once asleep, a real contact wakes
+## it and the cycle restarts automatically.
+func _apply_settle_sleep() -> void:
+	if freeze or sleeping:
+		return
+	if linear_velocity.length() < SETTLE_VELOCITY \
+			and angular_velocity.length() < SETTLE_ANGULAR:
+		_settle_frames += 1
+		if _settle_frames >= SETTLE_FRAMES:
+			_settle_frames = 0
+			sleeping = true
+	else:
+		_settle_frames = 0
+
 ## Continuous (no state machine) head-clearance boost for bulky held items.
 ## Compares the item's ACTUAL current bearing from the player against its
 ## TARGET bearing — the angular gap between them is large exactly when a
@@ -242,6 +293,8 @@ func get_use_prompt() -> String:
 # ─── Pickup ──────────────────────────────────────────────────────────────────
 func pickup(hold_point: Node3D) -> void:
 	is_held            = true
+	sleeping           = false   ## wake from settle-to-sleep (Aug 2026)
+	restore_dynamic_state()   ## undo a stored/placed item's deactivation (Aug 2026)
 	_hold_point        = hold_point
 	_grace_timer       = pickup_grace
 	_out_of_range_time = 0.0
@@ -298,6 +351,7 @@ func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vecto
 	freeze_mode     = RigidBody3D.FREEZE_MODE_STATIC
 	collision_layer = 1
 	collision_mask  = 1
+	deactivate_dynamic_state()   ## placed/frozen — stop spending CPU on it (Aug 2026)
 	add_to_group("pickup")
 	_set_held_culling(false)
 	_on_drop_extra()
@@ -312,6 +366,7 @@ func _do_knocked_out() -> void:
 	collision_layer = 1
 	collision_mask  = 1
 	linear_velocity = Vector3(randf_range(-2.0, 2.0), 2.0, randf_range(-2.0, 2.0))
+	restore_dynamic_state()   ## back to a live loose item (Aug 2026)
 	_set_held_culling(false)
 	knocked_out.emit()
 
@@ -327,6 +382,7 @@ func _set_held_culling(held: bool) -> void:
 ## after spawning (so it doesn't fall through a floor that physics hasn't
 ## "seen" yet), then call this deferred to unfreeze it.
 func _unfreeze_after_spawn() -> void:
+	restore_dynamic_state()   ## spawn freeze was transient — back to live (Aug 2026)
 	freeze = false
 
 # ─── Upright interpolation (Aug 2026) ─────────────────────────────────────────

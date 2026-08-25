@@ -71,6 +71,8 @@ var _highlight_tween:  Tween = null
 var _node_key: String = ""
 var _water_fraction_cached: float = 0.0
 var _connected_cached: bool = false
+## Cached WaterManager ref — lazy-resolved once (was a per-frame group scan).
+var _wm: WaterManager = null
 
 ## Farming Polish Plan Group 6 item 13 (perf) — batched per-hookup solve
 ## cache, shared by EVERY FarmingTray instance (static). Only one hookup is
@@ -158,16 +160,17 @@ func _register_deferred() -> void:
 	_node_key = wm.register_node(to_global(Vector3(edge_x, BASIN_TOP_Y, 0.0)), "endpoint", self)
 
 func _process(_delta: float) -> void:
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
-	if wm == null or _node_key.is_empty():
+	if _wm == null:
+		_wm = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	if _wm == null or _node_key.is_empty():
 		_water_fraction_cached = 0.0
 		_connected_cached = false
 		return
-	_connected_cached = wm.is_reachable_from_hookup(_node_key)
+	_connected_cached = _wm.is_reachable_from_hookup(_node_key)
 	if not _connected_cached:
 		_water_fraction_cached = 0.0
 		return
-	var map: Dictionary = _get_batched_hookup_map(wm)
+	var map: Dictionary = _get_batched_hookup_map(_wm)
 	var received_mL_per_day: float = float(map.get(_node_key, 0.0))
 	var demand: float = get_current_demand_mL_per_day()
 	_water_fraction_cached = clampf(received_mL_per_day / demand, 0.0, 1.0) if demand > 0.0 else 0.0

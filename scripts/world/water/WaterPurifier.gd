@@ -68,6 +68,9 @@ var _warned_low: bool = false
 ## reads the cached result" convention _refresh_band_tint()/filter_quality
 ## already establish.
 var current_flow_mL_per_day: float = 0.0
+## Cached refs — lazy-resolved once (were per-frame group scans).
+var _wm: WaterManager = null
+var _player_stats: Node = null
 
 ## Flow-Based Filter Wear plan §1.2 — fixed absolute mL/day thresholds
 ## (deliberately NOT the same numbers as WaterInfoUI's flow-color bands,
@@ -137,9 +140,10 @@ func _process(delta: float) -> void:
 	## old flat max-on-dirty-water rate — see plan §1.3, this is the point
 	## of the feature, not a bug to guard against.
 	if not node_key.is_empty():
-		var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
-		if wm != null:
-			current_flow_mL_per_day = wm.get_flow_through_purifier_mL(node_key)
+		if _wm == null:
+			_wm = get_tree().get_first_node_in_group("water_manager") as WaterManager
+		if _wm != null:
+			current_flow_mL_per_day = _wm.get_flow_through_purifier_mL(node_key)
 	var quality_mult: float = _compute_wear_multiplier()
 	var flow_mult: float    = _compute_flow_wear_multiplier(current_flow_mL_per_day)
 	var rate: float = _compute_depletion_per_second() * quality_mult * flow_mult
@@ -181,9 +185,10 @@ func _fire_low_filter_notice() -> void:
 
 func _compute_depletion_per_second() -> float:
 	var seconds_per_game_day: float = 86400.0   ## real-day fallback if PlayerStats isn't found yet
-	var stats: Node = get_tree().get_first_node_in_group("player_stats")
-	if stats != null and "_seconds_per_game_hour" in stats:
-		seconds_per_game_day = stats._seconds_per_game_hour * 24.0
+	if _player_stats == null:
+		_player_stats = get_tree().get_first_node_in_group("player_stats")
+	if _player_stats != null and "_seconds_per_game_hour" in _player_stats:
+		seconds_per_game_day = _player_stats._seconds_per_game_hour * 24.0
 	return 100.0 / (FILTER_LIFESPAN_DAYS * seconds_per_game_day)
 
 ## Wear multiplier (Jul 2026 follow-up, Brannon's confirmed spec) — filter

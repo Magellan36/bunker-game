@@ -27,6 +27,19 @@ extends RefCounted
 ##     var theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.WATER)
 ##     UIKit.draw_panel(_canvas, panel_rect, theme)
 ##     var close_rect: Rect2 = UIKit.draw_close_button(_canvas, panel_rect, theme)
+##
+## ─── Which style to use for a new panel ─────────────────────────────────────
+## Hand-drawn (_draw() + this file's draw_* primitives): the default for any
+## panel that's just showing info + simple buttons — GeneratorInspectUI,
+## ConfirmDialogUI, BatteryBank are the reference examples.
+## Real Control/Panel/Button tree (this file's build_*/make_* helpers):
+## required whenever the panel needs text INPUT (LineEdit), SCROLLING
+## (ScrollContainer), or focus-based NAVIGATION (controller support via
+## ControllerUINavigation.gd needs real focusable Controls to move between)
+## — PauseMenuUI, GraphicsSettingsPanel, NPCTalkMenuUI, ZoneCustomizeUI are
+## the reference examples. Don't hand-roll scrolling/focus in a hand-drawn
+## panel — use a real Control tree instead. (Real-Control panels use
+## make_close_button(); hand-drawn ones use draw_close_button().)
 
 enum Domain { WATER, POWER, NEUTRAL, FARMING }
 
@@ -48,8 +61,8 @@ class UITheme:
 	var warn:   Color
 	var crit:   Color
 	var accent: Color   ## Jul 2026 — domain identity color, used ONLY for the
-	                     ## top stripe now that bg/border/etc. are shared
-	                     ## across all domains (see draw_domain_stripe below).
+						 ## top stripe now that bg/border/etc. are shared
+						 ## across all domains (see draw_domain_stripe below).
 
 
 # ─── Shared font (Jul 2026: replaces ~20 independent load() calls of the
@@ -62,6 +75,36 @@ static func font() -> Font:
 		if _font == null:
 			_font = ThemeDB.fallback_font
 	return _font
+
+
+# ─── BunkerTheme (the single source of truth for every panel's design tokens) ─
+## All code-drawn panels load their palette + geometry from
+## `assets/fonts/BunkerTheme.tres` via these helpers. `fallback` values keep a
+## panel working even if the theme resource is missing or a key is absent.
+static var _bunker_theme: Theme = null
+
+static func bunker_theme() -> Theme:
+	if _bunker_theme == null:
+		_bunker_theme = load("res://assets/fonts/BunkerTheme.tres") as Theme
+	return _bunker_theme
+
+static func theme_color(type: String, name: String, fallback: Color) -> Color:
+	var t := bunker_theme()
+	if t == null:
+		return fallback
+	return t.get_color(name, type)
+
+static func theme_constant(type: String, name: String, fallback: int) -> int:
+	var t := bunker_theme()
+	if t == null:
+		return fallback
+	return t.get_constant(name, type)
+
+static func theme_font_size(type: String, name: String, fallback: int) -> int:
+	var t := bunker_theme()
+	if t == null:
+		return fallback
+	return t.get_font_size(name, type)
 
 
 # ─── Domain themes ───────────────────────────────────────────────────────────
@@ -77,84 +120,45 @@ static func theme_for(domain: Domain) -> UITheme:
 			return _neutral_theme()
 
 
-## Copied verbatim from WaterDispenserUI.gd's BG_COLOR..CRIT_COLOR (its
-## OK_COLOR is blue, meaning "on target" for the receiving rate — same role
-## `ok` plays here).
+## Shared bg/border/header/text/dim/ok/warn/crit — now read from
+## BunkerTheme's UI section (the single source of truth). Only `accent`
+## (the domain stripe color) differs per domain.
+static func _shared_theme() -> UITheme:
+	var t: UITheme = UITheme.new()
+	t.bg     = theme_color("UI", "bg", Color(0.08, 0.08, 0.09, 0.97))
+	t.border = theme_color("UI", "border", Color(0.55, 0.58, 0.62, 0.70))
+	t.header = theme_color("UI", "header", Color(0.80, 0.82, 0.86, 1.00))
+	t.text   = theme_color("UI", "text", Color(0.85, 0.86, 0.88, 0.95))
+	t.dim    = theme_color("UI", "dim", Color(0.50, 0.52, 0.55, 0.80))
+	t.ok     = theme_color("UI", "ok", Color(0.35, 0.85, 1.00, 1.00))
+	t.warn   = theme_color("UI", "warn", Color(1.00, 0.72, 0.10, 1.00))
+	t.crit   = theme_color("UI", "crit", Color(1.00, 0.35, 0.30, 1.00))
+	return t
+
+
 static func _water_theme() -> UITheme:
-	## Jul 2026 — bg/border/header/text/dim/ok/warn/crit now identical to
-	## POWER and NEUTRAL (Brannon's explicit call: "same UI... otherwise
-	## exact same"). Only `accent` (used for the top stripe) still differs
-	## by domain. The values below are literally NEUTRAL's, copied so this
-	## function has no cross-function dependency.
-	var t: UITheme = UITheme.new()
-	t.bg     = Color(0.08, 0.08, 0.09, 0.97)
-	t.border = Color(0.55, 0.58, 0.62, 0.70)
-	t.header = Color(0.80, 0.82, 0.86, 1.00)
-	t.text   = Color(0.85, 0.86, 0.88, 0.95)
-	t.dim    = Color(0.50, 0.52, 0.55, 0.80)
-	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
-	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
-	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
-	t.accent = Color(0.40, 0.75, 1.00, 1.00)   ## blue — water's stripe color
+	var t := _shared_theme()
+	t.accent = theme_color("UI", "water_accent", Color(0.40, 0.75, 1.00, 1.00))
 	return t
 
 
-## Copied verbatim from PowerTerminalUI.gd's BG_COLOR..OK_COLOR.
 static func _power_theme() -> UITheme:
-	## Jul 2026 — bg/border/header/text/dim/ok/warn/crit now identical to
-	## WATER and NEUTRAL (Brannon's explicit call: "same UI... otherwise
-	## exact same"). Only `accent` (used for the top stripe) still differs
-	## by domain.
-	var t: UITheme = UITheme.new()
-	t.bg     = Color(0.08, 0.08, 0.09, 0.97)
-	t.border = Color(0.55, 0.58, 0.62, 0.70)
-	t.header = Color(0.80, 0.82, 0.86, 1.00)
-	t.text   = Color(0.85, 0.86, 0.88, 0.95)
-	t.dim    = Color(0.50, 0.52, 0.55, 0.80)
-	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
-	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
-	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
-	t.accent = Color(0.90, 0.80, 0.20, 1.00)   ## Jul 2026 — yellow (was green), power's stripe color
+	var t := _shared_theme()
+	t.accent = theme_color("UI", "power_accent", Color(0.90, 0.80, 0.20, 1.00))
 	return t
 
 
-## New theme, no existing precedent — proposed default from the plan's
-## §1.3, signed off by Brannon before any NEUTRAL-domain file is migrated.
-## Warm steel-gray/silver, distinct from both blue (water) and green
-## (power). Status colors (ok/warn/crit) intentionally reuse the same hues
-## as water/power — "status" should read the same regardless of which
-## panel you're looking at; only identity/border/header vary by domain.
+## Warm steel-gray/silver NEUTRAL accent (same as header — no stripe drawn).
 static func _neutral_theme() -> UITheme:
-	var t: UITheme = UITheme.new()
-	t.bg     = Color(0.08, 0.08, 0.09, 0.97)
-	t.border = Color(0.55, 0.58, 0.62, 0.70)
-	t.header = Color(0.80, 0.82, 0.86, 1.00)
-	t.text   = Color(0.85, 0.86, 0.88, 0.95)
-	t.dim    = Color(0.50, 0.52, 0.55, 0.80)
-	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
-	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
-	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
-	t.accent = t.header   ## unused in practice — NEUTRAL panels (Pause/
-	                       ## Settings) don't get a domain stripe — set for
-	                       ## completeness so nothing reads a null Color.
+	var t := _shared_theme()
+	t.accent = theme_color("UI", "neutral_accent", Color(0.80, 0.82, 0.86, 1.00))
 	return t
 
 
-## Jul 2026 — new domain for FarmingTrayUI (1x1 and 2x1 trays, one file
-## handles both sizes). Same shared bg/border/header/text/dim/ok/warn/crit
-## as every other domain; only `accent` (the stripe color) is unique —
-## reusing the green POWER used before this pass moved to yellow.
+## Farming domain — green stripe.
 static func _farming_theme() -> UITheme:
-	var t: UITheme = UITheme.new()
-	t.bg     = Color(0.08, 0.08, 0.09, 0.97)
-	t.border = Color(0.55, 0.58, 0.62, 0.70)
-	t.header = Color(0.80, 0.82, 0.86, 1.00)
-	t.text   = Color(0.85, 0.86, 0.88, 0.95)
-	t.dim    = Color(0.50, 0.52, 0.55, 0.80)
-	t.ok     = Color(0.35, 0.85, 1.00, 1.00)
-	t.warn   = Color(1.00, 0.72, 0.10, 1.00)
-	t.crit   = Color(1.00, 0.35, 0.30, 1.00)
-	t.accent = Color(0.38, 0.85, 0.40, 1.00)   ## green — farming's stripe color
+	var t := _shared_theme()
+	t.accent = theme_color("UI", "farming_accent", Color(0.38, 0.85, 0.40, 1.00))
 	return t
 
 
@@ -239,6 +243,30 @@ static func draw_close_button(canvas: CanvasItem, panel_rect: Rect2, theme: UITh
 	draw_close_icon(canvas, close_rect)
 	return close_rect
 
+## Real-Control-node equivalent of draw_close_button() — for panels built
+## from Panel/Control trees rather than hand-drawn _draw() (e.g. StorageUI).
+## Positions itself top-right of `panel_size` (same 40/16/30×30 geometry as
+## the hand-drawn version), same dark-red bg + theme.crit border, and the
+## shared close_x.png icon. The caller adds it to its panel and passes a
+## callback (typically the panel's close()).
+static func make_close_button(panel_size: Vector2, cb: Callable, theme: UITheme) -> Button:
+	var btn: Button = Button.new()
+	btn.position = Vector2(panel_size.x - 40.0, 16.0)
+	btn.size = Vector2(30.0, 30.0)
+	btn.icon = _get_close_icon()
+	btn.expand_icon = true
+	var sb: StyleBoxFlat = StyleBoxFlat.new()
+	sb.bg_color = Color(0.10, 0.06, 0.06, 0.90)
+	sb.border_color = theme.crit
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(int(CORNER_RADIUS))
+	btn.add_theme_stylebox_override("normal", sb)
+	btn.add_theme_stylebox_override("hover", sb)
+	btn.add_theme_stylebox_override("pressed", sb)
+	if not cb.is_null():
+		btn.pressed.connect(cb)
+	return btn
+
 
 ## Labeled progress bar (background groove + colored fill + border) — the
 ## exact "visual fill display" pattern already reused for the dispenser
@@ -264,7 +292,7 @@ static func draw_header(canvas: CanvasItem, pos: Vector2, text: String, theme: U
 	if divider_width > 0.0:
 		var line_y: float = pos.y + 28.0
 		canvas.draw_line(Vector2(pos.x, line_y), Vector2(pos.x + divider_width, line_y),
-			Color(theme.border.r, theme.border.g, theme.border.b, 0.45), 1.0)
+			Color(theme.border.r, theme.border.g, theme.border.b, 0.45), 1.0, true)
 
 
 ## Text with a drop-shadow — every panel's `_draw_str()` helper does exactly
@@ -498,7 +526,12 @@ static func make_button(text: String, cb: Callable, min_height: float = 32.0) ->
 	pressed.bg_color = Color(0.10, 0.10, 0.12, 0.98)
 	btn.add_theme_stylebox_override("pressed", pressed)
 
-	btn.pressed.connect(cb)
+	## Skip connecting a null/empty callable — some callers build the button
+	## with Callable() and attach their real handler after styling (e.g.
+	## ResearchStationUI's 3-state tile button). Connecting a null Callable
+	## to 'pressed' would error.
+	if not cb.is_null():
+		btn.pressed.connect(cb)
 	return btn
 
 

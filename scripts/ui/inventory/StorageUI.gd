@@ -68,7 +68,6 @@ const SLOT_GAP:      int   = 18
 const BTN_SIZE:      float = 36.0
 const BTN_GAP:       float = 8.0
 const PANEL_PAD:     int   = 28
-const PANEL_RADIUS:  float = 14.0
 ## Aug 2026 — reduced from 22 to 4 (18px, half of BTN_SIZE) per the row-
 ## label removal below; this is now the ONLY vertical gap between rows.
 const ROW_GAP:        int   = 4
@@ -94,7 +93,9 @@ const XBOX_A_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_A.png")
 const XBOX_Y_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_Y.png")
 const HINT_BADGE_SIZE: int = 16
 
-const C_BG:          Color = Color(0.08, 0.08, 0.08, 0.92)
+## Panel background — theme-sourced in _load_theme() (Aug 2026 consistency
+## pass; was a hand-typed near-duplicate of UI/bg).
+var C_BG:          Color = Color(0.08, 0.08, 0.08, 0.92)
 const C_SLOT_BG:     Color = Color(0.13, 0.13, 0.13, 1.00)
 const C_SLOT_BORDER: Color = Color(0.28, 0.28, 0.28, 1.00)
 const C_BTN_INV:     Color = Color(0.22, 0.33, 0.50, 1.00)
@@ -107,6 +108,7 @@ const C_BADGE_TEXT:  Color = Color(0.80, 1.00, 0.85, 1.00)
 ## reopening a same-or-smaller storage type never rebuilds anything. ────────
 var _root: Control       = null
 var _panel: Panel        = null
+var _close_btn: Button   = null   ## real-Control close button (Aug 2026 consistency pass)
 var _pool_size: int      = 0
 var _viewports: Array    = []
 var _vp_rects: Array     = []
@@ -120,8 +122,15 @@ var _inv_btns: Array     = []
 ## the action buttons; A/Y act on the selected slot.
 var _slot_selectors: Array = []
 
+## Minimal theme hookup (Aug 2026 consistency pass) — this file has no full
+## theme migration, but C_BG now reads UI/bg so it can't drift from the
+## shared panel background.
+func _load_theme() -> void:
+	C_BG = UIKit.theme_color("UI", "bg", C_BG)
+
 func _ready() -> void:
 	layer = 10
+	_load_theme()
 	_build_root()
 	visible = false
 	## Controller navigation (Aug 2026) — d-pad moves focus across the slot
@@ -153,7 +162,7 @@ func _build_root() -> void:
 
 	var ss: StyleBoxFlat = StyleBoxFlat.new()
 	ss.bg_color = C_BG
-	ss.set_corner_radius_all(int(PANEL_RADIUS))
+	ss.set_corner_radius_all(int(UIKit.CORNER_RADIUS))   ## shared panel radius (was a local 14.0)
 	ss.set_border_width_all(1)
 	ss.border_color = Color(0.30, 0.30, 0.30, 0.80)
 	_panel.add_theme_stylebox_override("panel", ss)
@@ -183,7 +192,7 @@ func _add_pool_slot() -> void:
 	## Applies to every StorageUI consumer uniformly (Shelving/Basket/End
 	## Table/Dresser all share this one call site) — keeps the one-shared-
 	## formula principle intact rather than special-casing any single type.
-	var vp: SubViewport = ItemPreviewKit.build_viewport(_root, PREVIEW_SIZE, 1.25)
+	var vp: SubViewport = ItemPreviewKit.build_viewport(_root, PREVIEW_SIZE, 1.5)
 
 	var slot_bg: Panel = Panel.new()
 	var slot_ss: StyleBoxFlat = StyleBoxFlat.new()
@@ -377,6 +386,16 @@ func _layout_panel() -> void:
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
 	_panel.size     = Vector2(panel_w, panel_h)
 	_panel.position = (vp_size - _panel.size) * 0.5
+
+	## Close button (real Control — this panel is a Control tree, so the
+	## hand-drawn draw_close_button() doesn't apply here). Created once,
+	## repositioned on re-layout.
+	if _close_btn == null:
+		_close_btn = UIKit.make_close_button(_panel.size, close,
+			UIKit.theme_for(UIKit.Domain.NEUTRAL))
+		_panel.add_child(_close_btn)
+	else:
+		_close_btn.position = Vector2(_panel.size.x - 40.0, 16.0)
 
 	var title: Label = _panel.get_node("Title")
 	title.position = Vector2(0, PANEL_PAD * 0.5)

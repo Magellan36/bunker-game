@@ -20,7 +20,14 @@ extends Node3D
 ## PlayerModel.tscn was — see that scene for wiring.
 
 ## Crossfade time between animation states, in seconds.
-const BLEND_TIME: float = 0.15
+const BLEND_TIME: float = 0.3
+## Longer ease between the base locomotion states (idle↔walk↔run). The
+## gender-specific locomotion poses differ noticeably from each other
+## (male idle especially), so the standard 0.3s blend still reads as a snap
+## on walk↔run and ↔idle. Carry and sit transitions keep BLEND_TIME.
+const LOCOMOTION_BLEND_TIME: float = 0.5
+## Base locomotion states that transition with the longer ease above.
+const LOCOMOTION_STATES: Array[String] = ["idle", "walk", "run"]
 
 ## Run only kicks in once real velocity is closing in on sprint_speed.
 const RUN_SPEED_FRACTION: float = 0.85
@@ -71,12 +78,82 @@ const ANIMATION_NAMES: Dictionary = {
 	"idle_carry": "idle_carry_lib/idle_carry",
 	"walk_carry": "walk_carry_lib/walk_carry",
 	"run_carry": "run_carry_lib/run_carry",
+	"stand_to_sit": "stand_to_sit_lib/stand_to_sit",
+	"sit": "sit_lib/sit",
+	"sit_to_stand": "sit_to_stand_lib/sit_to_stand",
+}
+
+## Male-only idle override (Aug 2026) — the Male Locomotion Pack idle clip
+## replaces the idle for MALE bodies only; walk/run/carry/sit and every
+## female state keep the shared ANIMATION_NAMES.
+const MALE_ANIMATION_NAMES: Dictionary = {
+	"idle": "idle_male_lib/idle_male",
+}
+
+## Female-only idle override (Aug 2026) — the Female Basic Locomotion Pack
+## idle clip replaces the idle for FEMALE bodies only; walk/run/carry/sit
+## and every male state keep the shared ANIMATION_NAMES.
+const FEMALE_ANIMATION_NAMES: Dictionary = {
+	"idle": "idle_female_lib/idle_female",
 }
 
 var _player: CharacterBody3D = null
 var _anim_player: AnimationPlayer = null
 var _current_state: String = ""
+var _last_state: String = ""
 var _visual_yaw: float = 0.0
+## Which body gender this controller loaded — drives MALE_ANIMATION_NAMES
+## selection in _resolve_anim_name(). Set in _ready() from
+## CharacterCreationData (player) or the per-NPC random roll.
+var _gender: String = "male"
+
+## Sit lifecycle (Aug 2026): "" = standing/normal locomotion.
+## "sitting_down" → "seated" → "standing_up" → "" drives the imported
+## stand_to_sit / sit / sit_to_stand sequence. The transitions advance on
+## AnimationPlayer.animation_finished (see _on_anim_finished).
+var _sit_phase: String = ""
+
+## Aug 2026 — the two horizontal anchor points the sit sequence eases
+## between: the approach spot (near the chair's front edge, where sitting
+## down starts / standing up ends) and the seat center (where sitting down
+## ends / standing up starts). Set by MainWorld.gd right as the sit
+## sequence begins — see _wire_chair()'s seat_requested handler.
+var _chair_approach_pos: Vector3 = Vector3.ZERO
+var _chair_seat_pos: Vector3 = Vector3.ZERO
+
+## Aug 2026 (5th pass) — the constant vertical gap between where the
+## clips' own baked Hip motion naturally lands (a fixed floor anchor +
+## the skeleton's own physically-correct standing→seated knee-bend, see
+## docs/systems/player-model/README.md "Sit animation root-offset fix")
+## and the ACTUAL chair seat surface (`Chair.SEAT_Y`). These are
+## DIFFERENT things — the clip fix made the animation internally
+## consistent (feet grounded, natural knee-bend), but never had any
+## awareness of THIS specific chair's height. Measured directly via a
+## real, ground-truth headless Godot diagnostic (not Blender-space
+## assumptions): instantiate the actual body + sit_lib.res, seek to the
+## seated pose, read the real Skeleton3D Hip bone's world Y, compare
+## against Chair.SEAT_Y. Male and female bodies have different skeleton
+## proportions, hence different corrections — verified separately for
+## both. If SEAT_Y or either body's rig ever changes, re-measure rather
+## than guess (see the README section for the exact diagnostic script
+## used).
+const SEAT_HEIGHT_CORRECTION: Dictionary = {
+	"male": 0.3316,
+	"female": 0.4398,
+}
+
+## Aug 2026 — emitted the moment the stand_to_sit clip actually finishes
+## (sitting_down → seated), so the chair/world code can snap the player
+## down onto the actual seat position at exactly that moment — not
+## before. See MainWorld.gd's _wire_chair() for the consumer.
+signal sit_animation_finished()
+
+## Aug 2026 — emitted the moment the sit_to_stand clip actually finishes
+## (standing_up → ""), so the chair/world code can keep the player
+## anchored in place until the stand-up animation is genuinely done,
+## instead of snapping the player's position/physics loose the instant E
+## is pressed. See MainWorld.gd's _wire_chair() for the consumer.
+signal stand_animation_finished()
 
 func _ready() -> void:
 	var parent: Node = get_parent()
@@ -102,6 +179,7 @@ func _ready() -> void:
 		gender = _player.get_meta("_adventurer_random_gender")
 	else:
 		gender = CharacterCreationData.gender
+	_gender = gender
 
 	var body_scene_path: String = BODY_SCENE_PATHS.get(gender, BODY_SCENE_PATHS["male"])
 	var body_scene: PackedScene = load(body_scene_path)
@@ -169,42 +247,58 @@ func _ready() -> void:
 			var hips: NodePath = _find_bone_path(_anim_player, skeleton, "Hips")
 			if hips != NodePath():
 				_anim_player.root_motion_track = hips
+		_anim_player.animation_finished.connect(_on_anim_finished)
 		_play_state("idle")
-	## TEMP DIAGNOSTIC (Aug 2026) — investigating a reported T-pose/no-
-	## animation bug in the real Player.tscn context (an isolated test
-	## scene with the identical script DID animate correctly). Writes to
-	## a plain file instead of print/push_warning so it's readable outside
-	## the running process. Remove once resolved.
-	_dup_diag_log("[READY] gender=%s is_shadow_only=%s anim_player_found=%s skeleton_found=%s bone_count=%d has_idle=%s current_state=%s root_motion_track=%s" % [
-		gender, is_shadow_only, _anim_player != null, skeleton != null,
-		(skeleton.get_bone_count() if skeleton != null else -1),
-		(_anim_player.has_animation("idle_lib/idle") if _anim_player != null else false),
-		_current_state,
-		(str(_anim_player.root_motion_track) if _anim_player != null else "n/a"),
-	])
-
-static func _dup_diag_log(msg: String) -> void:
-	var path := "res://_dup_diag.log"
-	var existing := ""
-	if FileAccess.file_exists(path):
-		var rf := FileAccess.open(path, FileAccess.READ)
-		if rf != null:
-			existing = rf.get_as_text()
-			rf.close()
-	var wf := FileAccess.open(path, FileAccess.WRITE)
-	if wf != null:
-		wf.store_string(existing + "[%s] %s\n" % [Time.get_time_string_from_system(), msg])
-		wf.close()
 
 func _process(delta: float) -> void:
 	if _player == null:
 		return
 
-	_visual_yaw = lerp_angle(_visual_yaw, _player.rotation.y, clampf(turn_speed * delta, 0.0, 1.0))
+	## Sitting (Aug 2026): the model faces the seat's backrest — 180° from
+	## the character's own facing (which the seat flow points at the chair's
+	## open front). Same for player and NPC, both genders (shared controller).
+	## The offset holds for the WHOLE sit sequence (down/seated/up) so the
+	## transition clips don't snap 180° mid-play.
+	var seated: bool = _parent_seated()
+	var facing_target: float = _player.rotation.y
+	if seated or _sit_phase != "":
+		facing_target += PI
+	_visual_yaw = lerp_angle(_visual_yaw, facing_target, clampf(turn_speed * delta, 0.0, 1.0))
 	rotation.y = _visual_yaw - _player.rotation.y
 
 	if _anim_player == null:
 		return
+
+	## Sit sequence overrides locomotion entirely while it's active.
+	## Aug 2026 fix — the XZ-lerp calls below are guarded to the REAL
+	## (non-shadow) instance only. Both PlayerModel and PlayerModelShadow
+	## are separate AdventurerModelController instances under the SAME
+	## player node, both independently reaching this code every frame
+	## (seated just checks the shared _player.seated_chair) — without this
+	## guard, the shadow instance's own _chair_approach_pos/_chair_seat_pos
+	## (never set externally, still their Vector3.ZERO default) fought the
+	## real instance over the SAME shared player.global_position every
+	## frame, snapping the player to world origin.
+	if seated:
+		if _sit_phase == "":
+			_sit_phase = "sitting_down"
+			_play_state("stand_to_sit")
+		elif _sit_phase == "sitting_down":
+			if not is_shadow_only:
+				_lerp_sit_position(_chair_approach_pos, _chair_seat_pos, SIT_DOWN_CURVE, true)
+		elif _sit_phase == "seated":
+			_play_state("sit")   ## looped anchor, idempotent once current
+		return
+	## Not seated, but mid sit-sequence — play the stand-up and wait.
+	if _sit_phase == "sitting_down" or _sit_phase == "seated":
+		_sit_phase = "standing_up"
+		_play_state("sit_to_stand")
+		return
+	if _sit_phase == "standing_up":
+		if not is_shadow_only:
+			_lerp_sit_position(_chair_seat_pos, _chair_approach_pos, STAND_UP_CURVE, false)
+		return   ## waiting for sit_to_stand to finish → back to locomotion
+
 	var speed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
 	var next_state: String = "idle"
 	if speed > 0.1:
@@ -216,6 +310,85 @@ func _process(delta: float) -> void:
 		next_state += "_carry"
 	_play_state(next_state)
 
+## True while the owning character is seated in a chair. Player exposes
+## `seated_chair`; NPC.gd mirrors it (set by SitActivity/RelaxSitActivity).
+func _parent_seated() -> bool:
+	if _player == null:
+		return false
+	if "seated_chair" in _player:
+		return _player.seated_chair != null
+	return false
+
+## Advances the sit lifecycle when a one-shot sit clip finishes.
+func _on_anim_finished(_anim_name: StringName) -> void:
+	if _sit_phase == "sitting_down":
+		_sit_phase = "seated"
+		_play_state("sit")
+	elif _sit_phase == "standing_up":
+		_sit_phase = ""
+		stand_animation_finished.emit()
+
+## Aug 2026 — smoothly interpolates the player's horizontal (X/Z)
+## position between the chair's approach spot (near the front edge) and
+## its seat center. Vertical motion is untouched here; that's already
+## handled entirely by the animation's own baked Hip motion (see the Aug
+## 2026 root-offset fix in docs/systems/player-model/README.md).
+##
+## Aug 2026 (2nd pass) — the horizontal slide's PACE now follows one of
+## the two curves below instead of raw animation time. Sampled directly
+## from each clip's own baked Hip motion in Blender (21 evenly-spaced
+## points across the clip, standing/seated height mapped to 0/1): the
+## real sit-down/stand-up motion is NOT linear over time — e.g.
+## stand_to_sit stays essentially upright for the first ~10% of the clip,
+## does almost the entire vertical drop across the next ~55%, then holds
+## at seated height for the remaining ~35% (sit_to_stand is similarly
+## non-linear, just shaped differently — it isn't a mirror of the other).
+## Driving the horizontal slide by raw time put it badly out of sync with
+## the actual vertical motion: the body kept sliding sideways while still
+## standing tall, then dropped late, reading as "hovering" over the chair
+## rather than settling into it. Sampling these curves instead keeps the
+## horizontal slide's pace locked to however fast the body is actually
+## lowering/rising at each moment, so both motions read as one connected
+## movement instead of two independent ones.
+const SIT_DOWN_CURVE: PackedFloat32Array = [
+	0.0, 0.0014, 0.0055, 0.0324, 0.0658, 0.1023, 0.1660, 0.2703, 0.4118,
+	0.5398, 0.6790, 0.8071, 0.9037, 0.9782, 0.9967, 0.9996, 1.0, 1.0, 1.0, 1.0, 1.0,
+]
+const STAND_UP_CURVE: PackedFloat32Array = [
+	0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0069, 0.0643, 0.1632, 0.2603, 0.3574,
+	0.4398, 0.5505, 0.6667, 0.7474, 0.8217, 0.8633, 0.9039, 0.9410, 0.9692, 1.0,
+]
+
+## Piecewise-linear lookup into one of the curves above — maps a raw
+## 0..1 time fraction to the corresponding motion fraction.
+static func _sample_curve(curve: PackedFloat32Array, t: float) -> float:
+	var n: int = curve.size() - 1
+	var scaled: float = clampf(t, 0.0, 1.0) * n
+	var i: int = clampi(int(scaled), 0, n - 1)
+	var frac: float = scaled - i
+	return lerpf(curve[i], curve[i + 1], frac)
+
+func _lerp_sit_position(from_xz: Vector3, to_xz: Vector3, curve: PackedFloat32Array, is_sitting_down: bool) -> void:
+	if _player == null or _anim_player == null:
+		return
+	var length: float = _anim_player.current_animation_length
+	if length <= 0.0:
+		return
+	var raw_t: float = clampf(_anim_player.current_animation_position / length, 0.0, 1.0)
+	var t: float = _sample_curve(curve, raw_t)
+	_player.global_position.x = lerpf(from_xz.x, to_xz.x, t)
+	_player.global_position.z = lerpf(from_xz.z, to_xz.z, t)
+	## Aug 2026 (5th pass) — curve-synced seat-height correction, same
+	## timing as the X/Z slide above. is_sitting_down picks the direction
+	## explicitly (passed by the caller, not inferred) — correction eases
+	## IN while sitting down, eases back OUT while standing up.
+	var seat_correction: float = SEAT_HEIGHT_CORRECTION.get(_gender, 0.0)
+	var corrected_y: float = _chair_approach_pos.y - seat_correction
+	if is_sitting_down:
+		_player.global_position.y = lerpf(_chair_approach_pos.y, corrected_y, t)
+	else:
+		_player.global_position.y = lerpf(corrected_y, _chair_approach_pos.y, t)
+
 func _is_holding_item() -> bool:
 	if _player == null:
 		return false
@@ -226,13 +399,31 @@ func _is_holding_item() -> bool:
 	return false
 
 func _play_state(state: String) -> void:
-	var anim_name: String = ANIMATION_NAMES.get(state, state)
+	var anim_name: String = _resolve_anim_name(state)
 	if anim_name == _current_state:
 		return
 	if not _anim_player.has_animation(anim_name):
 		return
+	## Longer ease between base locomotion states (idle↔walk↔run) — the
+	## gender-specific poses differ enough that the standard blend reads as
+	## a snap, most visibly on the male model's distinct idle stance.
+	var blend: float = BLEND_TIME
+	if state == "idle" or _last_state == "idle" \
+			or (LOCOMOTION_STATES.has(state) and LOCOMOTION_STATES.has(_last_state)):
+		blend = LOCOMOTION_BLEND_TIME
+	_last_state = state
 	_current_state = anim_name
-	_anim_player.play(anim_name, BLEND_TIME)
+	_anim_player.play(anim_name, blend)
+
+## Gender-aware clip lookup: male uses MALE_ANIMATION_NAMES, female uses
+## FEMALE_ANIMATION_NAMES; any state not overridden (carry, sit) falls
+## through to the shared ANIMATION_NAMES for both genders.
+func _resolve_anim_name(state: String) -> String:
+	if _gender == "male" and MALE_ANIMATION_NAMES.has(state):
+		return String(MALE_ANIMATION_NAMES[state])
+	if _gender == "female" and FEMALE_ANIMATION_NAMES.has(state):
+		return String(FEMALE_ANIMATION_NAMES[state])
+	return String(ANIMATION_NAMES.get(state, state))
 
 static func _root_motion_track_valid(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> bool:
 	var track: NodePath = anim_player.root_motion_track

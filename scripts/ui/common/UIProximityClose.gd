@@ -17,16 +17,19 @@ var ui: Node = null
 var anchor: Vector3 = Vector3.ZERO
 ## Distance past which the UI closes.
 @export var max_distance: float = 3.0
+## Cached player ref — lazy-resolved once (was a per-frame group scan).
+var _player: Node3D = null
 
 func _process(_delta: float) -> void:
 	if ui == null or not ui.is_inside_tree():
 		return
 	if not _ui_open(ui):
 		return
-	var player := get_tree().get_first_node_in_group("player")
-	if player == null:
+	if _player == null:
+		_player = get_tree().get_first_node_in_group("player") as Node3D
+	if _player == null:
 		return
-	if player.global_position.distance_to(anchor) > max_distance:
+	if _player.global_position.distance_to(anchor) > max_distance:
 		if ui.has_method("close"):
 			ui.call("close")
 		elif ui.has_method("hide"):

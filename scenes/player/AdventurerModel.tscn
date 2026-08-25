@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/player/AdventurerModelController.gd" id="1_script"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_lib.res" id="2_idle"]
@@ -7,6 +7,11 @@
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_carry_lib.res" id="5_idle_carry"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_carry_lib.res" id="6_walk_carry"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/run_carry_lib.res" id="7_run_carry"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/stand_to_sit_lib.res" id="8_std2sit"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_lib.res" id="9_sit"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_to_stand_lib.res" id="10_std"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_male_lib.res" id="11_imale"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_female_lib.res" id="12_ifemale"]
 
 [node name="AdventurerModel" type="Node3D"]
 script = ExtResource("1_script")
@@ -18,5 +23,10 @@ libraries = {
 "run_lib": ExtResource("4_run"),
 "idle_carry_lib": ExtResource("5_idle_carry"),
 "walk_carry_lib": ExtResource("6_walk_carry"),
-"run_carry_lib": ExtResource("7_run_carry")
+"run_carry_lib": ExtResource("7_run_carry"),
+"stand_to_sit_lib": ExtResource("8_std2sit"),
+"sit_lib": ExtResource("9_sit"),
+"sit_to_stand_lib": ExtResource("10_std"),
+"idle_male_lib": ExtResource("11_imale"),
+"idle_female_lib": ExtResource("12_ifemale")
 }

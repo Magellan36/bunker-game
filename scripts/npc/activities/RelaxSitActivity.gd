@@ -31,6 +31,7 @@ func tick(npc: NPC, delta: float) -> void:
 	if npc.nav_finished() or flat_dist < 0.9:
 		if _chair.has_method("npc_try_sit") and _chair.npc_try_sit(npc):
 			_seated = true
+			npc.seated_chair = _chair
 			var t: Transform3D = _chair.get_seat_transform()
 			npc.global_position = t.origin
 			npc.rotation.y = t.basis.get_euler().y

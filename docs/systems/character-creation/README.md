@@ -21,7 +21,16 @@ throughout.
 |---|---|
 | `scenes/ui/character_creation/CharacterCreation.tscn` | The screen: narrow sidebar (categories + Randomise/Complete), fixed-width category panel, preview filling the rest. |
 | `scripts/ui/character_creation/CharacterCreationScreen.gd` | Sidebar category switching (Body/Hair real, rest disabled), per-gender hairstyle thumbnails, swatch color, Randomise, Complete→MainWorld. |
-| `scripts/ui/character_creation/CharacterPreviewViewport.gd` | Mouse-drag orbit / scroll-zoom on the preview area only. |
+| `scripts/ui/character_creation/CharacterPreviewViewport.gd` | Mouse-drag orbit / scroll-zoom on the preview area only (plus right-stick orbit/pan, see `docs/systems/controller/README.md`). |
+
+## Preview camera aim (Aug 2026)
+
+`CharacterPreviewViewport.gd`'s `look_at_point` (an `@export`, default
+`Vector3(0, 1.2, 0)`) controls where the orbital camera centers. Grounded
+in a bone measurement of the scaled body (feet y≈0.06, pelvis/Hips y≈1.12,
+head y≈1.98 after the 1.25× scale): the aim sits on the **stomach/navel
+region** so the full figure is framed and centered. Tune in the inspector;
+drag orbits (yaw only, no pitch) and the wheel zooms.
 | `scripts/core/CharacterCreationData.gd` | Autoload holding `gender` / `hairstyle_key` / `hair_tint_color`. |
 | `addons/jts_colorpickerkit/` | Vendored third-party color picker — present but currently **unreferenced** by this screen (see "Swatch palette" below). |
 

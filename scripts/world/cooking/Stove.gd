@@ -286,6 +286,8 @@ func try_place_pot(pot: Node) -> bool:
 		rb.collision_mask   = 0
 		rb.linear_velocity  = Vector3.ZERO
 		rb.angular_velocity = Vector3.ZERO
+		if pot.has_method("deactivate_dynamic_state"):
+			pot.deactivate_dynamic_state()   ## resting pot = physics/contacts/obstacle off (Aug 2026)
 	if "is_held" in pot:
 		pot.is_held = false
 	if pot.has_method("set_host_stove"):
@@ -358,6 +360,8 @@ func try_remove_pot() -> Node:
 		rb.gravity_scale   = 0.0
 		rb.collision_layer = 2
 		rb.collision_mask  = 1
+		if pot.has_method("restore_dynamic_state"):
+			pot.restore_dynamic_state()   ## off the stove — live again (Aug 2026)
 	if pot.has_method("set_host_stove"):
 		pot.set_host_stove(null)
 	_refresh_cooking_state()

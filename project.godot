@@ -35,19 +35,6 @@ window/size/viewport_height=1080
 window/size/mode=3
 window/size/borderless=true
 
-[gui]
-
-; UI text smoothness (Aug 2026) — subpixel positioning smooths small text
-; (was Disabled); hinting None removes the crunchy hinted glyph edges.
-theme/default_font_subpixel_positioning=1
-theme/default_font_hinting=0
-
-[rendering]
-
-; Canvas/UI texture filtering — explicitly Linear (the project default was
-; being relied on; guarantees icons/previews/texture-rect UI aren't Nearest).
-textures/canvas_textures/default_texture_filter=1
-
 [dotnet]
 
 project/assembly_name="BunkerGame"
@@ -55,6 +42,10 @@ project/assembly_name="BunkerGame"
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/jts_colorpickerkit/plugin.cfg", "res://addons/godot_mcp/plugin.cfg")
+
+[gui]
+
+theme/default_font_hinting=0
 
 [input]
 
@@ -162,3 +153,11 @@ aim_down={
 [physics]
 
 3d/physics_engine="Jolt Physics"
+; Many-object tuning (Aug 2026). Godot 4.7 ships Jolt built-in; the line
+; above selects it, so Jolt has been the ACTIVE engine all along. NOTE:
+; solver_iterations is Godot-Physics-only and Jolt IGNORES it (Jolt's
+; solver settings live under physics/jolt_physics_3d/); kept as a fallback.
+; The damping keys ARE honored by Jolt and settle loose items sooner.
+3d/default_linear_damp=0.2
+3d/default_angular_damp=0.2
+3d/solver/solver_iterations=10
