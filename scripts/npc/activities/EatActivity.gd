@@ -1,7 +1,10 @@
 extends NPCActivity
 class_name EatActivity
-## Hunger-driven. Nearest edible: cooked Dish / produce / FoodCan-with-
-## bites, loose in the world OR on a shelf (via Shelving.npc_retrieve).
+## Hunger-driven. Priority: loose edible → shelved edible (via
+## Shelving.npc_retrieve) → loose Can Case → shelved Can Case (Aug
+## 2026 — the last two tiers via NPCCaseFetch: take the case out if
+## shelved, eject one can, reshelve, then eat it like any other loose
+## find — shared with DrinkActivity's WaterCase handling).
 const CONSUME_TIME: float = 2.0
 const USE_RANGE:    float = 1.2
 
@@ -10,6 +13,7 @@ var _shelf_pick: Dictionary = {}
 var _eating: float = 0.0
 var _pending_snatch: Node = null   ## Part 30 — set in enter()/_reacquire_or_finish(), consumed on first tick()
 var _handoff: NPCActivity = null
+var _case_fetch: NPCCaseFetch = null   ## Aug 2026 — last-resort tier once loose+shelf both come up empty
 
 func label() -> String:
 	return "Eating" if _eating > 0.0 else "Getting food"
@@ -17,7 +21,12 @@ func label() -> String:
 func score(npc: NPC) -> float:
 	if npc.hunger >= 55.0:
 		return 0.0
+	## Aug 2026 — gate now covers all four fetch tiers (loose -> shelved food
+	## already covered by _find()/_find_shelf(); loose/shelved CAN CASE now
+	## covered too) plus snatch-eligibility, so Eating correctly stays
+	## available when only a stocked Can Case exists anywhere.
 	if _find(npc) == null and _find_shelf(npc).is_empty() \
+			and NPCItemUser.find_fetch_target(npc, Callable(NPCItemUser, "is_stocked_can_case")).is_empty() \
 			and not npc.is_npc_snatch_eligible(Callable(NPCItemUser, "is_edible")):
 		return 0.0
 	return (100.0 - npc.hunger) * 1.15 * npc.get_work_ethic_passive_mult()
@@ -41,6 +50,11 @@ func enter(npc: NPC) -> void:
 		_shelf_pick = _find_shelf(npc)
 		if not _shelf_pick.is_empty() and not NPCItemUser.claim_item(_shelf_pick.get("item"), npc):
 			_shelf_pick = {}
+	if _loose == null and _shelf_pick.is_empty():
+		## Aug 2026 — last-resort case tier. score() already confirmed one
+		## exists somewhere if we got this far with nothing else found.
+		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"), Callable(NPCItemUser, "is_edible"))
+		return
 	var tgt: Node3D = _loose if _loose != null \
 		else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
 	if tgt != null:
@@ -50,6 +64,14 @@ func tick(npc: NPC, delta: float) -> void:
 	if _pending_snatch != null:
 		_handoff = SnatchActivity.new(_pending_snatch, Callable(NPCItemUser, "is_edible"), true)
 		_pending_snatch = null
+		return
+	if _case_fetch != null:
+		if _case_fetch.is_done():
+			if not _case_fetch.failed():
+				_loose = _case_fetch.get_ejected_item()   ## hand off to the normal loose branch below, next tick
+			_case_fetch = null
+			return
+		_case_fetch.tick(npc, delta)
 		return
 	if _eating > 0.0:
 		npc.halt_movement(delta)
@@ -96,7 +118,8 @@ func tick(npc: NPC, delta: float) -> void:
 
 func done(npc: NPC) -> bool:
 	return _eating <= 0.0 and npc.held_item == null \
-		and _loose == null and _shelf_pick.is_empty() and _pending_snatch == null
+		and _loose == null and _shelf_pick.is_empty() and _pending_snatch == null \
+		and _case_fetch == null
 
 ## Part 17 — mirrors DrinkActivity's. Finishing one item (a full can, or
 ## a single-bite item) no longer ends the activity outright if hunger is
@@ -118,6 +141,9 @@ func _reacquire_or_finish(npc: NPC) -> void:
 		_shelf_pick = _find_shelf(npc)
 		if not _shelf_pick.is_empty() and not NPCItemUser.claim_item(_shelf_pick.get("item"), npc):
 			_shelf_pick = {}
+	if _loose == null and _shelf_pick.is_empty():
+		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"), Callable(NPCItemUser, "is_edible"))
+		return
 	var tgt: Node3D = _loose if _loose != null \
 		else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
 	if tgt != null:
@@ -132,6 +158,9 @@ func take_handoff() -> NPCActivity:
 	return h
 
 func exit(npc: NPC) -> void:
+	if _case_fetch != null:
+		_case_fetch.cleanup(npc)
+		_case_fetch = null
 	if _loose != null:
 		NPCItemUser.release_item(_loose)
 	if not _shelf_pick.is_empty():

@@ -14,6 +14,22 @@ const BACK_HEIGHT: float  = 0.5625  ## was 0.45 → ×1.25
 const LEG_HEIGHT: float   = SEAT_Y - SEAT_THICKNESS * 0.5   ## unchanged formula — auto-scales
 const FOOTPRINT: float    = 0.625   ## was 0.50 → ×1.25
 
+## Aug 2026 — the character's SEATED HEIGHT now targets the GLB's ACTUAL
+## visual seat top, not the invisible collision box (SEAT_Y). Measured from
+## wooden_chair.glb via a vertex-Y histogram: the dominant horizontal seat
+## slab sits at GLB-local Y ≈ 0.70, × CHAIR_MODEL_SCALE.y (0.7102) = 0.4971
+## in chair-local space. The old SEAT_Y (0.5625) is the collision-box CENTRE,
+## ~0.06 above the visible wood — which is why the sit read as floating/
+## sinking relative to the actual seat. SEAT_SURFACE_Y is where the hips
+## should land (used by AdventurerModelController._lerp_sit_position and
+## get_seat_transform). SEAT_Y stays for the invisible collision/hover box.
+const SEAT_SURFACE_Y: float = 0.4971
+
+## Small vertical cushion so the seated hips rest JUST above the wood instead
+## of visually sinking into it — the seated hip target is
+## SEAT_SURFACE_Y + SEAT_CLEARANCE (Aug 2026).
+const SEAT_CLEARANCE: float = 0.02
+
 const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)   ## Matches Table.gd
 
 const CHAIR_MODEL_PATH: String = "res://assets/models/wooden_chair.glb"
@@ -161,7 +177,7 @@ func npc_stand(npc: Node) -> void:
 ## seat instead of sinking into it) and nudged SEAT_FORWARD toward the chair's
 ## open front. See the constants' doc comment for the tuning rationale.
 func get_seat_transform() -> Transform3D:
-	var local_pos: Vector3 = Vector3(0.0, SEAT_Y + SEAT_RAISE, -SEAT_FORWARD)
+	var local_pos: Vector3 = Vector3(0.0, SEAT_SURFACE_Y + SEAT_RAISE, -SEAT_FORWARD)
 	var world_pos: Vector3 = global_transform * local_pos
 	var t: Transform3D = Transform3D(global_transform.basis, world_pos)
 	return t

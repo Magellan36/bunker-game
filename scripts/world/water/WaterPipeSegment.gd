@@ -54,7 +54,7 @@ var point_a: Vector3 = Vector3.ZERO
 var point_b: Vector3 = Vector3.ZERO
 
 var _mesh_instance: MeshInstance3D = null
-var _material: StandardMaterial3D  = null
+var _material: ShaderMaterial       = null
 
 ## Deconstruct-mode hover highlight (Jul 2026) — mirrors WireSegment.gd's
 ## set_highlight_delete() exactly, including reusing WireSegment.COLOR_DELETE's
@@ -74,6 +74,18 @@ var _arrow_mesh_instance: MeshInstance3D = null
 var _arrow_material: ShaderMaterial      = null
 const _ARROW_SHADER_PATH: String = "res://assets/shaders/pipe_flow.gdshader"
 const _ARROW_TEXTURE_PATH: String = "res://assets/textures/water/pipe_flow_arrow.png"
+
+## Plain matte pipe surface (Aug 2026) — see pipe_surface.gdshader. Triplanar
+## world-space tiling (no stretch on arbitrarily-long legs, matches
+## BuildMaterials' walls) + aperiodic grime to break up the tile grid + a
+## per-segment `phase` stagger so adjacent legs don't read as the same texture.
+const _SURFACE_SHADER_PATH: String = "res://assets/shaders/pipe_surface.gdshader"
+const SURFACE_TILE_SCALE: float = 0.083
+const SURFACE_ROUGHNESS: float = 0.6
+const SURFACE_METALLIC: float = 0.2
+## Random per-segment grime intensity (subtle variation between legs).
+const GRIME_STRENGTH_MIN: float = 0.2
+const GRIME_STRENGTH_MAX: float = 0.45
 ## Flat ribbon overlay (Jul 2026 rewrite, replaces the old wrap-around
 ## CylinderMesh + up-facing discard mask) — see docs/systems/water/README.md
 ## "Arrow shape distortion (kinked 'M' shapes)" section for the full
@@ -184,13 +196,29 @@ func _rebuild_mesh() -> void:
 	cyl.radial_segments = PIPE_SEGMENTS
 	cyl.rings = 1
 
-	_material = StandardMaterial3D.new()
-	_material.albedo_texture    = load("res://assets/textures/water/pipe/pipe_teal_diffuse.png")
-	_material.normal_enabled    = true
-	_material.normal_texture    = load("res://assets/textures/water/pipe/pipe_teal_normal.png")
-	_material.roughness_texture = load("res://assets/textures/water/pipe/pipe_teal_roughness.png")
-	_material.metallic          = 0.68
-	_material.roughness         = 0.45
+	_material = ShaderMaterial.new()
+	_material.shader = load(_SURFACE_SHADER_PATH)
+	_material.set_shader_parameter("albedo_tex", load("res://assets/textures/water/pipe/pipe_teal_diffuse.png"))
+	_material.set_shader_parameter("tile_scale", SURFACE_TILE_SCALE)
+	_material.set_shader_parameter("roughness", SURFACE_ROUGHNESS)
+	_material.set_shader_parameter("metallic", SURFACE_METALLIC)
+	## Per-segment randomization (Aug 2026, Part 1): a random `phase` staggers
+	## the triplanar tile + grime so each leg differs from its neighbours, and
+	## a random grime intensity varies the rust density subtly between legs.
+	## GHOST previews SKIP this — they're re-created every frame, so
+	## randomizing would make the preview texture flicker; ghosts use a fixed
+	## phase instead and stay stable wherever the cursor hovers.
+	if is_ghost:
+		_material.set_shader_parameter("phase", Vector3.ZERO)
+		_material.set_shader_parameter("grime_strength", 0.35)
+	else:
+		_material.set_shader_parameter("phase", Vector3(randf(), randf(), randf()))
+		_material.set_shader_parameter("grime_strength", randf_range(GRIME_STRENGTH_MIN, GRIME_STRENGTH_MAX))
+	## Resting tint = COLOR_PIPE (preserves the standing dark-grey look);
+	## set_highlight_delete() swaps tint/emission for the red hover.
+	_material.set_shader_parameter("tint", Vector3(COLOR_PIPE.r, COLOR_PIPE.g, COLOR_PIPE.b))
+	_material.set_shader_parameter("emission", Vector3(0.0, 0.0, 0.0))
+	_material.set_shader_parameter("emission_energy", 0.0)
 	## Normal depth test (unlike WireSegment) — this is a real physical object
 	## meant to be occluded by walls/geometry like anything else in the room.
 
@@ -216,10 +244,9 @@ func _rebuild_mesh() -> void:
 	## practice — placed segments don't move — but stay consistent if it ever
 	## does) — re-apply rather than silently losing the highlight.
 	if _delete_highlight:
-		_material.albedo_color = WireSegment.COLOR_DELETE
-		_material.emission_enabled = true
-		_material.emission = WireSegment.COLOR_DELETE
-		_material.emission_energy_multiplier = 1.2
+		_material.set_shader_parameter("tint", Vector3(WireSegment.COLOR_DELETE.r, WireSegment.COLOR_DELETE.g, WireSegment.COLOR_DELETE.b))
+		_material.set_shader_parameter("emission", Vector3(WireSegment.COLOR_DELETE.r, WireSegment.COLOR_DELETE.g, WireSegment.COLOR_DELETE.b))
+		_material.set_shader_parameter("emission_energy", 1.2)
 
 ## Deconstruct-mode hover highlight — set/cleared by
 ## BuildModeController._process()'s deconstruct-tool hover scan, same
@@ -229,14 +256,13 @@ func set_highlight_delete(on: bool) -> void:
 	if _material == null:
 		return
 	if on:
-		_material.albedo_color = WireSegment.COLOR_DELETE
-		_material.emission_enabled = true
-		_material.emission = WireSegment.COLOR_DELETE
-		_material.emission_energy_multiplier = 1.2
+		_material.set_shader_parameter("tint", Vector3(WireSegment.COLOR_DELETE.r, WireSegment.COLOR_DELETE.g, WireSegment.COLOR_DELETE.b))
+		_material.set_shader_parameter("emission", Vector3(WireSegment.COLOR_DELETE.r, WireSegment.COLOR_DELETE.g, WireSegment.COLOR_DELETE.b))
+		_material.set_shader_parameter("emission_energy", 1.2)
 	else:
-		_material.albedo_color = COLOR_PIPE
-		_material.emission_enabled = false
-		_material.emission_energy_multiplier = 0.0
+		_material.set_shader_parameter("tint", Vector3(COLOR_PIPE.r, COLOR_PIPE.g, COLOR_PIPE.b))
+		_material.set_shader_parameter("emission", Vector3(0.0, 0.0, 0.0))
+		_material.set_shader_parameter("emission_energy", 0.0)
 
 ## Flow-direction arrow overlay (Jul 2026 rewrite — flat ribbon, not a
 ## wrap-around cylinder). PRIOR approach: a thin CylinderMesh matching the

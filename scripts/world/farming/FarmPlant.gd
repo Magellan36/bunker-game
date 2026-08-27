@@ -87,6 +87,19 @@ const FARM_DEBUG: bool = false
 var progress: float = 0.0   ## 0.0 .. 1.0
 var health:   float = 100.0 ## 0.0 .. 100.0
 
+## Aug 2026 fix — reentrancy guard. is_instance_valid() only flips to
+## false at the END of the frame a node is queue_free()'d, and is_ready()
+## alone never changes either — so two callers in the SAME frame (e.g. a
+## time-skip catch-up harvesting this plant, then a live NPC's
+## JobActivity._complete() still mid-work on it) could both pass the old
+## "is_instance_valid() and is_ready()" gate and both call harvest(),
+## doubling the produce and double-running _clear_cell_and_free(). Set
+## synchronously as the very first thing harvest() does, before any of
+## its side effects, so a second same-frame call is a guaranteed no-op
+## instead of a race. See docs/systems/npc/README.md for the incident
+## writeup.
+var _harvested: bool = false
+
 ## Farming Fertilizer plan — set via apply_fertilizer(), reset per-planting
 ## automatically since a fresh FarmPlant instance is created on every
 ## plant_seed()/harvest cycle (no explicit reset code needed).
@@ -280,8 +293,9 @@ func _update_debug_label() -> void:
 ## Called by InteractionSystem via on_interact() when is_ready() — harvests
 ## immediately, no menu step (plan §5.4, confirmed with Brannon).
 func harvest() -> void:
-	if not is_ready():
+	if _harvested or not is_ready():
 		return
+	_harvested = true   ## must be set before any side effect below — see the var's own comment
 	FarmProduceItem.spawn_at(get_parent(), global_position, plant_type)
 	FarmProduceItem.spawn_at(get_parent(), global_position, plant_type)
 	harvested.emit()

@@ -84,10 +84,15 @@ const ANIMATION_NAMES: Dictionary = {
 }
 
 ## Male-only idle override (Aug 2026) — the Male Locomotion Pack idle clip
-## replaces the idle for MALE bodies only; walk/run/carry/sit and every
-## female state keep the shared ANIMATION_NAMES.
+## replaces the idle for MALE bodies only; walk/run/carry and every female
+## state keep the shared ANIMATION_NAMES.
+## Aug 2026 (sit split) — "sit" is also overridden for males: the seated loop
+## plays as a hybrid clip (sit_male_lib/sit_male) that FREEZES the legs/pelvis
+## at stand_to_sit's final seated pose and animates only the upper body.
+## Females keep the full-body sit_lib/sit loop.
 const MALE_ANIMATION_NAMES: Dictionary = {
 	"idle": "idle_male_lib/idle_male",
+	"sit": "sit_male_lib/sit_male",
 }
 
 ## Female-only idle override (Aug 2026) — the Female Basic Locomotion Pack
@@ -99,6 +104,13 @@ const FEMALE_ANIMATION_NAMES: Dictionary = {
 
 var _player: CharacterBody3D = null
 var _anim_player: AnimationPlayer = null
+var _skeleton: Skeleton3D = null
+var _foot_bone_indices: Array[int] = []
+## P2 (Aug 2026) — the real gap between the Foot/Toe bones and the visible
+## sole mesh, measured at the rest pose in _ready(). The clamp holds the
+## bones at GROUND_Y + this, so the actual soles rest on the floor (the foot
+## mesh rides the bones rigidly, so the gap stays constant through the fold).
+var _foot_mesh_clearance: float = 0.03
 var _current_state: String = ""
 var _last_state: String = ""
 var _visual_yaw: float = 0.0
@@ -121,26 +133,45 @@ var _sit_phase: String = ""
 var _chair_approach_pos: Vector3 = Vector3.ZERO
 var _chair_seat_pos: Vector3 = Vector3.ZERO
 
-## Aug 2026 (5th pass) — the constant vertical gap between where the
-## clips' own baked Hip motion naturally lands (a fixed floor anchor +
-## the skeleton's own physically-correct standing→seated knee-bend, see
-## docs/systems/player-model/README.md "Sit animation root-offset fix")
-## and the ACTUAL chair seat surface (`Chair.SEAT_Y`). These are
-## DIFFERENT things — the clip fix made the animation internally
-## consistent (feet grounded, natural knee-bend), but never had any
-## awareness of THIS specific chair's height. Measured directly via a
-## real, ground-truth headless Godot diagnostic (not Blender-space
-## assumptions): instantiate the actual body + sit_lib.res, seek to the
-## seated pose, read the real Skeleton3D Hip bone's world Y, compare
-## against Chair.SEAT_Y. Male and female bodies have different skeleton
-## proportions, hence different corrections — verified separately for
-## both. If SEAT_Y or either body's rig ever changes, re-measure rather
-## than guess (see the README section for the exact diagnostic script
-## used).
-const SEAT_HEIGHT_CORRECTION: Dictionary = {
-	"male": 0.3316,
-	"female": 0.4398,
+## Aug 2026 (8th pass — measured end-to-end through the REAL game code,
+## not an isolated approximation) — the Hips bone's height ABOVE the
+## player's own root (player.global_position.y), once the sit_lib seated
+## pose is truly reached via the actual sit-phase state machine.
+##
+## The 7th-pass value below (-0.1059) was measured by directly
+## instantiating the body + sit_lib.res and forcing the pose via
+## AnimationPlayer.seek() to the clip's 50% mark — that turned out to be
+## a subtly different code path than how the REAL game actually reaches
+## the seated pose (AdventurerModelController._play_state() crossfades
+## into "sit" via .play(), not an instant seek). Confirmed directly: a
+## full end-to-end test using the REAL Player.tscn +
+## MainWorld._wire_chair() + the real sit-phase state machine, run
+## through real frames for the clip's real 2.233s duration and held
+## seated for 2 more real seconds (5 samples, all identical — genuinely
+## stable, not noise), measured the TRUE relationship directly:
+## hip_world.y − player.global_position.y = 0.1176, not -0.1059.
+##
+## Measurement method: tools/_real_e2e_sit_test.tscn(.gd) (deleted after
+## use — reconstructable from this description): instantiate the real
+## Player.tscn, load MainWorld.gd's script onto an OFF-TREE Node3D
+## (never add_child'd, so its full _ready() — which touches $GameCamera/
+## $HUD/etc and would crash outside a real MainWorld — never fires),
+## call ._wire_chair(chair) directly (that function only touches its own
+## parameter and the instance's `player` property), emit the chair's
+## real `seat_requested` signal, then let real _process() frames run and
+## sample Skeleton3D.get_bone_global_pose("Hips") periodically.
+const HIP_OFFSET_FROM_ROOT: Dictionary = {
+	"male": 0.1176,
+	"female": 0.2529,   ## Aug 2026 — re-measured, was 0.0023 (wrong)
 }
+
+## Aug 2026 (correction) — both values re-derived from each model's rest
+## skeleton geometry so male and female follow the SAME seated-height steps:
+## hip_offset = Hips.global_rest_Y × 1.25 (model scale) − 1.0 (model root
+## drop of capsule_height/2). Measured rest hips: male 0.894096 → 0.1176;
+## female 1.00229 → 0.2529. The old female value (0.0023) was wrong and
+## placed her seated hips off the chair. Consumed by _lerp_sit_position()'s
+## seated landing (midpoint of the seat-surface target and approach height).
 
 ## Aug 2026 — emitted the moment the stand_to_sit clip actually finishes
 ## (sitting_down → seated), so the chair/world code can snap the player
@@ -219,7 +250,9 @@ func _ready() -> void:
 	position.y = -(capsule_height * 0.5) + MODEL_FLOOR_FUDGE if had_real_collision else 0.0
 
 	_anim_player = _find_first_of_type(self, "AnimationPlayer") as AnimationPlayer
-	var skeleton: Skeleton3D = _find_first_of_type(self, "Skeleton3D") as Skeleton3D
+	_skeleton = _find_first_of_type(self, "Skeleton3D") as Skeleton3D
+	var skeleton: Skeleton3D = _skeleton
+	_measure_foot_mesh_clearance()
 
 	for node in _find_all_of_type(self, "MeshInstance3D"):
 		var mi: MeshInstance3D = node as MeshInstance3D
@@ -378,16 +411,80 @@ func _lerp_sit_position(from_xz: Vector3, to_xz: Vector3, curve: PackedFloat32Ar
 	var t: float = _sample_curve(curve, raw_t)
 	_player.global_position.x = lerpf(from_xz.x, to_xz.x, t)
 	_player.global_position.z = lerpf(from_xz.z, to_xz.z, t)
-	## Aug 2026 (5th pass) — curve-synced seat-height correction, same
-	## timing as the X/Z slide above. is_sitting_down picks the direction
-	## explicitly (passed by the caller, not inferred) — correction eases
-	## IN while sitting down, eases back OUT while standing up.
-	var seat_correction: float = SEAT_HEIGHT_CORRECTION.get(_gender, 0.0)
-	var corrected_y: float = _chair_approach_pos.y - seat_correction
+	## Vertical lowering to the GLB's visual seat top, ending with the hips
+	## just above the wood (SEAT_CLEARANCE cushion). Paced by the same curve
+	## as the X/Z slide so the descent reads as one motion (Aug 2026).
+	var hip_offset: float = HIP_OFFSET_FROM_ROOT.get(_gender, 0.0)
+	## Seated landing point (Aug 2026): the fully-lowered seat target read as
+	## sitting BELOW the chair, while the no-Y (standing) height read as
+	## hovering ABOVE it — so the landing is tuned to the MIDPOINT between
+	## them (the seat-lowered height and the standing approach height).
+	var seated_low_y: float = Chair.SEAT_SURFACE_Y + Chair.SEAT_CLEARANCE - hip_offset
+	var target_seated_y: float = (seated_low_y + _chair_approach_pos.y) * 0.5
 	if is_sitting_down:
-		_player.global_position.y = lerpf(_chair_approach_pos.y, corrected_y, t)
+		_player.global_position.y = lerpf(_chair_approach_pos.y, target_seated_y, t)
 	else:
-		_player.global_position.y = lerpf(corrected_y, _chair_approach_pos.y, t)
+		_player.global_position.y = lerpf(target_seated_y, _chair_approach_pos.y, t)
+	## Foot-clearance clamp (Aug 2026) — keeps the feet planted on the ground
+	## through the stand_to_sit / sit_to_stand transitions. The root descent
+	## previously outpaced the legs' gradual fold, so the feet clipped mid-way.
+	## This ties the descent to the ACTUAL leg fold (the body only lowers as
+	## the feet rise). At the fully-folded seated pose the feet clear the
+	## ground, so the clamp is inactive and the seated reference is reached
+	## exactly — the seated loop stays untouched.
+	_clamp_feet_to_ground()
+
+## Foot-clearance clamp implementation — see the call site above.
+const GROUND_Y: float = 0.0
+
+func _foot_indices() -> Array[int]:
+	if _foot_bone_indices.is_empty() and _skeleton != null:
+		for i in _skeleton.get_bone_count():
+			var bn: String = _skeleton.get_bone_name(i)
+			if bn.contains("Foot") or bn.contains("Toe"):
+				_foot_bone_indices.append(i)
+	return _foot_bone_indices
+
+## P2 (Aug 2026) — measures the constant gap between the lowest Foot/Toe bone
+## and the lowest VISIBLE mesh point, at the rest (standing) pose. The clamp
+## then holds the bones at GROUND_Y + this gap so the real soles land exactly
+## on the floor. Skinned meshes don't have a static low point (bones deform
+## them), but the foot mesh rides its bones rigidly, so this rest-pose gap is
+## the correct constant to use through the whole fold.
+func _measure_foot_mesh_clearance() -> void:
+	if _skeleton == null:
+		return
+	var bone_low: float = INF
+	for i: int in _foot_indices():
+		bone_low = minf(bone_low, _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin).y)
+	var mesh_low: float = INF
+	for mi in _find_all_of_type(self, "MeshInstance3D"):
+		var aabb: AABB = (mi as MeshInstance3D).get_aabb()
+		for corner in _aabb_corners(aabb):
+			var w: Vector3 = (mi as MeshInstance3D).to_global(corner)
+			mesh_low = minf(mesh_low, w.y)
+	if bone_low != INF and mesh_low != INF and mesh_low < bone_low:
+		_foot_mesh_clearance = bone_low - mesh_low
+
+static func _aabb_corners(a: AABB) -> Array[Vector3]:
+	var corners: Array[Vector3] = []
+	for i in 8:
+		corners.append(a.position + Vector3(
+			a.size.x * float(i & 1),
+			a.size.y * float((i >> 1) & 1),
+			a.size.z * float((i >> 2) & 1)))
+	return corners
+
+func _clamp_feet_to_ground() -> void:
+	if _skeleton == null or _player == null:
+		return
+	var lowest: float = INF
+	for i: int in _foot_indices():
+		var world_y: float = _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin).y
+		lowest = minf(lowest, world_y)
+	var floor_y: float = GROUND_Y + _foot_mesh_clearance
+	if lowest != INF and lowest < floor_y:
+		_player.global_position.y += floor_y - lowest
 
 func _is_holding_item() -> bool:
 	if _player == null:

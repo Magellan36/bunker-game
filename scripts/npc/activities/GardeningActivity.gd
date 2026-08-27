@@ -39,7 +39,7 @@ var _fetch_shelf: Dictionary = {}
 var _phase: String = "pick_task"     ## "pick_task" -> "fetch" -> "travel" -> "apply"
 var _finished: bool = false
 
-const WORK_RANGE: float = 2.0   ## generous — matches FarmingTray/item REPLACE_RANGE-style tolerances used elsewhere in farming
+const WORK_RANGE: float = 2.4   ## Aug 2026 — was 2.0; widened along with the other job-target ranges so NPCs stop pushing into the tray before tending starts
 
 func label() -> String:
 	match _phase:
@@ -269,8 +269,9 @@ func _start_fetch(npc: NPC) -> bool:
 	return found
 
 func _try_fetch_with_filter(npc: NPC, filt: Callable) -> bool:
-	var loose: RigidBody3D = NPCItemUser.find_loose_item(npc, filt)
-	var shelf_pick: Dictionary = {} if loose != null else NPCItemUser.find_shelved_item(npc, filt)
+	var pick: Dictionary = NPCItemUser.find_fetch_target(npc, filt)
+	var loose: RigidBody3D = pick.get("loose")
+	var shelf_pick: Dictionary = pick.get("shelf", {})
 	var tgt: Node3D = loose if loose != null \
 		else (shelf_pick.get("shelf") as Node3D if not shelf_pick.is_empty() else null)
 	if tgt == null:

@@ -1,17 +1,20 @@
 [gd_scene format=3]
 
 [ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_diffuse.png" id="1_pipe_diff"]
-[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_roughness.png" id="2_pipe_rough"]
-[ext_resource type="Texture2D" path="res://assets/textures/water/pipe/pipe_teal_normal.png" id="3_pipe_norm"]
 [ext_resource type="Texture2D" path="res://assets/textures/water/pipe/bolt_diffuse.png" id="4_bolt_diff"]
+[ext_resource type="Shader" path="res://assets/shaders/pipe_surface.gdshader" id="9_surf_shader"]
 
-[sub_resource type="StandardMaterial3D" id="mat_pipe"]
-albedo_texture = ExtResource("1_pipe_diff")
-roughness = 0.45
-roughness_texture = ExtResource("2_pipe_rough")
-metallic = 0.68
-normal_enabled = true
-normal_texture = ExtResource("3_pipe_norm")
+[sub_resource type="ShaderMaterial" id="mat_pipe"]
+shader = ExtResource("9_surf_shader")
+shader_parameter/albedo_tex = ExtResource("1_pipe_diff")
+shader_parameter/tile_scale = 0.083
+shader_parameter/roughness = 0.6
+shader_parameter/metallic = 0.2
+shader_parameter/phase = Vector3(0.13, 0.41, 0.77)
+shader_parameter/grime_strength = 0.35
+shader_parameter/tint = Color(0.45, 0.47, 0.49, 1)
+shader_parameter/emission = Color(0, 0, 0, 1)
+shader_parameter/emission_energy = 0.0
 
 [sub_resource type="StandardMaterial3D" id="mat_bolt"]
 albedo_texture = ExtResource("4_bolt_diff")

@@ -31,7 +31,7 @@ const STUB_LENGTH: float = 0.32
 const VALVE_RADIUS: float = 0.14
 const VALVE_LENGTH: float = 0.05
 
-const COLOR_PIPE:  Color = Color(0.42, 0.44, 0.46, 1.0)   ## grey galvanized pipe
+const COLOR_PIPE:  Color = Color(0.42, 0.44, 0.46, 1.0)   ## grey galvanized pipe — unused since Aug 2026 (hookup stub now uses the shared rust texture)
 const COLOR_VALVE: Color = Color(0.25, 0.27, 0.29, 1.0)   ## darker valve wheel
 
 ## Pull-back offset from the raw wall-hit position so the stub's back face is
@@ -382,14 +382,22 @@ func _delete_and_refund_edge(edge_id: String, wm: WaterManager) -> void:
 
 
 # ─── Visual build ─────────────────────────────────────────────────────────────
-## Placeholder mesh — a short grey pipe stub with a valve wheel disc at the
-## wall face, built the same procedural way BreakerBox/WallLight/
-## GeneratorObject build their placeholder geometry.
+## Placeholder mesh — a short rusted-metal pipe stub (same texture/shine as the
+## pipe segments) with a valve wheel disc at the wall face, built the same
+## procedural way BreakerBox/WallLight/GeneratorObject build their placeholder
+## geometry.
 func _build_mesh() -> void:
-	var pipe_mat: StandardMaterial3D = StandardMaterial3D.new()
-	pipe_mat.albedo_color = COLOR_PIPE
-	pipe_mat.roughness    = 0.55
-	pipe_mat.metallic     = 0.60
+	var pipe_mat: ShaderMaterial = ShaderMaterial.new()
+	## Same plain matte pipe surface shader as the segments (Aug 2026) —
+	## triplanar tiling + grime, so the stub matches the pipes it connects to.
+	pipe_mat.shader = load("res://assets/shaders/pipe_surface.gdshader")
+	pipe_mat.set_shader_parameter("albedo_tex", load("res://assets/textures/water/pipe/pipe_teal_diffuse.png"))
+	pipe_mat.set_shader_parameter("tile_scale", 0.083)
+	pipe_mat.set_shader_parameter("roughness", 0.6)
+	pipe_mat.set_shader_parameter("metallic", 0.2)
+	pipe_mat.set_shader_parameter("phase", Vector3(0.5, 0.2, 0.8))
+	pipe_mat.set_shader_parameter("grime_strength", 0.35)
+	pipe_mat.set_shader_parameter("tint", Vector3(COLOR_PIPE.r, COLOR_PIPE.g, COLOR_PIPE.b))
 
 	var valve_mat: StandardMaterial3D = StandardMaterial3D.new()
 	valve_mat.albedo_color = COLOR_VALVE

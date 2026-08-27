@@ -5,8 +5,8 @@ class_name NPCItemUser
 ## (Drink/Eat here; Part 4's fetch-based jobs reuse find/pickup/drop as-is).
 ## All world mutation goes through the SAME item methods the player uses.
 
-const PICKUP_RANGE: float = 1.2      ## must be this close to grab
-const SHELF_RANGE:  float = 1.6
+const PICKUP_RANGE: float = 1.2      ## must be this close to grab — tuned for small loose items (cans, bottles, tools); left untouched, see SHELF_RANGE's own comment
+const SHELF_RANGE:  float = 2.0      ## Aug 2026 — was 1.6. Brannon: NPCs were visibly walking into/pushing against shelves and other furniture for a second or two before the range check passed. Furniture/job targets got a wider 'close enough' tolerance; small loose-item ranges (PICKUP_RANGE, EatActivity/DrinkActivity's USE_RANGE) deliberately weren't touched — those already felt fine and a single can/bottle looks wrong grabbed from further away.
 
 ## Snatch specifically needs more clearance than PICKUP_RANGE — that
 ## constant is tuned for loose items with near-zero collision footprint;
@@ -148,6 +148,26 @@ static func find_shelved_item(npc: NPC, filter: Callable) -> Dictionary:
 			break
 	return best
 
+## Aug 2026 — generic fetch-target resolution, loose-first then shelved.
+## Every fetch-based job (Eat/Drink/filter-replace/Refuel/Gardening)
+## should resolve its search through this ONE function instead of each
+## hand-rolling the same find_loose_item -> find_shelved_item fallback
+## chain independently. Cleaning is the deliberate exception — it only
+## ever PUTS items INTO storage, never searches storage to take
+## something OUT, so it has no reason to call this.
+## Returns {} (nothing found anywhere), {"loose": RigidBody3D}, or
+## {"shelf": {shelf, slot, item}} (the exact shape find_shelved_item
+## already returns, just wrapped so callers can tell the two cases apart
+## with one is-empty/has() check instead of juggling two return values).
+static func find_fetch_target(npc: NPC, filter: Callable) -> Dictionary:
+	var loose: RigidBody3D = find_loose_item(npc, filter)
+	if loose != null:
+		return {"loose": loose}
+	var shelf: Dictionary = find_shelved_item(npc, filter)
+	if not shelf.is_empty():
+		return {"shelf": shelf}
+	return {}
+
 # ─── Carry primitives ─────────────────────────────────────────────────────
 static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 	if item == null or not is_instance_valid(item):
@@ -253,6 +273,19 @@ static func is_edible(item: Node) -> bool:
 	if item.has_method("has_bites_left"):   ## FoodCan
 		return item.has_bites_left()
 	return false
+
+## Case dispensers (Aug 2026) — duck-typed like every consumable filter
+## above (neither CanCase.gd nor WaterCase.gd declares a class_name, same
+## reasoning as is_spare_fuel_can's own comment). Stocked check only — an
+## emptied case is left in place untouched, same as everything else that
+## doesn't declare is_trash()/join "trash". Used as the last-resort fetch
+## tier (loose item -> shelved item -> loose case -> shelved case) by
+## EatActivity/DrinkActivity via NPCCaseFetch.
+static func is_stocked_can_case(item: Node) -> bool:
+	return ("can_count" in item) and int(item.can_count) > 0
+
+static func is_stocked_water_case(item: Node) -> bool:
+	return ("bottle_count" in item) and int(item.bottle_count) > 0
 
 ## Cooking (Aug 2026) — narrower than "cookpot_storable" (that group also
 ## includes WaterBottle, which CookingPot's own ingredient-key lookup

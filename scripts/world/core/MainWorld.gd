@@ -949,8 +949,24 @@ func _wire_chair(chair: Node) -> void:
 			## slide look wrong. -t.basis.z is the chair's own "open front"
 			## direction (the model faces +PI from this — toward the
 			## backrest — while seated; see AdventurerModelController.gd).
+			##
+			## Aug 2026 fix (6th pass) — approach_pos.y was being computed
+			## from t.origin.y (= Chair.SEAT_Y, the ELEVATED seat surface
+			## height, ~0.56), not the player's actual floor-level height.
+			## Since a CharacterBody3D's own global_position sits at the
+			## CENTER of its capsule collider (not the feet), the player's
+			## real standing Y is closer to ~1.0 for this project's capsule
+			## — meaning the sit-down height-lerp (see
+			## AdventurerModelController._lerp_sit_position(), "Seat-height
+			## correction" in docs/systems/player-model/README.md) started
+			## FROM the wrong (much lower) value the instant sitting_down
+			## began, snapping the character down before the clip's own
+			## motion had done anything — looked exactly like sinking into
+			## the floor. approach_pos.y must come from the player's OWN
+			## current height, not the chair's seat transform at all.
 			const APPROACH_OFFSET: float = 0.4   ## ~half a chair width
 			var approach_pos: Vector3 = t.origin + t.basis.z * APPROACH_OFFSET
+			approach_pos.y = player.global_position.y
 			model.set("_chair_approach_pos", approach_pos)
 			model.set("_chair_seat_pos", Vector3(t.origin.x, approach_pos.y, t.origin.z))
 		player.seated_chair = the_chair   ## NEW

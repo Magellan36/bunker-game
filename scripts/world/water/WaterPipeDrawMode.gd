@@ -816,9 +816,9 @@ func _update_ghost_preview() -> void:
 
 	for i in range(waypoints.size() - 1):
 		var seg: Node3D = WaterPipeSegment.make_ghost_pipe(_get_scene_root(), waypoints[i], waypoints[i + 1])
-		var mat: StandardMaterial3D = seg.get("_material")
+		var mat: ShaderMaterial = seg.get("_material")
 		if mat != null:
-			mat.albedo_color = GHOST_COLOR_VALID if trace["valid"] else GHOST_COLOR_INVALID
+			mat.set_shader_parameter("tint", Vector3(GHOST_COLOR_VALID.r, GHOST_COLOR_VALID.g, GHOST_COLOR_VALID.b) if trace["valid"] else Vector3(GHOST_COLOR_INVALID.r, GHOST_COLOR_INVALID.g, GHOST_COLOR_INVALID.b))
 		_ghost_segs.append(seg)
 
 	## Live cost preview — single total across the whole traced run, not
@@ -849,9 +849,9 @@ func _update_ghost_preview_single_leg(cursor_pos: Vector3) -> void:
 
 	for i in range(path.size() - 1):
 		var seg: Node3D = WaterPipeSegment.make_ghost_pipe(_get_scene_root(), path[i], path[i + 1])
-		var mat: StandardMaterial3D = seg.get("_material")
+		var mat: ShaderMaterial = seg.get("_material")
 		if mat != null:
-			mat.albedo_color = GHOST_COLOR_VALID if valid else GHOST_COLOR_INVALID
+			mat.set_shader_parameter("tint", Vector3(GHOST_COLOR_VALID.r, GHOST_COLOR_VALID.g, GHOST_COLOR_VALID.b) if valid else Vector3(GHOST_COLOR_INVALID.r, GHOST_COLOR_INVALID.g, GHOST_COLOR_INVALID.b))
 		_ghost_segs.append(seg)
 
 	var total_length: float = 0.0

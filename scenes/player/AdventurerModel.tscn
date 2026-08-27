@@ -12,6 +12,7 @@
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_to_stand_lib.res" id="10_std"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_male_lib.res" id="11_imale"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_female_lib.res" id="12_ifemale"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_male_lib.res" id="13_sitmale"]
 
 [node name="AdventurerModel" type="Node3D"]
 script = ExtResource("1_script")
@@ -28,5 +29,6 @@ libraries = {
 "sit_lib": ExtResource("9_sit"),
 "sit_to_stand_lib": ExtResource("10_std"),
 "idle_male_lib": ExtResource("11_imale"),
-"idle_female_lib": ExtResource("12_ifemale")
+"idle_female_lib": ExtResource("12_ifemale"),
+"sit_male_lib": ExtResource("13_sitmale")
 }

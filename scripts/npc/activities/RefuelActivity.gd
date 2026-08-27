@@ -9,7 +9,7 @@ class_name RefuelActivity
 ## NPCSessionActivity — interruptible()/approach-point math/exit
 ## velocity-zero now come from the shared base instead of being
 ## hand-copied.
-const WORK_RANGE: float = 1.6
+const WORK_RANGE: float = 2.0   ## Aug 2026 — was 1.6; widened along with JobActivity/NPCItemUser so NPCs stop pushing into the generator before refueling starts
 
 var _can: RigidBody3D = null
 var _fetch_loose: RigidBody3D = null
@@ -43,8 +43,9 @@ func enter(npc: NPC) -> void:
 
 func _start_fetch(npc: NPC) -> void:
 	var filt: Callable = Callable(NPCItemUser, "is_spare_fuel_can")
-	var loose: RigidBody3D = NPCItemUser.find_loose_item(npc, filt)
-	var shelf_pick: Dictionary = {} if loose != null else NPCItemUser.find_shelved_item(npc, filt)
+	var pick: Dictionary = NPCItemUser.find_fetch_target(npc, filt)
+	var loose: RigidBody3D = pick.get("loose")
+	var shelf_pick: Dictionary = pick.get("shelf", {})
 	var tgt: Node3D = loose if loose != null \
 		else (shelf_pick.get("shelf") as Node3D if not shelf_pick.is_empty() else null)
 	if tgt == null:

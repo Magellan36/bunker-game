@@ -75,6 +75,19 @@ func _init():
 					and "Hips" in track_path.get_concatenated_subnames():
 				anim.remove_track(ti2)
 
+		## Armature-root root-motion tracks (ANIMATIONS.md pipeline step) —
+		## tracks whose path is the armature root node itself (no ":" subname;
+		## the last node name is the armature, e.g. "CharacterArmature" for
+		## Maximo-rig sources) are unresolvable at runtime and root motion is
+		## never consumed, so strip them (Aug 2026, added for the Maximo-rig
+		## "Sitting Idle NEW" sit loop; Mixamo sources' "Armature" roots were
+		## already trackless on import).
+		for ti3 in range(anim.get_track_count() - 1, -1, -1):
+			var p3: NodePath = anim.track_get_path(ti3)
+			if p3.get_subname_count() == 0 \
+					and p3.get_name(p3.get_name_count() - 1) == "CharacterArmature":
+				anim.remove_track(ti3)
+
 		var lib := AnimationLibrary.new()
 		lib.add_animation(key, anim)
 		var path: String = "res://assets/models/player/anims/" + LIB_NAMES[key] + ".res"

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bysse0tvh2851"
-path="res://.godot/imported/pipe_teal_diffuse.png-0793ba333e894d9b6512d126e936ebc2.ctex"
+uid="uid://dst86pq34ptod"
+path="res://.godot/imported/valve_wheel_diffuse2.png-2f1824eeaa5dd3da4db8be8608b0dd4a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/water/pipe/pipe_teal_diffuse.png"
-dest_files=["res://.godot/imported/pipe_teal_diffuse.png-0793ba333e894d9b6512d126e936ebc2.ctex"]
+source_file="res://assets/textures/water/pipe/valve_wheel_diffuse2.png"
+dest_files=["res://.godot/imported/valve_wheel_diffuse2.png-2f1824eeaa5dd3da4db8be8608b0dd4a.ctex"]
 
 [params]
 
@@ -23,7 +23,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=true
+mipmaps/generate=false
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

@@ -2,7 +2,7 @@ extends NPCActivity
 class_name JobActivity
 ## Executes one JobBoard job: [optional fetch item] → travel → work timer
 ## with overhead banner → apply the SAME world effect a player action has.
-const WORK_RANGE: float = 1.6
+const WORK_RANGE: float = 2.0   ## Aug 2026 — was 1.6; widened along with NPCItemUser.SHELF_RANGE so NPCs stop pushing into the plant/purifier before work starts
 
 ## Per-type work seconds and skill key.
 const TYPE_CONF: Dictionary = {
@@ -62,9 +62,9 @@ func enter(npc: NPC) -> void:
 	if needs_fetch and npc.held_item == null:
 		_phase = "fetch"
 		var filt: Callable = _job["fetch_filter"]
-		_fetch_loose = NPCItemUser.find_loose_item(npc, filt)
-		_fetch_shelf = {} if _fetch_loose != null \
-			else NPCItemUser.find_shelved_item(npc, filt)
+		var pick: Dictionary = NPCItemUser.find_fetch_target(npc, filt)
+		_fetch_loose = pick.get("loose")
+		_fetch_shelf = pick.get("shelf", {})
 		var tgt: Node3D = _fetch_loose if _fetch_loose != null \
 			else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
 		if tgt == null:

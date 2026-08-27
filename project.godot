@@ -153,11 +153,6 @@ aim_down={
 [physics]
 
 3d/physics_engine="Jolt Physics"
-; Many-object tuning (Aug 2026). Godot 4.7 ships Jolt built-in; the line
-; above selects it, so Jolt has been the ACTIVE engine all along. NOTE:
-; solver_iterations is Godot-Physics-only and Jolt IGNORES it (Jolt's
-; solver settings live under physics/jolt_physics_3d/); kept as a fallback.
-; The damping keys ARE honored by Jolt and settle loose items sooner.
 3d/default_linear_damp=0.2
 3d/default_angular_damp=0.2
 3d/solver/solver_iterations=10

@@ -415,6 +415,16 @@ func _tick_fetch_basket(npc: NPC, delta: float, basket: Basket) -> bool:
 ## under the basket), not a normal carry pickup. Once the basket has
 ## no open slots left, or this produce item vanished, moves on.
 func _tick_stash_into_basket(npc: NPC, delta: float) -> void:
+	## Aug 2026 fix — the caller only checked `_basket != null`, not
+	## is_instance_valid(_basket). If the basket gets freed mid-session
+	## (e.g. the player's Takeaway path steals and frees it), `_basket`
+	## stays non-null but every access below (`_basket.slots`, etc.) hits
+	## a freed instance. Bail the same way an invalid `_item` already
+	## does — hand control back to _pick_next_target() next cycle.
+	if not is_instance_valid(_basket):
+		_basket = null
+		_item = null
+		return
 	if _item == null or not is_instance_valid(_item) or ("is_held" in _item and _item.is_held) or _item.is_in_group("shelved"):
 		_item = null
 		return

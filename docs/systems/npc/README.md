@@ -1853,6 +1853,99 @@ instead of storing it — restarting the cycle. Fixed by reusing `npc_try_place_
        logs `"target picked (STALLED)"` distinctly once a stall is detected, instead of a wall of
        visually-identical lines.
 
+119. Farming double-harvest race + a stale-basket-reference crash (Aug 2026). Two issues raised
+       together by Brannon, one confirmed real and fixed, one confirmed already-fixed:
+       (1) **Real bug, fixed** — `FarmPlant.harvest()` gated only on `is_instance_valid(target) and
+       target.is_ready()`. `is_instance_valid()` stays true for the rest of the frame a node calls
+       `queue_free()` on itself, and `is_ready()` never changes either — so a plant harvested once
+       this frame (e.g. by time-skip catch-up) could still pass a SECOND caller's identical gate
+       later the same frame (e.g. a live NPC's `JobActivity._complete()` finishing its HARVEST work
+       timer on the same plant), doubling the spawned produce and double-running
+       `_clear_cell_and_free()`. Fixed with a `_harvested` reentrancy guard set synchronously as the
+       first line of `harvest()`, before any side effect — a second same-frame call is now a
+       guaranteed no-op regardless of `is_instance_valid`/`is_ready()` timing. No call-site changes
+       needed; this closes the race at its true single source. (2) **Already fixed, not re-touched**
+       — a report described `CleaningActivity._tick_stash_into_basket()` as never removing a
+       basket-stashed fruit from the `"pickup"` group or marking it `"shelved"`, leaving it grabbable
+       by another NPC straight out of the basket. Verified against the live file: it already calls
+       both `remove_from_group("pickup")` and `add_to_group("shelved")` (plus the same `interactable`
+       cost-avoidance step `Basket.try_add_item()` uses), matching `Basket.try_add_item()`'s own
+       pattern exactly. No change made — re-verify against the actual file before re-attempting this
+       one if it resurfaces, the report may have been checked against a stale copy. (3) **Real gap,
+       fixed** — `_tick_stash_into_basket()` used `_basket.slots` with only a caller-side
+       `_basket != null` check, no `is_instance_valid(_basket)` inside the function itself. If the
+       basket is freed mid-session (e.g. the player's Takeaway path steals and frees the held
+       basket), `_basket` stays non-null but freed, and every access below throws "previously freed
+       instance". Added an `is_instance_valid(_basket)` guard as the first line of the function,
+       clearing both `_basket` and `_item` and returning — same bail shape the existing invalid-`_item`
+       check already uses one line below it.
+
+120. Storage-aware fetching for every non-Cleaning job, + case-dispenser support (Aug 2026,
+       Brannon-requested). Cleaning is a one-way street — it only ever PUTS loose items INTO
+       storage. Every OTHER fetch-based job (Eat, Drink, filter-replace, Refuel, Gardening) now
+       reads storage the same way a player would, in a strict priority order: **loose item →
+       shelved item → loose case → shelved case**.
+       - **New shared primitive** — `NPCItemUser.find_fetch_target(npc, filter) -> Dictionary`
+         (`{}` / `{"loose": item}` / `{"shelf": {...}}`) replaces four independent hand-rolled
+         copies of the same loose-then-shelved fallback (`JobActivity.enter()`,
+         `RefuelActivity._start_fetch()`, `GardeningActivity._try_fetch_with_filter()`, and — new —
+         `EatActivity`/`DrinkActivity`). One place to fix if this fallback chain ever needs to
+         change again. Filter-replace, Refuel, and Gardening were already storage-aware before this
+         pass (all three already called `find_loose_item`+`find_shelved_item` independently) — this
+         consolidated them, it didn't newly enable them.
+       - **Real gap closed** — `DrinkActivity` previously had NO shelved-bottle search at all (its
+         own header literally said `FUTURE WORK: pulling a fresh bottle out of a WaterCase`). Now
+         has full parity with `EatActivity`'s existing loose→shelf tier via a new `"shelf_bottle"`
+         mode/`_tick_shelf_bottle()` phase that hands off to the existing `_tick_bottle()` machinery
+         the instant the grab lands — holding/drinking/finish logic is identical regardless of
+         whether the bottle started loose or shelved.
+       - **New: case dispensers** (`CanCase`/`WaterCase`) — new shared state machine
+         `NPCCaseFetch.gd` (`RefCounted`), used by both `EatActivity` and `DrinkActivity` since the
+         mechanic is identical for both (a case is a case). Duck-typed filters
+         `NPCItemUser.is_stocked_can_case()`/`is_stocked_water_case()` (neither `CanCase.gd` nor
+         `WaterCase.gd` declares a `class_name`, same reasoning as `is_spare_fuel_can()`'s own
+         comment). Flow: locate (loose → shelved, via `find_fetch_target`) → travel → **loose case**:
+         interact in place, never picked up (confirmed neither `CanCase.on_interact()` nor
+         `WaterCase.on_interact()` checks `is_held` — both work identically placed or held) →
+         **shelved case**: `grab_from_shelf()` first, THEN `on_interact()` while held, THEN
+         `Shelving.npc_try_place_item()` back onto the origin shelf (per Brannon: "take case from
+         shelf → eject needed item → store case again → consume item") → the freshly-ejected item is
+         located (nearest loose match to the case's own position, claimed immediately) and handed
+         back to the calling activity, which treats it exactly like any other freshly-found loose
+         item through its OWN existing grab/consume logic — `NPCCaseFetch` never carries or consumes
+         anything itself, its job ends the moment the item exists in the world.
+       - `EatActivity`/`DrinkActivity` `score()` now correctly stays non-zero when only a stocked
+         case exists anywhere (previously would have scored 0 and never triggered the activity at
+         all in that situation).
+       - No case-equivalent exists for farming supplies (no "Soil Case"/"Seed Case" dispenser class
+         in the codebase) — `GardeningActivity` was already fully storage-aware for loose+shelved
+         Bags of Soil/Seed Packets/Fertilizer before this pass; nothing further needed there beyond
+         the `find_fetch_target()` consolidation above.
+
+121. Case-fetch pacing + wider furniture/job-target ranges (Aug 2026, Brannon-requested follow-up
+       to #120). Two independent tweaks after playtesting #120:
+       - **Case pacing** — `NPCCaseFetch` felt instantaneous ("just spawns the can"). Unified the
+         loose-case and shelved-case paths into the SAME sequence: pick the case up (a loose case is
+         now actually grabbed via `grab_loose()`, no longer interacted with in place) → wait
+         `PRE_EJECT_WAIT` (1.0s) → eject → wait `POST_EJECT_WAIT` (1.0s, was 0.75s) → `RESHELVE` if it
+         came from a shelf, or `DROP` it back down where the NPC is standing if it was already loose
+         (nowhere to "return" it to). New `_from_shelf: bool` flag drives that final branch, since
+         both paths now hold the case at eject time (`npc.held_item == _case` no longer
+         distinguishes them the way it used to).
+       - **Wider large-object ranges** — NPCs were visibly walking into/pushing against shelves,
+         generators, farming trays, and cases for a second or two before the "close enough to act"
+         check passed. Per Brannon: scale each existing range up individually rather than one shared
+         value (keeps furniture reaching further than small items), small loose-item grabs
+         (`PICKUP_RANGE`, `EatActivity`/`DrinkActivity`'s `USE_RANGE`) untouched, and this is purely
+         about the distance check — not pathfinding/stand-off targeting (`JobActivity`'s
+         `APPROACH_DISTANCE` stand-off-point math was already separate and untouched).
+         `NPCItemUser.SHELF_RANGE` 1.6→2.0 (shared by every shelf interaction — Eat/Drink/Job/Refuel/
+         Gardening/Cleaning/NPCCaseFetch all inherit this automatically), `JobActivity.WORK_RANGE`
+         1.6→2.0, `RefuelActivity.WORK_RANGE` 1.6→2.0, `GardeningActivity.WORK_RANGE` 2.0→2.4, and a
+         new dedicated `NPCCaseFetch.CASE_RANGE` (1.8) replacing its old reuse of the small-item
+         `PICKUP_RANGE` for a loose case — a case is one of Brannon's own examples of a "larger
+         object," so it needed its own range rather than inheriting the tiny one.
+
 ## How to mark an item as trash (for any thread adding new items)
 
 An item is picked up by Cleaning and brought to a trash receptacle if **either**:
