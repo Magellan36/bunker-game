@@ -342,7 +342,8 @@ func _process(delta: float) -> void:
 			_play_state("stand_to_sit")
 		elif _sit_phase == "sitting_down":
 			if not is_shadow_only:
-				_lerp_sit_position(_chair_approach_pos, _chair_seat_pos, SIT_DOWN_CURVE, true)
+				_lerp_sit_position(_chair_approach_pos, _chair_seat_pos,
+					SIT_DOWN_CURVE if _gender != "female" else SIT_DOWN_CURVE_FEMALE, true)
 		elif _sit_phase == "seated":
 			_play_state("sit")   ## looped anchor, idempotent once current
 		return
@@ -353,7 +354,8 @@ func _process(delta: float) -> void:
 		return
 	if _sit_phase == "standing_up":
 		if not is_shadow_only:
-			_lerp_sit_position(_chair_seat_pos, _chair_approach_pos, STAND_UP_CURVE, false)
+			_lerp_sit_position(_chair_seat_pos, _chair_approach_pos,
+				STAND_UP_CURVE if _gender != "female" else STAND_UP_CURVE_FEMALE, false)
 		return   ## waiting for sit_to_stand to finish → back to locomotion
 
 	var speed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
@@ -414,6 +416,21 @@ const SIT_DOWN_CURVE: PackedFloat32Array = [
 const STAND_UP_CURVE: PackedFloat32Array = [
 	0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0069, 0.0643, 0.1632, 0.2603, 0.3574,
 	0.4398, 0.5505, 0.6667, 0.7474, 0.8217, 0.8633, 0.9039, 0.9410, 0.9692, 1.0,
+]
+
+## Female-specific slide curves (Aug 2026) — sampled from the FEMALE
+## stand_to_sit / sit_to_stand clips' actual vertical descent (the
+## CharacterArmature root position track), 21 points normalized to
+## standing=0/seated=1 (sit_down) and seated=0/standing=1 (stand_up). The
+## shared male curves pace the slide too early for the female rig (she stays
+## high longer, then drops late), causing the timing-off look.
+const SIT_DOWN_CURVE_FEMALE: PackedFloat32Array = [
+	0.009, 0.004, 0.0, 0.011, 0.031, 0.04, 0.067, 0.105, 0.13, 0.188, 0.302, 0.512,
+	0.766, 0.945, 1.0, 0.994, 0.989, 0.988, 0.988, 0.988, 0.988,
+]
+const STAND_UP_CURVE_FEMALE: PackedFloat32Array = [
+	0.038, 0.045, 0.056, 0.067, 0.07, 0.05, 0.011, 0.0, 0.143, 0.378, 0.658, 0.865,
+	0.907, 0.946, 0.974, 0.99, 0.978, 0.979, 0.978, 0.986, 1.0,
 ]
 
 ## Piecewise-linear lookup into one of the curves above — maps a raw
