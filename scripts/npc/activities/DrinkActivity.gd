@@ -236,7 +236,10 @@ func done(npc: NPC) -> bool:
 	return (_target == null or npc.thirst >= 90.0) and _pending_snatch == null and _case_fetch == null
 
 func interruptible() -> bool:
-	return _drinking <= 0.0
+	## Aug 2026 fix — see EatActivity's identical fix for the full
+	## explanation. Same bug, same cause (a case-fetch left this
+	## interruptible the whole time it was in progress).
+	return _drinking <= 0.0 and _case_fetch == null
 
 func take_handoff() -> NPCActivity:
 	var h: NPCActivity = _handoff

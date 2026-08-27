@@ -579,6 +579,9 @@ func npc_retrieve(slot_idx: int, npc_hold_point: Node3D) -> RigidBody3D:
 	var item: RigidBody3D = stack.pop_back()
 	if item.is_in_group("shelved"):
 		item.remove_from_group("shelved")
+	if item.has_meta("_was_interactable"):
+		item.add_to_group("interactable")
+		item.remove_meta("_was_interactable")
 	item.freeze           = false
 	item.freeze_mode      = RigidBody3D.FREEZE_MODE_KINEMATIC
 	item.collision_layer  = 2
@@ -588,6 +591,21 @@ func npc_retrieve(slot_idx: int, npc_hold_point: Node3D) -> RigidBody3D:
 	item.angular_velocity = Vector3.ZERO
 	if "from_inventory" in item:
 		item.from_inventory = false
+	## Aug 2026 fix — mirrors retrieve_to_carry()'s own fix just above (see
+	## its comment): unfreezing an item still sitting at its shelf-slot
+	## position risks tunneling through the shelf's own StaticBody3D
+	## collision (posts, platforms) on the way to the hold point.
+	## retrieve_to_carry() already teleports to a safe spot before calling
+	## pickup(); this NPC path never got the same fix — confirmed as the
+	## cause of a Can/Water Case unfreezing INSIDE the shelf and falling
+	## straight through onto the floor instead of chasing to the NPC's
+	## hand (larger items sit deeper in the shelf's own geometry, making
+	## this far more visible for cases than for a filter or a single can).
+	## Using the hold point's own position directly, since it's already the
+	## exact target — no need to derive a chest-height offset the way
+	## carry_spawn_position() does for the player path.
+	if npc_hold_point != null:
+		item.global_position = npc_hold_point.global_position
 	if item.has_method("pickup"):
 		item.pickup(npc_hold_point)
 	item_retrieved.emit(slot_idx, item)

@@ -13,6 +13,9 @@
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_male_lib.res" id="11_imale"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_female_lib.res" id="12_ifemale"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_hybrid_lib.res" id="13_sithyb"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/stand_to_sit_female_lib.res" id="14_stsfem"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_to_stand_female_lib.res" id="15_s2sfem"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_hybrid_female_lib.res" id="16_sithybfem"]
 
 [node name="AdventurerModel" type="Node3D"]
 script = ExtResource("1_script")
@@ -30,5 +33,8 @@ libraries = {
 "sit_to_stand_lib": ExtResource("10_std"),
 "idle_male_lib": ExtResource("11_imale"),
 "idle_female_lib": ExtResource("12_ifemale"),
-"sit_hybrid_lib": ExtResource("13_sithyb")
+"sit_hybrid_lib": ExtResource("13_sithyb"),
+"stand_to_sit_female_lib": ExtResource("14_stsfem"),
+"sit_to_stand_female_lib": ExtResource("15_s2sfem"),
+"sit_hybrid_female_lib": ExtResource("16_sithybfem")
 }

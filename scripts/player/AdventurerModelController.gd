@@ -96,13 +96,17 @@ const MALE_ANIMATION_NAMES: Dictionary = {
 }
 
 ## Female-only idle override (Aug 2026) — the Female Basic Locomotion Pack
-## idle clip replaces the idle for FEMALE bodies only; walk/run/carry/sit
-## and every male state keep the shared ANIMATION_NAMES.
-## Aug 2026 (sit split) — "sit" points at the same hybrid clip as males (see
-## MALE_ANIMATION_NAMES above).
+## idle clip replaces the idle for FEMALE bodies only.
+## Aug 2026 (sit split) — the female sit set is fully female-rigged: the shared
+## stand_to_sit / sit_to_stand (male/Mixamo-rigged) stretched on the female
+## rig, so both transitions point at female-specific clips, and "sit" uses a
+## female hybrid (frozen legs from the FEMALE stand_to_sit's end pose + upper
+## body loop).
 const FEMALE_ANIMATION_NAMES: Dictionary = {
 	"idle": "idle_female_lib/idle_female",
-	"sit": "sit_hybrid_lib/sit_hybrid",
+	"stand_to_sit": "stand_to_sit_female_lib/stand_to_sit",
+	"sit": "sit_hybrid_female_lib/sit_hybrid",
+	"sit_to_stand": "sit_to_stand_female_lib/sit_to_stand",
 }
 
 var _player: CharacterBody3D = null

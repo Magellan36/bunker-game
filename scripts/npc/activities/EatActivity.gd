@@ -150,7 +150,19 @@ func _reacquire_or_finish(npc: NPC) -> void:
 		npc.set_nav_target(tgt.global_position)
 
 func interruptible() -> bool:
-	return _eating <= 0.0
+	## Aug 2026 fix — a stocked-case fetch in progress (holding the case,
+	## mid pre-eject/eject/post-eject/reshelve) previously left this true
+	## the whole time (only _eating gates it), while score() simultaneously
+	## drops to 0 the moment the case is held (find_loose_item excludes
+	## held items, so nothing looks "available"). NPCBrain short-circuits
+	## its own score comparison on interruptible() == false, so score()
+	## never even gets consulted here — this is the actual fix, not a
+	## defensive extra. Without it: brain interrupts mid-fetch -> exit()
+	## drops the case -> still hungry -> re-enters -> picks the same
+	## dropped case back up -> interrupted again — an endless pickup/drop
+	## loop that never reaches eject. Same failure shape NPCDebug's own
+	## log_suspicious_interrupt() was written to catch elsewhere.
+	return _eating <= 0.0 and _case_fetch == null
 
 func take_handoff() -> NPCActivity:
 	var h: NPCActivity = _handoff

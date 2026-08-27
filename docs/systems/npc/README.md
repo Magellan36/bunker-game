@@ -1946,6 +1946,49 @@ instead of storing it — restarting the cycle. Fixed by reusing `npc_try_place_
          `PICKUP_RANGE` for a loose case — a case is one of Brannon's own examples of a "larger
          object," so it needed its own range rather than inheriting the tiny one.
 
+122. Endless pickup/drop loop on case fetches (Aug 2026, Brannon-reported — root-caused live in
+       `NPCBrain.gd`'s own scoring loop rather than guessed at). NPCs were grabbing a Can/Water
+       Case, then immediately dropping it and re-grabbing it in an endless loop, never reaching
+       eject. Root cause: `NPCBrain._think()`'s interrupt check is
+       `if _current.interruptible() and best_score > _current.score(_npc) + SWITCH_MARGIN:` —
+       `interruptible()` short-circuits the whole check when false, so `score()` is never even
+       consulted in that case. `EatActivity`/`DrinkActivity`'s `interruptible()` only ever gated on
+       `_eating`/`_drinking` (the final bite/sip countdown) — it had no idea a `_case_fetch` could be
+       in progress, so it stayed `true` through the ENTIRE pick-up/wait/eject/wait/reshelve
+       sequence. Simultaneously, `score()` legitimately drops to 0 the instant the case is held
+       (`find_loose_item()`/`find_fetch_target()` correctly exclude held items, so nothing looks
+       "available" mid-fetch). Combined: brain sees a freely-interruptible activity scoring 0 →
+       interrupts for literally anything else → `exit()` drops the case (correctly, per #121's
+       design) → NPC's still hungry/thirsty → `EatActivity`/`DrinkActivity` immediately wins again →
+       walks back to the same case → picks it up → interrupted again. Never survives long enough to
+       reach `EJECT`. This is the exact same failure shape `NPCDebug.log_suspicious_interrupt()` was
+       already written to flag elsewhere ("interruptible while still physically holding something") —
+       just a new cause, not a new class of bug. **Fix**: both activities' `interruptible()` now also
+       requires `_case_fetch == null`. Since `interruptible()` gates the check before `score()` is
+       ever read, this alone fully closes the loop — no change to `score()` was needed or made.
+
+123. NPC shelf-retrieved cases dropping to the floor instead of reaching the hold point (Aug 2026,
+       Brannon-reported, immediately after #122's fix made the case-fetch flow survive long enough
+       to reveal it). Root cause was in `Shelving.gd`, not `NPCCaseFetch` — and it's the exact same
+       bug class the PLAYER's own retrieval path already hit and was fixed for, that the NPC path
+       never received. `retrieve_to_carry()` (player path) sets
+       `item.global_position = Shelving.carry_spawn_position(isys)` immediately before calling
+       `pickup()`, with an explicit comment: "was left at the shelf slot, could tunnel through a wall
+       on the way to the player." `npc_retrieve()` (the NPC path every shelf grab — filters, food,
+       fuel cans, soil, seeds, and now cases — goes through) never had the equivalent line: the item
+       unfroze and got handed to `pickup()` while still sitting exactly at its shelf-slot position,
+       inside the shelf's own `StaticBody3D` collision (posts, platforms). Smaller items apparently
+       got away with it often enough not to be noticed; a Can/Water Case — the biggest collision
+       footprint of anything shelved — hit it reliably, tunneling/falling out onto the floor instead
+       of chasing to the NPC's hold point. **Fix**: `npc_retrieve()` now teleports the item to
+       `npc_hold_point.global_position` (the exact target already available as a parameter — simpler
+       than deriving `carry_spawn_position()`'s chest-height offset, which is only needed because the
+       player path only has `isys`, not the hold point itself) before calling `pickup()`. Benefits
+       every NPC shelf-retrieval path, not just cases. While in the function: also added the
+       `_was_interactable` group restoration `retrieve_to_carry()`/`retrieve_to_inventory()` already
+       do but `npc_retrieve()` was missing — unrelated to this bug, but a case an NPC retrieves and
+       later sets down rather than reshelves would otherwise permanently lose its player E-prompt.
+
 ## How to mark an item as trash (for any thread adding new items)
 
 An item is picked up by Cleaning and brought to a trash receptacle if **either**:
