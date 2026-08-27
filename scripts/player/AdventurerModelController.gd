@@ -118,6 +118,11 @@ var _foot_mesh_clearance: float = 0.03
 ## let the heel dip at the near-standing ends of the transitions.
 var _sole_local_offset: Vector3 = Vector3.ZERO
 var _sole_offset_measured: bool = false
+## The sole's world Y minus the player root Y at the standing rest pose — the
+## bunker floor is NOT at Y=0 (standing root sits ~1.5, so the floor is ~0.5).
+## The clamp derives the floor reference from this + the standing approach
+## height, so it's correct regardless of the absolute floor value.
+var _sole_root_offset: float = -0.98
 ## Diagnostic (Aug 2026) — set true to log the lowest sole Y every few frames
 ## during the sit transitions, to confirm the pose-dependent-gap theory.
 const SOLE_DIAGNOSTIC: bool = true
@@ -447,7 +452,6 @@ func _lerp_sit_position(from_xz: Vector3, to_xz: Vector3, curve: PackedFloat32Ar
 	_clamp_feet_to_ground()
 
 ## Foot-clearance clamp implementation — see the call site above.
-const GROUND_Y: float = 0.0
 
 func _foot_indices() -> Array[int]:
 	if _foot_bone_indices.is_empty() and _skeleton != null:
@@ -518,11 +522,18 @@ func _measure_sole_local_offset() -> void:
 		return
 	var bone_world: Transform3D = _skeleton.global_transform * _skeleton.get_bone_global_pose(best_bone)
 	_sole_local_offset = bone_world.affine_inverse() * mesh_low_pos
+	if _player != null:
+		_sole_root_offset = mesh_low_pos.y - _player.global_position.y
 	_sole_offset_measured = true
 
 func _clamp_feet_to_ground() -> void:
 	if _skeleton == null or _player == null:
 		return
+	## The FLOOR reference is the character's OWN standing sole level — the
+	## bunker floor is NOT at Y=0 (the standing root sits ~1.5, so the floor is
+	## ~0.5). Deriving it from the standing approach height + the measured
+	## sole-vs-root offset keeps this correct regardless of the absolute floor.
+	var floor_ref: float = _chair_approach_pos.y + _sole_root_offset
 	if _sole_offset_measured:
 		var lowest_sole: float = INF
 		for i: int in _foot_indices():
@@ -532,19 +543,20 @@ func _clamp_feet_to_ground() -> void:
 		if SOLE_DIAGNOSTIC:
 			_diag_sole_frames += 1
 			if _diag_sole_frames % 6 == 0:
-				print("[SitSole] lowest sole Y=%.3f  root Y=%.3f  sink=%s" \
-					% [lowest_sole, _player.global_position.y, "YES" if lowest_sole < GROUND_Y else "no"])
-		if lowest_sole != INF and lowest_sole < GROUND_Y:
-			_player.global_position.y += GROUND_Y - lowest_sole
+				print("[SitSole] floor=%.3f  lowest sole Y=%.3f  root Y=%.3f  sink=%s" \
+					% [floor_ref, lowest_sole, _player.global_position.y, "YES" if lowest_sole < floor_ref else "no"])
+		if lowest_sole != INF and lowest_sole < floor_ref:
+			_player.global_position.y += floor_ref - lowest_sole
 	else:
-		## Fallback (P2 path): constant clearance on the lowest foot bone.
+		## Fallback (P2 path): constant clearance on the lowest foot bone
+		## (bones sit above the sole by the measured gap).
 		var lowest: float = INF
 		for i: int in _foot_indices():
 			var world_y: float = _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin).y
 			lowest = minf(lowest, world_y)
-		var floor_y: float = GROUND_Y + _foot_mesh_clearance
-		if lowest != INF and lowest < floor_y:
-			_player.global_position.y += floor_y - lowest
+		var bone_floor: float = floor_ref + _foot_mesh_clearance
+		if lowest != INF and lowest < bone_floor:
+			_player.global_position.y += bone_floor - lowest
 
 func _is_holding_item() -> bool:
 	if _player == null:
