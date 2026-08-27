@@ -111,6 +111,17 @@ var _foot_bone_indices: Array[int] = []
 ## bones at GROUND_Y + this, so the actual soles rest on the floor (the foot
 ## mesh rides the bones rigidly, so the gap stays constant through the fold).
 var _foot_mesh_clearance: float = 0.03
+## Pose-aware sole clamp (Aug 2026, experimental) — the sole's position in the
+## nearest foot bone's LOCAL space, measured at rest. Each frame the clamp
+## transforms it by the bone's CURRENT animated transform, so the sole follows
+## the ankle rotation exactly — the constant clearance was pose-dependent and
+## let the heel dip at the near-standing ends of the transitions.
+var _sole_local_offset: Vector3 = Vector3.ZERO
+var _sole_offset_measured: bool = false
+## Diagnostic (Aug 2026) — set true to log the lowest sole Y every few frames
+## during the sit transitions, to confirm the pose-dependent-gap theory.
+const SOLE_DIAGNOSTIC: bool = true
+var _diag_sole_frames: int = 0
 var _current_state: String = ""
 var _last_state: String = ""
 var _visual_yaw: float = 0.0
@@ -253,6 +264,7 @@ func _ready() -> void:
 	_skeleton = _find_first_of_type(self, "Skeleton3D") as Skeleton3D
 	var skeleton: Skeleton3D = _skeleton
 	_measure_foot_mesh_clearance()
+	_measure_sole_local_offset()
 
 	for node in _find_all_of_type(self, "MeshInstance3D"):
 		var mi: MeshInstance3D = node as MeshInstance3D
@@ -475,16 +487,64 @@ static func _aabb_corners(a: AABB) -> Array[Vector3]:
 			a.size.z * float((i >> 2) & 1)))
 	return corners
 
+## P2+ (Aug 2026, experimental) — measures the sole's position in the nearest
+## foot bone's LOCAL space at the rest pose. Per-frame clamping then recomputes
+## the sole's world position through the bone's ANIMATED transform, so the
+## heel/sole follows the ankle rotation instead of relying on a pose-constant
+## clearance (which let the heel dip at the near-standing ends of the folds).
+func _measure_sole_local_offset() -> void:
+	if _skeleton == null:
+		return
+	var mesh_low: float = INF
+	var mesh_low_pos: Vector3 = Vector3.ZERO
+	for mi in _find_all_of_type(self, "MeshInstance3D"):
+		var aabb: AABB = (mi as MeshInstance3D).get_aabb()
+		for corner in _aabb_corners(aabb):
+			var w: Vector3 = (mi as MeshInstance3D).to_global(corner)
+			if w.y < mesh_low:
+				mesh_low = w.y
+				mesh_low_pos = w
+	if mesh_low == INF:
+		return
+	var best_bone: int = -1
+	var best_d: float = INF
+	for i: int in _foot_indices():
+		var bone_origin: Vector3 = _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin)
+		var d: float = Vector2(bone_origin.x - mesh_low_pos.x, bone_origin.z - mesh_low_pos.z).length()
+		if d < best_d:
+			best_d = d
+			best_bone = i
+	if best_bone == -1:
+		return
+	var bone_world: Transform3D = _skeleton.global_transform * _skeleton.get_bone_global_pose(best_bone)
+	_sole_local_offset = bone_world.affine_inverse() * mesh_low_pos
+	_sole_offset_measured = true
+
 func _clamp_feet_to_ground() -> void:
 	if _skeleton == null or _player == null:
 		return
-	var lowest: float = INF
-	for i: int in _foot_indices():
-		var world_y: float = _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin).y
-		lowest = minf(lowest, world_y)
-	var floor_y: float = GROUND_Y + _foot_mesh_clearance
-	if lowest != INF and lowest < floor_y:
-		_player.global_position.y += floor_y - lowest
+	if _sole_offset_measured:
+		var lowest_sole: float = INF
+		for i: int in _foot_indices():
+			var bone_world: Transform3D = _skeleton.global_transform * _skeleton.get_bone_global_pose(i)
+			var sole_world: Vector3 = bone_world * _sole_local_offset
+			lowest_sole = minf(lowest_sole, sole_world.y)
+		if SOLE_DIAGNOSTIC:
+			_diag_sole_frames += 1
+			if _diag_sole_frames % 6 == 0:
+				print("[SitSole] lowest sole Y=%.3f  root Y=%.3f  sink=%s" \
+					% [lowest_sole, _player.global_position.y, "YES" if lowest_sole < GROUND_Y else "no"])
+		if lowest_sole != INF and lowest_sole < GROUND_Y:
+			_player.global_position.y += GROUND_Y - lowest_sole
+	else:
+		## Fallback (P2 path): constant clearance on the lowest foot bone.
+		var lowest: float = INF
+		for i: int in _foot_indices():
+			var world_y: float = _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin).y
+			lowest = minf(lowest, world_y)
+		var floor_y: float = GROUND_Y + _foot_mesh_clearance
+		if lowest != INF and lowest < floor_y:
+			_player.global_position.y += floor_y - lowest
 
 func _is_holding_item() -> bool:
 	if _player == null:
