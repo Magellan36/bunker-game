@@ -86,20 +86,23 @@ const ANIMATION_NAMES: Dictionary = {
 ## Male-only idle override (Aug 2026) — the Male Locomotion Pack idle clip
 ## replaces the idle for MALE bodies only; walk/run/carry and every female
 ## state keep the shared ANIMATION_NAMES.
-## Aug 2026 (sit split) — "sit" is also overridden for males: the seated loop
-## plays as a hybrid clip (sit_male_lib/sit_male) that FREEZES the legs/pelvis
-## at stand_to_sit's final seated pose and animates only the upper body.
-## Females keep the full-body sit_lib/sit loop.
+## Aug 2026 (sit split) — "sit" is overridden for BOTH genders to the hybrid
+## clip (sit_hybrid_lib/sit_hybrid): legs/pelvis frozen at stand_to_sit's
+## final seated pose, upper body loops. The clip content is gender-neutral
+## (sit + stand_to_sit are shared sources), so both overrides point at it.
 const MALE_ANIMATION_NAMES: Dictionary = {
 	"idle": "idle_male_lib/idle_male",
-	"sit": "sit_male_lib/sit_male",
+	"sit": "sit_hybrid_lib/sit_hybrid",
 }
 
 ## Female-only idle override (Aug 2026) — the Female Basic Locomotion Pack
 ## idle clip replaces the idle for FEMALE bodies only; walk/run/carry/sit
 ## and every male state keep the shared ANIMATION_NAMES.
+## Aug 2026 (sit split) — "sit" points at the same hybrid clip as males (see
+## MALE_ANIMATION_NAMES above).
 const FEMALE_ANIMATION_NAMES: Dictionary = {
 	"idle": "idle_female_lib/idle_female",
+	"sit": "sit_hybrid_lib/sit_hybrid",
 }
 
 var _player: CharacterBody3D = null

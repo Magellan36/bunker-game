@@ -1,13 +1,14 @@
 extends SceneTree
-## build_sit_male_anim.gd — Aug 2026.
-## Bakes the male-only hybrid seated clip: the legs + pelvis are held STATIC
-## at stand_to_sit's final (seated) pose, and only the upper body (Spine and
-## up, incl. arms/hands/fingers) animates the sit loop. Females keep the full
-## sit_lib loop (selected via the existing gender override in the controller).
+## build_sit_hybrid_anim.gd — Aug 2026.
+## Bakes the gender-neutral hybrid seated clip: the legs + pelvis are held
+## STATIC at stand_to_sit's final (seated) pose, and only the upper body
+## (Spine and up, incl. arms/hands/fingers) animates the sit loop. The sit and
+## stand_to_sit sources are SHARED between genders, so this single clip serves
+## both (wired per-gender via MALE/FEMALE_ANIMATION_NAMES in the controller).
 
 const SIT_LIB := "res://assets/models/player/anims/sit_lib.res"
 const STAND_TO_SIT_LIB := "res://assets/models/player/anims/stand_to_sit_lib.res"
-const OUT := "res://assets/models/player/anims/sit_male_lib.res"
+const OUT := "res://assets/models/player/anims/sit_hybrid_lib.res"
 
 func _is_leg_bone(bone: String) -> bool:
 	return bone == "Hips" or bone.contains("Leg") or bone.contains("Foot") or bone.contains("Toe")
@@ -55,7 +56,7 @@ func _init() -> void:
 			out.track_insert_key(idx, sit.track_get_key_time(ti, k), sit.track_get_key_value(ti, k), sit.track_get_key_transition(ti, k))
 
 	var lib := AnimationLibrary.new()
-	lib.add_animation("sit_male", out)
+	lib.add_animation("sit_hybrid", out)
 	var err := ResourceSaver.save(lib, OUT)
 	print("saved ", OUT, " err=", err, " len=", out.length, " tracks=", out.get_track_count(), " loop=", out.loop_mode)
 	quit(0)
