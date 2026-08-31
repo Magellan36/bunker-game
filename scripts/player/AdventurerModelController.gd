@@ -342,8 +342,7 @@ func _process(delta: float) -> void:
 			_play_state("stand_to_sit")
 		elif _sit_phase == "sitting_down":
 			if not is_shadow_only:
-				_lerp_sit_position(_chair_approach_pos, _chair_seat_pos,
-					SIT_DOWN_CURVE if _gender != "female" else SIT_DOWN_CURVE_FEMALE, true)
+				_lerp_sit_position(_chair_approach_pos, _chair_seat_pos, SIT_DOWN_CURVE, true)
 		elif _sit_phase == "seated":
 			_play_state("sit")   ## looped anchor, idempotent once current
 		return
@@ -354,8 +353,7 @@ func _process(delta: float) -> void:
 		return
 	if _sit_phase == "standing_up":
 		if not is_shadow_only:
-			_lerp_sit_position(_chair_seat_pos, _chair_approach_pos,
-				STAND_UP_CURVE if _gender != "female" else STAND_UP_CURVE_FEMALE, false)
+			_lerp_sit_position(_chair_seat_pos, _chair_approach_pos, STAND_UP_CURVE, false)
 		return   ## waiting for sit_to_stand to finish → back to locomotion
 
 	var speed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
@@ -418,21 +416,6 @@ const STAND_UP_CURVE: PackedFloat32Array = [
 	0.4398, 0.5505, 0.6667, 0.7474, 0.8217, 0.8633, 0.9039, 0.9410, 0.9692, 1.0,
 ]
 
-## Female-specific slide curves (Aug 2026) — sampled from the FEMALE
-## stand_to_sit / sit_to_stand clips' actual vertical descent (the
-## CharacterArmature root position track), 21 points normalized to
-## standing=0/seated=1 (sit_down) and seated=0/standing=1 (stand_up). The
-## shared male curves pace the slide too early for the female rig (she stays
-## high longer, then drops late), causing the timing-off look.
-const SIT_DOWN_CURVE_FEMALE: PackedFloat32Array = [
-	0.009, 0.004, 0.0, 0.011, 0.031, 0.04, 0.067, 0.105, 0.13, 0.188, 0.302, 0.512,
-	0.766, 0.945, 1.0, 0.994, 0.989, 0.988, 0.988, 0.988, 0.988,
-]
-const STAND_UP_CURVE_FEMALE: PackedFloat32Array = [
-	0.038, 0.045, 0.056, 0.067, 0.07, 0.05, 0.011, 0.0, 0.143, 0.378, 0.658, 0.865,
-	0.907, 0.946, 0.974, 0.99, 0.978, 0.979, 0.978, 0.986, 1.0,
-]
-
 ## Piecewise-linear lookup into one of the curves above — maps a raw
 ## 0..1 time fraction to the corresponding motion fraction.
 static func _sample_curve(curve: PackedFloat32Array, t: float) -> float:
@@ -452,16 +435,15 @@ func _lerp_sit_position(from_xz: Vector3, to_xz: Vector3, curve: PackedFloat32Ar
 	var t: float = _sample_curve(curve, raw_t)
 	_player.global_position.x = lerpf(from_xz.x, to_xz.x, t)
 	_player.global_position.z = lerpf(from_xz.z, to_xz.z, t)
-	## FEMALE (Aug 2026, clip-driven): the female transition clips RETAIN their
-	## armature-root Y descent, so the clip moves the skeleton down/up itself —
-	## the root stays at the standing height, and the foot clamp is disabled so
-	## it can't fight the clip's authored motion. MALE keeps the curve-driven
-	## root-Y + clamp.
-	if _gender == "female":
-		return
 	## Vertical lowering to the GLB's visual seat top, ending with the hips
 	## just above the wood (SEAT_CLEARANCE cushion). Paced by the same curve
-	## as the X/Z slide so the descent reads as one motion (Aug 2026).
+	## as the X/Z slide so the descent reads as one motion (Aug 2026). Both
+	## genders use the shared smooth curve — the female rig's OWN authored
+	## descent is back-loaded (knees fold at ~5% but the body only starts
+	## dropping at ~20%, then rushes to full height), which is exactly the
+	## "knees bend before the hips move down" look; the male already masks it
+	## with this game-driven curve, and the female fold profile matches the
+	## male's, so it drives hers smoothly too.
 	var hip_offset: float = HIP_OFFSET_FROM_ROOT.get(_gender, 0.0)
 	## Seated landing point (Aug 2026): the fully-lowered seat target read as
 	## sitting BELOW the chair, while the no-Y (standing) height read as
