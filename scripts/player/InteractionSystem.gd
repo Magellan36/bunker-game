@@ -63,6 +63,29 @@ var _is_holding_e: bool = false
 ## Currently selected inventory slot (-1 = none)
 var selected_slot: int = -1
 
+## Medical item injury-selection submenu (Aug 2026) — see
+## docs/systems/medical/README.md's "Injury-selection submenu". Opened by
+## a held medical item's own on_use() (e.g. Bandage.gd) calling
+## open_medical_submenu() below, instead of applying treatment directly —
+## which body part to target is itself a player choice. Deliberately
+## NON-modal: player movement is untouched (movement input never routes
+## through this file's _unhandled_input() dispatch at all), only the
+## discrete E/F/G/pickup actions this file already owns get intercepted
+## while it's open — see _unhandled_input()'s own guard below.
+var _medical_submenu_open: bool      = false
+var _medical_submenu_item: Node      = null   ## the held item (e.g. a Bandage) that opened it
+var _medical_submenu_highlight: int  = 0      ## controller-only — currently highlighted line index
+
+## Highlight color for the controller-focused line in the submenu text —
+## sourced from the shared theme's blue UI accent (UI/colors/accent_toggle,
+## the same Color(0.3, 0.68, 1.0) reused across PowerPriorityUI/
+## PowerTerminalUI/WaterDispenserUI for toggle/selected states), not a
+## hardcoded literal, so it stays in lockstep if the theme's blue ever
+## changes. Resolved once in _ready() since UIKit.theme_color() isn't a
+## compile-time call; falls back to the same literal value if the theme
+## key is ever missing.
+var _medical_submenu_highlight_hex: String = "#4dadff"
+
 func _ready() -> void:
 	hold_point.position = Vector3(0.0, hold_height, -1.0)
 	_world_root = get_tree().get_first_node_in_group("world")
@@ -71,6 +94,7 @@ func _ready() -> void:
 	_proximity = InteractionProximityScan.new(self)
 	_focus_glow = InteractionFocusGlow.new()
 	add_child(_focus_glow)
+	_medical_submenu_highlight_hex = UIKit.theme_color("UI", "accent_toggle", Color(0.3, 0.68, 1.0, 1.0)).to_html(false)
 
 ## Tracked interactable bodies currently inside DetectArea.
 ## Maintained via body_entered / body_exited signals.
@@ -79,6 +103,143 @@ var _tracked_bodies: Dictionary = {}   ## Node3D → true
 ## StaticBody3D nodes currently in prompt range — used to fire set_player_in_range()
 ## because Jolt Area3D body_entered/exited signals never fire for StaticBody3D.
 var _static_in_range: Dictionary = {}  ## Node3D → true
+
+# ─── Medical item injury-selection submenu (Aug 2026) ─────────────────────────
+## Called by a held medical item's own on_use() (e.g. Bandage.gd) instead of
+## applying treatment directly. Resets highlight to 0 each time it opens.
+func open_medical_submenu(item: Node) -> void:
+	_medical_submenu_open      = true
+	_medical_submenu_item      = item
+	_medical_submenu_highlight = 0
+
+func _close_medical_submenu() -> void:
+	_medical_submenu_open      = false
+	_medical_submenu_item      = null
+	_medical_submenu_highlight = 0
+
+## Wraps around both ends (matches ControllerUINavigation's general "stay
+## inside the list" feel, though this is a single vertical column, not
+## its 2D best-guess navigation — that component isn't used here at all,
+## see the design doc's note on why this submenu reuses the hovering-
+## prompt pipeline instead of Control-based focus).
+func _move_medical_submenu_highlight(delta: int) -> void:
+	if _medical_submenu_item == null or not _medical_submenu_item.has_method("get_eligible_targets"):
+		return
+	var targets: Array = _medical_submenu_item.get_eligible_targets()
+	if targets.is_empty():
+		return
+	_medical_submenu_highlight = wrapi(_medical_submenu_highlight + delta, 0, targets.size())
+
+## Applies the item's real treatment to the target at `idx` in its current
+## (worst-severity-first) eligible list, then closes the submenu. Calls
+## straight into the item's own apply_to_target() — the exact same
+## function real gameplay always uses, no separate debug-only path.
+func _select_medical_submenu_target(idx: int) -> void:
+	if _medical_submenu_item == null or not _medical_submenu_item.has_method("get_eligible_targets"):
+		return
+	var targets: Array = _medical_submenu_item.get_eligible_targets()
+	if idx < 0 or idx >= targets.size():
+		return
+	var body_part: int = int((targets[idx] as Dictionary).get("body_part", -1))
+	if body_part < 0:
+		return
+	var item: Node = _medical_submenu_item
+	if item.has_method("apply_to_target"):
+		item.apply_to_target(body_part)
+	## apply_to_target() may destroy the item itself on its last charge
+	## (Aug 2026 — Bandage/Splint/Trauma Kit queue_free() when empty;
+	## Antibiotics replaces itself with an Empty Bottle instead — see each
+	## item's own apply_to_target()). Mirrors the exact same dangling-
+	## held_item fix the normal on_use() dispatch above already applies,
+	## for the same reason: is_instance_valid() alone misses a queue_free()
+	## still pending at end-of-frame.
+	if not is_instance_valid(item) or item.is_queued_for_deletion():
+		if _held_from_slot != -1 and inventory != null:
+			inventory.clear_slot(_held_from_slot)
+		held_item       = null
+		_held_from_slot = -1
+		_is_holding_e   = false
+	_close_medical_submenu()
+
+## Builds the multi-line prompt text shown in place of the item's normal
+## use/interact/store lines while the submenu is open — see
+## _update_prompt()'s CASE 1 branch below, which anchors this to the exact
+## same hold_point world_pos any other held-item prompt already uses.
+## Keyboard lines use the existing "[1]"."[9]" InteractPrompt key-icon
+## tokens (InteractPrompt._is_key_char() already includes 0-9, so this
+## needs zero changes to that file); controller mode uses a plain "1."
+## prefix instead (XBOX_BUTTONS has no number mapping — a bracketed
+## digit would otherwise still render as a KEYBOARD key-cap even in
+## controller mode) plus a color-highlighted line for the current D-pad
+## selection.
+func _build_medical_submenu_text() -> String:
+	if _medical_submenu_item == null or not _medical_submenu_item.has_method("get_eligible_targets"):
+		return "No eligible injuries"
+	var targets: Array = _medical_submenu_item.get_eligible_targets()
+	if targets.is_empty():
+		return "No eligible injuries"
+	if _medical_submenu_highlight >= targets.size():
+		_medical_submenu_highlight = targets.size() - 1
+	var controller: bool = InputMode.is_controller()
+	var lines: Array[String] = []
+	for i: int in targets.size():
+		var t: Dictionary = targets[i] as Dictionary
+		var num: int = i + 1
+		var raw: String = "%s (%s)" % [String(t.get("label", "")), String(t.get("detail", ""))]
+		var line: String
+		if controller:
+			line = "%d. %s" % [num, raw]
+			if i == _medical_submenu_highlight:
+				line = "[color=%s]%s[/color]" % [_medical_submenu_highlight_hex, line]
+		else:
+			line = "[%d] %s" % [num, raw]
+		lines.append(line)
+	return "\n".join(lines)
+
+## Owns every discrete input this file normally dispatches (numbers, D-pad,
+## confirm, cancel) while the submenu is open — called from the very top of
+## _unhandled_input() before the normal E/F/G/pickup dispatch, same
+## precedence as the existing shelf/basket/research/NPC modal-UI guard
+## immediately above it. Deliberately does NOT touch movement — see this
+## var block's own header comment for why that's automatic here.
+func _handle_medical_submenu_input(event: InputEvent) -> void:
+	# Cancel — Escape (keyboard) or B (controller, ui_cancel action).
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		_close_medical_submenu()
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("ui_cancel"):
+		_close_medical_submenu()
+		get_viewport().set_input_as_handled()
+		return
+
+	# Keyboard — number keys 1-9 select-and-apply immediately.
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode >= KEY_1 and event.keycode <= KEY_9:
+			_select_medical_submenu_target(int(event.keycode) - int(KEY_1))
+			get_viewport().set_input_as_handled()
+			return
+
+	# Controller — D-pad Up/Down moves the highlight (button indices match
+	# ControllerUINavigation.DPAD_UP/DPAD_DOWN exactly, kept as separate
+	# literals here rather than a cross-class const reference — same
+	# convention PickupableItem.gd uses for its own NPC.gd mass-threshold
+	# mirror, see that file's own comment on why).
+	if event is InputEventJoypadButton and event.pressed:
+		if event.button_index == 11:   ## DPAD_UP
+			_move_medical_submenu_highlight(-1)
+			get_viewport().set_input_as_handled()
+			return
+		if event.button_index == 12:   ## DPAD_DOWN
+			_move_medical_submenu_highlight(1)
+			get_viewport().set_input_as_handled()
+			return
+
+	# Controller — A confirms the highlighted entry (ui_accept action).
+	if event.is_action_pressed("ui_accept"):
+		_select_medical_submenu_target(_medical_submenu_highlight)
+		get_viewport().set_input_as_handled()
+		return
 
 func _on_body_entered(body: Node3D) -> void:
 	if body.is_in_group("interactable") or body.is_in_group("pickup"):
@@ -98,13 +259,26 @@ func _process(delta: float) -> void:
 				 ## Previously this branch also force-hid the prompt every
 				 ## frame, which would have fought BuildModeController's own
 				 ## prompt.set_prompts() call for the same node.
+	## Job Progress Bar (Aug 2026) — while a job is running, this file's
+	## normal CASE 1/CASE 2 prompt building and continuous-tick handling are
+	## fully suppressed; _tick_job() owns the prompt (see _render_job_prompt())
+	## and its own cancellation checks entirely for the duration. See
+	## docs/systems/player/README.md's "Job Progress Bar" entry.
+	if not _active_job.is_empty():
+		_tick_job(delta)
+		return
 	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open() or _npc_ui_open() \
 			or _any_controller_ui_open():
 		if prompt != null:
 			prompt.hide_prompt()
 		return
-	_tick_continuous_refuel(delta)
-	_tick_continuous_bottle_refill(delta)
+	## Medical submenu auto-close safety (Aug 2026) — if the held item
+	## changed or was freed out from under it (dropped, stored, consumed,
+	## knocked out, etc.) while the submenu was open, close it rather than
+	## leaving it pointed at a stale/wrong item.
+	if _medical_submenu_open:
+		if held_item != _medical_submenu_item or not is_instance_valid(_medical_submenu_item):
+			_close_medical_submenu()
 	_update_prompt()
 
 ## Continuously transfers fuel while the player holds E with a fuel can in hand.
@@ -171,11 +345,38 @@ func _any_controller_ui_open() -> bool:
 	return false
 
 func _unhandled_input(event: InputEvent) -> void:
+	## Job cancellation (Aug 2026) — any action-trigger press while a job is
+	## running cancels it (per design: any other action attempt cancels it
+	## too) and consumes the input outright — the cancelled press does NOT
+	## also fire the new action same-frame; a second press is required.
+	## Movement-attempt cancellation is handled separately, every tick, in
+	## _tick_job() (a direct Input.get_vector() poll) since movement doesn't
+	## route through this input-event dispatch at all while job-locked. ALL
+	## input is swallowed here while a job is active — nothing below this
+	## block should run until the job resolves.
+	if not _active_job.is_empty():
+		if event.is_action_pressed("interact") or event.is_action_pressed("pickup") \
+				or event.is_action_pressed("store_item") \
+				or event.is_action_pressed("inv_cycle_next") or event.is_action_pressed("inv_cycle_prev") \
+				or (event is InputEventMouseButton and (event as InputEventMouseButton).pressed \
+					and ((event as InputEventMouseButton).button_index == MOUSE_BUTTON_WHEEL_UP \
+						or (event as InputEventMouseButton).button_index == MOUSE_BUTTON_WHEEL_DOWN)):
+			_cancel_job()
+			get_viewport().set_input_as_handled()
+		return
 	if build_mode_active:
 		return   ## BuildModeController owns all input while active
 	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open() or _npc_ui_open() \
 			or _any_controller_ui_open():
 		return   ## An open UI owns all input while it's open (Aug 2026 — ANY controller-nav UI)
+	## Medical injury-selection submenu (Aug 2026) — owns numbers/D-pad/
+	## confirm/cancel while open, same precedence as the modal-UI guard just
+	## above, but deliberately NOT added to that guard's own condition or to
+	## _process()'s prompt.hide_prompt() branch — this submenu stays visible
+	## and non-modal (see the state vars' own header comment for why).
+	if _medical_submenu_open:
+		_handle_medical_submenu_input(event)
+		return
 	# ── Scroll wheel — cycle inventory slots ──
 	if event is InputEventMouseButton:
 		if event.pressed:
@@ -603,6 +804,134 @@ const MAX_PROMPT_DIST: float = 3.2
 ## keeps the screen from getting crowded/confusing with many overlapping prompts.
 const MAX_VISIBLE_PROMPTS: int = 3
 
+# ─── Job Progress Bar system (Aug 2026) ────────────────────────────────────
+## Generic timed-interaction engine. Any world object or held item that
+## wants a timed interaction (instead of the old instant-on-press behavior)
+## calls start_job() on its own resolved InteractionSystem reference — held
+## items reach it via `_hold_point.get_parent()` (PickupableItem's own
+## established shortcut, see that file), world objects via the player's
+## public `interaction_system` var (resolved through the "player" group).
+## Deliberately NOT a generic has_method("get_job_duration") hook scanned
+## automatically from this file's own dispatch — several job-eligible
+## objects (TrashCan, BreakerBox, FarmingTray) branch on more than just
+## "is this object job-eligible" before deciding whether to start one, so
+## each object decides for itself and calls start_job() directly. See
+## docs/systems/player/README.md's "Job Progress Bar" entry for the full
+## design and the complete list of converted interactions.
+const JOB_DEFAULT_DURATION: float = 1.0
+
+var _active_job: Dictionary = {}   ## {} when no job running; see start_job()
+var _player_medical_for_job: PlayerMedical = null   ## lazy-resolved, see _job_speed_mult()
+
+## Starts a timed job. `target` anchors the progress-bar panel and is the
+## point range-checked against `job_range` every tick (defaults to
+## MAX_PROMPT_DIST, matching every other object's normal interact reach) —
+## pass a very large job_range for a held-item-based job (the target isn't
+## something you can "walk away from" in the usual sense; movement itself
+## is blocked anyway, see below). `on_complete` is called with ZERO
+## arguments once the bar fills — bind() whatever the callback needs before
+## passing it in. `label` is the text shown in the floating panel while
+## charging (e.g. "Turning Stove On..."). The player is locked in place for
+## the duration (Player.set_job_locked() — separate from the pause-menu's
+## own _movement_locked, see that method's own comment) — per design, a
+## future "interacting" animation depends on the player staying put.
+## Cancelled (progress reset, nothing committed, movement unlocked,
+## on_complete never called) if the player attempts to move, presses any
+## other action (E/F/G/scroll), or the target drifts out of job_range — see
+## _unhandled_input()'s job-cancel guard and _tick_job()'s own checks.
+func start_job(target: Node3D, duration: float, on_complete: Callable, label: String, job_range: float = MAX_PROMPT_DIST) -> void:
+	if not _active_job.is_empty():
+		_cancel_job()   ## defensive — shouldn't normally be reachable, a job already locks out new job-starts via the input guard
+	_active_job = {
+		"target":      target,
+		"duration":    maxf(duration, 0.001),
+		"elapsed":     0.0,
+		"on_complete": on_complete,
+		"label":       label,
+		"range":       job_range,
+	}
+	if player != null:
+		player.set_job_locked(true)
+	_render_job_prompt()
+
+func is_job_active() -> bool:
+	return not _active_job.is_empty()
+
+## PlayerMedical.get_medical_job_speed_multiplier() — 1.0 (no effect) when
+## nothing's active or PlayerMedical hasn't been added to the scene yet.
+func _job_speed_mult() -> float:
+	if _player_medical_for_job == null or not is_instance_valid(_player_medical_for_job):
+		_player_medical_for_job = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
+	if _player_medical_for_job == null:
+		return 1.0
+	return _player_medical_for_job.get_medical_job_speed_multiplier()
+
+func _tick_job(delta: float) -> void:
+	var target: Node3D = _active_job.get("target")
+	if target != null and not is_instance_valid(target):
+		_cancel_job()
+		return
+	if target != null:
+		var job_range: float = float(_active_job.get("range", MAX_PROMPT_DIST))
+		if target.global_position.distance_to(player.global_position) > job_range:
+			_cancel_job()
+			return
+	## Movement-attempt cancel — the player is job-locked (see start_job()),
+	## so this poll never actually MOVES them; it only detects the attempt
+	## and cancels the job, same as any other action press does (see
+	## _unhandled_input()). Checked here rather than in Player.gd because
+	## movement input doesn't route through _unhandled_input() at all while
+	## job-locked (Input.get_vector() is a direct poll, not an input event).
+	var move_input: Vector2 = Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if move_input.length_squared() > 0.0:
+		_cancel_job()
+		return
+	_active_job["elapsed"] = float(_active_job["elapsed"]) + delta * _job_speed_mult()
+	if float(_active_job["elapsed"]) >= float(_active_job["duration"]):
+		_complete_job()
+	else:
+		_render_job_prompt()
+
+func _cancel_job() -> void:
+	if _active_job.is_empty():
+		return
+	_active_job = {}
+	if player != null:
+		player.set_job_locked(false)
+
+func _complete_job() -> void:
+	var cb: Callable   = _active_job.get("on_complete", Callable())
+	var target: Node3D = _active_job.get("target")
+	_active_job = {}
+	if player != null:
+		player.set_job_locked(false)
+	if cb.is_valid() and (target == null or (is_instance_valid(target) and not target.is_queued_for_deletion())):
+		cb.call()
+	## Mirrors the E-dispatch block's own "held item freed itself as a side
+	## effect" guard (see that block's Aug 2026 comment) — a job's completion
+	## callback can free held_item too (BagOfSoilItem/SeedItem/FertilizerItem/
+	## PurifierFilterItem's last charge), so the same dangling-reference
+	## cleanup applies here.
+	if held_item != null and (not is_instance_valid(held_item) or held_item.is_queued_for_deletion()):
+		if _held_from_slot != -1 and inventory != null:
+			inventory.clear_slot(_held_from_slot)
+		held_item       = null
+		_held_from_slot = -1
+		_is_holding_e   = false
+
+func _render_job_prompt() -> void:
+	if prompt == null or _active_job.is_empty():
+		return
+	var target: Node3D = _active_job.get("target")
+	var pos: Vector3 = target.global_position if target != null and is_instance_valid(target) else player.global_position
+	var frac: float = clampf(float(_active_job["elapsed"]) / float(_active_job["duration"]), 0.0, 1.0)
+	prompt.set_prompts([{
+		"text":      String(_active_job.get("label", "")),
+		"world_pos": pos,
+		"dist":      0.0,
+		"progress":  frac,
+	}])
+
 
 
 func _update_prompt() -> void:
@@ -636,24 +965,34 @@ func _update_prompt() -> void:
 		var entries: Array            = []
 		var item_lines: Array[String] = []
 
-		# Use prompt (e.g. water bottle drink line)
-		if held_item.has_method("get_use_prompt"):
-			var up: String = held_item.get_use_prompt()
-			if up != "": item_lines.append(up)
+		if _medical_submenu_open and held_item == _medical_submenu_item:
+			## Injury-selection submenu (Aug 2026) — replaces the item's normal
+			## use/interact/store lines entirely while open. Deliberately reuses
+			## this exact same entries-building/anchoring path (item_prompt_pos
+			## below is untouched) rather than a separate UI system — per
+			## docs/systems/medical/README.md's "Injury-selection submenu": the
+			## submenu should hover over the item and move with it/the player
+			## exactly like any other held-item prompt already does.
+			item_lines.append(_build_medical_submenu_text())
+		else:
+			# Use prompt (e.g. water bottle drink line)
+			if held_item.has_method("get_use_prompt"):
+				var up: String = held_item.get_use_prompt()
+				if up != "": item_lines.append(up)
 
-		# Interact prompt
-		if held_item.has_method("get_interact_prompt"):
-			var ip: String = held_item.get_interact_prompt()
-			if ip != "": item_lines.append(ip)
+			# Interact prompt
+			if held_item.has_method("get_interact_prompt"):
+				var ip: String = held_item.get_interact_prompt()
+				if ip != "": item_lines.append(ip)
 
-		# Store / put-away hint — only add when it adds value
-		if _item_is_storable(held_item) or _held_from_slot != -1:
-			if _held_from_slot != -1:
-				item_lines.append("[G] Put away")
-			elif inventory != null and inventory.is_full():
-				item_lines.append("[G] Inventory full")
-			else:
-				item_lines.append("[G] Store")
+			# Store / put-away hint — only add when it adds value
+			if _item_is_storable(held_item) or _held_from_slot != -1:
+				if _held_from_slot != -1:
+					item_lines.append("[G] Put away")
+				elif inventory != null and inventory.is_full():
+					item_lines.append("[G] Inventory full")
+				else:
+					item_lines.append("[G] Store")
 
 		# Anchor prompt to hold_point position, not physics body center.
 		var item_prompt_pos: Vector3 = hold_point.global_position \
@@ -1445,7 +1784,19 @@ func _nearest_interact_distance() -> float:
 
 ## Spawns a DishItem from the pot's serve_dish() result and puts it directly
 ## in the player's hand — mirrors _try_pickup_pot_from_stove()'s tail.
+## Aug 2026 (Job Progress Bar) — split into a trigger (this) and a
+## completion (_finish_take_dish()). is_dish_ready() is a non-destructive
+## status check, safe to call at trigger time; serve_dish() itself (which
+## actually clears the pot's ready-dish state) is deferred to completion
+## so a cancelled job leaves the pot untouched.
 func _try_take_dish(pot: Node) -> void:
+	if not (pot.has_method("is_dish_ready") and pot.is_dish_ready()):
+		return
+	start_job(pot as Node3D, JOB_DEFAULT_DURATION, Callable(self, "_finish_take_dish").bind(pot), "Plating Dish...")
+
+func _finish_take_dish(pot: Node) -> void:
+	if not is_instance_valid(pot):
+		return
 	var result: Dictionary = pot.serve_dish()
 	if result.is_empty():
 		return
@@ -1484,7 +1835,21 @@ func _try_take_dish(pot: Node) -> void:
 ## uses, since the player can only hold one item at a time) and the new
 ## Dish takes its place in hand. Mirrors _try_take_dish()'s world-pot flow
 ## with a drop step first.
+## Aug 2026 (Job Progress Bar) — same trigger/completion split as
+## _try_take_dish() above; serve_dish() and the drop-then-spawn sequence
+## are both deferred to _finish_take_dish_from_held_pot() so a cancelled
+## job leaves the held pot exactly as it was (still in hand, dish intact).
 func _try_take_dish_from_held_pot(pot: Node) -> void:
+	if not (pot.has_method("is_dish_ready") and pot.is_dish_ready()):
+		return
+	## job_range large — the pot follows the player's hand, so "walking
+	## away" from it isn't a real concept; movement itself cancels the job
+	## regardless (see start_job()'s own comment).
+	start_job(pot as Node3D, JOB_DEFAULT_DURATION, Callable(self, "_finish_take_dish_from_held_pot").bind(pot), "Plating Dish...", 999.0)
+
+func _finish_take_dish_from_held_pot(pot: Node) -> void:
+	if held_item != pot or not is_instance_valid(pot):
+		return   ## defensive — held item changed out from under the job somehow
 	var result: Dictionary = pot.serve_dish()
 	if result.is_empty():
 		return
@@ -1506,7 +1871,7 @@ func _try_take_dish_from_held_pot(pot: Node) -> void:
 	dish.collision_mask  = 1
 	dish.continuous_cd   = true
 
-	## See _try_take_dish()'s identical comment — must be set before
+	## See _finish_take_dish()'s identical comment — must be set before
 	## add_child() fires _ready().
 	dish.fill_value      = result["value"]
 	dish.bonus_pct       = result["bonus_pct"]

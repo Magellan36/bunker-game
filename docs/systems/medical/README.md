@@ -1,14 +1,27 @@
 # Medical System
 
-**Status: design reference — not yet implemented.** No `scripts/` files for
-this system exist yet. This doc is the single source of truth for what the
-Medical system is supposed to be before any code is written, per the
-"Feature Evaluation Checklist" in `GAME_PHILOSOPHY.md`. Read this in full
-before writing the first line of implementation. This doc went through
-several rounds of real revision during design (see git history if curious)
-— treat everything here as the current best understanding, not as
-untouchable law. If a future idea genuinely conflicts with something below,
-that's a reason to revisit this doc, not a reason to force-fit the idea.
+**Status: Pass 0-2(+) implemented, player-only.**
+`scripts/player/medical/MedicalCondition.gd` and `PlayerMedical.gd` exist
+and are wired into the game: Open Wound, Bleeding, Infection, Fractured,
+Broken, Burns, the full HUD (live rings, Healed overlay, Infection's
+outer ring, the dedicated vertical `MedicalEffects` stack, and the
+greyed-out need-cap rendering on `NeedsGauge`), F7 debug tooling,
+needs-cap reduction end-to-end, and time-skip/sleep integration
+(`PlayerMedical.catch_up()`/`apply_rest_bonus()`, wired into both the
+admin fast-forward cheat and real `SleepOverlay` sleep). Chronic
+conditions, real triggers for gameplay-caused injuries (everything is
+currently F7-spawned only), the deep-dive status screen, and the NPC-side
+port are not yet built. **All four Medical items are implemented, Aug
+2026** (`scripts/world/items/Bandage.gd`/`Antibiotics.gd`/`Splint.gd`/
+`TraumaKit.gd`, placeholder procedural-sphere visuals) — see "Item roles
+and mechanics" below. See
+`plans/medical-system-implementation-plan.md`
+for the pass breakdown. This doc remains the design source of truth; read
+it in full before touching the code. This doc went through several rounds
+of real revision during design (see git history if curious) — treat
+everything here as the current best understanding, not as untouchable
+law. If a future idea genuinely conflicts with something below, that's a
+reason to revisit this doc, not a reason to force-fit the idea.
 
 ## Purpose
 Models physical injury and illness for both the player and NPCs — open
@@ -418,14 +431,287 @@ condition, not a secondary flourish.
 
 ---
 
-## Item roles
+## Body-part-differentiated symptom effects
+
+**Implemented Aug 2026.** Symptom effects now differ by **which body
+part** a condition sits on, replacing the earlier flat behavior where a
+condition's `speed_mult` multiplied into one global number regardless of
+body part. This applies to every wound-tier condition with a symptom
+profile — Fractured, Broken, Burn — plus Infection as a deliberate
+systemic exception.
+
+- **Legs** (Fractured/Broken/Burn on `LEFT_LEG`/`RIGHT_LEG`):
+  - Reduce movement speed (`speed_mult`) — this already existed; it's now
+    gated to only apply when the condition is actually on a leg.
+  - Exponentially increase stamina drain while sprinting
+    (`stamina_drain_mult_sprint`), scaled by the condition's severity.
+- **Arms** (Fractured/Broken/Burn on `LEFT_ARM`/`RIGHT_ARM`):
+  - **Do not affect movement speed at all** — `speed_mult` stays 1.0.
+  - Exponentially increase stamina drain while carrying heavy objects
+    (`stamina_drain_mult_carry`), scaled by severity.
+  - Negatively impact work speed (`work_speed_mult`) — see "Work speed is
+    blocked on a dependency" below.
+  - **Explicitly do not affect which objects can be carried** — no
+    carry-capacity gating; `carry_capacity_mult` is left unpopulated for
+    this.
+- **Torso / Head:** explicitly deferred — conditions can still occur
+  there, but carry no movement/stamina/work-speed effect until this gets
+  designed, same as before this pass.
+- **Infection is the one exception to "body part determines the
+  category":** it's systemic, not localized. Regardless of which body
+  part the underlying Open Wound is on, Infection contributes to **all
+  four** effects at once — movement speed, sprint-stamina-drain,
+  carry-stamina-drain, and work speed — scaled by Infection Severity, not
+  gated by body part at all.
+- **Bleeding and plain (uninfected) Open Wound have zero symptom effect of
+  their own**, unchanged — pure HP-drain/no-effect respectively.
+
+### Work speed is blocked on a dependency
+`MedicalCondition.work_speed_mult` is now populated correctly on
+Arm/Infection conditions, but **work speed itself doesn't exist as a game
+mechanic yet** — some other system needs to define what "work speed"
+governs (crafting? interacting? both?) before this multiplier visibly
+does anything. The tooltip still surfaces the multiplier's current value
+(see below) so the player can see it — it just has nothing to act on yet.
+
+### Heavy-carry stamina drain is also a dependency, but a lighter one
+The *base* mechanic — carrying heavy items causing ongoing stamina drain
+at all — doesn't exist yet either (see "Planned future extensions").
+`get_medical_carry_stamina_drain_multiplier()` is implemented and correct,
+but nothing calls it in real gameplay yet. `get_medical_sprint_stamina_
+drain_multiplier()`, by contrast, IS wired into `Player.gd`'s real
+sprint-stamina-drain line and visibly does something today.
+
+### Tooltip presentation
+Every condition's hover tooltip (`PlayerMedical._tooltip_for()`, via the
+shared `_symptom_effect_lines()` helper) lists every currently non-1.0
+effect it contributes, in this exact display shape: `"0.25x Movement
+Speed"`, `"0.5x Stamina Drain (While Carrying)"`, `"0.75x Stamina Drain
+(While Sprinting)"`, `"0.5x Work Speed"`. A condition with no active
+effect (Bleeding, a plain uninfected Open Wound) shows none of these
+lines — no padding with 1.0x no-op lines. The tooltip's existing
+body-part-labeled header (e.g. "Fractured (Left Leg)") already makes the
+causal source clear.
+
+Once the Status Screen (Layer 3) gets built, it should reuse this exact
+same per-limb effect-list data shape rather than inventing a second way to
+describe the same thing.
+
+## Item roles and mechanics
+
+This section is the full design for how Bandage, Antibiotics, Splint, and
+Trauma Kit actually work as real, physical, pickupable objects in the
+world — not just their treatment role (see the table below), but how the
+player acquires, carries, stores, and applies them. Locked in Aug 2026
+after surveying the existing item infrastructure (`PickupableItem.gd`,
+`FoodCan.gd`, `LightStorage.gd`, `ControllerUINavigation.gd`) — every
+piece below deliberately reuses an existing, working pattern rather than
+inventing a parallel one, per Pillar 8.
+
+### Base item behavior
+Each Medical item is a `PickupableItem` subclass, identical in shape to
+`FoodCan.gd`/`WaterBottle.gd` — same pickup/drop/place lifecycle, same
+hold-follow physics, same prompt contract (`get_display_name()`,
+`get_prompt_text()`, `get_use_prompt()`). **No new interaction verbs are
+needed** — the existing F (pick up / world interact), E (use), and G
+(store into pocket inventory) scheme covers everything:
+- **F** — pick up from the world (or, held near eligible `LightStorage`
+  furniture, store into it — see below).
+- **E** — opens the injury-selection submenu (see "Injury-selection
+  submenu" below) instead of an immediate single-press use, since which
+  injury to target is itself a choice.
+- **G** — stores the held item into a pocket inventory slot, same as any
+  other item.
+
+### Storage classification — "light" items
+All four items are **light items**, matching Brannon's explicit call.
+Concretely, that means joining the same group tags `FoodCan.gd` joins for
+its own light-item eligibility:
+- **`"inventory_item"`** — makes an item eligible for the player's pocket
+  inventory *and* any `LightStorage`-based furniture (`Dresser.gd`,
+  `EndTable.gd`) via `LightStorage.has_room_for()`'s existing eligibility
+  check. No new furniture-side code needed — this is a pure item-side tag.
+- **`"basket_storable"`** — separately makes an item eligible for
+  `Basket.gd`'s own storage (a different mechanism from `LightStorage`,
+  confirmed by reading both — `Basket` does not subclass `LightStorage`).
+- **Not** `"cookpot_storable"` — that's `FoodCan`/produce-specific and has
+  no relevance here.
+
+### Charges
+Same pattern as `FoodCan._bites_left`/`TOTAL_BITES`/`charge_changed`
+signal: each item tracks a remaining-charge count, depletes by 1 on each
+successful application, and emits `charge_changed` so the HUD/inventory
+can react.
+
+**Counts (corrected Aug 2026):**
+- **Bandage, Antibiotics** — 2/2 charges baseline. Still Brannon's
+  explicit placeholder to establish a working baseline, not a final
+  balance decision.
+- **Splint, Trauma Kit** — **1 charge, explicitly single-use** (corrected
+  from the earlier blanket "all four start at 2/2" statement, which no
+  longer applies to these two).
+
+**What happens at 0 charges is per-item, not uniform:**
+- **Bandage, Splint, Trauma Kit** — the item **destroys itself
+  (`queue_free()`)** outright on its last use. No persisting "empty"
+  object.
+- **Antibiotics** — becomes an **"Empty Bottle"** instead, following the
+  same one-way full→empty convention `FoodCan` uses: the SAME node
+  persists, just swapped to an empty-labeled variant (model + prompt),
+  never a newly-spawned separate item. The Empty Bottle can still be fed
+  into the Research Station chute (see "Research Station chute yields"
+  below) for a small yield of its own, same as `FoodCan`'s empty-can
+  convention. Empty-state visuals/models are a deferred art-pass item,
+  not designed here.
+
+### Injury-selection submenu
+Pressing E while holding a Medical item with charges remaining opens a
+small, non-modal overlay listing every injury on the player's own body
+that *this specific item* is currently eligible to treat — this is the
+core new UI surface this pass adds.
+
+**Eligibility per item** — which active conditions, on which body parts,
+show up as selectable lines. **Trauma Kit does not use this submenu at
+all** — see its own entry below and the Item roles table:
+- **Bandage** — any body part with an active Bleeding condition.
+- **Antibiotics** — any body part with an active Open Wound, infected or
+  not (matches its existing dual preventative/curative role from the
+  table below — the submenu doesn't need to distinguish the two cases,
+  applying Antibiotics to either is the same action from the player's
+  side).
+- **Splint** — any body part with an active Fractured condition.
+  Explicitly **not** Broken — Splint is Fracture-specific per the table
+  below, and Broken's own real treatment is still an open design
+  question (see "Open questions").
+- **Trauma Kit** — **redesigned Aug 2026, does not open this submenu.**
+  Pressing E immediately bandages every currently-Bleeding wound and
+  splints every currently-Fractured limb, all at once, then destroys
+  itself — no target selection at all. This is a deliberate, open-ended
+  baseline: the game hasn't touched more serious injury/illness content
+  yet (gunshots, chronic diseases, etc.) that would give Trauma Kit a
+  role distinct from "Bandage + Splint combined," so its scope is
+  intentionally left simple pending that content. See
+  `PlayerMedical.treat_all_bleeding_and_fractures()`.
+
+**Ordering:** worst-severity-first among eligible entries — matches the
+Bleeding badge's own "point the player at the most urgent one" rule (see
+"Open wounds, bleeding, and infection" above). (Doesn't apply to Trauma
+Kit, which has no ordering to speak of — see its entry above.)
+
+**Empty-eligibility case:** if the item has charges but nothing currently
+qualifies (e.g. a fresh Bandage with nothing bleeding), **E still opens
+the submenu**, showing an empty/disabled state (e.g. "No eligible
+injuries") rather than E doing nothing. This is distinct from an
+*empty item* (0 charges), where `get_use_prompt()` returning `""` means E
+truly does nothing, per the Charges section above.
+
+**Non-modal — player stays fully movable.** This is a deliberate
+departure from `StorageUI`'s movement-freezing modal pattern: Medical
+treatment needs to work as fast triage, including during the rare
+combat-spotlight moments this system is explicitly built to matter most
+in (see "Purpose" above) — freezing the player to bandage themselves
+mid-encounter would work against that. The submenu is a lightweight HUD
+overlay, not a game-pausing panel.
+
+**Line format:** `N. <Body Part> (<relevant info>)` — e.g. `"1] Head
+(Severity: 62%)"` for a Bandage-eligible bleeding wound. The "relevant
+info" is item-specific: Bandage shows current Bleeding Severity %
+(matching the ambient Bleeding badge's own severity readout, not a raw
+HP/sec number — corrected Aug 2026, closer to how the player already
+reads severity elsewhere); Antibiotics shows Infection Severity % if
+infected, or an "Untreated" label on a plain wound; Splint shows Fracture
+Severity %. (Trauma Kit has no submenu line format — see its entry
+above.)
+
+**Selection — keyboard:** number keys **1–9** map directly to the
+submenu's displayed (already worst-first-sorted) order; pressing one both
+selects and immediately applies, closing the submenu and deducting one
+charge. **Escape** closes the submenu without applying or spending a
+charge.
+
+**Selection — controller:** implemented Aug 2026 by extending
+`InteractionSystem._update_prompt()`'s existing held-item prompt branch
+directly, **not** `ControllerUINavigation.gd` — the submenu reuses the
+exact same world-space `InteractPrompt` rendering pipeline every other
+held-item prompt already uses (anchored to `hold_point`, moves with the
+player, same panel/text rendering), rather than a Control tree of
+focusable buttons, so `ControllerUINavigation`'s Control-focus model
+doesn't apply here. Concretely: `InteractionSystem` tracks a highlighted-
+line index, D-pad Up/Down (button indices 11/12, matching
+`ControllerUINavigation.DPAD_UP`/`DPAD_DOWN`) moves it with wraparound,
+the highlighted line is re-rendered each frame wrapped in a `[color=...]`
+BBCode tag (InteractPrompt's `RichTextLabel` already has `bbcode_enabled`
+on) using the **shared theme's blue UI accent** (`UI/colors/accent_toggle`
+in `BunkerTheme.tres`, `Color(0.3, 0.68, 1.0)` — the same blue reused
+across `PowerPriorityUI`/`PowerTerminalUI`/`WaterDispenserUI` for toggle/
+selected states, resolved via `UIKit.theme_color()` rather than
+hardcoded — corrected Aug 2026 from an earlier orange placeholder), and
+**A** (`ui_accept`) applies the highlighted entry exactly like
+the keyboard's number-key path. **B** (`ui_cancel`) closes without
+applying. Controller-mode lines drop the `[1]`/`[2]` bracket tokens
+entirely (shown as a plain `"1. "` prefix instead) since
+`InteractPrompt`'s `XBOX_BUTTONS` table has no number mapping — a
+bracketed digit would otherwise still render as a *keyboard* key-cap icon
+even in controller mode.
+
+**On selection**, the submenu calls straight into `PlayerMedical`'s real
+treatment functions for the chosen body part — `treat_bleeding()`,
+`treat_open_wound_antibiotics()`, or `apply_splint()` — the exact same
+functions the F7 debug rows already call, per the implementation plan's
+"debug buttons and real items share the same underlying functions" rule.
+(Trauma Kit bypasses this whole submenu/selection flow — see its entry
+above.)
+
+**Implementation-time detail, not pinned here:** whether a future item's
+own eligible-targets query needs richer data than the `{body_part, label,
+detail}` shape `PlayerMedical.get_eligible_bleeding_targets()` established
+for Bandage is a per-item decision as each one gets built, not a
+constraint fixed here.
+
+### Item roles
 
 | Item | What it does |
 |---|---|
-| **Bandage** | Stops the Bleeding status effect outright on the treated body part. That's its entire job — no effect on infection risk, no effect on a wound's Healed-ring rate directly (though stopping Bleeding removes one of the two things that dampen it). |
+| **Bandage** | Stops the Bleeding status effect outright on the treated body part. That's its entire job — no effect on infection risk, no effect on a wound's Healed-ring rate directly (though stopping Bleeding removes one of the two things that dampen it). Use-prompt reads `"[E] Bandage"` (corrected Aug 2026 from "Treat Bleeding" — shorter, matches the item's own name like every other item's use-prompt convention). |
 | **Antibiotics** | Dual role: applied to a plain Open Wound, **prevents/reduces** infection risk. Applied after infection has taken hold, **cures** it — flips Infection Severity from rising to falling (and removes the other Healed-ring dampener once cured). |
-| **Splint** | Fracture-specific. Not required for healing to occur at all (natural healing always happens — see "Healing"), but dramatically hastens the Healed ring and reduces symptom penalties while worn. Destroyed if the fracture reaches 100% and converts to Broken. |
-| **Trauma Kit** | High-severity combined case (e.g. a combat wound like "Gunshot (Torso)") — does the job of both Bandage and Antibiotics at once, sized for wounds the lesser two items can't keep up with alone. |
+| **Splint** | Fracture-specific. Not required for healing to occur at all (natural healing always happens — see "Healing"), but dramatically hastens the Healed ring and reduces symptom penalties while worn. Destroyed if the fracture reaches 100% and converts to Broken. **Single-charge (see "Charges")** — destroyed on its one use regardless. |
+| **Trauma Kit** | **Redesigned Aug 2026** — no target selection, no submenu. E immediately bandages EVERY currently-Bleeding wound and splints EVERY currently-Fractured limb at once, then the item is destroyed regardless of whether anything was actually eligible. Deliberately open-ended baseline pending later, more serious injury/illness content (gunshots, chronic diseases, etc.) this game hasn't built yet — expect this to be tweaked/expanded once that content exists. **Single-charge (see "Charges")** — destroyed on its one use regardless. |
+
+### Research Station chute yields
+Most items in the game can be fed into the Research Station's chute (F,
+see `ResearchStationChute.gd`/`ResearchStation.gd`) to convert into
+research materials — Medical items participate too, per Brannon's direct
+spec (Aug 2026). The **existing** chute contract (`get_trash_material()`
+— one material, always exactly 1 unit, item always destroyed) can't
+express Medical's needs: multiple materials per item, and a yield that
+scales with remaining charges. **Extended** `ResearchStation.gd` with a
+new, strictly more expressive contract instead of replacing the old one:
+
+- **`get_research_yield() -> Dictionary`** — e.g. `{"paper": 2, "plastic":
+  2}`. Checked by `ResearchStation._feed_single_item()`/
+  `get_chute_f_prompt()` **before** falling back to the older
+  `get_trash_material()` path, so every pre-Medical item (which only ever
+  implements the old contract) is completely unaffected.
+- **Reject-entirely rule generalized:** the existing single-material chute
+  behavior rejects the whole feed (nothing consumed, item stays in hand)
+  if that one material is at storage cap. The multi-material path applies
+  the exact same rule across every yielded material at once — if *any* of
+  them would exceed cap, the whole feed is rejected, never a partial feed
+  of just what fits.
+- Feeding a multi-material item **always fully consumes/destroys it**,
+  same as the single-material path — regardless of how many charges it
+  had left. Feeding is a separate action from spending charges on
+  treatment; a full, unused item fed into the chute yields its full
+  charge-count worth of materials before being destroyed.
+
+**Confirmed yields (Aug 2026):**
+
+| Item | Yield |
+|---|---|
+| **Bandage** *(implemented)* | +1 Paper & +1 Plastic per remaining charge — i.e. +1/+1 at 1 charge, +2/+2 at 2 charges. `Bandage.get_research_yield()` returns `{"paper": _charges_left, "plastic": _charges_left}`. |
+| **Antibiotics** *(implemented)* | 2 charges → +2 Organic & +1 Plastic. 1 charge → +1 Organic & +1 Plastic. 0 charges (the resulting Empty Bottle) → +1 Plastic only. |
+| **Splint Kit** *(implemented)* | +2 Metal. Single-charge item (see "Charges") — this is its only ever yield. |
+| **Trauma Kit** *(implemented)* | +4 Metal. Single-charge item (see "Charges") — this is its only ever yield. |
 
 ---
 
@@ -446,13 +732,21 @@ body-part-aware.
   on severity change for conditions where severity moves — see
   "Healing"), `heal_rate_modifiers` (dampening/hastening multipliers —
   e.g. active-bleeding dampener, active-infection dampener, splinted
-  hastener), `symptoms` (dict of modifiers — speed mult, stamina-drain
-  mult, carry-capacity mult, work-speed mult, HP-drain-per-severity curve
-  where applicable), `needs_cap_modifiers` (optional dict, per-need, keyed
-  by severity), an `escalation_model` (none / time-based curve /
-  event-triggered with randomized step size), a `converts_to` (optional —
-  the condition id it becomes at 100% severity, e.g. Fractured → Broken),
-  and a treatment requirement where applicable.
+  hastener), `symptoms` (dict of modifiers — speed mult, **two separate stamina-drain
+  mults** (`stamina_drain_mult_sprint`, `stamina_drain_mult_carry` — split
+  Aug 2026 specifically because Infection needs to contribute to both at
+  once while a limb injury only ever contributes to one; see "Body-part-
+  differentiated symptom effects"), carry-capacity mult, work-speed mult,
+  HP-drain-per-severity curve where applicable), `needs_cap_modifiers`
+  (optional dict, per-need, keyed by severity), an `escalation_model`
+  (none / time-based curve / event-triggered with randomized step size), a
+  `converts_to` (optional — the condition id it becomes at 100% severity,
+  e.g. Fractured → Broken), and a treatment requirement where applicable.
+  Which of the four symptom fields a given condition instance actually
+  populates is now body-part-gated (legs: speed + sprint-drain; arms:
+  carry-drain + work-speed; torso/head: none), except Infection, which
+  populates all four regardless of body part — see "Body-part-
+  differentiated symptom effects."
 - **Open Wound is a special case worth modeling explicitly:** it doesn't
   use `converts_to` the way Fractured→Broken does — instead its own Healed
   ring completing *is* the "spontaneous clearing" resolution, racing
@@ -601,25 +895,35 @@ this system, not just floated ideas:
 ---
 
 ## Open questions (resolve before/during implementation)
-- **Body-part list:** finalize the exact set before writing
-  `MedicalCondition` — the whole model is keyed off it.
-- **Broken (post-Fractured) state details:** symptoms and treatment
-  requirement not yet designed beyond "more advanced treatment, more
-  detrimental effects."
+- **Body-part list:** ~~finalize the exact set~~ **Resolved/implemented:**
+  `HEAD`, `TORSO`, `LEFT_ARM`, `RIGHT_ARM`, `LEFT_LEG`, `RIGHT_LEG` — no
+  hand sub-part added. See `MedicalCondition.BodyPart`.
+- **Broken (post-Fractured) state details:** implemented with explicit
+  placeholder values (pinned 100% severity, a flat 240h heal time, a flat
+  0.25 speed multiplier, no dedicated treatment beyond natural healing) —
+  real symptoms/treatment still not designed, see
+  `PlayerMedical.BROKEN_HEAL_TIME_HOURS`/`BROKEN_SPEED_MULT`.
 - **Deep-dive status screen:** UI layout/flow not yet designed.
-- **`StatusEffectsContainer` extensions:** live severity ring, the
+- **`StatusEffectsContainer` extensions:** ~~live severity ring, the
   Healed-fill overlay mode, Infection's second concentric ring, and
-  multi-icon capacity — see "Presentation" above.
-- **`NeedsGauge` cap-reduction rendering:** see "Presentation" above.
-- **Exertion-threshold definition:** what counts as "resting" vs.
-  "exertion" for fracture healing/escalation — likely keys off
-  `Player.gd`'s existing stamina-drain/sprint signals, exact threshold
-  needs tuning at implementation time.
+  multi-icon capacity~~ **Implemented** — see `StatusEffectIcon.gd`/
+  `StatusEffectsContainer.gd` and the dedicated `HUDRoot/MedicalEffects`
+  vertical-stack node in `HUD.tscn`.
+- **`NeedsGauge` cap-reduction rendering:** ~~still open~~ **Implemented**
+  — `PlayerStats.food_cap/water_cap/sleep_cap` are written by
+  `PlayerMedical.set_needs_caps()` and rendered by `NeedsGauge.gd`'s
+  `_draw_right_half()` as a distinct warm-red "locked off" zone at the
+  top of each ring, per "Presentation" above.
+- **Exertion-threshold definition:** ~~what counts as "resting" vs.
+  "exertion"~~ **Resolved/implemented** — reuses `Player.gd`'s existing
+  0-stamina sprint-lockout, exposed as a new `exhausted` signal fired once
+  per exertion episode (the edge trigger Fracture escalation needs).
 - **Exact numbers everywhere:** starting severities, escalation steps,
   the infection probability curve, heal-time baselines/scaling, the
   needs-cap curve, HP drain rates, Healed-ring dampening/hastening
-  multipliers — all given as ballparks/proportions in this doc. Real
-  tuning happens during implementation.
+  multipliers — all implemented as explicit named constants in
+  `PlayerMedical.gd`, still placeholder ballparks pending real playtesting
+  tuning, not final numbers.
 - **Illness triggers beyond wound-infection:** contaminated water/spoiled
   food as illness vectors — depends on whatever water-quality/food-
   freshness tracking exists elsewhere; verify against
@@ -631,8 +935,13 @@ this system, not just floated ideas:
   should design in full. Revisit scope with Brannon before building.
 
 ## Deferred scope (explicitly not this pass)
-- Medical-related build-mode items and their models (bandage, antibiotics,
-  splint, trauma kit item definitions, icons, acquisition/crafting path).
+- Real, non-placeholder models/icons for all four Medical items —
+  currently procedural-sphere placeholders per Brannon's explicit call;
+  the full logic/wiring is implemented (see "Item roles and mechanics").
+- Real triggers for Burns — cooking and hazardous breaker/generator reset
+  are not yet wired to `Stove`/`CookingPot`/`PowerManager`; Burns are
+  currently F7-spawned only, same as every other condition's Pass 1/2
+  scope. Flag to whoever owns those interaction handlers before wiring.
 - Scarring / permanent injury outcomes (would need its own evaluation
   against Pillar 10 before being added — not assumed here).
 - Any UI/UX visual design pass for the deep-dive status screen beyond "it

@@ -8,6 +8,7 @@ extends CanvasLayer
 @onready var _root: Control          = $HUDRoot
 @onready var needs_gauge: NeedsGauge = $HUDRoot/NeedsGauge
 @onready var status_effects: StatusEffectsContainer = $HUDRoot/StatusEffects
+@onready var medical_effects: StatusEffectsContainer = $HUDRoot/MedicalEffects
 @onready var cash_label: Label       = $HUDRoot/TopRight/CashLabel
 @onready var clock_label: Label      = $HUDRoot/TopCenter/ClockPanel/ClockLabel
 @onready var day_label: Label        = $HUDRoot/TopCenter/DayLabel
@@ -88,6 +89,19 @@ func set_sleep(value: float) -> void:
 	_sleep_pct = value / 100.0
 	needs_gauge.set_sleep(_sleep_pct)
 	_update_critical()
+
+## Need-cap pass-through (Aug 2026, Medical system) — called from
+## MainWorld.gd whenever PlayerStats.food_cap_changed/water_cap_changed/
+## sleep_cap_changed fires. `value` is 0-100 like every other setter here;
+## NeedsGauge wants a 0.0-1.0 fraction, same conversion as set_food() etc.
+func set_food_cap(value: float) -> void:
+	needs_gauge.set_food_cap(value / 100.0)
+
+func set_water_cap(value: float) -> void:
+	needs_gauge.set_water_cap(value / 100.0)
+
+func set_sleep_cap(value: float) -> void:
+	needs_gauge.set_sleep_cap(value / 100.0)
 
 func set_cash(amount: int) -> void:
 	cash_label.text = "$%s" % _format_cash(amount)

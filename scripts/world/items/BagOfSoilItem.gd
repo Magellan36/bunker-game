@@ -88,6 +88,10 @@ func get_use_prompt() -> String:
 ## nearest to this held item (== roughly the player's hand position), not
 ## "the tray's first open cell". A double tray fills whichever side the
 ## player is standing closer to.
+## Job Progress Bar (Aug 2026) — split into a trigger (this) and a
+## completion (_finish_fill_soil()); the actual fill_soil_at_cell() call +
+## charge decrement + possible self-consumption are deferred to job
+## completion, so a cancelled job leaves the bag/tray untouched.
 func on_use() -> void:
 	var tray: FarmingTray = _find_nearest_tray_needing_soil()
 	if tray == null:
@@ -97,7 +101,16 @@ func on_use() -> void:
 		return
 
 	var cell_index: int = tray.nearest_open_soil_cell_to(global_position)
-	if cell_index < 0 or not tray.fill_soil_at_cell(cell_index):
+	if cell_index < 0:
+		return
+
+	var isys: Node = _hold_point.get_parent() if _hold_point != null else null
+	if isys == null or not isys.has_method("start_job"):
+		return
+	isys.start_job(tray, InteractionSystem.JOB_DEFAULT_DURATION, Callable(self, "_finish_fill_soil").bind(tray, cell_index), "Filling Soil...", TRAY_RANGE)
+
+func _finish_fill_soil(tray: FarmingTray, cell_index: int) -> void:
+	if not is_instance_valid(tray) or not tray.fill_soil_at_cell(cell_index):
 		return
 
 	_charges -= 1

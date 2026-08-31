@@ -1,0 +1,79 @@
+Move-tool detail worth understanding (no code change needed, but verify it in playtest)
+MoveDuplicateTool._move_select() hides a placed object like this:
+
+body.visible = false
+for child in body.get_children():
+    if child is MeshInstance3D:
+        child.visible = false
+The second loop only checks direct children and was written for the old flat convention (Bed → MeshInstance3D directly). Under the new model (Bed → VisualRoot → 20 MeshInstance3D nodes), that loop now matches nothing — but it doesn't need to: body.visible = false on the StaticBody3D root already cascades through Godot's built-in Node3D visibility inheritance to hide the entire VisualRoot subtree regardless of nesting depth. The restore (body.visible = true, 3 call sites) works the same way in reverse. This is correct and requires no code change — but it's exactly the kind of thing to explicitly confirm in playtest rather than assume, so it's called out below.
+
+Known cosmetic gap (not a regression, not required to fix here)
+GhostPreview._rebuild_ghost_mesh()'s TILE_BED branch still builds a plain symmetric procedural box (unchanged, was always like this — the old placeholder mesh was symmetric too) plus a direction arrow. It does not use the real asymmetric headboard/footboard model, so the build-mode ghost preview won't visually show which end will become the headboard before you confirm placement — only the generic direction arrow hints at "front." This was already true before the reskin (old model had no head/foot distinction at all) so it isn't a new bug, just more noticeable now that the real placed object has a visible asymmetry. Flagged as an optional future polish item, not part of this plan's required scope (matches the "no gameplay logic changes included" note in the source spec).
+
+PLAN: Bed — Fix Scene Deviation + Verify Sleep/Placement/Rotation Integrity
+Context (read first, do not skip)
+scenes/world/Bed.tscn and its 5 textures at res://assets/textures/furniture/bed/ are already committed and correct — do not regenerate or re-author the model/textures. Unlike the Can Case / Water Case plans, there is no new gameplay logic to add here — Bed has no multi-unit "depletion" concept, it's a single static furniture piece. This plan covers:
+
+Fix the unique_id quoting deviation in Bed.tscn (same class of issue as the two prior plans).
+Verify (not modify) that sleep interaction, build-mode placement, rotation, the move tool, and occupancy checks all still work correctly with the new multi-mesh model — the investigation above shows they should, but this must be confirmed by actual playtest, not assumed.
+Do not touch scripts/world/furniture/Bed.gd, scripts/world/core/MainWorld.gd, scripts/world/build/BuildModeController.gd, scripts/world/build/GhostPreview.gd, or scripts/world/build/MoveDuplicateTool.gd — none require code changes for this task. If playtest in Step 4 reveals an actual regression in any of them, stop and report back with specifics rather than improvising a fix.
+
+Step 0 — Setup
+git checkout main
+git pull
+git checkout -b feature/bed-scene-deviation-fix
+Step 1 — Verify starting state (do this before editing anything)
+Confirm all of the following. If any are false, STOP and report back instead of proceeding.
+
+scenes/world/Bed.tscn exists, is wired to the 5 textures at res://assets/textures/furniture/bed/ (metal_frame_diffuse.png, metal_frame_roughness.png, mattress_diffuse.png, mattress_normal.png, mattress_roughness.png), and has a VisualRoot node containing ~20 MeshInstance3D children (mattress, side rails, end rails, legs, head posts, head rails, head bars, foot posts, foot rails).
+All 5 texture files exist on disk and are valid, non-empty PNGs.
+The root [node name="Bed" type="StaticBody3D" ...] line has unique_id="1752025624" (quoted string — this is the deviation to fix).
+scripts/world/furniture/Bed.gd is unchanged: extends StaticBody3D, on_interact()/get_prompt_text()/set_player_in_range()/set_sleeping() contract, sleep_requested/wake_requested signals, groups "interactable" and "bed".
+CollisionShape3D's BoxShape3D is size = Vector3(2, 0.5, 1) with no position override on the CollisionShape3D node (i.e., centered at the StaticBody3D's local origin).
+If all 5 check out, proceed.
+
+Step 2 — Fix the unique_id quoting deviation in scenes/world/Bed.tscn
+Make this one exact text replacement (nothing else in the file changes):
+
+[node name="Bed" type="StaticBody3D" unique_id="1752025624"]
+→
+
+[node name="Bed" type="StaticBody3D" unique_id=1752025624]
+Only the quote marks around the number are removed. Do not change the number itself or script = ExtResource("1_bed_script") on the next line. There is only one unique_id in this file (unlike the Can/Water Case scenes, which each had 3) — do not add unique_id to any other node, and do not touch anything else in the file.
+
+Step 3 — Do NOT add code changes unless Step 4 finds an actual regression
+Based on the investigation above, none of the following files require any changes for this task:
+
+scripts/world/furniture/Bed.gd
+scripts/world/core/MainWorld.gd (bed-wiring via _connect_bed()/_wire_bed() — group-based, unaffected by mesh structure)
+scripts/world/build/BuildModeController.gd (_spawn_placed_object's TILE_BED branch, _is_position_occupied_for_tile's TILE_BED branch)
+scripts/world/build/GhostPreview.gd (_rebuild_ghost_mesh's TILE_BED branch, _attach_ghost_direction_arrow)
+scripts/world/build/MoveDuplicateTool.gd (_move_select/_move_confirm/_cancel_move's visibility toggling)
+If Step 4's playtest surfaces an actual problem in one of these — not a hypothetical, an observed one — stop, describe exactly what broke and where, and report back before attempting a fix. Do not preemptively "defensive-code" any of these files; every one of them was traced above and confirmed structurally safe against the new nested VisualRoot mesh hierarchy.
+
+Step 4 — Verification (required, do not skip)
+Run the headless compile check:
+tools/godot_check.sh /path/to/Godot_v4.6.3-stable_linux.x86_64
+Must pass clean. This also runs the --headless --import pass — confirm .import sidecars get created for all 5 bed textures (none exist yet as of this writing, so their presence afterward confirms a clean import).
+
+Regenerate architecture.json:
+python3 tools/gen_architecture.py
+Manual in-editor playtest — perform every one of these and report actual results, don't assume:
+Open Bed.tscn directly in the editor once. Confirm no red "broken resource" icons, and the model renders as the textured tubular-frame bed (not a plain green box).
+Placement: enter build mode, select the Bed tool, confirm the (symmetric box) ghost preview appears and follows the cursor/grid snap normally.
+Rotation: rotate the ghost through all 8 directions before placing (whatever the existing rotate-key binding is). Confirm the direction arrow rotates with it and the ghost doesn't glitch/disappear at any angle.
+Confirm placement: place the bed. Confirm the real textured model appears at the correct position/rotation, resting on the floor with no visual clipping/floating (compare frame-leg contact with the floor plane).
+Occupancy: try to place a second bed overlapping the first — confirm it's correctly rejected as occupied, same as before.
+Sleep: walk up to the placed bed, confirm the [E] Sleep prompt appears, press E, confirm the sleep/fade/time-skip flow works exactly as before (this is the most important functional check — Bed.gd is unchanged, but confirm end-to-end since this is the primary purpose of the object).
+Wake: confirm [E] Wake up prompt while sleeping, press E, confirm the player gets up correctly and stats/time updated as expected.
+Move tool: select the Move tool, click the placed bed. Confirm it fully disappears (not just partially — check from multiple angles that no mattress/rail/post mesh is left visible) while the move-ghost (green box) follows the cursor. Move it to a new spot and confirm. Confirm the full textured model reappears correctly at the new position with nothing missing or duplicated.
+Cancel move: start a move, then cancel it (however the existing cancel binding works). Confirm the bed reappears fully and correctly at its original position.
+Duplicate tool (if applicable to Bed): confirm duplicating a placed bed produces a second correctly-textured bed, not a blank/broken one.
+Save/load (if beds are covered by the current save system — check docs/systems/world-core/README.md's Persistence section first; if beds aren't currently saved at all, skip this check, it's a pre-existing gap unrelated to this task): confirm a placed bed's position/rotation survives a save/reload cycle without visual corruption.
+Definition of done
+The 1 unique_id value in Bed.tscn is an unquoted integer.
+No other files were modified unless Step 4 uncovered and you reported back a genuine regression (in which case, note it separately here).
+tools/godot_check.sh passes clean, and .import sidecars now exist for all 5 bed textures.
+architecture.json regenerated.
+Every bullet in the Step 4 manual playtest checklist completed and reported back with actual observed results — especially Sleep/Wake (core function) and the Move tool's full-hide/full-restore behavior (the one place the new nested mesh structure interacts with existing code, even though it's expected to just work via visibility inheritance).
+Commit message references the unique_id fix and explicitly notes that placement/rotation/sleep/move-tool were re-verified against the new multi-mesh model with no code changes required (or lists what had to change, if anything did)

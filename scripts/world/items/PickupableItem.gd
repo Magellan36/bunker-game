@@ -281,6 +281,20 @@ func _carry_arc_height_boost(target: Vector3) -> float:
 	var t: float = (angle - start) / (PI - start)
 	return CARRY_ARC_MAX_HEIGHT * clampf(t, 0.0, 1.0)
 
+# ─── Heavy / Light classification (Aug 2026) ─────────────────────────────────
+## The standing "Heavy" vs "Light" split for held items, going forward —
+## mirrors the exact rule NPCJobQueries.classify_organizable_item() already
+## uses for cleaning-destination routing (that file is NPC-thread-owned,
+## not touched here — flagged as a future consolidation opportunity once
+## coordinated across threads, rather than duplicated silently). "Light" =
+## inventory_item group (whatever fits the player's 4-slot inventory);
+## "Heavy" = everything else (Crate, Basket, Cooking Pot, Can Case, Water
+## Case, etc.). Consumed by Player.gd's heavy-carry stamina drain — see
+## its _handle_movement() drain block — and available to any future
+## system (Medical, etc.) that needs the same classification.
+func is_heavy_item() -> bool:
+	return not is_in_group("inventory_item")
+
 # ─── Prompt interface (override in subclass) ─────────────────────────────────
 func get_display_name() -> String:
 	return "Item"

@@ -1,0 +1,4 @@
+﻿start 08/22/2026 16:28:28
+ERR GamingServices : Service 'Gaming Services (GamingServices)' cannot be configured due to the following error: Access is denied
+ERR GamingServicesNet : Service 'Gaming Services (GamingServicesNet)' cannot be configured due to the following error: Access is denied
+done

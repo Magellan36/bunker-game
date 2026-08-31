@@ -30,6 +30,7 @@ var _sleep_t: float = 0.0   ## Time spent in the SLEEPING phase
 
 ## Set by MainWorld
 var player_stats: Node = null
+var player_medical: Node = null
 var bed: Node          = null
 
 func _ready() -> void:
@@ -89,6 +90,18 @@ func _do_time_skip() -> void:
 
 	player_stats.skip_time_with_drain(SLEEP_SKIP_HOURS)
 	NPC.catch_up_all(SLEEP_SKIP_HOURS)
+
+	## Medical conditions (infection severity, bleeding rate, healing
+	## progress, etc.) otherwise only advance from real per-frame delta in
+	## PlayerMedical._process() — without this, sleeping would silently do
+	## nothing to them, same bug this fixes for the admin fast-forward cheat
+	## below. apply_rest_bonus() is the ADDITIONAL "this was genuine rest"
+	## speedup for Broken/Burns specifically, on top of catch_up()'s base
+	## progression — see PlayerMedical.gd for why that's a direct call here
+	## rather than a signal.
+	if player_medical != null:
+		player_medical.catch_up(SLEEP_SKIP_HOURS)
+		player_medical.apply_rest_bonus(SLEEP_SKIP_HOURS)
 
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager")
 	if wm != null:

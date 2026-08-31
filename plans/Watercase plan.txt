@@ -1,0 +1,248 @@
+PLAN: Water Case — Fix Scene Deviation + Visual Depletion, and Water Bottle — Reskin with Real Texture
+Context (read first, do not skip)
+scenes/world/WaterCase.tscn and its 3 textures at res://assets/textures/items/water_case/ are already committed and correct — do not regenerate or re-author the model/textures. This plan covers four things only:
+
+Fix the unique_id quoting deviation in WaterCase.tscn (same issue Can Case had).
+Add visual bottle-depletion logic to WaterCase.gd (same gap Can Case had — the case currently ejects a WaterBottle on E but never hides its own Bottle_XX meshes).
+Reskin the standalone scenes/world/WaterBottle.tscn with a real capsule mesh + the existing water_bottle_label.png texture — this file has had zero visual work done on it and is still the original placeholder.
+Do this without breaking WaterBottle.gd's empty/refill tint logic — see the critical gotcha above, addressed explicitly in Step 5.
+Do not touch FarmingShopHelper.gd, BuildModeHUD.gd, Shelving.gd, or WaterDispenser.gd — none need changes for this task. Do not touch WaterCase.gd's FoodCan-equivalent eject/spawn block (the WaterBottle spawn logic) beyond adding the depletion call, same as the Can Case plan.
+
+Step 0 — Setup
+git checkout main
+git pull
+git checkout -b feature/water-case-bottle-depletion-and-reskin
+Step 1 — Verify starting state (do this before editing anything)
+Confirm all of the following. If any are false, STOP and report back instead of proceeding.
+
+scenes/world/WaterCase.tscn exists, contains bottle_count = 24, and has 24 Node3D... actually MeshInstance3D children under VisualRoot named Bottle_01 through Bottle_24 (note: unlike Can Case's Can_XX, these are MeshInstance3D directly — no Body/Lid sub-children).
+assets/textures/items/water_case/water_bottle_label.png, water_cardboard_tray_diffuse.png, water_cardboard_front_strip.png all exist and are valid non-empty PNGs.
+scripts/world/items/WaterCase.gd has no reference to VisualRoot or any hide/depletion logic yet.
+scenes/world/WaterBottle.tscn is still the small placeholder: one MeshInstance3D node named exactly MeshInstance3D, one CollisionShape3D, a CapsuleMesh/CapsuleShape3D pair, no material assigned anywhere in the file.
+scripts/world/items/WaterBottle.gd contains _update_empty_tint() with the else: _mesh.material_override = null branch described above.
+If all 5 check out, proceed.
+
+Step 2 — Fix the unique_id quoting deviation in scenes/world/WaterCase.tscn
+Make these 3 exact text replacements (nothing else in the file changes):
+
+Replacement 1:
+
+[node name="WaterCase" type="RigidBody3D" unique_id="403391416" groups=["pickup"]]
+→
+
+[node name="WaterCase" type="RigidBody3D" unique_id=403391416 groups=["pickup"]]
+Replacement 2:
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id="87744957"]
+→
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=87744957]
+Replacement 3:
+
+[node name="SpawnPoint" type="Node3D" parent="." unique_id="295681397"]
+→
+
+[node name="SpawnPoint" type="Node3D" parent="." unique_id=295681397]
+Only the quote marks around the 3 numbers are removed. Do not change the numbers or any other attribute on those lines. Leave every other node (none of which have unique_id at all) untouched.
+
+Step 3 — Replace scripts/world/items/WaterCase.gd in full
+Overwrite the entire file with:
+
+extends PickupableItem
+## WaterCase.gd
+## A case of 24 water bottles (visual model: 24 Bottle_01..Bottle_24 nodes
+## in VisualRoot). Can be picked up and carried like a crate.
+## While PLACED: press E to eject one bottle from the case.
+## While HELD:   E does nothing (interact is blocked when carried).
+## Each ejection also hides one visible bottle mesh under VisualRoot so the
+## case model visually empties out in sync with bottle_count — see
+## _hide_next_bottle_visual().
+
+# ─── Exports ─────────────────────────────────────────────────────────────────
+@export var item_name: String  = "Water Case"
+@export var bottle_count: int  = 24   ## Matches the 24 visible Bottle_01..Bottle_24 nodes in WaterCase.tscn
+
+## Shelf stacking — 4 cases lay flat per slot (2×2 grid)
+var shelf_stack_limit: int   = 4
+var shelf_item_type: String  = "water_case"
+
+## Preloaded bottle scene — must exist at this path
+const BOTTLE_SCENE: String = "res://scenes/world/WaterBottle.tscn"
+const VISUAL_BOTTLE_PREFIX: String = "Bottle_"   ## VisualRoot child name prefix, e.g. "Bottle_01"
+
+# ─── Node refs ───────────────────────────────────────────────────────────────
+## Add a Node3D child named "SpawnPoint" in the editor; positions where bottles eject from.
+@onready var spawn_point: Node3D = $SpawnPoint
+@onready var visual_root: Node3D = get_node_or_null("VisualRoot")
+
+var _player_stats: Node = null  ## Injected by MainWorld (scans "interactable" group)
+var _bottle_visuals: Array[Node3D] = []   ## Populated in _ready(), depleted highest-numbered-first
+
+func _ready() -> void:
+	super._ready()
+	add_to_group("interactable")
+	## Scale down by 1/4
+	scale = Vector3(0.75, 0.75, 0.75)
+	_collect_bottle_visuals()
+
+## Builds _bottle_visuals in ascending name order (Bottle_01 .. Bottle_24) from
+## VisualRoot's children so _hide_next_bottle_visual() can pop from the end
+## (Bottle_24 hidden first). Note: unlike CanCase's Can_XX holder nodes, these
+## are MeshInstance3D nodes directly — no Body/Lid sub-children to worry about.
+func _collect_bottle_visuals() -> void:
+	_bottle_visuals.clear()
+	if visual_root == null:
+		push_warning("WaterCase: no 'VisualRoot' node found — visual bottle depletion disabled.")
+		return
+	var found: Array[Node3D] = []
+	for child in visual_root.get_children():
+		if child is Node3D and String(child.name).begins_with(VISUAL_BOTTLE_PREFIX):
+			found.append(child)
+	found.sort_custom(func(a, b): return String(a.name) < String(b.name))
+	_bottle_visuals = found
+
+# ─── Prompt interface ─────────────────────────────────────────────────────────
+func get_prompt_text() -> String:
+	if is_held:
+		return "[F] Drop %s" % item_name
+	return "[F] Pick up %s" % item_name
+
+func get_interact_prompt() -> String:
+	if bottle_count <= 0:
+		return ""
+	return "[E] Take water (%d)" % bottle_count
+
+# ─── Interact: eject a bottle — works both placed and while held ──────────────
+func on_interact() -> void:
+	if bottle_count <= 0:
+		return
+
+	var bottle_res: Resource = load(BOTTLE_SCENE)
+	if bottle_res == null:
+		push_error("WaterCase: Could not load WaterBottle.tscn at '%s'" % BOTTLE_SCENE)
+		return
+
+	var bottle: RigidBody3D = bottle_res.instantiate()
+
+	# Inject player stats so the bottle can restore water when drunk
+	# Use our own reference, or fall back to tree search
+	if "_player_stats" in bottle:
+		bottle._player_stats = _player_stats if _player_stats != null \
+			else get_tree().get_first_node_in_group("player_stats")
+
+	# Add to world root, not to self — keeps it from inheriting our transform on pickup/drop
+	var world: Node = get_tree().get_first_node_in_group("world")
+	if world == null:
+		push_error("WaterCase: No node in group 'world' found.")
+		return
+
+	world.add_child(bottle)
+	bottle.global_position = spawn_point.global_position
+	bottle.linear_velocity = -global_transform.basis.z * 2.5 + Vector3(0, 1.5, 0)
+
+	bottle_count -= 1
+	_hide_next_bottle_visual()
+
+## Hides the next remaining visible bottle mesh (highest-numbered first) so
+## the case model visually empties in sync with bottle_count. Safe no-op once
+## _bottle_visuals is empty (e.g. bottle_count configured higher than 24 elsewhere).
+func _hide_next_bottle_visual() -> void:
+	if _bottle_visuals.is_empty():
+		return
+	var next_bottle: Node3D = _bottle_visuals.pop_back()
+	next_bottle.visible = false
+Exact diff summary (for the agent's own sanity check)
+Versus the current file, this changes only:
+
+Top doc comment updated to mention the visual model / depletion.
+New const VISUAL_BOTTLE_PREFIX: String = "Bottle_".
+New @onready var visual_root: Node3D = get_node_or_null("VisualRoot").
+New var _bottle_visuals: Array[Node3D] = [].
+_ready() gains a trailing call to _collect_bottle_visuals().
+New _collect_bottle_visuals() function.
+on_interact() gains one new trailing line: _hide_next_bottle_visual() (after bottle_count -= 1).
+New _hide_next_bottle_visual() function.
+@export var bottle_count: int = 24 is unchanged (already matches the 24 visual nodes — no mismatch fix needed here, unlike Can Case). Everything else — prompts, the entire WaterBottle spawn/eject block, shelf_stack_limit, shelf_item_type, BOTTLE_SCENE — is byte-for-byte identical to what's already committed.
+
+Step 4 — Why the WaterBottle reskin must NOT use material_override (read before Step 5)
+WaterBottle.gd's _update_empty_tint() runs after every drink (on_use()) and every refill tick (bottle_refill_tick()):
+
+func _update_empty_tint() -> void:
+	if _mesh == null:
+		return
+	if _is_empty():
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.albedo_color = Color(0.55, 0.55, 0.6, 0.7)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_mesh.material_override = mat
+	else:
+		_mesh.material_override = null   ## <-- clears ANY material_override, every non-empty call
+If the new label texture is set via MeshInstance3D.material_override in the scene (the same pattern CanCase.tscn/WaterCase.tscn use for their material_override on child mesh instances), it will look correct at first — right up until the player takes a single sip while the bottle still has water left. That call still hits the else branch (bottle isn't empty yet) and wipes material_override back to null, silently reverting the bottle to a blank/default-white capsule for the rest of its life (until it becomes empty and gets the grey tint instead — never the label texture again).
+
+The fix: bake the label material into the CapsuleMesh resource's own material property (a property on the mesh resource itself, set once at the [sub_resource type="CapsuleMesh" ...] block — not on the MeshInstance3D node). Godot's material resolution order is material_override (if non-null) → mesh resource's own material → engine default. Since _update_empty_tint() only ever touches material_override, the mesh resource's baked-in material is untouched and remains visible any time material_override is null (i.e., normal full/partially-full state) — which is exactly what we want. When the bottle becomes empty, material_override gets set to the grey tint and correctly takes priority over the label texture, same as it already does for the placeholder today.
+
+Do not deviate from this. Do not set material_override on MeshInstance3D in WaterBottle.tscn.
+
+Step 5 — Replace scenes/world/WaterBottle.tscn in full
+Overwrite the entire file with:
+
+[gd_scene format=3 uid="uid://water_bottle_001"]
+
+[ext_resource type="Script" uid="uid://tifv6y2e3o1d" path="res://scripts/world/items/WaterBottle.gd" id="1_wbottle"]
+[ext_resource type="Texture2D" path="res://assets/textures/items/water_case/water_bottle_label.png" id="2_water_bottle_label"]
+
+[sub_resource type="StandardMaterial3D" id="mat_water_bottle"]
+albedo_texture = ExtResource("2_water_bottle_label")
+albedo_color = Color(0.9, 0.95, 1, 0.92)
+roughness = 0.2
+metallic = 0.04
+transparency = 1
+
+[sub_resource type="CapsuleMesh" id="mesh_001"]
+material = SubResource("mat_water_bottle")
+radius = 0.06
+height = 0.22
+
+[sub_resource type="CapsuleShape3D" id="shape_001"]
+radius = 0.06
+height = 0.22
+
+[node name="WaterBottle" type="RigidBody3D"]
+script = ExtResource("1_wbottle")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("mesh_001")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("shape_001")
+Notes:
+
+The texture is reused from res://assets/textures/items/water_case/water_bottle_label.png — do not generate a new/duplicate texture file for this. It's already a general-purpose bottle-wrap design (cap + label + body), and reusing it keeps the held bottle visually consistent with the bottles inside the case.
+radius/height on both the CapsuleMesh and CapsuleShape3D are unchanged from the current placeholder (0.06/0.22) — do not resize these to match the case's tiny decorative mesh_bottle (0.026/0.13); that size was specifically compensated for the case's own 0.75 scale-down and its cramped 6×4 grid, not for a realistic standalone held/dropped bottle. Changing the standalone bottle's physical size is out of scope for this task.
+The material = SubResource("mat_water_bottle") line is on the CapsuleMesh sub_resource, not on the MeshInstance3D node — this is the critical detail from Step 4. Do not add a material_override line to the MeshInstance3D node.
+The groups=["pickup"] tag is deliberately not added to the root node — the current file doesn't have it (the base PickupableItem._ready() already calls add_to_group("pickup") in code), and this task isn't the place to change that.
+The WaterBottle.gd.uid sidecar's real UID (uid://tifv6y2e3o1d) is used in the ext_resource line for correctness/consistency with how the Can Case fix was done — this was not previously present in the file (it just said path=... with no uid=), but adding it is safe and matches the rest of the repo's convention.
+Step 6 — Verification (required, do not skip)
+Run the headless compile check:
+tools/godot_check.sh /path/to/Godot_v4.6.3-stable_linux.x86_64
+Must pass clean.
+
+Regenerate architecture.json:
+python3 tools/gen_architecture.py
+Manual in-editor playtest — perform every one of these and report actual results:
+Open WaterCase.tscn and WaterBottle.tscn directly once each in the editor. Confirm no red "broken resource" icons.
+Buy a Water Case from Shop → Resources ($80). Confirm the textured tray + 24 bottles render correctly.
+Place it, press E repeatedly: confirm a WaterBottle ejects each time and one bottle visually disappears from the case, Bottle_24 → Bottle_23 → ... → Bottle_01, one per press. After the 24th press, confirm the tray is visually empty, the prompt disappears, and further presses do nothing.
+Pick up one of the ejected WaterBottles: confirm it now renders with the blue-cap/label texture (not a blank white capsule).
+Critical check: drink from a full bottle once (E, leaving it partially full, not empty). Confirm the label texture is still visible after this single sip (this is the exact regression Step 4 prevents — if the bottle goes blank/white after one sip, the material was wired wrong).
+Keep drinking until the bottle is fully empty. Confirm it switches to the grey semi-transparent "empty" tint, same as before this change.
+Refill the empty bottle at a WaterDispenser until it's no longer empty. Confirm the label texture reappears correctly (not stuck grey, not blank).
+Confirm Water Case shelf-stacking (2×2, 4 per slot) and the Shop menu's hover-spin preview both still work correctly.
+Definition of done
+All 3 unique_id values in WaterCase.tscn are unquoted integers.
+WaterCase.gd replaced with Step 3's content, matching the diff summary exactly.
+WaterBottle.tscn replaced with Step 5's content — material baked onto the CapsuleMesh resource, not MeshInstance3D.material_override.
+tools/godot_check.sh passes clean.
+architecture.json regenerated.
+Every bullet in the Step 6 manual playtest checklist completed and reported back with actual observed results — especially the "drink once, confirm texture survives" check.
+Commit message references all three fixes: the unique_id formatting correction, the new visual bottle-depletion logic, and the WaterBottle reskin (noting the material-override-vs-mesh-material distinction so a future session doesn't accidentally revert it).

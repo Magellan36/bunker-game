@@ -75,6 +75,12 @@ var _icon_loaded_sig: Array = []
 ## "67%"). Added Aug 2026.
 var _icon_badge_labels: Array = []
 
+## Per pool-panel-index: ProgressBar, shown beneath the label whenever an
+## entry carries a "progress" key (0.0-1.0) — Job Progress Bar system
+## (Aug 2026, InteractionSystem.start_job()). Built lazily per panel, same
+## grows-with-the-pool convention as the icon slots/badge labels above.
+var _progress_bars: Array = []
+
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	_template_panel.visible = false
@@ -125,6 +131,7 @@ func _process(_delta: float) -> void:
 		_icon_viewports.append(_build_icon_slots(clone))
 		_icon_loaded_sig.append(["", "", ""])
 		_icon_badge_labels.append(_build_badge_labels(clone))
+		_progress_bars.append(_build_progress_bar(clone))
 
 	# ── Phase 1: compute each panel's natural position/size/alpha and update
 	## its content. `layouts[i]` is null for a hidden entry, else a Dictionary
@@ -162,6 +169,19 @@ func _process(_delta: float) -> void:
 			icon_row.visible = not icons.is_empty()
 			if not icons.is_empty():
 				_refresh_icon_slots(i, icons)
+
+		## Job Progress Bar (Aug 2026) — shown beneath the label whenever the
+		## entry carries a "progress" key (InteractionSystem.start_job()'s own
+		## _render_job_prompt()). Augments the label text rather than replacing
+		## it, so the "Turning Stove On..." line stays readable while the bar
+		## fills underneath it.
+		var progress_bar: ProgressBar = _progress_bars[i] if i < _progress_bars.size() else null
+		if progress_bar != null:
+			if entry.has("progress"):
+				progress_bar.visible = true
+				progress_bar.value   = clampf(float(entry["progress"]), 0.0, 1.0)
+			else:
+				progress_bar.visible = false
 
 		p.reset_size()
 		layouts.append({
@@ -346,6 +366,46 @@ func _build_badge_labels(clone: PanelContainer) -> Array:
 		out[slot_i] = lbl
 	return out
 
+## Builds the ProgressBar shown beneath a panel's label while a Job
+## Progress Bar (Aug 2026) is charging. Thin, borderless, styled via
+## StyleBoxFlat overrides rather than a theme resource (matches this
+## file's existing preference for building UI procedurally per panel
+## rather than authoring more into the template .tscn).
+func _build_progress_bar(clone: PanelContainer) -> ProgressBar:
+	var vbox: VBoxContainer = clone.get_node_or_null("VBox") as VBoxContainer
+	if vbox == null:
+		return null
+	var bar: ProgressBar = ProgressBar.new()
+	bar.min_value          = 0.0
+	bar.max_value          = 1.0
+	bar.step               = 0.0
+	bar.show_percentage    = false
+	bar.custom_minimum_size = Vector2(120.0, 6.0)
+	bar.mouse_filter       = Control.MOUSE_FILTER_IGNORE
+	bar.visible            = false
+
+	var fg: StyleBoxFlat = StyleBoxFlat.new()
+	## Same translucent green used elsewhere for "in progress / valid target"
+	## states (FarmingTray.HIGHLIGHT_COLOR's on-brand green), at full alpha
+	## so the fill itself reads clearly against the dark panel background.
+	fg.bg_color = Color(0.35, 1.0, 0.45, 0.95)
+	fg.corner_radius_top_left     = 3
+	fg.corner_radius_top_right    = 3
+	fg.corner_radius_bottom_left  = 3
+	fg.corner_radius_bottom_right = 3
+	bar.add_theme_stylebox_override("fill", fg)
+
+	var bg: StyleBoxFlat = StyleBoxFlat.new()
+	bg.bg_color = Color(0.0, 0.0, 0.0, 0.45)
+	bg.corner_radius_top_left     = 3
+	bg.corner_radius_top_right    = 3
+	bg.corner_radius_bottom_left  = 3
+	bg.corner_radius_bottom_right = 3
+	bar.add_theme_stylebox_override("background", bg)
+
+	vbox.add_child(bar)
+	return bar
+
 ## Re-instantiates only the slots whose content actually changed since last
 ## frame (tracked via _icon_loaded_sig), matching BuildModeHUD's own
 ## "queue_free old Node3D children, instantiate new one" pattern.
@@ -495,11 +555,13 @@ func _token_bbcode(token: String, controller: bool) -> String:
 ## Primary API — call every frame from InteractionSystem._update_prompt().
 ## Pass an Array of { "text": String, "world_pos": Vector3, "dist": float,
 ## "icons": Array (optional, up to 3 entries, each a descriptor Dictionary
-## or null), "is_focus_target": bool (optional, Aug 2026 — Focus Mode:
-## true for the single closest empty-handed candidate with any prompt
-## (E or F), false for other empty-handed candidates, omitted entirely
-## for held-item entries that haven't opted into Focus Mode filtering
-## yet — a missing key defaults to shown) }. Pass [] to hide all panels.
+## or null), "progress": float (optional, Aug 2026 — Job Progress Bar,
+## 0.0-1.0, shows a fill bar beneath the text), "is_focus_target": bool
+## (optional, Aug 2026 — Focus Mode: true for the single closest
+## empty-handed candidate with any prompt (E or F), false for other
+## empty-handed candidates, omitted entirely for held-item entries that
+## haven't opted into Focus Mode filtering yet — a missing key defaults
+## to shown) }. Pass [] to hide all panels.
 func set_prompts(new_entries: Array) -> void:
 	_active = new_entries
 

@@ -14,11 +14,28 @@ extends CharacterBody3D
 @export var sprint_stamina_drain: float = 18.0
 ## Stamina recovered per second while not sprinting
 @export var stamina_regen: float = 8.0
+## Stamina drained per second while holding a Heavy item (Aug 2026 — see
+## PickupableItem.is_heavy_item() for the classification). Passive: applies
+## regardless of sprint state. Deliberately set ABOVE stamina_regen so
+## simply standing still holding something heavy still drains rather than
+## idles — see _handle_movement()'s drain block, which sums this with
+## sprint_stamina_drain when both are active at once rather than letting
+## one fight the other. PlayerMedical.get_medical_carry_stamina_drain_
+## multiplier() (previously unwired, see its own comment) multiplies this.
+@export var heavy_carry_stamina_drain: float = 12.0
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 @onready var collision: CollisionShape3D = $CollisionShape3D
 @onready var interaction_area: Area3D = $InteractionArea
 @onready var interaction_system: Node = $InteractionSystem
+
+## Resolved lazily via group lookup (same pattern PlayerStats/PowerManager
+## use elsewhere) rather than a direct $-path, since PlayerMedical is a
+## sibling node rather than a child of Player — see
+## scripts/player/medical/PlayerMedical.gd and
+## docs/systems/medical/README.md. May be null if the Medical system's
+## node hasn't been added to the scene yet; every use below null-checks it.
+var _player_medical: PlayerMedical = null
 
 ## Stamina must recover to this before sprinting is allowed again (prevents flicker)
 @export var sprint_recover_threshold: float = 20.0
@@ -83,14 +100,35 @@ func set_movement_locked(locked: bool) -> void:
 	if locked:
 		velocity = Vector3.ZERO
 
+## True while a timed "job" interaction (InteractionSystem.start_job(), Aug
+## 2026 — see docs/systems/player/README.md's "Job Progress Bar" entry) is
+## in progress. Deliberately a SEPARATE flag from _movement_locked
+## (PauseMenuUI/other full-screen modals) rather than reusing it, so a job
+## started mid-pause or a pause opened mid-job each unlock independently
+## instead of one clearing the other's lock early.
+var _job_locked: bool = false
+
+func set_job_locked(locked: bool) -> void:
+	_job_locked = locked
+	if locked:
+		velocity = Vector3.ZERO
+
 # ─── Signals ──────────────────────────────────────────────────────────────────
 signal interacted()
 signal stamina_changed(new_value: float)   ## Emit so HUD / PlayerStats can react
+## Emitted once on the exact frame stamina hits 0 and sprint locks out — an
+## edge trigger, not fired again while still exhausted. Medical's Fracture
+## escalation (docs/systems/medical/README.md) listens for this rather than
+## polling _sprint_locked, since the once-per-episode semantics this signal
+## already has are exactly what escalation needs.
+signal exhausted()
 
 func _ready() -> void:
 	## Register in "player" group so items (e.g. Flashlight) can resolve the
 	## player ref via get_first_node_in_group("player") without needing a direct reference.
 	add_to_group("player")
+
+	_player_medical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
 
 	## Controller support guard (Aug 2026) — the Xbox gamepad bindings are
 	## defined in project.godot's Input Map, but the editor rewrites that
@@ -119,10 +157,10 @@ func _ready() -> void:
 	## state by reading this same Player node, same as the real model.
 
 func _physics_process(delta: float) -> void:
-	if _movement_locked:
+	if _movement_locked or _job_locked:
 		## Still apply gravity/move_and_slide so the player doesn't float or
-		## clip through the floor while the menu is open — just skip WASD/
-		## sprint/interact input handling.
+		## clip through the floor while the menu (or a job) is active — just
+		## skip WASD/sprint/interact input handling.
 		if not is_on_floor():
 			velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
 		velocity.x = 0.0
@@ -162,16 +200,67 @@ func _handle_movement(delta: float) -> void:
 	if direction.length_squared() <= 0.0 or _sprint_locked:
 		_sprint_toggle = false
 
-	# Drain / regen stamina
+	# Drain / regen stamina (Aug 2026 — generalized to sum every active drain
+	# source into one total; regen only applies when nothing is draining at
+	# all. Previously sprint-only; sprint behavior itself is unchanged, just
+	# no longer an if/else against regen directly.)
+	var total_stamina_drain: float = 0.0
 	if _is_sprinting:
-		stamina = maxf(0.0, stamina - sprint_stamina_drain * delta)
-		if stamina == 0.0:
+		## Medical system (Aug 2026) — leg injuries/illness exponentially
+		## increase sprint-stamina drain, scaled by severity (Infection
+		## contributes too, systemically, regardless of body part). Returns
+		## 1.0 (no effect) when nothing's active, same no-op-by-default
+		## pattern as get_medical_speed_multiplier() above. See
+		## docs/systems/medical/README.md's "Body-part-differentiated
+		## symptom effects".
+		var medical_sprint_mult: float = 1.0
+		if _player_medical != null:
+			medical_sprint_mult = _player_medical.get_medical_sprint_stamina_drain_multiplier()
+		total_stamina_drain += sprint_stamina_drain * medical_sprint_mult
+
+	## Heavy-carry stamina drain (Aug 2026) — passive drain while holding a
+	## Heavy item (PickupableItem.is_heavy_item(); Light items — anything
+	## that fits the 4-slot inventory — never trigger this). Applies
+	## regardless of sprint state and is cumulative with the sprint drain
+	## above when both are active at once — the whole point of summing into
+	## total_stamina_drain rather than branching. Medical's carry-drain
+	## multiplier (get_medical_carry_stamina_drain_multiplier() —
+	## previously unwired, see its own doc comment) is wired in now that
+	## there's a base mechanic for it to actually multiply.
+	if interaction_system != null:
+		var held_for_drain = interaction_system.held_item
+		if held_for_drain != null and is_instance_valid(held_for_drain) \
+				and held_for_drain.has_method("is_heavy_item") and held_for_drain.is_heavy_item():
+			var medical_carry_mult: float = 1.0
+			if _player_medical != null:
+				medical_carry_mult = _player_medical.get_medical_carry_stamina_drain_multiplier()
+			total_stamina_drain += heavy_carry_stamina_drain * medical_carry_mult
+
+	if total_stamina_drain > 0.0:
+		stamina = maxf(0.0, stamina - total_stamina_drain * delta)
+		if stamina == 0.0 and not _sprint_locked:
+			exhausted.emit()
 			_sprint_locked = true  ## exhausted — force walk until recovered
+			## Drop whatever's held the instant stamina bottoms out (Aug 2026).
+			## _quick_drop() is InteractionSystem's own "never strand the held
+			## item" fallback (already called from TrashCan.gd's too-full case),
+			## reused here rather than duplicating a drop path. No-ops safely if
+			## empty-handed.
+			if interaction_system != null and interaction_system.held_item != null \
+					and interaction_system.has_method("_quick_drop"):
+				interaction_system._quick_drop()
 	else:
 		stamina = minf(100.0, stamina + stamina_regen * delta)
 	stamina_changed.emit(stamina)
 
 	var target_speed: float = sprint_speed if _is_sprinting else move_speed
+	## Medical system (Aug 2026) — injuries/illness can slow the player.
+	## PlayerMedical.get_medical_speed_multiplier() returns 1.0 (no effect)
+	## when no conditions are active, so this is a no-op until Medical
+	## actually sets a condition's speed_mult away from 1.0. See
+	## docs/systems/medical/README.md.
+	if _player_medical != null:
+		target_speed *= _player_medical.get_medical_speed_multiplier()
 
 	if direction.length_squared() > 0.0:
 		velocity = velocity.lerp(direction * target_speed, acceleration * delta)

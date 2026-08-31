@@ -5,6 +5,29 @@
 > `tool_search` until you call it) and several hard-won gotchas that
 > repeatedly cost real time across the sessions logged below.
 
+# Handover - Heavy/Light item classification + heavy-carry stamina drain (Aug 2026)
+
+Player subsystem. New `PickupableItem.is_heavy_item()` (`not
+is_in_group("inventory_item")`) is now the canonical, project-wide
+"Heavy" vs "Light" item classification going forward — mirrors
+`NPCJobQueries.classify_organizable_item()`'s existing rule exactly, but
+that NPC-thread file was deliberately NOT touched/consolidated this pass
+(flagged for later, cross-thread coordination). `Player.gd` now applies a
+passive `heavy_carry_stamina_drain` (12.0/sec, exported, tunable) whenever
+the held item is Heavy, generalized into the same summed
+`total_stamina_drain` the sprint drain now also feeds (cumulative, not
+an if/else) vs. `stamina_regen` (8.0/sec) — holding heavy alone nets a
+drain even standing still since 12.0 > 8.0; holding heavy while sprinting
+stacks both. Hitting 0 stamina from either source now locks sprint/fires
+`exhausted`, not just from sprinting. Wires up
+`PlayerMedical.get_medical_carry_stamina_drain_multiplier()`, which
+already existed and was documented as correct-but-unwired pending exactly
+this base mechanic — no Medical-side changes needed. See
+`docs/systems/player/README.md`'s Common edits for full detail. Purpose
+(per Brannon): groundwork for the Medical system's planned speed
+multipliers / stamina-drain multipliers on Player movement, plus more
+Player-subsystem work still queued in the same session.
+
 # Handover - sit animations, animation pipeline, controller pass (Aug 2026)
 
 Large multi-stream session. Two NEW docs to read for detail:

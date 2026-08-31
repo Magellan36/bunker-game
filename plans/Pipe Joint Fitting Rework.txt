@@ -1,0 +1,440 @@
+Plan: Pipe Joint Fitting Rework (Elbow / T-Split / Cross / Straight Remnant)
+Target repo: Magellan36/bunker-game (branch main). System: Water (docs/systems/water/README.md). Verification: tools/godot_check.sh must pass before considering this done. Read AI_CONTEXT.md and docs/systems/water/README.md before touching any file.
+
+0. What we're changing and why
+Today, every "corner"-role pipe joint (a 90° bend, a T-split, or a "+" crossing) is rendered as one small grey SphereMesh sitting exactly at the corner point (WaterPipeElbow.gd). This looks like a simple ball joint.
+
+We're replacing that with the new textured "bolted flange fitting" models (already committed to main, currently unused by any code):
+
+Scene	Represents	Stub arms baked in (local space)
+scenes/world/water/WaterPipeElbowCouplerModel.tscn	2-way 90° bend	local +X, local +Y
+scenes/world/water/WaterPipeTSplitCouplerModel.tscn	3-way T-split	local +X, -X, +Y
+scenes/world/water/WaterPipePlusCrossCouplerModel.tscn	4-way "+" crossing	local +X, -X, +Y, -Y
+scenes/world/water/WaterPipeCouplerModel.tscn	plain straight splice (no bend)	local +Y only (through-axis)
+scenes/world/water/WaterPipeSegmentModel.tscn	reference material for straight pipe body	n/a (not instanced, see §6)
+scenes/world/water/WaterHookupModel.tscn	full wall hookup replacement	n/a (Phase 2, see §7)
+Key fact that makes this tractable: every flange/disc on these fitting models is already baked in ~0.22m from the fitting's own center (matches the requested "short distance away from the corner" — no manual per-disc offset math needed). We are NOT hand-placing individual discs. We are picking one whole fitting scene per joint (based on how many pipes actually meet there) and rotating that single scene so its baked-in stub arms point down the real pipe legs.
+
+1. Design decisions (locked in, do not re-litigate)
+Degree-2 perpendicular junction (genuine 90° bend, including a horizontal-run-to-vertical-drop transition) → instance WaterPipeElbowCouplerModel.tscn.
+Degree-2 collinear junction (both legs point in exactly opposite directions — a leftover remnant after a T-split's branch was deleted, see §5.1) → instance WaterPipeCouplerModel.tscn (plain straight splice, no bend).
+Degree-3 junction (T-split) → instance WaterPipeTSplitCouplerModel.tscn.
+Degree-4 junction ("+" crossing) → instance WaterPipePlusCrossCouplerModel.tscn.
+Degree-0 or degree-1 (dead end / fully orphaned) → no fitting visual at all (matches current behavior for pipe_joint-role dead ends — do not invent a cap/end piece).
+Degree-5+ → should never occur (only 6 axis directions exist and Manhattan routing never doubles up); if it somehow does, log a warning via push_warning() and show no visual rather than crashing.
+No manual offset constant is needed — the fittings' own geometry already provides the "short distance from the corner" look. Do not add a second offset on top of the model's built-in one.
+Fitting visuals are not given ghost/drag previews this pass (today there is no ghost elbow at all — only straight ghost pipe cylinders during drag). Out of scope — do not add one.
+Fitting visuals do not get deconstruct-hover highlighting (set_highlight_delete()) — they never have today, and they still aren't independently deletable; they only disappear via the existing prune_orphan_waypoint() path when every edge touching them is gone. Do not add highlighting.
+2. Prerequisite reading (do this first, in this order)
+AI_CONTEXT.md
+docs/systems/water/README.md (whole file — it's long; read all of it, this task touches almost every section)
+scripts/world/water/WaterPipeElbow.gd (current version, to be rewritten)
+scripts/world/water/WaterManager.gd (full file)
+scripts/world/water/WaterGraph.gd (full file — note node_degree() and get_edges_touching() already exist)
+scripts/world/water/WaterPipeDrawMode.gd — specifically every place it does WaterPipeElbow.new() (there are 3: single-leg confirm, multi-leg confirm, T-split-anywhere confirm via _split_pipe_at())
+scripts/world/water/WaterPurifier.gd — specifically revert_to_corner()
+scripts/world/water/WaterPurifierAttach.gd — specifically insert_purifier_at()
+scripts/world/build/BuildUndoStack.gd — the "pipe" undo case
+scripts/world/water/WaterPipeSegment.gd (full file)
+scripts/world/water/WaterHookup.gd (full file)
+Read every one of these 6 .tscn files fully, in full, right before writing any code (copy their EXACT StandardMaterial3D sub-resource parameters — texture paths, uv1_scale if present, roughness/metallic/albedo_color — do not guess these numbers from memory):
+scenes/world/water/WaterPipeSegmentModel.tscn
+scenes/world/water/WaterPipeCouplerModel.tscn
+scenes/world/water/WaterPipeElbowCouplerModel.tscn
+scenes/world/water/WaterPipeTSplitCouplerModel.tscn
+scenes/world/water/WaterPipePlusCrossCouplerModel.tscn
+scenes/world/water/WaterHookupModel.tscn
+3. The core algorithm (identical math, reused for every degree)
+All pipe routing in this game is strictly axis-aligned (see WaterPipeDrawMode.gd's own header — "Manhattan/90°-only, NO diagonal runs, ever"). That means every leg touching any joint points along exactly one of the 6 world unit directions: ±Vector3(1,0,0), ±Vector3(0,1,0), ±Vector3(0,0,1). This is what makes a single generic algorithm work for horizontal turns, T-splits, "+" crossings, AND horizontal-to-vertical drop transitions, with zero special-casing per scenario.
+
+3.1 Snap each leg to an exact axis direction
+## Rounds `dir` to the nearest exact world axis-aligned unit vector.
+## Guards against tiny floating-point drift — every real leg direction in
+## this game is already exactly one of these six by construction, but the
+## downstream logic below does EXACT equality/opposite checks, so noise
+## must be removed first.
+static func snap_to_axis(dir: Vector3) -> Vector3:
+	var ax: float = absf(dir.x)
+	var ay: float = absf(dir.y)
+	var az: float = absf(dir.z)
+	if ax >= ay and ax >= az:
+		return Vector3(signf(dir.x), 0.0, 0.0)
+	elif ay >= ax and ay >= az:
+		return Vector3(0.0, signf(dir.y), 0.0)
+	else:
+		return Vector3(0.0, 0.0, signf(dir.z))
+3.2 Build an orthonormal rotation Basis from 2 known perpendicular directions
+Godot's Basis(x_axis, y_axis, z_axis) constructor sets exactly where the LOCAL +X/+Y/+Z unit vectors end up after the rotation (i.e. basis * Vector3.RIGHT == x_axis). Since every one of the new fitting scenes builds its stub arms only in the local X/Y plane (never local Z), we only ever need to decide where local +X and local +Y should point in world space — the third axis (local Z) is derived automatically via cross product and never matters visually (it only ever maps to a fitting's negligible "thickness" direction).
+
+## D1 and D2 MUST be exactly perpendicular unit vectors (already guaranteed
+## by snap_to_axis() + the axis-grouping logic below). Returns a Basis
+## where local +X -> D1 and local +Y -> D2.
+static func basis_from_two(d1: Vector3, d2: Vector3) -> Basis:
+	var d3: Vector3 = d1.cross(d2).normalized()
+	return Basis(d1, d2, d3)
+This ONE function is reused for every degree (2/3/4) — only WHICH two directions get passed in changes.
+
+3.3 Dispatch table (given a list of already-snapped leg directions)
+## Groups directions by which world axis they lie on (0=X,1=Y,2=Z), each
+## entry {"axis": int, "sign": float, "dir": Vector3}. Since every dir is
+## already exactly axis-aligned (snap_to_axis), this grouping is exact, not
+## approximate.
+static func _axis_index_of(dir: Vector3) -> int:
+	if absf(dir.x) > 0.5:
+		return 0
+	elif absf(dir.y) > 0.5:
+		return 1
+	else:
+		return 2
+
+## Returns {"scene_path": String, "basis": Basis} or {} for degree 0/1 or an
+## unsupported/malformed degree (5+, or a degree-3/4 set that doesn't
+## actually contain the expected opposite-pair structure — defensive, log
+## a push_warning() and return {} rather than crash).
+static func pick_fitting(leg_dirs: Array[Vector3]) -> Dictionary:
+	var n: int = leg_dirs.size()
+	if n < 2:
+		return {}
+
+	if n == 2:
+		var d1: Vector3 = leg_dirs[0]
+		var d2: Vector3 = leg_dirs[1]
+		if d1.is_equal_approx(-d2):
+			## Collinear remnant — see §5.1. Build a basis whose local +Y
+			## (the straight-coupler model's own through-axis) points along
+			## the shared line; pick any perpendicular helper for local X.
+			var helper: Vector3 = Vector3.UP if absf(d1.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
+			var x_axis: Vector3 = helper.cross(d1).normalized()
+			return {
+				"scene_path": SCENE_STRAIGHT,
+				"basis": Basis(x_axis, d1, x_axis.cross(d1).normalized()),
+			}
+		else:
+			return { "scene_path": SCENE_ELBOW, "basis": basis_from_two(d1, d2) }
+
+	if n == 3 or n == 4:
+		## Group by axis, find every axis that has BOTH signs present
+		## (a straight-through pair) vs. an axis with only one sign present
+		## (a lone branch — only possible/expected when n == 3).
+		var by_axis: Dictionary = {}   ## axis_index -> Array[Vector3]
+		for d: Vector3 in leg_dirs:
+			var ax: int = _axis_index_of(d)
+			if not by_axis.has(ax):
+				by_axis[ax] = []
+			by_axis[ax].append(d)
+
+		var pair_dirs: Array = []      ## one representative Vector3ies per straight-through pair
+		var lone_dir: Vector3 = Vector3.ZERO
+		var has_lone: bool = false
+		for ax: int in by_axis:
+			var dirs_on_axis: Array = by_axis[ax]
+			if dirs_on_axis.size() == 2 and dirs_on_axis[0].is_equal_approx(-dirs_on_axis[1]):
+				pair_dirs.append(dirs_on_axis[0])
+			elif dirs_on_axis.size() == 1:
+				lone_dir = dirs_on_axis[0]
+				has_lone = true
+			else:
+				push_warning("WaterPipeElbow.pick_fitting: malformed leg set %s" % [leg_dirs])
+				return {}
+
+		if n == 3 and pair_dirs.size() == 1 and has_lone:
+			return { "scene_path": SCENE_TSPLIT, "basis": basis_from_two(pair_dirs[0], lone_dir) }
+		if n == 4 and pair_dirs.size() == 2 and not has_lone:
+			return { "scene_path": SCENE_CROSS, "basis": basis_from_two(pair_dirs[0], pair_dirs[1]) }
+
+		push_warning("WaterPipeElbow.pick_fitting: unexpected leg structure %s" % [leg_dirs])
+		return {}
+
+	push_warning("WaterPipeElbow.pick_fitting: unsupported degree %d" % n)
+	return {}
+4. File-by-file changes
+4.1 scripts/world/water/WaterPipeElbow.gd — full rewrite
+Keep the file path, class name, and node_key: String public field EXACTLY as-is (multiple other files reference this by path/duck-typed field — do not rename anything). Replace the body:
+
+extends Node3D
+class_name WaterPipeElbow
+## WaterPipeElbow.gd
+## Joint-fitting visual for a "corner"-role WaterGraph node. Covers every
+## real junction shape a strictly-axis-aligned pipe network can produce:
+## a 2-way 90° bend (incl. a horizontal-run-to-vertical-drop transition),
+## a 3-way T-split, a 4-way "+" crossing, and (edge case, see
+## docs/systems/water/README.md) a degree-2 COLLINEAR remnant left behind
+## after deleting one leg of a former T-split/crossing — shown as a plain
+## straight splice, not a bent fitting.
+##
+## Does NOT compute its own leg directions — WaterManager.
+## refresh_all_pipe_joint_visuals() (the single owner of graph-mutation
+## timing) resolves them and calls rebuild_visual() directly, matching this
+## project's "managers own graph state, node scripts own their own visuals"
+## convention (see WaterPipeSegment.gd's set_quality_color()/set_purified()
+## for the same split).
+##
+## Zero manual offset math — every flange/disc is already baked into these
+## fitting scenes ~0.22m from their own center; we only ever pick ONE whole
+## scene and rotate it so its local stub arms line up with the real legs.
+
+const SCENE_ELBOW:    String = "res://scenes/world/water/WaterPipeElbowCouplerModel.tscn"
+const SCENE_TSPLIT:   String = "res://scenes/world/water/WaterPipeTSplitCouplerModel.tscn"
+const SCENE_CROSS:    String = "res://scenes/world/water/WaterPipePlusCrossCouplerModel.tscn"
+const SCENE_STRAIGHT: String = "res://scenes/world/water/WaterPipeCouplerModel.tscn"
+
+## Graph node key this fitting is registered under. Set directly by
+## whichever call site spawns/finds this instance (unchanged contract —
+## see WaterManager.refresh_all_pipe_joint_visuals(), WaterPurifier.
+## revert_to_corner(), WaterManager.restore_pipe_network()).
+var node_key: String = ""
+
+## Currently-instanced fitting scene root, tracked so rebuild_visual() can
+## always tear down and rebuild fresh rather than attempting an in-place
+## partial update (simplest correct approach — see plan §3).
+var _fitting_instance: Node3D = null
+
+func _ready() -> void:
+	visible = true
+	add_to_group("water_pipe_elbow")
+	## Deliberately builds NO visual here. A freshly-created instance sits
+	## invisible (zero children) until the very next
+	## WaterManager.refresh_all_pipe_joint_visuals() sweep calls
+	## rebuild_visual() with this node's real, fully-registered leg
+	## directions — this is intentional, not a bug: at the moment most
+	## call sites create a WaterPipeElbow, this node's edges have not been
+	## registered into the graph yet (see WaterPipeDrawMode.gd's placement
+	## loop — nodes are created before edges in the same operation).
+
+## Called by WaterManager.refresh_all_pipe_joint_visuals() every time ANY
+## pipe-graph mutation finishes (placement, T-split, crossing, edge delete/
+## refund, undo, purifier revert/replace/insert, save/load) — see
+## docs/systems/water/README.md for the exact trigger-point list. Always
+## fully tears down and rebuilds, even if the resulting scene type is
+## unchanged, for simplicity/correctness (this never fires per-frame, so
+## the rebuild cost is irrelevant).
+func rebuild_visual(leg_dirs: Array[Vector3]) -> void:
+	if _fitting_instance != null and is_instance_valid(_fitting_instance):
+		_fitting_instance.queue_free()
+	_fitting_instance = null
+
+	var picked: Dictionary = pick_fitting(leg_dirs)
+	if picked.is_empty():
+		return   ## degree 0/1, or a malformed/unsupported set — no visual, see plan §1.5/§1.6
+
+	var scene: PackedScene = load(picked["scene_path"])
+	if scene == null:
+		push_warning("WaterPipeElbow.rebuild_visual: failed to load %s" % picked["scene_path"])
+		return
+
+	var instance: Node3D = scene.instantiate()
+	add_child(instance)
+	## Position stays at this WRAPPER node's own global_position (set once,
+	## at spawn time, by whichever call site created this WaterPipeElbow —
+	## never touched here). Rotation lives on the CHILD instance's LOCAL
+	## transform — same split WaterPipeSegment.gd already uses for its own
+	## _mesh_instance child (wrapper = position only, child = rotation).
+	instance.transform = Transform3D(picked["basis"], Vector3.ZERO)
+	_fitting_instance = instance
+
+# ─── Pure math helpers (static, no state) — see plan §3 for full reasoning ──
+
+static func snap_to_axis(dir: Vector3) -> Vector3:
+	var ax: float = absf(dir.x)
+	var ay: float = absf(dir.y)
+	var az: float = absf(dir.z)
+	if ax >= ay and ax >= az:
+		return Vector3(signf(dir.x), 0.0, 0.0)
+	elif ay >= ax and ay >= az:
+		return Vector3(0.0, signf(dir.y), 0.0)
+	else:
+		return Vector3(0.0, 0.0, signf(dir.z))
+
+static func basis_from_two(d1: Vector3, d2: Vector3) -> Basis:
+	return Basis(d1, d2, d1.cross(d2).normalized())
+
+static func _axis_index_of(dir: Vector3) -> int:
+	if absf(dir.x) > 0.5:
+		return 0
+	elif absf(dir.y) > 0.5:
+		return 1
+	else:
+		return 2
+
+static func pick_fitting(leg_dirs: Array[Vector3]) -> Dictionary:
+	var n: int = leg_dirs.size()
+	if n < 2:
+		return {}
+
+	if n == 2:
+		var d1: Vector3 = leg_dirs[0]
+		var d2: Vector3 = leg_dirs[1]
+		if d1.is_equal_approx(-d2):
+			var helper: Vector3 = Vector3.UP if absf(d1.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
+			var x_axis: Vector3 = helper.cross(d1).normalized()
+			return { "scene_path": SCENE_STRAIGHT, "basis": Basis(x_axis, d1, x_axis.cross(d1).normalized()) }
+		return { "scene_path": SCENE_ELBOW, "basis": basis_from_two(d1, d2) }
+
+	if n == 3 or n == 4:
+		var by_axis: Dictionary = {}
+		for d: Vector3 in leg_dirs:
+			var ax: int = _axis_index_of(d)
+			if not by_axis.has(ax):
+				by_axis[ax] = []
+			by_axis[ax].append(d)
+
+		var pair_dirs: Array = []
+		var lone_dir: Vector3 = Vector3.ZERO
+		var has_lone: bool = false
+		for ax: int in by_axis:
+			var dirs_on_axis: Array = by_axis[ax]
+			if dirs_on_axis.size() == 2 and dirs_on_axis[0].is_equal_approx(-dirs_on_axis[1]):
+				pair_dirs.append(dirs_on_axis[0])
+			elif dirs_on_axis.size() == 1:
+				lone_dir = dirs_on_axis[0]
+				has_lone = true
+			else:
+				push_warning("WaterPipeElbow.pick_fitting: malformed leg set %s" % [leg_dirs])
+				return {}
+
+		if n == 3 and pair_dirs.size() == 1 and has_lone:
+			return { "scene_path": SCENE_TSPLIT, "basis": basis_from_two(pair_dirs[0], lone_dir) }
+		if n == 4 and pair_dirs.size() == 2 and not has_lone:
+			return { "scene_path": SCENE_CROSS, "basis": basis_from_two(pair_dirs[0], pair_dirs[1]) }
+
+		push_warning("WaterPipeElbow.pick_fitting: unexpected leg structure %s" % [leg_dirs])
+		return {}
+
+	push_warning("WaterPipeElbow.pick_fitting: unsupported degree %d" % n)
+	return {}
+Do NOT delete the old JOINT_RADIUS/JOINT_SEGMENTS/COLOR_JOINT constants silently without checking — grep the whole repo for each of those 3 names first. If nothing outside this file references them, removing them is safe (expected — they were internal to the old _build_mesh()).
+
+4.2 scripts/world/water/WaterManager.gd — add the sweep function
+Add this new method anywhere alongside the other pipe-network helpers (near prune_orphan_waypoint/clear_water_pipes makes sense):
+
+## Rebuilds every "corner"-role node's joint-fitting visual from its
+## CURRENT edge degree/directions. Call once after ANY pipe-graph mutation
+## finishes — see docs/systems/water/README.md for the exact trigger-point
+## list (mirrors recompute_flow_directions()'s own call sites exactly,
+## call this immediately alongside every existing call to that function).
+## Self-healing: spawns a WaterPipeElbow for any "corner" node that
+## doesn't already have one.
+func refresh_all_pipe_joint_visuals() -> void:
+	var elbow_script: GDScript = load("res://scripts/world/water/WaterPipeElbow.gd")
+	var scene_root: Node = get_tree().get_first_node_in_group("main_world")
+	if scene_root == null:
+		scene_root = get_tree().get_root()
+
+	var existing_by_key: Dictionary = {}
+	for node: Node in get_tree().get_nodes_in_group("water_pipe_elbow"):
+		if is_instance_valid(node):
+			existing_by_key[node.get("node_key")] = node
+
+	for key: String in _graph.get_nodes():
+		var node_data: Dictionary = _graph.get_nodes()[key]
+		if node_data.get("role", "") != "corner":
+			continue
+		var node_pos: Vector3 = node_data.get("pos", Vector3.ZERO)
+
+		var elbow: Node = existing_by_key.get(key, null)
+		if elbow == null or not is_instance_valid(elbow):
+			elbow = Node3D.new()
+			if elbow_script != null:
+				elbow.set_script(elbow_script)
+			scene_root.add_child(elbow)
+			elbow.global_position = node_pos
+			elbow.set("node_key", key)
+
+		var leg_dirs: Array[Vector3] = []
+		for touch: Dictionary in get_edges_touching(key):
+			var other_key: String = touch["other_key"]
+			var other_pos: Vector3 = get_node_data(other_key).get("pos", Vector3.ZERO)
+			if node_pos.distance_to(other_pos) < 0.01:
+				continue
+			leg_dirs.append(WaterPipeElbow.snap_to_axis((other_pos - node_pos).normalized()))
+
+		elbow.call("rebuild_visual", leg_dirs)
+Also, in restore_pipe_network(data) — the existing per-node loop already does register_node(pos, role) then, if role == "corner", spawns a bare WaterPipeElbow (no visual yet, matches §4.1's new _ready()). Leave that spawn code exactly as-is. Just add ONE line at the very end of restore_pipe_network(), after both the nodes-loop and the edges-loop have fully completed:
+
+	refresh_all_pipe_joint_visuals()
+4.3 The 6 existing recompute_flow_directions() call sites — add one line next to each
+At every one of these exact locations, add a new line immediately after the existing recompute_flow_directions() call (same object the call is made on — wm. where shown, or no prefix where the call is already unprefixed inside WaterManager itself):
+
+File	Function	Existing line	Add immediately after
+scripts/world/build/BuildModeController.gd	pipe_placed signal handler (~line 1986)	wm.recompute_flow_directions()	wm.refresh_all_pipe_joint_visuals()
+scripts/world/build/BuildUndoStack.gd	"pipe" undo case (~line 235)	wm.recompute_flow_directions()	wm.refresh_all_pipe_joint_visuals()
+scripts/world/water/WaterManager.gd	delete_and_refund_edge() (~line 562)	recompute_flow_directions()	refresh_all_pipe_joint_visuals()
+scripts/world/water/WaterPurifier.gd	revert_to_corner() (~line 244)	wm.recompute_flow_directions()	wm.refresh_all_pipe_joint_visuals()
+scripts/world/water/WaterPurifier.gd	replace_filter() (~line 315)	wm.recompute_flow_directions()	wm.refresh_all_pipe_joint_visuals()
+scripts/world/water/WaterPurifierAttach.gd	insert_purifier_at() (~line 137)	wm.recompute_flow_directions()	wm.refresh_all_pipe_joint_visuals()
+Verify the exact variable name used for the WaterManager reference at each site before writing the line (it's wm at most sites per the table above, but confirm by reading the actual surrounding code — don't blindly assume). Line numbers are approximate (per the July 2026 HEAD at time of writing this plan) — locate by searching for recompute_flow_directions() in each file, not by line number.
+
+Do not add this call anywhere else. In particular, do NOT add it inside WaterPipeDrawMode.gd's own confirm functions — that file never calls recompute_flow_directions() itself either (it only emits the pipe_placed signal; BuildModeController is the listener that calls both). Match that existing pattern exactly.
+
+4.4 scripts/world/water/WaterPurifier.gd — revert_to_corner()
+This function already spawns a bare WaterPipeElbow (no visual, matches the new _ready()), then already calls wm.recompute_flow_directions() at the end (per §4.3's table, you're adding refresh_all_pipe_joint_visuals() right after that same line). No other change needed here — the sweep will find this node (now registered with role "corner") and build its fitting automatically.
+
+4.5 scripts/world/water/WaterPipeSegment.gd — texture the straight pipe body
+In _rebuild_mesh(), replace the flat-color material block:
+
+_material = StandardMaterial3D.new()
+_material.albedo_color = COLOR_PIPE
+_material.roughness    = 0.45
+_material.metallic     = 0.65
+with a textured material matching WaterPipeSegmentModel.tscn's own mat_pipe sub-resource exactly (read that file per §2 step 12 first — copy its real albedo_texture/normal_texture/roughness_texture paths and any uv1_scale/normal_enabled settings verbatim, do not invent values). Skeleton (fill in the exact texture paths/uv scale from the actual file):
+
+_material = StandardMaterial3D.new()
+_material.albedo_texture    = load("res://assets/textures/water/pipe/pipe_teal_diffuse.png")
+_material.normal_enabled    = true
+_material.normal_texture    = load("res://assets/textures/water/pipe/pipe_teal_normal.png")
+_material.roughness_texture = load("res://assets/textures/water/pipe/pipe_teal_roughness.png")
+_material.metallic          = 0.68   ## match WaterPipeSegmentModel.tscn exactly, not this placeholder
+_material.roughness         = 0.45   ## match WaterPipeSegmentModel.tscn exactly, not this placeholder
+If WaterPipeSegmentModel.tscn's material sets a uv1_scale, scale its length-axis component proportionally to this segment's own real length (the local variable already computed earlier in _rebuild_mesh()), so texture tiling stays constant in world-space regardless of segment length — same philosophy already used for the flow-arrow overlay's tile_world_length (see this file's own ARROW_CONTENT_ASPECT comment for the precedent, and pipe_flow.gdshader's world-space-uniform rework). If there is no uv1_scale in the source file, skip this — don't invent one.
+
+Leave COLOR_PIPE constant in place (still used by set_highlight_delete()'s "revert to normal" branch — do not delete it).
+
+Verify after this change: GHOST_COLOR_VALID/GHOST_COLOR_INVALID tinting (applied via mat.albedo_color = ... in WaterPipeDrawMode.gd) still visibly tints the ghost pipe blue/red during drag — albedo_color multiplies with albedo_texture in Godot, so this should work with zero code changes, but confirm visually in-editor since this is now textured.
+
+4.6 New .import files
+The 6 new textures (pipe_teal_diffuse.png, pipe_teal_normal.png, pipe_teal_roughness.png, valve_wheel_diffuse.png, wall_plate_diffuse.png, bolt_diffuse.png) have never been opened in the Godot editor, so no .import sidecar files exist for them yet. Godot will auto-generate these the first time the project is opened/imported in-editor or run through tools/godot_check.sh --import. Do not hand-write .import files — just make sure the check script's import pass runs before considering this done (see §8).
+
+5. Known edge cases — handle explicitly, don't skip
+5.1 Degree-2 collinear remnant
+If a player deletes the branch leg of a T-split (or one arm of a "+" crossing down to degree 2), the remaining two legs on that same "corner" node can end up collinear (pointing in exactly opposite directions — no longer a real bend). pick_fitting() already detects this (d1.is_equal_approx(-d2)) and swaps to SCENE_STRAIGHT automatically. No extra code path is needed beyond what's in §4.1 — this is called out here only so the implementing agent understands WHY the straight-coupler branch exists and doesn't remove it as "dead code."
+
+5.2 Degree drops to 1 (dead-end remnant of a former bend)
+If a corner drops to degree 1 (one leg deleted, one remains), pick_fitting() returns {} (degree < 2) and rebuild_visual() shows nothing — matches how ordinary pipe_joint-role dead ends already look (no fitting). The node itself is NOT deleted/reclassified (pre-existing behavior, unchanged by this plan — prune_orphan_waypoint() only fires at degree 0). This is an accepted, pre-existing gap; do not attempt to fix it as part of this task.
+
+5.3 Two elbow-branch shapes read identically depending on edge-registration order
+get_edges_touching() doesn't guarantee a stable order, so which leg gets treated as "D1" vs "D2" in basis_from_two() for a given elbow is arbitrary run-to-run. This is harmless — both fitting models are symmetric between their two/three/four stub arms (same stub+flange+bolt shape on every arm), so any valid assignment looks correct. Do not add any "stable ordering" logic — it's unnecessary complexity.
+
+5.4 Purifier nodes are untouched
+"purifier"-role graph nodes are explicitly skipped by refresh_all_pipe_joint_visuals() (if node_data.get("role","") != "corner": continue). WaterPurifier.gd owns its own dedicated visual entirely separately — do not touch WaterPurifier.gd's mesh-building code, only its revert_to_corner() call site per §4.3/§4.4.
+
+6. Explicitly OUT OF SCOPE for this pass
+Ghost/drag preview of the new fittings. Today, dragging a pipe through a bend shows only straight ghost cylinders meeting at a point — no ghost elbow exists at all. Do not add one. Flag it as a possible future follow-up in your handover notes, nothing more.
+WaterHookup.gd's own body model. WaterHookupModel.tscn exists and is a much richer asset than the current procedural stub+valve, but swapping it in touches WaterHookup.gd's collision/interact-detection setup (press-E panel), which this plan has not verified is safe to change (see §7 below — read it, but treat it as optional/Phase 2, not required for this task to be considered done).
+WaterPipeCouplerModel.tscn used for anything beyond the §5.1 collinear-remnant case. Don't add periodic "expansion joint" couplers along long straight runs — nothing in this task calls for that.
+Deconstruct-hover highlighting on fittings. Not requested, not present today, don't add it.
+7. Optional Phase 2 (do NOT attempt unless explicitly asked afterward): WaterHookup.gd model swap
+WaterHookupModel.tscn already includes its own CollisionShape3D (BoxShape3D, 0.32×0.32×0.55) and its own baked-in coupler/flange/bolts where its stub pipe would connect to the network — visually it's a strict upgrade. But before touching WaterHookup.gd._build_mesh():
+
+Read WaterHookup.gd's extends clause and full _ready() collision setup (collision_layer = 5, collision_mask = 0, create_trimesh_collision()) to understand exactly how press-E interaction currently detects this object.
+Determine whether create_trimesh_collision()'s auto-created collider is what makes "press E opens the panel" work, or whether that's driven by something else (e.g. an Area3D/group membership).
+If replacing the procedural mesh with WaterHookupModel.tscn.instantiate(), decide explicitly whether to keep its baked-in CollisionShape3D or keep the old create_trimesh_collision() call — do not leave both active (duplicate/conflicting colliders).
+Verify the new model's stub end position still lines up with wherever _register_deferred() registers this hookup's graph node position (compare against STUB_LENGTH/STUB_RADIUS — the new model's own "StubPipe" height is 0.32, matching STUB_LENGTH already, so this is likely already correct, but confirm, don't assume).
+Test pressing E on the hookup after the change — confirm WaterInfoUI still opens.
+This is flagged separately because it's a genuinely different, higher-risk change than the joint-fitting work above (it touches interaction/collision, not just visuals) — do not bundle it into the same commit as §4's changes.
+
+8. Verification checklist (must all pass before calling this done)
+Run tools/godot_check.sh <path-to-Godot-4.6.3-binary> — must PASS (also triggers the new textures' first import pass, per §4.6).
+In-editor or via the headless check, confirm no "Identifier not declared" / autoload errors related to WaterPipeElbow/WaterManager.
+Manual playtest scenarios (each with a fresh hookup + pipe run):
+Place a simple 90° corner (route around one wall corner) → expect the elbow-fitting model, correctly oriented, no gap/visible seam at the bend.
+Place a run with a horizontal-to-vertical drop into a test sink/dispenser → expect the SAME elbow-fitting model at the drop transition point (this is still just a degree-2 perpendicular case — confirm the generic algorithm handles it with no special-casing).
+From an EXISTING corner (one already placed and rendered as an elbow), start a brand-new pipe run (T-split off an existing bend) → confirm the existing elbow's fitting visually REBUILDS into the T-split model once the new edge is confirmed (this exercises the "existing corner gains a new leg" path — the most failure-prone part of this plan).
+Route a new pipe run perpendicular through an existing straight pipe run (a "+" crossing) → confirm the cross-fitting model appears at the intersection, all 4 legs correctly aligned.
+Delete (deconstruct) the branch leg of a T-split → confirm the remaining 2-leg node correctly swaps to the plain straight-coupler model (§5.1), not a stale T-split visual.
+Delete a whole corner down to 0 edges → confirm the elbow node fully disappears (prune_orphan_waypoint still works, unchanged).
+Undo a just-placed run that included at least one corner and one T-split → confirm both the pipe segments AND their fitting visuals are removed, and cash is refunded.
+Save, then Load (mid-session) a network containing at least one corner, one T-split, and one "+" crossing → confirm all three fitting types are correctly re-spawned with the right orientation after restore_pipe_network() + refresh_all_pipe_joint_visuals() runs.
+Confirm the flow-direction arrow overlay (pipe_flow.gdshader) on straight segments still animates correctly through every joint type — this plan doesn't touch WaterPipeSegment's arrow-overlay code at all, but changing the segment's base material (§4.5) should be double-checked not to have regressed it.
+Confirm ghost pipe preview during drag still shows blue/red tinted straight cylinders correctly (§4.5's verification note).
+9. Commit guidance
+Follow this project's existing workflow exactly (AI_CONTEXT.md/HANDOVER.md): read-only until the checklist above passes, one focused commit for §4 (the core joint-fitting rework), keep §7 (hookup model swap) as a fully separate, later commit only if explicitly requested. Update docs/systems/water/README.md's Files table entry for WaterPipeElbow.gd and its Common Edits section (the old "keep JOINT_RADIUS/pipe radius in sync manually" note is now obsolete and should be replaced with a pointer to this new degree-based dispatch) — per this project's own "doc drift is a bug" rule (PROJECT_SUMMARY.md §0).

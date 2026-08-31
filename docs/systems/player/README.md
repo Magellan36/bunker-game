@@ -52,7 +52,10 @@ together by `MainWorld`).
 full-screen modal to block WASD/sprint/interact without pausing the
 `SceneTree` (grid/generators keep running). Public vars: `stamina: float`
 (0–100, read by HUD), `camera_yaw_rad: float` (set every frame by
-`MainWorld`/`GameCamera` so input stays camera-relative).
+`MainWorld`/`GameCamera` so input stays camera-relative),
+`heavy_carry_stamina_drain: float` (Aug 2026 — per-second stamina drain
+while holding a Heavy item, see Common edits' "Heavy/Light item
+classification" entry).
 **NPC-facing contract (Aug 2026, see Common edits):** NPC-side code
 resolves this node via `get_tree().get_first_node_in_group("player")`
 and calls these directly — `get_held_item() -> Node` (read-only
@@ -176,6 +179,38 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
 ```
 
 ## Common edits
+- **Heavy/Light item classification + heavy-carry stamina drain (Aug
+  2026, `PickupableItem.gd` + `Player.gd`).** "Heavy" is now the standing
+  term for the non-inventory bucket of items (Crate, Basket, Cooking Pot,
+  Can Case, Water Case, etc.) — previously informal/unnamed here. New
+  `PickupableItem.is_heavy_item() -> bool` is the canonical classification
+  (`not is_in_group("inventory_item")`), mirroring the exact rule the NPC
+  subsystem's `NPCJobQueries.classify_organizable_item()` already uses for
+  cleaning-destination routing (light -> shelf or End Table/Dresser, heavy
+  -> shelf only) — that file is NPC-thread-owned and wasn't touched;
+  flagged as a future consolidation opportunity once coordinated, not
+  done silently here. "Light" = `inventory_item` group (whatever fits the
+  player's 4-slot inventory).
+  `Player.gd`'s stamina drain/regen block (`_handle_movement()`) is now
+  generalized from a sprint-only if/else into a summed
+  `total_stamina_drain` (sprint drain, if sprinting, PLUS a new passive
+  `heavy_carry_stamina_drain` (12.0/sec default) whenever `interaction_
+  system.held_item.is_heavy_item()` is true) vs. `stamina_regen` — regen
+  only applies when total drain is exactly 0, so the two sources are
+  cumulative (holding heavy + sprinting drains faster than either alone)
+  rather than fighting each other, and heavy-carry drain alone (12.0)
+  deliberately exceeds `stamina_regen` (8.0) so standing still while
+  holding something heavy still nets a drain instead of idling. Hitting 0
+  from ANY drain source now locks sprint via the existing `_sprint_locked`
+  gate and fires `exhausted` (previously sprint-only), consistent with
+  "out of stamina blocks sprinting" regardless of why it hit 0.
+  Wires up `PlayerMedical.get_medical_carry_stamina_drain_multiplier()`,
+  which existed and was already documented as correct-but-unwired ("no
+  base heavy-carry-drain mechanic exists yet for it to multiply") — no
+  Medical-side changes were needed, this pass only supplied the base
+  mechanic the existing hook multiplies. `is_heavy_item()` is also
+  intended as the shared classification point for any other
+  heavy/light-differentiated Player mechanic still to come.
 - **Player-Model subsystem introduced (Aug 2026):** the player's visible
   body is now a real skinned/animated character (see
   `docs/systems/player-model/README.md`), not the old placeholder

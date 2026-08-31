@@ -38,6 +38,13 @@ const CENTER_CIRCLE_COLOR: Color = Color(0.13, 0.13, 0.13, 0.88)
 
 const TRACK_COLOR: Color = Color(0.08, 0.08, 0.08, 0.90)   ## unfilled arc background, all rings
 
+## Portion of a ring beyond the current need cap (Aug 2026, Medical system)
+## — a visibly distinct "locked off" zone, not just the normal empty
+## track, so a reduced ceiling actually reads as a ceiling. Warm/reddish so
+## it doesn't get confused with a ring's own fill color or the neutral
+## TRACK_COLOR. See docs/systems/medical/README.md's "Needs cap reduction."
+const CAPPED_TRACK_COLOR: Color = Color(0.35, 0.12, 0.10, 0.55)
+
 const GAP_ANGLE_DEG: float = 14.0
 const ARC_SEGMENTS: int = 48
 
@@ -57,6 +64,14 @@ var _food:    float = 1.0
 var _stamina: float = 1.0
 var _water:   float = 1.0
 var _sleep:   float = 1.0
+
+## Need-cap fractions (Aug 2026, Medical system) — 1.0 = no cap (normal
+## default). Only Food/Water/Sleep can be capped; Health and Stamina are
+## never affected by Medical (see docs/systems/medical/README.md's "Needs
+## cap reduction" for why Health specifically is excluded).
+var _food_cap:  float = 1.0
+var _water_cap: float = 1.0
+var _sleep_cap: float = 1.0
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(180.0, 180.0)
@@ -85,6 +100,21 @@ func set_sleep(frac: float) -> void:
 	_sleep = clampf(frac, 0.0, 1.0)
 	queue_redraw()
 
+## Need-cap setters (Aug 2026, Medical system) — same 0.0-1.0 fraction
+## convention as the value setters above. Called from HUD.gd whenever
+## PlayerStats.food_cap_changed/water_cap_changed/sleep_cap_changed fires.
+func set_food_cap(frac: float) -> void:
+	_food_cap = clampf(frac, 0.0, 1.0)
+	queue_redraw()
+
+func set_water_cap(frac: float) -> void:
+	_water_cap = clampf(frac, 0.0, 1.0)
+	queue_redraw()
+
+func set_sleep_cap(frac: float) -> void:
+	_sleep_cap = clampf(frac, 0.0, 1.0)
+	queue_redraw()
+
 # ─── Drawing ──────────────────────────────────────────────────────────────────
 func _draw() -> void:
 	var gap: float = deg_to_rad(GAP_ANGLE_DEG)
@@ -95,16 +125,16 @@ func _draw() -> void:
 
 	# Ring 1 — Health (left) / Food (right)
 	_draw_left_half(RING1_RADIUS, RING1_THICKNESS, gap, _health, COLOR_HEALTH)
-	_draw_right_half(RING1_RADIUS, RING1_THICKNESS, gap, _food, COLOR_FOOD)
+	_draw_right_half(RING1_RADIUS, RING1_THICKNESS, gap, _food, COLOR_FOOD, _food_cap)
 
 	# Ring 2 — Stamina (left) / Water (right)
 	_draw_left_half(RING2_RADIUS, RING2_THICKNESS, gap, _stamina, COLOR_STAMINA)
-	_draw_right_half(RING2_RADIUS, RING2_THICKNESS, gap, _water, COLOR_WATER)
+	_draw_right_half(RING2_RADIUS, RING2_THICKNESS, gap, _water, COLOR_WATER, _water_cap)
 
 	# Ring 3 — Sleep (right side ONLY, per Brannon's call — left half is
 	# intentionally never drawn, not just zeroed out, so nothing renders
 	# there, not even an empty track).
-	_draw_right_half(RING3_RADIUS, RING3_THICKNESS, gap, _sleep, COLOR_SLEEP)
+	_draw_right_half(RING3_RADIUS, RING3_THICKNESS, gap, _sleep, COLOR_SLEEP, _sleep_cap)
 
 ## Left-half arc: track spans [bottom_edge, top_edge] going clockwise through
 ## 9 o'clock. Bottom-anchored: fill arc always starts at bottom_edge (fixed)
@@ -124,13 +154,31 @@ func _draw_left_half(radius: float, thickness: float, gap: float, fill: float, c
 ## Right-half arc: track spans [top_edge, bottom_edge] going clockwise through
 ## 3 o'clock. Bottom-anchored: fill arc always ENDS at bottom_edge (fixed)
 ## and its start grows toward top_edge as fill increases.
-func _draw_right_half(radius: float, thickness: float, gap: float, fill: float, color: Color) -> void:
+##
+## `cap` (Aug 2026, Medical system) — 0.0-1.0, default 1.0 (no effect). The
+## portion of the track beyond the cap (i.e. from top_edge to where `cap`
+## would sit) is drawn in CAPPED_TRACK_COLOR instead of TRACK_COLOR, so a
+## reduced ceiling reads as a visibly locked-off zone rather than just
+## more empty track. The fill itself is also clamped to `cap` for display —
+## the underlying stat value can transiently sit above a cap that just
+## dropped (see PlayerStats.gd; existing values aren't force-clamped down
+## when a cap newly reduces below them), but the ring should never LOOK
+## like it's filled past its own current ceiling.
+func _draw_right_half(radius: float, thickness: float, gap: float, fill: float, color: Color, cap: float = 1.0) -> void:
 	var top_edge:    float = -PI / 2.0 + gap
 	var bottom_edge: float = PI / 2.0 - gap
-	draw_arc(CENTER, radius, top_edge, bottom_edge, ARC_SEGMENTS, TRACK_COLOR, thickness, true)
-	if fill > 0.0:
-		var sweep_range: float = bottom_edge - top_edge
-		var current_start: float = bottom_edge - sweep_range * fill
+	var sweep_range: float = bottom_edge - top_edge
+
+	if cap < 1.0:
+		var cap_start: float = bottom_edge - sweep_range * cap
+		draw_arc(CENTER, radius, top_edge, cap_start, ARC_SEGMENTS, CAPPED_TRACK_COLOR, thickness, true)
+		draw_arc(CENTER, radius, cap_start, bottom_edge, ARC_SEGMENTS, TRACK_COLOR, thickness, true)
+	else:
+		draw_arc(CENTER, radius, top_edge, bottom_edge, ARC_SEGMENTS, TRACK_COLOR, thickness, true)
+
+	var display_fill: float = minf(fill, cap)
+	if display_fill > 0.0:
+		var current_start: float = bottom_edge - sweep_range * display_fill
 		draw_arc(CENTER, radius, current_start, bottom_edge, ARC_SEGMENTS, color, thickness, true)
 	UIKit.draw_rugged_arc(self, CENTER, radius + thickness * 0.5, top_edge, bottom_edge,
 		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, radius + 200.0)

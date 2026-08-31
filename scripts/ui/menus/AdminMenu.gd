@@ -167,6 +167,35 @@ func _ready() -> void:
 		["Spawn Corn", _on_spawn_corn_pressed],
 		["Spawn Pumpkin", _on_spawn_pumpkin_pressed],
 	]},
+		{ "name": "MEDICAL", "rows": [
+			["Spawn Open Wound (Left Arm)",  _on_spawn_wound_left_arm_pressed],
+			["Spawn Open Wound (Right Arm)", _on_spawn_wound_right_arm_pressed],
+			["Spawn Open Wound (Left Leg)",  _on_spawn_wound_left_leg_pressed],
+			["Spawn Open Wound (Right Leg)", _on_spawn_wound_right_leg_pressed],
+			["Spawn Open Wound (Torso)",     _on_spawn_wound_torso_pressed],
+			["Spawn Open Wound (Head)",      _on_spawn_wound_head_pressed],
+			["Spawn Open Wound + Bleeding (Guaranteed, Left Arm)", _on_spawn_wound_bleeding_guaranteed_pressed],
+			["Force-Bandage All Bleeding",   _on_force_bandage_all_pressed],
+			["Force-Infect Nearest Open Wound", _on_force_infect_pressed],
+			["Apply Antibiotics (Left Arm)", _on_apply_antibiotics_left_arm_pressed],
+			["Infection Severity +20 (all)", _on_infection_sev_up_pressed],
+			["Infection Severity -20 (all)", _on_infection_sev_down_pressed],
+			["Spawn Fractured (Left Leg)",   _on_spawn_fracture_left_leg_pressed],
+			["Spawn Fractured (Right Leg)",  _on_spawn_fracture_right_leg_pressed],
+			["Apply Splint (Left Leg)",      _on_apply_splint_left_leg_pressed],
+			["Apply Splint (Right Leg)",     _on_apply_splint_right_leg_pressed],
+			["Force Escalate All Fractures", _on_force_escalate_fracture_pressed],
+			["Force-Convert Fractures to Broken", _on_force_break_pressed],
+			["Spawn Electrical Burn (Left Arm)", _on_spawn_electrical_burn_pressed],
+			["Spawn Cooking Burn (Right Arm)", _on_spawn_cooking_burn_pressed],
+			["Simulate 8h Sleep (real sleep path)", _on_simulate_sleep_pressed],
+			["Spawn Bandage (drop in front of player)", _on_spawn_bandage_pressed],
+			["Spawn Antibiotics (drop in front of player)", _on_spawn_antibiotics_pressed],
+			["Spawn Splint Kit (drop in front of player)", _on_spawn_splint_pressed],
+			["Spawn Trauma Kit (drop in front of player)", _on_spawn_trauma_kit_pressed],
+			["Clear All Medical Conditions", _on_clear_all_medical_pressed],
+			["Print Medical Debug State",    _on_print_medical_debug_pressed],
+		]},
 		{ "name": "STATUS", "rows": [
 			["Add Test Status Effect (10s)", _on_add_status_effect_pressed],
 		]},
@@ -463,6 +492,205 @@ func _get_status_effects() -> StatusEffectsContainer:
 		return null
 	return hud.get("status_effects") as StatusEffectsContainer
 
+func _get_player_medical() -> PlayerMedical:
+	return get_tree().get_first_node_in_group("player_medical") as PlayerMedical
+
+## MEDICAL section callbacks (Aug 2026, Pass 1) — each of these calls the
+## exact same PlayerMedical functions the eventual real items/triggers will
+## use; never a separate debug-only code path. See
+## docs/systems/medical/README.md and
+## plans/medical-system-implementation-plan.md.
+func _on_spawn_wound_left_arm_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_open_wound(MedicalCondition.BodyPart.LEFT_ARM)
+
+func _on_spawn_wound_right_arm_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_open_wound(MedicalCondition.BodyPart.RIGHT_ARM)
+
+func _on_spawn_wound_left_leg_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_open_wound(MedicalCondition.BodyPart.LEFT_LEG)
+
+func _on_spawn_wound_right_leg_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_open_wound(MedicalCondition.BodyPart.RIGHT_LEG)
+
+func _on_spawn_wound_torso_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_open_wound(MedicalCondition.BodyPart.TORSO)
+
+func _on_spawn_wound_head_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_open_wound(MedicalCondition.BodyPart.HEAD)
+
+## Guarantees a bleeding wound for testing WITHOUT changing the real 66%
+## odds on spawn_open_wound() itself — spawns the wound, then explicitly
+## adds Bleeding if the roll didn't happen to produce one.
+func _on_spawn_wound_bleeding_guaranteed_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm == null:
+		return
+	var part: int = MedicalCondition.BodyPart.LEFT_ARM
+	pm.spawn_open_wound(part)
+	if pm.get_condition_by_id_and_part("bleeding", part) == null:
+		pm.spawn_bleeding(part)
+
+func _on_force_bandage_all_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm == null:
+		return
+	for part in [
+		MedicalCondition.BodyPart.HEAD, MedicalCondition.BodyPart.TORSO,
+		MedicalCondition.BodyPart.LEFT_ARM, MedicalCondition.BodyPart.RIGHT_ARM,
+		MedicalCondition.BodyPart.LEFT_LEG, MedicalCondition.BodyPart.RIGHT_LEG,
+	]:
+		pm.treat_bleeding(part)
+
+## Infection (Pass 2) callbacks.
+func _on_force_infect_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.debug_force_infect_nearest_wound()
+
+## Applies antibiotics to whatever's on the Left Arm — works whether that's
+## a plain Open Wound (preventative) or an already-infected one (curative);
+## treat_open_wound_antibiotics() itself decides which per the item's real
+## dual role. Left Arm chosen as the one predictable test target since the
+## other MEDICAL rows don't let you pick an arbitrary body part per-press.
+func _on_apply_antibiotics_left_arm_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.treat_open_wound_antibiotics(MedicalCondition.BodyPart.LEFT_ARM)
+
+func _on_infection_sev_up_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.debug_adjust_infection_severity(20.0)
+
+func _on_infection_sev_down_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.debug_adjust_infection_severity(-20.0)
+
+## Fracture / Broken (Pass 2) callbacks.
+func _on_spawn_fracture_left_leg_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_fractured(MedicalCondition.BodyPart.LEFT_LEG)
+
+func _on_spawn_fracture_right_leg_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_fractured(MedicalCondition.BodyPart.RIGHT_LEG)
+
+func _on_apply_splint_left_leg_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.apply_splint(MedicalCondition.BodyPart.LEFT_LEG)
+
+func _on_apply_splint_right_leg_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.apply_splint(MedicalCondition.BodyPart.RIGHT_LEG)
+
+func _on_force_escalate_fracture_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.debug_force_escalate_all_fractures()
+
+func _on_force_break_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.debug_force_break_all_fractures()
+
+## Burns (Pass 2.5) callbacks. Left/Right arm are fixed test targets, same
+## pattern as the antibiotics row — the underlying mechanics are identical
+## for both flavors, only the `cause` label (shown in the tooltip) differs.
+func _on_spawn_electrical_burn_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_burn(MedicalCondition.BodyPart.LEFT_ARM, "electrical")
+
+func _on_spawn_cooking_burn_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_burn(MedicalCondition.BodyPart.RIGHT_ARM, "cooking")
+
+## Calls the exact same sequence SleepOverlay._do_time_skip() uses for a
+## real sleep cycle — skip_time_with_drain() (real sleep drains sleep too,
+## it doesn't refill it — skip_time() with its full-refill behavior isn't
+## actually what real sleep calls), PlayerMedical.catch_up() for the base
+## condition progression, and apply_rest_bonus() for the extra Broken/
+## Burns speedup genuine rest gets. This is a faithful test of the real
+## path, not a separate shortcut.
+func _on_simulate_sleep_pressed() -> void:
+	var stats: PlayerStats = _get_player_stats()
+	if stats == null:
+		return
+	stats.skip_time_with_drain(8.0)
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.catch_up(8.0)
+		pm.apply_rest_bonus(8.0)
+
+func _on_clear_all_medical_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.debug_clear_all()
+
+func _on_print_medical_debug_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.debug_print_state()
+	else:
+		print("[AdminMenu] PlayerMedical not found (not in 'player_medical' group?).")
+
+## Items (Aug 2026) — spawns a real Bandage.tscn 2m in front of the player,
+## same drop-offset pattern _on_spawn_npc_pressed() uses (just at ground
+## height instead of npc-eye height, since this is a small loose item, not
+## a character). See docs/systems/medical/README.md's "Item roles and
+## mechanics" — this is the actual pickupable item, not a condition stub;
+## use F to pick it up, E to open the injury-selection submenu.
+func _on_spawn_bandage_pressed() -> void:
+	_spawn_medical_item("res://scenes/world/Bandage.tscn", "Bandage")
+
+func _on_spawn_antibiotics_pressed() -> void:
+	_spawn_medical_item("res://scenes/world/Antibiotics.tscn", "Antibiotics")
+
+func _on_spawn_splint_pressed() -> void:
+	_spawn_medical_item("res://scenes/world/Splint.tscn", "Splint")
+
+func _on_spawn_trauma_kit_pressed() -> void:
+	_spawn_medical_item("res://scenes/world/TraumaKit.tscn", "Trauma Kit")
+
+## Shared spawner for all four MEDICAL item rows above — identical drop-
+## offset pattern to _on_spawn_npc_pressed(), factored out once there were
+## four near-identical copies instead of duplicating it a fourth time.
+func _spawn_medical_item(scene_path: String, display_name: String) -> void:
+	if world_node == null:
+		push_warning("[AdminMenu] world_node not injected — cannot spawn %s" % display_name)
+		return
+	var player_node: Node3D = get_tree().get_first_node_in_group("player")
+	if player_node == null:
+		push_warning("[AdminMenu] No player found in scene — cannot spawn %s" % display_name)
+		return
+	var item_scene: PackedScene = load(scene_path)
+	if item_scene == null:
+		push_warning("[AdminMenu] %s not found — check path" % scene_path)
+		return
+	var item: Node3D = item_scene.instantiate()
+	world_node.add_child(item)
+	item.global_position = player_node.global_position \
+		+ (-player_node.global_transform.basis.z * 1.5) \
+		+ Vector3(0.0, 0.5, 0.0)
+
 ## Adds one test status effect badge with no real icon (grey placeholder,
 ## see StatusEffectIcon.gd), a 10-second timer, and the default orange ring
 ## color. Each press gets a unique id so presses stack into separate
@@ -489,9 +717,13 @@ func _on_remove_power_pressed() -> void:
 ## that day passing (Jul 2026 fix). Each affected system's own real update
 ## function is called directly with one lumped 24-game-hour delta — food/
 ## water/sleep/health drain (PlayerStats), water quality decay
-## (WaterHookup), and plant growth (every FarmPlant) — instead of
-## reimplementing any of that math here, so this can't drift out of sync
-## with what 24 hours of normal play would actually do.
+## (WaterHookup), plant growth (every FarmPlant), and Medical condition
+## progression (PlayerMedical.catch_up() — Aug 2026 fix; without this,
+## infection severity/bleeding rate/healing time silently didn't advance
+## during a skip, since PlayerMedical only reacted to real per-frame delta
+## on its own) — instead of reimplementing any of that math here, so this
+## can't drift out of sync with what 24 hours of normal play would
+## actually do.
 func _on_fast_forward_pressed() -> void:
 	var stats: PlayerStats = _get_player_stats()
 	if stats == null:
@@ -500,6 +732,10 @@ func _on_fast_forward_pressed() -> void:
 
 	stats.skip_time_with_drain(24.0)
 	NPC.catch_up_all(24.0)
+
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.catch_up(24.0)
 
 	var wm: WaterManager = _get_water_manager()
 	if wm != null:

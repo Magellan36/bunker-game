@@ -106,6 +106,10 @@ func get_use_prompt() -> String:
 		return ""
 	return "[E] Apply Fertilizer (%d/%d)" % [_charges, _max_charges]
 
+## Job Progress Bar (Aug 2026) — split into a trigger (this) and a
+## completion (_finish_fertilize()); the actual fertilize_first_open_cell()
+## call + charge decrement + possible self-consumption are deferred to job
+## completion, so a cancelled job leaves the bottle/tray untouched.
 func on_use() -> void:
 	var tray: FarmingTray = _find_nearest_fertilizable_tray()
 	if tray == null:
@@ -117,8 +121,14 @@ func on_use() -> void:
 				hud.show_soft_warning("No growing plant nearby to fertilize")
 		return
 
-	if not tray.fertilize_first_open_cell(tier):
-		return   ## Shouldn't happen given the has_open_fertilizable_cell() check above, but stay defensive
+	var isys: Node = _hold_point.get_parent() if _hold_point != null else null
+	if isys == null or not isys.has_method("start_job"):
+		return
+	isys.start_job(tray, InteractionSystem.JOB_DEFAULT_DURATION, Callable(self, "_finish_fertilize").bind(tray), "Applying Fertilizer...", TRAY_RANGE)
+
+func _finish_fertilize(tray: FarmingTray) -> void:
+	if not is_instance_valid(tray) or not tray.fertilize_first_open_cell(tier):
+		return   ## Shouldn't happen given the has_open_fertilizable_cell() check at trigger time, but stay defensive
 
 	_charges -= 1
 	charge_changed.emit()

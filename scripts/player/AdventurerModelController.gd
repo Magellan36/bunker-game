@@ -452,6 +452,13 @@ func _lerp_sit_position(from_xz: Vector3, to_xz: Vector3, curve: PackedFloat32Ar
 	var t: float = _sample_curve(curve, raw_t)
 	_player.global_position.x = lerpf(from_xz.x, to_xz.x, t)
 	_player.global_position.z = lerpf(from_xz.z, to_xz.z, t)
+	## FEMALE (Aug 2026, clip-driven): the female transition clips RETAIN their
+	## armature-root Y descent, so the clip moves the skeleton down/up itself —
+	## the root stays at the standing height, and the foot clamp is disabled so
+	## it can't fight the clip's authored motion. MALE keeps the curve-driven
+	## root-Y + clamp.
+	if _gender == "female":
+		return
 	## Vertical lowering to the GLB's visual seat top, ending with the hips
 	## just above the wood (SEAT_CLEARANCE cushion). Paced by the same curve
 	## as the X/Z slide so the descent reads as one motion (Aug 2026).

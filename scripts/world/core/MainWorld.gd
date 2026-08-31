@@ -127,6 +127,7 @@ func _dump_wire_debug() -> void:
 @onready var dir_light: DirectionalLight3D = $DirectionalLight3D
 @onready var hud: CanvasLayer              = $HUD
 @onready var player_stats: PlayerStats      = $PlayerStats
+@onready var player_medical: PlayerMedical   = $PlayerMedical
 @onready var sleep_overlay: CanvasLayer    = $SleepOverlay
 @onready var interact_prompt: Node         = $InteractPrompt
 @onready var interaction_system: Node = $Player/InteractionSystem
@@ -837,6 +838,12 @@ func _connect_hud() -> void:
 	player_stats.sleep_changed.connect(func(v: float)  -> void: hud.set_sleep(v))
 	player_stats.health_changed.connect(func(v: float) -> void: hud.set_health(v))
 
+	## Need-cap rendering (Aug 2026, Medical system) — see
+	## docs/systems/medical/README.md's "Needs cap reduction."
+	player_stats.food_cap_changed.connect(func(v: float)  -> void: hud.set_food_cap(v))
+	player_stats.water_cap_changed.connect(func(v: float) -> void: hud.set_water_cap(v))
+	player_stats.sleep_cap_changed.connect(func(v: float) -> void: hud.set_sleep_cap(v))
+
 	player_stats.time_changed.connect(
 		func(_h: int, _m: int, _pm: bool, display: String) -> void:
 			hud.set_clock(display)
@@ -848,6 +855,7 @@ func _connect_hud() -> void:
 func _connect_bed() -> void:
 	# Wire SleepOverlay to PlayerStats
 	sleep_overlay.player_stats = player_stats
+	sleep_overlay.player_medical = player_medical
 
 	# Wire SleepOverlay.sleep_ended once (shared across all beds)
 	sleep_overlay.sleep_ended.connect(func() -> void:

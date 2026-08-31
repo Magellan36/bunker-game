@@ -94,7 +94,7 @@ func get_chute_f_prompt() -> String:
 		return ""
 	if "is_trash_bag" in held:
 		return "[F] Feed Trash Bag into chute"
-	if held.is_in_group("inventory_item") and held.has_method("get_trash_material"):
+	if held.is_in_group("inventory_item") and (held.has_method("get_trash_material") or held.has_method("get_research_yield")):
 		return "[F] Feed item into chute"
 	return ""
 
@@ -109,6 +109,17 @@ func on_chute_f_interact() -> bool:
 
 	if "is_trash_bag" in held:
 		_feed_bag(held, _interaction_system)
+		return true
+
+	## Aug 2026, Medical items — get_research_yield() checked FIRST and
+	## takes priority whenever present, since it's a strict superset of
+	## what get_trash_material() can express (multiple materials at once,
+	## charge-scaled quantities) — see _feed_single_item_multi() below and
+	## docs/systems/medical/README.md's "Research Station chute yields".
+	## Every pre-Medical item only ever implements get_trash_material(), so
+	## this ordering changes nothing for them.
+	if held.is_in_group("inventory_item") and held.has_method("get_research_yield"):
+		_feed_single_item_multi(held, _interaction_system)
 		return true
 
 	if held.is_in_group("inventory_item") and held.has_method("get_trash_material"):
@@ -139,6 +150,54 @@ func _feed_single_item(item: RigidBody3D, isys: Node) -> void:
 	add_material(material, 1)
 	item.queue_free()
 	NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "+1 %s" % material.capitalize())
+
+## Multi-material counterpart to _feed_single_item() above (Aug 2026,
+## Medical items) — the item's get_research_yield() returns a Dictionary
+## of material -> quantity (e.g. {"paper": 2, "plastic": 2}), scaled by
+## whatever's currently true of the item (e.g. Bandage's remaining
+## charges) at the moment of feeding. Same "reject entirely, nothing
+## consumed" rule as the single-material path, generalized: if ANY
+## yielded material would push its own storage over STORAGE_CAP, the
+## whole feed is rejected — never a partial feed of just the materials
+## that still fit. See docs/systems/medical/README.md's "Research Station
+## chute yields".
+func _feed_single_item_multi(item: RigidBody3D, isys: Node) -> void:
+	var yields: Dictionary = item.get_research_yield()
+	if yields.is_empty():
+		return
+
+	for material: String in yields.keys():
+		if not stored_materials.has(material):
+			continue   ## defensive — an unknown material key is simply ignored, not rejected
+		var amount: int = int(yields[material])
+		if amount <= 0:
+			continue
+		if stored_materials[material] + amount > STORAGE_CAP:
+			NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "%s storage is full" % material.capitalize())
+			return   ## reject entirely — item stays in hand, nothing consumed
+
+	## Release from InteractionSystem — identical sequence to
+	## _feed_single_item() above.
+	isys._is_holding_e = false
+	if item.has_signal("knocked_out") and item.knocked_out.is_connected(isys._on_item_knocked_out):
+		item.knocked_out.disconnect(isys._on_item_knocked_out)
+	if isys._held_from_slot != -1 and isys.inventory != null:
+		isys.inventory.retrieve_item(isys._held_from_slot)
+	isys.held_item       = null
+	isys._held_from_slot = -1
+
+	var summary_parts: Array[String] = []
+	for material: String in yields.keys():
+		if not stored_materials.has(material):
+			continue
+		var amount: int = int(yields[material])
+		if amount <= 0:
+			continue
+		add_material(material, amount)
+		summary_parts.append("+%d %s" % [amount, material.capitalize()])
+	item.queue_free()
+	if not summary_parts.is_empty():
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "  ".join(summary_parts))
 
 func _feed_bag(bag: RigidBody3D, isys: Node) -> void:
 	var records: Array = bag.contents if "contents" in bag else []

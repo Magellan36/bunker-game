@@ -87,6 +87,10 @@ func get_use_prompt() -> String:
 ## deliberately ignores FarmingTray.cell_seed_lock entirely — the lock only
 ## constrains the NPC thread's own auto-planting, never the player's manual
 ## on_use() (confirmed with Brannon, Seed Lock plan).
+## Job Progress Bar (Aug 2026) — split into a trigger (this) and a
+## completion (_finish_plant_seed()); the actual plant_seed_at_cell() call +
+## charge decrement + possible self-consumption are deferred to job
+## completion, so a cancelled job leaves the pack/tray untouched.
 func on_use() -> void:
 	var tray: FarmingTray = _find_nearest_plantable_tray()
 	if tray == null:
@@ -96,7 +100,16 @@ func on_use() -> void:
 		return
 
 	var cell_index: int = tray.nearest_open_plantable_cell_to(global_position)
-	if cell_index < 0 or not tray.plant_seed_at_cell(cell_index, seed_type):
+	if cell_index < 0:
+		return
+
+	var isys: Node = _hold_point.get_parent() if _hold_point != null else null
+	if isys == null or not isys.has_method("start_job"):
+		return
+	isys.start_job(tray, InteractionSystem.JOB_DEFAULT_DURATION, Callable(self, "_finish_plant_seed").bind(tray, cell_index), "Planting %s..." % PlantDatabase.get_display_name(seed_type), TRAY_RANGE)
+
+func _finish_plant_seed(tray: FarmingTray, cell_index: int) -> void:
+	if not is_instance_valid(tray) or not tray.plant_seed_at_cell(cell_index, seed_type):
 		return
 
 	_charges -= 1

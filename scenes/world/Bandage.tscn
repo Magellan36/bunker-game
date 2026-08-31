@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://bandage_item_001"]
+
+[ext_resource type="Script" path="res://scripts/world/items/Bandage.gd" id="1_bandage"]
+
+[sub_resource type="SphereShape3D" id="shape_001"]
+radius = 0.05
+
+[node name="Bandage" type="RigidBody3D"]
+script = ExtResource("1_bandage")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("shape_001")

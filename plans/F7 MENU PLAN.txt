@@ -1,0 +1,352 @@
+Plan — F7 Admin Menu Additions + Full F10 Admin Spawn Menu Removal
+
+Scope: two independent parts. Do them in order (Part A first, Part B second). Do NOT refactor anything else. Do NOT rename existing functions. Do NOT touch BuildModeHUD.gd, the power solver, or any water solver code.
+
+Godot 4.6.3, strict Godot 4 syntax, statically typed GDScript.
+
+PART A — Add 5 new buttons to the F7 Admin Menu
+
+Only file touched in Part A: scripts/ui/menus/AdminMenu.gd
+
+A0. How this file works (read before editing)
+
+AdminMenu.gd builds its rows from one array, _row_defs, assigned inside _ready(). Each entry is [section_label, button_text, callback]. A "" section means "continue the previous section" (no new header drawn). _panel_height() auto-computes panel height from the row/section counts, and _reposition_controls() auto-lays the buttons out. This means: to add a button you only add one line to _row_defs and one callback function. Do not touch _panel_height(), _reposition_controls(), or _on_draw().
+
+The file already has these getter helpers — reuse them, do not write new lookups:
+
+func _get_power_manager() -> PowerManager
+func _get_player_stats() -> PlayerStats
+func _get_water_manager() -> WaterManager
+func _get_status_effects() -> StatusEffectsContainer
+
+A1. Add a world_node reference (required for the cash button)
+
+Problem to be aware of: MainWorld._toggle_admin_cheat_menu() already calls _admin_cheat_menu.set("world_node", self), but AdminMenu.gd has no world_node variable declared, so that injection is currently a silent no-op. You must declare the variable or the cash button will do nothing.
+
+In AdminMenu.gd, in the # ─── State ─── block (right above var _canvas:  Control = null), add:
+
+# ─── Injected by MainWorld._toggle_admin_cheat_menu() ─────────────────────────
+## MainWorld — used by the ECONOMY row (add_cash()). Injected via set() at
+## menu-creation time; the injection call already exists in MainWorld.gd, this
+## var declaration is what makes it actually land (Object.set() on an
+## undeclared property is a silent no-op).
+var world_node: MainWorld = null
+
+MainWorld has class_name MainWorld, so the typed reference is valid.
+
+A2. Add the new constants
+
+Next to the existing const TEST_EFFECT_COLOR: ... line, add:
+
+const ADMIN_CASH_STEP: int = 100000          ## "+$100,000" economy cheat row
+
+## Farming produce spawn — matches FarmingShopHelper.SPAWN_HEIGHT_ABOVE_PLAYER
+## (1.8) so admin-spawned produce drops exactly like a shop purchase does.
+const PRODUCE_SPAWN_HEIGHT: float = 1.8
+
+A3. Add the new rows to _row_defs
+
+Replace the whole existing _row_defs = [...] assignment in _ready() with:
+
+	_row_defs = [
+		["POWER", "+ %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_add_power_pressed],
+		["",      "- %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_remove_power_pressed],
+		["TIME",  "Fast-Forward 1 Day", _on_fast_forward_pressed],
+		["WATER", "Hookup Quality -50%", _on_quality_down_pressed],
+		["",      "Hookup Quality +50%", _on_quality_up_pressed],
+		["",      "Hookup Output x2 (Tier +1)", _on_hookup_output_double_pressed],
+		["ECONOMY", "+ $%s Cash" % _format_thousands(ADMIN_CASH_STEP), _on_add_cash_pressed],
+		["FARMING", "Spawn Potato", _on_spawn_potato_pressed],
+		["",        "Spawn Blueberry", _on_spawn_blueberry_pressed],
+		["",        "Spawn Tomato", _on_spawn_tomato_pressed],
+		["STATUS", "Add Test Status Effect (10s)", _on_add_status_effect_pressed],
+	]
+
+Note the ordering: the new WATER row joins the existing WATER section ("" section string), and STATUS stays last so the existing test row keeps its place.
+
+A4. Add the label formatting helper
+
+Add near _draw_str():
+
+## 100000 → "100,000". Local to this menu — no shared number-format helper
+## exists in the project yet, and this is the only caller.
+func _format_thousands(value: int) -> String:
+	var s: String = str(absi(value))
+	var out: String = ""
+	var count: int = 0
+	for i: int in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		count += 1
+		if count % 3 == 0 and i > 0:
+			out = "," + out
+	return ("-" if value < 0 else "") + out
+
+A5. Add the ECONOMY callback
+
+Add to the "Button callbacks" section:
+
+## Adds a flat $100,000 through MainWorld.add_cash() rather than writing
+## MainWorld._cash directly — add_cash() is what also pushes the new balance
+## into the HUD via hud.set_cash(). Writing _cash directly would desync the
+## HUD readout until the next transaction.
+func _on_add_cash_pressed() -> void:
+	if world_node == null:
+		push_warning("[AdminMenu] world_node not injected — cash cheat skipped")
+		return
+	world_node.add_cash(ADMIN_CASH_STEP)
+
+A6. Add the WATER output-doubling callback
+
+Background you need before writing this: in scripts/world/water/WaterHookup.gd, output is not a settable float. It is a tier lookup:
+
+const TIER_DAILY_ML: Array[float] = [3000.0, 6000.0, 12000.0, 24000.0]
+var tier: int = 0
+func get_daily_output_mL() -> float:
+	return TIER_DAILY_ML[tier]
+
+Each tier is exactly 2× the previous one, so "double the output" == "tier + 1". Do it that way. Do NOT add a new multiplier variable to WaterHookup, do NOT make TIER_DAILY_ML non-const, and do NOT touch any file other than AdminMenu.gd. WaterManager and WaterInfoUI both call get_daily_output_mL() live every solve/redraw (verified: WaterManager.gd lines ~493 / ~513 / ~928, WaterInfoUI.gd lines ~370–371), so bumping tier propagates on its own — no refresh/resolve call is needed.
+
+At max tier the button must be a no-op, not a crash (index out of range).
+
+## "2x water output" == tier + 1, because WaterHookup.TIER_DAILY_ML is
+## [3000, 6000, 12000, 24000] — each tier is exactly double the last. Bumping
+## the tier is therefore the doubling, and it goes through the real upgrade
+## data path instead of inventing a debug-only multiplier. Clamped at the top
+## tier (no-op there, no error). Nothing needs to be refreshed afterwards:
+## WaterManager and WaterInfoUI both call get_daily_output_mL() live.
+func _on_hookup_output_double_pressed() -> void:
+	var wm: WaterManager = _get_water_manager()
+	if wm == null:
+		return
+	var hookup: WaterHookup = wm.get_the_hookup()
+	if hookup == null:
+		return
+	var max_tier: int = WaterHookup.TIER_DAILY_ML.size() - 1
+	if hookup.tier >= max_tier:
+		push_warning("[AdminMenu] hookup already at max tier (%d) — output unchanged" % max_tier)
+		return
+	hookup.tier += 1
+
+A7. Add the three FARMING produce-spawn callbacks
+
+Background: produce items are spawned with the existing static helper in scripts/world/items/FarmProduceItem.gd:
+
+static func spawn_at(parent: Node, base_pos: Vector3, type: String) -> FarmProduceItem
+
+It already adds its own random horizontal jitter and the harvest pop-in tween. type is a PlantDatabase species key. The three requested species all exist in PlantDatabase.PLANT_CONFIG already: "potato", "blueberry", "tomato" — do not add anything to PlantDatabase.gd.
+
+FarmProduceItem is a PickupableItem (RigidBody), so spawn it above the player's head and let it fall, exactly like FarmingShopHelper does for shop purchases.
+
+Add one shared private spawner plus three thin callbacks (one row each):
+
+## Shared spawner for the three FARMING rows. Mirrors
+## FarmingShopHelper.spawn_purchased_item()'s positioning exactly (player
+## position + 1.8 up, item falls under normal gravity into normal pickup
+## rules) — deliberately reusing FarmProduceItem.spawn_at() rather than
+## instancing here, so admin-spawned produce is byte-for-byte the same object
+## a harvest produces (pop-in tween, jitter, charges, all of it).
+## No cash cost — this is a cheat menu, not the shop.
+func _spawn_produce(produce_type: String) -> void:
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player == null:
+		push_warning("[AdminMenu] no player in tree — produce spawn skipped")
+		return
+	var parent: Node = player.get_parent()
+	if parent == null:
+		return
+	var base_pos: Vector3 = player.global_position + Vector3(0.0, PRODUCE_SPAWN_HEIGHT, 0.0)
+	FarmProduceItem.spawn_at(parent, base_pos, produce_type)
+
+func _on_spawn_potato_pressed() -> void:
+	_spawn_produce("potato")
+
+func _on_spawn_blueberry_pressed() -> void:
+	_spawn_produce("blueberry")
+
+func _on_spawn_tomato_pressed() -> void:
+	_spawn_produce("tomato")
+
+A8. Panel-height sanity note (no code change expected)
+
+_panel_height() is 60 + sections*22 + rows*(ROW_H+ROW_GAP) + 24. Going from 6 rows/4 sections (≈340px) to 11 rows/6 sections gives ≈678px. That still fits a 720p viewport, so do not add scrolling or a second column. If the panel visibly overflows in testing, report it back rather than redesigning the layout.
+
+PART B — Delete the F10 Admin Spawn Menu entirely
+
+Nothing from it is being ported. Delete it and scrub every reference.
+
+B1. Delete the files
+
+scripts/ui/menus/AdminSpawnMenu.gd
+
+scripts/ui/menus/AdminSpawnMenu.gd.uid
+
+(Use git rm, not an editor delete, so the .uid actually leaves the index.)
+
+B2. scripts/world/core/MainWorld.gd — 4 edits
+
+B2a. In the # ─── Dev Tools ─── header comment block, delete this line:
+
+## F10 — admin spawn menu (place any built object without Build Mode)
+
+B2b. In the # ─── Admin Spawn Menu ─── var block, delete var _admin_menu: CanvasLayer = null and rename the section header. Result:
+
+# ─── Admin Menu ───────────────────────────────────────────────────────────────
+var _admin_cheat_menu: CanvasLayer = null
+
+B2c. In _unhandled_input(), delete this whole block:
+
+	# F10 — Admin spawn menu
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F10:
+		_toggle_admin_spawn_menu()
+		get_viewport().set_input_as_handled()
+		return
+
+and in the F7 block just below it, change the trailing comment # F7 — Admin controls menu (system cheats, distinct from F10's spawn menu) to # F7 — Admin controls menu (system cheats).
+
+B2d. Delete the entire _toggle_admin_spawn_menu() function (the whole function body, including its ## Lazy-init: create only on first F10 press. comment and all four _admin_menu.set(...) injection lines). Leave _toggle_admin_cheat_menu() untouched except for one comment fix in B3.
+
+Also update the docstring inside _toggle_admin_cheat_menu() if it mentions F10 (it currently says "create only on first F7 press" — that one is fine, keep it).
+
+B3. Comment-only references (reword, do not delete the surrounding code)
+
+File
+
+Line (approx)
+
+Current text
+
+Change to
+
+scripts/ui/menus/AdminMenu.gd
+
+3–4
+
+## F7 general-purpose admin controls panel — distinct from AdminSpawnMenu.gd / ## (F10, spawns physical objects). This one is for direct system cheats/
+
+## F7 general-purpose admin controls panel — direct system cheats/ (delete the second line, keep the rest of the docstring intact)
+
+scripts/ui/menus/AdminMenu.gd
+
+~51
+
+layer   = 128   ## On top of everything — same as AdminSpawnMenu
+
+layer   = 128   ## On top of everything (PauseMenuUI sits above at 200)
+
+scripts/ui/menus/PauseMenuUI.gd
+
+~42
+
+layer = 200   ## Above HUD (default ~1) and AdminSpawnMenu (128).
+
+layer = 200   ## Above HUD (default ~1) and AdminMenu (128).
+
+scripts/world/items/PickupableItem.gd
+
+~151
+
+## Shared spawn helper — see AdminSpawnMenu._spawn_scene() / FarmingShopHelper
+
+## Shared spawn helper — see FarmingShopHelper.spawn_scene_settled()
+
+scripts/world/build/FarmingShopHelper.gd
+
+~104–105
+
+## ... Single source of truth — AdminSpawnMenu / ## calls this same function for its debug spawn menu rather than keeping a / ## separate copy.
+
+End the sentence at Single source of truth for scene-based item spawns. and delete the two dangling lines about AdminSpawnMenu
+
+These are comments only. Do not change a single line of executable code in PickupableItem.gd or FarmingShopHelper.gd. spawn_scene_settled() stays — FarmingShopHelper itself still calls it for shop "scene" items.
+
+B4. Docs (same commit as the code — standing project rule, doc drift is a bug)
+
+File
+
+Line
+
+Action
+
+PROJECT_SUMMARY.md
+
+147
+
+menus/       AdminSpawnMenu (F10), AdminMenu (F7 — power/time/water cheats), → menus/       AdminMenu (F7 — power/time/water/economy/farming cheats), (keep the rest of the entry's wrapping intact)
+
+docs/systems/ui/README.md
+
+41
+
+Remove AdminSpawnMenu.gd (~215) from the menus/ table row and drop "dev spawn menu" from that row's description
+
+docs/systems/ui/README.md
+
+75
+
+Delete the line - AdminSpawnMenu: toggle().
+
+docs/systems/ui/README.md
+
+120
+
+Remove AdminSpawnMenu from the UIFade user list
+
+docs/systems/ui/README.md
+
+F7 section
+
+Update the F7 Admin Menu description to list the new ECONOMY (+$100,000), WATER "Hookup Output x2 (Tier +1)", and FARMING (Potato / Blueberry / Tomato) rows
+
+docs/systems/build/README.md
+
+48
+
+... or spawned via Admin Menu (F10) → drop the Admin Menu clause; the shop path is now the only path
+
+docs/systems/build/README.md
+
+159
+
+AdminSpawnMenu._spawn_scene() delegates to this same shared → reword so FarmingShopHelper.spawn_scene_settled() is described as the single caller/owner
+
+docs/systems/water/README.md
+
+Admin cheat section
+
+Add the new "Hookup Output x2 (Tier +1)" row and state explicitly that it increments WaterHookup.tier (no new multiplier field)
+
+docs/systems/farming/README.md
+
+Admin/testing section
+
+Add a short note that F7 can spawn Potato / Blueberry / Tomato produce via FarmProduceItem.spawn_at(), no cash cost
+
+B5. architecture.json
+
+Three references at lines ~1168, ~2228, ~6035. If the repo has a generator for this file (check tools/), regenerate it rather than hand-editing. If there is no generator, hand-remove: the whole file entry object at ~1168, the string in the array at ~2228, and the whole edge object containing "to": "res://scripts/ui/menus/AdminSpawnMenu.gd" at ~6035. Make sure the JSON still parses (python3 -m json.tool architecture.json > /dev/null).
+
+Verification (required before reporting done)
+
+rg -n "AdminSpawnMenu|KEY_F10" . → zero hits outside this plan file.
+
+python3 -m json.tool architecture.json > /dev/null → exits 0.
+
+Run tools/godot_check.sh (real headless Godot 4.6.3) → no parse/type/ autoload errors. Pay particular attention to AdminMenu.gd (new typed refs to MainWorld, WaterHookup, FarmProduceItem) and MainWorld.gd (the removed function must have no remaining callers).
+
+Report back for an in-editor test pass by Brannon — there is no compiler in the sandbox beyond the headless check, so the following must be tested by hand in Godot:
+
+F10 does nothing (menu gone, no error spam).
+
+F7 opens with 11 rows under 6 section headers, panel fully on screen.
+
++ $100,000 Cash — HUD cash readout updates immediately.
+
+Hookup Output x2 (Tier +1) — Water Hookup info panel's daily/per-minute output doubles; pressing it 4+ times warns at max tier instead of erroring.
+
+Spawn Potato / Blueberry / Tomato — each drops one produce item above the player, with the harvest pop-in, pickup-able with F, correct display name.
+
+Commit
+
+One commit, code + docs together (standing rule).
+
+Add F7 economy/water-tier/produce-spawn cheats; remove F10 admin spawn menu

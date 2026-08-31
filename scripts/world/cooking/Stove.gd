@@ -231,9 +231,28 @@ func on_interact() -> void:
 		if hud != null and hud.has_method("show_soft_warning"):
 			hud.show_soft_warning("Stove not connected to power")
 		return
+	## Job Progress Bar (Aug 2026) — toggling used to happen instantly here;
+	## now it's gated behind a timed job, and _toggle() (the actual former
+	## body of this function) only runs once the bar fills. Falls back to
+	## the old instant toggle if InteractionSystem can't be resolved for any
+	## reason, so this never silently breaks.
+	var isys: Node = _resolve_interaction_system()
+	if isys == null or not isys.has_method("start_job"):
+		_toggle()
+		return
+	var label: String = "Turning Stove %s..." % ("Off" if powered_on else "On")
+	isys.start_job(self, InteractionSystem.JOB_DEFAULT_DURATION, Callable(self, "_toggle"), label)
+
+func _toggle() -> void:
 	powered_on = not powered_on
 	_refresh_cooking_state()
 	_refresh_indicator()
+
+func _resolve_interaction_system() -> Node:
+	var plr: Node = get_tree().get_first_node_in_group("player")
+	if plr != null and "interaction_system" in plr:
+		return plr.interaction_system
+	return null
 
 ## If our pot has a dish ready, show ITS prompt instead of the toggle text
 ## — so whichever of {Stove, Pot} the nearby-interactable scan happens to

@@ -449,7 +449,7 @@ func on_interact() -> void:
 	## harvested, that's two separate E-presses, one per side.
 	var plant: FarmPlant = plant_refs[idx]
 	if plant != null and is_instance_valid(plant) and plant.is_ready():
-		plant.harvest()
+		_start_harvest_job(plant)
 		return
 
 	if _tray_ui == null or not is_instance_valid(_tray_ui):
@@ -468,6 +468,25 @@ func on_interact() -> void:
 		_tray_ui.call("open", self)
 
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+## Job Progress Bar (Aug 2026) — harvesting used to call plant.harvest()
+## directly and instantly; now it's gated behind a timed job.
+func _start_harvest_job(plant: FarmPlant) -> void:
+	var isys: Node = _resolve_interaction_system()
+	if isys == null or not isys.has_method("start_job"):
+		plant.harvest()   ## fallback — matches prior instant behavior
+		return
+	isys.start_job(self, InteractionSystem.JOB_DEFAULT_DURATION, Callable(self, "_finish_harvest").bind(plant), "Harvesting...")
+
+func _finish_harvest(plant: FarmPlant) -> void:
+	if plant != null and is_instance_valid(plant) and plant.is_ready():
+		plant.harvest()
+
+func _resolve_interaction_system() -> Node:
+	var plr: Node = get_tree().get_first_node_in_group("player")
+	if plr != null and "interaction_system" in plr:
+		return plr.interaction_system
+	return null
 
 func _on_ui_closed() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)

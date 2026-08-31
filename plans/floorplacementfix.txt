@@ -1,0 +1,196 @@
+Fix Plan: "Space Occupied" Regression on Water Sink / Dispenser / Battery Placement
+Verified against a fresh git clone of Magellan36/bunker-game @ main (commit 67a127c, "Fix: Floor-standing objects... now place at ground level" — the previous plan's own commit). Everything below is confirmed against live code, not assumed.
+
+Root cause (confirmed, not speculative)
+The previous plan correctly fixed the visual floating bug by adding WATER_SINK_PLACEMENT_Y/WATER_DISPENSER_PLACEMENT_Y/BATTERY_PLACEMENT_Y (all 0.0) and wiring them into GhostPreview.gd's _update_ghost(). That part is live and correct.
+
+But it never touched BuildModeController._is_position_occupied_for_tile() (line 2547). That function already has explicit, hand-written exemptions for TILE_LIGHT, TILE_SHELVING, TILE_BED, TILE_TRAY_SINGLE/DOUBLE, and TILE_GEN_S/M/L — each with its own comment explaining that the generic physics-shape occupancy query (_is_position_occupied(), line 2669, a real PhysicsDirectSpaceState3D overlap query) false-positives against the floor collider itself for anything sitting at floor height. Direct quote from the live Generator branch:
+
+if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
+	# Generators sit on the floor (Y=0). The physics shape query hits the
+	# floor collider and the generator's own StaticBody3D, causing false
+	# "space occupied" positives. Use registry-only overlap check instead.
+TILE_WATER_SINK, TILE_WATER_DISPENSER, and TILE_BATTERY_S/M/L were never added to this exemption list. Before the previous fix, they placed at Y=2.0 (up near wall height, nowhere near the floor collider), so this false-positive never triggered — the "space occupied" bug was invisible until their Y was correctly moved down to 0.0, at which point they started hitting the exact same floor-collider false-positive that Generators/Beds/Shelving/Trays already needed a fix for. This is a secondary regression the previous plan introduced by fixing one symptom without checking the function that gates placement validity.
+
+Confirmed the exact mechanism holds for all three: WaterTestSink.gd, WaterDispenser.gd, and BatteryBank.gd are all extends StaticBody3D with their own collider (BOX_SIZE = (0.35,0.30,0.35), (0.45,0.55,0.35), and per-tier (0.40,0.70,0.22)/(0.50,0.90,0.26)/(0.60,1.10,0.28) respectively) — placing that collider right at floor height is exactly the "hits the floor collider and the object's own StaticBody3D" scenario the existing comments describe.
+
+Bonus finding while verifying: MoveDuplicateTool.gd (the Move-tool equivalent of GhostPreview.gd) was never updated by the previous plan at all — its own Y-dispatch still sends TILE_WATER_SINK/TILE_WATER_DISPENSER/TILE_BATTERY_S/M/L (and TILE_HEAVY) to the stale PLACEMENT_Y = 2.0. Relocating any of these objects with the Move tool today would make them jump back up to floating height. Not yet reported by you, but it's the same bug family and should be fixed in the same pass.
+
+Second bonus finding: TILE_HEAVY (debug-only HeavyConsumerTest) is confirmed still floating — grouped with TILE_WIRE/TILE_TERMINAL under PLACEMENT_Y=2.0 in GhostPreview.gd line 426-428 (wire/terminal are legitimately wall/panel height; heavy is a floor box and shouldn't be there). The previous plan flagged this as "worth a quick check" but never resolved it.
+
+Part 1 — Immediate hotfix (do this first, low risk, mirrors existing proven code exactly)
+1.1 scripts/world/build/BuildModeController.gd — exempt the 3 broken tiles from the physics occupancy query
+In _is_position_occupied_for_tile() (starts at line 2547), find the Generator branch (ends at line 2621, right before return _is_position_occupied(pos, tile_id) at line 2622):
+
+	if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
+		# Generators sit on the floor (Y=0). The physics shape query hits the
+		# floor collider and the generator's own StaticBody3D, causing false
+		# "space occupied" positives. Use registry-only overlap check instead.
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			var et: int = entry.get("tile_id", -1)
+			if et != TILE_GEN_S and et != TILE_GEN_M and et != TILE_GEN_L:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
+		# Still block placement inside GridMap walls/pillars
+		if gridmap != null:
+			var cell_x: int = roundi(pos.x)
+			var cell_z: int = roundi(pos.z)
+			for cy: int in [0, 1]:
+				var cell_item: int = gridmap.get_cell_item(Vector3i(cell_x, cy, cell_z))
+				if BunkerStructure.is_wall_or_pillar(cell_item):
+					return true
+		return false
+	return _is_position_occupied(pos, tile_id)
+Insert 3 new branches immediately after this Generator block, before the final return _is_position_occupied(pos, tile_id) — copy the exact same shape as the TILE_TRAY_SINGLE/TILE_BED branches above it (registry-only, no GridMap check — Generator is the only one of the existing 5 that has the extra GridMap check, don't add it to these 3 either, to stay consistent with the majority pattern and avoid introducing a new behavior no floor tile except Generator has ever had):
+
+	if tile_id == TILE_WATER_SINK or tile_id == TILE_WATER_DISPENSER:
+		# Same floor-collider false-positive as Beds/Shelving/Trays/Generators
+		# above — these two sit on the floor (Y=0, see WATER_SINK_PLACEMENT_Y/
+		# WATER_DISPENSER_PLACEMENT_Y). Registry-only overlap check instead.
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			var et: int = entry.get("tile_id", -1)
+			if et != tile_id:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
+		return false
+	if tile_id == TILE_BATTERY_S or tile_id == TILE_BATTERY_M or tile_id == TILE_BATTERY_L:
+		# Same floor-collider false-positive as above — battery banks sit on
+		# the floor (Y=0, see BATTERY_PLACEMENT_Y). Registry-only overlap
+		# check instead.
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			var et: int = entry.get("tile_id", -1)
+			if et != TILE_BATTERY_S and et != TILE_BATTERY_M and et != TILE_BATTERY_L:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
+		return false
+	return _is_position_occupied(pos, tile_id)
+1.2 scripts/world/build/MoveDuplicateTool.gd — fix the Move-tool Y dispatch (never touched by the previous plan)
+Find (around line 264-266):
+
+	elif mv_tile == _owner.TILE_WIRE or mv_tile == _owner.TILE_HEAVY or mv_tile == _owner.TILE_WATER_SINK \
+			or mv_tile == _owner.TILE_WATER_DISPENSER:
+		snap_pos.y = _owner.PLACEMENT_Y
+Replace with (split Wire — legitimately wall-height — away from the two floor objects):
+
+	elif mv_tile == _owner.TILE_WIRE:
+		snap_pos.y = _owner.PLACEMENT_Y
+	elif mv_tile == _owner.TILE_WATER_SINK:
+		snap_pos.y = _owner.WATER_SINK_PLACEMENT_Y
+	elif mv_tile == _owner.TILE_WATER_DISPENSER:
+		snap_pos.y = _owner.WATER_DISPENSER_PLACEMENT_Y
+(TILE_HEAVY is intentionally omitted here — handled in §1.3 below, don't leave it in this block.)
+
+Find (around line 293-295):
+
+	elif mv_tile == _owner.TILE_BATTERY_S \
+			or mv_tile == _owner.TILE_BATTERY_M or mv_tile == _owner.TILE_BATTERY_L:
+		snap_pos.y = _owner.PLACEMENT_Y
+Replace with:
+
+	elif mv_tile == _owner.TILE_BATTERY_S \
+			or mv_tile == _owner.TILE_BATTERY_M or mv_tile == _owner.TILE_BATTERY_L:
+		snap_pos.y = _owner.BATTERY_PLACEMENT_Y
+1.3 TILE_HEAVY (debug object, low priority but cheap to fix in the same pass)
+File: scripts/world/build/BuildModeController.gd — near the other *_PLACEMENT_Y constants (~line 121), add:
+
+const HEAVY_PLACEMENT_Y: float = 0.3   ## HeavyConsumerTest ghost box is 0.60 tall, built at position.y = 0.30 (half-height) — matches GhostPreview.gd's hc_box.position exactly
+File: scripts/world/build/GhostPreview.gd — find (line 426-428):
+
+	elif _owner._selected_tile == _owner.TILE_WIRE or _owner._selected_tile == _owner.TILE_TERMINAL \
+			or _owner._selected_tile == _owner.TILE_HEAVY:
+		snap_pos.y = _owner.PLACEMENT_Y
+Replace with:
+
+	elif _owner._selected_tile == _owner.TILE_WIRE or _owner._selected_tile == _owner.TILE_TERMINAL:
+		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_HEAVY:
+		snap_pos.y = _owner.HEAVY_PLACEMENT_Y
+File: scripts/world/build/MoveDuplicateTool.gd — add right after the TILE_WATER_DISPENSER branch from §1.2:
+
+	elif mv_tile == _owner.TILE_HEAVY:
+		snap_pos.y = _owner.HEAVY_PLACEMENT_Y
+File: scripts/world/build/BuildModeController.gd, _is_position_occupied_for_tile() — add one more branch alongside the two added in §1.1 (same shape):
+
+	if tile_id == TILE_HEAVY:
+		var threshold: float = grid_size * 0.9
+		for entry: Dictionary in _placed_objects:
+			if entry.get("tile_id", -1) != TILE_HEAVY:
+				continue
+			var p: Vector3 = entry["world_pos"]
+			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
+				return true
+		return false
+1.4 Verification checklist for Part 1
+Place a Water Test Sink, a Water Dispenser, and all 3 Battery tiers — confirm no "space occupied" error on a clear floor tile, and each rests flush on the floor (not floating — should already be true from the previous fix, just re-confirm it wasn't accidentally undone).
+Place two of the same type near each other and confirm the registry-overlap check still correctly blocks true overlaps (the exemption removes the physics query, not overlap detection entirely — the registry check must still catch real collisions).
+Move tool: place one of each of the 3 fixed types, then use the Move tool to relocate it — confirm it does NOT jump up to Y=2.0 mid-move (this is the latent bug §1.2 fixes; it was never actually reported as broken because nobody tried moving one after the previous plan shipped).
+Placement + Move for TILE_HEAVY (debug-only, F10 admin spawn or whatever menu exposes it) — confirm floor-level, no floating.
+Run tools/godot_check.sh before considering this done.
+Part 2 — The systemic fix you asked for: one shared "floor placement" system
+You're right that this is the 3rd+ time a floor-height bug has been hand-fixed one object at a time (GEN_PLACEMENT_Y, SHELF_PLACEMENT_Y, now WATER_SINK_PLACEMENT_Y/WATER_DISPENSER_PLACEMENT_Y/BATTERY_PLACEMENT_Y, and 5 separate hand-copied occupancy-check branches). This project already has an established pattern for exactly this kind of thing — BuildModeController.gd has several small _owner-back-reference extracted slices (BuildMaterials.gd, BuildUndoStack.gd, GhostPreview.gd, MoveDuplicateTool.gd, WallSnapHelpers.gd) — this proposal adds one more, following that exact convention, rather than inventing a new architecture style.
+
+This part is a separate, later commit — do not bundle it with Part 1. Part 1 fixes the fire; Part 2 is the "stop this from recurring" follow-up, and touches several already-working code paths that don't need to be at risk while Part 1 is being verified.
+
+2.1 New file: scripts/world/build/FloorPlacementHelpers.gd
+Before writing this file, grep BuildModeController.gd for exactly how _wall_snap (a WallSnapHelpers instance) is declared and initialized (likely something like var _wall_snap: WallSnapHelpers = null + a _wall_snap = WallSnapHelpers.new(); _wall_snap.setup(self) call in _ready() or _setup_...()) — mirror that exact instantiation pattern for a new _floor_placement: FloorPlacementHelpers var, rather than inventing a different setup convention. Do not guess this — find and copy the real pattern.
+
+extends RefCounted
+class_name FloorPlacementHelpers
+## FloorPlacementHelpers.gd
+## Stage-10-style extracted slice of BuildModeController (_owner back-
+## reference — same pattern as WallSnapHelpers.gd/BuildMaterials.gd/etc.,
+## see docs/systems/build/README.md).
+##
+## Gives every FLOOR-STANDING placeable object ONE authoritative place to
+## get (a) the exact world Y its root should sit at, and (b) exemption
+## from the physics-shape occupancy query that always false-positives
+## against the floor collider for anything sitting at floor height — so a
+## brand-new floor object never again needs its own hand-tuned
+## *_PLACEMENT_Y constant or its own copy-pasted occupancy-check branch.
+##
+## Explicitly does NOT apply to wall/ceiling-mounted tiles (lights, wire,
+## terminal, breaker, water hookup/pipes, grow lights) — those keep their
+## own existing fixed-height branches in GhostPreview.gd/
+## MoveDuplicateTool.gd untouched. "Floor-standing" is a deliberate,
+## explicit opt-in list (FLOOR_STANDING_TILES below), not an inferred one.
+
+var _owner: BuildModeController = null
+
+func setup(owner: BuildModeController) -> void:
+	_owner = owner
+
+## World Y of the floor collider. ONE constant, shared by every
+## floor-standing tile going forward — replaces the pile of independently
+## hand-set *_PLACEMENT_Y constants (which were all either 0.0 or a
+## hand-tuned near-zero fudge for a specific object's own geometry quirk).
+const FLOOR_Y: float = 0.0
+
+## Every tile ID that (a) rests at FLOOR_Y and (b) must skip the generic
+## physics-shape occupancy query. Add a new floor-standing tile's ID here
+## — nowhere else — to get both behaviors automatically.
+func floor_standing_tiles() -> Array[int]:
+	return [
+		_owner.TILE_SHELVING, _owner.TILE_BED,
+		_owner.TILE_TRAY_SINGLE, _owner.TILE_TRAY_DOUBLE,
+		_owner.TILE_GEN_S, _owner.TILE_GEN_M, _owner.TILE_GEN_L,
+		_owner.TILE_WATER_SINK, _owner.TILE_WATER_DISPENSER,
+		_owner.TILE_BATTERY_S, _owner.TILE_BATTERY_M, _owner.TILE_BATTERY_L,
+		_owner.TILE_HEAVY,
+	]
+
+## Given a mesh already built/sized for a floor-standing object's ghost or
+## real body, returns the LOCAL Y offset that puts the mesh's own visual
+## bottom exactly at its parent node's origin — the same thing every floor
+## object already does by hand today via a `size.y * 0.5` literal, except
+## MEASURED from the mesh's real AABB instead of a separately-maintained
+## size constant. For a plain BoxMesh this reproduces today's math exactly
+## (a BoxMesh

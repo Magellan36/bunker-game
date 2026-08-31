@@ -1,0 +1,11 @@
+Also, I want you to make potatoes and onions re-plantable. They should be able to be planted like a seed. Just override the “[E] Eat” with a planting prompt instead when nearby the plant tray. Also I want to go back to the pre-doubling plant growth rate values. This change was made before the x10 bug was uncovered. I also want sleep to simulate the time skipped/slept as well (same as we just wired for the admin menu button doing the similar function). I also want to add a new object: a Basket (just a cylindrical model, resembling a waste/laundry). The player should be able to pick up the basket, and store any food items in it (water bottle, food can, and any grown farmed food) by pressing E while holding the basket (the hovering prompt should appear above the item being put in the basket). The basket should hold 12 items, and when the player presses G, it should open a menu showing the contents of the basket, with options to drop individual items or add them to inventory. Shelving item has similar code to what I want, reference that to keep systems consistent. When the player drops or picks up the basket, the contents should stay consistent. Ask me any clarifying questions and be sure to write out the steps to make the changes very straightforward and simply for the agent implementing it
+
+
+ Q&A:
+
+G already means "put held item away." For the basket, should G instead open its contents menu (scroll-wheel becomes the only way to stash the basket itself)?
+Basket should not be able to be stored in the inventory (like Crate, or Water Case), as it’s too big. It should only be able to be picked up and interacted with
+Should the basket hold 12 individual item slots (no stacking, like Shelving's crate rule), or should same-type items stack within those 12 (e.g. multiple water bottles sharing one slot)?
+12 individual slots, no stacking
+Can the basket be stored inside Shelving (like other pickupable items), or should it be excluded since it can itself hold items?
+Allow storing basket on shelves

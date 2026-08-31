@@ -7,7 +7,7 @@
 [ext_resource type="MeshLibrary" uid="uid://5ipa5mlo72rf" path="res://assets/bunker_tiles.meshlib" id="5_w26i4"]
 [ext_resource type="Script" uid="uid://dpb8ovwljrocm" path="res://scripts/world/environment/BunkerLayout.gd" id="6_hyoe7"]
 [ext_resource type="PackedScene" path="res://scenes/world/TestCrate.tscn" id="7_hyoe7"]
-[ext_resource type="Script" uid="uid://c2p4arjynkf1d" path="res://scripts/world/PlayerStats.gd" id="8_p7b5b"]
+[ext_resource type="Script" uid="uid://c2p4arjynkf1d" path="res://scripts/player/PlayerStats.gd" id="8_p7b5b"]
 [ext_resource type="PackedScene" uid="uid://bn7hoc2y5pv2v" path="res://scenes/world/Bed.tscn" id="8_ucaxc"]
 [ext_resource type="PackedScene" path="res://scenes/ui/SleepOverlay.tscn" id="10_o0cc0"]
 [ext_resource type="PackedScene" uid="uid://bjlvglf3wsro4" path="res://tile_set.tscn" id="11_o0cc0"]
@@ -16,23 +16,24 @@
 [ext_resource type="PackedScene" uid="uid://c7johuud8s3lm" path="res://scenes/world/CanCase.tscn" id="14_b88p2"]
 [ext_resource type="Script" uid="uid://b25d20cm5hjmy" path="res://scripts/ui/inventory/InventoryManager.gd" id="15_hwvcu"]
 [ext_resource type="Script" uid="uid://brf57rojeegns" path="res://scripts/world/environment/RockSurround.gd" id="16_ecro3"]
+[ext_resource type="Script" uid="uid://bdwmmf4jplkcg" path="res://scripts/player/medical/PlayerMedical.gd" id="17_rkfqf"]
 
 [sub_resource type="Environment" id="Environment_w26i4"]
 background_mode = 2
+tonemap_mode = 3
+tonemap_white = 5.0
+ssao_enabled = true
+sdfgi_enabled = true
+sdfgi_energy = 0.7
 glow_enabled = true
 glow_intensity = 0.55
 glow_bloom = 0.04
 glow_hdr_threshold = 1.4
-tonemap_mode = 3
-tonemap_white = 5.0
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.035
 adjustment_enabled = true
 adjustment_brightness = 0.87
 adjustment_saturation = 0.9
-ssao_enabled = true
-sdfgi_enabled = true
-sdfgi_energy = 0.7
-volumetric_fog_enabled = true
-volumetric_fog_density = 0.035
 
 [node name="MainWorld" type="Node3D" unique_id=757564977 groups=["world"]]
 script = ExtResource("1_lb6jv")
@@ -91,7 +92,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.2291546, 1, 4.901)
 
 [node name="CanCase" parent="." unique_id=1125724952 instance=ExtResource("14_b88p2")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.084995, 1, 4.901)
-item_name = "Can Case"
 
 [node name="InventoryManager" type="Node" parent="." unique_id=2072364134]
 script = ExtResource("15_hwvcu")
@@ -99,3 +99,6 @@ script = ExtResource("15_hwvcu")
 [node name="RockSurround" type="Node3D" parent="." unique_id=1614123247]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, -1)
 script = ExtResource("16_ecro3")
+
+[node name="PlayerMedical" type="Node" parent="." unique_id=966476116]
+script = ExtResource("17_rkfqf")

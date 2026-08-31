@@ -35,12 +35,43 @@ signal sleep_changed(value: float)
 signal health_changed(value: float)
 signal time_changed(hour: int, minute: int, is_pm: bool, display: String)
 signal day_changed(day: int)
+## Emitted whenever Medical writes new need-cap values (see food_cap/
+## water_cap/sleep_cap below and set_needs_caps()) — NeedsGauge listens via
+## HUD.gd to render the reduced ceiling as a greyed-out portion of each
+## ring, per docs/systems/medical/README.md's "Needs cap reduction."
+signal food_cap_changed(value: float)
+signal water_cap_changed(value: float)
+signal sleep_cap_changed(value: float)
 
 # ─── State ───────────────────────────────────────────────────────────────────
 var food:   float = 100.0
 var water:  float = 100.0
 var sleep:  float = 100.0
 var health: float = 100.0
+
+## Dynamic per-need ceilings (Aug 2026, Medical system Pass 2) — default
+## 100.0 (no effect). PlayerMedical.gd writes to these directly each tick
+## based on the worst active condition affecting that need (currently only
+## Infection uses this — see docs/systems/medical/README.md's "Needs cap
+## reduction"). Health's cap is deliberately NEVER reduced by Medical —
+## see that doc's "Planned future extensions" for why (HP is meant to only
+## regenerate when a need is at its true, uncapped 100, so a reduced need
+## cap already blocks that path as a natural consequence).
+var food_cap:  float = 100.0
+var water_cap: float = 100.0
+var sleep_cap: float = 100.0
+
+## The only way Medical (or anything else) should change the caps above —
+## writing the vars directly would skip the *_cap_changed signals the HUD
+## depends on to redraw. Values are 0-100, same scale as food/water/sleep
+## themselves.
+func set_needs_caps(new_food_cap: float, new_water_cap: float, new_sleep_cap: float) -> void:
+	food_cap  = new_food_cap
+	water_cap = new_water_cap
+	sleep_cap = new_sleep_cap
+	food_cap_changed.emit(food_cap)
+	water_cap_changed.emit(water_cap)
+	sleep_cap_changed.emit(sleep_cap)
 
 ## Time multiplier — set by dev tools (F12). Only affects stats/clock, not physics.
 var time_multiplier: float = 1.0
@@ -119,15 +150,15 @@ func _tick_clock() -> void:
 # ─── Replenish ────────────────────────────────────────────────────────────────
 ## Each replenish emits its signal immediately so the HUD updates on the same frame.
 func replenish_food(amount: float) -> void:
-	food = minf(100.0, food + amount)
+	food = minf(food_cap, food + amount)
 	food_changed.emit(food)
 
 func replenish_water(amount: float) -> void:
-	water = minf(100.0, water + amount)
+	water = minf(water_cap, water + amount)
 	water_changed.emit(water)
 
 func replenish_sleep(amount: float) -> void:
-	sleep = minf(100.0, sleep + amount)
+	sleep = minf(sleep_cap, sleep + amount)
 	sleep_changed.emit(sleep)
 
 func replenish_health(amount: float) -> void:
@@ -158,13 +189,16 @@ func get_elapsed() -> float:
 	return _elapsed
 
 ## Advances time by `hours` game-hours, drains food/water for that duration,
-## and fully restores sleep. Used by SleepOverlay for the sleep-time-skip.
+## and fully restores sleep. NOT currently used by SleepOverlay (it calls
+## skip_time_with_drain() instead, which also drains sleep rather than
+## refilling it) — kept as a distinct, real option for anything that wants
+## a genuine "woke up rested" skip rather than "time passed while asleep."
 func skip_time(hours: float) -> void:
 	var skip_real: float = hours * _seconds_per_game_hour
 	_elapsed += skip_real
 	var drain_scale: float = skip_real / _seconds_per_game_hour
 
-	sleep = 100.0
+	sleep = sleep_cap
 
 	food  = maxf(0.0, food  - food_drain_per_game_hour  * drain_scale)
 	water = maxf(0.0, water - water_drain_per_game_hour * drain_scale)

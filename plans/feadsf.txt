@@ -1,0 +1,122 @@
+2026-08-19 19:09:46.226 [Warning] User local requested restart of backend all.
+2026-08-19 19:09:46.226 [Info] ComfyUI backend 0 shutting down...
+2026-08-19 19:09:46.855 [Init] Initializing backend #0 - ComfyUI Self-Starting...
+2026-08-19 19:09:48.314 [Warning] ComfyUI auto-update git pulled failed with a 'not currently on a branch' message. You will be stuck on an outdated ComfyUI version. To fix this, please go to Server->Backends->Edit your comfy backend->change AutoUpdate to Aggressive, then save.
+2026-08-19 19:09:48.315 [Warning] (Developer Warning) ComfyUI required package 'torchsde' not found in lib folder. May be an install error, or may be a new dependency.
+2026-08-19 19:09:48.315 [Warning] (Developer Warning) ComfyUI required package 'torchaudio' not found in lib folder. May be an install error, or may be a new dependency.
+2026-08-19 19:09:48.323 [Init] Self-Start ComfyUI-0 on port 7830 is loading...
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR] Traceback (most recent call last):
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\main.py", line 237, in <module>
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]     import comfy.utils
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\comfy\utils.py", line 25, in <module>
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]     import comfy.memory_management
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\comfy\memory_management.py", line 8, in <module>
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]     from comfy.quant_ops import QuantizedTensor
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\comfy\quant_ops.py", line 23, in <module>
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]     import comfy_kitchen as ck
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\venv\Lib\site-packages\comfy_kitchen\__init__.py", line 20, in <module>
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]     from .sage_attention import (
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\venv\Lib\site-packages\comfy_kitchen\sage_attention.py", line 500, in <module>
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]     @_op_int8_attention.register_fake
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-08-19 19:09:52.601 [Warning] [ComfyUI-0/STDERR] AttributeError: 'function' object has no attribute 'register_fake'
+2026-08-19 19:09:53.177 [Info] Self-Start ComfyUI-0 unexpectedly exited (ExitCode=1) (if something failed, change setting `LogLevel` to `Debug` to see why!)
+2026-08-19 19:09:53.177 [Info] Self-Start ComfyUI-0 had errors before shutdown:
+[ComfyUI-0/STDERR] [INFO] setup plugin alembic.autogenerate.schemas
+[ComfyUI-0/STDERR] [INFO] setup plugin alembic.autogenerate.tables
+[ComfyUI-0/STDERR] [INFO] setup plugin alembic.autogenerate.types
+[ComfyUI-0/STDERR] [INFO] setup plugin alembic.autogenerate.constraints
+[ComfyUI-0/STDERR] [INFO] setup plugin alembic.autogenerate.defaults
+[ComfyUI-0/STDERR] [INFO] setup plugin alembic.autogenerate.comments
+[ComfyUI-0/STDERR] [INFO] setup plugin alembic.autogenerate.checkconstraint_byname
+[ComfyUI-0/STDERR] [WARNING] Could not autodetect AIMDO implementation, assuming Nvidia
+[ComfyUI-0/STDERR] [WARNING] 
+[ComfyUI-0/STDERR] 
+[ComfyUI-0/STDERR] To use the `--enable-manager` feature, the `comfyui-manager` package must be installed first.
+[ComfyUI-0/STDERR] command:
+[ComfyUI-0/STDERR] 	F:\StableMatric\Packages\SwarmUI\src\ComfyUI\venv\Scripts\python.exe -m pip install -r F:\StableMatric\Packages\SwarmUI\src\ComfyUI\manager_requirements.txt
+[ComfyUI-0/STDERR] or using uv:
+[ComfyUI-0/STDERR] 	uv pip install -r F:\StableMatric\Packages\SwarmUI\src\ComfyUI\manager_requirements.txt
+[ComfyUI-0/STDERR] 
+[ComfyUI-0/STDERR] [INFO] Adding extra search path checkpoints F:\StableMatric\Models\StableDiffusion
+[ComfyUI-0/STDERR] [INFO] Adding extra search path diffusers F:\StableMatric\Models\Diffusers
+[ComfyUI-0/STDERR] [INFO] Adding extra search path loras F:\StableMatric\Models\Lora
+[ComfyUI-0/STDERR] [INFO] Adding extra search path loras F:\StableMatric\Models\LyCORIS
+[ComfyUI-0/STDERR] [INFO] Adding extra search path clip F:\StableMatric\Models\TextEncoders
+[ComfyUI-0/STDERR] [INFO] Adding extra search path clip_vision F:\StableMatric\Models\ClipVision
+[ComfyUI-0/STDERR] [INFO] Adding extra search path embeddings F:\StableMatric\Models\Embeddings
+[ComfyUI-0/STDERR] [INFO] Adding extra search path vae F:\StableMatric\Models\VAE
+[ComfyUI-0/STDERR] [INFO] Adding extra search path vae_approx F:\StableMatric\Models\ApproxVAE
+[ComfyUI-0/STDERR] [INFO] Adding extra search path controlnet F:\StableMatric\Models\ControlNet
+[ComfyUI-0/STDERR] [INFO] Adding extra search path controlnet F:\StableMatric\Models\T2IAdapter
+[ComfyUI-0/STDERR] [INFO] Adding extra search path gligen F:\StableMatric\Models\GLIGEN
+[ComfyUI-0/STDERR] [INFO] Adding extra search path upscale_models F:\StableMatric\Models\ESRGAN
+[ComfyUI-0/STDERR] [INFO] Adding extra search path upscale_models F:\StableMatric\Models\RealESRGAN
+[ComfyUI-0/STDERR] [INFO] Adding extra search path upscale_models F:\StableMatric\Models\SwinIR
+[ComfyUI-0/STDERR] [INFO] Adding extra search path hypernetworks F:\StableMatric\Models\Hypernetwork
+[ComfyUI-0/STDERR] [INFO] Adding extra search path ipadapter F:\StableMatric\Models\IpAdapter
+[ComfyUI-0/STDERR] [INFO] Adding extra search path ipadapter F:\StableMatric\Models\IpAdapters15
+[ComfyUI-0/STDERR] [INFO] Adding extra search path ipadapter F:\StableMatric\Models\IpAdaptersXl
+[ComfyUI-0/STDERR] [INFO] Adding extra search path prompt_expansion F:\StableMatric\Models\PromptExpansion
+[ComfyUI-0/STDERR] [INFO] Adding extra search path ultralytics F:\StableMatric\Models\Ultralytics
+[ComfyUI-0/STDERR] [INFO] Adding extra search path ultralytics_bbox F:\StableMatric\Models\Ultralytics\bbox
+[ComfyUI-0/STDERR] [INFO] Adding extra search path ultralytics_segm F:\StableMatric\Models\Ultralytics\segm
+[ComfyUI-0/STDERR] [INFO] Adding extra search path sams F:\StableMatric\Models\Sams
+[ComfyUI-0/STDERR] [INFO] Adding extra search path diffusion_models F:\StableMatric\Models\DiffusionModels
+[ComfyUI-0/STDERR] [INFO] Adding extra search path style_models F:\StableMatric\Models\StyleModels
+[ComfyUI-0/STDERR] [INFO] Adding extra search path audio_encoders F:\StableMatric\Models\AudioEncoders
+[ComfyUI-0/STDERR] [INFO] Adding extra search path model_patches F:\StableMatric\Models\ModelPatches
+[ComfyUI-0/STDERR] [INFO] Adding extra search path background_removal F:\StableMatric\Models\BackgroundRemoval
+[ComfyUI-0/STDERR] [INFO] Adding extra search path checkpoints F:\StableMatric\Models\StableDiffusion
+[ComfyUI-0/STDERR] [INFO] Adding extra search path vae F:\StableMatric\Models\VAE
+[ComfyUI-0/STDERR] [INFO] Adding extra search path vae F:\StableMatric\Models\VAE
+[ComfyUI-0/STDERR] [INFO] Adding extra search path loras F:\StableMatric\Models\Lora
+[ComfyUI-0/STDERR] [INFO] Adding extra search path loras F:\StableMatric\Models\LyCORIS
+[ComfyUI-0/STDERR] [INFO] Adding extra search path loras F:\StableMatric\Models\Lora
+[ComfyUI-0/STDERR] [INFO] Adding extra search path loras F:\StableMatric\Models\LyCORIS
+[ComfyUI-0/STDERR] [INFO] Adding extra search path upscale_models F:\StableMatric\Models\ESRGAN
+[ComfyUI-0/STDERR] [INFO] Adding extra search path upscale_models F:\StableMatric\Models\RealESRGAN
+[ComfyUI-0/STDERR] [INFO] Adding extra search path upscale_models F:\StableMatric\Models\SwinIR
+[ComfyUI-0/STDERR] [INFO] Adding extra search path upscale_models F:\StableMatric\Models\upscale-models
+[ComfyUI-0/STDERR] [INFO] Adding extra search path upscale_models F:\StableMatric\Models\upscale_models
+[ComfyUI-0/STDERR] [INFO] Adding extra search path embeddings F:\StableMatric\Models\Embeddings
+[ComfyUI-0/STDERR] [INFO] Adding extra search path embeddings F:\StableMatric\Models\embeddings
+[ComfyUI-0/STDERR] [INFO] Adding extra search path hypernetworks F:\StableMatric\Models\hypernetworks
+[ComfyUI-0/STDERR] [INFO] Adding extra search path controlnet F:\StableMatric\Models\ControlNet
+[ComfyUI-0/STDERR] [INFO] Adding extra search path controlnet F:\StableMatric\Models\T2IAdapter
+[ComfyUI-0/STDERR] [INFO] Adding extra search path controlnet F:\StableMatric\Models\ControlNet
+[ComfyUI-0/STDERR] [INFO] Adding extra search path model_patches F:\StableMatric\Models\ControlNet
+[ComfyUI-0/STDERR] [INFO] Adding extra search path model_patches F:\StableMatric\Models\T2IAdapter
+[ComfyUI-0/STDERR] [INFO] Adding extra search path model_patches F:\StableMatric\Models\ControlNet
+[ComfyUI-0/STDERR] [INFO] Adding extra search path model_patches F:\StableMatric\Models\model_patches
+[ComfyUI-0/STDERR] [INFO] Adding extra search path clip F:\StableMatric\Models\TextEncoders
+[ComfyUI-0/STDERR] [INFO] Adding extra search path clip F:\StableMatric\Models\clip
+[ComfyUI-0/STDERR] [INFO] Adding extra search path clip_vision F:\StableMatric\Models\ClipVision
+[ComfyUI-0/STDERR] [INFO] Adding extra search path clip_vision F:\StableMatric\Models\clip_vision
+[ComfyUI-0/STDERR] [INFO] Adding extra search path unet F:\StableMatric\Models\unet
+[ComfyUI-0/STDERR] [INFO] Adding extra search path diffusion_models F:\StableMatric\Models\diffusion_models
+[ComfyUI-0/STDERR] [INFO] Adding extra search path gligen F:\StableMatric\Models\gligen
+[ComfyUI-0/STDERR] [INFO] Adding extra search path ipadapter F:\StableMatric\Models\ipadapter
+[ComfyUI-0/STDERR] [INFO] Adding extra search path yolov8 F:\StableMatric\Models\yolov8
+[ComfyUI-0/STDERR] [INFO] Adding extra search path tensorrt F:\StableMatric\Models\tensorrt
+[ComfyUI-0/STDERR] [INFO] Adding extra search path clipseg F:\StableMatric\Models\clipseg
+[ComfyUI-0/STDERR] [INFO] Adding extra search path style_models F:\StableMatric\Models\style_models
+[ComfyUI-0/STDERR] [INFO] Adding extra search path latent_upscale_models F:\StableMatric\Models\latent_upscale_models
+[ComfyUI-0/STDERR] [INFO] Adding extra search path custom_nodes F:\StableMatric\Packages\SwarmUI\src\BuiltinExtensions\ComfyUIBackend\DLNodes
+[ComfyUI-0/STDERR] [INFO] Adding extra search path custom_nodes F:\StableMatric\Packages\SwarmUI\src\BuiltinExtensions\ComfyUIBackend\ExtraNodes
+[ComfyUI-0/STDERR] Traceback (most recent call last):
+[ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\main.py", line 237, in <module>
+[ComfyUI-0/STDERR]     import comfy.utils
+[ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\comfy\utils.py", line 25, in <module>
+[ComfyUI-0/STDERR]     import comfy.memory_management
+[ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\comfy\memory_management.py", line 8, in <module>
+[ComfyUI-0/STDERR]     from comfy.quant_ops import QuantizedTensor
+[ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\comfy\quant_ops.py", line 23, in <module>
+[ComfyUI-0/STDERR]     import comfy_kitchen as ck
+[ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\venv\Lib\site-packages\comfy_kitchen\__init__.py", line 20, in <module>
+[ComfyUI-0/STDERR]     from .sage_attention import (
+[ComfyUI-0/STDERR]   File "F:\StableMatric\Packages\SwarmUI\src\ComfyUI\venv\Lib\site-packages\comfy_kitchen\sage_attention.py", line 500, in <module>
+[ComfyUI-0/STDERR]     @_op_int8_attention.register_fake
+[ComfyUI-0/STDERR]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ComfyUI-0/STDERR] AttributeError: 'function' object has no attribute 'register_fake'
+2026-08-19 19:09:54.127 [Error] Self-Start ComfyUI-0 on port 7830 failed. AutoRestart ignored as this was an initial launch failure.
