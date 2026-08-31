@@ -1134,8 +1134,10 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	get_tree().call_group("wire_segment", "set_visible", false)
 
 
-## Patches the GridMap MeshLibrary's floor mesh (item 0) with the
-## concrete_floor texture. Safe to call after pregen has run.
+## Patches the GridMap MeshLibrary's floor mesh (item 0) with the shared
+## floor material (Concrete032, triplanar one-image-across-the-bunker).
+## Safe to call after pregen has run. Mirrors BuildMaterials.build_floor_material()
+## so the pregen floor and player-built floors always match.
 func _apply_floor_texture(gm: GridMap) -> void:
 	if gm == null:
 		return
@@ -1146,17 +1148,7 @@ func _apply_floor_texture(gm: GridMap) -> void:
 	if floor_mesh == null:
 		return
 
-	var floor_tex: Texture2D = load("res://assets/textures/concrete_floor.jpg") as Texture2D
-	if floor_tex == null:
-		push_warning("[MainWorld] concrete_floor.jpg not found — floor texture skipped")
-		return
-
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_texture = floor_tex
-	mat.albedo_color   = Color(1.0, 1.0, 1.0, 1.0)
-	mat.roughness      = 0.90
-	mat.metallic       = 0.0
-
+	var mat: StandardMaterial3D = BuildMaterials.build_floor_material()
 	for s: int in floor_mesh.get_surface_count():
 		floor_mesh.surface_set_material(s, mat)
 
