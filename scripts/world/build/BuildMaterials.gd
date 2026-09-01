@@ -205,6 +205,48 @@ static func apply_material_to_model(model: Node3D, mat: StandardMaterial3D) -> v
 		for s: int in m.mesh.get_surface_count():
 			m.set_surface_override_material(s, mat)
 
+## Mood override (Aug 2026) — dims, slightly desaturates and mattens a model's
+## surfaces so they read in-theme with the dark bunker instead of toy-bright.
+## Per-instance surface overrides (imported mesh materials are shared, never
+## mutate them in place). Same recipe as FarmProduceItem's produce filter.
+static func apply_mood_override(mi: MeshInstance3D, dark: float = 0.6, desat: float = 0.12, roughness: float = 0.8) -> void:
+	if mi == null or mi.mesh == null:
+		return
+	for s: int in mi.mesh.get_surface_count():
+		var base: Color = Color(1.0, 1.0, 1.0, 1.0)
+		var existing: Material = mi.mesh.surface_get_material(s)
+		if existing is StandardMaterial3D:
+			base = (existing as StandardMaterial3D).albedo_color
+		var c: Color = Color(base.r * dark, base.g * dark, base.b * dark, 1.0)
+		var lum: float = c.get_luminance()
+		c = c.lerp(Color(lum, lum, lum, 1.0), desat)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = c
+		mat.roughness = roughness
+		mat.metallic  = 0.0
+		mi.set_surface_override_material(s, mat)
+
+## Builds a CollisionShape3D from a model's visual AABB (in body space) for a
+## given kind — "cylinder" is a vertical (Y-axis) cylinder sized to the AABB
+## (height = size.y, radius = max of the horizontal extents / 2), anything
+## else is a box. Centered on the AABB so the bottom rests flush with the
+## model base.
+static func build_model_collision(kind: String, aabb: AABB) -> CollisionShape3D:
+	var cs := CollisionShape3D.new()
+	var sz: Vector3 = aabb.size
+	cs.position = aabb.position + sz * 0.5
+	match kind:
+		"cylinder":
+			var cyl := CylinderShape3D.new()
+			cyl.height = sz.y
+			cyl.radius = maxf(sz.x, sz.z) * 0.5
+			cs.shape = cyl
+		_:
+			var box := BoxShape3D.new()
+			box.size = sz
+			cs.shape = box
+	return cs
+
 func _build_world_materials() -> void:
 	## ── Wall material ──────────────────────────────────────────────────────
 	## Concrete028 retexture (Aug 2026): shared builder — pregen + build-mode.

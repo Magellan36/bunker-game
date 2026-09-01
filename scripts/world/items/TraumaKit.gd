@@ -27,6 +27,12 @@ const TOTAL_CHARGES: int = 1
 const PLACEHOLDER_RADIUS: float = 0.07
 const PLACEHOLDER_COLOR: Color  = Color(0.75, 0.20, 0.18, 1.0)   ## red "kit" tone, distinct from the other three
 
+## Real model (Aug 2026) — Tinkercad OBJ, MTL flat colors. MODEL_SCALE maps
+## the model's largest dimension (12.1 units) to 3x the placeholder diameter
+## (0.42m visual).
+const MODEL_PATH:  String = "res://assets/models/medical/trauma_kit/tinker.obj"
+const MODEL_SCALE: float  = 0.0348
+
 ## Research Station chute yield — flat, single-charge item, no tiers.
 const CHUTE_METAL_YIELD: int = 4
 
@@ -37,6 +43,9 @@ var shelf_item_type: String = "trauma_kit"
 # ─── State ───────────────────────────────────────────────────────────────────
 var _charges_left: int = TOTAL_CHARGES
 var _mesh_instance: MeshInstance3D = null
+## Body-space visual AABB of the loaded model — the box collision is built
+## from it so it roughly matches the model.
+var _model_aabb: AABB = AABB()
 
 func _ready() -> void:
 	super._ready()
@@ -46,13 +55,30 @@ func _ready() -> void:
 
 func _build_placeholder_mesh() -> void:
 	_mesh_instance = MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = PLACEHOLDER_RADIUS
-	sphere.height = PLACEHOLDER_RADIUS * 2.0
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = PLACEHOLDER_COLOR
-	sphere.material = mat
-	_mesh_instance.mesh = sphere
+	var mesh: ArrayMesh = load(MODEL_PATH) as ArrayMesh
+	if mesh != null:
+		_mesh_instance.mesh = mesh
+		_mesh_instance.scale = Vector3.ONE * MODEL_SCALE
+		_mesh_instance.rotation.x = -PI / 2.0   ## OBJ height runs along Z (Tinkercad) — stand upright
+		var aabb: AABB = _mesh_instance.transform * _mesh_instance.mesh.get_aabb()
+		## Base sits at the old collision sphere's bottom so the model rests flush.
+		_mesh_instance.position = Vector3(0.0, -aabb.position.y - PLACEHOLDER_RADIUS, 0.0)
+		_model_aabb = _mesh_instance.transform * _mesh_instance.mesh.get_aabb()
+		BuildMaterials.apply_mood_override(_mesh_instance)
+		add_child(BuildMaterials.build_model_collision("box", _model_aabb))
+	else:
+		var sphere := SphereMesh.new()
+		sphere.radius = PLACEHOLDER_RADIUS
+		sphere.height = PLACEHOLDER_RADIUS * 2.0
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = PLACEHOLDER_COLOR
+		sphere.material = mat
+		_mesh_instance.mesh = sphere
+		var cs := CollisionShape3D.new()
+		var sp := SphereShape3D.new()
+		sp.radius = PLACEHOLDER_RADIUS
+		cs.shape = sp
+		add_child(cs)
 	add_child(_mesh_instance)
 
 # ─── Prompt interface ─────────────────────────────────────────────────────────

@@ -16,14 +16,22 @@ class_name Antibiotics
 ##
 ## Placeholder visual: same procedural-sphere approach as Bandage, just a
 ## different tint so the two are distinguishable at a glance while both
-## are still placeholders — intentionally low-effort, real models later.
+## are still placeholders — now the real models handle it (full bottle vs
+## dedicated Empty model).
 
 # ─── Config ─────────────────────────────────────────────────────────────────
 const TOTAL_CHARGES: int = 2
 
 const PLACEHOLDER_RADIUS: float = 0.05
-const FULL_COLOR: Color  = Color(0.60, 0.78, 0.68, 1.0)   ## pale green "medicine bottle" tint
-const EMPTY_COLOR: Color = Color(0.55, 0.55, 0.55, 1.0)   ## dulled grey once emptied
+const FULL_COLOR: Color  = Color(0.60, 0.78, 0.68, 1.0)   ## pale green "medicine bottle" tint (fallback only)
+
+## Real models (Aug 2026) — Tinkercad OBJ, MTL flat colors. The full bottle
+## swaps to the dedicated Empty model when charges run out (the "Empty
+## Bottle" mechanic). MODEL_SCALE maps the bottle's largest dimension
+## (6.8 units) to 2x the placeholder diameter (0.20m visual).
+const MODEL_PATH:       String = "res://assets/models/medical/antibiotics/tinker.obj"
+const MODEL_EMPTY_PATH: String = "res://assets/models/medical/antibiotics_empty/tinker.obj"
+const MODEL_SCALE:      float  = 0.0294
 
 ## Research Station chute yields (Aug 2026) — see
 ## docs/systems/medical/README.md's "Research Station chute yields" table.
@@ -44,7 +52,9 @@ var shelf_item_type: String = "antibiotics"
 var _charges_left: int = TOTAL_CHARGES
 var _is_empty: bool = false
 var _mesh_instance: MeshInstance3D = null
-var _material: StandardMaterial3D = null
+## Body-space visual AABB of the loaded model — the cylinder collision is
+## built from it so it roughly matches the bottle.
+var _model_aabb: AABB = AABB()
 
 func _ready() -> void:
 	super._ready()
@@ -54,19 +64,45 @@ func _ready() -> void:
 
 func _build_placeholder_mesh() -> void:
 	_mesh_instance = MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = PLACEHOLDER_RADIUS
-	sphere.height = PLACEHOLDER_RADIUS * 2.0
-	_material = StandardMaterial3D.new()
-	_material.albedo_color = FULL_COLOR
-	sphere.material = _material
-	_mesh_instance.mesh = sphere
+	var mesh: ArrayMesh = load(MODEL_PATH) as ArrayMesh
+	if mesh != null:
+		_apply_bottle_mesh(mesh)
+		_model_aabb = _mesh_instance.transform * _mesh_instance.mesh.get_aabb()
+		BuildMaterials.apply_mood_override(_mesh_instance)
+		add_child(BuildMaterials.build_model_collision("cylinder", _model_aabb))
+	else:
+		var sphere := SphereMesh.new()
+		sphere.radius = PLACEHOLDER_RADIUS
+		sphere.height = PLACEHOLDER_RADIUS * 2.0
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = FULL_COLOR
+		sphere.material = mat
+		_mesh_instance.mesh = sphere
+		var cs := CollisionShape3D.new()
+		var sp := SphereShape3D.new()
+		sp.radius = PLACEHOLDER_RADIUS
+		cs.shape = sp
+		add_child(cs)
 	add_child(_mesh_instance)
 
+## Applies the bottle model transform (scale + stand-up + base at the old
+## collision sphere's bottom so it rests flush) — reused by the empty swap.
+## Re-applies the mood override too, so the Empty model's materials match.
+func _apply_bottle_mesh(mesh: ArrayMesh) -> void:
+	_mesh_instance.mesh = mesh
+	_mesh_instance.scale = Vector3.ONE * MODEL_SCALE
+	_mesh_instance.rotation.x = -PI / 2.0   ## OBJ height runs along Z (Tinkercad) — stand upright
+	var aabb: AABB = _mesh_instance.transform * _mesh_instance.mesh.get_aabb()
+	_mesh_instance.position = Vector3(0.0, -aabb.position.y - PLACEHOLDER_RADIUS, 0.0)
+	BuildMaterials.apply_mood_override(_mesh_instance)
+
+## Empty-bottle mechanic: swap the visual to the dedicated Empty model.
 func _update_visual() -> void:
-	if _material == null:
+	if _mesh_instance == null:
 		return
-	_material.albedo_color = EMPTY_COLOR if _is_empty else FULL_COLOR
+	var mesh: ArrayMesh = load(MODEL_EMPTY_PATH if _is_empty else MODEL_PATH) as ArrayMesh
+	if mesh != null:
+		_apply_bottle_mesh(mesh)
 
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_display_name() -> String:
