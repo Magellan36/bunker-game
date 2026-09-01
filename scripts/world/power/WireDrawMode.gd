@@ -549,6 +549,10 @@ func _get_cursor_world_pos() -> Vector3:
 	var space: PhysicsDirectSpaceState3D   = camera.get_world_3d().direct_space_state
 	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
 	query.collision_mask = 0xFFFFFFFF
+	## Skip physics-only failsafes (the bunker ceiling) — the wire tool's ray
+	## comes from above in the top-down camera and would otherwise hit the
+	## ceiling's top face before any wall/floor it's meant to target.
+	query.exclude = BuildModeController.get_failsafe_exclude_rids(self)
 	var result: Dictionary = space.intersect_ray(query)
 	if result.is_empty():
 		var t: float = (1.0 - from.y) / max(abs(dir.y), 0.0001)

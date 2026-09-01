@@ -929,6 +929,11 @@ func _setup_bunker_ceiling() -> void:
 	ceiling_body.name = "BunkerCeiling"
 	ceiling_body.collision_layer = 5
 	ceiling_body.collision_mask = 0
+	## Aug 2026 — physics-ONLY failsafe group. Gameplay raycasts (build
+	## placement/hover, wire placement) exclude every member of this group, so
+	## a failsafe can never become a build target while still catching physics
+	## bodies. See BuildModeController.get_failsafe_exclude_rids().
+	ceiling_body.add_to_group("physics_failsafe")
 	## Parent to the scene root (NOT this node) so BunkerNavMesh's bake —
 	## which parses the "main_world" subtree — never rasterizes this box.
 	get_tree().root.add_child(ceiling_body)

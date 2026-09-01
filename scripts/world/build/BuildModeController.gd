@@ -3063,10 +3063,30 @@ func _raycast_to_grid() -> Dictionary:
 	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
 	query.collision_mask = 0xFFFFFFFF
 	query.hit_back_faces = false
+	query.exclude = get_failsafe_exclude_rids(self)
 	var player: Node3D = get_parent()
 	if player.has_method("get_rid"):
-		query.exclude = [player.get_rid()]
+		query.exclude.append(player.get_rid())
 	return space.intersect_ray(query)
+
+## Aug 2026 — RIDs that build-mode raycasts must never register a hit on:
+## every physics-only FAILSAFE body (currently the bunker ceiling). A failsafe
+## exists purely to catch physics bodies flying out of the world — it must
+## never be a build/placement target. In the top-down camera the placement ray
+## starts ABOVE the 500x500 ceiling box, so without this the ray hits the
+## ceiling's top face at Y=15.5 instead of the floor — and because the ray is
+## angled (isometric), that high hit point parallax-shifts the ghost toward
+## the player ("items follow the player"). Group-based so any future failsafe
+## added to "physics_failsafe" is auto-excluded by every raycast here.
+static func get_failsafe_exclude_rids(from_node: Node) -> Array[RID]:
+	var ex: Array[RID] = []
+	var tree: SceneTree = from_node.get_tree()
+	if tree == null:
+		return ex
+	for n: Node in tree.get_nodes_in_group("physics_failsafe"):
+		if n is PhysicsBody3D:
+			ex.append((n as PhysicsBody3D).get_rid())
+	return ex
 
 ## Raycast and return the first placed StaticBody3D hit (or null).
 ## Checks collision layer 4 (build-placed objects).
@@ -3085,9 +3105,10 @@ func _get_hovered_placed_body() -> Node3D:
 	query.collision_mask = 4   ## Layer 3 bit = value 4 — placed objects only
 	## hit_back_faces NOT set false — trimesh walls have outward-facing normals;
 	## their interior (room-facing) surface is a "back face" and would be missed.
+	query.exclude = get_failsafe_exclude_rids(self)
 	var player: Node3D = get_parent()
 	if player.has_method("get_rid"):
-		query.exclude = [player.get_rid()]
+		query.exclude.append(player.get_rid())
 
 	var result: Dictionary = space.intersect_ray(query)
 	if result.is_empty():
