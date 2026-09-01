@@ -971,13 +971,26 @@ func _connect_hud() -> void:
 	player_stats.day_changed.connect(func(day: int) -> void: hud.set_day(day))
 	hud.set_day(1)   # Initialise to Day 1 before first signal fires
 
+## DEBUG (Aug 2026) — freeze the player on the seated bed pose instead of
+## standing back up, so the sit animation can be inspected. The sleep session
+## still ends normally; only the stand-up is skipped. Flip to false to restore
+## the normal wake/stand flow.
+const DEBUG_FREEZE_SEATED: bool = true
+
 func _connect_bed() -> void:
 	# Wire SleepOverlay to PlayerStats
 	sleep_overlay.player_stats = player_stats
 
 	# Wire SleepOverlay.sleep_ended once (shared across all beds)
 	sleep_overlay.sleep_ended.connect(func() -> void:
-		## Aug 2026 — animated stand-up off the bed. Clearing sleeping_bed makes
+		## DEBUG (Aug 2026) — freeze on the seated pose instead of standing back
+		## up, so the bed sit animation can be inspected. sleep_ended fires the
+		## instant a near-full sleep need hits its cap, which made the player sit
+		## down and immediately stand back up. Flip to false to restore the
+		## normal wake/stand flow.
+		if DEBUG_FREEZE_SEATED:
+			return
+		## Animated stand-up off the bed. Clearing sleeping_bed makes
 		## the shared controller play sit_to_stand and ease seat→approach; keep
 		## the player frozen, then snap to the stand position + unfreeze when the
 		## clip finishes — mirrors _wire_chair's stand flow.
