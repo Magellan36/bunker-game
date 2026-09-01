@@ -238,6 +238,14 @@ func _ready() -> void:
 	_register_save_fields()
 	get_tree().process_frame.connect(_setup_build_mode, CONNECT_ONE_SHOT)
 
+func _exit_tree() -> void:
+	## The failsafe ceiling lives at the scene root (see _setup_bunker_ceiling)
+	## so the navmesh bake never parses it — that makes it OUTLIVE this scene,
+	## so free it here to avoid a stale duplicate on any scene change.
+	if _bunker_ceiling != null and is_instance_valid(_bunker_ceiling):
+		_bunker_ceiling.queue_free()
+		_bunker_ceiling = null
+
 ## ── Save/Load field registration ──────────────────────────────────────────
 ## Registers the CURRENT minimal set of persistable fields with the SaveManager
 ## autoload — player position, cash, and the game clock. Deliberately does NOT
@@ -884,7 +892,9 @@ func _setup_ambient_dust() -> void:
 ## a 500x500 plane) rather than precisely computed from bunker_depth/
 ## bunker_width/dig_margin, so it stays correct without needing to change if
 ## any of those ever do — "simple and straightforward," per spec, over a
-## tightly-fitted size that could go stale.
+## tightly-fitted size that could go stale. Size is a non-issue now that the
+## box is OUT of the navmesh bake (see _exit_tree note below): a static box
+## costs one broadphase AABB and nothing on the GPU.
 ##
 ## collision_layer = 5 / collision_mask = 0 — the exact same convention
 ## every other piece of solid level geometry in this project already uses
@@ -892,9 +902,22 @@ func _setup_ambient_dust() -> void:
 ## compatible with NPCs/player (default layer 1, mask 1) and every loose
 ## RigidBody3D already colliding with that same existing geometry, with zero
 ## new layer bookkeeping introduced.
+##
+## Aug 2026 — the ceiling is parented to the SCENE ROOT, not to this node,
+## deliberately: BunkerNavMesh._rebake() calls
+## NavigationServer3D.parse_source_geometry_data() over the "main_world"
+## subtree and rasterizes every static collider matching mask 1 into a GPU
+## voxel grid. A 500x500 box at cell_size 0.1 is ~5000x5000 voxels per
+## layer — enough to run the GPU voxelizer out of memory and hard-crash
+## (signal 11) on the rendering device (the observed startup crash). Living
+## outside the parsed subtree keeps the failsafe fully functional in physics
+## while costing literally zero in the bake. Freed in _exit_tree() so it
+## never leaks across a scene change.
 const CEILING_Y: float = 15.0
 const CEILING_HALF_EXTENT: float = 250.0
 const CEILING_THICKNESS: float = 1.0
+
+var _bunker_ceiling: StaticBody3D = null
 
 func _setup_bunker_ceiling() -> void:
 	if rock_surround == null:
@@ -906,8 +929,11 @@ func _setup_bunker_ceiling() -> void:
 	ceiling_body.name = "BunkerCeiling"
 	ceiling_body.collision_layer = 5
 	ceiling_body.collision_mask = 0
-	add_child(ceiling_body)
+	## Parent to the scene root (NOT this node) so BunkerNavMesh's bake —
+	## which parses the "main_world" subtree — never rasterizes this box.
+	get_tree().root.add_child(ceiling_body)
 	ceiling_body.position = Vector3(center_x, CEILING_Y, center_z)
+	_bunker_ceiling = ceiling_body
 
 	var shape: BoxShape3D = BoxShape3D.new()
 	shape.size = Vector3(CEILING_HALF_EXTENT * 2.0, CEILING_THICKNESS, CEILING_HALF_EXTENT * 2.0)
