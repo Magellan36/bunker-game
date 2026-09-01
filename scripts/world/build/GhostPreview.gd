@@ -77,23 +77,38 @@ func _ghost_visual_aabb() -> AABB:
 		return AABB()
 	return measure_visual_aabb(root)
 
-## Public: measures a node's combined visual AABB (excluding the preview
-## extras) — used by the move tool to cache a moved tile's footprint when it
-## hasn't been selected this session.
+## Public: measures a node's combined visual AABB in the node's LOCAL frame —
+## the root's own world transform is NOT applied. This matters for level walls
+## spawned at a world position: measuring in world space (including the root's
+## position) inflated the AABB from the world origin to the wall. Also never
+## merges into an empty AABB (an empty AABB.merge(x) includes the origin point,
+## which is the same inflation bug).
 func measure_visual_aabb(root: Node3D) -> AABB:
 	if root == null:
 		return AABB()
-	return _collect_visual_aabb(root, Transform3D.IDENTITY, AABB())
+	var aabb := AABB()
+	if root is MeshInstance3D:
+		var rmi := root as MeshInstance3D
+		if rmi.mesh != null:
+			aabb = rmi.mesh.get_aabb()
+	for child: Node in root.get_children():
+		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
+			aabb = _collect_local_visual_aabb(child as Node3D, aabb)
+	return aabb
 
-func _collect_visual_aabb(node: Node3D, t: Transform3D, aabb: AABB) -> AABB:
-	var lt: Transform3D = t * node.transform
+func _collect_local_visual_aabb(node: Node3D, aabb: AABB) -> AABB:
+	var lt: Transform3D = node.transform
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
 		if mi.mesh != null:
-			aabb = aabb.merge(lt * mi.mesh.get_aabb())
+			var ta: AABB = lt * mi.mesh.get_aabb()
+			if aabb.size == Vector3.ZERO:
+				aabb = ta
+			else:
+				aabb = aabb.merge(ta)
 	for child: Node in node.get_children():
 		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
-			aabb = _collect_visual_aabb(child as Node3D, lt, aabb)
+			aabb = _collect_local_visual_aabb(child as Node3D, aabb)
 	return aabb
 
 func _destroy_ghost() -> void:
