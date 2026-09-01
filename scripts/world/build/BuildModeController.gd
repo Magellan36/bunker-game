@@ -3354,12 +3354,16 @@ func _obb_overlap_2d(c1: Vector2, he1: Vector2, a1: float,
 		c2: Vector2, he2: Vector2, a2: float) -> bool:
 	var rad1: float = deg_to_rad(a1)
 	var rad2: float = deg_to_rad(a2)
-	## Candidate separating axes: each rectangle's local X and Z axes.
+	## Candidate separating axes: each rectangle's local X and Z axes, in the
+	## SAME convention as Godot's Y rotation (local +Z -> world (sin a, cos a),
+	## local +X -> world (cos a, -sin a)) — the previous helper used the
+	## opposite sign, mirroring angled objects and breaking detection against
+	## axis-aligned ones.
 	var axes: Array[Vector2] = [
-		Vector2(cos(rad1), sin(rad1)),
-		Vector2(-sin(rad1), cos(rad1)),
-		Vector2(cos(rad2), sin(rad2)),
-		Vector2(-sin(rad2), cos(rad2)),
+		Vector2(cos(rad1), -sin(rad1)),
+		Vector2(sin(rad1), cos(rad1)),
+		Vector2(cos(rad2), -sin(rad2)),
+		Vector2(sin(rad2), cos(rad2)),
 	]
 	for axis in axes:
 		var n: Vector2 = axis.normalized()
@@ -3371,10 +3375,10 @@ func _obb_overlap_2d(c1: Vector2, he1: Vector2, a1: float,
 	return true
 
 ## Half-width of a rectangle's projection onto axis n (given its local
-## half-extents and Y-rotation).
+## half-extents and Y-rotation, Godot convention).
 func _obb_projection(he: Vector2, rad: float, n: Vector2) -> float:
-	var ux := Vector2(cos(rad), sin(rad))
-	var uz := Vector2(-sin(rad), cos(rad))
+	var ux := Vector2(cos(rad), -sin(rad))
+	var uz := Vector2(sin(rad), cos(rad))
 	return he.x * absf(ux.dot(n)) + he.y * absf(uz.dot(n))
 
 func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D = null,
