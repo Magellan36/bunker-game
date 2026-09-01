@@ -85,6 +85,11 @@ func _build_mesh() -> void:
 	mi.rotation.x = -PI * 0.5
 	mi.scale = Vector3.ONE * MODEL_SCALE
 	add_child(mi)
+	## Same dim/desat/matte filter the produce + medical Tinkercad models use
+	## (dims albedo to 0.6, desaturates 12%, roughness 0.8, no metallic) so the
+	## toy-bright Tinkercad colors sit in the bunker's muted look. Per-instance
+	## overrides — never mutates the shared imported mesh materials.
+	BuildMaterials.apply_mood_override(mi)
 
 	var scaled_aabb: AABB = mi.transform * mesh.get_aabb()
 	var cs := CollisionShape3D.new()
