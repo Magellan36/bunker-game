@@ -21,11 +21,41 @@ const FOOD_RESTORE: float = 20.0
 
 ## Visual scale per produce type — most items 2x, large items (corn, carrot,
 ## pumpkin) 3x. Applied to the MeshInstance3D only, collision stays at the
-## original radius for gameplay consistency.
+## original radius for gameplay consistency. Only used by the procedural
+## primitive fallback path now (see PRODUCE_MODEL_SCALE for the real models).
 const PRODUCE_SCALE: Dictionary = {
 	"tomato": 2.0, "onion": 2.0, "basil": 2.0, "strawberry": 2.0,
 	"carrot": 3.0, "chili_pepper": 2.0, "bell_pepper": 2.0, "garlic": 2.0,
 	"potato": 2.0, "blueberry": 2.0, "corn": 3.0, "pumpkin": 3.0,
+}
+
+## Real model swap (Aug 2026) — per-type OBJ models (Tinkercad exports, flat
+## MTL colors carried on the imported mesh) replace the procedural primitives.
+## PRODUCE_MODEL_SCALE normalizes each model's largest dimension to the CURRENT
+## in-game visual size (measured with the old 2x/3x PRODUCE_SCALE applied), so
+## the new models read roughly the same size as the ones they replace.
+## PRODUCE_MODEL_FLAT leaves that type lying flat (basil is a 2D leaf).
+const PRODUCE_MODEL_PATHS: Dictionary = {
+	"tomato": "res://assets/models/produce/tomato/tinker.obj",
+	"onion": "res://assets/models/produce/onion/tinker.obj",
+	"basil": "res://assets/models/produce/basil/tinker.obj",
+	"strawberry": "res://assets/models/produce/strawberry/tinker.obj",
+	"carrot": "res://assets/models/produce/carrot/tinker.obj",
+	"chili_pepper": "res://assets/models/produce/chili_pepper/tinker.obj",
+	"bell_pepper": "res://assets/models/produce/bell_pepper/tinker.obj",
+	"garlic": "res://assets/models/produce/garlic/tinker.obj",
+	"potato": "res://assets/models/produce/potato/tinker.obj",
+	"blueberry": "res://assets/models/produce/blueberry/tinker.obj",
+	"corn": "res://assets/models/produce/corn/tinker.obj",
+	"pumpkin": "res://assets/models/produce/pumpkin/tinker.obj",
+}
+const PRODUCE_MODEL_SCALE: Dictionary = {
+	"tomato": 0.0170, "onion": 0.0115, "basil": 0.0096, "strawberry": 0.0192,
+	"carrot": 0.0439, "chili_pepper": 0.0199, "bell_pepper": 0.0143, "garlic": 0.0097,
+	"potato": 0.0082, "blueberry": 0.0108, "corn": 0.0127, "pumpkin": 0.0257,
+}
+const PRODUCE_MODEL_FLAT: Dictionary = {
+	"basil": true,
 }
 
 var shelf_stack_limit: int  = 6
@@ -35,6 +65,11 @@ var shelf_item_type: String = "farm_produce"   ## Shared slot for both types —
 
 var _player_stats: Node     = null
 var _mesh: MeshInstance3D = null
+## True when the visual came from the per-type OBJ model — those models have
+## their base centered at local y=0 (see _build_mesh_from_model), so the
+## collision must sit at HALF its height (bottom at y=0) to rest flush on the
+## floor. Procedural meshes carry their own visual offset in _mesh.position.
+var _used_model: bool = false
 
 func _ready() -> void:
 	super._ready()
@@ -110,10 +145,61 @@ func consume_as_food() -> float:
 	queue_free()
 	return FOOD_RESTORE
 
-## Unique mesh per produce type — replaces the generic sphere with shapes
-## that read as their real-life fruits/vegetables at a glance.
+## Dispatcher — per-type OBJ model when present, otherwise the procedural
+## primitive fallback. The collision shape (small sphere / cylinder) stays on
+## the RigidBody3D either way.
 func _build_placeholder_mesh() -> void:
 	_mesh = MeshInstance3D.new()
+	var model_path: String = PRODUCE_MODEL_PATHS.get(produce_type, "")
+	if model_path != "" and ResourceLoader.exists(model_path):
+		_build_mesh_from_model(model_path)
+	else:
+		_build_mesh_from_primitives()
+	add_child(_mesh)
+
+	## Real collision shape on the RigidBody3D itself — see SeedItem.gd's
+	## _build_placeholder_mesh() comment for why create_trimesh_collision()
+	## was wrong here (no collider on this body at all -> infinite fall,
+	## undetectable by the interaction system).
+	var shape: CollisionShape3D = CollisionShape3D.new()
+	if produce_type == "corn" or produce_type == "carrot":
+		## Cylindrical collision for corn/carrot so they don't roll like balls
+		var cyl_shape: CylinderShape3D = CylinderShape3D.new()
+		cyl_shape.radius = 0.018
+		cyl_shape.height = 0.11
+		shape.shape = cyl_shape
+	else:
+		var sphere_shape: SphereShape3D = SphereShape3D.new()
+		sphere_shape.radius = 0.055
+		shape.shape = sphere_shape
+	if _used_model:
+		shape.position = Vector3(0.0, 0.055, 0.0)   ## model base is at local y=0 — collision bottom flush
+	else:
+		shape.position = _mesh.position
+	add_child(shape)
+
+## Loads the per-type OBJ model and scales its largest dimension to the current
+## in-game visual size (PRODUCE_MODEL_SCALE — measured with the old 2x/3x scale
+## applied). Stands it upright (the OBJ's height runs along Z, Tinkercad
+## exports lie flat) and lifts the base to y=0. FLAT types (basil) stay lying.
+func _build_mesh_from_model(model_path: String) -> void:
+	var mesh: ArrayMesh = load(model_path) as ArrayMesh
+	if mesh == null:
+		push_warning("FarmProduceItem: failed to load %s — falling back to primitives" % model_path)
+		_build_mesh_from_primitives()
+		return
+	_used_model = true
+	_mesh.mesh = mesh
+	_mesh.scale = Vector3.ONE * PRODUCE_MODEL_SCALE.get(produce_type, 0.01)
+	if not PRODUCE_MODEL_FLAT.get(produce_type, false):
+		_mesh.rotation.x = -PI / 2.0
+	var aabb: AABB = _mesh.transform * _mesh.mesh.get_aabb()
+	_mesh.position = Vector3(0.0, -aabb.position.y, 0.0)
+
+## Procedural primitive fallback (the original placeholder build) — used when
+## a produce type has no real model file.
+func _build_mesh_from_primitives() -> void:
+	_used_model = false
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = PlantDatabase.get_produce_color(produce_type)
 	mat.metallic     = PlantDatabase.get_produce_metallic(produce_type)
@@ -150,26 +236,6 @@ func _build_placeholder_mesh() -> void:
 	## Apply visual scale (2x default, 3x for corn/carrot/pumpkin)
 	var scale_factor: float = PRODUCE_SCALE.get(produce_type, 2.0)
 	_mesh.scale = Vector3.ONE * scale_factor
-
-	add_child(_mesh)
-
-	## Real collision shape on the RigidBody3D itself — see SeedItem.gd's
-	## _build_placeholder_mesh() comment for why create_trimesh_collision()
-	## was wrong here (no collider on this body at all -> infinite fall,
-	## undetectable by the interaction system).
-	var shape: CollisionShape3D = CollisionShape3D.new()
-	if produce_type == "corn" or produce_type == "carrot":
-		## Cylindrical collision for corn/carrot so they don't roll like balls
-		var cyl_shape: CylinderShape3D = CylinderShape3D.new()
-		cyl_shape.radius = 0.018
-		cyl_shape.height = 0.11
-		shape.shape = cyl_shape
-	else:
-		var sphere_shape: SphereShape3D = SphereShape3D.new()
-		sphere_shape.radius = 0.055
-		shape.shape = sphere_shape
-	shape.position = _mesh.position
-	add_child(shape)
 
 ## Tomato — round sphere with small green stem cylinder on top
 func _build_tomato(mat: StandardMaterial3D) -> void:
