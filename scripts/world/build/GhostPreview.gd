@@ -61,6 +61,40 @@ func _spawn_ghost() -> void:
 	## This exact bug shipped once already — do not reorder these lines.
 	parent.add_child(_owner._ghost)
 	_rebuild_ghost_mesh()
+	## Measure the ghost's real visual AABB and cache it as the tile's
+	## placement footprint (Aug 2026, Option A) — the ghost's own mesh +
+	## real-model children ARE the visual model, so this footprint always
+	## matches what the player sees (and follows model swaps). The arrow /
+	## grow-light decal are excluded so they don't inflate the footprint.
+	_owner._cache_model_footprint(_owner._selected_tile, _ghost_visual_aabb())
+
+## Combined AABB of the ghost's mesh + model children in ghost-local space,
+## EXCLUDING the facing arrow and grow-light footprint decal (preview extras
+## would inflate the measured placement footprint).
+func _ghost_visual_aabb() -> AABB:
+	var root: MeshInstance3D = _owner._ghost
+	if root == null:
+		return AABB()
+	return measure_visual_aabb(root)
+
+## Public: measures a node's combined visual AABB (excluding the preview
+## extras) — used by the move tool to cache a moved tile's footprint when it
+## hasn't been selected this session.
+func measure_visual_aabb(root: Node3D) -> AABB:
+	if root == null:
+		return AABB()
+	return _collect_visual_aabb(root, Transform3D.IDENTITY, AABB())
+
+func _collect_visual_aabb(node: Node3D, t: Transform3D, aabb: AABB) -> AABB:
+	var lt: Transform3D = t * node.transform
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			aabb = aabb.merge(lt * mi.mesh.get_aabb())
+	for child: Node in node.get_children():
+		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
+			aabb = _collect_visual_aabb(child as Node3D, lt, aabb)
+	return aabb
 
 func _destroy_ghost() -> void:
 	if _owner._ghost != null:
@@ -738,7 +772,8 @@ func _update_ghost() -> void:
 
 	# Outside-bunker check — mirrors the gate in _try_construct() so the ghost
 	# turns red immediately instead of staying green until the player clicks.
-	if _owner._ghost_valid and not _owner._is_inside_bunker(snap_pos):
+	if _owner._ghost_valid and not _owner._is_inside_bunker(snap_pos,
+			_owner._tile_half_extents_rotated(_owner._selected_tile, _owner._current_angle_deg)):
 		_owner._ghost_valid = false
 
 	_owner._ghost_world_pos       = snap_pos

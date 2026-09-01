@@ -1330,7 +1330,7 @@ func _try_construct() -> void:
 		return
 
 	# Bounds check — reject placement outside the bunker/dig area
-	if not _is_inside_bunker(_ghost_world_pos, _tile_half_extents(_selected_tile)):
+	if not _is_inside_bunker(_ghost_world_pos, _tile_half_extents_rotated(_selected_tile, _current_angle_deg)):
 		_show_hud_warning("Cannot place outside the bunker")
 		return
 
@@ -3215,7 +3215,7 @@ func _price_for_tile(tile_id: int) -> int:
 # ─── Overlap detection ────────────────────────────────────────────────────────
 ## Tile-aware wrapper: lights use a tighter overlap radius so they can sit
 ## close together along a wall without blocking each other.
-func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
+func _is_position_occupied_for_tile(pos: Vector3, tile_id: int, exclude_node: Node3D = null) -> bool:
 	if tile_id == TILE_WATER_PURIFIER:
 		## Deliberately attaches ON TOP OF an existing pipe's collider — a
 		## generic physics-shape occupation query would always false-positive
@@ -3233,116 +3233,15 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int) -> bool:
 			if abs(p.x - pos.x) < LIGHT_OVERLAP_RADIUS and abs(p.z - pos.z) < LIGHT_OVERLAP_RADIUS:
 				return true
 		return false
-	if tile_id == TILE_SHELVING or tile_id == TILE_SMALL_SHELF or tile_id == TILE_LARGE_SHELF:
-		# Shelf family (Small/Medium/Large) are StaticBody3D on layer 1 — the
-		# physics shape query would hit the shelf's own collider, giving a
-		# false "occupied" positive. Registry check + GridMap check (done
-		# before this call) are sufficient. All three variants count each
-		# other (and Medium) as occupying — not just same-tile matches.
-		var threshold: float = grid_size * 0.9
-		for entry: Dictionary in _placed_objects:
-			var et: int = entry.get("tile_id", -1)
-			if et != TILE_SHELVING and et != TILE_SMALL_SHELF and et != TILE_LARGE_SHELF:
-				continue
-			var p: Vector3 = entry["world_pos"]
-			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
-				return true
-		return false
-	if tile_id == TILE_BED:
-		# Beds are StaticBody3D — same false-positive issue as shelving.
-		# Skip physics shape query; registry + GridMap checks are sufficient.
-		var threshold: float = grid_size * 0.9
-		for entry: Dictionary in _placed_objects:
-			if entry.get("tile_id", -1) != TILE_BED:
-				continue
-			var p: Vector3 = entry["world_pos"]
-			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
-				return true
-		return false
-	if tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
-		# Trays sit on the floor (Y=0), same as Beds/Shelving/Generators above —
-		# the physics shape query hits the floor collider, causing a false
-		# "space occupied" positive. Registry-only overlap check instead.
-		var threshold: float = grid_size * 0.9
-		for entry: Dictionary in _placed_objects:
-			var et: int = entry.get("tile_id", -1)
-			if et != TILE_TRAY_SINGLE and et != TILE_TRAY_DOUBLE:
-				continue
-			var p: Vector3 = entry["world_pos"]
-			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
-				return true
-		return false
-	if tile_id == TILE_TABLE_SMALL or tile_id == TILE_TABLE_MEDIUM or tile_id == TILE_CHAIR or tile_id == TILE_STOVE or tile_id == TILE_END_TABLE or tile_id == TILE_DRESSER or tile_id == TILE_TRASH_CAN or tile_id == TILE_BUILD_STATION or tile_id == TILE_RESEARCH_STATION:
-		# Tables, chairs, and the Stove sit on the floor (Y=0.5), same as
-		# Beds/Shelving/Generators/Trays above — the physics shape query hits
-		# the floor collider, causing a false "space occupied" positive.
-		# Registry-only overlap check instead.
-		var threshold: float = grid_size * 0.9
-		for entry: Dictionary in _placed_objects:
-			var et: int = entry.get("tile_id", -1)
-			if et != TILE_TABLE_SMALL and et != TILE_TABLE_MEDIUM and et != TILE_CHAIR and et != TILE_STOVE and et != TILE_END_TABLE and et != TILE_DRESSER and et != TILE_TRASH_CAN and et != TILE_BUILD_STATION and et != TILE_RESEARCH_STATION:
-				continue
-			var p: Vector3 = entry["world_pos"]
-			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
-				return true
-		return false
-	if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
-		# Generators sit on the floor (Y=0). The physics shape query hits the
-		# floor collider and the generator's own StaticBody3D, causing false
-		# "space occupied" positives. Use registry-only overlap check instead.
-		var threshold: float = grid_size * 0.9
-		for entry: Dictionary in _placed_objects:
-			var et: int = entry.get("tile_id", -1)
-			if et != TILE_GEN_S and et != TILE_GEN_M and et != TILE_GEN_L:
-				continue
-			var p: Vector3 = entry["world_pos"]
-			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
-				return true
-		# Still block placement inside GridMap walls/pillars
-		if gridmap != null:
-			var cell_x: int = roundi(pos.x)
-			var cell_z: int = roundi(pos.z)
-			for cy: int in [0, 1]:
-				var cell_item: int = gridmap.get_cell_item(Vector3i(cell_x, cy, cell_z))
-				if BunkerStructure.is_wall_or_pillar(cell_item):
-					return true
-		return false
-	if tile_id == TILE_WATER_SINK or tile_id == TILE_WATER_DISPENSER:
-		# Same floor-collider false-positive as Beds/Shelving/Trays/Generators
-		# above — these two sit on the floor (Y=0, see WATER_SINK_PLACEMENT_Y/
-		# WATER_DISPENSER_PLACEMENT_Y). Registry-only overlap check instead.
-		var threshold: float = grid_size * 0.9
-		for entry: Dictionary in _placed_objects:
-			var et: int = entry.get("tile_id", -1)
-			if et != tile_id:
-				continue
-			var p: Vector3 = entry["world_pos"]
-			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
-				return true
-		return false
-	if tile_id == TILE_BATTERY_S or tile_id == TILE_BATTERY_M or tile_id == TILE_BATTERY_L:
-		# Same floor-collider false-positive as above — battery banks sit on
-		# the floor (Y=0, see BATTERY_PLACEMENT_Y). Registry-only overlap
-		# check instead.
-		var threshold: float = grid_size * 0.9
-		for entry: Dictionary in _placed_objects:
-			var et: int = entry.get("tile_id", -1)
-			if et != TILE_BATTERY_S and et != TILE_BATTERY_M and et != TILE_BATTERY_L:
-				continue
-			var p: Vector3 = entry["world_pos"]
-			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
-				return true
-		return false
-	if tile_id == TILE_HEAVY:
-		var threshold: float = grid_size * 0.9
-		for entry: Dictionary in _placed_objects:
-			if entry.get("tile_id", -1) != TILE_HEAVY:
-				continue
-			var p: Vector3 = entry["world_pos"]
-			if abs(p.x - pos.x) < threshold and abs(p.z - pos.z) < threshold:
-				return true
-		return false
-	return _is_position_occupied(pos, tile_id)
+	## Aug 2026 (Option A) — every other tile uses ONE model-based occupancy
+	## path (_is_position_occupied): each placed object's MEASURED model
+	## footprint (rotated to its own angle) is checked for AABB overlap against
+	## the new object's footprint (rotated to the ghost's angle). Registry-only,
+	## so the GridMap floor and pregen structures never false-positive, and it
+	## blocks ANY other object, not just same-tile matches. This replaced the
+	## old per-tile registry-only shortcuts (same-type, fixed 0.225 radius) that
+	## were hand-tuned and inconsistent.
+	return _is_position_occupied(pos, tile_id, exclude_node)
 
 
 ## Forwarded to WallSnapHelpers.gd (Stage 10 slice) — called from
@@ -3369,10 +3268,41 @@ func _snap_to_nearest_wall(base_pos: Vector3, cast_y_offset: float,
 
 
 
-## Returns per-tile physics half-extents (XZ) for the overlap check.
-## Tile footprints match their actual visual size so large objects (beds,
-## generators) don't clip walls through an undersized collision box.
-static func _tile_half_extents(tile_id: int) -> Vector2:
+## Model-derived placement footprints (Aug 2026, Option A). Each tile's XZ
+## half-extents are MEASURED from its real model's AABB — captured when its
+## placement ghost is built (GhostPreview._spawn_ghost → _cache_model_footprint)
+## — so overlap sensitivity always matches the visual model and follows model
+## swaps automatically. The old hand-tuned match table survives as
+## _tile_half_extents_fallback, used only before a tile has been selected once
+## this session.
+var _model_footprints: Dictionary = {}   ## tile_id(int) -> Vector2 (XZ half-extents)
+
+func _cache_model_footprint(tile_id: int, aabb: AABB) -> void:
+	if tile_id < 0 or aabb == AABB() or aabb.size.x <= 0.0 or aabb.size.z <= 0.0:
+		return
+	_model_footprints[tile_id] = Vector2(aabb.size.x * 0.5, aabb.size.z * 0.5)
+
+## The tile's XZ half-extents in MODEL space (unrotated). Measured model
+## footprint when available, else the hand-tuned fallback.
+func _tile_half_extents(tile_id: int) -> Vector2:
+	if _model_footprints.has(tile_id):
+		return _model_footprints[tile_id]
+	return _tile_half_extents_fallback(tile_id)
+
+## The tile's XZ half-extents AFTER rotating the model by angle_deg around Y —
+## the axis-aligned box that contains the rotated model. Used for occupancy
+## and bunker-bounds checks so a rotated object keeps accurate clearance.
+func _tile_half_extents_rotated(tile_id: int, angle_deg: float) -> Vector2:
+	var he: Vector2 = _tile_half_extents(tile_id)
+	var rad: float = deg_to_rad(angle_deg)
+	return Vector2(
+		absf(he.x * cos(rad)) + absf(he.y * sin(rad)),
+		absf(he.x * sin(rad)) + absf(he.y * cos(rad)),
+	)
+
+## Hand-tuned per-tile physics half-extents (XZ) — FALLBACK only. Superseded
+## by the measured _model_footprints cache (see _tile_half_extents).
+static func _tile_half_extents_fallback(tile_id: int) -> Vector2:
 	match tile_id:
 		TILE_WALL:     return Vector2(0.44, 0.44)  ## 1×1 cell — tightened from 0.48 to allow flush placement against pregen walls
 		TILE_PILLAR:   return Vector2(0.24, 0.24)  ## 0.5×0.5
@@ -3402,88 +3332,30 @@ static func _tile_half_extents(tile_id: int) -> Vector2:
 		_:             return Vector2(0.40, 0.40)  ## generic fallback
 
 
-func _is_position_occupied(pos: Vector3, tile_id: int = -1) -> bool:
-	## Only player-placed objects block new placement.
-	## Pregen/autofill structures (player_placed=false) are skipped here —
-	## they're level geometry and the physics query below (which walks parent
-	## ancestry for _is_pregen) is the correct gate. Blocking them via the
-	## registry produced false positives when snapping flush to a pregen wall.
-	const PLAYER_THRESHOLD_FACTOR:  float = 1.5   ## 0.375 m
-
+func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D = null) -> bool:
+	## Option A (Aug 2026) — model-footprint AABB overlap against every
+	## player-placed object. Each object's XZ half-extents are MEASURED from
+	## its real model (see _model_footprints) and rotated to ITS current angle;
+	## the new object uses its footprint rotated to the ghost's current angle —
+	## so clearance is always accurate, including for rotated objects. The
+	## registry only contains player-placed objects, so the GridMap floor and
+	## pregen structures never false-positive, and it blocks ANY other object,
+	## not just same-tile matches. The 2% shrink lets objects sit exactly
+	## edge-to-edge (touching) without being flagged.
+	var new_he: Vector2 = _tile_half_extents_rotated(tile_id, _current_angle_deg) if tile_id >= 0 \
+			else Vector2(0.40, 0.40)
 	for entry: Dictionary in _placed_objects:
-		## Skip pregen/autofill — only player-placed objects count here.
 		if not entry.get("player_placed", true):
 			continue
-		var t: float = grid_size * PLAYER_THRESHOLD_FACTOR
-		var p: Vector3 = entry["world_pos"]
-		if abs(p.x - pos.x) < t and abs(p.z - pos.z) < t:
-			return true
-
-	## GridMap cell check: only block placement when hitting a WALL or PILLAR tile.
-	## GridMap occupancy check: only block for WALL/PILLAR tiles at wall height.
-	## IMPORTANT: pregen walls live exactly ON the half-unit boundary (e.g. x=-12.5).
-	## roundi(-12.5) → -12 or -13 (rounds to even) which may or may not land on the
-	## wall cell.  More critically, a player placing against a pregen wall will have
-	## their snap position within 0.5 of the wall face — we must NOT block that.
-	## Rule: only reject if the rounded cell centre is within 0.3 m of pos XZ,
-	## meaning pos is genuinely inside the wall cell rather than just adjacent.
-	if gridmap != null:
-		var cell_x: int   = roundi(pos.x)
-		var cell_z: int   = roundi(pos.z)
-		var cell_cx: float = float(cell_x)   ## GridMap cell centre X
-		var cell_cz: float = float(cell_z)   ## GridMap cell centre Z
-		## Only reject if we're well inside the cell (not just touching its face).
-		## Threshold 0.55 m = original 0.30 + 0.25 stricter margin so player walls
-		## cannot be placed as flush/overlapping with pregen bunker walls.
-		if absf(pos.x - cell_cx) < 0.55 and absf(pos.z - cell_cz) < 0.55:
-			for cy: int in [0, 1]:
-				var cell_item: int = gridmap.get_cell_item(Vector3i(cell_x, cy, cell_z))
-				if BunkerStructure.is_wall_or_pillar(cell_item):
-					return true
-
-	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	if space_state != null:
-		## Use tile-specific footprint so large objects don't clip walls/each-other.
-		var he: Vector2 = _tile_half_extents(tile_id) if tile_id >= 0 \
+		if exclude_node != null and entry["node"] == exclude_node:
+			continue   ## moving an object — don't block on its own footprint
+		var et: int = entry.get("tile_id", -1)
+		var old_he: Vector2 = _tile_half_extents_rotated(et, float(entry.get("angle_deg", 0.0))) if et >= 0 \
 				else Vector2(0.40, 0.40)
-		var box := BoxShape3D.new()
-		## Height 0.9 m — tall enough to catch placed objects but starting at Y+0.15
-		## above the floor surface so we don't hit the floor collider itself.
-		box.size = Vector3(he.x * 2.0, 0.90, he.y * 2.0)
-
-		## Raise the query centre above floor level so floor colliders are excluded.
-		var query_pos: Vector3 = Vector3(pos.x, pos.y + 0.20, pos.z)
-
-		var query := PhysicsShapeQueryParameters3D.new()
-		query.shape          = box
-		query.transform      = Transform3D(Basis.IDENTITY, query_pos)
-		query.collision_mask = 1
-		var player: Node3D = get_parent()
-		if player is CollisionObject3D:
-			query.exclude = [player.get_rid()]
-
-		var hits: Array[Dictionary] = space_state.intersect_shape(query, 8)
-		for hit: Dictionary in hits:
-			## Skip pregen/autofill StaticBody3D nodes — they are level structure
-			## and the player is allowed to snap right up against them.
-			## IMPORTANT: create_trimesh_collision() spawns a CHILD StaticBody3D
-			## that doesn't inherit the parent's "_is_pregen" meta. Walk up the
-			## ancestor chain to check any parent for the meta flag.
-			var body: Object = hit.get("collider", null)
-			## If collider is null (shouldn't happen but guard anyway), skip it.
-			if body == null:
-				continue
-			var node: Node = body as Node
-			var is_pregen: bool = false
-			while node != null:
-				if node.has_meta("_is_pregen"):
-					is_pregen = true
-					break
-				node = node.get_parent()
-			## Only block placement when the hit collider is a player-placed object.
-			if not is_pregen:
-				return true
-
+		var p: Vector3 = entry["world_pos"]
+		if absf(p.x - pos.x) < (new_he.x + old_he.x) * 0.98 \
+				and absf(p.z - pos.z) < (new_he.y + old_he.y) * 0.98:
+			return true
 	return false
 
 # ─── Ghost materials ──────────────────────────────────────────────────────────

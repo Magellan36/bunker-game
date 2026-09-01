@@ -141,6 +141,10 @@ func _spawn_move_ghost(tile_id: int) -> void:
 	## children's _ready() fires.
 	parent.add_child(_owner._move_ghost)
 	_owner._ghost_preview.build_ghost_onto(_owner._move_ghost, tile_id)
+	## Cache the moved tile's model footprint too — it may not have been
+	## selected this session (e.g. a tile loaded from a save), so the move
+	## occupancy needs the measured footprint, not the hand-tuned fallback.
+	_owner._cache_model_footprint(tile_id, _owner._ghost_preview.measure_visual_aabb(_owner._move_ghost))
 	_owner._move_ghost.visible = false
 
 func _update_move_ghost() -> void:
@@ -242,7 +246,7 @@ func _move_confirm() -> void:
 	if _owner._move_source_body is CollisionObject3D:
 		(_owner._move_source_body as CollisionObject3D).collision_layer = 0
 
-	var occupied: bool = _owner._is_position_occupied_for_tile(new_pos, tile_id)
+	var occupied: bool = _owner._is_position_occupied_for_tile(new_pos, tile_id, _owner._move_source_body)
 
 	## Restore full layer (1=player collide, 4=build hover raycast) — NOT just 4
 	if _owner._move_source_body is CollisionObject3D:
