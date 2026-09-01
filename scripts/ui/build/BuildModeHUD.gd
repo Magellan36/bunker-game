@@ -19,6 +19,9 @@ signal cancel_requested()                     ## Red X or RMB — cancel active 
 signal undo_requested()                       ## Undo button clicked — instant action
 signal dig_confirmed()                        ## Player confirmed a rock dig
 signal dig_cancelled()                        ## Player declined a rock dig
+## Aug 2026 — D-pad up/down (build submenu closed) requests a grid-size step.
+## +1 = coarser, -1 = finer. BuildModeController owns the actual cycling.
+signal grid_size_step_requested(amount: int)
 
 # ─── Tool IDs ─────────────────────────────────────────────────────────────────
 const TOOL_CONSTRUCT:   int = 0
@@ -435,6 +438,13 @@ var _dig_confirm_dialog: CanvasLayer = null
 ## placement) is suppressed in the A branch below.
 var _exit_available: bool = false
 
+## Grid-size indicator (Aug 2026) — small TextureRect top-right, beneath the
+## main HUD's cash panel, showing the current placement grid size icon.
+## Sized no taller than the cash HUD element (44px → use 36px).
+const GRID_ICON_DIR: String = "res://assets/ui/build/grid_size/"
+const GRID_ICON_SIZE: int = 36
+var _grid_size_icon: TextureRect = null
+
 # ─── Ready ────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	layer   = 10
@@ -488,6 +498,19 @@ func _ready() -> void:
 	_cursor.z_index = 100
 	add_child(_cursor)
 
+	# Grid-size indicator — top-right, directly beneath the main HUD's cash
+	# panel (cash occupies y 12-56; this sits at y 60). 36px, well under the
+	# cash element's 44px height so the big source icons never overtake the
+	# screen.
+	_grid_size_icon = TextureRect.new()
+	_grid_size_icon.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_grid_size_icon.offset_left  = -(GRID_ICON_SIZE + 12.0)
+	_grid_size_icon.offset_top   = 60.0
+	_grid_size_icon.offset_right = -12.0
+	_grid_size_icon.offset_bottom = 60.0 + GRID_ICON_SIZE
+	_grid_size_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_grid_size_icon)
+
 # ─── Process ──────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
 	if not visible:
@@ -524,6 +547,20 @@ func hide_hud() -> void:
 func set_active_tool(tool_id: int) -> void:
 	active_tool = tool_id
 	_canvas.queue_redraw()
+
+## Called by BuildModeController when the placement grid size changes (and on
+## build-mode entry) — shows the matching grid-size icon top-right.
+func set_grid_size(grid_size: float) -> void:
+	if _grid_size_icon == null:
+		return
+	var file: String = "grid_0125.png"
+	if absf(grid_size - 0.25) < 0.001:
+		file = "grid_025.png"
+	elif absf(grid_size - 0.5) < 0.001:
+		file = "grid_05.png"
+	var tex: Texture2D = load(GRID_ICON_DIR + file) as Texture2D
+	if tex != null:
+		_grid_size_icon.texture = tex
 
 ## Called by BuildModeController when a ghost is active — show cancel X
 func set_ghost_active(active: bool) -> void:
@@ -695,12 +732,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _submenu_open:
 				_submenu_cursor = maxi(_submenu_cursor - 1, 0)
 				_canvas.queue_redraw()
+			else:
+				## Aug 2026 — D-pad up/down with the submenu closed cycles the
+				## placement grid coarser/finer (mirrors the mouse wheel).
+				grid_size_step_requested.emit(1)
 			get_viewport().set_input_as_handled()
 			return
 		elif event.button_index == JOY_BUTTON_DPAD_DOWN:
 			if _submenu_open:
 				_submenu_cursor = mini(_submenu_cursor + 1, _submenu_current_rows() - 1)
 				_canvas.queue_redraw()
+			else:
+				grid_size_step_requested.emit(-1)
 			get_viewport().set_input_as_handled()
 			return
 		elif event.button_index == JOY_BUTTON_A:

@@ -16,7 +16,17 @@ class_name BuildModeController
 # ─── Exports ──────────────────────────────────────────────────────────────────
 @export var build_reach: float = 4.5   ## Max placement/removal distance
 @export var ray_length:  float = 50.0  ## How far the placement raycast travels
-@export var grid_size:   float = 0.25  ## Snap grid cell size (quarter-unit grid)
+@export var grid_size:   float = 0.25  ## Snap grid cell size — LIVE value the player can cycle (see GRID_SIZE_OPTIONS)
+
+## Player-adjustable placement grid (Aug 2026) — mouse wheel / D-pad up-down
+## cycle between GRID_SIZE_OPTIONS. Default 0.25; persists across sessions in
+## user://build_grid.cfg. No wrap — clamps at the coarse/fine ends. The wheel
+## rotates the ghost while an item is being placed and only cycles the grid
+## when no ghost is active (D-pad up/down always cycles while the build
+## submenu is closed).
+const GRID_SIZE_OPTIONS: Array = [0.125, 0.25, 0.5]
+const GRID_SIZE_CFG: String = "user://build_grid.cfg"
+var _grid_size_index: int = 1   ## default 0.25
 
 ## Radial deadzone for the controller build cursor (0..1 of the raw right
 ## stick). Below this the cursor is idle; above it the stick is re-normalized
@@ -404,6 +414,7 @@ func _ready() -> void:
 	_setup_wire_draw_mode()
 	_setup_water_pipe_draw_mode()
 	_setup_wall_draw_mode()
+	_load_grid_size()
 
 	## Repaint world wire tubes the instant a player recolors a zone via its
 	## Power Terminal (PowerManager.set_zone_color_override()) — without this,
@@ -431,6 +442,9 @@ func enter_build_mode() -> void:
 		## and ensures any tool's init logic fires on every build-mode entry.
 		_on_tool_selected(_active_tool)
 		_connect_hud_signals()
+		## Show the current (persisted) grid size on the HUD indicator.
+		if build_hud.has_method("set_grid_size"):
+			build_hud.set_grid_size(grid_size)
 
 	# Show all wire segments while in build mode
 	get_tree().call_group("wire_segment", "set_visible", true)
@@ -511,6 +525,8 @@ func _connect_hud_signals() -> void:
 		build_hud.dig_confirmed.connect(_on_dig_confirmed)
 	if not build_hud.dig_cancelled.is_connected(_on_dig_cancelled):
 		build_hud.dig_cancelled.connect(_on_dig_cancelled)
+	if not build_hud.grid_size_step_requested.is_connected(_on_grid_size_step_requested):
+		build_hud.grid_size_step_requested.connect(_on_grid_size_step_requested)
 
 func _disconnect_hud_signals() -> void:
 	if build_hud == null:
@@ -529,6 +545,8 @@ func _disconnect_hud_signals() -> void:
 		build_hud.dig_confirmed.disconnect(_on_dig_confirmed)
 	if build_hud.dig_cancelled.is_connected(_on_dig_cancelled):
 		build_hud.dig_cancelled.disconnect(_on_dig_cancelled)
+	if build_hud.grid_size_step_requested.is_connected(_on_grid_size_step_requested):
+		build_hud.grid_size_step_requested.disconnect(_on_grid_size_step_requested)
 
 # ─── HUD signal handlers ──────────────────────────────────────────────────────
 func _on_tool_selected(tool_id: int) -> void:
@@ -1088,13 +1106,20 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 
 			MOUSE_BUTTON_WHEEL_UP:
+				## Aug 2026 — wheel rotates the ghost while an item is being
+				## placed; with no ghost it cycles the grid size coarser.
 				if _ghost_active:
 					_rotate_cw()
-					get_viewport().set_input_as_handled()
+				else:
+					_cycle_grid_size(true)
+				get_viewport().set_input_as_handled()
 			MOUSE_BUTTON_WHEEL_DOWN:
+				## Aug 2026 — same rule: rotate while placing, else grid finer.
 				if _ghost_active:
 					_rotate_ccw()
-					get_viewport().set_input_as_handled()
+				else:
+					_cycle_grid_size(false)
+				get_viewport().set_input_as_handled()
 
 # ─── Ghost management ─────────────────────────────────────────────────────────
 # ─── Forwarded to GhostPreview.gd (Stage 10 slice) ────────────────────────────
@@ -3112,6 +3137,38 @@ func _snap_to_grid(world_pos: Vector3) -> Vector3:
 		world_pos.y,
 		roundf(world_pos.z / grid_size) * grid_size
 	)
+
+# ─── Player-adjustable grid size (Aug 2026) ───────────────────────────────────
+## Loads the saved grid size index from user://build_grid.cfg and applies it.
+## Runs in _ready so the persisted size is live from the first build session.
+func _load_grid_size() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(GRID_SIZE_CFG) == OK:
+		var idx: int = int(cfg.get_value("build", "grid_size_index", 1))
+		if idx >= 0 and idx < GRID_SIZE_OPTIONS.size():
+			_grid_size_index = idx
+	grid_size = GRID_SIZE_OPTIONS[_grid_size_index]
+
+func _save_grid_size() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("build", "grid_size_index", _grid_size_index)
+	cfg.save(GRID_SIZE_CFG)
+
+## Steps the grid size one notch. coarser=true: 0.125 → 0.25 → 0.5 (clamped at
+## 0.5, no wrap). coarser=false: the reverse, clamped at 0.125.
+func _cycle_grid_size(coarser: bool) -> void:
+	var idx: int = _grid_size_index + (1 if coarser else -1)
+	if idx < 0 or idx >= GRID_SIZE_OPTIONS.size():
+		return
+	_grid_size_index = idx
+	grid_size = GRID_SIZE_OPTIONS[_grid_size_index]
+	_save_grid_size()
+	if build_hud != null and build_hud.has_method("set_grid_size"):
+		build_hud.set_grid_size(grid_size)
+
+## HUD → controller: D-pad up/down in build mode (submenu closed).
+func _on_grid_size_step_requested(amount: int) -> void:
+	_cycle_grid_size(amount > 0)
 
 # ─── Float label helper ───────────────────────────────────────────────────────
 func _spawn_float_label_at_pos(world_pos: Vector3, amount: int, positive: bool) -> void:
