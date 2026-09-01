@@ -255,6 +255,13 @@ func _update_move_ghost() -> void:
 		return
 
 	var snap_pos: Vector3 = _owner._snap_to_grid(result["position"])
+	## Preserve the object's existing Y height when moving (Aug 2026). The old
+	## per-tile PLACEMENT_Y fallback (2.0, the wall height) was lifting every
+	## floor object (tables, chairs, trays, stove, storage, ...) off the floor
+	## when moved. Every non-wall-snapped tile keeps its source Y; only the
+	## three wall-snapped tile types below override it (they need their mount
+	## height as the wall-snap raycast input).
+	snap_pos.y = _owner._move_source_pos.y
 	var mv_tile: int = _owner._move_source_entry.get("tile_id", _owner.TILE_WALL)
 	## Ghost rotation defaults to whatever the object's current angle is —
 	## overridden below only for the wall-snapped tile types, whose snap
@@ -262,10 +269,7 @@ func _update_move_ghost() -> void:
 	## angle) than they started with.
 	var ghost_angle_deg: float = _owner._move_source_entry.get("angle_deg", 0.0)
 
-	if mv_tile == _owner.TILE_SHELVING or mv_tile == _owner.TILE_SMALL_SHELF or \
-			mv_tile == _owner.TILE_LARGE_SHELF or mv_tile == _owner.TILE_BED:
-		snap_pos.y = _owner.SHELF_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_LIGHT:
+	if mv_tile == _owner.TILE_LIGHT:
 		snap_pos.y = _owner.LIGHT_PLACEMENT_Y
 		## July 2026 fix: moving a light previously never re-ran wall-snap —
 		## it just re-snapped to the flat grid, inconsistent with how it was
@@ -280,17 +284,6 @@ func _update_move_ghost() -> void:
 		else:
 			_owner._move_ghost.visible = false
 			return
-	elif mv_tile == _owner.TILE_GEN_S or mv_tile == _owner.TILE_GEN_M \
-			or mv_tile == _owner.TILE_GEN_L:
-		snap_pos.y = _owner.GEN_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_WIRE:
-		snap_pos.y = _owner.PLACEMENT_Y
-	elif mv_tile == _owner.TILE_WATER_SINK:
-		snap_pos.y = _owner.WATER_SINK_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_WATER_DISPENSER:
-		snap_pos.y = _owner.WATER_DISPENSER_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_HEAVY:
-		snap_pos.y = _owner.HEAVY_PLACEMENT_Y
 	elif mv_tile == _owner.TILE_BREAKER or mv_tile == _owner.TILE_BREAKER_SMART:
 		snap_pos.y = _owner.PLACEMENT_Y
 		## Same July 2026 fix as TILE_LIGHT above, reusing the existing proven
@@ -317,21 +310,6 @@ func _update_move_ghost() -> void:
 		else:
 			_owner._move_ghost.visible = false
 			return
-	elif mv_tile == _owner.TILE_BATTERY_S \
-			or mv_tile == _owner.TILE_BATTERY_M or mv_tile == _owner.TILE_BATTERY_L:
-		snap_pos.y = _owner.BATTERY_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_TRAY_SINGLE or mv_tile == _owner.TILE_TRAY_DOUBLE:
-		snap_pos.y = _owner.PLACEMENT_Y
-	elif mv_tile == _owner.TILE_GROW_LIGHT_NORMAL or mv_tile == _owner.TILE_GROW_LIGHT_PRO:
-		snap_pos.y = _owner.GROW_LIGHT_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_STOVE:
-		snap_pos.y = _owner.PLACEMENT_Y
-	elif mv_tile == _owner.TILE_HALF_WALL:
-		snap_pos.y = _owner.HALF_WALL_PLACEMENT_Y
-	elif mv_tile == _owner.TILE_QUARTER_WALL:
-		snap_pos.y = _owner.QUARTER_WALL_PLACEMENT_Y
-	else:
-		snap_pos.y = _owner.PLACEMENT_Y
 
 	_owner._move_ghost.global_position = snap_pos
 	_owner._move_ghost.rotation_degrees = Vector3(0.0, ghost_angle_deg, 0.0)
