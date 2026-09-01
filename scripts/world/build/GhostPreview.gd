@@ -633,9 +633,11 @@ func _update_ghost() -> void:
 	# Use shelf-specific Y for the shelf family, standard for everything else
 	if _owner._selected_tile == _owner.TILE_SHELVING or \
 			_owner._selected_tile == _owner.TILE_SMALL_SHELF or \
-			_owner._selected_tile == _owner.TILE_LARGE_SHELF or \
-			_owner._selected_tile == _owner.TILE_BED:
+			_owner._selected_tile == _owner.TILE_LARGE_SHELF:
 		snap_pos.y = _owner.SHELF_PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_BED:
+		snap_pos.y = 0.5   ## floor-standing — the bed model is grounded at its
+		                   ## origin (legs at Y=0), so it sits level with the floor
 	elif _owner._selected_tile == _owner.TILE_LIGHT:
 		snap_pos.y = _owner.LIGHT_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_POSTER:

@@ -39,12 +39,14 @@ var _player_in_range: bool = false
 var _player_sleeping: bool = false
 
 ## Aug 2026 — the four Tinkercad bed color variants (dark brown / dark green /
-## dark red / light blue), each a flat-color OBJ with its own MTL.
+## dark red / light blue), each a flat-color OBJ. Each lives in its own folder
+## with its `obj.mtl` (the OBJ's `mtllib obj.mtl` must resolve to a sibling of
+## the same name — same layout the produce/medical Tinkercad models use).
 const MODEL_PATHS: Array[String] = [
-	"res://assets/models/bed/bed_dark_brown.obj",
-	"res://assets/models/bed/bed_dark_green.obj",
-	"res://assets/models/bed/bed_dark_red.obj",
-	"res://assets/models/bed/bed_light_blue.obj",
+	"res://assets/models/bed/dark_brown/tinker.obj",
+	"res://assets/models/bed/dark_green/tinker.obj",
+	"res://assets/models/bed/dark_red/tinker.obj",
+	"res://assets/models/bed/light_blue/tinker.obj",
 ]
 
 ## Scale so the mattress top ("sheets", ~4.4 units up in the upright OBJ) lands
