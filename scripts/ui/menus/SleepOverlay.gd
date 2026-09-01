@@ -19,6 +19,15 @@ extends CanvasLayer
 
 const SLEEP_TIME_SCALE: float = 4.0
 
+## TEMP DEBUG (Aug 2026) — the time speed-up is UNWIRED while the sleep
+## lie-down animation is being built, so the animation can be debugged at
+## normal game speed. Flip to `true` to re-enable the Sims-style accelerated
+## sleep exactly as-is (this is the ONLY knob to touch when re-wiring; the
+## begin/end guards below read it). Everything else in the sleep session —
+## sleep-need recovery, fully-rested auto-end, E wake, Zzz hint — still runs
+## regardless.
+const ENABLE_SLEEP_TIME_SCALE: bool = false
+
 # ─── Node refs ────────────────────────────────────────────────────────────────
 @onready var zzz_root: Control = $ZzzRoot
 @onready var z1: Label = $ZzzRoot/Z1
@@ -58,8 +67,10 @@ func begin_sleep() -> void:
 		return
 	_sleep_active = true
 	_sleep_t = 0.0
-	_saved_time_scale = Engine.time_scale
-	Engine.time_scale = SLEEP_TIME_SCALE
+	## Unwired for animation debugging — see ENABLE_SLEEP_TIME_SCALE.
+	if ENABLE_SLEEP_TIME_SCALE:
+		_saved_time_scale = Engine.time_scale
+		Engine.time_scale = SLEEP_TIME_SCALE
 	if player_stats != null:
 		player_stats.set("sleeping", true)
 	zzz_root.visible = true
@@ -73,7 +84,9 @@ func _end_sleep() -> void:
 	if not _sleep_active:
 		return
 	_sleep_active = false
-	Engine.time_scale = _saved_time_scale
+	## Unwired for animation debugging — see ENABLE_SLEEP_TIME_SCALE.
+	if ENABLE_SLEEP_TIME_SCALE:
+		Engine.time_scale = _saved_time_scale
 	if player_stats != null:
 		player_stats.set("sleeping", false)
 	if bed != null and is_instance_valid(bed):
