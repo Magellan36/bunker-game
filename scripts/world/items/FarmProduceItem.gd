@@ -58,6 +58,24 @@ const PRODUCE_MODEL_FLAT: Dictionary = {
 	"basil": true,
 }
 
+## Material mood override (Aug 2026) — dims, slightly desaturates and mattens
+## the produce so it reads in-theme with the dark bunker instead of
+## toy-bright. Applied as per-instance surface overrides (the OBJ's mesh
+## materials are a shared resource) — no new textures, pure material tweaks.
+const PRODUCE_MAT_DARK:      float = 0.6    ## albedo multiplier
+const PRODUCE_MAT_DESAT:     float = 0.12   ## mix toward gray (0 = none)
+const PRODUCE_MAT_ROUGHNESS: float = 0.8    ## kill the MTL's glossy sheen
+
+## Collision kind per produce type (Aug 2026): round items keep a sphere
+## (they can roll), long items get a cylinder oriented along their longest
+## axis, and bunches / flat / oblong items (blueberries, strawberries,
+## carrots, pumpkin, basil) get a box so they DON'T roll around.
+const PRODUCE_COLLISION_KIND: Dictionary = {
+	"tomato": "sphere", "onion": "sphere", "garlic": "sphere", "bell_pepper": "sphere",
+	"potato": "cylinder", "corn": "cylinder", "chili_pepper": "cylinder",
+	"pumpkin": "box", "blueberry": "box", "strawberry": "box", "carrot": "box", "basil": "box",
+}
+
 var shelf_stack_limit: int  = 6
 var shelf_item_type: String = "farm_produce"   ## Shared slot for both types —
 ## per-instance produce_type preserved by Shelving.gd's real-node-reference
@@ -165,10 +183,7 @@ func _build_placeholder_mesh() -> void:
 	## procedural fallbacks keep their old small sphere/cylinder.
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	if _used_model:
-		var box: BoxShape3D = BoxShape3D.new()
-		box.size = _model_aabb.size
-		shape.shape = box
-		shape.position = _model_aabb.position + _model_aabb.size * 0.5
+		_build_model_collision(shape)
 	else:
 		if produce_type == "corn" or produce_type == "carrot":
 			## Cylindrical collision for corn/carrot so they don't roll like balls
@@ -183,6 +198,43 @@ func _build_placeholder_mesh() -> void:
 		shape.position = _mesh.position
 	add_child(shape)
 
+## Shapes the model-backed collision to the produce type: sphere for round
+## items, cylinder (oriented along the model's longest AABB axis) for long
+## items, box for bunches/flat/oblong items so they don't roll. Center sits at
+## the visual AABB center; the bottom stays at y=0 (base flush with the floor).
+func _build_model_collision(shape: CollisionShape3D) -> void:
+	var sz: Vector3 = _model_aabb.size
+	shape.position = _model_aabb.position + _model_aabb.size * 0.5
+	var kind: String = PRODUCE_COLLISION_KIND.get(produce_type, "box")
+	match kind:
+		"sphere":
+			var sp: SphereShape3D = SphereShape3D.new()
+			sp.radius = maxf(sz.x, maxf(sz.y, sz.z)) * 0.5
+			shape.shape = sp
+		"cylinder":
+			var axis: int = 1
+			var longest: float = sz.y
+			if sz.x > longest:
+				longest = sz.x
+				axis = 0
+			if sz.z > longest:
+				longest = sz.z
+				axis = 2
+			var cyl: CylinderShape3D = CylinderShape3D.new()
+			cyl.height = longest
+			var off_a: float = sz.y if axis == 0 else sz.x
+			var off_b: float = sz.z if axis != 2 else sz.y
+			cyl.radius = maxf(off_a, off_b) * 0.5
+			shape.shape = cyl
+			if axis == 0:
+				shape.rotation.z = PI / 2.0
+			elif axis == 2:
+				shape.rotation.x = PI / 2.0
+		_:
+			var box: BoxShape3D = BoxShape3D.new()
+			box.size = sz
+			shape.shape = box
+
 ## Loads the per-type OBJ model and scales its largest dimension to the current
 ## in-game visual size (PRODUCE_MODEL_SCALE — measured with the old 2x/3x scale
 ## applied). Stands it upright (the OBJ's height runs along Z, Tinkercad
@@ -195,12 +247,34 @@ func _build_mesh_from_model(model_path: String) -> void:
 		return
 	_used_model = true
 	_mesh.mesh = mesh
+	_apply_produce_material()
 	_mesh.scale = Vector3.ONE * PRODUCE_MODEL_SCALE.get(produce_type, 0.01)
 	if not PRODUCE_MODEL_FLAT.get(produce_type, false):
 		_mesh.rotation.x = -PI / 2.0
 	var aabb: AABB = _mesh.transform * _mesh.mesh.get_aabb()
 	_mesh.position = Vector3(0.0, -aabb.position.y, 0.0)
 	_model_aabb = _mesh.transform * _mesh.mesh.get_aabb()   ## final visual AABB (base at y=0)
+
+## Dims, desaturates and mattens every surface of the loaded model via
+## per-instance surface overrides (the OBJ's mesh materials are shared across
+## instances, so never mutate them in place). Base color = the imported MTL
+## albedo (falls back to PlantDatabase's per-type color).
+func _apply_produce_material() -> void:
+	if _mesh == null or _mesh.mesh == null:
+		return
+	for s: int in _mesh.mesh.get_surface_count():
+		var base: Color = PlantDatabase.get_produce_color(produce_type)
+		var existing: Material = _mesh.mesh.surface_get_material(s)
+		if existing is StandardMaterial3D:
+			base = (existing as StandardMaterial3D).albedo_color
+		var c: Color = Color(base.r * PRODUCE_MAT_DARK, base.g * PRODUCE_MAT_DARK, base.b * PRODUCE_MAT_DARK, 1.0)
+		var lum: float = c.get_luminance()
+		c = c.lerp(Color(lum, lum, lum, 1.0), PRODUCE_MAT_DESAT)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = c
+		mat.roughness = PRODUCE_MAT_ROUGHNESS
+		mat.metallic  = 0.0
+		_mesh.set_surface_override_material(s, mat)
 
 ## Procedural primitive fallback (the original placeholder build) — used when
 ## a produce type has no real model file.
