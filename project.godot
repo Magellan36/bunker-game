@@ -157,6 +157,10 @@ aim_down={
 3d/default_angular_damp=0.2
 3d/solver/solver_iterations=10
 
+[debug]
+
+settings/profiler/max_timestamp_query_elements=16384
+
 [rendering]
 
 textures/default_filters/anisotropic_filtering_level=4
