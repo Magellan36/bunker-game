@@ -1115,19 +1115,19 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 
 			MOUSE_BUTTON_WHEEL_UP:
-				## Aug 2026 — while placing, wheel rotates the ghost UNLESS CTRL
-				## is held, in which case it cycles the grid size coarser (the
-				## alternate way to change grid during placement). With no ghost
-				## it always cycles the grid.
-				if _ghost_active and not Input.is_key_pressed(KEY_CTRL):
+				## Aug 2026 — while placing (ghost active) OR moving an object
+				## (move phase 1), the wheel rotates; holding CTRL switches the
+				## wheel to cycle the grid size instead. With nothing active the
+				## wheel always cycles the grid.
+				if (_ghost_active or _move_phase == 1) and not Input.is_key_pressed(KEY_CTRL):
 					_rotate_cw()
 				else:
 					_cycle_grid_size(true)
 				get_viewport().set_input_as_handled()
 			MOUSE_BUTTON_WHEEL_DOWN:
-				## Aug 2026 — same rule: rotate while placing unless CTRL held,
-				## else grid finer.
-				if _ghost_active and not Input.is_key_pressed(KEY_CTRL):
+				## Aug 2026 — same rule: rotate while placing/moving unless CTRL
+				## held, else grid finer.
+				if (_ghost_active or _move_phase == 1) and not Input.is_key_pressed(KEY_CTRL):
 					_rotate_ccw()
 				else:
 					_cycle_grid_size(false)

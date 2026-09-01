@@ -97,6 +97,21 @@ func _move_select() -> void:
 			_owner._move_source_entry = entry
 			_owner._move_source_pos   = entry["world_pos"]
 
+			## Aug 2026 — sync the ghost facing to the source object's angle so
+			## the move preview starts where the object actually faces, and the
+			## wheel (which rotates via _current_angle_deg) rotates it from
+			## there, exactly like initial placement.
+			var src_angle: float = float(entry["angle_deg"])
+			_owner._current_angle_deg = src_angle
+			var found_orient: bool = false
+			for i: int in _owner.EIGHT_DIR_ANGLES.size():
+				if absf(_owner.EIGHT_DIR_ANGLES[i] - src_angle) < 1.0:
+					_owner._orient_index = i
+					found_orient = true
+					break
+			if not found_orient:
+				_owner._orient_index = -1
+
 			# Hide original object while placing — it stays alive for physics
 			body.visible = false
 			# Also hide any child mesh instances so ghost doesn't double-render
@@ -146,11 +161,11 @@ func _update_move_ghost() -> void:
 	## height as the wall-snap raycast input).
 	snap_pos.y = _owner._move_source_pos.y
 	var mv_tile: int = _owner._move_source_entry.get("tile_id", _owner.TILE_WALL)
-	## Ghost rotation defaults to whatever the object's current angle is —
-	## overridden below only for the wall-snapped tile types, whose snap
-	## result may put them on a DIFFERENT wall (and therefore a different
-	## angle) than they started with.
-	var ghost_angle_deg: float = _owner._move_source_entry.get("angle_deg", 0.0)
+	## Ghost rotation follows _current_angle_deg (Aug 2026) — synced to the
+	## source object's angle on select, and rotated by the mouse wheel exactly
+	## like initial placement. Wall-snapped tile types below override it with
+	## their snap-result angle.
+	var ghost_angle_deg: float = _owner._current_angle_deg
 
 	if mv_tile == _owner.TILE_LIGHT:
 		snap_pos.y = _owner.LIGHT_PLACEMENT_Y
@@ -251,13 +266,12 @@ func _move_confirm() -> void:
 	_owner._move_source_body.global_position = new_pos
 	_owner._move_source_entry["world_pos"] = new_pos
 
-	## Commit rotation for the wall-snapped tile types only (see captured
-	## new_angle_deg above) — everything else keeps its existing behavior of
-	## never touching rotation on move.
-	if tile_id == _owner.TILE_LIGHT or tile_id == _owner.TILE_BREAKER \
-			or tile_id == _owner.TILE_BREAKER_SMART or tile_id == _owner.TILE_WATER_HOOKUP:
-		_owner._move_source_body.rotation_degrees = Vector3(0.0, new_angle_deg, 0.0)
-		_owner._move_source_entry["angle_deg"] = new_angle_deg
+	## Commit the ghost's rotation for EVERY tile (Aug 2026) — the move ghost
+	## now mirrors placement (wheel-rotatable), so the moved object adopts
+	## whatever angle the ghost was left at. Starts equal to the source angle
+	## (synced in _move_select), so it only changes if the player rotated it.
+	_owner._move_source_body.rotation_degrees = Vector3(0.0, new_angle_deg, 0.0)
+	_owner._move_source_entry["angle_deg"] = new_angle_deg
 
 	## Water hookup: its WaterGraph node is keyed by position, so a manual
 	## move needs the same re-registration reposition_to_outer_wall() does
