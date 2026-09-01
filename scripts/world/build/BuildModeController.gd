@@ -3394,6 +3394,15 @@ func _obb_projection(he: Vector2, rad: float, n: Vector2) -> float:
 func _is_grow_light_tile(tile_id: int) -> bool:
 	return tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO
 
+## Level walls/pillars block placement, but the 0.25m build grid doesn't align
+## to their faces — an object's closest snap node either overlaps the wall
+## (blocked) or leaves a gap. Shrink their blocking footprint by this flush
+## allowance so objects can sit at the node nearest the wall face without going
+## through the wall (the wall's real interior face is at its footprint edge;
+## a 0.10 allowance lets the object's edge tuck up to ~0.1m into the wall's
+## thickness, which is the grid half-step).
+const LEVEL_WALL_FLUSH_ALLOWANCE: float = 0.10
+
 ## Grow lights are mounted near the ceiling, so they only occupy the vertical
 ## space of TALL objects: walls/pillars, the shelf family, and other grow
 ## lights. Floor objects below (tables, trays, chairs, generators, storage,
@@ -3438,6 +3447,13 @@ func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D
 			continue
 		var old_he: Vector2 = entry.get("footprint", _tile_half_extents(et)) if et >= 0 \
 				else Vector2(0.40, 0.40)
+		## Level walls/pillars: apply the flush allowance so objects can sit at
+		## the grid node nearest the wall face instead of being pushed a full
+		## half-step away (grid doesn't align to wall faces). Still blocks
+		## through-the-wall placement.
+		if not entry.get("player_placed", true):
+			old_he = Vector2(maxf(0.03, old_he.x - LEVEL_WALL_FLUSH_ALLOWANCE),
+				maxf(0.03, old_he.y - LEVEL_WALL_FLUSH_ALLOWANCE))
 		var p: Vector3 = entry["world_pos"]
 		if _obb_overlap_2d(Vector2(p.x, p.z), old_he, float(entry.get("angle_deg", 0.0)),
 				new_center, new_fp, new_ang):
