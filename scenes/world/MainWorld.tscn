@@ -8,7 +8,6 @@
 [ext_resource type="Script" uid="uid://dpb8ovwljrocm" path="res://scripts/world/environment/BunkerLayout.gd" id="6_hyoe7"]
 [ext_resource type="PackedScene" path="res://scenes/world/TestCrate.tscn" id="7_hyoe7"]
 [ext_resource type="Script" uid="uid://c2p4arjynkf1d" path="res://scripts/player/PlayerStats.gd" id="8_p7b5b"]
-[ext_resource type="PackedScene" uid="uid://bn7hoc2y5pv2v" path="res://scenes/world/Bed.tscn" id="8_ucaxc"]
 [ext_resource type="PackedScene" path="res://scenes/ui/SleepOverlay.tscn" id="10_o0cc0"]
 [ext_resource type="PackedScene" uid="uid://bjlvglf3wsro4" path="res://tile_set.tscn" id="11_o0cc0"]
 [ext_resource type="PackedScene" path="res://scenes/ui/InteractPrompt.tscn" id="12_sp2fq"]
@@ -65,9 +64,6 @@ transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -4.0
 
 [node name="TestCrate3" parent="." unique_id=225141603 instance=ExtResource("7_hyoe7")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -3.6740847, 1.6276402, 4.999235)
-
-[node name="Bed" parent="." unique_id=1752025624 instance=ExtResource("8_ucaxc")]
-transform = Transform3D(1.1924881e-08, 0, -1, 0, 1, 0, 1, 0, 1.1924881e-08, 2.8917665, 0.7, 7.9250135)
 
 [node name="HUD" parent="." unique_id=635934083 groups=["HUD"] instance=ExtResource("4_m1c1d")]
 

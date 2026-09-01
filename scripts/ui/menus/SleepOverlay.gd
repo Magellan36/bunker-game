@@ -1,19 +1,26 @@
 extends CanvasLayer
-## SleepOverlay.gd
-## Fade-to-black for 2 real seconds, animate Zzz, then fade back out.
-## Time skip happens instantly when fully black.
+## SleepOverlay.gd — Sims-style accelerated sleep (Aug 2026 rework).
+##
+## Replaces the old "fade to black + instantly simulate 8 hours" sleep. Now the
+## player sleeps in a bed and the WHOLE WORLD speeds up around them via
+## Engine.time_scale, exactly like a Sims sleep: the clock, NPCs, food/water,
+## water purification and crop growth all run at SLEEP_TIME_SCALE because every
+## system already derives game-time from the real per-frame delta. The sleep
+## need RECOVERS while asleep (PlayerStats.sleeping, see
+## SLEEP_RECOVERY_PER_GAME_HOUR), and the instant it reaches its cap the session
+## ends and normal time is restored. E (request_wake) ends it early.
+##
+## The timescale is tuned DOWN from the F12 dev warp (Engine.time_scale = 50),
+## which destabilizes physics and sends NPCs/bodies flying. At 4x each physics
+## step stays around 1/15s, keeping CharacterBody + rigid-body simulation
+## stable. If any jitter ever shows up, lower this (3.0 is very safe) — the
+## alternative (raising physics_ticks_per_second proportionally) is heavier and
+## riskier to change at runtime.
 
-# ─── Tuning ───────────────────────────────────────────────────────────────────
-const FADE_DURATION: float  = 0.8   ## Seconds to fade in / fade out
-const SLEEP_DURATION: float = 2.0   ## Seconds spent fully black (with Zzz)
-const WAKE_THRESHOLD: float = 5.0   ## Food/water level that cuts sleep short
-const SLEEP_SKIP_HOURS: float = 8.0   ## Hours simulated per full sleep cycle
+const SLEEP_TIME_SCALE: float = 4.0
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
-@onready var overlay: ColorRect = $Overlay
-@onready var zzz_root: Control  = $ZzzRoot
-
-# Zzz labels — big → medium → small, staggered
+@onready var zzz_root: Control = $ZzzRoot
 @onready var z1: Label = $ZzzRoot/Z1
 @onready var z2: Label = $ZzzRoot/Z2
 @onready var z3: Label = $ZzzRoot/Z3
@@ -22,99 +29,59 @@ const SLEEP_SKIP_HOURS: float = 8.0   ## Hours simulated per full sleep cycle
 signal sleep_started()
 signal sleep_ended()
 
-# ─── State ───────────────────────────────────────────────────────────────────
-enum Phase { IDLE, FADING_IN, SLEEPING, FADING_OUT }
-var _phase: Phase  = Phase.IDLE
-var _fade_t: float = 0.0
-var _sleep_t: float = 0.0   ## Time spent in the SLEEPING phase
-
+# ─── State ────────────────────────────────────────────────────────────────────
 ## Set by MainWorld
 var player_stats: Node = null
-var player_medical: Node = null
-var bed: Node          = null
+var bed: Node = null
+
+var _sleep_active: bool = false
+var _sleep_t: float = 0.0
+var _saved_time_scale: float = 1.0   ## restored on wake — preserves the F12 dev warp if it was on
 
 func _ready() -> void:
-	overlay.color = Color(0.0, 0.0, 0.0, 0.0)
-	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	zzz_root.visible = false
 	zzz_root.modulate.a = 0.0
 
 func _process(delta: float) -> void:
-	match _phase:
-		Phase.FADING_IN:
-			_fade_t = minf(_fade_t + delta / FADE_DURATION, 1.0)
-			overlay.color.a = _fade_t
-			if _fade_t >= 1.0:
-				_phase = Phase.SLEEPING
-				_sleep_t = 0.0
-				_do_time_skip()         # Skip time instantly once black
-				sleep_started.emit()
-				zzz_root.visible = true
-
-		Phase.SLEEPING:
-			_sleep_t += delta
-			_animate_zzz(_sleep_t)
-			if _sleep_t >= SLEEP_DURATION:
-				_start_fade_out()
-
-		Phase.FADING_OUT:
-			_fade_t = maxf(_fade_t - delta / FADE_DURATION, 0.0)
-			overlay.color.a = _fade_t
-			zzz_root.modulate.a = _fade_t   # Zzz fades out with screen
-			if _fade_t <= 0.0:
-				_phase = Phase.IDLE
-				overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-				zzz_root.visible = false
-				sleep_ended.emit()
+	if not _sleep_active:
+		return
+	_sleep_t += delta
+	_animate_zzz(_sleep_t)
+	## Fully rested — the sleep need climbed to its cap (PlayerStats clamps
+	## there, so this is an exact hit). End the accelerated sleep.
+	if player_stats != null and player_stats.sleep >= player_stats.sleep_cap:
+		_end_sleep()
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 func begin_sleep() -> void:
-	if _phase != Phase.IDLE:
+	if _sleep_active:
 		return
-	_fade_t = 0.0
-	_phase  = Phase.FADING_IN
-	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_sleep_active = true
+	_sleep_t = 0.0
+	_saved_time_scale = Engine.time_scale
+	Engine.time_scale = SLEEP_TIME_SCALE
+	if player_stats != null:
+		player_stats.set("sleeping", true)
+	zzz_root.visible = true
+	sleep_started.emit()
 
 func request_wake() -> void:
-	if _phase == Phase.SLEEPING:
-		_start_fade_out()
+	if _sleep_active:
+		_end_sleep()
 
-# ─── Time skip ────────────────────────────────────────────────────────────────
-## Instantly advance stats AND simulate the skipped hours (water decay, plant
-## growth) — same approach as AdminMenu._on_fast_forward_pressed()'s 24h skip,
-## just for the 8h sleep duration instead of a flat day.
-func _do_time_skip() -> void:
-	if player_stats == null:
+func _end_sleep() -> void:
+	if not _sleep_active:
 		return
-	var scaled: float = SLEEP_SKIP_HOURS * player_stats._seconds_per_game_hour
+	_sleep_active = false
+	Engine.time_scale = _saved_time_scale
+	if player_stats != null:
+		player_stats.set("sleeping", false)
+	if bed != null and is_instance_valid(bed):
+		bed.set_sleeping(false)
+	zzz_root.visible = false
+	sleep_ended.emit()
 
-	player_stats.skip_time_with_drain(SLEEP_SKIP_HOURS)
-	NPC.catch_up_all(SLEEP_SKIP_HOURS)
-
-	## Medical conditions (infection severity, bleeding rate, healing
-	## progress, etc.) otherwise only advance from real per-frame delta in
-	## PlayerMedical._process() — without this, sleeping would silently do
-	## nothing to them, same bug this fixes for the admin fast-forward cheat
-	## below. apply_rest_bonus() is the ADDITIONAL "this was genuine rest"
-	## speedup for Broken/Burns specifically, on top of catch_up()'s base
-	## progression — see PlayerMedical.gd for why that's a direct call here
-	## rather than a signal.
-	if player_medical != null:
-		player_medical.catch_up(SLEEP_SKIP_HOURS)
-		player_medical.apply_rest_bonus(SLEEP_SKIP_HOURS)
-
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager")
-	if wm != null:
-		var hookup: WaterHookup = wm.get_the_hookup()
-		if hookup != null:
-			hookup._process(scaled)
-
-	for tray: FarmingTray in get_tree().get_nodes_in_group("farming_tray"):
-		for plant: FarmPlant in tray.plant_refs:
-			if plant != null and is_instance_valid(plant):
-				plant._process(scaled)
-
-# ─── Zzz animation ────────────────────────────────────────────────────────────
+# ─── Zzz animation (sleeping indicator over the sped-up world) ───────────────
 ## Three labels pulse in a staggered wave — big, medium, small.
 ## Each cycles: invisible → fade in → drift up → fade out.
 const ZZZ_CYCLE: float  = 1.2   ## Seconds per full Z cycle
@@ -145,8 +112,3 @@ func _tick_z(label: Label, t: float, index: int) -> void:
 	var base_y: float  = [0.0, 28.0, 52.0][index]   ## Stagger vertical start
 	var drift_y: float = local_t / ZZZ_CYCLE * -30.0 ## Floats 30px upward
 	label.position.y   = base_y + drift_y
-
-func _start_fade_out() -> void:
-	_phase = Phase.FADING_OUT
-	if bed != null:
-		bed.set_sleeping(false)

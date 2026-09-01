@@ -177,10 +177,6 @@ var _pause_menu: CanvasLayer = null
 # ─── Economy ──────────────────────────────────────────────────────────────────
 var _cash: int = 50000   ## Starting cash; shown in HUD, spent during Build Mode
 
-## Reference to the bed in the scene — assign in _ready or via @export
-@export var bed_path: NodePath = NodePath("")
-var _bed: Node = null
-
 ## ─── Abyss Safety ────────────────────────────────────────────────────────────
 ## If any physics item falls below this world-Y it has glitched through the floor.
 ## We teleport it back to a safe Y above the bunker floor at the same XZ coords.
@@ -978,7 +974,6 @@ func _connect_hud() -> void:
 func _connect_bed() -> void:
 	# Wire SleepOverlay to PlayerStats
 	sleep_overlay.player_stats = player_stats
-	sleep_overlay.player_medical = player_medical
 
 	# Wire SleepOverlay.sleep_ended once (shared across all beds)
 	sleep_overlay.sleep_ended.connect(func() -> void:
@@ -989,12 +984,6 @@ func _connect_bed() -> void:
 	# Also called again when new beds are placed (see _wire_bed).
 	for b: Node in get_tree().get_nodes_in_group("bed"):
 		_wire_bed(b)
-
-	# Fall back to path if set (legacy support for hand-placed scene beds)
-	if bed_path != NodePath(""):
-		var b: Node = get_node_or_null(bed_path)
-		if b != null:
-			_wire_bed(b)
 
 ## Wires a single bed node to the sleep system.
 ## Uses a meta tag to avoid double-wiring if called again on the same bed.

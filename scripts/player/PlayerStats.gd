@@ -24,6 +24,13 @@ class_name PlayerStats
 ## Sleep depletes over ~1.5 game days (36 hrs)
 @export var sleep_drain_per_game_hour: float = 2.78
 
+## Aug 2026 — sleep recovery rate while actually asleep (Sims-style sleep, see
+## SleepOverlay.gd). Unlike the drain rate above, this GAINS sleep per game
+## hour and fills 0 → 100 in ~8 game hours (12.5 × 8 = 100) — a full night's
+## rest. The sleep need only recovers while `sleeping` is true (set/cleared by
+## SleepOverlay's accelerated-sleep session).
+const SLEEP_RECOVERY_PER_GAME_HOUR: float = 12.5
+
 ## Health lost per game hour when food OR water is at 0
 ## ~8hrs to die from one deprivation, ~4hrs if both are 0
 @export var starvation_drain_per_game_hour: float = 12.5
@@ -48,6 +55,11 @@ var food:   float = 100.0
 var water:  float = 100.0
 var sleep:  float = 100.0
 var health: float = 100.0
+
+## Aug 2026 — true while the player is in a SleepOverlay accelerated-sleep
+## session. Flips the sleep need from draining to RECOVERING in _tick_needs()
+## (see SLEEP_RECOVERY_PER_GAME_HOUR), which is what "fully rested" means.
+var sleeping: bool = false
 
 ## Dynamic per-need ceilings (Aug 2026, Medical system Pass 2) — default
 ## 100.0 (no effect). PlayerMedical.gd writes to these directly each tick
@@ -120,7 +132,13 @@ func _tick_needs(delta: float) -> void:
 	## floor always was.
 	food  = clampf(food  - food_drain_per_game_hour  * drain_scale, 0.0, food_cap)
 	water = clampf(water - water_drain_per_game_hour * drain_scale, 0.0, water_cap)
-	sleep = clampf(sleep - sleep_drain_per_game_hour * drain_scale, 0.0, sleep_cap)
+	## Aug 2026 — sleep RECOVERS (not drains) while the player is actually
+	## asleep, clamped to sleep_cap. That climb to the cap is the "fully
+	## rested" condition SleepOverlay watches to end the accelerated sleep.
+	if sleeping:
+		sleep = minf(sleep_cap, sleep + SLEEP_RECOVERY_PER_GAME_HOUR * drain_scale)
+	else:
+		sleep = clampf(sleep - sleep_drain_per_game_hour * drain_scale, 0.0, sleep_cap)
 
 	# Starvation / dehydration health drain
 	var deprivation_count: int = (1 if food == 0.0 else 0) + (1 if water == 0.0 else 0)

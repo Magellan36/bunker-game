@@ -1441,6 +1441,11 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		parent.add_child(bed_node)
 		bed_node.global_position  = pos
 		bed_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		## Wire immediately so a bed placed mid-session is sleep-functional right
+		## away (mirrors the equivalent _wire_chair call in the TILE_CHAIR branch).
+		var wn_bed: Node = get_tree().get_first_node_in_group("world")
+		if wn_bed != null and wn_bed.has_method("_wire_bed"):
+			wn_bed.call("_wire_bed", bed_node)
 		return bed_node
 
 	# ── Tables: script-based procedural node, ground-placed like farming trays ──
