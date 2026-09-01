@@ -67,6 +67,26 @@ func _destroy_ghost() -> void:
 		_owner._ghost.queue_free()
 		_owner._ghost = null
 
+## Builds a full ghost preview (real model / meshlib / procedural box +
+## facing arrow) onto an arbitrary MeshInstance3D — used by the move tool so a
+## moved object previews exactly like its initial placement (Aug 2026; the
+## move tool's old hand-rolled switch only covered a handful of tiles).
+## Temporarily points _owner._ghost/_selected_tile at the target because
+## _rebuild_ghost_mesh() reads both; tools are exclusive so nothing observes
+## the swap. The target MUST already be in the scene tree (the real-instance
+## branch relies on children's _ready() firing, same LIFECYCLE RULE as
+## _spawn_ghost()).
+func build_ghost_onto(target: MeshInstance3D, tile_id: int) -> void:
+	if target == null:
+		return
+	var saved_ghost: MeshInstance3D = _owner._ghost
+	var saved_tile: int = _owner._selected_tile
+	_owner._ghost = target
+	_owner._selected_tile = tile_id
+	_rebuild_ghost_mesh()
+	_owner._ghost = saved_ghost
+	_owner._selected_tile = saved_tile
+
 func _rebuild_ghost_mesh() -> void:
 	if _owner._ghost == null:
 		return

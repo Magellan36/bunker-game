@@ -114,135 +114,18 @@ func _spawn_move_ghost(tile_id: int) -> void:
 	_destroy_move_ghost()
 	_owner._move_ghost = MeshInstance3D.new()
 
-	if tile_id == _owner.TILE_SHELVING or tile_id == _owner.TILE_SMALL_SHELF or tile_id == _owner.TILE_LARGE_SHELF:
-		var shelf_script_path: String = "res://scripts/world/furniture/Shelving.gd"
-		if tile_id == _owner.TILE_SMALL_SHELF:
-			shelf_script_path = "res://scripts/world/furniture/SmallShelf.gd"
-		elif tile_id == _owner.TILE_LARGE_SHELF:
-			shelf_script_path = "res://scripts/world/furniture/LargeShelf.gd"
-		var shelving_script: GDScript = load(shelf_script_path)
-		if shelving_script != null and shelving_script.has_method("build_ghost_mesh"):
-			var m: Mesh = shelving_script.build_ghost_mesh()
-			if m != null:
-				_owner._move_ghost.mesh = m
-				for s: int in m.get_surface_count():
-					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_LIGHT:
-		var light_script: GDScript = load("res://scripts/world/power/WallLight.gd")
-		if light_script != null and light_script.has_method("build_ghost_mesh"):
-			var m: Mesh = light_script.build_ghost_mesh()
-			if m != null:
-				_owner._move_ghost.mesh = m
-				_owner._move_ghost.position = Vector3(0.0, 1.5, 0.0)  ## Match lamp height offset
-				for s: int in m.get_surface_count():
-					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_GEN_S or tile_id == _owner.TILE_GEN_M or tile_id == _owner.TILE_GEN_L:
-		const MG_SIZES: Array = [
-			Vector3(0.85, 0.85, 0.85),
-			Vector3(0.85, 0.85, 1.85),
-			Vector3(1.85, 0.85, 1.85),
-		]
-		var tier: int = 0
-		if tile_id == _owner.TILE_GEN_M: tier = 1
-		elif tile_id == _owner.TILE_GEN_L: tier = 2
-		var box: BoxMesh = BoxMesh.new()
-		box.size = MG_SIZES[tier]
-		_owner._move_ghost.mesh = box
-		_owner._move_ghost.position = Vector3(0.0, MG_SIZES[tier].y * 0.5, 0.0)
-		for s: int in box.get_surface_count():
-			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_WIRE:
-		var wire_box: BoxMesh = BoxMesh.new()
-		wire_box.size = Vector3(0.90, 0.06, 0.08)
-		_owner._move_ghost.mesh = wire_box
-		_owner._move_ghost.position = Vector3(0.0, 0.03, 0.0)
-		for s: int in wire_box.get_surface_count():
-			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_HEAVY:
-		var hc_box: BoxMesh = BoxMesh.new()
-		hc_box.size = Vector3(0.60, 0.60, 0.60)
-		_owner._move_ghost.mesh = hc_box
-		_owner._move_ghost.position = Vector3(0.0, 0.30, 0.0)
-		for s: int in hc_box.get_surface_count():
-			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_WATER_HOOKUP:
-		## Water hookup (July 2026 groundwork pass) — reuse its own ghost-mesh
-		## static helper, same convention WallLight/Shelving use.
-		var hookup_script: GDScript = load("res://scripts/world/water/WaterHookup.gd")
-		if hookup_script != null and hookup_script.has_method("build_ghost_mesh"):
-			var wh_m: Mesh = hookup_script.build_ghost_mesh()
-			if wh_m != null:
-				_owner._move_ghost.mesh = wh_m
-				for s: int in wh_m.get_surface_count():
-					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_WATER_SINK:
-		var ws_box: BoxMesh = BoxMesh.new()
-		ws_box.size = Vector3(0.35, 0.30, 0.35)
-		_owner._move_ghost.mesh = ws_box
-		_owner._move_ghost.position = Vector3(0.0, 0.15, 0.0)
-		for s: int in ws_box.get_surface_count():
-			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_WATER_DISPENSER:
-		var wd_script: GDScript = load("res://scripts/world/water/WaterDispenser.gd")
-		if wd_script != null and wd_script.has_method("build_ghost_mesh"):
-			var wd_m: Mesh = wd_script.build_ghost_mesh()
-			if wd_m != null:
-				_owner._move_ghost.mesh     = wd_m
-				_owner._move_ghost.position = Vector3(0.0, 0.275, 0.0)
-				for s: int in wd_m.get_surface_count():
-					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_TRAY_SINGLE or tile_id == _owner.TILE_TRAY_DOUBLE:
-		var cells: int = 1 if tile_id == _owner.TILE_TRAY_SINGLE else 2
-		var tray_m: Mesh = FarmingTray.build_ghost_mesh(cells)
-		_owner._move_ghost.mesh     = tray_m
-		_owner._move_ghost.position = Vector3(0.0, 0.425, 0.0)
-		for s: int in tray_m.get_surface_count():
-			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_GROW_LIGHT_NORMAL or tile_id == _owner.TILE_GROW_LIGHT_PRO:
-		var gl_m: Mesh = GrowLight.build_ghost_mesh()
-		_owner._move_ghost.mesh = gl_m
-		for s: int in gl_m.get_surface_count():
-			_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	elif tile_id == _owner.TILE_STOVE:
-		var stove_script: GDScript = load("res://scripts/world/cooking/Stove.gd")
-		if stove_script != null and stove_script.has_method("build_ghost_mesh"):
-			var stove_m: Mesh = stove_script.build_ghost_mesh()
-			if stove_m != null:
-				_owner._move_ghost.mesh     = stove_m
-				## BoxMesh is centered on its own origin — offset up by half
-				## its height so it renders resting on the floor instead of
-				## floating, same convention as the Tray branch immediately
-				## above this one. Was 0.275 (half of the old 0.55 BOX_SIZE
-				## height) — updated to half of the real model's height
-				## (1.1558 / 2) after the Aug 2026 GLB swap. See
-				## PLAN_stove_glb_swap.md.
-				_owner._move_ghost.position = Vector3(0.0, 0.5779, 0.0)
-				for s: int in stove_m.get_surface_count():
-					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-	else:
-		if _owner.gridmap != null and _owner.gridmap.mesh_library != null:
-			# Half/quarter walls use the same wall mesh (tile_id 1) but scaled
-			var mesh_tile_id: int = tile_id
-			if tile_id == _owner.TILE_HALF_WALL or tile_id == _owner.TILE_QUARTER_WALL:
-				mesh_tile_id = _owner.TILE_WALL
-			var m: Mesh = _owner.gridmap.mesh_library.get_item_mesh(mesh_tile_id)
-			if m != null:
-				_owner._move_ghost.mesh = m
-				# Scale half/quarter walls vertically (base wall mesh is 3m tall, centered at origin)
-				if tile_id == _owner.TILE_HALF_WALL:
-					_owner._move_ghost.scale = Vector3(1.0, 0.5, 1.0)
-					_owner._move_ghost.position = Vector3(0.0, 0.75, 0.0)
-				elif tile_id == _owner.TILE_QUARTER_WALL:
-					_owner._move_ghost.scale = Vector3(1.0, 0.25, 1.0)
-					_owner._move_ghost.position = Vector3(0.0, 0.375, 0.0)
-				else:
-					_owner._move_ghost.scale = Vector3(1.0, 1.0, 1.0)
-					_owner._move_ghost.position = Vector3(0.0, 0.0, 0.0)
-				for s: int in m.get_surface_count():
-					_owner._move_ghost.set_surface_override_material(s, _owner._mat_valid)
-
+	## Aug 2026 — build the move ghost with the SAME preview builder as initial
+	## placement (GhostPreview.build_ghost_onto → _rebuild_ghost_mesh), so
+	## EVERY tile type gets a preview when moved. The old hand-rolled per-tile
+	## switch only covered a handful of types (shelves/lights/generators/
+	## wires/heavy/hookup/sink/dispenser/trays/grow lights/stove), leaving most
+	## furniture with no ghost at all.
 	var parent: Node = _owner.gridmap.get_parent() if _owner.gridmap != null else _owner.get_tree().get_root()
+	## LIFECYCLE RULE (same as GhostPreview._spawn_ghost): the ghost root MUST
+	## be inside the SceneTree before the builder runs, so real-instance
+	## children's _ready() fires.
 	parent.add_child(_owner._move_ghost)
+	_owner._ghost_preview.build_ghost_onto(_owner._move_ghost, tile_id)
 	_owner._move_ghost.visible = false
 
 func _update_move_ghost() -> void:
@@ -314,7 +197,10 @@ func _update_move_ghost() -> void:
 	_owner._move_ghost.global_position = snap_pos
 	_owner._move_ghost.rotation_degrees = Vector3(0.0, ghost_angle_deg, 0.0)
 	_owner._move_ghost.visible = true
-	# Keep ghost green — reuse _owner._mat_valid which is already applied
+	## Keep the ghost green — matches the placement ghost's per-frame tint
+	## (real-model previews keep their own materials, so the tint is what makes
+	## the move preview read as a ghost).
+	GhostModelBuilder.apply_ghost_tint(_owner._move_ghost, true)
 
 func _move_confirm() -> void:
 	if _owner._move_ghost == null or _owner._move_source_body == null:
