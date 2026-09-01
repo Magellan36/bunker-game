@@ -1282,10 +1282,11 @@ func _is_point_inside_bunker(pos: Vector3) -> bool:
 	var depth: int = rock_surround.bunker_depth
 	var width: int = rock_surround.bunker_width
 
-	## Tighter margin — 0.1 cells.  A margin of 1.0 was large enough to include
-	## the exterior face of the original bunker walls, letting lights snap onto
-	## the outside of the bunker.
-	const MARGIN: float = 0.1
+	## No margin (Aug 2026) — the bunker boundary IS the wall line. Level walls
+	## now block placement via occupancy, so objects can't push past the wall;
+	## a margin here would let corners hang into the rock. (Was 0.1; originally
+	## 1.0 let lights snap onto the outside.)
+	const MARGIN: float = 0.0
 	var min_x: float = ox - MARGIN
 	var max_x: float = ox + float(depth) + MARGIN
 	var min_z: float = oz - MARGIN
@@ -2806,6 +2807,14 @@ func spawn_structure(tile_id: int, pos: Vector3, angle_deg: float, is_true_prege
 		body.set_meta("_is_pregen", true)
 		if is_true_pregen:
 			body.set_meta("_is_true_pregen", true)
+	## Measure the level structure's real footprint (walls = their 1m x 0.3m
+	## segment, pillars = 1x1) so level walls participate in occupancy with
+	## accurate clearance (Aug 2026).
+	var footprint: Vector2 = _tile_half_extents(tile_id)
+	if body != null:
+		var ba: AABB = _ghost_preview.measure_visual_aabb(body)
+		if ba != AABB():
+			footprint = Vector2(ba.size.x * 0.5, ba.size.z * 0.5)
 	_placed_objects.append({
 		"node":          body,
 		"tile_id":       tile_id,
@@ -2813,6 +2822,7 @@ func spawn_structure(tile_id: int, pos: Vector3, angle_deg: float, is_true_prege
 		"world_pos":     pos,
 		"angle_deg":     angle_deg,
 		"player_placed": false,   ## Level-spawned — locked from player modification
+		"footprint":     footprint,
 	})
 	return body
 
@@ -3381,6 +3391,18 @@ func _obb_projection(he: Vector2, rad: float, n: Vector2) -> float:
 	var uz := Vector2(sin(rad), cos(rad))
 	return he.x * absf(ux.dot(n)) + he.y * absf(uz.dot(n))
 
+func _is_grow_light_tile(tile_id: int) -> bool:
+	return tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO
+
+## Grow lights are mounted near the ceiling, so they only occupy the vertical
+## space of TALL objects: walls/pillars, the shelf family, and other grow
+## lights. Floor objects below (tables, trays, chairs, generators, storage,
+## beds, ...) don't reach their height and are ignored for collision.
+func _grow_light_blocks_entry(tile_id: int) -> bool:
+	return BunkerStructure.is_wall_or_pillar(tile_id) \
+		or tile_id == TILE_SHELVING or tile_id == TILE_SMALL_SHELF or tile_id == TILE_LARGE_SHELF \
+		or tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO
+
 func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D = null,
 		new_he: Vector2 = Vector2(-1.0, -1.0), new_angle_deg: float = -999.0) -> bool:
 	## Option A (Aug 2026) — precise OBB-overlap against every player-placed
@@ -3393,12 +3415,27 @@ func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D
 			else (_tile_half_extents(tile_id) if tile_id >= 0 else Vector2(0.40, 0.40))
 	var new_ang: float = new_angle_deg if new_angle_deg >= -360.0 else _current_angle_deg
 	var new_center := Vector2(pos.x, pos.z)
+	var is_gl_new: bool = _is_grow_light_tile(tile_id)
 	for entry: Dictionary in _placed_objects:
-		if not entry.get("player_placed", true):
-			continue
 		if exclude_node != null and entry["node"] == exclude_node:
 			continue   ## moving an object — don't block on its own footprint
 		var et: int = entry.get("tile_id", -1)
+		## Elevated grow lights only share vertical space with tall objects. If
+		## EITHER side is a grow light and the other side isn't tall, they don't
+		## collide — a grow light over a table is fine, and a table under a
+		## grow light is fine (this was the "sticky placement" bug: ceiling grow
+		## lights blocked/blocked-by every floor object below them).
+		if is_gl_new or _is_grow_light_tile(et):
+			var other: int = et if is_gl_new else tile_id
+			if not _grow_light_blocks_entry(other):
+				continue
+		## Level walls/pillars (pregen / expandable bunker boundary,
+		## player_placed=false) block placement (Aug 2026) — the 2% flush
+		## epsilon still lets objects sit edge-to-edge against them, but they
+		## can no longer be placed through them. Other level fixtures (e.g.
+		## pregen lights) don't occupy floor space and are skipped.
+		if not entry.get("player_placed", true) and not BunkerStructure.is_wall_or_pillar(et):
+			continue
 		var old_he: Vector2 = entry.get("footprint", _tile_half_extents(et)) if et >= 0 \
 				else Vector2(0.40, 0.40)
 		var p: Vector3 = entry["world_pos"]
