@@ -1355,6 +1355,7 @@ func _try_construct() -> void:
 		"world_pos":     placed_pos,
 		"angle_deg":     _current_angle_deg,
 		"player_placed": true,
+		"footprint":     _tile_half_extents(_selected_tile),
 	}
 	_placed_objects.append(entry)
 
@@ -1998,6 +1999,12 @@ func restore_placed_objects(data: Array) -> void:
 		var body: Node3D = _spawn_placed_object(tile_id, pos, angle_deg)
 		if body == null:
 			continue
+		## Measure the restored body's real footprint (walls store their run
+		## rectangle) so loaded walls keep full-length clearance.
+		var restored_fp: Vector2 = _tile_half_extents(tile_id)
+		var ba: AABB = _ghost_preview.measure_visual_aabb(body)
+		if ba != AABB():
+			restored_fp = Vector2(ba.size.x * 0.5, ba.size.z * 0.5)
 		_placed_objects.append({
 			"node":          body,
 			"tile_id":       tile_id,
@@ -2005,6 +2012,7 @@ func restore_placed_objects(data: Array) -> void:
 			"world_pos":     pos,
 			"angle_deg":     angle_deg,
 			"player_placed": true,
+			"footprint":     restored_fp,
 		})
 		var extra: Dictionary = saved.get("extra", {})
 		if tile_id in _EXTRA_STATE_TILES and not extra.is_empty():
@@ -3215,7 +3223,7 @@ func _price_for_tile(tile_id: int) -> int:
 # ─── Overlap detection ────────────────────────────────────────────────────────
 ## Tile-aware wrapper: lights use a tighter overlap radius so they can sit
 ## close together along a wall without blocking each other.
-func _is_position_occupied_for_tile(pos: Vector3, tile_id: int, exclude_node: Node3D = null) -> bool:
+func _is_position_occupied_for_tile(pos: Vector3, tile_id: int, exclude_node: Node3D = null, new_he_rotated: Vector2 = Vector2(-1.0, -1.0)) -> bool:
 	if tile_id == TILE_WATER_PURIFIER:
 		## Deliberately attaches ON TOP OF an existing pipe's collider — a
 		## generic physics-shape occupation query would always false-positive
@@ -3241,7 +3249,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int, exclude_node: No
 	## blocks ANY other object, not just same-tile matches. This replaced the
 	## old per-tile registry-only shortcuts (same-type, fixed 0.225 radius) that
 	## were hand-tuned and inconsistent.
-	return _is_position_occupied(pos, tile_id, exclude_node)
+	return _is_position_occupied(pos, tile_id, exclude_node, new_he_rotated)
 
 
 ## Forwarded to WallSnapHelpers.gd (Stage 10 slice) — called from
@@ -3293,7 +3301,11 @@ func _tile_half_extents(tile_id: int) -> Vector2:
 ## the axis-aligned box that contains the rotated model. Used for occupancy
 ## and bunker-bounds checks so a rotated object keeps accurate clearance.
 func _tile_half_extents_rotated(tile_id: int, angle_deg: float) -> Vector2:
-	var he: Vector2 = _tile_half_extents(tile_id)
+	return _rotate_he(_tile_half_extents(tile_id), angle_deg)
+
+## Axis-aligned bounds of a rectangle with half-extents `he` rotated by
+## angle_deg around Y (the AABB that contains the rotated rectangle).
+func _rotate_he(he: Vector2, angle_deg: float) -> Vector2:
 	var rad: float = deg_to_rad(angle_deg)
 	return Vector2(
 		absf(he.x * cos(rad)) + absf(he.y * sin(rad)),
@@ -3332,26 +3344,26 @@ static func _tile_half_extents_fallback(tile_id: int) -> Vector2:
 		_:             return Vector2(0.40, 0.40)  ## generic fallback
 
 
-func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D = null) -> bool:
+func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D = null, new_he_rotated: Vector2 = Vector2(-1.0, -1.0)) -> bool:
 	## Option A (Aug 2026) — model-footprint AABB overlap against every
-	## player-placed object. Each object's XZ half-extents are MEASURED from
-	## its real model (see _model_footprints) and rotated to ITS current angle;
-	## the new object uses its footprint rotated to the ghost's current angle —
-	## so clearance is always accurate, including for rotated objects. The
-	## registry only contains player-placed objects, so the GridMap floor and
-	## pregen structures never false-positive, and it blocks ANY other object,
-	## not just same-tile matches. The 2% shrink lets objects sit exactly
-	## edge-to-edge (touching) without being flagged.
-	var new_he: Vector2 = _tile_half_extents_rotated(tile_id, _current_angle_deg) if tile_id >= 0 \
-			else Vector2(0.40, 0.40)
+	## player-placed object. Each existing object uses the footprint STORED at
+	## placement (its real model extent — walls store their full run-length
+	## rectangle), rotated to ITS angle; the new object uses its footprint
+	## rotated to the ghost's current angle (or an explicit new_he_rotated
+	## override for dynamic objects like a click-drag wall). Registry-only, so
+	## the GridMap floor and pregen structures never false-positive. The 2%
+	## shrink lets objects sit exactly edge-to-edge without being flagged.
+	var new_he: Vector2 = new_he_rotated if new_he_rotated.x >= 0.0 \
+			else (_tile_half_extents_rotated(tile_id, _current_angle_deg) if tile_id >= 0 else Vector2(0.40, 0.40))
 	for entry: Dictionary in _placed_objects:
 		if not entry.get("player_placed", true):
 			continue
 		if exclude_node != null and entry["node"] == exclude_node:
 			continue   ## moving an object — don't block on its own footprint
 		var et: int = entry.get("tile_id", -1)
-		var old_he: Vector2 = _tile_half_extents_rotated(et, float(entry.get("angle_deg", 0.0))) if et >= 0 \
+		var he: Vector2 = entry.get("footprint", _tile_half_extents(et)) if et >= 0 \
 				else Vector2(0.40, 0.40)
+		var old_he: Vector2 = _rotate_he(he, float(entry.get("angle_deg", 0.0)))
 		var p: Vector3 = entry["world_pos"]
 		if absf(p.x - pos.x) < (new_he.x + old_he.x) * 0.98 \
 				and absf(p.z - pos.z) < (new_he.y + old_he.y) * 0.98:

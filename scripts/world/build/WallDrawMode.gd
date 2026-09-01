@@ -147,6 +147,24 @@ func _current_tier_height(tile_id: int) -> float:
 func _wall_footprint_half_extent() -> Vector2:
 	return Vector2(WALL_THICKNESS, WALL_THICKNESS)
 
+## The wall's full placement footprint: half-thickness across the width and
+## HALF the run length along it — the real rectangle a wall occupies. Rotated
+## to the current run angle (the AABB that contains the rotated rectangle).
+func _wall_run_footprint_rotated() -> Vector2:
+	if build_controller == null:
+		return Vector2(WALL_THICKNESS, WALL_THICKNESS)
+	var he := Vector2(WALL_THICKNESS * 0.5, _run_length * 0.5)
+	return build_controller._rotate_he(he, _run_angle_deg)
+
+## True when the wall run's full rectangle (dynamic length + width, rotated)
+## overlaps any other placed object — checked every frame for the ghost (red)
+## and again on confirm (blocked).
+func _wall_run_is_occupied() -> bool:
+	if build_controller == null or HEIGHT_TIERS.is_empty():
+		return false
+	return build_controller._is_position_occupied(
+		_midpoint(), HEIGHT_TIERS[_tier_index], null, _wall_run_footprint_rotated())
+
 ## Samples points evenly along the run (roughly one per WALL_CELL_SIZE, at
 ## least the two endpoints) so a bounds check actually covers the whole
 ## length instead of relying on 3 fixed points with an oversized radius.
@@ -191,7 +209,7 @@ func _rebuild_ghost() -> void:
 	_ghost_body.global_position  = _midpoint() + Vector3(0.0, height * 0.5, 0.0)
 	_ghost_body.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)
 
-	var valid: bool = _wall_run_is_inside_bunker()
+	var valid: bool = _wall_run_is_inside_bunker() and not _wall_run_is_occupied()
 	_apply_ghost_material(valid)
 
 	var price: int = build_controller._price_for_tile(tile_id)
@@ -233,6 +251,11 @@ func _update_idle_ghost() -> void:
 	_ghost_body.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)
 
 	var valid: bool = build_controller._is_inside_bunker(cursor, _wall_footprint_half_extent())
+	## Aug 2026 — also mark the idle sliver red if it would overlap an object.
+	var sliver_he := Vector2(WALL_THICKNESS * 0.5, IDLE_SLIVER_LENGTH * 0.5)
+	if valid:
+		valid = not build_controller._is_position_occupied(cursor, tile_id, null,
+			build_controller._rotate_he(sliver_he, _run_angle_deg))
 	_apply_ghost_material(valid)
 	if _cost_label != null:
 		_cost_label.visible = false
@@ -264,6 +287,10 @@ func _confirm_wall() -> void:
 
 	if not _wall_run_is_inside_bunker():
 		build_controller._show_hud_warning("Cannot place outside the bunker")
+		return
+
+	if _wall_run_is_occupied():
+		build_controller._show_hud_warning("Space is already occupied")
 		return
 
 	if world_node != null and not world_node.spend_cash(total_cost):
@@ -298,6 +325,7 @@ func _confirm_wall() -> void:
 		"world_pos":     _midpoint(),
 		"angle_deg":     _run_angle_deg,
 		"player_placed": true,
+		"footprint":     Vector2(WALL_THICKNESS * 0.5, _run_length * 0.5),
 	})
 
 	wall_placed.emit(body, tile_id, total_cost, _midpoint(), _run_angle_deg)

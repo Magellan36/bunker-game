@@ -246,7 +246,12 @@ func _move_confirm() -> void:
 	if _owner._move_source_body is CollisionObject3D:
 		(_owner._move_source_body as CollisionObject3D).collision_layer = 0
 
-	var occupied: bool = _owner._is_position_occupied_for_tile(new_pos, tile_id, _owner._move_source_body)
+	## Use the moved object's STORED footprint (walls store their full run
+	## rectangle), rotated to the ghost's current angle — so a long wall keeps
+	## its full-length clearance when moved, not the small tile-derived box.
+	var src_he: Vector2 = _owner._move_source_entry.get("footprint", _owner._tile_half_extents(tile_id))
+	var new_he_rot: Vector2 = _owner._rotate_he(src_he, _owner._current_angle_deg)
+	var occupied: bool = _owner._is_position_occupied_for_tile(new_pos, tile_id, _owner._move_source_body, new_he_rot)
 
 	## Restore full layer (1=player collide, 4=build hover raycast) — NOT just 4
 	if _owner._move_source_body is CollisionObject3D:
