@@ -176,6 +176,30 @@ func get_bed_stand_position() -> Vector3:
 	var local_pos: Vector3 = Vector3(0.0, 0.0, 1.0)
 	return global_transform * local_pos
 
+# ─── Player sit positioning (Aug 2026 — mirrors Chair.gd's seat API) ────────
+## The bed "sheets" position the player sits on during the animated sit-down
+## sleep sequence — the SAME machinery as the chair sit, retargeted from the
+## chair's seat to the bed's mattress. The mattress top equals the chair seat
+## height (Chair.SEAT_SURFACE_Y = 0.4971), so the controller's seated-Y math
+## is reused unchanged; only the X/Z anchor + facing differ.
+const SHEETS_SURFACE_Y: float = 0.4971   ## mattress top = chair seat height
+const SHEETS_CLEARANCE: float = 0.02     ## like Chair.SEAT_CLEARANCE
+const SHEETS_X: float = 0.414            ## 2/3 down the head (-X end) of the ~2.49m bed
+const SHEETS_EDGE_Z: float = 0.26        ## sitting on the side, pelvis slightly inward of the edge
+
+## World transform the player sits at: 2/3 down the head, on the mattress top,
+## on the side edge, facing OUTWARD (away from the bed) on whichever side they
+## came from. side = +1 → +Z side (faces +Z); -1 → -Z side (faces -Z). The
+## controller flips the seated model PI from this basis's facing (same
+## convention as Chair.get_seat_transform), so the yaw offset below makes the
+## seated model face the bed's side the player sat on.
+func get_sheets_transform(side: float) -> Transform3D:
+	var local_pos: Vector3 = Vector3(SHEETS_X, SHEETS_SURFACE_Y, side * SHEETS_EDGE_Z)
+	var world_pos: Vector3 = global_transform * local_pos
+	var yaw_offset: float = PI if side < 0.0 else 0.0
+	var sheets_basis: Basis = global_transform.basis * Basis(Vector3.UP, yaw_offset)
+	return Transform3D(sheets_basis, world_pos)
+
 ## Side-effect-free ghost mesh for build-mode previews — a box matching the
 ## scaled model footprint. Extracted from GhostPreview's inline TILE_BED
 ## branch so the fallback preview matches what the player places.

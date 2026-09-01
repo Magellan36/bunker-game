@@ -382,11 +382,20 @@ func _process(delta: float) -> void:
 
 ## True while the owning character is seated in a chair. Player exposes
 ## `seated_chair`; NPC.gd mirrors it (set by SitActivity/RelaxSitActivity).
+## Aug 2026 — ALSO true while the player is sitting on a bed (sleeping_bed set,
+## the animated sit-down sleep sequence), so the shared sit phase machine
+## drives the stand_to_sit / sit / sit_to_stand clips onto the bed the same way
+## it does onto a chair. The bed's mattress top = the chair seat height, so the
+## Y math is reused unchanged.
 func _parent_seated() -> bool:
 	if _player == null:
 		return false
 	if "seated_chair" in _player:
-		return _player.seated_chair != null
+		if _player.seated_chair != null:
+			return true
+	if "sleeping_bed" in _player:
+		if _player.sleeping_bed != null:
+			return true
 	return false
 
 ## True while the sit sequence is mid-flight (sitting down, seated, or

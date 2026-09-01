@@ -113,6 +113,12 @@ var _movement_locked: bool = false
 ## Set/cleared by MainWorld's chair seat/stand wiring (_wire_chair).
 var seated_chair: Node3D = null
 
+## Aug 2026 — the bed the player is currently sitting ON (the animated sit-down
+## sleep sequence), or null. Set/cleared by MainWorld's bed sleep/stand wiring
+## (_wire_bed), mirroring seated_chair so the shared AdventurerModelController
+## drives the sit sequence onto the bed.
+var sleeping_bed: Node3D = null
+
 func set_movement_locked(locked: bool) -> void:
 	_movement_locked = locked
 	if locked:

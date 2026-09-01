@@ -2020,6 +2020,12 @@ func _try_interact() -> void:
 		player.seated_chair.on_interact()
 		return
 
+	## Aug 2026 — same rule while sitting on a bed (animated sit-down sleep
+	## sequence): E always wakes, whatever else is nearby.
+	if player.sleeping_bed != null and is_instance_valid(player.sleeping_bed):
+		player.sleeping_bed.on_interact()
+		return
+
 	## Aug 2026 — scan itself moved into _nearest_generic_interactable()
 	## (shared with _nearest_interact_distance() and the shelf E-priority
 	## fairness check) so "what would fire" and "what actually fires" can

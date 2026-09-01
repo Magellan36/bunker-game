@@ -977,7 +977,23 @@ func _connect_bed() -> void:
 
 	# Wire SleepOverlay.sleep_ended once (shared across all beds)
 	sleep_overlay.sleep_ended.connect(func() -> void:
-		player.set_physics_process(true)
+		## Aug 2026 — animated stand-up off the bed. Clearing sleeping_bed makes
+		## the shared controller play sit_to_stand and ease seat→approach; keep
+		## the player frozen, then snap to the stand position + unfreeze when the
+		## clip finishes — mirrors _wire_chair's stand flow.
+		player.sleeping_bed = null
+		var b: Node = sleep_overlay.bed
+		var model: Node = player.get_node_or_null("PlayerModel")
+		if b != null and is_instance_valid(b) \
+				and model != null and model.has_signal("stand_animation_finished"):
+			var the_bed: Node = b
+			model.stand_animation_finished.connect(func() -> void:
+				player.global_position = the_bed.get_bed_stand_position()
+				player.set_physics_process(true)
+			, CONNECT_ONE_SHOT)
+		else:
+			## Fallback — old immediate behavior, better than getting stuck.
+			player.set_physics_process(true)
 	)
 
 	# Connect all existing beds in the "bed" group.
@@ -1003,6 +1019,25 @@ func _wire_bed(bed: Node) -> void:
 		sleep_overlay.bed = the_bed   ## keep overlay pointing at whichever bed was used
 		if the_bed.has_method("set_sleeping"):
 			the_bed.set_sleeping(true)
+		## Aug 2026 — animated sit-down onto the bed (mirrors _wire_chair's seat
+		## flow). The player sits on the bed's SIDE, facing outward on whichever
+		## side they approached from; the controller eases them from an approach
+		## point just off the bed to the sheets position over stand_to_sit.
+		## The mattress top = the chair seat height, so the controller's seated-Y
+		## math is reused unchanged.
+		var side: float = -1.0
+		if player.global_position.z >= (the_bed as Node3D).global_position.z:
+			side = 1.0
+		var t: Transform3D = the_bed.get_sheets_transform(side)
+		player.rotation.y = t.basis.get_euler().y
+		var model: Node = player.get_node_or_null("PlayerModel")
+		if model != null:
+			const APPROACH_OFFSET: float = 0.4   ## ~half a bed width — same as _wire_chair
+			var approach_pos: Vector3 = t.origin + t.basis.z * APPROACH_OFFSET
+			approach_pos.y = player.global_position.y
+			model.set("_chair_approach_pos", approach_pos)
+			model.set("_chair_seat_pos", Vector3(t.origin.x, approach_pos.y, t.origin.z))
+		player.sleeping_bed = the_bed   ## starts the controller's sitting_down phase
 		player.set_physics_process(false)
 		sleep_overlay.begin_sleep()
 	)
