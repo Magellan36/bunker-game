@@ -93,9 +93,9 @@ func get_chute_f_prompt() -> String:
 	if held == null:
 		return ""
 	if "is_trash_bag" in held:
-		return "[F] Feed Trash Bag into chute"
+		return "Feed Trash Bag into chute"
 	if held.is_in_group("inventory_item") and (held.has_method("get_trash_material") or held.has_method("get_research_yield")):
-		return "[F] Feed item into chute"
+		return "Feed item into chute"
 	return ""
 
 func on_chute_f_interact() -> bool:

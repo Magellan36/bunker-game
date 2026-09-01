@@ -21,8 +21,9 @@ extends CanvasLayer
 
 # ─── Template panel ───────────────────────────────────────────────────────────
 @onready var _template_panel:    PanelContainer  = $Panel
-@onready var _template_label:    RichTextLabel   = $Panel/VBox/Label
+@onready var _template_label:    RichTextLabel   = $Panel/VBox/HBox/Label
 @onready var _template_icon_row: Control          = $Panel/VBox/IconRow
+@onready var _template_hold_icon: Control         = $Panel/VBox/HBox/HoldIcon
 
 ## Vertical world-space offset so the panel floats above the object origin
 const WORLD_OFFSET: Vector3 = Vector3(0.0, 1.2, 0.0)
@@ -157,11 +158,30 @@ func _process(_delta: float) -> void:
 		if dist > FADE_START:
 			alpha = clampf(1.0 - (dist - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0)
 
-		var lbl: RichTextLabel = p.get_node_or_null("VBox/Label") as RichTextLabel
+		var lbl: RichTextLabel = p.get_node_or_null("VBox/HBox/Label") as RichTextLabel
 		var txt: String = entry.get("text", "")
 		var rendered: String = _prompt_to_bbcode(txt)
 		if lbl != null and lbl.text != rendered:
 			lbl.text = rendered
+
+		## Hold-to-fire icon + fill ring (Aug 2026) — the Research Station
+		## chute's hold-to-feed prompt. When an entry carries a
+		## "hold_progress" key, show the F/X button icon with a white ring
+		## that sweeps clockwise as the player holds; hidden for every other
+		## prompt.
+		var hold_icon: Control = p.get_node_or_null("VBox/HBox/HoldIcon") as Control
+		if hold_icon != null:
+			if entry.has("hold_progress"):
+				hold_icon.visible = true
+				hold_icon.call("set_progress", clampf(float(entry["hold_progress"]), 0.0, 1.0))
+				var hold_prefix: Control = p.get_node_or_null("VBox/HBox/HoldPrefix") as Control
+				if hold_prefix != null:
+					hold_prefix.visible = true
+			else:
+				hold_icon.visible = false
+				var hold_prefix: Control = p.get_node_or_null("VBox/HBox/HoldPrefix") as Control
+				if hold_prefix != null:
+					hold_prefix.visible = false
 
 		var icons: Array = entry.get("icons", [])
 		var icon_row: Control = p.get_node_or_null("VBox/IconRow") as Control

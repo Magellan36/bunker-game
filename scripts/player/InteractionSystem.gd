@@ -60,6 +60,21 @@ var _held_from_slot: int = -1
 ## FuelCan.refuel_tick(). It no longer gates any store behavior (see G).
 var _is_holding_e: bool = false
 
+## ── Research Station chute hold-to-feed (Aug 2026) ─────────────────────────
+## Feeding an item into the chute is a HOLD, not a tap: pressing F/X while
+## holding a feedable item near the chute starts a CHUTE_TAP_WINDOW tap window
+## (release within it = the normal F action: shelf-store/drop), then the press
+## is considered "held" and a CHUTE_HOLD_DURATION ring-fill completes the
+## feed. This prevents accidental feeds when the player taps F/X near the
+## chute intending to drop/pick up instead. Only the chute-feed case is gated —
+## every other F/X use stays press-to-fire.
+enum ChuteFeedState { IDLE, TAP_PENDING, HOLDING }
+const CHUTE_TAP_WINDOW:   float = 0.5   ## grace before the press is "held"
+const CHUTE_HOLD_DURATION: float = 1.0   ## ring fill to completion (after the tap window)
+var _chute_feed_state: int = ChuteFeedState.IDLE
+var _chute_feed_elapsed: float = 0.0
+var _chute_feed_target: Node3D = null
+
 ## Currently selected inventory slot (-1 = none)
 var selected_slot: int = -1
 
@@ -253,6 +268,11 @@ func _on_body_exited(body: Node3D) -> void:
 		body.set_player_in_range(false)
 
 func _process(delta: float) -> void:
+	## Chute-feed tap/hold timer (Aug 2026) — advances the hold, exposes
+	## progress to the prompt, and fires the feed on completion. Runs first so
+	## the early-return branches below (build mode / job / UI open) also cancel
+	## an in-progress hold via the tick's own cancel conditions.
+	_tick_chute_feed_hold(delta)
 	if build_mode_active:
 		return   ## Aug 2026 — BuildModeController now owns the prompt display
 				 ## entirely during build mode (Build Station exit prompt).
@@ -280,6 +300,64 @@ func _process(delta: float) -> void:
 		if held_item != _medical_submenu_item or not is_instance_valid(_medical_submenu_item):
 			_close_medical_submenu()
 	_update_prompt()
+
+## True only when the held item + proximity make the Research Station chute
+## the ACTUAL F target — the chute is the only non-shelf F-capable body with a
+## non-empty prompt while holding (a shelf always wins the held-item F
+## priority first, so the hold only ever gates the genuine chute-feed case).
+func _chute_feed_condition() -> bool:
+	if held_item == null:
+		return false
+	if _nearest_shelf() != null:
+		return false
+	return _nearest_f_interactable() != null
+
+## F/X release — a release within the tap window runs the normal F action
+## (shelf-store else drop); a release after the hold armed cancels with no
+## action.
+func _finish_chute_feed_press() -> void:
+	if _chute_feed_state == ChuteFeedState.IDLE:
+		return
+	var was_tap: bool = _chute_feed_state == ChuteFeedState.TAP_PENDING \
+			and _chute_feed_elapsed < CHUTE_TAP_WINDOW
+	_chute_feed_state = ChuteFeedState.IDLE
+	_chute_feed_elapsed = 0.0
+	_chute_feed_target = null
+	if was_tap and held_item != null:
+		var shelf: Node3D = _nearest_shelf()
+		if shelf != null and shelf.has_method("on_f_interact"):
+			shelf.on_f_interact()
+		elif held_item != null:
+			_quick_drop()
+
+## Advances the chute-feed tap/hold timer every frame. Cancels if a
+## higher-priority state took over, the button was released, or the feed
+## condition broke (walked away / item changed). At the end of the tap window
+## the ring arms; at the end of the hold duration the feed fires.
+func _tick_chute_feed_hold(delta: float) -> void:
+	if _chute_feed_state == ChuteFeedState.IDLE:
+		return
+	if build_mode_active or not _active_job.is_empty() \
+			or _shelf_ui_open() or _basket_ui_open() or _research_ui_open() \
+			or _npc_ui_open() or _any_controller_ui_open() \
+			or not Input.is_action_pressed("pickup") or not _chute_feed_condition():
+		_chute_feed_state = ChuteFeedState.IDLE
+		_chute_feed_elapsed = 0.0
+		_chute_feed_target = null
+		return
+	_chute_feed_elapsed += delta
+	if _chute_feed_state == ChuteFeedState.TAP_PENDING:
+		if _chute_feed_elapsed >= CHUTE_TAP_WINDOW:
+			_chute_feed_state = ChuteFeedState.HOLDING
+			_chute_feed_elapsed = 0.0
+	elif _chute_feed_state == ChuteFeedState.HOLDING:
+		if _chute_feed_elapsed >= CHUTE_HOLD_DURATION:
+			var target: Node3D = _chute_feed_target
+			_chute_feed_state = ChuteFeedState.IDLE
+			_chute_feed_elapsed = 0.0
+			_chute_feed_target = null
+			if target != null and is_instance_valid(target) and target.has_method("on_f_interact"):
+				target.on_f_interact()
 
 ## Continuously transfers fuel while the player holds E with a fuel can in hand.
 ## Fires every frame E is held; FuelCan.refuel_tick() handles the actual transfer.
@@ -408,6 +486,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _shelf_ui_open():
 			get_viewport().set_input_as_handled()
 			return
+		## Research Station chute feed is hold-to-fire (Aug 2026) — see the
+		## ChuteFeedState header. When holding a feedable item with the chute
+		## as the actual F target, swallow the press and start the tap/hold
+		## timer instead of feeding instantly. A tap (release within
+		## CHUTE_TAP_WINDOW) runs the normal F action on release.
+		if _chute_feed_condition():
+			_chute_feed_state = ChuteFeedState.TAP_PENDING
+			_chute_feed_elapsed = 0.0
+			_chute_feed_target = _nearest_f_interactable()
+			get_viewport().set_input_as_handled()
+			return
 		var shelf: Node3D = _nearest_shelf()
 		if held_item != null:
 			## Cooking Pot held + a nearby open Stove → [F] places it there.
@@ -479,6 +568,11 @@ func _unhandled_input(event: InputEvent) -> void:
 					_try_pickup_pot_from_stove(host_stove)
 					return
 			_try_pickup()
+
+	## F/X release — finalize any in-progress chute-feed tap/hold.
+	if event.is_action_released("pickup"):
+		if _chute_feed_state != ChuteFeedState.IDLE:
+			_finish_chute_feed_press()
 
 	# E — use held item (instant tap) / shelf open / world interact.
 	# Pure tap: fires immediately on press, no hold-to-store behavior.
@@ -1055,7 +1149,15 @@ func _update_prompt() -> void:
 				var f_pos: Vector3 = f_body.global_position
 				if f_body.has_method("get_prompt_world_pos"):
 					f_pos = f_body.get_prompt_world_pos()
-				entries.append({ "text": f_line, "world_pos": f_pos, "dist": 0.0 })
+				var f_entry: Dictionary = { "text": f_line, "world_pos": f_pos, "dist": 0.0 }
+				## Hold-to-feed ring (Aug 2026) — the chute prompt carries a
+				## hold_progress (0 = icon only, 1 = complete) so InteractPrompt
+				## draws the fill ring around the F/X icon during the hold.
+				if f_body is ResearchStationChute:
+					f_entry["hold_progress"] = (
+						clampf(_chute_feed_elapsed / CHUTE_HOLD_DURATION, 0.0, 1.0)
+						if _chute_feed_state == ChuteFeedState.HOLDING else 0.0)
+				entries.append(f_entry)
 
 		# Basket held → "[E] Add to Basket" over each nearby storable item.
 		# CASE 2 further down never runs while something is held (this whole
@@ -1993,5 +2095,44 @@ func _quick_drop() -> void:
 	## like CookingPot, its icon row — stayed invisible until the player
 	## actually walked out of range and back in. Mirrors the explicit
 	## _tracked_bodies.erase() already done at pickup, just in reverse.
+	if is_instance_valid(dropped_item):
+		_tracked_bodies[dropped_item] = true
+
+# ─── Drop In Place (Aug 2026) ────────────────────────────────────────────
+## Same shape as _quick_drop() above (knocked_out cleanup, inventory-slot
+## clear via remove_item() when it came from one, re-tracking the dropped
+## body) with exactly ONE difference: drop_pos is the item's own CURRENT
+## position (wherever the hold point currently has it) rather than a
+## freshly computed spot ~1.5m in front of the player. _quick_drop()'s
+## forward-offset placement is meant for a deliberate player action (F
+## with nothing to interact, G with a full inventory, scroll-to-full-
+## inventory, etc.) where snapping to a clear spot in front of the player
+## reads as intentional. For an INVOLUNTARY drop (stamina hitting 0), the
+## item should simply fall out of the player's hand where it already is,
+## not visibly hop to a new location — see Player.gd's stamina-exhaustion
+## drop, the only current caller.
+func drop_in_place() -> void:
+	if held_item == null:
+		return
+
+	_is_holding_e = false
+
+	if held_item.knocked_out.is_connected(_on_item_knocked_out):
+		held_item.knocked_out.disconnect(_on_item_knocked_out)
+
+	var drop_pos: Vector3 = held_item.global_position   ## wherever it's currently held — no reposition
+
+	var dropped_item: RigidBody3D = held_item   ## captured before nulling below
+
+	if _held_from_slot != -1 and inventory != null:
+		inventory.remove_item(_held_from_slot, drop_pos)
+	else:
+		held_item.drop(_world_root, drop_pos)
+
+	held_item = null
+	_held_from_slot = -1
+
+	## Mirrors _quick_drop()'s own re-tracking fix — see that function's
+	## comment for why this is needed.
 	if is_instance_valid(dropped_item):
 		_tracked_bodies[dropped_item] = true
