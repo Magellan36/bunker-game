@@ -508,6 +508,11 @@ func _ready() -> void:
 	_grid_size_icon.offset_top   = 60.0
 	_grid_size_icon.offset_right = -12.0
 	_grid_size_icon.offset_bottom = 60.0 + GRID_ICON_SIZE
+	## Default TextureRect behavior (EXPAND_KEEP_SIZE) forces the control to the
+	## texture's 995px minimum size and draws it at native scale — the huge icons
+	## in-game. Ignore the texture size and scale it into the 36px rect.
+	_grid_size_icon.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	_grid_size_icon.stretch_mode = TextureRect.STRETCH_SCALE
 	_grid_size_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_grid_size_icon)
 
