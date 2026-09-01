@@ -35,17 +35,50 @@ func _draw() -> void:
 		draw_texture_rect(tex, Rect2(center - ICON_SIZE * 0.5, ICON_SIZE), false)
 	if progress <= 0.0:
 		return
+	## Both rings are drawn as FILLED BANDS (a polygon between the outer and
+	## inner outline of the swept fraction), NOT as thick line segments. The
+	## previous approach drew 2.5px-wide lines between perimeter points only
+	## ~1px apart — adjacent thick strokes overlapped into a solid white blob,
+	## flickering depending on the fill fraction. A filled band is clean at
+	## every progress value.
 	if controller:
-		draw_arc(center, X_BUTTON_RADIUS, -PI / 2.0, -PI / 2.0 + TAU * progress,
-			48, Color.WHITE, RING_THICKNESS, true)
+		_draw_circle_band(center, X_BUTTON_RADIUS, progress)
 	else:
-		## Rounded-square F keycap ring — drawn as per-segment lines: Godot's
-		## draw_polyline renders thick+antialiased polylines as a filled blob
-		## (the white square bug), while per-segment draw_line is reliable.
-		var pts: PackedVector2Array = _rounded_square_perimeter(center, F_HALF, F_CORNER_R)
-		var n: int = maxi(2, int(round(float(pts.size()) * progress)))
-		for i in range(n - 1):
-			draw_line(pts[i], pts[i + 1], Color.WHITE, RING_THICKNESS, true)
+		_draw_rounded_square_band(center, F_HALF, F_CORNER_R, progress)
+
+## Filled circular ring hugging the X button — an annular sector sweeping
+## clockwise from 12 o'clock.
+func _draw_circle_band(center: Vector2, radius: float, frac: float) -> void:
+	if frac <= 0.0:
+		return
+	var outer_r: float = radius + RING_THICKNESS * 0.5
+	var inner_r: float = radius - RING_THICKNESS * 0.5
+	const SEGS: int = 48
+	var sweep: float = TAU * frac
+	var pts := PackedVector2Array()
+	for i in SEGS + 1:
+		var a: float = -PI / 2.0 + sweep * float(i) / float(SEGS)
+		pts.append(center + Vector2(cos(a), sin(a)) * outer_r)
+	for i in SEGS + 1:
+		var a: float = -PI / 2.0 + sweep * float(SEGS - i) / float(SEGS)
+		pts.append(center + Vector2(cos(a), sin(a)) * inner_r)
+	draw_colored_polygon(pts, Color.WHITE)
+
+## Filled rounded-square ring hugging the F keycap — the swept fraction of the
+## band between the outer and inner rounded-square outlines, clockwise from
+## 12 o'clock.
+func _draw_rounded_square_band(center: Vector2, half: float, cr: float, frac: float) -> void:
+	if frac <= 0.0:
+		return
+	var outer: PackedVector2Array = _rounded_square_perimeter(center, half + RING_THICKNESS * 0.5, cr + RING_THICKNESS * 0.5)
+	var inner: PackedVector2Array = _rounded_square_perimeter(center, half - RING_THICKNESS * 0.5, cr - RING_THICKNESS * 0.5)
+	var n: int = maxi(2, int(round(float(outer.size()) * frac)))
+	var pts := PackedVector2Array()
+	for i in n:
+		pts.append(outer[i])
+	for i in range(n - 1, -1, -1):
+		pts.append(inner[i])
+	draw_colored_polygon(pts, Color.WHITE)
 
 ## Perimeter points of a rounded square, ordered clockwise starting at 12
 ## o'clock (top-center) — taking the first `progress` fraction of these and
