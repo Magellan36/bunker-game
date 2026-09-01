@@ -3353,7 +3353,7 @@ static func _tile_half_extents_fallback(tile_id: int) -> Vector2:
 	match tile_id:
 		TILE_WALL:     return Vector2(0.44, 0.44)  ## 1×1 cell — tightened from 0.48 to allow flush placement against pregen walls
 		TILE_PILLAR:   return Vector2(0.24, 0.24)  ## 0.5×0.5
-		TILE_BED:      return Vector2(0.95, 0.48)  ## 2×1
+		TILE_BED:      return Vector2(1.235, 0.505)  ## ~2.47 x 1.01 scaled model footprint (half extents)
 		TILE_SHELVING: return Vector2(0.48, 0.18)  ## 1×0.4 (Medium — 1.25 wide × 0.625 deep)
 		TILE_SMALL_SHELF: return Vector2(0.48, 0.18)  ## Same as Medium — narrower unit but same depth
 		TILE_LARGE_SHELF: return Vector2(0.77, 0.18)  ## Wider (2.00 wide, ×0.384 of Medium's 0.48 ratio — was 0.65 at 1.70 wide)

@@ -1,9 +1,20 @@
 extends StaticBody3D
 class_name Bed
 ## Bed.gd
-## Interactable bed. Player presses E nearby to sleep.
+## Interactable bed. Player presses E nearby to sleep; E again to get up.
 ## Signals SleepOverlay to handle the fade + time-skip.
-## Place on a StaticBody3D with a MeshInstance3D and CollisionShape3D child.
+##
+## Aug 2026 — model swap: the procedural box/cylinder frame is replaced by a
+## real Tinkercad OBJ bed model. There are 4 color variants; a REAL placed bed
+## picks one at random, while build-mode previews (`_is_preview_only`) always
+## show the first variant so the placement ghost is stable instead of
+## flickering through colors on every rebuild.
+##
+## Scale: the model is authored so its mattress top ("sheets" — the surface
+## the player sits on) lands at the CHAIR's seat height (Chair.SEAT_SURFACE_Y
+## = 0.4971), so the sit animation needs no Y adjustment between chair and bed.
+## Measured via a vertex-surface probe: the model's mattress top sits ~4.4
+## units up in its upright frame, so MODEL_SCALE = 0.4971 / 4.4.
 
 # ─── Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
 ## construct-tab preview code BEFORE add_child(), so this instance builds
@@ -27,11 +38,59 @@ signal wake_requested()
 var _player_in_range: bool = false
 var _player_sleeping: bool = false
 
+## Aug 2026 — the four Tinkercad bed color variants (dark brown / dark green /
+## dark red / light blue), each a flat-color OBJ with its own MTL.
+const MODEL_PATHS: Array[String] = [
+	"res://assets/models/bed/bed_dark_brown.obj",
+	"res://assets/models/bed/bed_dark_green.obj",
+	"res://assets/models/bed/bed_dark_red.obj",
+	"res://assets/models/bed/bed_light_blue.obj",
+]
+
+## Scale so the mattress top ("sheets", ~4.4 units up in the upright OBJ) lands
+## at the chair seat height (Chair.SEAT_SURFACE_Y = 0.4971). The scaled bed is
+## ~2.47m long x 1.01m wide, headboard to ~0.78m.
+const MODEL_SCALE: float = 0.4971 / 4.4
+
 func _ready() -> void:
-	if _is_preview_only:
+	if not _is_preview_only:
+		add_to_group("interactable")
+		add_to_group("bed")   ## Used by MainWorld._connect_bed() to wire all placed beds
+		collision_layer = 5   ## bits 1+3 — solid to player/NPC, hoverable in build mode
+		collision_mask = 0
+	_build_mesh()
+
+## Solid collision matching the scaled model footprint — a LOWER box covering
+## the frame/legs (blocks walking through the bed) while leaving the mattress
+## top free for the sit/lie position (NPCs lie just above it; the sit animation
+## drives position with physics frozen anyway).
+const COLLISION_HEIGHT: float = 0.30
+
+## Builds the real model + collision. Previews use the first variant (stable
+## ghost); real placed beds pick a random color.
+func _build_mesh() -> void:
+	var idx: int = 0 if _is_preview_only else randi() % MODEL_PATHS.size()
+	var mesh: ArrayMesh = load(MODEL_PATHS[idx]) as ArrayMesh
+	if mesh == null:
+		push_warning("Bed.gd: model missing at %s" % MODEL_PATHS[idx])
 		return
-	add_to_group("interactable")
-	add_to_group("bed")   ## Used by MainWorld._connect_bed() to wire all placed beds
+	var mi := MeshInstance3D.new()
+	mi.name = "Model"
+	mi.mesh = mesh
+	## Tinkercad OBJs export height along Z — rotate upright (same convention
+	## the produce/medical Tinkercad models use). The model is centered in X/Z
+	## and grounded at Y=0 after this rotation, so no position offset is needed.
+	mi.rotation.x = -PI * 0.5
+	mi.scale = Vector3.ONE * MODEL_SCALE
+	add_child(mi)
+
+	var scaled_aabb: AABB = mi.transform * mesh.get_aabb()
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(scaled_aabb.size.x, COLLISION_HEIGHT, scaled_aabb.size.z)
+	cs.position = Vector3(0.0, COLLISION_HEIGHT * 0.5, 0.0)
+	cs.shape = box
+	add_child(cs)
 
 # ─── Called by InteractionSystem on E press ──────────────────────────────────
 func on_interact() -> void:
@@ -71,19 +130,15 @@ func npc_stand(npc: Node) -> void:
 	if _npc_sleeper == npc:
 		_npc_sleeper = null
 
-## Approximate mattress-top height above this node's own origin (which sits
-## at the standard floor-furniture placement convention, ~0.5) — a first-pass
-## estimate; visually retune if the NPC appears to float above or sink
-## through the mattress (see Chair.gd's SEAT_Y for precedent — it needed the
-## same kind of after-the-fact adjustment).
-const LIE_SURFACE_Y: float = 0.5
-const LIE_SINK: float = 0.15   ## slight recess into the mattress, mirrors the old Chair.SIT_SINK (removed — the chair now anchors at the seat surface)
+## Approximate mattress-top height above this node's origin (the scaled
+## mattress top = the chair seat height). NPCs lie sunk slightly into it.
+const LIE_SURFACE_Y: float = 0.4971
+const LIE_SINK: float = 0.15   ## slight recess into the mattress
 
 ## World transform an NPC should be moved to while lying down: sunk slightly
 ## into the mattress, and rotated 90° around the bed's local Z so the
 ## capsule lies flat along the bed's long (local X) axis instead of
-## standing upright. If it ends up lying the wrong way once visually
-## checked, flip the sign on the rotation angle below.
+## standing upright.
 func get_lie_transform() -> Transform3D:
 	var local_pos: Vector3 = Vector3(0.0, LIE_SURFACE_Y - LIE_SINK, 0.0)
 	var world_pos: Vector3 = global_transform * local_pos
@@ -95,15 +150,14 @@ func get_bed_stand_position() -> Vector3:
 	var local_pos: Vector3 = Vector3(0.0, 0.0, 1.0)
 	return global_transform * local_pos
 
-## Side-effect-free ghost mesh for build-mode previews — extracted
-## verbatim from GhostPreview.gd's inline TILE_BED branch so the preview
-## matches what the player actually places. No registration, no signals,
-## no groups — just a plain Mesh.
+## Side-effect-free ghost mesh for build-mode previews — a box matching the
+## scaled model footprint. Extracted from GhostPreview's inline TILE_BED
+## branch so the fallback preview matches what the player places.
 static func build_ghost_mesh() -> Mesh:
 	var st: SurfaceTool = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var W: float = 2.5; var H: float = 0.5; var D: float = 1.0
-	# Build a simple box centred at (0, H/2, 0)
+	## Scaled model footprint: ~2.47 long x ~0.5 tall x ~1.01 wide.
+	var W: float = 2.47; var H: float = 0.5; var D: float = 1.01
 	var hx: float = W * 0.5; var hy: float = H * 0.5; var hz: float = D * 0.5
 	var verts: Array[Array] = [
 		[Vector3(-hx, -hy, -hz), Vector3(-hx, hy, -hz), Vector3(hx, hy, -hz), Vector3(-hx, -hy, -hz), Vector3(hx, hy, -hz), Vector3(hx, -hy, -hz)],   ## -Z face
