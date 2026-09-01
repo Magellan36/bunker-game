@@ -1039,6 +1039,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if build_hud != null and build_hud.dig_confirm_open:
 		return
 
+	## CTRL+Z — undo (Aug 2026), mirrors the Undo toolbar button. Same
+	## behavior: fires the undo and keeps the placement ghost up. Checked
+	## before any action dispatch so it works in every tool.
+	if event is InputEventKey and event.pressed and not event.echo \
+			and event.ctrl_pressed and event.keycode == KEY_Z:
+		_on_undo_requested()
+		get_viewport().set_input_as_handled()
+		return
+
 	## Build Station exit — E / A closes build mode, ALWAYS taking priority
 	## over every other build-mode action (placing, drawing, tool actions)
 	## while the player is within reach of the station. Checked FIRST, before
