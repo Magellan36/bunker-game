@@ -213,18 +213,29 @@ static func apply_mood_override(mi: MeshInstance3D, dark: float = 0.6, desat: fl
 	if mi == null or mi.mesh == null:
 		return
 	for s: int in mi.mesh.get_surface_count():
-		var base: Color = Color(1.0, 1.0, 1.0, 1.0)
-		var existing: Material = mi.mesh.surface_get_material(s)
-		if existing is StandardMaterial3D:
-			base = (existing as StandardMaterial3D).albedo_color
-		var c: Color = Color(base.r * dark, base.g * dark, base.b * dark, 1.0)
-		var lum: float = c.get_luminance()
-		c = c.lerp(Color(lum, lum, lum, 1.0), desat)
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = c
-		mat.roughness = roughness
-		mat.metallic  = 0.0
-		mi.set_surface_override_material(s, mat)
+		apply_surface_override(mi, s, dark, desat, roughness, 0.0)
+
+## Per-SURFACE mood override with full control over dark/desat/roughness/
+## metallic — for models whose parts need different treatments (e.g. the bed's
+## grey frame is darker/rougher/metallic while the mattress accent keeps the
+## standard filter). Reads the surface's base albedo off the shared imported
+## material and writes a fresh StandardMaterial3D as the instance override.
+static func apply_surface_override(mi: MeshInstance3D, surface: int,
+		dark: float, desat: float, roughness: float, metallic: float) -> void:
+	if mi == null or mi.mesh == null or surface < 0 or surface >= mi.mesh.get_surface_count():
+		return
+	var base: Color = Color(1.0, 1.0, 1.0, 1.0)
+	var existing: Material = mi.mesh.surface_get_material(surface)
+	if existing is StandardMaterial3D:
+		base = (existing as StandardMaterial3D).albedo_color
+	var c: Color = Color(base.r * dark, base.g * dark, base.b * dark, 1.0)
+	var lum: float = c.get_luminance()
+	c = c.lerp(Color(lum, lum, lum, 1.0), desat)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = c
+	mat.roughness = roughness
+	mat.metallic  = metallic
+	mi.set_surface_override_material(surface, mat)
 
 ## Builds a CollisionShape3D from a model's visual AABB (in body space) for a
 ## given kind — "cylinder" is a vertical (Y-axis) cylinder sized to the AABB

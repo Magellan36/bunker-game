@@ -68,6 +68,17 @@ func _ready() -> void:
 ## drives position with physics frozen anyway).
 const COLLISION_HEIGHT: float = 0.30
 
+## Per-part material tuning (Aug 2026). The bed's GREY surfaces are the metal
+## frame — given a darker, rougher, METALLIC look (dark brushed metal). The
+## saturated accent surfaces (the mattress color, brown/green/red/blue) keep
+## the standard produce mood filter. A surface is "frame" when its base MTL
+## color is near-grey (low saturation).
+const FRAME_DARK: float = 0.45
+const FRAME_DESAT: float = 0.15
+const FRAME_ROUGHNESS: float = 0.9
+const FRAME_METALLIC: float = 0.7
+const FRAME_SAT_THRESHOLD: float = 0.15   ## max-min saturation below this = grey/frame
+
 ## Builds the real model + collision. Previews use the first variant (stable
 ## ghost); real placed beds pick a random color.
 func _build_mesh() -> void:
@@ -85,11 +96,19 @@ func _build_mesh() -> void:
 	mi.rotation.x = -PI * 0.5
 	mi.scale = Vector3.ONE * MODEL_SCALE
 	add_child(mi)
-	## Same dim/desat/matte filter the produce + medical Tinkercad models use
-	## (dims albedo to 0.6, desaturates 12%, roughness 0.8, no metallic) so the
-	## toy-bright Tinkercad colors sit in the bunker's muted look. Per-instance
-	## overrides — never mutates the shared imported mesh materials.
-	BuildMaterials.apply_mood_override(mi)
+	## Per-part filter: grey surfaces = metal frame (darker/rougher/metallic),
+	## saturated surfaces = mattress accent (standard produce mood filter).
+	## Per-instance overrides — never mutates the shared imported materials.
+	for s: int in mesh.get_surface_count():
+		var base: Color = Color(1.0, 1.0, 1.0, 1.0)
+		var existing: Material = mesh.surface_get_material(s)
+		if existing is StandardMaterial3D:
+			base = (existing as StandardMaterial3D).albedo_color
+		var sat: float = maxf(maxf(base.r, base.g), base.b) - minf(minf(base.r, base.g), base.b)
+		if sat < FRAME_SAT_THRESHOLD:
+			BuildMaterials.apply_surface_override(mi, s, FRAME_DARK, FRAME_DESAT, FRAME_ROUGHNESS, FRAME_METALLIC)
+		else:
+			BuildMaterials.apply_surface_override(mi, s, 0.6, 0.12, 0.8, 0.0)
 
 	var scaled_aabb: AABB = mi.transform * mesh.get_aabb()
 	var cs := CollisionShape3D.new()
