@@ -3223,7 +3223,8 @@ func _price_for_tile(tile_id: int) -> int:
 # ─── Overlap detection ────────────────────────────────────────────────────────
 ## Tile-aware wrapper: lights use a tighter overlap radius so they can sit
 ## close together along a wall without blocking each other.
-func _is_position_occupied_for_tile(pos: Vector3, tile_id: int, exclude_node: Node3D = null, new_he_rotated: Vector2 = Vector2(-1.0, -1.0)) -> bool:
+func _is_position_occupied_for_tile(pos: Vector3, tile_id: int, exclude_node: Node3D = null,
+		new_he: Vector2 = Vector2(-1.0, -1.0), new_angle_deg: float = -999.0) -> bool:
 	if tile_id == TILE_WATER_PURIFIER:
 		## Deliberately attaches ON TOP OF an existing pipe's collider — a
 		## generic physics-shape occupation query would always false-positive
@@ -3249,7 +3250,7 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int, exclude_node: No
 	## blocks ANY other object, not just same-tile matches. This replaced the
 	## old per-tile registry-only shortcuts (same-type, fixed 0.225 radius) that
 	## were hand-tuned and inconsistent.
-	return _is_position_occupied(pos, tile_id, exclude_node, new_he_rotated)
+	return _is_position_occupied(pos, tile_id, exclude_node, new_he, new_angle_deg)
 
 
 ## Forwarded to WallSnapHelpers.gd (Stage 10 slice) — called from
@@ -3344,29 +3345,61 @@ static func _tile_half_extents_fallback(tile_id: int) -> Vector2:
 		_:             return Vector2(0.40, 0.40)  ## generic fallback
 
 
-func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D = null, new_he_rotated: Vector2 = Vector2(-1.0, -1.0)) -> bool:
-	## Option A (Aug 2026) — model-footprint AABB overlap against every
-	## player-placed object. Each existing object uses the footprint STORED at
-	## placement (its real model extent — walls store their full run-length
-	## rectangle), rotated to ITS angle; the new object uses its footprint
-	## rotated to the ghost's current angle (or an explicit new_he_rotated
-	## override for dynamic objects like a click-drag wall). Registry-only, so
-	## the GridMap floor and pregen structures never false-positive. The 2%
-	## shrink lets objects sit exactly edge-to-edge without being flagged.
-	var new_he: Vector2 = new_he_rotated if new_he_rotated.x >= 0.0 \
-			else (_tile_half_extents_rotated(tile_id, _current_angle_deg) if tile_id >= 0 else Vector2(0.40, 0.40))
+## 2D separating-axis (SAT) overlap test for two oriented rectangles in the
+## XZ plane. Each rectangle: center (XZ), half-extents (X,Z), Y-rotation deg.
+## Precise — a diagonal wall is its THIN rectangle, not its fat bounding
+## square (which is what axis-aligned extents produced). Both are shrunk 2% so
+## exact edge-to-edge (touching) placement isn't flagged as overlapping.
+func _obb_overlap_2d(c1: Vector2, he1: Vector2, a1: float,
+		c2: Vector2, he2: Vector2, a2: float) -> bool:
+	var rad1: float = deg_to_rad(a1)
+	var rad2: float = deg_to_rad(a2)
+	## Candidate separating axes: each rectangle's local X and Z axes.
+	var axes: Array[Vector2] = [
+		Vector2(cos(rad1), sin(rad1)),
+		Vector2(-sin(rad1), cos(rad1)),
+		Vector2(cos(rad2), sin(rad2)),
+		Vector2(-sin(rad2), cos(rad2)),
+	]
+	for axis in axes:
+		var n: Vector2 = axis.normalized()
+		var p1: float = _obb_projection(he1, rad1, n)
+		var p2: float = _obb_projection(he2, rad2, n)
+		var diff: float = (c2 - c1).dot(n)
+		if absf(diff) > (p1 + p2) * 0.98:
+			return false   ## separating axis found
+	return true
+
+## Half-width of a rectangle's projection onto axis n (given its local
+## half-extents and Y-rotation).
+func _obb_projection(he: Vector2, rad: float, n: Vector2) -> float:
+	var ux := Vector2(cos(rad), sin(rad))
+	var uz := Vector2(-sin(rad), cos(rad))
+	return he.x * absf(ux.dot(n)) + he.y * absf(uz.dot(n))
+
+func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D = null,
+		new_he: Vector2 = Vector2(-1.0, -1.0), new_angle_deg: float = -999.0) -> bool:
+	## Option A (Aug 2026) — precise OBB-overlap against every player-placed
+	## object, using each object's stored footprint (walls store their full
+	## run rectangle) and ITS angle. The new object uses its footprint and the
+	## ghost's current angle (or an explicit override for dynamic objects like
+	## a click-drag wall). Registry-only, so the GridMap floor and pregen
+	## structures never false-positive.
+	var new_fp: Vector2 = new_he if new_he.x >= 0.0 \
+			else (_tile_half_extents(tile_id) if tile_id >= 0 else Vector2(0.40, 0.40))
+	var new_ang: float = new_angle_deg if new_angle_deg >= -360.0 else _current_angle_deg
+	var new_center := Vector2(pos.x, pos.z)
 	for entry: Dictionary in _placed_objects:
 		if not entry.get("player_placed", true):
 			continue
 		if exclude_node != null and entry["node"] == exclude_node:
 			continue   ## moving an object — don't block on its own footprint
 		var et: int = entry.get("tile_id", -1)
-		var he: Vector2 = entry.get("footprint", _tile_half_extents(et)) if et >= 0 \
+		var old_he: Vector2 = entry.get("footprint", _tile_half_extents(et)) if et >= 0 \
 				else Vector2(0.40, 0.40)
-		var old_he: Vector2 = _rotate_he(he, float(entry.get("angle_deg", 0.0)))
 		var p: Vector3 = entry["world_pos"]
-		if absf(p.x - pos.x) < (new_he.x + old_he.x) * 0.98 \
-				and absf(p.z - pos.z) < (new_he.y + old_he.y) * 0.98:
+		if _obb_overlap_2d(Vector2(p.x, p.z), old_he, float(entry.get("angle_deg", 0.0)),
+				new_center, new_fp, new_ang):
 			return true
 	return false
 

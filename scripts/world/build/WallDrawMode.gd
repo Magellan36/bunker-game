@@ -148,22 +148,21 @@ func _wall_footprint_half_extent() -> Vector2:
 	return Vector2(WALL_THICKNESS, WALL_THICKNESS)
 
 ## The wall's full placement footprint: half-thickness across the width and
-## HALF the run length along it — the real rectangle a wall occupies. Rotated
-## to the current run angle (the AABB that contains the rotated rectangle).
-func _wall_run_footprint_rotated() -> Vector2:
-	if build_controller == null:
-		return Vector2(WALL_THICKNESS, WALL_THICKNESS)
-	var he := Vector2(WALL_THICKNESS * 0.5, _run_length * 0.5)
-	return build_controller._rotate_he(he, _run_angle_deg)
+## HALF the run length along it — the real thin rectangle a wall occupies.
+## The occupancy test uses this unrotated footprint + the run angle and does a
+## precise OBB overlap, so a diagonal wall blocks only its actual wall, not a
+## bounding square.
+func _wall_run_footprint() -> Vector2:
+	return Vector2(WALL_THICKNESS * 0.5, _run_length * 0.5)
 
-## True when the wall run's full rectangle (dynamic length + width, rotated)
-## overlaps any other placed object — checked every frame for the ghost (red)
-## and again on confirm (blocked).
+## True when the wall run's full rectangle (dynamic length + width, at the
+## current run angle) overlaps any other placed object — checked every frame
+## for the ghost (red) and again on confirm (blocked).
 func _wall_run_is_occupied() -> bool:
 	if build_controller == null or HEIGHT_TIERS.is_empty():
 		return false
 	return build_controller._is_position_occupied(
-		_midpoint(), HEIGHT_TIERS[_tier_index], null, _wall_run_footprint_rotated())
+		_midpoint(), HEIGHT_TIERS[_tier_index], null, _wall_run_footprint(), _run_angle_deg)
 
 ## Samples points evenly along the run (roughly one per WALL_CELL_SIZE, at
 ## least the two endpoints) so a bounds check actually covers the whole
@@ -252,10 +251,9 @@ func _update_idle_ghost() -> void:
 
 	var valid: bool = build_controller._is_inside_bunker(cursor, _wall_footprint_half_extent())
 	## Aug 2026 — also mark the idle sliver red if it would overlap an object.
-	var sliver_he := Vector2(WALL_THICKNESS * 0.5, IDLE_SLIVER_LENGTH * 0.5)
 	if valid:
 		valid = not build_controller._is_position_occupied(cursor, tile_id, null,
-			build_controller._rotate_he(sliver_he, _run_angle_deg))
+			Vector2(WALL_THICKNESS * 0.5, IDLE_SLIVER_LENGTH * 0.5), _run_angle_deg)
 	_apply_ghost_material(valid)
 	if _cost_label != null:
 		_cost_label.visible = false
