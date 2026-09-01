@@ -128,7 +128,7 @@ func tick(npc: NPC, delta: float) -> void:
 				return
 			var gid: String = str(_current_gen.get_instance_id())
 			npc.update_work_banner("REFUELING", pm.get_generator_fuel(gid) / 100.0)
-			_can.refuel_tick(delta)   ## REAL continuous pour, same mechanic as before
+			_can.refuel_tick(delta * npc.get_age_work_mult())   ## Aug 2026 — elders (65+) work at 0.75x; real continuous pour, same mechanic as before
 			var fuel_after: float = pm.get_generator_fuel(gid)
 			var can_empty: bool = ("_fuel_remaining" in _can) and float(_can._fuel_remaining) <= 0.0
 			if fuel_after >= 100.0 or can_empty:

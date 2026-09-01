@@ -135,7 +135,13 @@ func on_f_interact() -> bool:
 	## now — "at any point of its fullness")
 	if held == null:
 		if _has_any_stored():
-			_empty_into_bag(_interaction_system)
+			## Job Progress Bar (Aug 2026) — collecting used to build the bag
+			## instantly here; now gated behind a timed job. Falls back to the
+			## old instant behavior if InteractionSystem can't be resolved.
+			if _interaction_system.has_method("start_job"):
+				_interaction_system.start_job(self, InteractionSystem.JOB_DEFAULT_DURATION, Callable(self, "_finish_collect").bind(_interaction_system), "Collecting Trash...")
+			else:
+				_empty_into_bag(_interaction_system)
 			return true
 		return false
 
@@ -150,6 +156,14 @@ func on_f_interact() -> bool:
 	return true
 
 # ─── Empty-into-bag ─────────────────────────────────────────────────────────
+## Job completion callback for the empty-handed collect job above — re-checks
+## _has_any_stored() defensively (the player is locked in place for the
+## whole job, so this shouldn't ever go false out from under it, but costs
+## nothing to check) before actually building the bag.
+func _finish_collect(isys: Node) -> void:
+	if _has_any_stored():
+		_empty_into_bag(isys)
+
 func _empty_into_bag(isys: Node) -> void:
 	var contents: Array[Dictionary] = []
 	for i: int in stored.size():

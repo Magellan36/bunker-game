@@ -97,6 +97,12 @@ func get_use_prompt() -> String:
 ## shared ConfirmDialogUI (modeled on BuildModeHUD's "EXPAND BUNKER" dialog,
 ## see that file's own header). Equal-or-higher quality swaps proceed
 ## immediately, no confirmation — same as before this plan.
+##
+## Job Progress Bar (Aug 2026) — the confirm dialog (when needed) still
+## happens immediately, synchronously, at press time — it's a decision
+## point, not part of the timed task. The actual swap (purifier.
+## replace_filter()) is what's gated behind the job, deferred to
+## _finish_replace() either way (confirmed or no-confirmation-needed).
 func on_use() -> void:
 	var purifier: WaterPurifier = _find_nearest_purifier()
 	if purifier == null:
@@ -108,13 +114,25 @@ func on_use() -> void:
 		dlg.open("REPLACE WITH LOWER-QUALITY FILTER?",
 			"%d%% -> %d%%" % [int(round(purifier.filter_quality)), int(round(filter_quality))])
 		dlg.confirmed.connect(func() -> void:
-			purifier.replace_filter(self)   ## purifier reads self.filter_quality, handles the swap + ejection, then frees this instance
 			dlg.queue_free()
+			_start_replace_job(purifier)
 		)
 		dlg.cancelled.connect(dlg.queue_free)
 		return
 
-	purifier.replace_filter(self)   ## purifier reads self.filter_quality, handles the swap + ejection, then frees this instance
+	_start_replace_job(purifier)
+
+func _start_replace_job(purifier: WaterPurifier) -> void:
+	if not is_instance_valid(purifier):
+		return
+	var isys: Node = _hold_point.get_parent() if _hold_point != null else null
+	if isys == null or not isys.has_method("start_job"):
+		return
+	isys.start_job(purifier, InteractionSystem.JOB_DEFAULT_DURATION, Callable(self, "_finish_replace").bind(purifier), "Replacing Filter...", REPLACE_RANGE)
+
+func _finish_replace(purifier: WaterPurifier) -> void:
+	if is_instance_valid(purifier):
+		purifier.replace_filter(self)   ## purifier reads self.filter_quality, handles the swap + ejection, then frees this instance
 
 # ─── Used-state tint ──────────────────────────────────────────────────────────
 func _update_used_tint() -> void:

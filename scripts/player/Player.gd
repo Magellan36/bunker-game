@@ -34,8 +34,26 @@ extends CharacterBody3D
 ## sibling node rather than a child of Player — see
 ## scripts/player/medical/PlayerMedical.gd and
 ## docs/systems/medical/README.md. May be null if the Medical system's
-## node hasn't been added to the scene yet; every use below null-checks it.
+## node hasn't been added to the scene yet; every use below goes through
+## _get_player_medical() rather than reading this directly.
 var _player_medical: PlayerMedical = null
+
+## Aug 2026 fix — previously resolved ONCE in _ready() and never
+## revisited. PlayerMedical adds itself to the "player_medical" group in
+## ITS OWN _ready(), so if node/scene-tree order ever had Player._ready()
+## run first, that one-shot lookup silently returned null and stayed null
+## for the entire session — every medical multiplier below (speed,
+## sprint-drain, carry-drain) quietly no-op'd forever even though
+## PlayerMedical's own data was correct (exactly why the HUD/tooltips
+## could show a real effect while gameplay didn't feel it at all). Mirrors
+## the lazy-resolve-with-validity-check pattern PlayerMedical.gd itself
+## already uses for its own _player ref, and InteractionSystem.gd uses for
+## _player_medical_for_job — self-heals the moment PlayerMedical actually
+## exists, regardless of init order.
+func _get_player_medical() -> PlayerMedical:
+	if _player_medical == null or not is_instance_valid(_player_medical):
+		_player_medical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
+	return _player_medical
 
 ## Stamina must recover to this before sprinting is allowed again (prevents flicker)
 @export var sprint_recover_threshold: float = 20.0
@@ -120,13 +138,37 @@ signal stamina_changed(new_value: float)   ## Emit so HUD / PlayerStats can reac
 ## edge trigger, not fired again while still exhausted. Medical's Fracture
 ## escalation (docs/systems/medical/README.md) listens for this rather than
 ## polling _sprint_locked, since the once-per-episode semantics this signal
-## already has are exactly what escalation needs.
-signal exhausted()
+## already has are exactly what escalation needs. Aug 2026 — now reports
+## WHICH drain source(s) actually caused this exhaustion episode
+## (sprinting, carrying a Heavy item, or both at once — see the drain block
+## in _handle_movement() below), so Medical can attribute the escalation to
+## the correct limb (sprint → legs, heavy carry → arms) rather than always
+## assuming legs.
+signal exhausted(from_sprint: bool, from_heavy_carry: bool)
 
 func _ready() -> void:
 	## Register in "player" group so items (e.g. Flashlight) can resolve the
 	## player ref via get_first_node_in_group("player") without needing a direct reference.
 	add_to_group("player")
+
+	## Aug 2026 fix (Brannon-requested) — the player previously had ZERO
+	## avoidance presence: NPCs' NavigationAgent3D avoidance already routes
+	## around every other NPC's own agent and (as of the same pass) every
+	## loose item's NavigationObstacle3D, but nothing registered the player
+	## as anything to avoid at all — confirmed directly, no NavigationAgent3D
+	## or NavigationObstacle3D existed anywhere in this file. That's the
+	## literal cause of NPCs pathing straight at/into the player specifically
+	## and only noticing via physics collision after the fact. A plain
+	## NavigationObstacle3D (not a full NavigationAgent3D — the player isn't
+	## nav-driven) sized to the real collision capsule, added once and left
+	## on permanently (no held/dropped lifecycle to manage, unlike an item).
+	var player_obstacle: NavigationObstacle3D = NavigationObstacle3D.new()
+	player_obstacle.name = "PlayerNavObstacle"
+	player_obstacle.radius = 0.4
+	if collision != null and collision.shape is CapsuleShape3D:
+		player_obstacle.radius = (collision.shape as CapsuleShape3D).radius
+	player_obstacle.avoidance_enabled = true
+	add_child(player_obstacle)
 
 	_player_medical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
 
@@ -205,6 +247,11 @@ func _handle_movement(delta: float) -> void:
 	# all. Previously sprint-only; sprint behavior itself is unchanged, just
 	# no longer an if/else against regen directly.)
 	var total_stamina_drain: float = 0.0
+	## Aug 2026 — tracked so the exhausted signal below can report which
+	## drain source(s) actually caused this episode (see exhausted's own doc
+	## comment). True whenever the heavy-carry block below contributes any
+	## drain, independent of whether it happened to be the SOLE cause.
+	var carrying_heavy: bool = false
 	if _is_sprinting:
 		## Medical system (Aug 2026) — leg injuries/illness exponentially
 		## increase sprint-stamina drain, scaled by severity (Infection
@@ -214,8 +261,9 @@ func _handle_movement(delta: float) -> void:
 		## docs/systems/medical/README.md's "Body-part-differentiated
 		## symptom effects".
 		var medical_sprint_mult: float = 1.0
-		if _player_medical != null:
-			medical_sprint_mult = _player_medical.get_medical_sprint_stamina_drain_multiplier()
+		var pm_sprint: PlayerMedical = _get_player_medical()
+		if pm_sprint != null:
+			medical_sprint_mult = pm_sprint.get_medical_sprint_stamina_drain_multiplier()
 		total_stamina_drain += sprint_stamina_drain * medical_sprint_mult
 
 	## Heavy-carry stamina drain (Aug 2026) — passive drain while holding a
@@ -231,27 +279,42 @@ func _handle_movement(delta: float) -> void:
 		var held_for_drain = interaction_system.held_item
 		if held_for_drain != null and is_instance_valid(held_for_drain) \
 				and held_for_drain.has_method("is_heavy_item") and held_for_drain.is_heavy_item():
+			carrying_heavy = true
 			var medical_carry_mult: float = 1.0
-			if _player_medical != null:
-				medical_carry_mult = _player_medical.get_medical_carry_stamina_drain_multiplier()
+			var pm_carry: PlayerMedical = _get_player_medical()
+			if pm_carry != null:
+				medical_carry_mult = pm_carry.get_medical_carry_stamina_drain_multiplier()
 			total_stamina_drain += heavy_carry_stamina_drain * medical_carry_mult
 
 	if total_stamina_drain > 0.0:
 		stamina = maxf(0.0, stamina - total_stamina_drain * delta)
 		if stamina == 0.0 and not _sprint_locked:
-			exhausted.emit()
+			exhausted.emit(_is_sprinting, carrying_heavy)
 			_sprint_locked = true  ## exhausted — force walk until recovered
-			## Drop whatever's held the instant stamina bottoms out (Aug 2026).
-			## _quick_drop() is InteractionSystem's own "never strand the held
-			## item" fallback (already called from TrashCan.gd's too-full case),
-			## reused here rather than duplicating a drop path. No-ops safely if
-			## empty-handed.
-			if interaction_system != null and interaction_system.held_item != null \
-					and interaction_system.has_method("_quick_drop"):
-				interaction_system._quick_drop()
 	else:
 		stamina = minf(100.0, stamina + stamina_regen * delta)
 	stamina_changed.emit(stamina)
+
+	## Drop whatever's held while stamina is at rock bottom (Aug 2026, fixed).
+	## Deliberately a LEVEL check every frame, NOT folded into the
+	## "stamina == 0.0 and not _sprint_locked" edge-trigger above. Heavy-carry
+	## drain isn't gated by _sprint_locked (unlike sprint drain, which stops
+	## the instant _sprint_locked goes true) — if the player picks up ANOTHER
+	## Heavy item while still near 0 stamina, its passive drain alone pins
+	## stamina at 0 forever (drain > regen), so it can never climb back to
+	## sprint_recover_threshold, _sprint_locked never flips back to false, and
+	## the edge-trigger above would then never fire again — a permanent
+	## soft-lock where nothing ever drops again. Checking the level every
+	## frame instead means a freshly-picked-up-while-exhausted item still
+	## gets dropped immediately, self-correcting regardless of how the
+	## player got back into this state. Uses drop_in_place() (Aug 2026, not
+	## _quick_drop()) — an involuntary drop should let the item fall from
+	## wherever it's currently held, not hop to the ~1.5m-forward spot
+	## _quick_drop() uses for a deliberate player action. Both no-op safely
+	## when nothing's held, so this is cheap to check unconditionally.
+	if stamina <= 0.0 and interaction_system != null and interaction_system.held_item != null \
+			and interaction_system.has_method("drop_in_place"):
+		interaction_system.drop_in_place()
 
 	var target_speed: float = sprint_speed if _is_sprinting else move_speed
 	## Medical system (Aug 2026) — injuries/illness can slow the player.
@@ -259,8 +322,9 @@ func _handle_movement(delta: float) -> void:
 	## when no conditions are active, so this is a no-op until Medical
 	## actually sets a condition's speed_mult away from 1.0. See
 	## docs/systems/medical/README.md.
-	if _player_medical != null:
-		target_speed *= _player_medical.get_medical_speed_multiplier()
+	var pm_speed: PlayerMedical = _get_player_medical()
+	if pm_speed != null:
+		target_speed *= pm_speed.get_medical_speed_multiplier()
 
 	if direction.length_squared() > 0.0:
 		velocity = velocity.lerp(direction * target_speed, acceleration * delta)

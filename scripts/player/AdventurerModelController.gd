@@ -356,7 +356,20 @@ func _process(delta: float) -> void:
 			_lerp_sit_position(_chair_seat_pos, _chair_approach_pos, STAND_UP_CURVE, false)
 		return   ## waiting for sit_to_stand to finish → back to locomotion
 
-	var speed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
+	## Aug 2026 fix — was Vector2(_player.velocity.x, _player.velocity.z),
+	## the REQUESTED velocity (set by nav-avoidance's lerp toward its "safe"
+	## velocity, before move_and_slide() resolves it against real
+	## collisions). A blocked/wedged character could keep this comfortably
+	## above the walk threshold indefinitely while barely moving at all —
+	## the literal mechanical cause of a visible "ghost walk" (animation
+	## still playing walk/run while real displacement is ~zero). Same fix
+	## NPC.gd's own _handle_physics_pushes() already uses this exact
+	## distinction for (`velocity - get_real_velocity()`) — get_real_velocity()
+	## reflects what move_and_slide() ACTUALLY achieved this physics step,
+	## collisions included, so the animation now always matches what's
+	## really happening on screen instead of what was merely requested.
+	var real_vel: Vector3 = _player.get_real_velocity()
+	var speed: float = Vector2(real_vel.x, real_vel.z).length()
 	var next_state: String = "idle"
 	if speed > 0.1:
 		var sprint_speed: float = 7.5
@@ -375,6 +388,13 @@ func _parent_seated() -> bool:
 	if "seated_chair" in _player:
 		return _player.seated_chair != null
 	return false
+
+## True while the sit sequence is mid-flight (sitting down, seated, or
+## standing up). NPCs use this to freeze their own gravity/move_and_slide so
+## the controller's eased position isn't fought by physics — mirrors the
+## player's set_physics_process(false) during a sit (Aug 2026 NPC port).
+func is_sit_sequence_active() -> bool:
+	return _sit_phase != ""
 
 ## Advances the sit lifecycle when a one-shot sit clip finishes.
 func _on_anim_finished(_anim_name: StringName) -> void:

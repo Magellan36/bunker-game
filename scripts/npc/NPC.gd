@@ -72,6 +72,17 @@ var energy: float = 100.0
 var hunger: float = 100.0   ## 100 = full, 0 = starving (matches PlayerStats' food convention)
 var thirst: float = 100.0   ## 100 = hydrated
 
+## Needs-cap ceilings (Aug 2026, NPC Medical) — mirrors PlayerStats.food_cap/
+## water_cap/sleep_cap exactly, including the same Aug 2026 fix (the
+## current value is actively clamped against the cap every tick in
+## _tick_needs() below, not just blocked from future gains above it —
+## see PlayerStats._tick_needs()'s own comment for the bug this avoids
+## from day one here). Written by NPCMedical's Infection tick, same
+## mechanism as PlayerMedical’s. 100.0 = no reduction.
+var hunger_cap: float = 100.0
+var thirst_cap: float = 100.0
+var energy_cap: float = 100.0
+
 const ENERGY_DRAIN_PER_GAME_HOUR: float = 3.0
 const HUNGER_DRAIN_PER_GAME_HOUR: float = 1.39  ## matches PlayerStats.food_drain_per_game_hour (Part 12 fix — was 3.4, a wrong number, not a deliberate 2.4x-faster choice)
 const THIRST_DRAIN_PER_GAME_HOUR: float = 2.08  ## matches PlayerStats.water_drain_per_game_hour
@@ -156,6 +167,88 @@ static func _register_id(id: String) -> void:
 		if n >= _next_npc_id:
 			_next_npc_id = n + 1
 
+# ─── Age (Aug 2026) ────────────────────────────────────────────────────────
+## Random at spawn: 20-80, weighted so 66% land in the 30-50 "prime" band
+## (Brannon's spec). The remaining 34% splits proportionally by band
+## WIDTH across the two flanking ranges — 20-29 is 10 years wide, 51-80
+## is 30 years wide, so the wider band gets 3x the share (25%/75% of the
+## 34%) — rather than an even split, which would otherwise make the
+## older band feel artificially sparse (30 years of age compressed into
+## the same probability mass as 10). Fixed for the NPC's life apart from
+## birthdays (below).
+var age: int = 35
+
+const AGE_PRIME_CHANCE: float = 0.66
+const AGE_PRIME_MIN: int = 30
+const AGE_PRIME_MAX: int = 50
+const AGE_YOUNG_MIN: int = 20
+const AGE_YOUNG_MAX: int = 29
+const AGE_OLD_MIN: int = 51
+const AGE_OLD_MAX: int = 80
+## Share of the 34% "outside the prime band" roll that goes to the
+## YOUNG range specifically — 10/(10+30) width ratio against OLD.
+const AGE_YOUNG_SHARE_OF_REMAINDER: float = 0.25
+
+## 65+ gets a flat 0.75x penalty to movement and work speed (Brannon's
+## spec) — see get_age_speed_mult()/get_age_work_mult() below.
+const AGE_ELDER_THRESHOLD: int = 65
+const AGE_ELDER_MULT: float = 0.75
+
+func randomize_age() -> void:
+	if randf() < AGE_PRIME_CHANCE:
+		age = randi_range(AGE_PRIME_MIN, AGE_PRIME_MAX)
+	elif randf() < AGE_YOUNG_SHARE_OF_REMAINDER:
+		age = randi_range(AGE_YOUNG_MIN, AGE_YOUNG_MAX)
+	else:
+		age = randi_range(AGE_OLD_MIN, AGE_OLD_MAX)
+
+func is_elder() -> bool:
+	return age >= AGE_ELDER_THRESHOLD
+
+## Applied inside get_status_speed_multiplier() below — movement is the
+## one central point every activity's travel already routes through
+## (nav_steer()), so this composes automatically with the existing
+## energy/hunger/thirst/mood multipliers there.
+func get_age_speed_mult() -> float:
+	return AGE_ELDER_MULT if is_elder() else 1.0
+
+## No equivalent single "work tick" hook exists (each session activity —
+## JobActivity/RefuelActivity/GardeningActivity — hand-rolls its own work
+## timer countdown) — applied directly at each of those, multiplying the
+## effective delta so an elder's labor takes proportionally longer.
+func get_age_work_mult() -> float:
+	return AGE_ELDER_MULT if is_elder() else 1.0
+
+# ─── Birthdays (Aug 2026) ───────────────────────────────────────────
+## One random day of the year (1-365), rolled once at spawn. On that day,
+## age silently increments by 1 — per Brannon's explicit instruction, the
+## number going up in the identity bar is the ONLY player-facing effect.
+## No notification, no Action Log entry, no dialogue acknowledgment,
+## nothing else fires at all.
+var _birthday_day_of_year: int = 1
+var _birthday_last_checked_day: int = -1
+
+func _roll_birthday() -> void:
+	_birthday_day_of_year = randi_range(1, 365)
+
+## Checked from _tick_mood_and_irritability()'s existing 5-real-second
+## cadence — a once-a-game-day event needs nothing faster.
+## PlayerStats.current_day is the single shared day counter for the whole
+## game (starts at 1, never resets/wraps itself) — day-of-year is derived
+## here via modulo, so a birthday correctly recurs every subsequent
+## in-game year without any extra bookkeeping.
+func _check_birthday() -> void:
+	var stats: Node = get_tree().get_first_node_in_group("player_stats")
+	if stats == null or not ("current_day" in stats):
+		return
+	var day: int = int(stats.current_day)
+	if day == _birthday_last_checked_day:
+		return
+	_birthday_last_checked_day = day
+	var day_of_year: int = ((day - 1) % 365) + 1
+	if day_of_year == _birthday_day_of_year:
+		age += 1
+
 # ─── Time-Skip Catch-Up (Aug 2026) ──────────────────────────────────────────
 ## Called once by each skip source (F7 Fast-Forward, sleep) right next to
 ## its existing skip_time_with_drain() call — see AdminMenu.gd/
@@ -202,7 +295,12 @@ static func catch_up_all(hours: float) -> void:
 			continue
 		var completed: int = 0
 		while completed < jobs_per_npc and pool_index < ready_plants.size():
-			var plant: Node = ready_plants[pool_index]
+			## Aug 2026 — `as Node`, same fix as JobBoard.gd. This snapshot is
+			## normally safe (each plant is consumed exactly once, in order),
+			## but hardened to match the safe-cast idiom everywhere else a
+			## possibly-stale plant reference gets read, rather than leaving
+			## one bare exception behind.
+			var plant: Node = ready_plants[pool_index] as Node
 			pool_index += 1
 			if is_instance_valid(plant) and plant.has_method("is_ready") and plant.is_ready() and plant.has_method("harvest"):
 				plant.harvest()
@@ -331,6 +429,7 @@ func _tick_mood_and_irritability(delta: float) -> void:
 	_tick_contagion_exposure(h)
 	_check_contagion_log()
 	_check_label_crossings()
+	_check_birthday()
 
 func _tick_mood(h: float) -> void:
 	var needs_avg: float = (energy + hunger + thirst) / 3.0
@@ -1248,15 +1347,47 @@ const CLEANING_BASE_SCORE: float = 5.5
 ## Actual per-NPC scores still use that NPC's own Work Ethic multiplier
 ## on top of this — this only fixes the BREAKEVEN POINT for the
 ## average case, exactly as asked. See CleaningActivity.score().
-const CLUTTER_URGENCY_STEP: float = 9.0 / 121.0
+## Aug 2026 fix (Brannon-requested) — recalibrated target from Wander's
+## average (5.0) to Relax's (6.0, the tougher of the two idle
+## competitors, especially now that Relax is eligible far more of the
+## day — see RELAX_BUDGET_BASELINE's own comment): 1.0 + 11 × STEP ==
+## 6.0/2.75 == 24/11  ->  STEP = 13/121. Previously Cleaning's ceiling at
+## the same 11-item threshold (2.75×1.818≈5.0) still lost to Relax's
+## higher 6.0 base even at genuinely urgent clutter levels — now it
+## clears both idle competitors at the same threshold, matching the
+## "every job should eventually beat wandering/relaxing" intent while
+## keeping the deliberate low-urgency-at-low-clutter shape unchanged.
+const CLUTTER_URGENCY_STEP: float = 13.0 / 121.0
 
 ## Refuel session (Aug 2026). Higher than Cleaning's base — running out
 ## of power is more urgent than clutter — tune visually once live-tested.
 const REFUEL_BASE_SCORE: float = 8.0
 
 ## Gardening session (Aug 2026, autonomous) — soil-filling + planting.
-## Moderate priority: useful busywork, but shouldn't outrank real jobs.
-const GARDENING_BASE_SCORE: float = 6.0
+## Aug 2026 fix (Brannon-requested) — raised 6.0→10.0. At the old value,
+## an AVERAGE (neutral Work Ethic) NPC scored Gardening at 6.0×0.8×1.0=4.8,
+## which lost to BOTH Wander (5.0) and Relax (6.0) — an average NPC would
+## prefer idling over gardening, the opposite of "every job should be
+## preferential to wandering except for lazy NPCs." Retuned to match
+## REFUEL_BASE_SCORE's already-correct calibration (verified against the
+## same Wander/Relax bar): at average mult, 10.0×0.8×1.0=8.0, comfortably
+## beating both; at Lazy's WORST case (job_mult=0.7), 10.0×0.8×0.7=5.6 <
+## Relax's best case (6.0×1.3=7.8) — a genuinely Lazy NPC still usually
+## prefers relaxing; at Lazy's band EDGE (job_mult≈0.91), 10.0×0.8×0.91
+## ≈7.28 > Relax's edge-case (6.0×1.09≈6.54) — so even Lazy NPCs closer
+## to neutral still work "occasionally," per spec. Priority weight (0.8)
+## deliberately left unchanged — preserves Gardening ranking below
+## Harvest (1.3)/Refuel/Filter (1.0) in relative importance, only the
+## absolute floor moved.
+const GARDENING_BASE_SCORE: float = 10.0
+
+## Cooking session (Aug 2026, Brannon-requested) — same calibration
+## reasoning as GARDENING_BASE_SCORE's own comment, targeting parity with
+## REFUEL_BASE_SCORE at the default JOB_PRIORITY_DEFAULT (1.0) weight
+## ("COOKING" has no dedicated entry in JOB_PRIORITY_WEIGHTS below, so it
+## already falls through to that default) — average-NPC score
+## 8.0×1.0×1.0=8.0, clearing both Wander/Relax the same margin Refuel does.
+const COOKING_BASE_SCORE: float = 8.0
 
 ## Autonomous-trigger gate ONLY (carried over from JobBoard's old
 ## REFUEL_BELOW). has_refuel_target_available()'s score() use of this
@@ -1446,6 +1577,11 @@ func gain_skill(key: String, amount: float = 0.01) -> void:
 # ─── Brain ────────────────────────────────────────────────────────────────
 var brain: NPCBrain = null
 
+## Individualized per-NPC Medical component (Aug 2026) — see
+## NPCMedical.gd's own header comment. Instantiated fresh for every NPC in
+## _ready() below, never shared/looked-up like PlayerMedical.
+var medical: NPCMedical = null
+
 ## Aug 2026 — per-NPC cross-session job state (Cleaning give-up/blacklist
 ## system and the natural home for any future "remembers this didn't work"
 ## state) — see NPCJobState.gd.
@@ -1465,9 +1601,16 @@ func _tick_needs(delta: float) -> void:
 	var h: float = game_hours(delta)
 	if h <= 0.0:
 		return
-	energy = maxf(0.0, energy - ENERGY_DRAIN_PER_GAME_HOUR * h)
-	hunger = maxf(0.0, hunger - HUNGER_DRAIN_PER_GAME_HOUR * h)
-	thirst = maxf(0.0, thirst - THIRST_DRAIN_PER_GAME_HOUR * h)
+	## Aug 2026 fix (NPC Medical) — clamp against the cap on every tick, not
+	## just the floor, mirroring PlayerStats._tick_needs()'s identical fix
+	## and the exact bug it closes: without this, NPCMedical's Infection
+	## reducing hunger_cap/thirst_cap/energy_cap would have zero real effect
+	## on an NPC whose needs were already comfortably above the new, lower
+	## cap — the value would just sit there unaffected until ordinary drain
+	## happened to catch up naturally, hours later.
+	energy = clampf(energy - ENERGY_DRAIN_PER_GAME_HOUR * h, 0.0, energy_cap)
+	hunger = clampf(hunger - HUNGER_DRAIN_PER_GAME_HOUR * h, 0.0, hunger_cap)
+	thirst = clampf(thirst - THIRST_DRAIN_PER_GAME_HOUR * h, 0.0, thirst_cap)
 
 	var health_drain: float = 0.0
 	if hunger <= 0.0:
@@ -1489,6 +1632,29 @@ var _movement_locked: bool = false
 ## seated_chair so the shared AdventurerModelController can drive the sit
 ## animations for both. Set/cleared by SitActivity/RelaxSitActivity.
 var seated_chair: Node3D = null
+
+## True while this NPC is physically mid-sit-sequence: seated in a chair
+## (seated_chair set) OR mid stand-up (seated_chair already cleared but the
+## model's sit_to_stand clip still playing). During this window the shared
+## AdventurerModelController owns the NPC's position via its eased
+## approach→seat / seat→approach lerp, exactly like the player's
+## set_physics_process(false) freeze. Gravity + move_and_slide would fight
+## that eased position, so _physics_process skips them (Aug 2026 NPC sit port).
+func in_sit_sequence() -> bool:
+	if seated_chair != null:
+		return true
+	var model: Node = get_node_or_null("CharacterModel")
+	if model != null and "is_sit_sequence_active" in model:
+		return model.is_sit_sequence_active()
+	return false
+
+## Aug 2026 NPC sit port — set when an activity asks this NPC to STAND UP but
+## needs to release the chair synchronously (exit() on a session end /
+## interrupt / command). The NPC keeps the model's sit_to_stand animation
+## playing (in_sit_sequence() stays true), then snaps to this position the
+## frame the model reports standing finished. Cleared by _physics_process.
+var _pending_stand_pos: Vector3 = Vector3.ZERO
+var _stand_pos_pending: bool = false
 
 func halt_movement(delta: float) -> void:
 	_movement_locked = true
@@ -1567,28 +1733,66 @@ func _ready() -> void:
 	generation_seed = randi()
 	randomize_personality()
 	randomize_skills()
+	randomize_age()
+	_roll_birthday()
 	_relax_cooldown_hours = randf_range(1.0, RELAX_MIN_GAP_HOURS)   ## staggered head-start — never eligible to relax the instant they spawn
 	brain = NPCBrain.new()
 	brain.setup(self)
 
+	medical = NPCMedical.new()
+	medical.name = "NPCMedical"
+	add_child(medical)
+	medical.setup(self)
+
 func _physics_process(delta: float) -> void:
-	if not is_on_floor():
-		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
+	## Aug 2026 NPC sit port — when an activity released the chair (seated_chair
+	## cleared) but asked us to finish the stand-up animation before moving, snap
+	## to the stand position the moment the model's sit_to_stand actually ends
+	## (in_sit_sequence() flips false). This lets even the exit()-driven / session
+	## timer cases play the full animated stand-up instead of teleporting.
+	if _stand_pos_pending and not in_sit_sequence():
+		global_position = _pending_stand_pos
+		_stand_pos_pending = false
+		_pending_stand_pos = Vector3.ZERO
 
-	_tick_needs(delta)
-	_tick_mood_and_irritability(delta)
-	_tick_stuck_recovery(delta)
+	## Aug 2026 NPC sit port — while the NPC is physically mid-sit-sequence the
+	## AdventurerModelController owns the position (eased approach→seat /
+	## seat→approach, plus its vertical landing and foot clamp), mirroring the
+	## player's set_physics_process(false). Gravity would drag the elevated
+	## seated root down and move_and_slide() would fight the eased position, so
+	## both are skipped here. Needs/brain still tick below, so the seated NPC
+	## keeps regenerating energy and its activity keeps deciding when to stand.
+	if not in_sit_sequence():
+		if not is_on_floor():
+			velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
 
-	if current_task != null:
-		perform_task(delta)
-	elif brain != null:
-		brain.tick(delta)
+		_tick_needs(delta)
+		_tick_mood_and_irritability(delta)
+		_tick_stuck_recovery(delta)
+
+		if current_task != null:
+			perform_task(delta)
+		elif brain != null:
+			brain.tick(delta)
+		else:
+			_process_wander(delta)   ## fallback only — brain owns behavior now
+
+		move_and_slide()
+		_handle_physics_pushes(delta)
+		_check_stuck(delta)
 	else:
-		_process_wander(delta)   ## fallback only — brain owns behavior now
+		## Sit sequence active — the controller owns position. Still let the
+		## activity tick so it can regen energy and trigger the stand-up; just
+		## don't fight the eased position with gravity or move_and_slide.
+		_tick_needs(delta)
+		_tick_mood_and_irritability(delta)
 
-	move_and_slide()
-	_handle_physics_pushes(delta)
-	_check_stuck(delta)
+		if current_task != null:
+			perform_task(delta)
+		elif brain != null:
+			brain.tick(delta)
+		else:
+			_process_wander(delta)
 
 # ─── Navigation primitives (used by wander now; by every activity later) ──
 ## Point the agent at a world position. Y is flattened — paths are XZ-only.
@@ -1811,7 +2015,11 @@ func _name_for_relationship_id(target_id: String) -> String:
 ## travel, hard-abort the current activity so the brain re-scores fresh —
 ## every activity's exit() already releases jobs/chairs/items cleanly, so
 ## this is always a safe, non-destructive reset.
-const STUCK_CHECK_INTERVAL: float = 1.0
+## Aug 2026 fix (Brannon-requested) — interval tightened from 1.0s to
+## 0.25s, same "stop and re-register almost immediately" reasoning as
+## STUCK_GRACE_PERIOD's own comment — checked 4x more often, so real
+## displacement is confirmed (or not) in a quarter of the time.
+const STUCK_CHECK_INTERVAL: float = 0.25
 const STUCK_MIN_DISPLACEMENT: float = 0.15
 
 var _stuck_timer: float = 0.0
@@ -1868,19 +2076,26 @@ var _stuck_wall_streak: int = 0
 const STUCK_UNKNOWN_GIVEUP_AFTER: int = 3
 var _stuck_unknown_streak: int = 0
 
-## Aug 2026 — grace period before _recover_from_stuck() gets called AT
-## ALL. Previously a single STUCK_CHECK_INTERVAL (1s) of no progress
-## immediately discarded whatever job the NPC was doing, however briefly
-## it paused. Now the no-progress condition has to persist for a full
-## STUCK_GRACE_PERIOD before recovery kicks in — the NPC keeps trying its
-## actual job the entire time, since nothing here touches the current
-## activity; only once the grace period is truly exhausted does the
-## existing recovery machinery fire, unmodified. Deliberately calls into
-## _recover_from_stuck() as a black box rather than duplicating any of
-## its logic — that function is still broken (tracked separately); this
-## only changes the timing before it's invoked, so its eventual fix
-## cascades to this caller (and any other) automatically.
-const STUCK_GRACE_PERIOD: float = 4.0
+## Aug 2026 fix (Brannon-requested) — grace period before
+## _recover_from_stuck() gets called AT ALL, dramatically tightened.
+## Previously 4.0s (on top of the 1.0s STUCK_CHECK_INTERVAL below — up to
+## ~5s of visible "ghost walking" before ANY recovery action). Per
+## Brannon: the NPC should stop and re-register almost the instant an
+## intended movement isn't producing real movement, not tolerate several
+## seconds of it first. Safe to cut this aggressively now, for two
+## reasons: (1) the animation itself no longer lies about progress —
+## AdventurerModelController now drives walk/idle off get_real_velocity()
+## (actual achieved movement), not the requested pre-collision velocity,
+## so a blocked NPC visibly stops moving immediately regardless of this
+## timer; (2) real proactive avoidance (every loose item now gets a
+## NavigationObstacle3D, light and heavy alike, and the player is now a
+## registered obstacle too) should make actual stuck EVENTS much rarer
+## than before, so this fallback firing fast is low-risk — it's meant to
+## be the rare, quick-resolving safety net now, not something doing
+## constant load-bearing work. Deliberately calls into
+## _recover_from_stuck() as a black box, unchanged — only the timing
+## before it's invoked changed here.
+const STUCK_GRACE_PERIOD: float = 0.5
 var _stuck_grace_elapsed: float = 0.0
 
 func _tick_stuck_recovery(delta: float) -> void:
@@ -2171,7 +2386,11 @@ func get_status_speed_multiplier() -> float:
 	var hunger_mult: float = 0.90 if hunger < 25.0 else 1.0
 	var thirst_mult: float = 0.90 if thirst < 25.0 else 1.0
 	var mood_mult: float = 0.85 if mood <= 25.0 else 1.0
-	return energy_mult * hunger_mult * thirst_mult * mood_mult
+	## NPC Medical (Aug 2026) — same no-op-by-default multiplier
+	## PlayerMedical.get_medical_speed_multiplier() contributes on the
+	## player side; 1.0 whenever nothing's active.
+	var medical_mult: float = medical.get_medical_speed_multiplier() if medical != null else 1.0
+	return energy_mult * hunger_mult * thirst_mult * mood_mult * get_age_speed_mult() * medical_mult
 
 ## Chance [0..1] to divert from a job into 20s of forgetful wandering.
 ## Part 21 rewrite: AVERAGED across Hunger, Thirst, Mood, and (new) Energy
@@ -2392,8 +2611,19 @@ func get_relationship_dialogue_line(target_id: String) -> String:
 	return pool[randi() % pool.size()]
 
 # ─── Relaxing (Aug 2026) ─────────────────────────────────────────────────
-const RELAX_BUDGET_BASELINE: float = 1.0   ## game-hours/day
-const RELAX_BUDGET_LAZY: float = 2.0
+## Aug 2026 fix (Brannon-requested) — raised from 1.0/2.0. Wander and
+## Relax already scale by the identical Work Ethic multiplier (both
+## `* npc.get_work_ethic_passive_mult()`), so Relax was ALWAYS outscoring
+## Wander by a fixed ~20% whenever both were live — the imbalance wasn't
+## a scoring-ratio problem. The real cause: at a 1.0-hour daily budget, one
+## ~20-40min session (RelaxActivity.SESSION_MIN/MAX) burns most/all of it,
+## so Relax's score() returned a flat 0 (ineligible, not merely losing) for
+## nearly the entire day — Wander won by DEFAULT during that gap, not by
+## out-competing Relax. Raising the budget gives Relax many more real
+## chances across a day to win the contest it already wins whenever it's
+## actually eligible.
+const RELAX_BUDGET_BASELINE: float = 3.0   ## game-hours/day
+const RELAX_BUDGET_LAZY: float = 6.0       ## same 2x ratio as before
 
 ## Minimum game-hours between the end of one relax session and the next
 ## becoming eligible — without this, a fresh NPC (full needs, nothing else
@@ -2401,8 +2631,15 @@ const RELAX_BUDGET_LAZY: float = 2.0
 ## back-to-back until the whole daily budget is gone in one sitting.
 ## Randomized per-cooldown (not a fixed value) so sessions don't fall
 ## into a predictable rhythm across NPCs or across a single NPC's day.
-const RELAX_MIN_GAP_HOURS: float = 3.0
-const RELAX_MAX_GAP_HOURS: float = 6.0
+## Aug 2026 fix (Brannon-requested) — reduced from 3.0-6.0. At the old
+## gap, a 3.0-hour budget (see RELAX_BUDGET_BASELINE's own comment) could
+## still only fit in one, maybe two sessions a day even with budget to
+## spare. Shorter gaps let the now-larger daily budget actually get used
+## across several shorter breaks spread through the day, closer to how a
+## real routine looks, instead of sitting unused behind a cooldown that
+## outlasted the budget's own reset.
+const RELAX_MIN_GAP_HOURS: float = 1.5
+const RELAX_MAX_GAP_HOURS: float = 3.0
 var _relax_cooldown_hours: float = 0.0
 
 var _relax_time_used_today: float = 0.0
@@ -2477,6 +2714,8 @@ func catch_up_time(h: float, avg_mood_before: float) -> void:
 	_catch_up_hunger_and_thirst(h)
 	_catch_up_energy(h)
 	_catch_up_relax_budget(h)
+	if medical != null:
+		medical.catch_up(h)
 	var needs_avg_after: float = (energy + hunger + thirst) / 3.0
 	_catch_up_mood(h, avg_mood_before, (needs_avg_before + needs_avg_after) / 2.0)
 	if NPCDebug.enabled:

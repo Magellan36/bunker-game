@@ -45,6 +45,7 @@ spawn menu), the build-mode HUD, and the debug overlay.
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
 | `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain), `ItemPreviewKit.gd` (~235 — Aug 2026, shared static 3D item-preview builder used by `InventoryHUD`/`StorageUI`, see "Shared Item Preview Kit" and "Preview Scale Normalization + Deep Mesh Walk" below), `TrashBagInfoPanel.gd` (~200 — Aug 2026, first AMBIENT hover panel — a NEW panel category, see "Ambient Hover Panels (Aug 2026)" below) | Shared fade-in helper + shared theme/drawing kit + shared 3D item-preview builder — put any future cross-panel UI utility here |
 | `notifications/` | `NotificationManager.gd` (~175) | Central toast/notification system (see "NotificationManager" below) |
+| `medical/` | `StatusScreenUI.gd` (Aug 2026 — see "Medical Status Screen" below) | Medical Layer-3 deep-dive status screen |
 | `npc/` | `NPCTalkMenuUI.gd` | NPC E-panel (needs bars, status, skills, personality) — see `docs/systems/npc/README.md` for full detail; fixed per-stat bar colors as of Aug 2026, see "Cooking Pot UI Fixes..." below is unrelated — see the NPC doc directly for the color table |
 
 ## Public API (representative — not exhaustive, see each panel's own header)
@@ -809,6 +810,35 @@ than the 4px modal-panel standard, intentionally, same "smaller-scale
 identity" precedent as `StorageUI.gd`'s 14px). Confirmed with Brannon this
 project-wide change is wanted, not something to scope down to cooking
 only.
+
+## Medical Status Screen (Aug 2026)
+A third distinct panel category, alongside Modal and Ambient hover (see
+"Ambient Hover Panels" below): a **non-modal, fully interactive** panel.
+`scripts/ui/medical/StatusScreenUI.gd` (toggled with **[Tab]**, see
+`docs/systems/medical/README.md`'s "Presentation" — Layer 3) is real
+`Control`/`Button` nodes the player can click/focus and navigate with a
+controller, like a modal panel — but unlike every modal panel in the
+project, it does NOT set `SceneTree.paused`, does NOT lock player
+movement, and has no full-screen backdrop dim; the game world stays fully
+visible and running behind/around it. The one practical concession to
+"modal-feeling": `Input.set_mouse_mode(MOUSE_MODE_VISIBLE)` while open (so
+the body diagram/tabs are clickable), same as every other panel, restored
+to `MOUSE_MODE_CAPTURED` on close.
+
+| Category | Trigger | Blocks movement/pause? | Examples |
+|---|---|---|---|
+| Prompt line | proximity | no | `InteractPrompt.gd` E/F lines |
+| Modal panel | explicit interaction (E) | yes | `StorageUI`, `PauseMenuUI`, `AdminMenu` |
+| Ambient hover panel | proximity scan, no input | no | `TrashBagInfoPanel.gd` |
+| **Non-modal interactive panel** | dedicated keybind ([Tab]) | **no** — real Controls, but world keeps running | **`StatusScreenUI.gd`** |
+
+Still gets full standing-convention treatment otherwise: real `Control`/
+`Container` node tree (built procedurally, no `.tscn`), `UIFade.fade_in()`
+on open, and `ControllerUINavigation` attached exactly like every other
+panel — d-pad/stick navigation crosses freely between this panel's two
+sub-areas (a placeholder body diagram and a scrollable detail list) since
+both are made of real focusable `Button`s in one Control tree, so
+nearest-ahead scoring handles the pane-crossing for free.
 
 ## Ambient Hover Panels (Aug 2026)
 A NEW panel category introduced by the Trash Can / Trash Bag feature —

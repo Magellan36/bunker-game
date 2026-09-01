@@ -8,36 +8,30 @@ class_name RelaxSitActivity
 ## re-selecting the same chair every think-cycle. RelaxActivity's own
 ## session-length timer is what ends this instead. Energy still
 ## regenerates, just at 1/4 the normal rate — a break, not full rest.
+##
+## The full animated sit-down/stand-up sequence lives in the base
+## SitActivity (SEEK -> SEATED -> STANDING); this only scales the regen
+## rate and disables the energy-based stand trigger.
 const RELAX_ENERGY_REGEN_MULT: float = 0.25
 
 func label() -> String:
-	return "Relaxing (Sitting)" if _seated else "Finding a seat"
+	match _state:
+		SState.SEEK: return "Finding a seat"
+		SState.STANDING: return "Standing up"
+		_: return "Relaxing (Sitting)"
 
 func score(_npc: NPC) -> float:
 	return 0.0   ## delegation-only
 
-func tick(npc: NPC, delta: float) -> void:
-	if _chair == null or not is_instance_valid(_chair):
-		_chair = null
-		return
-	if _seated:
-		npc.energy = minf(100.0, npc.energy
-			+ ENERGY_REGEN_PER_GAME_HOUR * RELAX_ENERGY_REGEN_MULT * npc.game_hours(delta))
-		return
-	npc.nav_steer(delta)
-	var chair_pos: Vector3 = (_chair as Node3D).global_position
-	var flat_dist: float = Vector2(npc.global_position.x, npc.global_position.z) \
-		.distance_to(Vector2(chair_pos.x, chair_pos.z))
-	if npc.nav_finished() or flat_dist < 0.9:
-		if _chair.has_method("npc_try_sit") and _chair.npc_try_sit(npc):
-			_seated = true
-			npc.seated_chair = _chair
-			var t: Transform3D = _chair.get_seat_transform()
-			npc.global_position = t.origin
-			npc.rotation.y = t.basis.get_euler().y
-			npc.lock_movement()
-		else:
-			_chair = null   ## someone took it
+func _regen_energy(npc: NPC, delta: float) -> void:
+	npc.energy = minf(100.0, npc.energy
+		+ ENERGY_REGEN_PER_GAME_HOUR * RELAX_ENERGY_REGEN_MULT * npc.game_hours(delta))
+
+func _should_stand(_npc: NPC) -> bool:
+	return false   ## session timer owns the exit, not energy
 
 func done(npc: NPC) -> bool:
-	return _chair == null   ## energy is NOT a completion condition here
+	## Base done() returns true when the NPC has stood up and released the
+	## chair. For a relax session, that only happens when RelaxActivity ends
+	## the session (which calls our exit() and triggers the animated stand-up).
+	return _chair == null

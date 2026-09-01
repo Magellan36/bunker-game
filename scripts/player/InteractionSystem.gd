@@ -954,11 +954,19 @@ func is_job_active() -> bool:
 ## PlayerMedical.get_medical_job_speed_multiplier() — 1.0 (no effect) when
 ## nothing's active or PlayerMedical hasn't been added to the scene yet.
 func _job_speed_mult() -> float:
+	var pm: PlayerMedical = _get_player_medical_for_job()
+	if pm == null:
+		return 1.0
+	return pm.get_medical_job_speed_multiplier()
+
+## Shared lazy resolver — both _job_speed_mult() above and the Burn-trigger
+## roll in _finish_take_dish()/_finish_take_dish_from_held_pot() use this
+## same cached, validity-checked ref rather than each re-resolving
+## independently.
+func _get_player_medical_for_job() -> PlayerMedical:
 	if _player_medical_for_job == null or not is_instance_valid(_player_medical_for_job):
 		_player_medical_for_job = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
-	if _player_medical_for_job == null:
-		return 1.0
-	return _player_medical_for_job.get_medical_job_speed_multiplier()
+	return _player_medical_for_job
 
 func _tick_job(delta: float) -> void:
 	var target: Node3D = _active_job.get("target")
@@ -1903,6 +1911,13 @@ func _finish_take_dish(pot: Node) -> void:
 	if result.is_empty():
 		return
 
+	## Real Burn trigger (Aug 2026) — "plating a dish can occasionally cause
+	## a burn," per docs/systems/medical/README.md. Rolled right here, on
+	## successful serve.
+	var pm_burn: PlayerMedical = _get_player_medical_for_job()
+	if pm_burn != null:
+		pm_burn.roll_cooking_burn()
+
 	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
 	var dish: RigidBody3D = RigidBody3D.new()
 	dish.set_script(dish_script)
@@ -1955,6 +1970,11 @@ func _finish_take_dish_from_held_pot(pot: Node) -> void:
 	var result: Dictionary = pot.serve_dish()
 	if result.is_empty():
 		return
+
+	## Real Burn trigger (Aug 2026) — same as _finish_take_dish() above.
+	var pm_burn2: PlayerMedical = _get_player_medical_for_job()
+	if pm_burn2 != null:
+		pm_burn2.roll_cooking_burn()
 
 	if held_item.knocked_out.is_connected(_on_item_knocked_out):
 		held_item.knocked_out.disconnect(_on_item_knocked_out)

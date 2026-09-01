@@ -106,9 +106,21 @@ func _process(delta: float) -> void:
 func _tick_needs(delta: float) -> void:
 	var drain_scale: float = delta / _seconds_per_game_hour
 
-	food  = maxf(0.0, food  - food_drain_per_game_hour  * drain_scale)
-	water = maxf(0.0, water - water_drain_per_game_hour * drain_scale)
-	sleep = maxf(0.0, sleep - sleep_drain_per_game_hour * drain_scale)
+	## Aug 2026 fix — previously only clamped the floor (maxf(0.0, ...)),
+	## never the cap. That meant Medical's needs-cap reduction (see
+	## docs/systems/medical/README.md's "Needs cap reduction") only ever
+	## took effect at replenish_*() time (blocking a future gain above the
+	## cap) — the CURRENT value was never actually pulled down when a cap
+	## dropped below it, so a well-fed player whose Infection just reduced
+	## food_cap to e.g. 25 would sit at their existing higher food value,
+	## completely unaffected, until ordinary drain happened to catch up
+	## naturally (which can take many real hours) — the opposite of "the
+	## primary way the player is meant to feel a worsening condition."
+	## clampf's upper bound now enforces the cap on every tick, same as the
+	## floor always was.
+	food  = clampf(food  - food_drain_per_game_hour  * drain_scale, 0.0, food_cap)
+	water = clampf(water - water_drain_per_game_hour * drain_scale, 0.0, water_cap)
+	sleep = clampf(sleep - sleep_drain_per_game_hour * drain_scale, 0.0, sleep_cap)
 
 	# Starvation / dehydration health drain
 	var deprivation_count: int = (1 if food == 0.0 else 0) + (1 if water == 0.0 else 0)
@@ -200,8 +212,8 @@ func skip_time(hours: float) -> void:
 
 	sleep = sleep_cap
 
-	food  = maxf(0.0, food  - food_drain_per_game_hour  * drain_scale)
-	water = maxf(0.0, water - water_drain_per_game_hour * drain_scale)
+	food  = clampf(food  - food_drain_per_game_hour  * drain_scale, 0.0, food_cap)
+	water = clampf(water - water_drain_per_game_hour * drain_scale, 0.0, water_cap)
 
 	food_changed.emit(food)
 	water_changed.emit(water)

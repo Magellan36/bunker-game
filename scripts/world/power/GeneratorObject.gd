@@ -733,6 +733,17 @@ func _on_power_toggled(desired_running: bool) -> void:
 	if pm == null or _pm_id.is_empty():
 		return
 
+	## Real Burn trigger (Aug 2026) — "resetting a hazardous ... generator
+	## carries a bounded burn chance, scaled visibly by the actual hazard
+	## state involved," per docs/systems/medical/README.md. Only rolled when
+	## actually STARTING the generator (not shutting it down), and captured
+	## BEFORE reset_main_breaker()/set_generator_running() below change
+	## either value, so the chance reflects the hazard the player was
+	## actually reaching into.
+	var was_grid_tripped: bool = _grid_tripped
+	var grid_state_before: String = pm.get_grid_state_string()
+	var health_before: float = pm.get_generator_health(_pm_id)
+
 	## When the grid is TRIPPED and the player wants to start this generator,
 	## reset the main breaker first (clears the trip). This is the manual
 	## per-generator restart flow — player presses Start on each generator
@@ -743,6 +754,16 @@ func _on_power_toggled(desired_running: bool) -> void:
 
 	pm.set_generator_running(_pm_id, desired_running)
 	_is_running = pm.get_generator_running(_pm_id)
+
+	## Only a genuine "restart something hazardous" moment rolls the chance —
+	## starting an already-fine, ungrid-tripped, full-health generator (the
+	## ordinary case) never does. Matches BreakerBox._finish_restart()'s
+	## exact shape (grid-state-scaled chance + a low-health bonus).
+	if desired_running and (was_grid_tripped or health_before < PlayerMedical.ELECTRICAL_BURN_LOW_HEALTH_THRESHOLD):
+		var player_medical: PlayerMedical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
+		if player_medical != null:
+			player_medical.roll_electrical_burn(grid_state_before, health_before)
+
 	_sync_indicator()
 	_sync_socket()
 	_refresh_inspect_ui()

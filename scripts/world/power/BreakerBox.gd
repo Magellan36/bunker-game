@@ -801,11 +801,45 @@ func _on_settings_input(event: InputEvent) -> void:
 ## them to false).  After restart the player must manually re-enable any
 ## pass-through they want — this matches the plan's "pass-throughs become
 ## re-toggleable again" wording (re-toggleable, not auto-restored).
+##
+## Job Progress Bar (Aug 2026) — pressing RESTART now closes the settings
+## panel immediately and starts a timed job at the player's position
+## instead of resetting the breaker on the spot; the actual
+## pm.reset_breaker() call is deferred to the job's completion. Falls back
+## to the old instant reset if InteractionSystem can't be resolved.
 func _request_restart() -> void:
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm != null and not _breaker_id.is_empty():
-		pm.reset_breaker(_breaker_id)
-		_settings_canvas.queue_redraw()
+	if pm == null or _breaker_id.is_empty():
+		return
+	_close_settings()
+	## Real Burn trigger (Aug 2026) — "resetting a hazardous breaker...
+	## carries a bounded burn chance, scaled visibly by the actual hazard
+	## state involved," per docs/systems/medical/README.md. Captured BEFORE
+	## the reset actually runs, so the chance reflects the hazard the player
+	## was reaching into (this breaker was tripped, by definition — this
+	## method is only ever called while _tripped), not the post-fix state.
+	var grid_state_at_reset: String = pm.get_grid_state_string()
+	var isys: Node = _resolve_interaction_system()
+	if isys == null or not isys.has_method("start_job"):
+		_finish_restart(pm, grid_state_at_reset)
+		return
+	isys.start_job(self, InteractionSystem.JOB_DEFAULT_DURATION,
+		Callable(self, "_finish_restart").bind(pm, grid_state_at_reset), "Resetting Breaker...")
+
+## Split from _request_restart() so both the job-completion path and the
+## no-InteractionSystem fallback share exactly one place that actually
+## resets the breaker and rolls the Burn chance.
+func _finish_restart(pm: PowerManager, grid_state_at_reset: String) -> void:
+	pm.reset_breaker(_breaker_id)
+	var player_medical: PlayerMedical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
+	if player_medical != null:
+		player_medical.roll_electrical_burn(grid_state_at_reset)
+
+func _resolve_interaction_system() -> Node:
+	var plr: Node = get_tree().get_first_node_in_group("player")
+	if plr != null and "interaction_system" in plr:
+		return plr.interaction_system
+	return null
 
 
 func _send_passthrough_to_pm() -> void:

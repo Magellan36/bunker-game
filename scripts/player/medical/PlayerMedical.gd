@@ -93,6 +93,16 @@ const BROKEN_SPEED_MULT: float = 0.25
 ## severe state.
 const BROKEN_STAMINA_DRAIN_MAX_MULT: float = 5.0
 const BROKEN_WORK_SPEED_MULT: float = 0.25
+## Broken IS splintable, same mechanic as Fractured (Aug 2026 — previously
+## an open design question, now resolved: Broken uses the exact same
+## Splint item/apply_splint() call, same symptom-relief-while-worn and
+## Healed-ring-hasten behavior, just its own tuning constants since Broken
+## starts from a worse baseline than Fractured ever does. A fresh splint
+## is always required after a Fracture converts to Broken — converting
+## still destroys any existing splint, unchanged (see
+## _convert_fractured_to_broken()).
+const BROKEN_SPLINT_HASTEN_MULT: float = 6.0      ## matches FRACTURE_SPLINT_HASTEN_MULT
+const BROKEN_SPLINT_PENALTY_RELIEF: float = 0.5   ## matches FRACTURE_SPLINT_PENALTY_RELIEF
 
 # ─── Burn tuning (Pass 2.5) ─────────────────────────────────────
 ## Pinned-severity, no escalation, no infection track — the simplest
@@ -228,7 +238,24 @@ func apply_rest_bonus(hours: float) -> void:
 			continue
 		if c.heal_time_target_hours <= 0.0:
 			continue
-		c.heal_progress = minf(c.severity, c.heal_progress + (hours / c.heal_time_target_hours) * 100.0 * SLEEP_HASTEN_MULT)
+		## Aug 2026 fix — previously added a FULL extra SLEEP_HASTEN_MULT
+		## worth of progress on top of what catch_up(hours) (called
+		## immediately before this, for the same duration — see this
+		## function's own doc comment above) had ALREADY applied at the
+		## condition's own current rate (1.0 normally, or the splint-hasten
+		## constant for a splinted Broken — see current_heal_rate_mult).
+		## That stacked ADDITIVELY (base_rate + SLEEP_HASTEN_MULT, e.g. 1+2=3x
+		## unsplinted, or 6+2=8x splinted) instead of MULTIPLICATIVELY
+		## (base_rate × SLEEP_HASTEN_MULT, i.e. 2x or 12x) — which is what
+		## "sped up BY genuine rest" actually means, and is exactly what made
+		## an 8-hour sleep/fast-forward visibly heal Broken/Burns much faster
+		## than 8 real game-hours' worth of the displayed rate. Fix: add only
+		## the DELTA above what catch_up() already contributed
+		## (current_heal_rate_mult × (SLEEP_HASTEN_MULT − 1)) so the two calls
+		## together total exactly current_heal_rate_mult × SLEEP_HASTEN_MULT,
+		## not current_heal_rate_mult + SLEEP_HASTEN_MULT.
+		var bonus_mult: float = c.current_heal_rate_mult * (SLEEP_HASTEN_MULT - 1.0)
+		c.heal_progress = minf(c.severity, c.heal_progress + (hours / c.heal_time_target_hours) * 100.0 * bonus_mult)
 		if c.heal_progress >= c.severity:
 			remove_condition(c)
 	_update_bleeding_badge()
@@ -256,6 +283,7 @@ func _tick_open_wound(wound: MedicalCondition, game_hours: float) -> void:
 		rate_mult *= OPEN_WOUND_INFECTED_HEAL_DAMPEN
 	if wound.is_infected:
 		rate_mult *= OPEN_WOUND_INFECTED_HEAL_DAMPEN
+	wound.current_heal_rate_mult = rate_mult
 
 	if wound.heal_time_target_hours <= 0.0:
 		return
@@ -280,6 +308,7 @@ func _tick_infection(wound: MedicalCondition, game_hours: float) -> void:
 				wound.infection_resolved = true
 				wound.is_treated = false
 				wound.needs_cap_modifiers = {}
+				wound.needs_cap_reason = ""
 		else:
 			wound.infection_severity = minf(100.0, wound.infection_severity + INFECTION_SEVERITY_RISE_PER_HOUR * game_hours)
 			_update_infection_needs_cap(wound)
@@ -330,6 +359,7 @@ func _update_infection_needs_cap(wound: MedicalCondition) -> void:
 		"water":  INFECTION_WATER_CAP_REDUCTION_AT_100 * f,
 		"sleep":  INFECTION_SLEEP_CAP_REDUCTION_AT_100 * f,
 	}
+	wound.needs_cap_reason = "battling an infection"
 
 ## Recomputes PlayerStats' per-need caps from the worst (most restrictive)
 ## contribution across every active condition, every tick. Currently only
@@ -350,6 +380,46 @@ func _apply_needs_cap_modifiers() -> void:
 		if c.needs_cap_modifiers.has("sleep"):
 			sleep_cap = minf(sleep_cap, 100.0 + c.needs_cap_modifiers["sleep"])
 	_player_stats.set_needs_caps(food_cap, water_cap, sleep_cap)
+
+## Status Screen (Aug 2026) — a single plain-language sentence explaining
+## WHY needs are currently capped, e.g. "You are currently battling an
+## infection." Shown plainly on the Status Screen at all times (not on
+## hover) when non-empty — the player can infer the drained needs are the
+## reason without also being told which needs by name here (that's
+## covered elsewhere — the needs gauge itself). Deliberately dynamic/
+## generic rather than hardcoded to Infection specifically: scans every
+## active condition's needs_cap_modifiers (same data
+## _apply_needs_cap_modifiers() already reads) for whether ANY need is
+## currently reduced, and pulls each contributing condition's own
+## needs_cap_reason (see MedicalCondition.needs_cap_reason's doc comment)
+## rather than re-deriving the reason text here — a future condition that
+## populates needs_cap_modifiers automatically gets a correct sentence for
+## free as long as it also sets its own needs_cap_reason, no changes
+## needed here. Returns "" when nothing is currently capped (caller hides
+## the row).
+func get_needs_cap_reason_text() -> String:
+	var reasons: Array[String] = []
+	for need_key in ["hunger", "water", "sleep"]:
+		for c in active_conditions:
+			if c.needs_cap_modifiers.has(need_key) and c.needs_cap_modifiers[need_key] < 0.0:
+				if c.needs_cap_reason != "" and not reasons.has(c.needs_cap_reason):
+					reasons.append(c.needs_cap_reason)
+	if reasons.is_empty():
+		return ""
+	return "You are currently %s." % " and ".join(reasons)
+
+## Status Screen (Aug 2026) — public passthroughs for two presentation
+## helpers that were previously private, so the new UI can reuse the exact
+## same per-condition text/color the ambient HUD badges already use rather
+## than inventing a second description of the same data (per the design
+## doc's "Once the Status Screen gets built, it should reuse this exact
+## same per-limb effect-list data shape"). No logic duplicated — these just
+## forward to the existing private functions.
+func get_status_detail_text(condition: MedicalCondition) -> String:
+	return _tooltip_for(condition)
+
+func get_condition_ring_color(condition: MedicalCondition) -> Color:
+	return _ring_color_for(condition)
 
 # ─── Body-part-differentiated symptoms (Aug 2026) ──────────────────────────
 ## See docs/systems/medical/README.md's "Body-part-differentiated symptom
@@ -546,8 +616,26 @@ func _tick_fractured(frac: MedicalCondition, game_hours: float) -> void:
 
 	if frac.heal_time_target_hours <= 0.0:
 		return
-	var rate_mult: float = FRACTURE_SPLINT_HASTEN_MULT if frac.is_treated else 1.0
-	frac.heal_progress += (game_hours / frac.heal_time_target_hours) * 100.0 * rate_mult
+	## Aug 2026 fix — previously accrued heal_progress against a flat 100.0
+	## scale regardless of severity ("heal_progress += (game_hours /
+	## heal_time_target_hours) * 100.0 * rate_mult"), but heal_progress is
+	## CAPPED at frac.severity (below), not 100 — Fractured is the only
+	## wound-tier condition whose severity isn't pinned at 100, so this was
+	## the one condition where the bug actually surfaced. Concretely: a
+	## fresh 15%-severity Fracture with heal_time_target_hours=60 (the
+	## design doc's own "~2-3 day baseline" example) hit its cap of 15 in
+	## just 9 real game-hours at the old formula — severity/100 = 15% of the
+	## intended 60-hour baseline, not the full 60 hours the design doc and
+	## _fracture_heal_time_for_severity()'s own naming promise. Scaling by
+	## frac.severity instead of a hardcoded 100.0 makes heal_progress reach
+	## exactly frac.severity after precisely heal_time_target_hours hours (at
+	## rate_mult=1), matching "heal_time_target_hours IS the real heal
+	## time" for every severity, not just severity=100 (which is why Broken/
+	## Burn/Open Wound — always pinned at severity=100 — never showed this;
+	## their hardcoded 100.0 happened to already equal their own severity).
+	var hasten_mult: float = FRACTURE_SPLINT_HASTEN_MULT if frac.is_treated else 1.0
+	frac.current_heal_rate_mult = hasten_mult
+	frac.heal_progress += (game_hours / frac.heal_time_target_hours) * frac.severity * hasten_mult
 	frac.heal_progress = minf(frac.heal_progress, frac.severity)
 
 	if frac.heal_progress >= frac.severity:
@@ -558,18 +646,39 @@ func _tick_fractured(frac: MedicalCondition, game_hours: float) -> void:
 ## once-per-episode semantics (only fires on the false->true transition)
 ## already give this the "one escalation roll per exertion episode"
 ## behavior the design doc calls for, with no extra cooldown bookkeeping
-## needed here.
-func _on_player_exhausted() -> void:
-	for part in [MedicalCondition.BodyPart.LEFT_LEG, MedicalCondition.BodyPart.RIGHT_LEG]:
+## needed here. Aug 2026 — extended to arms: Player.gd now reports WHICH
+## drain source(s) actually caused this exhaustion (sprinting vs. carrying
+## a Heavy item — see that signal's own doc comment), so the escalation
+## itself stays body-part-causal per the design doc's "reason over
+## randomness" pillar — sprinting escalates leg fractures (sprint/stamina
+## is leg-driven, matching the design doc's original leg-only wording),
+## carrying something heavy escalates arm fractures (arms are what's
+## actually under load), and both fire in the same episode if the player
+## was sprinting WHILE carrying something heavy.
+func _on_player_exhausted(from_sprint: bool, from_heavy_carry: bool) -> void:
+	if from_sprint:
+		_escalate_fractures_on_parts([MedicalCondition.BodyPart.LEFT_LEG, MedicalCondition.BodyPart.RIGHT_LEG])
+	if from_heavy_carry:
+		_escalate_fractures_on_parts([MedicalCondition.BodyPart.LEFT_ARM, MedicalCondition.BodyPart.RIGHT_ARM])
+
+func _escalate_fractures_on_parts(parts: Array) -> void:
+	for part in parts:
 		var frac: MedicalCondition = get_condition_by_id_and_part("fractured", part)
-		if frac == null:
-			continue
-		var bump: float = randf_range(FRACTURE_ESCALATION_MIN, FRACTURE_ESCALATION_MAX)
-		frac.severity = minf(100.0, frac.severity + bump)
-		frac.heal_progress *= FRACTURE_ESCALATION_SETBACK_MULT
-		frac.heal_time_target_hours = _fracture_heal_time_for_severity(frac.severity)
-		if frac.severity >= 100.0:
-			_convert_fractured_to_broken(frac)
+		if frac != null:
+			_escalate_fracture(frac)
+
+## Shared escalation math — one bounded-random severity bump, a Healed-
+## ring setback, a recomputed heal-time target, and a Broken conversion if
+## this push reaches 100%. Used by the real trigger above AND
+## debug_force_escalate_all_fractures() below, so this math lives in
+## exactly one place instead of two copies drifting apart.
+func _escalate_fracture(frac: MedicalCondition) -> void:
+	var bump: float = randf_range(FRACTURE_ESCALATION_MIN, FRACTURE_ESCALATION_MAX)
+	frac.severity = minf(100.0, frac.severity + bump)
+	frac.heal_progress *= FRACTURE_ESCALATION_SETBACK_MULT
+	frac.heal_time_target_hours = _fracture_heal_time_for_severity(frac.severity)
+	if frac.severity >= 100.0:
+		_convert_fractured_to_broken(frac)
 
 ## Fractured reaching 100% severity converts to Broken — a distinct, worse
 ## condition, not just a label change (see design doc's "100% severity can
@@ -589,11 +698,20 @@ func _convert_fractured_to_broken(frac: MedicalCondition) -> void:
 	add_condition(broken)
 
 func _tick_broken(broken: MedicalCondition, game_hours: float) -> void:
-	_apply_limb_symptoms(broken, BROKEN_SPEED_MULT, _severity_exp_stamina_drain_mult(broken.severity, BROKEN_STAMINA_DRAIN_MAX_MULT), BROKEN_WORK_SPEED_MULT)
+	var speed_candidate: float = BROKEN_SPEED_MULT
+	var drain_candidate: float = _severity_exp_stamina_drain_mult(broken.severity, BROKEN_STAMINA_DRAIN_MAX_MULT)
+	var work_speed_candidate: float = BROKEN_WORK_SPEED_MULT
+	if broken.is_treated:   ## splinted — relieves symptom penalties, same as Fractured (Aug 2026)
+		speed_candidate = lerp(speed_candidate, 1.0, BROKEN_SPLINT_PENALTY_RELIEF)
+		drain_candidate = lerp(drain_candidate, 1.0, BROKEN_SPLINT_PENALTY_RELIEF)
+		work_speed_candidate = lerp(work_speed_candidate, 1.0, BROKEN_SPLINT_PENALTY_RELIEF)
+	_apply_limb_symptoms(broken, speed_candidate, drain_candidate, work_speed_candidate)
 
 	if broken.heal_time_target_hours <= 0.0:
 		return
-	broken.heal_progress = minf(broken.severity, broken.heal_progress + (game_hours / broken.heal_time_target_hours) * 100.0)
+	var rate_mult: float = BROKEN_SPLINT_HASTEN_MULT if broken.is_treated else 1.0
+	broken.current_heal_rate_mult = rate_mult
+	broken.heal_progress = minf(broken.severity, broken.heal_progress + (game_hours / broken.heal_time_target_hours) * 100.0 * rate_mult)
 	if broken.heal_progress >= broken.severity:
 		remove_condition(broken)
 
@@ -618,37 +736,101 @@ func _tick_burn(burn: MedicalCondition, game_hours: float) -> void:
 
 	if burn.heal_time_target_hours <= 0.0:
 		return
+	burn.current_heal_rate_mult = 1.0   ## no real-time hasten modifier exists for Burn — only the one-off rest bonus (apply_rest_bonus())
 	burn.heal_progress = minf(burn.severity, burn.heal_progress + (game_hours / burn.heal_time_target_hours) * 100.0)
 	if burn.heal_progress >= burn.severity:
 		remove_condition(burn)
 
-## Splint (Pass 2 stub) — per the design doc, NOT required for Fractured
-## to heal at all (natural healing always happens), but dramatically
-## hastens it and relieves symptom penalties while worn. Destroyed
-## implicitly when Fractured converts to Broken (the new Broken instance
-## starts with is_treated = false regardless).
+## Real Burn triggers (Aug 2026) — previously F7-only. Both flavors are a
+## bounded chance rolled at the exact moment of a real, causal player
+## action (plating a dish; resetting a hazardous breaker/generator), per
+## the design doc's "reason over randomness" pillar — the CHANCE itself
+## varies with real, visible game state (grid state / generator health),
+## never a flat unexplained number. Body part is always an arm (50/50
+## left/right) — matches the established pattern that hands-on work is
+## arm-attributed elsewhere in this system (heavy carry, work speed).
+const COOKING_BURN_CHANCE: float = 0.04
+
+const ELECTRICAL_BURN_CHANCE_ONLINE: float = 0.02
+const ELECTRICAL_BURN_CHANCE_BROWNOUT: float = 0.05
+const ELECTRICAL_BURN_CHANCE_OVERLOADED: float = 0.07
+const ELECTRICAL_BURN_CHANCE_TRIPPED: float = 0.10
+const ELECTRICAL_BURN_CHANCE_OFFLINE: float = 0.12
+## Added on top of the grid-state chance above when restarting a
+## generator that's below half health — a failing generator is a more
+## dangerous thing to manually restart, independent of the grid's own state.
+const ELECTRICAL_BURN_CHANCE_LOW_HEALTH_BONUS: float = 0.05
+const ELECTRICAL_BURN_LOW_HEALTH_THRESHOLD: float = 50.0
+
+func _roll_burn(chance: float, cause: String) -> void:
+	if randf() < chance:
+		var part: int = MedicalCondition.BodyPart.LEFT_ARM if randf() < 0.5 else MedicalCondition.BodyPart.RIGHT_ARM
+		spawn_burn(part, cause)
+
+## Called by InteractionSystem._finish_take_dish()/_finish_take_dish_from_
+## held_pot() right after a dish is successfully served ("plating a dish
+## can occasionally cause a burn", per the design doc). Flat chance —
+## unlike electrical, there's no analogous "how hazardous was this
+## specific moment" state to scale off of yet.
+func roll_cooking_burn() -> void:
+	_roll_burn(COOKING_BURN_CHANCE, "cooking")
+
+## Called by BreakerBox._request_restart()'s job completion and
+## GeneratorObject._on_power_toggled()'s restart-from-trip/low-health
+## path. `grid_state_string` matches PowerManager.get_grid_state_string()'s
+## exact return values ("ONLINE"/"BROWNOUT"/"OVERLOADED"/"TRIPPED"/
+## "OFFLINE") — captured by the caller BEFORE the reset/restart actually
+## changes it, so the chance reflects the hazard the player was actually
+## reaching into, not the post-fix state. `generator_health` defaults to
+## 100 (irrelevant/full) for the breaker-reset call site, which has no
+## generator of its own.
+func roll_electrical_burn(grid_state_string: String, generator_health: float = 100.0) -> void:
+	var chance: float = ELECTRICAL_BURN_CHANCE_ONLINE
+	match grid_state_string:
+		"BROWNOUT": chance = ELECTRICAL_BURN_CHANCE_BROWNOUT
+		"OVERLOADED": chance = ELECTRICAL_BURN_CHANCE_OVERLOADED
+		"TRIPPED": chance = ELECTRICAL_BURN_CHANCE_TRIPPED
+		"OFFLINE": chance = ELECTRICAL_BURN_CHANCE_OFFLINE
+	if generator_health < ELECTRICAL_BURN_LOW_HEALTH_THRESHOLD:
+		chance += ELECTRICAL_BURN_CHANCE_LOW_HEALTH_BONUS
+	_roll_burn(chance, "electrical")
+
+## Splint (Pass 2, extended Aug 2026) — per the design doc, NOT required
+## for Fractured to heal at all (natural healing always happens), but
+## dramatically hastens it and relieves symptom penalties while worn.
+## Destroyed implicitly when Fractured converts to Broken (the new Broken
+## instance starts with is_treated = false regardless). ALSO applies to
+## Broken directly (Aug 2026 — previously an open design question, now
+## resolved, see BROKEN_SPLINT_HASTEN_MULT's own comment) — checks for a
+## Fractured on this body part first, falls back to Broken if none.
 func apply_splint(body_part: int) -> void:
 	var frac: MedicalCondition = get_condition_by_id_and_part("fractured", body_part)
 	if frac != null:
 		frac.is_treated = true
+		return
+	var broken: MedicalCondition = get_condition_by_id_and_part("broken", body_part)
+	if broken != null:
+		broken.is_treated = true
 
-## Splint's injury-selection submenu query (Aug 2026) — every body part
-## with an active Fractured condition. Deliberately excludes Broken —
-## Splint is Fracture-specific (see "Item roles" in the design doc; Broken
-## has no real treatment defined yet). Worst-severity-first, same
-## convention as get_eligible_bleeding_targets().
+## Splint's injury-selection submenu query — every body part with an
+## active Fractured OR Broken condition (Aug 2026 — Broken added; see
+## apply_splint()'s own comment). Worst-severity-first, same convention as
+## get_eligible_bleeding_targets() — Broken is always pinned at 100%
+## severity, so it naturally sorts to the very top alongside/above any
+## Fractured entries, matching "point the player at the most urgent one."
 func get_eligible_splint_targets() -> Array:
-	var fractures: Array[MedicalCondition] = []
+	var targets: Array[MedicalCondition] = []
 	for c in active_conditions:
-		if c.id == "fractured":
-			fractures.append(c)
-	fractures.sort_custom(func(a: MedicalCondition, b: MedicalCondition) -> bool: return a.severity > b.severity)
+		if c.id == "fractured" or c.id == "broken":
+			targets.append(c)
+	targets.sort_custom(func(a: MedicalCondition, b: MedicalCondition) -> bool: return a.severity > b.severity)
 	var out: Array = []
-	for c in fractures:
+	for c in targets:
+		var detail: String = ("Severity: %d%%" % int(c.severity)) if c.id == "fractured" else "Broken"
 		out.append({
 			"body_part": c.body_part,
 			"label": MedicalCondition.body_part_label(c.body_part),
-			"detail": "Severity: %d%%" % int(c.severity),
+			"detail": detail,
 		})
 	return out
 
@@ -871,7 +1053,7 @@ func _tooltip_for(condition: MedicalCondition) -> String:
 			lines.append("Bleeding: %d%% (%.2f HP/sec)" % [int(bleed.severity), bleed.hp_drain_per_second])
 		if condition.has_heal_ring and condition.severity > 0.0:
 			var frac_left: float = 1.0 - (condition.heal_progress / condition.severity)
-			var hours_left: float = frac_left * condition.heal_time_target_hours
+			var hours_left: float = frac_left * condition.heal_time_target_hours / maxf(condition.current_heal_rate_mult, 0.0001)
 			lines.append("Time Left: ~%.0fh" % maxf(hours_left, 0.0))
 		return "\n".join(lines)
 	if condition.id == "fractured":
@@ -880,21 +1062,22 @@ func _tooltip_for(condition: MedicalCondition) -> String:
 		lines2.append_array(_symptom_effect_lines(condition))
 		if condition.severity > 0.0:
 			var frac_left2: float = 1.0 - (condition.heal_progress / condition.severity)
-			var hours_left2: float = frac_left2 * condition.heal_time_target_hours
+			var hours_left2: float = frac_left2 * condition.heal_time_target_hours / maxf(condition.current_heal_rate_mult, 0.0001)
 			lines2.append("Time Left: ~%.0fh" % maxf(hours_left2, 0.0))
 		return "\n".join(lines2)
 	if condition.id == "broken":
 		var lines3: Array[String] = ["Broken (%s)" % part_label]
+		lines3.append("Splinted" if condition.is_treated else "Not splinted")
 		lines3.append_array(_symptom_effect_lines(condition))
 		var frac_left3: float = 1.0 - (condition.heal_progress / 100.0)
-		lines3.append("Time Left: ~%.0fh" % maxf(frac_left3 * condition.heal_time_target_hours, 0.0))
+		lines3.append("Time Left: ~%.0fh" % maxf(frac_left3 * condition.heal_time_target_hours / maxf(condition.current_heal_rate_mult, 0.0001), 0.0))
 		return "\n".join(lines3)
 	if condition.id == "burn":
 		var label: String = "%s Burn" % condition.cause.capitalize() if condition.cause != "" else "Burn"
 		var lines4: Array[String] = ["%s (%s)" % [label, part_label]]
 		lines4.append_array(_symptom_effect_lines(condition))
 		var frac_left4: float = 1.0 - (condition.heal_progress / 100.0)
-		lines4.append("Time Left: ~%.0fh" % maxf(frac_left4 * condition.heal_time_target_hours, 0.0))
+		lines4.append("Time Left: ~%.0fh" % maxf(frac_left4 * condition.heal_time_target_hours / maxf(condition.current_heal_rate_mult, 0.0001), 0.0))
 		return "\n".join(lines4)
 	return "%s (%s)" % [condition.id.capitalize(), part_label]
 
@@ -943,21 +1126,17 @@ func debug_adjust_infection_severity(delta: float) -> void:
 			c.infection_severity = clampf(c.infection_severity + delta, 0.0, 100.0)
 
 ## Forces one Fracture-escalation roll on every active Fractured condition,
-## regardless of body part (the real trigger only fires on legs via
-## Player.gd's exhausted signal — this is deliberately broader for
-## testing). Converts to Broken if the roll pushes severity to 100, same
-## as the real path.
+## regardless of body part (the real trigger fires separately per limb via
+## Player.gd's exhausted signal — legs from sprint-exhaustion, arms from
+## heavy-carry-exhaustion — this is deliberately broader for testing, both
+## at once). Converts to Broken if the roll pushes severity to 100, same
+## as the real path. Shares its math with the real trigger via
+## _escalate_fracture().
 func debug_force_escalate_all_fractures() -> void:
 	var conditions_copy: Array[MedicalCondition] = active_conditions.duplicate()
 	for frac in conditions_copy:
-		if frac.id != "fractured":
-			continue
-		var bump: float = randf_range(FRACTURE_ESCALATION_MIN, FRACTURE_ESCALATION_MAX)
-		frac.severity = minf(100.0, frac.severity + bump)
-		frac.heal_progress *= FRACTURE_ESCALATION_SETBACK_MULT
-		frac.heal_time_target_hours = _fracture_heal_time_for_severity(frac.severity)
-		if frac.severity >= 100.0:
-			_convert_fractured_to_broken(frac)
+		if frac.id == "fractured":
+			_escalate_fracture(frac)
 
 ## Forces every active Fractured condition straight to 100% severity and
 ## converts it to Broken immediately — for testing Broken's own behavior

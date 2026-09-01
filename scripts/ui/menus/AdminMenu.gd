@@ -182,8 +182,12 @@ func _ready() -> void:
 			["Infection Severity -20 (all)", _on_infection_sev_down_pressed],
 			["Spawn Fractured (Left Leg)",   _on_spawn_fracture_left_leg_pressed],
 			["Spawn Fractured (Right Leg)",  _on_spawn_fracture_right_leg_pressed],
+			["Spawn Fractured (Left Arm)",   _on_spawn_fracture_left_arm_pressed],
+			["Spawn Fractured (Right Arm)",  _on_spawn_fracture_right_arm_pressed],
 			["Apply Splint (Left Leg)",      _on_apply_splint_left_leg_pressed],
 			["Apply Splint (Right Leg)",     _on_apply_splint_right_leg_pressed],
+			["Apply Splint (Left Arm)",      _on_apply_splint_left_arm_pressed],
+			["Apply Splint (Right Arm)",     _on_apply_splint_right_arm_pressed],
 			["Force Escalate All Fractures", _on_force_escalate_fracture_pressed],
 			["Force-Convert Fractures to Broken", _on_force_break_pressed],
 			["Spawn Electrical Burn (Left Arm)", _on_spawn_electrical_burn_pressed],
@@ -599,6 +603,31 @@ func _on_apply_splint_right_leg_pressed() -> void:
 	var pm: PlayerMedical = _get_player_medical()
 	if pm != null:
 		pm.apply_splint(MedicalCondition.BodyPart.RIGHT_LEG)
+
+## Arm rows (Aug 2026) — for testing arm-side Fracture escalation (the
+## heavy-carry-exhaustion trigger, see Player.gd's exhausted signal and
+## PlayerMedical._on_player_exhausted()) and Broken-splint support (see
+## apply_splint()'s own comment) without waiting on real carry-drain
+## exhaustion in play.
+func _on_spawn_fracture_left_arm_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_fractured(MedicalCondition.BodyPart.LEFT_ARM)
+
+func _on_spawn_fracture_right_arm_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.spawn_fractured(MedicalCondition.BodyPart.RIGHT_ARM)
+
+func _on_apply_splint_left_arm_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.apply_splint(MedicalCondition.BodyPart.LEFT_ARM)
+
+func _on_apply_splint_right_arm_pressed() -> void:
+	var pm: PlayerMedical = _get_player_medical()
+	if pm != null:
+		pm.apply_splint(MedicalCondition.BodyPart.RIGHT_ARM)
 
 func _on_force_escalate_fracture_pressed() -> void:
 	var pm: PlayerMedical = _get_player_medical()

@@ -394,6 +394,33 @@ func clear_pot_ref() -> void:
 	pot_ref = null
 	_refresh_cooking_state()
 
+## NPC-direct power toggle (Aug 2026, Brannon-requested) — mirrors the
+## npc_try_sit()/npc_try_place_item()/npc_retrieve() convention already
+## used elsewhere in this codebase for NPC entry points that need to
+## bypass a player-oriented UI/timing layer. on_interact() is NOT safe to
+## call from an NPC: _resolve_interaction_system() always resolves the
+## PLAYER's own InteractionSystem regardless of caller, and the actual
+## state change now happens asynchronously behind a Job Progress Bar
+## (isys.start_job() — on_interact() used to toggle instantly before that
+## was added). An NPC calling on_interact() and immediately checking
+## powered_on right after (exactly what CookingActivity._turn_on_stove()
+## used to do) would ALWAYS see the stale pre-toggle value, since the real
+## _toggle() call hadn't fired yet — confirmed as the root cause of NPCs
+## reporting "stove unpowered" even when genuinely grid-connected.
+## Direct, synchronous set: same grid-connection gate on_interact() uses
+## when turning ON, applied immediately, with the real result available
+## the instant this returns. Turning OFF always succeeds (no gate needed
+## in that direction).
+func npc_set_powered(on: bool) -> bool:
+	if on and not _is_grid_connected():
+		return false
+	if powered_on == on:
+		return true   ## already in the requested state
+	powered_on = on
+	_refresh_cooking_state()
+	_refresh_indicator()
+	return true
+
 
 # ─── Cooking-active / power-draw logic ────────────────────────────────────────
 ## Power draw (200W) = powered_on ALONE. Pot or no pot, items or no items —

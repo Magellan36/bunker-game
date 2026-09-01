@@ -269,6 +269,35 @@ conditions, while a severely escalated one (say ~90%) should take on the
 order of ~10 days. This is precomputed at creation and dynamically
 recomputed on every escalation event, not fixed once and forgotten.
 
+**Timing accuracy fix (Aug 2026):** two real bugs previously made actual
+healing not match either the numbers above or the "Time Left" readout:
+- **Fractured's heal-rate scale was wrong.** Its accrual formula scaled
+  `heal_progress` against a flat 100 regardless of severity, but
+  `heal_progress` is capped at `severity` (Fractured is the only
+  wound-tier condition whose severity isn't pinned at 100) — so a fresh
+  15%-severity Fracture actually hit its own cap in ~15% of its stated
+  heal-time baseline, not the full baseline. Fixed to scale by
+  `severity` instead, so `heal_time_target_hours` now IS the real heal
+  time at every severity, matching this section's own "~2-3 day" / "~10
+  day" language for the first time.
+- **The "Time Left" tooltip ignored the current heal rate entirely** —
+  it computed remaining time from `heal_time_target_hours` alone, never
+  accounting for a splint's hasten multiplier or Open Wound's bleeding/
+  infection dampening, so a splinted limb's displayed time-left could be
+  several times too long. Fixed by tracking each condition's actual
+  applied rate every tick (`MedicalCondition.current_heal_rate_mult`) and
+  dividing by it in the display calculation.
+- **`apply_rest_bonus()` (genuine sleep's extra speedup for Broken/Burns)
+  was double-counting** — it added a full extra `SLEEP_HASTEN_MULT` worth
+  of progress ON TOP of what `catch_up()` (called immediately before it,
+  for the same duration) had already applied, stacking ADDITIVELY
+  (e.g. 1+2=3×, or 6+2=8× if splinted) instead of MULTIPLICATIVELY
+  (2×, or 12× splinted) — which is what "sped up BY rest" means. This is
+  why an 8-hour sleep (real or the admin "Simulate 8h Sleep" debug
+  button — both go through the same two calls) visibly healed Broken/
+  Burns much faster than 8 real game-hours' worth. Fixed to add only the
+  delta above what `catch_up()` already contributed.
+
 **Why this doesn't reopen "no ETA for event-triggered worsening"
 (previously an open question):** because natural healing is now *always*
 progressing regardless of whether the condition is currently worsening,
@@ -350,24 +379,39 @@ severely that survival without treatment becomes close to impossible.
   with a correspondingly minor initial speed penalty. Severity is
   **one-directional** here — it only rises, never falls; recovery is
   entirely the Healed ring's job (see "Healing (the Healed ring)" above).
-- **Escalation:** further sustained over-exertion (stamina at empty) while
-  already Fractured is a deterministic trigger for a severity increase —
-  the *size* of each increase is randomized within a bounded range
-  (roughly 10–25% per event), repeating on each qualifying event until
-  severity reaches 100%. Each escalation also sets back the Healed ring
-  and extends its target time (see above).
+- **Escalation:** further sustained over-exertion while already Fractured
+  is a deterministic trigger for a severity increase — the *size* of each
+  increase is randomized within a bounded range (roughly 10–25% per
+  event), repeating on each qualifying event until severity reaches 100%.
+  Each escalation also sets back the Healed ring and extends its target
+  time (see above). **Body-part-causal (Aug 2026):** the trigger is
+  0-stamina exhaustion, but WHICH limb escalates depends on what actually
+  caused the exhaustion — sprinting to empty stamina escalates a leg
+  Fracture, carrying a Heavy item to empty stamina escalates an arm
+  Fracture (both can fire in the same episode if both were happening at
+  once). See `Player.gd`'s `exhausted` signal and
+  `PlayerMedical._on_player_exhausted()`.
 - **At 100%, Fractured converts into Broken** — a distinct, worse
   condition, pinned at 100% severity, with its own (more detrimental)
-  symptoms and its own (presumably more advanced) treatment requirement.
-  Broken also gets its own Healed ring per the general wound-tier rule.
-  Exact Broken-state symptoms/treatment are not yet designed — see "Open
-  questions."
+  symptoms. Broken also gets its own Healed ring per the general
+  wound-tier rule. **Broken is splintable, same as Fractured (Aug
+  2026)** — previously an open design question ("Broken's own real
+  treatment is still an open design question"), now resolved: the same
+  Splint item/`apply_splint()` call works on either, with its own tuning
+  constants (`PlayerMedical.BROKEN_SPLINT_HASTEN_MULT`/
+  `BROKEN_SPLINT_PENALTY_RELIEF`) since Broken starts from a worse
+  baseline than Fractured ever does. Exact Broken-state symptom/treatment
+  *numbers* are still placeholder ballparks pending playtesting, same as
+  everywhere else in this doc — but the mechanic itself (splintable,
+  symptom relief while worn, Healed-ring hasten) is no longer an open
+  question.
 - **Splinting** does not gate whether healing happens (natural healing
   always progresses, per "Healing" above) — it dramatically **hastens**
-  the Healed ring and **reduces symptom penalties** while worn. Without a
-  splint, meaningful healing progress requires the limb to stay almost
-  entirely still for an extended period, since any qualifying
-  over-exertion still risks triggering an escalation.
+  the Healed ring and **reduces symptom penalties** while worn, for both
+  Fractured and Broken. Without a splint, meaningful healing progress
+  requires the limb to stay almost entirely still for an extended period,
+  since any qualifying over-exertion still risks triggering an escalation
+  (Fractured) or simply progresses slower (Broken).
 - **Splinting does not prevent escalation** — over-exertion while splinted
   can still trigger a severity increase by the same rule as above. If a
   splinted Fracture is pushed all the way to 100% anyway, it still
@@ -466,21 +510,31 @@ systemic exception.
 - **Bleeding and plain (uninfected) Open Wound have zero symptom effect of
   their own**, unchanged — pure HP-drain/no-effect respectively.
 
-### Work speed is blocked on a dependency
-`MedicalCondition.work_speed_mult` is now populated correctly on
-Arm/Infection conditions, but **work speed itself doesn't exist as a game
-mechanic yet** — some other system needs to define what "work speed"
-governs (crafting? interacting? both?) before this multiplier visibly
-does anything. The tooltip still surfaces the multiplier's current value
-(see below) so the player can see it — it just has nothing to act on yet.
+### Work speed — now a real, connected mechanic (Aug 2026)
+`MedicalCondition.work_speed_mult` is populated on Arm/Infection
+conditions, and "work speed" now IS a real game mechanic — the **Job
+Progress Bar system** (`InteractionSystem.start_job()`, see
+`docs/systems/player/README.md`'s "Job Progress Bar" entry) gives every
+timed interaction in the game (plating a dish, and any future timed
+interaction built on the same system) a real fill-rate to slow down.
+`PlayerMedical.get_medical_job_speed_multiplier()` is the fourth
+aggregator alongside the speed/sprint-drain/carry-drain ones, called every
+job-tick by `InteractionSystem._job_speed_mult()` and multiplied directly
+into the progress bar's fill rate — an Arm Fracture/Broken/Burn or an
+active Infection now visibly slows down timed jobs, not just a tooltip
+number with nothing to act on.
 
-### Heavy-carry stamina drain is also a dependency, but a lighter one
-The *base* mechanic — carrying heavy items causing ongoing stamina drain
-at all — doesn't exist yet either (see "Planned future extensions").
-`get_medical_carry_stamina_drain_multiplier()` is implemented and correct,
-but nothing calls it in real gameplay yet. `get_medical_sprint_stamina_
-drain_multiplier()`, by contrast, IS wired into `Player.gd`'s real
-sprint-stamina-drain line and visibly does something today.
+### Heavy-carry stamina drain — also now real and connected (Aug 2026)
+The *base* mechanic — carrying a Heavy item causing its own ongoing
+stamina drain — is implemented (`Player.gd`'s `heavy_carry_stamina_drain`,
+gated on `PickupableItem.is_heavy_item()`, summed into the same total
+drain the sprint drain contributes to). `get_medical_carry_stamina_drain_
+multiplier()` is wired into that real drain line, so an Arm Fracture/
+Broken/Burn or Infection now visibly drains stamina faster while carrying
+something heavy, the same way `get_medical_sprint_stamina_drain_
+multiplier()` already did for sprinting. Carrying to empty stamina is also
+now the deterministic arm-side trigger for Fracture escalation — see
+"Broken bones / fractures" above.
 
 ### Tooltip presentation
 Every condition's hover tooltip (`PlayerMedical._tooltip_for()`, via the
@@ -579,10 +633,9 @@ all** — see its own entry below and the Item roles table:
   table below — the submenu doesn't need to distinguish the two cases,
   applying Antibiotics to either is the same action from the player's
   side).
-- **Splint** — any body part with an active Fractured condition.
-  Explicitly **not** Broken — Splint is Fracture-specific per the table
-  below, and Broken's own real treatment is still an open design
-  question (see "Open questions").
+- **Splint** — any body part with an active Fractured OR Broken condition
+  (Aug 2026 — Broken added; previously Fractured-only, see "Broken bones /
+  fractures" above for the resolved open question).
 - **Trauma Kit** — **redesigned Aug 2026, does not open this submenu.**
   Pressing E immediately bandages every currently-Bleeding wound and
   splints every currently-Fractured limb, all at once, then destroys
@@ -674,7 +727,7 @@ constraint fixed here.
 |---|---|
 | **Bandage** | Stops the Bleeding status effect outright on the treated body part. That's its entire job — no effect on infection risk, no effect on a wound's Healed-ring rate directly (though stopping Bleeding removes one of the two things that dampen it). Use-prompt reads `"[E] Bandage"` (corrected Aug 2026 from "Treat Bleeding" — shorter, matches the item's own name like every other item's use-prompt convention). |
 | **Antibiotics** | Dual role: applied to a plain Open Wound, **prevents/reduces** infection risk. Applied after infection has taken hold, **cures** it — flips Infection Severity from rising to falling (and removes the other Healed-ring dampener once cured). |
-| **Splint** | Fracture-specific. Not required for healing to occur at all (natural healing always happens — see "Healing"), but dramatically hastens the Healed ring and reduces symptom penalties while worn. Destroyed if the fracture reaches 100% and converts to Broken. **Single-charge (see "Charges")** — destroyed on its one use regardless. |
+| **Splint** | Treats Fractured or Broken (Aug 2026 — previously Fracture-only). Not required for healing to occur at all (natural healing always happens — see "Healing"), but dramatically hastens the Healed ring and reduces symptom penalties while worn. Destroyed if a splinted Fracture reaches 100% and converts to Broken — the new Broken always needs a fresh splint of its own. **Single-charge (see "Charges")** — destroyed on its one use regardless. |
 | **Trauma Kit** | **Redesigned Aug 2026** — no target selection, no submenu. E immediately bandages EVERY currently-Bleeding wound and splints EVERY currently-Fractured limb at once, then the item is destroyed regardless of whether anything was actually eligible. Deliberately open-ended baseline pending later, more serious injury/illness content (gunshots, chronic diseases, etc.) this game hasn't built yet — expect this to be tweaked/expanded once that content exists. **Single-charge (see "Charges")** — destroyed on its one use regardless. |
 
 ### Research Station chute yields
@@ -792,10 +845,68 @@ applicable (now always computable for wound-tier conditions — see
 "Healing"), treated/untreated state, and condition-specific info (e.g.
 Bleeding's current HP-loss-per-second at present severity).
 
-**Layer 3 — Future Status Screen (not yet designed/scaffolded).** The
-overall info hub: a visual body diagram, per-limb status, all wounds and
-their individual bleeding rates simultaneously, and deeper detail on
-whichever limb is hovered/selected.
+**Layer 3 — Status Screen (implemented, Aug 2026).** The overall info
+hub: `scripts/ui/medical/StatusScreenUI.gd`, toggled with **[Tab]**
+(`MainWorld._toggle_status_screen()`), a **non-modal** panel — unlike
+every other panel in the project, it does NOT pause anything and does NOT
+lock player movement; the world (NPCs, hazards, the clock) keeps running
+while it's open. Left pane: a placeholder body diagram (six clickable
+regions in a rough humanoid layout — real art deferred, Brannon's
+explicit call), each limb showing a mini version of that limb's active
+condition badges (same ring colors as the ambient HUD icons) so the whole
+body's state is visible at a glance without selecting anything. Right
+pane: clicking/selecting a limb shows its active conditions as
+expandable tabs (▶/▼, same click-to-toggle idiom `AdminMenu.gd`'s
+sections already use), each tab's body reusing the *exact* same detail
+text the ambient tooltip already shows (`PlayerMedical.
+get_status_detail_text()`) — no second description of the same data. All
+six body parts are selectable, including Head/Torso even though they
+carry zero symptom effects today (both can already receive real Open
+Wound injuries and must stay inspectable regardless). Numeric readouts
+only for now (severities, multipliers) — may move toward more abstracted
+presentation later.
+
+A separate always-visible row (not tied to limb selection, since it's a
+whole-body effect) surfaces *why* needs are currently capped, prefixed
+with a caution icon (⚠) — `PlayerMedical.get_needs_cap_reason_text()`
+builds a plain-language sentence ("You are currently battling an
+infection.") from whichever active conditions are populating
+`needs_cap_modifiers`. Plainly shown at all times when non-empty, not on
+hover (Aug 2026 — simplified from an earlier hover-tooltip version;
+Brannon's call was that the player can infer the drained needs are the
+cause without also being told which needs by name, and the tutorial
+covers the rest). Generic by construction: `MedicalCondition.
+needs_cap_reason` is set by whichever condition populates
+`needs_cap_modifiers` (currently only Infection) alongside the cap values
+themselves, so a future needs-cap condition gets a correct sentence for
+free as long as it sets its own reason text — no changes needed to the
+sentence-building logic itself.
+
+**Fully controller-navigable**, per the project's standing convention —
+`ControllerUINavigation` attached the same way every other panel attaches
+it. Because limb buttons and tab headers are both real, focusable
+`Button`s in one Control tree, d-pad/stick navigation crosses from the
+diagram pane into the detail pane's tab list by screen position alone,
+with no separate "jump to the other pane" logic needed — A selects/
+expands, B closes.
+
+**Player-only for now, but deliberately NPC-shaped.** The design intent
+is for this exact same screen to eventually be reachable per-NPC (via
+`NPCTalkMenuUI`), so `StatusScreenUI` takes explicit `player_medical`/
+`player_stats` refs (injected by `MainWorld`) rather than reaching for
+the `"player_medical"` group itself — nothing NPC-side is wired, but the
+file is structured so a future second instance (or a refactor to accept
+any entity's Medical component) doesn't require restructuring it.
+
+**Read-only for this pass — flagged future work:** applying a held
+treatment item directly from this screen (skipping the existing
+hold-item-then-[E] injury-selection submenu) is NOT built. The submenu
+remains the one treatment path. Also anticipated but not built: this
+screen is expected to eventually show *positive* effects too (a caffeine
+boost from coffee, a well-fed work bonus, etc.), not just injuries/
+illnesses — hence it stays fully openable/browsable even with zero active
+conditions (a clean diagram, empty detail pane) rather than being gated
+behind having an injury.
 
 **On subtlety vs. legibility:** the system's visual richness (a Healed
 fill overlaying the severity ring, Infection's added second ring on
@@ -872,11 +983,18 @@ tightly:
 Not part of this pass, but explicitly locked in as real future work for
 this system, not just floated ideas:
 
-- **Heavy-carry stamina drain.** Holding/carrying heavy items should cause
-  its own slow, ongoing stamina drain. While an entity is fighting an
-  infection, or has a broken/fractured arm or a wound on an arm, that
-  drain rate should scale up **exponentially** with the relevant
-  condition's severity.
+- **Apply treatment directly from the Status Screen.** Currently
+  read-only (see "Presentation"'s Layer 3 entry) — Brannon wants to
+  explore letting a held item be applied to a selected limb straight from
+  the Status Screen's detail pane, as a shortcut alongside (not instead
+  of) the existing hold-item-then-[E] injury-selection submenu. Not
+  scoped in detail — just a real future direction, not a floated idea.
+- **Positive effects on the Status Screen.** The screen is explicitly
+  designed to eventually show buffs too (a caffeine boost from coffee, a
+  well-fed work bonus, etc.), not just injuries/illnesses — nothing about
+  buffs exists yet anywhere in the game, but the screen stays fully
+  browsable with zero active conditions specifically so it's ready for
+  this.
 - **Passive HP regeneration.** Not currently implemented anywhere in the
   game. Health should slowly regenerate only when at least one need is at
   its true, uncapped 100% — slowly for one need at 100%, meaningfully
@@ -898,12 +1016,18 @@ this system, not just floated ideas:
 - **Body-part list:** ~~finalize the exact set~~ **Resolved/implemented:**
   `HEAD`, `TORSO`, `LEFT_ARM`, `RIGHT_ARM`, `LEFT_LEG`, `RIGHT_LEG` — no
   hand sub-part added. See `MedicalCondition.BodyPart`.
-- **Broken (post-Fractured) state details:** implemented with explicit
-  placeholder values (pinned 100% severity, a flat 240h heal time, a flat
-  0.25 speed multiplier, no dedicated treatment beyond natural healing) —
-  real symptoms/treatment still not designed, see
-  `PlayerMedical.BROKEN_HEAL_TIME_HOURS`/`BROKEN_SPEED_MULT`.
-- **Deep-dive status screen:** UI layout/flow not yet designed.
+- **Broken (post-Fractured) state details:** implemented with a full
+  symptom profile (body-part-gated speed/stamina-drain/work-speed, same
+  as Fractured) and its own treatment — **splintable, same mechanic as
+  Fractured (Aug 2026, previously open)**, see "Broken bones / fractures."
+  Exact numbers (`PlayerMedical.BROKEN_HEAL_TIME_HOURS`/`BROKEN_SPEED_
+  MULT`/`BROKEN_SPLINT_HASTEN_MULT`/etc.) are still placeholder ballparks
+  pending playtesting, same as every other Medical constant — not a design
+  gap anymore, just tuning.
+- **Deep-dive status screen:** ~~UI layout/flow not yet designed~~
+  **Implemented (Aug 2026)** — see "Presentation"'s Layer 3 entry above.
+  Treat-from-screen and positive-effect display are explicitly flagged
+  future work, not open design questions.
 - **`StatusEffectsContainer` extensions:** ~~live severity ring, the
   Healed-fill overlay mode, Infection's second concentric ring, and
   multi-icon capacity~~ **Implemented** — see `StatusEffectIcon.gd`/
@@ -916,8 +1040,12 @@ this system, not just floated ideas:
   top of each ring, per "Presentation" above.
 - **Exertion-threshold definition:** ~~what counts as "resting" vs.
   "exertion"~~ **Resolved/implemented** — reuses `Player.gd`'s existing
-  0-stamina sprint-lockout, exposed as a new `exhausted` signal fired once
-  per exertion episode (the edge trigger Fracture escalation needs).
+  0-stamina exhaustion lockout, exposed as an `exhausted` signal fired
+  once per exertion episode (the edge trigger Fracture escalation needs).
+  **Extended Aug 2026:** the signal now reports which drain source(s)
+  caused it (sprinting vs. carrying a Heavy item), so escalation is
+  body-part-causal — legs from sprint-exhaustion, arms from
+  carry-exhaustion — rather than always assuming legs.
 - **Exact numbers everywhere:** starting severities, escalation steps,
   the infection probability curve, heal-time baselines/scaling, the
   needs-cap curve, HP drain rates, Healed-ring dampening/hastening
@@ -945,7 +1073,11 @@ this system, not just floated ideas:
 - Scarring / permanent injury outcomes (would need its own evaluation
   against Pillar 10 before being added — not assumed here).
 - Any UI/UX visual design pass for the deep-dive status screen beyond "it
-  should exist and be body-part-based."
+  should exist and be body-part-based" — ~~undesigned~~ **Implemented
+  (Aug 2026), placeholder visuals**: real body-diagram art still doesn't
+  exist (six procedural placeholder shapes stand in for it), and applying
+  treatment directly from the screen / showing positive effects are both
+  explicitly flagged future work — see "Presentation"'s Layer 3 entry.
 - The NPC medical priority-tier reference and the actual NPCBrain/JobBoard
   wiring for self-treatment (see "NPC scope" and "Planned future
   extensions").

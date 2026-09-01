@@ -109,15 +109,26 @@ func _ready() -> void:
 		add_to_group("pickup")
 		_maybe_create_nav_obstacle()
 
-## NPC Pass 2, Part 11 — heavy loose items (mass >= HEAVY_OBSTACLE_MASS)
-## get a NavigationObstacle3D child so every NavigationAgent3D in the world
-## (i.e. every NPC) routes around their CURRENT position continuously via
-## real-time avoidance, instead of only reacting after physically colliding.
-## Light items (below the threshold) get none — they're meant to be walked
-## through, not routed around (see NPC.gd's _handle_physics_pushes).
-## Threshold matches NPC.gd's HEAVY_MASS_THRESHOLD (kept as a separate literal
-## rather than a cross-class const reference, to avoid any parse-order risk
-## between the two classes — keep both values in sync if either changes).
+## NPC Pass 2, Part 11 — every loose item (light and heavy alike, Aug 2026
+## update) gets a NavigationObstacle3D child so every NavigationAgent3D in
+## the world (i.e. every NPC) routes around its CURRENT position
+## continuously via real-time avoidance, instead of only reacting after
+## physically colliding.
+## Aug 2026 fix (Brannon-requested) — previously gated on `mass >=
+## HEAVY_OBSTACLE_MASS`, so light items (a can, a bottle) had zero
+## avoidance presence and NPCs would path straight through/into a pile of
+## them, only noticing via physics collision after the fact (part of the
+## "ghost walking" complaint). Deliberate design intent per Brannon: light
+## clutter should ALSO register as something to route around — if enough
+## of it piles up that NPCs are constantly detouring, that's exactly the
+## pressure that should make Cleaning look more attractive, not a gap to
+## paper over. `_handle_physics_pushes()`'s light-item shove-through logic
+## in NPC.gd is UNCHANGED and still applies once an NPC is close enough
+## that avoidance alone didn't fully route around a small item — the two
+## systems complement each other rather than one replacing the other.
+## HEAVY_OBSTACLE_MASS/OBSTACLE_MIN_RADIUS are kept (radius floor still
+## applies uniformly) even though the mass gate itself is gone, so a
+## future reason to reintroduce a threshold has the constant ready.
 const HEAVY_OBSTACLE_MASS: float = 3.0
 const OBSTACLE_MIN_RADIUS: float = 0.3   ## floor so a tiny/degenerate shape
 										 ## never produces a near-zero obstacle
@@ -125,8 +136,6 @@ const OBSTACLE_MIN_RADIUS: float = 0.3   ## floor so a tiny/degenerate shape
 var _nav_obstacle: NavigationObstacle3D = null
 
 func _maybe_create_nav_obstacle() -> void:
-	if mass < HEAVY_OBSTACLE_MASS:
-		return
 	_nav_obstacle = NavigationObstacle3D.new()
 	_nav_obstacle.name = "NavObstacle"
 	_nav_obstacle.radius = _compute_obstacle_radius()

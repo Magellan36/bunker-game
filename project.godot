@@ -159,5 +159,4 @@ aim_down={
 
 [rendering]
 
-; 4x anisotropic filtering — happy medium for grazing-angle triplanar (Aug 2026). Default is 2x.
 textures/default_filters/anisotropic_filtering_level=4

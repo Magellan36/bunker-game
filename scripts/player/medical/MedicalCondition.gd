@@ -55,6 +55,17 @@ static func body_part_label(part: BodyPart) -> String:
 var heal_progress: float = 0.0                 ## 0-100, runtime only — not exported
 var heal_time_target_hours: float = 0.0        ## recomputed on severity change where relevant
 
+## The heal-rate multiplier actually applied on the most recent tick (1.0
+## normally; a splint-hasten constant when treated; a dampen constant for
+## Open Wound while bleeding/infected — see each condition's own _tick_*()
+## in PlayerMedical.gd). Aug 2026 — added so the "Time Left" tooltip
+## calculation can divide by the CURRENT rate instead of silently assuming
+## a flat 1.0x forever, which previously made a splinted Fracture/Broken's
+## displayed time-left several times too long. Not meant to predict a
+## future one-off rest bonus (see PlayerMedical.apply_rest_bonus()) — this
+## is the sustained, steady-state rate only.
+var current_heal_rate_mult: float = 1.0
+
 ## Dampening/hastening multipliers applied to heal_progress accrual rate.
 ## Keys are condition-specific strings checked by whichever tick logic
 ## owns this condition (e.g. "bleeding_active", "infection_active",
@@ -84,6 +95,16 @@ var heal_rate_modifiers: Dictionary = {}
 ## interpolated by severity by whichever system reads it. Only Infection
 ## uses this (Pass 2) — left empty everywhere else.
 var needs_cap_modifiers: Dictionary = {}
+
+## Short, human-readable cause for whichever needs_cap_modifiers this
+## condition is currently contributing — e.g. "battling an infection".
+## Aug 2026, Status Screen — set by whichever condition populates
+## needs_cap_modifiers (currently only Infection, in PlayerMedical.
+## _update_infection_needs_cap()) so PlayerMedical.get_needs_cap_reason_
+## text() can build a plain-language explanation without hardcoding
+## per-condition text outside the condition's own tick logic. Empty string
+## when this condition isn't currently contributing a cap reduction.
+var needs_cap_reason: String = ""
 
 ## If non-empty, the condition id this converts into at 100% severity
 ## (e.g. "fractured" -> "broken"). Empty = no conversion (resolves/removed

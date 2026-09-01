@@ -47,15 +47,24 @@ func label() -> String:
 			_: return "Cooking"
 	return "Cooking"
 
-## Command-only for now (Aug 2026) — always 0.0, never auto-selected. When
-## autonomous scoring is added later, follow REFUEL's own shape exactly:
-##   if not NPCJobQueries.has_cooking_target_available(npc): return 0.0
-##   return NPC.COOKING_BASE_SCORE * npc.get_work_ethic_job_mult() \
-##       * npc.get_job_priority_weight("COOKING")
-## (has_cooking_target_available() already exists in NPCJobQueries.gd,
-## written for exactly this — nothing else in this file needs to change.)
-func score(_npc: NPC) -> float:
-	return 0.0
+## Autonomous scoring (Aug 2026, Brannon-requested) — was hard-stubbed at
+## 0.0 ("command-only for now"), meaning Cooking was NEVER picked
+## autonomously and could ONLY run via a forced "Cook a meal" command.
+## This is confirmed as the root cause of three separate symptoms
+## reported together: NPCs never proactively started cooking, never
+## returned to serve a dish that finished cooking (find_cooking_serve_
+## target() already has top priority in enter()'s check order — it just
+## never got a chance to run, since nothing ever re-entered this activity
+## once the forced session ended), and by extension the existing
+## plate/store/eat pipeline in _take_dish()/_tick_serve() (already fully
+## implemented, verified working) never got exercised in normal play.
+## Wired exactly per this function's own prior comment — same shape as
+## REFUEL's own score().
+func score(npc: NPC) -> float:
+	if not NPCJobQueries.has_cooking_target_available(npc):
+		return 0.0
+	return NPC.COOKING_BASE_SCORE * npc.get_work_ethic_job_mult() \
+		* npc.get_job_priority_weight("COOKING")
 
 func enter(npc: NPC) -> void:
 	_skipped = {}
@@ -255,6 +264,13 @@ func _take_dish(npc: NPC) -> void:
 		_finished = true
 		return
 
+	## Aug 2026 fix (Brannon-requested) — turn the stove back off once the
+	## meal is actually served/complete, same as a person wouldn't leave a
+	## stove burning after finishing. npc_set_powered() always succeeds
+	## turning OFF (no grid-connection gate needed in that direction).
+	if _stove != null and is_instance_valid(_stove):
+		_stove.npc_set_powered(false)
+
 	## Mirrors InteractionSystem._try_take_dish()'s spawn exactly.
 	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
 	var dish: RigidBody3D = RigidBody3D.new()
@@ -385,14 +401,17 @@ func _turn_on_stove(npc: NPC) -> void:
 		_finished = true   ## empty pot — nothing to cook, leave it for next time
 		return
 	if not _stove.powered_on:
-		_stove.on_interact()   ## turns on if grid-connected; silently no-ops otherwise
-		if not _stove.powered_on:
-			## Aug 2026 — genuinely no power. on_interact()'s own HUD
-			## warning is written for a player caller and doesn't make
-			## sense attributed to an NPC. Leave the pot exactly as-is —
-			## full, unlit — and leave; find_cooking_needs_power_target()
-			## will find this same stove again on the next "Cook a meal"
-			## command once power is actually restored. No waiting around.
+		## Aug 2026 fix (Brannon-requested) — was _stove.on_interact(), which
+		## is player-only (see Stove.npc_set_powered()'s own comment for the
+		## full explanation): it always resolves the PLAYER's
+		## InteractionSystem regardless of caller, and now gates the actual
+		## toggle behind an async Job Progress Bar — so the very next check
+		## below always saw the STALE pre-toggle value and concluded "no
+		## power" even when the stove was genuinely grid-connected.
+		## npc_set_powered() is a direct, synchronous set — same
+		## grid-connection gate, no player-bound indirection, real result
+		## available immediately.
+		if not _stove.npc_set_powered(true):
 			NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
 				"%s cannot cook meal (Stove unpowered)" % npc.npc_name)
 			npc.log_action("Cooking blocked — stove unpowered")

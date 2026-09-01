@@ -191,19 +191,32 @@ func get_open_jobs() -> Array:
 	var out: Array = []
 	for id: String in _jobs.keys().duplicate():
 		var job: Dictionary = _jobs[id]
-		var target: Node = job.get("target")
+		## Aug 2026 fix — the root cause of the recurring "Trying to assign
+		## invalid previously freed instance" spam around harvesting. A BARE
+		## typed assignment (`var target: Node = job.get("target")`, no `as`)
+		## triggers that engine warning the INSTANT it reads a freed target —
+		## before the is_instance_valid() check on the next line ever runs,
+		## no matter how correct that check is. `as Node` is Godot's actual
+		## safe-cast idiom (same pattern JobActivity.gd already uses
+		## correctly for its own target reads) — it performs the identical
+		## validity check but returns null quietly instead of printing. This
+		## alone was firing on EVERY single harvest (JobActivity's own
+		## completion, GardeningActivity's "farming"-mode harvest, and
+		## catch_up_all()'s bulk harvest all leave a stale _jobs entry here
+		## for exactly one get_open_jobs() call, however correctly it then
+		## self-heals) — not a rare edge case, a guaranteed one-shot error
+		## per harvest, however frequently that happens.
+		var target: Node = job.get("target") as Node
 		if target == null or not is_instance_valid(target):
 			## Target vanished (harvested/freed, etc.) — drop immediately
 			## rather than waiting for the next _rescan() (up to
 			## SCAN_INTERVAL later). This is what was letting a
 			## just-harvested, already-freed plant get handed to a
 			## DIFFERENT NPC's JobActivity.score() as if it were still
-			## open — Godot flags the freed reference the moment it's
-			## assigned to a typed Node var, before score()'s own
-			## is_instance_valid() check even runs.
+			## open.
 			_jobs.erase(id)
 			continue
-		var claimant: Node = job.get("claimed_by")
+		var claimant: Node = job.get("claimed_by") as Node   ## Aug 2026 — same safe-cast fix; low-risk today (no NPC despawn/death system exists yet) but closes the gap before one does
 		if claimant != null and not is_instance_valid(claimant):
 			job["claimed_by"] = null   ## claimant vanished — auto-release
 		if job.get("claimed_by") == null:
@@ -228,7 +241,11 @@ func release(job: Dictionary, npc: Node) -> void:
 func still_valid(job: Dictionary) -> bool:
 	if not _jobs.has(job.get("id", "")):
 		return false
-	var target: Node = job.get("target")
+	## Aug 2026 fix — same `as Node` safe-cast fix as get_open_jobs() above;
+	## called every tick during a job's fetch/travel phase, so the bare
+	## unsafe version here was a second guaranteed error source on top of
+	## that one.
+	var target: Node = job.get("target") as Node
 	return target != null and is_instance_valid(target)
 
 func _rescan() -> void:

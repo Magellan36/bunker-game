@@ -329,7 +329,13 @@ func tick(npc: NPC, delta: float) -> void:
 				_pick_next_task(npc)
 				return
 			if _current_task == "harvest":
-				var plant: FarmPlant = _current_tray.plant_refs[_current_cell] \
+				## Aug 2026 — `as FarmPlant` (not a bare typed assignment) for
+				## consistency with the JobBoard.gd fix — plant_refs itself is
+				## already safe (FarmingTray.clear_cell() nulls the slot
+				## synchronously before queue_free(), confirmed directly in
+				## FarmPlant._clear_cell_and_free()), so this was never an
+				## active bug, just the same fragile pattern hardened defensively.
+				var plant: FarmPlant = (_current_tray.plant_refs[_current_cell] as FarmPlant) \
 					if _current_cell >= 0 and _current_cell < _current_tray.plant_refs.size() else null
 				if plant != null and is_instance_valid(plant) and plant.is_ready():
 					plant.harvest()

@@ -81,10 +81,59 @@ func get_use_prompt() -> String:
 		var gen_id: String  = str(gen.get_instance_id())
 		var gen_fuel: float = pm.get_generator_fuel(gen_id)
 		var gen_pct: int    = int(clampf(gen_fuel, 0.0, 100.0))
-		return "[Hold E] Refuel Generator  —  %d%%\nFuel: %d%%" % [gen_pct, can_pct]
-	return "[Hold E] Refuel Generator\nFuel: %d%%" % can_pct
+		return "[E] Refuel Generator  —  %d%%\nFuel: %d%%" % [gen_pct, can_pct]
+	return "[E] Refuel Generator\nFuel: %d%%" % can_pct
 
-# ─── Continuous refuel tick (called by InteractionSystem._process each frame) ─
+# ─── Refuel job (Aug 2026, Job Progress Bar) ───────────────────────
+## Replaces the old continuous hold-E drip (refuel_tick() below is now
+## dead code, left in place but no longer called — InteractionSystem's
+## _tick_continuous_refuel() call site was removed the same pass). Tap E
+## once to start a timed job whose duration is computed from HOW MUCH would
+## actually transfer — 100% of the bar corresponds to whichever empties
+## first, this can or however much headroom the generator has — and the
+## full computed transfer is applied in one lump at completion.
+func on_use() -> void:
+	if _is_empty:
+		return
+	var gen: Node3D = _find_nearest_generator()
+	if gen == null:
+		return
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
+		return
+	var gen_id: String = str(gen.get_instance_id())
+	var current: float = pm.get_generator_fuel(gen_id)
+	if current >= 100.0:
+		return
+	var transfer: float = minf(100.0 - current, _fuel_remaining)
+	if transfer <= 0.0:
+		return
+	var isys: Node = _hold_point.get_parent() if _hold_point != null else null
+	if isys == null or not isys.has_method("start_job"):
+		return
+	isys.start_job(gen, transfer / FUEL_RATE, Callable(self, "_finish_refuel").bind(gen_id, transfer), "Refueling Generator...", REFUEL_RANGE)
+
+func _finish_refuel(gen_id: String, transfer: float) -> void:
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
+		return
+	var current: float = pm.get_generator_fuel(gen_id)
+	## Re-clamped against the generator's CURRENT headroom — defensive, in
+	## case something else changed its fuel level during the job (shouldn't
+	## happen given the player is locked in place the whole time, but this
+	## costs nothing and matches this codebase's general caution elsewhere).
+	var actual: float = minf(transfer, 100.0 - current)
+	if actual <= 0.0:
+		return
+	pm.set_generator_fuel(gen_id, current + actual)
+	_fuel_remaining -= actual
+	_fuel_remaining  = maxf(0.0, _fuel_remaining)
+	charge_changed.emit()
+	if _fuel_remaining <= 0.0:
+		_become_empty()
+
+# ─── Continuous refuel tick (DEAD CODE, Aug 2026 — superseded by the job above;
+# InteractionSystem no longer calls this, kept only for reference/history) ─
 ## Transfers FUEL_RATE * delta units from this can into the nearest in-range
 ## generator. Called externally — InteractionSystem detects E-held + generator.
 func refuel_tick(delta: float) -> void:
@@ -120,11 +169,6 @@ func refuel_tick(delta: float) -> void:
 
 	if _fuel_remaining <= 0.0:
 		_become_empty()
-
-# ─── Legacy on_use — kept so existing callers don't break, but does nothing. ──
-## Continuous refuel via refuel_tick() supersedes this.
-func on_use() -> void:
-	pass   ## No-op: InteractionSystem uses refuel_tick() instead
 
 func _find_nearest_generator() -> Node3D:
 	var best_node: Node3D = null

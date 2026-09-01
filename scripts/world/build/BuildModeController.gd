@@ -3306,9 +3306,7 @@ func _cache_model_footprint(tile_id: int, aabb: AABB) -> void:
 func _tile_half_extents(tile_id: int) -> Vector2:
 	if _model_footprints.has(tile_id):
 		return _model_footprints[tile_id]
-	return _tile_half_extents_fallback(tile_id)
-
-## The tile's XZ half-extents AFTER rotating the model by angle_deg around Y —
+	return _tile_half_extents_fallback(tile_id)## The tile's XZ half-extents AFTER rotating the model by angle_deg around Y —
 ## the axis-aligned box that contains the rotated model. Used for occupancy
 ## and bunker-bounds checks so a rotated object keeps accurate clearance.
 func _tile_half_extents_rotated(tile_id: int, angle_deg: float) -> Vector2:

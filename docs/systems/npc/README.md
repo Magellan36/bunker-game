@@ -2019,3 +2019,137 @@ either. If you add a trash *receptacle* (an alternative to `TrashCan`), the only
 joining the `"trash_receptacle"` group and implementing `has_room_for(item)`/
 `npc_try_place_item(npc, item)` — see `TrashCan.gd`'s own `_ready()` and its inherited
 `LightStorage` methods for the reference shape.
+
+## Recurring "previously freed instance" error around harvesting — root cause + fix (Aug 2026)
+
+Brannon reported this firing constantly around NPC farming/harvesting, despite multiple earlier
+fix attempts (see `get_open_jobs()`'s own prior comment, which correctly diagnosed the SYMPTOM —
+a stale job outliving its harvested target — but not why the fix still logged an error every time).
+
+**Root cause**: Godot's "Trying to assign invalid previously freed instance" warning fires the
+INSTANT a freed Object reference is coerced into a statically-typed variable via a bare assignment
+(`var target: Node = some_dict.get("target")`) — before any `is_instance_valid()` check on the next
+line ever runs. The safe idiom is `as Node` (`var target: Node = some_dict.get("target") as Node`) —
+Godot's actual safe-cast operator, which performs the identical validity check but returns `null`
+quietly instead of printing. `JobActivity.gd` already used `as Node3D` correctly for its own reads;
+`JobBoard.gd`'s `get_open_jobs()` and `still_valid()` did not, and those two are the only places that
+read `JobBoard._jobs`'s cached `target` field — the ONE reference in the whole harvest pipeline with
+no synchronous invalidation hook of its own (confirmed directly: `FarmPlant._clear_cell_and_free()`
+calls `tray.clear_cell()` — which nulls `plant_refs[i]` — synchronously BEFORE `queue_free()`, so
+`plant_refs` itself was never actually unsafe to iterate).
+
+The practical effect: **every single harvest**, regardless of source (`JobActivity`'s own HARVEST-job
+completion, `GardeningActivity`'s "farming"-mode harvest, or `catch_up_all()`'s bulk time-skip
+harvest), leaves a stale `_jobs` entry that guarantees exactly one error the next time ANY NPC's
+`NPCBrain.tick()` calls `get_open_jobs()` — the erase-on-detection logic already there was correct
+and does self-heal in one call, but the error had already fired by the time that logic ran. Not a
+rare edge case — a guaranteed one-shot log per harvest, however frequently harvesting happens.
+
+**Fixed**: `JobBoard.get_open_jobs()` (`target` AND `claimed_by` reads) and `JobBoard.still_valid()`
+now use `as Node`. Also hardened two adjacent, currently-safe-but-fragile reads of the same bare
+pattern in farming-adjacent code, for consistency rather than leaving one bare exception behind:
+`GardeningActivity.gd`'s harvest-apply read of `plant_refs[cell]` (now `as FarmPlant`), and
+`NPC.catch_up_all()`'s `ready_plants` pool consumption (now `as Node`).
+
+**For any future thread**: this pattern — a bare `var x: SomeType = dict_or_array_read` where the
+source could plausibly hold a freed reference — is the thing to grep for whenever "previously freed
+instance" recurs anywhere else in the NPC codebase. `as Type` (or an untyped/`Variant` read) is the
+fix; adding more `is_instance_valid()` checks downstream, however correct, does not stop the error
+from firing at the assignment itself.
+
+## Ghost-walking, navigation avoidance, and Wander/Relax balance (Aug 2026, Brannon-requested)
+
+Full investigation-then-fix pass across four files, each confirmed directly in code before touching
+anything (see the conversation history for the confirmation pass) rather than assumed.
+
+1. **Animation driven by requested velocity, not achieved velocity — the actual mechanical cause of
+   "ghost walking."** `AdventurerModelController.gd` (the live model driver, shared by player and
+   NPCs) picked walk/idle/run off `_player.velocity` — the pre-collision, avoidance-lerped REQUESTED
+   velocity, not what `move_and_slide()` actually achieved that frame. A blocked/wedged character
+   could hold this above the walk threshold indefinitely while real displacement was ~zero. Fixed by
+   switching to `get_real_velocity()` — the exact same distinction `NPC.gd`'s own
+   `_handle_physics_pushes()` already used for this class of problem (`velocity - get_real_velocity()`),
+   just never applied to animation before. This one change makes the animation itself stop lying
+   about progress, independent of anything else in this section.
+2. **Every loose item now gets a `NavigationObstacle3D`, light and heavy alike** —
+   `PickupableItem._maybe_create_nav_obstacle()` previously gated on `mass >= HEAVY_OBSTACLE_MASS
+   (3.0)`; light items (cans, bottles, produce) had zero avoidance presence, so NPCs pathed straight
+   through/into piles of them and only reacted after physically colliding. The mass gate is removed
+   entirely — deliberate design call (Brannon): light clutter piling up enough to force constant
+   detours is exactly the pressure that should make Cleaning look more attractive, not something to
+   paper over. `NPC.gd`'s existing light-item shove-through logic in `_handle_physics_pushes()` is
+   unchanged and still applies at close range — the two systems complement each other.
+3. **The player is now a registered avoidance obstacle.** Confirmed directly: `Player.gd` had no
+   `NavigationAgent3D`/`NavigationObstacle3D` anywhere — NPC avoidance (agent-vs-agent already worked
+   between NPCs, and now agent-vs-item per #2) had nothing to steer around when it came to the player
+   specifically. Fixed with a plain `NavigationObstacle3D` (not a full agent — the player isn't
+   nav-driven) added once in `Player._ready()`, sized to the real collision capsule radius, left on
+   permanently.
+4. **Stuck-recovery timing drastically tightened** — `STUCK_CHECK_INTERVAL` 1.0s→0.25s,
+   `STUCK_GRACE_PERIOD` 4.0s→0.5s (was up to ~5s of visible ghost-walking before ANY recovery action;
+   now ~0.5-0.75s). Safe to cut this aggressively specifically because of #1 (the animation no longer
+   lies about progress) and #2/#3 (real stuck EVENTS should now be much rarer, since proactive
+   avoidance prevents most of what used to require this reactive fallback at all) — per Brannon, this
+   is meant to be a rare, fast-resolving safety net now, not something doing constant load-bearing
+   work. The existing item/NPC/wall obstruction-classification logic and escalating-backoff behavior
+   in `_recover_from_stuck()` is completely unchanged — only the timing before it's invoked changed.
+5. **Walls/corners — confirmed as a real, separate, NOT-yet-fixed gap.** `BunkerNavMesh.gd` bakes
+   `agent_radius = 0.4` — the NPC capsule's EXACT physical radius, zero safety margin. This is a
+   known general navmesh pitfall (a baked path can legally route at the theoretical minimum
+   clearance) and nothing here addresses it. Flagging explicitly so it doesn't quietly get assumed-
+   fixed by the avoidance work above, which targets dynamic obstacles, not static geometry precision.
+   Next step if wall-clipping is still observed after the above: try a small positive margin between
+   `agent_radius`/`nav_agent.radius` and the real capsule radius.
+
+### Wander vs. Relax/Sit balance
+
+Initial hypothesis (that Wander's flat baseline could outscore Relax for a Hard Worker NPC) was
+**verified false** once `WanderActivity.gd` was actually re-read: both Wander (5.0 base) and Relax
+(6.0 base) already multiply by the identical `npc.get_work_ethic_passive_mult()`, so Relax reliably
+beats Wander by a fixed ~20% for every NPC regardless of trait — there was no scoring-ratio bug.
+Similarly, `RelaxSitActivity` was confirmed to correctly inherit `SitActivity`'s unrestricted,
+unlimited-range chair search (chair always tried before bed, no distance cutoff) — no bug there
+either.
+
+The REAL mechanism: `RELAX_BUDGET_BASELINE` was only 1.0 game-hour/day (Lazy: 2.0), with a 3-6 hour
+cooldown between sessions. One ~20-40min session (`RelaxActivity.SESSION_MIN/MAX`) burns most/all of
+that budget, so `RelaxActivity.score()` returned a flat 0 (ineligible, not merely losing) for nearly
+the entire day — Wander won by DEFAULT during that gap, not by out-competing Relax. Fixed at the
+actual source: `RELAX_BUDGET_BASELINE` 1.0→3.0 (Lazy 2.0→6.0, same 2x ratio), `RELAX_MIN_GAP_HOURS`/
+`RELAX_MAX_GAP_HOURS` 3.0-6.0→1.5-3.0, so the larger daily budget can actually spread across several
+shorter sessions through the day instead of sitting unused behind a cooldown longer than the budget
+itself.
+
+**Verification note**: this whole pass was implemented while Godot MCP was intermittently
+unavailable (dropped out of tool access entirely partway through) — every edit was reviewed via its
+diff and re-read after applying, but engine-side parse confirmation should still be the first thing
+done before playtesting this pass.
+
+## Bunker Ceiling + NPC abyss failsafe (Aug 2026, Brannon-requested)
+
+Two-layer safety net so a physics glitch over a long playthrough can never permanently lose an NPC
+(or a valuable physics object) out of the bunker — "could RUIN a player's run/immersion," per spec.
+
+**Layer 1 — a real, solid ceiling.** `MainWorld._setup_bunker_ceiling()`, called once from `_ready()`
+alongside the ambient-dust setup it's modeled after. A `StaticBody3D` with a `BoxShape3D`
+(500x1x500m, deliberately oversized rather than precisely fitted to `bunker_depth`/`bunker_width`/
+`dig_margin`, so it never needs updating if those change), positioned at `CEILING_Y = 15.0` —
+confirmed well above `RockSurround`'s own `BLOCK_Y (2.5) + BLOCK_HEIGHT/2 (1.125) = 3.625`, the real
+top surface of the rock ring and this project's own stated highest point in the game.
+`collision_layer = 5 / collision_mask = 0` — the exact same convention already used for every wall/
+floor/pillar/furniture StaticBody in the project, so it's guaranteed compatible with NPCs, the
+player, and every loose `RigidBody3D` already colliding with that same geometry, no new layer
+bookkeeping needed. Catches anything, not just NPCs — a launched crate or valuable item bounces off
+it for free.
+
+**Layer 2 — fallback teleport if the ceiling somehow fails.** `MainWorld._check_abyss_npcs()`, called
+every frame right alongside the existing `_check_abyss_items()` (which already did this for loose
+items, at `ABYSS_Y = -8.0` / `ABYSS_RESCUE_Y = 1.5`). An NPC whose Y drops below that same threshold
+is teleported to the exact center of the ORIGINAL starting bunker footprint — same
+`OFFSET_X/OFFSET_Z + half-depth/half-width` centering formula already used elsewhere in this file
+(ambient dust, the initial research station) — with velocity zeroed and `brain.stop_current()`
+called (the same clean-abandon method the existing stuck-recovery system already uses) so whatever
+activity it was mid-way through is cleanly dropped and the brain picks something fresh next tick.
+Deliberately minimal: needs/mood/relationships/held item are all left completely untouched — "no
+adverse effects," per spec. Only ever expected to fire if Layer 1 is somehow bypassed.
+

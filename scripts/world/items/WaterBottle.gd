@@ -107,8 +107,8 @@ func get_use_prompt() -> String:
 		if current_fill_mL >= MAX_FILL_ML:
 			return ""   ## Already full — nothing to do at the dispenser
 		if _is_empty():
-			return "[Hold E] Refill Empty Water Bottle"
-		return "[Hold E] Refill Bottle  —  " + _fill_quality_bbcode()
+			return "[E] Refill Empty Water Bottle"
+		return "[E] Refill Bottle  —  " + _fill_quality_bbcode()
 
 	if not _is_empty():
 		var pot: CookingPot = CookingPot.find_nearest_open_pot(global_position, get_tree())
@@ -123,11 +123,15 @@ func get_use_prompt() -> String:
 	return "[E] Drink  —  " + _fill_quality_bbcode()
 
 # ─── Use / Drink ──────────────────────────────────────────────────────────────
-## Tapping E near a WaterDispenser does nothing here — that proximity is
-## reserved for the continuous hold-E refill tick (see bottle_refill_tick()),
-## mirroring FuelCan's on_use() being a no-op near a generator.
+## Refilling (Job Progress Bar, Aug 2026) now takes priority when near a
+## dispenser — replaces the old continuous hold-E drip (bottle_refill_tick()
+## below is now dead code, no longer called — InteractionSystem's
+## _tick_continuous_bottle_refill() call site was removed the same pass).
+## Drinking/adding-to-pot are unchanged otherwise.
 func on_use() -> void:
-	if _find_nearest_dispenser() != null:
+	var dispenser: WaterDispenser = _find_nearest_dispenser()
+	if dispenser != null:
+		_try_start_refill_job(dispenser)
 		return
 
 	if _is_empty():
@@ -147,6 +151,39 @@ func on_use() -> void:
 
 	_player_stats.replenish_water(take_drink())
 
+## Duration is computed from HOW MUCH would actually transfer — 100% of
+## the bar corresponds to whichever empties first, this bottle filling or
+## the dispenser running dry — and the full computed transfer (including
+## the volume-weighted quality blend) is applied in one lump at completion.
+func _try_start_refill_job(dispenser: WaterDispenser) -> void:
+	if current_fill_mL >= MAX_FILL_ML:
+		return
+	if dispenser.current_fill_mL <= 0.0:
+		return
+	var transfer: float = minf(MAX_FILL_ML - current_fill_mL, dispenser.current_fill_mL)
+	if transfer <= 0.0:
+		return
+	var isys: Node = _hold_point.get_parent() if _hold_point != null else null
+	if isys == null or not isys.has_method("start_job"):
+		return
+	isys.start_job(dispenser, transfer / REFILL_RATE_ML_PER_SEC, Callable(self, "_finish_refill").bind(dispenser, transfer), "Refilling Bottle...", REFILL_RANGE)
+
+func _finish_refill(dispenser: WaterDispenser, transfer: float) -> void:
+	if not is_instance_valid(dispenser):
+		return
+	var actual: float = minf(transfer, dispenser.current_fill_mL)
+	actual = minf(actual, MAX_FILL_ML - current_fill_mL)
+	if actual <= 0.0:
+		return
+	var new_total: float = current_fill_mL + actual
+	if new_total > 0.0:
+		stored_water_quality = (current_fill_mL * stored_water_quality + actual * dispenser.stored_water_quality) / new_total
+	current_fill_mL = new_total
+	dispenser.current_fill_mL -= actual
+	dispenser.current_fill_mL  = maxf(0.0, dispenser.current_fill_mL)
+	_update_empty_tint()
+	charge_changed.emit()
+
 ## Deducts one standard drink from this bottle and returns the hydration it
 ## restores. Shared mutation for BOTH the player (on_use above) and NPCs
 ## (NPCItemUser) — NPC Pass 2, Part 3. Values stay linked by construction:
@@ -162,7 +199,9 @@ func take_drink() -> float:
 	charge_changed.emit()
 	return hydration
 
-# ─── Continuous refill tick (called by InteractionSystem._process each frame) ─
+# ─── Continuous refill tick (DEAD CODE, Aug 2026 — superseded by the job in
+# on_use()/_try_start_refill_job() above; InteractionSystem no longer calls
+# this, kept only for reference/history) ─────────────────────────────
 ## Transfers REFILL_RATE_ML_PER_SEC * delta mL from the nearest in-range
 ## WaterDispenser into this bottle, blending quality volume-weighted exactly
 ## like WaterDispenser.gd blends from a hookup. Mirrors FuelCan.refuel_tick()'s

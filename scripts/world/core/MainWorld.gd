@@ -168,6 +168,9 @@ var _tilt_shift_dof: TiltShiftDOF = null   ## TiltShiftDOF.gd, same dynamic-inst
 # ─── Admin Menu ───────────────────────────────────────────────────────────────
 var _admin_cheat_menu: CanvasLayer = null
 
+# ─── Status Screen (Aug 2026, Medical Layer 3) ───────────────────────────────
+var _status_screen: CanvasLayer = null
+
 # ─── Pause Menu ───────────────────────────────────────────────────────────────
 var _pause_menu: CanvasLayer = null
 
@@ -189,6 +192,7 @@ func _process(_delta: float) -> void:
 	player.set("camera_yaw_rad", camera._cur_yaw_rad)
 	## Check all pickup items for abyss fall
 	_check_abyss_items()
+	_check_abyss_npcs()   ## Aug 2026 — NPC failsafe, see that function's own comment
 
 ## WireGraphBuilder.gd — auto-wire perimeter rebuild engine (Stage 10
 ## extraction). No state physically moved here; see WireGraphBuilder.gd
@@ -218,6 +222,7 @@ func _ready() -> void:
 	_setup_lighting_director()   ## Needs "power_manager" group populated above
 	_setup_tilt_shift_dof()   ## No ordering dependency — camera already exists via @onready
 	_setup_ambient_dust()
+	_setup_bunker_ceiling()   ## Aug 2026 — NPC/physics failsafe, see that function's own comment
 	_connect_hud()
 	_connect_bed()
 	_connect_chair()
@@ -685,6 +690,23 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 
+	# Tab / Gamepad Select (View/Back button) — Medical Status Screen (Aug
+	# 2026, Layer 3 deep-dive). Deliberately NOT gated behind build-mode/
+	# pause-menu checks the way ESC/F1 are above — StatusScreenUI is
+	# non-modal by design (see its own header comment), so it's fine to allow
+	# opening it more permissively. Still suppressed while build mode owns
+	# input, same courtesy every other toggle here gives. Closing while open
+	# is handled inside StatusScreenUI itself via _input() (see that file's
+	# own comment on why it can't rely on this handler alone — Tab gets
+	# eaten by Godot's built-in focus-navigation once a Button has focus) —
+	# this block only ever needs to fire the OPEN path in practice.
+	if (event is InputEventKey and event.pressed and event.keycode == KEY_TAB) \
+			or (event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_BACK):
+		if not _build_mode_active:
+			_toggle_status_screen()
+			get_viewport().set_input_as_handled()
+		return
+
 	# F11 is now owned by DebugOverlay — do NOT handle here
 
 func _toggle_admin_cheat_menu() -> void:
@@ -701,6 +723,25 @@ func _toggle_admin_cheat_menu() -> void:
 		_admin_cheat_menu.set("world_node", self)
 	if _admin_cheat_menu.has_method("toggle"):
 		_admin_cheat_menu.toggle()
+
+## Lazy-init, mirrors _toggle_admin_cheat_menu() exactly — created only on
+## first Tab press. Injects player_medical/player_stats directly (see
+## StatusScreenUI.gd's own header comment on why explicit refs rather than
+## group lookups).
+func _toggle_status_screen() -> void:
+	if _status_screen == null:
+		var script: GDScript = load("res://scripts/ui/medical/StatusScreenUI.gd")
+		if script == null:
+			push_warning("[DEV] StatusScreenUI.gd not found")
+			return
+		_status_screen = CanvasLayer.new()
+		_status_screen.set_script(script)
+		_status_screen.name = "StatusScreenUI"
+		add_child(_status_screen)
+		_status_screen.set("player_medical", player_medical)
+		_status_screen.set("player_stats", player_stats)
+	if _status_screen.has_method("toggle"):
+		_status_screen.toggle()
 
 func _toggle_pause_menu() -> void:
 	## Lazy-init: create only on first ESC press.
@@ -822,6 +863,57 @@ func _setup_ambient_dust() -> void:
 	dust.position = Vector3(offset_x + depth * 0.5, 1.5, offset_z + width * 0.5)
 	dust.name = "AmbientDust"
 	add_child(dust)
+
+## Bunker Ceiling failsafe, layer 1 (Aug 2026, Brannon-requested) — a real,
+## solid, invisible StaticBody3D ceiling above the highest point ANYTHING in
+## the game can otherwise reach, so a physics-glitched NPC or loose item can
+## never fly up and out of the bunker into the void, permanently. Per
+## Brannon: inevitable over a very long playthrough that SOME small physics
+## oddity eventually launches something — the ceiling makes that harmless
+## (it bounces/rests against a real collider) instead of catastrophic (gone
+## forever). Primarily for NPCs, but catches any RigidBody3D the same way,
+## for free — it's just solid geometry, it doesn't care what hits it.
+##
+## Height: RockSurround.BLOCK_Y (2.5) + BLOCK_HEIGHT/2 (2.25/2 = 1.125) =
+## 3.625 is the true top surface of the rock ring — confirmed directly from
+## RockSurround.gd's own constants, this project's own stated "highest point
+## in the game." CEILING_Y sits well above that with generous headroom, so
+## it's never visually or functionally near anything during normal play.
+##
+## Span: deliberately oversized (CEILING_HALF_EXTENT, 250m each direction —
+## a 500x500 plane) rather than precisely computed from bunker_depth/
+## bunker_width/dig_margin, so it stays correct without needing to change if
+## any of those ever do — "simple and straightforward," per spec, over a
+## tightly-fitted size that could go stale.
+##
+## collision_layer = 5 / collision_mask = 0 — the exact same convention
+## every other piece of solid level geometry in this project already uses
+## (floor tiles, walls, pillars, furniture StaticBodies) — guaranteed
+## compatible with NPCs/player (default layer 1, mask 1) and every loose
+## RigidBody3D already colliding with that same existing geometry, with zero
+## new layer bookkeeping introduced.
+const CEILING_Y: float = 15.0
+const CEILING_HALF_EXTENT: float = 250.0
+const CEILING_THICKNESS: float = 1.0
+
+func _setup_bunker_ceiling() -> void:
+	if rock_surround == null:
+		return
+	var center_x: float = rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5
+	var center_z: float = rock_surround.OFFSET_Z + float(rock_surround.bunker_width) * 0.5
+
+	var ceiling_body: StaticBody3D = StaticBody3D.new()
+	ceiling_body.name = "BunkerCeiling"
+	ceiling_body.collision_layer = 5
+	ceiling_body.collision_mask = 0
+	add_child(ceiling_body)
+	ceiling_body.position = Vector3(center_x, CEILING_Y, center_z)
+
+	var shape: BoxShape3D = BoxShape3D.new()
+	shape.size = Vector3(CEILING_HALF_EXTENT * 2.0, CEILING_THICKNESS, CEILING_HALF_EXTENT * 2.0)
+	var collision_shape: CollisionShape3D = CollisionShape3D.new()
+	collision_shape.shape = shape
+	ceiling_body.add_child(collision_shape)
 
 func _connect_hud() -> void:
 	hud.set_health(100.0)
@@ -1635,6 +1727,42 @@ func _check_abyss_items() -> void:
 					rb.call_deferred("set", "freeze", false)
 				else:
 					item.global_position = rescue_pos
+
+## Bunker Ceiling failsafe, layer 2 (Aug 2026, Brannon-requested) — see
+## MainWorld._setup_bunker_ceiling()'s own comment for the primary fix (a
+## real, solid invisible ceiling). This is the fallback: if an NPC ends up
+## below the world anyway (ceiling failure, or falling through the floor
+## some other way — same failure mode ABYSS_Y/ABYSS_RESCUE_Y above already
+## exists to catch for loose items), it's teleported to the exact CENTER
+## of the original starting bunker footprint — same OFFSET_X/OFFSET_Z +
+## half-depth/half-width centering formula _setup_ambient_dust() and
+## _spawn_initial_research_station() already use elsewhere in this file,
+## so this always lands on real, guaranteed-walkable floor regardless of
+## how much the player has since dug outward. Deliberately minimal —
+## position + velocity only. Current activity is reset via
+## brain.stop_current() (the same clean-abandon method NPC.gd's own
+## stuck-recovery already uses) so it cleanly drops whatever it was doing
+## and the brain re-decides fresh next tick. Needs/mood/relationships/
+## held item are all left completely untouched — "no adverse effects,"
+## per spec. Called every frame alongside _check_abyss_items(), same cheap
+## group-scan + float-comparison cost.
+func _check_abyss_npcs() -> void:
+	if rock_surround == null:
+		return
+	var center_x: float = rock_surround.OFFSET_X + float(rock_surround.bunker_depth) * 0.5
+	var center_z: float = rock_surround.OFFSET_Z + float(rock_surround.bunker_width) * 0.5
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if not is_instance_valid(npc) or not (npc is Node3D):
+			continue
+		if (npc as Node3D).global_position.y >= ABYSS_Y:
+			continue
+		npc.global_position = Vector3(center_x, ABYSS_RESCUE_Y, center_z)
+		if "velocity" in npc:
+			npc.velocity = Vector3.ZERO
+		if "brain" in npc and npc.brain != null and npc.brain.has_method("stop_current"):
+			npc.brain.stop_current()
+		var npc_label: String = npc.npc_name if "npc_name" in npc else str(npc)
+		print("[MainWorld] Rescued %s from below the world — teleported to bunker center" % npc_label)
 
 func _connect_world_objects() -> void:
 	# Wire prompt to interaction system

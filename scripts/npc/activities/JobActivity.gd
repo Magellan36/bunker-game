@@ -128,7 +128,7 @@ func tick(npc: NPC, delta: float) -> void:
 				npc.show_work_banner()
 		"work":
 			npc.halt_movement(delta)
-			_work_left -= delta
+			_work_left -= delta * npc.get_age_work_mult()   ## Aug 2026 — elders (65+) work at 0.75x
 			var conf: Dictionary = TYPE_CONF[_job["type"]]
 			npc.update_work_banner(String(conf["verb"]),
 				1.0 - (_work_left / _work_total))
