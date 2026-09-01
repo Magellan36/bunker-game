@@ -8,7 +8,20 @@ extends Node
 var toggled: bool = false
 
 func is_active() -> bool:
-	return Input.is_key_pressed(KEY_CTRL) or toggled
+	var ctrl: bool = Input.is_key_pressed(KEY_CTRL)
+	## Aug 2026 — during build mode the keyboard CTRL source is BLANKED so CTRL
+	## is free for build-mode actions (e.g. CTRL+wheel grid size while
+	## placing). The controller right-stick toggle still works either way.
+	if ctrl and _build_mode_active():
+		ctrl = false
+	return ctrl or toggled
+
+func _build_mode_active() -> bool:
+	var tree := get_tree()
+	if tree == null:
+		return false
+	var bm: Node = tree.get_first_node_in_group("build_mode_controller")
+	return bm != null and bool(bm.get("is_active"))
 
 func toggle() -> void:
 	toggled = not toggled

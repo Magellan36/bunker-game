@@ -812,8 +812,10 @@ func _on_toolbar_click(slot: int) -> void:
 			_open_submenu()
 	elif slot == TOOL_UNDO:
 		## Undo is an instant action — no mode switch, just fire the signal.
+		## Aug 2026 — does NOT emit cancel_requested, so pressing Undo while
+		## placing (ghost preview active) performs the undo and keeps the
+		## placement ghost up.
 		_close_submenu()
-		cancel_requested.emit()
 		undo_requested.emit()
 		_undo_flash_t = UNDO_FLASH_TIME
 	elif slot == TOOL_WIRE:
