@@ -389,6 +389,7 @@ func _build_mesh() -> void:
 			model.scale    = BASE_MODEL_SCALE
 			_recenter_glb_mesh(model)
 			_strip_model_collision(model)
+			BuildMaterials.apply_material_to_model(model, BuildMaterials.build_wood_material())
 			main_block.add_child(model)
 	else:
 		push_warning("ResearchStation.gd: wooden_table.glb missing at %s — falling back to no base visual" % BASE_MODEL_PATH)

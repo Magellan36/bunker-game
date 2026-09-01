@@ -155,6 +155,56 @@ static func build_wall_material() -> StandardMaterial3D:
 		mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 	return mat
 
+## Shared wood material (Aug 2026, Wood006 retexture) — used by Table.gd's
+## small + medium tables and the BuildStation/ResearchStation (all reuse the
+## same wooden_table.glb base). Flat UV (the GLB has proper 0-1 UVs) at
+## uv1_scale ~0.8 so the grain reads at a natural plank size on both the 3m
+## medium table and the 0.9m small table. This set has NO ambient occlusion
+## map (Wood006 ships Color/NormalGL/Roughness only). Roughness gray lives in
+## the red channel (the shipping .tres's alpha channel is a trap — alpha is
+## 255 everywhere).
+const WOOD_TEX_UV_SCALE: float = 0.8   ## 1 texture per ~1.25m — zoomed in a touch from 1.0 so the grain reads bigger/fewer planks
+static func build_wood_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.roughness = 0.85
+	mat.metallic  = 0.0
+	mat.specular  = 0.05
+	## Object-space triplanar: the mesh UVs wrap the texture to the model's
+	## non-square 3m x 1.94m footprint (stretched ~1.5x along the length).
+	## Triplanar projects from the object's own space so texels stay square
+	## and the grain stays proportionate to the source image — and it follows
+	## the table when the object is rotated (unlike world-space).
+	mat.uv1_triplanar           = true
+	mat.uv1_triplanar_sharpness = 3.0
+	mat.uv1_scale               = Vector3(WOOD_TEX_UV_SCALE, WOOD_TEX_UV_SCALE, WOOD_TEX_UV_SCALE)
+	var color_tex: Texture2D = load("res://assets/textures/Wood006/Wood006_2K-PNG_Color_rot.png") as Texture2D
+	var normal_tex: Texture2D = load("res://assets/textures/Wood006/Wood006_2K-PNG_NormalGL_rot.png") as Texture2D
+	var rough_tex:  Texture2D = load("res://assets/textures/Wood006/Wood006_2K-PNG_Roughness_rot.png") as Texture2D
+	if color_tex != null:
+		mat.albedo_texture = color_tex
+		mat.albedo_color   = Color(1.0, 1.0, 1.0, 1.0)
+	if normal_tex != null:
+		mat.normal_enabled = true
+		mat.normal_texture = normal_tex
+	if rough_tex != null:
+		mat.roughness_texture           = rough_tex
+		mat.roughness_texture_channel   = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	return mat
+
+## Recursively overrides every surface material of an instanced model with
+## the given material — used to texture wooden_table.glb at runtime (its
+## baked material is plain white). Surface overrides, not mesh mutation, so
+## the shared GLB mesh resource is untouched across instances.
+static func apply_material_to_model(model: Node3D, mat: StandardMaterial3D) -> void:
+	if model == null:
+		return
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		var m := mi as MeshInstance3D
+		if m == null or m.mesh == null:
+			continue
+		for s: int in m.mesh.get_surface_count():
+			m.set_surface_override_material(s, mat)
+
 func _build_world_materials() -> void:
 	## ── Wall material ──────────────────────────────────────────────────────
 	## Concrete028 retexture (Aug 2026): shared builder — pregen + build-mode.

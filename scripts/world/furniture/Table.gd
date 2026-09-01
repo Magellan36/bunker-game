@@ -1,16 +1,15 @@
 extends StaticBody3D
 class_name Table
 ## Table.gd
-## Basic 4-legged table, metallic grey. Two sizes via cell_count (1 = small 1×1,
-## 2 = medium 2×1) — same footprint numbers as FarmingTray (0.90×0.90 /
-## 1.90×0.90) so it reads as visually consistent furniture at the same scale.
-## Not interactable yet — pure static decoration/placement object for now.
+## Basic 4-legged table, wood (Wood006 retexture, Aug 2026). Two sizes via
+## cell_count (1 = small 1×1, 2 = medium 2×1) — same footprint numbers as
+## FarmingTray (0.90×0.90 / 1.90×0.90) so it reads as visually consistent
+## furniture at the same scale. Not interactable yet — pure static decoration/
+## placement object for now.
 
 const LEG_HEIGHT: float        = 0.72   ## Matches FarmingTray.LEG_HEIGHT
 const TABLETOP_THICKNESS: float = 0.05
 const TABLETOP_Y: float        = LEG_HEIGHT + TABLETOP_THICKNESS * 0.5
-
-const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)
 
 const MEDIUM_TABLE_MODEL_PATH: String = "res://assets/models/wooden_table.glb"
 const MEDIUM_TABLE_MODEL_SCALE: Vector3 = Vector3(0.6333, 0.5946, 0.4638)
@@ -45,10 +44,7 @@ func _build_mesh() -> void:
 		_build_mesh_from_model(footprint_x, footprint_z)
 		return
 
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = COLOR_METAL
-	mat.metallic  = 0.5
-	mat.roughness = 0.4
+	var mat: StandardMaterial3D = BuildMaterials.build_wood_material()
 
 	## 4 legs at the footprint's corners — identical geometry/positions to
 	## FarmingTray._build_mesh()'s leg loop.
@@ -105,6 +101,7 @@ func _build_mesh_from_model(footprint_x: float, footprint_z: float) -> void:
 			model.scale    = MEDIUM_TABLE_MODEL_SCALE
 			_recenter_glb_mesh(model)
 			_strip_model_collision(model)
+			BuildMaterials.apply_material_to_model(model, BuildMaterials.build_wood_material())
 			add_child(model)
 	else:
 		push_warning("Table.gd: wooden_table.glb missing at %s — falling back to no visual mesh for the 2x1 table" % MEDIUM_TABLE_MODEL_PATH)
