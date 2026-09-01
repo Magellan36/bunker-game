@@ -86,6 +86,11 @@ func _ghost_visual_aabb() -> AABB:
 func measure_visual_aabb(root: Node3D) -> AABB:
 	if root == null:
 		return AABB()
+	## Accumulate the FULL transform chain down from the root — a model's scale
+	## often lives on a PARENT node (e.g. Table's model.scale), not on the leaf
+	## MeshInstance3D. Measuring each leaf with only its own transform misses
+	## the parent scale, producing a much-too-large AABB for scaled imported
+	## models (table/stove/chair). So pass the accumulated transform down.
 	var aabb := AABB()
 	if root is MeshInstance3D:
 		var rmi := root as MeshInstance3D
@@ -93,11 +98,11 @@ func measure_visual_aabb(root: Node3D) -> AABB:
 			aabb = rmi.mesh.get_aabb()
 	for child: Node in root.get_children():
 		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
-			aabb = _collect_local_visual_aabb(child as Node3D, aabb)
+			aabb = _collect_local_visual_aabb(child as Node3D, Transform3D.IDENTITY, aabb)
 	return aabb
 
-func _collect_local_visual_aabb(node: Node3D, aabb: AABB) -> AABB:
-	var lt: Transform3D = node.transform
+func _collect_local_visual_aabb(node: Node3D, parent_t: Transform3D, aabb: AABB) -> AABB:
+	var lt: Transform3D = parent_t * node.transform
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
 		if mi.mesh != null:
@@ -108,7 +113,7 @@ func _collect_local_visual_aabb(node: Node3D, aabb: AABB) -> AABB:
 				aabb = aabb.merge(ta)
 	for child: Node in node.get_children():
 		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
-			aabb = _collect_local_visual_aabb(child as Node3D, aabb)
+			aabb = _collect_local_visual_aabb(child as Node3D, lt, aabb)
 	return aabb
 
 func _destroy_ghost() -> void:
