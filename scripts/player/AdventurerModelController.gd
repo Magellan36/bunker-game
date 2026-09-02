@@ -172,7 +172,7 @@ var _lie_rot_angle: float = 0.0
 ## LIE_PIVOT_HEIGHT so its feet stay at the controller origin.
 ## These are tuning knobs — the axis/sign may need flipping once seen in-game.
 const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
-const RECLINE_ANGLE: float = 90.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
+const RECLINE_ANGLE: float = 95.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
 const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward the foot side)
 const RECLINE_FRACTION: float = 0.5    ## recline completes at this fraction of the clip (faster than full)
 var _lie_pivot: Node3D = null
