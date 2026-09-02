@@ -21,6 +21,13 @@ const GENDERS: Dictionary = {
 	},
 }
 
+## Aug 2026 — hinge the HEAD up this many degrees around its own X axis (its
+## pivot IS the neck joint) so it rests ON the pillow instead of reading as
+## submerged in it. Applied as a constant offset on the Head bone's rotation
+## track (post-multiplied so it stays in the head's own local frame).
+const HEAD_PITCH_DEG: float = 10.0
+const HEAD_PITCH_QUAT: Quaternion = Quaternion(Vector3(1.0, 0.0, 0.0), deg_to_rad(HEAD_PITCH_DEG))
+
 func _is_leg_bone(bone: String) -> bool:
 	return bone == "Hips" or bone.contains("Leg") or bone.contains("Foot") or bone.contains("Toe")
 
@@ -87,9 +94,31 @@ func _bake(g: String, cfg: Dictionary) -> void:
 		var idx: int = out.add_track(anim.track_get_type(ti))
 		out.track_set_path(idx, p)
 		out.track_set_interpolation_type(idx, anim.track_get_interpolation_type(ti))
+		var is_head: bool = _bone_of(p) == "Head" \
+			and anim.track_get_type(ti) == Animation.TYPE_ROTATION_3D
 		for k in anim.track_get_key_count(ti):
+			var v = anim.track_get_key_value(ti, k)
+			if is_head:
+				v = (v as Quaternion) * HEAD_PITCH_QUAT
 			out.track_insert_key(idx, anim.track_get_key_time(ti, k),
-				anim.track_get_key_value(ti, k), anim.track_get_key_transition(ti, k))
+				v, anim.track_get_key_transition(ti, k))
+
+	## Ensure the hybrid HAS a Head rotation track with the pitch offset. The
+	## male sleeping clip animates the Head bone (offset applied per-key above);
+	## the FEMALE sleeping clip has NO Head track at all (the female body still
+	## HAS a Head bone — it's just not animated by the source clip), so add a
+	## static pitched Head track so her head also rests up on the pillow.
+	var has_head: bool = false
+	for ti in out.get_track_count():
+		if _bone_of(out.track_get_path(ti)) == "Head" \
+				and out.track_get_type(ti) == Animation.TYPE_ROTATION_3D:
+			has_head = true
+			break
+	if not has_head:
+		var idx: int = out.add_track(Animation.TYPE_ROTATION_3D)
+		out.track_set_path(idx, NodePath("MaleModel/%GeneralSkeleton:Head"))
+		out.track_set_interpolation_type(idx, Animation.INTERPOLATION_LINEAR)
+		out.track_insert_key(idx, 0.0, HEAD_PITCH_QUAT, 0.0)
 
 	var lib := AnimationLibrary.new()
 	lib.add_animation("sleeping", out)

@@ -29,8 +29,8 @@ const LOCOMOTION_BLEND_TIME: float = 0.5
 ## Aug 2026 — the lying_down -> sleeping transition uses a LONGER crossfade so
 ## the arms/head visibly "settle" into the sleep pose (the sleeping clip's start
 ## pose differs from the lying_down end pose by up to ~100° on the hands) instead
-## of snapping over the standard 0.3s blend.
-const SLEEP_BLEND_TIME: float = 0.9
+## of snapping over the standard 0.3s blend. Was 0.9s; now 1.5x faster.
+const SLEEP_BLEND_TIME: float = 0.6
 ## Base locomotion states that transition with the longer ease above.
 const LOCOMOTION_STATES: Array[String] = ["idle", "walk", "run"]
 
@@ -215,6 +215,11 @@ const LIE_TURN_END_FRAC: float = 0.333333 / LIE_TURN_SPEED
 ## slide then accelerates into the remaining clip time, still reaching its full
 ## value at frac 1.0 (identical end pose, just delayed + sped up).
 const LIE_SLIDE_START_AT: float = 0.8 * LIE_TURN_END_FRAC
+## Aug 2026 — the SECOND half of the lying-down clip plays this many times
+## faster (the clip itself AND the game-driven turn/recline/slide, which are all
+## paced by clip progress). The first half plays at 1.0x; at the halfway mark
+## speed_scale jumps to this. Resets to 1.0 outside the lying_down phase.
+const LIE_DOWN_2ND_HALF_SPEED: float = 1.25
 ## Recline pacing (0→1): slow start, accelerate through the middle, hold by
 ## ~2/3 — sampled from the clip's root X-pitch.
 const LIE_RECLINE_CURVE: PackedFloat32Array = [0.0, 0.02, 0.08, 0.25, 0.45, 0.65, 0.82, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -406,6 +411,12 @@ func _process(delta: float) -> void:
 		var frac: float = 1.0
 		if len > 0.0:
 			frac = clampf(_anim_player.current_animation_position / len, 0.0, 1.0)
+		if _anim_player != null:
+			## 2nd-half speed-up: first half 1.0x, then 1.25x to the end. This
+			## also accelerates the game-driven turn/recline/slide (they're all
+			## paced by frac), so everything stays in sync and the end pose is
+			## unchanged — the lie-down just reaches it sooner.
+			_anim_player.speed_scale = 1.0 if frac < 0.5 else LIE_DOWN_2ND_HALF_SPEED
 		if frac >= 1.0:
 			## Backup to _on_anim_finished: the lie-down motion is complete.
 			_lie_down_complete = true
@@ -439,6 +450,8 @@ func _process(delta: float) -> void:
 		## 90° turn done, full recline, full slide up the bed, rolled to center.
 		## The game keeps driving these even though the sleeping clip only
 		## articulates the upper body (legs are frozen in the hybrid).
+		if _anim_player != null:
+			_anim_player.speed_scale = 1.0
 		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle
 		if _lie_pivot != null:
 			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
@@ -446,6 +459,8 @@ func _process(delta: float) -> void:
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE
 			_lie_pivot.position.x = -CENTER_SHIFT
 	else:
+		if _anim_player != null:
+			_anim_player.speed_scale = 1.0
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
 			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
