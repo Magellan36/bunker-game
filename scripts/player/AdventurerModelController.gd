@@ -31,6 +31,12 @@ const LOCOMOTION_BLEND_TIME: float = 0.5
 ## pose differs from the lying_down end pose by up to ~100° on the hands) instead
 ## of snapping over the standard 0.3s blend. Was 0.9s; now 1.5x faster.
 const SLEEP_BLEND_TIME: float = 0.6
+## Aug 2026 — waking from sleep eases the body out of the full recline (and the
+## 90° side turn / slide / center shift) back to upright over this many seconds,
+## crossfading the bones from the lying pose into the seated pose as it rises,
+## THEN sit_to_stand plays. Fixes the visible "spaz" of instantly snapping the
+## LiePivot upright in one frame.
+const SIT_UP_TIME: float = 0.5
 ## Base locomotion states that transition with the longer ease above.
 const LOCOMOTION_STATES: Array[String] = ["idle", "walk", "run"]
 
@@ -160,6 +166,9 @@ var _sit_phase: String = ""
 ## (the 90° turn + recline + slide are all done, the player is resting). Input
 ## stays locked while false so the lie-down can't be interrupted mid-motion.
 var _lie_down_complete: bool = false
+## Aug 2026 — elapsed time into the wake-from-sleep "sit up" ease (SIT_UP_TIME).
+## The body un-reclines smoothly back to upright before sit_to_stand plays.
+var _sit_up_t: float = 0.0
 
 ## Aug 2026 — the two horizontal anchor points the sit sequence eases
 ## between: the approach spot (near the chair's front edge, where sitting
@@ -458,6 +467,26 @@ func _process(delta: float) -> void:
 				* deg_to_rad(RECLINE_ANGLE)
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE
 			_lie_pivot.position.x = -CENTER_SHIFT
+	elif _sit_phase == "sitting_up":
+		## Aug 2026 — wake-from-sleep sit-up: ease the LiePivot OUT of the full
+		## recline (and the 90° turn / headboard slide / center roll) back to
+		## upright over SIT_UP_TIME while the bones crossfade from the lying
+		## pose into the seated pose (the "sit" loop was played when waking).
+		## When it completes, sit_to_stand plays seamlessly from the seated pose.
+		if _anim_player != null:
+			_anim_player.speed_scale = 1.0
+		_sit_up_t += delta
+		var su: float = clampf(_sit_up_t / SIT_UP_TIME, 0.0, 1.0)
+		var eased: float = 1.0 - su * su * (3.0 - 2.0 * su)   ## smoothstep 1->0
+		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * eased
+		if _lie_pivot != null:
+			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
+				* deg_to_rad(RECLINE_ANGLE) * eased
+			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE * eased
+			_lie_pivot.position.x = -CENTER_SHIFT * eased
+		if su >= 1.0:
+			_sit_phase = "standing_up"
+			_play_state("sit_to_stand")
 	else:
 		if _anim_player != null:
 			_anim_player.speed_scale = 1.0
@@ -496,9 +525,20 @@ func _process(delta: float) -> void:
 		elif _sit_phase == "sleeping":
 			_play_state("sleeping")   ## looped anchor, idempotent once current
 		return
-	## Not seated, but mid sit-sequence — play the stand-up and wait.
+	## Not seated, but mid sit-sequence.
+	if _sit_phase == "sleeping":
+		## Aug 2026 — wake from sleep: sit up first (un-recline + crossfade the
+		## bones into the seated pose over SIT_UP_TIME), THEN stand. Playing the
+		## "sit" loop here is what crossfades the lying bones into seated as the
+		## LiePivot eases upright (driven in the facing section above).
+		_sit_phase = "sitting_up"
+		_sit_up_t = 0.0
+		_play_state("sit", SIT_UP_TIME)
+		return
+	if _sit_phase == "sitting_up":
+		return   ## the facing section eases the sit-up, then moves to standing_up
 	if _sit_phase == "sitting_down" or _sit_phase == "seated" \
-			or _sit_phase == "lying_down" or _sit_phase == "sleeping":
+			or _sit_phase == "lying_down":
 		_sit_phase = "standing_up"
 		_play_state("sit_to_stand")
 		return
@@ -569,9 +609,11 @@ func is_sit_sequence_active() -> bool:
 ## by a keypress. sitting_down and standing_up are always locked; the bed's
 ## lying_down is locked until its clip completes its first pass (turn + recline
 ## + slide done). The chair's stable "seated" hold is NOT locked — E stands up
-## from there, then standing_up locks again until it finishes.
+## from there, then standing_up locks again until it finishes. The wake-from-
+## sleep sit-up (sitting_up) is locked too — it's part of the wake animation.
 func is_animation_locked() -> bool:
-	if _sit_phase == "sitting_down" or _sit_phase == "standing_up":
+	if _sit_phase == "sitting_down" or _sit_phase == "standing_up" \
+			or _sit_phase == "sitting_up":
 		return true
 	if _sit_phase == "lying_down":
 		return not _lie_down_complete

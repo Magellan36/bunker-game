@@ -24,8 +24,9 @@ const GENDERS: Dictionary = {
 ## Aug 2026 — hinge the HEAD up this many degrees around its own X axis (its
 ## pivot IS the neck joint) so it rests ON the pillow instead of reading as
 ## submerged in it. Applied as a constant offset on the Head bone's rotation
-## track (post-multiplied so it stays in the head's own local frame).
-const HEAD_PITCH_DEG: float = 10.0
+## track (post-multiplied so it stays in the head's own local frame). Was 10;
+## notched up another 10 per feedback.
+const HEAD_PITCH_DEG: float = 20.0
 const HEAD_PITCH_QUAT: Quaternion = Quaternion(Vector3(1.0, 0.0, 0.0), deg_to_rad(HEAD_PITCH_DEG))
 
 func _is_leg_bone(bone: String) -> bool:
