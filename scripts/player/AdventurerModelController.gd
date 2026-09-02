@@ -178,9 +178,13 @@ const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward
 ## clip's own root-position motion ("pushes itself further up the bed"). The
 ## curves below were sampled from the clip's armature-root tracks so the
 ## recline + slide pace matches the animation instead of a constant linear
-## robotic motion.
-const LIE_TRANSLATE: float = 0.4       ## metres the model scoots toward the headboard (clip ~0.28; more per feedback)
-const LIE_SLIDE_DIR: float = -1.0      ## -1 = toward the headboard (LiePivot local -X)
+## robotic motion. The slide runs along the LiePivot's LOCAL Z (which, after
+## the game's yaw, is the bed's LENGTH — measured: local +Z -> world -X for
+## side +1), with a sign that follows the bed side so it always goes toward
+## the headboard. The head lands at ~X=-0.69 after the recline; the pillow is
+## ~1/6 down the bed at X=-0.828, so ~0.14m gets there (0.2 hammers a touch
+## further).
+const LIE_TRANSLATE: float = 0.2       ## metres the model scoots toward the headboard
 ## Recline pacing (0→1): slow start, accelerate through the middle, hold by
 ## ~2/3 — sampled from the clip's root X-pitch.
 const LIE_RECLINE_CURVE: PackedFloat32Array = [0.0, 0.02, 0.08, 0.25, 0.45, 0.65, 0.82, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -383,7 +387,9 @@ func _process(delta: float) -> void:
 			var rec: float = _sample_curve(LIE_RECLINE_CURVE, frac)
 			var sli: float = _sample_curve(LIE_SLIDE_CURVE, frac)
 			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * rec
-			_lie_pivot.position.x = LIE_SLIDE_DIR * LIE_TRANSLATE * sli
+			## Slide along local Z toward the headboard; sign follows the bed
+			## side so it always moves toward -X (measured with the game yaw).
+			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE * sli
 	else:
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
