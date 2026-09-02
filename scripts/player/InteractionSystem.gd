@@ -444,6 +444,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if build_mode_active:
 		return   ## BuildModeController owns all input while active
+	## Aug 2026 — sit/lie animation locked in: swallow ALL interaction input
+	## until it plays out, so E/F/etc. can't interrupt or shift the sequence
+	## (e.g. E waking the player or standing them up mid-animation).
+	if player != null and player.has_method("is_animation_locked") \
+			and player.is_animation_locked():
+		return
 	if _shelf_ui_open() or _basket_ui_open() or _research_ui_open() or _npc_ui_open() \
 			or _any_controller_ui_open():
 		return   ## An open UI owns all input while it's open (Aug 2026 — ANY controller-nav UI)

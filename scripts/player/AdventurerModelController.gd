@@ -149,6 +149,10 @@ var _gender: String = "male"
 ## stand_to_sit / sit / sit_to_stand sequence. The transitions advance on
 ## AnimationPlayer.animation_finished (see _on_anim_finished).
 var _sit_phase: String = ""
+## Aug 2026 — true once the bed lie-down clip has completed its first pass
+## (the 90° turn + recline + slide are all done, the player is resting). Input
+## stays locked while false so the lie-down can't be interrupted mid-motion.
+var _lie_down_complete: bool = false
 
 ## Aug 2026 — the two horizontal anchor points the sit sequence eases
 ## between: the approach spot (near the chair's front edge, where sitting
@@ -395,6 +399,9 @@ func _process(delta: float) -> void:
 		var frac: float = 1.0
 		if len > 0.0:
 			frac = clampf(_anim_player.current_animation_position / len, 0.0, 1.0)
+		if frac >= 1.0:
+			## Backup to _on_anim_finished: the lie-down motion is complete.
+			_lie_down_complete = true
 		var rot_frac: float = clampf(frac / LIE_TURN_END_FRAC, 0.0, 1.0)
 		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * rot_frac
 		## Aug 2026 — GAME-DRIVEN recline + slide around the hips pivot (the clip's
@@ -521,6 +528,19 @@ func _on_bed() -> bool:
 func is_sit_sequence_active() -> bool:
 	return _sit_phase != ""
 
+## Aug 2026 — input is LOCKED (every button swallowed by the input handlers)
+## while a sit/lie animation is mid-play, so it can't be interrupted or shifted
+## by a keypress. sitting_down and standing_up are always locked; the bed's
+## lying_down is locked until its clip completes its first pass (turn + recline
+## + slide done). The chair's stable "seated" hold is NOT locked — E stands up
+## from there, then standing_up locks again until it finishes.
+func is_animation_locked() -> bool:
+	if _sit_phase == "sitting_down" or _sit_phase == "standing_up":
+		return true
+	if _sit_phase == "lying_down":
+		return not _lie_down_complete
+	return false
+
 ## Advances the sit lifecycle when a one-shot sit clip finishes.
 func _on_anim_finished(_anim_name: StringName) -> void:
 	if _sit_phase == "sitting_down":
@@ -530,12 +550,19 @@ func _on_anim_finished(_anim_name: StringName) -> void:
 			## away from the headboard plays during the first 1/3 of the clip
 			## (see the facing section in _process).
 			_sit_phase = "lying_down"
+			_lie_down_complete = false
 			_play_state("lying_down")
 		else:
 			_sit_phase = "seated"
 			_play_state("sit")
+	elif _sit_phase == "lying_down":
+		## The lie-down clip finished its first pass (or looped) — the turn,
+		## recline and slide are all complete, so the input lock releases and
+		## E can wake the player.
+		_lie_down_complete = true
 	elif _sit_phase == "standing_up":
 		_sit_phase = ""
+		_lie_down_complete = false
 		stand_animation_finished.emit()
 
 ## Aug 2026 — smoothly interpolates the player's horizontal (X/Z)

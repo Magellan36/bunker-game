@@ -124,6 +124,16 @@ func set_movement_locked(locked: bool) -> void:
 	if locked:
 		velocity = Vector3.ZERO
 
+## Aug 2026 — true while the model's sit/lie animation is mid-play (the whole
+## sequence is locked in and must play out before any input is accepted again).
+## Forwards to the PlayerModel controller, which owns the sit-phase state
+## machine (sitting_down/standing_up always locked; the bed's lying_down locked
+## until its clip completes).
+func is_animation_locked() -> bool:
+	var model: Node = get_node_or_null("PlayerModel")
+	return model != null and model.has_method("is_animation_locked") \
+		and model.is_animation_locked()
+
 ## True while a timed "job" interaction (InteractionSystem.start_job(), Aug
 ## 2026 — see docs/systems/player/README.md's "Job Progress Bar" entry) is
 ## in progress. Deliberately a SEPARATE flag from _movement_locked
@@ -422,6 +432,11 @@ func release_held_item_to_npc(npc: Node) -> bool:
 	return interaction_system.release_held_item_to_npc(npc) if interaction_system != null else false
 
 func _unhandled_input(event: InputEvent) -> void:
+	## Aug 2026 — the sit/lie animation is locked in: swallow ALL player-level
+	## input until it plays out, so a keypress can't interrupt or shift the
+	## sequence (e.g. WASD walking out of the chair mid-animation).
+	if is_animation_locked():
+		return
 	## Right-stick click toggles Focus Mode (Aug 2026) — same interaction
 	## highlighting Ctrl gives, latched instead of held. Ctrl still works
 	## as a hold; see the FocusMode autoload.
