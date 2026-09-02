@@ -38,12 +38,17 @@ func _init() -> void:
 					and "Hips" in track_path.get_concatenated_subnames():
 				anim.remove_track(ti2)
 
-		## Strip armature-root tracks (CharacterArmature, no bone subname) — the
-		## root's position AND rotation, since the game owns both (the 90° turn).
+		## Strip the armature-root POSITION track only (the character's travel —
+		## the game owns position). KEEP the armature-root ROTATION track: the
+		## lying-down recline is expressed as the root pitching ~109°→184° around
+		## X (the body tilts back onto the bed), and stripping it left the model
+		## rigidly upright. This differs from the sit clips, whose root tracks are
+		## genuinely root motion and are fully stripped.
 		for ti3 in range(anim.get_track_count() - 1, -1, -1):
 			var p3: NodePath = anim.track_get_path(ti3)
 			if p3.get_subname_count() == 0 \
-					and p3.get_name(p3.get_name_count() - 1) == "CharacterArmature":
+					and p3.get_name(p3.get_name_count() - 1) == "CharacterArmature" \
+					and anim.track_get_type(ti3) == Animation.TYPE_POSITION_3D:
 				anim.remove_track(ti3)
 
 		var lib := AnimationLibrary.new()
