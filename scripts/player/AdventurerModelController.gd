@@ -81,7 +81,7 @@ const ANIMATION_NAMES: Dictionary = {
 	"stand_to_sit": "stand_to_sit_lib/stand_to_sit",
 	"sit": "sit_lib/sit",
 	"sit_to_stand": "sit_to_stand_lib/sit_to_stand",
-	"lying_down": "lying_down_lib/lying_down",
+	"lying_down": "lying_down_male_lib/lying_down",
 }
 
 ## Male-only idle override (Aug 2026) — the Male Locomotion Pack idle clip
@@ -108,6 +108,7 @@ const FEMALE_ANIMATION_NAMES: Dictionary = {
 	"stand_to_sit": "stand_to_sit_female_lib/stand_to_sit",
 	"sit": "sit_hybrid_female_lib/sit_hybrid",
 	"sit_to_stand": "sit_to_stand_female_lib/sit_to_stand",
+	"lying_down": "lying_down_female_lib/lying_down",
 }
 
 var _player: CharacterBody3D = null
