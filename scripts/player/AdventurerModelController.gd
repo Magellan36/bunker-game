@@ -587,6 +587,13 @@ func _on_bed() -> bool:
 func is_sit_sequence_active() -> bool:
 	return _sit_phase != ""
 
+## Aug 2026 — the model's current ABSOLUTE facing (visual yaw). MainWorld reads
+## this when the stand-up finishes so the PLAYER ends up facing whatever
+## direction the standing animation ended facing, instead of being reset to the
+## pre-sit/pre-sleep facing.
+func get_visual_yaw() -> float:
+	return _visual_yaw
+
 ## Aug 2026 — input is LOCKED (every button swallowed by the input handlers)
 ## while a sit/lie animation is mid-play, so it can't be interrupted or shifted
 ## by a keypress. sitting_down and standing_up are always locked; the bed's

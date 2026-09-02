@@ -989,6 +989,11 @@ func _connect_bed() -> void:
 			var the_bed: Node = b
 			model.stand_animation_finished.connect(func() -> void:
 				player.global_position = the_bed.get_bed_stand_position()
+				## Aug 2026 — face the direction the standing animation ENDED
+				## facing (not the pre-sleep facing), so the player continues
+				## from the pose the animation left them in.
+				if model.has_method("get_visual_yaw"):
+					player.rotation.y = model.get_visual_yaw()
 				player.set_physics_process(true)
 			, CONNECT_ONE_SHOT)
 		else:
@@ -1147,12 +1152,12 @@ func _wire_chair(chair: Node) -> void:
 		if model != null and model.has_signal("stand_animation_finished"):
 			model.stand_animation_finished.connect(func() -> void:
 				player.global_position = the_chair.get_stand_position()
-				## Aug 2026 — face the same direction the player was oriented
-				## the whole time they sat, restored explicitly here in case
-				## anything (camera-look sync, etc) nudged rotation.y while
-				## seated.
-				if the_chair.has_meta("_seated_facing_y"):
-					player.rotation.y = the_chair.get_meta("_seated_facing_y")
+				## Aug 2026 — face the direction the standing animation ENDED
+				## facing instead of the pre-sit facing, so the player continues
+				## from the pose the animation left them in (no snap back to the
+				## old direction).
+				if model.has_method("get_visual_yaw"):
+					player.rotation.y = model.get_visual_yaw()
 				player.set_physics_process(true)
 			, CONNECT_ONE_SHOT)
 		else:

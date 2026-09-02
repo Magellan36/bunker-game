@@ -144,7 +144,12 @@ func _follow_target(delta: float) -> void:
 	offset = offset.rotated(Vector3.UP, _cur_yaw_rad)
 
 	var desired_pos: Vector3 = _target.global_position + offset
-	global_position = desired_pos
+	## Aug 2026 — lerped position follow (follow_speed was always exported for
+	## this but unused): the camera smoothly glides to the target instead of
+	## teleporting with it, so when the player snaps to the stand position at
+	## the end of a sit/stand animation the camera transitions smoothly instead
+	## of snapping with the model.
+	global_position = global_position.lerp(desired_pos, clampf(follow_speed * delta, 0.0, 1.0))
 
 	## ONE consistent orientation for both modes (Aug 2026 fix). Pitch is
 	## derived from the CURRENT offset (height vs z-offset) so the camera
