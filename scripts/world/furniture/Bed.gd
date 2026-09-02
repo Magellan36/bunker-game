@@ -184,7 +184,7 @@ func get_bed_stand_position() -> Vector3:
 ## is reused unchanged; only the X/Z anchor + facing differ.
 const SHEETS_SURFACE_Y: float = 0.4971   ## mattress top = chair seat height
 const SHEETS_CLEARANCE: float = 0.02     ## like Chair.SEAT_CLEARANCE
-const SHEETS_X: float = 0.414            ## 2/3 down the head (-X end) of the ~2.49m bed
+const SHEETS_X: float = 0.746            ## 1/5 down the foot (+X end) of the ~2.49m bed (was 0.414 = 1/3)
 const SHEETS_EDGE_Z: float = 0.26        ## sitting on the side, pelvis slightly inward of the edge
 
 ## World transform the player sits at: 2/3 down the head, on the mattress top,
