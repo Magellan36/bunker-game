@@ -182,7 +182,16 @@ var _lie_rot_angle: float = 0.0
 ## onto the bed around the correct point. The body is offset down by
 ## LIE_PIVOT_HEIGHT so its feet stay at the controller origin.
 ## These are tuning knobs — the axis/sign may need flipping once seen in-game.
-const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
+const LIE_PIVOT_HEIGHT: float = 0.9    ## fallback hips height (only used if a gender's hip is unknown)
+## Per-gender Hips bone position, model-local rest pose (measured). The LiePivot
+## now sits EXACTLY at the hip so the recline rotates around the real hip joint.
+## A pivot offset from the hip made the far bed side sit ~6-8cm LOWER than the
+## near side during the recline (the "rotate forward"/sinking look). The body
+## hangs from the pivot so its origin stays at the controller origin.
+const LIE_HIP_POS: Dictionary = {
+	"male": Vector3(0.0, 0.894, 0.060),
+	"female": Vector3(0.0, 1.002, 0.078),
+}
 const RECLINE_ANGLE: float = 100.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
 const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up); sign ×side mirrors it for the far bed side
 ## Aug 2026 — game-driven lateral roll to CENTER the model on the bed. The
@@ -227,6 +236,11 @@ const LIE_RECLINE_CURVE: PackedFloat32Array = [0.0, 0.02, 0.08, 0.25, 0.45, 0.65
 ## clip's root Z-position (most of the ~0.28m happens by the first third).
 const LIE_SLIDE_CURVE: PackedFloat32Array = [0.0, 0.05, 0.30, 0.75, 0.95, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 var _lie_pivot: Node3D = null
+## Aug 2026 — the LiePivot's rest position (= the hip, in the controller frame,
+## after the body's 180° Y-rotation). Restored on wake / outside the lie phases,
+## and its Z is ADDED to the headboard slide so the rotation axis stays at the
+## hip while the body slides.
+var _lie_pivot_base: Vector3 = Vector3.ZERO
 
 ## Aug 2026 (8th pass — measured end-to-end through the REAL game code,
 ## not an isolated approximation) — the Hips bone's height ABOVE the
@@ -330,15 +344,23 @@ func _ready() -> void:
 	## same correction — confirmed live: without this, the model and its
 	## animations render facing/walking backwards. A model-space fix, not
 	## a movement-code change; Player.gd's own facing math is untouched.
-	body.transform = Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, -LIE_PIVOT_HEIGHT, 0.0))
+	## (Applied together with the hip-aligned pivot offset below.)
 	## Aug 2026 — LiePivot for the game-driven bed recline: the body hangs under
 	## a pivot at the HIPS so the recline rotates around the hips (on the bed)
 	## instead of the feet. The AnimationPlayer's root_node moves to the pivot so
 	## the baked "MaleModel/..." track paths still resolve.
+	## Aug 2026 (2nd pass) — the pivot sits EXACTLY at the hip bone (per gender):
+	## a pivot offset from the hip rotated the mirrored (far) bed side ~6-8cm
+	## lower than the near side, reading as the body "rotating forward"/sinking
+	## into the bed. The body hangs from the pivot by -base so its origin stays
+	## at the controller origin.
 	_lie_pivot = Node3D.new()
 	_lie_pivot.name = "LiePivot"
-	_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
+	var hip: Vector3 = LIE_HIP_POS.get(_gender, Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0))
+	_lie_pivot_base = Basis(Vector3.UP, PI) * hip   ## (0, hip.y, -hip.z)
+	_lie_pivot.position = _lie_pivot_base
 	add_child(_lie_pivot)
+	body.transform = Transform3D(Basis(Vector3.UP, PI), -_lie_pivot_base)
 	_lie_pivot.add_child(body)
 
 	var capsule_height: float = FALLBACK_CAPSULE_HEIGHT
@@ -441,6 +463,9 @@ func _process(delta: float) -> void:
 				* deg_to_rad(RECLINE_ANGLE) * rec
 			## Slide along local Z toward the headboard; sign follows the bed
 			## side so it always moves toward -X (measured with the game yaw).
+			## NOTE: no base.z added here — the body's own +HIP_Z offset already
+			## keeps the rotation axis on the hip while sliding, and adding the
+			## base.z would drag the final head x 6cm apart between the sides.
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE * sli
 			## Roll from the entry-side edge to the bed's center line. Constant
 			## local -X (both sides' local +X point outward, away from center).
@@ -469,13 +494,13 @@ func _process(delta: float) -> void:
 		_visual_yaw = _player.rotation.y + PI
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
-			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
+			_lie_pivot.position = _lie_pivot_base
 	else:
 		if _anim_player != null:
 			_anim_player.speed_scale = 1.0
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
-			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
+			_lie_pivot.position = _lie_pivot_base
 		if seated or _sit_phase != "":
 			facing_target += PI
 		_visual_yaw = lerp_angle(_visual_yaw, facing_target, clampf(turn_speed * delta, 0.0, 1.0))
@@ -517,7 +542,7 @@ func _process(delta: float) -> void:
 		_sit_phase = "standing_up"
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
-			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
+			_lie_pivot.position = _lie_pivot_base
 		_play_state("sit_to_stand", 0.0)
 		return
 	if _sit_phase == "sitting_down" or _sit_phase == "seated" \
