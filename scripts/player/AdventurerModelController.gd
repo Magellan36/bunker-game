@@ -184,12 +184,17 @@ const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward
 ## the headboard. The head lands at ~X=-0.69 after the recline; the pillow is
 ## ~1/6 down the bed at X=-0.828, so ~0.14m gets there (0.2 hammers a touch
 ## further).
-const LIE_TRANSLATE: float = 0.532      ## metres the model scoots toward the headboard
-## The slide does NOT begin until the 90° side turn is 80% complete. The turn
-## finishes at the clip's 1/3 mark, so 80% of it = frac 0.2667; the slide then
-## accelerates into the remaining clip time, still reaching its full value at
-## frac 1.0 (identical end pose, just delayed + sped up).
-const LIE_SLIDE_START_AT: float = 0.8 * 0.333333
+const LIE_TRANSLATE: float = 0.615      ## metres the model scoots toward the headboard
+## The 90° side turn completes at this fraction of the clip. Was 1/3; now
+## 1.75x faster (LIE_TURN_SPEED = 1.75) while the clip itself plays at normal
+## speed — the game just finishes driving the rotation sooner.
+const LIE_TURN_SPEED: float = 1.75
+const LIE_TURN_END_FRAC: float = 0.333333 / LIE_TURN_SPEED
+## The slide does NOT begin until the 90° side turn is 80% complete. With the
+## turn finishing at LIE_TURN_END_FRAC, 80% of it = 0.8 * LIE_TURN_END_FRAC; the
+## slide then accelerates into the remaining clip time, still reaching its full
+## value at frac 1.0 (identical end pose, just delayed + sped up).
+const LIE_SLIDE_START_AT: float = 0.8 * LIE_TURN_END_FRAC
 ## Recline pacing (0→1): slow start, accelerate through the middle, hold by
 ## ~2/3 — sampled from the clip's root X-pitch.
 const LIE_RECLINE_CURVE: PackedFloat32Array = [0.0, 0.02, 0.08, 0.25, 0.45, 0.65, 0.82, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -381,7 +386,7 @@ func _process(delta: float) -> void:
 		var frac: float = 1.0
 		if len > 0.0:
 			frac = clampf(_anim_player.current_animation_position / len, 0.0, 1.0)
-		var rot_frac: float = clampf(frac / 0.333333, 0.0, 1.0)
+		var rot_frac: float = clampf(frac / LIE_TURN_END_FRAC, 0.0, 1.0)
 		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * rot_frac
 		## Aug 2026 — GAME-DRIVEN recline + slide around the hips pivot (the clip's
 		## root motion pivots at the feet and swings the body in a wide arc; this
