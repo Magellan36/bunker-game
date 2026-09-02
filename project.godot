@@ -28,6 +28,10 @@ GraphicsSettings="*res://scripts/core/GraphicsSettings.gd"
 NotificationManager="*res://scripts/ui/notifications/NotificationManager.gd"
 JobBoard="*res://scripts/npc/JobBoard.gd"
 
+[debug]
+
+settings/profiler/max_timestamp_query_elements=16384
+
 [display]
 
 window/size/viewport_width=1920
@@ -156,10 +160,6 @@ aim_down={
 3d/default_linear_damp=0.2
 3d/default_angular_damp=0.2
 3d/solver/solver_iterations=10
-
-[debug]
-
-settings/profiler/max_timestamp_query_elements=16384
 
 [rendering]
 

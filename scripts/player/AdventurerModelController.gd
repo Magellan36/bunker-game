@@ -26,6 +26,11 @@ const BLEND_TIME: float = 0.3
 ## (male idle especially), so the standard 0.3s blend still reads as a snap
 ## on walk↔run and ↔idle. Carry and sit transitions keep BLEND_TIME.
 const LOCOMOTION_BLEND_TIME: float = 0.5
+## Aug 2026 — the lying_down -> sleeping transition uses a LONGER crossfade so
+## the arms/head visibly "settle" into the sleep pose (the sleeping clip's start
+## pose differs from the lying_down end pose by up to ~100° on the hands) instead
+## of snapping over the standard 0.3s blend.
+const SLEEP_BLEND_TIME: float = 0.9
 ## Base locomotion states that transition with the longer ease above.
 const LOCOMOTION_STATES: Array[String] = ["idle", "walk", "run"]
 
@@ -82,6 +87,7 @@ const ANIMATION_NAMES: Dictionary = {
 	"sit": "sit_lib/sit",
 	"sit_to_stand": "sit_to_stand_lib/sit_to_stand",
 	"lying_down": "lying_down_male_lib/lying_down",
+	"sleeping": "sleep_hybrid_male_lib/sleeping",
 }
 
 ## Male-only idle override (Aug 2026) — the Male Locomotion Pack idle clip
@@ -109,6 +115,7 @@ const FEMALE_ANIMATION_NAMES: Dictionary = {
 	"sit": "sit_hybrid_female_lib/sit_hybrid",
 	"sit_to_stand": "sit_to_stand_female_lib/sit_to_stand",
 	"lying_down": "lying_down_female_lib/lying_down",
+	"sleeping": "sleep_hybrid_female_lib/sleeping",
 }
 
 var _player: CharacterBody3D = null
@@ -427,6 +434,17 @@ func _process(delta: float) -> void:
 			## Roll from the entry-side edge to the bed's center line. Constant
 			## local -X (both sides' local +X point outward, away from center).
 			_lie_pivot.position.x = -CENTER_SHIFT * sli
+	elif _sit_phase == "sleeping":
+		## Aug 2026 — the sleeping loop HOLD the exact final lie-down pose: the
+		## 90° turn done, full recline, full slide up the bed, rolled to center.
+		## The game keeps driving these even though the sleeping clip only
+		## articulates the upper body (legs are frozen in the hybrid).
+		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle
+		if _lie_pivot != null:
+			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
+				* deg_to_rad(RECLINE_ANGLE)
+			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE
+			_lie_pivot.position.x = -CENTER_SHIFT
 	else:
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
@@ -460,9 +478,12 @@ func _process(delta: float) -> void:
 			_play_state("sit")   ## looped anchor, idempotent once current
 		elif _sit_phase == "lying_down":
 			pass   ## the clip plays itself; the 90° turn is handled in the facing section above
+		elif _sit_phase == "sleeping":
+			_play_state("sleeping")   ## looped anchor, idempotent once current
 		return
 	## Not seated, but mid sit-sequence — play the stand-up and wait.
-	if _sit_phase == "sitting_down" or _sit_phase == "seated" or _sit_phase == "lying_down":
+	if _sit_phase == "sitting_down" or _sit_phase == "seated" \
+			or _sit_phase == "lying_down" or _sit_phase == "sleeping":
 		_sit_phase = "standing_up"
 		_play_state("sit_to_stand")
 		return
@@ -556,10 +577,13 @@ func _on_anim_finished(_anim_name: StringName) -> void:
 			_sit_phase = "seated"
 			_play_state("sit")
 	elif _sit_phase == "lying_down":
-		## The lie-down clip finished its first pass (or looped) — the turn,
-		## recline and slide are all complete, so the input lock releases and
-		## E can wake the player.
+		## The lie-down clip finished its first pass — the turn, recline and
+		## slide are all complete. Transition to the looping sleeping state
+		## (legs frozen at this final pose, upper body breathes). The longer
+		## crossfade lets the arms/head settle into the sleep pose.
 		_lie_down_complete = true
+		_sit_phase = "sleeping"
+		_play_state("sleeping", SLEEP_BLEND_TIME)
 	elif _sit_phase == "standing_up":
 		_sit_phase = ""
 		_lie_down_complete = false
@@ -760,7 +784,7 @@ func _is_holding_item() -> bool:
 		return _player.held_item != null
 	return false
 
-func _play_state(state: String) -> void:
+func _play_state(state: String, blend_override: float = -1.0) -> void:
 	var anim_name: String = _resolve_anim_name(state)
 	if anim_name == _current_state:
 		return
@@ -770,7 +794,9 @@ func _play_state(state: String) -> void:
 	## gender-specific poses differ enough that the standard blend reads as
 	## a snap, most visibly on the male model's distinct idle stance.
 	var blend: float = BLEND_TIME
-	if state == "idle" or _last_state == "idle" \
+	if blend_override >= 0.0:
+		blend = blend_override
+	elif state == "idle" or _last_state == "idle" \
 			or (LOCOMOTION_STATES.has(state) and LOCOMOTION_STATES.has(_last_state)):
 		blend = LOCOMOTION_BLEND_TIME
 	_last_state = state

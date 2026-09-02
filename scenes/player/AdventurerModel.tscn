@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://scripts/player/AdventurerModelController.gd" id="1_script"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_lib.res" id="2_idle"]
@@ -18,6 +18,8 @@
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_hybrid_female_lib.res" id="16_sithybfem"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/lying_down_male_lib.res" id="17_liedown"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/lying_down_female_lib.res" id="18_liefem"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sleep_hybrid_male_lib.res" id="19_sleepm"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sleep_hybrid_female_lib.res" id="20_sleepf"]
 
 [node name="AdventurerModel" type="Node3D"]
 script = ExtResource("1_script")
@@ -40,5 +42,7 @@ libraries = {
 "sit_to_stand_female_lib": ExtResource("15_s2sfem"),
 	"sit_hybrid_female_lib": ExtResource("16_sithybfem"),
 	"lying_down_male_lib": ExtResource("17_liedown"),
-	"lying_down_female_lib": ExtResource("18_liefem")
+	"lying_down_female_lib": ExtResource("18_liefem"),
+	"sleep_hybrid_male_lib": ExtResource("19_sleepm"),
+	"sleep_hybrid_female_lib": ExtResource("20_sleepf")
 }
