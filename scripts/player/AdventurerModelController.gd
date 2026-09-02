@@ -185,6 +185,11 @@ const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward
 ## ~1/6 down the bed at X=-0.828, so ~0.14m gets there (0.2 hammers a touch
 ## further).
 const LIE_TRANSLATE: float = 0.532      ## metres the model scoots toward the headboard
+## The slide does NOT begin until the 90° side turn is 80% complete. The turn
+## finishes at the clip's 1/3 mark, so 80% of it = frac 0.2667; the slide then
+## accelerates into the remaining clip time, still reaching its full value at
+## frac 1.0 (identical end pose, just delayed + sped up).
+const LIE_SLIDE_START_AT: float = 0.8 * 0.333333
 ## Recline pacing (0→1): slow start, accelerate through the middle, hold by
 ## ~2/3 — sampled from the clip's root X-pitch.
 const LIE_RECLINE_CURVE: PackedFloat32Array = [0.0, 0.02, 0.08, 0.25, 0.45, 0.65, 0.82, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -385,7 +390,11 @@ func _process(delta: float) -> void:
 		## animation instead of a constant linear motion.
 		if _lie_pivot != null:
 			var rec: float = _sample_curve(LIE_RECLINE_CURVE, frac)
-			var sli: float = _sample_curve(LIE_SLIDE_CURVE, frac)
+			## Slide waits until the side turn is 80% done (LIE_SLIDE_START_AT),
+			## then runs the same curve compressed into the remaining time.
+			var slide_frac: float = clampf(
+				(frac - LIE_SLIDE_START_AT) / (1.0 - LIE_SLIDE_START_AT), 0.0, 1.0)
+			var sli: float = _sample_curve(LIE_SLIDE_CURVE, slide_frac)
 			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * rec
 			## Slide along local Z toward the headboard; sign follows the bed
 			## side so it always moves toward -X (measured with the game yaw).
