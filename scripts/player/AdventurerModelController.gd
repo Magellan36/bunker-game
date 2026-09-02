@@ -164,6 +164,18 @@ var _chair_seat_pos: Vector3 = Vector3.ZERO
 ## lying along the bed, head at the headboard). 0 = not on a bed.
 var _lie_rot_angle: float = 0.0
 
+## Aug 2026 — GAME-DRIVEN bed recline. The clip's own root motion pivots the
+## body at the FEET (its armature origin), swinging it in a wide arc; instead,
+## the body is parented under a LiePivot node placed at the HIPS, and during the
+## lying-down clip the controller rotates that pivot so the body reclines back
+## onto the bed around the correct point. The body is offset down by
+## LIE_PIVOT_HEIGHT so its feet stay at the controller origin.
+## These are tuning knobs — the axis/sign may need flipping once seen in-game.
+const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
+const RECLINE_ANGLE: float = 75.0      ## degrees to recline back by the clip end
+const RECLINE_DIR: float = -1.0        ## -1 = head toward the headboard (X pitch)
+var _lie_pivot: Node3D = null
+
 ## Aug 2026 (8th pass — measured end-to-end through the REAL game code,
 ## not an isolated approximation) — the Hips bone's height ABOVE the
 ## player's own root (player.global_position.y), once the sit_lib seated
@@ -266,8 +278,16 @@ func _ready() -> void:
 	## same correction — confirmed live: without this, the model and its
 	## animations render facing/walking backwards. A model-space fix, not
 	## a movement-code change; Player.gd's own facing math is untouched.
-	body.transform = Transform3D(Basis(Vector3.UP, PI), Vector3.ZERO)
-	add_child(body)
+	body.transform = Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, -LIE_PIVOT_HEIGHT, 0.0))
+	## Aug 2026 — LiePivot for the game-driven bed recline: the body hangs under
+	## a pivot at the HIPS so the recline rotates around the hips (on the bed)
+	## instead of the feet. The AnimationPlayer's root_node moves to the pivot so
+	## the baked "MaleModel/..." track paths still resolve.
+	_lie_pivot = Node3D.new()
+	_lie_pivot.name = "LiePivot"
+	_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
+	add_child(_lie_pivot)
+	_lie_pivot.add_child(body)
 
 	var capsule_height: float = FALLBACK_CAPSULE_HEIGHT
 	var had_real_collision: bool = false
@@ -283,6 +303,10 @@ func _ready() -> void:
 	_anim_player = _find_first_of_type(self, "AnimationPlayer") as AnimationPlayer
 	_skeleton = _find_first_of_type(self, "Skeleton3D") as Skeleton3D
 	var skeleton: Skeleton3D = _skeleton
+	if _anim_player != null and _lie_pivot != null:
+		## Resolve the baked "MaleModel/..." track paths from the LiePivot (the
+		## body is now a child of the pivot).
+		_anim_player.root_node = _anim_player.get_path_to(_lie_pivot)
 	_measure_foot_mesh_clearance()
 	_measure_sole_local_offset()
 
@@ -337,7 +361,17 @@ func _process(delta: float) -> void:
 			frac = clampf(_anim_player.current_animation_position / len, 0.0, 1.0)
 		var rot_frac: float = clampf(frac / 0.333333, 0.0, 1.0)
 		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * rot_frac
+		## Aug 2026 — GAME-DRIVEN recline around the hips pivot (the clip's root
+		## motion pivots at the feet and swings the body in a wide arc; this
+		## reclines it smoothly back onto the bed over the full clip). Pitching
+		## around X, NEGATIVE so the head goes toward the headboard (-X): the
+		## model faces +X (away from the headboard) after the turn, and reclining
+		## "back" means the head tips toward -X.
+		if _lie_pivot != null:
+			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * frac
 	else:
+		if _lie_pivot != null:
+			_lie_pivot.rotation = Vector3.ZERO
 		if seated or _sit_phase != "":
 			facing_target += PI
 		_visual_yaw = lerp_angle(_visual_yaw, facing_target, clampf(turn_speed * delta, 0.0, 1.0))

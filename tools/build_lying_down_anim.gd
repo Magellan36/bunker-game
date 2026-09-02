@@ -38,23 +38,14 @@ func _init() -> void:
 					and "Hips" in track_path.get_concatenated_subnames():
 				anim.remove_track(ti2)
 
-		## Armature-root tracks: strip the POSITION (the game owns position), keep
-		## only the X-PITCH RECLINE as a DELTA from the clip start. Applying the
-		## clip's absolute root rotation snaps the body into its baked orientation
-		## (huge initial pitch/yaw/roll) which made the player vanish; rewriting
-		## it to a pure X-pitch starting at 0° lets the body tilt smoothly back
-		## onto the bed from the seated pose.
+		## Strip ALL armature-root tracks (CharacterArmature, no bone subname) — the
+		## game drives the whole-body recline (hips-pivot) and the 90° side turn,
+		## so the clip contributes only its BONE articulation here.
 		for ti3 in range(anim.get_track_count() - 1, -1, -1):
 			var p3: NodePath = anim.track_get_path(ti3)
 			if p3.get_subname_count() == 0 \
 					and p3.get_name(p3.get_name_count() - 1) == "CharacterArmature":
-				if anim.track_get_type(ti3) == Animation.TYPE_ROTATION_3D:
-					var initial_x: float = (anim.track_get_key_value(ti3, 0) as Quaternion).get_euler().x
-					for k in anim.track_get_key_count(ti3):
-						var e: Vector3 = (anim.track_get_key_value(ti3, k) as Quaternion).get_euler()
-						anim.track_set_key_value(ti3, k, Quaternion(Basis(Vector3.RIGHT, e.x - initial_x)))
-				else:
-					anim.remove_track(ti3)
+				anim.remove_track(ti3)
 
 		var lib := AnimationLibrary.new()
 		lib.add_animation("lying_down", anim)
