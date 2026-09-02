@@ -174,7 +174,19 @@ var _lie_rot_angle: float = 0.0
 const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
 const RECLINE_ANGLE: float = 95.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
 const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward the foot side)
-const RECLINE_FRACTION: float = 0.5    ## recline completes at this fraction of the clip (faster than full)
+## Aug 2026 — game-driven slide up the bed toward the headboard, matching the
+## clip's own root-position motion ("pushes itself further up the bed"). The
+## curves below were sampled from the clip's armature-root tracks so the
+## recline + slide pace matches the animation instead of a constant linear
+## robotic motion.
+const LIE_TRANSLATE: float = 0.4       ## metres the model scoots toward the headboard (clip ~0.28; more per feedback)
+const LIE_SLIDE_DIR: float = -1.0      ## -1 = toward the headboard (LiePivot local -X)
+## Recline pacing (0→1): slow start, accelerate through the middle, hold by
+## ~2/3 — sampled from the clip's root X-pitch.
+const LIE_RECLINE_CURVE: PackedFloat32Array = [0.0, 0.02, 0.08, 0.25, 0.45, 0.65, 0.82, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0]
+## Slide pacing (0→1): front-loaded push up the bed, holds — sampled from the
+## clip's root Z-position (most of the ~0.28m happens by the first third).
+const LIE_SLIDE_CURVE: PackedFloat32Array = [0.0, 0.05, 0.30, 0.75, 0.95, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 var _lie_pivot: Node3D = null
 
 ## Aug 2026 (8th pass — measured end-to-end through the REAL game code,
@@ -362,18 +374,20 @@ func _process(delta: float) -> void:
 			frac = clampf(_anim_player.current_animation_position / len, 0.0, 1.0)
 		var rot_frac: float = clampf(frac / 0.333333, 0.0, 1.0)
 		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * rot_frac
-		## Aug 2026 — GAME-DRIVEN recline around the hips pivot (the clip's root
-		## motion pivots at the feet and swings the body in a wide arc; this
-		## reclines it smoothly back onto the bed). Pitches around X, positive so
-		## the head goes toward the foot (face up) — the model faces +X (away
-		## from the headboard) after the turn. Completes over RECLINE_FRACTION of
-		## the clip so it stays in sync with the visible motion.
+		## Aug 2026 — GAME-DRIVEN recline + slide around the hips pivot (the clip's
+		## root motion pivots at the feet and swings the body in a wide arc; this
+		## reclines it smoothly back onto the bed AND slides it up toward the
+		## headboard). Both follow the sampled pacing curves so they match the
+		## animation instead of a constant linear motion.
 		if _lie_pivot != null:
-			var recline_frac: float = clampf(frac / RECLINE_FRACTION, 0.0, 1.0)
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * recline_frac
+			var rec: float = _sample_curve(LIE_RECLINE_CURVE, frac)
+			var sli: float = _sample_curve(LIE_SLIDE_CURVE, frac)
+			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * rec
+			_lie_pivot.position.x = LIE_SLIDE_DIR * LIE_TRANSLATE * sli
 	else:
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
+			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
 		if seated or _sit_phase != "":
 			facing_target += PI
 		_visual_yaw = lerp_angle(_visual_yaw, facing_target, clampf(turn_speed * delta, 0.0, 1.0))
