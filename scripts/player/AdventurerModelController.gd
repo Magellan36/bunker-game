@@ -172,7 +172,7 @@ var _lie_rot_angle: float = 0.0
 ## LIE_PIVOT_HEIGHT so its feet stay at the controller origin.
 ## These are tuning knobs — the axis/sign may need flipping once seen in-game.
 const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
-const RECLINE_ANGLE: float = 95.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
+const RECLINE_ANGLE: float = 105.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal; +10 lowers the head)
 const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward the foot side)
 ## Aug 2026 — game-driven slide up the bed toward the headboard, matching the
 ## clip's own root-position motion ("pushes itself further up the bed"). The
@@ -185,10 +185,11 @@ const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward
 ## ~1/6 down the bed at X=-0.828, so ~0.14m gets there (0.2 hammers a touch
 ## further).
 const LIE_TRANSLATE: float = 0.615      ## metres the model scoots toward the headboard
-## The 90° side turn completes at this fraction of the clip. Was 1/3; now
-## 1.75x faster (LIE_TURN_SPEED = 1.75) while the clip itself plays at normal
-## speed — the game just finishes driving the rotation sooner.
-const LIE_TURN_SPEED: float = 1.75
+## The 90° side turn completes at this fraction of the clip. Was 1/3, then
+## 1.75x faster; now another 1.25x on top (1.75 * 1.25 = 2.1875x) while the
+## clip itself plays at normal speed — the game just finishes driving the
+## rotation sooner.
+const LIE_TURN_SPEED: float = 2.1875
 const LIE_TURN_END_FRAC: float = 0.333333 / LIE_TURN_SPEED
 ## The slide does NOT begin until the 90° side turn is 80% complete. With the
 ## turn finishing at LIE_TURN_END_FRAC, 80% of it = 0.8 * LIE_TURN_END_FRAC; the
