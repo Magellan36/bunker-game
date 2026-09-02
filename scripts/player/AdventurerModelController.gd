@@ -445,7 +445,7 @@ func _process(delta: float) -> void:
 			## Roll from the entry-side edge to the bed's center line. Constant
 			## local -X (both sides' local +X point outward, away from center).
 			_lie_pivot.position.x = -CENTER_SHIFT * sli
-	elif _sit_phase == "sleeping":
+	elif _sit_phase == "sleeping" and seated:
 		## Aug 2026 — the sleeping loop HOLD the exact final lie-down pose: the
 		## 90° turn done, full recline, full slide up the bed, rolled to center.
 		## The game keeps driving these even though the sleeping clip only
@@ -458,6 +458,18 @@ func _process(delta: float) -> void:
 				* deg_to_rad(RECLINE_ANGLE)
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE
 			_lie_pivot.position.x = -CENTER_SHIFT
+	elif _sit_phase == "sleeping":
+		## Aug 2026 — WAKE FRAME: sleeping_bed just cleared this frame. TELEPORT
+		## now — face the side the player is getting up on (the standing-up
+		## facing, the same direction they entered from) and reset the LiePivot
+		## upright immediately, so there's no one-frame glimpse of the rotated
+		## lie-down direction.
+		if _anim_player != null:
+			_anim_player.speed_scale = 1.0
+		_visual_yaw = _player.rotation.y + PI
+		if _lie_pivot != null:
+			_lie_pivot.rotation = Vector3.ZERO
+			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
 	else:
 		if _anim_player != null:
 			_anim_player.speed_scale = 1.0
