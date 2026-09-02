@@ -988,7 +988,14 @@ func _connect_bed() -> void:
 				and model != null and model.has_signal("stand_animation_finished"):
 			var the_bed: Node = b
 			model.stand_animation_finished.connect(func() -> void:
-				player.global_position = the_bed.get_bed_stand_position()
+				## Aug 2026 — snap to the EXACT position the standing animation
+				## leaves the player at (the end of the seat->approach ease),
+				## not a separate fixed point — no teleport away from where the
+				## animation ended.
+				if model.has_method("get_stand_end_position"):
+					player.global_position = model.get_stand_end_position()
+				else:
+					player.global_position = the_bed.get_bed_stand_position()
 				## Aug 2026 — face the direction the standing animation ENDED
 				## facing (not the pre-sleep facing), so the player continues
 				## from the pose the animation left them in.
@@ -1030,8 +1037,15 @@ func _wire_bed(bed: Node) -> void:
 		## point just off the bed to the sheets position over stand_to_sit.
 		## The mattress top = the chair seat height, so the controller's seated-Y
 		## math is reused unchanged.
+		## Aug 2026 fix — side detection is done in the BED'S LOCAL frame: the
+		## world-Z comparison picked the wrong side for rotated beds (a bed at
+		## ~90-225° yaw put the player on the opposite side). The bed's local
+		## +Z/-Z are its two long sides (the width), so the sign of the player's
+		## bed-local Z is the correct side at ANY rotation.
 		var side: float = -1.0
-		if player.global_position.z >= (the_bed as Node3D).global_position.z:
+		var bed_local: Vector3 = (the_bed as Node3D).global_transform.affine_inverse() \
+			* player.global_position
+		if bed_local.z >= 0.0:
 			side = 1.0
 		var t: Transform3D = the_bed.get_sheets_transform(side)
 		player.rotation.y = t.basis.get_euler().y
@@ -1151,7 +1165,14 @@ func _wire_chair(chair: Node) -> void:
 		var model: Node = player.get_node_or_null("PlayerModel")
 		if model != null and model.has_signal("stand_animation_finished"):
 			model.stand_animation_finished.connect(func() -> void:
-				player.global_position = the_chair.get_stand_position()
+				## Aug 2026 — snap to the EXACT position the standing animation
+				## leaves the player at (the end of the seat->approach ease),
+				## not the fixed chair-front point — no teleport away from where
+				## the animation ended.
+				if model.has_method("get_stand_end_position"):
+					player.global_position = model.get_stand_end_position()
+				else:
+					player.global_position = the_chair.get_stand_position()
 				## Aug 2026 — face the direction the standing animation ENDED
 				## facing instead of the pre-sit facing, so the player continues
 				## from the pose the animation left them in (no snap back to the
