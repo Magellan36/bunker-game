@@ -173,7 +173,7 @@ var _lie_rot_angle: float = 0.0
 ## These are tuning knobs — the axis/sign may need flipping once seen in-game.
 const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
 const RECLINE_ANGLE: float = 75.0      ## degrees to recline back by the clip end
-const RECLINE_DIR: float = -1.0        ## -1 = head toward the headboard (X pitch)
+const RECLINE_DIR: float = 1.0        ## +1 = recline backward (face up, toward the foot side)
 var _lie_pivot: Node3D = null
 
 ## Aug 2026 (8th pass — measured end-to-end through the REAL game code,
