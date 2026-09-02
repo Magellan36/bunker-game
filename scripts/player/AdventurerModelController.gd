@@ -172,8 +172,16 @@ var _lie_rot_angle: float = 0.0
 ## LIE_PIVOT_HEIGHT so its feet stay at the controller origin.
 ## These are tuning knobs — the axis/sign may need flipping once seen in-game.
 const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
-const RECLINE_ANGLE: float = 105.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal; +10 lowers the head)
-const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward the foot side)
+const RECLINE_ANGLE: float = 100.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
+const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up); sign ×side mirrors it for the far bed side
+## Aug 2026 — game-driven lateral roll to CENTER the model on the bed. The
+## player sits on the side edge (Bed.SHEETS_EDGE_Z = 0.26) and the final lie
+## pose must end on the bed's center line (Z=0), not the entry-side edge. The
+## shift is a CONSTANT local-X translation: after the game's yaw, local +X maps
+## to world +Z on side +1 and world -Z on side -1, so the same -0.26 moves both
+## sides toward the center. Paced with the same slide curve (moves with the
+## length-wise slide).
+const CENTER_SHIFT: float = 0.26        ## metres rolled from the side edge to the bed center (== Bed.SHEETS_EDGE_Z)
 ## Aug 2026 — game-driven slide up the bed toward the headboard, matching the
 ## clip's own root-position motion ("pushes itself further up the bed"). The
 ## curves below were sampled from the clip's armature-root tracks so the
@@ -401,10 +409,17 @@ func _process(delta: float) -> void:
 			var slide_frac: float = clampf(
 				(frac - LIE_SLIDE_START_AT) / (1.0 - LIE_SLIDE_START_AT), 0.0, 1.0)
 			var sli: float = _sample_curve(LIE_SLIDE_CURVE, slide_frac)
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * rec
+			## Recline sign ×side: the two bed sides are mirrors, so the far side
+			## must recline the OTHER way around its local X to land head-at-pillow
+			## (measured: side +1 needs +100°, side -1 needs -100°).
+			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
+				* deg_to_rad(RECLINE_ANGLE) * rec
 			## Slide along local Z toward the headboard; sign follows the bed
 			## side so it always moves toward -X (measured with the game yaw).
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE * sli
+			## Roll from the entry-side edge to the bed's center line. Constant
+			## local -X (both sides' local +X point outward, away from center).
+			_lie_pivot.position.x = -CENTER_SHIFT * sli
 	else:
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
