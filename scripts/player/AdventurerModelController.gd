@@ -172,8 +172,9 @@ var _lie_rot_angle: float = 0.0
 ## LIE_PIVOT_HEIGHT so its feet stay at the controller origin.
 ## These are tuning knobs — the axis/sign may need flipping once seen in-game.
 const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
-const RECLINE_ANGLE: float = 75.0      ## degrees to recline back by the clip end
-const RECLINE_DIR: float = 1.0        ## +1 = recline backward (face up, toward the foot side)
+const RECLINE_ANGLE: float = 90.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
+const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up, toward the foot side)
+const RECLINE_FRACTION: float = 0.5    ## recline completes at this fraction of the clip (faster than full)
 var _lie_pivot: Node3D = null
 
 ## Aug 2026 (8th pass — measured end-to-end through the REAL game code,
@@ -363,12 +364,13 @@ func _process(delta: float) -> void:
 		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * rot_frac
 		## Aug 2026 — GAME-DRIVEN recline around the hips pivot (the clip's root
 		## motion pivots at the feet and swings the body in a wide arc; this
-		## reclines it smoothly back onto the bed over the full clip). Pitching
-		## around X, NEGATIVE so the head goes toward the headboard (-X): the
-		## model faces +X (away from the headboard) after the turn, and reclining
-		## "back" means the head tips toward -X.
+		## reclines it smoothly back onto the bed). Pitches around X, positive so
+		## the head goes toward the foot (face up) — the model faces +X (away
+		## from the headboard) after the turn. Completes over RECLINE_FRACTION of
+		## the clip so it stays in sync with the visible motion.
 		if _lie_pivot != null:
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * frac
+			var recline_frac: float = clampf(frac / RECLINE_FRACTION, 0.0, 1.0)
+			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * recline_frac
 	else:
 		if _lie_pivot != null:
 			_lie_pivot.rotation = Vector3.ZERO
