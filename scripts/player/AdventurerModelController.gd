@@ -81,6 +81,7 @@ const ANIMATION_NAMES: Dictionary = {
 	"stand_to_sit": "stand_to_sit_lib/stand_to_sit",
 	"sit": "sit_lib/sit",
 	"sit_to_stand": "sit_to_stand_lib/sit_to_stand",
+	"lying_down": "lying_down_lib/lying_down",
 }
 
 ## Male-only idle override (Aug 2026) — the Male Locomotion Pack idle clip
@@ -155,6 +156,12 @@ var _sit_phase: String = ""
 ## sequence begins — see _wire_chair()'s seat_requested handler.
 var _chair_approach_pos: Vector3 = Vector3.ZERO
 var _chair_seat_pos: Vector3 = Vector3.ZERO
+
+## Aug 2026 — bed lie-down turn. Set by MainWorld's bed wiring to the bed SIDE
+## the player sat on (+1/-1) × PI/2, so during the first 1/3 of the lying-down
+## clip the model rotates 90° to face AWAY from the headboard (the player ends
+## lying along the bed, head at the headboard). 0 = not on a bed.
+var _lie_rot_angle: float = 0.0
 
 ## Aug 2026 (8th pass — measured end-to-end through the REAL game code,
 ## not an isolated approximation) — the Hips bone's height ABOVE the
@@ -318,9 +325,21 @@ func _process(delta: float) -> void:
 	## transition clips don't snap 180° mid-play.
 	var seated: bool = _parent_seated()
 	var facing_target: float = _player.rotation.y
-	if seated or _sit_phase != "":
-		facing_target += PI
-	_visual_yaw = lerp_angle(_visual_yaw, facing_target, clampf(turn_speed * delta, 0.0, 1.0))
+	if _sit_phase == "lying_down":
+		## Aug 2026 — bed lie-down turn: rotate side×90° to face AWAY from the
+		## headboard over the FIRST 1/3 of the lying-down clip (the game owns
+		## this rotation — the clip's root tracks are stripped). Driven directly
+		## by clip progress so the turn lands exactly at the 1/3 mark.
+		var len: float = _anim_player.current_animation_length if _anim_player != null else 0.0
+		var frac: float = 1.0
+		if len > 0.0:
+			frac = clampf(_anim_player.current_animation_position / len, 0.0, 1.0)
+		var rot_frac: float = clampf(frac / 0.333333, 0.0, 1.0)
+		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * rot_frac
+	else:
+		if seated or _sit_phase != "":
+			facing_target += PI
+		_visual_yaw = lerp_angle(_visual_yaw, facing_target, clampf(turn_speed * delta, 0.0, 1.0))
 	rotation.y = _visual_yaw - _player.rotation.y
 
 	if _anim_player == null:
@@ -345,9 +364,11 @@ func _process(delta: float) -> void:
 				_lerp_sit_position(_chair_approach_pos, _chair_seat_pos, SIT_DOWN_CURVE, true)
 		elif _sit_phase == "seated":
 			_play_state("sit")   ## looped anchor, idempotent once current
+		elif _sit_phase == "lying_down":
+			pass   ## the clip plays itself; the 90° turn is handled in the facing section above
 		return
 	## Not seated, but mid sit-sequence — play the stand-up and wait.
-	if _sit_phase == "sitting_down" or _sit_phase == "seated":
+	if _sit_phase == "sitting_down" or _sit_phase == "seated" or _sit_phase == "lying_down":
 		_sit_phase = "standing_up"
 		_play_state("sit_to_stand")
 		return
@@ -398,6 +419,14 @@ func _parent_seated() -> bool:
 			return true
 	return false
 
+## True when the sit sequence is happening on a BED (sleeping_bed set) rather
+## than a chair — the bed skips the seated hold and goes straight to the
+## lying-down clip after stand_to_sit.
+func _on_bed() -> bool:
+	if _player != null and "sleeping_bed" in _player:
+		return _player.sleeping_bed != null
+	return false
+
 ## True while the sit sequence is mid-flight (sitting down, seated, or
 ## standing up). NPCs use this to freeze their own gravity/move_and_slide so
 ## the controller's eased position isn't fought by physics — mirrors the
@@ -408,8 +437,16 @@ func is_sit_sequence_active() -> bool:
 ## Advances the sit lifecycle when a one-shot sit clip finishes.
 func _on_anim_finished(_anim_name: StringName) -> void:
 	if _sit_phase == "sitting_down":
-		_sit_phase = "seated"
-		_play_state("sit")
+		if _on_bed():
+			## Aug 2026 — bed sleep sequence skips the seated hold entirely:
+			## stand_to_sit -> lying_down directly. The 90° side turn to face
+			## away from the headboard plays during the first 1/3 of the clip
+			## (see the facing section in _process).
+			_sit_phase = "lying_down"
+			_play_state("lying_down")
+		else:
+			_sit_phase = "seated"
+			_play_state("sit")
 	elif _sit_phase == "standing_up":
 		_sit_phase = ""
 		stand_animation_finished.emit()

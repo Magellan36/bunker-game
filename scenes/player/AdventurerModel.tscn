@@ -16,6 +16,7 @@
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/stand_to_sit_female_lib.res" id="14_stsfem"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_to_stand_female_lib.res" id="15_s2sfem"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_hybrid_female_lib.res" id="16_sithybfem"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/lying_down_lib.res" id="17_liedown"]
 
 [node name="AdventurerModel" type="Node3D"]
 script = ExtResource("1_script")
@@ -36,5 +37,6 @@ libraries = {
 "sit_hybrid_lib": ExtResource("13_sithyb"),
 "stand_to_sit_female_lib": ExtResource("14_stsfem"),
 "sit_to_stand_female_lib": ExtResource("15_s2sfem"),
-"sit_hybrid_female_lib": ExtResource("16_sithybfem")
+	"sit_hybrid_female_lib": ExtResource("16_sithybfem"),
+	"lying_down_lib": ExtResource("17_liedown")
 }

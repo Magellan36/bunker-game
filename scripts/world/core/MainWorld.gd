@@ -1050,6 +1050,9 @@ func _wire_bed(bed: Node) -> void:
 			approach_pos.y = player.global_position.y
 			model.set("_chair_approach_pos", approach_pos)
 			model.set("_chair_seat_pos", Vector3(t.origin.x, approach_pos.y, t.origin.z))
+			## Side turn for the lying-down clip: rotate side×90° to face AWAY
+			## from the headboard over its first 1/3.
+			model.set("_lie_rot_angle", side * PI * 0.5)
 		player.sleeping_bed = the_bed   ## starts the controller's sitting_down phase
 		player.set_physics_process(false)
 		sleep_overlay.begin_sleep()
