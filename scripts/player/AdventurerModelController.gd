@@ -187,7 +187,7 @@ const RECLINE_ANGLE: float = 100.0      ## degrees to recline back by the clip e
 ## Aug 2026 — the FAR bed side needs slightly LESS recline than the near side
 ## to land the head at the headboard with the body lying FLAT (head-hips ~-0.05,
 ## same as the near side). Measured: near side +100°, far side -90°.
-const LIE_FAR_RECLINE_ANGLE: float = 90.0
+const LIE_FAR_RECLINE_ANGLE: float = 100.0
 const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up); sign ×side mirrors it for the far bed side
 ## Aug 2026 — game-driven lateral roll to CENTER the model on the bed. The
 ## player sits on the side edge (Bed.SHEETS_EDGE_Z = 0.26) and the final lie
