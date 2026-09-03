@@ -1059,11 +1059,6 @@ func _wire_bed(bed: Node) -> void:
 			## Side turn for the lying-down clip: rotate side×90° to face AWAY
 			## from the headboard over its first 1/3.
 			model.set("_lie_rot_angle", side * PI * 0.5)
-			## Aug 2026 — mirror the body's left-right on the far side so the
-			## lie-down reads as a proper mirror of the near side (the shared
-			## body can't be mirrored via rotation alone).
-			if model.has_method("set_body_mirrored"):
-				model.set_body_mirrored(side < 0.0)
 		player.sleeping_bed = the_bed   ## starts the controller's sitting_down phase
 		player.set_physics_process(false)
 		sleep_overlay.begin_sleep()
