@@ -97,6 +97,7 @@ var _transitioning: bool = false
 @onready var _preview_hint: Label = %PreviewHint
 @onready var _navigation_hint: Label = %NavigationHint
 @onready var _error_message: Label = %ErrorMessage
+@onready var _choice_scroll: ScrollContainer = %ChoiceScroll
 
 func _ready() -> void:
 	_rng.randomize()
@@ -153,10 +154,15 @@ func _ready() -> void:
 	_sync_body_selection()
 	_configure_focus_order()
 	_update_input_hints()
+	# Restore focus without scrolling past the heading on first open. Subsequent
+	# navigation still follows focus normally, including at smaller resolutions.
+	_choice_scroll.follow_focus = false
 	if CharacterCreationData.gender == "female":
 		female_button.grab_focus()
 	else:
 		male_button.grab_focus()
+	_choice_scroll.set_deferred("scroll_vertical", 0)
+	_choice_scroll.set_deferred("follow_focus", true)
 
 func _process(_delta: float) -> void:
 	if _controller_hints != InputMode.is_controller():

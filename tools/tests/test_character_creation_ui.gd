@@ -15,6 +15,10 @@ var _failures: Array[String] = []
 var _original_gender: String
 
 func _ready() -> void:
+	# Test actual UI viewport sizes, not six OS sizes stretched over one canvas.
+	get_window().mode = Window.MODE_WINDOWED
+	get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
+	get_window().content_scale_size = Vector2i.ZERO
 	_original_gender = CharacterCreationData.gender
 	get_tree().create_timer(25.0).timeout.connect(_on_timeout)
 	_run.call_deferred()
@@ -23,6 +27,7 @@ func _run() -> void:
 	for viewport_size: Vector2i in TEST_SIZES:
 		await _check_resolution(viewport_size)
 	await _check_native_input_and_state()
+	await _check_female_initial_scroll()
 	CharacterCreationData.gender = _original_gender
 	if _failures.is_empty():
 		print("Character creation UI test passed across %d resolutions." % TEST_SIZES.size())
@@ -38,6 +43,10 @@ func _check_resolution(viewport_size: Vector2i) -> void:
 	add_child(screen)
 	await get_tree().process_frame
 	await get_tree().process_frame
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_expect(Vector2i(get_viewport().get_visible_rect().size) == viewport_size, "test viewport does not match requested size")
+	_expect((screen.get_node("%ChoiceScroll") as ScrollContainer).scroll_vertical == 0, "%s: screen did not start at top" % viewport_size)
 
 	var layout: Control = screen.get_node("Layout") as Control
 	var panel: Control = screen.get_node("Layout/Columns/SurvivorPanel") as Control
@@ -59,6 +68,25 @@ func _check_resolution(viewport_size: Vector2i) -> void:
 	get_window().size = Vector2i(viewport_size.x + 37, viewport_size.y + 23)
 	await get_tree().process_frame
 	_expect(_inside_screen(complete, screen), "%s: Complete escaped after live resize" % viewport_size)
+	screen.queue_free()
+	await get_tree().process_frame
+
+func _check_female_initial_scroll() -> void:
+	get_window().size = Vector2i(1280, 720)
+	CharacterCreationData.gender = "female"
+	var screen: Control = SCREEN_SCENE.instantiate() as Control
+	add_child(screen)
+	for frame: int in range(5):
+		await get_tree().process_frame
+	var scroll: ScrollContainer = screen.get_node("%ChoiceScroll") as ScrollContainer
+	_expect(scroll.scroll_vertical == 0, "restoring Female scrolled past the heading")
+	_expect(screen.female_button.has_focus(), "Female initial focus was lost by the scroll fix")
+	_expect(scroll.follow_focus, "focus following was not restored")
+	screen.randomise_button.grab_focus()
+	for frame: int in range(3):
+		await get_tree().process_frame
+	var button_rect: Rect2 = screen.randomise_button.get_global_rect()
+	_expect(button_rect.end.y <= scroll.get_global_rect().end.y + 1.0, "later navigation no longer follows focus")
 	screen.queue_free()
 	await get_tree().process_frame
 

@@ -22,6 +22,7 @@ gone):
 python3 tools/tests/check_ui_placeholders.py --release
 ```
 
-The approved redesign also calls for future temporary status icons for
-**Running**, **Grid online**, and **Stored water / water fill**. They are tracked
-in the manifest but intentionally not created by the character-creation pass.
+The generator pass adds six tracked masks: running, stopped, grid, fuel,
+condition and power. Their runtime tint communicates the displayed state;
+Running and Grid online are green, while project blue remains the main UI accent.
+**Stored water / water fill** is still a future icon for the water-panel pass.

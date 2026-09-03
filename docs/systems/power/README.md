@@ -65,6 +65,16 @@ UI panels for this system live in `scripts/ui/power/` (`PowerTerminalUI.gd`,
 recolor popup opened from `PowerTerminalUI`'s RENAME/COLOR buttons) — see
 `docs/systems/ui/README.md`.
 
+**Generator inspector redesign (September 2026):** the device still owns the
+same start/stop, reset-main-breaker, backup and medical-hazard behavior. Its
+`set_fuel()` / `set_running()` callbacks and manager `draw_changed` /
+`grid_state_changed` signals now queue one deferred refresh of a visible
+inspector. That refresh reads authoritative fuel, health, running and backup
+values through the existing manager getters; it does not run a solver or change
+state. Closed inspectors do no refresh work. The displayed watts are explicitly
+**rated output**, and the grid badge is the existing **global** grid state, not
+proof of a particular generator's wire connection.
+
 ## Public API (call these from other systems; everything else is internal)
 Get the instance via `get_tree().get_first_node_in_group("power_manager")` cast
 to `PowerManager` (typed, no string dispatch anywhere in the repo).

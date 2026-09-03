@@ -43,12 +43,52 @@
       "origin": "AI-authored SVG; not image-generator output",
       "purpose": "Character creation bunker preview motif",
       "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/running_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Generator inspector running icon; tint follows displayed state",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/stopped_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Generator inspector stopped icon; tint follows displayed state",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/grid_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Generator inspector grid icon; tint follows displayed state",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/fuel_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Generator inspector fuel icon; tint follows displayed state",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/condition_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Generator inspector condition icon; tint follows displayed state",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/power_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Generator inspector power icon; tint follows displayed state",
+      "replacement_required": true
     }
   ],
   "future_required_icons": [
-    "Running: green play-circle icon",
-    "Grid online: green grid icon",
     "Stored water / water fill: blue tank-and-water icon"
   ],
-  "future_note": "Keep these accompanying icons in subsequent inspector passes. They are not used by character creation and are not created in this commit."
+  "future_note": "Running and grid icons are implemented by the generator pass. Keep the water-fill icon for the subsequent water inspector pass."
 }

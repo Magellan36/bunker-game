@@ -17,6 +17,16 @@ Read `docs/systems/character-creation/README.md` and
 consumers and `BunkerTheme.tres` are unchanged. All new icon artwork is explicitly
 temporary; the final game must not ship AI-authored artwork.
 
+**September 2026 — generator inspector pass:** `GeneratorInspectUI.gd` now
+instantiates the native `scenes/ui/power/GeneratorInspectPanel.tscn`, using that
+same opt-in theme plus additive inspector-specific type variations. Its existing
+CanvasLayer, open/refresh arguments and action signals are preserved.
+`scripts/ui/common/BunkerInspectorLayout.gd` owns only local sizing.
+Read `plans/ui-redesign-generator-pass.md` before extending it. This is an
+explicitly approved migration of the generator inspector; other legacy panels
+remain unchanged. Initial character-creation focus no longer scrolls its heading
+out of view.
+
 ## Responsibilities
 - Render and handle input for every panel/HUD element.
 - React to game-state signals (power grid, stats, inventory) and re-draw.
@@ -192,7 +202,9 @@ own panel on first interact). None of these are autoloads.
 ## Known tradeoffs / tech debt
 - Most existing panels are hand-drawn immediate-mode (500–1000+ lines of
   manual layout bookkeeping each) — explicitly not being retrofitted, only
-  new panels use real Control trees (see UI conventions #2).
+  new panels use real Control trees (see UI conventions #2). Exception:
+  the explicitly approved September 2026 generator redesign now uses native
+  controls; do not restore its old hand-drawn implementation.
 - `BuildModeHUD.gd` (~1010 lines) is a possible future god-object cleanup
   candidate, not currently scheduled.
 

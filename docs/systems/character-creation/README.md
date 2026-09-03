@@ -70,6 +70,12 @@ resolutions the choice region scrolls; on ultrawide screens additional outer
 margin prevents excessively stretched rows. Button focus is explicit and the
 scroll container follows focus.
 
+Opening the screen restores the selected body's focus without moving the
+scrollbar: focus-following is briefly suppressed during initialization, the
+scroll position starts at zero, and subsequent navigation follows focus as
+normal. This is the only character-creation visual/behavior adjustment in the
+generator-panel pass.
+
 Mouse controls remain drag to orbit, wheel to zoom and middle-drag to pan. With
 a controller, the right stick controls the preview and the left stick/D-pad
 navigates buttons. The last input device controls the visible hint text.
