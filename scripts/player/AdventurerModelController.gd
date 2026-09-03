@@ -422,11 +422,11 @@ func _process(delta: float) -> void:
 			## Backup to _on_anim_finished: the lie-down motion is complete.
 			_lie_down_complete = true
 		var rot_frac: float = clampf(frac / LIE_TURN_END_FRAC, 0.0, 1.0)
-		## Aug 2026 — the side turn goes the SAME direction for both sides (absf):
-		## face-up + head-at-headboard is only achievable at yaw 3PI/2, so both
-		## sides end in the same (face up, head at headboard) pose. The far side's
-		## left-right mirror is applied via the body X-scale in _wire_bed.
-		_visual_yaw = _player.rotation.y + PI + absf(_lie_rot_angle) * rot_frac
+		## Aug 2026 — the side turn goes OPPOSITE directions per side (the 180°
+		## head-feet mirror): the far side turns the other way so its head lands
+		## at the headboard (reversed from the same-direction attempt, which made
+		## the right side face the head of the bed).
+		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * rot_frac
 		## Aug 2026 — GAME-DRIVEN recline + slide around the hips pivot (the clip's
 		## root motion pivots at the feet and swings the body in a wide arc; this
 		## reclines it smoothly back onto the bed AND slides it up toward the
@@ -439,16 +439,17 @@ func _process(delta: float) -> void:
 			var slide_frac: float = clampf(
 				(frac - LIE_SLIDE_START_AT) / (1.0 - LIE_SLIDE_START_AT), 0.0, 1.0)
 			var sli: float = _sample_curve(LIE_SLIDE_CURVE, slide_frac)
-			## Recline is the same +100° for both sides (both bodies end with the
-			## same yaw, so the recline axis resolves the same way in world space).
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * rec
-			## Slide along local Z toward the headboard (same for both sides —
-			## both have the same yaw, so local +Z is the headboard direction).
-			_lie_pivot.position.z = LIE_TRANSLATE * sli
-			## Roll from the entry-side edge to the bed's center line. Side-aware:
-			## with the same yaw, local +X maps to the same world direction, so the
-			## roll to center must flip per side.
-			_lie_pivot.position.x = -signf(_lie_rot_angle) * CENTER_SHIFT * sli
+			## Recline sign ×side: with the opposite turns the two sides resolve
+			## the recline to the SAME world axis, so the sign follows the side.
+			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
+				* deg_to_rad(RECLINE_ANGLE) * rec
+			## Slide along local Z toward the headboard; sign follows the side so
+			## it always ends toward the headboard.
+			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE * sli
+			## Roll from the entry-side edge to the bed's center line. Constant
+			## local -X: with the opposite turns, each side's local +X points
+			## outward, so the same -0.26 rolls both toward the center.
+			_lie_pivot.position.x = -CENTER_SHIFT * sli
 	elif _sit_phase == "sleeping" and seated:
 		## Aug 2026 — the sleeping loop HOLD the exact final lie-down pose: the
 		## 90° turn done, full recline, full slide up the bed, rolled to center.
@@ -456,11 +457,12 @@ func _process(delta: float) -> void:
 		## articulates the upper body (legs are frozen in the hybrid).
 		if _anim_player != null:
 			_anim_player.speed_scale = 1.0
-		_visual_yaw = _player.rotation.y + PI + absf(_lie_rot_angle)
+		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle
 		if _lie_pivot != null:
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE)
-			_lie_pivot.position.z = LIE_TRANSLATE
-			_lie_pivot.position.x = -signf(_lie_rot_angle) * CENTER_SHIFT
+			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
+				* deg_to_rad(RECLINE_ANGLE)
+			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE
+			_lie_pivot.position.x = -CENTER_SHIFT
 	elif _sit_phase == "sleeping":
 		## Aug 2026 — WAKE FRAME: sleeping_bed just cleared this frame. TELEPORT
 		## now — face the side the player is getting up on (the standing-up
