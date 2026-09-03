@@ -184,6 +184,10 @@ var _lie_rot_angle: float = 0.0
 ## These are tuning knobs — the axis/sign may need flipping once seen in-game.
 const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
 const RECLINE_ANGLE: float = 100.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
+## Aug 2026 — the FAR bed side needs slightly LESS recline than the near side
+## to land the head at the headboard with the body lying FLAT (head-hips ~-0.05,
+## same as the near side). Measured: near side +100°, far side -90°.
+const LIE_FAR_RECLINE_ANGLE: float = 90.0
 const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up); sign ×side mirrors it for the far bed side
 ## Aug 2026 — game-driven lateral roll to CENTER the model on the bed. The
 ## player sits on the side edge (Bed.SHEETS_EDGE_Z = 0.26) and the final lie
@@ -440,10 +444,12 @@ func _process(delta: float) -> void:
 			var slide_frac: float = clampf(
 				(frac - LIE_SLIDE_START_AT) / (1.0 - LIE_SLIDE_START_AT), 0.0, 1.0)
 			var sli: float = _sample_curve(LIE_SLIDE_CURVE, slide_frac)
-			## Recline is the same +100° for both sides: the turn ends with BOTH sides
-			## facing the footboard, so the recline axis resolves the same way in
-			## world space and both bodies lie back spine-up.
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * rec
+			## Side-aware recline: +RECLINE_ANGLE on the near side, -LIE_FAR_RECLINE_ANGLE
+			## on the far side — measured so BOTH land the head at the headboard with
+			## the body lying flat (head-hips ~-0.05) and facing the footboard.
+			var lie_recline: float = RECLINE_ANGLE if _lie_rot_angle >= 0.0 else LIE_FAR_RECLINE_ANGLE
+			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
+				* deg_to_rad(lie_recline) * rec
 			## Slide along local Z toward the headboard; sign follows the side so
 			## it always ends toward the headboard.
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE * sli
@@ -459,7 +465,9 @@ func _process(delta: float) -> void:
 			_anim_player.speed_scale = 1.0
 		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle
 		if _lie_pivot != null:
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE)
+			var lie_recline: float = RECLINE_ANGLE if _lie_rot_angle >= 0.0 else LIE_FAR_RECLINE_ANGLE
+			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
+				* deg_to_rad(lie_recline)
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE
 			_lie_pivot.position.x = -CENTER_SHIFT
 	elif _sit_phase == "sleeping":
