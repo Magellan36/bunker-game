@@ -19,21 +19,42 @@ var anchor: Vector3 = Vector3.ZERO
 @export var max_distance: float = 3.0
 ## Cached player ref — lazy-resolved once (was a per-frame group scan).
 var _player: Node3D = null
+## Optional live anchor. A freed/removed host closes its inspector as well.
+## Legacy callers may continue assigning `anchor` directly.
+var _target: WeakRef = null
+
+func bind_target(target: Node3D) -> void:
+	_target = weakref(target) if is_instance_valid(target) else null
+	if is_instance_valid(target):
+		anchor = target.global_position
+
+func bind_position(position: Vector3) -> void:
+	_target = null
+	anchor = position
 
 func _process(_delta: float) -> void:
-	if ui == null or not ui.is_inside_tree():
+	if not is_instance_valid(ui) or not ui.is_inside_tree():
 		return
 	if not _ui_open(ui):
 		return
-	if _player == null:
+	if _target != null:
+		var target: Node3D = _target.get_ref() as Node3D
+		if not is_instance_valid(target) or not target.is_inside_tree() or target.is_queued_for_deletion():
+			_close_ui()
+			return
+		anchor = target.global_position
+	if not is_instance_valid(_player) or not _player.is_inside_tree():
 		_player = get_tree().get_first_node_in_group("player") as Node3D
-	if _player == null:
+	if not is_instance_valid(_player):
 		return
 	if _player.global_position.distance_to(anchor) > max_distance:
-		if ui.has_method("close"):
-			ui.call("close")
-		elif ui.has_method("hide"):
-			ui.call("hide")
+		_close_ui()
+
+func _close_ui() -> void:
+	if ui.has_method("close"):
+		ui.call("close")
+	elif ui.has_method("hide"):
+		ui.call("hide")
 
 func _ui_open(ui_node: Node) -> bool:
 	if ui_node is Control:

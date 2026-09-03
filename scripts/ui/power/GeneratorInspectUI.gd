@@ -8,9 +8,10 @@ signal backup_toggled(enabled: bool)
 signal power_toggled(running: bool)
 
 const PANEL_SCENE: PackedScene = preload("res://scenes/ui/power/GeneratorInspectPanel.tscn")
-const RUNNING_ICON: Texture2D = preload("res://assets/ui/placeholders/redesign/running_AI_PLACEHOLDER.svg")
-const STOPPED_ICON: Texture2D = preload("res://assets/ui/placeholders/redesign/stopped_AI_PLACEHOLDER.svg")
-const GRID_ICON: Texture2D = preload("res://assets/ui/placeholders/redesign/grid_AI_PLACEHOLDER.svg")
+const W: GDScript = preload("res://scripts/ui/common/BunkerInspectorWidgets.gd")
+var RUNNING_ICON: Texture2D = W.icon("running")
+var STOPPED_ICON: Texture2D = W.icon("stopped")
+var GRID_ICON: Texture2D = W.icon("grid")
 const FADE_SCRIPT: GDScript = preload("res://scripts/ui/common/UIFade.gd")
 const NAV_SCRIPT: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
 
@@ -33,6 +34,7 @@ var _toggle_btn: Button
 var _power_btn: Button
 var _close_btn: Button
 var _controller_nav: Node
+var _proximity: Node
 
 func _ready() -> void:
 	layer = 60
@@ -43,6 +45,11 @@ func _ready() -> void:
 	_toggle_btn = _view.get_node("%Backup") as Button
 	_power_btn = _view.get_node("%Power") as Button
 	_close_btn = _view.get_node("%Close") as Button
+	(_view.get_node("Panel/Margin/Content/Header/PowerIcon") as TextureRect).texture = W.icon("power")
+	for prefix: String in ["Fuel", "Condition"]:
+		var meter_icon: TextureRect = _view.get_node("Panel/Margin/Content/DetailsScroll/FocusInset/Details/" + prefix + "/Heading/Icon") as TextureRect
+		meter_icon.texture = W.icon(prefix.to_lower())
+	_toggle_btn.icon = GRID_ICON
 	_toggle_btn.pressed.connect(_on_toggle_pressed)
 	_power_btn.pressed.connect(_on_power_pressed)
 	_close_btn.pressed.connect(close)
@@ -59,6 +66,9 @@ func _ready() -> void:
 	# Preserve in-world controls: D-pad navigates; left stick stays for movement.
 	_controller_nav.stick_navigation = false
 	add_child(_controller_nav)
+	_proximity = preload("res://scripts/ui/common/UIProximityClose.gd").new()
+	_proximity.ui = self
+	add_child(_proximity)
 	set_process(false)
 
 func _configure_focus() -> void:
@@ -76,9 +86,14 @@ func _configure_focus() -> void:
 func open(display_name: String, watts: float, fuel: float,
 		health: float, is_backup: bool, is_running: bool,
 		grid_tripped: bool = false,
-		grid_state_str: String = "ONLINE") -> void:
+		grid_state_str: String = "ONLINE", device: Node3D = null) -> void:
 	if not _is_open:
 		_previous_focus = weakref(get_viewport().gui_get_focus_owner())
+	if is_instance_valid(device):
+		_proximity.bind_target(device)
+	else:
+		var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+		_proximity.bind_position(player.global_position if is_instance_valid(player) else Vector3.ZERO)
 	_display_name = display_name
 	_watts = watts
 	_last_display_state.clear()
@@ -229,7 +244,7 @@ func _process(_delta: float) -> void:
 
 func _update_input_hints() -> void:
 	_controller_hints = InputMode.is_controller()
-	(_view.get_node("%NavigationHint") as Label).text = "[A] Select   •   D-pad: navigate   •   [B] Close" if _controller_hints else "Enter / Space: select   •   Esc / E: close"
+	(_view.get_node("%NavigationHint") as Label).text = "[A] Select · D-pad: navigate · [B] Close\nLeft stick: move · Walk away to close" if _controller_hints else "Enter / Space: select · Esc / E: close\nWASD: move · Walk away to close"
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open or not _controller_nav._is_topmost():

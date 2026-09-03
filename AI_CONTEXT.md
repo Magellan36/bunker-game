@@ -6,6 +6,12 @@ Read this document before modifying any code.
 
 Then read only the README for the subsystem being modified.
 
+**UI redesign (September 2026):** read `scripts/ui/README.md` for the current
+compact device-inspector edit map and `plans/ui-redesign-device-pass.md` for
+scope/contracts. Ordinary inspectors must preserve WASD/left-stick movement
+and close when walking away from the real host. Battery/breaker UI is now
+extracted. HUD and other unique workflows remain held for user review.
+
 ---
 
 # Tool Access

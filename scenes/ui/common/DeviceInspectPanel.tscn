@@ -1,0 +1,110 @@
+[gd_scene format=3]
+
+[ext_resource type="Theme" path="res://assets/ui/themes/BunkerRedesignTheme.tres" id="theme"]
+[ext_resource type="Script" path="res://scripts/ui/common/BunkerInspectorLayout.gd" id="layout"]
+
+[node name="DeviceInspectPanel" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = ExtResource("theme")
+script = ExtResource("layout")
+
+[node name="Panel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+offset_right = 500.0
+offset_bottom = 740.0
+mouse_filter = 0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+metadata/ui_padding = 20
+
+[node name="Content" type="VBoxContainer" parent="Panel/Margin"]
+layout_mode = 2
+metadata/ui_gap = 10
+
+[node name="Header" type="HBoxContainer" parent="Panel/Margin/Content"]
+layout_mode = 2
+metadata/ui_gap = 10
+
+[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+metadata/ui_icon_size = 32
+
+[node name="Titles" type="VBoxContainer" parent="Panel/Margin/Content/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+metadata/ui_gap = 2
+
+[node name="Eyebrow" type="Label" parent="Panel/Margin/Content/Header/Titles"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "SYSTEM"
+metadata/ui_font_size = 13
+
+[node name="Title" type="Label" parent="Panel/Margin/Content/Header/Titles"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Device"
+autowrap_mode = 2
+metadata/ui_font_size = 24
+
+[node name="Close" type="Button" parent="Panel/Margin/Content/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 0
+theme_type_variation = &"BunkerIconButton"
+text = "×"
+tooltip_text = "Close inspector"
+metadata/ui_icon_size = 40
+metadata/ui_font_size = 24
+
+[node name="Divider" type="HSeparator" parent="Panel/Margin/Content"]
+layout_mode = 2
+
+[node name="StatusRow" type="HBoxContainer" parent="Panel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+metadata/ui_gap = 10
+
+[node name="DetailsScroll" type="ScrollContainer" parent="Panel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+follow_focus = true
+
+[node name="FocusInset" type="MarginContainer" parent="Panel/Margin/Content/DetailsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+metadata/ui_padding = 6
+
+[node name="Details" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+metadata/ui_gap = 10
+
+[node name="Footer" type="VBoxContainer" parent="Panel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+metadata/ui_gap = 10
+
+[node name="Divider" type="HSeparator" parent="Panel/Margin/Content/Footer"]
+layout_mode = 2
+
+[node name="NavigationHint" type="Label" parent="Panel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+horizontal_alignment = 1
+metadata/ui_font_size = 13

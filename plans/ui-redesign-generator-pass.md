@@ -83,6 +83,11 @@ PowerManager nor predicts success.
 
 ## Artwork provenance
 
+**Superseded by the September device-family pass:** the six generator symbols
+now use native Godot geometry, not these SVG dependencies. The original files
+remain labeled and release-blocking until removed/replaced. See
+`plans/ui-redesign-device-pass.md` for current usage and provenance policy.
+
 Six added SVG masks are AI-authored development placeholders: running, stopped,
 grid, fuel, condition and power. Every filename and embedded SVG comment is
 marked AI_PLACEHOLDER and every asset is in the existing manifest. The final

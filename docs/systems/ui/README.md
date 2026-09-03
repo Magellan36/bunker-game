@@ -6,6 +6,14 @@ overlay, and the shared `common/` helpers. Only open the actual source for
 the one panel you're changing.
 
 ## Purpose
+**September 2026 — approved device-family pass:** water dispenser, shared
+hookup/sink/purifier, single/double farm trays, consumer priority, batteries,
+and standard/smart breakers now use the compact generator design. Battery and
+breaker UI code is extracted from world scripts. Start with
+`scripts/ui/README.md` and `plans/ui-redesign-device-pass.md`; the historical
+inventory below predates these ports. HUD, terminal, pause, notifications,
+storage, build/shop and other unique workflows remain on review hold.
+
 All player-facing UI: the always-on HUD (stats/cash/clock), every
 interaction-triggered panel (power devices, shelves, pause/settings, admin
 spawn menu), the build-mode HUD, and the debug overlay.
@@ -41,6 +49,12 @@ density, not character-creation or mobile/tablet proportions.
   inspection. Keep the bunker and HUD visible. The panel consumes mouse input
   within its bounds; its full-viewport root ignores it. This does not change
   the owning game's existing movement/pause/input policy.
+- **Player movement and walk-away closing are mandatory.** Ordinary inspectors
+  must use `BunkerDeviceInspector` (or the generator's equivalent wiring), bind
+  the real device to `UIProximityClose`, and leave WASD/left-stick movement
+  available. Never use `build_mode_active` as an inspector-open flag. A host
+  leaving the scene also closes its inspector; returning to range never
+  reopens it automatically.
 - Base type: 24 px device title, 16–18 px status/body/action text, 14 px help,
   13 px eyebrow/navigation. Actions remain robust at 44–48 px high, not 80 px.
 - At smaller desktop resolutions, reduce available details height and scroll

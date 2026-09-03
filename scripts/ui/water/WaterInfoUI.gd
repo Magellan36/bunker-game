@@ -1,688 +1,123 @@
-extends CanvasLayer
-## WaterInfoUI.gd
-## ─────────────────────────────────────────────────────────────────────────────
-## Step 2 (July 2026) — the water system's first real UI panel
-## (docs/systems/water/README.md's scripts/ui/water/ subfolder was
-## intentionally empty until now). ONE shared panel for both WaterHookup and
-## WaterTestSink/WaterPurifier, distinguished by a mode string (was `is_source`, extended Jul 2026) — matches the plan
-## instruction not to duplicate a near-identical panel for each device.
-## Sized/complexity-matched to GeneratorInspectUI.gd (a lightweight info
-## popup), NOT the full multi-section PowerTerminalUI dashboard — a 2-4
-## number display doesn't need that much panel.
-##
-## Lifecycle: spawned once by whichever device (hookup or sink) is
-## interacted with first, reused on subsequent opens — same
-## spawn-once-reuse pattern as GeneratorInspectUI/PowerTerminalUI.
-##
-## All stats are recomputed live every redraw (no caching) — matches this
-## system's existing "compute on demand, no persistence, no ticking" pattern
-## from Phase 1 (see docs/systems/water/README.md).
-##
-## Signals:
-##   closed — player dismissed the panel (Escape / E / close button)
+extends "res://scripts/ui/common/BunkerDeviceInspector.gd"
+## Existing shared hookup/sink/purifier API, now composed from native widgets.
+## No new filter-replacement action: replacement still uses the physical item.
+var _mode: String = "sink"
+var _device_ref: Node
+var _connection: PanelContainer
+var _source: VBoxContainer
+var _source_output: VBoxContainer
+var _source_demand: VBoxContainer
+var _source_quality: VBoxContainer
+var _sink: VBoxContainer
+var _sink_received: VBoxContainer
+var _sink_quality: VBoxContainer
+var _priority_control: VBoxContainer
+var _purifier: VBoxContainer
+var _input_quality: VBoxContainer
+var _output_quality: VBoxContainer
+var _filter: VBoxContainer
+var _flow: VBoxContainer
+var _warning: Label
 
-signal closed
+func _build_content() -> void:
+	_connection = W.status(_statuses, "Connection")
+	_source = W.column(_details, "Hookup", 16)
+	_source_output = W.stat(_source, "Output", "Tier output")
+	_source_demand = W.stat(_source, "Demand", "Connected demand")
+	_source_quality = W.meter(_source, "Quality", "Source water quality", "water")
+	_sink = W.column(_details, "Sink", 16)
+	_sink_received = W.stat(_sink, "Received", "Receiving now")
+	_sink_quality = W.meter(_sink, "Quality", "Received water quality", "water")
+	_priority_control = _add_priority(_sink, _on_priority_requested)
+	_priority_control.set_hint("1 is served first · 5 is served last")
+	_purifier = W.column(_details, "Purifier", 16)
+	_input_quality = W.meter(_purifier, "InputQuality", "Input quality", "water")
+	_output_quality = W.meter(_purifier, "OutputQuality", "Purified output", "water")
+	_filter = W.meter(_purifier, "Filter", "Filter quality", "condition")
+	_flow = W.stat(_purifier, "Flow", "Water flow")
+	_warning = W.label(_purifier, "Warnings", "", 14, "warning")
+	W.label(_footer, "Help", "Live network readings. Walk away to close this panel.", 14, "secondary")
 
-# ─── Palette (blue accent — distinct from the power system's green theme) ────
-var BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
-## Shared backdrop dim — read from UI/backdrop_alpha_permille (Aug 2026).
-var _backdrop_alpha: float = 0.60
-var BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
-var HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
-var TEXT_COLOR:   Color = Color(0.85, 0.86, 0.88, 0.95)
-var DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
-var OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
-var WARN_COLOR:   Color = Color(1.00, 0.72, 0.10, 1.00)
-var CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
-var ACCENT_COLOR: Color = Color(0.40, 0.75, 1.00, 1.00)   ## Jul 2026 — blue, this panel's top-stripe color
-
-## Water QUALITY specifically uses a dedicated red/yellow/green scheme (Jul
-## 2026, Brannon's explicit spec) — deliberately separate from OK_COLOR
-## above (a blue used for demand/flow-rate readouts elsewhere in this panel,
-## a different meaning). QUALITY_GOOD_COLOR is real green, not OK_COLOR's
-## cyan-blue. Thresholds (inclusive boundaries per spec): 0-50% red,
-## 50.01-75% yellow, 75.01-100% green. Mirrored verbatim in
-## WaterDispenserUI.gd's own _quality_color() — this water UI system
-## duplicates small per-file helpers rather than sharing a base class (no
-## class_name on either panel script), see that file's own comment.
-var QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
-
-## Priority tier accent colours (Jul 2026 — demand-priority wiring) — same
-## green→red universal tier legend as PowerPriorityUI.gd's PRIO_COLORS; this
-## isn't a "power vs water" palette, it's a cross-system meaning (1=critical,
-## 5=luxury/first-starved), so it's intentionally reused verbatim rather than
-## re-themed blue.
-var PRIO_COLORS: Array[Color] = [
-	Color(0.30, 1.00, 0.46, 1.00),  ## 1 — critical (green)
-	Color(0.62, 0.92, 0.32, 1.00),  ## 2 — important (lime)
-	Color(0.98, 0.85, 0.20, 1.00),  ## 3 — standard (yellow)
-	Color(1.00, 0.58, 0.16, 1.00),  ## 4 — low (orange)
-	Color(1.00, 0.30, 0.20, 1.00),  ## 5 — luxury (red)
-]
-var PRIORITY_MIN: int = 1
-var PRIORITY_MAX: int = 5
-
-## Flow-Based Filter Wear plan §2.1 (Jul 2026) — purifier FLOW readout color
-## bands. Deliberately SEPARATE constants from WaterPurifier.gd's own
-## FLOW_WEAR_HALF_ML/FLOW_WEAR_MAX_ML (2000/4000) — these are UI-only
-## breakpoints (2500/4000), not the wear formula's inputs. Do not merge the
-## two sets; they're independent on purpose (per plan §2.1's explicit note).
-var FLOW_COLOR_GREEN_MAX:  float = 2499.0   ## 0 – 2499 mL/day: normal (blue, OK_COLOR)
-var FLOW_COLOR_YELLOW_MAX: float = 3999.0   ## 2500 – 3999 mL/day: yellow (WARN_COLOR)
-## 4000+ mL/day: red (CRIT_COLOR)
-
-# ─── Layout ───────────────────────────────────────────────────────────────────
-var PANEL_W: float = 380.0
-## Hookup panel has no priority row; sink panel grows to fit the ◄ N ► tier
-## changer added Jul 2026 — see _panel_height(). Purifier panel is the
-## smallest — read-only, two quality numbers, no priority row.
-var PANEL_H_SOURCE:   float = 230.0
-var PANEL_H_SINK:     float = 350.0
-## Purifier panel grew (Jul 2026, Purifier Filter plan) to fit the new
-## FILTER QUALITY bar row — see _draw_purifier_stats().
-var PANEL_H_PURIFIER: float = 270.0
-## Extra height added on top of PANEL_H_PURIFIER for the FLOW row (Flow-
-## Based Filter Wear plan §2) — always shown, so it's baked into the base
-## constant's growth rather than dynamic.
-var PANEL_H_PURIFIER_FLOW_ROW: float = 44.0
-## Extra height per warning-bubble line, only added when the bubble is
-## actually showing — see _panel_height()/_purifier_bubble_line_count().
-## Same "grows/shrinks with live conditions, recomputed every frame" pattern
-## FarmingTrayUI.gd's own water-warning bubble already established.
-var PURIFIER_BUBBLE_HEADER_H: float = 28.0
-var PURIFIER_BUBBLE_LINE_H:   float = 16.0
-var PURIFIER_BUBBLE_GAP_AFTER: float = 16.0
-
-## Component geometry read from BunkerTheme's WaterInfoUI section (see
-## _load_theme() — these defaults are fallbacks if the theme is missing).
-var _bar_w: float = 332.0   ## PANEL_W - 48.0
-var _bar_h: float = 14.0
-var _arrow_size: float = 48.0
-var _pip_gap: float = 5.0
-var _pip_h: float = 7.0
-var _chip_w: float = 84.0
-var _chip_row_h: float = 48.0
-
-# ─── Live data (set by open()) ────────────────────────────────────────────────
-var _display_name: String = "Water Device"
-var _mode: String = "sink"   ## "hookup" | "sink" | "purifier" (Jul 2026 — was a bool, extended for Purifier)
-var _device_ref:   Node   = null
-
-# ─── Node refs ────────────────────────────────────────────────────────────────
-var _proximity: Node = null   ## auto-close when the player walks away (Aug 2026)
-var _canvas:   Control = null
-var _font:     Font    = null
-var _close_btn: Button = null
-var _dec_btn:  Button  = null   ## ◄ lower priority tier (sink only)
-var _inc_btn:  Button  = null   ## ► raise priority tier (sink only)
-var _is_open:  bool    = false
-var _arrow_row_y: float = 0.0   ## filled during draw, used to position dec/inc
-
-## Pulls every palette + component value from BunkerTheme so the theme is the
-## single source of truth (tweak there, this panel follows).
-func _load_theme() -> void:
-	BG_COLOR = UIKit.theme_color("UI", "bg", BG_COLOR)
-	BORDER_COLOR = UIKit.theme_color("UI", "border", BORDER_COLOR)
-	HEADER_COLOR = UIKit.theme_color("UI", "header", HEADER_COLOR)
-	TEXT_COLOR = UIKit.theme_color("UI", "text", TEXT_COLOR)
-	DIM_COLOR = UIKit.theme_color("UI", "dim", DIM_COLOR)
-	OK_COLOR = UIKit.theme_color("UI", "ok", OK_COLOR)
-	WARN_COLOR = UIKit.theme_color("UI", "warn", WARN_COLOR)
-	CRIT_COLOR = UIKit.theme_color("UI", "crit", CRIT_COLOR)
-	ACCENT_COLOR = UIKit.theme_color("UI", "water_accent", ACCENT_COLOR)
-	QUALITY_GOOD_COLOR = UIKit.theme_color("UI", "quality_good", QUALITY_GOOD_COLOR)
-	PRIO_COLORS = [
-		UIKit.theme_color("UI", "prio_1", Color(0.30, 1.00, 0.46, 1.00)),
-		UIKit.theme_color("UI", "prio_2", Color(0.62, 0.92, 0.32, 1.00)),
-		UIKit.theme_color("UI", "prio_3", Color(0.98, 0.85, 0.20, 1.00)),
-		UIKit.theme_color("UI", "prio_4", Color(1.00, 0.58, 0.16, 1.00)),
-		UIKit.theme_color("UI", "prio_5", Color(1.00, 0.30, 0.20, 1.00)),
-	]
-	PRIORITY_MIN = UIKit.theme_constant("UI", "priority_min", PRIORITY_MIN)
-	PRIORITY_MAX = UIKit.theme_constant("UI", "priority_max", PRIORITY_MAX)
-	FLOW_COLOR_GREEN_MAX = UIKit.theme_constant("WaterInfoUI", "flow_green_max", int(FLOW_COLOR_GREEN_MAX))
-	FLOW_COLOR_YELLOW_MAX = UIKit.theme_constant("WaterInfoUI", "flow_yellow_max", int(FLOW_COLOR_YELLOW_MAX))
-	PANEL_W = UIKit.theme_constant("WaterInfoUI", "panel_w", int(PANEL_W))
-	PANEL_H_SOURCE = UIKit.theme_constant("WaterInfoUI", "panel_h_source", int(PANEL_H_SOURCE))
-	PANEL_H_SINK = UIKit.theme_constant("WaterInfoUI", "panel_h_sink", int(PANEL_H_SINK))
-	PANEL_H_PURIFIER = UIKit.theme_constant("WaterInfoUI", "panel_h_purifier", int(PANEL_H_PURIFIER))
-	_bar_w = UIKit.theme_constant("WaterInfoUI", "bar_w", int(_bar_w))
-	_bar_h = UIKit.theme_constant("WaterInfoUI", "bar_h", int(_bar_h))
-	_arrow_size = UIKit.theme_constant("WaterInfoUI", "arrow_size", int(_arrow_size))
-	_pip_gap = UIKit.theme_constant("WaterInfoUI", "pip_gap", int(_pip_gap))
-	_pip_h = UIKit.theme_constant("WaterInfoUI", "pip_h", int(_pip_h))
-	_chip_w = UIKit.theme_constant("WaterInfoUI", "chip_w", int(_chip_w))
-	_chip_row_h = UIKit.theme_constant("WaterInfoUI", "chip_row_h", int(_chip_row_h))
-	_backdrop_alpha = float(UIKit.theme_constant("UI", "backdrop_alpha_permille", 600)) / 1000.0
-
-func _ready() -> void:
-	_load_theme()
-	layer   = 60
-	visible = false
-	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
-	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
-	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
-	controller_nav.ui_root = self
-	add_child(controller_nav)
-	## Auto-close when the player walks away from the device (Aug 2026).
-	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
-	_proximity.ui = self
-	add_child(_proximity)
-	set_process(false)
-
-	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
-	if _font == null:
-		_font = ThemeDB.fallback_font
-
-	_canvas = Control.new()
-	_canvas.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_canvas.mouse_filter = Control.MOUSE_FILTER_PASS
-	_canvas.name = "WaterInfoCanvas"
-	add_child(_canvas)
-	_canvas.draw.connect(_on_draw)
-
-	_close_btn = Button.new()
-	_close_btn.flat         = true
-	_close_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_close_btn.pressed.connect(close)
-	add_child(_close_btn)
-
-	_dec_btn = Button.new()
-	_dec_btn.flat         = false
-	_dec_btn.clip_text    = false
-	_dec_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_dec_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
-	_dec_btn.text         = "◄"
-	_dec_btn.visible      = false
-	_dec_btn.pressed.connect(_on_dec_pressed)
-	add_child(_dec_btn)
-
-	_inc_btn = Button.new()
-	_inc_btn.flat         = false
-	_inc_btn.clip_text    = false
-	_inc_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_inc_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
-	_inc_btn.text         = "►"
-	_inc_btn.visible      = false
-	_inc_btn.pressed.connect(_on_inc_pressed)
-	add_child(_inc_btn)
-
-func _panel_height() -> float:
-	match _mode:
-		"hookup":   return PANEL_H_SOURCE
-		"purifier":
-			var h: float = PANEL_H_PURIFIER + PANEL_H_PURIFIER_FLOW_ROW
-			var lines: int = _purifier_bubble_line_count()
-			if lines > 0:
-				h += PURIFIER_BUBBLE_HEADER_H + float(lines) * PURIFIER_BUBBLE_LINE_H + PURIFIER_BUBBLE_GAP_AFTER
-			return h
-		_:          return PANEL_H_SINK
-
-## Flow-Based Filter Wear plan §2.2/§2.3 (Jul 2026) — how many warning lines
-## the purifier panel's bubble needs to show right now, live, so
-## _panel_height() (called before drawing, to size the panel) and
-## _draw_purifier_stats() (the actual draw) always agree. Mirrors
-## FarmingTrayUI._layout_metrics()'s "recompute the same live condition in
-## both the sizing pass and the draw pass" convention — no cached state.
-func _purifier_bubble_line_count() -> int:
-	var purifier: WaterPurifier = _device_ref as WaterPurifier
-	if purifier == null:
-		return 0
-	var count: int = 0
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
-	if wm != null and not purifier.get_node_key().is_empty():
-		var upstream: Dictionary = wm.get_upstream_raw_quality(purifier.get_node_key())
-		if bool(upstream.get("connected", false)) and float(upstream.get("quality", 100.0)) < 50.0:
-			count += 1
-		var hookup: WaterHookup = wm.get_hookup_for_node(purifier.get_node_key())
-		if hookup != null and purifier.current_flow_mL_per_day > hookup.get_daily_output_mL() * 0.5:
-			count += 1
-	return count
-
-## Flow-Based Filter Wear plan §2.1 — tints the FLOW readout by the three
-## fixed mL/day bands (see FLOW_COLOR_GREEN_MAX/FLOW_COLOR_YELLOW_MAX above),
-## deliberately not WaterQualityColor's red/yellow/green (that scheme means
-## "how good is this water", a different axis than "how much is flowing").
-func _flow_color(flow_mL_per_day: float) -> Color:
-	if flow_mL_per_day <= FLOW_COLOR_GREEN_MAX:
-		return OK_COLOR
-	if flow_mL_per_day <= FLOW_COLOR_YELLOW_MAX:
-		return WARN_COLOR
-	return CRIT_COLOR
-
-func _reposition_controls() -> void:
-	var vp: Vector2 = get_viewport().get_visible_rect().size
-	var ph: float   = _panel_height()
-	var px: float   = (vp.x - PANEL_W) * 0.5
-	var py: float   = (vp.y - ph) * 0.5
-	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 16.0)   ## Jul 2026 — +6px top-padding pass, must match the drawn X above
-	_close_btn.size     = Vector2(30.0, 30.0)
-
-	if _mode == "sink":
-		var arrow_y: float = _arrow_row_y if _arrow_row_y > 0.0 else (py + 190.0)
-		var arrow_sz: Vector2 = Vector2(_arrow_size, _arrow_size)
-		_dec_btn.size = arrow_sz
-		_inc_btn.size = arrow_sz
-		_dec_btn.position = Vector2(px + 36.0, arrow_y)
-		_inc_btn.position = Vector2(px + PANEL_W - 36.0 - arrow_sz.x, arrow_y)
-		var sink: WaterTestSink = _device_ref as WaterTestSink
-		var prio: int = sink.priority if sink != null else 3
-		_style_arrow_btn(_dec_btn, prio > PRIORITY_MIN)
-		_style_arrow_btn(_inc_btn, prio < PRIORITY_MAX)
-
-func _style_arrow_btn(btn: Button, enabled: bool) -> void:
-	btn.disabled = not enabled
-	if _font != null:
-		btn.add_theme_font_override("font", _font)
-	btn.add_theme_font_size_override("font_size", 22)
-	var base: Color = Color(0.08, 0.11, 0.13, 1.0) if enabled else Color(0.08, 0.09, 0.10, 1.0)
-	var fg:   Color = HEADER_COLOR if enabled else Color(0.30, 0.34, 0.36, 1.0)
-	for sname: String in ["normal", "hover", "pressed", "disabled", "focus"]:
-		var sb: StyleBoxFlat = StyleBoxFlat.new()
-		sb.bg_color = base if sname != "hover" else Color(0.14, 0.20, 0.24, 1.0)
-		sb.border_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55 if enabled else 0.2)
-		sb.set_border_width_all(1)
-		sb.set_corner_radius_all(4)
-		btn.add_theme_stylebox_override(sname, sb)
-	btn.add_theme_color_override("font_color", fg)
-	btn.add_theme_color_override("font_disabled_color", fg)
-
-# ─── Open / Close ─────────────────────────────────────────────────────────────
-## mode = "hookup"   → shows its own tier output + live requested-demand split.
-## mode = "sink"     → shows what IT is receiving (traced back to source) + priority changer.
-## mode = "purifier" → read-only input/output quality, no priority row (Jul 2026).
 func open(display_name: String, mode: String, device_ref: Node) -> void:
-	_display_name = display_name
-	_mode         = mode
-	_device_ref   = device_ref
-	if _proximity != null and device_ref != null:
-		_proximity.anchor = device_ref.global_position
-
-	_is_open = true
-	visible  = true
-	set_process(true)
-	_reposition_controls()
-	_close_btn.visible = true
-	_dec_btn.visible   = (_mode == "sink")
-	_inc_btn.visible   = (_mode == "sink")
-	## Standing convention (July 2026) — see UIFade.gd.
-	UIFade.fade_in(_canvas)
-	_canvas.queue_redraw()
-
-func close() -> void:
-	_is_open = false
-	visible  = false
-	set_process(false)
-	_close_btn.visible = false
-	_dec_btn.visible   = false
-	_inc_btn.visible   = false
-	closed.emit()
-
-# ─── Priority handlers (sink only — Jul 2026) ────────────────────────────────
-## ◄ lowers the tier NUMBER → more critical (1 is critical, never starved).
-func _on_dec_pressed() -> void:
-	_apply_priority(-1)
-
-## ► raises the tier NUMBER → more luxury (5 starved first).
-func _on_inc_pressed() -> void:
-	_apply_priority(1)
-
-func _apply_priority(delta: int) -> void:
-	var sink: WaterTestSink = _device_ref as WaterTestSink
-	if sink == null:
+	if not is_instance_valid(device_ref) or not device_ref is Node3D:
 		return
-	sink.priority = clampi(sink.priority + delta, PRIORITY_MIN, PRIORITY_MAX)
-	_reposition_controls()
-	_canvas.queue_redraw()
+	_mode = mode
+	_device_ref = device_ref
+	_source.visible = mode == "hookup"
+	_sink.visible = mode == "sink"
+	_purifier.visible = mode == "purifier"
+	_open_device(display_name, "WATER SYSTEM", "water", device_ref as Node3D,
+		Vector3.INF, 740.0 if mode == "purifier" else 600.0)
 
-# ─── Input ────────────────────────────────────────────────────────────────────
-func _unhandled_input(event: InputEvent) -> void:
-	if not _is_open:
+func _refresh_data() -> void:
+	if not is_instance_valid(_device_ref) or _device_ref.is_queued_for_deletion():
+		close()
 		return
-	if event is InputEventKey and event.pressed:
-		var k: int = (event as InputEventKey).keycode
-		if k == KEY_ESCAPE or k == KEY_E:
-			close()
-			get_viewport().set_input_as_handled()
-			return
-		if _mode == "sink":
-			if k == KEY_LEFT:
-				_on_dec_pressed()
-				get_viewport().set_input_as_handled()
-				return
-			if k == KEY_RIGHT:
-				_on_inc_pressed()
-				get_viewport().set_input_as_handled()
-				return
-	if event is InputEventMouseButton and event.pressed:
-		var vp: Vector2  = get_viewport().get_visible_rect().size
-		var ph: float    = _panel_height()
-		var px: float    = (vp.x - PANEL_W) * 0.5
-		var py: float    = (vp.y - ph) * 0.5
-		var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
-		if panel.has_point(event.position):
-			get_viewport().set_input_as_handled()
-
-# ─── Process — keep redrawing (live stats) while open ────────────────────────
-## Redraw throttle (Aug 2026 optimization) — live flow doesn't need 60Hz.
-const REDRAW_INTERVAL: float = 0.1
-var _redraw_accum: float = 0.0
-
-func _process(_delta: float) -> void:
-	if not _is_open:
-		return
-	_redraw_accum += _delta
-	if _redraw_accum >= REDRAW_INTERVAL:
-		_redraw_accum = 0.0
-		_canvas.queue_redraw()
-
-# ─── Draw ─────────────────────────────────────────────────────────────────────
-func _on_draw() -> void:
-	if not _is_open:
-		return
-
-	var vp: Vector2 = get_viewport().get_visible_rect().size
-	var ph: float   = _panel_height()
-	var px: float   = (vp.x - PANEL_W) * 0.5
-	var py: float   = (vp.y - ph) * 0.5
-
-	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, _backdrop_alpha), true)
-
-	var panel: Rect2 = Rect2(px, py, PANEL_W, ph)
-	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 2.0)
-	UIKit.draw_domain_stripe(_canvas, panel, ACCENT_COLOR)
-
-	## Close button ×
-	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
-	UIKit.draw_rounded_rect(_canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), CRIT_COLOR, 1.5)
-	UIKit.draw_close_icon(_canvas, close_rect)
-
-	var cx: float = px + 24.0
-	var cy: float = py + 26.0   ## Jul 2026 — +6px top-padding pass
-
-	# ── Header ────────────────────────────────────────────────────────────────
-	_draw_str(_display_name.to_upper(), Vector2(cx, cy), HEADER_COLOR, 16)
-	cy += 28.0
-
-	## Separator
-	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0, true)
-	cy += 16.0
-
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	match _mode:
-		"hookup":   cy = _draw_source_stats(cx, cy)
-		"purifier": cy = _draw_purifier_stats(cx, cy)
-		_:          cy = _draw_sink_stats(cx, cy)
+		"hookup": _refresh_source(wm)
+		"sink": _refresh_sink(wm)
+		"purifier": _refresh_purifier(wm)
 
-	var footer_hint: String = "[ESC / E]  Close"
-	if _mode == "sink":
-		footer_hint = "[◄ ►]  Priority    [ESC / E]  Close"
-	_draw_str(footer_hint, Vector2(cx, py + ph - 18.0), DIM_COLOR, 9)
-
-	_reposition_controls()
-
-## Hookup's own panel: tier output + aggregate priority-tier demand + quality.
-## PER-CONSUMER SPLIT wording retired (Jul 2026) — allocation is no longer
-## equal, it's a priority-tier waterfall (WaterSolver.gd); a single "each
-## device gets X" number no longer means anything, so this now shows total
-## REQUESTED demand vs. capacity instead (color-flags oversubscription,
-## which is exactly when the waterfall starts scaling/starving lower tiers).
-func _draw_source_stats(cx: float, cy: float) -> float:
+func _refresh_source(wm: WaterManager) -> void:
 	var hookup: WaterHookup = _device_ref as WaterHookup
 	if hookup == null:
-		_draw_str("No hookup data available.", Vector2(cx, cy), WARN_COLOR, 11)
-		return cy + 20.0
+		close()
+		return
+	var daily: float = hookup.get_daily_output_mL()
+	var count: int = wm.get_connected_consumer_count(hookup) if wm != null else 0
+	var demand: float = wm.get_total_requested_demand_mL(hookup) if wm != null else 0.0
+	W.set_status(_connection, "Consumers connected" if count > 0 else "No consumers", "success" if count > 0 else "inactive", "grid")
+	W.set_stat(_source_output, "%.0f mL/day · %.2f mL/min" % [daily, hookup.get_per_minute_output_mL()])
+	W.set_stat(_source_demand, "%d device%s · %.0f / %.0f mL/day requested" % [count, "" if count == 1 else "s", demand, daily],
+		"warning" if demand > daily else "text")
+	W.set_meter(_source_quality, hookup.water_quality, "%.0f%%" % hookup.water_quality,
+		"Raw water before downstream purification.", W.quality_token(hookup.water_quality))
 
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
-	var daily:   float = hookup.get_daily_output_mL()
-	var per_min: float = hookup.get_per_minute_output_mL()
-	var count:   int   = 0
-	var requested_total: float = 0.0
-	if wm != null:
-		count           = wm.get_connected_consumer_count(hookup)
-		requested_total = wm.get_total_requested_demand_mL(hookup)
+func _refresh_sink(wm: WaterManager) -> void:
+	var sink: WaterTestSink = _device_ref as WaterTestSink
+	if sink == null:
+		close()
+		return
+	var connected: bool = wm != null and wm.is_reachable_from_hookup(sink.get_node_key())
+	W.set_status(_connection, "Water connected" if connected else "Disconnected", "success" if connected else "warning", "grid")
+	var info: Dictionary = wm.get_received_rate_mL(sink.get_node_key()) if connected else {}
+	W.set_stat(_sink_received, "%.0f mL/day · %.2f mL/min" % [float(info.get("mL_per_day", 0.0)), float(info.get("mL_per_minute", 0.0))] if connected else "Not connected to a water source",
+		"blue" if connected else "warning")
+	_sink_quality.visible = connected
+	var quality: float = float(info.get("quality", 0.0))
+	W.set_meter(_sink_quality, quality, "%.0f%%" % quality, "", W.quality_token(quality))
+	_priority_control.set_value(sink.priority)
 
-	_draw_str("TIER OUTPUT", Vector2(cx, cy), DIM_COLOR, 10)
-	_draw_str("%.0f mL/day  (%.2f mL/min)" % [daily, per_min], Vector2(cx, cy + 14.0), TEXT_COLOR, 13)
-	cy += 40.0
-
-	_draw_str("CONNECTED DEMAND", Vector2(cx, cy), DIM_COLOR, 10)
-	if count == 0:
-		_draw_str("Not connected to any pipes", Vector2(cx, cy + 14.0), WARN_COLOR, 13)
-	else:
-		var plural: String = "device" if count == 1 else "devices"
-		var demand_col: Color = OK_COLOR if requested_total <= daily else WARN_COLOR
-		_draw_str("%d %s connected — requesting %.0f / %.0f mL/day" %
-			[count, plural, requested_total, daily], Vector2(cx, cy + 14.0), demand_col, 12)
-	cy += 40.0
-
-	cy = _draw_quality_row(hookup.water_quality, cx, cy)
-	return cy
-
-## Sink's panel: what it's actually receiving (traced back to the source),
-## or "not connected" — reuses is_reachable_from_hookup(), same check the
-## sink's own status label already uses, so this never disagrees with it.
-func _draw_sink_stats(cx: float, cy: float) -> float:
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
-	var node_key: String = ""
-	if _device_ref != null and _device_ref.has_method("get_node_key"):
-		node_key = _device_ref.get_node_key()
-
-	var connected: bool = false
-	if wm != null and not node_key.is_empty():
-		connected = wm.is_reachable_from_hookup(node_key)
-
-	if not connected:
-		_draw_str("CONNECTION", Vector2(cx, cy), DIM_COLOR, 10)
-		_draw_str("Not connected to a water source", Vector2(cx, cy + 14.0), CRIT_COLOR, 13)
-		cy += 40.0
-		return _draw_priority_row(cx, cy)
-
-	var info: Dictionary = wm.get_received_rate_mL(node_key) if wm != null else {}
-	var mL_day: float = info.get("mL_per_day", 0.0)
-	var mL_min: float = info.get("mL_per_minute", 0.0)
-	var quality: float = info.get("quality", 0.0)
-
-	_draw_str("RECEIVING", Vector2(cx, cy), DIM_COLOR, 10)
-	_draw_str("%.0f mL/day  (%.2f mL/min)" % [mL_day, mL_min], Vector2(cx, cy + 14.0), OK_COLOR, 13)
-	cy += 40.0
-
-	cy = _draw_quality_row(quality, cx, cy)
-	return _draw_priority_row(cx, cy)
-
-## Purifier's own panel (Jul 2026, updated same month for the Purifier
-## Filter plan) — read-only. Shows the current input quality (traced back
-## to the source hookup's raw water_quality — the impure value anything
-## reaching this purifier from upstream still carries), the GRADUATED
-## output quality (WaterPurifier.get_output_quality() — `50 + filter_quality
-## * 0.5`, no longer a hardcoded flat 100.0), and a new FILTER QUALITY bar/%
-## row (same drawn-bar convention as WaterDispenserUI's fill gauge, added
-## Jul 2026 — copied structure, not re-derived). No slider, no toggle, no
-## priority — this isn't a demand consumer.
-func _draw_purifier_stats(cx: float, cy: float) -> float:
+func _refresh_purifier(wm: WaterManager) -> void:
 	var purifier: WaterPurifier = _device_ref as WaterPurifier
 	if purifier == null:
-		_draw_str("No purifier data available.", Vector2(cx, cy), WARN_COLOR, 11)
-		return cy + 20.0
-
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
-	var input_quality: float = 0.0
-	var connected: bool = false
-	if wm != null and not purifier.get_node_key().is_empty():
-		var upstream: Dictionary = wm.get_upstream_raw_quality(purifier.get_node_key())
-		connected     = bool(upstream.get("connected", false))
-		input_quality = float(upstream.get("quality", 0.0))
-
-	if not connected:
-		_draw_str("CONNECTION", Vector2(cx, cy), DIM_COLOR, 10)
-		_draw_str("Not connected to a water source", Vector2(cx, cy + 14.0), CRIT_COLOR, 13)
-		cy += 40.0
-		cy = _draw_filter_row(purifier, cx, cy)
-		cy = _draw_flow_row(purifier, cx, cy)
-		return _draw_purifier_bubble(purifier, wm, cx, cy)
-
-	cy = _draw_quality_row(input_quality, cx, cy)
-	_draw_str("OUTPUT QUALITY (PURIFIED)", Vector2(cx, cy), DIM_COLOR, 10)
-	var output_quality: float = purifier.get_output_quality()
-	_draw_str("%.0f%%" % output_quality, Vector2(cx, cy + 14.0), WaterQualityColor.get_color(output_quality), 13)
-	cy += 40.0
-	cy = _draw_filter_row(purifier, cx, cy)
-	cy = _draw_flow_row(purifier, cx, cy)
-	return _draw_purifier_bubble(purifier, wm, cx, cy)
-
-## FLOW readout row (Flow-Based Filter Wear plan §2.1, Jul 2026) — reads
-## straight off the purifier's cached current_flow_mL_per_day (set once per
-## frame in WaterPurifier._process(), see that file's own comment) — no
-## separate query here. Tinted by the three fixed mL/day bands (see
-## FLOW_COLOR_GREEN_MAX/FLOW_COLOR_YELLOW_MAX), deliberately distinct from
-## the quality/filter rows' red-yellow-green scheme.
-func _draw_flow_row(purifier: WaterPurifier, cx: float, cy: float) -> float:
+		close()
+		return
+	var key: String = purifier.get_node_key()
+	var upstream: Dictionary = wm.get_upstream_raw_quality(key) if wm != null and not key.is_empty() else {}
+	var connected: bool = bool(upstream.get("connected", false))
+	var incoming: float = float(upstream.get("quality", 0.0))
+	var outgoing: float = purifier.get_output_quality()
+	W.set_status(_connection, "Water connected" if connected else "Disconnected", "success" if connected else "warning", "grid")
+	_input_quality.visible = connected
+	_output_quality.visible = connected
+	W.set_meter(_input_quality, incoming, "%.0f%%" % incoming, "", W.quality_token(incoming))
+	W.set_meter(_output_quality, outgoing, "%.0f%%" % outgoing, "", W.quality_token(outgoing))
+	W.set_meter(_filter, purifier.filter_quality, "%.0f%%" % purifier.filter_quality,
+		"Use a purifier filter item to replace the installed filter.", W.quality_token(purifier.filter_quality))
 	var flow: float = purifier.current_flow_mL_per_day
-	_draw_str("FLOW", Vector2(cx, cy), DIM_COLOR, 10)
-	_draw_str("%.0f mL/day" % flow, Vector2(cx, cy + 14.0), _flow_color(flow), 13)
-	cy += 40.0
-	return cy
+	W.set_stat(_flow, "%.0f mL/day" % flow, "success" if flow < 2500.0 else ("warning" if flow < 4000.0 else "critical"))
+	var warnings: Array[String] = []
+	if connected and incoming < 50.0:
+		warnings.append("Incoming water quality is low — this wears filters faster.")
+	var hookup: WaterHookup = wm.get_hookup_for_node(key) if wm != null and not key.is_empty() else null
+	if hookup != null and flow > hookup.get_daily_output_mL() * 0.5:
+		warnings.append("High water flow through this purifier — this wears filters faster.")
+	_warning.text = "\n".join(warnings)
+	_warning.visible = not warnings.is_empty()
 
-## Warning bubble (Flow-Based Filter Wear plan §2.2/§2.3, Jul 2026) — same
-## visual treatment as FarmingTrayUI.gd's water-insufficiency bubble (an
-## inset, subtly-bordered notice box inside the panel), a THIRD distinct
-## mechanism from the existing filter<=50% TransientNotice toast and this
-## panel's own quality-row coloring — see plan §2.4 for why. Two
-## independent trigger conditions, both can show at once.
-func _draw_purifier_bubble(purifier: WaterPurifier, wm: WaterManager, cx: float, cy: float) -> float:
-	var lines: Array[String] = []
-	if wm != null and not purifier.get_node_key().is_empty():
-		var upstream: Dictionary = wm.get_upstream_raw_quality(purifier.get_node_key())
-		if bool(upstream.get("connected", false)) and float(upstream.get("quality", 100.0)) < 50.0:
-			lines.append("Incoming water quality is low — this wears filters faster.")
-		## Hookup fetched LIVE, never cached — see plan §2.4 (a cached value
-		## would silently go stale the moment a hookup gets upgraded).
-		var hookup: WaterHookup = wm.get_hookup_for_node(purifier.get_node_key())
-		if hookup != null and purifier.current_flow_mL_per_day > hookup.get_daily_output_mL() * 0.5:
-			lines.append("High water flow through this purifier — this wears filters faster.")
-
-	if lines.is_empty():
-		return cy
-
-	var bar_w: float = _bar_w
-	var bubble_h: float = PURIFIER_BUBBLE_HEADER_H + float(lines.size()) * PURIFIER_BUBBLE_LINE_H
-	var bubble_rect: Rect2 = Rect2(cx, cy, bar_w, bubble_h)
-	_canvas.draw_rect(bubble_rect, Color(0.14, 0.10, 0.04, 0.75), true)
-	_canvas.draw_rect(bubble_rect, Color(WARN_COLOR.r, WARN_COLOR.g, WARN_COLOR.b, 0.55), false, 1.0)
-
-	## A5 fix — vertically center the text block in the bubble
-	var total_text_h: float = float(lines.size()) * PURIFIER_BUBBLE_LINE_H
-	var start_y: float = cy + (bubble_h - total_text_h) * 0.5
-	var line_y: float = start_y
-	for line: String in lines:
-		_draw_str(line, Vector2(cx + 10.0, line_y), WARN_COLOR, 10)
-		line_y += PURIFIER_BUBBLE_LINE_H
-
-	cy += bubble_h + PURIFIER_BUBBLE_GAP_AFTER
-	return cy
-
-## FILTER QUALITY row (Jul 2026, Purifier Filter plan §4) — text readout +
-## drawn fill bar, same "_canvas.draw_rect() dark background + colored fill
-## scaled by a 0-1 fraction, bordered" pattern WaterDispenserUI.gd's STORAGE
-## bar already established. Fill tint reuses WaterQualityColor.get_color()
-## (same red/yellow/green convention every other quality-like value in this
-## panel already uses) rather than inventing a new color scheme.
-func _draw_filter_row(purifier: WaterPurifier, cx: float, cy: float) -> float:
-	_canvas.draw_line(Vector2(cx, cy), Vector2(cx + PANEL_W - 48.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.30), 1.0)
-	cy += 12.0
-	_draw_str("FILTER QUALITY", Vector2(cx, cy), DIM_COLOR, 10)
-	var fq: float = purifier.filter_quality
-	var fq_color: Color = WaterQualityColor.get_color(fq)
-	_draw_str("%.0f%%" % fq, Vector2(cx, cy + 14.0), fq_color, 13)
-	cy += 32.0
-
-	var fill_frac: float = clampf(fq / 100.0, 0.0, 1.0)
-	var bar_w: float = _bar_w
-	var bar_h: float = _bar_h
-	var bar_bg: Rect2 = Rect2(cx, cy, bar_w, bar_h)
-	_canvas.draw_rect(bar_bg, Color(0.08, 0.10, 0.12, 0.85), true)
-	if fill_frac > 0.0:
-		var bar_fill: Rect2 = Rect2(cx, cy, bar_w * fill_frac, bar_h)
-		_canvas.draw_rect(bar_fill, Color(fq_color.r, fq_color.g, fq_color.b, 0.85), true)
-	_canvas.draw_rect(bar_bg, Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55), false, 1.0)
-	cy += bar_h + 16.0
-	return cy
-
-## Priority tier changer (Jul 2026, demand-priority wiring) — mirrors
-## PowerPriorityUI.gd's chip+pips layout so both systems read identically to
-## the player. ◄/► buttons are real Button nodes positioned via
-## _reposition_controls(); this just draws the number/label/pips and records
-## _arrow_row_y so the buttons line up with the drawn number this frame.
-func _draw_priority_row(cx: float, cy: float) -> float:
-	var sink: WaterTestSink = _device_ref as WaterTestSink
-	var prio: int = sink.priority if sink != null else 3
-
-	_canvas.draw_line(Vector2(cx, cy), Vector2(cx + PANEL_W - 48.0, cy),
-		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.30), 1.0)
-	cy += 12.0
-	_draw_str("DEMAND PRIORITY", Vector2(cx, cy), DIM_COLOR, 10)
-	cy += 18.0
-
-	_arrow_row_y = cy
-	var row_h: float = _chip_row_h
-	var pcol: Color = PRIO_COLORS[clampi(prio - 1, 0, PRIO_COLORS.size() - 1)]
-	var num_str: String = str(prio)
-	var num_size: int = 32
-	var num_w: float = _font.get_string_size(num_str, HORIZONTAL_ALIGNMENT_LEFT, -1, num_size).x
-	var px: float = cx - 24.0   ## back out to panel's left edge (cx = px+24)
-	var num_x: float = px + (PANEL_W - num_w) * 0.5
-	var num_y: float = cy + row_h * 0.5 + float(num_size) * 0.35
-	var chip_w: float = _chip_w
-	var chip_rect: Rect2 = Rect2(px + (PANEL_W - chip_w) * 0.5, cy, chip_w, row_h)
-	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.14), true)
-	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.85), false, 2.0)
-	_draw_str(num_str, Vector2(num_x, num_y), pcol, num_size)
-	cy += row_h + 6.0
-
-	var tier_name: String = _tier_name(prio)
-	var tn_w: float = _font.get_string_size(tier_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-	_draw_str(tier_name, Vector2(px + (PANEL_W - tn_w) * 0.5, cy), pcol, 11)
-	cy += 20.0
-
-	var pip_total_w: float = PANEL_W - 108.0
-	var pip_gap: float = _pip_gap
-	var pip_w: float = (pip_total_w - pip_gap * 4.0) / 5.0
-	var pip_x: float = px + 54.0
-	for i: int in range(5):
-		var col: Color = PRIO_COLORS[i]
-		var rect: Rect2 = Rect2(pip_x + float(i) * (pip_w + pip_gap), cy, pip_w, _pip_h)
-		if i + 1 == prio:
-			_canvas.draw_rect(rect, col, true)
-		else:
-			_canvas.draw_rect(rect, Color(col.r, col.g, col.b, 0.22), true)
-		_canvas.draw_rect(rect, Color(col.r, col.g, col.b, 0.55), false, 1.0)
-	cy += 18.0
-	return cy
-
-func _tier_name(p: int) -> String:
-	match p:
-		1: return "CRITICAL"
-		2: return "IMPORTANT"
-		3: return "STANDARD"
-		4: return "LOW"
-		5: return "LUXURY"
-		_: return "STANDARD"
-
-## Shared quality readout — used by hookup/sink/purifier panels. Red/yellow/
-## green thresholds (Jul 2026 spec, see QUALITY_GOOD_COLOR above): 0-50% red,
-## 50.01-75% yellow, 75.01-100% green. Color lookup delegates to
-## WaterQualityColor.get_color() (Jul 2026, extracted shared helper — was a
-## local copy of the same thresholds before).
-func _draw_quality_row(quality: float, cx: float, cy: float) -> float:
-	_draw_str("WATER QUALITY", Vector2(cx, cy), DIM_COLOR, 10)
-	var q_col: Color = WaterQualityColor.get_color(quality)
-	_draw_str("%.0f%%" % quality, Vector2(cx, cy + 14.0), q_col, 13)
-	return cy + 40.0
-
-# ─── String helper ────────────────────────────────────────────────────────────
-func _draw_str(text: String, pos: Vector2, color: Color, size: int) -> void:
-	_canvas.draw_string(_font, pos + Vector2(1, 1), text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.65))
-	_canvas.draw_string(_font, pos, text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+func _on_priority_requested(value: int) -> void:
+	if _is_open and is_instance_valid(_device_ref) and _mode == "sink":
+		(_device_ref as WaterTestSink).priority = clampi(value, 1, 5)
+		_refresh_data()

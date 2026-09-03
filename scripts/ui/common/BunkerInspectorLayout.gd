@@ -5,11 +5,16 @@ extends Control
 ## Every style edit is made to this view's private theme, never the shared asset.
 
 const DESIGN_SIZE: Vector2 = Vector2(1920.0, 1080.0)
+## Zero uses the generator baseline from the theme. Other inspectors only
+## override height; width, docking, type and density stay shared.
+@export var panel_height: float = 0.0
+var _fit_queued: bool = false
 
 func _ready() -> void:
 	theme = theme.duplicate(true) as Theme
 	resized.connect(_apply_metrics)
 	$Panel.resized.connect(_position_panel)
+	$Panel.minimum_size_changed.connect(_queue_panel_fit)
 	_apply_metrics()
 
 func _apply_metrics() -> void:
@@ -49,10 +54,26 @@ func _apply_metrics() -> void:
 	var panel_style: StyleBox = theme.get_stylebox("panel", "PanelContainer")
 	panel_style.content_margin_top = 0.0
 	panel_style.content_margin_bottom = 0.0
+	_fit_panel()
+
+func _queue_panel_fit() -> void:
+	# Wrapped labels can temporarily request a very tall panel before their
+	# width is known. Refit when that minimum settles, without reapplying
+	# theme overrides (which would itself invalidate minimum sizes).
+	if _fit_queued:
+		return
+	_fit_queued = true
+	_fit_panel.call_deferred()
+
+func _fit_panel() -> void:
+	_fit_queued = false
+	if not is_node_ready():
+		return
+	var factor: float = _scale_factor()
 	var panel: PanelContainer = $Panel
 	var target_size := Vector2(
 		theme.get_constant("panel_width", "GeneratorInspector"),
-		theme.get_constant("panel_height", "GeneratorInspector")) * factor
+		panel_height if panel_height > 0.0 else theme.get_constant("panel_height", "GeneratorInspector")) * factor
 	var margin: float = theme.get_constant("screen_margin", "GeneratorInspector") * factor
 	panel.size = target_size.min((size - Vector2.ONE * margin * 2.0).max(Vector2.ONE))
 	_position_panel()

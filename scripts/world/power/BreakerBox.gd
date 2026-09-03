@@ -90,45 +90,9 @@ var _led_mat: StandardMaterial3D = null
 # ─── Interaction banner ───────────────────────────────────────────────────────
 var _banner: Label3D = null
 
-# ─── Settings panel (CanvasLayer) ─────────────────────────────────────────────
-var _settings_layer:  CanvasLayer = null
-var _settings_canvas: Control     = null
-var _settings_open:   bool        = false
-var _font: Font = null
-
-## Panel dimensions
-const PANEL_W: float = 340.0
-const PANEL_H: float = 200.0
-const PAD:     float = 14.0
-const ROW_H:   float = 36.0   ## height per toggle row
-
-## Colours for settings panel
-const UI_BG:     Color = Color(0.05, 0.08, 0.05, 0.96)
-const UI_BORDER: Color = Color(0.28, 0.85, 0.32, 0.75)
-const UI_TEXT:   Color = Color(0.80, 0.95, 0.82, 0.95)
-const UI_DIM:    Color = Color(0.45, 0.55, 0.45, 0.85)
-const UI_ON:     Color = Color(0.20, 0.90, 0.35, 1.0)
-const UI_OFF:    Color = Color(0.90, 0.28, 0.15, 1.0)
-const UI_HEADER: Color = Color(0.22, 0.75, 0.28, 1.0)
-
-## Hit-test rects (screen space, computed during draw, used in input)
-var _rect_close:      Rect2 = Rect2()
-var _rect_bat_toggle: Rect2 = Rect2()
-var _rect_gen_toggle: Rect2 = Rect2()
-var _rect_restart:    Rect2 = Rect2()   ## RESTART button — only live while tripped
-var _panel_rect:      Rect2 = Rect2()
-
-## ── TRIPPED banner + RESTART button ────────────────────────────────────────
-## When tripped, the panel grows to show a bold TRIPPED banner and a RESTART
-## button, and the pass-through toggle pills lock (greyed, clicks ignored) —
-## matches both standard breaker trips (via Power Terminal / upgraded
-## self-trip) and gives the player a direct in-panel way to reset without
-## walking to a terminal.  Shared by BreakerBox and UpgradedBreakerBox alike.
-const TRIPPED_BANNER_H: float = 26.0
-const RESTART_BTN_H:    float = 28.0
-const UI_TRIPPED_BG:    Color = Color(0.28, 0.05, 0.04, 0.95)
-const UI_TRIPPED_TEXT:  Color = Color(1.0, 0.65, 0.55, 1.0)
-const UI_LOCK_DIM:      Color = Color(0.30, 0.30, 0.30, 0.60)
+# Presentation is owned by scripts/ui/power/BreakerInspectUI.gd.
+var _inspect_ui: CanvasLayer = null
+var _inspect_refresh_queued: bool = false
 
 ## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
 ## construct-tab preview code BEFORE add_child(), so this instance builds
@@ -153,12 +117,8 @@ func _ready() -> void:
 	if not _is_preview_only:
 		add_to_group("interactable")
 		add_to_group("breaker")
-	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
-	if _font == null:
-		_font = ThemeDB.fallback_font
 	_build_mesh()
 	_build_banner()
-	_build_settings_panel()
 	if _is_preview_only:
 		return
 	_register_with_pm()
@@ -489,8 +449,7 @@ func set_tripped(on: bool) -> void:
 	if on and not was_tripped:
 		_spawn_trip_sparks()
 	## If settings panel is open, refresh it.
-	if _settings_open and _settings_canvas != null:
-		_settings_canvas.queue_redraw()
+	_request_inspect_refresh()
 
 
 ## Graphics plan Section 4 VFX priority #4 — one-shot spark burst at the LED
@@ -552,7 +511,7 @@ func set_player_in_range(in_range: bool) -> void:
 	if in_range:
 		_sync_banner()
 	## Close settings panel when player walks away.
-	if not in_range and _settings_open:
+	if not in_range:
 		_close_settings()
 
 
@@ -560,247 +519,95 @@ func set_player_in_range(in_range: bool) -> void:
 # SETTINGS PANEL
 # ══════════════════════════════════════════════════════════════════════════════
 
-func _build_settings_panel() -> void:
-	_settings_layer = CanvasLayer.new()
-	_settings_layer.layer = 60
-	_settings_layer.visible = false
-	add_child(_settings_layer)
-
-	_settings_canvas = Control.new()
-	_settings_canvas.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_settings_canvas.mouse_filter = Control.MOUSE_FILTER_PASS
-	_settings_canvas.name = "BreakerSettingsCanvas"
-	_settings_layer.add_child(_settings_canvas)
-	_settings_canvas.draw.connect(_on_settings_draw)
-	_settings_canvas.gui_input.connect(_on_settings_input)
-
-
 func _open_settings() -> void:
-	if _settings_open:
+	if is_instance_valid(_inspect_ui) and _inspect_ui.is_open():
 		_close_settings()
 		return
-	_settings_open = true
-	_settings_layer.visible = true
-	## Standing convention (July 2026) — see UIFade.gd. Also covers
-	## UpgradedBreakerBox automatically (extends BreakerBox, same panel code).
-	UIFade.fade_in(_settings_canvas)
-	_settings_canvas.queue_redraw()
-
+	if not is_instance_valid(_inspect_ui):
+		_inspect_ui = (load("res://scripts/ui/power/BreakerInspectUI.gd") as GDScript).new()
+		add_child(_inspect_ui)
+		_inspect_ui.battery_passthrough_requested.connect(_on_battery_passthrough)
+		_inspect_ui.generator_passthrough_requested.connect(_on_generator_passthrough)
+		_inspect_ui.restart_requested.connect(_on_inspect_restart)
+		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+		if pm != null:
+			pm.draw_changed.connect(_on_inspector_draw_changed)
+			pm.zone_name_changed.connect(_on_inspector_zone_changed)
+			pm.zone_color_changed.connect(_on_inspector_zone_changed)
+	var title: String = "Smart breaker" if self is UpgradedBreakerBox else "Breaker"
+	_inspect_ui.open(self, title, _inspect_snapshot())
 
 func _close_settings() -> void:
-	_settings_open = false
-	_settings_layer.visible = false
+	if is_instance_valid(_inspect_ui):
+		_inspect_ui.close()
 
+func _inspect_snapshot() -> Dictionary:
+	_refresh_zone_index()
+	# A smart-breaker self-trip/reset changes the manager's sharing flags;
+	# set_tripped() only updates the device's trip flag. Read authoritative
+	# values instead of presenting stale local toggle preferences.
+	var state: Dictionary = {"tripped": _tripped, "pass_battery": _pass_battery,
+		"pass_generator": _pass_generator}
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
+		for breaker: Dictionary in pm.get_breakers():
+			if String(breaker.get("id", "")) == _breaker_id:
+				state["tripped"] = bool(breaker.get("tripped", _tripped))
+				state["pass_battery"] = bool(breaker.get("pass_battery", _pass_battery))
+				state["pass_generator"] = bool(breaker.get("pass_generator", _pass_generator))
+				break
+	var zones: Array[Dictionary] = []
+	if _zone_index >= 0:
+		zones.append({"name": _zone_name if not _zone_name.is_empty() else "Z%d" % _zone_index, "color": _zone_color()})
+	if _zone_index_b >= 0:
+		zones.append({"name": _zone_name_b if not _zone_name_b.is_empty() else "Z%d" % _zone_index_b, "color": _zone_color_b()})
+	state["zones"] = zones
+	return state
 
-func _on_settings_draw() -> void:
-	if not _settings_open:
+func _on_battery_passthrough(enabled: bool) -> void:
+	var state: Dictionary = _inspect_snapshot()
+	if bool(state["tripped"]):
 		return
+	_pass_battery = enabled
+	_pass_generator = bool(state["pass_generator"])
+	_send_passthrough_to_pm()
+	_request_inspect_refresh()
 
-	## Panel grows by TRIPPED_BANNER_H + RESTART_BTN_H while tripped so the
-	## banner and restart button have room without cramping the existing rows.
-	var extra_h: float   = (TRIPPED_BANNER_H + RESTART_BTN_H + 8.0) if _tripped else 0.0
-	var panel_h: float   = PANEL_H + extra_h
-
-	var vp: Vector2  = _settings_canvas.get_viewport_rect().size
-	var px: float    = (vp.x - PANEL_W) * 0.5
-	var py: float    = (vp.y - panel_h) * 0.5
-
-	## Background dim
-	_settings_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.45), true)
-
-	## Panel bg + border
-	_panel_rect = Rect2(px, py, PANEL_W, panel_h)
-	_settings_canvas.draw_rect(_panel_rect, UI_BG, true)
-	_settings_canvas.draw_rect(_panel_rect, UI_BORDER, false, 2.0)
-
-	## ── TRIPPED banner (only while tripped) ────────────────────────────────
-	## Bold red strip across the top so a tripped breaker is unmissable the
-	## instant the panel opens — separate from the smaller "State:" label
-	## further down, which stays for the at-a-glance zone/state summary.
-	var content_top: float = py
-	if _tripped:
-		var banner_rect: Rect2 = Rect2(px, py, PANEL_W, TRIPPED_BANNER_H)
-		_settings_canvas.draw_rect(banner_rect, UI_TRIPPED_BG, true)
-		_settings_canvas.draw_rect(banner_rect, UI_OFF, false, 1.5)
-		_ds("⚠  TRIPPED — power isolated", Vector2(px + PAD, py + TRIPPED_BANNER_H * 0.5 + 5.0), UI_TRIPPED_TEXT, 12)
-		content_top += TRIPPED_BANNER_H
-
-	## ── Title bar ─────────────────────────────────────────────────────────────
-	var title_y: float = content_top + PAD + 11.0
-	_ds("⚡ BREAKER SETTINGS", Vector2(px + PAD, title_y), UI_HEADER, 13)
-
-	## ── Zone colour swatches (one per side of the breaker, up to 2) ──────────
-	## Zone A — always present
-	var swatch_a_col: Color = _zone_color()
-	swatch_a_col.a = 1.0
-	var swatch_size: float = 18.0
-	var swatch_gap: float  = 4.0
-	## If we have a second zone, show both side-by-side; otherwise centre the single swatch.
-	var has_b: bool = _zone_index_b >= 0
-	var swatches_total_w: float = swatch_size + (swatch_gap + swatch_size if has_b else 0.0)
-	var swatch_start_x: float = px + PANEL_W - PAD - swatches_total_w
-	var swatch_y: float = content_top + PAD + 1.0
-
-	## Zone A swatch
-	var swatch_a_rect: Rect2 = Rect2(swatch_start_x, swatch_y, swatch_size, swatch_size)
-	_settings_canvas.draw_rect(swatch_a_rect, swatch_a_col, true)
-	_settings_canvas.draw_rect(swatch_a_rect, UI_BORDER, false, 1.5)
-	var lbl_a: String = _zone_name if not _zone_name.is_empty() else ("Z%d" % maxi(0, _zone_index))
-	_ds(lbl_a, Vector2(swatch_a_rect.position.x + 1.0, swatch_y + swatch_size + 3.0), UI_DIM, 8)
-
-	## Zone B swatch (only when breaker borders a second zone)
-	if has_b:
-		var swatch_b_col: Color = _zone_color_b()
-		swatch_b_col.a = 1.0
-		var swatch_b_rect: Rect2 = Rect2(swatch_start_x + swatch_size + swatch_gap, swatch_y, swatch_size, swatch_size)
-		_settings_canvas.draw_rect(swatch_b_rect, swatch_b_col, true)
-		_settings_canvas.draw_rect(swatch_b_rect, UI_BORDER, false, 1.5)
-		var lbl_b: String = _zone_name_b if not _zone_name_b.is_empty() else ("Z%d" % _zone_index_b)
-		_ds(lbl_b, Vector2(swatch_b_rect.position.x + 1.0, swatch_y + swatch_size + 3.0), UI_DIM, 8)
-		## Small divider pip between the two
-		var mid_x: float = swatch_start_x + swatch_size + swatch_gap * 0.5
-		_settings_canvas.draw_line(
-			Vector2(mid_x, swatch_y + 3.0),
-			Vector2(mid_x, swatch_y + swatch_size - 3.0),
-			UI_BORDER * Color(1, 1, 1, 0.4), 1.0, true)
-
-	## ── State label ───────────────────────────────────────────────────────────
-	var state_y: float = title_y + 20.0
-	var state_str: String = "TRIPPED" if _tripped else "ONLINE"
-	var state_col: Color  = UI_OFF if _tripped else UI_ON
-	_ds("State:  %s" % state_str, Vector2(px + PAD, state_y), state_col, 11)
-
-	## ── Separator ─────────────────────────────────────────────────────────────
-	var sep_y: float = state_y + 14.0
-	_settings_canvas.draw_line(
-		Vector2(px + PAD, sep_y),
-		Vector2(px + PANEL_W - PAD, sep_y),
-		UI_BORDER * Color(1, 1, 1, 0.5), 1.0)
-
-	## ── Toggle rows ───────────────────────────────────────────────────────────
-	## While tripped, pills are LOCKED — greyed out and their clicks ignored in
-	## _on_settings_input (the values still reflect the forced-off state that
-	## _self_trip_upgraded_breaker() set on PM's side; a standard breaker
-	## tripped via Power Terminal keeps whatever pass-through values it had,
-	## since the standard trip path doesn't force them off).
-	var row1_y: float = sep_y + 10.0
-	var row2_y: float = row1_y + ROW_H
-
-	_rect_bat_toggle = _draw_toggle_row(
-		"Allow battery power through", _pass_battery,
-		px, row1_y, _tripped)
-
-	_rect_gen_toggle = _draw_toggle_row(
-		"Allow generator power through", _pass_generator,
-		px, row2_y, _tripped)
-
-	## ── Info line ─────────────────────────────────────────────────────────────
-	var info_y: float = row2_y + ROW_H + 4.0
-	var info_text: String = "Toggles locked while tripped" if _tripped else "Trip / reset via Power Terminal"
-	_ds(info_text, Vector2(px + PAD, info_y), UI_DIM, 9)
-
-	## ── RESTART button (only while tripped) ───────────────────────────────────
-	if _tripped:
-		var restart_y: float = info_y + 14.0
-		_rect_restart = Rect2(px + PAD, restart_y, PANEL_W - PAD * 2.0, RESTART_BTN_H)
-		_settings_canvas.draw_rect(_rect_restart, Color(0.06, 0.16, 0.08, 0.90), true)
-		_settings_canvas.draw_rect(_rect_restart, UI_ON * Color(1, 1, 1, 0.85), false, 1.5)
-		_ds("⟳  RESTART BREAKER", Vector2(px + PAD + 10.0, restart_y + RESTART_BTN_H * 0.5 + 5.0), UI_ON, 12)
-	else:
-		_rect_restart = Rect2()   ## no hit target when not tripped
-
-	## ── Close button ──────────────────────────────────────────────────────────
-	_rect_close = Rect2(px + PANEL_W - PAD - 24.0, py + panel_h - PAD - 20.0, 24.0, 20.0)
-	_settings_canvas.draw_rect(_rect_close, Color(0.25, 0.06, 0.06, 0.90), true)
-	_settings_canvas.draw_rect(_rect_close, UI_OFF * Color(1, 1, 1, 0.7), false, 1.5)
-	_ds("✕", Vector2(_rect_close.position.x + 5.0, _rect_close.position.y + 14.0), Color(1.0, 0.7, 0.7, 1.0), 11)
-
-	_ds("[ESC] close", Vector2(px + PAD, py + panel_h - PAD - 10.0), UI_DIM, 9)
-
-
-## Draw one toggle row; returns its hit rect.
-## locked=true (only while tripped) greys the whole row and the pill so it
-## reads as disabled — _on_settings_input separately refuses to act on the
-## hit rect while _tripped, so this is purely visual confirmation of that.
-func _draw_toggle_row(label: String, value: bool, px: float, ry: float, locked: bool = false) -> Rect2:
-	var row_rect: Rect2 = Rect2(px + PAD, ry, PANEL_W - PAD * 2.0, ROW_H - 4.0)
-	_settings_canvas.draw_rect(row_rect, Color(0.10, 0.14, 0.10, 0.60), true)
-	_settings_canvas.draw_rect(row_rect, UI_BORDER * Color(1, 1, 1, 0.35), false, 1.0)
-
-	var text_y: float = ry + 20.0
-	var text_col: Color = UI_LOCK_DIM if locked else UI_TEXT
-	_ds(label, Vector2(px + PAD + 6.0, text_y), text_col, 10)
-
-	## Toggle pill on right
-	var pill_w: float = 42.0
-	var pill_h: float = 18.0
-	var pill_x: float = px + PANEL_W - PAD - pill_w - 4.0
-	var pill_y: float = ry + (ROW_H - pill_h) * 0.5 - 2.0
-	var pill_rect: Rect2 = Rect2(pill_x, pill_y, pill_w, pill_h)
-	var pill_col: Color  = UI_LOCK_DIM if locked else (UI_ON if value else UI_DIM)
-	_settings_canvas.draw_rect(pill_rect, pill_col * Color(1, 1, 1, 0.75), true)
-	_settings_canvas.draw_rect(pill_rect, pill_col, false, 1.5)
-	var pill_label_col: Color = Color(0.7, 0.7, 0.7, 0.8) if locked else Color(1, 1, 1, 0.95)
-	_ds("ON" if value else "OFF", Vector2(pill_x + 9.0, pill_y + 12.0), pill_label_col, 9)
-
-	return row_rect
-
-
-func _on_settings_input(event: InputEvent) -> void:
-	if not _settings_open:
+func _on_generator_passthrough(enabled: bool) -> void:
+	var state: Dictionary = _inspect_snapshot()
+	if bool(state["tripped"]):
 		return
+	_pass_generator = enabled
+	_pass_battery = bool(state["pass_battery"])
+	_send_passthrough_to_pm()
+	_request_inspect_refresh()
 
-	if event is InputEventKey and (event as InputEventKey).pressed:
-		if (event as InputEventKey).keycode == KEY_ESCAPE:
-			_close_settings()
-			get_viewport().set_input_as_handled()
-			return
+func _on_inspect_restart() -> void:
+	if _tripped:
+		_request_restart()
 
-	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed \
-			and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
-		var mpos: Vector2 = (event as InputEventMouseButton).position
+func _request_inspect_refresh() -> void:
+	if _inspect_refresh_queued or not is_instance_valid(_inspect_ui) or not _inspect_ui.is_open():
+		return
+	_inspect_refresh_queued = true
+	_flush_inspect_refresh.call_deferred()
 
-		if _rect_close.has_point(mpos):
-			_close_settings()
-			get_viewport().set_input_as_handled()
-			return
+func _flush_inspect_refresh() -> void:
+	_inspect_refresh_queued = false
+	if is_instance_valid(_inspect_ui) and _inspect_ui.is_open():
+		_inspect_ui.refresh(_inspect_snapshot())
 
-		if _tripped and _rect_restart.has_point(mpos):
-			_request_restart()
-			get_viewport().set_input_as_handled()
-			return
+func _on_inspector_draw_changed(_draw: float, _capacity: float, _battery: float) -> void:
+	_request_inspect_refresh()
 
-		## Pass-through toggles are LOCKED while tripped — ignore clicks on
-		## either pill entirely (the pills already render greyed via _tripped
-		## passed into _draw_toggle_row, so this matches the visual state).
-		if not _tripped:
-			if _rect_bat_toggle.has_point(mpos):
-				_pass_battery = not _pass_battery
-				_send_passthrough_to_pm()
-				_settings_canvas.queue_redraw()
-				get_viewport().set_input_as_handled()
-				return
-
-			if _rect_gen_toggle.has_point(mpos):
-				_pass_generator = not _pass_generator
-				_send_passthrough_to_pm()
-				_settings_canvas.queue_redraw()
-				get_viewport().set_input_as_handled()
-				return
-
-		## Eat all clicks inside the panel so they don't pass to the world.
-		if _panel_rect.has_point(mpos):
-			get_viewport().set_input_as_handled()
+func _on_inspector_zone_changed(_key: String) -> void:
+	_request_inspect_refresh()
 
 
-## Player clicked RESTART while tripped.  Calls PowerManager.reset_breaker(),
-## which un-trips this breaker and re-solves.  NOTE: reset_breaker() only
-## clears the "tripped" flag — it does NOT restore pass_battery/pass_generator
-## to their pre-trip values (a standard breaker tripped via Power Terminal
-## never touched those flags anyway; an upgraded breaker's self-trip forced
-## them to false).  After restart the player must manually re-enable any
-## pass-through they want — this matches the plan's "pass-throughs become
-## re-toggleable again" wording (re-toggleable, not auto-restored).
+## Player requested RESTART while tripped. PowerManager owns all reset policy:
+## a standard reset preserves sharing settings; an upgraded self-trip group
+## reset restores the group's pre-trip sharing intent. The solver may re-trip
+## an unhealthy group. The UI must not override any of these results.
 ##
 ## Job Progress Bar (Aug 2026) — pressing RESTART now closes the settings
 ## panel immediately and starts a timed job at the player's position
@@ -1003,20 +810,3 @@ func _sync_banner() -> void:
 	else:
 		_banner.text     = "[E] Breaker Settings"
 		_banner.modulate = Color(0.90, 0.95, 0.90, 1.0)
-
-
-## Shorthand draw helper for the CanvasLayer draw callbacks.
-func _ds(text: String, pos: Vector2, col: Color, size: int) -> void:
-	_settings_canvas.draw_string(
-		_font, pos + Vector2(1, 1), text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.65))
-	_settings_canvas.draw_string(
-		_font, pos, text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
-
-## Side-effect-free ghost mesh for build-mode previews — matches
-## GhostPreview.gd's inline TILE_BREAKER/TILE_BREAKER_SMART branch.
-static func build_ghost_mesh() -> Mesh:
-	var box: BoxMesh = BoxMesh.new()
-	box.size = Vector3(0.36, 0.44, 0.14)
-	return box

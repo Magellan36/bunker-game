@@ -1,0 +1,7 @@
+class_name InteractionSystem
+extends Node
+const JOB_DEFAULT_DURATION: float = 2.0
+var completion: Callable
+var build_mode_active: bool = false
+func start_job(_host: Node, _duration: float, callback: Callable, _text: String) -> void:
+	completion = callback

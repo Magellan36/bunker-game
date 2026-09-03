@@ -1,0 +1,22 @@
+class_name WaterManager
+extends Node
+var connected: bool = true
+var maximum: float = 3000.0
+var received: float = 1500.0
+var quality: float = 76.0
+var source: WaterHookup
+var demand: float = 5000.0
+func get_dynamic_max_mL_per_day(_key: String, _priority: int) -> float:
+	return maximum
+func get_received_rate_mL(_key: String) -> Dictionary:
+	return {"mL_per_day": received, "mL_per_minute": received / 1440.0, "quality": quality}
+func is_reachable_from_hookup(_key: String) -> bool:
+	return connected
+func get_connected_consumer_count(_hookup: WaterHookup) -> int:
+	return 2 if connected else 0
+func get_total_requested_demand_mL(_hookup: WaterHookup) -> float:
+	return demand
+func get_upstream_raw_quality(_key: String) -> Dictionary:
+	return {"connected": connected, "quality": source.water_quality}
+func get_hookup_for_node(_key: String) -> WaterHookup:
+	return source if connected else null

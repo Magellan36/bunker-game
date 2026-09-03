@@ -1,0 +1,439 @@
+extends Node
+## Tests real panels and real generator/battery/breaker owner callbacks against
+## explicit data doubles. Source fixtures avoid starting the complete game.
+const W: GDScript = preload("res://scripts/ui/common/BunkerInspectorWidgets.gd")
+const RESOLUTIONS: Array[Vector2i] = [Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3440, 1440), Vector2i(3840, 2160)]
+
+class PlayerProbe extends Node3D:
+	var interaction_system: InteractionSystem
+	func _process(delta: float) -> void:
+		if Input.is_action_pressed("move_right"):
+			position.x += delta * 30.0
+
+class GeneratorProbe extends "res://scripts/world/power/GeneratorObject.gd":
+	func _ready() -> void:
+		pass
+
+class BatteryProbe extends "res://scripts/world/power/BatteryBank.gd":
+	func _ready() -> void:
+		_capacity_wh = 100.0
+		_bat_id = "battery"
+
+class BreakerProbe extends "res://scripts/world/power/BreakerBox.gd":
+	func _ready() -> void:
+		_breaker_id = "breaker"
+		_wire_key = "wire"
+	func _spawn_trip_sparks() -> void:
+		pass
+
+class SmartProbe extends "res://scripts/world/power/UpgradedBreakerBox.gd":
+	func _ready() -> void:
+		_breaker_id = "smart"
+		_wire_key = "wire"
+	func _spawn_trip_sparks() -> void:
+		pass
+
+var errors: int = 0
+var checks: int = 0
+var player: PlayerProbe
+var pm: PowerManager
+var wm: WaterManager
+var medical: PlayerMedical
+var panels: Array[CanvasLayer] = []
+var world_clicks: int = 0
+
+func _ready() -> void:
+	_run.call_deferred()
+
+func check(condition: bool, message: String) -> void:
+	checks += 1
+	if not condition:
+		errors += 1
+		printerr("FAIL: " + message)
+
+func settle() -> void:
+	for i: int in range(5):
+		await get_tree().process_frame
+
+func panel(script_path: String) -> CanvasLayer:
+	var ui: CanvasLayer = (load(script_path) as GDScript).new()
+	add_child(ui)
+	panels.append(ui)
+	return ui
+
+func key(code: Key) -> void:
+	var event := InputEventKey.new()
+	event.keycode = code
+	event.pressed = true
+	get_viewport().push_input(event)
+	event = event.duplicate()
+	event.pressed = false
+	get_viewport().push_input(event)
+
+func joy(button: JoyButton) -> void:
+	var event := InputEventJoypadButton.new()
+	event.button_index = button
+	event.pressed = true
+	get_viewport().push_input(event)
+	event = event.duplicate()
+	event.pressed = false
+	get_viewport().push_input(event)
+
+func click_at(position: Vector2) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.position = position
+	event.pressed = true
+	get_viewport().push_input(event)
+	event = event.duplicate()
+	event.pressed = false
+	get_viewport().push_input(event)
+
+func _run() -> void:
+	get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
+	get_window().content_scale_size = Vector2i.ZERO
+	InputMap.add_action("move_right")
+	var motion := InputEventJoypadMotion.new()
+	motion.axis = JOY_AXIS_LEFT_X
+	motion.axis_value = 1.0
+	InputMap.action_add_event("move_right", motion)
+	player = PlayerProbe.new()
+	add_child(player)
+	player.add_to_group("player")
+	player.interaction_system = InteractionSystem.new()
+	player.add_child(player.interaction_system)
+	pm = PowerManager.new()
+	add_child(pm)
+	pm.add_to_group("power_manager")
+	wm = WaterManager.new()
+	add_child(wm)
+	wm.add_to_group("water_manager")
+	medical = PlayerMedical.new()
+	add_child(medical)
+	medical.add_to_group("player_medical")
+	wm.source = WaterHookup.new()
+	add_child(wm.source)
+	await _water()
+	await _farming()
+	await _priority()
+	await _power_owners()
+	await _lifecycle()
+	print("Device inspector contracts: %d checks, %d failures. Six resolutions; real UI/owner source, simulation doubles." % [checks, errors])
+	get_tree().quit(0 if errors == 0 else 1)
+
+func _layout(ui: CanvasLayer) -> void:
+	for resolution: Vector2i in RESOLUTIONS:
+		get_window().size = resolution
+		await settle()
+		var view: Control = ui._view
+		var frame: Control = view.get_node("%Panel") as Control
+		var scale: float = clampf(minf(resolution.x / 1920.0, resolution.y / 1080.0), 1.0, 1.25)
+		check(absf(frame.size.x - 500.0 * scale) < 1.0, "%s width at %s" % [ui.name, resolution])
+		check(absf(frame.position.x + frame.size.x - resolution.x + 24.0 * scale) < 1.0, "%s right dock at %s" % [ui.name, resolution])
+		check(frame.position.y >= 23.0 and frame.get_rect().end.y <= resolution.y - 23.0, "%s vertical bounds at %s: rect=%s min=%s" % [ui.name, resolution, frame.get_rect(), frame.get_combined_minimum_size()])
+		check(view.mouse_filter == Control.MOUSE_FILTER_IGNORE and frame.mouse_filter == Control.MOUSE_FILTER_STOP, "inspector input boundary")
+		check(ui._close_btn.is_visible_in_tree(), "close remains visible")
+		var scroll: ScrollContainer = view.get_node("%DetailsScroll") as ScrollContainer
+		check(scroll.size.x > 300 and scroll.size.y > 40, "usable details area")
+		for item: Node in view.find_children("*", "Label", true, false):
+			var label: Label = item as Label
+			if label.is_visible_in_tree():
+				check(label.get_theme_font_size("font_size") >= 13, "type floor: " + label.name)
+				check(label.size.x <= frame.size.x, "label contained: " + label.name)
+	get_window().size = Vector2i(1920, 1080)
+	await settle()
+
+func _water() -> void:
+	var dispenser := WaterDispenser.new()
+	add_child(dispenser)
+	var ui: CanvasLayer = panel("res://scripts/ui/water/WaterDispenserUI.gd")
+	ui.open(dispenser)
+	await _layout(ui)
+	check(dispenser.writes == 0, "opening dispenser is read-only")
+	wm.maximum = 500.0
+	ui._refresh_data()
+	check(dispenser.writes == 0 and dispenser.requested_rate_mL_per_day == 2500.0, "max clamp does not write demand")
+	check(ui._network_hint.text.contains("below the current request"), "oversubscribed request explained")
+	ui._rate_slider.value = 400.0
+	check(dispenser.writes == 1 and dispenser.requested_rate_mL_per_day == 400.0, "slider writes explicit request")
+	ui._rate_slider.grab_focus()
+	joy(JOY_BUTTON_DPAD_RIGHT)
+	check(dispenser.requested_rate_mL_per_day == 401.0, "D-pad adjusts rate")
+	ui._toggle_btn.grab_focus()
+	key(KEY_ENTER)
+	check(not dispenser.is_on, "keyboard toggle")
+	ui._on_priority_requested(0)
+	check(dispenser.priority == 1, "priority minimum")
+	ui._on_priority_requested(8)
+	check(dispenser.priority == 5, "priority maximum")
+	ui.close()
+	var info: CanvasLayer = panel("res://scripts/ui/water/WaterInfoUI.gd")
+	info.open("Water hookup", "hookup", wm.source)
+	await _layout(info)
+	check(info._source_demand.get_node("Value").text.contains("5000 / 3000"), "source aggregate demand")
+	info.close()
+	var sink := WaterTestSink.new()
+	add_child(sink)
+	info.open("Water sink", "sink", sink)
+	await _layout(info)
+	wm.connected = false
+	info._refresh_data()
+	check(not info._sink_quality.visible, "disconnected sink does not claim quality")
+	info._on_priority_requested(1)
+	check(sink.priority == 1, "disconnected priority editable")
+	info.close()
+	wm.connected = true
+	var purifier := WaterPurifier.new()
+	add_child(purifier)
+	info.open("Water purifier", "purifier", purifier)
+	await _layout(info)
+	check(info._warning.text.split("\n").size() == 2, "both purifier warnings")
+	check(info._output_quality.get_node("Heading/Value").text == "75%", "graduated purifier quality")
+	check(info._filter.get_node("Heading/Value").text == "50%", "filter quality")
+	check(W.quality_token(50.0) == "critical" and W.quality_token(75.0) == "warning" and W.quality_token(75.1) == "success", "water quality boundaries")
+	for flow: float in [2499.0, 2500.0, 3999.0, 4000.0]:
+		purifier.current_flow_mL_per_day = flow
+		info._refresh_data()
+		var token: String = "success" if flow < 2500.0 else ("warning" if flow < 4000.0 else "critical")
+		check(info._flow.get_node("Value").get_theme_color("font_color") == W.color(info._view, token), "flow bands distinct from wear formula")
+	info.close()
+	wm.maximum = 3000.0
+
+func _farming() -> void:
+	var tray := FarmingTray.new()
+	add_child(tray)
+	var plant := FarmPlant.new()
+	tray.add_child(plant)
+	tray.plant_refs[0] = plant
+	var seed := SeedItem.new()
+	add_child(seed)
+	seed.add_to_group("inventory_item")
+	var ui: CanvasLayer = panel("res://scripts/ui/farming/FarmingTrayUI.gd")
+	ui.open(tray)
+	await _layout(ui)
+	check(ui._warning.visible, "water shortage visible")
+	check(ui._cells[1].get_node("Content/State").text == "Needs soil", "empty cell state")
+	check(ui._cells[0].get_node("Content/State").text.contains("2 days"), "growth countdown")
+	plant.progress = 1.0
+	ui._refresh_data()
+	check(ui._cells[0].get_node("Content/State").text == "Ready to harvest", "ready state")
+	plant.progress = 0.0
+	plant.water_fraction = 0.0
+	ui._refresh_data()
+	check(ui._cells[0].get_node("Content/State").text.begins_with("Dormant"), "dormant state")
+	plant.progress = 0.1
+	plant.growth_per_hour_current = 0.0
+	plant._light_speed_cached = 0.0
+	ui._refresh_data()
+	check(ui._cells[0].get_node("Content/State").text.contains("No water, No light"), "stalled reasons")
+	ui._on_seed_lock_selected(1, 1)
+	check(tray.locks == ["", "tomato"], "per-cell NPC seed lock")
+	seed._charges = 0
+	ui._refresh_data()
+	check(ui._seed_lock_dd[1].get_item_text(1).contains("none in stock"), "retain unavailable lock")
+	var option: OptionButton = ui._seed_lock_dd[1]
+	option.show_popup()
+	await settle()
+	check(not ui._controller_nav.is_processing_input() and ui._controller_nav.is_active(), "popup owns input; world gate remains")
+	option.get_popup().hide()
+	await settle()
+	check(ui._controller_nav.is_processing_input(), "nav restored after popup")
+	option.show_popup()
+	await settle()
+	player.position = Vector3(4, 0, 0)
+	await settle()
+	check(not ui.is_open() and not option.get_popup().visible, "walking away also dismisses seed popup")
+	player.position = Vector3.ZERO
+	ui.close()
+	tray.cell_count = 1
+	ui.open(tray)
+	await _layout(ui)
+	check(not ui._cells[1].visible, "single tray hides second cell")
+	ui.close()
+
+func _priority() -> void:
+	var host := Node3D.new()
+	add_child(host)
+	var ui: CanvasLayer = panel("res://scripts/ui/power/PowerPriorityUI.gd")
+	ui.load_toggled.connect(func(_id: String, enabled: bool): pm.consumer.active = enabled)
+	ui.open("consumer", "Grow light", true, host.global_position, host)
+	await _layout(ui)
+	ui._apply_priority(1)
+	check(pm.consumer.priority == 1, "power priority writes through manager")
+	ui._on_toggle_pressed()
+	check(not pm.consumer.active, "load signal reaches owner")
+	for state: String in ["POWERED", "SHED", "OFF", "UNWIRED", "NO POWER"]:
+		pm.consumer.status_str = state
+		ui._refresh_data()
+		check(not ui._status.get_node("Row/State").text.is_empty(), "consumer state " + state)
+	pm.consumer.registered = false
+	ui._refresh_data()
+	check(ui._toggle_btn.disabled, "unregistered actions disabled")
+	pm.consumer.registered = true
+	ui.close()
+	ui.open("consumer", "Wall light", false, host.global_position, host)
+	check(not ui._toggle_btn.visible, "no invented light toggle")
+	ui.close()
+
+func _power_owners() -> void:
+	var generator := GeneratorProbe.new()
+	add_child(generator)
+	generator._register_with_pm()
+	await settle()
+	generator.on_interact()
+	var gen_ui: CanvasLayer = generator._inspect_ui
+	panels.append(gen_ui)
+	await _layout(gen_ui)
+	check(not player.interaction_system.build_mode_active, "generator does not pretend to enter build mode")
+	pm.fuel = 19.0
+	generator.set_fuel(19.0)
+	await settle()
+	check(gen_ui._fuel == 19.0, "generator live owner refresh")
+	gen_ui._on_toggle_pressed()
+	await settle()
+	check(pm.backup and gen_ui._is_backup, "generator backup confirmed")
+	gen_ui.close()
+	var battery := BatteryProbe.new()
+	add_child(battery)
+	battery.on_interact()
+	var bat_ui: CanvasLayer = battery._inspect_ui
+	panels.append(bat_ui)
+	await _layout(bat_ui)
+	battery.set_charge_display(38.0, 100.0)
+	battery.set_grid_connected(true)
+	battery.set_battery_mode(false, true)
+	await settle()
+	check(bat_ui._charge.get_node("Heading/Value").text == "38%", "battery charge callback")
+	check(bat_ui._state.get_node("Row/State").text == "Discharging", "battery mode callback")
+	check(bat_ui._health.get_node("Heading/Value").text == "100%", "battery health retained")
+	bat_ui._on_toggle()
+	await settle()
+	check(not pm.enabled and not battery.get_enabled(), "battery toggle through owner/manager")
+	bat_ui.close()
+	for type: GDScript in [BreakerProbe, SmartProbe]:
+		var breaker: BreakerBox = type.new()
+		add_child(breaker)
+		pm.breaker = breaker
+		breaker.on_interact()
+		var ui: CanvasLayer = breaker._inspect_ui
+		panels.append(ui)
+		await _layout(ui)
+		check(ui._zone_b.visible, "two zone readouts")
+		ui._on_battery()
+		await settle()
+		check(not breaker._pass_battery and not pm.sharing[0], "independent battery sharing")
+		pm.zones[1].zone_name = "Renamed hydroponics"
+		pm.zone_name_changed.emit("b")
+		await settle()
+		check(ui._zone_b.get_node("Row/State").text == "Renamed hydroponics", "live zone name")
+		breaker.set_tripped(true)
+		await settle()
+		check(ui._battery.disabled and ui._generator.disabled and ui._restart.visible, "tripped controls locked")
+		pm.state = "TRIPPED"
+		var before: int = pm.breaker_resets
+		ui._on_restart()
+		check(not ui.is_open() and pm.breaker_resets == before, "restart schedules existing job, not instant reset")
+		check(player.interaction_system.completion.is_valid(), "restart completion bound")
+		pm.state = "ONLINE"
+		player.interaction_system.completion.call()
+		check(pm.breaker_resets == before + 1 and medical.burns.back() == "TRIPPED", "completion uses original hazard state")
+		check(not breaker._pass_battery, "restart does not reenable sharing")
+		breaker.on_interact()
+		check(not ui._restart.visible and not ui._battery.disabled, "post-reset controls available")
+		# Manager-owned smart group recovery may restore pre-trip intent;
+		# the owner/UI must display it even if local toggle fields are stale.
+		pm.breaker_records = [{"id": breaker._breaker_id, "tripped": false, "pass_battery": true, "pass_generator": false}]
+		pm.draw_changed.emit(0.0, 800.0, 1.0)
+		await settle()
+		check(ui._battery.button_pressed and not ui._generator.button_pressed, "manager sharing overrides stale local fields")
+		ui._on_battery()
+		check(pm.sharing == [false, false], "changing one toggle preserves manager's other flag")
+		pm.breaker_records = []
+		ui.close()
+
+func _lifecycle() -> void:
+	# Every inspector must be near its opening host, not just the player's
+	# original position. Returning must NOT reopen it. Close emits once.
+	for ui: CanvasLayer in panels:
+		player.position = Vector3.ZERO
+		ui.visible = true
+		ui._is_open = true
+		ui.set_process(true)
+		var count: Array[int] = [0]
+		var callback: Callable = func(): count[0] += 1
+		ui.closed.connect(callback)
+		player.position = Vector3(4, 0, 0)
+		await settle()
+		check(not ui.is_open(), "walk-away closes " + ui.name)
+		ui.close()
+		check(count[0] == 1, "close once " + ui.name)
+		player.position = Vector3.ZERO
+		await settle()
+		check(not ui.is_open(), "return does not reopen " + ui.name)
+		ui.closed.disconnect(callback)
+	var host := WaterDispenser.new()
+	add_child(host)
+	var ui: CanvasLayer = panel("res://scripts/ui/water/WaterDispenserUI.gd")
+	ui.open(host)
+	await settle()
+	var world := Button.new()
+	world.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	world.pressed.connect(func(): world_clicks += 1)
+	add_child(world)
+	await settle()
+	click_at(Vector2(40, 400))
+	check(world_clicks == 1, "exposed game view receives clicks")
+	var frame: PanelContainer = ui._view.get_node("%Panel") as PanelContainer
+	click_at(frame.global_position + Vector2(8, 8))
+	check(world_clicks == 1, "panel background contains clicks")
+	# A higher layer gets cancellation first; the world inspector remains.
+	var higher: CanvasLayer = panel("res://scripts/ui/common/BunkerDeviceInspector.gd")
+	higher.layer = 200
+	higher._open_device("Test menu", "TEST", "grid", host)
+	await settle()
+	key(KEY_ESCAPE)
+	check(not higher.is_open() and ui.is_open(), "topmost keyboard cancel")
+	higher._open_device("Test menu", "TEST", "grid", host)
+	await settle()
+	joy(JOY_BUTTON_B)
+	check(not higher.is_open() and ui.is_open(), "topmost controller cancel")
+	ui._close_btn.grab_focus()
+	joy(JOY_BUTTON_B)
+	check(not ui.is_open(), "controller cancel")
+	ui.open(host)
+	key(KEY_E)
+	check(not ui.is_open(), "keyboard E closes")
+	ui.open(host)
+	# Input is polled like Player.gd; the open inspector must not lock it.
+	var event := InputEventJoypadMotion.new()
+	event.axis = JOY_AXIS_LEFT_X
+	event.axis_value = 1.0
+	Input.parse_input_event(event)
+	await get_tree().create_timer(0.2).timeout
+	event.axis_value = 0.0
+	Input.parse_input_event(event)
+	check(player.position.x > 0.0, "left-stick movement survives UI input")
+	check(not ui.is_open(), "left-stick walking triggers proximity close")
+	player.position = Vector3.ZERO
+	ui.open(host)
+	host.position = Vector3(5, 0, 0)
+	await settle()
+	check(not ui.is_open(), "live host movement updates proximity")
+	host.position = Vector3.ZERO
+	ui.open(host)
+	host.queue_free()
+	await settle()
+	check(not ui.is_open(), "deleted host closes safely")
+	# The cached player may be replaced during load; do not dereference a
+	# freed player, and resolve the newly grouped player on the next frame.
+	var replacement_host := WaterDispenser.new()
+	add_child(replacement_host)
+	ui.open(replacement_host)
+	player.queue_free()
+	await settle()
+	var replacement := PlayerProbe.new()
+	add_child(replacement)
+	replacement.add_to_group("player")
+	replacement.position = Vector3(4, 0, 0)
+	await settle()
+	check(not ui.is_open(), "player replacement safely re-resolved")

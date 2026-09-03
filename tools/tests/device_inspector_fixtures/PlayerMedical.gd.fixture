@@ -1,0 +1,6 @@
+class_name PlayerMedical
+extends Node
+const ELECTRICAL_BURN_LOW_HEALTH_THRESHOLD: float = 50.0
+var burns: Array[String] = []
+func roll_electrical_burn(state: String, _generator_health: float = 100.0) -> void:
+	burns.append(state)

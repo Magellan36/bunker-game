@@ -46,49 +46,53 @@
     },
     {
       "path": "res://assets/ui/placeholders/redesign/running_AI_PLACEHOLDER.svg",
-      "status": "placeholder",
+      "status": "retired_from_runtime_retained_for_provenance",
       "origin": "AI-authored SVG; not image-generator output",
       "purpose": "Generator inspector running icon; tint follows displayed state",
-      "replacement_required": true
+      "replacement_required": true,
+      "current_use": "No runtime references in migrated device inspectors. Replaced by BunkerSymbolTexture Godot primitives; retained file must still be removed/replaced before release."
     },
     {
       "path": "res://assets/ui/placeholders/redesign/stopped_AI_PLACEHOLDER.svg",
-      "status": "placeholder",
+      "status": "retired_from_runtime_retained_for_provenance",
       "origin": "AI-authored SVG; not image-generator output",
       "purpose": "Generator inspector stopped icon; tint follows displayed state",
-      "replacement_required": true
+      "replacement_required": true,
+      "current_use": "No runtime references in migrated device inspectors. Replaced by BunkerSymbolTexture Godot primitives; retained file must still be removed/replaced before release."
     },
     {
       "path": "res://assets/ui/placeholders/redesign/grid_AI_PLACEHOLDER.svg",
-      "status": "placeholder",
+      "status": "retired_from_runtime_retained_for_provenance",
       "origin": "AI-authored SVG; not image-generator output",
       "purpose": "Generator inspector grid icon; tint follows displayed state",
-      "replacement_required": true
+      "replacement_required": true,
+      "current_use": "No runtime references in migrated device inspectors. Replaced by BunkerSymbolTexture Godot primitives; retained file must still be removed/replaced before release."
     },
     {
       "path": "res://assets/ui/placeholders/redesign/fuel_AI_PLACEHOLDER.svg",
-      "status": "placeholder",
+      "status": "retired_from_runtime_retained_for_provenance",
       "origin": "AI-authored SVG; not image-generator output",
       "purpose": "Generator inspector fuel icon; tint follows displayed state",
-      "replacement_required": true
+      "replacement_required": true,
+      "current_use": "No runtime references in migrated device inspectors. Replaced by BunkerSymbolTexture Godot primitives; retained file must still be removed/replaced before release."
     },
     {
       "path": "res://assets/ui/placeholders/redesign/condition_AI_PLACEHOLDER.svg",
-      "status": "placeholder",
+      "status": "retired_from_runtime_retained_for_provenance",
       "origin": "AI-authored SVG; not image-generator output",
       "purpose": "Generator inspector condition icon; tint follows displayed state",
-      "replacement_required": true
+      "replacement_required": true,
+      "current_use": "No runtime references in migrated device inspectors. Replaced by BunkerSymbolTexture Godot primitives; retained file must still be removed/replaced before release."
     },
     {
       "path": "res://assets/ui/placeholders/redesign/power_AI_PLACEHOLDER.svg",
-      "status": "placeholder",
+      "status": "retired_from_runtime_retained_for_provenance",
       "origin": "AI-authored SVG; not image-generator output",
       "purpose": "Generator inspector power icon; tint follows displayed state",
-      "replacement_required": true
+      "replacement_required": true,
+      "current_use": "No runtime references in migrated device inspectors. Replaced by BunkerSymbolTexture Godot primitives; retained file must still be removed/replaced before release."
     }
   ],
-  "future_required_icons": [
-    "Stored water / water fill: blue tank-and-water icon"
-  ],
-  "future_note": "Running and grid icons are implemented by the generator pass. Keep the water-fill icon for the subsequent water inspector pass."
+  "future_required_icons": [],
+  "future_note": "Water-fill, plant, battery and warning symbols now use native Godot drawing. No new raster/SVG artwork was added by the device-family pass. Character-creation imagery remains labeled. This inventory is not a Steam disclosure determination."
 }

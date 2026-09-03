@@ -639,6 +639,10 @@ func on_grid_tripped() -> void:
 
 
 func _exit_tree() -> void:
+	# Inspector is root-owned; don't leave an orphan after deconstruction.
+	if is_instance_valid(_inspect_ui):
+		_inspect_ui.close()
+		_inspect_ui.queue_free()
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null or _pm_id.is_empty():
 		return
@@ -681,10 +685,8 @@ func _get_display_name() -> String:
 
 # ─── Interaction ──────────────────────────────────────────────────────────────
 func on_interact() -> void:
-	var is_node: Node = _get_interaction_system()
-	if is_node != null and "build_mode_active" in is_node:
-		is_node.build_mode_active = true
-
+	# ControllerUINavigation gates world interaction. Do not impersonate build
+	# mode: the player must remain able to walk/turn while inspecting devices.
 	if _inspect_ui == null or not is_instance_valid(_inspect_ui):
 		var ui_script: GDScript = load("res://scripts/ui/power/GeneratorInspectUI.gd")
 		if ui_script == null:
@@ -714,13 +716,11 @@ func on_interact() -> void:
 			gs        = pm.get_grid_state_string()
 		_inspect_ui.call("open", _get_display_name(),
 			TIER_CONFIG[generator_tier].get("watts", 0),
-			fuel, health, is_backup, _is_running, _grid_tripped, gs)
+			fuel, health, is_backup, _is_running, _grid_tripped, gs, self)
 
 
 func _on_inspect_closed() -> void:
-	var is_node: Node = _get_interaction_system()
-	if is_node != null and "build_mode_active" in is_node:
-		is_node.build_mode_active = false
+	pass # No gameplay lock was acquired by this inspector.
 
 
 func _on_backup_toggled(enabled: bool) -> void:

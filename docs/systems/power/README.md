@@ -7,6 +7,14 @@ file involved. If you find yourself needing something this doc doesn't answer,
 that's a doc bug: add the missing detail back after you find it in source.
 
 ## Purpose
+**September 2026 UI extraction:** BatteryBank and BreakerBox now delegate to
+`scripts/ui/power/BatteryInspectUI.gd` and `BreakerInspectUI.gd`. Generator and
+consumer-priority inspectors share compact right docking and walk-away close.
+Read `scripts/ui/README.md` / `plans/ui-redesign-device-pass.md` before UI edits.
+World state, job/hazard logic and solver policy are unchanged. Battery health
+remains a visible, explicitly inactive 100% stub. The historical file inventory
+below predates these native-control ports.
+
 Simulates the bunker's electrical grid: generators, batteries, breakers/zones,
 wires, and every powered device (lights, appliances, terminals). Decides who
 has power, who gets shed under overload, and drives the visual/UX state of
