@@ -444,12 +444,13 @@ func _process(delta: float) -> void:
 			var slide_frac: float = clampf(
 				(frac - LIE_SLIDE_START_AT) / (1.0 - LIE_SLIDE_START_AT), 0.0, 1.0)
 			var sli: float = _sample_curve(LIE_SLIDE_CURVE, slide_frac)
-			## Side-aware recline: +RECLINE_ANGLE on the near side, -LIE_FAR_RECLINE_ANGLE
-			## on the far side — measured so BOTH land the head at the headboard with
-			## the body lying flat (head-hips ~-0.05) and facing the footboard.
+			## Recline is POSITIVE on both sides so the player rotates BACKWARD
+			## (face up, onto the back) after the turn — NOT forward. The far side
+			## uses a slightly smaller angle (LIE_FAR_RECLINE_ANGLE) so its head
+			## still reaches the headboard; the sign is NOT flipped per side (that
+			## was the wrong mirror axis and rolled the player forward).
 			var lie_recline: float = RECLINE_ANGLE if _lie_rot_angle >= 0.0 else LIE_FAR_RECLINE_ANGLE
-			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
-				* deg_to_rad(lie_recline) * rec
+			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(lie_recline) * rec
 			## Slide along local Z toward the headboard; sign follows the side so
 			## it always ends toward the headboard.
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE * sli
@@ -466,8 +467,7 @@ func _process(delta: float) -> void:
 		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle
 		if _lie_pivot != null:
 			var lie_recline: float = RECLINE_ANGLE if _lie_rot_angle >= 0.0 else LIE_FAR_RECLINE_ANGLE
-			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
-				* deg_to_rad(lie_recline)
+			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(lie_recline)
 			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE
 			_lie_pivot.position.x = -CENTER_SHIFT
 	elif _sit_phase == "sleeping":
