@@ -422,11 +422,12 @@ func _process(delta: float) -> void:
 			## Backup to _on_anim_finished: the lie-down motion is complete.
 			_lie_down_complete = true
 		var rot_frac: float = clampf(frac / LIE_TURN_END_FRAC, 0.0, 1.0)
-		## Aug 2026 — the side turn goes OPPOSITE directions per side (the 180°
-		## head-feet mirror): the far side turns the other way so its head lands
-		## at the headboard (reversed from the same-direction attempt, which made
-		## the right side face the head of the bed).
-		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle * rot_frac
+		## Aug 2026 — the side turn goes the SAME direction for both sides: the
+		## face-up + head-at-headboard pose is only achievable at yaw 3PI/2. The
+		## far side's turn APPEARS reversed via the mirrored body (set_body_mirrored
+		## from _wire_bed), so the lie-down reads as a true left-right mirror
+		## while the pose stays correct.
+		_visual_yaw = _player.rotation.y + PI + absf(_lie_rot_angle) * rot_frac
 		## Aug 2026 — GAME-DRIVEN recline + slide around the hips pivot (the clip's
 		## root motion pivots at the feet and swings the body in a wide arc; this
 		## reclines it smoothly back onto the bed AND slides it up toward the
@@ -439,17 +440,13 @@ func _process(delta: float) -> void:
 			var slide_frac: float = clampf(
 				(frac - LIE_SLIDE_START_AT) / (1.0 - LIE_SLIDE_START_AT), 0.0, 1.0)
 			var sli: float = _sample_curve(LIE_SLIDE_CURVE, slide_frac)
-			## Recline sign ×side: with the opposite turns the two sides resolve
-			## the recline to the SAME world axis, so the sign follows the side.
-			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
-				* deg_to_rad(RECLINE_ANGLE) * rec
-			## Slide along local Z toward the headboard; sign follows the side so
-			## it always ends toward the headboard.
-			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE * sli
-			## Roll from the entry-side edge to the bed's center line. Constant
-			## local -X: with the opposite turns, each side's local +X points
-			## outward, so the same -0.26 rolls both toward the center.
-			_lie_pivot.position.x = -CENTER_SHIFT * sli
+			## Recline is the same +100° for both sides (same yaw, same axis).
+			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * rec
+			## Slide along local Z toward the headboard (same for both sides).
+			_lie_pivot.position.z = LIE_TRANSLATE * sli
+			## Roll from the entry-side edge to the bed's center line (side-aware:
+			## with the same yaw, local +X maps to the same world direction).
+			_lie_pivot.position.x = -signf(_lie_rot_angle) * CENTER_SHIFT * sli
 	elif _sit_phase == "sleeping" and seated:
 		## Aug 2026 — the sleeping loop HOLD the exact final lie-down pose: the
 		## 90° turn done, full recline, full slide up the bed, rolled to center.
@@ -457,12 +454,11 @@ func _process(delta: float) -> void:
 		## articulates the upper body (legs are frozen in the hybrid).
 		if _anim_player != null:
 			_anim_player.speed_scale = 1.0
-		_visual_yaw = _player.rotation.y + PI + _lie_rot_angle
+		_visual_yaw = _player.rotation.y + PI + absf(_lie_rot_angle)
 		if _lie_pivot != null:
-			_lie_pivot.rotation.x = RECLINE_DIR * signf(_lie_rot_angle) \
-				* deg_to_rad(RECLINE_ANGLE)
-			_lie_pivot.position.z = signf(_lie_rot_angle) * LIE_TRANSLATE
-			_lie_pivot.position.x = -CENTER_SHIFT
+			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE)
+			_lie_pivot.position.z = LIE_TRANSLATE
+			_lie_pivot.position.x = -signf(_lie_rot_angle) * CENTER_SHIFT
 	elif _sit_phase == "sleeping":
 		## Aug 2026 — WAKE FRAME: sleeping_bed just cleared this frame. TELEPORT
 		## now — face the side the player is getting up on (the standing-up
@@ -607,6 +603,18 @@ func get_visual_yaw() -> float:
 ## transform).
 func get_stand_end_position() -> Vector3:
 	return _chair_approach_pos
+
+## Aug 2026 — mirror the visible body's left-right (scale.x = -1) so the far bed
+## side's lie-down reads as a proper mirror of the near side. The shared body
+## can't be mirrored via rotation alone (the reversed turn breaks the lying-back
+## pose), so this flips the mesh + skeleton instead. The head/feet are on the
+## body's Y axis, so their positions are unaffected — only the left-right flips.
+func set_body_mirrored(mirrored: bool) -> void:
+	if _lie_pivot == null:
+		return
+	var body: Node3D = _lie_pivot.get_node_or_null("MaleModel") as Node3D
+	if body != null:
+		body.scale.x = -1.0 if mirrored else 1.0
 
 ## Aug 2026 — input is LOCKED (every button swallowed by the input handlers)
 ## while a sit/lie animation is mid-play, so it can't be interrupted or shifted
