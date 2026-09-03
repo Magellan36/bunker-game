@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "policy": "Development-only AI-authored placeholders. The final game must contain zero AI-authored artwork. Replace every listed asset before release.",
+  "assets": [
+    {
+      "path": "res://assets/ui/placeholders/redesign/person_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Character creation body-category icon",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/dice_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Character creation randomise icon",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/selected_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Selected body-choice indicator",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/unselected_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Unselected body-choice indicator",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/arrow_right_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Character creation completion affordance",
+      "replacement_required": true
+    },
+    {
+      "path": "res://assets/ui/placeholders/redesign/shelter_AI_PLACEHOLDER.svg",
+      "status": "placeholder",
+      "origin": "AI-authored SVG; not image-generator output",
+      "purpose": "Character creation bunker preview motif",
+      "replacement_required": true
+    }
+  ],
+  "future_required_icons": [
+    "Running: green play-circle icon",
+    "Grid online: green grid icon",
+    "Stored water / water fill: blue tank-and-water icon"
+  ],
+  "future_note": "Keep these accompanying icons in subsequent inspector passes. They are not used by character creation and are not created in this commit."
+}

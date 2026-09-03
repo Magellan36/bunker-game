@@ -81,6 +81,13 @@ Do not search the repository unless necessary.
 
 ---
 
+## Artwork provenance
+
+The final game must contain **zero AI-authored artwork**. Temporary AI art is
+allowed during development only when clearly marked and tracked for replacement.
+For the UI redesign, follow `assets/ui/placeholders/redesign/README.md` and its
+manifest. Do not relabel, rename or trace placeholders to present them as final.
+
 # Never Assume
 
 If ownership or behavior is unclear, consult the subsystem README or request clarification.

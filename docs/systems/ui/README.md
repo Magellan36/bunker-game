@@ -10,6 +10,13 @@ All player-facing UI: the always-on HUD (stats/cash/clock), every
 interaction-triggered panel (power devices, shelves, pause/settings, admin
 spawn menu), the build-mode HUD, and the debug overlay.
 
+**September 2026 — opt-in redesign first pass:** character creation now uses
+`assets/ui/themes/BunkerRedesignTheme.tres` and native containers/buttons.
+Read `docs/systems/character-creation/README.md` and
+`plans/ui-redesign-first-pass.md` for approved values and scope. Existing UIKit
+consumers and `BunkerTheme.tres` are unchanged. All new icon artwork is explicitly
+temporary; the final game must not ship AI-authored artwork.
+
 ## Responsibilities
 - Render and handle input for every panel/HUD element.
 - React to game-state signals (power grid, stats, inventory) and re-draw.

@@ -1,128 +1,108 @@
-# Character Creation Screen (Aug 2026)
+# Character Creation Screen
 
 ## Purpose
-Bare-bones pre-game customization: pick **gender**, then **hairstyle + hair
-color**, then complete. Runs as the project's **boot scene**
-(`project.godot`'s `run/main_scene`) — the real game (`MainWorld.tscn`)
-doesn't load until the player presses **Complete**. Every choice is written
-into the `CharacterCreationData` autoload, which survives the scene change
-and is read by the player's spawned model.
 
-Out of scope for this "bare bones" pass (deliberate): no save/load of the
-choice across sessions (picking again every boot until a save system hooks
-`CharacterCreationData`), no eyes/body-proportion/skin-tone sliders beyond
-the one default texture per gender, no "any color" picker (curated swatch
-palette only for now — the vendored full picker is still in the addon,
-see below), and no visual theming — plain default Godot controls
-throughout.
+Character creation is the project boot screen. In V1 the player chooses the
+survivor's **male or female Adventurer body**, can randomise that choice, and
+continues through `LoadingScreen.tscn` to the world. The choice lives in the
+`CharacterCreationData` autoload and is consumed by Adventurer model instances
+that opt into it.
+
+Hair, facial hair, colour, feature and accessory code remains packed away in
+`CharacterCreationScreen.gd`; it is deliberately unused rather than deleted.
+The V1 screen does not expose controls for those systems.
+
+## September 2026 redesign first pass
+
+This subsystem is the isolated proving ground for the approved interface
+direction. It does **not** modify the existing shared `UIKit` consumers or
+`BunkerTheme.tres`.
+
+- Warm near-black canvas and charcoal panel.
+- Worn, darker brass for dividers and structural borders.
+- Project blue for selection, hover and the primary action.
+- Warm ivory text instead of pure white.
+- Large, plainly worded buttons with prominent state icons.
+- Left-side live survivor preview; right-side robust choice panel.
+- Native Godot containers, `Theme`, `StyleBoxFlat`, focus neighbors and
+  `ScrollContainer` behavior—no flattened UI background image.
+- Keyboard/mouse and desktop controller hints switch with `InputMode`.
+- Local responsive scaling from 720p through 1440p/ultrawide without changing
+  project-wide stretch settings.
+
+The screen's six SVG icons are explicitly AI-authored development placeholders.
+They live under `assets/ui/placeholders/redesign/`, include
+`_AI_PLACEHOLDER` in their names, and are release-blocked by the accompanying
+manifest and `tools/tests/check_ui_placeholders.py`. The final game must contain
+zero AI-authored artwork.
 
 ## Files
+
 | File | Role |
 |---|---|
-| `scenes/ui/character_creation/CharacterCreation.tscn` | The screen: narrow sidebar (categories + Randomise/Complete), fixed-width category panel, preview filling the rest. |
-| `scripts/ui/character_creation/CharacterCreationScreen.gd` | Sidebar category switching (Body/Hair real, rest disabled), per-gender hairstyle thumbnails, swatch color, Randomise, Complete→MainWorld. |
-| `scripts/ui/character_creation/CharacterPreviewViewport.gd` | Mouse-drag orbit / scroll-zoom on the preview area only (plus right-stick orbit/pan, see `docs/systems/controller/README.md`). |
+| `scenes/ui/character_creation/CharacterCreation.tscn` | Native two-column screen, live 3D preview and choice panel. |
+| `scripts/ui/character_creation/CharacterCreationScreen.gd` | Existing choice/preview flow plus selection synchronization, input hints and guarded loading transition. |
+| `scripts/ui/character_creation/CharacterCreationLayout.gd` | Screen-local responsive metrics and icon/text clearances. |
+| `scripts/ui/character_creation/CharacterPreviewViewport.gd` | Mouse orbit/zoom/pan and controller preview controls. |
+| `assets/ui/themes/BunkerRedesignTheme.tres` | Opt-in redesign tokens and control states. |
+| `assets/ui/placeholders/redesign/` | Tracked, release-blocking temporary icons. |
+| `tools/tests/test_character_creation_ui.gd` | Headless multi-resolution, input and state regression checks. |
 
-## Preview camera aim (Aug 2026)
+## Runtime flow
 
-`CharacterPreviewViewport.gd`'s `look_at_point` (an `@export`, default
-`Vector3(0, 1.2, 0)`) controls where the orbital camera centers. Grounded
-in a bone measurement of the scaled body (feet y≈0.06, pelvis/Hips y≈1.12,
-head y≈1.98 after the 1.25× scale): the aim sits on the **stomach/navel
-region** so the full figure is framed and centered. Tune in the inspector;
-drag orbits (yaw only, no pitch) and the wheel zooms.
-| `scripts/core/CharacterCreationData.gd` | Autoload holding `gender` / `hairstyle_key` / `hair_tint_color`. |
-| `addons/jts_colorpickerkit/` | Vendored third-party color picker — present but currently **unreferenced** by this screen (see "Swatch palette" below). |
+1. `_ready()` restores the current `CharacterCreationData.gender`, builds one
+   Adventurer preview and focuses the restored body choice.
+2. Male/Female selection updates the autoload, icon states and preview.
+3. Randomise chooses one of those bodies and synchronizes the same state.
+4. Complete disables actionable controls to prevent repeat submissions and
+   requests `LoadingScreen.tscn`. If the transition fails, the buttons are
+   restored and a visible error is shown.
 
-## Flow
-Persistent sidebar, one category panel swapped in/out on the right of it:
-1. **Body** — Male / Female (toggle pair). Picking one rebuilds the
-   hairstyle list and swaps the preview body immediately.
-2. **Hair** — hairstyle thumbnails (GridContainer) + color swatches
-   (GridContainer). Clicking either repaints the live preview (style
-   rebuild / in-place tint repaint).
-3. **Randomise** — rolls gender + a valid hairstyle for that gender + a
-   palette color in one click, UI toggles included.
-4. **Complete** → `change_scene_to_file("res://scenes/world/MainWorld.tscn")`.
+The actual preview remains `scenes/player/AdventurerModel.tscn`, scaled exactly
+as before. The redesign changes presentation, not the model pipeline or saved
+character data contract.
 
-**Face / Features / Accessories** sidebar buttons are laid out and visible
-per request but `disabled = true` ("Coming soon" tooltip) — there is no
-underlying system behind them yet, this is scaffolding, not a stub
-implementation.
+## Responsive and input contract
 
-`CharacterCreationScreen.gd`'s `HAIRSTYLE_OPTIONS` maps UI labels to
-`PlayerModelController.gd`'s `HAIRSTYLES` dictionary keys and filters per
-gender (`Hair_Beard` → male only, `Hair_BuzzedFemale` → female only; the
-rest offered to either).
+`CharacterCreationLayout.gd` scales declared metadata relative to 1920×1080,
+clamped to 0.667–1.333. Containers retain ownership of layout. At narrow desktop
+resolutions the choice region scrolls; on ultrawide screens additional outer
+margin prevents excessively stretched rows. Button focus is explicit and the
+scroll container follows focus.
 
-## Who reads CharacterCreationData
-Only `PlayerModelController` instances with
-`use_character_creation_data = true`:
-- `Player.tscn`'s `PlayerModel` and `PlayerModelShadow` nodes, and
-- the creation screen's own live preview instance.
+Mouse controls remain drag to orbit, wheel to zoom and middle-drag to pan. With
+a controller, the right stick controls the preview and the left stick/D-pad
+navigates buttons. The last input device controls the visible hint text.
 
-NPCs and any other `PlayerModel.tscn` instance leave the flag at its
-default `false` and keep the hardcoded male / buzzed / dark-brown look,
-regardless of what the player picked. Nothing about NPC appearance is
-affected by the player's choices.
+## Validation
 
-## Hairstyle placement caveat
-Each entry in `PlayerModelController.gd`'s `HAIRSTYLES` carries a
-`position_offset`. Only `"buzzed"`'s value (`(0.0, -1.576469, 0.057)`) is
-actually playtested-correct — it took three real tuning passes. The other
-five styles default to that same offset as a starting guess; expect most
-to need their own quick Inspector nudge on first playtest (on any
-`PlayerModel` instance's `hair_position_offset`, which now applies as an
-ADDITIONAL delta on top of the style's base offset — both it and
-`hair_rotation_offset_deg` default to zero). This is expected, not a bug.
+Development provenance check:
 
-`Hair_Beard` is a beard, not scalp hair — it's in the selectable list
-since the source folder contains it, but flagged for a possible future
-separate "facial hair" slot.
+```bash
+python3 tools/tests/check_ui_placeholders.py
+```
 
-## Vendored color picker (currently unused by this screen)
-`addons/jts_colorpickerkit/` is **JT's Color Picker Kit**
-(`github.com/JoenTNT/godot-jts-color-picker`), **Apache-2.0** — a runtime/
-in-game color picker (real SV gradient + hue/alpha sliders + hex field,
-custom shaders). It powered the previous pass's Hair step; the swatch
-palette now replaces it on this screen, but the addon is **kept vendored
-and intact** — a fuller "any color" picker behind something like an
-"Advanced" toggle is a reasonable thing to bring back in the customization
-pass, so this isn't an oversight. Apache-2.0 requires its
-`LICENSE`/`README.md` stay inside the addon folder — do not strip them.
-Its public API (if re-wired): `on_color_picked(Color)` signal,
-`get_picked_color()`, `set_picked_color()` on the `UI_ColorPickerInstance`
-script. The addon's own scene references one sprite by a UID that this
-project's import assigns differently (a harmless warning on first load;
-the sprite resolves by path).
+Release gate (must fail while a placeholder or reference remains):
 
-## Sidebar category layout, thumbnails & swatch palette (Aug 2026)
-The linear Gender→Hair wizard was replaced with a persistent sidebar
-(Body/Face/Hair/Features/Accessories) + a category panel that swaps on
-selection — see "Flow" above. Only Body and Hair are real; the other
-three are visible-but-disabled scaffolding with a "Coming soon" tooltip,
-wired up (or unwired) in `CharacterCreationScreen._ready()`.
+```bash
+python3 tools/tests/check_ui_placeholders.py --release
+```
 
-**Hairstyle thumbnails** render via `ItemPreviewKit.gd`
-(`scripts/ui/common/` — the project's ONE shared live-3D-preview tool,
-same one InventoryHUD/StorageUI use), NOT a separate implementation:
-each button is a `Button` with a full-rect `SubViewportContainer` layered
-on top (`mouse_filter = MOUSE_FILTER_IGNORE` — otherwise the container
-eats the click before the Button sees it) wrapping a `SubViewport` from
-`ItemPreviewKit.build_viewport()`, fed a standalone `Node3D` built by
-`CharacterCreationScreen._build_hair_preview_node()` (hair mesh + tinted
-material built the same way `PlayerModelController._build_hair_material()`
-builds the real one — no skeleton, thumbnail only). Rebuilding the
-buttons is cheap (six small static meshes).
+Run `tools/tests/CharacterCreationUITest.tscn` headlessly or from Godot. The
+test covers 1280×720, 1366×768, 1600×900, 1920×1080, 2560×1440 and 3440×1440,
+plus live resize, selection restoration, native accept input, changing input
+hints, preview count and focusability.
 
-**Hair color** is now `HAIR_COLOR_SWATCHES` — a curated realistic palette
-(black→white, browns, blonde, auburn, ginger, grey) as solid `StyleBoxFlat`
-swatch buttons in a `GridContainer`, not the reference's rainbow grid
-(grounded survival game, not a stylized vampire game — the list is just
-data, extend freely). Selected swatch gets a white 3px border. Picking a
-swatch repaints the live preview's hair material in place AND rebuilds
-the six thumbnails so they pick up the new tint too.
+Visual approval still requires the project's target Godot 4.7/.NET editor and
+the real font/import state. A passing headless test is not visual sign-off.
 
-**Randomise** rolls gender + a valid hairstyle for that gender + a swatch
-color together and syncs every UI control (gender toggle, thumbnail
-pressed-state, swatch border) to the result, not just the 3D preview.
+## Future work
+
+- Replace every placeholder with human-authored or properly licensed artwork
+  before release.
+- Preserve the approved status-icon pattern in later inspector passes,
+  including Running, Grid online and Stored water/water fill icons.
+- Apply the token direction to other screens deliberately, one UI family at a
+  time; do not make this theme global until those screens are migrated.
+- Reintroduce packed-away appearance choices only when their underlying V1
+  gameplay and art requirements are approved.
