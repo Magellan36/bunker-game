@@ -46,8 +46,6 @@ func _ready() -> void:
 	_toggle_btn.pressed.connect(_on_toggle_pressed)
 	_power_btn.pressed.connect(_on_power_pressed)
 	_close_btn.pressed.connect(close)
-	var backdrop: ColorRect = _view.get_node("Backdrop") as ColorRect
-	backdrop.color.a = float(_view.theme.get_constant("backdrop_alpha_permille", "GeneratorInspector")) / 1000.0
 	# Per-instance styles prevent state changes leaking into another generator.
 	for card_name: String in ["GeneratorStatus", "GridStatus"]:
 		var card: PanelContainer = _view.get_node("%" + card_name) as PanelContainer

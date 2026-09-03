@@ -27,6 +27,33 @@ explicitly approved migration of the generator inspector; other legacy panels
 remain unchanged. Initial character-creation focus no longer scrolls its heading
 out of view.
 
+## Redesign rule: in-world inspectors are not full-screen menus
+
+The September 2026 generator review established a standing user preference for
+future device panels (including water and farm trays): retain the approved
+warm-charcoal/ivory/worn-brass/project-blue identity, but use compact PC-game
+density, not character-creation or mobile/tablet proportions.
+
+- At a 1920×1080 UI viewport, the generator is **500×740 px**, vertically
+  centered and **24 px from the right edge**. Similar device inspectors should
+  start from this slender, right-docked pattern, adapting height to content.
+- **No screen-wide dimming, blur or opaque backdrop** for ordinary device
+  inspection. Keep the bunker and HUD visible. The panel consumes mouse input
+  within its bounds; its full-viewport root ignores it. This does not change
+  the owning game's existing movement/pause/input policy.
+- Base type: 24 px device title, 16–18 px status/body/action text, 14 px help,
+  13 px eyebrow/navigation. Actions remain robust at 44–48 px high, not 80 px.
+- At smaller desktop resolutions, reduce available details height and scroll
+  rather than shrinking this text baseline. Keep actions and focus visible.
+  Above 1080p, local growth is capped at 1.25×; ultrawide must not widen the panel.
+- Character creation is deliberately a full-screen workflow: **leave its
+  approved proportions intact**. A category/cart shop is also a distinct
+  workflow, not something to force into a 500 px inspector.
+
+The current compact revision changes only the generator presentation and tests.
+Do not silently migrate unrelated screens. See
+`plans/ui-redesign-generator-pass.md` for implementation and behavior contracts.
+
 ## Responsibilities
 - Render and handle input for every panel/HUD element.
 - React to game-state signals (power grid, stats, inventory) and re-draw.

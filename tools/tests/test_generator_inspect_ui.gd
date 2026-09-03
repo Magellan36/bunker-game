@@ -9,6 +9,7 @@ var _failures: Array[String] = []
 var _power_requests: Array[bool] = []
 var _backup_requests: Array[bool] = []
 var _close_count: int = 0
+var _world_clicks: int = 0
 
 func _ready() -> void:
 	get_window().mode = Window.MODE_WINDOWED
@@ -20,11 +21,20 @@ func _ready() -> void:
 	_run.call_deferred()
 
 func _run() -> void:
+	var shared: Theme = load("res://assets/ui/themes/BunkerRedesignTheme.tres") as Theme
+	var shared_margins: Vector4 = _style_margins(shared.get_stylebox("normal", "Button"))
+	var plain_button := Button.new()
+	var default_style: StyleBox = plain_button.get_theme_stylebox("disabled")
+	var default_margins: Vector4 = _style_margins(default_style)
+	plain_button.free()
 	for resolution: Vector2i in SIZES:
 		await _check_resolution(resolution)
+	await _check_world_visibility_and_input()
 	await _check_state_and_input()
+	_expect(_style_margins(shared.get_stylebox("normal", "Button")) == shared_margins, "inspector changed shared character-creation button margins")
+	_expect(_style_margins(default_style) == default_margins, "inspector changed engine fallback style margins")
 	if _failures.is_empty():
-		print("Generator inspector UI passed: six actual viewport sizes, live resize, states, signals, focus, input and reopen.")
+		print("Generator inspector UI passed: six actual viewport sizes, compact right docking, world click-through, live resize, states, signals, focus, input and reopen.")
 	else:
 		for failure: String in _failures:
 			push_error(failure)
@@ -44,17 +54,25 @@ func _check_resolution(resolution: Vector2i) -> void:
 	var panel: PanelContainer = ui._panel
 	var bounds := Rect2(Vector2.ZERO, Vector2(resolution))
 	_expect(bounds.encloses(panel.get_global_rect()), "%s: panel outside viewport" % resolution)
-	_expect(panel.size.x >= 540.0, "%s: panel unexpectedly narrow" % resolution)
-	_expect(ui._power_btn.size.y >= 50.0, "%s: action target too small" % resolution)
+	_check_dock(panel, Vector2(resolution), str(resolution))
+	_expect(ui._power_btn.size.y >= 48.0, "%s: main action target too small" % resolution)
+	_expect(ui._toggle_btn.size.y >= 44.0, "%s: backup target too small" % resolution)
+	_expect(ui._toggle_btn.get_theme_font_size("font_size") >= 18, "%s: body text shrunk below desktop baseline" % resolution)
 	_expect(panel.get_global_rect().encloses(ui._power_btn.get_global_rect()), "%s: main action outside panel" % resolution)
 	_expect(panel.get_global_rect().encloses(ui._close_btn.get_global_rect()), "%s: Close outside panel" % resolution)
 	var scroll: ScrollContainer = ui._view.get_node("%DetailsScroll") as ScrollContainer
 	_expect(scroll.size.y > 200.0, "%s: details collapsed" % resolution)
 	_expect(scroll.scroll_vertical == 0, "%s: inspector did not open at top" % resolution)
 	if resolution == Vector2i(1920, 1080):
+		_expect(panel.size.is_equal_approx(Vector2(500.0, 740.0)), "1080p panel no longer matches compact 500x740 spec")
 		_expect(scroll.get_v_scroll_bar().max_value <= scroll.get_v_scroll_bar().page, "normal 1080p layout needs unnecessary scrolling")
 	var grid: PanelContainer = ui._view.get_node("%GridStatus") as PanelContainer
 	_expect(grid.get_node("Row/State").size.x > 90.0, "%s: grid state cannot fit" % resolution)
+	for state: String in ["ONLINE", "OVERLOADED", "BROWNOUT", "TRIPPED", "OFFLINE", "UNKNOWN"]:
+		ui.refresh(78.0, 94.0, false, true, false, state)
+		await _settle()
+		_expect(grid.get_global_rect().encloses(grid.get_node("Row/State").get_global_rect()), "%s: grid label overflows: %s" % [resolution, state])
+		_check_dock(panel, Vector2(resolution), "%s / %s" % [resolution, state])
 	ui._toggle_btn.grab_focus()
 	await _settle()
 	_expect(scroll.get_global_rect().grow(1.0).encloses(ui._toggle_btn.get_global_rect()), "%s: focused Backup hidden by scrolling" % resolution)
@@ -62,9 +80,52 @@ func _check_resolution(resolution: Vector2i) -> void:
 	await _settle()
 	bounds.size = Vector2(get_window().size)
 	_expect(bounds.encloses(panel.get_global_rect()), "%s: resize escaped viewport" % resolution)
+	_check_dock(panel, bounds.size, "%s live resize" % resolution)
 	ui.close()
 	ui.queue_free()
 	await get_tree().process_frame
+
+func _check_dock(panel: PanelContainer, viewport_size: Vector2, context: String) -> void:
+	var factor: float = clampf(minf(viewport_size.x / 1920.0, viewport_size.y / 1080.0), 1.0, 1.25)
+	_expect(is_equal_approx(panel.size.x, 500.0 * factor), context + ": panel width exceeds compact spec")
+	_expect(is_equal_approx(viewport_size.x - panel.get_global_rect().end.x, 24.0 * factor), context + ": panel is not right-docked")
+	_expect(is_equal_approx(panel.position.y, (viewport_size.y - panel.size.y) * 0.5), context + ": panel is not vertically balanced")
+
+func _check_world_visibility_and_input() -> void:
+	get_window().size = Vector2i(1920, 1080)
+	# This lower-layer native control stands in for world-facing mouse input.
+	var world := Button.new()
+	world.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	world.focus_mode = Control.FOCUS_NONE
+	world.pressed.connect(func() -> void: _world_clicks += 1)
+	add_child(world)
+	var ui: CanvasLayer = UI_SCRIPT.new()
+	add_child(ui)
+	ui.open("Generator M", 2000.0, 100.0, 100.0, false, true)
+	await _settle()
+	_expect(not ui._view.has_node("Backdrop"), "screen-wide darkening layer was reintroduced")
+	_expect(ui._view.get_child_count() == 1 and ui._view.get_child(0) == ui._panel, "inspector paints outside its panel subtree")
+	_expect(ui._view.mouse_filter == Control.MOUSE_FILTER_IGNORE, "root blocks exposed world input")
+	_expect(ui._panel.mouse_filter == Control.MOUSE_FILTER_STOP, "panel does not contain its own mouse input")
+	_click_at(Vector2(100.0, 540.0))
+	await get_tree().process_frame
+	_expect(_world_clicks == 1, "exposed world click was blocked")
+	_click_at(ui._panel.position + Vector2(4.0, 4.0))
+	await get_tree().process_frame
+	_expect(_world_clicks == 1, "panel-background click leaked to world")
+	ui.close()
+	ui.queue_free()
+	world.queue_free()
+	await get_tree().process_frame
+
+func _click_at(position: Vector2) -> void:
+	for pressed: bool in [true, false]:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.position = position
+		click.global_position = position
+		click.pressed = pressed
+		Input.parse_input_event(click)
 
 func _check_state_and_input() -> void:
 	get_window().size = Vector2i(1920, 1080)
@@ -182,6 +243,7 @@ func _check_state_and_input() -> void:
 
 	ui.open("Backup Generator L — Emergency reserve", 5000.0, 50.0, 50.0, true, false)
 	await _settle()
+	_check_dock(ui._panel, Vector2(1920.0, 1080.0), "long generator name")
 	_expect((ui._view.get_node("%DetailsScroll") as ScrollContainer).scroll_vertical == 0, "reopen did not reset scroll")
 	var escape := InputEventKey.new()
 	escape.keycode = KEY_ESCAPE
@@ -200,6 +262,10 @@ func _check_state_and_input() -> void:
 
 func _status(ui: CanvasLayer, card: String) -> String:
 	return (ui._view.get_node("%" + card).get_node("Row/State") as Label).text
+
+func _style_margins(style: StyleBox) -> Vector4:
+	return Vector4(style.content_margin_left, style.content_margin_top,
+		style.content_margin_right, style.content_margin_bottom)
 
 func _accept() -> void:
 	for pressed: bool in [true, false]:

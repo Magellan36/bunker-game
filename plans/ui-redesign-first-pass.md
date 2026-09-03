@@ -13,6 +13,11 @@ status colour, restrained project blue, darker worn brass, and warm ivory text.
 The interface should feel maintained and inhabited—not sleek sci-fi glass, not a
 sepia military cliché, and not a collection of unrelated AI-generated widgets.
 
+**Later generator review:** these full-screen character-creation proportions are
+not the template for in-world device panels. Those use compact right-docked
+desktop layouts with no world dimming; see the standing rule in
+`docs/systems/ui/README.md`. Character creation itself stays unchanged.
+
 ## First-pass scope
 
 - Rebuild character creation with native Godot containers and controls.
