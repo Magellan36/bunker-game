@@ -149,7 +149,7 @@ func on_f_interact() -> bool:
 	if not held.is_in_group("inventory_item"):
 		return false   ## unrelated held item, nothing this can does with it
 	if is_full():
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
 		_interaction_system._quick_drop()   ## Established pattern (LightStorage._try_store_held()) — error, but don't strand the held item just because ITS specific destination was unavailable.
 		return true
 	_try_store_held(held)   ## inherited mechanics unchanged
@@ -214,7 +214,7 @@ func _merge_bag(bag: RigidBody3D, isys: Node) -> void:
 		if s == null:
 			free_slots += 1
 	if records.size() > free_slots:
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Trash can is too full")
 		isys._quick_drop()   ## Aug 2026 fix — same never-strand fallback as above (LightStorage pattern); the bag is still isys.held_item here, before the release-and-merge sequence, so _quick_drop() works as-is.
 		return
 

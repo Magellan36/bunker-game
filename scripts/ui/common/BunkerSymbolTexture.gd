@@ -4,7 +4,7 @@ extends Texture2D
 ## Intended for Button icons and TextureRect KEEP_ASPECT_CENTERED. No tiling,
 ## atlas cropping or 3D use. Keep decorative artwork separately provenance-tagged.
 
-@export_enum("power", "running", "stopped", "grid", "fuel", "condition", "water", "battery", "plant", "warning", "build", "move", "duplicate", "demolish", "undo", "wire", "pipe", "shop", "storage", "food", "container", "cooking", "search", "plus", "minus", "close", "check") var symbol: String = "power":
+@export_enum("power", "running", "stopped", "grid", "fuel", "condition", "water", "battery", "plant", "warning", "build", "move", "duplicate", "demolish", "undo", "wire", "pipe", "shop", "storage", "food", "container", "cooking", "search", "plus", "minus", "close", "check", "save", "load", "settings", "exit", "log", "general") var symbol: String = "power":
 	set(value):
 		symbol = value
 		emit_changed()
@@ -126,6 +126,35 @@ func _draw_rect(item: RID, rect: Rect2, _tile: bool, tint: Color, transpose: boo
 			lines.append(PackedVector2Array([Vector2(25, 7), Vector2(7, 25)]))
 		"check":
 			lines.append(PackedVector2Array([Vector2(5, 16), Vector2(13, 24), Vector2(28, 7)]))
+		"save":
+			lines.append(PackedVector2Array([Vector2(5, 3), Vector2(24, 3), Vector2(29, 8), Vector2(29, 29), Vector2(5, 29), Vector2(5, 3)]))
+			lines.append(PackedVector2Array([Vector2(10, 3), Vector2(10, 12), Vector2(23, 12), Vector2(23, 3)]))
+			lines.append(PackedVector2Array([Vector2(10, 19), Vector2(24, 19), Vector2(24, 29), Vector2(10, 29), Vector2(10, 19)]))
+		"load":
+			lines.append(PackedVector2Array([Vector2(4, 9), Vector2(13, 9), Vector2(16, 13), Vector2(28, 13), Vector2(28, 27), Vector2(4, 27), Vector2(4, 9)]))
+			lines.append(PackedVector2Array([Vector2(16, 4), Vector2(16, 21)]))
+			lines.append(PackedVector2Array([Vector2(10, 15), Vector2(16, 21), Vector2(22, 15)]))
+		"settings":
+			var gear := PackedVector2Array()
+			for i: int in range(17):
+				var radius := 13.0 if i % 2 == 0 else 10.5
+				gear.append(Vector2(16, 16) + Vector2.from_angle(TAU * i / 16.0) * radius)
+			lines.append(gear)
+			var hub := PackedVector2Array()
+			for i: int in range(25):
+				hub.append(Vector2(16, 16) + Vector2.from_angle(TAU * i / 24.0) * 4.5)
+			lines.append(hub)
+		"exit":
+			lines.append(PackedVector2Array([Vector2(15, 5), Vector2(5, 5), Vector2(5, 27), Vector2(15, 27)]))
+			lines.append(PackedVector2Array([Vector2(12, 16), Vector2(29, 16)]))
+			lines.append(PackedVector2Array([Vector2(22, 9), Vector2(29, 16), Vector2(22, 23)]))
+		"log":
+			lines.append(PackedVector2Array([Vector2(7, 3), Vector2(25, 3), Vector2(25, 29), Vector2(7, 29), Vector2(7, 3)]))
+			for y: int in [10, 16, 22]:
+				lines.append(PackedVector2Array([Vector2(11, y), Vector2(21, y)]))
+		"general":
+			lines.append(PackedVector2Array([Vector2(12, 3), Vector2(20, 3), Vector2(20, 11), Vector2(27, 27), Vector2(5, 27), Vector2(12, 11), Vector2(12, 3)]))
+			lines.append(PackedVector2Array([Vector2(9, 20), Vector2(23, 20)]))
 	var width: float = maxf(1.0, minf(absf(rect.size.x), absf(rect.size.y)) / 16.0)
 	for points: PackedVector2Array in solids:
 		RenderingServer.canvas_item_add_polygon(item, _mapped(points, rect, transpose), PackedColorArray([tint]))

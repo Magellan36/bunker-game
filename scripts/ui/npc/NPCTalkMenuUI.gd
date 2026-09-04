@@ -703,10 +703,10 @@ func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: Stri
 		return
 	_npc.brain.force_command(activity)
 	if activity.done(_npc):
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
 			"%s: %s" % [_npc.npc_name, empty_desc])
 	else:
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
 			"%s: %s" % [_npc.npc_name, action_desc])
 
 func _on_command_eat_pressed() -> void:

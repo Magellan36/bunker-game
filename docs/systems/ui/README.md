@@ -312,141 +312,40 @@ their own palette consts + `_draw_str()`/backdrop/panel/bar boilerplate.
   hand-drawn-immediate-mode panels, not an invitation to start new panels
   in immediate-mode — new panels still use real `Control` nodes.
 
-## NotificationManager (Jul 2026)
-`scripts/ui/notifications/NotificationManager.gd` — real project-level
-**autoload** (`project.godot` `[autoload]`, registered after
-`GraphicsSettings`), NOT the group-lookup pattern `WaterManager`/
-`PowerManager`/`PlayerStats` use — a toast has no save-specific world state,
-it's a global "show this text for a while" service reachable from any scene.
-- **No `class_name`** on this script — a `class_name` matching the autoload's
-  own name causes a `"hides an autoload singleton"` parse error. Every other
-  autoload in this project (`SaveManager`, `GraphicsSettings`, etc.) follows
-  the same no-`class_name` pattern; keep doing that for any future autoload.
-- Call `NotificationManager.notify(domain: UIKit.Domain, severity:
-  Severity, text: String, duration: float = 4.0)` from anywhere.
-  `enum Severity { INFO, WARNING, CRITICAL }` — `domain` still tags the
-  entry (used by `NotificationHistoryUI`'s row text/consumers, and future
-  filtering) but as of the Jul 2026 toast-format rework it no longer tints
-  the live toast itself. `severity` drives the toast's actual look via
-  **fixed colors, the same across all domains** (Brannon's explicit call —
-  a WARNING toast reads identically whether it's water or power):
-  `SEVERITY_COLOR_INFO = #878787`, `SEVERITY_COLOR_WARNING = #8f940d`,
-  `SEVERITY_COLOR_CRITICAL = #94302b`.
-- Queue: newest toast appended at the bottom of the internal `_queue`
-  array (oldest at top of the array), each toast fades independently over
-  its own last 20% (`FADE_TAIL_RATIO`) of `duration`. `MAX_QUEUE_LEN = 20`
-  defensive cap (drops oldest first) — this is this pass's own default,
-  not yet explicitly confirmed by Brannon; revisit if it ever needs tuning.
-- **Toast look/position (reworked Jul 2026 — Brannon's explicit call to go
-  back to the old pre-`NotificationManager` look):** each toast is a
-  rounded rectangle (`TOAST_CORNER_RADIUS = 8`, drawn via a `StyleBoxFlat`
-  + `.draw()` rather than a plain `draw_rect()` so the corners actually
-  round — flat `draw_rect()` has no corner-radius support) filled with its
-  severity color at partial opacity (`TOAST_FILL_ALPHA = 0.62`), plus a
-  dark semi-transparent border on every toast (`TOAST_BORDER_COLOR =
-  rgba(0,0,0,0.55)`, `TOAST_BORDER_WIDTH = 2.0`) — no more domain-tinted
-  `UIKit.draw_panel()` background or thin left accent bar; text is a
-  fixed light color (`TOAST_TEXT_COLOR`) at the original 13px size via
-  `UIKit.draw_shadowed_text()` (already renders with `UIKit.font()`, so
-  toast text has always matched the shared UI font — no change needed
-  there), and **centered horizontally within the toast** (Jul 2026 —
-  measured via `UIKit.font().get_string_size()`; history rows stay
-  left-aligned, this only affects the live floating toast). Size:
-  `TOAST_WIDTH = 561` (510 × 1.1, itself 1.5× the original 340),
-  `TOAST_HEIGHT = 24` (half the original 48) — Brannon's Jul 2026
-  follow-up calls, a shorter/wider bar than the initial rework. This
-  matches the shape/position of the old `HUD.show_soft_warning()`
-  single-message toast (see below), just extended to a real stacked queue
-  instead of one-at-a-time replace.
-  - Spacing: `TOAST_GAP = 4.0` between stacked toasts (Jul 2026 — halved
-    from the original 8.0).
-  - Fadeout duration: per-severity now, not one shared default. INFO
-    still uses `DEFAULT_DURATION = 4.0`; `WARNING_DURATION = 6.0` and
-    `CRITICAL_DURATION = 8.0` (Jul 2026 — previously ALL severities used
-    the same 4.0s `DEFAULT_DURATION`). `notify()`'s `duration` param
-    defaults to `DURATION_SENTINEL = -1.0`, resolved to the right
-    per-severity constant in `_default_duration_for_severity()` unless a
-    caller passes an explicit duration.
-  - Position: centered horizontally, stacked directly **above the
-    inventory bar** (not the old top-right corner stack) — newest toast
-    sits closest to the bar (`GAP_ABOVE_BAR = 12.0`), older toasts push
-    upward above it as more queue up. `NotificationManager` finds the bar
-    by looking up `get_first_node_in_group("hud")` (HUD.gd calls
-    `add_to_group("hud")` in its own `_ready()` specifically so this
-    global autoload — outside HUD's scene — can find it) and reading its
-    public `inventory_hud` Control's `get_global_rect()`. Falls back to a
-    fixed bottom-of-viewport margin (`FALLBACK_BOTTOM_MARGIN = 140.0`) if
-    no HUD is present in the current scene (e.g. a menu/preview context).
-  - Rendering: own `CanvasLayer` at `layer = 220` (above every other panel
-    layer in the project — `PauseMenuUI`=200 and `GraphicsSettingsPanel`=210
-    were previously the highest).
-- **Power signal wiring (Jul 2026, done):**
-  `NotificationManager.connect_power_signals()` is a thin adapter —
-  `PowerManager` already does all detection, this just translates 10 of
-  its signals into `notify()` calls: `grid_tripped`/`grid_offline`→CRITICAL,
-  `overloaded_started`/`breaker_tripped`/`battery_drained`/
-  `generator_stopped`→WARNING, `grid_restored`/`overloaded_ended`/
-  `generator_started`/`breaker_reset`/`generator_fuel_low`/`battery_low`
-  →INFO. Generator/battery/breaker toasts include the specific id in the
-  text (e.g. `"Generator gen_2 fuel low (18%)"`). Since `PowerManager` is a
-  per-scene instance (group `"power_manager"`), not an autoload, this can't
-  be connected from `NotificationManager._ready()` — `MainWorld` calls
-  `connect_power_signals()` once, deferred, right after it creates
-  `PowerManager` for that scene (`_setup_power_manager()` →
-  `_connect_power_notification_signals()`), mirroring the pre-existing
-  `_connect_power_hud_signals()` pattern. Guarded with `is_connected()`
-  checks, safe to call more than once.
-- **Notification history panel (Jul 2026, done):** in addition to the
-  fading live toast stack (`_queue`), `NotificationManager` now keeps a
-  second, independent `_history: Array[Dictionary]` capped at
-  `MAX_HISTORY_LEN = 20` (own eviction, never touched by `_queue`'s
-  fade/expire logic). Every `notify()` call appends `{domain, severity,
-  text, fired_at_msec}` (via `Time.get_ticks_msec()`) and emits
-  `history_changed`. `get_history() -> Array[Dictionary]` returns the
-  history **newest-first** (reversed from internal append order) for
-  direct UI consumption.
-  - New panel: `scripts/ui/notifications/NotificationHistoryUI.gd`
-    (extends `Control`, real `ScrollContainer` + `VBoxContainer` of rows —
-    not hand-drawn immediate-mode, per this project's standing convention).
-    Each row is a `PanelContainer` styled to **match the live toast look**
-    (Jul 2026 rework) instead of the old thin accent bar: solid severity
-    fill at the same `NotificationManager.TOAST_FILL_ALPHA`, same dark
-    `TOAST_BORDER_COLOR`/`TOAST_BORDER_WIDTH` border, same
-    `TOAST_CORNER_RADIUS` rounded corners, fixed light `TOAST_TEXT_COLOR`
-    text, and the shared `UIKit.font()` on both the message and timestamp
-    Labels (all four constants/helper reused directly from
-    `NotificationManager`/`UIKit`, not redefined) — plus a single-line
-    message and
-    a right-aligned "Xs ago"/"Xm ago"/"Xh ago" timestamp refreshed every
-    frame while the panel is `visible` (its own lightweight `_process()` —
-    safe because the pause menu does NOT set `SceneTree.paused`).
-  - Visible ONLY inside the pause menu: instantiated as a direct child of
-    `PauseMenuUI` (a `CanvasLayer`, `layer = 200`) — a **sibling** of
-    `_panel`/`_blur_rect`, not nested inside either — so it shows/hides for
-    free with that `CanvasLayer`'s own `visible` toggle in `open()`/
-    `close()`. Also gets `UIFade.fade_in()` in `open()`, matching the
-    project's standing "every panel fades in" convention.
-  - No header, no title, no close button by design — it's a passive
-    sub-panel that lives and dies with the pause menu, not its own modal.
-  - Position: anchored so its top-left sits at roughly
-    (0.75 × viewport width, 0.25 × viewport height) — "3/4 right, 3/4 up"
-    (upper-right quadrant, inset from the corner) — clamped so the
-    380×480px panel never overflows the viewport on any resolution;
-    recalculated on `size_changed`.
-  - Newest entry at the **TOP** of this list — the opposite convention
-    from the live toast stack (which appends newest at the bottom) — per
-    Brannon's explicit call for the history view.
-  `grid_tripped`/`grid_restored`/`grid_offline` previously ALSO surfaced via
-  `HUD.show_soft_warning()` from `MainWorld._on_grid_tripped/restored/
-  offline()` — that duplicate ad-hoc text was removed from those three
-  functions in this same pass (the camera-trauma shake on `grid_tripped`
-  stays) so the toast is the one place these three events show a message,
-  not two overlapping notifications for one event.
-- **Still out of scope (paused, needs explicit go-ahead before starting):**
-  new water-system alert signals (`WaterPurifier`/`WaterManager`/
-  `WaterDispenser` currently expose none — see plan §2.3), and `PlayerStats`
-  threshold watching (food/water/sleep/health crossing a threshold, needs a
-  shared `ThresholdWatcher` helper per the plan, not yet built).
+## NotificationManager and Bunker Log (Sep 2026 overhaul)
+
+`scripts/ui/notifications/NotificationManager.gd` remains the project-level
+autoload and deliberately has no `class_name`. Existing calls keep the source-
+compatible signature `notify(domain, severity, text, duration)`. Two optional
+fields follow it: `journal` and `detail`. `feedback()` is the explicit route
+for short interaction acknowledgement that should appear live without filling
+the run log.
+
+- Live cards are 520 × 48 px, centered above the inventory bar. They use a
+  code-drawn domain icon, semantic accent, domain/severity eyebrow, main copy,
+  optional detail and duplicate count. At most three full cards are visible;
+  an overflow count represents the rest of the bounded 20-entry queue.
+- INFO/WARNING/CRITICAL retain 4/6/8 second defaults and independent tail
+  fades. Identical events arriving within the dedupe window refresh and move
+  the existing card to the newest position instead of creating spam.
+- Journaled events use a separate 20-entry, newest-first history. Duplicates
+  collapse with a count. Interaction-only events such as full receptacles,
+  empty bags and material transfer acknowledgements call `feedback()` and do
+  not appear in Bunker Log.
+- PowerManager wiring remains guarded and signal-driven. Messages now resolve
+  registered scene nodes to player-facing generator/battery/breaker names
+  rather than exposing registry or instance IDs.
+- `NotificationHistoryUI.gd` is embedded in the right side of the redesigned
+  pause workspace. Its All/Critical/Power/Water/Farming filters, code-drawn
+  icons, relative times, duplicate counts and NEW state are native Controls.
+- `PauseMenuUI.gd` keeps its non-pausing world behavior, movement lock,
+  settings and exit confirmation. Its left rail exposes Continue, Save, Load,
+  Settings and Exit; Save/Load expand the same three authoritative slots.
+  Controller B/Escape dismisses the confirmation or slot chooser before the
+  overall menu.
+
+Detailed implementation and verification notes live in
+`docs/ui/NOTIFICATION_PAUSE_OVERHAUL.md`.
 
 ## Graphics Settings Panel Rewrite (Jul 2026)
 `GraphicsSettingsPanel.gd` was completely rewritten as part of the graphics

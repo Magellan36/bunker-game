@@ -641,7 +641,7 @@ func _build_tiered_node(upgrade: UpgradeDef, station: ResearchStation) -> Contro
 			if is_maxed or not can_afford:
 				return
 			if not station.start_research(upgrade):
-				NotificationManager.notify(
+				NotificationManager.feedback(
 					UIKit.Domain.NEUTRAL,
 					NotificationManager.Severity.WARNING,
 					"Already researching something else")

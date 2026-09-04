@@ -133,7 +133,7 @@ func _feed_single_item(item: RigidBody3D, isys: Node) -> void:
 	if not stored_materials.has(material):
 		return   ## defensive — get_trash_material() should always return a known type
 	if stored_materials[material] >= STORAGE_CAP:
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "%s storage is full" % material.capitalize())
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "%s storage is full" % material.capitalize())
 		return   ## reject entirely — item stays in hand, nothing consumed (confirmed)
 
 	## Release from InteractionSystem — identical sequence to
@@ -149,7 +149,7 @@ func _feed_single_item(item: RigidBody3D, isys: Node) -> void:
 
 	add_material(material, 1)
 	item.queue_free()
-	NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "+1 %s" % material.capitalize())
+	NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "+1 %s" % material.capitalize())
 
 ## Multi-material counterpart to _feed_single_item() above (Aug 2026,
 ## Medical items) — the item's get_research_yield() returns a Dictionary
@@ -173,7 +173,7 @@ func _feed_single_item_multi(item: RigidBody3D, isys: Node) -> void:
 		if amount <= 0:
 			continue
 		if stored_materials[material] + amount > STORAGE_CAP:
-			NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "%s storage is full" % material.capitalize())
+			NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "%s storage is full" % material.capitalize())
 			return   ## reject entirely — item stays in hand, nothing consumed
 
 	## Release from InteractionSystem — identical sequence to
@@ -197,12 +197,12 @@ func _feed_single_item_multi(item: RigidBody3D, isys: Node) -> void:
 		summary_parts.append("+%d %s" % [amount, material.capitalize()])
 	item.queue_free()
 	if not summary_parts.is_empty():
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "  ".join(summary_parts))
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "  ".join(summary_parts))
 
 func _feed_bag(bag: RigidBody3D, isys: Node) -> void:
 	var records: Array = bag.contents if "contents" in bag else []
 	if records.is_empty():
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Bag is empty")
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Bag is empty")
 		return
 
 	## Running per-material tally — lets a bag with several of the same
@@ -234,7 +234,7 @@ func _feed_bag(bag: RigidBody3D, isys: Node) -> void:
 		fed_total += fed_counts[material]
 
 	if fed_total == 0:
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Nothing in the bag could be fed right now")
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "Nothing in the bag could be fed right now")
 		return
 
 	if leftover.is_empty():
@@ -248,7 +248,7 @@ func _feed_bag(bag: RigidBody3D, isys: Node) -> void:
 		isys.held_item       = null
 		isys._held_from_slot = -1
 		bag.queue_free()
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "Fed %d items into Research Station — bag emptied" % fed_total)
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "Fed %d items into Research Station — bag emptied" % fed_total)
 	else:
 		## Partial drain — bag stays in the player's hand, shrunk to just
 		## the leftover records. No new bag object needed: this is the
@@ -258,7 +258,7 @@ func _feed_bag(bag: RigidBody3D, isys: Node) -> void:
 		for i: int in leftover.size():
 			leftover[i]["disposed_index"] = i
 		bag.contents = leftover
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "Fed %d items — %d stayed in the bag (storage full)" % [fed_total, leftover.size()])
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "Fed %d items — %d stayed in the bag (storage full)" % [fed_total, leftover.size()])
 
 ## Not built this pass — deliberately no "remove_material" logic beyond the
 ## chute above. Storage math (add_material()) is self-contained and was

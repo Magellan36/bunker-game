@@ -198,7 +198,7 @@ func _tick_one_game_hour() -> void:
 	## once when crossing the threshold, not every hour it stays below it).
 	if health < FarmingConstants.HEALTH_WARNING_THRESHOLD and not _warned_low_health:
 		_warned_low_health = true
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
+		NotificationManager.notify(UIKit.Domain.FARMING, NotificationManager.Severity.WARNING,
 			"%s wilting — health low" % plant_type.capitalize())
 	elif health >= FarmingConstants.HEALTH_WARNING_THRESHOLD:
 		_warned_low_health = false
