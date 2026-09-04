@@ -54,7 +54,7 @@ static func signature(item: Node, count: int = 1) -> String:
 	return "%s|%s|%s|%d" % [item.get_instance_id(), title(item), detail(item, count), count]
 
 static func _script_constant(item: Node, constant_name: String, fallback: Variant) -> Variant:
-	var script := item.get_script()
+	var script: Script = item.get_script() as Script
 	if script != null and script.has_method("get_script_constant_map"):
 		return script.get_script_constant_map().get(constant_name, fallback)
 	return fallback
