@@ -95,6 +95,110 @@ func spawn_purchased_item(item_id: int) -> bool:
 
 	return true
 
+## Atomic multi-item checkout used by the new ShopPanel.  All resources are
+## validated and instantiated while detached before cash changes.  If a clear
+## delivery area cannot be reserved, or any item cannot be prepared, nothing
+## is charged and the cart remains intact.
+func checkout_order(lines: Dictionary) -> Dictionary:
+	if lines.is_empty() or _owner == null or _owner.world_node == null:
+		return {"ok": false, "message": "Your cart is empty."}
+	var total := 0
+	var item_count := 0
+	var order: Array[int] = []
+	for raw_id in lines:
+		var item_id := int(raw_id)
+		var quantity := int(lines[raw_id])
+		if not SHOP_ITEM_INFO.has(item_id) or quantity < 1 or quantity > 99:
+			return {"ok": false, "message": "The cart contains an unavailable item."}
+		item_count += quantity
+		if item_count > ShopCart.MAX_ITEMS:
+			return {"ok": false, "message": "This order is too large."}
+		total += int(SHOP_ITEM_INFO[item_id]["price"]) * quantity
+		for _copy in quantity:
+			order.append(item_id)
+	if _owner.world_node.get_cash() < total:
+		return {"ok": false, "message": "Not enough cash for this order."}
+	var player := _owner.get_parent() as Node3D
+	var parent: Node = _owner.gridmap.get_parent() if _owner.gridmap != null else _owner.world_node
+	if player == null or parent == null or not parent.is_inside_tree():
+		return {"ok": false, "message": "Delivery is currently unavailable."}
+	var positions := _delivery_positions(player, item_count)
+	if positions.size() != item_count:
+		return {"ok": false, "message": "Clear some space near the player for delivery."}
+	var prepared: Array[Node3D] = []
+	for item_id in order:
+		var node := _prepare_item(item_id)
+		if node == null:
+			for prior in prepared:
+				prior.free()
+			return {"ok": false, "message": "One of those items could not be prepared."}
+		prepared.append(node)
+	if not _owner.world_node.spend_cash(total):
+		for node in prepared:
+			node.free()
+		return {"ok": false, "message": "Not enough cash for this order."}
+	for i in prepared.size():
+		parent.add_child(prepared[i])
+		prepared[i].global_position = positions[i]
+	return {"ok": true, "message": "%d item%s delivered nearby." % [item_count, "" if item_count == 1 else "s"], "total": total}
+
+func _prepare_item(item_id: int) -> Node3D:
+	var info: Dictionary = SHOP_ITEM_INFO[item_id]
+	match String(info.get("kind", "")):
+		"soil":
+			return BagOfSoilItem.new()
+		"seed":
+			var seed := SeedItem.new()
+			seed.seed_type = String(info.get("type", "tomato"))
+			return seed
+		"fertilizer":
+			var fertilizer := FertilizerItem.new()
+			fertilizer.tier = String(info.get("type", "normal"))
+			return fertilizer
+		"scene":
+			var path := String(info.get("scene", ""))
+			if not ResourceLoader.exists(path):
+				return null
+			var packed := load(path) as PackedScene
+			return packed.instantiate() as Node3D if packed != null else null
+	return null
+
+func _delivery_positions(player: Node3D, count: int) -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	var space := player.get_world_3d().direct_space_state
+	var exclude: Array[RID] = []
+	if player is CollisionObject3D:
+		exclude.append((player as CollisionObject3D).get_rid())
+	for ring in range(1, 8):
+		var samples := ring * 8
+		for sample in samples:
+			if result.size() >= count:
+				return result
+			var angle := TAU * float(sample) / float(samples)
+			var flat := player.global_position + Vector3(cos(angle), 0.0, sin(angle)) * (1.1 + ring * 0.55)
+			var ray := PhysicsRayQueryParameters3D.create(flat + Vector3.UP * 2.5, flat + Vector3.DOWN * 2.5, 1, exclude)
+			var hit := space.intersect_ray(ray)
+			if hit.is_empty() or (hit.normal as Vector3).dot(Vector3.UP) < 0.8:
+				continue
+			var point: Vector3 = hit.position + Vector3.UP * 0.45
+			var clear := true
+			var box := BoxShape3D.new()
+			box.size = Vector3(0.75, 0.7, 0.75)
+			var shape_query := PhysicsShapeQueryParameters3D.new()
+			shape_query.shape = box
+			shape_query.transform = Transform3D(Basis.IDENTITY, point)
+			shape_query.collision_mask = 7
+			shape_query.exclude = exclude
+			if not space.intersect_shape(shape_query, 1).is_empty():
+				clear = false
+			for accepted in result:
+				if accepted.distance_to(point) < 0.8:
+					clear = false
+					break
+			if clear:
+				result.append(point)
+	return result
+
 ## Loads a scene, adds it to the tree, and positions it — same pattern as
 ## SeedItem.spawn_at() / BagOfSoilItem.spawn_at() / FertilizerItem.spawn_at()
 ## / EmptyBagItem.spawn_at() (no freeze, no raycast, no physics-frame waits).

@@ -1,7 +1,6 @@
 extends Control
-## Character creation — approved warm-charcoal / blue redesign, first pass.
-## Existing appearance/preview behavior stays here; native scene containers
-## and CharacterCreationLayout own presentation. Legacy controls are hidden.
+## Bare-bones character creation — sidebar category layout (Body/Hair/
+## Features/Accessories), matching the reference UI's shape.
 ##
 ## Aug 2026 — V1 simplification. Only Body (gender) is functional now;
 ## Hair joined Features/Accessories as disabled/"Coming soon" — the
@@ -61,8 +60,6 @@ const PREVIEW_SCENE_PATH: String = "res://scenes/player/AdventurerModel.tscn"
 ## world, so the bunker build-up happens behind a branded screen.
 const NEXT_SCENE_PATH: String = "res://scenes/ui/LoadingScreen.tscn"
 const THUMBNAIL_PIXEL_SIZE: int = 72
-const SELECTED_ICON: Texture2D = preload("res://assets/ui/placeholders/redesign/selected_AI_PLACEHOLDER.svg")
-const UNSELECTED_ICON: Texture2D = preload("res://assets/ui/placeholders/redesign/unselected_AI_PLACEHOLDER.svg")
 
 @export var category_body_button: Button = null
 @export var category_hair_button: Button = null
@@ -91,13 +88,6 @@ var _hairstyle_group := ButtonGroup.new()
 var _selected_swatch: Button = null
 var _preview_instance: Node3D = null
 var _rng := RandomNumberGenerator.new()
-var _controller_hints: bool = false
-var _transitioning: bool = false
-
-@onready var _preview_hint: Label = %PreviewHint
-@onready var _navigation_hint: Label = %NavigationHint
-@onready var _error_message: Label = %ErrorMessage
-@onready var _choice_scroll: ScrollContainer = %ChoiceScroll
 
 func _ready() -> void:
 	_rng.randomize()
@@ -149,51 +139,9 @@ func _ready() -> void:
 	var nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	nav.ui_root = self
 	nav.close_on_cancel = false   ## B must not exit character creation
-	nav.stick_navigation = true   ## left stick navigates here (no movement to reserve)
+	nav.stick_navigation = true   ## left and right sticks navigate this full-screen menu
 	add_child(nav)
-	_sync_body_selection()
-	_configure_focus_order()
-	_update_input_hints()
-	# Restore focus without scrolling past the heading on first open. Subsequent
-	# navigation still follows focus normally, including at smaller resolutions.
-	_choice_scroll.follow_focus = false
-	if CharacterCreationData.gender == "female":
-		female_button.grab_focus()
-	else:
-		male_button.grab_focus()
-	_choice_scroll.set_deferred("scroll_vertical", 0)
-	_choice_scroll.set_deferred("follow_focus", true)
-
-func _process(_delta: float) -> void:
-	if _controller_hints != InputMode.is_controller():
-		_update_input_hints()
-
-func _update_input_hints() -> void:
-	_controller_hints = InputMode.is_controller()
-	if _controller_hints:
-		_preview_hint.text = "Right stick: rotate / pan"
-		_navigation_hint.text = "[A] Select   •   D-pad / left stick: navigate"
-	else:
-		_preview_hint.text = "Drag: rotate   •   Wheel: zoom\nMiddle-drag: pan"
-		_navigation_hint.text = "Enter / Space: select   •   Tab / arrows: navigate"
-
-func _configure_focus_order() -> void:
-	var buttons: Array[Button] = [male_button, female_button, randomise_button, complete_button]
-	for index: int in range(buttons.size()):
-		var button: Button = buttons[index]
-		button.focus_mode = Control.FOCUS_ALL
-		button.focus_previous = button.get_path_to(buttons[posmod(index - 1, buttons.size())])
-		button.focus_next = button.get_path_to(buttons[(index + 1) % buttons.size()])
-		# Vertical arrows stop at the ends, matching the existing controller nav.
-		button.focus_neighbor_top = button.get_path_to(buttons[maxi(index - 1, 0)])
-		button.focus_neighbor_bottom = button.get_path_to(buttons[mini(index + 1, buttons.size() - 1)])
-		button.focus_neighbor_left = NodePath(".")
-		button.focus_neighbor_right = NodePath(".")
-
-func _sync_body_selection() -> void:
-	for button: Button in [male_button, female_button]:
-		var indicator: TextureRect = button.get_node("Indicator") as TextureRect
-		indicator.texture = SELECTED_ICON if button.button_pressed else UNSELECTED_ICON
+	category_body_button.grab_focus()
 
 func _show_category(category: String) -> void:
 	body_panel.visible = category == "body"
@@ -201,7 +149,6 @@ func _show_category(category: String) -> void:
 
 func _on_gender_picked(gender: String) -> void:
 	CharacterCreationData.gender = gender
-	_sync_body_selection()
 	_rebuild_preview()
 
 ## Aug 2026 — UNUSED in V1 (hair category disabled), kept for the
@@ -358,25 +305,7 @@ func _on_randomise_pressed() -> void:
 		female_button.button_pressed = true
 	else:
 		male_button.button_pressed = true
-	_sync_body_selection()
 	_rebuild_preview()
 
 func _on_complete_pressed() -> void:
-	if _transitioning:
-		return
-	_transitioning = true
-	_error_message.hide()
-	for button: Button in [male_button, female_button, randomise_button, complete_button]:
-		button.disabled = true
-	var error: Error = _change_to_loading()
-	if error != OK:
-		_transitioning = false
-		for button: Button in [male_button, female_button, randomise_button, complete_button]:
-			button.disabled = false
-		_error_message.text = "Could not open the loading screen. Please try again."
-		_error_message.show()
-		complete_button.grab_focus()
-		push_error("Character creation: loading-screen transition failed (%s)." % error_string(error))
-
-func _change_to_loading() -> Error:
-	return get_tree().change_scene_to_file(NEXT_SCENE_PATH)
+	get_tree().change_scene_to_file(NEXT_SCENE_PATH)

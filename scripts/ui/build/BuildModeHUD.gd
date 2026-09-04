@@ -201,10 +201,63 @@ func get_item_price(tile_id: int) -> int:
 				return item["price"]
 	return 0
 
+func available_cash() -> int:
+	if shop_wallet != null and shop_wallet.has_method("get_cash"):
+		return int(shop_wallet.get_cash())
+	return 0
+
+func checkout_order(lines: Dictionary) -> Dictionary:
+	if shop_service != null and shop_service.has_method("checkout_order"):
+		return shop_service.checkout_order(lines)
+	return {"ok": false, "message": "The supply service is unavailable."}
+
+func preview_texture(item_id: int, shop: bool = false) -> Texture2D:
+	if shop:
+		var shop_index := PREVIEW_SOURCES.keys().find(item_id)
+		return _shop_vp_textures[shop_index] if shop_index >= 0 and shop_index < _shop_vp_textures.size() else null
+	for i in CONSTRUCT_ITEMS.size():
+		if int(CONSTRUCT_ITEMS[i].tile_id) == item_id:
+			return _sub_vp_textures[i] if i < _sub_vp_textures.size() else null
+	return null
+
+func choose_build_item(tile_id: int) -> void:
+	var selected_name := "Build item"
+	var selected_price := get_item_price(tile_id)
+	for item: Dictionary in CONSTRUCT_ITEMS:
+		if int(item.tile_id) == tile_id:
+			selected_name = str(item.name)
+			break
+	_placement_menu = {"source": "construct", "level": "items", "category": _active_category}
+	construct_item_chosen.emit(tile_id)
+	_submenu_open = false
+	if _workspace != null:
+		_workspace.placement_started(selected_name, selected_price)
+
+func open_shop_menu() -> void:
+	cancel_requested.emit()
+	active_tool = TOOL_FARMING
+	tool_selected.emit(TOOL_FARMING)
+	_open_submenu("farming")
+
+func close_workspace_menu() -> void:
+	_close_submenu()
+
+func pointer_over_ui(point: Vector2) -> bool:
+	return _workspace != null and _workspace.covers(point)
+
+func _warm_preview_pool() -> void:
+	## Viewports are created during _ready; population is staggered during
+	## idle frames so the first user-open has no synchronous construction hit.
+	for attempt in 120:
+		if gridmap != null and gridmap.mesh_library != null:
+			break
+		await get_tree().process_frame
+	if gridmap != null and gridmap.mesh_library != null:
+		await _build_submenu_previews_staggered()
+
 # ─── Visual constants ──────────────────────────────────────────────────────────
-## Accent color — teal #40716F (Aug 2026 facelift; was kiwi-green). The
-## identity color: screen border, toolbar selection, submenu border.
-const ACCENT:       Color = Color(0.251, 0.443, 0.435, 1.0)
+## Project blue identity color for the build-mode screen border.
+const ACCENT:       Color = Color(0.40, 0.75, 1.00, 1.0)
 const BORDER_W:     float = 4.0
 const BORDER_INSET: float = 6.0
 
@@ -226,14 +279,16 @@ const TOOL_ICONS:   Array = ["🧱", "🔨", "📋", "✥", "↩", "🔌", "🚰
 # ─── Controller prompt icons (Aug 2026) ───────────────────────────────────────
 ## LB/RB tab-cycle badges on the toolbar (LB top-left of Construct, RB
 ## top-right of Shop), shown in controller mode. Same 32px as ResearchStation.
-const XBOX_LB_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_LB.png")
-const XBOX_RB_ICON: Texture2D = preload("res://assets/ui/prompts/XBOX_RB.png")
+## Legacy hand-drawn toolbar badges. The toolbar is now native Controls, so
+## these are intentionally not loaded (avoids retaining unused image assets).
+var XBOX_LB_ICON: Texture2D = null
+var XBOX_RB_ICON: Texture2D = null
 const TOOL_BADGE_SIZE: float = 20.0
 
 ## Submenu
 const SUB_W:        float = 160.0
 const SUB_ITEM_H:   float = 72.0   ## Height per row in submenu
-const SUB_VP_SIZE:  int   = 52     ## SubViewport px for 3D preview
+const SUB_VP_SIZE:  int   = 192    ## High-res pooled texture, downscaled in cards
 const SUB_GAP:      float = 6.0
 const SUB_PAD:      float = 10.0
 const SUB_BG:       Color = Color(0.08, 0.10, 0.07, 0.94)
@@ -248,7 +303,7 @@ const PREVIEW_ROTATION_DEFAULT: Vector3 = Vector3(-45.0, -45.0, 0.0)
 const PREVIEW_HOVER_SPIN_DEG_PER_SEC: float = 90.0
 ## Orthographic camera size — smaller = more zoomed in. 1.6 / 1.5 ≈ 1.0667
 ## gives a 1.5x zoom over the original framing.
-const PREVIEW_CAM_SIZE: float = 1.0667
+const PREVIEW_CAM_SIZE: float = 0.78
 
 ## World-units the object's LARGEST AABB dimension should map to after
 ## normalization, regardless of its real size — the single knob that
@@ -393,6 +448,9 @@ var hovered_rock_chunk_world_pos: Vector3 = Vector3(-9999.0, -9999.0, -9999.0)
 # ─── State ────────────────────────────────────────────────────────────────────
 var active_tool:      int   = TOOL_CONSTRUCT
 var _submenu_open:    bool  = false
+var _workspace: BuildWorkspace = null
+var shop_service: RefCounted = null
+var shop_wallet: Node = null
 ## Two-level menu state: "root" = category list, "items" = item list for _active_category
 var _submenu_level:    String = "root"
 var _active_category:  String = ""
@@ -492,8 +550,9 @@ func _ready() -> void:
 
 	# Hammer cursor
 	_cursor = Label.new()
-	_cursor.text = "🔨"
-	_cursor.add_theme_font_size_override("font_size", 28)
+	_cursor.text = "+"
+	_cursor.add_theme_font_size_override("font_size", 24)
+	_cursor.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
 	_cursor.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cursor.z_index = 100
 	add_child(_cursor)
@@ -516,6 +575,16 @@ func _ready() -> void:
 	_grid_size_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_grid_size_icon)
 
+	## Native desktop workspace. The old hand-drawn menu remains allocated as
+	## the stable preview pool, but is never presented or hit-tested.
+	_banner.hide()
+	_grid_size_icon.hide()
+	_submenu_root.hide()
+	_workspace = BuildWorkspace.new()
+	_workspace.hud = self
+	add_child(_workspace)
+	call_deferred("_warm_preview_pool")
+
 # ─── Process ──────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
 	if not visible:
@@ -528,7 +597,9 @@ func _process(delta: float) -> void:
 		_undo_flash_t = maxf(0.0, _undo_flash_t - delta)
 	# Keep cancel X flush-right of the banner every frame
 	_reposition_cancel_btn()
-	_update_preview_hover_spin(delta)
+	_cursor.visible = not _submenu_open and not dig_confirm_open
+	if _workspace != null:
+		_workspace.refresh(active_tool, _submenu_open, _submenu_source)
 	_canvas.queue_redraw()
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -547,6 +618,8 @@ func hide_hud() -> void:
 	_submenu_open = false
 	_submenu_root.visible = false
 	_cancel_btn.visible   = false
+	if _workspace != null:
+		_workspace.close_all()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 func set_active_tool(tool_id: int) -> void:
@@ -570,7 +643,7 @@ func set_grid_size(grid_size: float) -> void:
 ## Called by BuildModeController when a ghost is active — show cancel X
 func set_ghost_active(active: bool) -> void:
 	_ghost_active = active
-	_cancel_btn.visible = active
+	_cancel_btn.visible = false
 	# Close submenu when ghost goes active
 	if active and _submenu_open:
 		_close_submenu()
@@ -589,8 +662,7 @@ func set_exit_available(available: bool) -> void:
 
 ## Open / close the construct submenu externally
 func open_construct_menu() -> void:
-	if not _submenu_open:
-		_open_submenu()
+	_open_submenu("construct")
 
 func close_construct_menu() -> void:
 	if _submenu_open:
@@ -661,6 +733,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	# while open (its _unhandled_input eats everything; YES/NO/B/ESC/A). The
 	# build HUD just bails so nothing here double-handles it. ───────────────
 	if dig_confirm_open:
+		return
+	if _workspace != null and _workspace.menu_open():
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+			_close_submenu()
+			get_viewport().set_input_as_handled()
+		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			_close_submenu()
+			get_viewport().set_input_as_handled()
 		return
 
 	# Escape: close submenu if open, else cancel ghost
@@ -864,6 +944,11 @@ func _on_toolbar_click(slot: int) -> void:
 ## Index of the toolbar slot under the cursor, or -1. Mirrors the slot rect
 ## math in _draw_toolbar() exactly.
 func _cursor_over_toolbar_slot() -> int:
+	if _workspace != null:
+		for i in _workspace._tool_buttons.size():
+			if _workspace._tool_buttons[i].get_global_rect().has_point(_mouse_pos):
+				return BuildWorkspace.TOOL_ORDER[i]
+		return -1
 	var vp: Vector2 = get_viewport().get_visible_rect().size
 	var count: int  = TOOL_LABELS.size()
 	var total_w: float = SLOT_W * count + SLOT_GAP * (count - 1)
@@ -934,11 +1019,14 @@ func _open_submenu(source: String = "construct") -> void:
 	if source == "construct":
 		active_tool = TOOL_CONSTRUCT
 	_submenu_open  = true
-	_submenu_level = "root"
-	_active_category = ""
-	_submenu_cursor = 0
-	_submenu_root.visible = true
-	_position_submenu()
+	_submenu_root.visible = false
+	if _workspace != null:
+		if source == "farming":
+			_workspace.show_shop()
+		else:
+			_workspace.show_catalog()
+	if not InputMode.is_controller():
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	## Build the previews lazily the FIRST time a submenu opens (not on
 	## build-mode entry) — deferred + staggered so opening the menu never
 	## hitches. Text rows show immediately; previews pop in as they build.
@@ -951,6 +1039,9 @@ func _close_submenu() -> void:
 	_submenu_level   = "root"
 	_active_category = ""
 	_submenu_root.visible = false
+	if _workspace != null:
+		_workspace.hide_menus()
+	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	_canvas.queue_redraw()
 
 ## Go back ONE level in the submenu (B / controller): from the items level
@@ -1044,6 +1135,7 @@ func _build_submenu() -> Control:
 		light.light_energy = 3.0
 		light.omni_range = 8.0
 		vp.add_child(light)
+		PreviewPresentation.configure(vp)
 
 		_sub_viewports.append(vp)
 		_sub_vp_textures.append(vp.get_texture())
@@ -1076,6 +1168,7 @@ func _build_submenu() -> Control:
 		light2.light_energy = 3.0
 		light2.omni_range = 8.0
 		vp2.add_child(light2)
+		PreviewPresentation.configure(vp2)
 
 		_shop_viewports.append(vp2)
 		_shop_vp_textures.append(vp2.get_texture())
@@ -1437,6 +1530,8 @@ func _build_shop_preview(i: int) -> void:
 		## correct species color instead of the "tomato" default.
 		if info.has("seed_type") and "seed_type" in inst:
 			inst.set("seed_type", info["seed_type"])
+		if int(shop_ids[i]) == 15 and "tier" in inst:
+			inst.set("tier", "pro")
 	else:
 		var packed: PackedScene = load(String(info["scene"])) as PackedScene
 		if packed == null:
@@ -1589,7 +1684,7 @@ func _on_canvas_draw() -> void:
 	_draw_deconstruct_overlay()
 	_draw_dupe_rotate_overlay()
 	_draw_rock_chunk_overlay()
-	_draw_toolbar()
+	## Toolbar and menus are real Controls in BuildWorkspace.
 	# Trigger submenu redraw
 	if _submenu_open and _submenu_root.visible:
 		var draw_ctrl: Control = _submenu_root.get_node_or_null("SubDraw")
@@ -1799,6 +1894,11 @@ func _draw_toolbar() -> void:
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 func _get_toolbar_slot_at(pos: Vector2) -> int:
+	if _workspace != null:
+		for i in _workspace._tool_buttons.size():
+			if _workspace._tool_buttons[i].get_global_rect().has_point(pos):
+				return BuildWorkspace.TOOL_ORDER[i]
+		return -1
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
 	var count: int       = TOOL_LABELS.size()
 	var total_w: float   = SLOT_W * count + SLOT_GAP * (count - 1)

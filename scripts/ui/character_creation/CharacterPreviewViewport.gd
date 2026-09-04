@@ -56,21 +56,19 @@ func _ready() -> void:
 	_update_camera()
 	_apply_graphics_settings()
 
-## Aug 2026 — right stick orbits (X) and pans vertically (Y) the preview,
-## mirroring mouse-drag orbit and middle-mouse-drag pan. Polled in _process
-## so a held stick keeps moving; analog (small push = slow movement).
+## Shoulder buttons orbit and triggers zoom. The right stick is deliberately
+## reserved for the same UI navigation role it has everywhere else.
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
-	var rx := Input.get_joy_axis(0, JOY_AXIS_RIGHT_X)
-	var ry := Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y)
-	if absf(rx) > STICK_DEADZONE:
-		_yaw -= rx * stick_orbit_speed * delta
+	var orbit := float(Input.is_joy_button_pressed(0, JOY_BUTTON_RIGHT_SHOULDER)) \
+		- float(Input.is_joy_button_pressed(0, JOY_BUTTON_LEFT_SHOULDER))
+	if orbit != 0.0:
+		_yaw -= orbit * stick_orbit_speed * delta
 		_update_camera()
-	if absf(ry) > STICK_DEADZONE:
-		## Screen-relative vertical pan, same as middle-mouse drag:
-		## move look_at_point along the camera's own up vector.
-		look_at_point += camera.global_transform.basis.y * ry * (stick_pan_speed * distance) * delta
+	var zoom := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) - Input.get_joy_axis(0, JOY_AXIS_TRIGGER_LEFT)
+	if absf(zoom) > STICK_DEADZONE:
+		distance = clampf(distance + zoom * zoom_speed * delta * 4.0, min_distance, max_distance)
 		_update_camera()
 
 ## Aug 2026 — GPU-crash mitigation. The preview SubViewport (960x1080) is

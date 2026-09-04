@@ -15,46 +15,45 @@ extends Node
 var ui: Node = null
 ## World position the player must stay near to keep the UI open.
 var anchor: Vector3 = Vector3.ZERO
+var _anchor_node: WeakRef = null
 ## Distance past which the UI closes.
 @export var max_distance: float = 3.0
 ## Cached player ref — lazy-resolved once (was a per-frame group scan).
 var _player: Node3D = null
-## Optional live anchor. A freed/removed host closes its inspector as well.
-## Legacy callers may continue assigning `anchor` directly.
-var _target: WeakRef = null
-
-func bind_target(target: Node3D) -> void:
-	_target = weakref(target) if is_instance_valid(target) else null
-	if is_instance_valid(target):
-		anchor = target.global_position
-
-func bind_position(position: Vector3) -> void:
-	_target = null
-	anchor = position
 
 func _process(_delta: float) -> void:
-	if not is_instance_valid(ui) or not ui.is_inside_tree():
+	if ui == null or not ui.is_inside_tree():
 		return
 	if not _ui_open(ui):
 		return
-	if _target != null:
-		var target: Node3D = _target.get_ref() as Node3D
-		if not is_instance_valid(target) or not target.is_inside_tree() or target.is_queued_for_deletion():
-			_close_ui()
-			return
-		anchor = target.global_position
-	if not is_instance_valid(_player) or not _player.is_inside_tree():
+	if _player == null:
 		_player = get_tree().get_first_node_in_group("player") as Node3D
-	if not is_instance_valid(_player):
+	if _player == null:
 		return
+	if _anchor_node != null:
+		var live_anchor: Node3D = _anchor_node.get_ref() as Node3D
+		if live_anchor == null:
+			if ui.has_method("close"):
+				ui.call("close")
+			return
+		anchor = live_anchor.global_position
 	if _player.global_position.distance_to(anchor) > max_distance:
-		_close_ui()
+		if ui.has_method("close"):
+			ui.call("close")
+		elif ui.has_method("hide"):
+			ui.call("hide")
 
-func _close_ui() -> void:
-	if ui.has_method("close"):
-		ui.call("close")
-	elif ui.has_method("hide"):
-		ui.call("hide")
+## Prefer binding the actual host node over copying one position.  Moving
+## storage/devices therefore keep the correct proximity origin, and freeing
+## the host safely closes the inspector instead of leaving an orphaned UI.
+func bind(host: Node3D) -> void:
+	_anchor_node = weakref(host) if host != null else null
+	anchor = host.global_position if host != null else Vector3.ZERO
+	set_process(host != null)
+
+func unbind() -> void:
+	_anchor_node = null
+	set_process(false)
 
 func _ui_open(ui_node: Node) -> bool:
 	if ui_node is Control:
