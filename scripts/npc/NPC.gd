@@ -1914,32 +1914,37 @@ func _open_talk_menu() -> void:
 		_talk_menu.open(npc_name, self)
 
 
-# ─── Overhead work banner (Part 4) — GeneratorObject fuel-banner style ─────
-var _work_banner: Label3D = null
+# ─── Overhead work indicator ─────────────────────────────────────────────────
+## Public facade intentionally unchanged: every activity can keep calling
+## show/update/hide_work_banner(). Internally, NPC work now registers with the
+## shared InteractPrompt renderer, making the NPC and player job cards the same
+## real PanelContainer + ProgressBar instead of a Label3D block-character bar.
+var _work_prompt_renderer: Node = null
+var _work_banner_visible: bool = false
 
 func show_work_banner() -> void:
-	if _work_banner == null:
-		_work_banner = Label3D.new()
-		_work_banner.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_work_banner.fixed_size = true
-		_work_banner.pixel_size = 0.0009
-		_work_banner.font_size = 40
-		_work_banner.outline_size = 8
-		_work_banner.position = Vector3(0.0, 1.55, 0.0)
-		_work_banner.modulate = Color(0.95, 0.85, 0.45, 1.0)
-		add_child(_work_banner)
-	_work_banner.visible = true
+	_work_banner_visible = true
 
 func update_work_banner(action: String, progress: float) -> void:
-	if _work_banner == null:
+	if not _work_banner_visible:
 		return
-	var filled: int = clampi(int(round(progress * 5.0)), 0, 5)
-	_work_banner.text = "%s %s%s" % [action,
-		"▓".repeat(filled), "░".repeat(5 - filled)]
+	var renderer := _get_work_prompt_renderer()
+	if renderer == null or not renderer.has_method("set_world_job"):
+		return
+	renderer.call("set_world_job", self, action, progress)
 
 func hide_work_banner() -> void:
-	if _work_banner != null:
-		_work_banner.visible = false
+	_work_banner_visible = false
+	var renderer := _get_work_prompt_renderer()
+	if renderer != null and renderer.has_method("clear_world_job"):
+		renderer.call("clear_world_job", self)
+
+
+func _get_work_prompt_renderer() -> Node:
+	if _work_prompt_renderer != null and is_instance_valid(_work_prompt_renderer):
+		return _work_prompt_renderer
+	_work_prompt_renderer = get_tree().get_first_node_in_group("interact_prompt")
+	return _work_prompt_renderer
 
 
 # ─── Overhead name/activity label (Part 5) ─────────────────────────────────

@@ -2,8 +2,9 @@ extends CanvasLayer
 ## InteractPrompt.gd
 ## Renders floating world-space prompt panels anchored to 3D positions.
 ##
-## ARCHITECTURE (rewritten v64):
-##   - Single source of truth: _active[] array set each frame by the caller
+## ARCHITECTURE (rewritten v64, unified job cards Sep 2026):
+##   - InteractionSystem owns _active[]; NPC job sources live separately in
+##     _world_jobs and are merged only for rendering.
 ##   - Panel pool grows on demand, never shrinks (avoids alloc/free per frame)
 ##   - ALL visibility, position, alpha, and text updates happen in ONE place: _process()
 ##   - set_prompts() ONLY updates _active[]. _process() does all rendering.
@@ -38,6 +39,21 @@ const FADE_END:   float = 3.2
 const ICON_VP_SIZE: int = 40
 const ICON_CAM_SIZE: float = 0.6
 
+## Compact shared player/NPC job-card treatment. The player keeps the normal
+## target anchor; NPC entries provide their own slightly higher head anchor.
+const JOB_CARD_MIN_WIDTH: float = 190.0
+const JOB_BAR_HEIGHT: float = 4.0
+const NPC_JOB_OFFSET: Vector3 = Vector3(0.0, 1.48, 0.0)
+const NPC_JOB_STALE_MSEC: int = 1000
+const JOB_GREEN: Color = Color(0.43, 0.78, 0.43, 1.0)
+const JOB_TRACK: Color = Color(0.025, 0.032, 0.032, 0.92)
+const BUNKER_BLUE: Color = Color(0.34, 0.70, 0.93, 1.0)
+const DIM_IVORY: Color = Color(0.67, 0.64, 0.57, 0.94)
+const APPEAR_DURATION: float = 0.08
+const APPEAR_OFFSET_Y: float = 3.0
+
+const JobGlyphScript: GDScript = preload("res://scripts/ui/hud/JobProgressGlyph.gd")
+
 # ─── Key / button icons (Aug 2026) ────────────────────────────────────────────
 ## Inline icon size in the prompt RichTextLabel (px). The source art is 16px
 ## pixel icons — keep at native size unless it reads too small in-game.
@@ -60,6 +76,11 @@ const XBOX_BUTTONS: Dictionary = {
 ## Array of { text: String, world_pos: Vector3, dist: float, icons: Array (optional) }
 var _active: Array = []
 
+## NPC work indicators registered through set_world_job(). Kept independent
+## from _active so InteractionSystem's per-frame set_prompts()/hide_prompt()
+## calls cannot erase NPC jobs that are still running.
+var _world_jobs: Dictionary = {}
+
 ## Pool of PanelContainers. Index matches _active[]. Grows, never shrinks.
 var _pool: Array = []   ## Array[PanelContainer]
 
@@ -81,14 +102,19 @@ var _icon_badge_labels: Array = []
 ## (Aug 2026, InteractionSystem.start_job()). Built lazily per panel, same
 ## grows-with-the-pool convention as the icon slots/badge labels above.
 var _progress_bars: Array = []
+var _progress_labels: Array = []
+var _job_glyphs: Array = []
+var _panel_appear: Array[float] = []
+var _panel_was_visible: Array[bool] = []
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
+	add_to_group("interact_prompt")
 	_template_panel.visible = false
 	## Inline key/button icons are rendered as BBCode images.
 	_template_label.bbcode_enabled = true
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var camera: Camera3D = get_viewport().get_camera_3d()
 
 	# ── No camera — hide everything ──────────────────────────────────────────
@@ -119,9 +145,12 @@ func _process(_delta: float) -> void:
 	## to shown via the `true` fallback below: Focus Mode intentionally
 	## has no effect while holding an item this pass.
 	var focus_mode: bool = FocusMode.is_active()
-	var display_list: Array = _active
+	var combined_entries: Array = _active.duplicate()
+	combined_entries.append_array(_collect_world_job_entries())
+	var display_list: Array = combined_entries
 	if focus_mode:
-		display_list = _active.filter(func(e: Dictionary) -> bool: return bool(e.get("is_focus_target", true)))
+		display_list = combined_entries.filter(
+			func(e: Dictionary) -> bool: return bool(e.get("is_focus_target", true)))
 
 	# ── Ensure pool is large enough ──────────────────────────────────────────
 	while _pool.size() < display_list.size():
@@ -133,6 +162,10 @@ func _process(_delta: float) -> void:
 		_icon_loaded_sig.append(["", "", ""])
 		_icon_badge_labels.append(_build_badge_labels(clone))
 		_progress_bars.append(_build_progress_bar(clone))
+		_progress_labels.append(_build_progress_label(clone))
+		_job_glyphs.append(_build_job_glyph(clone))
+		_panel_appear.append(0.0)
+		_panel_was_visible.append(false)
 
 	# ── Phase 1: compute each panel's natural position/size/alpha and update
 	## its content. `layouts[i]` is null for a hidden entry, else a Dictionary
@@ -143,7 +176,8 @@ func _process(_delta: float) -> void:
 	for i: int in display_list.size():
 		var entry: Dictionary  = display_list[i]
 		var p: PanelContainer  = _pool[i] as PanelContainer
-		var world_pos: Vector3 = entry["world_pos"] + WORLD_OFFSET
+		var world_offset: Vector3 = entry.get("world_offset", WORLD_OFFSET)
+		var world_pos: Vector3 = entry["world_pos"] + world_offset
 
 		if camera.is_position_behind(world_pos):
 			p.visible = false
@@ -159,7 +193,10 @@ func _process(_delta: float) -> void:
 			alpha = clampf(1.0 - (dist - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0)
 
 		var lbl: RichTextLabel = p.get_node_or_null("VBox/HBox/Label") as RichTextLabel
+		var is_job: bool = entry.has("progress")
 		var txt: String = entry.get("text", "")
+		if is_job:
+			txt = _job_display_text(txt)
 		var rendered: String = _prompt_to_bbcode(txt)
 		if lbl != null and lbl.text != rendered:
 			lbl.text = rendered
@@ -196,19 +233,34 @@ func _process(_delta: float) -> void:
 		## it, so the "Turning Stove On..." line stays readable while the bar
 		## fills underneath it.
 		var progress_bar: ProgressBar = _progress_bars[i] if i < _progress_bars.size() else null
+		var progress_label: Label = _progress_labels[i] if i < _progress_labels.size() else null
+		var job_glyph: Control = _job_glyphs[i] if i < _job_glyphs.size() else null
 		if progress_bar != null:
-			if entry.has("progress"):
+			if is_job:
+				var progress: float = clampf(float(entry["progress"]), 0.0, 1.0)
 				progress_bar.visible = true
-				progress_bar.value   = clampf(float(entry["progress"]), 0.0, 1.0)
+				progress_bar.value = progress
+				if progress_label != null:
+					progress_label.text = "%d%%" % int(round(progress * 100.0))
+					progress_label.visible = true
+				if job_glyph != null:
+					job_glyph.visible = true
+				p.custom_minimum_size.x = JOB_CARD_MIN_WIDTH
 			else:
 				progress_bar.visible = false
+				if progress_label != null:
+					progress_label.visible = false
+				if job_glyph != null:
+					job_glyph.visible = false
+				p.custom_minimum_size.x = 0.0
 
 		p.reset_size()
 		layouts.append({
 			"pos":      screen_pos - p.size / 2.0,
 			"size":     p.size,
 			"alpha":    alpha,
-			"priority": 1 if not icons.is_empty() else 0,
+			"priority": int(entry.get("display_priority",
+				2 if is_job else (1 if not icons.is_empty() else 0))),
 			"dist":     dist,
 		})
 
@@ -223,17 +275,24 @@ func _process(_delta: float) -> void:
 		var lay: Variant = layouts[i]
 		if lay == null:
 			p.visible = false
+			_panel_was_visible[i] = false
 			continue
 		var d: Dictionary = lay as Dictionary
-		p.position = d["pos"]
-		p.modulate = Color(1.0, 1.0, 1.0, float(d["alpha"]))
+		if not _panel_was_visible[i]:
+			_panel_appear[i] = 0.0
+		_panel_appear[i] = minf(1.0, _panel_appear[i] + delta / APPEAR_DURATION)
+		var appear: float = _panel_appear[i]
+		p.position = d["pos"] + Vector2(0.0, (1.0 - appear) * APPEAR_OFFSET_Y)
+		p.modulate = Color(1.0, 1.0, 1.0, float(d["alpha"]) * appear)
 		p.visible  = true
+		_panel_was_visible[i] = true
 
 	# ── Hide surplus pool panels ──────────────────────────────────────────────
 	for i: int in range(display_list.size(), _pool.size()):
 		var p: PanelContainer = _pool[i] as PanelContainer
 		if p.visible:
 			p.visible = false
+		_panel_was_visible[i] = false
 
 ## Pushes lower-priority panels directly below higher-priority ones until no
 ## two visible panels' rects overlap. Priority: an entry with a non-empty
@@ -386,11 +445,7 @@ func _build_badge_labels(clone: PanelContainer) -> Array:
 		out[slot_i] = lbl
 	return out
 
-## Builds the ProgressBar shown beneath a panel's label while a Job
-## Progress Bar (Aug 2026) is charging. Thin, borderless, styled via
-## StyleBoxFlat overrides rather than a theme resource (matches this
-## file's existing preference for building UI procedurally per panel
-## rather than authoring more into the template .tscn).
+## Builds the compact bottom progress track shared by player and NPC jobs.
 func _build_progress_bar(clone: PanelContainer) -> ProgressBar:
 	var vbox: VBoxContainer = clone.get_node_or_null("VBox") as VBoxContainer
 	if vbox == null:
@@ -400,31 +455,57 @@ func _build_progress_bar(clone: PanelContainer) -> ProgressBar:
 	bar.max_value          = 1.0
 	bar.step               = 0.0
 	bar.show_percentage    = false
-	bar.custom_minimum_size = Vector2(120.0, 6.0)
+	bar.custom_minimum_size = Vector2(JOB_CARD_MIN_WIDTH - 16.0, JOB_BAR_HEIGHT)
 	bar.mouse_filter       = Control.MOUSE_FILTER_IGNORE
 	bar.visible            = false
 
 	var fg: StyleBoxFlat = StyleBoxFlat.new()
-	## Same translucent green used elsewhere for "in progress / valid target"
-	## states (FarmingTray.HIGHLIGHT_COLOR's on-brand green), at full alpha
-	## so the fill itself reads clearly against the dark panel background.
-	fg.bg_color = Color(0.35, 1.0, 0.45, 0.95)
-	fg.corner_radius_top_left     = 3
-	fg.corner_radius_top_right    = 3
-	fg.corner_radius_bottom_left  = 3
-	fg.corner_radius_bottom_right = 3
+	fg.bg_color = JOB_GREEN
+	fg.set_corner_radius_all(2)
 	bar.add_theme_stylebox_override("fill", fg)
 
 	var bg: StyleBoxFlat = StyleBoxFlat.new()
-	bg.bg_color = Color(0.0, 0.0, 0.0, 0.45)
-	bg.corner_radius_top_left     = 3
-	bg.corner_radius_top_right    = 3
-	bg.corner_radius_bottom_left  = 3
-	bg.corner_radius_bottom_right = 3
+	bg.bg_color = JOB_TRACK
+	bg.border_color = Color(0.31, 0.27, 0.19, 0.72)
+	bg.set_border_width_all(1)
+	bg.set_corner_radius_all(2)
 	bar.add_theme_stylebox_override("background", bg)
 
 	vbox.add_child(bar)
 	return bar
+
+
+## Right-aligned exact progress preserves the information carried by real work
+## speed modifiers without making the card any taller.
+func _build_progress_label(clone: PanelContainer) -> Label:
+	var row := clone.get_node_or_null("VBox/HBox") as HBoxContainer
+	if row == null:
+		return null
+	var label := Label.new()
+	label.name = "JobProgressPercent"
+	label.custom_minimum_size.x = 30.0
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_override("font", UIKit.font())
+	label.add_theme_font_size_override("font_size", 10)
+	label.add_theme_color_override("font_color", DIM_IVORY)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.visible = false
+	row.add_child(label)
+	return label
+
+
+func _build_job_glyph(clone: PanelContainer) -> Control:
+	var row := clone.get_node_or_null("VBox/HBox") as HBoxContainer
+	if row == null:
+		return null
+	var glyph: Control = JobGlyphScript.new()
+	glyph.name = "JobGlyph"
+	glyph.set("glyph_color", BUNKER_BLUE)
+	glyph.visible = false
+	row.add_child(glyph)
+	row.move_child(glyph, 0)
+	return glyph
 
 ## Re-instantiates only the slots whose content actually changed since last
 ## frame (tracked via _icon_loaded_sig), matching BuildModeHUD's own
@@ -432,7 +513,8 @@ func _build_progress_bar(clone: PanelContainer) -> ProgressBar:
 func _refresh_icon_slots(pool_index: int, icons: Array) -> void:
 	var vps: Array = _icon_viewports[pool_index]
 	var sigs: Array = _icon_loaded_sig[pool_index]
-	var labels: Array = _icon_badge_labels[pool_index] if pool_index < _icon_badge_labels.size() else [null, null, null]
+	var labels: Array = _icon_badge_labels[pool_index] \
+		if pool_index < _icon_badge_labels.size() else [null, null, null]
 	for slot_i: int in 3:
 		var vp: SubViewport = vps[slot_i] if slot_i < vps.size() else null
 		if vp == null:
@@ -569,7 +651,46 @@ func _token_bbcode(token: String, controller: bool) -> String:
 		file = KEY_CAPS[token]
 	if file == "":
 		return "[%s]" % token
-	return "[img width=%d height=%d]%s%s.png[/img]" % [PROMPT_ICON_SIZE, PROMPT_ICON_SIZE, PROMPT_ICON_DIR, file]
+	return "[img width=%d height=%d]%s%s.png[/img]" % [
+		PROMPT_ICON_SIZE, PROMPT_ICON_SIZE, PROMPT_ICON_DIR, file]
+
+
+func _job_display_text(raw_text: String) -> String:
+	var cleaned := raw_text.strip_edges()
+	while cleaned.ends_with("."):
+		cleaned = cleaned.substr(0, cleaned.length() - 1)
+	return cleaned.to_upper()
+
+
+## Produces render entries for every live NPC job and removes stale sources.
+## A short update timeout is defensive: an interrupted activity can never leave
+## a permanent progress card behind even if one exit path forgets to clear it.
+func _collect_world_job_entries() -> Array:
+	var entries: Array = []
+	var stale_ids: Array = []
+	var now := Time.get_ticks_msec()
+	for source_id: int in _world_jobs:
+		var job: Dictionary = _world_jobs[source_id]
+		var source_ref := job.get("source") as WeakRef
+		var source: Node3D = null
+		if source_ref != null:
+			source = source_ref.get_ref() as Node3D
+		if source == null or not is_instance_valid(source) \
+				or now - int(job.get("updated_at_msec", 0)) > NPC_JOB_STALE_MSEC:
+			stale_ids.append(source_id)
+			continue
+		entries.append({
+			"text": str(job.get("text", "WORKING")),
+			"world_pos": source.global_position,
+			"world_offset": NPC_JOB_OFFSET,
+			"dist": 0.0,
+			"progress": clampf(float(job.get("progress", 0.0)), 0.0, 1.0),
+			"display_priority": 2,
+			"is_focus_target": true,
+		})
+	for source_id: int in stale_ids:
+		_world_jobs.erase(source_id)
+	return entries
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 ## Primary API — call every frame from InteractionSystem._update_prompt().
@@ -590,3 +711,23 @@ func show_prompt(text: String, world_position: Vector3) -> void:
 
 func hide_prompt() -> void:
 	set_prompts([])
+
+
+## External world-job API used by NPC's preserved show/update/hide banner
+## facade. InteractionSystem's player job continues through set_prompts(), so
+## both routes arrive at the exact same pooled card and ProgressBar renderer.
+func set_world_job(source: Node3D, action: String, progress: float) -> void:
+	if source == null or not is_instance_valid(source):
+		return
+	_world_jobs[source.get_instance_id()] = {
+		"source": weakref(source),
+		"text": action,
+		"progress": clampf(progress, 0.0, 1.0),
+		"updated_at_msec": Time.get_ticks_msec(),
+	}
+
+
+func clear_world_job(source: Node3D) -> void:
+	if source == null:
+		return
+	_world_jobs.erase(source.get_instance_id())

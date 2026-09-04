@@ -97,7 +97,7 @@ Do not silently migrate unrelated screens. See
 | `water/` | `WaterDispenserUI.gd` (~520), `WaterInfoUI.gd` (~625) | Water device panels — see `docs/systems/water/README.md` for what they read/write. Both fully on the shared `UIKit` palette as of the Jul 2026 "Power + Water UI Unification" pass — see that section below |
 | `farming/` | `FarmingTrayUI.gd` (~440 — handles both the 1x1 and 2x1 tray sizes; panel height grows/shrinks with 0/1/2 plant slots), `PlantInfoUI.gd` | Farming tray panel (Jul 2026 "Rounded Corners" pass joined it onto `UIKit.Domain.FARMING`, green stripe) |
 | `inventory/` | `InventoryHUD.gd` (~400 — badge dispatch: `WaterBottle`-style items draw a two-line "Xml/750ml"/"(Q%)" quality badge via `get_bottle_badge_info()`, or a single dim "EMPTY" badge at 0mL, checked ahead of the generic charge-count fallback; 3D preview building/populating delegated to `ItemPreviewKit.gd` as of Aug 2026), `InventoryManager.gd` (~155, see Non-responsibilities), `StorageUI.gd` (~360 — Aug 2026, generic shared storage overlay, replaces the former `ShelfUI.gd`/`BasketUI.gd`, see "Storage UI Unification" below; icon-texture buttons + preview delegated to `ItemPreviewKit.gd`, row labels removed, see "Shared Item Preview Kit" and "Storage UI Icon + Row Label Redesign" below) | Slot HUD, inventory state, shared storage-container panel |
-| `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (~170 — world-space prompt panel; `Panel/Label` is a BBCode-enabled `RichTextLabel` so items like `WaterBottle` can colour part of their prompt text; grew substantially Aug 2026 — real styling, an icon-preview row, and general pairwise overlap avoidance, see "Cooking Pot UI Fixes + Prompt Overlap Avoidance" below) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interact prompt |
+| `hud/` | `HUD.gd` (~290), `NeedsGauge.gd` (~130 — 3-ring concentric stat gauge, replaces old `StatusBars.gd`/`CircleFill.gd`), `StatusEffectIcon.gd` (~70), `StatusEffectsContainer.gd` (~85), `InteractPrompt.gd` (shared pooled world-space interaction + player/NPC job renderer), `JobProgressGlyph.gd` (code-drawn work mark) | Always-on needs gauge (health/stamina/food/water/sleep), status-effect badge skeleton, interaction prompts, unified world job indicators |
 | `menus/` | `PauseMenuUI.gd` (~330 — rewritten onto `UIKit` menu builders, Jul 2026), `GraphicsSettingsPanel.gd` (~430 — same rewrite, also fixed a long-standing off-center bug, see below), `SleepOverlay.gd` (~145), `AdminMenu.gd` (~430 — rewritten with collapsible sections + a real `ScrollContainer`, Jul 2026, see below) | ESC pause menu, graphics settings, sleep fade, admin cheats |
 | `build/` | `BuildModeHUD.gd` (~1010) | Build-mode toolbar/construct menu/undo/dig-confirm UI. Farming shop's `FARMING_SHOP_ITEMS["Seeds"]` had a duplicate-`tile_id` bug fixed Aug 2026 (see "Farming Shop Seed tile_id Bugfix" below) and a SEPARATE bug where `PREVIEW_SOURCES` never set `seed_type` per-id, so every seed preview looked identical — fixed Aug 2026, see "Cooking Pot UI Fixes + Prompt Overlap Avoidance" below |
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
@@ -761,14 +761,42 @@ a chain of 3+ overlapping panels all separate out.
 
 **Panel styling** (this affects EVERY interactable's prompt in the game,
 not just cooking — `InteractPrompt.tscn` is one shared template): the
-outer panel had zero custom `StyleBoxFlat` at all before this pass — no
-theme resource defines one, so it rendered with Godot's raw default
-`PanelContainer` look the whole time. Now uses a dark/rounded style
-matching the rest of the project's palette (8px corner radius — rounder
-than the 4px modal-panel standard, intentionally, same "smaller-scale
-identity" precedent as `StorageUI.gd`'s 14px). Confirmed with Brannon this
-project-wide change is wanted, not something to scope down to cooking
-only.
+compact Sep 2026 pass keeps the existing prompt footprint while bringing
+the surface onto the approved UI language — opaque charcoal, a 1px dark
+worn-brass outline, 4px corners, warm ivory copy, tighter 8px horizontal
+padding, and a restrained 80ms/3px appearance transition. Key/controller
+icons and all caller-provided BBCode remain unchanged.
+
+## Unified World Job Indicator (Sep 2026)
+
+Player and NPC timed work now share one real `PanelContainer` +
+`ProgressBar` renderer in `InteractPrompt.gd`. Player jobs still arrive as a
+normal `set_prompts()` entry carrying `progress`; NPC's established
+`show_work_banner()` / `update_work_banner()` / `hide_work_banner()` facade
+now registers an external world job with the same renderer. The old NPC-only
+`Label3D` made from five `▓`/`░` characters is gone.
+
+- One compact 190px-minimum card for both actor types: code-drawn blue work
+  glyph, uppercase action, exact percentage, and 4px subdued-green bottom
+  track. No raster/generated icon was added.
+- Player jobs retain their target-object anchor. NPC jobs retain an NPC-head
+  anchor (`NPC_JOB_OFFSET.y = 1.48`), immediately below the existing NPC
+  name/activity label.
+- NPC jobs live in `_world_jobs`, separate from InteractionSystem's `_active`
+  list. This is essential: `set_prompts()` is replaced every frame and must
+  not erase work being performed by other characters.
+- Weak NPC references plus a short stale-update timeout prevent interrupted
+  or freed NPCs from leaving orphan cards. Normal activity `hide_work_banner()`
+  still clears immediately.
+- Job cards outrank ordinary text and ingredient-preview prompts in the
+  existing overlap solver. Focus Mode does not hide active NPC work.
+- `InteractPrompt` registers in the `interact_prompt` group; NPC caches that
+  shared renderer on first use rather than performing a group lookup every
+  work tick.
+
+Blocked/not-ready states do not use the job card. They remain ordinary prompts
+or momentary feedback because a progress indicator only appears after work has
+actually started.
 
 ## Medical Status Screen (Aug 2026)
 A third distinct panel category, alongside Modal and Ambient hover (see
