@@ -1,0 +1,16 @@
+class_name WaterDispenser
+extends Node3D
+const MAX_STORAGE_ML: float = 5000.0
+var current_fill_mL: float = 2450.0
+var stored_water_quality: float = 76.0
+var requested_rate_mL_per_day: float = 2500.0
+var is_on: bool = true
+var priority: int = 3
+var writes: int = 0
+func get_node_key() -> String:
+	return "water-device"
+func set_requested_rate(value: float) -> void:
+	writes += 1
+	requested_rate_mL_per_day = value
+func set_on(value: bool) -> void:
+	is_on = value

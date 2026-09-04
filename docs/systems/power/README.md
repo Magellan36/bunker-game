@@ -7,6 +7,14 @@ file involved. If you find yourself needing something this doc doesn't answer,
 that's a doc bug: add the missing detail back after you find it in source.
 
 ## Purpose
+**September 2026 UI extraction:** BatteryBank and BreakerBox now delegate to
+`scripts/ui/power/BatteryInspectUI.gd` and `BreakerInspectUI.gd`. Generator and
+consumer-priority inspectors share compact right docking and walk-away close.
+Read `scripts/ui/README.md` / `plans/ui-redesign-device-pass.md` before UI edits.
+World state, job/hazard logic and solver policy are unchanged. Battery health
+remains a visible, explicitly inactive 100% stub. The historical file inventory
+below predates these native-control ports.
+
 Simulates the bunker's electrical grid: generators, batteries, breakers/zones,
 wires, and every powered device (lights, appliances, terminals). Decides who
 has power, who gets shed under overload, and drives the visual/UX state of
@@ -64,6 +72,16 @@ UI panels for this system live in `scripts/ui/power/` (`PowerTerminalUI.gd`,
 `PowerPriorityUI.gd`, `GeneratorInspectUI.gd`, `ZoneCustomizeUI.gd` — rename/
 recolor popup opened from `PowerTerminalUI`'s RENAME/COLOR buttons) — see
 `docs/systems/ui/README.md`.
+
+**Generator inspector redesign (September 2026):** the device still owns the
+same start/stop, reset-main-breaker, backup and medical-hazard behavior. Its
+`set_fuel()` / `set_running()` callbacks and manager `draw_changed` /
+`grid_state_changed` signals now queue one deferred refresh of a visible
+inspector. That refresh reads authoritative fuel, health, running and backup
+values through the existing manager getters; it does not run a solver or change
+state. Closed inspectors do no refresh work. The displayed watts are explicitly
+**rated output**, and the grid badge is the existing **global** grid state, not
+proof of a particular generator's wire connection.
 
 ## Public API (call these from other systems; everything else is internal)
 Get the instance via `get_tree().get_first_node_in_group("power_manager")` cast

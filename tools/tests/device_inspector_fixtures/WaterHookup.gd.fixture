@@ -1,0 +1,8 @@
+class_name WaterHookup
+extends Node3D
+var water_quality: float = 40.0
+var daily: float = 3000.0
+func get_daily_output_mL() -> float:
+	return daily
+func get_per_minute_output_mL() -> float:
+	return daily / 1440.0

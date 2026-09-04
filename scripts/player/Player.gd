@@ -236,6 +236,10 @@ func _handle_movement(delta: float) -> void:
 	var input_dir: Vector2 = Input.get_vector(
 		"move_left", "move_right", "move_up", "move_down"
 	)
+	## Text entry owns WASD only while an actual LineEdit has focus. Ordinary
+	## in-world inspectors still allow movement exactly as before.
+	if get_viewport().gui_get_focus_owner() is LineEdit:
+		input_dir = Vector2.ZERO
 	## Rotate raw input by camera yaw so W always means "away from camera"
 	## regardless of which direction the camera is currently facing.
 	var raw: Vector3 = Vector3(input_dir.x, 0.0, input_dir.y)
@@ -363,7 +367,8 @@ func _handle_movement(delta: float) -> void:
 	## while in build mode — the character then faces its movement direction.
 	var aim_dir: Vector2 = Input.get_vector("aim_left", "aim_right", "aim_up", "aim_down")
 	var target_angle: float = rotation.y
-	if aim_dir.length_squared() > AIM_DEADZONE_SQ and not _build_mode_active():
+	if aim_dir.length_squared() > AIM_DEADZONE_SQ and not _build_mode_active() \
+			and not ControllerUINavigation.owns_directional_input(get_tree()):
 		var aim_raw: Vector3 = Vector3(aim_dir.x, 0.0, aim_dir.y).rotated(Vector3.UP, camera_yaw_rad)
 		target_angle = atan2(-aim_raw.x, -aim_raw.z)
 	elif direction.length_squared() > 0.0:
@@ -441,7 +446,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	## highlighting Ctrl gives, latched instead of held. Ctrl still works
 	## as a hold; see the FocusMode autoload.
 	if event is InputEventJoypadButton and event.button_index == JOY_BUTTON_RIGHT_STICK and event.pressed:
-		FocusMode.toggle()
+		if not ControllerUINavigation.owns_directional_input(get_tree()):
+			FocusMode.toggle()
 		get_viewport().set_input_as_handled()
 		return
 	## Left-stick click toggles sprint (Aug 2026) — a quick click latches

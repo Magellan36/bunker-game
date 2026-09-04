@@ -211,7 +211,7 @@ func on_priority_interact() -> void:
 			_prio_ui.priority_changed.connect(_on_prio_changed)
 
 	if _prio_ui.has_method("open"):
-		_prio_ui.call("open", str(get_instance_id()), "Wall Light", false, global_position)
+		_prio_ui.call("open", str(get_instance_id()), "Wall Light", false, global_position, self)
 
 func get_priority_prompt() -> String:
 	return "[E] Wall Light"

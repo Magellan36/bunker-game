@@ -405,9 +405,11 @@ re-introduced.
 
 ## Unfinished / to-do later
 
-- **Battery UI** — no player-facing battery panel exists yet.
-  `scripts/world/power/BatteryBank.gd` is the power *device*; a controller-
-  navigable Battery UI is future work.
+- **Battery/breaker inspectors (September 2026):** now extracted native panels
+  with D-pad/A/B navigation, movement retained, and shared walk-away closing.
+  See `scripts/ui/README.md`. Farming seed dropdowns suspend only the panel's
+  nav input processing while their native popup owns input; the world gate
+  remains active.
 - **"Select" button** (`JOY_BUTTON_SELECT`) is **unbound** — candidate for a
   Player-stats panel. Not yet implemented.
 - **PowerTerminalUI per-row priority arrows** are drawn glyphs with mouse

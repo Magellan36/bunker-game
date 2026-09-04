@@ -6,6 +6,12 @@
 function you're changing.
 
 ## Purpose
+**September 2026 UI port:** FarmingTrayUI uses the shared compact right-docked
+inspector with one/two native cell cards and NPC-only seed locks. Walk-away
+closing and movement remain mandatory. Read `scripts/ui/README.md` and
+`plans/ui-redesign-device-pass.md` for the current presentation. Historical
+hand-drawn/standalone-plant-panel references below do not describe this port.
+
 Trays + soil + seeds + grow lights → produce, sold/bought via a dedicated
 Farming toolbar tool and a Farming Construct-menu category. Reuses the Water
 and Power systems' existing consumer-registration patterns end to end —

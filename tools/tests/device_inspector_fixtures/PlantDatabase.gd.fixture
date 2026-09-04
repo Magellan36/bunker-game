@@ -1,0 +1,4 @@
+class_name PlantDatabase
+extends RefCounted
+static func get_display_name(type: String) -> String:
+	return type.capitalize()

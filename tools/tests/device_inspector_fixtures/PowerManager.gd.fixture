@@ -1,0 +1,78 @@
+class_name PowerManager
+extends Node
+## Test double only. Production solver is never loaded or replaced by this file.
+signal draw_changed(draw: float, capacity: float, battery: float)
+signal grid_state_changed(new_state: int, old_state: int)
+signal grid_tripped
+signal grid_restored
+signal generator_fuel_low(id: String, fuel: float)
+signal zone_name_changed(key: String)
+signal zone_color_changed(key: String)
+var fuel: float = 100.0
+var health: float = 100.0
+var running: bool = true
+var backup: bool = false
+var state: String = "ONLINE"
+var reset_count: int = 0
+var breaker_resets: int = 0
+var device: Node
+var breaker: Node
+var enabled: bool = true
+var sharing: Array[bool] = [true, true]
+var breaker_records: Array[Dictionary] = []
+var consumer: Dictionary = {"registered": true, "priority": 3, "watts": 500.0, "status_str": "POWERED", "active": true}
+var zones: Array[Dictionary] = [{"zone_index": 0, "zone_key": "a", "zone_name": "Living quarters", "breaker_keys": ["wire"]}, {"zone_index": 1, "zone_key": "b", "zone_name": "Hydroponics", "breaker_keys": ["wire"]}]
+func register_generator(_id: String, _watts: float, node: Node, _backup: bool, _fuel: float, _health: float) -> void:
+	device = node
+func register_wire_node(_position: Vector3, _type: String, _id: String) -> String:
+	return "wire"
+func unregister_generator(_id: String) -> void:
+	pass
+func unregister_wire_node(_id: String) -> void:
+	pass
+func unregister_battery(_id: String) -> void:
+	pass
+func unregister_breaker(_id: String) -> void:
+	pass
+func get_generator_fuel(_id: String) -> float:
+	return fuel
+func get_generator_health(_id: String) -> float:
+	return health
+func get_generator_running(_id: String) -> bool:
+	return running
+func get_generator_is_backup(_id: String) -> bool:
+	return backup
+func get_grid_state_string() -> String:
+	return state
+func set_generator_running(_id: String, value: bool) -> void:
+	running = value
+	device.set_running(value)
+	draw_changed.emit(0.0, 800.0, 1.0)
+func set_generator_backup(_id: String, value: bool) -> void:
+	backup = value
+	draw_changed.emit(0.0, 800.0, 1.0)
+func reset_main_breaker() -> void:
+	reset_count += 1
+	state = "ONLINE"
+	grid_restored.emit()
+func get_consumer_status(_id: String) -> Dictionary:
+	return consumer
+func set_consumer_priority(_id: String, priority: int) -> void:
+	consumer.priority = priority
+func set_battery_enabled(_id: String, value: bool) -> void:
+	enabled = value
+func set_breaker_passthrough(_id: String, battery: bool, generator: bool) -> void:
+	sharing = [battery, generator]
+	draw_changed.emit(0.0, 800.0, 1.0)
+func get_zone_snapshot() -> Array:
+	return zones
+func get_breakers() -> Array[Dictionary]:
+	return breaker_records
+func zone_display_color(_key: String, _index: int, alpha: float) -> Color:
+	return Color(0.3, 0.7, 1.0, alpha)
+func zone_color_at(_index: int, alpha: float) -> Color:
+	return Color(0.3, 0.7, 1.0, alpha)
+func reset_breaker(_id: String) -> void:
+	breaker_resets += 1
+	if is_instance_valid(breaker):
+		breaker.set_tripped(false)

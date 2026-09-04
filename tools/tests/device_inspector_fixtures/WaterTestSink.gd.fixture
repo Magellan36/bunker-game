@@ -1,0 +1,5 @@
+class_name WaterTestSink
+extends Node3D
+var priority: int = 3
+func get_node_key() -> String:
+	return "water-device"

@@ -139,7 +139,7 @@ func _ready() -> void:
 	var nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	nav.ui_root = self
 	nav.close_on_cancel = false   ## B must not exit character creation
-	nav.stick_navigation = true   ## left stick navigates here (no movement to reserve)
+	nav.stick_navigation = true   ## left and right sticks navigate this full-screen menu
 	add_child(nav)
 	category_body_button.grab_focus()
 

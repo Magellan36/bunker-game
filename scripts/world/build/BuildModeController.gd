@@ -510,6 +510,10 @@ func exit_build_mode() -> void:
 func _connect_hud_signals() -> void:
 	if build_hud == null:
 		return
+	## The redesigned shop delegates real purchasing to the existing helper;
+	## it never duplicates spawn IDs or bypasses MainWorld's wallet.
+	build_hud.shop_service = _farming_shop
+	build_hud.shop_wallet = world_node
 	if not build_hud.tool_selected.is_connected(_on_tool_selected):
 		build_hud.tool_selected.connect(_on_tool_selected)
 	if not build_hud.construct_item_chosen.is_connected(_on_construct_item_chosen):
@@ -781,6 +785,12 @@ func _clear_connectable_dots() -> void:
 func _process(_delta: float) -> void:
 	if not is_active or camera == null:
 		return
+	## A visible native UI owns the right stick and triggers. Left-stick
+	## movement remains active in Player; only build cursor/world tools pause.
+	if ControllerUINavigation.owns_directional_input(get_tree()):
+		_cursor_aim_smoothed = Vector2.ZERO
+		InputMode.set_suppress_mouse_motion(false)
+		return
 
 	## Aug 2026 controller cursor — the right stick drives the build cursor by
 	## warping the OS mouse: every raycast/hover helper reads
@@ -1037,6 +1047,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	# Block all input while dig confirm dialog is open (except it handles its own input)
 	if build_hud != null and build_hud.dig_confirm_open:
+		return
+	if ControllerUINavigation.owns_directional_input(get_tree()):
 		return
 
 	## CTRL+Z — undo (Aug 2026), mirrors the Undo toolbar button. Same

@@ -1,0 +1,8 @@
+class_name WaterPurifier
+extends Node3D
+var filter_quality: float = 50.0
+var current_flow_mL_per_day: float = 4100.0
+func get_node_key() -> String:
+	return "water-device"
+func get_output_quality() -> float:
+	return 50.0 + filter_quality * 0.5

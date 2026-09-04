@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+<!-- AI_PLACEHOLDER: AI-authored vector stand-in. NOT approved for final release. See manifest.json. -->
+<title>Temporary person icon</title>
+<defs><linearGradient id="b" x2="0" y2="1"><stop stop-color="#78B9DE"/><stop offset="1" stop-color="#4385B1"/></linearGradient></defs><circle cx="24" cy="13" r="9" fill="url(#b)"/><path d="M7 42v-6a17 14 0 0 1 34 0v6z" fill="url(#b)"/>
+</svg>

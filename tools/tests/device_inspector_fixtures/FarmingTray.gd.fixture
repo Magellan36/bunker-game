@@ -1,0 +1,19 @@
+class_name FarmingTray
+extends Node3D
+var cell_count: int = 2
+var priority: int = 3
+var connected: bool = true
+var fraction: float = 0.5
+var plant_refs: Array = [null, null]
+var soil_filled: Array[bool] = [true, false]
+var locks: Array[String] = ["", ""]
+func is_connected_to_water() -> bool:
+	return connected
+func get_current_demand_mL_per_day() -> float:
+	return 3000.0
+func get_water_fraction() -> float:
+	return fraction
+func get_cell_seed_lock(index: int) -> String:
+	return locks[index]
+func set_cell_seed_lock(index: int, type: String) -> void:
+	locks[index] = type

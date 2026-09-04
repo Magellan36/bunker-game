@@ -1,625 +1,104 @@
-extends CanvasLayer
-## WaterDispenserUI.gd
-## ─────────────────────────────────────────────────────────────────────────────
-## Restyled Jul 2026 to match the rest of the water/power system's UI language
-## — a Control + _on_draw() hand-drawn panel (same shape as WaterInfoUI.gd /
-## PowerPriorityUI.gd), NOT a stock Panel/VBoxContainer/CheckBox tree. The
-## previous version used Godot's default theme end to end and read like the
-## pause menu instead of this game's custom brutalist panels. Interactive
-## bits (rate slider, on/off pill, priority ◄►, close ×) are still real
-## Button/HSlider nodes — same "draw the background/text, overlay real
-## controls positioned each frame" pattern PowerPriorityUI.gd already uses —
-## just themed/styled to match instead of left at Godot defaults.
-##
-## Lifecycle: spawned once by WaterDispenser.on_interact(), reused on
-## subsequent opens — same spawn-once-reuse pattern as every other water/
-## power device panel in this project.
-##
-## Everything is pulled live every frame while open (no caching) — the slider
-## max (dynamic ceiling, see WaterManager.get_dynamic_max_mL_per_day()) and
-## the actual effective rate both need to react instantly to any OTHER
-## device's priority/on-off/slider changing anywhere in the network.
-##
-## Signals:
-##   closed — player dismissed the panel (Escape / E / close button)
+extends "res://scripts/ui/common/BunkerDeviceInspector.gd"
+## View/controller only. WaterDispenser/WaterManager retain storage, blending,
+## requested rate, actual grants and priority allocation. Existing open API.
+var _dispenser: WaterDispenser
+var _running: PanelContainer
+var _connection: PanelContainer
+var _storage: VBoxContainer
+var _quality: VBoxContainer
+var _requested: VBoxContainer
+var _received: VBoxContainer
+var _network_hint: Label
+var _rate_slider: HSlider
+var _toggle_btn: Button
+var _priority_control: VBoxContainer
 
-signal closed
-
-# ─── Palette ──────────────────────────────────────────────────────────────────
-## Jul 2026, UI Kit migration: this panel is the reference implementation
-## (`UIKit.gd`'s §1.5 step 2 — proves the kit before anything else migrates).
-## Colors below are no longer independently defined here — they're pulled
-## from `UIKit.theme_for(UIKit.Domain.WATER)`, which copies these exact
-## values verbatim (see UIKit.gd's `_water_theme()`). Kept as local `var`
-## (not `const`) purely because `UIKit.UITheme` is a class instance, not a
-## Color literal. Look/behavior is unchanged — this is a refactor, not a
-## redesign.
-var _theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.WATER)
-
-## Water QUALITY red/yellow/green scheme (Jul 2026, Brannon's explicit spec)
-## — mirrored verbatim from WaterInfoUI.gd's own QUALITY_GOOD_COLOR/
-## _draw_quality_row() (this water UI system duplicates small per-file
-## helpers rather than sharing a base class; neither panel script has a
-## class_name). Deliberately separate from _theme.ok above (blue, used for
-## the RECEIVING rate's "on target" state — a different meaning).
-## Thresholds (inclusive boundaries): 0-50% red, 50.01-75% yellow,
-## 75.01-100% green.
-var QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
-
-## Delegates to WaterQualityColor.get_color() (Jul 2026, extracted shared
-## helper — was a local copy of the same thresholds duplicated from
-## WaterInfoUI.gd before).
-func _quality_color(quality: float) -> Color:
-	return WaterQualityColor.get_color(quality)
-var OFF_COLOR:    Color = Color(0.55, 0.55, 0.55, 1.00)
-var ACCENT_TOGGLE: Color = Color(0.30, 0.68, 1.00, 1.00)
-
-## Same universal green→red priority legend as PowerPriorityUI.gd /
-## WaterInfoUI.gd's sink panel — reused verbatim, not re-themed.
-var PRIO_COLORS: Array[Color] = [
-	Color(0.30, 1.00, 0.46, 1.00),
-	Color(0.62, 0.92, 0.32, 1.00),
-	Color(0.98, 0.85, 0.20, 1.00),
-	Color(1.00, 0.58, 0.16, 1.00),
-	Color(1.00, 0.30, 0.20, 1.00),
-]
-var PRIORITY_MIN: int = 1
-var PRIORITY_MAX: int = 5
-
-# ─── Layout ───────────────────────────────────────────────────────────────────
-var PANEL_W: float = 400.0
-## Jul 2026: +24 to make room for the new fill bar/gauge row added below
-## STORAGE without changing spacing anywhere else in the panel.
-var PANEL_H: float = 454.0
-
-## Component geometry / colors read from BunkerTheme's WaterDispenserUI section
-## (see _load_theme() — these defaults are fallbacks if the theme is missing).
-var _slider_h: float = 20.0
-var _pill_w: float = 50.0
-var _pill_h: float = 24.0
-var _arrow_size: float = 48.0
-var _pip_gap: float = 5.0
-var _pip_h: float = 7.0
-var _chip_w: float = 84.0
-var _slider_groove: Color = Color(0.10, 0.13, 0.16, 1.0)
-var _pill_knob: Color = Color(0.92, 0.95, 0.97, 1.0)
-
-var _dispenser: WaterDispenser = null
-var _is_open: bool = false
-## Auto-close when the player walks away from the dispenser (Aug 2026).
-var _proximity: Node = null
-
-# Cached layout anchors filled during draw, used to position live controls.
-var _slider_row_y: float = 0.0
-var _toggle_row_y: float = 0.0
-var _arrow_row_y:  float = 0.0
-
-# ─── Node refs ────────────────────────────────────────────────────────────────
-var _canvas:      Control = null
-var _font:        Font    = null
-var _close_btn:   Button  = null
-var _rate_slider: HSlider = null
-## Grabber textures — the plain circle and the white-outlined "selected"
-## variant (controller focus / mouse hover). See _style_slider().
-var _grabber_tex_normal: Texture2D = null
-var _grabber_tex_selected: Texture2D = null
-## True while the cursor is over the slider (mouse_entered/exited) — HSlider
-## has no is_hovered(), so hover state is tracked here.
-var _slider_hovered: bool = false
-var _toggle_btn:  Button  = null   ## invisible hit-area over the drawn on/off pill
-var _dec_btn:     Button  = null   ## ◄ lower priority tier
-var _inc_btn:     Button  = null   ## ► raise priority tier
-
-
-## Pulls every palette + component value from BunkerTheme so the theme is the
-## single source of truth (tweak there, this panel follows).
-func _load_theme() -> void:
-	QUALITY_GOOD_COLOR = UIKit.theme_color("UI", "quality_good", QUALITY_GOOD_COLOR)
-	OFF_COLOR = UIKit.theme_color("UI", "off_grey", OFF_COLOR)
-	ACCENT_TOGGLE = UIKit.theme_color("UI", "accent_toggle", ACCENT_TOGGLE)
-	PRIO_COLORS = [
-		UIKit.theme_color("UI", "prio_1", Color(0.30, 1.00, 0.46, 1.00)),
-		UIKit.theme_color("UI", "prio_2", Color(0.62, 0.92, 0.32, 1.00)),
-		UIKit.theme_color("UI", "prio_3", Color(0.98, 0.85, 0.20, 1.00)),
-		UIKit.theme_color("UI", "prio_4", Color(1.00, 0.58, 0.16, 1.00)),
-		UIKit.theme_color("UI", "prio_5", Color(1.00, 0.30, 0.20, 1.00)),
-	]
-	PRIORITY_MIN = UIKit.theme_constant("UI", "priority_min", PRIORITY_MIN)
-	PRIORITY_MAX = UIKit.theme_constant("UI", "priority_max", PRIORITY_MAX)
-	PANEL_W = UIKit.theme_constant("WaterDispenserUI", "panel_w", int(PANEL_W))
-	PANEL_H = UIKit.theme_constant("WaterDispenserUI", "panel_h", int(PANEL_H))
-	_slider_h = UIKit.theme_constant("WaterDispenserUI", "slider_h", int(_slider_h))
-	_pill_w = UIKit.theme_constant("WaterDispenserUI", "pill_w", int(_pill_w))
-	_pill_h = UIKit.theme_constant("WaterDispenserUI", "pill_h", int(_pill_h))
-	_arrow_size = UIKit.theme_constant("WaterDispenserUI", "arrow_size", int(_arrow_size))
-	_pip_gap = UIKit.theme_constant("WaterDispenserUI", "pip_gap", int(_pip_gap))
-	_pip_h = UIKit.theme_constant("WaterDispenserUI", "pip_h", int(_pip_h))
-	_chip_w = UIKit.theme_constant("WaterDispenserUI", "chip_w", int(_chip_w))
-	_slider_groove = UIKit.theme_color("WaterDispenserUI", "slider_groove", _slider_groove)
-	_pill_knob = UIKit.theme_color("WaterDispenserUI", "pill_knob", _pill_knob)
-
-
-func _ready() -> void:
-	_load_theme()
-	layer   = 60
-	visible = false
-	## Controller navigation (Aug 2026) — d-pad + left stick drive focus,
-	## B closes this UI. See scripts/ui/common/ControllerUINavigation.gd.
-	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
-	controller_nav.ui_root = self
-	add_child(controller_nav)
-	## Auto-close when the player walks away from the dispenser (Aug 2026).
-	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
-	_proximity.ui = self
-	add_child(_proximity)
-	set_process(false)
-
-	_font = UIKit.font()
-
-	_canvas = Control.new()
-	_canvas.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_canvas.mouse_filter = Control.MOUSE_FILTER_PASS
-	_canvas.name = "WaterDispenserCanvas"
-	add_child(_canvas)
-	_canvas.draw.connect(_on_draw)
-
-	_build_controls()
-
-
-func _build_controls() -> void:
+func _build_content() -> void:
+	_running = W.status(_statuses, "Running")
+	_connection = W.status(_statuses, "Connection")
+	_storage = W.meter(_details, "Storage", "Stored water", "water")
+	_quality = W.meter(_details, "Quality", "Water quality", "condition")
+	_requested = W.stat(_details, "Requested", "Requested flow")
 	_rate_slider = HSlider.new()
-	_rate_slider.min_value = 0.0
-	_rate_slider.max_value = 0.0   ## set live every frame from the dynamic max
-	_rate_slider.step      = 1.0   ## d-pad adjusts by 1 mL/day (Aug 2026)
-	_rate_slider.focus_mode = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026); L/R adjusts, see ControllerUINavigation
-	_style_slider(_rate_slider)
+	_rate_slider.name = "RateSlider"
+	_rate_slider.step = 1.0
+	_rate_slider.focus_mode = Control.FOCUS_ALL
+	_rate_slider.custom_minimum_size.y = 36
+	_rate_slider.set_meta("ui_min_height", 36)
+	_rate_slider.tooltip_text = "Requested flow in mL/day. Arrow keys or D-pad left/right adjust it."
+	_details.add_child(_rate_slider)
+	var groove: StyleBoxFlat = _view.theme.get_stylebox("background", "BunkerMeter").duplicate() as StyleBoxFlat
+	groove.content_margin_top = 4.0
+	groove.content_margin_bottom = 4.0
+	var fill: StyleBoxFlat = _view.theme.get_stylebox("fill", "BunkerMeter").duplicate() as StyleBoxFlat
+	fill.bg_color = W.color(_view, "blue")
+	fill.content_margin_top = 4.0
+	fill.content_margin_bottom = 4.0
+	_rate_slider.add_theme_stylebox_override("slider", groove)
+	_rate_slider.add_theme_stylebox_override("grabber_area", fill)
+	_rate_slider.add_theme_stylebox_override("grabber_area_highlight", fill)
+	_rate_slider.add_theme_stylebox_override("focus", _view.theme.get_stylebox("focus", "Button"))
 	_rate_slider.value_changed.connect(_on_rate_changed)
-	add_child(_rate_slider)
+	_network_hint = W.label(_details, "NetworkHint", "", 14, "secondary")
+	_received = W.stat(_details, "Received", "Receiving now")
+	_priority_control = _add_priority(_details, _on_priority_requested)
+	_priority_control.set_hint("1 is served first · 5 is served last")
+	W.label(_footer, "ActionHint", "Controls refilling from the network; stored water stays in the tank.", 14, "secondary")
+	_toggle_btn = W.button(_footer, "Toggle", "Turn dispenser on", _on_toggle_pressed, "running", true)
 
-	_toggle_btn = Button.new()
-	_toggle_btn.flat         = true
-	_toggle_btn.clip_text    = false
-	_toggle_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_toggle_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
-	_toggle_btn.pressed.connect(_on_toggle_pressed)
-	add_child(_toggle_btn)
-
-	_dec_btn = Button.new()
-	_dec_btn.flat         = false
-	_dec_btn.clip_text    = false
-	_dec_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_dec_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
-	_dec_btn.text         = "◄"
-	_dec_btn.pressed.connect(_on_dec_pressed)
-	add_child(_dec_btn)
-
-	_inc_btn = Button.new()
-	_inc_btn.flat         = false
-	_inc_btn.clip_text    = false
-	_inc_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_inc_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
-	_inc_btn.text         = "►"
-	_inc_btn.pressed.connect(_on_inc_pressed)
-	add_child(_inc_btn)
-
-	_close_btn = Button.new()
-	_close_btn.flat         = true
-	_close_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	_close_btn.focus_mode   = Control.FOCUS_ALL   ## d-pad selectable (Aug 2026)
-	_close_btn.pressed.connect(close)
-	add_child(_close_btn)
-
-
-func _style_slider(slider: HSlider) -> void:
-	var groove: StyleBoxFlat = StyleBoxFlat.new()
-	groove.bg_color = _slider_groove
-	groove.border_color = Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45)
-	groove.set_border_width_all(1)
-	groove.set_corner_radius_all(3)
-	groove.content_margin_top    = 6.0
-	groove.content_margin_bottom = 6.0
-	slider.add_theme_stylebox_override("slider", groove)
-
-	var fill: StyleBoxFlat = StyleBoxFlat.new()
-	fill.bg_color = Color(_theme.ok.r, _theme.ok.g, _theme.ok.b, 0.55)
-	fill.set_corner_radius_all(3)
-	fill.content_margin_top    = 6.0
-	fill.content_margin_bottom = 6.0
-	slider.add_theme_stylebox_override("grabber_area", fill)
-	slider.add_theme_stylebox_override("grabber_area_highlight", fill)
-
-	var grabber_normal: Texture2D = _make_grabber_texture(false)
-	var grabber_selected: Texture2D = _make_grabber_texture(true)
-	_grabber_tex_normal   = grabber_normal
-	_grabber_tex_selected = grabber_selected
-	slider.add_theme_icon_override("grabber", grabber_normal)
-	slider.add_theme_icon_override("grabber_highlight", grabber_normal)
-	slider.add_theme_icon_override("grabber_disabled", grabber_normal)
-	## Selection outline (Aug 2026): driven MANUALLY by _update_grabber_icon()
-	## rather than relying on Godot's grabber_highlight, which also shows on
-	## focus — a mouse click leaves the slider focused, so the highlight
-	## would otherwise stay after the cursor leaves. Here it shows ONLY while
-	## the cursor hovers it (mouse) or it's focused in controller mode, and
-	## clears the moment neither applies. A transparent focus stylebox stops
-	## the default focus rectangle from double-marking the slider.
-	slider.focus_entered.connect(_update_grabber_icon)
-	slider.focus_exited.connect(_update_grabber_icon)
-	slider.mouse_entered.connect(func() -> void:
-		_slider_hovered = true
-		_update_grabber_icon())
-	slider.mouse_exited.connect(func() -> void:
-		_slider_hovered = false
-		_update_grabber_icon())
-	slider.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-
-
-func _make_grabber_texture(with_outline: bool) -> Texture2D:
-	const SIZE: int = 20
-	const R_FILL: float = 6.5
-	const R_OUTER: float = 9.0
-	var img: Image = Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var c: float = (SIZE - 1) * 0.5
-	for y: int in range(SIZE):
-		for x: int in range(SIZE):
-			var d: float = Vector2(float(x) - c, float(y) - c).length()
-			if d <= R_FILL:
-				img.set_pixel(x, y, _theme.header)
-			elif with_outline and d <= R_OUTER:
-				img.set_pixel(x, y, Color.WHITE)
-	return ImageTexture.create_from_image(img)
-
-func _update_grabber_icon() -> void:
-	if _rate_slider == null or _grabber_tex_normal == null or _grabber_tex_selected == null:
-		return
-	## Mouse: outline only while the cursor is over the slider (tracked via
-	## mouse_entered/exited — HSlider has no is_hovered()). Controller:
-	## outline only while the slider is focused. A stray focus from a mouse
-	## click must NOT keep it lit once the cursor leaves.
-	var selected: bool = _slider_hovered \
-		or (InputMode.is_controller() and _rate_slider.has_focus())
-	var tex: Texture2D = _grabber_tex_selected if selected else _grabber_tex_normal
-	_rate_slider.add_theme_icon_override("grabber", tex)
-	_rate_slider.add_theme_icon_override("grabber_highlight", tex)
-	_rate_slider.queue_redraw()
-
-
-# ─── Open / Close ─────────────────────────────────────────────────────────────
 func open(dispenser: WaterDispenser) -> void:
+	if not is_instance_valid(dispenser):
+		return
 	_dispenser = dispenser
-	_is_open   = true
-	if _proximity != null:
-		_proximity.anchor = dispenser.global_position
-	visible    = true
-	set_process(true)
-	_close_btn.visible   = true
-	_rate_slider.visible = true
-	_toggle_btn.visible  = true
-	_dec_btn.visible     = true
-	_inc_btn.visible     = true
-	_reposition_controls()
-	## Standing convention (July 2026) — see UIFade.gd.
-	UIFade.fade_in(_canvas)
-	_canvas.queue_redraw()
+	_open_device("Water dispenser", "WATER SYSTEM", "water", dispenser)
 
-
-func close() -> void:
-	_is_open = false
-	visible  = false
-	set_process(false)
-	_close_btn.visible   = false
-	_rate_slider.visible = false
-	_toggle_btn.visible  = false
-	_dec_btn.visible     = false
-	_inc_btn.visible     = false
-	closed.emit()
-
-
-func is_open() -> bool:
-	return _is_open
-
-
-# ─── Input ────────────────────────────────────────────────────────────────────
-func _unhandled_input(event: InputEvent) -> void:
-	if not _is_open:
-		return
-	if event is InputEventKey and event.pressed:
-		var k: int = (event as InputEventKey).keycode
-		if k == KEY_ESCAPE or k == KEY_E:
-			close()
-			get_viewport().set_input_as_handled()
-			return
-	if event is InputEventMouseButton and event.pressed:
-		var vp: Vector2  = get_viewport().get_visible_rect().size
-		var px: float    = (vp.x - PANEL_W) * 0.5
-		var py: float    = (vp.y - PANEL_H) * 0.5
-		var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
-		if panel.has_point((event as InputEventMouseButton).position):
-			get_viewport().set_input_as_handled()
-
-
-# ─── Live refresh ─────────────────────────────────────────────────────────────
-## Redraw throttle (Aug 2026 optimization) — live rate/fill doesn't need 60Hz.
-const REDRAW_INTERVAL: float = 0.1
-var _redraw_accum: float = 0.0
-
-func _process(_delta: float) -> void:
-	if not _is_open:
-		return
-	if _dispenser == null or not is_instance_valid(_dispenser):
+func _refresh_data() -> void:
+	if not is_instance_valid(_dispenser) or _dispenser.is_queued_for_deletion():
 		close()
 		return
-	_redraw_accum += _delta
-	if _redraw_accum < REDRAW_INTERVAL:
-		return
-	_redraw_accum = 0.0
-	_reposition_controls()
-	_canvas.queue_redraw()
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	var key: String = _dispenser.get_node_key()
+	var connected: bool = wm != null and wm.is_reachable_from_hookup(key)
+	var maximum: float = wm.get_dynamic_max_mL_per_day(key, _dispenser.priority) if wm != null else 0.0
+	var info: Dictionary = wm.get_received_rate_mL(key) if wm != null and not key.is_empty() else {}
+	var received: float = float(info.get("mL_per_day", 0.0))
+	var requested: float = _dispenser.requested_rate_mL_per_day
+	W.set_status(_running, "On" if _dispenser.is_on else "Off", "success" if _dispenser.is_on else "inactive", "running" if _dispenser.is_on else "stopped")
+	W.set_status(_connection, "Water connected" if connected else "Disconnected", "success" if connected else "warning", "grid")
+	W.set_meter(_storage, _dispenser.current_fill_mL / WaterDispenser.MAX_STORAGE_ML * 100.0,
+		"%d%%" % roundi(_dispenser.current_fill_mL / WaterDispenser.MAX_STORAGE_ML * 100.0),
+		"%.0f / %.0f mL stored" % [_dispenser.current_fill_mL, WaterDispenser.MAX_STORAGE_ML])
+	var quality: float = _dispenser.stored_water_quality
+	W.set_meter(_quality, quality, "%.0f%%" % quality, "Quality of water currently in the tank.", W.quality_token(quality))
+	W.set_stat(_requested, "%.0f mL/day · %.2f mL/min" % [requested, requested / 1440.0])
+	# Range.max_value can emit value_changed while clamping. Block the entire
+	# update, not only the final value assignment: refreshing must NEVER write.
+	_rate_slider.set_block_signals(true)
+	_rate_slider.max_value = maxf(0.0, maximum)
+	_rate_slider.set_value_no_signal(requested)
+	_rate_slider.set_block_signals(false)
+	_rate_slider.editable = maximum > 0.0
+	_network_hint.text = "Network maximum now: %.0f mL/day" % maximum
+	if requested > maximum:
+		_network_hint.text += "\nNetwork supply has fallen below the current request."
+	W.set_stat(_received, "%.0f mL/day · %.2f mL/min" % [received, received / 1440.0],
+		"inactive" if not _dispenser.is_on else ("warning" if received < requested - 1.0 else "blue"))
+	_priority_control.set_value(_dispenser.priority)
+	_toggle_btn.text = "Turn dispenser off" if _dispenser.is_on else "Turn dispenser on"
+	_toggle_btn.tooltip_text = _toggle_btn.text
+	_toggle_btn.icon = W.icon("stopped" if _dispenser.is_on else "running")
 
-
-# ─── Handlers ─────────────────────────────────────────────────────────────────
 func _on_rate_changed(value: float) -> void:
-	if _dispenser == null or not is_instance_valid(_dispenser):
-		return
-	_dispenser.set_requested_rate(value)
+	if _is_open and is_instance_valid(_dispenser):
+		_dispenser.set_requested_rate(value)
+		_refresh_data()
 
 func _on_toggle_pressed() -> void:
-	if _dispenser == null or not is_instance_valid(_dispenser):
-		return
-	_dispenser.set_on(not _dispenser.is_on)
+	if _is_open and is_instance_valid(_dispenser):
+		_dispenser.set_on(not _dispenser.is_on)
+		_refresh_data()
 
-func _on_dec_pressed() -> void:
-	_apply_priority(-1)
-
-func _on_inc_pressed() -> void:
-	_apply_priority(1)
-
-func _apply_priority(delta: int) -> void:
-	if _dispenser == null or not is_instance_valid(_dispenser):
-		return
-	_dispenser.priority = clampi(_dispenser.priority + delta, PRIORITY_MIN, PRIORITY_MAX)
-	_canvas.queue_redraw()
-
-
-# ─── Control positioning ──────────────────────────────────────────────────────
-func _reposition_controls() -> void:
-	var d: WaterDispenser = _dispenser
-	if d == null or not is_instance_valid(d):
-		return
-
-	var vp: Vector2 = get_viewport().get_visible_rect().size
-	var px: float   = (vp.x - PANEL_W) * 0.5
-	var py: float   = (vp.y - PANEL_H) * 0.5
-
-	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 16.0)   ## Jul 2026 — +6px top-padding pass, must match UIKit.draw_close_button()
-	_close_btn.size     = Vector2(30.0, 30.0)
-
-	## Rate slider — dynamic max reacts live to any other device's priority/
-	## on-off/slider changing anywhere in the network (WaterManager delegates
-	## to WaterSolver.gd).
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
-	var dynamic_max: float = 0.0
-	if wm != null:
-		dynamic_max = wm.get_dynamic_max_mL_per_day(d.get_node_key(), d.priority)
-	_rate_slider.max_value = dynamic_max
-	_rate_slider.value     = d.requested_rate_mL_per_day
-
-	var slider_y: float = _slider_row_y if _slider_row_y > 0.0 else (py + 150.0)
-	_rate_slider.position = Vector2(px + 24.0, slider_y)
-	_rate_slider.size      = Vector2(PANEL_W - 48.0, _slider_h)
-
-	## On/off pill hit-area.
-	var toggle_y: float = _toggle_row_y if _toggle_row_y > 0.0 else (py + 260.0)
-	_toggle_btn.position = Vector2(px + 24.0, toggle_y - 6.0)
-	_toggle_btn.size     = Vector2(PANEL_W - 48.0, 40.0)
-
-	## Priority arrows.
-	var arrow_y: float = _arrow_row_y if _arrow_row_y > 0.0 else (py + 330.0)
-	var arrow_sz: Vector2 = Vector2(_arrow_size, _arrow_size)
-	_dec_btn.size = arrow_sz
-	_inc_btn.size = arrow_sz
-	_dec_btn.position = Vector2(px + 36.0, arrow_y)
-	_inc_btn.position = Vector2(px + PANEL_W - 36.0 - arrow_sz.x, arrow_y)
-	_style_arrow_btn(_dec_btn, d.priority > PRIORITY_MIN)
-	_style_arrow_btn(_inc_btn, d.priority < PRIORITY_MAX)
-
-
-## Jul 2026, UI Kit migration: stylebox construction now delegates to
-## UIKit.button_stylebox() (identical bg/border/corner values, just shared
-## instead of a local copy) — only the per-state hover/enabled dispatch
-## stays here since it's specific to this button's state set.
-func _style_arrow_btn(btn: Button, enabled: bool) -> void:
-	btn.disabled = not enabled
-	if _font != null:
-		btn.add_theme_font_override("font", _font)
-	btn.add_theme_font_size_override("font_size", 22)
-	var fg: Color = _theme.header if enabled else Color(0.30, 0.34, 0.36, 1.0)
-	for sname: String in ["normal", "hover", "pressed", "disabled", "focus"]:
-		btn.add_theme_stylebox_override(sname, UIKit.button_stylebox(_theme, enabled, sname == "hover"))
-	btn.add_theme_color_override("font_color", fg)
-	btn.add_theme_color_override("font_disabled_color", fg)
-
-
-# ─── Draw ─────────────────────────────────────────────────────────────────────
-func _on_draw() -> void:
-	if not _is_open:
-		return
-	var d: WaterDispenser = _dispenser
-	if d == null or not is_instance_valid(d):
-		return
-
-	var vp: Vector2 = get_viewport().get_visible_rect().size
-	var px: float   = (vp.x - PANEL_W) * 0.5
-	var py: float   = (vp.y - PANEL_H) * 0.5
-
-	UIKit.draw_backdrop(_canvas, vp, 0.60)
-
-	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
-	UIKit.draw_panel(_canvas, panel, _theme)
-	UIKit.draw_domain_stripe(_canvas, panel, _theme.accent)
-
-	## Close button × — this file's actual click handling goes through the
-	## real `_close_btn` Button node positioned in `_reposition_controls()`
-	## (unchanged), so the returned hit-rect isn't needed here.
-	UIKit.draw_close_button(_canvas, panel, _theme)
-
-	var cx: float = px + 24.0
-	var cy: float = py + 26.0   ## Jul 2026 — +6px top-padding pass
-
-	# ── Header ────────────────────────────────────────────────────────────────
-	_draw_str("WATER DISPENSER", Vector2(cx, cy), _theme.header, 16)
-	cy += 28.0
-	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.45), 1.0, true)
-	cy += 16.0
-
-	# ── Fill level ───────────────────────────────────────────────────────────
-	## Visual fill bar/gauge (Jul 2026 fix) — this panel previously only had
-	## the numeric "STORAGE: X / 5000 mL" text below; Brannon reported
-	## expecting an actual bar/gauge graphic distinct from that text line
-	## (separate from the 3D dispenser body's own tank_fill.gdshader tint —
-	## that's a different, world-space visual). Same drawn-rect convention
-	## as the demand-priority pips further down this panel — no new Control
-	## nodes, just _canvas.draw_rect() inside this existing _on_draw() pass.
-	_draw_str("STORAGE", Vector2(cx, cy), _theme.dim, 10)
-	_draw_str("%.0f / %.0f mL" % [d.current_fill_mL, WaterDispenser.MAX_STORAGE_ML],
-		Vector2(cx, cy + 14.0), _theme.text, 13)
-	cy += 32.0
-
-	var fill_frac: float = clampf(d.current_fill_mL / WaterDispenser.MAX_STORAGE_ML, 0.0, 1.0)
-	var bar_w: float = PANEL_W - 48.0
-	var bar_h: float = 14.0
-	UIKit.draw_bar(_canvas, Rect2(cx, cy, bar_w, bar_h), fill_frac, _theme)
-	cy += bar_h + 16.0
-
-	# ── Water quality (Jul 2026) — same label/value styling as STORAGE above,
-	## value colored via the shared red/yellow/green scheme (see
-	## QUALITY_GOOD_COLOR / _quality_color() above).
-	_draw_str("WATER QUALITY", Vector2(cx, cy), _theme.dim, 10)
-	_draw_str("%.0f%%" % d.stored_water_quality,
-		Vector2(cx, cy + 14.0), _quality_color(d.stored_water_quality), 13)
-	cy += 40.0
-
-	# ── Requested rate + slider ──────────────────────────────────────────────
-	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
-	var dynamic_max: float = 0.0
-	if wm != null:
-		dynamic_max = wm.get_dynamic_max_mL_per_day(d.get_node_key(), d.priority)
-
-	_draw_str("FLOW RATE", Vector2(cx, cy), _theme.dim, 10)
-	_draw_str("%.0f mL/day  (%.2f mL/min)" % [d.requested_rate_mL_per_day, d.requested_rate_mL_per_day / 1440.0],
-		Vector2(px + PANEL_W - 190.0, cy), _theme.text, 11)
-	cy += 16.0
-	_slider_row_y = cy
-	cy += 30.0
-	_draw_str("Network max right now: %.0f mL/day" % dynamic_max, Vector2(cx, cy), _theme.dim, 9)
-	cy += 24.0
-
-	# ── Effective (actually received) rate ───────────────────────────────────
-	var effective_day: float = 0.0
-	if wm != null and not d.get_node_key().is_empty():
-		var info: Dictionary = wm.get_received_rate_mL(d.get_node_key())
-		effective_day = float(info.get("mL_per_day", 0.0))
-	var eff_col: Color = _theme.ok
-	if not d.is_on:
-		eff_col = OFF_COLOR
-	elif effective_day < d.requested_rate_mL_per_day - 1.0:
-		eff_col = _theme.warn
-	_draw_str("RECEIVING", Vector2(cx, cy), _theme.dim, 10)
-	_draw_str("%.0f mL/day  (%.2f mL/min)" % [effective_day, effective_day / 1440.0],
-		Vector2(cx, cy + 14.0), eff_col, 13)
-	cy += 40.0
-
-	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.30), 1.0)
-	cy += 14.0
-
-	# ── On/off pill row ──────────────────────────────────────────────────────
-	_toggle_row_y = cy
-	var trow: Rect2 = Rect2(cx - 4.0, cy - 6.0, PANEL_W - 40.0, 40.0)
-	_canvas.draw_rect(trow, Color(0.10, 0.12, 0.14, 0.70), true)
-	_canvas.draw_rect(trow, Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.30), false, 1.0)
-	_draw_str("DISPENSER", Vector2(cx + 6.0, cy), _theme.text, 12)
-	var state_str: String = "ON" if d.is_on else "OFF"
-	var state_col: Color = ACCENT_TOGGLE if d.is_on else OFF_COLOR
-	## Pill switch
-	var pill_w: float = _pill_w
-	var pill_h: float = _pill_h
-	var pill_x: float = px + PANEL_W - 24.0 - pill_w - 46.0
-	var pill_y: float = cy - 2.0
-	var pill_r: float = pill_h * 0.5
-	var pill_col: Color = state_col
-	_canvas.draw_rect(Rect2(pill_x + pill_r, pill_y, pill_w - pill_r * 2.0, pill_h), pill_col, true)
-	_canvas.draw_circle(Vector2(pill_x + pill_r, pill_y + pill_r), pill_r, pill_col)
-	_canvas.draw_circle(Vector2(pill_x + pill_w - pill_r, pill_y + pill_r), pill_r, pill_col)
-	var knob_cx: float = (pill_x + pill_w - pill_r) if d.is_on else (pill_x + pill_r)
-	_canvas.draw_circle(Vector2(knob_cx, pill_y + pill_r), pill_r - 3.0, _pill_knob)
-	_draw_str(state_str, Vector2(pill_x + pill_w + 10.0, cy), state_col, 12)
-	cy += 46.0
-
-	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.30), 1.0)
-	cy += 12.0
-
-	# ── Priority changer ─────────────────────────────────────────────────────
-	_draw_str("DEMAND PRIORITY", Vector2(cx, cy), _theme.dim, 10)
-	cy += 18.0
-	_arrow_row_y = cy
-	var row_h: float = 48.0
-	var pcol: Color = PRIO_COLORS[clampi(d.priority - 1, 0, PRIO_COLORS.size() - 1)]
-	var num_str: String = str(d.priority)
-	var num_size: int = 32
-	var num_w: float = _font.get_string_size(num_str, HORIZONTAL_ALIGNMENT_LEFT, -1, num_size).x
-	var num_x: float = px + (PANEL_W - num_w) * 0.5
-	var num_y: float = cy + row_h * 0.5 + float(num_size) * 0.35
-	var chip_w: float = _chip_w
-	var chip_rect: Rect2 = Rect2(px + (PANEL_W - chip_w) * 0.5, cy, chip_w, row_h)
-	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.14), true)
-	_canvas.draw_rect(chip_rect, Color(pcol.r, pcol.g, pcol.b, 0.85), false, 2.0)
-	_draw_str(num_str, Vector2(num_x, num_y), pcol, num_size)
-	cy += row_h + 6.0
-
-	var tier_name: String = _tier_name(d.priority)
-	var tn_w: float = _font.get_string_size(tier_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-	_draw_str(tier_name, Vector2(px + (PANEL_W - tn_w) * 0.5, cy), pcol, 11)
-	cy += 20.0
-
-	var pip_total_w: float = PANEL_W - 108.0
-	var pip_gap: float = _pip_gap
-	var pip_w: float = (pip_total_w - pip_gap * 4.0) / 5.0
-	var pip_x: float = px + 54.0
-	for i: int in range(5):
-		var col: Color = PRIO_COLORS[i]
-		var rect: Rect2 = Rect2(pip_x + float(i) * (pip_w + pip_gap), cy, pip_w, _pip_h)
-		if i + 1 == d.priority:
-			_canvas.draw_rect(rect, col, true)
-		else:
-			_canvas.draw_rect(rect, Color(col.r, col.g, col.b, 0.22), true)
-		_canvas.draw_rect(rect, Color(col.r, col.g, col.b, 0.55), false, 1.0)
-	cy += 20.0
-
-	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
-		Color(_theme.border.r, _theme.border.g, _theme.border.b, 0.25), 1.0)
-	cy += 12.0
-
-	_draw_str("[◄ ►]  Priority    [ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), _theme.dim, 9)
-
-	_reposition_controls()
-
-
-func _tier_name(p: int) -> String:
-	match p:
-		1: return "CRITICAL"
-		2: return "IMPORTANT"
-		3: return "STANDARD"
-		4: return "LOW"
-		5: return "LUXURY"
-		_: return "STANDARD"
-
-
-# ─── String helper (matches WaterInfoUI/PowerPriorityUI style) ──────────────
-## Jul 2026, UI Kit migration: delegates to UIKit.draw_shadowed_text() —
-## identical drop-shadow-then-text drawing, now shared instead of a local
-## copy re-implemented in every panel script.
-func _draw_str(text: String, pos: Vector2, color: Color, size: int) -> void:
-	UIKit.draw_shadowed_text(_canvas, pos, text, size, color)
+func _on_priority_requested(value: int) -> void:
+	if _is_open and is_instance_valid(_dispenser):
+		_dispenser.priority = clampi(value, 1, 5)
+		_refresh_data()

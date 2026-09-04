@@ -52,6 +52,7 @@ var _wire_key:      String             = ""
 var _pm_retry_count: int = 0
 
 var _inspect_ui: Node = null
+var _inspect_refresh_queued: bool = false
 
 var _grid_tripped: bool = false
 
@@ -569,6 +570,12 @@ func _register_with_pm() -> void:
 		pm.grid_tripped.connect(_on_pm_grid_tripped)
 	if pm.has_signal("grid_restored") and not pm.grid_restored.is_connected(_on_pm_grid_restored):
 		pm.grid_restored.connect(_on_pm_grid_restored)
+	# Keep the open inspector current for solves and all grid states, not just
+	# tripped/restored. Data still comes from PowerManager; the UI never polls it.
+	if not pm.draw_changed.is_connected(_on_inspector_power_changed):
+		pm.draw_changed.connect(_on_inspector_power_changed)
+	if not pm.grid_state_changed.is_connected(_on_inspector_grid_changed):
+		pm.grid_state_changed.connect(_on_inspector_grid_changed)
 	call_deferred("_register_wire_deferred")
 
 func _register_wire_deferred() -> void:
@@ -632,6 +639,10 @@ func on_grid_tripped() -> void:
 
 
 func _exit_tree() -> void:
+	# Inspector is root-owned; don't leave an orphan after deconstruction.
+	if is_instance_valid(_inspect_ui):
+		_inspect_ui.close()
+		_inspect_ui.queue_free()
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null or _pm_id.is_empty():
 		return
@@ -650,11 +661,13 @@ func set_running(on: bool) -> void:
 	_sync_socket()
 	if _exhaust != null:
 		_exhaust.emitting = on
+	_request_inspect_refresh()
 
 func set_fuel(level: float) -> void:
 	_fuel_level = clampf(level, 0.0, 100.0)
 	if _fuel_banner != null:
 		_refresh_fuel_banner()
+	_request_inspect_refresh()
 
 # ─── Interaction prompt ───────────────────────────────────────────────────────
 func get_interact_prompt() -> String:
@@ -672,10 +685,8 @@ func _get_display_name() -> String:
 
 # ─── Interaction ──────────────────────────────────────────────────────────────
 func on_interact() -> void:
-	var is_node: Node = _get_interaction_system()
-	if is_node != null and "build_mode_active" in is_node:
-		is_node.build_mode_active = true
-
+	# ControllerUINavigation gates world interaction. Do not impersonate build
+	# mode: the player must remain able to walk/turn while inspecting devices.
 	if _inspect_ui == null or not is_instance_valid(_inspect_ui):
 		var ui_script: GDScript = load("res://scripts/ui/power/GeneratorInspectUI.gd")
 		if ui_script == null:
@@ -705,13 +716,11 @@ func on_interact() -> void:
 			gs        = pm.get_grid_state_string()
 		_inspect_ui.call("open", _get_display_name(),
 			TIER_CONFIG[generator_tier].get("watts", 0),
-			fuel, health, is_backup, _is_running, _grid_tripped, gs)
+			fuel, health, is_backup, _is_running, _grid_tripped, gs, self)
 
 
 func _on_inspect_closed() -> void:
-	var is_node: Node = _get_interaction_system()
-	if is_node != null and "build_mode_active" in is_node:
-		is_node.build_mode_active = false
+	pass # No gameplay lock was acquired by this inspector.
 
 
 func _on_backup_toggled(enabled: bool) -> void:
@@ -774,15 +783,41 @@ func _on_power_toggled(desired_running: bool) -> void:
 func _refresh_inspect_ui() -> void:
 	if _inspect_ui == null or not is_instance_valid(_inspect_ui):
 		return
-	if not _inspect_ui.has_method("refresh"):
+	if not _inspect_ui.visible or not _inspect_ui.has_method("refresh"):
 		return
 	var pm:     PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	var health: float = 100.0
 	var gs:     String = "ONLINE"
+	var fuel: float = _fuel_level
+	var running: bool = _is_running
+	var backup: bool = _is_backup
 	if pm != null:
 		health = pm.get_generator_health(_pm_id)
 		gs     = pm.get_grid_state_string()
-	_inspect_ui.call("refresh", _fuel_level, health, _is_backup, _is_running, _grid_tripped, gs)
+		fuel = pm.get_generator_fuel(_pm_id)
+		running = pm.get_generator_running(_pm_id)
+		backup = pm.get_generator_is_backup(_pm_id)
+	_inspect_ui.call("refresh", fuel, health, backup, running, _grid_tripped, gs)
+
+
+func _request_inspect_refresh() -> void:
+	if _inspect_refresh_queued or not is_instance_valid(_inspect_ui) or not _inspect_ui.visible:
+		return
+	_inspect_refresh_queued = true
+	_flush_inspect_refresh.call_deferred()
+
+
+func _flush_inspect_refresh() -> void:
+	_inspect_refresh_queued = false
+	_refresh_inspect_ui()
+
+
+func _on_inspector_power_changed(_draw: float, _capacity: float, _battery: float) -> void:
+	_request_inspect_refresh()
+
+
+func _on_inspector_grid_changed(_new_state: int, _old_state: int) -> void:
+	_request_inspect_refresh()
 
 
 func _sync_indicator() -> void:

@@ -4,6 +4,12 @@
 actual source for the specific function you're changing.
 
 ## Purpose
+**September 2026 UI port:** WaterDispenserUI and all WaterInfoUI modes now use
+the compact native inspector family. Their existing world APIs, allocation,
+filter wear and quality semantics are retained. See `scripts/ui/README.md` and
+`plans/ui-redesign-device-pass.md`; older hand-drawn layout notes below are
+historical, not a template for new UI work.
+
 The wall-mounted water hookup, the pipe-placement/routing tool, both devices
 being interactable (press E) with a shared info panel (Step 2), and (Jul
 2026) a REAL demand-based, priority-tier allocation system

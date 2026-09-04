@@ -6,24 +6,26 @@ extends Node
 ## Attach as a child of any Control tree you want to drive with a
 ## controller (or point ui_root at it):
 ##   - D-pad:     moves focus one step in the pressed cardinal direction.
-##   - Left stick: moves focus toward whichever button is nearest in the
-##                 direction the stick points ("best guess"), and repeats
-##                 while the stick is held.
+##   - Right stick: duplicates d-pad navigation and adjusts focused sliders.
+##   - Left stick: remains player movement in ordinary in-world inspectors;
+##                 full-screen menus may opt it into navigation.
+##   - Scrollbars: are focusable controls; up/down scrolls while focused.
 ##   - A (ui_accept): activates the focused button (Godot default).
 ##   - B (ui_cancel): closes this UI (close_on_cancel, topmost-only).
 ## ui_root can be a Control or a CanvasLayer (e.g. a full-screen menu).
 ##
 ## This consumes joypad movement events in _input() BEFORE Godot's built-in
 ## focus navigation, for two reasons:
-##   1. It lets the left stick pick a button by ANALOG direction (not just
-##      the 4-cardinal ui_* actions), which is the "best guess" behavior.
+##   1. It lets the right stick pick a button by analog direction (not just
+##      the four cardinal ui_* actions), with optional left-stick parity on
+##      full-screen menus.
 ##   2. Consumed events never reach _unhandled_input handlers — so while a
 ##      UI with this node is open, the d-pad/stick cannot also trigger other
 ##      gamepad actions (e.g. InteractionSystem's inventory cycling).
 ##      Attach this node to any modal/full-screen UI that should own the pad.
 ##
-## Keyboard (arrow keys) and mouse are intentionally left to Godot's built-in
-## focus/hover — only joypad input is handled here.
+## Mouse behavior remains native. Keyboard arrows remain native except while
+## a scrollbar owns focus, where they adjust that scrollbar explicitly.
 
 @export var ui_root: Node = null
 @export var stick_deadzone: float = 0.6   ## stick magnitude needed to register a directional move
@@ -66,6 +68,8 @@ const SLIDER_RAMP_TIME: float      = 3.0     ## seconds of holding to reach max 
 const SLIDER_REPEAT_MAX_STEP_MULT: float = 500.0
 
 var _move_cooldown: float = 0.0
+var _stick_direction := Vector2.ZERO
+var _prepare_elapsed := 0.0
 
 ## Slider auto-repeat state.
 var _slider_repeat_dir: int    = 0
@@ -107,8 +111,12 @@ func _process(delta: float) -> void:
 		## A higher-layer controller UI is open — it owns the pad.
 		_slider_repeat_dir = 0
 		return
+	_prepare_elapsed += delta
+	if _prepare_elapsed >= 0.25:
+		_prepare_elapsed = 0.0
+		_prepare_scrollbars(ui_root)
 	_tick_slider_repeat(delta)
-	_try_stick_move()
+	_try_stick_move(delta)
 
 func _input(event: InputEvent) -> void:
 	if not _active():
@@ -118,6 +126,14 @@ func _input(event: InputEvent) -> void:
 	## menu's nav must not eat B/d-pad while a confirm dialog is stacked
 	## above it).
 	if not _is_topmost():
+		return
+	## PopupMenu is its own temporary focus surface. Let its native d-pad,
+	## A/B, and keyboard behavior run; only consume right-stick motion here
+	## because _process() mirrors that motion onto the popup's focused item.
+	var open_popup := _visible_popup()
+	if open_popup != null:
+		if event is InputEventJoypadMotion and (event.axis == JOY_AXIS_RIGHT_X or event.axis == JOY_AXIS_RIGHT_Y):
+			get_viewport().set_input_as_handled()
 		return
 	## B — close/cancel this UI. Only the topmost open controller UI closes
 	## (see _is_topmost), so stacked UIs cancel one at a time. B is consumed
@@ -138,12 +154,12 @@ func _input(event: InputEvent) -> void:
 			DPAD_LEFT:  dir = Vector2(-1.0, 0.0)
 			DPAD_RIGHT: dir = Vector2(1.0, 0.0)
 		if dir != Vector2.ZERO:
-			if dir.y == 0.0 and _is_focused_slider():
+			if _adjust_focused_range(dir, 1.0):
 				## A focused Slider owns horizontal d-pad (Aug 2026): one step
 				## now, then a held direction auto-repeats with acceleration —
 				## see _tick_slider_repeat().
-				_adjust_focused_slider(int(dir.x))
-				_start_slider_repeat(int(dir.x))
+				if dir.y == 0.0 and _is_focused_slider():
+					_start_slider_repeat(int(dir.x))
 				get_viewport().set_input_as_handled()
 				return
 			## If this UI has no focusable controls (hand-drawn panels), let
@@ -153,11 +169,23 @@ func _input(event: InputEvent) -> void:
 			_move_focus(dir)
 			get_viewport().set_input_as_handled()
 			return
-	## Left stick — consume the raw motion so Godot's built-in 4-directional
+	## Right stick owns UI navigation. Left stick is consumed only by a
+	## full-screen UI that explicitly opts it into navigation.
 	## focus navigation doesn't also act; the actual move is polled in
 	## _process() so a held stick keeps repeating.
-	if event is InputEventJoypadMotion and (event.axis == JOY_AXIS_LEFT_X or event.axis == JOY_AXIS_LEFT_Y):
+	if event is InputEventJoypadMotion and (event.axis == JOY_AXIS_RIGHT_X or event.axis == JOY_AXIS_RIGHT_Y \
+			or (stick_navigation and (event.axis == JOY_AXIS_LEFT_X or event.axis == JOY_AXIS_LEFT_Y))):
 		get_viewport().set_input_as_handled()
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key_dir := Vector2.ZERO
+		match event.keycode:
+			KEY_UP: key_dir = Vector2.UP
+			KEY_DOWN: key_dir = Vector2.DOWN
+			KEY_LEFT: key_dir = Vector2.LEFT
+			KEY_RIGHT: key_dir = Vector2.RIGHT
+		if key_dir != Vector2.ZERO and _adjust_focused_range(key_dir, 1.0):
+			get_viewport().set_input_as_handled()
+			return
 
 func _active() -> bool:
 	if ui_root == null or not ui_root.is_inside_tree():
@@ -170,6 +198,14 @@ func _active() -> bool:
 ## different UI by mistake).
 func is_active() -> bool:
 	return _active()
+
+static func owns_directional_input(tree: SceneTree) -> bool:
+	if tree == null:
+		return false
+	for candidate: Node in tree.get_nodes_in_group(NAV_GROUP):
+		if candidate.has_method("is_active") and bool(candidate.call("is_active")):
+			return true
+	return false
 
 ## Robust visibility check that works for both Control roots and
 ## CanvasLayer roots (CanvasLayer is a Node, NOT a CanvasItem — it has no
@@ -217,15 +253,57 @@ func _is_topmost() -> bool:
 				return false
 	return true
 
-func _try_stick_move() -> void:
-	if not stick_navigation:
-		return
+func _try_stick_move(_delta: float) -> void:
 	if _move_cooldown > 0.0:
 		return
-	var stick := Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
+	var stick := Vector2(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y))
+	if stick.length() < stick_deadzone and stick_navigation:
+		stick = Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
 	if stick.length() < stick_deadzone:
+		_stick_direction = Vector2.ZERO
 		return
-	_move_focus(stick.normalized())
+	var direction := Vector2(signf(stick.x), 0.0) if absf(stick.x) > absf(stick.y) else Vector2(0.0, signf(stick.y))
+	_stick_direction = direction
+	var popup := _visible_popup()
+	if popup != null:
+		_move_popup(popup, int(direction.y if direction.y != 0.0 else direction.x))
+		_move_cooldown = move_repeat_delay
+		return
+	if not _adjust_focused_range(direction, clampf(stick.length(), 1.0, 2.0)):
+		_move_focus(direction)
+	else:
+		_move_cooldown = 0.07
+
+func _visible_popup() -> PopupMenu:
+	if ui_root == null:
+		return null
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is OptionButton:
+		var focused_popup := (focus as OptionButton).get_popup()
+		if focused_popup.visible:
+			return focused_popup
+	for focusable in _collect_focusables():
+		if focusable is OptionButton:
+			var popup := (focusable as OptionButton).get_popup()
+			if popup.visible:
+				return popup
+	for candidate in ui_root.find_children("*", "PopupMenu", true, false):
+		if candidate is PopupMenu and (candidate as PopupMenu).visible:
+			return candidate as PopupMenu
+	return null
+
+func _move_popup(popup: PopupMenu, direction: int) -> void:
+	var count := popup.get_item_count()
+	if direction == 0 or count == 0:
+		return
+	var index := popup.get_focused_item()
+	if index < 0:
+		index = 0 if direction > 0 else count - 1
+	for _attempt in count:
+		index = wrapi(index + direction, 0, count)
+		if not popup.is_item_disabled(index) and not popup.is_item_separator(index):
+			popup.set_focused_item(index)
+			return
 
 ## Moves focus to the control most in `dir`. Nearest-ahead scoring (Aug 2026):
 ## among candidates within MIN_DIR_DOT of the pressed direction, the CLOSEST
@@ -309,6 +387,41 @@ func _adjust_focused_slider(dir: int, step_mult: float = 1.0) -> void:
 	var sl: Slider = f as Slider
 	var step: float = sl.step if sl.step > 0.0 else 1.0
 	sl.value = clampf(sl.value + step * step_mult * float(dir), sl.min_value, sl.max_value)
+
+func _adjust_focused_range(dir: Vector2, multiplier: float) -> bool:
+	var focus: Control = get_viewport().gui_get_focus_owner()
+	if focus is VScrollBar:
+		var bar := focus as VScrollBar
+		if dir.y == 0.0:
+			return false
+		bar.value = clampf(bar.value + 42.0 * multiplier * dir.y, bar.min_value, maxf(bar.min_value, bar.max_value - bar.page))
+		return true
+	if focus is HScrollBar:
+		var bar := focus as HScrollBar
+		if dir.x == 0.0:
+			return false
+		bar.value = clampf(bar.value + 42.0 * multiplier * dir.x, bar.min_value, maxf(bar.min_value, bar.max_value - bar.page))
+		return true
+	if focus is Slider:
+		var vertical := focus is VSlider
+		var component := -dir.y if vertical else dir.x
+		if component == 0.0:
+			return false
+		_adjust_focused_slider(int(component), multiplier)
+		return true
+	return false
+
+func _prepare_scrollbars(node: Node) -> void:
+	if node is ScrollContainer:
+		var scroll := node as ScrollContainer
+		for bar: ScrollBar in [scroll.get_v_scroll_bar(), scroll.get_h_scroll_bar()]:
+			var useful := bar.visible and bar.max_value > bar.page + 0.5
+			bar.focus_mode = Control.FOCUS_ALL if useful else Control.FOCUS_NONE
+			if useful:
+				bar.custom_minimum_size.x = maxf(bar.custom_minimum_size.x, 16.0)
+				bar.add_theme_stylebox_override("focus", BunkerPanelStyle.box(Color.TRANSPARENT, BunkerPanelStyle.BLUE, 5, 2))
+	for child in node.get_children():
+		_prepare_scrollbars(child)
 
 func _start_slider_repeat(dir: int) -> void:
 	_slider_repeat_dir   = dir

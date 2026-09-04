@@ -6,6 +6,12 @@ Read this document before modifying any code.
 
 Then read only the README for the subsystem being modified.
 
+**UI redesign (September 2026):** read `scripts/ui/README.md` for the current
+compact device-inspector edit map and `plans/ui-redesign-device-pass.md` for
+scope/contracts. Ordinary inspectors must preserve WASD/left-stick movement
+and close when walking away from the real host. Battery/breaker UI is now
+extracted. HUD and other unique workflows remain held for user review.
+
 ---
 
 # Tool Access
@@ -80,6 +86,13 @@ Do not search the repository unless necessary.
 - Refactor instead of endlessly extending large classes.
 
 ---
+
+## Artwork provenance
+
+The final game must contain **zero AI-authored artwork**. Temporary AI art is
+allowed during development only when clearly marked and tracked for replacement.
+For the UI redesign, follow `assets/ui/placeholders/redesign/README.md` and its
+manifest. Do not relabel, rename or trace placeholders to present them as final.
 
 # Never Assume
 

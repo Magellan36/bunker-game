@@ -1,0 +1,10 @@
+[application]
+config/name="Isolated Bunker Device UI Contracts"
+run/main_scene="res://Test.tscn"
+[autoload]
+InputMode="*res://scripts/core/InputMode.gd"
+[display]
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+[rendering]
+renderer/rendering_method="gl_compatibility"

@@ -1,0 +1,15 @@
+class_name FarmPlant
+extends Node3D
+const LIGHT_FLOOR_SPEED: float = 0.1
+var plant_type: String = "tomato"
+var health: float = 68.0
+var progress: float = 0.5
+var water_fraction: float = 0.5
+var growth_per_hour_current: float = 0.02
+var _light_speed_cached: float = 0.5
+var fertilizer_bonus: float = 0.25
+var fertilizer_tier: String = "basic"
+func is_ready() -> bool:
+	return progress >= 1.0
+func is_fertilized() -> bool:
+	return fertilizer_bonus > 0.0

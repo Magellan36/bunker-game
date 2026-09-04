@@ -1,0 +1,4 @@
+class_name SeedItem
+extends Node3D
+var seed_type: String = "tomato"
+var _charges: int = 3

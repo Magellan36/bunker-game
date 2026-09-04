@@ -1,0 +1,300 @@
+[gd_scene format=3]
+
+[ext_resource type="Theme" path="res://assets/ui/themes/BunkerRedesignTheme.tres" id="theme"]
+[ext_resource type="Script" path="res://scripts/ui/common/BunkerInspectorLayout.gd" id="layout"]
+
+[node name="GeneratorInspectPanel" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = ExtResource("theme")
+script = ExtResource("layout")
+
+[node name="Panel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+offset_right = 500.0
+offset_bottom = 740.0
+mouse_filter = 0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+metadata/ui_padding = 20
+
+[node name="Content" type="VBoxContainer" parent="Panel/Margin"]
+layout_mode = 2
+metadata/ui_gap = 10
+
+[node name="Header" type="HBoxContainer" parent="Panel/Margin/Content"]
+layout_mode = 2
+metadata/ui_gap = 10
+
+[node name="PowerIcon" type="TextureRect" parent="Panel/Margin/Content/Header"]
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+self_modulate = Color(0.4, 0.749, 1, 1)
+metadata/ui_icon_size = 32
+
+[node name="Titles" type="VBoxContainer" parent="Panel/Margin/Content/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+metadata/ui_gap = 2
+
+[node name="Eyebrow" type="Label" parent="Panel/Margin/Content/Header/Titles"]
+layout_mode = 2
+text = "POWER SYSTEM"
+theme_override_colors/font_color = Color(0.4, 0.749, 1, 1)
+metadata/ui_font_size = 13
+
+[node name="Title" type="Label" parent="Panel/Margin/Content/Header/Titles"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Generator"
+autowrap_mode = 2
+metadata/ui_font_size = 24
+
+[node name="Close" type="Button" parent="Panel/Margin/Content/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 0
+theme_type_variation = &"BunkerIconButton"
+text = "×"
+tooltip_text = "Close generator panel"
+metadata/ui_icon_size = 40
+metadata/ui_font_size = 24
+
+[node name="Divider" type="HSeparator" parent="Panel/Margin/Content"]
+layout_mode = 2
+
+[node name="StatusRow" type="HBoxContainer" parent="Panel/Margin/Content"]
+layout_mode = 2
+metadata/ui_gap = 10
+
+[node name="GeneratorStatus" type="PanelContainer" parent="Panel/Margin/Content/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"BunkerInspectorCard"
+
+[node name="Row" type="HBoxContainer" parent="Panel/Margin/Content/StatusRow/GeneratorStatus"]
+layout_mode = 2
+metadata/ui_gap = 8
+
+[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/StatusRow/GeneratorStatus/Row"]
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+metadata/ui_icon_size = 24
+
+[node name="State" type="Label" parent="Panel/Margin/Content/StatusRow/GeneratorStatus/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Running"
+autowrap_mode = 2
+metadata/ui_font_size = 16
+
+[node name="GridStatus" type="PanelContainer" parent="Panel/Margin/Content/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"BunkerInspectorCard"
+
+[node name="Row" type="HBoxContainer" parent="Panel/Margin/Content/StatusRow/GridStatus"]
+layout_mode = 2
+metadata/ui_gap = 8
+
+[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/StatusRow/GridStatus/Row"]
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+metadata/ui_icon_size = 24
+
+[node name="State" type="Label" parent="Panel/Margin/Content/StatusRow/GridStatus/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Grid online"
+autowrap_mode = 2
+metadata/ui_font_size = 16
+
+[node name="DetailsScroll" type="ScrollContainer" parent="Panel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+follow_focus = true
+
+[node name="FocusInset" type="MarginContainer" parent="Panel/Margin/Content/DetailsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+metadata/ui_padding = 6
+
+[node name="Details" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset"]
+layout_mode = 2
+size_flags_horizontal = 3
+metadata/ui_gap = 10
+
+[node name="Output" type="HBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+layout_mode = 2
+metadata/ui_gap = 10
+
+[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Output"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Rated output"
+theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
+metadata/ui_font_size = 18
+
+[node name="Watts" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Output"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "0 W"
+metadata/ui_font_size = 28
+
+[node name="Fuel" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+layout_mode = 2
+metadata/ui_gap = 6
+
+[node name="Heading" type="HBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel"]
+layout_mode = 2
+metadata/ui_gap = 8
+
+[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel/Heading"]
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+mouse_filter = 2
+self_modulate = Color(0.4, 0.749, 1, 1)
+metadata/ui_icon_size = 20
+
+[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel/Heading"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Fuel"
+metadata/ui_font_size = 18
+
+[node name="FuelValue" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel/Heading"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "100%"
+metadata/ui_font_size = 18
+
+[node name="FuelBar" type="ProgressBar" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"BunkerMeter"
+show_percentage = false
+value = 100.0
+mouse_filter = 2
+metadata/ui_min_height = 12
+
+[node name="FuelHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Fuel available"
+autowrap_mode = 2
+theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
+metadata/ui_font_size = 14
+
+[node name="Condition" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+layout_mode = 2
+metadata/ui_gap = 6
+
+[node name="Heading" type="HBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition"]
+layout_mode = 2
+metadata/ui_gap = 8
+
+[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition/Heading"]
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+mouse_filter = 2
+self_modulate = Color(0.4, 0.749, 1, 1)
+metadata/ui_icon_size = 20
+
+[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition/Heading"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Condition"
+metadata/ui_font_size = 18
+
+[node name="ConditionValue" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition/Heading"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "100%"
+metadata/ui_font_size = 18
+
+[node name="ConditionBar" type="ProgressBar" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"BunkerMeter"
+show_percentage = false
+value = 100.0
+mouse_filter = 2
+metadata/ui_min_height = 12
+
+[node name="ConditionHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "In good condition"
+autowrap_mode = 2
+theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
+metadata/ui_font_size = 14
+
+[node name="Divider" type="HSeparator" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+layout_mode = 2
+
+[node name="Backup" type="Button" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Backup mode: Off"
+expand_icon = true
+alignment = 0
+toggle_mode = true
+metadata/ui_font_size = 18
+metadata/ui_min_height = 44
+
+[node name="BackupHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Waits until primary power fails."
+autowrap_mode = 2
+theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
+metadata/ui_font_size = 14
+
+[node name="ActionDivider" type="HSeparator" parent="Panel/Margin/Content"]
+layout_mode = 2
+
+[node name="ActionHint" type="Label" parent="Panel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+text = "Starts this generator and supplies power to connected devices."
+theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
+metadata/ui_font_size = 14
+metadata/ui_min_height = 40
+
+[node name="Power" type="Button" parent="Panel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Start generator"
+theme_type_variation = &"BunkerPrimaryButton"
+expand_icon = true
+metadata/ui_font_size = 18
+metadata/ui_min_height = 48
+
+[node name="NavigationHint" type="Label" parent="Panel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Enter / Space: select   •   Esc / E: close"
+horizontal_alignment = 1
+autowrap_mode = 2
+theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
+metadata/ui_font_size = 13

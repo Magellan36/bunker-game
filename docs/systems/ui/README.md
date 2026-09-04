@@ -6,9 +6,67 @@ overlay, and the shared `common/` helpers. Only open the actual source for
 the one panel you're changing.
 
 ## Purpose
+**September 2026 — approved device-family pass:** water dispenser, shared
+hookup/sink/purifier, single/double farm trays, consumer priority, batteries,
+and standard/smart breakers now use the compact generator design. Battery and
+breaker UI code is extracted from world scripts. Start with
+`scripts/ui/README.md` and `plans/ui-redesign-device-pass.md`; the historical
+inventory below predates these ports. HUD, terminal, pause, notifications,
+storage, build/shop and other unique workflows remain on review hold.
+
 All player-facing UI: the always-on HUD (stats/cash/clock), every
 interaction-triggered panel (power devices, shelves, pause/settings, admin
 spawn menu), the build-mode HUD, and the debug overlay.
+
+**September 2026 — opt-in redesign first pass:** character creation now uses
+`assets/ui/themes/BunkerRedesignTheme.tres` and native containers/buttons.
+Read `docs/systems/character-creation/README.md` and
+`plans/ui-redesign-first-pass.md` for approved values and scope. Existing UIKit
+consumers and `BunkerTheme.tres` are unchanged. All new icon artwork is explicitly
+temporary; the final game must not ship AI-authored artwork.
+
+**September 2026 — generator inspector pass:** `GeneratorInspectUI.gd` now
+instantiates the native `scenes/ui/power/GeneratorInspectPanel.tscn`, using that
+same opt-in theme plus additive inspector-specific type variations. Its existing
+CanvasLayer, open/refresh arguments and action signals are preserved.
+`scripts/ui/common/BunkerInspectorLayout.gd` owns only local sizing.
+Read `plans/ui-redesign-generator-pass.md` before extending it. This is an
+explicitly approved migration of the generator inspector; other legacy panels
+remain unchanged. Initial character-creation focus no longer scrolls its heading
+out of view.
+
+## Redesign rule: in-world inspectors are not full-screen menus
+
+The September 2026 generator review established a standing user preference for
+future device panels (including water and farm trays): retain the approved
+warm-charcoal/ivory/worn-brass/project-blue identity, but use compact PC-game
+density, not character-creation or mobile/tablet proportions.
+
+- At a 1920×1080 UI viewport, the generator is **500×740 px**, vertically
+  centered and **24 px from the right edge**. Similar device inspectors should
+  start from this slender, right-docked pattern, adapting height to content.
+- **No screen-wide dimming, blur or opaque backdrop** for ordinary device
+  inspection. Keep the bunker and HUD visible. The panel consumes mouse input
+  within its bounds; its full-viewport root ignores it. This does not change
+  the owning game's existing movement/pause/input policy.
+- **Player movement and walk-away closing are mandatory.** Ordinary inspectors
+  must use `BunkerDeviceInspector` (or the generator's equivalent wiring), bind
+  the real device to `UIProximityClose`, and leave WASD/left-stick movement
+  available. Never use `build_mode_active` as an inspector-open flag. A host
+  leaving the scene also closes its inspector; returning to range never
+  reopens it automatically.
+- Base type: 24 px device title, 16–18 px status/body/action text, 14 px help,
+  13 px eyebrow/navigation. Actions remain robust at 44–48 px high, not 80 px.
+- At smaller desktop resolutions, reduce available details height and scroll
+  rather than shrinking this text baseline. Keep actions and focus visible.
+  Above 1080p, local growth is capped at 1.25×; ultrawide must not widen the panel.
+- Character creation is deliberately a full-screen workflow: **leave its
+  approved proportions intact**. A category/cart shop is also a distinct
+  workflow, not something to force into a 500 px inspector.
+
+The current compact revision changes only the generator presentation and tests.
+Do not silently migrate unrelated screens. See
+`plans/ui-redesign-generator-pass.md` for implementation and behavior contracts.
 
 ## Responsibilities
 - Render and handle input for every panel/HUD element.
@@ -185,7 +243,9 @@ own panel on first interact). None of these are autoloads.
 ## Known tradeoffs / tech debt
 - Most existing panels are hand-drawn immediate-mode (500–1000+ lines of
   manual layout bookkeeping each) — explicitly not being retrofitted, only
-  new panels use real Control trees (see UI conventions #2).
+  new panels use real Control trees (see UI conventions #2). Exception:
+  the explicitly approved September 2026 generator redesign now uses native
+  controls; do not restore its old hand-drawn implementation.
 - `BuildModeHUD.gd` (~1010 lines) is a possible future god-object cleanup
   candidate, not currently scheduled.
 

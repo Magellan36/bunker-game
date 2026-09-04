@@ -64,7 +64,7 @@ func _open_device(title: String, domain: String, symbol: String, target: Node3D 
 	if not _is_open:
 		_previous_focus = weakref(get_viewport().gui_get_focus_owner())
 	if is_instance_valid(target):
-A		_proximity.bind_target(target)
+		_proximity.bind_target(target)
 	else:
 		var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
 		var position: Vector3 = anchor
