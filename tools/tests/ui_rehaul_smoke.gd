@@ -93,6 +93,8 @@ func _test_runtime_ui() -> void:
 	_check(workspace != null, "build workspace instantiates")
 	_check(workspace.catalog.size.x <= 460.0, "build catalog keeps desktop-width rail")
 	_check(workspace.shop.size.x >= 900.0, "shop uses dedicated desktop workspace")
+	_check(not _contains_button_text(workspace.catalog, "Place selected item"),
+		"build catalog has no second placement confirmation")
 	hud.open_construct_menu()
 	await process_frame
 	_check(workspace.catalog.visible and not workspace.shop.visible, "catalog and shop are separate workflows")
@@ -109,7 +111,7 @@ func _test_runtime_ui() -> void:
 	root.add_child(storage)
 	await process_frame
 	var storage_panel: PanelContainer = storage.get("_panel")
-	_check(storage_panel != null and storage_panel.size.x <= 500.0, "storage inspector is a compact right rail")
+	_check(storage_panel != null and storage_panel.size.x <= 460.0, "storage inspector is a compact in-world rail")
 	storage.free()
 
 func _test_focusable_scrollbar() -> void:
@@ -148,6 +150,11 @@ func _test_storage_contract() -> void:
 	await process_frame
 	storage.open(target)
 	await process_frame
+	var panel: PanelContainer = storage.get("_panel")
+	var viewport_size := root.get_viewport().get_visible_rect().size
+	_check(panel.position.x <= 24.1, "storage rail stays left aligned")
+	_check(absf((panel.position.y + panel.size.y * 0.5) - viewport_size.y * 0.5) <= 1.0,
+		"storage rail is vertically centered")
 	var shown_ids: Array = storage.get("_shown_ids")
 	_check(shown_ids[0] == (target.slots[2] as Node).get_instance_id(), "storage preserves physical display_order mapping")
 	storage.call("_select", 0)
@@ -203,6 +210,12 @@ func _test_panel_geometry() -> void:
 	var panel_style: StyleBoxFlat = style.box()
 	_check(panel_style.bg_color.a == 1.0, "panel is opaque over live world")
 	_check(panel_style.corner_radius_top_left == 8, "panel radius token")
+
+func _contains_button_text(root_node: Node, expected: String) -> bool:
+	for candidate: Node in root_node.find_children("*", "Button", true, false):
+		if candidate is Button and (candidate as Button).text == expected:
+			return true
+	return false
 
 func _check(ok: bool, label: String) -> void:
 	if ok:

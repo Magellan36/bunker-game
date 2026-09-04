@@ -467,6 +467,10 @@ var _ghost_active: bool = false
 ## walls have no ghost, so the HUD must know wall-draw is active to block the
 ## tabs / make B exit the placement. See set_wall_draw_active().
 var _wall_draw_active: bool = false
+## Cached copy of BuildModeController's current placement grid. The redesigned
+## helper strip renders this as text instead of relying on the retired image
+## badges, keeping the information visible without another generated asset.
+var _grid_size_value: float = 0.25
 ## The submenu that launched the current placement (source/level/category),
 ## recorded at construct item pick. B restores it when it cancels a
 ## placement. Empty = the placement came from a toolbar tool (wire/pipe)
@@ -583,7 +587,6 @@ func _ready() -> void:
 	_workspace = BuildWorkspace.new()
 	_workspace.hud = self
 	add_child(_workspace)
-	call_deferred("_warm_preview_pool")
 
 # ─── Process ──────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
@@ -599,7 +602,8 @@ func _process(delta: float) -> void:
 	_reposition_cancel_btn()
 	_cursor.visible = not _submenu_open and not dig_confirm_open
 	if _workspace != null:
-		_workspace.refresh(active_tool, _submenu_open, _submenu_source)
+		_workspace.refresh(active_tool, _submenu_open, _submenu_source,
+			_ghost_active or _wall_draw_active, _grid_size_value)
 	_canvas.queue_redraw()
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -629,6 +633,7 @@ func set_active_tool(tool_id: int) -> void:
 ## Called by BuildModeController when the placement grid size changes (and on
 ## build-mode entry) — shows the matching grid-size icon top-right.
 func set_grid_size(grid_size: float) -> void:
+	_grid_size_value = grid_size
 	if _grid_size_icon == null:
 		return
 	var file: String = "grid_0125.png"

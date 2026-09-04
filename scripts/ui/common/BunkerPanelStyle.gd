@@ -13,6 +13,16 @@ const BLUE := Color("66bfff")
 const BLUE_DARK := Color("294b62")
 const GREEN := Color("75d48a")
 const RED := Color("df7669")
+const SYMBOL: GDScript = preload("res://scripts/ui/common/BunkerSymbolTexture.gd")
+static var _symbols: Dictionary = {}
+
+static func icon(kind: String) -> Texture2D:
+	if _symbols.has(kind):
+		return _symbols[kind] as Texture2D
+	var texture: Texture2D = SYMBOL.new()
+	texture.symbol = kind
+	_symbols[kind] = texture
+	return texture
 
 static func box(bg: Color = BG, border: Color = BRASS, radius: int = 8, width: int = 1) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -37,6 +47,13 @@ static func button(control: Button, accent: bool = false, danger: bool = false) 
 	control.add_theme_stylebox_override("focus", box(Color.TRANSPARENT, BLUE, 7, 2))
 	control.add_theme_stylebox_override("disabled", box(SURFACE.darkened(0.1), BRASS.darkened(0.45), 7, 1))
 	control.add_theme_color_override("font_disabled_color", MUTED.darkened(0.35))
+	control.add_theme_constant_override("icon_max_width", 28)
+
+static func icon_button(control: Button, kind: String, accent: bool = false, danger: bool = false) -> void:
+	button(control, accent, danger)
+	control.icon = icon(kind)
+	control.expand_icon = true
+	control.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 static func title(label: Label, size: int = 26) -> void:
 	label.add_theme_font_size_override("font_size", size)

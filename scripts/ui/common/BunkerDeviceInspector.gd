@@ -97,6 +97,8 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
+	if _proximity != null:
+		_proximity.unbind()
 	for node: Node in _view.find_children("*", "OptionButton", true, false):
 		(node as OptionButton).get_popup().hide()
 	visible = false

@@ -55,7 +55,7 @@ func _build() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 	_panel = PanelContainer.new()
-	_panel.custom_minimum_size = Vector2(500, 640)
+	_panel.custom_minimum_size = Vector2(460, 620)
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	BunkerPanelStyle.panel(_panel)
 	_root.add_child(_panel)
@@ -64,19 +64,24 @@ func _build() -> void:
 	_panel.add_child(BunkerPanelStyle.margin(body, 18, 16, 18, 16))
 	var header := HBoxContainer.new()
 	body.add_child(header)
-	var icon := Label.new()
-	icon.text = "▦"
-	icon.add_theme_font_size_override("font_size", 27)
-	icon.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	var icon := TextureRect.new()
+	icon.texture = BunkerPanelStyle.icon("storage")
+	icon.self_modulate = BunkerPanelStyle.BLUE
+	icon.custom_minimum_size = Vector2(30, 30)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(icon)
 	_title = Label.new()
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	BunkerPanelStyle.title(_title, 25)
 	header.add_child(_title)
 	_close = Button.new()
-	_close.text = "×"
+	_close.text = ""
 	_close.custom_minimum_size = Vector2(42, 42)
-	BunkerPanelStyle.button(_close)
+	BunkerPanelStyle.icon_button(_close, "close")
+	_close.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_close.tooltip_text = "Close storage"
 	_close.pressed.connect(close)
 	header.add_child(_close)
 	var cap_row := HBoxContainer.new()
@@ -119,13 +124,13 @@ func _build() -> void:
 	_carry = Button.new()
 	_carry.text = "Carry item"
 	_carry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	BunkerPanelStyle.button(_carry)
+	BunkerPanelStyle.icon_button(_carry, "move")
 	_carry.pressed.connect(_take_for_carry)
 	actions.add_child(_carry)
 	_inventory = Button.new()
 	_inventory.text = "Add to inventory"
 	_inventory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	BunkerPanelStyle.button(_inventory, true)
+	BunkerPanelStyle.icon_button(_inventory, "plus", true)
 	_inventory.pressed.connect(_take_for_inventory)
 	actions.add_child(_inventory)
 	var hint := Label.new()
@@ -139,11 +144,13 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport := get_viewport().get_visible_rect().size
-	var width := minf(500.0, viewport.x - 48.0)
+	var width := minf(460.0, viewport.x - 48.0)
 	var rows := ceili(float(int(_config.get("slot_count", 6))) / maxf(float(int(_config.get("grid_cols", 2))), 1.0))
-	var desired := minf(800.0, 395.0 + float(rows) * 132.0)
+	var desired := minf(790.0, 360.0 + float(rows) * 132.0)
 	var height := minf(desired, viewport.y - 48.0)
-	_panel.position = Vector2(viewport.x - width - 24.0, 24.0)
+	## In-world inspector rail: preserve the bunker view and keep the panel at
+	## comfortable eye level rather than pinning it to a screen corner.
+	_panel.position = Vector2(24.0, (viewport.y - height) * 0.5)
 	_panel.size = Vector2(width, height)
 
 func _ensure_pool(needed: int) -> void:

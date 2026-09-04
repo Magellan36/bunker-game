@@ -3,6 +3,8 @@ class_name MainWorld
 ## MainWorld.gd
 ## Root script for the main game world scene.
 
+signal startup_ready
+
 # ─── Dev Tools ────────────────────────────────────────────────────────────────
 ## F12 — toggle x50 time warp (speeds up clock + all stat drain)
 ## F11 — spawn a TestCrate in front of the player
@@ -1250,15 +1252,13 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	# Give BuildModeHUD the camera so it can project 3D→2D for the deconstruct overlay
 	_build_hud.camera = camera
 
-	## Prebuild the construct/shop previews in the BACKGROUND right after
-	## startup (staggered a few per frame) instead of on first menu open —
-	## so opening the Construct/Shop menu later is instant. The build only
-	## ever runs once (BuildModeHUD._submenu_previews_ready guards it), and
-	## the _open_submenu fallback still triggers it if this hasn't finished
-	## by the time a menu is opened.
+	## Prebuild construct/shop previews before LoadingScreen hands the scene to
+	## the player. The pool is still staggered across frames, but it now runs
+	## behind the loading presentation instead of causing seconds of post-load
+	## stutter. The persistent viewports are reused for the entire session.
 	if _build_hud != null and gm != null:
 		_build_hud.gridmap = gm
-		_build_hud.call_deferred("_build_submenu_previews_staggered")
+		await _build_hud._build_submenu_previews_staggered()
 
 	## Connect rock chunk signals → auto-fill handlers
 	if rock_surround != null and rock_surround.has_signal("chunk_deconstructed"):
@@ -1308,6 +1308,10 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	## startup, force-hide every wire segment now so nothing leaks into play mode.
 	## This mirrors exactly what exit_build_mode() does — just run it at init too.
 	get_tree().call_group("wire_segment", "set_visible", false)
+
+	## LoadingScreen waits for this before revealing the bunker. Emit last so
+	## every synchronous setup step and the expensive preview pool are complete.
+	startup_ready.emit()
 
 
 ## Patches the GridMap MeshLibrary's floor mesh (item 0) with the shared

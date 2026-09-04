@@ -5,10 +5,14 @@ Implemented on branch `ui/build-shop-storage-pass` in September 2026.
 ## Design contract
 
 - In-world inspectors are compact desktop panels over the live game. Storage
-  is a 500 px right rail at 1920×1080; it has no full-screen dim layer.
-- Build catalog is a 460 px left rail. Selecting **Place selected item** hides
-  the catalog and leaves a small placement summary plus the build toolbar.
-- Supply shop is a separate, centered desktop workspace capped at 1340×820.
+  is a 460 px, vertically centered left rail at 1920×1080; it has no
+  full-screen dim layer.
+- Build catalog is a 440 px left rail. Selecting an item immediately starts
+  placement, collapses the catalog, and leaves a small placement summary plus
+  the full icon-led build toolbar and Place/Rotate/Cancel/Grid helper strip.
+- Supply shop is a separate, centered desktop workspace capped at 1560×900.
+  It uses icon-led categories, large preview wells, integrated Add-to-cart
+  actions, persistent quantity controls, and a structured checkout summary.
 - Shared palette and Control styling live in
   `scripts/ui/common/BunkerPanelStyle.gd`. The theme is charcoal/ivory with a
   worn dark-brass structural edge and project-blue focus/action color.
@@ -62,14 +66,20 @@ Failures do not clear the cart or charge cash.
 ## Preview lifecycle
 
 The existing persistent Construct and Shop SubViewport pools are retained.
-They are created with the HUD, populated in staggered chunks, and reused across
-open/close cycles. Storage similarly grows a persistent pool to the largest
+They are created with the HUD, populated in staggered chunks while the loading
+screen remains above MainWorld, and reused across open/close cycles. This
+removes the post-load preview construction hitch and keeps the first catalog
+open instant. Storage similarly grows a persistent pool to the largest
 container opened and refreshes only when an item signature changes.
 
 `PreviewPresentation.gd` adds a neutral environment and warm/cool studio lights
 to the existing isolated preview worlds. Preview textures are 192 px and use
 `UPDATE_ONCE`, so the polish does not add a per-frame render pass for every
 card. Actual item geometry remains the source of truth.
+
+`UIProximityClose.gd` supports both live-node and fixed-position bindings.
+Every in-world inspector therefore keeps the established walk-away-to-close
+behavior, including the shared power-priority inspector used by wall lights.
 
 ## Controller and keyboard contract
 

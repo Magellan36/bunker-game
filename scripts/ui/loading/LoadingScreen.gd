@@ -26,8 +26,13 @@ var _tip_timer: float = 0.0
 var _tip_index: int = 0
 var _loaded: PackedScene = null
 var _swapping: bool = false
+var _world: Node = null
 
 func _ready() -> void:
+	## MainWorld is instantiated underneath this layer while it finishes its
+	## dynamic UI/preview warmup. Keep the loading presentation unambiguously
+	## above every world HUD during that hand-off.
+	layer = 1000
 	_build_ui()
 	## Kick off the threaded load — MainWorld.tscn + its sub-resources stream
 	## in on a background thread while this screen draws.
@@ -52,7 +57,29 @@ func _process(delta: float) -> void:
 
 	if _loaded != null and _elapsed >= MIN_DISPLAY_SEC and not _swapping:
 		_swapping = true
-		get_tree().change_scene_to_packed(_loaded)
+		_begin_world_startup()
+
+func _begin_world_startup() -> void:
+	## change_scene_to_packed() removes this loading layer before MainWorld's
+	## _ready() work can run. Instantiate manually instead, leave this CanvasLayer
+	## visible above it, and only hand over current_scene after MainWorld signals
+	## that build/shop preview pools and startup wiring are ready.
+	_world = _loaded.instantiate()
+	if _world == null:
+		push_error("LoadingScreen: failed to instantiate MainWorld")
+		_swapping = false
+		return
+	get_tree().root.add_child(_world)
+	if _world.has_signal("startup_ready"):
+		_world.startup_ready.connect(_finish_world_startup, CONNECT_ONE_SHOT)
+	else:
+		call_deferred("_finish_world_startup")
+
+func _finish_world_startup() -> void:
+	if _world == null or not is_instance_valid(_world):
+		return
+	get_tree().current_scene = _world
+	queue_free()
 
 func _build_ui() -> void:
 	var root: Control = Control.new()

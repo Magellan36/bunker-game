@@ -1,6 +1,9 @@
 class_name ShopPanel
 extends PanelContainer
 
+## Desktop supply catalog layered over Build Mode. Shopping only stages an
+## order; FarmingShopHelper and BuildModeHUD remain the purchase authorities.
+
 var hud: Node
 var cart := ShopCart.new()
 var _category := "Farming"
@@ -8,8 +11,11 @@ var _subcategory := "All"
 var _search: LineEdit
 var _subtabs: HBoxContainer
 var _products: GridContainer
+var _product_scroll: ScrollContainer
 var _cart_rows: VBoxContainer
+var _cart_scroll: ScrollContainer
 var _balance: Label
+var _cart_count: Label
 var _total: Label
 var _remaining: Label
 var _message: Label
@@ -18,12 +24,27 @@ var _category_buttons: Dictionary = {}
 
 const CATEGORIES := {
 	"Farming": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-	"Food & water": [16, 17], "Fuel": [18], "Containers": [19, 20], "Cooking": [21],
+	"Food & water": [16, 17],
+	"Fuel": [18],
+	"Containers": [19, 20],
+	"Cooking": [21],
+}
+const CATEGORY_ICONS := {
+	"Farming": "food",
+	"Food & water": "container",
+	"Fuel": "power",
+	"Containers": "storage",
+	"Cooking": "cooking",
 }
 const SUBCATEGORIES := {
-	"Farming": {"All": [], "Seeds": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], "Soil & fertilizer": [1, 14, 15]},
+	"Farming": {
+		"All": [],
+		"Seeds": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+		"Soil & fertilizer": [1, 14, 15],
+	},
 	"Food & water": {"All": [], "Water": [16], "Food": [17]},
-	"Fuel": {"All": []}, "Containers": {"All": [], "Crates": [19], "Baskets": [20]},
+	"Fuel": {"All": []},
+	"Containers": {"All": [], "Crates": [19], "Baskets": [20]},
 	"Cooking": {"All": []},
 }
 
@@ -32,124 +53,212 @@ func _ready() -> void:
 	nav.ui_root = self
 	add_child(nav)
 	BunkerPanelStyle.panel(self)
-	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 12)
-	add_child(BunkerPanelStyle.margin(root, 20, 16, 20, 16))
-	var header := HBoxContainer.new()
-	root.add_child(header)
-	var heading := Label.new()
-	heading.text = "BUNKER SUPPLY"
-	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	BunkerPanelStyle.title(heading, 25)
-	header.add_child(heading)
-	_balance = Label.new()
-	BunkerPanelStyle.title(_balance, 18)
-	header.add_child(_balance)
-	var close := Button.new()
-	close.text = "×"
-	close.custom_minimum_size = Vector2(42, 42)
-	BunkerPanelStyle.button(close)
-	close.pressed.connect(func(): hud.close_workspace_menu())
-	header.add_child(close)
-	var columns := HBoxContainer.new()
-	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	columns.add_theme_constant_override("separation", 14)
-	root.add_child(columns)
-	var category_box := VBoxContainer.new()
-	category_box.custom_minimum_size.x = 180
-	columns.add_child(category_box)
-	var cat_label := Label.new()
-	cat_label.text = "CATEGORIES"
-	BunkerPanelStyle.muted(cat_label, 13)
-	category_box.add_child(cat_label)
-	for category in CATEGORIES:
-		var button := Button.new()
-		button.text = str(category)
-		button.toggle_mode = true
-		button.button_pressed = category == _category
-		BunkerPanelStyle.button(button)
-		button.pressed.connect(_set_category.bind(str(category)))
-		category_box.add_child(button)
-		_category_buttons[category] = button
-	var product_box := VBoxContainer.new()
-	product_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	columns.add_child(product_box)
-	_search = LineEdit.new()
-	_search.placeholder_text = "Search the catalog"
-	_search.custom_minimum_size.y = 42
-	_search.text_changed.connect(func(_text): _rebuild_products())
-	product_box.add_child(_search)
-	_subtabs = HBoxContainer.new()
-	_subtabs.add_theme_constant_override("separation", 6)
-	product_box.add_child(_subtabs)
-	var product_scroll := ScrollContainer.new()
-	product_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	product_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	product_scroll.follow_focus = true
-	product_box.add_child(product_scroll)
-	_products = GridContainer.new()
-	_products.columns = 3
-	_products.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_products.add_theme_constant_override("h_separation", 9)
-	_products.add_theme_constant_override("v_separation", 9)
-	product_scroll.add_child(_products)
-	var cart_panel := PanelContainer.new()
-	cart_panel.custom_minimum_size.x = 300
-	cart_panel.add_theme_stylebox_override("panel", BunkerPanelStyle.box(BunkerPanelStyle.SURFACE, BunkerPanelStyle.BRASS.darkened(0.25), 7, 1))
-	columns.add_child(cart_panel)
-	var cart_body := VBoxContainer.new()
-	cart_body.add_theme_constant_override("separation", 8)
-	cart_panel.add_child(BunkerPanelStyle.margin(cart_body, 12, 12, 12, 12))
-	var cart_title := Label.new()
-	cart_title.text = "YOUR CART"
-	BunkerPanelStyle.title(cart_title, 18)
-	cart_body.add_child(cart_title)
-	var cart_scroll := ScrollContainer.new()
-	cart_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	cart_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	cart_scroll.follow_focus = true
-	cart_body.add_child(cart_scroll)
-	_cart_rows = VBoxContainer.new()
-	_cart_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cart_scroll.add_child(_cart_rows)
-	_total = Label.new()
-	BunkerPanelStyle.title(_total, 20)
-	cart_body.add_child(_total)
-	_remaining = Label.new()
-	BunkerPanelStyle.muted(_remaining, 14)
-	cart_body.add_child(_remaining)
-	_checkout = Button.new()
-	_checkout.text = "Checkout"
-	BunkerPanelStyle.button(_checkout, true)
-	_checkout.pressed.connect(_checkout_order)
-	cart_body.add_child(_checkout)
-	_message = Label.new()
-	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	BunkerPanelStyle.muted(_message, 13)
-	cart_body.add_child(_message)
-	var footer := HBoxContainer.new()
-	root.add_child(footer)
-	var back := Button.new()
-	back.text = "Continue building"
-	BunkerPanelStyle.button(back)
-	back.pressed.connect(func(): hud.open_construct_menu())
-	footer.add_child(back)
-	var hint := Label.new()
-	hint.text = "Right stick / D-pad: navigate   •   Focus scrollbar + Up/Down: scroll"
-	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	BunkerPanelStyle.muted(hint, 12)
-	footer.add_child(hint)
+	_build_shell()
 	cart.changed.connect(_refresh_cart)
 	_rebuild_subcategories()
 	_rebuild_products()
 	_refresh_cart()
+
+func _build_shell() -> void:
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 12)
+	add_child(BunkerPanelStyle.margin(root, 22, 18, 22, 16))
+	root.add_child(_build_header())
+	var rule := HSeparator.new()
+	root.add_child(rule)
+	var columns := HBoxContainer.new()
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	columns.add_theme_constant_override("separation", 14)
+	root.add_child(columns)
+	columns.add_child(_build_category_rail())
+	columns.add_child(_build_catalog())
+	columns.add_child(_build_cart())
+	root.add_child(_build_footer())
+
+func _build_header() -> Control:
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 12)
+	var mark := TextureRect.new()
+	mark.texture = BunkerPanelStyle.icon("shop")
+	mark.self_modulate = BunkerPanelStyle.BLUE
+	mark.custom_minimum_size = Vector2(42, 42)
+	mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	mark.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	header.add_child(mark)
+	var titles := VBoxContainer.new()
+	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	titles.add_theme_constant_override("separation", 0)
+	var eyebrow := Label.new()
+	eyebrow.text = "BUNKER SUPPLY"
+	eyebrow.add_theme_font_size_override("font_size", 12)
+	eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	titles.add_child(eyebrow)
+	var heading := Label.new()
+	heading.text = "Shop"
+	BunkerPanelStyle.title(heading, 27)
+	titles.add_child(heading)
+	header.add_child(titles)
+	var available := VBoxContainer.new()
+	available.add_theme_constant_override("separation", 0)
+	var available_caption := Label.new()
+	available_caption.text = "AVAILABLE CASH"
+	available_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	BunkerPanelStyle.muted(available_caption, 11)
+	available.add_child(available_caption)
+	_balance = Label.new()
+	_balance.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_balance.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
+	_balance.add_theme_font_size_override("font_size", 20)
+	available.add_child(_balance)
+	header.add_child(available)
+	var close := Button.new()
+	close.text = ""
+	close.tooltip_text = "Close shop"
+	close.custom_minimum_size = Vector2(44, 44)
+	BunkerPanelStyle.icon_button(close, "close")
+	close.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	close.pressed.connect(func(): hud.close_workspace_menu())
+	header.add_child(close)
+	return header
+
+func _build_category_rail() -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.x = 212
+	panel.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		BunkerPanelStyle.SURFACE, BunkerPanelStyle.BRASS.darkened(0.28), 7, 1))
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 7)
+	panel.add_child(BunkerPanelStyle.margin(box, 12, 14, 12, 12))
+	var label := Label.new()
+	label.text = "CATEGORIES"
+	BunkerPanelStyle.muted(label, 12)
+	box.add_child(label)
+	for category: String in CATEGORIES:
+		var button := Button.new()
+		button.text = category
+		button.toggle_mode = true
+		button.button_pressed = category == _category
+		button.custom_minimum_size.y = 54
+		BunkerPanelStyle.icon_button(button, str(CATEGORY_ICONS[category]))
+		button.pressed.connect(_set_category.bind(category))
+		box.add_child(button)
+		_category_buttons[category] = button
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_child(spacer)
+	var back := Button.new()
+	back.text = "Continue building"
+	back.custom_minimum_size.y = 48
+	BunkerPanelStyle.icon_button(back, "build")
+	back.pressed.connect(func(): hud.open_construct_menu())
+	box.add_child(back)
+	return panel
+
+func _build_catalog() -> Control:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 9)
+	var catalog_head := HBoxContainer.new()
+	var title := Label.new()
+	title.text = "SUPPLY CATALOG"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	BunkerPanelStyle.title(title, 19)
+	catalog_head.add_child(title)
+	_search = LineEdit.new()
+	_search.placeholder_text = "Search supplies"
+	_search.custom_minimum_size = Vector2(260, 42)
+	_search.text_changed.connect(func(_text: String): _rebuild_products())
+	catalog_head.add_child(_search)
+	box.add_child(catalog_head)
+	_subtabs = HBoxContainer.new()
+	_subtabs.add_theme_constant_override("separation", 6)
+	box.add_child(_subtabs)
+	_product_scroll = ScrollContainer.new()
+	_product_scroll.name = "CatalogScroll"
+	_product_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_product_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_product_scroll.follow_focus = true
+	box.add_child(_product_scroll)
+	_products = GridContainer.new()
+	_products.columns = 3
+	_products.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_products.add_theme_constant_override("h_separation", 10)
+	_products.add_theme_constant_override("v_separation", 10)
+	_product_scroll.add_child(_products)
+	return box
+
+func _build_cart() -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.x = 330
+	panel.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		BunkerPanelStyle.SURFACE, BunkerPanelStyle.BRASS.darkened(0.20), 7, 1))
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 9)
+	panel.add_child(BunkerPanelStyle.margin(body, 14, 14, 14, 14))
+	var cart_head := HBoxContainer.new()
+	var cart_title := Label.new()
+	cart_title.text = "YOUR CART"
+	cart_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	BunkerPanelStyle.title(cart_title, 19)
+	cart_head.add_child(cart_title)
+	_cart_count = Label.new()
+	_cart_count.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	cart_head.add_child(_cart_count)
+	body.add_child(cart_head)
+	_cart_scroll = ScrollContainer.new()
+	_cart_scroll.name = "CartScroll"
+	_cart_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_cart_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_cart_scroll.follow_focus = true
+	body.add_child(_cart_scroll)
+	_cart_rows = VBoxContainer.new()
+	_cart_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_cart_rows.add_theme_constant_override("separation", 8)
+	_cart_scroll.add_child(_cart_rows)
+	var divider := HSeparator.new()
+	body.add_child(divider)
+	var totals := PanelContainer.new()
+	totals.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		BunkerPanelStyle.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.3), 6, 1))
+	var total_box := VBoxContainer.new()
+	total_box.add_theme_constant_override("separation", 6)
+	totals.add_child(BunkerPanelStyle.margin(total_box, 12, 10, 12, 10))
+	_total = Label.new()
+	BunkerPanelStyle.title(_total, 21)
+	total_box.add_child(_total)
+	_remaining = Label.new()
+	BunkerPanelStyle.muted(_remaining, 14)
+	total_box.add_child(_remaining)
+	body.add_child(totals)
+	_checkout = Button.new()
+	_checkout.text = "Checkout"
+	_checkout.custom_minimum_size.y = 54
+	BunkerPanelStyle.icon_button(_checkout, "check", true)
+	_checkout.pressed.connect(_checkout_order)
+	body.add_child(_checkout)
+	_message = Label.new()
+	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_message.custom_minimum_size.y = 34
+	BunkerPanelStyle.muted(_message, 12)
+	body.add_child(_message)
+	return panel
+
+func _build_footer() -> Control:
+	var footer := HBoxContainer.new()
+	var hint := Label.new()
+	hint.text = "Right stick / D-pad  Navigate    •    Focus scrollbar + Up / Down  Scroll    •    A  Select    •    B  Close"
+	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	BunkerPanelStyle.muted(hint, 12)
+	footer.add_child(hint)
+	return footer
 
 func open() -> void:
 	show()
 	_refresh_balance()
 	_rebuild_products()
 	_refresh_cart()
+	_product_scroll.scroll_vertical = 0
 	_search.call_deferred("grab_focus")
 
 func close() -> void:
@@ -162,7 +271,7 @@ func _process(_delta: float) -> void:
 func _set_category(category: String) -> void:
 	_category = category
 	_subcategory = "All"
-	for key in _category_buttons:
+	for key: String in _category_buttons:
 		(_category_buttons[key] as Button).button_pressed = key == category
 	_rebuild_subcategories()
 	_rebuild_products()
@@ -170,16 +279,16 @@ func _set_category(category: String) -> void:
 func _rebuild_subcategories() -> void:
 	if _subtabs == null:
 		return
-	for child in _subtabs.get_children():
+	for child: Node in _subtabs.get_children():
 		child.queue_free()
-	for subsection in SUBCATEGORIES[_category]:
+	for subsection: String in SUBCATEGORIES[_category]:
 		var button := Button.new()
-		button.text = str(subsection)
+		button.text = subsection
 		button.toggle_mode = true
 		button.button_pressed = subsection == _subcategory
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		BunkerPanelStyle.button(button)
-		button.pressed.connect(_set_subcategory.bind(str(subsection)))
+		button.pressed.connect(_set_subcategory.bind(subsection))
 		_subtabs.add_child(button)
 
 func _set_subcategory(subsection: String) -> void:
@@ -190,7 +299,7 @@ func _set_subcategory(subsection: String) -> void:
 func _rebuild_products() -> void:
 	if _products == null:
 		return
-	for child in _products.get_children():
+	for child: Node in _products.get_children():
 		child.queue_free()
 	var query := _search.text.strip_edges().to_lower() if _search != null else ""
 	var item_ids: Array = SUBCATEGORIES[_category][_subcategory]
@@ -200,74 +309,150 @@ func _rebuild_products() -> void:
 		var info: Dictionary = FarmingShopHelper.SHOP_ITEM_INFO[item_id]
 		if not query.is_empty() and query not in str(info.name).to_lower():
 			continue
-		var card := VBoxContainer.new()
-		card.custom_minimum_size = Vector2(150, 190)
-		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var frame := PanelContainer.new()
-		frame.custom_minimum_size.y = 116
-		frame.add_theme_stylebox_override("panel", BunkerPanelStyle.box(BunkerPanelStyle.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.3), 6, 1))
-		var preview := TextureRect.new()
-		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		preview.texture = hud.preview_texture(item_id, true)
-		preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		frame.add_child(preview)
-		card.add_child(frame)
-		var name := Label.new()
-		name.text = str(info.name)
-		name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		name.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
-		card.add_child(name)
-		var price := Label.new()
-		price.text = "$%d" % int(info.price)
-		price.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-		card.add_child(price)
-		var add := Button.new()
-		add.text = "Add to cart"
-		BunkerPanelStyle.button(add)
-		add.pressed.connect(_add.bind(item_id))
-		card.add_child(add)
-		_products.add_child(card)
+		_products.add_child(_make_product_card(item_id, info))
+	_product_scroll.scroll_vertical = 0
+
+func _make_product_card(item_id: int, info: Dictionary) -> Control:
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(190, 250)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		BunkerPanelStyle.SURFACE, BunkerPanelStyle.BRASS.darkened(0.28), 7, 1))
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 7)
+	card.add_child(BunkerPanelStyle.margin(body, 9, 9, 9, 9))
+	var preview_frame := PanelContainer.new()
+	preview_frame.custom_minimum_size.y = 134
+	preview_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	preview_frame.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		Color("303635"), Color("505a57"), 6, 1))
+	var preview := TextureRect.new()
+	preview.texture = hud.preview_texture(item_id, true)
+	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview_frame.add_child(preview)
+	body.add_child(preview_frame)
+	var item_name := Label.new()
+	item_name.text = str(info.name)
+	item_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	item_name.add_theme_font_size_override("font_size", 16)
+	item_name.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	body.add_child(item_name)
+	var add := Button.new()
+	add.text = "Add to cart     %s" % _money(int(info.price))
+	add.custom_minimum_size.y = 44
+	BunkerPanelStyle.icon_button(add, "plus", true)
+	add.pressed.connect(_add.bind(item_id))
+	body.add_child(add)
+	return card
 
 func _add(item_id: int) -> void:
-	_message.text = "Added to cart." if cart.change(item_id, 1) else "Cart limit reached."
+	var info: Dictionary = FarmingShopHelper.SHOP_ITEM_INFO[item_id]
+	_message.text = "%s added to your cart." % str(info.name) if cart.change(item_id, 1) \
+		else "Cart capacity reached."
 
 func _refresh_cart() -> void:
 	if _cart_rows == null:
 		return
-	for child in _cart_rows.get_children():
+	for child: Node in _cart_rows.get_children():
 		child.queue_free()
-	for item_id in cart.lines:
-		var info: Dictionary = FarmingShopHelper.SHOP_ITEM_INFO[int(item_id)]
-		var row := VBoxContainer.new()
-		var name := Label.new()
-		name.text = "%s   $%d" % [info.name, int(info.price) * cart.quantity(int(item_id))]
-		name.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
-		row.add_child(name)
-		var controls := HBoxContainer.new()
-		for specification in [["−", -1], [str(cart.quantity(int(item_id))), 0], ["+", 1], ["Remove", 99]]:
-			var button := Button.new()
-			button.text = specification[0]
-			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			BunkerPanelStyle.button(button)
-			if int(specification[1]) == 99:
-				button.pressed.connect(cart.remove.bind(int(item_id)))
-			elif int(specification[1]) != 0:
-				button.pressed.connect(cart.change.bind(int(item_id), int(specification[1])))
-			else:
-				button.disabled = true
-			controls.add_child(button)
-		row.add_child(controls)
-		_cart_rows.add_child(row)
+	var count := 0
+	for item_id_value: Variant in cart.lines:
+		var item_id := int(item_id_value)
+		var quantity := cart.quantity(item_id)
+		count += quantity
+		_cart_rows.add_child(_make_cart_row(item_id, quantity))
+	if cart.lines.is_empty():
+		var empty := Label.new()
+		empty.text = "Your cart is empty.\nChoose supplies from the catalog."
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.custom_minimum_size.y = 92
+		BunkerPanelStyle.muted(empty, 13)
+		_cart_rows.add_child(empty)
+	_cart_count.text = "%d ITEM%s" % [count, "" if count == 1 else "S"]
 	var total := cart.total(FarmingShopHelper.SHOP_ITEM_INFO)
-	_total.text = "Total   $%d" % total
-	_remaining.text = "Cash after checkout   $%d" % maxi(0, hud.available_cash() - total)
+	_total.text = "Total                         %s" % _money(total)
+	_remaining.text = "Cash after purchase     %s" % _money(hud.available_cash() - total)
+	_remaining.add_theme_color_override("font_color",
+		BunkerPanelStyle.RED if total > hud.available_cash() else BunkerPanelStyle.MUTED)
 	_checkout.disabled = cart.lines.is_empty() or hud.available_cash() < total
 	_refresh_balance()
 
+func _make_cart_row(item_id: int, quantity: int) -> Control:
+	var info: Dictionary = FarmingShopHelper.SHOP_ITEM_INFO[item_id]
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		BunkerPanelStyle.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.36), 6, 1))
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 6)
+	frame.add_child(BunkerPanelStyle.margin(body, 8, 8, 8, 8))
+	var top := HBoxContainer.new()
+	var preview_well := PanelContainer.new()
+	preview_well.custom_minimum_size = Vector2(54, 48)
+	preview_well.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		Color("303635"), Color("505a57"), 5, 1))
+	var preview := TextureRect.new()
+	preview.texture = hud.preview_texture(item_id, true)
+	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview_well.add_child(preview)
+	top.add_child(preview_well)
+	var copy := VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var name := Label.new()
+	name.text = str(info.name)
+	name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	copy.add_child(name)
+	var each := Label.new()
+	each.text = "%s each" % _money(int(info.price))
+	BunkerPanelStyle.muted(each, 12)
+	copy.add_child(each)
+	top.add_child(copy)
+	var line_total := Label.new()
+	line_total.text = _money(int(info.price) * quantity)
+	line_total.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	top.add_child(line_total)
+	body.add_child(top)
+	var controls := HBoxContainer.new()
+	controls.add_theme_constant_override("separation", 5)
+	var minus := Button.new()
+	minus.text = ""
+	minus.custom_minimum_size = Vector2(38, 36)
+	BunkerPanelStyle.icon_button(minus, "minus")
+	minus.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	minus.pressed.connect(cart.change.bind(item_id, -1))
+	controls.add_child(minus)
+	var amount := Label.new()
+	amount.text = str(quantity)
+	amount.custom_minimum_size.x = 34
+	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	amount.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	amount.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	controls.add_child(amount)
+	var plus := Button.new()
+	plus.text = ""
+	plus.custom_minimum_size = Vector2(38, 36)
+	BunkerPanelStyle.icon_button(plus, "plus")
+	plus.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	plus.pressed.connect(cart.change.bind(item_id, 1))
+	controls.add_child(plus)
+	var remove := Button.new()
+	remove.text = "Remove"
+	remove.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	remove.custom_minimum_size.y = 36
+	BunkerPanelStyle.icon_button(remove, "close", false, true)
+	remove.pressed.connect(cart.remove.bind(item_id))
+	controls.add_child(remove)
+	body.add_child(controls)
+	return frame
+
 func _refresh_balance() -> void:
 	if _balance != null:
-		_balance.text = "$%d available" % hud.available_cash()
+		_balance.text = _money(hud.available_cash())
 
 func _checkout_order() -> void:
 	var result: Dictionary = hud.checkout_order(cart.lines.duplicate())
@@ -275,3 +460,12 @@ func _checkout_order() -> void:
 	if bool(result.get("ok", false)):
 		cart.clear()
 	_refresh_cart()
+
+func _money(value: int) -> String:
+	var sign_text := "-" if value < 0 else ""
+	var raw := str(absi(value))
+	var out := ""
+	while raw.length() > 3:
+		out = "," + raw.right(3) + out
+		raw = raw.left(raw.length() - 3)
+	return sign_text + "$" + raw + out

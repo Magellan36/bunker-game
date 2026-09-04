@@ -51,6 +51,17 @@ func bind(host: Node3D) -> void:
 	anchor = host.global_position if host != null else Vector3.ZERO
 	set_process(host != null)
 
+## Compatibility names used by BunkerDeviceInspector.  Keep these explicit
+## instead of relying on call-site knowledge: device inspectors bind a live
+## host, while the handful of position-only inspectors bind a fixed point.
+func bind_target(host: Node3D) -> void:
+	bind(host)
+
+func bind_position(position: Vector3) -> void:
+	_anchor_node = null
+	anchor = position
+	set_process(true)
+
 func unbind() -> void:
 	_anchor_node = null
 	set_process(false)
