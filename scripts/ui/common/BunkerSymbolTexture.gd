@@ -4,7 +4,7 @@ extends Texture2D
 ## Intended for Button icons and TextureRect KEEP_ASPECT_CENTERED. No tiling,
 ## atlas cropping or 3D use. Keep decorative artwork separately provenance-tagged.
 
-@export_enum("power", "running", "stopped", "grid", "fuel", "condition", "water", "battery", "plant", "warning", "build", "move", "duplicate", "demolish", "undo", "wire", "pipe", "shop", "storage", "food", "container", "cooking", "search", "plus", "minus", "close", "check", "save", "load", "settings", "exit", "log", "general") var symbol: String = "power":
+@export_enum("power", "running", "stopped", "grid", "fuel", "condition", "water", "battery", "plant", "warning", "build", "move", "duplicate", "demolish", "undo", "wire", "pipe", "shop", "storage", "food", "container", "cooking", "search", "plus", "minus", "close", "check", "arrow", "save", "load", "settings", "exit", "log", "general") var symbol: String = "power":
 	set(value):
 		symbol = value
 		emit_changed()
@@ -81,6 +81,9 @@ func _draw_rect(item: RID, rect: Rect2, _tile: bool, tint: Color, transpose: boo
 		"duplicate":
 			lines.append(PackedVector2Array([Vector2(4, 4), Vector2(21, 4), Vector2(21, 21), Vector2(4, 21), Vector2(4, 4)]))
 			lines.append(PackedVector2Array([Vector2(11, 11), Vector2(28, 11), Vector2(28, 28), Vector2(11, 28), Vector2(11, 11)]))
+		"arrow":
+			lines.append(PackedVector2Array([Vector2(7, 16), Vector2(25, 16)]))
+			lines.append(PackedVector2Array([Vector2(18, 9), Vector2(25, 16), Vector2(18, 23)]))
 		"demolish":
 			lines.append(PackedVector2Array([Vector2(7, 25), Vector2(22, 10)]))
 			solids.append(PackedVector2Array([Vector2(18, 4), Vector2(28, 14), Vector2(23, 19), Vector2(13, 9)]))

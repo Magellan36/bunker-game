@@ -40,6 +40,14 @@ extends Node
 ## In-game UIs are d-pad-only (left stick stays reserved for movement), so
 ## this defaults to false; the character creation menu opts in.
 @export var stick_navigation: bool = false
+## Most UIs use the right stick as a second D-pad. Build Mode is the one
+## deliberate exception: its existing virtual pointer owns the right stick,
+## while this helper continues to provide spatial D-pad focus navigation.
+@export var right_stick_navigation: bool = true
+## Whether an active instance should pause a world-space virtual cursor.
+## BuildWorkspace sets this false because its UI and build-world cursor are
+## designed to coexist; modal inspectors and menus retain the safe default.
+@export var blocks_world_cursor: bool = true
 
 const DPAD_UP: int    = 11
 const DPAD_DOWN: int  = 12
@@ -116,7 +124,8 @@ func _process(delta: float) -> void:
 		_prepare_elapsed = 0.0
 		_prepare_scrollbars(ui_root)
 	_tick_slider_repeat(delta)
-	_try_stick_move(delta)
+	if right_stick_navigation:
+		_try_stick_move(delta)
 
 func _input(event: InputEvent) -> void:
 	if not _active():
@@ -173,7 +182,7 @@ func _input(event: InputEvent) -> void:
 	## full-screen UI that explicitly opts it into navigation.
 	## focus navigation doesn't also act; the actual move is polled in
 	## _process() so a held stick keeps repeating.
-	if event is InputEventJoypadMotion and (event.axis == JOY_AXIS_RIGHT_X or event.axis == JOY_AXIS_RIGHT_Y \
+	if right_stick_navigation and event is InputEventJoypadMotion and (event.axis == JOY_AXIS_RIGHT_X or event.axis == JOY_AXIS_RIGHT_Y \
 			or (stick_navigation and (event.axis == JOY_AXIS_LEFT_X or event.axis == JOY_AXIS_LEFT_Y))):
 		get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -204,6 +213,18 @@ static func owns_directional_input(tree: SceneTree) -> bool:
 		return false
 	for candidate: Node in tree.get_nodes_in_group(NAV_GROUP):
 		if candidate.has_method("is_active") and bool(candidate.call("is_active")):
+			return true
+	return false
+
+## True only when an active navigation surface explicitly needs the world
+## cursor paused. This is narrower than owns_directional_input(): Build Mode
+## still owns D-pad focus while allowing its right-stick pointer to move.
+static func blocks_world_cursor_input(tree: SceneTree) -> bool:
+	if tree == null:
+		return false
+	for candidate: Node in tree.get_nodes_in_group(NAV_GROUP):
+		if candidate.has_method("is_active") and bool(candidate.call("is_active")) \
+				and bool(candidate.get("blocks_world_cursor")):
 			return true
 	return false
 

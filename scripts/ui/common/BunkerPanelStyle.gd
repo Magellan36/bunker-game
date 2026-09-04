@@ -55,6 +55,19 @@ static func icon_button(control: Button, kind: String, accent: bool = false, dan
 	control.expand_icon = true
 	control.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
+static func field(control: LineEdit) -> void:
+	control.add_theme_font_size_override("font_size", 15)
+	control.add_theme_color_override("font_color", IVORY)
+	control.add_theme_color_override("font_placeholder_color", MUTED.darkened(0.2))
+	control.add_theme_color_override("caret_color", BLUE)
+	var normal := box(SURFACE_ALT, BRASS.darkened(0.24), 7, 1)
+	var focus := box(SURFACE_ALT.lightened(0.025), BLUE, 7, 2)
+	for style: StyleBoxFlat in [normal, focus]:
+		style.content_margin_left = 12.0
+		style.content_margin_right = 12.0
+	control.add_theme_stylebox_override("normal", normal)
+	control.add_theme_stylebox_override("focus", focus)
+
 static func title(label: Label, size: int = 26) -> void:
 	label.add_theme_font_size_override("font_size", size)
 	label.add_theme_color_override("font_color", IVORY)

@@ -229,9 +229,12 @@ func choose_build_item(tile_id: int) -> void:
 			break
 	_placement_menu = {"source": "construct", "level": "items", "category": _active_category}
 	construct_item_chosen.emit(tile_id)
-	_submenu_open = false
+	## Keep the catalog available during placement so another object is one
+	## click away. World placement remains available anywhere outside the rail.
+	_submenu_open = true
+	_submenu_source = "construct"
 	if _workspace != null:
-		_workspace.placement_started(selected_name, selected_price)
+		_workspace.placement_started(tile_id, selected_name, selected_price)
 
 func open_shop_menu() -> void:
 	cancel_requested.emit()
@@ -406,7 +409,7 @@ func _build_procedural_preview_instance(tile_id: int) -> Node3D:
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 var _canvas:       Control        = null   ## Full-screen draw surface
-var _cursor:       Label          = null   ## Hammer emoji cursor
+var _cursor:       Control        = null   ## Code-drawn build/controller cursor
 var _banner:       PanelContainer = null
 var _banner_label: Label          = null
 var _cancel_btn:   Control        = null   ## Red X button
@@ -552,12 +555,8 @@ func _ready() -> void:
 	add_child(_submenu_root)
 	_submenu_root.visible = false
 
-	# Hammer cursor
-	_cursor = Label.new()
-	_cursor.text = "+"
-	_cursor.add_theme_font_size_override("font_size", 24)
-	_cursor.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	_cursor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Crisp code-drawn cursor: crosshair over the bunker, pointer over UI.
+	_cursor = BuildCursor.new()
 	_cursor.z_index = 100
 	add_child(_cursor)
 
@@ -594,13 +593,16 @@ func _process(delta: float) -> void:
 		return
 	_pulse_t  += delta * 2.2
 	_mouse_pos = get_viewport().get_mouse_position()
-	_cursor.set_position(_mouse_pos + Vector2(4.0, -28.0))
+	var cursor_over_ui := pointer_over_ui(_mouse_pos)
+	_cursor.set_position(_mouse_pos - (Vector2(5.0, 3.0) if cursor_over_ui else Vector2(17.0, 17.0)))
+	if _cursor is BuildCursor:
+		(_cursor as BuildCursor).over_ui = cursor_over_ui
 	# Undo flash timer
 	if _undo_flash_t > 0.0:
 		_undo_flash_t = maxf(0.0, _undo_flash_t - delta)
 	# Keep cancel X flush-right of the banner every frame
 	_reposition_cancel_btn()
-	_cursor.visible = not _submenu_open and not dig_confirm_open
+	_cursor.visible = not dig_confirm_open and (InputMode.is_controller() or not _submenu_open)
 	if _workspace != null:
 		_workspace.refresh(active_tool, _submenu_open, _submenu_source,
 			_ghost_active or _wall_draw_active, _grid_size_value)
@@ -649,16 +651,11 @@ func set_grid_size(grid_size: float) -> void:
 func set_ghost_active(active: bool) -> void:
 	_ghost_active = active
 	_cancel_btn.visible = false
-	# Close submenu when ghost goes active
-	if active and _submenu_open:
-		_close_submenu()
 
 ## Called by BuildModeController when wall-draw mode starts/stops (walls have
 ## no ghost — see _wall_draw_active).
 func set_wall_draw_active(active: bool) -> void:
 	_wall_draw_active = active
-	if active and _submenu_open:
-		_close_submenu()
 
 ## Called by BuildModeController every frame — true while the player is in
 ## reach of the Build Station, where A must ALWAYS exit build mode.
@@ -741,10 +738,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _workspace != null and _workspace.menu_open():
 		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-			_close_submenu()
+			if _ghost_active or _wall_draw_active:
+				cancel_requested.emit()
+			else:
+				_close_submenu()
 			get_viewport().set_input_as_handled()
 		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-			_close_submenu()
+			if _ghost_active or _wall_draw_active:
+				cancel_requested.emit()
+			else:
+				_close_submenu()
+			get_viewport().set_input_as_handled()
+		elif event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_B:
+			if _ghost_active or _wall_draw_active:
+				cancel_requested.emit()
+			else:
+				_close_submenu()
 			get_viewport().set_input_as_handled()
 		return
 

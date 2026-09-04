@@ -1,16 +1,18 @@
 # Build, Shop, and Storage UI Rehaul
 
-Implemented on branch `ui/build-shop-storage-pass` in September 2026.
+Current redesign is developed and reviewed on branch `testing` before it is
+promoted to `main`.
 
 ## Design contract
 
 - In-world inspectors are compact desktop panels over the live game. Storage
-  is a 460 px, vertically centered left rail at 1920×1080; it has no
+  is a 440 px, vertically centered right rail at 1920×1080; it has no
   full-screen dim layer.
-- Build catalog is a 440 px left rail. Selecting an item immediately starts
-  placement, collapses the catalog, and leaves a small placement summary plus
-  the full icon-led build toolbar and Place/Rotate/Cancel/Grid helper strip.
-- Supply shop is a separate, centered desktop workspace capped at 1560×900.
+- Build catalog is a compact 420×620 left rail. Selecting an item immediately
+  starts placement and keeps the catalog open with the active item visibly
+  marked, so changing objects is one click away. The icon-led build toolbar
+  and adaptive Place/Rotate/Cancel/Grid helper strip remain available.
+- Supply shop is a separate, centered desktop workspace capped at 1420×800.
   It uses icon-led categories, large preview wells, integrated Add-to-cart
   actions, persistent quantity controls, and a structured checkout summary.
 - Shared palette and Control styling live in
@@ -39,6 +41,10 @@ Adding an item to inventory deliberately leaves the panel open. Primary
 carry/drop keeps the container's existing `closes_on_action` behavior.
 Selections are checked against the shown item's instance ID immediately before
 transfer, so an externally changed slot cannot act on a stale object.
+The selected-item card exposes live state where the item supports it: bottle
+fill and water quality, fuel level, flashlight battery, use charges, case
+contents, and food servings. These values are read from the existing object;
+the UI does not own or mutate them.
 
 ### Build
 
@@ -83,9 +89,14 @@ behavior, including the shared power-priority inspector used by wall lights.
 
 ## Controller and keyboard contract
 
-`ControllerUINavigation.gd` owns the shared behavior:
+`ControllerUINavigation.gd` owns the shared behavior. Build Mode deliberately
+combines spatial navigation with its existing pointer:
 
-- D-pad and right stick navigate controls.
+- D-pad spatially navigates every visible Build control, including the
+  top-right Supply Shop shortcut.
+- Right stick moves the Build pointer. Hovering a control transfers focus so A
+  activates it; moving back over the bunker releases focus so A performs the
+  active world tool.
 - A activates the focused control; B closes the topmost closable UI.
 - A focused Slider is adjusted directionally.
 - ScrollContainer scrollbars become focusable only when scrolling is useful.
@@ -93,8 +104,8 @@ behavior, including the shared power-priority inspector used by wall lights.
   changes its value. Mouse wheel/click/drag and keyboard arrows remain native.
 - Left stick remains world movement in ordinary in-world inspectors. Existing
   full-screen menus may explicitly opt it into navigation.
-- While any controller navigation root is visible, player facing and the build
-  cursor do not also consume the right stick.
+- Modal inspectors block world cursor input. BuildWorkspace explicitly does
+  not, because its UI rail and world placement are intended to coexist.
 
 Character creation now uses LB/RB to orbit its model preview and LT/RT to zoom,
 freeing the right stick for the same navigation role as every other screen.

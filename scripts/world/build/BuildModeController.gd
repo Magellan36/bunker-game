@@ -785,9 +785,9 @@ func _clear_connectable_dots() -> void:
 func _process(_delta: float) -> void:
 	if not is_active or camera == null:
 		return
-	## A visible native UI owns the right stick and triggers. Left-stick
-	## movement remains active in Player; only build cursor/world tools pause.
-	if ControllerUINavigation.owns_directional_input(get_tree()):
+	## Modal native UIs pause build-world tools. BuildWorkspace opts out: its
+	## D-pad focus and right-stick pointer intentionally coexist with placement.
+	if ControllerUINavigation.blocks_world_cursor_input(get_tree()):
 		_cursor_aim_smoothed = Vector2.ZERO
 		InputMode.set_suppress_mouse_motion(false)
 		return
@@ -981,6 +981,9 @@ func _synthesize_left_click() -> InputEventMouseButton:
 ## the deconstruct/duplicate/move tools act on the object under the cursor.
 ## Mirrors _unhandled_input's own left-click routing order exactly.
 func _controller_action() -> bool:
+	if build_hud != null and build_hud.has_method("pointer_over_ui") \
+			and build_hud.pointer_over_ui(get_viewport().get_mouse_position()):
+		return false
 	var click := _synthesize_left_click()
 	if _active_tool == TOOL_WIRE and _wire_draw_mode != null:
 		if _wire_draw_mode.handle_input(click):
@@ -1048,7 +1051,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Block all input while dig confirm dialog is open (except it handles its own input)
 	if build_hud != null and build_hud.dig_confirm_open:
 		return
-	if ControllerUINavigation.owns_directional_input(get_tree()):
+	if ControllerUINavigation.blocks_world_cursor_input(get_tree()):
 		return
 
 	## CTRL+Z — undo (Aug 2026), mirrors the Undo toolbar button. Same

@@ -12,6 +12,7 @@ const TARGETS := [
 	"res://scripts/ui/inventory/StorageUI.gd",
 	"res://scripts/ui/build/ShopCart.gd",
 	"res://scripts/ui/build/BuildCatalogPanel.gd",
+	"res://scripts/ui/build/BuildCursor.gd",
 	"res://scripts/ui/build/ShopPanel.gd",
 	"res://scripts/ui/build/BuildWorkspace.gd",
 	"res://scripts/ui/build/BuildModeHUD.gd",
@@ -32,6 +33,12 @@ class FakeItem:
 class FakeInventory:
 	extends Node
 	func is_full() -> bool: return false
+
+class FakeWaterBottle:
+	extends Node3D
+	func get_display_name() -> String: return "Water Bottle"
+	func get_bottle_badge_info() -> Dictionary:
+		return {"fill_mL": 562.0, "max_fill_mL": 750.0, "quality": 87.0}
 
 class FakeWallet:
 	extends Node3D
@@ -77,6 +84,7 @@ func _run() -> void:
 	_test_cart()
 	_test_checkout_guards()
 	_test_panel_geometry()
+	_test_item_details()
 	await _test_runtime_ui()
 	await _test_storage_contract()
 	if failures == 0:
@@ -91,20 +99,32 @@ func _test_runtime_ui() -> void:
 	hud.show_hud()
 	var workspace: Control = hud.get("_workspace")
 	_check(workspace != null, "build workspace instantiates")
-	_check(workspace.catalog.size.x <= 460.0, "build catalog keeps desktop-width rail")
-	_check(workspace.shop.size.x >= 900.0, "shop uses dedicated desktop workspace")
+	_check(workspace.catalog.size.x <= 430.0 and workspace.catalog.size.y <= 640.0,
+		"build catalog keeps compact desktop proportions")
+	_check(workspace.shop.size.x >= 900.0 and workspace.shop.size.x <= 1440.0,
+		"shop uses a bounded desktop workspace")
+	_check(workspace.shop_button.focus_mode == Control.FOCUS_ALL,
+		"shop shortcut participates in controller focus navigation")
 	_check(not _contains_button_text(workspace.catalog, "Place selected item"),
 		"build catalog has no second placement confirmation")
 	hud.open_construct_menu()
 	await process_frame
 	_check(workspace.catalog.visible and not workspace.shop.visible, "catalog and shop are separate workflows")
+	var first_item: Dictionary = hud.CONSTRUCT_ITEMS[0]
+	hud.choose_build_item(int(first_item.tile_id))
+	await process_frame
+	_check(workspace.catalog.visible and bool(hud.get("_submenu_open")),
+		"catalog remains open while an object is being placed")
 	hud.open_shop_menu()
 	await process_frame
 	_check(workspace.shop.visible and not workspace.catalog.visible, "shop opens its own overlay")
-	_check(ControllerUINavigation.owns_directional_input(self), "open shop owns right-stick world input")
+	_check(ControllerUINavigation.owns_directional_input(self), "build workspace owns d-pad focus")
+	_check(not ControllerUINavigation.blocks_world_cursor_input(self),
+		"build workspace leaves its right-stick pointer active")
 	hud.close_workspace_menu()
 	await process_frame
-	_check(not ControllerUINavigation.owns_directional_input(self), "closing workspace restores world right-stick input")
+	_check(ControllerUINavigation.owns_directional_input(self),
+		"toolbar remains controller-navigable when catalogs are closed")
 	await _test_focusable_scrollbar()
 	var storage_script := load("res://scripts/ui/inventory/StorageUI.gd") as GDScript
 	var storage: CanvasLayer = storage_script.new()
@@ -152,7 +172,8 @@ func _test_storage_contract() -> void:
 	await process_frame
 	var panel: PanelContainer = storage.get("_panel")
 	var viewport_size := root.get_viewport().get_visible_rect().size
-	_check(panel.position.x <= 24.1, "storage rail stays left aligned")
+	_check(absf((panel.position.x + panel.size.x) - (viewport_size.x - 24.0)) <= 1.0,
+		"storage rail stays right aligned")
 	_check(absf((panel.position.y + panel.size.y * 0.5) - viewport_size.y * 0.5) <= 1.0,
 		"storage rail is vertically centered")
 	var shown_ids: Array = storage.get("_shown_ids")
@@ -210,6 +231,13 @@ func _test_panel_geometry() -> void:
 	var panel_style: StyleBoxFlat = style.box()
 	_check(panel_style.bg_color.a == 1.0, "panel is opaque over live world")
 	_check(panel_style.corner_radius_top_left == 8, "panel radius token")
+
+func _test_item_details() -> void:
+	var bottle := FakeWaterBottle.new()
+	var detail := ItemPresentation.detail(bottle)
+	_check("562 / 750 mL" in detail and "87%" in detail,
+		"storage exposes water fill and quality")
+	bottle.free()
 
 func _contains_button_text(root_node: Node, expected: String) -> bool:
 	for candidate: Node in root_node.find_children("*", "Button", true, false):
