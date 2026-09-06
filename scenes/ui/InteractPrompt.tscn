@@ -3,27 +3,28 @@
 [ext_resource type="Script" path="res://scripts/ui/hud/InteractPrompt.gd" id="1_prompt"]
 [ext_resource type="Script" path="res://scripts/ui/hud/HoldProgressIcon.gd" id="3_holdicon"]
 [ext_resource type="Theme" path="res://assets/fonts/BunkerTheme.tres" id="2_theme"]
+[ext_resource type="Script" path="res://scripts/ui/hud/InteractionPromptChrome.gd" id="4_chrome"]
 
 [sub_resource type="StyleBoxFlat" id="PromptPanelStyle"]
-bg_color = Color(0.055, 0.063, 0.064, 0.96)
-border_color = Color(0.34, 0.29, 0.2, 0.88)
+bg_color = Color(0.058, 0.074, 0.072, 0.965)
+border_color = Color(0.41, 0.345, 0.235, 0.9)
 border_blend = true
-corner_radius_top_left = 4
-corner_radius_top_right = 4
-corner_radius_bottom_right = 4
-corner_radius_bottom_left = 4
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-content_margin_left = 8.0
-content_margin_right = 8.0
-content_margin_top = 4.0
-content_margin_bottom = 4.0
+content_margin_left = 10.0
+content_margin_right = 10.0
+content_margin_top = 5.0
+content_margin_bottom = 5.0
 anti_aliasing = true
 anti_aliasing_size = 2.5
-shadow_color = Color(0, 0, 0, 0.34)
-shadow_size = 2
+shadow_color = Color(0, 0, 0, 0.46)
+shadow_size = 4
 shadow_offset = Vector2(0, 2)
 
 [sub_resource type="StyleBoxFlat" id="CircleSlot"]
@@ -50,7 +51,13 @@ visible = false
 theme = ExtResource("2_theme")
 theme_override_styles/panel = SubResource("PromptPanelStyle")
 
+[node name="PromptChrome" type="Control" parent="Panel"]
+layout_mode = 2
+mouse_filter = 2
+script = ExtResource("4_chrome")
+
 [node name="VBox" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
 theme_override_constants/separation = 2
 
 [node name="IconRow" type="Control" parent="Panel/VBox"]
@@ -79,7 +86,7 @@ theme_override_constants/separation = 6
 alignment = 1
 
 [node name="HoldPrefix" type="Label" parent="Panel/VBox/HBox"]
-theme_override_colors/font_color = Color(0.67, 0.64, 0.57, 0.94)
+theme_override_colors/font_color = Color(0.72, 0.68, 0.59, 0.94)
 theme_override_font_sizes/font_size = 13
 size_flags_vertical = 4
 visible = false
@@ -91,7 +98,11 @@ visible = false
 script = ExtResource("3_holdicon")
 
 [node name="Label" type="RichTextLabel" parent="Panel/VBox/HBox"]
-theme_override_colors/default_color = Color(0.94, 0.9, 0.8, 1)
+theme_override_colors/default_color = Color(0.95, 0.92, 0.83, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.52)
+theme_override_constants/shadow_offset_x = 0
+theme_override_constants/shadow_offset_y = 1
+theme_override_constants/line_separation = 1
 theme_override_font_sizes/normal_font_size = 13
 bbcode_enabled = true
 fit_content = true

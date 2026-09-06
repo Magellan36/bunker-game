@@ -431,6 +431,9 @@ func _on_zone_color_changed(_zone_key: String) -> void:
 func enter_build_mode() -> void:
 	is_active = true
 	_ghost_active = false
+	## Build sessions intentionally reopen on the Construct workspace instead
+	## of inheriting Shop or another tool from the previous session.
+	_active_tool = 0
 
 	if build_hud != null and gridmap != null:
 		build_hud.gridmap = gridmap
@@ -3257,12 +3260,8 @@ func _spawn_float_label_at_pos(world_pos: Vector3, amount: int, positive: bool) 
 
 # ─── Soft warning helper ──────────────────────────────────────────────────────
 func _show_hud_warning(text: String) -> void:
-	var main_world: Node3D = get_parent().get_parent() as Node3D
-	if main_world == null:
-		return
-	var main_hud: Node = main_world.get_node_or_null("HUD")
-	if main_hud != null and main_hud.has_method("show_soft_warning"):
-		main_hud.show_soft_warning(text)
+	NotificationManager.notify(UIKit.Domain.NEUTRAL,
+		NotificationManager.Severity.WARNING, text)
 
 func _price_for_tile(tile_id: int) -> int:
 	if build_hud != null and build_hud.has_method("get_item_price"):

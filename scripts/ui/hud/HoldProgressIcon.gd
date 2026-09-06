@@ -2,7 +2,7 @@ extends Control
 class_name HoldProgressIcon
 ## HoldProgressIcon.gd (Aug 2026)
 ## Draws a key/button icon (F keycap or Xbox X button, per the current
-## InputMode) with a WHITE ring that sweeps clockwise from 12 o'clock as
+## InputMode) with a bunker-blue ring that sweeps clockwise from 12 o'clock as
 ## `progress` fills 0→1. Used by the Research Station chute's hold-to-feed
 ## prompt. The ring hugs the icon's own outline — circular for the X button,
 ## rounded-square for the F keycap — ~2.5px thick, no gap. Invisible when
@@ -17,6 +17,8 @@ const X_BUTTON_RADIUS: float = 7.0
 ## rounded square of half-extent 7 and corner radius 3 hugs it.
 const F_HALF:       float = 7.0
 const F_CORNER_R:   float = 3.0
+const RING_TRACK: Color = Color(0.12, 0.16, 0.16, 0.96)
+const RING_FILL: Color = Color(0.36, 0.73, 0.96, 1.0)
 
 var progress: float = 0.0   ## 0..1 ring fill
 
@@ -42,43 +44,45 @@ func _draw() -> void:
 	## flickering depending on the fill fraction. A filled band is clean at
 	## every progress value.
 	if controller:
-		_draw_circle_band(center, X_BUTTON_RADIUS, progress)
+		_draw_circle_band(center, X_BUTTON_RADIUS, 1.0, RING_TRACK)
+		_draw_circle_band(center, X_BUTTON_RADIUS, progress, RING_FILL)
 	else:
-		_draw_rounded_square_band(center, F_HALF, F_CORNER_R, progress)
+		_draw_rounded_square_band(center, F_HALF, F_CORNER_R, 1.0, RING_TRACK)
+		_draw_rounded_square_band(center, F_HALF, F_CORNER_R, progress, RING_FILL)
 
 ## Filled circular ring hugging the X button — an annular sector sweeping
 ## clockwise from 12 o'clock.
-func _draw_circle_band(center: Vector2, radius: float, frac: float) -> void:
+func _draw_circle_band(center: Vector2, radius: float, frac: float, color: Color) -> void:
 	if frac <= 0.0:
 		return
 	var outer_r: float = radius + RING_THICKNESS * 0.5
 	var inner_r: float = radius - RING_THICKNESS * 0.5
 	const SEGS: int = 48
 	var sweep: float = TAU * frac
-	var pts := PackedVector2Array()
+	var pts: PackedVector2Array = PackedVector2Array()
 	for i in SEGS + 1:
 		var a: float = -PI / 2.0 + sweep * float(i) / float(SEGS)
 		pts.append(center + Vector2(cos(a), sin(a)) * outer_r)
 	for i in SEGS + 1:
 		var a: float = -PI / 2.0 + sweep * float(SEGS - i) / float(SEGS)
 		pts.append(center + Vector2(cos(a), sin(a)) * inner_r)
-	draw_colored_polygon(pts, Color.WHITE)
+	draw_colored_polygon(pts, color)
 
 ## Filled rounded-square ring hugging the F keycap — the swept fraction of the
 ## band between the outer and inner rounded-square outlines, clockwise from
 ## 12 o'clock.
-func _draw_rounded_square_band(center: Vector2, half: float, cr: float, frac: float) -> void:
+func _draw_rounded_square_band(center: Vector2, half: float, cr: float, frac: float, color: Color) -> void:
 	if frac <= 0.0:
 		return
 	var outer: PackedVector2Array = _rounded_square_perimeter(center, half + RING_THICKNESS * 0.5, cr + RING_THICKNESS * 0.5)
 	var inner: PackedVector2Array = _rounded_square_perimeter(center, half - RING_THICKNESS * 0.5, cr - RING_THICKNESS * 0.5)
 	var n: int = maxi(2, int(round(float(outer.size()) * frac)))
-	var pts := PackedVector2Array()
+	var pts: PackedVector2Array = PackedVector2Array()
 	for i in n:
 		pts.append(outer[i])
 	for i in range(n - 1, -1, -1):
 		pts.append(inner[i])
-	draw_colored_polygon(pts, Color.WHITE)
+	draw_colored_polygon(pts, color)
 
 ## Perimeter points of a rounded square, ordered clockwise starting at 12
 ## o'clock (top-center) — taking the first `progress` fraction of these and

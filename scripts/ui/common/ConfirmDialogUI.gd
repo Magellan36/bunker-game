@@ -1,253 +1,275 @@
 extends CanvasLayer
 class_name ConfirmDialogUI
-## ConfirmDialogUI.gd
-## ─────────────────────────────────────────────────────────────────────────────
-## Reusable Yes/No confirmation dialog (Jul 2026, Purifier QoL plan item 3) —
-## visually modeled on BuildModeHUD._draw_dig_confirm()'s "EXPAND BUNKER"
-## dialog (same full-screen dim, centered rounded panel, kiwi-green border,
-## title/subtitle lines, YES/NO button color treatment — reuses those exact
-## Color(...) literals so it reads as the same dialog family), but
-## PARAMETERIZED (title/subtitle passed to open(), not hardcoded) and usable
-## during NORMAL gameplay, not just build mode.
-##
-## Deliberately a NEW, separate component rather than bending
-## BuildModeHUD.gd to work outside its own mode — that file's dig-confirm is
-## a real, working, but hardcoded dialog, scoped to build mode
-## (_unhandled_input() bails if not visible, and the HUD is only visible
-## during build mode). Migrating BuildModeHUD's own dig-confirm to use this
-## shared component instead is an explicitly OUT-OF-SCOPE follow-up idea for
-## this plan, not done here — flagged in docs/systems/water/README.md so a
-## future session doesn't assume that cleanup already happened.
-##
-## Usage — same lazy-instantiate-on-demand pattern WaterPurifier already
-## uses for its own _info_ui:
-##     var dlg := ConfirmDialogUI.new()
-##     get_tree().get_root().add_child(dlg)
-##     dlg.open("REPLACE WITH LOWER-QUALITY FILTER?", "80% -> 40%")
-##     dlg.confirmed.connect(func(): ...; dlg.queue_free())
-##     dlg.cancelled.connect(dlg.queue_free)
-##
-## Signals:
-##   confirmed() — YES pressed
-##   cancelled() — NO pressed, or ESC
+## Shared confirmation surface for build purchases, equipment replacement,
+## settings restarts, and pause-menu exit. All callers use this one native
+## Control implementation so confirmation UX cannot drift between systems.
 
 signal confirmed()
 signal cancelled()
 
-## Sourced from BunkerTheme in _load_theme(); these defaults are the
-## fallbacks if the theme resource is missing.
-var PANEL_W: float = 360.0
-var PANEL_H: float = 140.0
-var BTN_W:   float = 110.0
-var BTN_H:   float = 38.0
-var BTN_GAP: float = 16.0   ## spacing between YES and NO
-var CR:      float = 4.0   ## UIKit.CORNER_RADIUS default — matches every other panel's rounding
-var BACKDROP_ALPHA: float = 0.55   ## backdrop dim (stored permille in theme, /1000)
+const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
+const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const NAV: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
 
-## UI colours — NEUTRAL domain (UIKit convention pass, replacing the old
-## one-off kiwi-green/amber scheme). Button bg colors stay green/red for
-## affirmative/destructive intent (same convention GeneratorInspectUI's
-## START/SHUT DOWN button already uses) — only the accent/text/panel
-## tokens move onto UIKit's shared palette. NOTE: BuildModeHUD's own
-## dig-confirm dialog still hand-rolls the OLD kiwi-green scheme this file
-## used to share — migrating it is a separate, not-yet-done follow-up.
-var BG_COLOR:     Color = Color(0.08, 0.08, 0.09, 0.97)
-var BORDER_COLOR: Color = Color(0.55, 0.58, 0.62, 0.70)
-var HEADER_COLOR: Color = Color(0.80, 0.82, 0.86, 1.00)
-var DIM_COLOR:    Color = Color(0.50, 0.52, 0.55, 0.80)
-var OK_COLOR:     Color = Color(0.35, 0.85, 1.00, 1.00)
-var CRIT_COLOR:   Color = Color(1.00, 0.35, 0.30, 1.00)
-var YES_BG:       Color = Color(0.06, 0.30, 0.12, 1.0)
-var NO_BG:        Color = Color(0.42, 0.08, 0.06, 1.0)
+const PANEL_SIZE: Vector2 = Vector2(560.0, 304.0)
+const SCREEN_MARGIN: Vector2 = Vector2(24.0, 24.0)
 
-var _canvas: Control = null
-var _font: Font = null
-var _title: String = ""
-var _subtitle: String = ""
-var _is_open: bool = false
-var _yes_rect: Rect2 = Rect2()
-var _no_rect:  Rect2 = Rect2()
-## Controller YES/NO selection (Aug 2026): true = YES, false = NO. d-pad
-## L/R toggles, A confirms. Reset to YES on open.
-var _selection: bool = true
-
-## Render layer (Aug 2026). Defaults to 70 (above every other panel). Callers
-## that open this dialog from another UI raise it above THEMSELVES (e.g.
-## PauseMenuUI sets 210, GraphicsSettingsPanel sets 215) so it stacks on top.
 @export var stacking_layer: int = 70
 
-## Pulls every palette + geometry value from BunkerTheme so the theme is the
-## single source of truth (tweak there, this dialog follows).
-func _load_theme() -> void:
-	BG_COLOR = UIKit.theme_color("UI", "bg", Color(0.08, 0.08, 0.09, 0.97))
-	BORDER_COLOR = UIKit.theme_color("UI", "border", Color(0.55, 0.58, 0.62, 0.70))
-	HEADER_COLOR = UIKit.theme_color("UI", "header", Color(0.80, 0.82, 0.86, 1.00))
-	DIM_COLOR = UIKit.theme_color("UI", "dim", Color(0.50, 0.52, 0.55, 0.80))
-	OK_COLOR = UIKit.theme_color("UI", "ok", Color(0.35, 0.85, 1.00, 1.00))
-	CRIT_COLOR = UIKit.theme_color("UI", "crit", Color(1.00, 0.35, 0.30, 1.00))
-	YES_BG = UIKit.theme_color("ConfirmDialog", "yes_bg", Color(0.06, 0.30, 0.12, 1.0))
-	NO_BG = UIKit.theme_color("ConfirmDialog", "no_bg", Color(0.42, 0.08, 0.06, 1.0))
-	PANEL_W = float(UIKit.theme_constant("ConfirmDialog", "panel_w", 360))
-	PANEL_H = float(UIKit.theme_constant("ConfirmDialog", "panel_h", 140))
-	BTN_W = float(UIKit.theme_constant("ConfirmDialog", "btn_w", 110))
-	BTN_H = float(UIKit.theme_constant("ConfirmDialog", "btn_h", 38))
-	BTN_GAP = float(UIKit.theme_constant("ConfirmDialog", "btn_gap", 16))
-	CR = float(UIKit.theme_constant("ConfirmDialog", "corner_radius", 4))
-	BACKDROP_ALPHA = float(UIKit.theme_constant("ConfirmDialog", "backdrop_alpha_permille", 550)) / 1000.0
+var _is_open: bool = false
+var _title_text: String = ""
+var _message_text: String = ""
+var _confirm_text: String = "Confirm"
+var _cancel_text: String = "Cancel"
+var _tone: String = "warning"
+var _symbol: String = "warning"
+var _previous_mouse_mode: int = Input.MOUSE_MODE_VISIBLE
+var _previous_focus: WeakRef = null
+
+var _root: Control = null
+var _backdrop: ColorRect = null
+var _panel: PanelContainer = null
+var _icon_well: PanelContainer = null
+var _icon: TextureRect = null
+var _eyebrow: Label = null
+var _title: Label = null
+var _message_card: PanelContainer = null
+var _message: Label = null
+var _confirm_button: Button = null
+var _cancel_button: Button = null
+var _controller_nav: ControllerUINavigation = null
+
 
 func _ready() -> void:
-	_load_theme()
-	layer   = stacking_layer
+	layer = stacking_layer
+	_build_interface()
+	get_viewport().size_changed.connect(_layout)
+	_layout()
 	visible = false
-	## Controller navigation (Aug 2026) — see
-	## scripts/ui/common/ControllerUINavigation.gd. close_on_cancel=false:
-	## B is handled in _unhandled_input so it emits `cancelled` — the nav's
-	## own B-close would only hide the panel, dropping the signal. d-pad
-	## falls through too (this is a hand-drawn panel with no focusables).
-	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
-	controller_nav.ui_root = self
-	controller_nav.close_on_cancel = false
-	add_child(controller_nav)
 
-	_font = UIKit.font()   ## shared cached font (was a per-instance load)
-	if _font == null:
-		_font = ThemeDB.fallback_font
 
-	_canvas = Control.new()
-	_canvas.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_canvas.mouse_filter = Control.MOUSE_FILTER_PASS
-	_canvas.name = "ConfirmDialogCanvas"
-	add_child(_canvas)
-	_canvas.draw.connect(_on_draw)
+## Optional arguments let each context communicate the real consequence while
+## preserving the original two-argument API used by older callers.
+## tone: "standard", "warning", "purchase", or "danger".
+func open(title: String, message: String, confirm_label: String = "Confirm",
+		cancel_label: String = "Cancel", tone: String = "warning",
+		symbol: String = "warning") -> void:
+	if not _is_open:
+		_previous_mouse_mode = Input.mouse_mode
+		var focus_owner: Control = get_viewport().gui_get_focus_owner()
+		_previous_focus = weakref(focus_owner) if focus_owner != null else null
+	_title_text = title
+	_message_text = message
+	_confirm_text = confirm_label
+	_cancel_text = cancel_label
+	_tone = tone
+	_symbol = symbol
+	_is_open = true
+	visible = true
+	_refresh_presentation()
+	# A newly assigned wrapped message does not publish its final minimum size
+	# until the container pass. Reapply the viewport-bounded dimensions on the
+	# deferred frame, matching the proven first-open fix used by StorageUI.
+	_layout()
+	_layout.call_deferred()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	UIFade.fade_in(_root)
+	## Confirmation dialogs should never default controller/keyboard focus to a
+	## destructive action. Players can move right once to affirm deliberately.
+	_cancel_button.call_deferred("grab_focus")
 
-func open(title: String, subtitle: String) -> void:
-	_title     = title
-	_subtitle  = subtitle
-	_is_open   = true
-	_selection = true   ## controller selection defaults to YES
-	visible    = true
-	## Standing convention (July 2026) — see UIFade.gd.
-	UIFade.fade_in(_canvas)
-	_canvas.queue_redraw()
 
 func close() -> void:
+	if not _is_open:
+		return
 	_is_open = false
-	visible  = false
+	visible = false
+	Input.mouse_mode = _previous_mouse_mode
+	_restore_previous_focus()
+
 
 func is_open() -> bool:
 	return _is_open
 
+
 func _confirm() -> void:
+	if not _is_open:
+		return
 	close()
 	confirmed.emit()
 
+
 func _cancel() -> void:
+	if not _is_open:
+		return
 	close()
 	cancelled.emit()
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
 		return
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var pos: Vector2 = event.position
-		if _yes_rect.has_point(pos):
-			_confirm()
-			get_viewport().set_input_as_handled()
-			return
-		elif _no_rect.has_point(pos):
-			_cancel()
-			get_viewport().set_input_as_handled()
-			return
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+	var cancel_pressed: bool = event is InputEventKey and event.pressed \
+		and event.keycode == KEY_ESCAPE
+	cancel_pressed = cancel_pressed or (event is InputEventJoypadButton \
+		and event.pressed and event.button_index == JOY_BUTTON_B)
+	if cancel_pressed:
 		_cancel()
 		get_viewport().set_input_as_handled()
+
+
+func _build_interface() -> void:
+	_root = Control.new()
+	_root.name = "ConfirmationSurface"
+	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	C.apply_theme(_root)
+	add_child(_root)
+
+	_backdrop = UIKit.build_modal_backdrop(0.48)
+	_backdrop.name = "ModalBackdrop"
+	_root.add_child(_backdrop)
+
+	_panel = PanelContainer.new()
+	_panel.name = "ConfirmationPanel"
+	C.shell(_panel, 11)
+	_root.add_child(_panel)
+
+	var body: VBoxContainer = VBoxContainer.new()
+	body.add_theme_constant_override("separation", 11)
+	_panel.add_child(C.inset(body, 20, 18, 20, 14))
+
+	var header: HBoxContainer = HBoxContainer.new()
+	header.add_theme_constant_override("separation", 13)
+	body.add_child(header)
+
+	_icon_well = C.icon_well("warning", 50.0, S.BRASS.lightened(0.25))
+	header.add_child(_icon_well)
+	_icon = _icon_well.get_node("Icon") as TextureRect
+
+	var heading: VBoxContainer = VBoxContainer.new()
+	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	heading.alignment = BoxContainer.ALIGNMENT_CENTER
+	heading.add_theme_constant_override("separation", 1)
+	header.add_child(heading)
+	_eyebrow = _label("CONFIRM ACTION", 11, S.BLUE)
+	heading.add_child(_eyebrow)
+	_title = _label("Confirm action", 24, S.IVORY)
+	_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	heading.add_child(_title)
+
+	C.divider(body)
+
+	_message_card = PanelContainer.new()
+	_message_card.custom_minimum_size.y = 74.0
+	body.add_child(_message_card)
+	_message = _label("", 15, S.MUTED)
+	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_message.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_message_card.add_child(C.inset(_message, 14, 10, 14, 10))
+
+	var actions: HBoxContainer = HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 10)
+	body.add_child(actions)
+	_cancel_button = Button.new()
+	_cancel_button.name = "Cancel"
+	_cancel_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_cancel_button.custom_minimum_size.y = 48.0
+	_cancel_button.icon = S.icon("close")
+	S.button(_cancel_button)
+	_cancel_button.pressed.connect(_cancel)
+	actions.add_child(_cancel_button)
+	_confirm_button = Button.new()
+	_confirm_button.name = "Confirm"
+	_confirm_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_confirm_button.custom_minimum_size.y = 48.0
+	_confirm_button.icon = S.icon("check")
+	S.button(_confirm_button, true)
+	_confirm_button.pressed.connect(_confirm)
+	actions.add_child(_confirm_button)
+
+	var footer: HBoxContainer = HBoxContainer.new()
+	footer.alignment = BoxContainer.ALIGNMENT_CENTER
+	footer.add_theme_constant_override("separation", 18)
+	body.add_child(footer)
+	C.key_hint(footer, "A / ENTER", "Select")
+	C.key_hint(footer, "B / ESC", "Cancel")
+
+	_controller_nav = NAV.new() as ControllerUINavigation
+	_controller_nav.ui_root = self
+	_controller_nav.close_on_cancel = false
+	add_child(_controller_nav)
+
+
+func _refresh_presentation() -> void:
+	_title.text = _title_text
+	_message.text = _message_text
+	_message_card.visible = not _message_text.strip_edges().is_empty()
+	_confirm_button.text = _confirm_text
+	_cancel_button.text = _cancel_text
+	_icon.texture = S.icon(_symbol)
+
+	var accent: Color = S.BLUE
+	var eyebrow_text: String = "CONFIRM ACTION"
+	match _tone:
+		"danger":
+			accent = S.RED
+			eyebrow_text = "IRREVERSIBLE ACTION"
+			_style_confirm_button(accent, true)
+		"purchase":
+			accent = S.BRASS.lightened(0.34)
+			eyebrow_text = "CONFIRM PURCHASE"
+			_style_confirm_button(accent, false)
+		"warning":
+			accent = Color("e2a84f")
+			eyebrow_text = "REVIEW CHANGE"
+			_style_confirm_button(accent, false)
+		_:
+			_style_confirm_button(accent, false)
+	_eyebrow.text = eyebrow_text
+	_eyebrow.add_theme_color_override("font_color", accent)
+	_icon.self_modulate = accent
+	_message_card.add_theme_stylebox_override("panel", C.panel_box(
+		Color("171d1c"), accent.darkened(0.48), 8, 1, 10))
+
+
+func _style_confirm_button(accent: Color, danger: bool) -> void:
+	var base: Color = Color("512923") if danger else accent.darkened(0.62)
+	_confirm_button.add_theme_color_override("font_color", S.IVORY)
+	_confirm_button.add_theme_color_override("font_hover_color", S.IVORY)
+	_confirm_button.add_theme_color_override("font_pressed_color", S.IVORY)
+	_confirm_button.add_theme_color_override("icon_normal_color", accent.lightened(0.16))
+	_confirm_button.add_theme_color_override("icon_hover_color", S.IVORY)
+	_confirm_button.add_theme_stylebox_override("normal", C.panel_box(base, accent.darkened(0.14), 7, 1, 10))
+	_confirm_button.add_theme_stylebox_override("hover", C.panel_box(base.lightened(0.08), accent, 7, 1, 10))
+	_confirm_button.add_theme_stylebox_override("pressed", C.panel_box(base.darkened(0.06), S.IVORY, 7, 2, 9))
+	_confirm_button.add_theme_stylebox_override("focus", C.panel_box(Color.TRANSPARENT, S.IVORY, 8, 2))
+
+
+func _layout() -> void:
+	if _panel == null:
 		return
-	## Controller (Aug 2026): d-pad L/R toggles the YES/NO selection, A
-	## confirms it, B cancels (= NO). The nav's B-close is disabled
-	## (close_on_cancel=false) so B reaches this handler and emits cancelled.
-	if event is InputEventJoypadButton and event.pressed:
-		match event.button_index:
-			JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT:
-				_selection = not _selection
-				_canvas.queue_redraw()
-				get_viewport().set_input_as_handled()
-				return
-			JOY_BUTTON_A:
-				_confirm() if _selection else _cancel()
-				get_viewport().set_input_as_handled()
-				return
-			JOY_BUTTON_B:
-				_cancel()
-				get_viewport().set_input_as_handled()
-				return
-	## Eat all other input while open — same "intercept everything" behavior
-	## as BuildModeHUD's own dig-confirm block.
-	get_viewport().set_input_as_handled()
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	var requested_height: float = PANEL_SIZE.y if _message_card.visible else 224.0
+	var target: Vector2 = Vector2(
+		minf(PANEL_SIZE.x, maxf(360.0, viewport_size.x - SCREEN_MARGIN.x * 2.0)),
+		minf(requested_height, maxf(200.0, viewport_size.y - SCREEN_MARGIN.y * 2.0))
+	)
+	_panel.custom_maximum_size = target
+	_panel.position = (viewport_size - target) * 0.5
+	_panel.size = target
 
-func _on_draw() -> void:
-	if not _is_open:
+func _restore_previous_focus() -> void:
+	if _previous_focus == null:
 		return
+	var previous: Object = _previous_focus.get_ref()
+	if previous is Control and is_instance_valid(previous):
+		(previous as Control).call_deferred("grab_focus")
+	_previous_focus = null
 
-	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	var px: float = (vp_size.x - PANEL_W) * 0.5
-	var py: float = (vp_size.y - PANEL_H) * 0.5
-	var panel_rect: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
 
-	## Full-screen dim backdrop — shared UIKit primitive (alpha 0.55
-	## preserved from the original value, per UIKit.draw_backdrop's own
-	## "pass the caller's existing value when migrating" guidance).
-	UIKit.draw_backdrop(_canvas, vp_size, BACKDROP_ALPHA)
-
-	## Panel background + border — shared UIKit primitive/palette, replaces
-	## the old hand-rolled _draw_rounded()/_draw_rounded_outline() + kiwi-
-	## green literals.
-	UIKit.draw_rounded_rect(_canvas, panel_rect, BG_COLOR, BORDER_COLOR, 2.0, CR)
-
-	## Title
-	var tsz: Vector2 = _font.get_string_size(_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15)
-	_canvas.draw_string(_font,
-		Vector2(px + PANEL_W * 0.5 - tsz.x * 0.5, py + 28.0),
-		_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, HEADER_COLOR)
-
-	## Subtitle
-	var ssz: Vector2 = _font.get_string_size(_subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
-	_canvas.draw_string(_font,
-		Vector2(px + PANEL_W * 0.5 - ssz.x * 0.5, py + 52.0),
-		_subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DIM_COLOR)
-
-	## YES button
-	var total_btns_w: float = BTN_W * 2.0 + BTN_GAP
-	var yes_x: float = px + (PANEL_W - total_btns_w) * 0.5
-	var btn_y: float = py + PANEL_H - BTN_H - 18.0
-	_yes_rect = Rect2(yes_x, btn_y, BTN_W, BTN_H)
-	## Green bg / OK_COLOR accent — same affirmative-action pattern
-	## GeneratorInspectUI's START button already uses.
-	UIKit.draw_rounded_rect(_canvas, _yes_rect, YES_BG, OK_COLOR, 1.5, 6.0)
-	var yes_lbl: String = "YES"
-	var ylsz: Vector2 = _font.get_string_size(yes_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13)
-	_canvas.draw_string(_font,
-		Vector2(yes_x + BTN_W * 0.5 - ylsz.x * 0.5, btn_y + BTN_H * 0.5 + 5.0),
-		yes_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, OK_COLOR)
-
-	## NO button
-	var no_x: float = yes_x + BTN_W + BTN_GAP
-	_no_rect = Rect2(no_x, btn_y, BTN_W, BTN_H)
-	## Red bg / CRIT_COLOR accent — same destructive-action pattern
-	## GeneratorInspectUI's SHUT DOWN button already uses.
-	UIKit.draw_rounded_rect(_canvas, _no_rect, NO_BG, CRIT_COLOR, 1.5, 6.0)
-	var no_lbl: String = "NO"
-	var nlsz: Vector2 = _font.get_string_size(no_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13)
-	_canvas.draw_string(_font,
-		Vector2(no_x + BTN_W * 0.5 - nlsz.x * 0.5, btn_y + BTN_H * 0.5 + 5.0),
-		no_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, CRIT_COLOR)
-
-	## Controller selection outline (Aug 2026) — white ring on the d-pad
-	## selected button (YES by default), so A confirms exactly what's lit.
-	if InputMode.is_controller():
-		var sel_rect: Rect2 = _yes_rect if _selection else _no_rect
-		UIKit.draw_rounded_rect(_canvas, sel_rect, Color(0, 0, 0, 0),
-			Color(1, 1, 1, 0.92), 2.5, 6.0)
-
-## Rounded-rect drawing now goes through UIKit.draw_rounded_rect() (see
-## _on_draw() above) — the old hand-rolled _draw_rounded()/
-## _draw_rounded_outline()/_arc() helpers this file used to carry are gone.
+func _label(value: String, font_size: int, color: Color) -> Label:
+	var label: Label = Label.new()
+	label.text = value
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	return label

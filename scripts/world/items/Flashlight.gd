@@ -313,6 +313,12 @@ func _physics_process(delta: float) -> void:
 func get_charge_info() -> Array:
 	return [int(_battery), 100]
 
+func get_inventory_hud_state() -> Dictionary:
+	return {
+		"kind": "battery",
+		"fraction": clampf(_battery / 100.0, 0.0, 1.0),
+	}
+
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_display_name() -> String:
 	return "Flashlight"

@@ -93,6 +93,14 @@ func _build_placeholder_mesh() -> void:
 func get_display_name() -> String:
 	return "Bandage"
 
+func get_inventory_hud_state() -> Dictionary:
+	return {
+		"kind": "charges",
+		"current": _charges_left,
+		"maximum": TOTAL_CHARGES,
+		"unit": "use",
+	}
+
 func get_prompt_text() -> String:
 	return "[F] Pick up  Bandage"
 

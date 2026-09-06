@@ -108,6 +108,16 @@ func _update_visual() -> void:
 func get_display_name() -> String:
 	return "Empty Bottle" if _is_empty else "Antibiotics"
 
+func get_inventory_hud_state() -> Dictionary:
+	if _is_empty:
+		return {"kind": "none"}
+	return {
+		"kind": "charges",
+		"current": _charges_left,
+		"maximum": TOTAL_CHARGES,
+		"unit": "dose",
+	}
+
 func get_prompt_text() -> String:
 	if _is_empty:
 		return "[F] Pick up  Empty Bottle"

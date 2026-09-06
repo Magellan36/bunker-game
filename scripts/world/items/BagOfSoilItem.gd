@@ -95,9 +95,8 @@ func get_use_prompt() -> String:
 func on_use() -> void:
 	var tray: FarmingTray = _find_nearest_tray_needing_soil()
 	if tray == null:
-		var hud: Node = get_tree().get_first_node_in_group("hud")
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("No tray needing soil nearby")
+		NotificationManager.notify(UIKit.Domain.FARMING,
+			NotificationManager.Severity.INFO, "No tray needing soil nearby")
 		return
 
 	var cell_index: int = tray.nearest_open_soil_cell_to(global_position)

@@ -156,10 +156,10 @@ func _resolve_interaction_system() -> void:
 ## (sequence copied verbatim from Shelving._try_place_item(), lines ~334-351 —
 ## keep in lockstep with it).
 func _try_store_held(item: RigidBody3D) -> void:
-	var hud: Node = get_tree().get_first_node_in_group("hud")
 	if not item.is_in_group("inventory_item"):
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("Too big for the %s" % display_name.to_lower())
+		NotificationManager.notify(UIKit.Domain.INVENTORY,
+			NotificationManager.Severity.WARNING,
+			"Too big for the %s" % display_name.to_lower())
 		## Aug 2026 fix — don't leave the item stranded in the player's
 		## hand. Fall through to the same drop F would do with nothing in
 		## range at all (InteractionSystem._quick_drop(), the "secondary
@@ -171,8 +171,8 @@ func _try_store_held(item: RigidBody3D) -> void:
 		_interaction_system._quick_drop()
 		return
 	if is_full():
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("%s is full" % display_name)
+		NotificationManager.notify(UIKit.Domain.INVENTORY,
+			NotificationManager.Severity.WARNING, "%s is full" % display_name)
 		_interaction_system._quick_drop()   ## Same fallback — see comment above.
 		return
 

@@ -227,9 +227,8 @@ func _is_grid_connected() -> bool:
 func on_interact() -> void:
 	if not powered_on and not _is_grid_connected():
 		## Can't switch on without a live wire connection.
-		var hud: Node = get_tree().get_first_node_in_group("hud")
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("Stove not connected to power")
+		NotificationManager.notify(UIKit.Domain.POWER,
+			NotificationManager.Severity.WARNING, "Stove not connected to power")
 		return
 	## Job Progress Bar (Aug 2026) — toggling used to happen instantly here;
 	## now it's gated behind a timed job, and _toggle() (the actual former

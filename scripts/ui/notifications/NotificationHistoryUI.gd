@@ -3,7 +3,7 @@ extends Control
 ## Filterable Bunker Log embedded in the pause menu. It is a view over the
 ## manager's bounded run history; it never owns or mutates gameplay state.
 
-const FILTERS := ["All", "Critical", "Power", "Water", "Farming"]
+const FILTERS: Array[String] = ["All", "Critical", "Inventory", "Power", "Water", "Farming"]
 const ROW_HEIGHT := 68.0
 
 var _filter := "All"
@@ -127,6 +127,8 @@ func _matches(entry: Dictionary) -> bool:
 			return int(entry.domain) == UIKit.Domain.WATER
 		"Farming":
 			return int(entry.domain) == UIKit.Domain.FARMING
+		"Inventory":
+			return int(entry.domain) == UIKit.Domain.INVENTORY
 		_:
 			return true
 

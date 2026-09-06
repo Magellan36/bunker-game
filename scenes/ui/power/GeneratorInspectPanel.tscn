@@ -2,6 +2,7 @@
 
 [ext_resource type="Theme" path="res://assets/ui/themes/BunkerRedesignTheme.tres" id="theme"]
 [ext_resource type="Script" path="res://scripts/ui/common/BunkerInspectorLayout.gd" id="layout"]
+[ext_resource type="Script" path="res://scripts/ui/common/BunkerSmoothProgressBar.gd" id="smooth_bar"]
 
 [node name="GeneratorInspectPanel" type="Control"]
 layout_mode = 3
@@ -194,6 +195,7 @@ show_percentage = false
 value = 100.0
 mouse_filter = 2
 metadata/ui_min_height = 12
+script = ExtResource("smooth_bar")
 
 [node name="FuelHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel"]
 unique_name_in_owner = true
@@ -239,6 +241,7 @@ show_percentage = false
 value = 100.0
 mouse_filter = 2
 metadata/ui_min_height = 12
+script = ExtResource("smooth_bar")
 
 [node name="ConditionHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition"]
 unique_name_in_owner = true

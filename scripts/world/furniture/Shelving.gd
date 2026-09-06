@@ -432,9 +432,8 @@ func _try_place_item(item: RigidBody3D) -> void:
 		## bunkers get tight with furniture placed close together, so a
 		## silent block here left players unable to drop OR pick up
 		## anything near a full shelf without walking away first.
-		var hud: Node = get_tree().get_first_node_in_group("hud")
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("Shelf is full")
+		NotificationManager.notify(UIKit.Domain.INVENTORY,
+			NotificationManager.Severity.WARNING, "Shelf is full")
 		_interaction_system._quick_drop()
 		return
 

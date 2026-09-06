@@ -113,12 +113,11 @@ func get_use_prompt() -> String:
 func on_use() -> void:
 	var tray: FarmingTray = _find_nearest_fertilizable_tray()
 	if tray == null:
-		var hud: Node = get_tree().get_first_node_in_group("hud")
-		if hud != null and hud.has_method("show_soft_warning"):
-			if _find_nearest_tray_with_already_fertilized_plant() != null:
-				hud.show_soft_warning("This plant is already fertilized")
-			else:
-				hud.show_soft_warning("No growing plant nearby to fertilize")
+		var notice: String = "This plant is already fertilized" \
+			if _find_nearest_tray_with_already_fertilized_plant() != null \
+			else "No growing plant nearby to fertilize"
+		NotificationManager.notify(UIKit.Domain.FARMING,
+			NotificationManager.Severity.INFO, notice)
 		return
 
 	var isys: Node = _hold_point.get_parent() if _hold_point != null else null

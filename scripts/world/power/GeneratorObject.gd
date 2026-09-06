@@ -68,11 +68,9 @@ var _grid_tripped: bool = false
 ## into the live PowerManager the instant Build Mode opened).
 var _is_preview_only: bool = false
 
-# ─── Fuel banner ──────────────────────────────────────────────────────────────
-const BANNER_HEIGHT_ABOVE: float = 0.45
-var _fuel_banner:     Label3D = null
-var _fuel_level:      float   = 100.0
-var _player_in_range: bool    = false
+# ─── Interaction state ────────────────────────────────────────────────────────
+var _fuel_level: float = 100.0
+var _player_in_range: bool = false
 
 # ─── Ready ────────────────────────────────────────────────────────────────────
 func _ready() -> void:
@@ -84,45 +82,13 @@ func _ready() -> void:
 		add_to_group("generator")
 		add_to_group("interactable")
 	_build_mesh()
-	_build_fuel_banner()
 	if _is_preview_only:
 		return
 	## Defer registration one frame so PowerManager is guaranteed to be in its group.
 	call_deferred("_register_with_pm")
 
-# ─── Fuel banner ──────────────────────────────────────────────────────────────
-func _build_fuel_banner() -> void:
-	var sz: Vector3 = TIER_CONFIG[generator_tier]["size"]
-	var lbl: Label3D = Label3D.new()
-	lbl.text          = "100% FUEL"
-	lbl.font_size     = 52
-	lbl.pixel_size    = 0.0018
-	lbl.billboard     = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.modulate      = Color(0.90, 0.95, 0.90, 1.0)
-	lbl.position      = Vector3(0.0, sz.y + BANNER_HEIGHT_ABOVE + 0.10, 0.0)
-	lbl.visible       = false
-	add_child(lbl)
-	_fuel_banner = lbl
-
-func _refresh_fuel_banner() -> void:
-	if _fuel_banner == null:
-		return
-	var pct: int = int(clampf(_fuel_level, 0.0, 100.0))
-	_fuel_banner.text = "%d%% FUEL" % pct
-	if pct >= 50:
-		_fuel_banner.modulate = Color(0.50, 1.00, 0.55, 1.0)
-	elif pct >= 20:
-		_fuel_banner.modulate = Color(1.00, 0.75, 0.15, 1.0)
-	else:
-		_fuel_banner.modulate = Color(1.00, 0.25, 0.15, 1.0)
-
 func set_player_in_range(in_range: bool) -> void:
 	_player_in_range = in_range
-	if _fuel_banner != null:
-		_fuel_banner.visible = in_range
-	if in_range and _fuel_banner != null:
-		_refresh_fuel_banner()
 
 # ─── Build mesh ───────────────────────────────────────────────────────────────
 func _build_mesh() -> void:
@@ -599,8 +565,6 @@ func _on_fuel_low(gen_id: String, fuel_pct: float) -> void:
 	if gen_id != _pm_id:
 		return
 	_fuel_level = fuel_pct
-	if _player_in_range and _fuel_banner != null:
-		_refresh_fuel_banner()
 
 
 func _on_pm_grid_tripped() -> void:
@@ -665,8 +629,6 @@ func set_running(on: bool) -> void:
 
 func set_fuel(level: float) -> void:
 	_fuel_level = clampf(level, 0.0, 100.0)
-	if _fuel_banner != null:
-		_refresh_fuel_banner()
 	_request_inspect_refresh()
 
 # ─── Interaction prompt ───────────────────────────────────────────────────────
@@ -733,8 +695,6 @@ func _on_backup_toggled(enabled: bool) -> void:
 	_sync_indicator()
 	_sync_socket()
 	_refresh_inspect_ui()
-	if _player_in_range and _fuel_banner != null:
-		_refresh_fuel_banner()
 
 
 func _on_power_toggled(desired_running: bool) -> void:
@@ -776,8 +736,6 @@ func _on_power_toggled(desired_running: bool) -> void:
 	_sync_indicator()
 	_sync_socket()
 	_refresh_inspect_ui()
-	if _player_in_range and _fuel_banner != null:
-		_refresh_fuel_banner()
 
 
 func _refresh_inspect_ui() -> void:

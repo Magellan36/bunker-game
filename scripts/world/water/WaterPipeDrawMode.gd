@@ -183,14 +183,6 @@ var world_node: Node     = null
 var build_hud:  CanvasLayer = null
 var ray_length: float    = 50.0
 
-## InventoryHUD ref (Jul 2026, overlap-block pass) — used ONLY for
-## show_error_message() on a true unreroutable-overlap block (see
-## _path_has_unreroutable_overlap()). Wired in from MainWorld via a
-## deferred call (BuildModeController/this node don't exist yet at the
-## point MainWorld._connect_inventory() normally runs) — see
-## MainWorld._connect_water_pipe_inventory_hud(). Mirrors ShelfUI's own
-## `inventory_hud` ref + _show_error() pattern exactly.
-var inventory_hud: Node = null
 ## Back-reference to the owning BuildModeController — needed for
 ## _is_inside_bunker() (bounds check, July 2026 playtest pass). Set by
 ## BuildModeController._update_water_pipe_draw_refs(). Distinct from
@@ -1885,28 +1877,15 @@ func _get_cursor_world_pos() -> Vector3:
 		return from
 	return from + dir * t
 
-## Mirrors WireDrawMode._show_warning()'s exact lookup path — HUD.gd's
-## show_soft_warning(), NOT anything on build_hud (BuildModeHUD has no
-## generic warning-text API — see docs/systems/ui/README.md).
+## World feedback uses the central toast + Bunker Log pipeline.
 func _show_warning(msg: String) -> void:
-	if world_node != null:
-		var main_hud: Node = world_node.get_node_or_null("HUD")
-		if main_hud != null and main_hud.has_method("show_soft_warning"):
-			main_hud.show_soft_warning(msg)
-			return
-	push_warning("[WaterPipeDrawMode] " + msg)
+	NotificationManager.notify(UIKit.Domain.WATER,
+		NotificationManager.Severity.WARNING, msg)
 
-## Dedicated red fade-in/fade-out banner for the unreroutable-overlap block
-## ONLY (see _path_has_unreroutable_overlap()) — deliberately separate from
-## _show_warning() above (which goes through HUD.show_soft_warning() for
-## out-of-bounds/no-destination/no-cash cases). Reuses the exact same
-## InventoryHUD.show_error_message() convention ShelfUI._show_error() already
-## calls — see that function's own comment.
+## Unreroutable overlap is a warning in the same centralized pipeline.
 func _show_error(text: String) -> void:
-	if inventory_hud != null and inventory_hud.has_method("show_error_message"):
-		inventory_hud.show_error_message(text)
-		return
-	push_warning("[WaterPipeDrawMode] " + text)
+	NotificationManager.notify(UIKit.Domain.WATER,
+		NotificationManager.Severity.WARNING, text)
 
 ## Floating "+$X"/"-$X" screen-space label — same HUD.spawn_float_label()
 ## call BuildModeController._spawn_float_label_at_pos() uses for tile

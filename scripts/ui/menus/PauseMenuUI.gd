@@ -72,7 +72,8 @@ func is_open() -> bool:
 func _unhandled_input(event: InputEvent) -> void:
 	if not _visible_state:
 		return
-	var cancel_pressed := event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE
+	var cancel_pressed: bool = event is InputEventKey and event.pressed \
+		and event.keycode == KEY_ESCAPE
 	cancel_pressed = cancel_pressed or (event is InputEventJoypadButton and event.pressed \
 		and event.button_index == JOY_BUTTON_B)
 	if cancel_pressed:
@@ -282,7 +283,14 @@ func _on_settings_pressed() -> void:
 
 func _on_exit_pressed() -> void:
 	_ensure_confirm_dialog()
-	_confirm_dialog.open("Exit to desktop?", "Any unsaved progress will be lost.")
+	_confirm_dialog.open(
+		"Exit to desktop?",
+		"Any progress made since the last save will be lost.",
+		"Exit game",
+		"Stay here",
+		"danger",
+		"exit"
+	)
 	if not _exit_confirmed_connected:
 		_confirm_dialog.confirmed.connect(func() -> void: get_tree().quit())
 		_exit_confirmed_connected = true

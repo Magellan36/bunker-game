@@ -3,6 +3,15 @@ extends CanvasLayer
 ## objects keep ownership of slots and transfers; this file only presents
 ## their existing contract, so physical-slot mappings remain authoritative.
 
+const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
+
+const DEFAULTS := {
+	"title": "Storage", "slot_count": 6, "grid_cols": 2, "grid_rows": 3,
+	"display_order": [], "supports_stacking": false,
+	"primary_button_tooltip": "Carry item", "primary_requires_empty_hands": false,
+	"closes_on_action": true,
+}
+
 var interaction_system: Node
 var inventory: Node
 var inventory_hud: Node
@@ -15,6 +24,7 @@ var _panel: PanelContainer
 var _title: Label
 var _capacity: Label
 var _capacity_bar: ProgressBar
+var _scroll_viewport: Control
 var _scroll: ScrollContainer
 var _grid: GridContainer
 var _selection_name: Label
@@ -35,13 +45,6 @@ var _selected_visual := -1
 var _proximity: Node
 var _refresh_elapsed := 0.0
 
-const DEFAULTS := {
-	"title": "Storage", "slot_count": 6, "grid_cols": 2, "grid_rows": 3,
-	"display_order": [], "supports_stacking": false,
-	"primary_button_tooltip": "Carry item", "primary_requires_empty_hands": false,
-	"closes_on_action": true,
-}
-
 func _ready() -> void:
 	layer = 60
 	_build()
@@ -60,23 +63,19 @@ func _build() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 	_panel = PanelContainer.new()
-	_panel.custom_minimum_size = Vector2(440, 600)
+	_panel.custom_minimum_size = Vector2(440, 0)
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	BunkerPanelStyle.panel(_panel)
+	_panel.clip_contents = true
+	BunkerUIComponents.apply_theme(_panel)
+	BunkerUIComponents.shell(_panel)
 	_root.add_child(_panel)
 	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 10)
-	_panel.add_child(BunkerPanelStyle.margin(body, 16, 14, 16, 14))
+	body.add_theme_constant_override("separation", 9)
+	_panel.add_child(BunkerUIComponents.inset(body, 16, 14, 16, 12))
 	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 10)
 	body.add_child(header)
-	var icon := TextureRect.new()
-	icon.texture = BunkerPanelStyle.icon("storage")
-	icon.self_modulate = BunkerPanelStyle.BLUE
-	icon.custom_minimum_size = Vector2(30, 30)
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header.add_child(icon)
+	header.add_child(BunkerUIComponents.icon_well("storage", 44.0))
 	var titles := VBoxContainer.new()
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.add_theme_constant_override("separation", 0)
@@ -97,37 +96,64 @@ func _build() -> void:
 	_close.tooltip_text = "Close storage"
 	_close.pressed.connect(close)
 	header.add_child(_close)
+	BunkerUIComponents.divider(body)
+	var capacity_panel := PanelContainer.new()
+	capacity_panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
+		Color("17232a"), BunkerPanelStyle.BLUE.darkened(0.32), 7, 1, 8))
+	body.add_child(capacity_panel)
+	var capacity_body := VBoxContainer.new()
+	capacity_body.add_theme_constant_override("separation", 5)
+	capacity_panel.add_child(capacity_body)
 	var cap_row := HBoxContainer.new()
-	body.add_child(cap_row)
+	capacity_body.add_child(cap_row)
 	var cap_label := Label.new()
-	cap_label.text = "CAPACITY"
-	BunkerPanelStyle.muted(cap_label, 13)
+	cap_label.text = "STORAGE CAPACITY"
+	cap_label.add_theme_font_size_override("font_size", 11)
+	cap_label.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
 	cap_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cap_row.add_child(cap_label)
 	_capacity = Label.new()
-	_capacity.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	_capacity.add_theme_font_size_override("font_size", 14)
+	_capacity.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
 	cap_row.add_child(_capacity)
-	_capacity_bar = ProgressBar.new()
+	_capacity_bar = SMOOTH_BAR.new() as ProgressBar
 	_capacity_bar.show_percentage = false
 	_capacity_bar.custom_minimum_size.y = 7
-	_capacity_bar.add_theme_stylebox_override("background", BunkerPanelStyle.box(BunkerPanelStyle.SURFACE_ALT, Color.TRANSPARENT, 3, 0))
-	_capacity_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-	body.add_child(_capacity_bar)
+	_capacity_bar.add_theme_stylebox_override("background", BunkerPanelStyle.box(
+		BunkerPanelStyle.BG, Color.TRANSPARENT, 3, 0))
+	_capacity_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
+		BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
+	capacity_body.add_child(_capacity_bar)
+	var contents_heading: Dictionary = BunkerUIComponents.section_header(body, "Contents")
+	(contents_heading["meta"] as Label).text = "SELECT AN ITEM"
+	_scroll_viewport = Control.new()
+	_scroll_viewport.name = "StorageViewport"
+	_scroll_viewport.custom_minimum_size.y = 144
+	_scroll_viewport.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll_viewport.clip_contents = true
+	body.add_child(_scroll_viewport)
 	_scroll = ScrollContainer.new()
-	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll.name = "StorageScroll"
+	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_scroll.follow_focus = true
-	body.add_child(_scroll)
+	_scroll_viewport.add_child(_scroll)
+	var scroll_inset := MarginContainer.new()
+	scroll_inset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll_inset.add_theme_constant_override("margin_left", 2)
+	scroll_inset.add_theme_constant_override("margin_top", 2)
+	scroll_inset.add_theme_constant_override("margin_right", 10)
+	scroll_inset.add_theme_constant_override("margin_bottom", 2)
+	_scroll.add_child(scroll_inset)
 	_grid = GridContainer.new()
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_grid.add_theme_constant_override("h_separation", 10)
-	_grid.add_theme_constant_override("v_separation", 10)
-	_scroll.add_child(_grid)
-	var divider := HSeparator.new()
-	body.add_child(divider)
+	_grid.add_theme_constant_override("h_separation", 8)
+	_grid.add_theme_constant_override("v_separation", 8)
+	scroll_inset.add_child(_grid)
+	BunkerUIComponents.divider(body)
 	_selection_panel = PanelContainer.new()
-	_selection_panel.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
-		BunkerPanelStyle.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.28), 7, 1))
+	_selection_panel.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(false))
 	body.add_child(_selection_panel)
 	var selected_body := VBoxContainer.new()
 	selected_body.add_theme_constant_override("separation", 4)
@@ -151,13 +177,15 @@ func _build() -> void:
 	_state_label.custom_minimum_size.x = 72
 	BunkerPanelStyle.muted(_state_label, 11)
 	_state_row.add_child(_state_label)
-	_state_bar = ProgressBar.new()
+	_state_bar = SMOOTH_BAR.new() as ProgressBar
 	_state_bar.show_percentage = false
 	_state_bar.max_value = 100.0
 	_state_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_state_bar.custom_minimum_size.y = 7
-	_state_bar.add_theme_stylebox_override("background", BunkerPanelStyle.box(BunkerPanelStyle.BG, Color.TRANSPARENT, 3, 0))
-	_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
+	_state_bar.add_theme_stylebox_override("background", BunkerPanelStyle.box(
+		BunkerPanelStyle.BG, Color.TRANSPARENT, 3, 0))
+	_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
+		BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
 	_state_row.add_child(_state_bar)
 	_state_row.hide()
 	var actions := HBoxContainer.new()
@@ -165,21 +193,25 @@ func _build() -> void:
 	body.add_child(actions)
 	_carry = Button.new()
 	_carry.text = "Carry item"
+	_carry.custom_minimum_size.y = 46
 	_carry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	BunkerPanelStyle.icon_button(_carry, "move")
 	_carry.pressed.connect(_take_for_carry)
 	actions.add_child(_carry)
 	_inventory = Button.new()
 	_inventory.text = "Add to inventory"
+	_inventory.custom_minimum_size.y = 46
 	_inventory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	BunkerPanelStyle.icon_button(_inventory, "plus", true)
 	_inventory.pressed.connect(_take_for_inventory)
 	actions.add_child(_inventory)
-	var hint := Label.new()
-	hint.text = "A  Carry   •   Y  Inventory   •   B / Esc  Close"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	BunkerPanelStyle.muted(hint, 12)
-	body.add_child(hint)
+	var hints := HBoxContainer.new()
+	hints.alignment = BoxContainer.ALIGNMENT_CENTER
+	hints.add_theme_constant_override("separation", 12)
+	BunkerUIComponents.key_hint(hints, "A", "Carry")
+	BunkerUIComponents.key_hint(hints, "Y", "Inventory")
+	BunkerUIComponents.key_hint(hints, "B / ESC", "Close")
+	body.add_child(hints)
 	get_viewport().size_changed.connect(_layout)
 
 func _layout() -> void:
@@ -187,13 +219,16 @@ func _layout() -> void:
 		return
 	var viewport := get_viewport().get_visible_rect().size
 	var width := minf(440.0, viewport.x - 48.0)
-	var rows := ceili(float(int(_config.get("slot_count", 6))) / maxf(float(int(_config.get("grid_cols", 2))), 1.0))
-	var desired := minf(760.0, 350.0 + float(rows) * 122.0)
+	var rows := ceili(float(int(_config.get("slot_count", 6))) \
+		/ maxf(float(int(_config.get("grid_cols", 2))), 1.0))
+	var desired := minf(760.0, 340.0 + float(rows) * 152.0)
 	var height := minf(desired, viewport.y - 48.0)
 	## In-world inspector rail: preserve the bunker view and keep the panel at
 	## comfortable eye level rather than pinning it to a screen corner.
+	var panel_size := Vector2(width, height)
+	_panel.custom_maximum_size = panel_size
 	_panel.position = Vector2(viewport.x - width - 24.0, (viewport.y - height) * 0.5)
-	_panel.size = Vector2(width, height)
+	_panel.size = panel_size
 
 func _ensure_pool(needed: int) -> void:
 	while _cards.size() < needed:
@@ -233,8 +268,12 @@ func open(target: Node3D) -> void:
 		_proximity.bind(target)
 	_refresh(true)
 	_layout()
-	_scroll.scroll_vertical = 0
-	_close.call_deferred("grab_focus")
+	_layout.call_deferred()
+	_scroll.set_deferred("scroll_vertical", 0)
+	if InputMode.is_controller():
+		_focus_initial_item.call_deferred()
+	else:
+		_close.call_deferred("grab_focus")
 	UIFade.fade_in(_panel)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -300,8 +339,11 @@ func _refresh(force: bool) -> void:
 			card.button_pressed = true
 	_capacity.text = "%d / %d" % [occupied, slots]
 	_capacity_bar.max_value = slots
-	_capacity_bar.value = occupied
+	SMOOTH_BAR.apply(_capacity_bar, occupied)
 	_refresh_selection()
+	var focus: Control = get_viewport().gui_get_focus_owner()
+	if focus != null and focus in _cards and focus.focus_mode == Control.FOCUS_NONE:
+		_focus_nearest_occupied.call_deferred()
 
 func _select(index: int) -> void:
 	_selected_visual = index
@@ -314,16 +356,23 @@ func _selection_valid() -> bool:
 		return false
 	var shown := _slot(_selected_visual)
 	var item: Node = shown[0]
-	return item != null and is_instance_valid(item) and item.get_instance_id() == _shown_ids[_selected_visual]
+	return item != null and is_instance_valid(item) \
+		and item.get_instance_id() == _shown_ids[_selected_visual]
 
 func _refresh_selection() -> void:
 	if not _selection_valid():
+		_selection_panel.add_theme_stylebox_override(
+			"panel", BunkerUIComponents.status_style(false))
+		_selection_eyebrow.text = "NO ITEM SELECTED"
 		_selection_name.text = "Select an item"
 		_selection_detail.text = "Choose a stored object to see its name and actions."
 		_state_row.hide()
 		_carry.disabled = true
 		_inventory.disabled = true
 		return
+	_selection_panel.add_theme_stylebox_override(
+		"panel", BunkerUIComponents.status_style(true))
+	_selection_eyebrow.text = "SELECTED ITEM"
 	var shown := _slot(_selected_visual)
 	var item: Node = shown[0]
 	_selection_name.text = ItemPresentation.title(item)
@@ -333,7 +382,8 @@ func _refresh_selection() -> void:
 		and interaction_system != null and "held_item" in interaction_system \
 		and interaction_system.get("held_item") != null
 	_carry.disabled = hands_blocked
-	_inventory.disabled = inventory == null or (inventory.has_method("is_full") and inventory.is_full())
+	_inventory.disabled = inventory == null \
+		or (inventory.has_method("is_full") and inventory.is_full())
 
 func _refresh_item_state(item: Node) -> void:
 	_state_row.hide()
@@ -343,24 +393,31 @@ func _refresh_item_state(item: Node) -> void:
 		var info: Dictionary = item.call("get_bottle_badge_info")
 		var quality := clampf(float(info.get("quality", 0.0)), 0.0, 100.0)
 		_state_label.text = "QUALITY"
-		_state_bar.value = quality
-		var color := BunkerPanelStyle.GREEN if quality >= 70.0 else (BunkerPanelStyle.BRASS.lightened(0.25) if quality >= 35.0 else BunkerPanelStyle.RED)
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(color, Color.TRANSPARENT, 3, 0))
+		SMOOTH_BAR.apply(_state_bar, quality)
+		var color := BunkerPanelStyle.GREEN if quality >= 70.0 \
+			else (BunkerPanelStyle.BRASS.lightened(0.25) \
+			if quality >= 35.0 else BunkerPanelStyle.RED)
+		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
+			color, Color.TRANSPARENT, 3, 0))
 		_state_row.show()
 	elif "_charges" in item and "_max_charges" in item and int(item.get("_max_charges")) > 0:
 		_state_label.text = "REMAINING"
-		_state_bar.value = 100.0 * float(item.get("_charges")) / float(item.get("_max_charges"))
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
+		SMOOTH_BAR.apply(_state_bar, 100.0 * float(item.get("_charges")) \
+			/ float(item.get("_max_charges")))
+		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
+			BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
 		_state_row.show()
 	elif "_fuel_remaining" in item:
 		_state_label.text = "FUEL"
-		_state_bar.value = clampf(float(item.get("_fuel_remaining")), 0.0, 100.0)
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(BunkerPanelStyle.BRASS.lightened(0.28), Color.TRANSPARENT, 3, 0))
+		SMOOTH_BAR.apply(_state_bar, clampf(float(item.get("_fuel_remaining")), 0.0, 100.0))
+		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
+			BunkerPanelStyle.BRASS.lightened(0.28), Color.TRANSPARENT, 3, 0))
 		_state_row.show()
 	elif "_battery" in item:
 		_state_label.text = "BATTERY"
-		_state_bar.value = clampf(float(item.get("_battery")), 0.0, 100.0)
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
+		SMOOTH_BAR.apply(_state_bar, clampf(float(item.get("_battery")), 0.0, 100.0))
+		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
+			BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
 		_state_row.show()
 
 func _take_for_carry() -> void:
@@ -390,6 +447,15 @@ func _focus_nearest_occupied() -> void:
 			_cards[i].grab_focus()
 			return
 	_selected_visual = -1
+	_close.grab_focus()
+
+
+func _focus_initial_item() -> void:
+	for i in int(_config.get("slot_count", 0)):
+		if i < _cards.size() and _cards[i].focus_mode != Control.FOCUS_NONE:
+			_select(i)
+			_cards[i].grab_focus()
+			return
 	_close.grab_focus()
 
 func _input(event: InputEvent) -> void:

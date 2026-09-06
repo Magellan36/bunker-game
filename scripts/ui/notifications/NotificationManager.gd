@@ -291,6 +291,8 @@ func domain_label(domain: UIKit.Domain) -> String:
 			return "WATER"
 		UIKit.Domain.FARMING:
 			return "FARMING"
+		UIKit.Domain.INVENTORY:
+			return "INVENTORY"
 		_:
 			return "GENERAL"
 
@@ -305,6 +307,8 @@ func domain_symbol(domain: UIKit.Domain) -> String:
 			return "water"
 		UIKit.Domain.FARMING:
 			return "plant"
+		UIKit.Domain.INVENTORY:
+			return "storage"
 		_:
 			return "general"
 

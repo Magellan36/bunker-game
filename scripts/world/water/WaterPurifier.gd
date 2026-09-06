@@ -172,14 +172,8 @@ func _check_low_filter_warning() -> void:
 		_warned_low = false
 
 func _fire_low_filter_notice() -> void:
-	var notice_script: GDScript = load("res://scripts/ui/hud/TransientNotice.gd")
-	if notice_script == null:
-		return
-	var notice: CanvasLayer = CanvasLayer.new()
-	notice.set_script(notice_script)
-	get_tree().get_root().add_child(notice)
-	if notice.has_method("show_message"):
-		notice.call("show_message", "Purifier filter below 50%")
+	NotificationManager.notify(UIKit.Domain.WATER,
+		NotificationManager.Severity.WARNING, "Purifier filter below 50%")
 
 
 

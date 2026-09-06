@@ -36,7 +36,7 @@ const FADE_START: float = 2.2
 const FADE_END:   float = 3.2
 
 ## Icon SubViewport render size (px) / orthogonal camera framing.
-const ICON_VP_SIZE: int = 40
+const ICON_VP_SIZE: int = 48
 const ICON_CAM_SIZE: float = 0.6
 
 ## Compact shared player/NPC job-card treatment. The player keeps the normal
@@ -49,15 +49,15 @@ const JOB_GREEN: Color = Color(0.43, 0.78, 0.43, 1.0)
 const JOB_TRACK: Color = Color(0.025, 0.032, 0.032, 0.92)
 const BUNKER_BLUE: Color = Color(0.34, 0.70, 0.93, 1.0)
 const DIM_IVORY: Color = Color(0.67, 0.64, 0.57, 0.94)
-const APPEAR_DURATION: float = 0.08
-const APPEAR_OFFSET_Y: float = 3.0
+const APPEAR_DURATION: float = 0.12
+const APPEAR_OFFSET_Y: float = 2.0
 
 const JobGlyphScript: GDScript = preload("res://scripts/ui/hud/JobProgressGlyph.gd")
 
 # ─── Key / button icons (Aug 2026) ────────────────────────────────────────────
-## Inline icon size in the prompt RichTextLabel (px). The source art is 16px
-## pixel icons — keep at native size unless it reads too small in-game.
-const PROMPT_ICON_SIZE: int = 16
+## Inline icon size in the prompt RichTextLabel (px). The source art is 16px;
+## a restrained 17px presentation gives the keycap enough weight beside type.
+const PROMPT_ICON_SIZE: int = 17
 const PROMPT_ICON_DIR: String = "res://assets/ui/prompts/"
 ## Keyboard: prompt-key token -> key-cap icon file name.
 const KEY_CAPS: Dictionary = {
@@ -106,6 +106,7 @@ var _progress_labels: Array = []
 var _job_glyphs: Array = []
 var _panel_appear: Array[float] = []
 var _panel_was_visible: Array[bool] = []
+var _fuel_percent_regex: RegEx = RegEx.new()
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
@@ -113,6 +114,9 @@ func _ready() -> void:
 	_template_panel.visible = false
 	## Inline key/button icons are rendered as BBCode images.
 	_template_label.bbcode_enabled = true
+	# Compiled once; used only to tint the live generator fuel metadata. The
+	# rest of the prompt text remains producer-owned and passes through intact.
+	_fuel_percent_regex.compile("(?i)([0-9]+)%[ ]+fuel")
 
 func _process(delta: float) -> void:
 	var camera: Camera3D = get_viewport().get_camera_3d()
@@ -280,6 +284,9 @@ func _process(delta: float) -> void:
 		var d: Dictionary = lay as Dictionary
 		if not _panel_was_visible[i]:
 			_panel_appear[i] = 0.0
+			var chrome: Control = p.get_node_or_null("PromptChrome") as Control
+			if chrome != null and chrome.has_method("trigger_acquire"):
+				chrome.call("trigger_acquire")
 		_panel_appear[i] = minf(1.0, _panel_appear[i] + delta / APPEAR_DURATION)
 		var appear: float = _panel_appear[i]
 		p.position = d["pos"] + Vector2(0.0, (1.0 - appear) * APPEAR_OFFSET_Y)
@@ -342,8 +349,9 @@ func _resolve_overlaps(layouts: Array) -> void:
 ## Cached true-circle slot background (see _make_circle_texture).
 static var _circle_tex: Texture2D = null
 
-## Generates a TRUE circle texture (translucent dark fill + soft dark-grey
-## outline). StyleBoxFlat corner_radius draws a SQUIRCLE — four corner arcs
+## Generates a TRUE circle texture using the same charcoal, worn-brass, and
+## restrained blue accent language as the approved bunker panels.
+## StyleBoxFlat corner_radius draws a SQUIRCLE — four corner arcs
 ## with straight edges and visible AA seams, not a real circle — so the slot
 ## background is baked as an image instead (used via StyleBoxTexture).
 func _make_circle_texture() -> Texture2D:
@@ -351,23 +359,30 @@ func _make_circle_texture() -> Texture2D:
 		return _circle_tex
 	const SIZE: int = 64
 	const C: float = 31.5
-	const R_FILL: float = 27.0    ## inner translucent fill radius
+	const R_FILL: float = 26.5    ## inner translucent fill radius
 	const R_OUT: float = 31.0     ## outline outer radius
 	const RING_CENTER: float = 29.0   ## outline peak radius
 	const RING_HALF_W: float = 2.0
-	var img := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
+	var img: Image = Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	for y in range(SIZE):
 		for x in range(SIZE):
-			var d := Vector2(float(x) - C, float(y) - C).length()
-			var col := Color(0, 0, 0, 0)
+			var d: float = Vector2(float(x) - C, float(y) - C).length()
+			var col: Color = Color(0, 0, 0, 0)
 			if d <= R_FILL:
-				col = Color(0, 0, 0, 0.35)   ## existing translucent fill
+				# Slightly blue-charcoal fill keeps empty slots readable without
+				# making them look occupied.
+				col = Color(0.055, 0.075, 0.078, 0.92)
+				# Fine blue inner keyline: enough to connect the bespoke three-
+				# ingredient view to the wider UI system, never a neon ring.
+				if d >= 25.2:
+					var blue_edge: float = clampf((d - 25.2) / 1.3, 0.0, 1.0)
+					col = col.lerp(Color(0.25, 0.58, 0.76, 0.72), blue_edge * 0.7)
 			elif d <= R_OUT:
-				## soft dark-grey outline ring — peaks at RING_CENTER and fades
+				## Soft worn-brass outline — peaks at RING_CENTER and fades
 				## both inward (into the fill) and outward (soft outer edge).
 				var t: float = absf(d - RING_CENTER) / RING_HALF_W
-				col = Color(0.35, 0.36, 0.38, 0.55 * clampf(1.0 - t, 0.0, 1.0))
+				col = Color(0.48, 0.40, 0.27, 0.78 * clampf(1.0 - t, 0.0, 1.0))
 			img.set_pixel(x, y, col)
 	_circle_tex = ImageTexture.create_from_image(img)
 	return _circle_tex
@@ -383,7 +398,7 @@ func _build_icon_slots(clone: PanelContainer) -> Array:
 			continue
 		## True circle background (baked texture) — replaces the template's
 		## squircle StyleBoxFlat so the ring renders as a smooth circle.
-		var sb := StyleBoxTexture.new()
+		var sb: StyleBoxTexture = StyleBoxTexture.new()
 		sb.texture = _make_circle_texture()
 		slot.add_theme_stylebox_override("panel", sb)
 		var vpc: SubViewportContainer = SubViewportContainer.new()
@@ -409,7 +424,8 @@ func _build_icon_slots(clone: PanelContainer) -> Array:
 
 		var light: OmniLight3D = OmniLight3D.new()
 		light.position = Vector3(1.0, 2.0, 1.0)
-		light.light_energy = 3.0
+		light.light_color = Color(0.95, 0.90, 0.79, 1.0)
+		light.light_energy = 2.8
 		light.omni_range = 8.0
 		vp.add_child(light)
 
@@ -436,7 +452,9 @@ func _build_badge_labels(clone: PanelContainer) -> Array:
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_BOTTOM
 		lbl.add_theme_font_size_override("font_size", 10)
-		lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
+		lbl.add_theme_color_override("font_color", Color(0.95, 0.92, 0.83, 1.0))
+		lbl.add_theme_color_override("font_outline_color", Color(0.025, 0.032, 0.032, 0.98))
+		lbl.add_theme_constant_override("outline_size", 2)
 		lbl.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 		lbl.add_theme_constant_override("shadow_offset_x", 1)
 		lbl.add_theme_constant_override("shadow_offset_y", 1)
@@ -595,11 +613,12 @@ func _signature_for(desc: Variant) -> String:
 ## parsing its own tags (e.g. [color=#...]) exactly as it did before icons.
 func _prompt_to_bbcode(prompt: String) -> String:
 	var controller: bool = InputMode.is_controller()
-	var out := ""
-	var i := 0
-	while i < prompt.length():
-		if prompt[i] == "[":
-			var raw: String = _match_key_token(prompt, i)
+	var semantic_prompt: String = _style_prompt_semantics(prompt)
+	var out: String = ""
+	var i: int = 0
+	while i < semantic_prompt.length():
+		if semantic_prompt[i] == "[":
+			var raw: String = _match_key_token(semantic_prompt, i)
 			if raw != "":
 				## raw is "[X]" or "[<action> X]" — the key is the char before
 				## the closing bracket; the action word (e.g. "Hold") renders
@@ -610,8 +629,55 @@ func _prompt_to_bbcode(prompt: String) -> String:
 				out += (word + " " if word != "" else "") + _token_bbcode(key, controller)
 				i += raw.length()
 				continue
-		out += prompt[i]
+		out += semantic_prompt[i]
 		i += 1
+	return out
+
+
+## Adds colour hierarchy to a deliberately small set of shared status phrases.
+## This is presentation only: producers still own their exact wording and all
+## bespoke data (including CookingPot's dish name, filling, cook time, and the
+## three ingredient descriptors) continues through unchanged.
+func _style_prompt_semantics(prompt: String) -> String:
+	var out: String = prompt
+	# Replace the established wide divider with the worn-brass hairline used by
+	# modern panels. Newlines and multi-action prompt structure are untouched.
+	out = out.replace("  —  ", "  [color=#8B744C]│[/color]  ")
+
+	# Known machine/system states. Exact replacements keep action wording such
+	# as "Turn Stove On" from being mistaken for a status.
+	var states: Dictionary = {
+		"[Running]": "[color=#74D48A]● RUNNING[/color]",
+		"[Backup — Active]": "[color=#74D48A]● BACKUP ACTIVE[/color]",
+		"[Backup — Standby]": "[color=#D2AA68]● STANDBY[/color]",
+		"[Stopped]": "[color=#DF7669]● STOPPED[/color]",
+		"[Online]": "[color=#74D48A]● ONLINE[/color]",
+		"[ON]": "[color=#74D48A]● ON[/color]",
+		"[OFF]": "[color=#B5AA96]● OFF[/color]",
+		"COOKING": "[color=#74D48A]● COOKING[/color]",
+		"DONE": "[color=#74D48A]● READY[/color]",
+		"NO POWER": "[color=#DF7669]● NO POWER[/color]",
+		"SHED": "[color=#D2AA68]● SHED[/color]",
+		"Stove Not Connected": "[color=#DF7669]STOVE NOT CONNECTED[/color]",
+		"  [color=#8B744C]│[/color]  OFF": "  [color=#8B744C]│[/color]  [color=#B5AA96]● OFF[/color]",
+		"  [color=#8B744C]│[/color]  ON 500W": "  [color=#8B744C]│[/color]  [color=#74D48A]● ON 500W[/color]",
+		"(Dead)": "[color=#DF7669](DEAD)[/color]",
+		"(Empty)": "[color=#8F8A7F](EMPTY)[/color]",
+		"Inventory full": "[color=#D2AA68]INVENTORY FULL[/color]",
+		"Shelf full": "[color=#D2AA68]SHELF FULL[/color]",
+		"  →  ": "  [color=#62BAF2]→[/color]  ",
+		"(+": "[color=#74D48A](+",
+		" Diversity)": " DIVERSITY)[/color]",
+	}
+	for source: String in states:
+		out = out.replace(source, String(states[source]))
+	# Some older producers use a single-spaced em dash (not the standard
+	# double-spaced separator). Normalize those after state tokens have been
+	# resolved so names such as "Backup — Active" remain semantic atoms.
+	out = out.replace(" — ", " [color=#8B744C]│[/color] ")
+
+	if _fuel_percent_regex.is_valid():
+		out = _fuel_percent_regex.sub(out, "[color=#C6A86B]$1% FUEL[/color]", true)
 	return out
 
 ## Returns the FULL bracketed key token at prompt[i] — either "[X]" or a

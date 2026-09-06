@@ -503,18 +503,10 @@ func get_prompt_world_pos() -> Vector3:
 	var idx: int = _nearest_cell_to_player()
 	return global_position + Vector3(_cell_local_x(idx), BASIN_TOP_Y, 0.0)
 
-## Same lookup path WaterPipeDrawMode._show_error() uses — HUD's
-## `inventory_hud` @onready child, InventoryHUD.show_error_message() convention
-## (see HUD.gd). This is a standalone world item with no injected hud ref, so
-## it looks the HUD node up via the "hud" group instead.
+## Routes world feedback through the central toast + Bunker Log pipeline.
 func _show_error(text: String) -> void:
-	var hud: Node = get_tree().get_first_node_in_group("hud")
-	if hud != null and "inventory_hud" in hud:
-		var ihud: Node = hud.get("inventory_hud")
-		if ihud != null and ihud.has_method("show_error_message"):
-			ihud.show_error_message(text)
-			return
-	push_warning("[FarmingTray] " + text)
+	NotificationManager.notify(UIKit.Domain.FARMING,
+		NotificationManager.Severity.WARNING, text)
 
 # ─── Model (procedural — no GLB, matches GeneratorObject/WaterPurifier convention) ──
 static func build_ghost_mesh(cell_count: int = 1) -> Mesh:

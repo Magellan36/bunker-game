@@ -176,6 +176,31 @@ func _select_medical_submenu_target(idx: int) -> void:
 		_is_holding_e   = false
 	_close_medical_submenu()
 
+## Status workspace treatment bridge (Sep 2026). The Status UI may choose a
+## compatible item from the held object or one of the four inventory slots.
+## Treatment still runs through the item's existing apply_to_target() method;
+## this bridge only centralizes the same last-charge cleanup already used by
+## the held-item injury submenu above, so inventory and held state cannot keep
+## a dangling reference after Bandage/Splint queues itself for deletion.
+func apply_medical_treatment_from_status(item: Node, body_part: int) -> bool:
+	if item == null or not is_instance_valid(item) or not item.has_method("apply_to_target"):
+		return false
+	var inventory_slot: int = -1
+	if inventory != null and inventory.has_method("slot_of"):
+		inventory_slot = int(inventory.call("slot_of", item))
+	var was_held: bool = held_item == item
+	item.call("apply_to_target", body_part)
+	var consumed: bool = not is_instance_valid(item) or item.is_queued_for_deletion()
+	if consumed and inventory_slot != -1 and inventory != null:
+		inventory.call("clear_slot", inventory_slot)
+	if consumed and was_held:
+		held_item = null
+		_held_from_slot = -1
+		_is_holding_e = false
+		_close_medical_submenu()
+		_update_hud_selection()
+	return true
+
 ## Builds the multi-line prompt text shown in place of the item's normal
 ## use/interact/store lines while the submenu is open — see
 ## _update_prompt()'s CASE 1 branch below, which anchors this to the exact
@@ -404,7 +429,7 @@ func _research_ui_open() -> bool:
 ## rebuilt the menu — making the controller buttons appear dead.
 func _npc_ui_open() -> bool:
 	for n: Node in get_tree().get_nodes_in_group("npc_talk_ui"):
-		if n != null and ("is_open" in n) and bool(n.get("is_open")):
+		if n != null and n.has_method("is_open") and n.call("is_open") == true:
 			return true
 	return false
 
@@ -1585,16 +1610,14 @@ func _try_add_nearest_to_basket(basket: Node) -> void:
 	## InteractionProximityScan (Phase 1, Aug 2026) — see its header comment.
 	var closest: RigidBody3D = _proximity.nearest_body_in_group("basket_storable") as RigidBody3D
 
-	var hud: Node = get_tree().get_first_node_in_group("hud")
-
 	if closest == null:
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("Nothing nearby to store")
+		NotificationManager.notify(UIKit.Domain.INVENTORY,
+			NotificationManager.Severity.INFO, "Nothing nearby to store")
 		return
 
 	if not basket.try_add_item(closest):
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("Basket full")
+		NotificationManager.notify(UIKit.Domain.INVENTORY,
+			NotificationManager.Severity.WARNING, "Basket full")
 
 ## Called when the player presses [E] while holding a Cooking Pot.
 ## Confirmed Aug 2026 priority order:
@@ -1644,16 +1667,14 @@ func _try_add_nearest_to_cookpot(pot: Node) -> void:
 		func(b: Node) -> bool: return not CookingPot.is_item_empty(b)
 	) as RigidBody3D
 
-	var hud: Node = get_tree().get_first_node_in_group("hud")
-
 	if closest == null:
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("Nothing nearby to store")
+		NotificationManager.notify(UIKit.Domain.INVENTORY,
+			NotificationManager.Severity.INFO, "Nothing nearby to store")
 		return
 
 	if not pot.try_add_item(closest):
-		if hud != null and hud.has_method("show_soft_warning"):
-			hud.show_soft_warning("Pot full")
+		NotificationManager.notify(UIKit.Domain.INVENTORY,
+			NotificationManager.Severity.WARNING, "Pot full")
 
 ## Stove is a StaticBody3D — Jolt's Area3D.get_overlapping_bodies() is
 ## unreliable for those (same caveat _try_interact()'s Pass 2 already

@@ -9,21 +9,21 @@ extends CanvasLayer
 @onready var needs_gauge: NeedsGauge = $HUDRoot/NeedsGauge
 @onready var status_effects: StatusEffectsContainer = $HUDRoot/StatusEffects
 @onready var medical_effects: StatusEffectsContainer = $HUDRoot/MedicalEffects
+@onready var cash_panel: PanelContainer = $HUDRoot/TopRight
 @onready var cash_label: Label       = $HUDRoot/TopRight/CashLabel
-@onready var clock_label: Label      = $HUDRoot/TopCenter/ClockPanel/ClockLabel
-@onready var day_label: Label        = $HUDRoot/TopCenter/DayLabel
+@onready var clock_icon: TextureRect = $HUDRoot/TopCenter/ClockPanel/ClockRow/ClockIcon
+@onready var clock_label: Label      = $HUDRoot/TopCenter/ClockPanel/ClockRow/TimeStack/ClockLabel
+@onready var day_label: Label        = $HUDRoot/TopCenter/ClockPanel/ClockRow/TimeStack/DayLabel
+@onready var time_accent: ColorRect  = $HUDRoot/TopCenter/TimeAccent
 @onready var vignette: ColorRect     = $HUDRoot/CriticalVignette
 @onready var inventory_hud: Control  = $HUDRoot/InventoryHUD
+
+const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
 
 # ─── Fade-in ──────────────────────────────────────────────────────────────────
 const FADE_IN_DURATION: float = 0.6
 var _fade_t: float = 0.0
 var _fading_in: bool = true
-
-## Soft-warning toast backing — deliberately WARM (military amber tone),
-## distinct from the neutral UI/bg used by modal panels; kept as a named
-## constant so the intent is explicit (Aug 2026 consistency pass).
-const WARNING_TOAST_BG: Color = Color(0.08, 0.07, 0.06, 0.82)
 
 # ─── Critical vignette ────────────────────────────────────────────────────────
 ## Pulses a red edge vignette when any stat is critical (< 20%)
@@ -35,10 +35,15 @@ var _food_pct:  float = 1.0
 var _water_pct: float = 1.0
 var _sleep_pct: float = 1.0
 var _health_pct: float = 1.0
+var _day_initialized: bool = false
+var _day_accent_tween: Tween = null
 
 func _ready() -> void:
 	# Fade in via HUDRoot — CanvasLayer itself has no modulate property
 	_root.modulate.a = 0.0
+	# Reuses the project's native, code-rendered icon system. No imported or
+	# generated image asset is introduced for this HUD polish pass.
+	clock_icon.texture = S.icon("clock")
 
 	# Lets NotificationManager (a global autoload, outside this scene's own
 	# node path) find the inventory bar's global rect to anchor toasts above
@@ -110,7 +115,24 @@ func set_clock(display: String) -> void:
 	clock_label.text = display
 
 func set_day(day: int) -> void:
-	day_label.text = "Day %d" % day
+	var next_text: String = "DAY %d" % day
+	var changed: bool = day_label.text != next_text
+	day_label.text = next_text
+	if changed and _day_initialized:
+		_pulse_day_accent()
+	_day_initialized = true
+
+
+## Rare, state-driven feedback only: the signal-blue notch brightens once
+## when the day rolls over, then settles back. The always-on clock does not
+## pulse, bounce, scan, or otherwise animate continuously.
+func _pulse_day_accent() -> void:
+	if _day_accent_tween != null and _day_accent_tween.is_valid():
+		_day_accent_tween.kill()
+	time_accent.modulate.a = 1.0
+	_day_accent_tween = create_tween()
+	_day_accent_tween.tween_property(time_accent, "modulate:a", 0.74, 0.42) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 # ─── Build mode visibility ────────────────────────────────────────────────────
 var _in_build_mode: bool = false
@@ -120,6 +142,8 @@ var _in_build_mode: bool = false
 func set_build_mode(enabled: bool) -> void:
 	_in_build_mode = enabled
 	inventory_hud.visible = not enabled
+	if not enabled and inventory_hud.has_method("refresh_previews"):
+		inventory_hud.refresh_previews()
 
 
 # ─── Critical check ───────────────────────────────────────────────────────────
@@ -204,9 +228,12 @@ func show_cash_delta(amount: int, positive: bool) -> void:
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(lbl)
 
-	# Position it just below the cash label
-	var cash_rect: Rect2 = cash_label.get_global_rect()
-	lbl.set_position(Vector2(cash_rect.position.x, cash_rect.position.y + cash_rect.size.y + 2.0))
+	# Position it just below the bordered balance plate and retain right-edge
+	# alignment now that the cash HUD intentionally has no icon or eyebrow.
+	var cash_rect: Rect2 = cash_panel.get_global_rect()
+	lbl.custom_minimum_size.x = cash_rect.size.x
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lbl.set_position(Vector2(cash_rect.position.x, cash_rect.end.y + 2.0))
 	_cash_delta_label = lbl
 
 	# Fade in fast, hold, fade out
@@ -218,75 +245,6 @@ func show_cash_delta(amount: int, positive: bool) -> void:
 	tw.tween_property(lbl, "modulate:a", 0.0, 0.35).set_ease(Tween.EASE_IN)
 	tw.tween_callback(lbl.queue_free)
 	tw.tween_callback(func() -> void: _cash_delta_label = null)
-
-# ─── Soft warning toast ───────────────────────────────────────────────────────
-## Displays a short message above the inventory bar for ~2 s then fades out.
-## Calling again while a previous warning is visible replaces it instantly.
-var _warning_label: Label = null
-var _warning_tween: Tween = null
-
-func show_soft_warning(text: String) -> void:
-	# Kill any existing warning
-	if _warning_label != null and is_instance_valid(_warning_label):
-		_warning_label.queue_free()
-		_warning_label = null
-	if _warning_tween != null and _warning_tween.is_valid():
-		_warning_tween.kill()
-		_warning_tween = null
-
-	# Build the label
-	var lbl: Label = Label.new()
-	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "warning", 14))
-	lbl.add_theme_color_override("font_color", Color(0.92, 0.78, 0.55, 1.0))  # warm amber — military style
-	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-
-	# Dark semi-transparent panel backing
-	var panel: PanelContainer = PanelContainer.new()
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color            = WARNING_TOAST_BG
-	style.corner_radius_top_left     = 4
-	style.corner_radius_top_right    = 4
-	style.corner_radius_bottom_left  = 4
-	style.corner_radius_bottom_right = 4
-	style.content_margin_left   = 14.0
-	style.content_margin_right  = 14.0
-	style.content_margin_top    = 6.0
-	style.content_margin_bottom = 6.0
-	panel.add_theme_stylebox_override("panel", style)
-	panel.add_child(lbl)
-	_root.add_child(panel)
-	_warning_label = lbl
-
-	# Wait one frame so the panel measures its size before we position it
-	await get_tree().process_frame
-
-	if not is_instance_valid(panel):
-		return
-
-	# Position: horizontally centred, just above the inventory bar
-	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var inv_rect: Rect2        = inventory_hud.get_global_rect()
-	var panel_size: Vector2    = panel.size
-	var target_x: float = (viewport_size.x - panel_size.x) * 0.5
-	var target_y: float = inv_rect.position.y - panel_size.y - 12.0
-	panel.position = Vector2(target_x, target_y + 8.0)  # start 8 px below final pos
-
-	# Animate: slide up + fade in, hold, fade out
-	var tw: Tween = create_tween()
-	_warning_tween = tw
-	tw.set_parallel(true)
-	tw.tween_property(panel, "position:y", target_y,        0.15).set_ease(Tween.EASE_OUT)
-	tw.tween_property(panel, "modulate:a", 1.0,             0.15).set_ease(Tween.EASE_OUT)
-	tw.set_parallel(false)
-	tw.tween_interval(1.80)
-	tw.tween_property(panel, "modulate:a", 0.0,             0.40).set_ease(Tween.EASE_IN)
-	tw.tween_callback(panel.queue_free)
-	tw.tween_callback(func() -> void: _warning_label = null)
-
-	panel.modulate.a = 0.0  # start invisible
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 func _format_cash(amount: int) -> String:

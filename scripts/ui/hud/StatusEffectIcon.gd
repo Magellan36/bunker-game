@@ -1,142 +1,192 @@
 extends Control
 class_name StatusEffectIcon
-## StatusEffectIcon.gd
-## ─────────────────────────────────────────────────────────────────────────
-## Single reusable status-effect badge: a small icon centered inside a ring.
-## Two independent modes, selected per-badge at setup time:
-##
-##   1. TIMER mode (original, Jul 2026 skeleton) — the ring depletes
-##      CLOCKWISE as a fixed duration counts down on its own via
-##      _process(). Used by AdminMenu's generic test-effect row.
-##
-##   2. MEDICAL mode (Aug 2026, Pass 1) — the ring is driven EXTERNALLY,
-##      once per tick, by PlayerMedical/NPCMedical via update_medical().
-##      No internal countdown. Two fills share the same ring track rather
-##      than being separate concentric rings, per
-##      docs/systems/medical/README.md's "Healing (the Healed ring)":
-##        - severity_frac (0-1): how much of the circle is "filled" at all
-##          — 1.0 for a pinned-severity condition (Open Wound, Broken,
-##          Burns), severity/100 for a live one (Bleeding, Infection,
-##          Fractured).
-##        - heal_frac (0-1): the Healed fill, drawn OVER the start of the
-##          severity arc in a distinct color. Callers must keep
-##          heal_frac <= severity_frac themselves (PlayerMedical already
-##          clamps heal_progress to severity before passing it in) — this
-##          file does not re-clamp, since silently clamping here would
-##          hide a caller bug instead of surfacing it.
-##      Conditions with no Healed ring of their own (Bleeding, Infection —
-##      see the design doc's "Severity / progress model") simply never
-##      have update_medical() called with a nonzero heal_frac.
-##
-## Usage (medical):
-##     var badge := StatusEffectIcon.new()
-##     badge.setup_medical("open_wound_LEFT_ARM", null, Color(0.85, 0.3, 0.2))
-##     badge.update_medical(1.0, 0.4, "Open Wound (Left Arm)\nHealing...")
-##
-## Usage (timer, unchanged):
-##     var badge := StatusEffectIcon.new()
-##     badge.setup("poisoned", some_icon_texture, 12.0, Color(0.85, 0.3, 0.2))
+## Compact ambient status badge shared by ordinary timed effects and externally
+## driven medical conditions. This pass deliberately preserves the original
+## 50px footprint, ring math, medical layering, tooltip API, and expiry signal;
+## it only brings the presentation into the approved bunker UI family.
 
 signal expired(effect_id: String)
 
-const RADIUS: float    = 22.0
-const THICKNESS: float = 4.0
-const BG_RING_COLOR: Color = Color(0.15, 0.15, 0.15, 0.85)
-const PANEL_COLOR:   Color = Color(0.10, 0.10, 0.10, 0.90)
-const ICON_SIZE: float = 22.0
-const PLACEHOLDER_COLOR: Color = Color(0.55, 0.55, 0.55, 0.90)   ## blank grey "no icon yet" fill
-const RUGGED_BORDER_COLOR: Color = Color(0.02, 0.02, 0.02, 0.55)
-const RUGGED_BORDER_WIDTH: float = 1.2
+const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
 
-## Healed-fill overlay color — shared across every medical badge regardless
-## of the condition's own severity ring_color, so "blue = healing progress"
-## reads consistently at a glance. Matches the design doc's "blue ring"
-## description.
-const HEAL_COLOR: Color = Color(0.30, 0.60, 0.95, 1.0)
+const BADGE_SIDE: float = 50.0
+const RADIUS: float = 22.0
+const THICKNESS: float = 4.0
+const ICON_SIZE: float = 21.0
+const BG_RING_COLOR: Color = Color("111716f2")
+const TRACK_EDGE_COLOR: Color = Color("5c4c35a8")
+const PANEL_SHADOW: Color = Color("050706bd")
+const PANEL_COLOR: Color = Color("181d1df5")
+const PANEL_INNER: Color = Color("202625f0")
+const INNER_KEYLINE: Color = Color("88734e70")
+const ICON_COLOR: Color = Color("f2e8cf")
+const ICON_SHADOW: Color = Color("050706b8")
+const RUGGED_BORDER_COLOR: Color = Color("050706b8")
+const RUGGED_BORDER_WIDTH: float = 1.15
+
+## Healing still overlays the beginning of the severity arc. The cool blue is
+## the one established HUD meaning retained across every medical condition.
+const HEAL_COLOR: Color = Color("66bfff")
+const HEAL_SHEEN: Color = Color("d5f0ffb8")
+
+const OUTER_RING_GAP: float = 0.0
+const OUTER_RING_THICKNESS: float = 3.0
+const CRITICAL_THRESHOLD: float = 0.80
+const EXPIRY_PULSE_THRESHOLD: float = 0.15
+const ARRIVAL_DURATION: float = 0.16
+const DISMISS_DURATION: float = 0.12
+const RING_RESPONSE: float = 10.0
+const LAYOUT_DURATION: float = 0.18
 
 var effect_id: String = ""
 var _icon: Texture2D = null
-var _ring_color: Color = Color(0.86, 0.57, 0.19, 1.0)   ## Jul 2026 — darkened 5%
+var _ring_color: Color = Color("db9130")
 
-## ── TIMER mode state ────────────────────────────────────────────────────
+## Timer-mode state.
 var _total_duration: float = 1.0
 var _remaining: float = 1.0
+var _display_remaining: float = 1.0
 
-## ── MEDICAL mode state ──────────────────────────────────────────────────
+## Medical-mode state. Severity and healing deliberately share one track.
 var _is_medical: bool = false
 var _severity_frac: float = 1.0
 var _heal_frac: float = 0.0
+var _display_severity_frac: float = 1.0
+var _display_heal_frac: float = 0.0
 var _has_heal_ring: bool = false
+var _received_medical_update: bool = false
 
-## ── Outer ring state (Aug 2026, Pass 2) ─────────────────────────────────
-## A genuinely SEPARATE concentric ring, distinct from the severity/Healed
-## overlay above — currently only used for Open Wound (Infected)'s
-## Infection Severity, per docs/systems/medical/README.md's confirmed
-## "2 rings total, not 3" model (severity+Healed share one ring; Infection
-## gets its own). Live + bidirectional, no Healed fill of its own — same
-## reasoning as Bleeding's single ring.
+## A genuinely separate ring, currently used for infection severity.
 var _has_outer_ring: bool = false
 var _outer_frac: float = 0.0
-var _outer_color: Color = Color(0.75, 0.55, 0.15, 1.0)
-const OUTER_RING_GAP: float = 0.0   ## touching/hugging the main ring's outer edge, not floating separate from it
-const OUTER_RING_THICKNESS: float = 3.0
+var _display_outer_frac: float = 0.0
+var _outer_color: Color = Color("bf8c26")
+var _received_outer_update: bool = false
+
+## Presentation-only animation state. None of these values alter simulation.
+var _animation_time: float = 0.0
+var _arrival_flash: float = 0.0
+var _has_been_setup: bool = false
+var _dismissing: bool = false
+var _layout_tween: Tween = null
+
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(RADIUS * 2.0 + 6.0, RADIUS * 2.0 + 6.0)
-	var grime_mat: ShaderMaterial = ShaderMaterial.new()
+	custom_minimum_size = Vector2(BADGE_SIDE, BADGE_SIDE)
+	pivot_offset = Vector2(BADGE_SIDE * 0.5, BADGE_SIDE * 0.5)
+	var grime_mat := ShaderMaterial.new()
 	grime_mat.shader = load("res://assets/shaders/grunge_overlay.gdshader")
 	material = grime_mat
-	mouse_filter = Control.MOUSE_FILTER_STOP   ## needed for tooltip_text to show on hover
+	mouse_filter = Control.MOUSE_FILTER_STOP
 
-## Starts (or restarts) this badge in TIMER mode, showing `icon` (may be
-## null — blank center) with a depletion ring in `ring_color`, counting
-## down from `duration` seconds. Emits `expired` with `id` once remaining
-## time hits 0 — the container is responsible for removing/freeing this
-## node when it does.
+
+## Starts or refreshes a timer badge. Reapplying an existing effect resets its
+## duration in place, but the entrance animation only plays on first creation.
 func setup(id: String, icon: Texture2D, duration: float, ring_color: Color) -> void:
-	effect_id       = id
-	_icon           = icon
+	var first_setup: bool = not _has_been_setup
+	effect_id = id
+	_icon = icon
 	_total_duration = maxf(duration, 0.01)
-	_remaining      = _total_duration
-	_ring_color     = ring_color
-	_is_medical     = false
+	_remaining = _total_duration
+	if first_setup:
+		_display_remaining = _remaining
+	_ring_color = ring_color
+	_is_medical = false
+	_play_arrival_once()
 	queue_redraw()
 
-## Starts (or restarts) this badge in MEDICAL mode. No countdown — call
-## update_medical() to drive the ring afterward, once per tick, from
-## PlayerMedical/NPCMedical.
+
+## Starts or refreshes an externally driven medical badge.
 func setup_medical(id: String, icon: Texture2D, ring_color: Color, has_heal_ring: bool) -> void:
-	effect_id      = id
-	_icon          = icon
-	_ring_color    = ring_color
+	effect_id = id
+	_icon = icon
+	_ring_color = ring_color
 	_has_heal_ring = has_heal_ring
-	_is_medical    = true
+	_is_medical = true
 	_severity_frac = 1.0
-	_heal_frac     = 0.0
+	_heal_frac = 0.0
+	_display_severity_frac = 1.0
+	_display_heal_frac = 0.0
+	_received_medical_update = false
+	_play_arrival_once()
 	queue_redraw()
 
-## Updates a MEDICAL-mode badge's fill fractions and hover tooltip. Safe to
-## call every frame — only triggers a redraw, no allocation beyond the
-## tooltip string the caller already built.
+
 func update_medical(severity_frac: float, heal_frac: float, tooltip: String) -> void:
 	_severity_frac = clampf(severity_frac, 0.0, 1.0)
-	_heal_frac     = heal_frac
-	tooltip_text   = tooltip
+	_heal_frac = clampf(heal_frac, 0.0, 1.0)
+	if not _received_medical_update:
+		_display_severity_frac = _severity_frac
+		_display_heal_frac = _heal_frac
+		_received_medical_update = true
+	tooltip_text = tooltip
 	queue_redraw()
 
-## Sets/updates the separate outer ring (currently Infection severity
-## only — see the class field comment above). Pass has_outer=false to hide
-## it again (e.g. a cured infection reverting the wound to plain Open
-## Wound). Safe to call every frame like update_medical().
+
 func set_outer_ring(has_outer: bool, frac: float, color: Color) -> void:
 	_has_outer_ring = has_outer
-	_outer_frac     = clampf(frac, 0.0, 1.0)
-	_outer_color    = color
+	_outer_frac = clampf(frac, 0.0, 1.0) if has_outer else 0.0
+	if not _received_outer_update:
+		_display_outer_frac = _outer_frac
+		_received_outer_update = true
+	_outer_color = color
 	queue_redraw()
 
+
+## Used by StatusEffectsContainer on removal. The data structure updates
+## immediately; this short visual settle never delays gameplay state.
+func dismiss() -> void:
+	if _dismissing:
+		return
+	_dismissing = true
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	set_process(false)
+	var tween: Tween = create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(self, "modulate:a", 0.0, DISMISS_DURATION).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_property(self, "scale", Vector2(0.94, 0.94), DISMISS_DURATION).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.finished.connect(queue_free, CONNECT_ONE_SHOT)
+
+
+## Container-driven layout movement. New badges snap into their reserved slot
+## before fading in; surviving badges glide into vacated slots on removal.
+func set_layout_position(target: Vector2, animated: bool) -> void:
+	if _layout_tween != null and _layout_tween.is_valid():
+		_layout_tween.kill()
+	if not animated or position.is_equal_approx(target):
+		position = target
+		return
+	_layout_tween = create_tween()
+	_layout_tween.tween_property(self, "position", target, LAYOUT_DURATION).set_trans(
+		Tween.TRANS_SINE
+	).set_ease(Tween.EASE_OUT)
+
+
+func _play_arrival_once() -> void:
+	if _has_been_setup:
+		return
+	_has_been_setup = true
+	_arrival_flash = 0.34
+	modulate.a = 0.0
+	scale = Vector2(0.92, 0.92)
+	var tween: Tween = create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(self, "modulate:a", 1.0, ARRIVAL_DURATION).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(self, "scale", Vector2.ONE, ARRIVAL_DURATION).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
 func _process(delta: float) -> void:
+	_animation_time = fmod(_animation_time + delta, 20.0)
+	var ring_weight: float = 1.0 - exp(-RING_RESPONSE * delta)
+	var ring_changed: bool = _approach_ring_values(ring_weight)
+	if _arrival_flash > 0.0:
+		_arrival_flash = maxf(0.0, _arrival_flash - delta)
+
 	if _is_medical:
-		return   ## medical badges are driven externally via update_medical()
+		if ring_changed or _arrival_flash > 0.0 or (_has_heal_ring and _display_heal_frac > 0.0) or _critical_strength() > 0.0:
+			queue_redraw()
+		return
+
 	if _remaining <= 0.0:
 		return
 	_remaining = maxf(0.0, _remaining - delta)
@@ -144,58 +194,168 @@ func _process(delta: float) -> void:
 	if _remaining <= 0.0:
 		expired.emit(effect_id)
 
-func _draw() -> void:
-	var center: Vector2 = Vector2(RADIUS + 3.0, RADIUS + 3.0)
-	draw_circle(center, RADIUS - THICKNESS * 0.5, PANEL_COLOR)
-	draw_arc(center, RADIUS, 0.0, TAU, 48, BG_RING_COLOR, THICKNESS, true)
 
+func _draw() -> void:
+	var center: Vector2 = Vector2(BADGE_SIDE * 0.5, BADGE_SIDE * 0.5)
+	_draw_state_glow(center)
+	if _has_outer_ring or _display_outer_frac > 0.001:
+		_draw_outer_ring(center)
+
+	# Layered charcoal face and restrained brass keyline match the approved
+	# panels without turning this tiny HUD element into a miniature card.
+	draw_circle(center + Vector2(0.0, 1.5), RADIUS - 0.5, PANEL_SHADOW)
+	draw_circle(center, RADIUS - THICKNESS * 0.45, PANEL_COLOR)
+	draw_circle(center, RADIUS - THICKNESS - 1.2, PANEL_INNER)
+	draw_arc(center, RADIUS - THICKNESS - 0.7, 0.0, TAU, 48, INNER_KEYLINE, 1.0, true)
+
+	# A dark-brass under-track creates readable edge separation at 50px while
+	# the original fill thickness and arc fractions stay unchanged.
+	draw_arc(center, RADIUS, 0.0, TAU, 48, TRACK_EDGE_COLOR, THICKNESS + 1.4, true)
+	draw_arc(center, RADIUS, 0.0, TAU, 48, BG_RING_COLOR, THICKNESS, true)
 	if _is_medical:
 		_draw_medical_rings(center)
 	else:
 		_draw_timer_ring(center)
 
-	if _icon != null:
-		var half: float = ICON_SIZE * 0.5
-		var dst: Rect2 = Rect2(center - Vector2(half, half), Vector2(ICON_SIZE, ICON_SIZE))
-		draw_texture_rect(_icon, dst, false)
-	else:
-		## Blank grey placeholder — no real icon art exists yet (Jul 2026).
-		draw_circle(center, ICON_SIZE * 0.5, PLACEHOLDER_COLOR)
-	UIKit.draw_rugged_circle(self, center, RADIUS + THICKNESS * 0.5, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 700.0)
-	UIKit.draw_rugged_circle(self, center, RADIUS - THICKNESS * 0.5, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 850.0)
-	if _has_outer_ring:
-		_draw_outer_ring(center)
+	_draw_icon(center)
+	UIKit.draw_rugged_circle(self, center, RADIUS + THICKNESS * 0.5,
+		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 700.0)
+	UIKit.draw_rugged_circle(self, center, RADIUS - THICKNESS * 0.5,
+		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 850.0)
 
-## Draws the outer ring's background + fill arcs, then its own rugged
-## border on both edges — matching the same UIKit.draw_rugged_circle
-## treatment the main ring gets, just at the outer ring's own radius/
-## thickness and with different jitter seeds so the two borders don't
-## look identical/mirrored to each other.
+
+func _draw_icon(center: Vector2) -> void:
+	var half: float = ICON_SIZE * 0.5
+	var destination := Rect2(center - Vector2(half, half), Vector2(ICON_SIZE, ICON_SIZE))
+	if _icon != null:
+		draw_texture_rect(_icon, destination, false)
+		return
+	var fallback: Texture2D = S.icon(_symbol_for_effect())
+	var shadow_destination := Rect2(destination.position + Vector2(0.8, 1.2), destination.size)
+	draw_texture_rect(fallback, shadow_destination, false, ICON_SHADOW)
+	draw_texture_rect(fallback, destination, false, ICON_COLOR)
+
+
+func _symbol_for_effect() -> String:
+	var id: String = effect_id.to_lower()
+	if _is_medical:
+		if (_has_outer_ring or _display_outer_frac > 0.001) and _display_outer_frac > 0.0:
+			return "infection"
+		if id.contains("bleed"):
+			return "bleeding"
+		if id.contains("fractur") or id.contains("broken"):
+			return "fracture"
+		if id.contains("burn"):
+			return "burn"
+		if id.contains("infect"):
+			return "infection"
+		if id.contains("wound"):
+			return "bandage"
+		return "medical"
+	if id.contains("warm") or id.contains("cold") or id.contains("temperature") or id.contains("heat"):
+		return "temperature"
+	if id.contains("work") or id.contains("repair") or id.contains("efficien") or id.contains("build"):
+		return "settings"
+	if id.contains("sleep") or id.contains("fatigue") or id.contains("tired") or id.contains("rest"):
+		return "sleep"
+	if id.contains("poison") or id.contains("toxic") or id.contains("sick"):
+		return "warning"
+	return "status"
+
+
+func _draw_state_glow(center: Vector2) -> void:
+	if _arrival_flash > 0.0:
+		var arrival_alpha: float = clampf(_arrival_flash / 0.34, 0.0, 1.0) * 0.16
+		draw_circle(center, RADIUS + 4.0, Color(S.BLUE.r, S.BLUE.g, S.BLUE.b, arrival_alpha))
+	var critical: float = _critical_strength()
+	if critical <= 0.0:
+		return
+	var pulse: float = 0.5 + 0.5 * sin(_animation_time * TAU * 0.72)
+	var alpha: float = critical * (0.035 + pulse * 0.055)
+	draw_circle(center, RADIUS + 4.0, Color(S.RED.r, S.RED.g, S.RED.b, alpha))
+
+
+func _critical_strength() -> float:
+	if not _is_medical or _display_severity_frac < CRITICAL_THRESHOLD:
+		return 0.0
+	var unresolved: float = maxf(0.0, _display_severity_frac - _display_heal_frac)
+	if unresolved < 0.42:
+		return 0.0
+	return clampf((_display_severity_frac - CRITICAL_THRESHOLD) / (1.0 - CRITICAL_THRESHOLD), 0.0, 1.0)
+
+
 func _draw_outer_ring(center: Vector2) -> void:
 	var outer_radius: float = RADIUS + THICKNESS * 0.5 + OUTER_RING_GAP + OUTER_RING_THICKNESS * 0.5
 	draw_arc(center, outer_radius, 0.0, TAU, 48, BG_RING_COLOR, OUTER_RING_THICKNESS, true)
-	if _outer_frac > 0.0:
-		var end_angle: float = -PI / 2.0 + TAU * _outer_frac
+	if _display_outer_frac > 0.0:
+		var end_angle: float = -PI / 2.0 + TAU * _display_outer_frac
 		draw_arc(center, outer_radius, -PI / 2.0, end_angle, 48, _outer_color, OUTER_RING_THICKNESS, true)
-	UIKit.draw_rugged_circle(self, center, outer_radius + OUTER_RING_THICKNESS * 0.5, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 1000.0)
-	UIKit.draw_rugged_circle(self, center, outer_radius - OUTER_RING_THICKNESS * 0.5, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 1150.0)
+	UIKit.draw_rugged_circle(self, center, outer_radius + OUTER_RING_THICKNESS * 0.5,
+		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 1000.0)
+	UIKit.draw_rugged_circle(self, center, outer_radius - OUTER_RING_THICKNESS * 0.5,
+		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 1150.0)
+
 
 func _draw_timer_ring(center: Vector2) -> void:
 	if _total_duration <= 0.0:
 		return
-	var frac: float = _remaining / _total_duration
-	if frac > 0.0:
-		var end_angle: float = -PI / 2.0 + TAU * frac
-		draw_arc(center, RADIUS, -PI / 2.0, end_angle, 48, _ring_color, THICKNESS, true)
+	var fraction: float = _display_remaining / _total_duration
+	if fraction <= 0.0:
+		return
+	var display_color: Color = _ring_color
+	if fraction <= EXPIRY_PULSE_THRESHOLD:
+		var pulse: float = 0.5 + 0.5 * sin(_animation_time * TAU * 1.15)
+		display_color = _ring_color.lightened(pulse * 0.16)
+	var end_angle: float = -PI / 2.0 + TAU * fraction
+	draw_arc(center, RADIUS, -PI / 2.0, end_angle, 48, display_color.darkened(0.32), THICKNESS + 1.0, true)
+	draw_arc(center, RADIUS, -PI / 2.0, end_angle, 48, display_color, THICKNESS, true)
 
-## Draws the severity arc, then — if this condition tracks natural healing
-## — the Healed fill OVER the start of that same arc. heal_frac is drawn
-## trusting the caller's clamp (heal_frac <= severity_frac); see the class
-## doc comment for why this file doesn't re-clamp it.
+
 func _draw_medical_rings(center: Vector2) -> void:
-	if _severity_frac > 0.0:
-		var severity_end: float = -PI / 2.0 + TAU * _severity_frac
+	if _display_severity_frac > 0.0:
+		var severity_end: float = -PI / 2.0 + TAU * _display_severity_frac
+		draw_arc(center, RADIUS, -PI / 2.0, severity_end, 48,
+			_ring_color.darkened(0.34), THICKNESS + 1.0, true)
 		draw_arc(center, RADIUS, -PI / 2.0, severity_end, 48, _ring_color, THICKNESS, true)
-	if _has_heal_ring and _heal_frac > 0.0:
-		var heal_end: float = -PI / 2.0 + TAU * _heal_frac
-		draw_arc(center, RADIUS, -PI / 2.0, heal_end, 48, HEAL_COLOR, THICKNESS, true)
+	if not _has_heal_ring or _display_heal_frac <= 0.0:
+		return
+	var heal_end: float = -PI / 2.0 + TAU * _display_heal_frac
+	draw_arc(center, RADIUS, -PI / 2.0, heal_end, 48, HEAL_COLOR.darkened(0.30), THICKNESS + 1.0, true)
+	draw_arc(center, RADIUS, -PI / 2.0, heal_end, 48, HEAL_COLOR, THICKNESS, true)
+	_draw_healing_sheen(center)
+
+
+func _draw_healing_sheen(center: Vector2) -> void:
+	var heal_sweep: float = TAU * _display_heal_frac
+	if heal_sweep <= 0.035:
+		return
+	var travel_fraction: float = fmod(_animation_time * 0.28, 1.0)
+	var sheen_center: float = -PI / 2.0 + heal_sweep * travel_fraction
+	var half_width: float = minf(0.10, heal_sweep * 0.28)
+	var sheen_start: float = maxf(-PI / 2.0, sheen_center - half_width)
+	var sheen_end: float = minf(-PI / 2.0 + heal_sweep, sheen_center + half_width)
+	if sheen_end > sheen_start:
+		draw_arc(center, RADIUS, sheen_start, sheen_end, 8, HEAL_SHEEN, THICKNESS + 0.8, true)
+
+
+func _approach_ring_values(weight: float) -> bool:
+	var before_remaining: float = _display_remaining
+	var before_severity: float = _display_severity_frac
+	var before_heal: float = _display_heal_frac
+	var before_outer: float = _display_outer_frac
+	_display_remaining = _snap_near(lerpf(_display_remaining, _remaining, weight), _remaining)
+	_display_severity_frac = _snap_near(
+		lerpf(_display_severity_frac, _severity_frac, weight), _severity_frac
+	)
+	_display_heal_frac = _snap_near(lerpf(_display_heal_frac, _heal_frac, weight), _heal_frac)
+	_display_outer_frac = _snap_near(lerpf(_display_outer_frac, _outer_frac, weight), _outer_frac)
+	return (
+		not is_equal_approx(before_remaining, _display_remaining)
+		or not is_equal_approx(before_severity, _display_severity_frac)
+		or not is_equal_approx(before_heal, _display_heal_frac)
+		or not is_equal_approx(before_outer, _display_outer_frac)
+	)
+
+
+func _snap_near(value: float, target: float) -> float:
+	return target if absf(value - target) < 0.0005 else value

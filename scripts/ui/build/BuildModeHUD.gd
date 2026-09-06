@@ -610,10 +610,23 @@ func _process(delta: float) -> void:
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 func show_hud() -> void:
+	## Every Build Mode entry starts from one deterministic workspace state.
+	## This deliberately does not rebuild previews or clear the Shop cart; it
+	## only prevents a previously hidden Shop/dock state from leaking across
+	## sessions.
+	active_tool = TOOL_CONSTRUCT
+	_sel_tool = TOOL_CONSTRUCT
+	_submenu_level = "root"
+	_active_category = ""
+	_submenu_cursor = 0
+	_submenu_source = "construct"
+	_placement_menu.clear()
 	visible = true
+	_open_submenu("construct")
 	## Standing convention (July 2026) — see UIFade.gd.
 	UIFade.fade_in(_canvas)
-	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
+	if InputMode.is_controller():
+		Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
 	## NOTE: the construct/shop previews are deliberately NOT built here —
 	## building ~55 of them synchronously (or even staggered) on build-mode
 	## entry was the entry stutter. They build lazily, staggered, the first
@@ -622,6 +635,13 @@ func show_hud() -> void:
 func hide_hud() -> void:
 	visible = false
 	_submenu_open = false
+	_submenu_source = "construct"
+	_submenu_level = "root"
+	_active_category = ""
+	_submenu_cursor = 0
+	_sel_tool = TOOL_CONSTRUCT
+	active_tool = TOOL_CONSTRUCT
+	_placement_menu.clear()
 	_submenu_root.visible = false
 	_cancel_btn.visible   = false
 	if _workspace != null:
@@ -675,7 +695,14 @@ func open_dig_confirm() -> void:
 	_ensure_dig_confirm_dialog()
 	dig_confirm_open = true
 	_set_dig_dialog_cursor(true)
-	_dig_confirm_dialog.open("EXPAND BUNKER", "$1,500")
+	_dig_confirm_dialog.open(
+		"Expand the bunker?",
+		"",
+		"Excavate  ·  $1,500",
+		"Cancel",
+		"purchase",
+		"demolish"
+	)
 
 ## Close the rock dig confirmation dialog without emitting signals
 func close_dig_confirm() -> void:

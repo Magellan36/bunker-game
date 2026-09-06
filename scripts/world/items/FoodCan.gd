@@ -34,6 +34,16 @@ func _ready() -> void:
 func get_display_name() -> String:
 	return "Food Can"
 
+func get_inventory_hud_state() -> Dictionary:
+	if _is_empty:
+		return {"kind": "none"}
+	return {
+		"kind": "charges",
+		"current": _bites_left,
+		"maximum": TOTAL_BITES,
+		"unit": "serving",
+	}
+
 func get_prompt_text() -> String:
 	if _is_empty:
 		return "[F] Pick up  Can (Empty)"

@@ -1,186 +1,289 @@
 extends Control
 class_name NeedsGauge
-## NeedsGauge.gd
-## Composite radial HUD gauge for the 5 survival needs (Jul 2026 redesign,
-## replaces the old StatusBars.gd (health/stamina rectangles) + CircleFill.gd
-## x3 (food/water/sleep icon circles) with a Medieval-Dynasty-style triple
-## concentric ring, per Brannon's reference image.
-##
-## RING ASSIGNMENTS (center outward):
-##   Ring 1 (innermost) — Health (left half, red)  / Food  (right half, orange)
-##   Ring 2 (middle)    — Stamina (left half, green) / Water (right half, blue)
-## Ring 3 (outermost) — Sleep (RIGHT HALF ONLY, purple). Originally mirrored
-##                         both sides; trimmed to right-only per Brannon's
-##                         call (Jul 2026 adjustment pass) — left half is
-##                         simply never drawn.
-##
-## Each half-arc is BOTTOM-ANCHORED (Brannon's explicit call): the tip nearest
-## the bottom V-gap is always fully drawn at any fill > 0, and the arc grows
-## UPWARD toward the top V-gap tip as the stat fills toward 100%. At 0% the
-## arc is invisible (zero-length) right at the bottom anchor point.
-##
-## No icons (Brannon's explicit call, Jul 2026 redesign) — center is a plain
-## blank dark circle, matching the reference image exactly.
+## Compact five-need HUD gauge. Health and stamina face into the lower-left
+## corner; food, water, and sleep fan outward. Values deplete directionally,
+## while medical need caps lock equal portions at both ends of an affected arc.
 
-# ─── Layout constants ────────────────────────────────────────────────────────
-const CENTER: Vector2 = Vector2(90.0, 90.0)   ## widget is 180x180, center at (90,90)
-
-const RING1_RADIUS: float = 40.0   ## Health / Food
-const RING2_RADIUS: float = 56.0   ## Stamina / Water
-const RING3_RADIUS: float = 74.0   ## Sleep
-
+const CENTER: Vector2 = Vector2(90.0, 90.0)
+const GAUGE_ROTATION: float = -PI / 4.0
+const RING1_RADIUS: float = 40.0
+const RING2_RADIUS: float = 56.0
+const RING3_RADIUS: float = 74.0
 const RING1_THICKNESS: float = 10.0
 const RING2_THICKNESS: float = 10.0
 const RING3_THICKNESS: float = 9.0
-
 const CENTER_CIRCLE_RADIUS: float = 32.0
-const CENTER_CIRCLE_COLOR: Color = Color(0.13, 0.13, 0.13, 0.88)
-
-const TRACK_COLOR: Color = Color(0.08, 0.08, 0.08, 0.90)   ## unfilled arc background, all rings
-
-## Portion of a ring beyond the current need cap (Aug 2026, Medical system)
-## — a visibly distinct "locked off" zone, not just the normal empty
-## track, so a reduced ceiling actually reads as a ceiling. Warm/reddish so
-## it doesn't get confused with a ring's own fill color or the neutral
-## TRACK_COLOR. See docs/systems/medical/README.md's "Needs cap reduction."
-const CAPPED_TRACK_COLOR: Color = Color(0.35, 0.12, 0.10, 0.55)
-
 const GAP_ANGLE_DEG: float = 14.0
 const ARC_SEGMENTS: int = 48
-
+const VALUE_RESPONSE: float = 10.0
+const CAP_RESPONSE: float = 7.0
+const CENTER_CIRCLE_COLOR: Color = Color(0.13, 0.13, 0.13, 0.88)
+const TRACK_COLOR: Color = Color(0.08, 0.08, 0.08, 0.90)
+const CAPPED_TRACK_COLOR: Color = Color(0.35, 0.12, 0.10, 0.55)
+const ICON_WELL_COLOR: Color = Color("171c1b")
+const ICON_KEYLINE_COLOR: Color = Color("6f6045")
+const ICON_COLOR: Color = Color("f2e8cf")
 const RUGGED_BORDER_COLOR: Color = Color(0.02, 0.02, 0.02, 0.55)
 const RUGGED_BORDER_WIDTH: float = 1.4
 
-# ─── Colors (fill) ────────────────────────────────────────────────────────────
-const COLOR_HEALTH:  Color = Color(0.81, 0.17, 0.17, 1.0)   # red (Jul 2026 — darkened 5%)
-const COLOR_FOOD:    Color = Color(0.90, 0.52, 0.14, 1.0)   # orange (Jul 2026 — darkened 5%)
-const COLOR_STAMINA: Color = Color(0.29, 0.81, 0.24, 1.0)   # green (Jul 2026 — darkened 5%)
-const COLOR_WATER:   Color = Color(0.24, 0.52, 0.90, 1.0)   # blue (Jul 2026 — darkened 5%)
-const COLOR_SLEEP:   Color = Color(0.57, 0.33, 0.81, 1.0)   # purple (Jul 2026 — darkened 5%)
+# Original HUD palette, intentionally preserved around the new geometry.
+const COLOR_HEALTH: Color = Color(0.81, 0.17, 0.17, 1.0)
+const COLOR_FOOD: Color = Color(0.90, 0.52, 0.14, 1.0)
+const COLOR_STAMINA: Color = Color(0.29, 0.81, 0.24, 1.0)
+const COLOR_WATER: Color = Color(0.24, 0.52, 0.90, 1.0)
+const COLOR_SLEEP: Color = Color(0.57, 0.33, 0.81, 1.0)
 
-# ─── State (0.0 - 1.0 fractions) ──────────────────────────────────────────────
-var _health:  float = 1.0
-var _food:    float = 1.0
+var _health: float = 1.0
+var _food: float = 1.0
 var _stamina: float = 1.0
-var _water:   float = 1.0
-var _sleep:   float = 1.0
-
-## Need-cap fractions (Aug 2026, Medical system) — 1.0 = no cap (normal
-## default). Only Food/Water/Sleep can be capped; Health and Stamina are
-## never affected by Medical (see docs/systems/medical/README.md's "Needs
-## cap reduction" for why Health specifically is excluded).
-var _food_cap:  float = 1.0
+var _water: float = 1.0
+var _sleep: float = 1.0
+var _food_cap: float = 1.0
 var _water_cap: float = 1.0
 var _sleep_cap: float = 1.0
+var _display_health: float = 1.0
+var _display_food: float = 1.0
+var _display_stamina: float = 1.0
+var _display_water: float = 1.0
+var _display_sleep: float = 1.0
+var _display_food_cap: float = 1.0
+var _display_water_cap: float = 1.0
+var _display_sleep_cap: float = 1.0
+var _received_health: bool = false
+var _received_food: bool = false
+var _received_stamina: bool = false
+var _received_water: bool = false
+var _received_sleep: bool = false
+var _received_food_cap: bool = false
+var _received_water_cap: bool = false
+var _received_sleep_cap: bool = false
+var _health_icon: Texture2D
+var _food_icon: Texture2D
+var _stamina_icon: Texture2D
+var _water_icon: Texture2D
+var _sleep_icon: Texture2D
+
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(180.0, 180.0)
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_health_icon = BunkerPanelStyle.icon("health")
+	_food_icon = BunkerPanelStyle.icon("food")
+	_stamina_icon = BunkerPanelStyle.icon("stamina")
+	_water_icon = BunkerPanelStyle.icon("hydration")
+	_sleep_icon = BunkerPanelStyle.icon("sleep")
 	var grime_mat: ShaderMaterial = ShaderMaterial.new()
 	grime_mat.shader = load("res://assets/shaders/grunge_overlay.gdshader")
 	material = grime_mat
+	set_process(true)
 
-# ─── Public API — values are 0.0-1.0 fractions (caller, HUD.gd, converts from 0-100) ──
+
+func _process(delta: float) -> void:
+	var value_weight: float = 1.0 - exp(-VALUE_RESPONSE * delta)
+	var cap_weight: float = 1.0 - exp(-CAP_RESPONSE * delta)
+	var changed: bool = false
+	changed = _approach_values(value_weight) or changed
+	changed = _approach_caps(cap_weight) or changed
+	if changed:
+		queue_redraw()
+
+
+# Public API: values are 0.0-1.0 fractions. The first update snaps so the HUD
+# never animates from fabricated defaults when a save/world first appears.
 func set_health(frac: float) -> void:
-	_health = clampf(frac, 0.0, 1.0)
+	var next: float = clampf(frac, 0.0, 1.0)
+	if not _received_health:
+		_display_health = next
+		_received_health = true
+	_health = next
 	queue_redraw()
+
 
 func set_food(frac: float) -> void:
-	_food = clampf(frac, 0.0, 1.0)
+	var next: float = clampf(frac, 0.0, 1.0)
+	if not _received_food:
+		_display_food = next
+		_received_food = true
+	_food = next
 	queue_redraw()
+
 
 func set_stamina(frac: float) -> void:
-	_stamina = clampf(frac, 0.0, 1.0)
+	var next: float = clampf(frac, 0.0, 1.0)
+	if not _received_stamina:
+		_display_stamina = next
+		_received_stamina = true
+	_stamina = next
 	queue_redraw()
+
 
 func set_water(frac: float) -> void:
-	_water = clampf(frac, 0.0, 1.0)
+	var next: float = clampf(frac, 0.0, 1.0)
+	if not _received_water:
+		_display_water = next
+		_received_water = true
+	_water = next
 	queue_redraw()
+
 
 func set_sleep(frac: float) -> void:
-	_sleep = clampf(frac, 0.0, 1.0)
+	var next: float = clampf(frac, 0.0, 1.0)
+	if not _received_sleep:
+		_display_sleep = next
+		_received_sleep = true
+	_sleep = next
 	queue_redraw()
 
-## Need-cap setters (Aug 2026, Medical system) — same 0.0-1.0 fraction
-## convention as the value setters above. Called from HUD.gd whenever
-## PlayerStats.food_cap_changed/water_cap_changed/sleep_cap_changed fires.
+
 func set_food_cap(frac: float) -> void:
 	_food_cap = clampf(frac, 0.0, 1.0)
+	if not _received_food_cap:
+		_display_food_cap = _food_cap
+		_received_food_cap = true
 	queue_redraw()
+
 
 func set_water_cap(frac: float) -> void:
 	_water_cap = clampf(frac, 0.0, 1.0)
+	if not _received_water_cap:
+		_display_water_cap = _water_cap
+		_received_water_cap = true
 	queue_redraw()
+
 
 func set_sleep_cap(frac: float) -> void:
 	_sleep_cap = clampf(frac, 0.0, 1.0)
+	if not _received_sleep_cap:
+		_display_sleep_cap = _sleep_cap
+		_received_sleep_cap = true
 	queue_redraw()
 
-# ─── Drawing ──────────────────────────────────────────────────────────────────
+
 func _draw() -> void:
 	var gap: float = deg_to_rad(GAP_ANGLE_DEG)
-
-	# Center blank circle
 	draw_circle(CENTER, CENTER_CIRCLE_RADIUS, CENTER_CIRCLE_COLOR)
 	UIKit.draw_rugged_circle(self, CENTER, CENTER_CIRCLE_RADIUS, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 500.0)
+	_draw_left_half(RING1_RADIUS, RING1_THICKNESS, gap, _display_health, COLOR_HEALTH)
+	_draw_right_half(RING1_RADIUS, RING1_THICKNESS, gap, _display_food, COLOR_FOOD, _display_food_cap)
+	_draw_left_half(RING2_RADIUS, RING2_THICKNESS, gap, _display_stamina, COLOR_STAMINA)
+	_draw_right_half(RING2_RADIUS, RING2_THICKNESS, gap, _display_water, COLOR_WATER, _display_water_cap)
+	_draw_right_half(RING3_RADIUS, RING3_THICKNESS, gap, _display_sleep, COLOR_SLEEP, _display_sleep_cap)
+	var left_mid: float = PI + GAUGE_ROTATION
+	var right_mid: float = GAUGE_ROTATION
+	_draw_need_icon(RING1_RADIUS, left_mid, _health_icon, COLOR_HEALTH)
+	_draw_need_icon(RING1_RADIUS, right_mid, _food_icon, COLOR_FOOD)
+	_draw_need_icon(RING2_RADIUS, left_mid, _stamina_icon, COLOR_STAMINA)
+	_draw_need_icon(RING2_RADIUS, right_mid, _water_icon, COLOR_WATER)
+	_draw_need_icon(RING3_RADIUS, right_mid, _sleep_icon, COLOR_SLEEP)
 
-	# Ring 1 — Health (left) / Food (right)
-	_draw_left_half(RING1_RADIUS, RING1_THICKNESS, gap, _health, COLOR_HEALTH)
-	_draw_right_half(RING1_RADIUS, RING1_THICKNESS, gap, _food, COLOR_FOOD, _food_cap)
 
-	# Ring 2 — Stamina (left) / Water (right)
-	_draw_left_half(RING2_RADIUS, RING2_THICKNESS, gap, _stamina, COLOR_STAMINA)
-	_draw_right_half(RING2_RADIUS, RING2_THICKNESS, gap, _water, COLOR_WATER, _water_cap)
-
-	# Ring 3 — Sleep (right side ONLY, per Brannon's call — left half is
-	# intentionally never drawn, not just zeroed out, so nothing renders
-	# there, not even an empty track).
-	_draw_right_half(RING3_RADIUS, RING3_THICKNESS, gap, _sleep, COLOR_SLEEP, _sleep_cap)
-
-## Left-half arc: track spans [bottom_edge, top_edge] going clockwise through
-## 9 o'clock. Bottom-anchored: fill arc always starts at bottom_edge (fixed)
-## and grows toward top_edge as fill increases.
 func _draw_left_half(radius: float, thickness: float, gap: float, fill: float, color: Color) -> void:
-	var bottom_edge: float = PI / 2.0 + gap
-	var top_edge:    float = 3.0 * PI / 2.0 - gap
-	draw_arc(CENTER, radius, bottom_edge, top_edge, ARC_SEGMENTS, TRACK_COLOR, thickness, true)
-	if fill > 0.0:
-		var current_end: float = bottom_edge + (top_edge - bottom_edge) * fill
-		draw_arc(CENTER, radius, bottom_edge, current_end, ARC_SEGMENTS, color, thickness, true)
-	UIKit.draw_rugged_arc(self, CENTER, radius + thickness * 0.5, bottom_edge, top_edge,
-		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, radius)
-	UIKit.draw_rugged_arc(self, CENTER, radius - thickness * 0.5, bottom_edge, top_edge,
-		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, radius + 100.0)
+	var zero_edge: float = PI / 2.0 + gap + GAUGE_ROTATION
+	var full_edge: float = 3.0 * PI / 2.0 - gap + GAUGE_ROTATION
+	_draw_track(radius, thickness, zero_edge, full_edge)
+	var normalized: float = clampf(fill, 0.0, 1.0)
+	if normalized > 0.0:
+		var current_end: float = lerpf(zero_edge, full_edge, normalized)
+		_draw_value_arc(radius, thickness, zero_edge, current_end, color)
+	_draw_rugged_edges(radius, thickness, zero_edge, full_edge, radius)
 
-## Right-half arc: track spans [top_edge, bottom_edge] going clockwise through
-## 3 o'clock. Bottom-anchored: fill arc always ENDS at bottom_edge (fixed)
-## and its start grows toward top_edge as fill increases.
-##
-## `cap` (Aug 2026, Medical system) — 0.0-1.0, default 1.0 (no effect). The
-## portion of the track beyond the cap (i.e. from top_edge to where `cap`
-## would sit) is drawn in CAPPED_TRACK_COLOR instead of TRACK_COLOR, so a
-## reduced ceiling reads as a visibly locked-off zone rather than just
-## more empty track. The fill itself is also clamped to `cap` for display —
-## the underlying stat value can transiently sit above a cap that just
-## dropped (see PlayerStats.gd; existing values aren't force-clamped down
-## when a cap newly reduces below them), but the ring should never LOOK
-## like it's filled past its own current ceiling.
-func _draw_right_half(radius: float, thickness: float, gap: float, fill: float, color: Color, cap: float = 1.0) -> void:
-	var top_edge:    float = -PI / 2.0 + gap
-	var bottom_edge: float = PI / 2.0 - gap
-	var sweep_range: float = bottom_edge - top_edge
 
-	if cap < 1.0:
-		var cap_start: float = bottom_edge - sweep_range * cap
-		draw_arc(CENTER, radius, top_edge, cap_start, ARC_SEGMENTS, CAPPED_TRACK_COLOR, thickness, true)
-		draw_arc(CENTER, radius, cap_start, bottom_edge, ARC_SEGMENTS, TRACK_COLOR, thickness, true)
-	else:
-		draw_arc(CENTER, radius, top_edge, bottom_edge, ARC_SEGMENTS, TRACK_COLOR, thickness, true)
+# Medical caps close equally from both ends. Normal value loss remains
+# directional inside the surviving interval.
+func _draw_right_half(radius: float, thickness: float, gap: float, fill: float, color: Color, cap: float) -> void:
+	var full_edge: float = -PI / 2.0 + gap + GAUGE_ROTATION
+	var zero_edge: float = PI / 2.0 - gap + GAUGE_ROTATION
+	var sweep: float = zero_edge - full_edge
+	var safe_cap: float = clampf(cap, 0.0, 1.0)
+	var lock_each_end: float = sweep * (1.0 - safe_cap) * 0.5
+	var available_full_edge: float = full_edge + lock_each_end
+	var available_zero_edge: float = zero_edge - lock_each_end
+	if lock_each_end > 0.0001:
+		_draw_capped_arc(radius, thickness, full_edge, available_full_edge)
+		_draw_capped_arc(radius, thickness, available_zero_edge, zero_edge)
+	if available_zero_edge > available_full_edge:
+		_draw_track(radius, thickness, available_full_edge, available_zero_edge)
+	var normalized: float = 0.0
+	if safe_cap > 0.0001:
+		normalized = clampf(fill / safe_cap, 0.0, 1.0)
+	if normalized > 0.0 and available_zero_edge > available_full_edge:
+		var current_start: float = lerpf(available_zero_edge, available_full_edge, normalized)
+		_draw_value_arc(radius, thickness, current_start, available_zero_edge, color)
+	_draw_rugged_edges(radius, thickness, full_edge, zero_edge, radius + 200.0)
 
-	var display_fill: float = minf(fill, cap)
-	if display_fill > 0.0:
-		var current_start: float = bottom_edge - sweep_range * display_fill
-		draw_arc(CENTER, radius, current_start, bottom_edge, ARC_SEGMENTS, color, thickness, true)
-	UIKit.draw_rugged_arc(self, CENTER, radius + thickness * 0.5, top_edge, bottom_edge,
-		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, radius + 200.0)
-	UIKit.draw_rugged_arc(self, CENTER, radius - thickness * 0.5, top_edge, bottom_edge,
-		RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, radius + 300.0)
+
+func _draw_track(radius: float, thickness: float, start_angle: float, end_angle: float) -> void:
+	draw_arc(CENTER, radius, start_angle, end_angle, ARC_SEGMENTS, TRACK_COLOR, thickness, true)
+
+
+func _draw_capped_arc(radius: float, thickness: float, start_angle: float, end_angle: float) -> void:
+	draw_arc(CENTER, radius, start_angle, end_angle, ARC_SEGMENTS, CAPPED_TRACK_COLOR, thickness, true)
+
+
+func _draw_value_arc(radius: float, thickness: float, start_angle: float, end_angle: float, color: Color) -> void:
+	draw_arc(CENTER, radius, start_angle, end_angle, ARC_SEGMENTS, color, thickness, true)
+
+
+func _draw_rugged_edges(radius: float, thickness: float, start_angle: float, end_angle: float, seed: float) -> void:
+	UIKit.draw_rugged_arc(self, CENTER, radius + thickness * 0.5, start_angle, end_angle, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, seed)
+	UIKit.draw_rugged_arc(self, CENTER, radius - thickness * 0.5, start_angle, end_angle, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, seed + 100.0)
+
+
+func _draw_need_icon(radius: float, angle: float, texture: Texture2D, accent: Color) -> void:
+	if texture == null:
+		return
+	var position: Vector2 = CENTER + Vector2.from_angle(angle) * radius
+	draw_circle(position, 7.4, ICON_KEYLINE_COLOR.darkened(0.18))
+	draw_circle(position, 6.3, ICON_WELL_COLOR)
+	var icon_rect: Rect2 = Rect2(position - Vector2(4.5, 4.5), Vector2(9.0, 9.0))
+	draw_texture_rect(texture, icon_rect, false, ICON_COLOR.lerp(accent.lightened(0.28), 0.16))
+
+
+func _approach_values(weight: float) -> bool:
+	var changed: bool = false
+	var next_health: float = lerpf(_display_health, _health, weight)
+	var next_food: float = lerpf(_display_food, _food, weight)
+	var next_stamina: float = lerpf(_display_stamina, _stamina, weight)
+	var next_water: float = lerpf(_display_water, _water, weight)
+	var next_sleep: float = lerpf(_display_sleep, _sleep, weight)
+	changed = not is_equal_approx(next_health, _display_health) or changed
+	changed = not is_equal_approx(next_food, _display_food) or changed
+	changed = not is_equal_approx(next_stamina, _display_stamina) or changed
+	changed = not is_equal_approx(next_water, _display_water) or changed
+	changed = not is_equal_approx(next_sleep, _display_sleep) or changed
+	_display_health = _snap_near(next_health, _health)
+	_display_food = _snap_near(next_food, _food)
+	_display_stamina = _snap_near(next_stamina, _stamina)
+	_display_water = _snap_near(next_water, _water)
+	_display_sleep = _snap_near(next_sleep, _sleep)
+	return changed
+
+
+func _approach_caps(weight: float) -> bool:
+	var changed: bool = false
+	var next_food_cap: float = lerpf(_display_food_cap, _food_cap, weight)
+	var next_water_cap: float = lerpf(_display_water_cap, _water_cap, weight)
+	var next_sleep_cap: float = lerpf(_display_sleep_cap, _sleep_cap, weight)
+	changed = not is_equal_approx(next_food_cap, _display_food_cap) or changed
+	changed = not is_equal_approx(next_water_cap, _display_water_cap) or changed
+	changed = not is_equal_approx(next_sleep_cap, _display_sleep_cap) or changed
+	_display_food_cap = _snap_near(next_food_cap, _food_cap)
+	_display_water_cap = _snap_near(next_water_cap, _water_cap)
+	_display_sleep_cap = _snap_near(next_sleep_cap, _sleep_cap)
+	return changed
+
+
+func _snap_near(value: float, target: float) -> float:
+	return target if absf(value - target) < 0.0005 else value
+
+
+# Testable geometry helper: [full edge, usable full edge, usable zero edge,
+# zero edge], all in clockwise radians.
+func symmetric_cap_segments(cap: float, gap: float = -1.0) -> PackedFloat32Array:
+	if gap < 0.0:
+		gap = deg_to_rad(GAP_ANGLE_DEG)
+	var full_edge: float = -PI / 2.0 + gap + GAUGE_ROTATION
+	var zero_edge: float = PI / 2.0 - gap + GAUGE_ROTATION
+	var sweep: float = zero_edge - full_edge
+	var lock_each_end: float = sweep * (1.0 - clampf(cap, 0.0, 1.0)) * 0.5
+	return PackedFloat32Array([full_edge, full_edge + lock_each_end, zero_edge - lock_each_end, zero_edge])

@@ -52,7 +52,7 @@ func get_trash_material() -> String:
 north wall (confirmed: the wall nearer player spawn), offset +4 from the
 wall's center, at game start, never purchasable, never deconstructable,
 movable only (identical treatment to Build Station). `[E] Open Research
-Station` opens the modal `ResearchStationUI`. See
+Station` opens the modal `ResearchStationModernUI`. See
 `docs/systems/furniture-items/README.md` for the wiring summary, exact
 placement formula, and the inherited save-position limitation.
 
@@ -72,34 +72,28 @@ player's hand. See `ResearchStation.gd`'s `_feed_single_item()` /
 `_feed_bag()` for the exact logic. The F7 debug button is unaffected —
 still there for quick testing.
 
-## UI shell status (Aug 2026)
+## Modern UI status (Sep 2026)
 
-`ResearchStationUI` — modal chrome (StorageUI/WaterInfoUI conventions),
-**3 selectable tabs** (Bunker Upgrades / Player Skills / NPC Skills). The
-Bunker tab shows a **scrollable node-tree canvas**: a single tiered
-upgrade detail node at the top, a 3-column × 4-row grid of empty
-placeholder boxes below it, and two side branch pairs — the grid/branches
-are purely structural scaffolding (no data) this pass, confirming the
-layout works. A pinned **2×2 materials-button grid** (Metal/Plastic left
-column, Paper/Organic right) replaces the old single row-header and does
-NOT scroll with the tree; both tabs and the materials grid sit in the
-fixed header area, and only the content area below them changed from the
-previous pass. Player Skills / NPC Skills stay empty/placeholder.
-`InteractionSystem.research_ui` gates E/F while open (same as
-shelf/basket).
+`ResearchStationModernUI` is the active player-facing workspace. It keeps
+the three established tabs and moves the fixed material reservoirs into a
+clear four-card header. Bunker research is split into a scrollable pathway
+canvas on the left and a selected-upgrade inspector on the right, so node
+cards communicate progression while the inspector owns effects, costs,
+duration, tier progress, and the research action.
 
-**Icon pass (Aug 2026):** each materials-grid cell now shows a material
-icon (left-aligned, `MATERIAL_ICON_BUFFER` inset) and a bare `x/10` count
-(right-aligned, `MATERIAL_COUNT_BUFFER` inset) as two separate nodes,
-replacing the old single `"Metal: 3/10"`-style Label. Icons: gray rolled
-sheet = Metal, white curled sheet = Paper, leaf = Organic, blue rolled
-sheet = Plastic — see `MATERIAL_ICONS` in `ResearchStationUI.gd`. Button/
-panel sizing is unchanged (`_compute_material_btn_size()` still sizes off
-the old name-based sample strings purely as a ruler; nothing changed
-there). Research cards also gained a clock icon (`CLOCK_ICON_TEXTURE`,
-interior pre-filled white, exterior transparent) immediately left of the
-duration/"Time left" text, in both the not-started and active-countdown
-states.
+Only `Water Hookup Output` is a functional upgrade. `Basic Water Supply`
+is a visual baseline and the locked downstream cards are clearly marked
+future scaffolding; they do not invent gameplay state. Player Skills and
+NPC Skills remain polished empty states until upgrade resources exist for
+those trees.
+
+The UI delegates start/pause/resume and all material/tier state to the
+existing `ResearchStation`. Lightweight labels and progress bars update in
+place; the pathway/detail structure rebuilds only when research state
+changes. D-pad and right stick navigate while the left stick remains
+available for movement, LB/RB cycle tabs, scrollbars are selectable, and
+walking away closes the workspace through `UIProximityClose`. The former
+`ResearchStationUI.gd` remains untouched as a fallback/reference.
 
 ## Upgrade system architecture (Aug 2026)
 
@@ -258,7 +252,9 @@ as everything else (uniform cap this pass; bypasses deferred).
 
 ## Controller support
 
-The research UI auto-selects the **top-most** research on open and on every
-tab change (LB/RB cycle tabs; A starts the focused tile's research; B
-closes). Details in `docs/systems/controller/README.md` (§ Per-UI matrix —
-Research station).
+The research UI selects the real Water Hookup Output node on open. A/Enter
+select the focused node or action, LB/RB cycle tabs, D-pad/right stick move
+focus, selectable scrollbars own scrolling, and B/Escape/E close. The left
+stick remains available for player movement while the station is open.
+Details in `docs/systems/controller/README.md` (§ Per-UI matrix — Research
+station).

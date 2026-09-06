@@ -258,6 +258,13 @@ func get_bottle_badge_info() -> Dictionary:
 		"quality":     stored_water_quality,
 	}
 
+func get_inventory_hud_state() -> Dictionary:
+	return {
+		"kind": "liquid",
+		"fraction": clampf(current_fill_mL / MAX_FILL_ML, 0.0, 1.0),
+		"quality": stored_water_quality,
+	}
+
 # ─── Empty-state tint ─────────────────────────────────────────────────────────
 ## Applied/cleared any time current_fill_mL crosses the empty threshold in
 ## either direction (drink → empty, refill → no longer empty) — no longer a

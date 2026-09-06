@@ -452,8 +452,9 @@ see "Planned future extensions" for why) rather than draining the need
 directly. This is a primary way the player is meant to *feel* a worsening
 condition, not a secondary flourish.
 
-- Shown on the needs bar (`NeedsGauge.gd`) as a **greyed-out portion** at
-  the top of the bar — the usable range visibly shrinks as the cap drops.
+- Shown on the needs bar (`NeedsGauge.gd`) as **equal locked portions at
+  both ends** of the affected arc. The usable range closes toward the arc's
+  center as the cap drops, while ordinary need depletion remains directional.
 - Currently, Infection is the only condition using this. Proportional but
   not equal across the three needs — sleep takes the largest cut, water
   next, hunger least, at any given infection severity. Rough ballpark
@@ -845,50 +846,36 @@ applicable (now always computable for wound-tier conditions — see
 "Healing"), treated/untreated state, and condition-specific info (e.g.
 Bleeding's current HP-loss-per-second at present severity).
 
-**Layer 3 — Status Screen (implemented, Aug 2026).** The overall info
-hub: `scripts/ui/medical/StatusScreenUI.gd`, toggled with **[Tab]**
-(`MainWorld._toggle_status_screen()`), a **non-modal** panel — unlike
-every other panel in the project, it does NOT pause anything and does NOT
-lock player movement; the world (NPCs, hazards, the clock) keeps running
-while it's open. Left pane: a placeholder body diagram (six clickable
-regions in a rough humanoid layout — real art deferred, Brannon's
-explicit call), each limb showing a mini version of that limb's active
-condition badges (same ring colors as the ambient HUD icons) so the whole
-body's state is visible at a glance without selecting anything. Right
-pane: clicking/selecting a limb shows its active conditions as
-expandable tabs (▶/▼, same click-to-toggle idiom `AdminMenu.gd`'s
-sections already use), each tab's body reusing the *exact* same detail
-text the ambient tooltip already shows (`PlayerMedical.
-get_status_detail_text()`) — no second description of the same data. All
-six body parts are selectable, including Head/Torso even though they
-carry zero symptom effects today (both can already receive real Open
-Wound injuries and must stay inspectable regardless). Numeric readouts
-only for now (severities, multipliers) — may move toward more abstracted
-presentation later.
+**Layer 3 — General Status Screen (redesigned, Sep 2026).** The [Tab]
+surface is now the player's overall Status workspace rather than a
+medical-only screen. It remains non-modal: simulation and left-stick
+movement continue while it is open. A persistent five-gauge strip shows
+Health, Food, Water, Stamina and Sleep, while four focused sections keep
+the information digestible: Overview, Health, Needs and Inventory.
 
-A separate always-visible row (not tied to limb selection, since it's a
-whole-body effect) surfaces *why* needs are currently capped, prefixed
-with a caution icon (⚠) — `PlayerMedical.get_needs_cap_reason_text()`
-builds a plain-language sentence ("You are currently battling an
-infection.") from whichever active conditions are populating
-`needs_cap_modifiers`. Plainly shown at all times when non-empty, not on
-hover (Aug 2026 — simplified from an earlier hover-tooltip version;
-Brannon's call was that the player can infer the drained needs are the
-cause without also being told which needs by name, and the tutorial
-covers the rest). Generic by construction: `MedicalCondition.
-needs_cap_reason` is set by whichever condition populates
-`needs_cap_modifiers` (currently only Infection) alongside the cap values
-themselves, so a future needs-cap condition gets a correct sentence for
-free as long as it sets its own reason text — no changes needed to the
-sentence-building logic itself.
+Health preserves the six-region body model and the exact existing
+`PlayerMedical` condition data. Selecting a region exposes its condition
+cards, live severity/recovery values, the established tooltip/effect copy,
+and a focused treatment panel. A compatible Bandage, Antibiotics or
+Splint carried in the held hand or four-slot inventory can be applied to
+the selected condition directly. This calls the item's existing
+`apply_to_target()` method; it does not introduce a parallel treatment
+simulation. The old held-item injury-selection submenu remains available
+as an equally valid in-world path. Trauma Kits are summarized as carried
+supplies but stay out of individual-condition actions because their
+existing contract is intentionally multi-target.
+
+Needs presents current values and attainable caps, with
+`get_needs_cap_reason_text()` explaining any medical cap reduction.
+Inventory is an inspection view of the same four quick slots, including
+prebuilt 3D previews and item-specific details; it deliberately does not
+silently change the active held item. Overview condenses the three
+sections into actionable at-a-glance cards.
 
 **Fully controller-navigable**, per the project's standing convention —
-`ControllerUINavigation` attached the same way every other panel attaches
-it. Because limb buttons and tab headers are both real, focusable
-`Button`s in one Control tree, d-pad/stick navigation crosses from the
-diagram pane into the detail pane's tab list by screen position alone,
-with no separate "jump to the other pane" logic needed — A selects/
-expands, B closes.
+d-pad and right stick navigate the real focusable controls, A selects,
+LB/RB changes sections, and B/View closes. Left stick remains reserved
+for player movement. Scrollbars remain real focusable Controls.
 
 **Player-only for now, but deliberately NPC-shaped.** The design intent
 is for this exact same screen to eventually be reachable per-NPC (via
@@ -898,15 +885,9 @@ the `"player_medical"` group itself — nothing NPC-side is wired, but the
 file is structured so a future second instance (or a refactor to accept
 any entity's Medical component) doesn't require restructuring it.
 
-**Read-only for this pass — flagged future work:** applying a held
-treatment item directly from this screen (skipping the existing
-hold-item-then-[E] injury-selection submenu) is NOT built. The submenu
-remains the one treatment path. Also anticipated but not built: this
-screen is expected to eventually show *positive* effects too (a caffeine
-boost from coffee, a well-fed work bonus, etc.), not just injuries/
-illnesses — hence it stays fully openable/browsable even with zero active
-conditions (a clean diagram, empty detail pane) rather than being gated
-behind having an injury.
+Positive effects remain anticipated but not implemented because no buff
+backend exists yet. The general Status structure is ready to accept them
+without turning the Health treatment workflow into the whole screen.
 
 **On subtlety vs. legibility:** the system's visual richness (a Healed
 fill overlaying the severity ring, Infection's added second ring on
@@ -930,9 +911,8 @@ layer applied on top of full legibility, not a constraint that reduces it.
   testing once built.
 - `StatusEffectsContainer` needs to comfortably hold several simultaneous
   icons at once (e.g. 3–4 separate wounds after a fight).
-- `NeedsGauge.gd`'s `set_food/water/sleep(frac)` API takes a 0–1 fraction
-  against an implicit fixed 100 max — needs extending to also render a
-  reduced cap (the greyed-out portion).
+- `NeedsGauge.gd`'s `set_food/water/sleep(frac)` API takes a 0–1 fraction.
+  Its separate cap setters render the symmetrically locked end portions.
 
 ---
 
@@ -983,12 +963,6 @@ tightly:
 Not part of this pass, but explicitly locked in as real future work for
 this system, not just floated ideas:
 
-- **Apply treatment directly from the Status Screen.** Currently
-  read-only (see "Presentation"'s Layer 3 entry) — Brannon wants to
-  explore letting a held item be applied to a selected limb straight from
-  the Status Screen's detail pane, as a shortcut alongside (not instead
-  of) the existing hold-item-then-[E] injury-selection submenu. Not
-  scoped in detail — just a real future direction, not a floated idea.
 - **Positive effects on the Status Screen.** The screen is explicitly
   designed to eventually show buffs too (a caffeine boost from coffee, a
   well-fed work bonus, etc.), not just injuries/illnesses — nothing about
@@ -1036,8 +1010,9 @@ this system, not just floated ideas:
 - **`NeedsGauge` cap-reduction rendering:** ~~still open~~ **Implemented**
   — `PlayerStats.food_cap/water_cap/sleep_cap` are written by
   `PlayerMedical.set_needs_caps()` and rendered by `NeedsGauge.gd`'s
-  `_draw_right_half()` as a distinct warm-red "locked off" zone at the
-  top of each ring, per "Presentation" above.
+  `_draw_right_half()` as distinct warm-red "locked off" zones at both
+  ends of the affected arc. The unavailable span is split evenly so caps
+  visibly close toward the center without changing normal depletion direction.
 - **Exertion-threshold definition:** ~~what counts as "resting" vs.
   "exertion"~~ **Resolved/implemented** — reuses `Player.gd`'s existing
   0-stamina exhaustion lockout, exposed as an `exhausted` signal fired

@@ -267,6 +267,7 @@ static func set_item(vp: SubViewport, item: Node) -> void:
 static func clear(vp: SubViewport) -> void:
 	for child in vp.get_children():
 		if child is Node3D and child is not Camera3D and child is not OmniLight3D:
+			vp.remove_child(child)
 			child.queue_free()
 	## Re-arm one render (see build_viewport()'s update-mode comment) —
 	## content is changing (to new item content if set_item() called us, or

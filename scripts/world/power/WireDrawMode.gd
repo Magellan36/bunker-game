@@ -618,12 +618,8 @@ func _get_scene_root() -> Node3D:
 	return root as Node3D
 
 func _show_warning(msg: String) -> void:
-	if world_node != null:
-		var main_hud: Node = world_node.get_node_or_null("HUD")
-		if main_hud != null and main_hud.has_method("show_soft_warning"):
-			main_hud.show_soft_warning(msg)
-			return
-	push_warning("[WireDrawMode] " + msg)
+	NotificationManager.notify(UIKit.Domain.POWER,
+		NotificationManager.Severity.WARNING, msg)
 
 ## Floating "+$X"/"-$X" screen-space label — same HUD.spawn_float_label()
 ## call BuildModeController._spawn_float_label_at_pos() uses for tile

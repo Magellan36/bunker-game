@@ -3,6 +3,7 @@ extends RefCounted
 ## Device-specific order/wording lives in its UI file's _build_content().
 
 const SYMBOL: GDScript = preload("res://scripts/ui/common/BunkerSymbolTexture.gd")
+const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
 static var _symbols: Dictionary = {}
 
 static func icon(kind: String) -> Texture2D:
@@ -122,7 +123,7 @@ static func meter(parent: Node, key: String, caption: String, kind: String) -> V
 	label(row, "Caption", caption)
 	var value: Label = label(row, "Value", "0%")
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	var bar := ProgressBar.new()
+	var bar: ProgressBar = SMOOTH_BAR.new() as ProgressBar
 	bar.name = "Bar"
 	bar.theme_type_variation = &"BunkerMeter"
 	bar.show_percentage = false
@@ -139,7 +140,7 @@ static func set_meter(box: VBoxContainer, percent: float, value: String, hint: S
 	help.text = hint
 	help.visible = not hint.is_empty()
 	var bar: ProgressBar = box.get_node("Bar") as ProgressBar
-	bar.set_value_no_signal(clampf(percent, 0.0, 100.0))
+	SMOOTH_BAR.apply(bar, clampf(percent, 0.0, 100.0))
 	var style: StyleBoxFlat = bar.get_theme_stylebox("fill") as StyleBoxFlat
 	style.bg_color = color(box, token)
 	style.border_color = style.bg_color

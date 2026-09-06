@@ -24,6 +24,10 @@ func _run() -> void:
 		NotificationManager.Severity.INFO, "Item moved")
 	_check(NotificationManager.get_history().size() == 1,
 		"temporary feedback stays out of Bunker Log")
+	NotificationManager.notify(UIKit.Domain.INVENTORY,
+		NotificationManager.Severity.WARNING, "Inventory full")
+	_check(NotificationManager.get_history().size() == 2,
+		"inventory warnings are journaled in Bunker Log")
 	_check(NotificationManager.TOAST_WIDTH == 520.0
 		and NotificationManager.TOAST_HEIGHT == 48.0,
 		"toast uses approved compact geometry")
@@ -32,8 +36,11 @@ func _run() -> void:
 	var history_ui := NotificationHistoryUI.new()
 	root.add_child(history_ui)
 	await process_frame
-	_check(history_ui.get("_filter_buttons").size() == 5,
+	_check(history_ui.get("_filter_buttons").size() == 6,
 		"Bunker Log exposes all approved filters")
+	history_ui.call("_set_filter", "Inventory")
+	_check(history_ui.get("_row_entries").size() == 1,
+		"inventory filter retains matching events")
 	history_ui.call("_set_filter", "Power")
 	_check(history_ui.get("_row_entries").size() == 1,
 		"domain filter retains matching event")

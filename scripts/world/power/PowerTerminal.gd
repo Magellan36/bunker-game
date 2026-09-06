@@ -117,9 +117,9 @@ func _open_terminal_ui() -> void:
 
 	## Lazy-create the UI node once; reuse on subsequent opens so history persists.
 	if _terminal_ui == null or not is_instance_valid(_terminal_ui):
-		var ui_script: GDScript = load("res://scripts/ui/power/PowerTerminalUI.gd")
+		var ui_script: GDScript = load("res://scripts/ui/power/PowerTerminalModernUI.gd")
 		if ui_script == null:
-			push_warning("[PowerTerminal] PowerTerminalUI.gd not found")
+			push_warning("[PowerTerminal] PowerTerminalModernUI.gd not found")
 			return
 
 		_terminal_ui = CanvasLayer.new()
@@ -142,6 +142,8 @@ func _open_terminal_ui() -> void:
 	## Keep legacy key in sync (used by UI fallback path if zone is -1).
 	if "connected_grid_key" in _terminal_ui:
 		_terminal_ui.connected_grid_key = _pm_node_key
+	if _terminal_ui.has_method("bind_target"):
+		_terminal_ui.call("bind_target", self)
 
 	if _terminal_ui.has_method("open"):
 		_terminal_ui.open()

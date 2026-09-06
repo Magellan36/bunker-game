@@ -326,7 +326,7 @@ decide whether A places/blocks-tabs or falls through to the controller.
 | Water (dispenser / info) | Nav + B close. **Flow-rate slider is selectable**; d-pad L/R adjusts by 1 mL/day with hold-repeat acceleration (see [ControllerUINavigation](#controlleruinavigation--shared-menu-navigation)). Grabber circle gains a white outline while hovered (mouse) or focused (controller). |
 | Confirm dialog | Nav + B close. |
 | Storage | Slot selection (white outlines), A carry / Y store, A/Y badges. |
-| Research station | Nav; **top-most research auto-selected on open AND on tab change** so A is immediately ready; LB/RB cycle tabs; A starts the focused tile's research. |
+| Research station | D-pad/right-stick navigation with left-stick movement retained; the real Water Hookup Output node is selected on open; LB/RB cycle tabs; A/Enter activate the focused node or research action; scrollbars remain selectable. |
 | Build mode | Full custom scheme (see above). |
 
 Badge/highlight convention: controller selection indicators are white

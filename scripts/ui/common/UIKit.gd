@@ -41,7 +41,7 @@ extends RefCounted
 ## panel — use a real Control tree instead. (Real-Control panels use
 ## make_close_button(); hand-drawn ones use draw_close_button().)
 
-enum Domain { WATER, POWER, NEUTRAL, FARMING }
+enum Domain { WATER, POWER, NEUTRAL, FARMING, INVENTORY }
 
 ## Shared corner radius for every panel in the project (Jul 2026 "rounded
 ## corners" pass) — Pause/GraphicsSettings already used 4 via
@@ -116,6 +116,8 @@ static func theme_for(domain: Domain) -> UITheme:
 			return _power_theme()
 		Domain.FARMING:
 			return _farming_theme()
+		Domain.INVENTORY:
+			return _inventory_theme()
 		_:
 			return _neutral_theme()
 
@@ -145,6 +147,12 @@ static func _water_theme() -> UITheme:
 static func _power_theme() -> UITheme:
 	var t := _shared_theme()
 	t.accent = theme_color("UI", "power_accent", Color(0.90, 0.80, 0.20, 1.00))
+	return t
+
+
+static func _inventory_theme() -> UITheme:
+	var t: UITheme = _shared_theme()
+	t.accent = theme_color("UI", "inventory_accent", Color(0.86, 0.67, 0.36, 1.00))
 	return t
 
 

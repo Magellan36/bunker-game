@@ -8,18 +8,23 @@ promoted to `main`.
 - In-world inspectors are compact desktop panels over the live game. Storage
   is a 440 px, vertically centered right rail at 1920×1080; it has no
   full-screen dim layer.
-- Build catalog is a compact 420×620 left rail. Selecting an item immediately
+- Build catalog is a compact left rail capped at 488×610 at 1920×1080.
+  Selecting an item immediately
   starts placement and keeps the catalog open with the active item visibly
-  marked, so changing objects is one click away. The icon-led build toolbar
+  marked, so changing objects remains immediate. The icon-led build toolbar
   and adaptive Place/Rotate/Cancel/Grid helper strip remain available.
-- Supply shop is a separate, centered desktop workspace capped at 1420×800.
-  It uses icon-led categories, large preview wells, integrated Add-to-cart
-  actions, persistent quantity controls, and a structured checkout summary.
+- Supply shop is a separate, centered desktop workspace capped at 1380×780.
+  It uses icon-led department controls, large preview wells, whole-card
+  Add-to-cart actions, persistent quantity controls, and a structured checkout
+  summary. Product and cart lists have independent bounded scroll viewports.
 - Shared palette and Control styling live in
   `scripts/ui/common/BunkerPanelStyle.gd`. The theme is charcoal/ivory with a
   worn dark-brass structural edge and project-blue focus/action color.
 - These shapes are native Godot Controls and StyleBoxes. No new generated
   image asset is required by this pass.
+- Build, Shop, and Storage set `custom_maximum_size` from their viewport-aware
+  layout. This is the authoritative PanelContainer clamp; long grid contents
+  cannot increase a shell beyond the screen edge.
 
 ## Stable gameplay boundaries
 
@@ -45,6 +50,12 @@ The selected-item card exposes live state where the item supports it: bottle
 fill and water quality, fuel level, flashlight battery, use charges, case
 contents, and food servings. These values are read from the existing object;
 the UI does not own or mutate them.
+
+The storage rail retains its approved right-aligned structure while adopting
+the shared identity header, capacity status card, bounded contents viewport,
+preview-well slot cards, selected-item status panel, and key-hint treatments.
+Empty slots retain the dashed circular marker. Height adapts to the host's
+capacity, is capped at 760 px, and remains vertically centered at 1920×1080.
 
 ### Build
 
@@ -106,9 +117,26 @@ combines spatial navigation with its existing pointer:
   full-screen menus may explicitly opt it into navigation.
 - Modal inspectors block world cursor input. BuildWorkspace explicitly does
   not, because its UI rail and world placement are intended to coexist.
+- Rebuilding cart rows preserves both the exact focused quantity action and
+  the cart's scroll position. Subcategory updates retain their live controls
+  instead of destroying the controller's focus target.
 
 Character creation now uses LB/RB to orbit its model preview and LT/RT to zoom,
 freeing the right stick for the same navigation role as every other screen.
+
+## Build Mode session lifecycle
+
+Build Mode entry is deterministic rather than inheriting the last menu's
+visibility state. Every entry selects Construct, opens the Build Catalog, and
+restores the tool dock and Supply Shop shortcut. Exit clears transient submenu,
+selection, and placement-navigation state while retaining the persistent preview
+pools and the player's session-local Shop cart. This specifically prevents the
+Shop's intentionally hidden dock state from producing an empty workspace after
+leaving and re-entering Build Mode.
+
+The Shop category rail no longer includes a redundant Return to Build Catalog
+button. The Shop close button, controller cancel, keyboard Escape, and the
+existing Build Mode exit path remain available.
 
 ## Tuning points
 
@@ -120,6 +148,41 @@ freeing the right stick for the same navigation role as every other screen.
 - Preview resolution/lighting: `BuildModeHUD.SUB_VP_SIZE` and
   `PreviewPresentation.configure()`
 - Stick deadzone/repeat and scrollbar step: `ControllerUINavigation.gd`
+
+## Build and shop presentation V2
+
+The Build catalog now uses the same visual grammar as the approved device
+inspectors without pretending to be one. `BunkerUIComponents.gd` contains the
+reusable native-Control shell, identity header, section header, segmented
+control, status card, icon-well, and input-hint treatments. It is presentation
+only and is intended to keep later UI work anchored to the approved palette,
+focus language, spacing, and hierarchy.
+
+Build Mode itself is a compact left-hand construction workspace:
+
+- labeled icon categories replace the single category dropdown;
+- large two-column 3D object cards replace the legacy stacked rows;
+- the selected object remains highlighted while placement is active;
+- a browse/placing state card communicates the current mode and price;
+- available cash and the charged-on-build rule stay visible at decision time;
+- the bottom tool dock gives each tool a substantial icon well, label, active
+  surface, with the blue outline as its single selected-state indicator;
+- the placement helper remains separate and shows Place, Rotate, Cancel, and
+  Grid controls for the current input mode;
+- the live world remains visible and clickable outside the bounded rail.
+
+The Supply Shop now follows the same approved grammar without borrowing the
+Build Catalog's workflow. A department rail, searchable three-column catalog,
+one-click product cards, and persistent order summary make browsing and buying
+distinct, readable tasks. Total, cash after purchase, delivery feedback, and
+checkout state stay together in the order rail. Both long product lists and
+cart contents scroll inside the fixed desktop shell instead of resizing it.
+
+All tile and item IDs, prices, placement signals, checkout authority,
+controller routing, preview textures, and persistent preloaded SubViewport
+pools continue to come from the existing `BuildModeHUD`, `BuildModeController`,
+and `FarmingShopHelper` paths. Storage keeps its established host-object API;
+only its presentation and focus behavior change in this pass.
 
 ## Verification
 

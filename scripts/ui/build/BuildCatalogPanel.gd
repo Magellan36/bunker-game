@@ -1,260 +1,401 @@
 class_name BuildCatalogPanel
 extends PanelContainer
 
-## Compact left-hand construction catalog. Selecting an item immediately
-## enters the existing BuildModeController placement path; there is no second
-## "Place selected item" confirmation step.
-
-var hud: Node
-var _category := "Structure"
-var _subcategory := "All"
-var _category_option: OptionButton
-var _tabs: HBoxContainer
-var _scroll: ScrollContainer
-var _items: VBoxContainer
-var _breadcrumb: Label
-var _first_item: Button
-var _status: Label
-var _selected_tile_id := -1
-var _item_buttons: Dictionary = {}
+## Purpose-built construction catalog. This is deliberately not a device
+## inspector or a reskinned legacy list: categories are immediate, previews
+## are dominant, and placement state remains visible while the player works.
 
 const CATEGORY_ICONS := {
-	"Structure": "build", "Furniture": "storage", "Lighting": "power",
-	"Power": "battery", "Water": "water", "Farming": "plant", "Cooking": "cooking",
+	"Structure": "build",
+	"Furniture": "storage",
+	"Lighting": "power",
+	"Power": "battery",
+	"Water": "water",
+	"Farming": "plant",
+	"Cooking": "cooking",
 }
 
+var hud: Node
+
+var _category: String = "Structure"
+var _subcategory: String = "All"
+var _category_grid: GridContainer
+var _subcategory_row: HBoxContainer
+var _subcategory_divider: HSeparator
+var _scroll_viewport: Control
+var _scroll: ScrollContainer
+var _items: GridContainer
+var _section_title: Label
+var _section_meta: Label
+var _cash_label: Label
+var _mode_card: PanelContainer
+var _mode_icon: TextureRect
+var _mode_eyebrow: Label
+var _mode_title: Label
+var _mode_meta: Label
+var _first_item: BuildCatalogCard
+var _selected_tile_id: int = -1
+var _selected_name: String = ""
+var _selected_price: int = 0
+var _last_cash: int = -1
+var _category_buttons: Dictionary = {}
+var _subcategory_buttons: Dictionary = {}
+var _item_cards: Dictionary = {}
+
+
 func _ready() -> void:
-	BunkerPanelStyle.panel(self)
+	BunkerUIComponents.apply_theme(self)
+	BunkerUIComponents.shell(self)
+	clip_contents = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 8)
-	add_child(BunkerPanelStyle.margin(body, 14, 13, 14, 12))
-	_build_header(body)
-	_category_option = OptionButton.new()
-	_category_option.custom_minimum_size.y = 40
-	_category_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	BunkerPanelStyle.button(_category_option)
-	for category in hud.CATEGORIES:
-		var index := _category_option.item_count
-		_category_option.add_item(str(category))
-		_category_option.set_item_icon(index, BunkerPanelStyle.icon(str(CATEGORY_ICONS.get(category, "build"))))
-	_category_option.select(maxi(0, hud.CATEGORIES.keys().find(_category)))
-	_category_option.item_selected.connect(_category_changed)
-	body.add_child(_category_option)
-	_tabs = HBoxContainer.new()
-	_tabs.add_theme_constant_override("separation", 6)
-	body.add_child(_tabs)
-	_breadcrumb = Label.new()
-	BunkerPanelStyle.muted(_breadcrumb, 13)
-	body.add_child(_breadcrumb)
+	body.name = "Content"
+	body.add_theme_constant_override("separation", 9)
+	add_child(BunkerUIComponents.inset(body, 18, 16, 18, 14))
+	BunkerUIComponents.header(body, "CONSTRUCTION", "Build catalog", "build",
+		func() -> void: hud.close_workspace_menu())
+	BunkerUIComponents.divider(body)
+	_build_mode_card(body)
+	_build_categories(body)
+	_build_items(body)
+	_build_footer(body)
+	_rebuild_category_buttons()
+	_rebuild_subcategories()
+	_rebuild_items()
+	_update_mode_card()
+
+
+func _build_mode_card(parent: VBoxContainer) -> void:
+	_mode_card = PanelContainer.new()
+	_mode_card.name = "PlacementState"
+	_mode_card.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(false))
+	parent.add_child(_mode_card)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	_mode_card.add_child(row)
+	_mode_icon = TextureRect.new()
+	_mode_icon.texture = BunkerPanelStyle.icon("plus")
+	_mode_icon.self_modulate = BunkerPanelStyle.BLUE
+	_mode_icon.custom_minimum_size = Vector2(28, 28)
+	_mode_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_mode_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_mode_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_mode_icon)
+	var copy := VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	copy.add_theme_constant_override("separation", 0)
+	row.add_child(copy)
+	_mode_eyebrow = Label.new()
+	_mode_eyebrow.add_theme_font_size_override("font_size", 11)
+	_mode_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	copy.add_child(_mode_eyebrow)
+	_mode_title = Label.new()
+	_mode_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_mode_title.add_theme_font_size_override("font_size", 16)
+	_mode_title.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	copy.add_child(_mode_title)
+	_mode_meta = Label.new()
+	_mode_meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_mode_meta.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_mode_meta.add_theme_font_size_override("font_size", 12)
+	_mode_meta.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
+	row.add_child(_mode_meta)
+
+
+func _build_categories(parent: VBoxContainer) -> void:
+	var heading: Dictionary = BunkerUIComponents.section_header(parent, "Build category")
+	_cash_label = heading["meta"] as Label
+	_category_grid = GridContainer.new()
+	_category_grid.name = "Categories"
+	_category_grid.columns = 4
+	_category_grid.add_theme_constant_override("h_separation", 6)
+	_category_grid.add_theme_constant_override("v_separation", 6)
+	parent.add_child(_category_grid)
+	_subcategory_divider = BunkerUIComponents.divider(parent)
+	_subcategory_row = HBoxContainer.new()
+	_subcategory_row.name = "Subcategories"
+	_subcategory_row.add_theme_constant_override("separation", 6)
+	parent.add_child(_subcategory_row)
+
+
+func _build_items(parent: VBoxContainer) -> void:
+	var heading: Dictionary = BunkerUIComponents.section_header(parent, "Available objects")
+	_section_title = heading["title"] as Label
+	_section_meta = heading["meta"] as Label
+	## A plain Control deliberately breaks minimum-size propagation from the
+	## tall object grid. Without this boundary, VBoxContainer expands the
+	## entire rail to the grid's full height instead of assigning a viewport.
+	_scroll_viewport = Control.new()
+	_scroll_viewport.name = "ObjectViewport"
+	_scroll_viewport.custom_minimum_size.y = 176
+	_scroll_viewport.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll_viewport.clip_contents = true
+	parent.add_child(_scroll_viewport)
 	_scroll = ScrollContainer.new()
-	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll.name = "ObjectScroll"
+	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_scroll.follow_focus = true
-	body.add_child(_scroll)
-	_items = VBoxContainer.new()
+	_scroll_viewport.add_child(_scroll)
+	var focus_inset := MarginContainer.new()
+	focus_inset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	focus_inset.add_theme_constant_override("margin_left", 3)
+	focus_inset.add_theme_constant_override("margin_top", 3)
+	focus_inset.add_theme_constant_override("margin_right", 9)
+	focus_inset.add_theme_constant_override("margin_bottom", 3)
+	_scroll.add_child(focus_inset)
+	_items = GridContainer.new()
+	_items.name = "Objects"
+	_items.columns = 2
 	_items.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_items.add_theme_constant_override("separation", 7)
-	_scroll.add_child(_items)
+	_items.add_theme_constant_override("h_separation", 8)
+	_items.add_theme_constant_override("v_separation", 8)
+	focus_inset.add_child(_items)
+
+
+func _build_footer(parent: VBoxContainer) -> void:
+	BunkerUIComponents.divider(parent)
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 8)
+	parent.add_child(footer)
+	var charge_icon := TextureRect.new()
+	charge_icon.texture = BunkerPanelStyle.icon("check")
+	charge_icon.self_modulate = BunkerPanelStyle.BRASS.lightened(0.3)
+	charge_icon.custom_minimum_size = Vector2(18, 18)
+	charge_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	charge_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	charge_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	footer.add_child(charge_icon)
 	var instruction := Label.new()
-	instruction.text = "Select to place instantly  •  Charged when built"
+	instruction.text = "Placement is charged only when the object is built"
+	instruction.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	instruction.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	BunkerPanelStyle.muted(instruction, 12)
-	body.add_child(instruction)
-	_rebuild_tabs()
-	_rebuild_items()
+	instruction.add_theme_font_size_override("font_size", 12)
+	instruction.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
+	footer.add_child(instruction)
 
-func _build_header(parent: VBoxContainer) -> void:
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 9)
-	parent.add_child(header)
-	var icon := TextureRect.new()
-	icon.texture = BunkerPanelStyle.icon("build")
-	icon.self_modulate = BunkerPanelStyle.BLUE
-	icon.custom_minimum_size = Vector2(34, 34)
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header.add_child(icon)
-	var heading := Label.new()
-	var titles := VBoxContainer.new()
-	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	titles.add_theme_constant_override("separation", 0)
-	header.add_child(titles)
-	var eyebrow := Label.new()
-	eyebrow.text = "CONSTRUCTION"
-	eyebrow.add_theme_font_size_override("font_size", 11)
-	eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	titles.add_child(eyebrow)
-	heading.text = "Build catalog"
-	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	BunkerPanelStyle.title(heading, 21)
-	titles.add_child(heading)
-	_status = Label.new()
-	_status.text = "BROWSE"
-	_status.add_theme_font_size_override("font_size", 11)
-	_status.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
-	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	header.add_child(_status)
-	var close := Button.new()
-	close.custom_minimum_size = Vector2(42, 42)
-	BunkerPanelStyle.icon_button(close, "close")
-	close.tooltip_text = "Close catalog"
-	close.pressed.connect(func(): hud.close_workspace_menu())
-	header.add_child(close)
 
-func open() -> void:
-	show()
-	_rebuild_items()
-	_scroll.set_deferred("scroll_vertical", 0)
-	if _first_item != null:
-		_first_item.call_deferred("grab_focus")
-	else:
-		_category_option.call_deferred("grab_focus")
+func _rebuild_category_buttons() -> void:
+	_category_buttons.clear()
+	for child: Node in _category_grid.get_children():
+		child.queue_free()
+	for category_value: Variant in hud.CATEGORIES.keys():
+		var category := String(category_value)
+		var button := Button.new()
+		button.name = category
+		button.text = category
+		button.icon = BunkerPanelStyle.icon(String(CATEGORY_ICONS.get(category, "build")))
+		button.expand_icon = true
+		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.tooltip_text = "%s objects" % category
+		BunkerUIComponents.style_segment(button, true)
+		button.pressed.connect(_category_changed.bind(category))
+		_category_grid.add_child(button)
+		_category_buttons[category] = button
+	_update_category_buttons()
 
-func close() -> void:
-	hud.close_workspace_menu()
 
 func _groups(category: String) -> Dictionary:
 	if category == "Furniture":
-		return {"All": [], "Storage": [3, 34, 35, 32, 33, 36], "Tables": [27, 28, 29], "Living": [4, 31]}
+		return {
+			"All": [],
+			"Storage": [3, 34, 35, 32, 33, 36],
+			"Tables": [27, 28, 29],
+			"Living": [4, 31],
+		}
 	if category == "Power":
-		return {"All": [], "Generation": [6, 7, 8], "Batteries": [13, 14, 15], "Control": [10, 11, 12, 16]}
+		return {
+			"All": [],
+			"Generation": [6, 7, 8],
+			"Batteries": [13, 14, 15],
+			"Control": [10, 11, 12, 16],
+		}
 	return {"All": []}
 
-func _rebuild_tabs() -> void:
-	for child in _tabs.get_children():
+
+func _rebuild_subcategories() -> void:
+	_subcategory_buttons.clear()
+	for child: Node in _subcategory_row.get_children():
+		_subcategory_row.remove_child(child)
 		child.queue_free()
-	for group in _groups(_category):
+	var groups: Dictionary = _groups(_category)
+	var show_subcategories := groups.size() > 1
+	_subcategory_row.visible = show_subcategories
+	_subcategory_divider.visible = show_subcategories
+	if not show_subcategories:
+		_subcategory = "All"
+		return
+	if not groups.has(_subcategory):
+		_subcategory = "All"
+	for group_value: Variant in groups.keys():
+		var group := String(group_value)
 		var button := Button.new()
-		button.text = str(group)
+		button.text = group
 		button.toggle_mode = true
 		button.button_pressed = group == _subcategory
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size.y = 36
-		BunkerPanelStyle.button(button)
-		button.pressed.connect(_subcategory_changed.bind(str(group)))
-		_tabs.add_child(button)
+		BunkerUIComponents.style_segment(button, true)
+		button.pressed.connect(_subcategory_changed.bind(group))
+		_subcategory_row.add_child(button)
+		_subcategory_buttons[group] = button
+	_update_subcategory_buttons()
 
-func _category_changed(index: int) -> void:
-	_category = _category_option.get_item_text(index)
+
+func _update_subcategory_buttons() -> void:
+	for group_value: Variant in _subcategory_buttons.keys():
+		var group := String(group_value)
+		var button: Button = _subcategory_buttons[group] as Button
+		button.set_pressed_no_signal(group == _subcategory)
+
+
+func _update_category_buttons() -> void:
+	for category_value: Variant in _category_buttons.keys():
+		var category := String(category_value)
+		var button: Button = _category_buttons[category] as Button
+		button.set_pressed_no_signal(category == _category)
+
+
+func _category_changed(category: String) -> void:
+	if category == _category:
+		return
+	_category = category
 	_subcategory = "All"
-	_rebuild_tabs()
+	_update_category_buttons()
+	_rebuild_subcategories()
 	_rebuild_items()
+
 
 func _subcategory_changed(group: String) -> void:
+	if group == _subcategory:
+		return
 	_subcategory = group
-	_rebuild_tabs()
+	_update_subcategory_buttons()
 	_rebuild_items()
 
+
 func _filtered() -> Array:
-	var source: Array = hud.CATEGORIES.get(_category, [])
-	var ids: Array = _groups(_category).get(_subcategory, [])
+	var source_value: Variant = hud.CATEGORIES.get(_category, [])
+	var source: Array = source_value as Array
+	var ids_value: Variant = _groups(_category).get(_subcategory, [])
+	var ids: Array = ids_value as Array
 	if ids.is_empty():
 		return source
-	return source.filter(func(item: Dictionary): return int(item.tile_id) in ids)
+	return source.filter(func(item: Dictionary) -> bool:
+		return int(item["tile_id"]) in ids)
+
 
 func _rebuild_items() -> void:
 	if _items == null:
 		return
 	_first_item = null
-	_item_buttons.clear()
-	for child in _items.get_children():
+	_item_cards.clear()
+	for child: Node in _items.get_children():
+		_items.remove_child(child)
 		child.queue_free()
-	_breadcrumb.text = _category if _subcategory == "All" else "%s  /  %s" % [_category, _subcategory]
-	for item: Dictionary in _filtered():
-		var row := _make_item_row(item)
-		_items.add_child(row)
-		_item_buttons[int(item.tile_id)] = row
+	var filtered: Array = _filtered()
+	_section_title.text = (_subcategory if _subcategory != "All" else _category).to_upper()
+	_section_meta.text = "%d OBJECT%s" % [filtered.size(), "" if filtered.size() == 1 else "S"]
+	for item_value: Variant in filtered:
+		var item: Dictionary = item_value as Dictionary
+		var tile_id := int(item["tile_id"])
+		var card := BuildCatalogCard.new()
+		_items.add_child(card)
+		card.configure(tile_id, String(item["name"]), int(item["price"]),
+			hud.preview_texture(tile_id, false))
+		card.set_selected(tile_id == _selected_tile_id)
+		card.pressed.connect(_choose.bind(tile_id))
+		_item_cards[tile_id] = card
 		if _first_item == null:
-			_first_item = row
+			_first_item = card
+	_scroll.set_deferred("scroll_vertical", 0)
 
-func _make_item_row(item: Dictionary) -> Button:
-	var button := Button.new()
-	button.custom_minimum_size = Vector2(0, 80)
-	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	button.toggle_mode = true
-	button.button_pressed = int(item.tile_id) == _selected_tile_id
-	BunkerPanelStyle.button(button)
-	button.pressed.connect(_choose.bind(int(item.tile_id)))
-	var content := HBoxContainer.new()
-	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_theme_constant_override("separation", 12)
-	var inset := BunkerPanelStyle.margin(content, 7, 6, 9, 6)
-	inset.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	button.add_child(inset)
-	var preview_well := PanelContainer.new()
-	preview_well.custom_minimum_size = Vector2(76, 68)
-	preview_well.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	preview_well.add_theme_stylebox_override("panel", BunkerPanelStyle.box(Color("343a39"), BunkerPanelStyle.BRASS.darkened(0.35), 5, 1))
-	content.add_child(preview_well)
-	var preview := TextureRect.new()
-	preview.texture = hud.preview_texture(int(item.tile_id), false)
-	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	preview_well.add_child(BunkerPanelStyle.margin(preview, 5, 4, 5, 4))
-	var copy := VBoxContainer.new()
-	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	copy.alignment = BoxContainer.ALIGNMENT_CENTER
-	content.add_child(copy)
-	var name := Label.new()
-	name.text = str(item.name)
-	name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	name.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	BunkerPanelStyle.title(name, 16)
-	copy.add_child(name)
-	var price := Label.new()
-	price.text = "$%s" % _money(int(item.price))
-	price.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	price.add_theme_font_size_override("font_size", 13)
-	price.add_theme_color_override("font_color", BunkerPanelStyle.BRASS.lightened(0.32))
-	copy.add_child(price)
-	var arrow := TextureRect.new()
-	arrow.texture = BunkerPanelStyle.icon("check" if int(item.tile_id) == _selected_tile_id else "plus")
-	arrow.self_modulate = BunkerPanelStyle.BLUE
-	arrow.custom_minimum_size = Vector2(24, 24)
-	arrow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	arrow.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_child(arrow)
-	return button
+
+func open() -> void:
+	show()
+	refresh_live()
+	_scroll.set_deferred("scroll_vertical", 0)
+	if _first_item != null:
+		_first_item.call_deferred("grab_focus")
+
+
+func close() -> void:
+	hud.close_workspace_menu()
+
 
 func _choose(tile_id: int) -> void:
 	_selected_tile_id = tile_id
-	_update_selected_rows()
+	var card: BuildCatalogCard = _item_cards.get(tile_id) as BuildCatalogCard
+	if card != null:
+		_selected_name = card.item_name
+		_selected_price = card.item_price
+	_update_selected_cards()
+	_update_mode_card()
 	hud.choose_build_item(tile_id)
+
 
 func set_selected_item(tile_id: int, item_name: String, price: int) -> void:
 	_selected_tile_id = tile_id
-	_status.text = "PLACING"
-	_status.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
-	tooltip_text = "Placing %s for $%s" % [item_name, _money(price)]
-	_update_selected_rows()
+	_selected_name = item_name
+	_selected_price = price
+	_update_selected_cards()
+	_update_mode_card()
+	_reveal_selected.call_deferred()
+
 
 func clear_placement_state() -> void:
 	_selected_tile_id = -1
-	_status.text = "BROWSE"
-	_status.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
-	tooltip_text = ""
-	_update_selected_rows()
+	_selected_name = ""
+	_selected_price = 0
+	_update_selected_cards()
+	_update_mode_card()
 
-func _update_selected_rows() -> void:
-	for tile_id: Variant in _item_buttons:
-		var button := _item_buttons[tile_id] as Button
-		if button == null:
-			continue
-		button.button_pressed = int(tile_id) == _selected_tile_id
-		var icon := button.find_child("TextureRect", true, false) as TextureRect
-		## The first TextureRect is the preview; use the last one for the row marker.
-		var textures := button.find_children("*", "TextureRect", true, false)
-		if not textures.is_empty():
-			icon = textures.back() as TextureRect
-		if icon != null:
-			icon.texture = BunkerPanelStyle.icon("check" if int(tile_id) == _selected_tile_id else "plus")
-			icon.self_modulate = BunkerPanelStyle.GREEN if int(tile_id) == _selected_tile_id else BunkerPanelStyle.BLUE
+
+func refresh_live() -> void:
+	var cash := int(hud.available_cash())
+	if cash != _last_cash:
+		_last_cash = cash
+		_cash_label.text = "$%s AVAILABLE" % _money(cash)
+	if _selected_tile_id >= 0:
+		_mode_meta.add_theme_color_override("font_color",
+			BunkerPanelStyle.RED if cash < _selected_price else BunkerPanelStyle.GREEN)
+
+
+func _update_selected_cards() -> void:
+	for tile_id_value: Variant in _item_cards.keys():
+		var tile_id := int(tile_id_value)
+		var card: BuildCatalogCard = _item_cards[tile_id] as BuildCatalogCard
+		if card != null:
+			card.set_selected(tile_id == _selected_tile_id)
+
+
+func _update_mode_card() -> void:
+	var placing := _selected_tile_id >= 0
+	_mode_card.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(placing))
+	_mode_icon.texture = BunkerPanelStyle.icon("check" if placing else "plus")
+	_mode_icon.self_modulate = BunkerPanelStyle.GREEN if placing else BunkerPanelStyle.BLUE
+	if placing:
+		_mode_meta.show()
+		_mode_eyebrow.text = "PLACING NOW"
+		_mode_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
+		_mode_title.text = _selected_name
+		_mode_meta.text = "$%s" % _money(_selected_price)
+		_mode_meta.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
+	else:
+		_mode_meta.hide()
+		_mode_eyebrow.text = "READY"
+		_mode_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+		_mode_title.text = "Choose an object to begin"
+		_mode_meta.text = ""
+		_mode_meta.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
+
+
+func _reveal_selected() -> void:
+	var card: BuildCatalogCard = _item_cards.get(_selected_tile_id) as BuildCatalogCard
+	if card != null and card.is_visible_in_tree():
+		_scroll.ensure_control_visible(card)
+
 
 func _money(value: int) -> String:
 	var raw := str(value)

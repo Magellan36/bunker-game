@@ -87,9 +87,6 @@ var _zone_name_b: String = ""
 # ─── Mesh refs ────────────────────────────────────────────────────────────────
 var _led_mat: StandardMaterial3D = null
 
-# ─── Interaction banner ───────────────────────────────────────────────────────
-var _banner: Label3D = null
-
 # Presentation is owned by scripts/ui/power/BreakerInspectUI.gd.
 var _inspect_ui: CanvasLayer = null
 var _inspect_refresh_queued: bool = false
@@ -118,7 +115,6 @@ func _ready() -> void:
 		add_to_group("interactable")
 		add_to_group("breaker")
 	_build_mesh()
-	_build_banner()
 	if _is_preview_only:
 		return
 	_register_with_pm()
@@ -442,7 +438,6 @@ func set_tripped(on: bool) -> void:
 	var was_tripped: bool = _tripped
 	_tripped = on
 	_sync_led()
-	_sync_banner()
 	## One-shot spark burst, only on the false→true transition (not on
 	## resets, and not re-triggered by redundant same-state calls).
 	## Purely cosmetic — doesn't touch any trip/reset logic above.
@@ -506,10 +501,6 @@ func on_interact() -> void:
 
 
 func set_player_in_range(in_range: bool) -> void:
-	if _banner != null:
-		_banner.visible = in_range
-	if in_range:
-		_sync_banner()
 	## Close settings panel when player walks away.
 	if not in_range:
 		_close_settings()
@@ -772,24 +763,6 @@ func _build_mesh() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BANNER
-# ══════════════════════════════════════════════════════════════════════════════
-
-func _build_banner() -> void:
-	var lbl: Label3D = Label3D.new()
-	lbl.text          = "[E] Breaker Settings"
-	lbl.font_size     = 48
-	lbl.pixel_size    = 0.0018
-	lbl.billboard     = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.modulate      = Color(0.90, 0.95, 0.90, 1.0)
-	lbl.position      = Vector3(0.0, BOX_SIZE.y + 0.18, 0.0)
-	lbl.visible       = false
-	add_child(lbl)
-	_banner = lbl
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # INTERNAL SYNC
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -799,14 +772,3 @@ func _sync_led() -> void:
 	var col: Color = COLOR_LED_OFF if _tripped else COLOR_LED_ON
 	_led_mat.albedo_color = col
 	_led_mat.emission     = col
-
-
-func _sync_banner() -> void:
-	if _banner == null:
-		return
-	if _tripped:
-		_banner.text     = "[E] Breaker Settings  (TRIPPED)"
-		_banner.modulate = Color(1.0, 0.55, 0.15, 1.0)
-	else:
-		_banner.text     = "[E] Breaker Settings"
-		_banner.modulate = Color(0.90, 0.95, 0.90, 1.0)

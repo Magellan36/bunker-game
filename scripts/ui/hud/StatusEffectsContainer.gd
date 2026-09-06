@@ -96,7 +96,7 @@ func add_effect(id: String, icon: Texture2D, duration: float, ring_color: Color)
 	badge.setup(id, icon, duration, ring_color)
 	_badges[id] = badge
 	_order.append(id)
-	_reflow()
+	_reflow(false)
 
 ## Medical-mode counterpart to add_effect() (Aug 2026, Pass 1) — see
 ## StatusEffectIcon.gd's class doc and docs/systems/medical/README.md.
@@ -119,7 +119,7 @@ func add_medical_effect(id: String, icon: Texture2D, ring_color: Color, has_heal
 	badge.setup_medical(id, icon, ring_color, has_heal_ring)
 	_badges[id] = badge
 	_order.append(id)
-	_reflow()
+	_reflow(false)
 
 ## Updates a medical badge's fill fractions + hover tooltip. No-op if `id`
 ## isn't currently active (e.g. it resolved/was removed the same frame a
@@ -147,8 +147,8 @@ func remove_effect(id: String) -> void:
 	_badges.erase(id)
 	_order.erase(id)
 	if is_instance_valid(badge):
-		badge.queue_free()
-	_reflow()
+		badge.dismiss()
+	_reflow(true)
 
 func _on_badge_expired(id: String) -> void:
 	remove_effect(id)
@@ -157,12 +157,13 @@ func _on_badge_expired(id: String) -> void:
 ## `_order` (0 = oldest). Called after every add/remove so the remaining
 ## badges always slide into the earlier slots. Layout picked per this
 ## instance's vertical_stack_mode.
-func _reflow() -> void:
+func _reflow(animated: bool = false) -> void:
 	for i in range(_order.size()):
 		var badge: StatusEffectIcon = _badges[_order[i]]
 		if not is_instance_valid(badge):
 			continue
-		badge.position = _stack_position(i) if vertical_stack_mode else _slot_position(i)
+		var target: Vector2 = _stack_position(i) if vertical_stack_mode else _slot_position(i)
+		badge.set_layout_position(target, animated)
 
 func _slot_position(index: int) -> Vector2:
 	if index < SLOT_OFFSETS.size():

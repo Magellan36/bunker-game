@@ -94,8 +94,8 @@ func get_use_prompt() -> String:
 ## Purifier QoL plan item 3 (Jul 2026) — swapping to a LOWER-quality filter
 ## is allowed (Brannon: "there will be reasons to swap to lower filters in
 ## the future"), but requires an explicit Yes/No confirmation via the new
-## shared ConfirmDialogUI (modeled on BuildModeHUD's "EXPAND BUNKER" dialog,
-## see that file's own header). Equal-or-higher quality swaps proceed
+## shared ConfirmDialogUI (the common modern consequence-aware dialog used by
+## build, settings, and pause flows). Equal-or-higher quality swaps proceed
 ## immediately, no confirmation — same as before this plan.
 ##
 ## Job Progress Bar (Aug 2026) — the confirm dialog (when needed) still
@@ -111,8 +111,16 @@ func on_use() -> void:
 	if filter_quality < purifier.filter_quality:
 		var dlg: ConfirmDialogUI = ConfirmDialogUI.new()
 		get_tree().get_root().add_child(dlg)
-		dlg.open("REPLACE WITH LOWER-QUALITY FILTER?",
-			"%d%% -> %d%%" % [int(round(purifier.filter_quality)), int(round(filter_quality))])
+		dlg.open(
+			"Install a lower-quality filter?",
+			"Purifier filter quality will drop from %d%% to %d%%." % [
+				int(round(purifier.filter_quality)), int(round(filter_quality))
+			],
+			"Replace filter",
+			"Keep current",
+			"warning",
+			"condition"
+		)
 		dlg.confirmed.connect(func() -> void:
 			dlg.queue_free()
 			_start_replace_job(purifier)

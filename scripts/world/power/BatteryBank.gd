@@ -45,7 +45,7 @@ const COLOR_LED_IDLE:      Color = Color(0.30, 0.30, 0.30, 1.0)
 ## post-process on top of _sync_led()/_sync_strip()'s existing color choice,
 ## does not change what color is shown, only pulses its emission energy when
 ## discharging under this threshold. Base multipliers (1.5 for LED, 1.0 for
-## strip) match the constants already used in _build_mesh()/_build_banner().
+## strip) match the constants already used in _build_mesh().
 const LOW_BATTERY_FLICKER_THRESHOLD: float = 0.15
 const LED_BASE_ENERGY:    float = 1.5
 const STRIP_BASE_ENERGY:  float = 1.0
@@ -84,9 +84,8 @@ var _strip_mi:    MeshInstance3D     = null
 var _led_mat:     StandardMaterial3D = null
 var _strip_max_h: float              = 0.0
 
-# ─── Banner ───────────────────────────────────────────────────────────────────
-var _banner:        Label3D = null
-var _player_nearby: bool    = false
+# ─── Interaction state ────────────────────────────────────────────────────────
+var _player_nearby: bool = false
 
 # Presentation is owned by scripts/ui/power/BatteryInspectUI.gd.
 var _inspect_ui: CanvasLayer = null
@@ -102,7 +101,6 @@ func _ready() -> void:
 	_capacity_wh = float(TIER_CONFIG[battery_tier]["capacity_wh"])
 	_charge_wh   = 0.0
 	_build_mesh()
-	_build_banner()
 	if _is_preview_only:
 		return
 	set_process(true)
@@ -150,8 +148,6 @@ func set_charge_display(wh: float, cap: float) -> void:
 	_capacity_wh = cap if cap > 0.0 else _capacity_wh
 	_sync_strip()
 	_sync_led()
-	if _player_nearby:
-		_sync_banner()
 	_request_inspect_refresh()
 
 
@@ -159,8 +155,6 @@ func set_battery_mode(charging: bool, discharging: bool) -> void:
 	_charging    = charging
 	_discharging = discharging
 	_sync_led()
-	if _player_nearby:
-		_sync_banner()
 	_request_inspect_refresh()
 
 
@@ -169,8 +163,6 @@ func set_grid_connected(connected: bool) -> void:
 		return
 	_grid_connected = connected
 	_sync_led()
-	if _player_nearby:
-		_sync_banner()
 	_request_inspect_refresh()
 
 
@@ -212,10 +204,6 @@ func on_interact() -> void:
 
 func set_player_in_range(in_range: bool) -> void:
 	_player_nearby = in_range
-	if _banner != null:
-		_banner.visible = in_range
-	if in_range:
-		_sync_banner()
 	if not in_range:
 		_close_panel()
 
@@ -343,25 +331,6 @@ func _build_mesh() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BANNER
-# ══════════════════════════════════════════════════════════════════════════════
-
-func _build_banner() -> void:
-	var sz: Vector3 = TIER_CONFIG[battery_tier]["size"]
-	var lbl: Label3D = Label3D.new()
-	lbl.text          = "0% CHARGE"
-	lbl.font_size     = 48
-	lbl.pixel_size    = 0.0018
-	lbl.billboard     = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.modulate      = Color(0.90, 0.95, 0.90, 1.0)
-	lbl.position      = Vector3(0.0, sz.y + 0.20, 0.0)
-	lbl.visible       = false
-	add_child(lbl)
-	_banner = lbl
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # INTERNAL SYNC
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -449,21 +418,6 @@ func _sync_led() -> void:
 		col = COLOR_LED_IDLE
 	_led_mat.albedo_color = col
 	_led_mat.emission     = col
-
-
-func _sync_banner() -> void:
-	if _banner == null:
-		return
-	var pct: int = _charge_pct()
-	_banner.text = "%d%%  |  %s" % [pct, _state_string()]
-	if pct <= 15:
-		_banner.modulate = Color(1.0, 0.30, 0.15, 1.0)
-	elif pct <= 40:
-		_banner.modulate = Color(1.0, 0.75, 0.10, 1.0)
-	else:
-		_banner.modulate = Color(0.90, 0.95, 0.90, 1.0)
-	if not _enabled:
-		_banner.modulate = Color(0.55, 0.55, 0.55, 1.0)
 
 
 ## Side-effect-free ghost mesh for build-mode previews — matches

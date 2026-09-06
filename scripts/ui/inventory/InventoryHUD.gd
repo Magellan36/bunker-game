@@ -1,345 +1,433 @@
 extends Control
-## InventoryHUD.gd
-## Draws 4 inventory slots at bottom-center of the screen.
-## Each occupied slot shows a live 3D preview (SubViewport) + item name label.
+## Compact four-slot light-item inventory HUD.
+## Gameplay ownership remains in InventoryManager/InteractionSystem; this file
+## is presentation only. Heavy objects never enter these slots.
 
-const SLOT_SIZE:    float = 64.0
-const SLOT_GAP:     float = 10.0
-const CORNER:       float = 8.0
-const LABEL_HEIGHT: float = 16.0   ## Space below the slot box for the name
-const TOTAL_HEIGHT: float = SLOT_SIZE + LABEL_HEIGHT
+const SLOT_COUNT: int = 4
+const SLOT_SIZE: float = 72.0
+const SLOT_GAP: float = 8.0
+const SLOT_Y: float = 4.0
+const SLOT_RADIUS: float = 8.0
+const BAR_WIDTH: float = SLOT_SIZE * SLOT_COUNT + SLOT_GAP * (SLOT_COUNT - 1)
+const DRAWER_WIDTH: float = SLOT_SIZE
+const DRAWER_HEIGHT: float = 24.0
+const DRAWER_IN: float = 0.14
+const DRAWER_HOLD: float = 1.0
+const DRAWER_OUT: float = 0.16
+const DRAWER_TOTAL: float = DRAWER_IN + DRAWER_HOLD + DRAWER_OUT
 
-const COLOR_BG:       Color = Color(0.10, 0.10, 0.10, 0.82)
-const COLOR_BORDER:   Color = Color(0.25, 0.25, 0.25, 0.90)
-const COLOR_SELECTED: Color = Color(0.55, 0.55, 0.55, 1.00)
-const COLOR_LABEL:    Color = Color(0.75, 0.75, 0.75, 0.90)
-const COLOR_NAME:     Color = Color(0.80, 0.78, 0.72, 0.95)
+const BG: Color = Color("111716ed")
+const SURFACE: Color = Color("1d2423f2")
+const BORDER: Color = Color("66583f")
+const IVORY: Color = Color("f2e8cf")
+const MUTED: Color = Color("aaa799")
+const BRASS: Color = Color("88734e")
+const BLUE: Color = Color("66bfff")
+const WATER_BLUE: Color = Color("54b9ed")
+const GREEN: Color = Color("75d48a")
+const AMBER: Color = Color("dda42e")
+const RED: Color = Color("df5a52")
+const EMPTY: Color = Color("48504d")
 
-## Charge badge colours
-const COLOR_CHARGE_BG:   Color = Color(0.08, 0.08, 0.08, 0.88)
-const COLOR_CHARGE_FULL: Color = Color(0.75, 0.85, 0.70, 1.00)   ## greenish — has charges
-const COLOR_CHARGE_LOW:  Color = Color(0.85, 0.55, 0.40, 1.00)   ## amber — last charge
-const CHARGE_FONT_SIZE: int = 9                                   ## font size for badge text
-
-## Water bottle quality badge colours (Jul 2026 bottle rework) — mirrors
-## WaterDispenserUI._quality_color()'s red/yellow/green convention exactly.
-## Separate meaning from the charge badge colours above (those show
-## charges-remaining, these show water QUALITY 0-100).
-const CRIT_COLOR:         Color = Color(1.00, 0.35, 0.30, 1.00)
-const WARN_COLOR:         Color = Color(1.00, 0.72, 0.10, 1.00)
-const QUALITY_GOOD_COLOR: Color = Color(0.30, 0.85, 0.35, 1.00)
-
-## Set by MainWorld after ready
+## Set by MainWorld after ready.
 var inventory: Node = null
 
 var _selected_slot: int = -1
-
-## Error message overlay — fades in red text above inventory bar
-var _error_label: Label    = null
-var _error_tween: Tween    = null
-## Items whose charge_changed signal we're currently watching
-var _charge_watched: Array = []
-
-## One SubViewport per slot — holds the 3D preview scene
-var _viewports:  Array[SubViewport]    = []
+var _slot_lift: Array[float] = [0.0, 0.0, 0.0, 0.0]
+var _slot_ids: Array[int] = [-1, -1, -1, -1]
+var _snapshot_ready: bool = false
+var _drawer_slot: int = -1
+var _drawer_age: float = DRAWER_TOTAL
+var _low_battery_phase: float = 0.0
+var _viewports: Array[SubViewport] = []
 var _vp_textures: Array[ViewportTexture] = []
+var _charge_watched: Array[Node] = []
+var _charge_callbacks: Dictionary = {}
+var _font: Font = null
+
 
 func _ready() -> void:
-	var total_w: float = SLOT_SIZE * 4 + SLOT_GAP * 3
-	custom_minimum_size = Vector2(total_w, TOTAL_HEIGHT)
+	custom_minimum_size = Vector2(BAR_WIDTH, SLOT_SIZE + DRAWER_HEIGHT + 8.0)
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_font = UIKit.font()
 	_build_viewports()
-	_build_error_label()
+	set_process(true)
 
-func _build_error_label() -> void:
-	_error_label = Label.new()
-	_error_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_error_label.add_theme_color_override("font_color", Color(0.92, 0.25, 0.25, 0.0))
-	_error_label.add_theme_font_size_override("font_size", 13)
-	## Positioned above the HUD bar — anchored via _process so it tracks layout
-	_error_label.size = Vector2(300, 24)
-	_error_label.visible = false
-	add_child(_error_label)
-
-## Shows a red fade-in/fade-out error message above the inventory bar.
-## Safe to call from ShelfUI or any other system.
-func show_error_message(text: String) -> void:
-	if _error_label == null:
-		return
-
-	## Kill any in-progress tween first
-	if _error_tween != null and _error_tween.is_valid():
-		_error_tween.kill()
-
-	_error_label.text = text
-	_error_label.modulate.a = 0.0
-	_error_label.visible = true
-
-	## Centre above the HUD bar
-	var bar_w: float = SLOT_SIZE * 4 + SLOT_GAP * 3
-	_error_label.position = Vector2(bar_w * 0.5 - _error_label.size.x * 0.5, -32.0)
-
-	_error_tween = create_tween()
-	_error_tween.set_ease(Tween.EASE_OUT)
-	_error_tween.set_trans(Tween.TRANS_QUAD)
-	## Fade in 0.15s → hold 1.4s → fade out 0.45s
-	_error_tween.tween_property(_error_label, "modulate:a", 1.0, 0.15)
-	_error_tween.tween_interval(1.4)
-	_error_tween.tween_property(_error_label, "modulate:a", 0.0, 0.45)
-	_error_tween.tween_callback(func() -> void: _error_label.visible = false)
 
 func _build_viewports() -> void:
-	for i in 4:
-		var vp: SubViewport = ItemPreviewKit.build_viewport(self, int(SLOT_SIZE), 1.5)
-		_viewports.append(vp)
+	for _i: int in SLOT_COUNT:
+		## Render above display resolution for clean small silhouettes, while
+		## keeping UPDATE_ONCE and the prebuilt four-viewport lifecycle.
+		var viewport: SubViewport = ItemPreviewKit.build_viewport(self, 96, 1.14)
+		PreviewPresentation.configure(viewport)
+		_viewports.append(viewport)
+		_vp_textures.append(viewport.get_texture())
 
-		# Grab the texture handle once — stays valid
-		_vp_textures.append(vp.get_texture())
+
+func _process(delta: float) -> void:
+	var needs_redraw: bool = false
+	for i: int in SLOT_COUNT:
+		var target: float = 1.0 if i == _selected_slot else 0.0
+		var before: float = _slot_lift[i]
+		_slot_lift[i] = move_toward(before, target, delta * 9.0)
+		needs_redraw = needs_redraw or not is_equal_approx(before, _slot_lift[i])
+
+	if _drawer_slot >= 0:
+		_drawer_age += delta
+		if _drawer_age >= DRAWER_TOTAL:
+			_drawer_slot = -1
+		needs_redraw = true
+
+	if _has_low_flashlight():
+		_low_battery_phase = fmod(_low_battery_phase + delta * 3.4, TAU)
+		needs_redraw = true
+	else:
+		_low_battery_phase = 0.0
+
+	if needs_redraw:
+		queue_redraw()
+
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 func set_selected(slot: int) -> void:
-	_selected_slot = slot
+	var next_slot: int = clampi(slot, -1, SLOT_COUNT - 1)
+	var changed: bool = next_slot != _selected_slot
+	_selected_slot = next_slot
+	if changed and _slot_has_item(next_slot):
+		_reveal_item(next_slot)
 	queue_redraw()
 
-## Called after inventory_changed — rebuilds preview meshes for all slots.
+
+## Rebuilds only the four already-created preview worlds. Newly stored items
+## reveal their identity drawer even when the player used G and now holds none.
 func refresh_previews() -> void:
-	var slots: Array = inventory.slots if inventory != null else [null, null, null, null]
-	for i in 4:
-		_set_preview(i, slots[i])
-
-	# ── Reconnect charge_changed listeners ──────────────────────────────────
-	# Disconnect from any previously watched items (slots may have changed)
-	for item in _charge_watched:
-		if item != null and item.has_signal("charge_changed"):
-			if item.charge_changed.is_connected(queue_redraw):
-				item.charge_changed.disconnect(queue_redraw)
-	_charge_watched.clear()
-
-	# Connect to every currently slotted item that has the signal
-	for item in slots:
-		if item != null and item.has_signal("charge_changed"):
-			item.charge_changed.connect(queue_redraw)
-			_charge_watched.append(item)
-
+	var slots: Array = _slots()
+	_disconnect_state_watches()
+	for i: int in SLOT_COUNT:
+		var item: Node = slots[i] as Node if i < slots.size() and slots[i] is Node else null
+		_set_preview(i, item)
+		var next_id: int = item.get_instance_id() if is_instance_valid(item) else -1
+		if _snapshot_ready and next_id != -1 and next_id != _slot_ids[i]:
+			_reveal_item(i)
+		_slot_ids[i] = next_id
+		_watch_item_state(item)
+	_snapshot_ready = true
 	queue_redraw()
 
-func _set_preview(slot_idx: int, item) -> void:
-	## A slot can hold a stale freed reference (e.g. an item consumed while
-	## held before its slot was cleared). is_instance_valid() is the only
-	## reliable check — a freed ref can compare equal to null in Godot 4 —
-	## so only ever hand set_item() a null or genuinely-valid item, never a
-	## dead reference (its typed param would throw on it).
-	if item == null:
-		ItemPreviewKit.set_item(_viewports[slot_idx], null)
-	elif is_instance_valid(item):
-		ItemPreviewKit.set_item(_viewports[slot_idx], item)
 
-# ─── Draw ─────────────────────────────────────────────────────────────────────
+func _set_preview(slot_index: int, item: Node) -> void:
+	if slot_index < 0 or slot_index >= _viewports.size():
+		return
+	if not is_instance_valid(item):
+		PreviewPresentation.set_item(_viewports[slot_index], null)
+	else:
+		PreviewPresentation.set_item(_viewports[slot_index], item)
+
+
+func _watch_item_state(item: Node) -> void:
+	if not is_instance_valid(item) or not item.has_signal("charge_changed"):
+		return
+	var callback: Callable = _on_item_state_changed.bind(item)
+	item.charge_changed.connect(callback)
+	_charge_watched.append(item)
+	_charge_callbacks[item.get_instance_id()] = callback
+
+
+func _disconnect_state_watches() -> void:
+	for item: Node in _charge_watched:
+		if not is_instance_valid(item) or not item.has_signal("charge_changed"):
+			continue
+		var callback_variant: Variant = _charge_callbacks.get(item.get_instance_id(), Callable())
+		var callback: Callable = callback_variant as Callable
+		if callback.is_valid() and item.charge_changed.is_connected(callback):
+			item.charge_changed.disconnect(callback)
+	_charge_watched.clear()
+	_charge_callbacks.clear()
+
+
+func _on_item_state_changed(item: Node) -> void:
+	## Food cans and antibiotics swap their mesh after emitting the signal, so
+	## wait for that mutation before recapturing the static preview.
+	_refresh_item_visual.call_deferred(item)
+	queue_redraw()
+
+
+func _refresh_item_visual(item: Node) -> void:
+	if not is_instance_valid(item):
+		return
+	var slots: Array = _slots()
+	for i: int in mini(SLOT_COUNT, slots.size()):
+		if slots[i] == item:
+			_set_preview(i, item)
+			break
+	queue_redraw()
+
+
+func _reveal_item(slot: int) -> void:
+	if not _slot_has_item(slot):
+		return
+	_drawer_slot = slot
+	_drawer_age = 0.0
+	queue_redraw()
+
+
+# ─── Drawing ──────────────────────────────────────────────────────────────────
 func _draw() -> void:
-	var slots: Array = inventory.slots if inventory != null else [null, null, null, null]
-	var font: Font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
+	var slots: Array = _slots()
+	if _drawer_slot >= 0 and _drawer_slot < slots.size() and is_instance_valid(slots[_drawer_slot]):
+		_draw_identity_drawer(_drawer_slot, slots[_drawer_slot] as Node)
 
-	for i in 4:
-		var x: float = i * (SLOT_SIZE + SLOT_GAP)
-		var rect: Rect2 = Rect2(x, 0.0, SLOT_SIZE, SLOT_SIZE)
+	for i: int in SLOT_COUNT:
+		var item: Node = slots[i] as Node if i < slots.size() and slots[i] is Node else null
+		_draw_slot(i, item)
 
-		# ── Background (Jul 2026 — was 6 separate overlapping translucent
-		# draw_rect/draw_circle calls, which double-blended at every seam
-		# and made the slot read as several different shades instead of one
-		# flat fill; now a single UIKit.draw_rounded_rect() StyleBox-based
-		# call — the same fix already used project-wide since the "rounded
-		# corners" pass. Border alpha is 0 here on purpose: this call is
-		# background-fill only, the actual border is drawn as its own pass
-		# below, AFTER the texture, so it still renders on top of it). ──
-		UIKit.draw_rounded_rect(self, rect, COLOR_BG, Color(0, 0, 0, 0), 0.0, CORNER)
 
-		# ── SubViewport texture (3D preview) ──
-		var item = slots[i] if i < slots.size() else null
-		if item != null and _vp_textures[i] != null:
-			draw_texture_rect(_vp_textures[i], rect, false)
+func _draw_slot(index: int, item: Node) -> void:
+	var lift: float = _ease_out(_slot_lift[index]) * 3.0
+	var position: Vector2 = Vector2(float(index) * (SLOT_SIZE + SLOT_GAP), SLOT_Y - lift)
+	var rect: Rect2 = Rect2(position, Vector2(SLOT_SIZE, SLOT_SIZE))
+	var selected: bool = index == _selected_slot
 
-		# ── Border — highlight selected (fill alpha 0 here — this pass is
-		# border-only, drawn on top of the texture above) ──
-		var border_col: Color = COLOR_SELECTED if i == _selected_slot else COLOR_BORDER
-		UIKit.draw_rounded_rect(self, rect, Color(0, 0, 0, 0), border_col, 2.0, CORNER)
+	if selected:
+		var glow: Color = BLUE
+		glow.a = 0.14 * _slot_lift[index]
+		UIKit.draw_rounded_rect(self, rect.grow(3.0), Color.TRANSPARENT, glow, 3.0, SLOT_RADIUS + 2.0)
 
-		# ── Slot number (top-left, subtle) ──
-		var num: String = str(i + 1)
-		draw_string(font, Vector2(x + 5.0, 13.0),
-			num, HORIZONTAL_ALIGNMENT_LEFT, -1, 9,
-			Color(0.40, 0.40, 0.40, 0.70))
+	UIKit.draw_rounded_rect(self, rect, BG, BLUE if selected else BORDER, 2.0 if selected else 1.0, SLOT_RADIUS)
+	var inner_rect: Rect2 = rect.grow(-4.0)
+	UIKit.draw_rounded_rect(self, inner_rect, SURFACE, Color(BRASS.r, BRASS.g, BRASS.b, 0.20), 1.0, SLOT_RADIUS - 2.0)
 
-		# ── Charge / quality badge (top-right) ──
-		if item != null:
-			## WaterBottle-style items (Jul 2026 rework) expose fill% + quality
-			## via a dedicated contract — checked first, ahead of the generic
-			## charge-count fallback chain below.
-			if item.has_method("get_bottle_badge_info"):
-				var bottle_info: Dictionary = item.get_bottle_badge_info()
-				_draw_quality_badge(font, x,
-					float(bottle_info.get("fill_mL", 0.0)),
-					float(bottle_info.get("max_fill_mL", 750.0)),
-					float(bottle_info.get("quality", 100.0)))
+	if is_instance_valid(item) and index < _vp_textures.size() and _vp_textures[index] != null:
+		var preview_rect: Rect2 = Rect2(rect.position + Vector2(6.0, 7.0), Vector2(60.0, 60.0))
+		draw_texture_rect(_vp_textures[index], preview_rect, false)
+	else:
+		_draw_empty_slot(rect)
+
+	_draw_slot_number(rect, index + 1, selected)
+	if is_instance_valid(item):
+		_draw_item_meter(rect, item)
+
+
+func _draw_slot_number(rect: Rect2, number: int, selected: bool) -> void:
+	var key_rect: Rect2 = Rect2(rect.position + Vector2(5.0, 5.0), Vector2(15.0, 15.0))
+	var key_bg: Color = Color("101514e8")
+	UIKit.draw_rounded_rect(self, key_rect, key_bg, BLUE.darkened(0.28) if selected else BORDER, 1.0, 4.0)
+	var value: String = str(number)
+	var width: float = _font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, 9).x
+	draw_string(_font, Vector2(key_rect.get_center().x - width * 0.5, key_rect.position.y + 11.0),
+		value, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, BLUE if selected else MUTED)
+
+
+func _draw_empty_slot(rect: Rect2) -> void:
+	var center: Vector2 = rect.get_center() + Vector2(0.0, 2.0)
+	for i: int in 12:
+		var start_angle: float = -PI * 0.5 + TAU * float(i) / 12.0
+		var end_angle: float = start_angle + TAU / 24.0
+		draw_arc(center, 13.0, start_angle, end_angle, 3, Color(BRASS.r, BRASS.g, BRASS.b, 0.28), 1.0, true)
+	draw_circle(center, 1.5, Color(BRASS.r, BRASS.g, BRASS.b, 0.30))
+
+
+func _draw_item_meter(rect: Rect2, item: Node) -> void:
+	var state: Dictionary = _item_hud_state(item)
+	match String(state.get("kind", "none")):
+		"liquid":
+			_draw_liquid_gauge(rect, state)
+		"battery":
+			_draw_battery_meter(rect, state)
+		"charges":
+			_draw_charge_pips(rect, state)
+
+
+func _draw_liquid_gauge(rect: Rect2, state: Dictionary) -> void:
+	var center: Vector2 = rect.position + Vector2(SLOT_SIZE - 17.0, 17.0)
+	var fraction: float = clampf(float(state.get("fraction", 0.0)), 0.0, 1.0)
+	var quality: float = clampf(float(state.get("quality", 0.0)), 0.0, 100.0)
+	draw_circle(center, 12.0, Color("101514ed"))
+	draw_arc(center, 9.0, -PI * 0.5, PI * 1.5, 32, EMPTY, 2.5, true)
+	if fraction > 0.0:
+		draw_arc(center, 9.0, -PI * 0.5, -PI * 0.5 + TAU * fraction,
+			maxi(4, int(32.0 * fraction)), WATER_BLUE, 2.5, true)
+	_draw_drop(center, _quality_color(quality) if fraction > 0.0 else EMPTY)
+
+
+func _draw_drop(center: Vector2, color: Color) -> void:
+	var points: PackedVector2Array = PackedVector2Array([
+		center + Vector2(0.0, -5.0), center + Vector2(4.0, 1.0),
+		center + Vector2(3.0, 4.0), center + Vector2(0.0, 5.0),
+		center + Vector2(-3.0, 4.0), center + Vector2(-4.0, 1.0),
+	])
+	draw_colored_polygon(points, color)
+
+
+func _draw_battery_meter(rect: Rect2, state: Dictionary) -> void:
+	var fraction: float = clampf(float(state.get("fraction", 0.0)), 0.0, 1.0)
+	var lit_bars: int = ceili(fraction * 4.0) if fraction > 0.0 else 0
+	var origin: Vector2 = rect.position + Vector2(SLOT_SIZE - 33.0, 10.0)
+	var shell: Rect2 = Rect2(origin, Vector2(24.0, 12.0))
+	UIKit.draw_rounded_rect(self, shell, Color("101514ed"), BORDER, 1.0, 3.0)
+	draw_rect(Rect2(origin + Vector2(24.0, 3.0), Vector2(2.0, 6.0)), BORDER, true)
+	for i: int in 4:
+		var bar: Rect2 = Rect2(origin + Vector2(3.0 + float(i) * 5.0, 3.0), Vector2(3.0, 6.0))
+		var color: Color = EMPTY
+		if i < lit_bars:
+			if lit_bars == 1:
+				var pulse: float = 0.72 + sin(_low_battery_phase) * 0.20
+				color = Color(RED.r, RED.g, RED.b, pulse)
+			elif lit_bars == 2:
+				color = AMBER
 			else:
-				var charge_info: Array = _get_charge_info(item)
-				if charge_info.size() == 2:
-					_draw_charge_badge(font, x, charge_info[0], charge_info[1])
+				color = GREEN
+		draw_rect(bar, color, true)
 
-		# ── Item name label below the slot ──
-		var label_y: float = SLOT_SIZE + LABEL_HEIGHT - 3.0
-		if item != null:
-			var item_name: String = ""
-			if item.has_method("get_display_name"):
-				item_name = item.get_display_name()
-			else:
-				# Strip trailing numbers Godot appends (e.g. "WaterBottle2" → "Water Bottle")
-				item_name = _prettify_name(item.name)
 
-			var tsz: Vector2 = font.get_string_size(item_name, HORIZONTAL_ALIGNMENT_CENTER, -1, 9)
-			var tx: float = x + SLOT_SIZE * 0.5 - tsz.x * 0.5
-			draw_string(font, Vector2(tx, label_y),
-				item_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, COLOR_NAME)
+func _draw_charge_pips(rect: Rect2, state: Dictionary) -> void:
+	var current: int = maxi(0, int(state.get("current", 0)))
+	var maximum: int = maxi(1, int(state.get("maximum", 1)))
+	var visible_pips: int = mini(maximum, 4)
+	var start_x: float = rect.end.x - 10.0 - float(visible_pips - 1) * 9.0
+	for i: int in visible_pips:
+		var center: Vector2 = Vector2(start_x + float(i) * 9.0, rect.position.y + 14.0)
+		draw_circle(center, 3.2, GREEN if i < current else EMPTY)
+		draw_arc(center, 3.2, 0.0, TAU, 16, Color("0b100f"), 1.0, true)
 
-# ─── Charge info ──────────────────────────────────────────────────────────────
-## Returns [current, max] if the item exposes charge data, otherwise [].
-## Items can implement get_charge_info() -> Array[int] for custom logic,
-## or the HUD falls back to the known variable names used by FoodCan.
-## NOTE: WaterBottle no longer uses this chain (sip-count model retired, Jul
-## 2026) — see get_bottle_badge_info() / _draw_quality_badge() above in _draw().
+
+func _draw_identity_drawer(slot: int, item: Node) -> void:
+	var alpha: float = _drawer_alpha()
+	if alpha <= 0.0:
+		return
+	var slide: float = (1.0 - alpha) * -5.0
+	var slot_center_x: float = float(slot) * (SLOT_SIZE + SLOT_GAP) + SLOT_SIZE * 0.5
+	var x: float = float(slot) * (SLOT_SIZE + SLOT_GAP)
+	var y: float = SLOT_Y + SLOT_SIZE - 1.0 + slide
+	var drawer_rect: Rect2 = Rect2(Vector2(x, y), Vector2(DRAWER_WIDTH, DRAWER_HEIGHT))
+	var bg: Color = Color(BG.r, BG.g, BG.b, BG.a * alpha)
+	var edge: Color = Color(BORDER.r, BORDER.g, BORDER.b, alpha)
+	UIKit.draw_rounded_rect(self, drawer_rect, bg, edge, 1.0, 7.0)
+	var notch: PackedVector2Array = PackedVector2Array([
+		Vector2(slot_center_x - 6.0, y), Vector2(slot_center_x, y + 5.0),
+		Vector2(slot_center_x + 6.0, y),
+	])
+	draw_colored_polygon(notch, Color(BLUE.r, BLUE.g, BLUE.b, alpha))
+
+	var name: String = _item_display_name(item).to_upper()
+	var name_color: Color = Color(IVORY.r, IVORY.g, IVORY.b, alpha)
+	var font_size: int = _drawer_font_size(name)
+	var name_width: float = _font.get_string_size(
+		name, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var text_height: float = _font.get_height(font_size)
+	var baseline_y: float = y + (DRAWER_HEIGHT - text_height) * 0.5 \
+		+ _font.get_ascent(font_size)
+	draw_string(_font,
+		Vector2(drawer_rect.get_center().x - name_width * 0.5, baseline_y),
+		name, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, name_color)
+
+
+func _drawer_font_size(text: String) -> int:
+	var font_size: int = 11
+	var available_width: float = DRAWER_WIDTH - 8.0
+	while font_size > 8 and _font.get_string_size(
+			text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > available_width:
+		font_size -= 1
+	return font_size
+
+
+# ─── Item presentation contract ───────────────────────────────────────────────
+func _item_hud_state(item: Node) -> Dictionary:
+	if not is_instance_valid(item):
+		return {"kind": "none"}
+	if item.has_method("get_inventory_hud_state"):
+		var result: Variant = item.call("get_inventory_hud_state")
+		if result is Dictionary:
+			return result as Dictionary
+	if item.has_method("get_bottle_badge_info"):
+		var bottle: Dictionary = item.call("get_bottle_badge_info") as Dictionary
+		return {
+			"kind": "liquid",
+			"fraction": float(bottle.get("fill_pct", 0.0)),
+			"quality": float(bottle.get("quality", 0.0)),
+		}
+	var charges: Array = _get_charge_info(item)
+	if charges.size() == 2:
+		return {"kind": "charges", "current": int(charges[0]), "maximum": int(charges[1])}
+	return {"kind": "none"}
+
+
 func _get_charge_info(item: Node) -> Array:
-	# Preferred: item implements the interface explicitly
 	if item.has_method("get_charge_info"):
-		return item.get_charge_info()
-
-	# Fallback: FoodCan-style (_bites_left / TOTAL_BITES)
+		return item.call("get_charge_info") as Array
 	if "_bites_left" in item and "TOTAL_BITES" in item:
-		return [item._bites_left, item.TOTAL_BITES]
-
-	# Fallback: generic _charges / _max_charges convention for future items
+		return [int(item.get("_bites_left")), int(item.get("TOTAL_BITES"))]
 	if "_charges" in item and "_max_charges" in item:
-		return [item._charges, item._max_charges]
-
+		return [int(item.get("_charges")), int(item.get("_max_charges"))]
+	if "_charges_left" in item and "TOTAL_CHARGES" in item:
+		return [int(item.get("_charges_left")), int(item.get("TOTAL_CHARGES"))]
 	return []
 
-## Draws a small rounded badge in the top-right corner of the slot.
-## current/max are ints — shows "current/max" or just "current" if max == 1.
-func _draw_charge_badge(font: Font, slot_x: float, current: int, max_charges: int) -> void:
-	var label: String = "%d/%d" % [current, max_charges] if max_charges > 1 else str(current)
 
-	var font_size: int = CHARGE_FONT_SIZE
-	var tsz: Vector2  = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+func _item_display_name(item: Node) -> String:
+	if item.has_method("get_display_name"):
+		return String(item.call("get_display_name"))
+	return _prettify_name(item.name)
 
-	# Badge rect — 4px padding each side, 3px top/bottom
-	const PAD_X: float = 4.0
-	const PAD_Y: float = 3.0
-	var bw: float = tsz.x + PAD_X * 2.0
-	var bh: float = tsz.y + PAD_Y * 2.0
 
-	# Anchor top-right of the slot with a 3px inset
-	const INSET: float = 3.0
-	var bx: float = slot_x + SLOT_SIZE - bw - INSET
-	var by: float = INSET
-
-	# Background pill
-	var badge_rect: Rect2 = Rect2(bx, by, bw, bh)
-	draw_rect(badge_rect, COLOR_CHARGE_BG, true, -1.0)
-
-	# Text colour: amber on last charge, green otherwise
-	var text_col: Color = COLOR_CHARGE_LOW if current <= 1 else COLOR_CHARGE_FULL
-
-	# Draw text centred in badge
-	draw_string(font,
-		Vector2(bx + PAD_X, by + PAD_Y + tsz.y - 2.0),
-		label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
-
-## Draws the water-bottle-specific badge — same pill shape/position as
-## _draw_charge_badge() above, but shows "Xml/Yml" on one line and "(Q%)" on
-## a second line beneath it, both coloured by water QUALITY (not charge state)
-## (Jul 2026 bottle rework — separate, parallel contract, see
-## get_bottle_badge_info() / _bottle_quality_color() below). Two lines instead
-## of one because "525ml/750ml (70%)" is far wider than the 64px slot — a
-## single line would overflow into the neighbouring slot's badge.
-## At 0mL the bottle presents as "Empty Water Bottle" (see
-## WaterBottle.get_display_name()) — the badge mirrors that by showing a
-## single dim "EMPTY" line instead of a meaningless "0ml/750ml (Q%)" readout.
-func _draw_quality_badge(font: Font, slot_x: float, fill_mL: float, max_fill_mL: float, quality: float) -> void:
-	if fill_mL <= 0.0:
-		_draw_empty_badge(font, slot_x)
-		return
-
-	var line1: String = "%dml/%dml" % [int(round(fill_mL)), int(round(max_fill_mL))]
-	var line2: String = "(%d%%)" % int(round(quality))
-
-	var font_size: int = CHARGE_FONT_SIZE
-	var tsz1: Vector2 = font.get_string_size(line1, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-	var tsz2: Vector2 = font.get_string_size(line2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-
-	const PAD_X: float = 4.0
-	const PAD_Y: float = 2.0
-	const LINE_GAP: float = 1.0
-	var bw: float = maxf(tsz1.x, tsz2.x) + PAD_X * 2.0
-	var bh: float = tsz1.y + tsz2.y + LINE_GAP + PAD_Y * 2.0
-
-	const INSET: float = 3.0
-	var bx: float = slot_x + SLOT_SIZE - bw - INSET
-	var by: float = INSET
-
-	var badge_rect: Rect2 = Rect2(bx, by, bw, bh)
-	draw_rect(badge_rect, COLOR_CHARGE_BG, true, -1.0)
-
-	var text_col: Color = _bottle_quality_color(quality)
-
-	draw_string(font,
-		Vector2(bx + bw - PAD_X - tsz1.x, by + PAD_Y + tsz1.y - 2.0),
-		line1, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
-	draw_string(font,
-		Vector2(bx + bw - PAD_X - tsz2.x, by + PAD_Y + tsz1.y + LINE_GAP + tsz2.y - 2.0),
-		line2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
-
-## Single dim "EMPTY" badge — same box styling as _draw_quality_badge()'s
-## two-line version, but one line, for an empty bottle (0mL).
-func _draw_empty_badge(font: Font, slot_x: float) -> void:
-	var label: String = "EMPTY"
-
-	var font_size: int = CHARGE_FONT_SIZE
-	var tsz: Vector2 = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-
-	const PAD_X: float = 4.0
-	const PAD_Y: float = 3.0
-	var bw: float = tsz.x + PAD_X * 2.0
-	var bh: float = tsz.y + PAD_Y * 2.0
-
-	const INSET: float = 3.0
-	var bx: float = slot_x + SLOT_SIZE - bw - INSET
-	var by: float = INSET
-
-	var badge_rect: Rect2 = Rect2(bx, by, bw, bh)
-	draw_rect(badge_rect, COLOR_CHARGE_BG, true, -1.0)
-
-	draw_string(font,
-		Vector2(bx + PAD_X, by + PAD_Y + tsz.y - 2.0),
-		label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.55, 0.55, 0.55, 1.0))
-
-## Water quality red/yellow/green convention — mirrored verbatim from
-## WaterDispenserUI._quality_color() (0-50 red / 50.01-75 yellow / 75.01-100
-## green, inclusive lower boundary each tier). Duplicated per this project's
-## existing per-file-helper convention for water UI colour code.
-func _bottle_quality_color(quality: float) -> Color:
+func _quality_color(quality: float) -> Color:
 	if quality <= 50.0:
-		return CRIT_COLOR
-	elif quality <= 75.0:
-		return WARN_COLOR
-	return QUALITY_GOOD_COLOR
+		return RED
+	if quality <= 75.0:
+		return AMBER
+	return GREEN
 
-# ─── Name prettifier ──────────────────────────────────────────────────────────
+
+func _drawer_alpha() -> float:
+	if _drawer_age < DRAWER_IN:
+		return _ease_out(_drawer_age / DRAWER_IN)
+	if _drawer_age < DRAWER_IN + DRAWER_HOLD:
+		return 1.0
+	return 1.0 - _ease_in((_drawer_age - DRAWER_IN - DRAWER_HOLD) / DRAWER_OUT)
+
+
+func _ease_out(value: float) -> float:
+	var clamped: float = clampf(value, 0.0, 1.0)
+	return 1.0 - pow(1.0 - clamped, 3.0)
+
+
+func _ease_in(value: float) -> float:
+	var clamped: float = clampf(value, 0.0, 1.0)
+	return clamped * clamped
+
+
+func _slots() -> Array:
+	if inventory != null and "slots" in inventory:
+		return inventory.get("slots") as Array
+	return [null, null, null, null]
+
+
+func _slot_has_item(slot: int) -> bool:
+	if slot < 0:
+		return false
+	var slots: Array = _slots()
+	return slot < slots.size() and is_instance_valid(slots[slot])
+
+
+func _has_low_flashlight() -> bool:
+	for item_variant: Variant in _slots():
+		if not item_variant is Node or not is_instance_valid(item_variant):
+			continue
+		var state: Dictionary = _item_hud_state(item_variant as Node)
+		if String(state.get("kind", "")) == "battery":
+			var fraction: float = float(state.get("fraction", 0.0))
+			if fraction > 0.0 and fraction <= 0.25:
+				return true
+	return false
+
+
 func _prettify_name(raw: String) -> String:
-	# Strip trailing digits
-	var s: String = raw.strip_edges()
-	while s.length() > 0 and s[-1].is_valid_int():
-		s = s.substr(0, s.length() - 1)
-	# Insert spaces before capital letters (PascalCase → "Pascal Case")
+	var source: String = raw.strip_edges()
+	while source.length() > 0 and source[-1].is_valid_int():
+		source = source.substr(0, source.length() - 1)
 	var result: String = ""
-	for i in s.length():
-		if i > 0 and s[i] == s[i].to_upper() and s[i] != " ":
+	for i: int in source.length():
+		if i > 0 and source[i] == source[i].to_upper() and source[i] != " ":
 			result += " "
-		result += s[i]
+		result += source[i]
 	return result.strip_edges()

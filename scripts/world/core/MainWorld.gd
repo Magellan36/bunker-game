@@ -226,6 +226,10 @@ func _ready() -> void:
 	_connect_chair()
 	_ensure_inventory_manager()
 	_connect_inventory()
+	## Build the full Status workspace behind the loading presentation. Its
+	## inventory preview viewports and reusable controls are then ready before
+	## the first Tab press instead of creating a visible post-load hitch.
+	_setup_status_screen()
 	_connect_world_objects()
 	## StorageUI must come after inventory_manager exists and connect_world_objects
 	## has registered shelf group members, so injection covers pre-placed shelves.
@@ -536,9 +540,8 @@ func _connect_power_notification_signals() -> void:
 	NotificationManager.connect_power_signals()
 
 func _on_grid_tripped() -> void:
-	## Toast text for this event now comes from NotificationManager (see
-	## _connect_power_notification_signals()) — no longer duplicated here
-	## via hud.show_soft_warning(), so it isn't shown twice.
+	## Toast text for this event comes from NotificationManager (see
+	## _connect_power_notification_signals()), so it is not duplicated here.
 	## Camera shake (graphics plan Phase 7) — a tripped main breaker is the
 	## single biggest "oh no" moment in the power system, worth a jolt.
 	if camera != null:
@@ -611,22 +614,44 @@ func _setup_trash_bag_panel() -> void:
 	add_child(panel)
 	panel.set("player_ref", player)
 
-## Aug 2026 — the Research Station modal UI, created once (mirrors
-## _setup_storage_ui()'s pattern) and injected into the spawn-time Research
-## Station + InteractionSystem's modal gate. Shell only this pass — 3
-## selectable tabs, placeholder content, no buttons/timers/feed logic.
+## Sep 2026 — the modern Research Station workspace, created once and
+## injected into the spawn-time Research Station + InteractionSystem's modal
+## gate.  ResearchStation remains the authority for materials, timers and
+## tier state; this node is the reusable presentation/controller layer.
 func _setup_research_ui() -> void:
-	var ui_script: Script = load("res://scripts/ui/research/ResearchStationUI.gd")
+	var ui_script: Script = load("res://scripts/ui/research/ResearchStationModernUI.gd")
 	if ui_script == null:
 		return
 	_research_ui = CanvasLayer.new()
 	_research_ui.set_script(ui_script)
-	_research_ui.name = "ResearchStationUI"
+	_research_ui.name = "ResearchStationModernUI"
 	add_child(_research_ui)
 
 	## Give InteractionSystem a ref so it can block E/F input while open,
 	## same as shelf_ui/basket_ui (Part 7 of the plan).
 	interaction_system.research_ui = _research_ui
+
+## Sep 2026 — persistent, non-modal player Status workspace. Presentation is
+## created once during world startup while the loading screen still owns the
+## frame; gameplay components remain the source of truth and are injected
+## before add_child() lets StatusScreenUI build its interface.
+func _setup_status_screen() -> void:
+	if _status_screen != null:
+		return
+	var ui_script: Script = load("res://scripts/ui/medical/StatusScreenUI.gd")
+	if ui_script == null:
+		push_warning("[Status] StatusScreenUI.gd not found")
+		return
+	var status: CanvasLayer = CanvasLayer.new()
+	status.set_script(ui_script)
+	status.name = "StatusScreenUI"
+	status.set("player_medical", player_medical)
+	status.set("player_stats", player_stats)
+	status.set("inventory", inventory_manager)
+	status.set("interaction_system", interaction_system)
+	status.set("inventory_hud", hud.get_node_or_null("HUDRoot/InventoryHUD"))
+	add_child(status)
+	_status_screen = status
 
 func _ensure_inventory_manager() -> void:
 	# Use scene node if it exists, otherwise create one at runtime
@@ -696,8 +721,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 
-	# Tab / Gamepad Select (View/Back button) — Medical Status Screen (Aug
-	# 2026, Layer 3 deep-dive). Deliberately NOT gated behind build-mode/
+	# Tab / Gamepad Select (View/Back button) — general player Status
+	# workspace. Deliberately NOT gated behind build-mode/
 	# pause-menu checks the way ESC/F1 are above — StatusScreenUI is
 	# non-modal by design (see its own header comment), so it's fine to allow
 	# opening it more permissively. Still suppressed while build mode owns
@@ -730,23 +755,13 @@ func _toggle_admin_cheat_menu() -> void:
 	if _admin_cheat_menu.has_method("toggle"):
 		_admin_cheat_menu.toggle()
 
-## Lazy-init, mirrors _toggle_admin_cheat_menu() exactly — created only on
-## first Tab press. Injects player_medical/player_stats directly (see
-## StatusScreenUI.gd's own header comment on why explicit refs rather than
-## group lookups).
+## Status is normally prebuilt during _ready() so its preview viewports are
+## prepared behind the loading screen. The setup call remains as a defensive
+## fallback for isolated/test scenes that invoke this toggle directly.
 func _toggle_status_screen() -> void:
 	if _status_screen == null:
-		var script: GDScript = load("res://scripts/ui/medical/StatusScreenUI.gd")
-		if script == null:
-			push_warning("[DEV] StatusScreenUI.gd not found")
-			return
-		_status_screen = CanvasLayer.new()
-		_status_screen.set_script(script)
-		_status_screen.name = "StatusScreenUI"
-		add_child(_status_screen)
-		_status_screen.set("player_medical", player_medical)
-		_status_screen.set("player_stats", player_stats)
-	if _status_screen.has_method("toggle"):
+		_setup_status_screen()
+	if _status_screen != null and _status_screen.has_method("toggle"):
 		_status_screen.toggle()
 
 func _toggle_pause_menu() -> void:
@@ -1203,6 +1218,10 @@ func _connect_inventory() -> void:
 
 	# Give InventoryHUD its data source
 	inv_hud.set("inventory", inventory_manager)
+	if inv_hud.has_method("refresh_previews"):
+		inv_hud.call_deferred("refresh_previews")
+	if inv_hud.has_method("set_selected"):
+		inv_hud.call_deferred("set_selected", interaction_system.selected_slot)
 
 	# Redraw slots whenever inventory changes — skip if build mode is hiding the bar
 	inventory_manager.inventory_changed.connect(
@@ -1291,16 +1310,6 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	## which fires AFTER player.add_child() returns — so we must defer this connection
 	## by one frame to guarantee WireDrawMode exists before we query for it.
 	call_deferred("_connect_wire_draw_mode")
-
-	## Push the InventoryHUD ref into WaterPipeDrawMode for its
-	## unreroutable-overlap error banner (Jul 2026, overlap-block pass) —
-	## same "not ready yet" timing gap as WireDrawMode above: WaterPipeDrawMode
-	## is added inside BuildModeController._ready() (_setup_water_pipe_draw_mode()),
-	## which fires AFTER player.add_child() returns, and _connect_inventory()
-	## (which resolves the InventoryHUD node) already ran earlier in _ready()
-	## before BuildModeController existed at all. Deferred by one frame so
-	## both sides are guaranteed to exist.
-	call_deferred("_connect_water_pipe_inventory_hud")
 
 	## Wire tubes default to visible=false in WireSegment._ready(), but pregen
 	## spawns some tubes before _ready() runs (deferred add_child timing) and
@@ -1413,20 +1422,6 @@ func _connect_wire_draw_mode() -> void:
 	if wdm.has_signal("wire_nodes_connected") and not wdm.wire_nodes_connected.is_connected(_on_wire_nodes_connected):
 		wdm.wire_nodes_connected.connect(_on_wire_nodes_connected)
 		print("[MainWorld] wire_placed + wire_nodes_connected connected OK")
-
-## Mirrors _connect_wire_draw_mode() immediately above — see that function's
-## comment for the exact timing reason this has to be deferred rather than
-## called directly from _setup_build_mode().
-func _connect_water_pipe_inventory_hud() -> void:
-	if _build_controller == null:
-		push_warning("[MainWorld] _connect_water_pipe_inventory_hud: _build_controller is null")
-		return
-	var pdm: Node = _build_controller.get_node_or_null("WaterPipeDrawMode")
-	if pdm == null:
-		push_warning("[MainWorld] WaterPipeDrawMode not found — pipe overlap-block error banner won't show")
-		return
-	var inv_hud: Node = hud.get_node_or_null("HUDRoot/InventoryHUD")
-	pdm.set("inventory_hud", inv_hud)
 
 func _toggle_build_mode() -> void:
 	_build_mode_active = not _build_mode_active

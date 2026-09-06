@@ -1,843 +1,1461 @@
 extends CanvasLayer
 class_name NPCTalkMenuUI
-## NPCTalkMenuUI.gd (Aug 2026 rewrite — full NPC hub, pass 2 polish)
-## Layout: identity bar (name/task/age/skills/traits) → needs bar (same
-## fill-bar visuals as before, horizontal) → left tab list (Talk /
-## Requests / Medical, extra-spaced Activity Log below them) driving a
-## right content pane. Both the tab list and the content pane scroll
-## independently if their contents outgrow the panel's height. Right
-## pane is blank until a tab is picked, and resets to blank on every
-## reopen (never persisted).
-##
-## Pass 2 polish (this file's current form):
-##   - Tab buttons center their label text.
-##   - Activity Log moved out of the Talk tab into its own left-pane
-##     entry, visually separated from Talk/Requests/Medical by extra
-##     spacing — selecting it shows the log in the right pane, same as
-##     any other tab (no more separate expand/collapse toggle needed;
-##     switching tabs away from it IS the collapse).
-##   - Whole UI scaled 1.15x, and a real MarginContainer inset added on
-##     every side (the previous approach — content_margin_* on the
-##     panel's own StyleBoxFlat — never actually applied, since
-##     root_vbox was anchored PRESET_FULL_RECT directly against the
-##     Panel and stylebox content_margin only affects theme-driven auto-
-##     layout, not arbitrary anchored children).
-##   - The Talk tab's redundant "Talk" button is gone — arriving at the
-##     tab (either the first time or by reselecting it) IS the talk
-##     action: the greeting line shows immediately, Ask About sits right
-##     below it. Reselecting the already-open Talk tab re-picks a fresh
-##     line, same as the old button used to.
+## Resident profile, conversation, command, health, and history workspace.
+## The presentation is built once and reused. Gameplay ownership remains in
+## NPC/NPCBrain/NPCMedical; this UI only reads their data and invokes the same
+## established command methods the previous talk menu used.
 
-const BASE_PANEL_W: float = 820.0
-const BASE_PANEL_H: float = 520.0
-const BASE_LEFT_PANE_W: float = 200.0
-const BASE_NEEDS_BAR_TRACK_W: float = 68.0
-const UI_SCALE: float = 1.15
+signal closed
 
-const PANEL_W: float = BASE_PANEL_W * UI_SCALE
-const PANEL_H: float = BASE_PANEL_H * UI_SCALE
-const LEFT_PANE_W: float = BASE_LEFT_PANE_W * UI_SCALE
-const NEEDS_BAR_TRACK_W: float = BASE_NEEDS_BAR_TRACK_W * UI_SCALE
-const BAR_H: float = 14.0
+const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
+const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const NAV: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
+const PROXIMITY: GDScript = preload("res://scripts/ui/common/UIProximityClose.gd")
+const PORTRAIT: GDScript = preload("res://scripts/ui/npc/NPCPortraitViewport.gd")
+const RELATIONSHIP_METER: GDScript = preload("res://scripts/ui/npc/NPCRelationshipMeter.gd")
+const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
 
-## Real inward padding on every side, between the panel's own edge/border
-## and everything inside it — see this file's header note on why the old
-## stylebox content_margin approach never actually did this.
-const PANEL_INSET: float = 22.0
-
-## Extra gap (on top of the tab list's normal button separation) between
-## the Talk/Requests/Medical group and the Activity Log entry below it —
-## a visual break, not a functional one.
-const LOG_GROUP_GAP: float = 14.0
-
-const NEED_COLORS: Dictionary = {
-	"Health": Color(0.81, 0.17, 0.17, 1.0),
-	"Energy": Color(0.57, 0.33, 0.81, 1.0),
-	"Hunger": Color(0.90, 0.80, 0.20, 1.0),
-	"Thirst": Color(0.24, 0.52, 0.90, 1.0),
-	"Mood":   Color8(188, 160, 220, 255),
-}
+const PANEL_MAX: Vector2 = Vector2(1420.0, 820.0)
+const SCREEN_MARGIN: Vector2 = Vector2(42.0, 34.0)
+const LEFT_COLUMN_WIDTH: float = 356.0
 const REFRESH_INTERVAL: float = 0.25
 
-## Body parts shown in the Medical tab (Aug 2026) — real MedicalCondition.
-## BodyPart enum values now (not display strings), since the tab queries
-## NPCMedical.get_conditions_for_body_part() directly. Only parts with at
-## least one active condition are actually shown — see _build_medical_tab().
-const MEDICAL_BODY_PART_VALUES: Array[int] = [
-	MedicalCondition.BodyPart.HEAD, MedicalCondition.BodyPart.TORSO,
-	MedicalCondition.BodyPart.LEFT_ARM, MedicalCondition.BodyPart.RIGHT_ARM,
-	MedicalCondition.BodyPart.LEFT_LEG, MedicalCondition.BodyPart.RIGHT_LEG,
+const HEALTH_COLOR: Color = Color("ef5f64")
+const ENERGY_COLOR: Color = Color("e5a24a")
+const FOOD_COLOR: Color = Color("d9aa63")
+const WATER_COLOR: Color = Color("62bfff")
+const MOOD_COLOR: Color = Color("75d48a")
+
+enum ResidentTab { OVERVIEW, TALK, REQUESTS, HEALTH, ACTIVITY_LOG }
+
+const MEDICAL_BODY_PARTS: Array[int] = [
+	MedicalCondition.BodyPart.HEAD,
+	MedicalCondition.BodyPart.TORSO,
+	MedicalCondition.BodyPart.LEFT_ARM,
+	MedicalCondition.BodyPart.RIGHT_ARM,
+	MedicalCondition.BodyPart.LEFT_LEG,
+	MedicalCondition.BodyPart.RIGHT_LEG,
 ]
 
-## Centralized so a new job type later needs ONE entry here, nothing
-## else. "type" must match JobBoard's job "type" string exactly
-## (REPLACE_FILTER), or the literal strings "CLEANING"/"REFUEL"/
-## "FARMING"/"FERTILIZE" (routed to their own Command*Activity instead
-## of the generic CommandJobActivity, since none of the four are
-## JobBoard-claimed). HARVEST is intentionally absent as a standalone
-## entry — it's folded into "FARMING"'s priority order (harvest -> plant
-## -> soil) — autonomous per-plant Harvest via JobBoard is untouched.
+## These strings and dispatch targets deliberately match the previous menu.
 const NPC_JOB_MENU_ENTRIES: Array[Dictionary] = [
-	{"type": "REPLACE_FILTER", "label": "Replace the water filters", "action_desc": "heading to replace a filter", "empty_desc": "no filters need replacing"},
-	{"type": "REFUEL", "label": "Refuel the generator", "action_desc": "heading to refuel", "empty_desc": "nothing needs refueling"},
-	{"type": "CLEANING", "label": "Clean the bunker", "action_desc": "heading to clean up", "empty_desc": "nothing to clean right now"},
-	{"type": "FARMING", "label": "Tend the farm", "action_desc": "heading to tend the farm", "empty_desc": "nothing to harvest, plant, or add soil to right now"},
-	{"type": "FERTILIZE", "label": "Fertilize the trays", "action_desc": "heading to fertilize", "empty_desc": "nothing needs fertilizing, or none available"},
-	{"type": "COOKING", "label": "Cook a meal", "action_desc": "heading to cook", "empty_desc": "nothing to cook right now"},
+	{"type": "REPLACE_FILTER", "label": "Replace water filters", "action_desc": "heading to replace a filter", "empty_desc": "no filters need replacing", "icon": "water"},
+	{"type": "REFUEL", "label": "Refuel generator", "action_desc": "heading to refuel", "empty_desc": "nothing needs refueling", "icon": "fuel"},
+	{"type": "CLEANING", "label": "Clean the bunker", "action_desc": "heading to clean up", "empty_desc": "nothing to clean right now", "icon": "storage"},
+	{"type": "FARMING", "label": "Tend the farm", "action_desc": "heading to tend the farm", "empty_desc": "nothing to harvest, plant, or add soil to right now", "icon": "plant"},
+	{"type": "FERTILIZE", "label": "Fertilize trays", "action_desc": "heading to fertilize", "empty_desc": "nothing needs fertilizing, or none available", "icon": "plant"},
+	{"type": "COOKING", "label": "Cook a meal", "action_desc": "heading to cook", "empty_desc": "nothing to cook right now", "icon": "cooking"},
 ]
 
 const CLEANING_UNAVAILABLE_REASONS: Dictionary = {
-	"NOTHING_TO_CLEAN":          "nothing to clean right now",
-	"NO_TRASH_RECEPTACLE":       "there's trash, but nowhere to throw it away yet",
-	"STILL_SETTLING":            "everything's still settling — check back shortly",
-	"ALL_CLAIMED":               "everything's already being handled by someone else",
+	"NOTHING_TO_CLEAN": "nothing to clean right now",
+	"NO_TRASH_RECEPTACLE": "there's trash, but nowhere to throw it away yet",
+	"STILL_SETTLING": "everything's still settling — check back shortly",
+	"ALL_CLAIMED": "everything's already being handled by someone else",
 	"NO_LIGHT_STORAGE_AVAILABLE": "there's nothing to put light items away in",
 	"NO_HEAVY_STORAGE_AVAILABLE": "there's nothing to put heavy items away in",
-	"STORAGE_FULL":              "storage is full",
+	"STORAGE_FULL": "storage is full",
 }
 const REFUEL_UNAVAILABLE_REASONS: Dictionary = {
 	"ALL_GENERATORS_FULL": "every generator is already full",
-	"FUEL_CAN_CLAIMED":    "the only fuel can is already being used",
-	"NO_FUEL_CAN":         "there's no fuel can anywhere to refuel with",
+	"FUEL_CAN_CLAIMED": "the only fuel can is already being used",
+	"NO_FUEL_CAN": "there's no fuel can anywhere to refuel with",
 }
 const COOKING_UNAVAILABLE_REASONS: Dictionary = {
 	"NO_STOVE": "there's no stove built yet",
 }
 
 var _npc: Node = null
-var _backdrop: ColorRect = null
-var _panel: Panel = null
 var _is_open: bool = false
-var _refresh_timer: float = 0.0
+var _active_tab: int = ResidentTab.OVERVIEW
+var _refresh_elapsed: float = 0.0
+var _previous_focus: WeakRef = null
+var _medical_signature: String = ""
+var _selected_medical_part: int = -1
+
+var _root: Control = null
+var _panel: PanelContainer = null
+var _controller_nav: ControllerUINavigation = null
 var _proximity: Node = null
 
-## Identity bar widgets
-var _identity_name_label: Label = null
-var _identity_task_label: Label = null
-var _identity_age_label: Label = null
-var _skill_labels: Dictionary = {}   ## skill name -> Label
-var _trait_label: Label = null
+var _name_label: Label = null
+var _identity_line: Label = null
+var _header_state_panel: PanelContainer = null
+var _header_state_icon: TextureRect = null
+var _header_state_label: Label = null
+var _header_relationship_panel: PanelContainer = null
+var _header_relationship_label: Label = null
 
-## Needs bar widgets
-var _need_fills: Dictionary = {}    ## need name -> ColorRect (fill)
-var _need_labels: Dictionary = {}   ## need name -> Label (value text)
+var _portrait: NPCPortraitViewport = null
+var _relationship_label: Label = null
+var _relationship_value: Label = null
+var _relationship_meter: NPCRelationshipMeter = null
+var _trait_row: HFlowContainer = null
 
-## Tab list + content pane. "log" is a 4th selectable entry alongside
-## talk/requests/medical, just visually separated in the left column.
-var _tab_buttons: Dictionary = {}   ## "talk"/"requests"/"medical"/"log" -> Button
-var _selected_tab: String = ""      ## "" = nothing selected — blank pane, always the state on open()
-var _content_pane: VBoxContainer = null
+var _need_bars: Dictionary = {}
+var _need_values: Dictionary = {}
 
-## Talk tab widgets
+var _tab_buttons: Array[Button] = []
+var _pages: Array[Control] = []
+var _scrolls: Array[ScrollContainer] = []
+
+var _activity_icon: TextureRect = null
+var _activity_title: Label = null
+var _activity_detail: Label = null
+var _activity_state_panel: PanelContainer = null
+var _activity_state_label: Label = null
+var _skill_bars: Dictionary = {}
+var _skill_values: Dictionary = {}
+var _overview_medical_value: Label = null
+var _overview_irritability_value: Label = null
+var _overview_last_action_value: Label = null
+var _talk_to_button: Button = null
+
 var _dialogue_label: Label = null
-var _relationship_box: VBoxContainer = null
+var _talk_topics_box: VBoxContainer = null
+var _request_feedback_panel: PanelContainer = null
+var _request_feedback_label: Label = null
+var _job_buttons: Array[Button] = []
 
-## Requests tab widgets
-var _requests_box: VBoxContainer = null
-var _jobs_box: VBoxContainer = null
-var _jobs_expanded: bool = false
+var _health_summary_label: Label = null
+var _health_reason_panel: PanelContainer = null
+var _health_reason_label: Label = null
+var _medical_parts_box: VBoxContainer = null
+var _medical_conditions_box: VBoxContainer = null
+var _medical_part_buttons: Dictionary = {}
 
-## Medical tab widgets (Aug 2026) — nested dropdown state: body part ->
-## expanded bool, and "<part>_<condition_id>" -> expanded bool for the
-## injury-level dropdown nested inside it. Reset on open() for a fresh NPC
-## (see open() below) so a previous NPC's expand state never bleeds into
-## a different one's Medical tab.
-var _medical_expanded_parts: Dictionary = {}
-var _medical_expanded_conditions: Dictionary = {}
-
-## Log tab widgets
+var _log_current_activity: Label = null
 var _log_rows_box: VBoxContainer = null
 var _log_entries: Array[Dictionary] = []
 var _log_time_labels: Array[Label] = []
 var _log_text_labels: Array[Label] = []
+var _footer_hint: Label = null
+
 
 func _ready() -> void:
-	layer = 70
+	layer = 145
 	visible = false
-	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
+	set_process(false)
+	_build_interface()
+	_controller_nav = NAV.new() as ControllerUINavigation
+	_controller_nav.ui_root = self
+	_controller_nav.stick_navigation = false
+	_controller_nav.right_stick_navigation = true
+	add_child(_controller_nav)
+	_proximity = PROXIMITY.new()
 	_proximity.ui = self
 	add_child(_proximity)
-	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
-	controller_nav.ui_root = self
-	add_child(controller_nav)
+	get_viewport().size_changed.connect(_layout)
+	_layout()
+
 
 func open(npc_name: String, npc: Node = null) -> void:
+	_disconnect_npc_signals()
 	_npc = npc
+	if _npc == null or not is_instance_valid(_npc):
+		return
+	if not _is_open:
+		var focus_owner: Control = get_viewport().gui_get_focus_owner()
+		_previous_focus = weakref(focus_owner) if focus_owner != null else null
 	_is_open = true
-	_selected_tab = ""   ## always blank on open, never remembered
-	_medical_expanded_parts = {}
-	_medical_expanded_conditions = {}
-	if _proximity != null:
-		if npc != null and is_instance_valid(npc):
-			_proximity.anchor = npc.global_position
-		else:
-			var player: Node = get_tree().get_first_node_in_group("player")
-			if player != null:
-				_proximity.anchor = player.global_position
 	visible = true
+	set_process(true)
+	_refresh_elapsed = REFRESH_INTERVAL
+	_medical_signature = ""
+	_selected_medical_part = -1
+	_name_label.text = npc_name
+	_connect_npc_signals()
+	if _npc is Node3D:
+		_proximity.bind_target(_npc as Node3D)
+	else:
+		var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+		if player != null:
+			_proximity.bind_position(player.global_position)
+	_portrait.show_npc(_npc)
+	_rebuild_traits()
+	_rebuild_talk_topics()
+	_request_feedback_panel.visible = false
+	_rebuild_health(true)
+	_rebuild_log_rows()
+	_set_tab(ResidentTab.OVERVIEW, false)
+	_refresh_live_values()
+	_reset_scrolls()
+	_update_footer()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	add_to_group("npc_talk_ui")
-	_build(npc_name)
+	if not is_in_group("npc_talk_ui"):
+		add_to_group("npc_talk_ui")
+	UIFade.fade_in(_panel)
+	if not _tab_buttons.is_empty():
+		_tab_buttons[ResidentTab.OVERVIEW].call_deferred("grab_focus")
+
 
 func close() -> void:
-	_is_open = false
-	visible = false
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	remove_from_group("npc_talk_ui")
-	_teardown()
-
-func _teardown() -> void:
-	if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_action_log"):
-		if _npc.action_logged.is_connected(_rebuild_log_rows):
-			_npc.action_logged.disconnect(_rebuild_log_rows)
-	_jobs_expanded = false
-	if _backdrop != null and is_instance_valid(_backdrop):
-		_backdrop.queue_free()
-	if _panel != null and is_instance_valid(_panel):
-		_panel.queue_free()
-	_backdrop = null
-	_panel = null
-	_need_fills = {}
-	_need_labels = {}
-	_skill_labels = {}
-	_identity_name_label = null
-	_identity_task_label = null
-	_identity_age_label = null
-	_trait_label = null
-	_tab_buttons = {}
-	_content_pane = null
-	_dialogue_label = null
-	_relationship_box = null
-	_log_rows_box = null
-	_requests_box = null
-	_jobs_box = null
-
-func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
 		return
-	if event is InputEventKey and event.pressed:
-		var k: int = (event as InputEventKey).keycode
-		if k == KEY_ESCAPE or k == KEY_E:
-			close()
-			get_viewport().set_input_as_handled()
+	_is_open = false
+	visible = false
+	set_process(false)
+	_disconnect_npc_signals()
+	_proximity.unbind()
+	_portrait.clear_npc()
+	remove_from_group("npc_talk_ui")
+	var focused: Control = get_viewport().gui_get_focus_owner()
+	if focused != null and _root.is_ancestor_of(focused):
+		focused.release_focus()
+	if _previous_focus != null:
+		var previous: Variant = _previous_focus.get_ref()
+		if previous is Control and is_instance_valid(previous as Control) \
+				and (previous as Control).is_visible_in_tree():
+			(previous as Control).grab_focus()
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_npc = null
+	closed.emit()
+
+
+func is_open() -> bool:
+	return _is_open
+
 
 func _process(delta: float) -> void:
 	if not _is_open:
 		return
-	_refresh_timer -= delta
-	if _refresh_timer <= 0.0:
-		_refresh_timer = REFRESH_INTERVAL
+	if _npc == null or not is_instance_valid(_npc):
+		close()
+		return
+	_refresh_elapsed += delta
+	if _refresh_elapsed >= REFRESH_INTERVAL:
+		_refresh_elapsed = 0.0
 		_refresh_live_values()
+		var signature: String = _medical_state_signature()
+		if signature != _medical_signature:
+			_rebuild_health(false)
+	_refresh_log_timestamps()
+	_update_footer()
 
-	## Log tab — live "Xs ago" timestamps while it's the selected pane.
-	if _selected_tab == "log":
-		for i: int in range(_log_time_labels.size()):
-			if i >= _log_entries.size():
-				continue
-			_log_time_labels[i].text = _format_log_age(_log_entries[i]["fired_at_msec"] as int)
-		if not _log_entries.is_empty() and bool(_log_entries[0].get("is_live_hostile", false)) \
-				and not _log_text_labels.is_empty():
-			_log_text_labels[0].text = str(_log_entries[0]["text"])
 
-# ─── Construction ─────────────────────────────────────────────────────────
-func _build(npc_name: String) -> void:
-	_teardown()
-	var theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.NEUTRAL)
+func _unhandled_input(event: InputEvent) -> void:
+	if not _is_open or not _controller_nav._is_topmost():
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key_event: InputEventKey = event as InputEventKey
+		if key_event.keycode == KEY_ESCAPE or key_event.keycode == KEY_E:
+			close()
+			get_viewport().set_input_as_handled()
+	elif event is InputEventJoypadButton and event.pressed:
+		var button_event: InputEventJoypadButton = event as InputEventJoypadButton
+		if button_event.button_index == JOY_BUTTON_LEFT_SHOULDER:
+			_cycle_tab(-1)
+			get_viewport().set_input_as_handled()
+		elif button_event.button_index == JOY_BUTTON_RIGHT_SHOULDER:
+			_cycle_tab(1)
+			get_viewport().set_input_as_handled()
 
-	_backdrop = UIKit.build_modal_backdrop()
-	add_child(_backdrop)
 
-	_panel = UIKit.build_centered_panel(PANEL_W, PANEL_H, theme)
-	add_child(_panel)
+func _build_interface() -> void:
+	_root = Control.new()
+	_root.name = "ResidentProfileRoot"
+	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	C.apply_theme(_root)
+	add_child(_root)
 
-	## Real inward padding on every side (see header note) — a
-	## MarginContainer between the panel and everything inside it.
-	var margin: MarginContainer = MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", int(PANEL_INSET))
-	margin.add_theme_constant_override("margin_right", int(PANEL_INSET))
-	margin.add_theme_constant_override("margin_top", int(PANEL_INSET))
-	margin.add_theme_constant_override("margin_bottom", int(PANEL_INSET))
-	_panel.add_child(margin)
+	var backdrop: ColorRect = UIKit.build_modal_backdrop(0.34)
+	_root.add_child(backdrop)
 
-	var root_vbox: VBoxContainer = VBoxContainer.new()
-	root_vbox.add_theme_constant_override("separation", 8)
-	margin.add_child(root_vbox)
+	_panel = PanelContainer.new()
+	_panel.name = "ResidentProfilePanel"
+	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_panel.clip_contents = true
+	C.shell(_panel, 12)
+	_root.add_child(_panel)
 
-	_build_identity_bar(root_vbox, npc_name, theme)
-	root_vbox.add_child(HSeparator.new())
-	_build_needs_bar(root_vbox, theme)
-	root_vbox.add_child(HSeparator.new())
+	var content: VBoxContainer = VBoxContainer.new()
+	content.add_theme_constant_override("separation", 9)
+	_panel.add_child(C.inset(content, 18, 15, 18, 11))
+	_build_header(content)
+	C.divider(content)
+	_build_tabs(content)
+	_build_body(content)
+	C.divider(content)
+	_footer_hint = _label("", 12, S.MUTED)
+	_footer_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_footer_hint.custom_minimum_size.y = 22.0
+	content.add_child(_footer_hint)
 
-	## Body: left tab list | right content pane — both independently
-	## scrollable if their contents outgrow the available height.
-	var body_row: HBoxContainer = HBoxContainer.new()
-	body_row.add_theme_constant_override("separation", 16)
-	body_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root_vbox.add_child(body_row)
 
-	_build_tab_list(body_row, theme)
-	body_row.add_child(VSeparator.new())
-
-	var content_scroll: ScrollContainer = ScrollContainer.new()
-	content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	content_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body_row.add_child(content_scroll)
-
-	_content_pane = VBoxContainer.new()
-	_content_pane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_content_pane.add_theme_constant_override("separation", 8)
-	content_scroll.add_child(_content_pane)
-	## Blank until the player picks a tab — nothing added here.
-
-	_refresh_live_values()
-	UIFade.fade_in(_panel)
-
-## Name / current task / age on one line; skills + traits on a second —
-## multiple lines by design, prioritizing a clean layout over cramming
-## everything onto one.
-func _build_identity_bar(parent: VBoxContainer, npc_name: String, theme: UIKit.UITheme) -> void:
-	var row1: HBoxContainer = HBoxContainer.new()
-	row1.add_theme_constant_override("separation", 14)
-	parent.add_child(row1)
-
-	_identity_name_label = Label.new()
-	_identity_name_label.text = npc_name
-	_identity_name_label.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_TITLE)
-	_identity_name_label.add_theme_color_override("font_color", theme.header)
-	_identity_name_label.add_theme_font_override("font", UIKit.font())
-	row1.add_child(_identity_name_label)
-
-	_identity_task_label = Label.new()
-	_identity_task_label.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-	_identity_task_label.add_theme_color_override("font_color", theme.dim)
-	_identity_task_label.add_theme_font_override("font", UIKit.font())
-	_identity_task_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row1.add_child(_identity_task_label)
-
-	_identity_age_label = Label.new()
-	_identity_age_label.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-	_identity_age_label.add_theme_color_override("font_color", theme.text)
-	_identity_age_label.add_theme_font_override("font", UIKit.font())
-	row1.add_child(_identity_age_label)
-
-	var row2: HBoxContainer = HBoxContainer.new()
-	row2.add_theme_constant_override("separation", 20)
-	parent.add_child(row2)
-
-	var skills_row: HBoxContainer = HBoxContainer.new()
-	skills_row.add_theme_constant_override("separation", 14)
-	row2.add_child(skills_row)
-	for skill: String in ["farming", "plumbing", "electrical", "construction"]:
-		var lbl: Label = UIKit.make_row_label("", theme)
-		lbl.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_SECTION)
-		skills_row.add_child(lbl)
-		_skill_labels[skill] = lbl
-
-	_trait_label = Label.new()
-	_trait_label.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_SECTION)
-	_trait_label.add_theme_color_override("font_color", theme.dim)
-	_trait_label.add_theme_font_override("font", UIKit.font())
-	_trait_label.autowrap_mode = TextServer.AUTOWRAP_WORD
-	_trait_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row2.add_child(_trait_label)
-
-## Horizontal — 5 need blocks side by side, same fill-bar visuals/colors
-## as before (ColorRect track+fill, same NEED_COLORS).
-func _build_needs_bar(parent: VBoxContainer, theme: UIKit.UITheme) -> void:
-	parent.add_child(UIKit.make_section_label("NEEDS", theme))
+func _build_header(parent: Container) -> void:
 	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 14)
+	row.add_theme_constant_override("separation", 12)
 	parent.add_child(row)
-	for need: String in ["Health", "Energy", "Hunger", "Thirst", "Mood"]:
-		row.add_child(_build_need_block(need, theme))
+	row.add_child(C.icon_well("status", 52.0, S.BLUE))
 
-func _build_need_block(need: String, theme: UIKit.UITheme) -> HBoxContainer:
-	var block: HBoxContainer = HBoxContainer.new()
-	block.add_theme_constant_override("separation", 6)
+	var titles: VBoxContainer = VBoxContainer.new()
+	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	titles.add_theme_constant_override("separation", 0)
+	row.add_child(titles)
+	titles.add_child(_label("BUNKER  •  RESIDENT PROFILE", 11, S.BLUE))
+	_name_label = _label("Resident", 29, S.IVORY)
+	_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	titles.add_child(_name_label)
+	_identity_line = _label("Age —  •  Idle", 12, S.MUTED)
+	_identity_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	titles.add_child(_identity_line)
 
-	var name_lbl: Label = UIKit.make_row_label(need, theme)
-	name_lbl.custom_minimum_size = Vector2(42.0, 0.0)
-	block.add_child(name_lbl)
+	_header_state_panel = PanelContainer.new()
+	_header_state_panel.custom_minimum_size = Vector2(136.0, 40.0)
+	row.add_child(_header_state_panel)
+	var state_row: HBoxContainer = HBoxContainer.new()
+	state_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	state_row.add_theme_constant_override("separation", 7)
+	_header_state_panel.add_child(C.inset(state_row, 10, 7, 10, 7))
+	_header_state_icon = _icon("running", 17.0, S.GREEN)
+	state_row.add_child(_header_state_icon)
+	_header_state_label = _label("ON DUTY", 12, S.GREEN)
+	state_row.add_child(_header_state_label)
 
-	var track: ColorRect = ColorRect.new()
-	track.color = Color(0.10, 0.10, 0.12, 1.0)
-	track.custom_minimum_size = Vector2(NEEDS_BAR_TRACK_W, BAR_H)
-	track.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	block.add_child(track)
+	_header_relationship_panel = PanelContainer.new()
+	_header_relationship_panel.custom_minimum_size = Vector2(176.0, 40.0)
+	row.add_child(_header_relationship_panel)
+	var relationship_row: HBoxContainer = HBoxContainer.new()
+	relationship_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	relationship_row.add_theme_constant_override("separation", 7)
+	_header_relationship_panel.add_child(C.inset(relationship_row, 10, 7, 10, 7))
+	relationship_row.add_child(_icon("relationship", 18.0, S.GREEN))
+	_header_relationship_label = _label("NEUTRAL  +0", 12, S.GREEN)
+	relationship_row.add_child(_header_relationship_label)
 
-	var fill: ColorRect = ColorRect.new()
-	fill.color = NEED_COLORS.get(need, theme.ok)
-	fill.position = Vector2.ZERO
-	fill.size = Vector2(NEEDS_BAR_TRACK_W, BAR_H)
-	track.add_child(fill)
-	_need_fills[need] = fill
+	var close_button: Button = Button.new()
+	close_button.custom_minimum_size = Vector2(48.0, 48.0)
+	close_button.tooltip_text = "Close resident profile"
+	S.icon_button(close_button, "close")
+	close_button.text = ""
+	close_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	close_button.pressed.connect(close)
+	row.add_child(close_button)
 
-	var val: Label = UIKit.make_row_label("100", theme)
-	val.custom_minimum_size = Vector2(24.0, 0.0)
-	block.add_child(val)
-	_need_labels[need] = val
 
-	return block
+func _build_tabs(parent: Container) -> void:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.name = "ResidentTabs"
+	row.add_theme_constant_override("separation", 7)
+	parent.add_child(row)
+	var labels: Array[String] = ["OVERVIEW", "TALK", "REQUESTS", "HEALTH", "ACTIVITY LOG"]
+	var icons: Array[String] = ["overview", "talk", "requests", "health", "log"]
+	for index: int in range(labels.size()):
+		var button: Button = Button.new()
+		button.text = labels[index]
+		button.icon = S.icon(icons[index])
+		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.expand_icon = true
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		C.style_segment(button)
+		button.pressed.connect(_set_tab.bind(index, true))
+		row.add_child(button)
+		_tab_buttons.append(button)
 
-## Left tab list — Talk / Requests / Medical, then Activity Log below
-## them with extra separation. Scrollable if it ever outgrows the
-## panel's height. Every button's text is explicitly centered.
-func _build_tab_list(parent: HBoxContainer, theme: UIKit.UITheme) -> void:
-	var tab_scroll: ScrollContainer = ScrollContainer.new()
-	tab_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	tab_scroll.custom_minimum_size = Vector2(LEFT_PANE_W, 0.0)
-	parent.add_child(tab_scroll)
 
-	var tab_col: VBoxContainer = VBoxContainer.new()
-	tab_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tab_col.add_theme_constant_override("separation", 6)
-	tab_scroll.add_child(tab_col)
+func _build_body(parent: Container) -> void:
+	var body: HBoxContainer = HBoxContainer.new()
+	body.name = "ResidentBody"
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 10)
+	parent.add_child(body)
+	_build_identity_column(body)
 
-	for entry in [["talk", "Talk"], ["requests", "Requests"], ["medical", "Medical"]]:
-		var key: String = entry[0]
-		var label: String = entry[1]
-		var btn: Button = UIKit.make_button(label, Callable(self, "_on_tab_selected").bind(key))
-		btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
-		tab_col.add_child(btn)
-		_tab_buttons[key] = btn
+	var right: VBoxContainer = VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 9)
+	body.add_child(right)
+	_build_needs_strip(right)
+	_build_pages(right)
 
-	var spacer: Control = Control.new()
-	spacer.custom_minimum_size = Vector2(0.0, LOG_GROUP_GAP)
-	tab_col.add_child(spacer)
 
-	var log_btn: Button = UIKit.make_button("Activity Log", Callable(self, "_on_tab_selected").bind("log"))
-	log_btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tab_col.add_child(log_btn)
-	_tab_buttons["log"] = log_btn
+func _build_identity_column(parent: Container) -> void:
+	var column: VBoxContainer = VBoxContainer.new()
+	column.custom_minimum_size.x = LEFT_COLUMN_WIDTH
+	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_theme_constant_override("separation", 8)
+	parent.add_child(column)
 
-	_restyle_tab_buttons(theme)
-	if InputMode.is_controller() and _tab_buttons.has("talk"):
-		(_tab_buttons["talk"] as Button).grab_focus()
+	var portrait_card: PanelContainer = _card(Color("101919"), S.BRASS.darkened(0.32), 9)
+	portrait_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(portrait_card)
+	var portrait_box: VBoxContainer = VBoxContainer.new()
+	portrait_box.add_theme_constant_override("separation", 4)
+	portrait_card.add_child(C.inset(portrait_box, 8, 7, 8, 8))
+	portrait_box.add_child(_label("LIVE RESIDENT VIEW", 10, S.MUTED))
+	_portrait = PORTRAIT.new() as NPCPortraitViewport
+	_portrait.custom_minimum_size = Vector2(330.0, 328.0)
+	_portrait.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	portrait_box.add_child(_portrait)
 
-## Highlights whichever tab is currently selected — a simple border/bg
-## swap on top of UIKit.make_button()'s existing 3-state styling.
-func _restyle_tab_buttons(theme: UIKit.UITheme) -> void:
-	for key: String in _tab_buttons.keys():
-		var btn: Button = _tab_buttons[key]
-		var selected: bool = key == _selected_tab
-		var sb: StyleBoxFlat = StyleBoxFlat.new()
-		sb.bg_color = Color(0.20, 0.20, 0.23, 0.98) if selected else Color(0.14, 0.14, 0.16, 0.95)
-		sb.border_color = theme.accent if selected else Color(0.30, 0.30, 0.33, 0.85)
-		sb.set_border_width_all(2 if selected else 1)
-		sb.set_corner_radius_all(3)
-		btn.add_theme_stylebox_override("normal", sb)
+	var relationship_card: PanelContainer = _card(Color("141b1a"), S.BRASS.darkened(0.3), 8)
+	column.add_child(relationship_card)
+	var relationship_box: VBoxContainer = VBoxContainer.new()
+	relationship_box.add_theme_constant_override("separation", 5)
+	relationship_card.add_child(C.inset(relationship_box, 11, 8, 11, 9))
+	var relationship_title: HBoxContainer = HBoxContainer.new()
+	relationship_box.add_child(relationship_title)
+	var title: Label = _label("YOUR RELATIONSHIP", 11, S.MUTED)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	relationship_title.add_child(title)
+	_relationship_label = _label("Neutral", 12, S.IVORY)
+	_relationship_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	relationship_title.add_child(_relationship_label)
+	_relationship_meter = RELATIONSHIP_METER.new() as NPCRelationshipMeter
+	relationship_box.add_child(_relationship_meter)
+	var scale_row: HBoxContainer = HBoxContainer.new()
+	relationship_box.add_child(scale_row)
+	var hostile: Label = _label("-100  Hostile", 10, S.MUTED)
+	hostile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scale_row.add_child(hostile)
+	_relationship_value = _label("+0", 11, S.IVORY)
+	_relationship_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	scale_row.add_child(_relationship_value)
+	var close_label: Label = _label("Close  +100", 10, S.MUTED)
+	close_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	close_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	scale_row.add_child(close_label)
+	_trait_row = HFlowContainer.new()
+	_trait_row.add_theme_constant_override("h_separation", 5)
+	_trait_row.add_theme_constant_override("v_separation", 5)
+	relationship_box.add_child(_trait_row)
 
-func _on_tab_selected(key: String) -> void:
-	_selected_tab = key
-	var theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.NEUTRAL)
-	_restyle_tab_buttons(theme)
-	_rebuild_content_pane(theme)
 
-func _rebuild_content_pane(theme: UIKit.UITheme) -> void:
-	if _content_pane == null:
-		return
-	for child: Node in _content_pane.get_children():
-		child.queue_free()
-	_dialogue_label = null
-	_relationship_box = null
-	_log_rows_box = null
-	_requests_box = null
-	_jobs_box = null
+func _build_needs_strip(parent: Container) -> void:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.name = "ResidentNeeds"
+	row.add_theme_constant_override("separation", 7)
+	parent.add_child(row)
+	var entries: Array[Dictionary] = [
+		{"key": "Health", "icon": "health", "color": HEALTH_COLOR},
+		{"key": "Energy", "icon": "power", "color": ENERGY_COLOR},
+		{"key": "Food", "icon": "food", "color": FOOD_COLOR},
+		{"key": "Water", "icon": "water", "color": WATER_COLOR},
+		{"key": "Mood", "icon": "mood", "color": MOOD_COLOR},
+	]
+	for entry: Dictionary in entries:
+		var key: String = String(entry["key"])
+		var color: Color = entry["color"] as Color
+		var card: PanelContainer = _card(Color("151c1b"), S.BRASS.darkened(0.4), 7)
+		card.custom_minimum_size.y = 78.0
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(card)
+		var card_row: HBoxContainer = HBoxContainer.new()
+		card_row.add_theme_constant_override("separation", 8)
+		card.add_child(C.inset(card_row, 8, 7, 8, 7))
+		card_row.add_child(_icon(String(entry["icon"]), 27.0, color))
+		var copy: VBoxContainer = VBoxContainer.new()
+		copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		copy.add_theme_constant_override("separation", 3)
+		card_row.add_child(copy)
+		copy.add_child(_label(key.to_upper(), 10, S.MUTED))
+		var value_label: Label = _label("100 / 100", 13, S.IVORY)
+		copy.add_child(value_label)
+		var bar: ProgressBar = _progress(color, 6.0)
+		copy.add_child(bar)
+		_need_values[key] = value_label
+		_need_bars[key] = bar
 
-	match _selected_tab:
-		"talk":
-			_build_talk_tab(theme)
-		"requests":
-			_build_requests_tab(theme)
-		"medical":
-			_build_medical_tab(theme)
-		"log":
-			_build_log_tab(theme)
 
-# ─── Talk tab ──────────────────────────────────────────────────────────────
-## No more standalone "Talk" button — arriving at this tab (first click
-## or reselecting it) IS the talk action: greeting line shows
-## immediately, Ask About sits right below.
-func _build_talk_tab(theme: UIKit.UITheme) -> void:
-	_dialogue_label = Label.new()
-	_dialogue_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_dialogue_label.autowrap_mode = TextServer.AUTOWRAP_WORD
-	_dialogue_label.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-	_dialogue_label.add_theme_color_override("font_color", theme.text)
-	_dialogue_label.add_theme_font_override("font", UIKit.font())
-	if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_dialogue_line"):
-		_dialogue_label.text = _npc.get_dialogue_line()
-	_content_pane.add_child(_dialogue_label)
+func _build_pages(parent: Container) -> void:
+	var stack: Control = Control.new()
+	stack.name = "ResidentPages"
+	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(stack)
 
-	_relationship_box = VBoxContainer.new()
-	_relationship_box.add_theme_constant_override("separation", 4)
-	_content_pane.add_child(_relationship_box)
-	_relationship_box.add_child(UIKit.make_section_label("ASK ABOUT", theme))
-	_relationship_box.add_child(UIKit.make_button("What do you think of me?", _on_ask_about_player_pressed))
-	if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_other_npc_topics"):
-		for topic: Dictionary in _npc.get_other_npc_topics():
-			var target_id: String = String(topic.get("id", ""))
-			var target_name: String = String(topic.get("name", "them"))
-			_relationship_box.add_child(UIKit.make_button(
-				"What do you think of %s?" % target_name,
-				Callable(self, "_on_ask_about_npc_pressed").bind(target_id)))
+	var overview_data: Dictionary = _make_page(stack, "OverviewPage")
+	_build_overview(overview_data["content"] as VBoxContainer)
+	var talk_data: Dictionary = _make_page(stack, "TalkPage")
+	_build_talk(talk_data["content"] as VBoxContainer)
+	var requests_data: Dictionary = _make_page(stack, "RequestsPage")
+	_build_requests(requests_data["content"] as VBoxContainer)
+	var health_data: Dictionary = _make_page(stack, "HealthPage")
+	_build_health(health_data["content"] as VBoxContainer)
+	var log_data: Dictionary = _make_page(stack, "ActivityLogPage")
+	_build_activity_log(log_data["content"] as VBoxContainer)
+	_set_tab(ResidentTab.OVERVIEW, false)
 
-# ─── Requests tab ──────────────────────────────────────────────────────────
-func _build_requests_tab(theme: UIKit.UITheme) -> void:
-	_requests_box = VBoxContainer.new()
-	_requests_box.add_theme_constant_override("separation", 4)
-	_content_pane.add_child(_requests_box)
-	_requests_box.add_child(UIKit.make_button("Can you go eat something?", _on_command_eat_pressed))
-	_requests_box.add_child(UIKit.make_button("Can you go drink something?", _on_command_drink_pressed))
-	_requests_box.add_child(UIKit.make_button("Take a load off", _on_command_rest_pressed))
-	_requests_box.add_child(UIKit.make_button("Can you complete this job?", _on_jobs_toggle_pressed))
 
-	_jobs_box = VBoxContainer.new()
-	_jobs_box.add_theme_constant_override("separation", 4)
-	_jobs_box.visible = false
-	_content_pane.add_child(_jobs_box)
+func _make_page(parent: Control, page_name: String) -> Dictionary:
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.name = page_name
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	parent.add_child(scroll)
+	var content: VBoxContainer = VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 8)
+	var inset: MarginContainer = C.inset(content, 2, 2, 9, 4)
+	inset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(inset)
+	_pages.append(scroll)
+	_scrolls.append(scroll)
+	return {"scroll": scroll, "content": content}
+
+
+func _build_overview(parent: VBoxContainer) -> void:
+	var columns: HBoxContainer = HBoxContainer.new()
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	columns.add_theme_constant_override("separation", 9)
+	parent.add_child(columns)
+
+	var left: VBoxContainer = VBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.size_flags_stretch_ratio = 1.35
+	left.add_theme_constant_override("separation", 8)
+	columns.add_child(left)
+	_build_activity_card(left)
+	_build_skills_card(left)
+
+	var right: VBoxContainer = VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_stretch_ratio = 0.9
+	right.add_theme_constant_override("separation", 8)
+	columns.add_child(right)
+	_build_at_a_glance(right)
+	_talk_to_button = Button.new()
+	_talk_to_button.text = "Talk to resident"
+	_talk_to_button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	S.icon_button(_talk_to_button, "talk", true)
+	_talk_to_button.custom_minimum_size.y = 55.0
+	_talk_to_button.pressed.connect(_open_talk_tab)
+	right.add_child(_talk_to_button)
+
+
+func _build_activity_card(parent: Container) -> void:
+	var card: PanelContainer = _card(Color("131a19"), S.BRASS.darkened(0.35), 8)
+	card.custom_minimum_size.y = 155.0
+	parent.add_child(card)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 7)
+	card.add_child(C.inset(box, 12, 9, 12, 10))
+	C.section_header(box, "CURRENT ACTIVITY", "LIVE")
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 11)
+	box.add_child(row)
+	_activity_icon = _icon("clock", 34.0, S.IVORY)
+	row.add_child(_activity_icon)
+	var copy: VBoxContainer = VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(copy)
+	_activity_title = _label("Idle", 17, S.IVORY)
+	copy.add_child(_activity_title)
+	_activity_detail = _label("Live behavior • Updates automatically", 11, S.MUTED)
+	copy.add_child(_activity_detail)
+	_activity_state_panel = PanelContainer.new()
+	_activity_state_panel.custom_minimum_size = Vector2(96.0, 30.0)
+	row.add_child(_activity_state_panel)
+	_activity_state_label = _label("IDLE", 11, S.MUTED)
+	_activity_state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_activity_state_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_activity_state_panel.add_child(_activity_state_label)
+	var explanation: Label = _label(
+		"The resident's current behavior is shown exactly as the simulation reports it.",
+		11, S.MUTED
+	)
+	explanation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(explanation)
+
+
+func _build_skills_card(parent: Container) -> void:
+	var card: PanelContainer = _card(Color("131a19"), S.BRASS.darkened(0.35), 8)
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(card)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 7)
+	card.add_child(C.inset(box, 12, 9, 12, 9))
+	C.section_header(box, "SKILLS", "20 MAX")
+	var icons: Dictionary = {
+		"farming": "plant",
+		"plumbing": "water",
+		"electrical": "power",
+		"construction": "build",
+	}
+	for skill: String in ["farming", "plumbing", "electrical", "construction"]:
+		var row: HBoxContainer = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		box.add_child(row)
+		row.add_child(_icon(String(icons[skill]), 21.0, S.IVORY))
+		var name_label: Label = _label(skill.capitalize(), 12, S.MUTED)
+		name_label.custom_minimum_size.x = 86.0
+		row.add_child(name_label)
+		var bar: ProgressBar = _progress(S.BLUE, 7.0)
+		bar.max_value = 20.0
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(bar)
+		var value_label: Label = _label("10", 12, S.IVORY)
+		value_label.custom_minimum_size.x = 24.0
+		value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(value_label)
+		_skill_bars[skill] = bar
+		_skill_values[skill] = value_label
+
+
+func _build_at_a_glance(parent: Container) -> void:
+	var card: PanelContainer = _card(Color("131a19"), S.BRASS.darkened(0.35), 8)
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(card)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
+	card.add_child(C.inset(box, 12, 9, 12, 9))
+	C.section_header(box, "AT A GLANCE")
+	_overview_medical_value = _build_fact_row(box, "medical", "Medical status", "No active conditions")
+	box.add_child(HSeparator.new())
+	_overview_irritability_value = _build_fact_row(box, "mood", "Irritability", "Calm")
+	box.add_child(HSeparator.new())
+	_overview_last_action_value = _build_fact_row(box, "clock", "Last notable action", "Nothing notable yet")
+
+
+func _build_fact_row(parent: Container, symbol: String, title_text: String, value_text: String) -> Label:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.custom_minimum_size.y = 67.0
+	row.add_theme_constant_override("separation", 10)
+	parent.add_child(row)
+	row.add_child(_icon(symbol, 23.0, S.IVORY))
+	var copy: VBoxContainer = VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	copy.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(copy)
+	copy.add_child(_label(title_text, 11, S.MUTED))
+	var value_label: Label = _label(value_text, 12, S.IVORY)
+	value_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	value_label.max_lines_visible = 2
+	copy.add_child(value_label)
+	return value_label
+
+
+func _build_talk(parent: VBoxContainer) -> void:
+	C.section_header(parent, "CONVERSATION", "RELATIONSHIPS")
+	var dialogue_card: PanelContainer = _card(Color("132025"), S.BLUE.darkened(0.45), 8)
+	parent.add_child(dialogue_card)
+	var dialogue_row: HBoxContainer = HBoxContainer.new()
+	dialogue_row.add_theme_constant_override("separation", 11)
+	dialogue_card.add_child(C.inset(dialogue_row, 13, 11, 13, 11))
+	dialogue_row.add_child(_icon("talk", 30.0, S.BLUE))
+	var dialogue_copy: VBoxContainer = VBoxContainer.new()
+	dialogue_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dialogue_copy.add_theme_constant_override("separation", 5)
+	dialogue_row.add_child(dialogue_copy)
+	_dialogue_label = _label("Select Talk to begin a conversation.", 15, S.IVORY)
+	_dialogue_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_dialogue_label.custom_minimum_size.y = 54.0
+	dialogue_copy.add_child(_dialogue_label)
+	var talk_again: Button = Button.new()
+	talk_again.text = "Talk again"
+	talk_again.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	S.icon_button(talk_again, "talk")
+	talk_again.custom_minimum_size.x = 170.0
+	talk_again.pressed.connect(_refresh_dialogue)
+	dialogue_row.add_child(talk_again)
+	C.section_header(parent, "ASK ABOUT", "CURRENT RESIDENTS")
+	_talk_topics_box = VBoxContainer.new()
+	_talk_topics_box.add_theme_constant_override("separation", 6)
+	parent.add_child(_talk_topics_box)
+
+
+func _build_requests(parent: VBoxContainer) -> void:
+	C.section_header(parent, "QUICK REQUESTS", "DIRECT COMMANDS")
+	var quick_row: HBoxContainer = HBoxContainer.new()
+	quick_row.add_theme_constant_override("separation", 7)
+	parent.add_child(quick_row)
+	quick_row.add_child(_request_button("Find food", "food", _on_command_eat_pressed))
+	quick_row.add_child(_request_button("Get water", "water", _on_command_drink_pressed))
+	quick_row.add_child(_request_button("Take a rest", "sleep", _on_command_rest_pressed))
+
+	_request_feedback_panel = _card(Color("17231f"), S.GREEN.darkened(0.35), 7)
+	_request_feedback_panel.visible = false
+	parent.add_child(_request_feedback_panel)
+	_request_feedback_label = _label("", 12, S.IVORY)
+	_request_feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_request_feedback_panel.add_child(C.inset(_request_feedback_label, 10, 8, 10, 8))
+
+	C.section_header(parent, "WORK ORDERS", "ASSIGN ONE JOB")
+	var grid: GridContainer = GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 7)
+	grid.add_theme_constant_override("v_separation", 7)
+	parent.add_child(grid)
 	for entry: Dictionary in NPC_JOB_MENU_ENTRIES:
-		var job_type: String = String(entry.get("type", ""))
-		var label_text: String = String(entry.get("label", job_type))
-		_jobs_box.add_child(UIKit.make_button(label_text, Callable(self, "_on_job_command_pressed").bind(job_type)))
+		var button: Button = Button.new()
+		button.text = String(entry["label"])
+		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0.0, 54.0)
+		S.icon_button(button, String(entry["icon"]))
+		button.pressed.connect(_on_job_command_pressed.bind(String(entry["type"])))
+		grid.add_child(button)
+		_job_buttons.append(button)
 
-	## A dialogue line (e.g. the relaxing-refusal line) can still fire
-	## from here — a small inline label local to this tab.
-	_dialogue_label = Label.new()
-	_dialogue_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_dialogue_label.autowrap_mode = TextServer.AUTOWRAP_WORD
-	_dialogue_label.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-	_dialogue_label.add_theme_color_override("font_color", theme.text)
-	_dialogue_label.add_theme_font_override("font", UIKit.font())
-	_dialogue_label.visible = false
-	_content_pane.add_child(_dialogue_label)
 
-# ─── Medical tab ─────────────────────────────────────────────────────────
-## Aug 2026 rewrite — real NPCMedical data, no longer the healthy-for-
-## everyone stub. Per Brannon's explicit spec: only body parts with an
-## active condition are shown at all (not the full always-listed 6), each
-## a dropdown (▶/▼) that reveals its individual conditions, each of
-## THOSE also a dropdown revealing that one condition's numeric detail —
-## a nested dropdown inside a dropdown. Reuses NPCMedical.
-## get_status_detail_text() verbatim for the innermost detail text — same
-## "reuse the exact same per-condition data" principle the player's
-## Status Screen already follows, not a second description of the same
-## data. Same plain-text (not hover) needs-cap reason row the Status
-## Screen uses, reusing NPCMedical.get_needs_cap_reason_text() verbatim.
-func _build_medical_tab(theme: UIKit.UITheme) -> void:
-	if _npc == null or not is_instance_valid(_npc) or not ("medical" in _npc) or _npc.medical == null:
-		_content_pane.add_child(UIKit.make_row_label("No medical data available", theme))
-		return
-	var medical: NPCMedical = _npc.medical
+func _request_button(text_value: String, symbol: String, callback: Callable) -> Button:
+	var button: Button = Button.new()
+	button.text = text_value
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size.y = 52.0
+	S.icon_button(button, symbol)
+	button.pressed.connect(callback)
+	return button
 
-	var reason: String = medical.get_needs_cap_reason_text()
-	if reason != "":
-		var reason_lbl: Label = Label.new()
-		reason_lbl.text = "⚠ " + reason
-		reason_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-		reason_lbl.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-		reason_lbl.add_theme_color_override("font_color", Color(0.85, 0.55, 0.20, 1.0))
-		reason_lbl.add_theme_font_override("font", UIKit.font())
-		_content_pane.add_child(reason_lbl)
 
-	_content_pane.add_child(UIKit.make_section_label("BODY", theme))
+func _build_health(parent: VBoxContainer) -> void:
+	var summary_card: PanelContainer = _card(Color("141b1a"), S.BRASS.darkened(0.35), 8)
+	parent.add_child(summary_card)
+	var summary_row: HBoxContainer = HBoxContainer.new()
+	summary_row.add_theme_constant_override("separation", 10)
+	summary_card.add_child(C.inset(summary_row, 12, 9, 12, 9))
+	summary_row.add_child(_icon("health", 28.0, HEALTH_COLOR))
+	_health_summary_label = _label("No active conditions", 14, S.IVORY)
+	_health_summary_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_health_summary_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	summary_row.add_child(_health_summary_label)
 
-	var any_injury: bool = false
-	for part: int in MEDICAL_BODY_PART_VALUES:
-		var conditions: Array[MedicalCondition] = medical.get_conditions_for_body_part(part)
-		if conditions.is_empty():
-			continue
-		any_injury = true
-		_build_medical_body_part_row(part, conditions, medical, theme)
+	_health_reason_panel = _card(Color("32231b"), ENERGY_COLOR.darkened(0.35), 7)
+	_health_reason_panel.visible = false
+	parent.add_child(_health_reason_panel)
+	_health_reason_label = _label("", 12, ENERGY_COLOR)
+	_health_reason_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_health_reason_panel.add_child(C.inset(_health_reason_label, 10, 8, 10, 8))
 
-	if not any_injury:
-		var ok_lbl: Label = Label.new()
-		ok_lbl.text = "No injuries or illnesses"
-		ok_lbl.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-		ok_lbl.add_theme_color_override("font_color", theme.dim)
-		ok_lbl.add_theme_font_override("font", UIKit.font())
-		_content_pane.add_child(ok_lbl)
+	var columns: HBoxContainer = HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 9)
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(columns)
+	var regions_card: PanelContainer = _card(Color("131918"), S.BRASS.darkened(0.38), 8)
+	regions_card.custom_minimum_size.x = 215.0
+	columns.add_child(regions_card)
+	var regions: VBoxContainer = VBoxContainer.new()
+	regions.add_theme_constant_override("separation", 6)
+	regions_card.add_child(C.inset(regions, 10, 9, 10, 9))
+	C.section_header(regions, "BODY REGIONS")
+	_medical_parts_box = VBoxContainer.new()
+	_medical_parts_box.add_theme_constant_override("separation", 5)
+	regions.add_child(_medical_parts_box)
 
-## Outer dropdown — one body part, expands to list its conditions.
-func _build_medical_body_part_row(part: int, conditions: Array[MedicalCondition], medical: NPCMedical, theme: UIKit.UITheme) -> void:
-	var expanded: bool = bool(_medical_expanded_parts.get(part, false))
-	var header: Button = Button.new()
-	header.flat = true
-	header.focus_mode = Control.FOCUS_ALL
-	header.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	var part_label: String = MedicalCondition.body_part_label(part)
-	header.text = "%s  %s" % ["▼" if expanded else "▶", part_label]
-	header.add_theme_font_size_override("font_size", UIKit.FONT_SIZE_BODY)
-	header.add_theme_color_override("font_color", theme.text)
-	header.add_theme_font_override("font", UIKit.font())
-	_content_pane.add_child(header)
+	var conditions_card: PanelContainer = _card(Color("131918"), S.BRASS.darkened(0.38), 8)
+	conditions_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	columns.add_child(conditions_card)
+	var conditions: VBoxContainer = VBoxContainer.new()
+	conditions.add_theme_constant_override("separation", 7)
+	conditions_card.add_child(C.inset(conditions, 11, 9, 11, 9))
+	C.section_header(conditions, "ACTIVE CONDITIONS", "SELECTED REGION")
+	_medical_conditions_box = VBoxContainer.new()
+	_medical_conditions_box.add_theme_constant_override("separation", 7)
+	conditions.add_child(_medical_conditions_box)
 
-	var body_margin: MarginContainer = MarginContainer.new()
-	body_margin.add_theme_constant_override("margin_left", 16)
-	body_margin.visible = expanded
-	var body_vbox: VBoxContainer = VBoxContainer.new()
-	body_vbox.add_theme_constant_override("separation", 4)
-	body_margin.add_child(body_vbox)
-	_content_pane.add_child(body_margin)
 
-	for c: MedicalCondition in conditions:
-		_build_medical_condition_row(part, c, medical, body_vbox, theme)
-
-	header.pressed.connect(func() -> void:
-		var now: bool = not bool(_medical_expanded_parts.get(part, false))
-		_medical_expanded_parts[part] = now
-		header.text = "%s  %s" % ["▼" if now else "▶", part_label]
-		body_margin.visible = now
-	)
-
-## Inner dropdown — one condition on that body part, expands to show its
-## numeric detail (NPCMedical.get_status_detail_text()).
-func _build_medical_condition_row(part: int, condition: MedicalCondition, medical: NPCMedical, parent: VBoxContainer, theme: UIKit.UITheme) -> void:
-	var key: String = "%d_%s" % [part, condition.id]
-	var expanded: bool = bool(_medical_expanded_conditions.get(key, false))
-	var header: Button = Button.new()
-	header.flat = true
-	header.focus_mode = Control.FOCUS_ALL
-	header.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	var cond_label: String = "%s%s" % [condition.id.capitalize(), " (Infected)" if (condition.id == "open_wound" and condition.is_infected) else ""]
-	header.text = "%s  %s" % ["▼" if expanded else "▶", cond_label]
-	header.add_theme_font_size_override("font_size", 12)
-	header.add_theme_color_override("font_color", theme.dim)
-	header.add_theme_font_override("font", UIKit.font())
-	parent.add_child(header)
-
-	var body_margin: MarginContainer = MarginContainer.new()
-	body_margin.add_theme_constant_override("margin_left", 16)
-	body_margin.visible = expanded
-	var detail_lbl: Label = Label.new()
-	detail_lbl.text = medical.get_status_detail_text(condition)
-	detail_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	detail_lbl.add_theme_font_size_override("font_size", 11)
-	detail_lbl.add_theme_color_override("font_color", theme.dim)
-	detail_lbl.add_theme_font_override("font", UIKit.font())
-	body_margin.add_child(detail_lbl)
-	parent.add_child(body_margin)
-
-	header.pressed.connect(func() -> void:
-		var now: bool = not bool(_medical_expanded_conditions.get(key, false))
-		_medical_expanded_conditions[key] = now
-		header.text = "%s  %s" % ["▼" if now else "▶", cond_label]
-		body_margin.visible = now
-	)
-
-# ─── Log tab (Aug 2026 — moved here from a Talk-tab toggle) ────────────────
-func _build_log_tab(theme: UIKit.UITheme) -> void:
-	_content_pane.add_child(UIKit.make_section_label("ACTIVITY LOG", theme))
-
-	var log_bg: PanelContainer = PanelContainer.new()
-	var log_style: StyleBoxFlat = StyleBoxFlat.new()
-	log_style.bg_color     = Color(0.05, 0.05, 0.06, 0.9)
-	log_style.border_color = Color(0.30, 0.30, 0.33, 0.85)
-	log_style.set_border_width_all(1)
-	log_style.set_corner_radius_all(3)
-	log_style.content_margin_left   = 6.0
-	log_style.content_margin_right  = 6.0
-	log_style.content_margin_top    = 6.0
-	log_style.content_margin_bottom = 6.0
-	log_bg.add_theme_stylebox_override("panel", log_style)
-	_content_pane.add_child(log_bg)
-
+func _build_activity_log(parent: VBoxContainer) -> void:
+	var current_card: PanelContainer = _card(Color("132025"), S.BLUE.darkened(0.5), 7)
+	parent.add_child(current_card)
+	var current_row: HBoxContainer = HBoxContainer.new()
+	current_row.add_theme_constant_override("separation", 9)
+	current_card.add_child(C.inset(current_row, 11, 8, 11, 8))
+	current_row.add_child(_icon("running", 21.0, S.BLUE))
+	current_row.add_child(_label("CURRENT ACTIVITY", 11, S.MUTED))
+	_log_current_activity = _label("Idle", 12, S.IVORY)
+	_log_current_activity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_log_current_activity.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	current_row.add_child(_log_current_activity)
+	C.section_header(parent, "ACTIVITY LOG", "NEWEST FIRST")
 	_log_rows_box = VBoxContainer.new()
-	_log_rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_log_rows_box.add_theme_constant_override("separation", 2)
-	log_bg.add_child(_log_rows_box)
+	_log_rows_box.add_theme_constant_override("separation", 6)
+	parent.add_child(_log_rows_box)
 
-	if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_action_log"):
-		if not _npc.action_logged.is_connected(_rebuild_log_rows):
-			_npc.action_logged.connect(_rebuild_log_rows)
-	_rebuild_log_rows()
 
-# ─── Live refresh ─────────────────────────────────────────────────────────
+func _set_tab(index: int, refresh_content: bool = true) -> void:
+	if index < 0 or index >= _tab_buttons.size():
+		return
+	_active_tab = index
+	for button_index: int in range(_tab_buttons.size()):
+		_tab_buttons[button_index].button_pressed = button_index == index
+		_pages[button_index].visible = button_index == index
+	if refresh_content:
+		if index == ResidentTab.TALK:
+			_refresh_dialogue()
+			_rebuild_talk_topics()
+		elif index == ResidentTab.HEALTH:
+			_rebuild_health(true)
+		elif index == ResidentTab.ACTIVITY_LOG:
+			_rebuild_log_rows()
+	if index < _scrolls.size():
+		_reset_scroll(_scrolls[index])
+
+
+func _cycle_tab(direction: int) -> void:
+	var next_tab: int = wrapi(_active_tab + direction, 0, _tab_buttons.size())
+	_set_tab(next_tab, true)
+	_tab_buttons[next_tab].grab_focus()
+
+
+func _open_talk_tab() -> void:
+	_set_tab(ResidentTab.TALK, true)
+	if InputMode.is_controller() and _talk_topics_box != null:
+		for child: Node in _talk_topics_box.get_children():
+			if child is Button:
+				(child as Button).grab_focus()
+				break
+
+
 func _refresh_live_values() -> void:
 	if _npc == null or not is_instance_valid(_npc):
 		return
-	var theme: UIKit.UITheme = UIKit.theme_for(UIKit.Domain.NEUTRAL)
+	var resident_name: String = String(_npc.get("npc_name"))
+	var age: int = int(_npc.get("age"))
+	var activity: String = _current_activity()
+	_name_label.text = resident_name
+	_identity_line.text = "Age %d  •  %s" % [age, activity]
+	_talk_to_button.text = "Talk to %s" % resident_name
+	_update_activity(activity)
+	_update_needs()
+	_update_relationship()
+	_update_skills()
+	_update_overview_facts()
+	if _log_current_activity != null:
+		_log_current_activity.text = activity
 
-	var needs: Dictionary = {
-		"Health": float(_npc.health),
-		"Energy": float(_npc.energy),
-		"Hunger": float(_npc.hunger),
-		"Thirst": float(_npc.thirst),
-		"Mood": float(_npc.mood),
+
+func _update_activity(activity: String) -> void:
+	_activity_title.text = activity
+	_activity_detail.text = _activity_detail_text(activity)
+	_activity_icon.texture = S.icon(_activity_icon_kind(activity))
+	var state: String = _activity_state(activity)
+	var color: Color = S.GREEN
+	if state == "RESTING":
+		color = S.BLUE
+	elif state == "IDLE":
+		color = S.MUTED
+	elif state == "UNWELL":
+		color = S.RED
+	_header_state_label.text = state
+	_header_state_label.add_theme_color_override("font_color", color)
+	_header_state_icon.texture = S.icon("running" if state == "ON DUTY" else "clock")
+	_header_state_icon.self_modulate = color
+	_set_state_panel(_header_state_panel, color)
+	_activity_state_label.text = state
+	_activity_state_label.add_theme_color_override("font_color", color)
+	_set_state_panel(_activity_state_panel, color)
+
+
+func _update_needs() -> void:
+	var values: Dictionary = {
+		"Health": float(_npc.get("health")),
+		"Energy": float(_npc.get("energy")),
+		"Food": float(_npc.get("hunger")),
+		"Water": float(_npc.get("thirst")),
+		"Mood": float(_npc.get("mood")),
 	}
-	for need: String in needs.keys():
-		var v: float = clampf(needs[need], 0.0, 100.0)
-		var fill: ColorRect = _need_fills.get(need)
-		var lbl: Label = _need_labels.get(need)
-		if fill != null:
-			fill.size = Vector2(NEEDS_BAR_TRACK_W * (v / 100.0), BAR_H)
-			fill.color = NEED_COLORS.get(need, theme.ok)
-		if lbl != null:
-			lbl.text = str(int(round(v)))
+	for key: String in values.keys():
+		var value: float = clampf(float(values[key]), 0.0, 100.0)
+		var bar: ProgressBar = _need_bars[key] as ProgressBar
+		var label: Label = _need_values[key] as Label
+		SMOOTH_BAR.apply(bar, value)
+		label.text = "%d / 100" % int(round(value))
 
-	if "skills" in _npc:
-		for skill: String in _skill_labels.keys():
-			var s: float = float(_npc.skills.get(skill, 1.0))
-			(_skill_labels[skill] as Label).text = "%s %d" % [skill.capitalize(), int(round(s * 10.0))]
 
-	if _identity_task_label != null and "brain" in _npc and _npc.brain != null:
-		_identity_task_label.text = _npc.brain.current_label()
+func _update_relationship() -> void:
+	var value: float = 0.0
+	var label_text: String = "Neutral"
+	if _npc.has_method("get_relationship"):
+		value = float(_npc.call("get_relationship", "player"))
+	if _npc.has_method("get_relationship_label"):
+		label_text = String(_npc.call("get_relationship_label", "player"))
+	var color: Color = _relationship_color(label_text)
+	_relationship_label.text = label_text
+	_relationship_label.add_theme_color_override("font_color", color)
+	_relationship_value.text = "%+.0f" % value
+	_relationship_meter.set_target_value(value)
+	_header_relationship_label.text = "%s  %+.0f" % [label_text.to_upper(), value]
+	_header_relationship_label.add_theme_color_override("font_color", color)
+	_set_state_panel(_header_relationship_panel, color)
 
-	if _identity_age_label != null and ("age" in _npc):
-		_identity_age_label.text = "Age %d" % int(_npc.age)
 
-	if _trait_label != null and _npc.has_method("get_personality_words"):
-		var words: Array[String] = _npc.get_personality_words()
-		_trait_label.text = ", ".join(words) if not words.is_empty() else "Nothing stands out"
-
-# ─── Buttons ──────────────────────────────────────────────────────────────
-## Shared dispatch for every command button. Feedback is a plain
-## NotificationManager toast confirming the command was ISSUED — not that
-## it necessarily found something to do (e.g. "Harvest" still confirms
-## even with nothing ready; the toast text itself says so, and the NPC
-## visibly does nothing further, which is honest feedback on its own).
-func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: String) -> void:
-	if _npc == null or not is_instance_valid(_npc) or not ("brain" in _npc) or _npc.brain == null:
+func _update_skills() -> void:
+	var skills_variant: Variant = _npc.get("skills")
+	if not (skills_variant is Dictionary):
 		return
-	_npc.brain.force_command(activity)
-	if activity.done(_npc):
-		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
-			"%s: %s" % [_npc.npc_name, empty_desc])
+	var skills: Dictionary = skills_variant as Dictionary
+	for skill: String in _skill_bars.keys():
+		var display_value: float = clampf(float(skills.get(skill, 1.0)) * 10.0, 0.0, 20.0)
+		SMOOTH_BAR.apply(_skill_bars[skill] as ProgressBar, display_value)
+		(_skill_values[skill] as Label).text = str(int(round(display_value)))
+
+
+func _update_overview_facts() -> void:
+	var condition_count: int = _active_condition_count()
+	_overview_medical_value.text = (
+		"No active conditions" if condition_count == 0
+		else "%d active condition%s" % [condition_count, "" if condition_count == 1 else "s"]
+	)
+	_overview_medical_value.add_theme_color_override(
+		"font_color", S.GREEN if condition_count == 0 else S.RED
+	)
+	var irritation: String = ""
+	if _npc.has_method("get_irritability_label"):
+		irritation = String(_npc.call("get_irritability_label"))
+	_overview_irritability_value.text = "Calm" if irritation == "" else irritation
+	_overview_irritability_value.add_theme_color_override(
+		"font_color", S.GREEN if irritation == "" else ENERGY_COLOR
+	)
+	var entries: Array[Dictionary] = _get_action_log()
+	if entries.is_empty():
+		_overview_last_action_value.text = "Nothing notable yet"
 	else:
-		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
-			"%s: %s" % [_npc.npc_name, action_desc])
+		var latest: Dictionary = entries[0]
+		_overview_last_action_value.text = "%s  •  %s" % [
+			String(latest.get("text", "Nothing notable yet")),
+			_format_log_age(int(latest.get("fired_at_msec", Time.get_ticks_msec()))),
+		]
 
-func _on_command_eat_pressed() -> void:
-	_issue_command(EatActivity.new(), "heading to eat", "nothing to eat nearby")
 
-func _on_command_drink_pressed() -> void:
-	_issue_command(DrinkActivity.new(), "heading to get water", "no water source nearby")
+func _rebuild_traits() -> void:
+	_clear(_trait_row)
+	var words: Array[String] = []
+	if _npc != null and _npc.has_method("get_personality_words"):
+		var result: Variant = _npc.call("get_personality_words")
+		if result is Array:
+			for word_variant: Variant in result:
+				words.append(String(word_variant))
+	if words.is_empty():
+		words.append("No notable traits")
+	for word: String in words:
+		var pill: PanelContainer = _card(Color("192220"), S.BRASS.darkened(0.38), 6)
+		_trait_row.add_child(pill)
+		var row: HBoxContainer = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 5)
+		pill.add_child(C.inset(row, 7, 4, 7, 4))
+		var dot: ColorRect = ColorRect.new()
+		dot.color = S.GREEN
+		dot.custom_minimum_size = Vector2(7.0, 7.0)
+		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(dot)
+		row.add_child(_label(word, 10, S.IVORY))
 
-func _on_command_rest_pressed() -> void:
-	_issue_command(CommandRestActivity.new(), "heading to rest", "nowhere to rest nearby")
 
-func _on_jobs_toggle_pressed() -> void:
-	_jobs_expanded = not _jobs_expanded
-	if _jobs_box != null:
-		_jobs_box.visible = _jobs_expanded
+func _rebuild_talk_topics() -> void:
+	if _talk_topics_box == null:
+		return
+	_clear(_talk_topics_box)
+	var player_button: Button = Button.new()
+	player_button.text = "What do you think of me?"
+	player_button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	player_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	S.icon_button(player_button, "relationship")
+	player_button.pressed.connect(_show_relationship_answer.bind("player"))
+	_talk_topics_box.add_child(player_button)
+	if _npc == null or not _npc.has_method("get_other_npc_topics"):
+		return
+	var topics_variant: Variant = _npc.call("get_other_npc_topics")
+	if not (topics_variant is Array):
+		return
+	for topic_variant: Variant in topics_variant:
+		if not (topic_variant is Dictionary):
+			continue
+		var topic: Dictionary = topic_variant as Dictionary
+		var target_id: String = String(topic.get("id", ""))
+		var target_name: String = String(topic.get("name", "them"))
+		var button: Button = Button.new()
+		button.text = "What do you think of %s?" % target_name
+		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		S.icon_button(button, "talk")
+		button.pressed.connect(_show_relationship_answer.bind(target_id))
+		_talk_topics_box.add_child(button)
 
-## Same "asking during a conversation shouldn't count" relaxing-refusal
-## guard the old Harvest-only handler had — applies to EVERY job type
-## uniformly.
-func _on_job_command_pressed(job_type: String) -> void:
-	if _npc != null and is_instance_valid(_npc) and _npc.has_method("is_relaxing") and _npc.is_relaxing():
-		if _npc.has_method("request_job_while_relaxing") and not _npc.request_job_while_relaxing():
-			if _dialogue_label != null and _npc.has_method("get_relaxing_refusal_line"):
-				_dialogue_label.text = _npc.get_relaxing_refusal_line()
-				_dialogue_label.visible = true
-			return
-	var entry: Dictionary = {}
-	for e: Dictionary in NPC_JOB_MENU_ENTRIES:
-		if String(e.get("type", "")) == job_type:
-			entry = e
-			break
-	var action_desc: String = String(entry.get("action_desc", "heading to work"))
-	var empty_desc: String = String(entry.get("empty_desc", "nothing to do right now"))
-	if job_type == "CLEANING":
-		if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_cleaning_unavailable_reason"):
-			var reason: String = _npc.get_cleaning_unavailable_reason()
-			if reason != "" and CLEANING_UNAVAILABLE_REASONS.has(reason):
-				empty_desc = String(CLEANING_UNAVAILABLE_REASONS[reason])
-		_issue_command(CommandCleaningActivity.new(), action_desc, empty_desc)
-	elif job_type == "REFUEL":
-		if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_refuel_unavailable_reason"):
-			var rreason: String = _npc.get_refuel_unavailable_reason()
-			if rreason != "" and REFUEL_UNAVAILABLE_REASONS.has(rreason):
-				empty_desc = String(REFUEL_UNAVAILABLE_REASONS[rreason])
-		_issue_command(CommandRefuelActivity.new(), action_desc, empty_desc)
-	elif job_type == "FARMING":
-		var farm_cmd: CommandGardeningActivity = CommandGardeningActivity.new()
-		farm_cmd.mode = "farming"
-		_issue_command(farm_cmd, action_desc, empty_desc)
-	elif job_type == "FERTILIZE":
-		var fert_cmd: CommandGardeningActivity = CommandGardeningActivity.new()
-		fert_cmd.mode = "fertilize_only"
-		_issue_command(fert_cmd, action_desc, empty_desc)
-	elif job_type == "COOKING":
-		if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_cooking_unavailable_reason"):
-			var creason: String = _npc.get_cooking_unavailable_reason()
-			if creason != "" and COOKING_UNAVAILABLE_REASONS.has(creason):
-				empty_desc = String(COOKING_UNAVAILABLE_REASONS[creason])
-		_issue_command(CommandCookingActivity.new(), action_desc, empty_desc)
-	else:
-		_issue_command(CommandJobActivity.new(job_type), action_desc, empty_desc)
 
-# ─── Ask About (Part 23) ─────────────────────────────────────────────────
-func _on_ask_about_player_pressed() -> void:
-	_show_relationship_answer("player")
+func _refresh_dialogue() -> void:
+	if _dialogue_label == null or _npc == null:
+		return
+	if _npc.has_method("get_dialogue_line"):
+		_dialogue_label.text = String(_npc.call("get_dialogue_line"))
 
-func _on_ask_about_npc_pressed(target_id: String) -> void:
-	_show_relationship_answer(target_id)
 
 func _show_relationship_answer(target_id: String) -> void:
 	if _dialogue_label == null or _npc == null or not is_instance_valid(_npc):
 		return
 	if _npc.has_method("get_relationship_dialogue_line"):
-		_dialogue_label.text = _npc.get_relationship_dialogue_line(target_id)
-		_dialogue_label.visible = true
+		_dialogue_label.text = String(_npc.call("get_relationship_dialogue_line", target_id))
 
-# ─── Action Log ───────────────────────────────────────────────────────────
+
+func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: String) -> void:
+	if _npc == null or not is_instance_valid(_npc):
+		return
+	var brain: Object = _npc.get("brain") as Object
+	if brain == null or not brain.has_method("force_command"):
+		return
+	brain.call("force_command", activity)
+	var resident_name: String = String(_npc.get("npc_name"))
+	if activity.done(_npc):
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
+			"%s: %s" % [resident_name, empty_desc])
+		_show_request_feedback("%s: %s" % [resident_name, empty_desc], false)
+	else:
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
+			"%s: %s" % [resident_name, action_desc])
+		_show_request_feedback("Request accepted — %s is %s." % [resident_name, action_desc], true)
+
+
+func _on_command_eat_pressed() -> void:
+	_issue_command(EatActivity.new(), "heading to eat", "nothing to eat nearby")
+
+
+func _on_command_drink_pressed() -> void:
+	_issue_command(DrinkActivity.new(), "heading to get water", "no water source nearby")
+
+
+func _on_command_rest_pressed() -> void:
+	_issue_command(CommandRestActivity.new(), "heading to rest", "nowhere to rest nearby")
+
+
+func _on_job_command_pressed(job_type: String) -> void:
+	if _npc != null and _npc.has_method("is_relaxing") and _npc.call("is_relaxing") == true:
+		if _npc.has_method("request_job_while_relaxing") \
+				and _npc.call("request_job_while_relaxing") != true:
+			var refusal: String = "They would rather keep resting."
+			if _npc.has_method("get_relaxing_refusal_line"):
+				refusal = String(_npc.call("get_relaxing_refusal_line"))
+			_show_request_feedback(refusal, false)
+			return
+	var entry: Dictionary = {}
+	for candidate: Dictionary in NPC_JOB_MENU_ENTRIES:
+		if String(candidate.get("type", "")) == job_type:
+			entry = candidate
+			break
+	var action_desc: String = String(entry.get("action_desc", "heading to work"))
+	var empty_desc: String = String(entry.get("empty_desc", "nothing to do right now"))
+	if job_type == "CLEANING":
+		if _npc.has_method("get_cleaning_unavailable_reason"):
+			var reason: String = String(_npc.call("get_cleaning_unavailable_reason"))
+			if CLEANING_UNAVAILABLE_REASONS.has(reason):
+				empty_desc = String(CLEANING_UNAVAILABLE_REASONS[reason])
+		_issue_command(CommandCleaningActivity.new(), action_desc, empty_desc)
+	elif job_type == "REFUEL":
+		if _npc.has_method("get_refuel_unavailable_reason"):
+			var reason: String = String(_npc.call("get_refuel_unavailable_reason"))
+			if REFUEL_UNAVAILABLE_REASONS.has(reason):
+				empty_desc = String(REFUEL_UNAVAILABLE_REASONS[reason])
+		_issue_command(CommandRefuelActivity.new(), action_desc, empty_desc)
+	elif job_type == "FARMING":
+		var farm_command: CommandGardeningActivity = CommandGardeningActivity.new()
+		farm_command.mode = "farming"
+		_issue_command(farm_command, action_desc, empty_desc)
+	elif job_type == "FERTILIZE":
+		var fertilizer_command: CommandGardeningActivity = CommandGardeningActivity.new()
+		fertilizer_command.mode = "fertilize_only"
+		_issue_command(fertilizer_command, action_desc, empty_desc)
+	elif job_type == "COOKING":
+		if _npc.has_method("get_cooking_unavailable_reason"):
+			var reason: String = String(_npc.call("get_cooking_unavailable_reason"))
+			if COOKING_UNAVAILABLE_REASONS.has(reason):
+				empty_desc = String(COOKING_UNAVAILABLE_REASONS[reason])
+		_issue_command(CommandCookingActivity.new(), action_desc, empty_desc)
+	else:
+		_issue_command(CommandJobActivity.new(job_type), action_desc, empty_desc)
+
+
+func _show_request_feedback(message: String, success: bool) -> void:
+	_request_feedback_panel.visible = true
+	_request_feedback_label.text = message
+	var color: Color = S.GREEN if success else ENERGY_COLOR
+	_request_feedback_label.add_theme_color_override("font_color", color)
+	_request_feedback_panel.add_theme_stylebox_override("panel", C.panel_box(
+		Color("17231f") if success else Color("32231b"), color.darkened(0.35), 7, 1
+	))
+
+
+func _rebuild_health(force: bool) -> void:
+	if _medical_parts_box == null or _medical_conditions_box == null:
+		return
+	var signature: String = _medical_state_signature()
+	if not force and signature == _medical_signature:
+		return
+	_medical_signature = signature
+	_clear(_medical_parts_box)
+	_clear(_medical_conditions_box)
+	_medical_part_buttons.clear()
+	var medical: NPCMedical = _npc_medical()
+	if medical == null:
+		_health_summary_label.text = "No medical data available"
+		_medical_conditions_box.add_child(_empty_state("Medical information is unavailable."))
+		return
+	var active_parts: Array[int] = []
+	for part: int in MEDICAL_BODY_PARTS:
+		if not medical.get_conditions_for_body_part(part).is_empty():
+			active_parts.append(part)
+	var count: int = medical.active_conditions.size()
+	_health_summary_label.text = (
+		"No injuries or illnesses" if count == 0
+		else "%d active condition%s requiring attention" % [count, "" if count == 1 else "s"]
+	)
+	_health_summary_label.add_theme_color_override("font_color", S.GREEN if count == 0 else S.RED)
+	var reason: String = medical.get_needs_cap_reason_text()
+	_health_reason_panel.visible = reason != ""
+	_health_reason_label.text = "⚠  " + reason if reason != "" else ""
+	if active_parts.is_empty():
+		_selected_medical_part = -1
+		_medical_parts_box.add_child(_empty_state("ALL REGIONS CLEAR"))
+		_medical_conditions_box.add_child(_empty_state(
+			"No active conditions. This resident is currently healthy."
+		))
+		return
+	if not active_parts.has(_selected_medical_part):
+		_selected_medical_part = active_parts[0]
+	for part: int in active_parts:
+		var conditions: Array[MedicalCondition] = medical.get_conditions_for_body_part(part)
+		var button: Button = Button.new()
+		button.text = "%s    %d" % [MedicalCondition.body_part_label(part).to_upper(), conditions.size()]
+		button.icon = S.icon("medical")
+		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.expand_icon = true
+		C.style_segment(button, true)
+		button.button_pressed = part == _selected_medical_part
+		button.pressed.connect(_select_medical_part.bind(part))
+		_medical_parts_box.add_child(button)
+		_medical_part_buttons[part] = button
+	_rebuild_selected_conditions()
+
+
+func _select_medical_part(part: int) -> void:
+	_selected_medical_part = part
+	for key: Variant in _medical_part_buttons.keys():
+		(_medical_part_buttons[key] as Button).button_pressed = int(key) == part
+	_rebuild_selected_conditions()
+
+
+func _rebuild_selected_conditions() -> void:
+	_clear(_medical_conditions_box)
+	var medical: NPCMedical = _npc_medical()
+	if medical == null or _selected_medical_part < 0:
+		return
+	var conditions: Array[MedicalCondition] = medical.get_conditions_for_body_part(_selected_medical_part)
+	for condition: MedicalCondition in conditions:
+		var ring_color: Color = medical.get_ring_color_for_condition(condition)
+		var card: PanelContainer = _card(Color("171d1c"), ring_color.darkened(0.2), 7)
+		_medical_conditions_box.add_child(card)
+		var row: HBoxContainer = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		card.add_child(C.inset(row, 11, 9, 11, 9))
+		row.add_child(_icon("medical", 25.0, ring_color))
+		var copy: VBoxContainer = VBoxContainer.new()
+		copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		copy.add_theme_constant_override("separation", 4)
+		row.add_child(copy)
+		var title_row: HBoxContainer = HBoxContainer.new()
+		copy.add_child(title_row)
+		var title: Label = _label(_condition_title(condition), 14, S.IVORY)
+		title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		title_row.add_child(title)
+		var state: Label = _label(_condition_state(condition), 10, ring_color)
+		state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		title_row.add_child(state)
+		var detail: Label = _label(medical.get_status_detail_text(condition), 11, S.MUTED)
+		detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		copy.add_child(detail)
+
+
+func _medical_state_signature() -> String:
+	var medical: NPCMedical = _npc_medical()
+	if medical == null:
+		return "none"
+	var parts: PackedStringArray = PackedStringArray()
+	for condition: MedicalCondition in medical.active_conditions:
+		parts.append("%s:%d:%s:%s" % [
+			condition.id,
+			condition.body_part,
+			str(condition.is_treated),
+			str(condition.is_infected),
+		])
+	return "|".join(parts)
+
+
+func _npc_medical() -> NPCMedical:
+	if _npc == null or not is_instance_valid(_npc):
+		return null
+	var value: Variant = _npc.get("medical")
+	return value as NPCMedical
+
+
+func _active_condition_count() -> int:
+	var medical: NPCMedical = _npc_medical()
+	return medical.active_conditions.size() if medical != null else 0
+
+
 func _rebuild_log_rows() -> void:
 	if _log_rows_box == null:
 		return
-	for child: Node in _log_rows_box.get_children():
-		child.queue_free()
+	_clear(_log_rows_box)
 	_log_time_labels.clear()
 	_log_text_labels.clear()
-	_log_entries = _npc.get_action_log() if _npc != null and is_instance_valid(_npc) and _npc.has_method("get_action_log") else []
-
+	_log_entries = _get_action_log()
 	if _log_entries.is_empty():
-		var empty_lbl: Label = Label.new()
-		empty_lbl.text = "Nothing notable yet"
-		empty_lbl.add_theme_font_size_override("font_size", 12)
-		empty_lbl.add_theme_font_override("font", UIKit.font())
-		empty_lbl.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6, 0.8))
-		_log_rows_box.add_child(empty_lbl)
+		_log_rows_box.add_child(_empty_state("Nothing notable yet."))
 		return
-
 	for entry: Dictionary in _log_entries:
-		_log_rows_box.add_child(_make_log_row(entry))
+		var hostile: bool = entry.get("is_live_hostile", false) == true
+		var color: Color = S.RED if hostile else S.BLUE
+		var card: PanelContainer = _card(Color("141b1a"), color.darkened(0.55), 7)
+		card.tooltip_text = "At %s" % String(entry.get("game_time", "?"))
+		_log_rows_box.add_child(card)
+		var row: HBoxContainer = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		card.add_child(C.inset(row, 10, 8, 10, 8))
+		var marker: ColorRect = ColorRect.new()
+		marker.color = color
+		marker.custom_minimum_size = Vector2(4.0, 34.0)
+		row.add_child(marker)
+		var text_label: Label = _label(String(entry.get("text", "")), 12, S.IVORY)
+		text_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		text_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(text_label)
+		_log_text_labels.append(text_label)
+		var time_label: Label = _label(
+			_format_log_age(int(entry.get("fired_at_msec", Time.get_ticks_msec()))), 10, S.MUTED
+		)
+		time_label.custom_minimum_size.x = 58.0
+		time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(time_label)
+		_log_time_labels.append(time_label)
 
-func _make_log_row(entry: Dictionary) -> Control:
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	row.tooltip_text = "At %s" % str(entry.get("game_time", "?"))
 
-	var text_lbl: Label = Label.new()
-	text_lbl.text = str(entry["text"])
-	text_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	text_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text_lbl.add_theme_font_size_override("font_size", 12)
-	text_lbl.add_theme_font_override("font", UIKit.font())
-	text_lbl.add_theme_color_override("font_color", Color(0.88, 0.88, 0.90, 0.95))
-	row.add_child(text_lbl)
-	_log_text_labels.append(text_lbl)
+func _refresh_log_timestamps() -> void:
+	for index: int in range(_log_time_labels.size()):
+		if index >= _log_entries.size():
+			continue
+		var fired_at: int = int(_log_entries[index].get("fired_at_msec", Time.get_ticks_msec()))
+		_log_time_labels[index].text = _format_log_age(fired_at)
+		if _log_entries[index].get("is_live_hostile", false) == true and index < _log_text_labels.size():
+			_log_text_labels[index].text = String(_log_entries[index].get("text", ""))
 
-	var time_lbl: Label = Label.new()
-	time_lbl.text = _format_log_age(entry["fired_at_msec"] as int)
-	time_lbl.custom_minimum_size = Vector2(52.0, 0.0)
-	time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	time_lbl.add_theme_font_size_override("font_size", 11)
-	time_lbl.add_theme_font_override("font", UIKit.font())
-	time_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.72, 0.8))
-	row.add_child(time_lbl)
-	_log_time_labels.append(time_lbl)
 
-	return row
+func _get_action_log() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if _npc == null or not _npc.has_method("get_action_log"):
+		return result
+	var entries_variant: Variant = _npc.call("get_action_log")
+	if not (entries_variant is Array):
+		return result
+	for entry_variant: Variant in entries_variant:
+		if entry_variant is Dictionary:
+			result.append(entry_variant as Dictionary)
+	return result
+
+
+func _connect_npc_signals() -> void:
+	if _npc != null and _npc.has_signal("action_logged"):
+		var callback: Callable = Callable(self, "_rebuild_log_rows")
+		if not _npc.is_connected("action_logged", callback):
+			_npc.connect("action_logged", callback)
+
+
+func _disconnect_npc_signals() -> void:
+	if _npc != null and is_instance_valid(_npc) and _npc.has_signal("action_logged"):
+		var callback: Callable = Callable(self, "_rebuild_log_rows")
+		if _npc.is_connected("action_logged", callback):
+			_npc.disconnect("action_logged", callback)
+
+
+func _current_activity() -> String:
+	if _npc == null:
+		return "Idle"
+	var brain: Object = _npc.get("brain") as Object
+	if brain != null and brain.has_method("current_label"):
+		return String(brain.call("current_label"))
+	return "Idle"
+
+
+func _activity_state(activity: String) -> String:
+	var lower: String = activity.to_lower()
+	if "passed out" in lower or "injured" in lower:
+		return "UNWELL"
+	if "sleep" in lower or "rest" in lower or "relax" in lower or "sit" in lower:
+		return "RESTING"
+	if lower == "idle" or lower == "wandering":
+		return "IDLE"
+	return "ON DUTY"
+
+
+func _activity_icon_kind(activity: String) -> String:
+	var lower: String = activity.to_lower()
+	if "farm" in lower or "plant" in lower or "harvest" in lower or "tray" in lower:
+		return "plant"
+	if "water" in lower or "drink" in lower or "filter" in lower:
+		return "water"
+	if "fuel" in lower or "generator" in lower:
+		return "power"
+	if "eat" in lower or "food" in lower:
+		return "food"
+	if "cook" in lower:
+		return "cooking"
+	if "talk" in lower:
+		return "talk"
+	if "sleep" in lower or "rest" in lower or "relax" in lower:
+		return "sleep"
+	if "clean" in lower or "put away" in lower:
+		return "storage"
+	return "clock"
+
+
+func _activity_detail_text(activity: String) -> String:
+	var lower: String = activity.to_lower()
+	if "farm" in lower or "plant" in lower or "harvest" in lower or "tray" in lower:
+		return "Bunker agriculture • Current assignment"
+	if "filter" in lower or "water" in lower:
+		return "Water system • Current assignment"
+	if "fuel" in lower or "generator" in lower:
+		return "Power system • Current assignment"
+	if "clean" in lower or "put away" in lower:
+		return "Bunker upkeep • Current assignment"
+	if "cook" in lower:
+		return "Meal preparation • Current assignment"
+	if "sleep" in lower or "rest" in lower or "relax" in lower:
+		return "Personal time • Recovering"
+	if lower == "idle" or lower == "wandering":
+		return "No assigned work • Available"
+	return "Live behavior • Updates automatically"
+
+
+func _relationship_color(label_text: String) -> Color:
+	match label_text:
+		"Hostile":
+			return S.RED
+		"Cold":
+			return ENERGY_COLOR
+		"Friendly", "Close":
+			return S.GREEN
+		_:
+			return S.MUTED
+
+
+func _condition_title(condition: MedicalCondition) -> String:
+	var title: String = condition.id.replace("_", " ").capitalize()
+	if condition.id == "open_wound" and condition.is_infected:
+		title += " — Infected"
+	return title
+
+
+func _condition_state(condition: MedicalCondition) -> String:
+	if condition.is_treated:
+		return "TREATED"
+	if condition.id == "open_wound" and condition.is_infected:
+		return "INFECTION ACTIVE"
+	return "UNTREATED"
+
 
 func _format_log_age(fired_at_msec: int) -> String:
-	var elapsed_sec: int = int((Time.get_ticks_msec() - fired_at_msec) / 1000.0)
-	if elapsed_sec < 60:
-		return "%ds ago" % elapsed_sec
-	var elapsed_min: int = int(elapsed_sec / 60.0)
-	if elapsed_min < 60:
-		return "%dm ago" % elapsed_min
-	var elapsed_hr: int = int(elapsed_min / 60.0)
-	return "%dh ago" % elapsed_hr
+	var elapsed_seconds: int = maxi(0, int((Time.get_ticks_msec() - fired_at_msec) / 1000.0))
+	if elapsed_seconds < 60:
+		return "%ds ago" % elapsed_seconds
+	var elapsed_minutes: int = int(elapsed_seconds / 60.0)
+	if elapsed_minutes < 60:
+		return "%dm ago" % elapsed_minutes
+	return "%dh ago" % int(elapsed_minutes / 60.0)
+
+
+func _update_footer() -> void:
+	if _footer_hint == null:
+		return
+	_footer_hint.text = (
+		"LB / RB  Switch tab    •    D-pad / Right stick  Navigate    •    A  Select    •    B / E  Close    •    Walk away to close"
+		if InputMode.is_controller()
+		else "Click  Select    •    Mouse wheel  Scroll    •    E / Esc  Close    •    Walk away to close"
+	)
+
+
+func _layout() -> void:
+	if _panel == null:
+		return
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	var available: Vector2 = Vector2(
+		maxf(720.0, viewport_size.x - SCREEN_MARGIN.x * 2.0),
+		maxf(560.0, viewport_size.y - SCREEN_MARGIN.y * 2.0)
+	)
+	var panel_size: Vector2 = Vector2(
+		minf(PANEL_MAX.x, available.x),
+		minf(PANEL_MAX.y, available.y)
+	)
+	_panel.position = (viewport_size - panel_size) * 0.5
+	_panel.size = panel_size
+
+
+func _reset_scrolls() -> void:
+	for scroll: ScrollContainer in _scrolls:
+		_reset_scroll(scroll)
+
+
+func _reset_scroll(scroll: ScrollContainer) -> void:
+	if scroll == null:
+		return
+	scroll.scroll_vertical = 0
+	scroll.scroll_horizontal = 0
+	scroll.set_deferred("scroll_vertical", 0)
+
+
+func _set_state_panel(panel: PanelContainer, color: Color) -> void:
+	panel.add_theme_stylebox_override("panel", C.panel_box(
+		Color(color.darkened(0.72), 0.78), color.darkened(0.27), 7, 1
+	))
+
+
+func _card(bg: Color, border: Color, radius: int = 8) -> PanelContainer:
+	var card: PanelContainer = PanelContainer.new()
+	card.add_theme_stylebox_override("panel", C.panel_box(bg, border, radius, 1))
+	return card
+
+
+func _label(text_value: String, font_size: int, color: Color) -> Label:
+	var label: Label = Label.new()
+	label.text = text_value
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	return label
+
+
+func _icon(symbol: String, side: float, color: Color) -> TextureRect:
+	var texture: TextureRect = TextureRect.new()
+	texture.texture = S.icon(symbol)
+	texture.self_modulate = color
+	texture.custom_minimum_size = Vector2(side, side)
+	texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return texture
+
+
+func _progress(color: Color, height: float) -> ProgressBar:
+	var bar: ProgressBar = SMOOTH_BAR.new() as ProgressBar
+	bar.max_value = 100.0
+	bar.value = 0.0
+	bar.show_percentage = false
+	bar.custom_minimum_size.y = height
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_theme_stylebox_override("background", C.panel_box(
+		Color("0c1111"), S.BRASS.darkened(0.48), int(height * 0.5), 1
+	))
+	bar.add_theme_stylebox_override("fill", C.panel_box(
+		color, color, int(height * 0.5), 0
+	))
+	return bar
+
+
+func _empty_state(message: String) -> Label:
+	var label: Label = _label(message, 12, S.MUTED)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.custom_minimum_size.y = 58.0
+	return label
+
+
+func _clear(parent: Node) -> void:
+	if parent == null:
+		return
+	for child: Node in parent.get_children():
+		parent.remove_child(child)
+		child.queue_free()

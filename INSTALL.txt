@@ -1,0 +1,51 @@
+BUNKER GAME — BUILD, SHOP, AND STORAGE POLISH
+==============================================
+
+This package contains the approved Build Mode presentation rebuild, the
+authoritative viewport-bound fix for Build/Shop/Storage, the complete Supply
+Shop presentation rebuild, the Storage inspector polish pass, and the Pause
+Menu typing fix.
+
+INSTALLATION
+------------
+
+1. Close Godot.
+2. Open this extracted "bunker-build-mode-v2" folder.
+3. Select the "scripts", "docs", and "tools" folders.
+4. Copy them into the root of the local bunker-game project — the folder that
+   contains project.godot.
+5. When Windows asks, choose "Replace the files in the destination".
+6. Reopen the project in Godot and test Build Mode, Shop, and several storage
+   objects with different capacities.
+
+The folder structure is already correct. Do not copy the individual .gd files
+into one folder; copy the three top-level folders into the project root.
+
+RUNTIME FILES
+-------------
+
+scripts/ui/build/BuildCatalogPanel.gd
+scripts/ui/build/BuildWorkspace.gd
+scripts/ui/build/BuildCatalogCard.gd
+scripts/ui/build/ShopPanel.gd
+scripts/ui/build/ShopProductCard.gd
+scripts/ui/inventory/StorageUI.gd
+scripts/ui/common/BunkerUIComponents.gd
+scripts/ui/common/BunkerItemCard.gd
+scripts/ui/common/ItemPresentation.gd
+scripts/ui/menus/PauseMenuUI.gd
+
+The package also includes the updated UI documentation and smoke-test file.
+
+SAFETY
+------
+
+This package does not replace BuildModeHUD.gd or BuildModeController.gd.
+Existing placement logic, shop checkout authority, physical storage-slot
+ownership/mapping, proximity closing, transfer behavior, and preloaded 3D
+preview pools remain intact. StorageUI.gd and BunkerItemCard.gd replace the
+storage presentation layer while preserving its existing four-method world
+object contract. ShopPanel.gd and ShopProductCard.gd replace only shop
+presentation/session-cart behavior. PauseMenuUI.gd only makes the cancel input
+variable explicitly boolean so it compiles when warnings are treated as
+errors.

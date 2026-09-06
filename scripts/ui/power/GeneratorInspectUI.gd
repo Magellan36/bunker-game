@@ -14,6 +14,7 @@ var STOPPED_ICON: Texture2D = W.icon("stopped")
 var GRID_ICON: Texture2D = W.icon("grid")
 const FADE_SCRIPT: GDScript = preload("res://scripts/ui/common/UIFade.gd")
 const NAV_SCRIPT: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
+const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
 
 var _display_name: String = "Generator"
 var _watts: float = 0.0
@@ -220,7 +221,7 @@ func _update_meter(prefix: String, value: float, threshold_key: String,
 		hint = low
 	(_view.get_node("%" + prefix + "Value") as Label).text = "%d%%" % int(value)
 	var bar: ProgressBar = _view.get_node("%" + prefix + "Bar") as ProgressBar
-	bar.value = value
+	SMOOTH_BAR.apply(bar, value)
 	var fill: StyleBoxFlat = bar.get_theme_stylebox("fill") as StyleBoxFlat
 	fill.bg_color = color
 	fill.border_color = color
