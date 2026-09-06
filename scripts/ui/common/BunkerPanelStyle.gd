@@ -3,16 +3,16 @@ extends RefCounted
 
 ## Shared native-Control styling for the 2026 bunker UI.  Every shape is
 ## rendered by Godot; no generated bitmap UI assets are required.
-const BG := Color("181d1d")
-const SURFACE := Color("202625")
-const SURFACE_ALT := Color("252c2b")
-const IVORY := Color("f2e8cf")
-const MUTED := Color("c5c0b2")
-const BRASS := Color("88734e")
-const BLUE := Color("66bfff")
-const BLUE_DARK := Color("294b62")
-const GREEN := Color("75d48a")
-const RED := Color("df7669")
+const BG: Color = BunkerDesign.BG
+const SURFACE: Color = BunkerDesign.SURFACE
+const SURFACE_ALT: Color = BunkerDesign.SURFACE_ALT
+const IVORY: Color = BunkerDesign.IVORY
+const MUTED: Color = BunkerDesign.MUTED
+const BRASS: Color = BunkerDesign.BRASS
+const BLUE: Color = BunkerDesign.BLUE
+const BLUE_DARK: Color = BunkerDesign.BLUE_DARK
+const GREEN: Color = BunkerDesign.GREEN
+const RED: Color = BunkerDesign.RED
 const SYMBOL: GDScript = preload("res://scripts/ui/common/BunkerSymbolTexture.gd")
 static var _symbols: Dictionary = {}
 
@@ -33,6 +33,7 @@ static func box(bg: Color = BG, border: Color = BRASS, radius: int = 8, width: i
 	return s
 
 static func button(control: Button, accent: bool = false, danger: bool = false) -> void:
+	UIButtonMotion.attach(control)
 	control.focus_mode = Control.FOCUS_ALL
 	control.custom_minimum_size.y = maxf(control.custom_minimum_size.y, 42.0)
 	control.add_theme_font_size_override("font_size", 17)
@@ -43,11 +44,11 @@ static func button(control: Button, accent: bool = false, danger: bool = false) 
 	var edge := BLUE if accent else (RED if danger else BRASS.darkened(0.18))
 	control.add_theme_stylebox_override("normal", box(normal_bg, edge, 7, 1))
 	control.add_theme_stylebox_override("hover", box(normal_bg.lightened(0.07), BLUE if not danger else RED, 7, 1))
-	control.add_theme_stylebox_override("pressed", box(normal_bg.darkened(0.08), IVORY, 7, 2))
-	control.add_theme_stylebox_override("focus", box(Color.TRANSPARENT, BLUE, 7, 2))
+	control.add_theme_stylebox_override("pressed", box(normal_bg.darkened(0.08), edge, 7, 1))
+	control.add_theme_stylebox_override("focus", box(Color.TRANSPARENT, IVORY, BunkerDesign.FOCUS_RADIUS, BunkerDesign.FOCUS_WIDTH))
 	control.add_theme_stylebox_override("disabled", box(SURFACE.darkened(0.1), BRASS.darkened(0.45), 7, 1))
 	control.add_theme_color_override("font_disabled_color", MUTED.darkened(0.35))
-	control.add_theme_constant_override("icon_max_width", 28)
+	control.add_theme_constant_override("icon_max_width", BunkerDesign.ICON_SIZE)
 
 static func icon_button(control: Button, kind: String, accent: bool = false, danger: bool = false) -> void:
 	button(control, accent, danger)
@@ -80,6 +81,7 @@ static func apply(root: Control) -> void:
 	var native_theme := Theme.new()
 	native_theme.default_font = UIKit.font()
 	native_theme.default_font_size = 16
+	BunkerControlTheme.install(native_theme)
 	root.theme = native_theme
 
 static func panel(panel: PanelContainer) -> void:

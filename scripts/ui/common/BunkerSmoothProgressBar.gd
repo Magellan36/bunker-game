@@ -3,7 +3,7 @@ extends ProgressBar
 ## Presentation-only interpolation for live UI meters. Simulation values and
 ## labels remain immediate; only the rendered fill eases toward its target.
 
-const RESPONSE: float = 10.0
+const RESPONSE: float = UIMotion.RESPONSE
 const SNAP_EPSILON: float = 0.02
 
 var _target_value: float = 0.0
@@ -11,6 +11,8 @@ var _received_target: bool = false
 
 
 func _ready() -> void:
+	step = 0.0
+	visibility_changed.connect(_on_visibility_changed)
 	_target_value = value
 	set_process(false)
 
@@ -32,7 +34,7 @@ func snap_to(next_value: float) -> void:
 
 
 func _process(delta: float) -> void:
-	var weight: float = 1.0 - exp(-RESPONSE * delta)
+	var weight: float = UIMotion.weight(delta, RESPONSE)
 	var next_value: float = lerpf(value, _target_value, weight)
 	if absf(next_value - _target_value) <= SNAP_EPSILON:
 		next_value = _target_value
@@ -46,3 +48,18 @@ static func apply(bar: ProgressBar, next_value: float, snap_first: bool = true) 
 		(bar as BunkerSmoothProgressBar).set_target_value(next_value, snap_first)
 	else:
 		bar.set_value_no_signal(clampf(next_value, bar.min_value, bar.max_value))
+
+
+func _on_visibility_changed() -> void:
+	if not is_visible_in_tree():
+		_received_target = false
+		set_process(false)
+
+
+static func snap_tree(root: Node) -> void:
+	if root is BunkerSmoothProgressBar:
+		var bar: BunkerSmoothProgressBar = root as BunkerSmoothProgressBar
+		if bar._received_target:
+			bar.snap_to(bar._target_value)
+	for child: Node in root.get_children():
+		snap_tree(child)

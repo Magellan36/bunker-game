@@ -66,15 +66,20 @@ const MIN_DIR_DOT: float = 0.3
 ## d-pad (one step per press; left/right). Holding a direction for the first
 ## second does nothing extra, then repeats start and ACCELERATE toward
 ## SLIDER_MIN_INTERVAL (100 steps/sec) over SLIDER_RAMP_TIME.
-const SLIDER_HOLD_DELAY: float    = 1.0
-const SLIDER_START_INTERVAL: float = 0.2     ## ~5 steps/sec when repeat kicks in
-const SLIDER_MIN_INTERVAL: float   = 0.01    ## 100 steps/sec
+const SLIDER_HOLD_DELAY: float    = 0.35
+const SLIDER_START_INTERVAL: float = 0.12     ## ~5 steps/sec when repeat kicks in
+const SLIDER_MIN_INTERVAL: float   = 0.05    ## 100 steps/sec
 const SLIDER_RAMP_TIME: float      = 3.0     ## seconds of holding to reach max rate
 ## While held, each repeat's STEP also ramps from 1× the slider's step up to
 ## this multiplier — so the flow-rate slider (step = 1 mL/day) accelerates
 ## 1 → 500 mL/day per repeat, letting a player sweep a large range quickly.
 const SLIDER_REPEAT_MAX_STEP_MULT: float = 500.0
 
+static var _open_serial: int = 0
+var _open_order: int = 0
+var _held_focus: WeakRef
+var _stick_hold_time: float = 0.0
+var _was_active: bool = false
 var _move_cooldown: float = 0.0
 var _stick_direction := Vector2.ZERO
 var _prepare_elapsed := 0.0
@@ -92,12 +97,26 @@ func _ready() -> void:
 	if ui_root == null:
 		push_warning("ControllerUINavigation: no ui_root set — parent it under a Control/CanvasLayer or set ui_root.")
 	add_to_group(NAV_GROUP)
+	mark_open()
+	if ui_root.has_signal("visibility_changed"):
+		ui_root.connect("visibility_changed", _on_visibility_changed)
 	## Ensure A = confirm and B = cancel on the Godot built-in actions.
 	## This project's ui_accept/ui_cancel were customized to keyboard-only,
 	## so a focused button would never activate from the pad without this.
 	## Idempotent — only adds the joypad event if it's missing.
 	_ensure_action_button("ui_accept", JOY_BUTTON_A)
 	_ensure_action_button("ui_cancel", JOY_BUTTON_B)
+
+func mark_open() -> void:
+	_open_serial += 1
+	_open_order = _open_serial
+	_move_cooldown = 0.0
+	_slider_repeat_dir = 0
+	_stick_hold_time = 0.0
+
+func _on_visibility_changed() -> void:
+	if _active():
+		mark_open()
 
 func _ensure_action_button(action: String, idx: int) -> void:
 	if not InputMap.has_action(action):
@@ -113,12 +132,17 @@ func _process(delta: float) -> void:
 	if _move_cooldown > 0.0:
 		_move_cooldown -= delta
 	if not _active():
+		_was_active = false
 		_slider_repeat_dir = 0
 		return
 	if not _is_topmost():
 		## A higher-layer controller UI is open — it owns the pad.
 		_slider_repeat_dir = 0
 		return
+	if not _was_active:
+		_was_active = true
+		mark_open()
+	_stick_hold_time += delta
 	_prepare_elapsed += delta
 	if _prepare_elapsed >= 0.25:
 		_prepare_elapsed = 0.0
@@ -185,7 +209,7 @@ func _input(event: InputEvent) -> void:
 	if right_stick_navigation and event is InputEventJoypadMotion and (event.axis == JOY_AXIS_RIGHT_X or event.axis == JOY_AXIS_RIGHT_Y \
 			or (stick_navigation and (event.axis == JOY_AXIS_LEFT_X or event.axis == JOY_AXIS_LEFT_Y))):
 		get_viewport().set_input_as_handled()
-	if event is InputEventKey and event.pressed and not event.echo:
+	if event is InputEventKey and event.pressed:
 		var key_dir := Vector2.ZERO
 		match event.keycode:
 			KEY_UP: key_dir = Vector2.UP
@@ -197,8 +221,14 @@ func _input(event: InputEvent) -> void:
 			return
 
 func _active() -> bool:
-	if ui_root == null or not ui_root.is_inside_tree():
+	if not is_instance_valid(ui_root) or not ui_root.is_inside_tree():
 		return false
+	if ui_root.get_meta(&"ui_exiting", false) == true:
+		return false
+	if ui_root.has_method("is_open"):
+		return ui_root.call("is_open") == true and _node_visible(ui_root)
+	if "is_open" in ui_root:
+		return ui_root.get("is_open") == true and _node_visible(ui_root)
 	return _node_visible(ui_root)
 
 ## Public wrapper for the visibility check — other systems ask "is this UI
@@ -268,9 +298,9 @@ func _is_topmost() -> bool:
 		if other == self or not "ui_root" in other:
 			continue
 		var oroot: Node = other.get("ui_root")
-		if oroot != null and oroot.is_inside_tree() and _node_visible(oroot):
+		if is_instance_valid(oroot) and other.call("is_active") == true:
 			var other_layer: int = other.call("_effective_layer")
-			if other_layer > my_layer:
+			if other_layer > my_layer or (other_layer == my_layer and int(other.get("_open_order")) > _open_order):
 				return false
 	return true
 
@@ -282,15 +312,18 @@ func _try_stick_move(_delta: float) -> void:
 		stick = Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
 	if stick.length() < stick_deadzone:
 		_stick_direction = Vector2.ZERO
+		_stick_hold_time = 0.0
 		return
 	var direction := Vector2(signf(stick.x), 0.0) if absf(stick.x) > absf(stick.y) else Vector2(0.0, signf(stick.y))
+	if direction != _stick_direction:
+		_stick_hold_time = 0.0
 	_stick_direction = direction
 	var popup := _visible_popup()
 	if popup != null:
 		_move_popup(popup, int(direction.y if direction.y != 0.0 else direction.x))
 		_move_cooldown = move_repeat_delay
 		return
-	if not _adjust_focused_range(direction, clampf(stick.length(), 1.0, 2.0)):
+	if not _adjust_focused_range(direction, _range_multiplier(_stick_hold_time)):
 		_move_focus(direction)
 	else:
 		_move_cooldown = 0.07
@@ -415,13 +448,13 @@ func _adjust_focused_range(dir: Vector2, multiplier: float) -> bool:
 		var bar := focus as VScrollBar
 		if dir.y == 0.0:
 			return false
-		bar.value = clampf(bar.value + 42.0 * multiplier * dir.y, bar.min_value, maxf(bar.min_value, bar.max_value - bar.page))
+		UIScrollMotion.step_by(bar, 42.0 * multiplier * dir.y)
 		return true
 	if focus is HScrollBar:
 		var bar := focus as HScrollBar
 		if dir.x == 0.0:
 			return false
-		bar.value = clampf(bar.value + 42.0 * multiplier * dir.x, bar.min_value, maxf(bar.min_value, bar.max_value - bar.page))
+		UIScrollMotion.step_by(bar, 42.0 * multiplier * dir.x)
 		return true
 	if focus is Slider:
 		var vertical := focus is VSlider
@@ -438,13 +471,17 @@ func _prepare_scrollbars(node: Node) -> void:
 		for bar: ScrollBar in [scroll.get_v_scroll_bar(), scroll.get_h_scroll_bar()]:
 			var useful := bar.visible and bar.max_value > bar.page + 0.5
 			bar.focus_mode = Control.FOCUS_ALL if useful else Control.FOCUS_NONE
+			if not bar.has_meta(&"scroll_drag_wired"):
+				bar.set_meta(&"scroll_drag_wired", true)
+				bar.gui_input.connect(UIScrollMotion.on_drag.bind(bar))
 			if useful:
 				bar.custom_minimum_size.x = maxf(bar.custom_minimum_size.x, 16.0)
-				bar.add_theme_stylebox_override("focus", BunkerPanelStyle.box(Color.TRANSPARENT, BunkerPanelStyle.BLUE, 5, 2))
+				bar.add_theme_stylebox_override("focus", BunkerPanelStyle.box(Color.TRANSPARENT, BunkerPanelStyle.IVORY, 5, 2))
 	for child in node.get_children():
 		_prepare_scrollbars(child)
 
 func _start_slider_repeat(dir: int) -> void:
+	_held_focus = weakref(get_viewport().gui_get_focus_owner())
 	_slider_repeat_dir   = dir
 	_slider_hold_time    = 0.0
 	_slider_interval     = SLIDER_START_INTERVAL
@@ -460,7 +497,7 @@ func _start_slider_repeat(dir: int) -> void:
 func _tick_slider_repeat(delta: float) -> void:
 	if _slider_repeat_dir == 0:
 		return
-	if not _is_focused_slider():
+	if not _is_focused_slider() or _held_focus == null or _held_focus.get_ref() != get_viewport().gui_get_focus_owner():
 		_slider_repeat_dir = 0
 		return
 	var held_btn: int = JOY_BUTTON_DPAD_LEFT if _slider_repeat_dir < 0 else JOY_BUTTON_DPAD_RIGHT
@@ -472,7 +509,7 @@ func _tick_slider_repeat(delta: float) -> void:
 		return
 	var t: float = clampf((_slider_hold_time - SLIDER_HOLD_DELAY) / SLIDER_RAMP_TIME, 0.0, 1.0)
 	_slider_interval  = lerpf(SLIDER_START_INTERVAL, SLIDER_MIN_INTERVAL, t)
-	_slider_step_mult = lerpf(1.0, SLIDER_REPEAT_MAX_STEP_MULT, t)
+	_slider_step_mult = _range_multiplier(_slider_hold_time)
 	_slider_repeat_timer -= delta
 	if _slider_repeat_timer <= 0.0:
 		_adjust_focused_slider(_slider_repeat_dir, _slider_step_mult)
@@ -506,3 +543,16 @@ func _is_descendant(node: Control, root: Node) -> bool:
 			return true
 		p = p.get_parent()
 	return false
+
+
+func _range_multiplier(held_seconds: float) -> float:
+	var focus: Control = get_viewport().gui_get_focus_owner()
+	if not (focus is Slider):
+		return 1.0
+	var slider: Slider = focus as Slider
+	var increment: float = slider.step if slider.step > 0 else 1.0
+	# At full acceleration a repeat moves at most 1% of this range. Small
+	# counts retain one-unit precision; high-resolution flow sliders accelerate.
+	var max_multiplier: float = maxf(1.0, (slider.max_value - slider.min_value) * 0.01 / increment)
+	var ramp: float = clampf((held_seconds - SLIDER_HOLD_DELAY) / SLIDER_RAMP_TIME, 0.0, 1.0)
+	return maxf(1.0, floorf(lerpf(1.0, max_multiplier, ramp)))

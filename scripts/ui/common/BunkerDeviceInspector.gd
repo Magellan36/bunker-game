@@ -80,6 +80,7 @@ func _open_device(title: String, domain: String, symbol: String, target: Node3D 
 	texture.self_modulate = W.color(_view, "blue")
 	_view.set("panel_height", height)
 	_is_open = true
+	UIPanelLifecycle.prepare_open(self)
 	visible = true
 	_refresh_elapsed = 0.0
 	_refresh_data()
@@ -101,7 +102,6 @@ func close() -> void:
 		_proximity.unbind()
 	for node: Node in _view.find_children("*", "OptionButton", true, false):
 		(node as OptionButton).get_popup().hide()
-	visible = false
 	set_process(false)
 	var focus: Control = get_viewport().gui_get_focus_owner()
 	if focus != null and _view.is_ancestor_of(focus):
@@ -110,6 +110,7 @@ func close() -> void:
 			var previous: Control = _previous_focus.get_ref() as Control
 			if is_instance_valid(previous) and previous.is_visible_in_tree():
 				previous.grab_focus()
+	UIPanelLifecycle.dismiss(self, _view)
 	closed.emit()
 
 func _process(delta: float) -> void:
@@ -125,7 +126,7 @@ func _process(delta: float) -> void:
 func _update_input_hints() -> void:
 	_controller_hints = InputMode.is_controller()
 	var hint: Label = _view.get_node("%NavigationHint") as Label
-	hint.text = "[A] Select · D-pad: navigate · [B] Close\nLeft stick: move · Walk away to close" if _controller_hints else "Enter / Space: select · Esc / E: close\nWASD: move · Walk away to close"
+	hint.text = "[A] Select · D-pad / R-stick: navigate · [B] Close\nLeft stick: move · Walk away to close" if _controller_hints else "Enter / Space: select · Esc / E: close\nWASD: move · Walk away to close"
 	hint.add_theme_color_override("font_color", W.color(_view, "secondary"))
 
 func _unhandled_input(event: InputEvent) -> void:

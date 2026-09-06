@@ -99,6 +99,7 @@ func open(display_name: String, watts: float, fuel: float,
 	_watts = watts
 	_last_display_state.clear()
 	_is_open = true
+	UIPanelLifecycle.prepare_open(self)
 	visible = true
 	refresh(fuel, health, is_backup, is_running, grid_tripped, grid_state_str)
 	_update_input_hints()
@@ -128,7 +129,6 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
-	visible = false
 	set_process(false)
 	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused != null and _view.is_ancestor_of(focused):
@@ -137,6 +137,7 @@ func close() -> void:
 			var previous: Control = _previous_focus.get_ref() as Control
 			if is_instance_valid(previous) and previous.is_visible_in_tree():
 				previous.grab_focus()
+	UIPanelLifecycle.dismiss(self, _view)
 	closed.emit()
 
 func _refresh_display() -> void:

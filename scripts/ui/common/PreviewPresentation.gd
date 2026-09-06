@@ -5,8 +5,9 @@ extends RefCounted
 ## pooled SubViewports and UPDATE_ONCE lifecycle, then adds a studio fill and
 ## a neutral environment.  Existing gameplay nodes are never instantiated.
 static func configure(vp: SubViewport) -> void:
-	if vp == null:
+	if vp == null or vp.has_meta(&"bunker_preview_configured"):
 		return
+	vp.set_meta(&"bunker_preview_configured", true)
 	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	var world_env := WorldEnvironment.new()
 	world_env.name = "PreviewEnvironment"

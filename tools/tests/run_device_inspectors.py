@@ -37,6 +37,7 @@ def main() -> int:
             target = stage / source.relative_to(ROOT)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+        shutil.copytree(ROOT / "assets/fonts", stage / "assets/fonts", dirs_exist_ok=True)
         core = stage / "scripts/core"
         core.mkdir(parents=True)
         shutil.copy2(ROOT / "scripts/core/InputMode.gd", core / "InputMode.gd")
@@ -58,6 +59,8 @@ def main() -> int:
 
 SOURCE_NAMES = {
     "BunkerDeviceInspector.gd", "BunkerInspectorLayout.gd", "BunkerInspectorWidgets.gd",
+    "BunkerDesign.gd", "BunkerPanelStyle.gd", "BunkerControlTheme.gd", "BunkerSmoothProgressBar.gd",
+    "UIMotion.gd", "UIPanelLayout.gd", "UIPanelLifecycle.gd", "UIButtonMotion.gd", "UIScrollMotion.gd", "UIKit.gd",
     "BunkerPriorityControl.gd", "BunkerSymbolTexture.gd", "UIProximityClose.gd",
     "UIFade.gd", "ControllerUINavigation.gd", "GeneratorInspectUI.gd",
     "BatteryInspectUI.gd", "BreakerInspectUI.gd", "PowerPriorityUI.gd",

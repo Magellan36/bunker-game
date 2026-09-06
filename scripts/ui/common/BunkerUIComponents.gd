@@ -12,13 +12,14 @@ static func apply_theme(root: Control) -> void:
 	var resource: Resource = load(REDESIGN_THEME_PATH)
 	if resource is Theme:
 		root.theme = (resource as Theme).duplicate(true) as Theme
+		BunkerControlTheme.install(root.theme)
 	else:
 		BunkerPanelStyle.apply(root)
 
 
 static func shell(panel: PanelContainer, radius: int = 12) -> void:
 	panel.add_theme_stylebox_override("panel", panel_box(
-		Color("111615f7"), BunkerPanelStyle.BRASS.darkened(0.08), radius, 1))
+		BunkerDesign.SHELL, BunkerPanelStyle.BRASS.darkened(0.08), radius, 1))
 
 
 static func panel_box(bg: Color, border: Color, radius: int = 8,
@@ -43,7 +44,7 @@ static func icon_well(symbol: String, side: float = 48.0,
 	well.custom_minimum_size = Vector2(side, side)
 	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	well.add_theme_stylebox_override("panel", panel_box(
-		Color("202625"), BunkerPanelStyle.BRASS.darkened(0.35), 8, 1, 8))
+		BunkerDesign.SURFACE, BunkerPanelStyle.BRASS.darkened(0.35), 8, 1, 8))
 	var texture := TextureRect.new()
 	texture.name = "Icon"
 	texture.texture = BunkerPanelStyle.icon(symbol)
@@ -120,6 +121,7 @@ static func divider(parent: Container) -> HSeparator:
 
 
 static func style_segment(button: Button, compact: bool = false) -> void:
+	UIButtonMotion.attach(button)
 	button.focus_mode = Control.FOCUS_ALL
 	button.toggle_mode = true
 	button.custom_minimum_size.y = 38.0 if compact else 44.0
@@ -154,8 +156,11 @@ static func status_style(active: bool) -> StyleBoxFlat:
 	return panel_box(Color("1b2221"), BunkerPanelStyle.BRASS.darkened(0.34), 8, 1, 10)
 
 
-static func key_hint(parent: Container, key_text: String, action_text: String) -> void:
-	var group := HBoxContainer.new()
+static func key_hint(parent: Container, key_text: String, action_text: String,
+		keyboard_key: String = "", controller_key: String = "") -> void:
+	var group := BunkerInputHint.new()
+	group.keyboard_key = keyboard_key if not keyboard_key.is_empty() else key_text
+	group.controller_key = controller_key if not controller_key.is_empty() else key_text
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	group.add_theme_constant_override("separation", 7)
 	parent.add_child(group)
@@ -164,7 +169,7 @@ static func key_hint(parent: Container, key_text: String, action_text: String) -
 		maxf(34.0, float(key_text.length()) * 8.0 + 14.0), 24)
 	keycap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	keycap.add_theme_stylebox_override("panel", panel_box(
-		Color("252c2b"), BunkerPanelStyle.BRASS.darkened(0.1), 5, 1, 3))
+		BunkerDesign.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.1), 5, 1, 3))
 	group.add_child(keycap)
 	var key := Label.new()
 	key.text = key_text
@@ -174,6 +179,8 @@ static func key_hint(parent: Container, key_text: String, action_text: String) -
 	key.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
 	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	keycap.add_child(key)
+	group.key_label = key
+	group.keycap = keycap
 	var action := Label.new()
 	action.text = action_text
 	action.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

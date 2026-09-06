@@ -12,6 +12,7 @@ var _fit_queued: bool = false
 
 func _ready() -> void:
 	theme = theme.duplicate(true) as Theme
+	BunkerControlTheme.install(theme)
 	resized.connect(_apply_metrics)
 	$Panel.resized.connect(_position_panel)
 	$Panel.minimum_size_changed.connect(_queue_panel_fit)
@@ -23,6 +24,8 @@ func _apply_metrics() -> void:
 	var factor: float = _scale_factor()
 	for node: Node in find_children("*", "Control", true, false):
 		var control: Control = node as Control
+		if control is BaseButton:
+			UIButtonMotion.attach(control as BaseButton)
 		if control.has_meta("ui_font_size"):
 			control.add_theme_font_size_override("font_size", roundi(float(control.get_meta("ui_font_size")) * factor))
 		if control.has_meta("ui_min_height"):
@@ -75,7 +78,8 @@ func _fit_panel() -> void:
 		theme.get_constant("panel_width", "GeneratorInspector"),
 		panel_height if panel_height > 0.0 else theme.get_constant("panel_height", "GeneratorInspector")) * factor
 	var margin: float = theme.get_constant("screen_margin", "GeneratorInspector") * factor
-	panel.size = target_size.min((size - Vector2.ONE * margin * 2.0).max(Vector2.ONE))
+	panel.custom_maximum_size = UIPanelLayout.bounded_size(size, target_size, Vector2.ONE * margin)
+	panel.size = panel.custom_maximum_size
 	_position_panel()
 
 func _scale_factor() -> float:

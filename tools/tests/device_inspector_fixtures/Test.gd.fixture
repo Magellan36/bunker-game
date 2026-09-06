@@ -356,6 +356,8 @@ func _lifecycle() -> void:
 	# original position. Returning must NOT reopen it. Close emits once.
 	for ui: CanvasLayer in panels:
 		player.position = Vector3.ZERO
+		UIPanelLifecycle.prepare_open(ui)
+		ui._proximity.bind_position(Vector3.ZERO)
 		ui.visible = true
 		ui._is_open = true
 		ui.set_process(true)

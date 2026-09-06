@@ -22,13 +22,13 @@ var _anchor_node: WeakRef = null
 var _player: Node3D = null
 
 func _process(_delta: float) -> void:
-	if ui == null or not ui.is_inside_tree():
+	if not is_instance_valid(ui) or not ui.is_inside_tree():
 		return
 	if not _ui_open(ui):
 		return
-	if _player == null:
+	if not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player") as Node3D
-	if _player == null:
+	if not is_instance_valid(_player):
 		return
 	if _anchor_node != null:
 		var live_anchor: Node3D = _anchor_node.get_ref() as Node3D
@@ -67,6 +67,12 @@ func unbind() -> void:
 	set_process(false)
 
 func _ui_open(ui_node: Node) -> bool:
+	if ui_node.get_meta(&"ui_exiting", false) == true:
+		return false
+	if ui_node.has_method("is_open"):
+		return ui_node.call("is_open") == true
+	if "is_open" in ui_node:
+		return ui_node.get("is_open") == true
 	if ui_node is Control:
 		return (ui_node as Control).is_visible_in_tree()
 	if "visible" in ui_node:

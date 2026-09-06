@@ -4,15 +4,8 @@ extends RefCounted
 
 const SYMBOL: GDScript = preload("res://scripts/ui/common/BunkerSymbolTexture.gd")
 const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
-static var _symbols: Dictionary = {}
-
 static func icon(kind: String) -> Texture2D:
-	if _symbols.has(kind):
-		return _symbols[kind] as Texture2D
-	var texture: Texture2D = SYMBOL.new()
-	texture.symbol = kind
-	_symbols[kind] = texture
-	return texture
+	return BunkerPanelStyle.icon(kind)
 
 static func color(control: Control, token: String) -> Color:
 	return control.get_theme_color(token, "Bunker")
@@ -55,6 +48,7 @@ static func button(parent: Node, key: String, text: String, callback: Callable, 
 		control.expand_icon = true
 		control.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	parent.add_child(control)
+	UIButtonMotion.attach(control)
 	if callback.is_valid():
 		control.pressed.connect(callback)
 	return control
