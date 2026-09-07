@@ -788,11 +788,22 @@ func dismiss_for_build_mode() -> void:
 	if _suppressed_for_build:
 		return
 	_suppressed_for_build = true
+	## Drop publisher state immediately so it cannot reappear for one frame
+	## when Build hands ownership back. The visible pooled cards retain their
+	## current pixels long enough to complete the standard short exit fade.
+	_active.clear()
 	for index: int in _pool.size():
 		var panel: PanelContainer = _pool[index] as PanelContainer
 		if panel.visible:
-			UIFade.fade_out(panel, UIMotion.EXIT, Callable(panel, "hide"))
+			UIFade.fade_out(panel, UIMotion.EXIT, _finish_build_dismiss.bind(panel))
 		_panel_was_visible[index] = false
+
+
+func _finish_build_dismiss(panel: PanelContainer) -> void:
+	if not is_instance_valid(panel) or not _suppressed_for_build:
+		return
+	panel.hide()
+	panel.modulate.a = 1.0
 
 func resume_after_build_mode() -> void:
 	_suppressed_for_build = false

@@ -101,7 +101,9 @@ func _build_shop_button() -> void:
 	shop_button = Button.new()
 	shop_button.name = "SupplyShop"
 	shop_button.toggle_mode = true
-	shop_button.custom_minimum_size = Vector2(230, 60)
+	## Match the normal cash plate's compact 162 x 40 footprint. Keeping this
+	## directly below Cash makes the two top-right actions read as one HUD stack.
+	shop_button.custom_minimum_size = Vector2(162, 40)
 	shop_button.tooltip_text = "Open the supply shop"
 	BunkerUIComponents.style_segment(shop_button)
 	shop_button.add_theme_stylebox_override("normal", BunkerUIComponents.panel_box(
@@ -114,38 +116,21 @@ func _build_shop_button() -> void:
 	add_child(shop_button)
 	var content := HBoxContainer.new()
 	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_theme_constant_override("separation", 10)
-	var inset := BunkerUIComponents.inset(content, 10, 7, 11, 7)
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 8)
+	var inset := BunkerUIComponents.inset(content, 9, 4, 9, 4)
 	inset.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shop_button.add_child(inset)
-	content.add_child(BunkerUIComponents.icon_well("shop", 40.0))
-	var copy := VBoxContainer.new()
-	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	copy.alignment = BoxContainer.ALIGNMENT_CENTER
-	copy.add_theme_constant_override("separation", 0)
-	content.add_child(copy)
-	var eyebrow := Label.new()
-	eyebrow.text = "SUPPLIES"
-	eyebrow.add_theme_font_size_override("font_size", 10)
-	eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	eyebrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	copy.add_child(eyebrow)
+	content.add_child(BunkerUIComponents.icon_well("shop", 30.0))
 	var title := Label.new()
-	title.text = "Open shop"
-	title.add_theme_font_size_override("font_size", 17)
+	title.text = "SHOP"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 15)
 	title.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	copy.add_child(title)
-	var arrow := TextureRect.new()
-	arrow.texture = BunkerPanelStyle.icon("arrow")
-	arrow.self_modulate = BunkerPanelStyle.IVORY
-	arrow.custom_minimum_size = Vector2(22, 22)
-	arrow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	arrow.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_child(arrow)
+	content.add_child(title)
 
 
 func _build_toolbar() -> void:
@@ -250,18 +235,22 @@ func _build_compatibility_summary() -> void:
 
 func _layout() -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
-	_banner_panel.position = Vector2((viewport_size.x - 286.0) * 0.5, 18)
+	## The persistent clock occupies y=10..52. Build-specific controls begin
+	## below that normal HUD row instead of covering it.
+	_banner_panel.position = Vector2((viewport_size.x - 286.0) * 0.5, 62)
 	_banner_panel.size = Vector2(286, 52)
-	shop_button.position = Vector2(viewport_size.x - 254, 18)
-	shop_button.size = Vector2(230, 60)
+	shop_button.position = Vector2(viewport_size.x - 174, 60)
+	shop_button.size = Vector2(162, 40)
 
 	var toolbar_size := Vector2(minf(700.0, viewport_size.x - 48.0), 82)
 	_toolbar_panel.position = Vector2(maxf(24.0, (viewport_size.x - toolbar_size.x) * 0.5),
 		viewport_size.y - toolbar_size.y - 18.0)
 	_toolbar_panel.size = toolbar_size
-	var helper_size := Vector2(minf(720.0, viewport_size.x - 48.0), 42)
+	## Toasts end immediately above this strip when the inventory is hidden.
+	## A 28 px helper preserves every binding while removing the old overlap.
+	var helper_size := Vector2(minf(720.0, viewport_size.x - 48.0), 28)
 	_helper_panel.position = Vector2(maxf(24.0, (viewport_size.x - helper_size.x) * 0.5),
-		_toolbar_panel.position.y - helper_size.y - 10.0)
+		_toolbar_panel.position.y - helper_size.y - 6.0)
 	_helper_panel.size = helper_size
 
 	var catalog_top := 88.0

@@ -602,7 +602,12 @@ func _process(delta: float) -> void:
 		_undo_flash_t = maxf(0.0, _undo_flash_t - delta)
 	# Keep cancel X flush-right of the banner every frame
 	_reposition_cancel_btn()
-	_cursor.visible = not dig_confirm_open and (InputMode.is_controller() or not _submenu_open)
+	## The catalog deliberately stays open during placement. That must not hide
+	## the Build cursor: placement owns the custom crosshair while the OS cursor
+	## stays hidden, even though the catalog remains visible beside the world.
+	var placement_cursor_active := _ghost_active or _wall_draw_active
+	_cursor.visible = not dig_confirm_open and (InputMode.is_controller() \
+		or placement_cursor_active or not _submenu_open)
 	if _workspace != null:
 		_workspace.refresh(active_tool, _submenu_open, _submenu_source,
 			_ghost_active or _wall_draw_active, _grid_size_value)
