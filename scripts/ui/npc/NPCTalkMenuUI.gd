@@ -1371,16 +1371,7 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var available: Vector2 = Vector2(
-		maxf(720.0, viewport_size.x - SCREEN_MARGIN.x * 2.0),
-		maxf(560.0, viewport_size.y - SCREEN_MARGIN.y * 2.0)
-	)
-	var panel_size: Vector2 = Vector2(
-		minf(PANEL_MAX.x, available.x),
-		minf(PANEL_MAX.y, available.y)
-	)
-	_panel.position = (viewport_size - panel_size) * 0.5
-	_panel.size = panel_size
+	UIPanelLayout.fit(_panel, viewport_size, PANEL_MAX, SCREEN_MARGIN)
 
 
 func _reset_scrolls() -> void:

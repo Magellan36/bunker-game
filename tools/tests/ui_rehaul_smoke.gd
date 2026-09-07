@@ -24,8 +24,6 @@ const TARGETS := [
 	"res://scripts/player/Player.gd",
 	"res://scripts/ui/character_creation/CharacterPreviewViewport.gd",
 ]
-const STORAGE_UI_SCRIPT: GDScript = preload("res://scripts/ui/inventory/StorageUI.gd")
-
 var failures := 0
 
 class FakeItem:
@@ -82,6 +80,8 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	root.size = Vector2i(1920, 1080)
+	await process_frame
 	for path in TARGETS:
 		var resource := ResourceLoader.load(path)
 		_check(
@@ -106,11 +106,11 @@ func _test_runtime_ui() -> void:
 	hud.show_hud()
 	var workspace: Control = hud.get("_workspace")
 	_check(workspace != null, "build workspace instantiates")
-	_check(workspace.catalog.size.x <= 500.0 and workspace.catalog.size.y <= 620.0,
-		"build catalog keeps compact desktop proportions")
+	_check(workspace.catalog.size.x <= 440.0 and workspace.catalog.size.y <= 760.0,
+		"build catalog matches the approved Storage-sized target bounds")
 	var viewport_size := root.get_viewport().get_visible_rect().size
 	_check(workspace.catalog.position.y + workspace.catalog.size.y <= viewport_size.y,
-		"build catalog remains inside the viewport after minimum-size calculation")
+		"build catalog remains inside the viewport after minimum-size calculation (%s + %s <= %s)" % [workspace.catalog.position.y, workspace.catalog.size.y, viewport_size.y])
 	_check(workspace.catalog.custom_maximum_size == workspace.catalog.size,
 		"build catalog has an authoritative maximum bound")
 	var object_grid: GridContainer = workspace.catalog.get("_items") as GridContainer
@@ -130,7 +130,7 @@ func _test_runtime_ui() -> void:
 		"build catalog has an explicit browse/placement state block")
 	_check(workspace.shop.size.x >= 900.0 and workspace.shop.size.x <= 1380.0 \
 		and workspace.shop.size.y <= 780.0,
-		"shop uses a bounded desktop workspace")
+		"shop uses a bounded desktop workspace (%s)" % workspace.shop.size)
 	var products: GridContainer = workspace.shop.get("_products") as GridContainer
 	_check(products != null and products.columns == 3,
 		"shop uses a three-column premium product catalog")
@@ -200,7 +200,8 @@ func _test_runtime_ui() -> void:
 	_check(ControllerUINavigation.owns_directional_input(self),
 		"toolbar remains controller-navigable when catalogs are closed")
 	await _test_focusable_scrollbar()
-	var storage: CanvasLayer = STORAGE_UI_SCRIPT.new()
+	var storage_script: GDScript = load("res://scripts/ui/inventory/StorageUI.gd") as GDScript
+	var storage: CanvasLayer = storage_script.new()
 	root.add_child(storage)
 	await process_frame
 	var storage_panel: PanelContainer = storage.get("_panel")
@@ -237,7 +238,8 @@ func _test_storage_contract() -> void:
 	root.add_child(player)
 	var target := FakeStorage.new()
 	root.add_child(target)
-	var storage := STORAGE_UI_SCRIPT.new() as CanvasLayer
+	var storage_script: GDScript = load("res://scripts/ui/inventory/StorageUI.gd") as GDScript
+	var storage := storage_script.new() as CanvasLayer
 	storage.inventory = FakeInventory.new()
 	storage.add_child(storage.inventory)
 	root.add_child(storage)

@@ -265,18 +265,16 @@ func _layout() -> void:
 
 	var catalog_top := 88.0
 	var catalog_bottom := _helper_panel.position.y - 14.0
-	var catalog_height := minf(610.0, maxf(420.0, catalog_bottom - catalog_top))
-	var catalog_size := Vector2(minf(488.0, viewport_size.x - 48.0), catalog_height)
-	catalog.custom_maximum_size = catalog_size
-	catalog.position = Vector2(24, catalog_top + maxf(0.0,
-		(catalog_bottom - catalog_top - catalog_height) * 0.5))
-	catalog.size = catalog_size
+	## Match Storage's approved 440 x 760 target while preserving Build's
+	## left-side identity. On short displays, the helper owns overflow inside
+	## the safe region above the placement controls.
+	var catalog_region := Vector2(viewport_size.x, maxf(1.0, catalog_bottom - catalog_top))
+	UIPanelLayout.fit(catalog, catalog_region, Vector2(440.0, 760.0),
+		Vector2(24.0, 0.0), 0.0, 0.5)
+	catalog.position.y += catalog_top
 
-	var shop_size := Vector2(minf(1380.0, viewport_size.x - 96.0),
-		minf(780.0, viewport_size.y - 120.0))
-	shop.custom_maximum_size = shop_size
-	shop.position = (viewport_size - shop_size) * 0.5
-	shop.size = shop_size
+	UIPanelLayout.fit(shop, viewport_size, Vector2(1380.0, 780.0),
+		Vector2(48.0, 60.0))
 
 
 func show_catalog() -> void:

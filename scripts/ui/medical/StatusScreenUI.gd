@@ -812,13 +812,7 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var available: Vector2 = Vector2(
-		maxf(760.0, viewport_size.x - SCREEN_MARGIN.x * 2.0),
-		maxf(620.0, viewport_size.y - SCREEN_MARGIN.y * 2.0))
-	var target: Vector2 = Vector2(minf(PANEL_MAX.x, available.x), minf(PANEL_MAX.y, available.y))
-	_panel.size = target
-	_panel.custom_minimum_size = target
-	_panel.position = (viewport_size - target) * 0.5
+	UIPanelLayout.fit(_panel, viewport_size, PANEL_MAX, SCREEN_MARGIN)
 
 
 func _set_tab(tab_id: int) -> void:

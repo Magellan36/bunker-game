@@ -3,7 +3,6 @@ extends SceneTree
 ## Run with:
 ## godot --headless --path . --script res://tools/tests/graphics_settings_ui_smoke.gd
 
-const PANEL_SCRIPT: GDScript = preload("res://scripts/ui/menus/GraphicsSettingsPanel.gd")
 var _failures: int = 0
 
 
@@ -12,7 +11,11 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var panel: CanvasLayer = PANEL_SCRIPT.new() as CanvasLayer
+	# Load after project autoloads are registered. Preloading from a command-line
+	# SceneTree script asks Godot to compile this dependency too early to resolve
+	# the GraphicsSettings singleton in a clean cache.
+	var panel_script: GDScript = load("res://scripts/ui/menus/GraphicsSettingsPanel.gd") as GDScript
+	var panel: CanvasLayer = panel_script.new() as CanvasLayer
 	root.add_child(panel)
 	await process_frame
 	await process_frame
@@ -40,12 +43,15 @@ func _run() -> void:
 	for property_name: String in [
 		"_vsync_check", "_sdfgi_check", "_ssao_check", "_ssil_check",
 		"_vol_fog_check", "_glow_check", "_dof_check", "_shadow_check",
-		"_dr_check", "_vol_check",
+		"_dr_check", "_vol_check", "_reduced_motion_check",
 	]:
 		var toggle: CheckButton = panel.get(property_name) as CheckButton
 		if toggle != null:
 			switches.append(toggle)
-	_check(switches.size() == 10, "all live boolean settings remain connected")
+	_check(switches.size() == 11, "all live boolean and UI motion settings remain connected")
+	var reduced_motion: CheckButton = panel.get("_reduced_motion_check") as CheckButton
+	_check(reduced_motion != null and reduced_motion.button_pressed == UIMotion.reduced(),
+		"reduced UI motion control reflects the shared preference")
 
 	var render_scale: HSlider = panel.get("_render_scale_slider") as HSlider
 	var field_of_view: HSlider = panel.get("_fov_slider") as HSlider

@@ -630,14 +630,7 @@ func _apply_panel_metrics() -> void:
 	if _panel == null:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var panel_size: Vector2 = Vector2(
-		minf(PANEL_MAX.x, maxf(760.0, viewport_size.x - EDGE.x * 2.0)),
-		minf(PANEL_MAX.y, maxf(620.0, viewport_size.y - EDGE.y * 2.0)))
-	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_panel.offset_left = -panel_size.x * 0.5
-	_panel.offset_right = panel_size.x * 0.5
-	_panel.offset_top = -panel_size.y * 0.5
-	_panel.offset_bottom = panel_size.y * 0.5
+	UIPanelLayout.fit(_panel, viewport_size, PANEL_MAX, EDGE)
 
 
 func _sample_history() -> void:

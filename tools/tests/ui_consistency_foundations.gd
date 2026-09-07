@@ -10,6 +10,10 @@ func check(ok: bool, message: String) -> void:
 		push_error(message)
 
 func _run() -> void:
+	# Keep this contract deterministic even if the developer previously enabled
+	# the persisted accessibility preference in the same Godot user directory.
+	var previous_reduced: bool = UIMotion.reduced()
+	UIMotion.set_reduced(false)
 	var surface: Control = Control.new()
 	root.add_child(surface)
 	var bar: BunkerSmoothProgressBar = BunkerSmoothProgressBar.new()
@@ -45,7 +49,6 @@ func _run() -> void:
 		UIPanelLayout.fit(panel, viewport, Vector2(440,760), Vector2(24,24), 1.0)
 		check(panel.position.y >= 24 and panel.get_rect().end.y <= viewport.y - 24, "panel vertical bounds")
 		check(is_equal_approx(panel.get_rect().end.x, viewport.x - 24), "panel right edge")
-	var previous_reduced: bool = UIMotion.reduced()
 	UIMotion.set_reduced(true)
 	UIFade.fade_in(surface)
 	check(is_equal_approx(surface.modulate.a, 1.0), "reduced motion is immediate")

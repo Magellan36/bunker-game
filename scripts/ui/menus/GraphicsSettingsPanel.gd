@@ -71,6 +71,7 @@ var _vol_check: CheckButton = null
 var _shadow_check: CheckButton = null
 var _dr_check: CheckButton = null
 var _fov_slider: HSlider = null
+var _reduced_motion_check: CheckButton = null
 
 var _restart_confirm_dialog: ConfirmDialogUI = null
 var _restart_driver_connected: bool = false
@@ -409,6 +410,8 @@ func _build_effects_section(parent: VBoxContainer) -> void:
 
 func _build_camera_section(parent: VBoxContainer) -> void:
 	var section: VBoxContainer = _section(parent, "camera", "CAMERA", "View comfort")
+	_reduced_motion_check = _make_switch(_on_reduced_motion_toggled)
+	section.add_child(_setting_card("Reduced UI motion", "Makes panel, content, preview, and meter transitions immediate.", _reduced_motion_check))
 	_fov_slider = HSlider.new()
 	_fov_slider.min_value = 45.0
 	_fov_slider.max_value = 75.0
@@ -560,11 +563,7 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var safe_width: float = maxf(640.0, viewport_size.x - PANEL_MARGIN.x * 2.0)
-	var safe_height: float = maxf(480.0, viewport_size.y - PANEL_MARGIN.y * 2.0)
-	var panel_size: Vector2 = Vector2(minf(PANEL_MAX.x, safe_width), minf(PANEL_MAX.y, safe_height))
-	_panel.position = (viewport_size - panel_size) * 0.5
-	_panel.size = panel_size
+	UIPanelLayout.fit(_panel, viewport_size, PANEL_MAX, PANEL_MARGIN)
 
 
 func _jump_to_section(section_key: String) -> void:
@@ -620,6 +619,7 @@ func _refresh_from_settings() -> void:
 	_set_switch(_vol_check, GraphicsSettings.flashlight_volumetrics)
 	_set_switch(_shadow_check, GraphicsSettings.shadow_casting_enabled)
 	_set_switch(_dr_check, GraphicsSettings.dynamic_resolution_enabled)
+	_set_switch(_reduced_motion_check, UIMotion.reduced())
 	_fov_slider.set_value_no_signal(GraphicsSettings.camera_fov)
 	_fov_value.text = "%d°" % roundi(GraphicsSettings.camera_fov)
 
@@ -813,6 +813,15 @@ func _on_shadow_toggled(pressed: bool) -> void:
 
 func _on_dr_toggled(pressed: bool) -> void:
 	GraphicsSettings.set_setting("dynamic_resolution_enabled", pressed)
+
+
+func _on_reduced_motion_toggled(pressed: bool) -> void:
+	var error_code: Error = UIMotion.set_reduced(pressed)
+	if error_code != OK:
+		push_warning("[GraphicsSettingsPanel] Could not save reduced UI motion preference (err %d)." % error_code)
+	if pressed:
+		UIFade.cancel(_panel)
+		_panel.modulate.a = 1.0
 
 
 func _on_fov_changed(value: float) -> void:

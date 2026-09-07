@@ -964,11 +964,7 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var available: Vector2 = Vector2(
-		maxf(320.0, viewport_size.x - EDGE.x * 2.0), maxf(320.0, viewport_size.y - EDGE.y * 2.0)
-	)
-	_panel.size = Vector2(minf(PANEL_MAX.x, available.x), minf(PANEL_MAX.y, available.y))
-	_panel.position = (viewport_size - _panel.size) * 0.5
+	UIPanelLayout.fit(_panel, viewport_size, PANEL_MAX, EDGE)
 
 
 func _update_input_hint() -> void:

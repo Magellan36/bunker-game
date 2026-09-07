@@ -218,17 +218,13 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport := get_viewport().get_visible_rect().size
-	var width := minf(440.0, viewport.x - 48.0)
 	var rows := ceili(float(int(_config.get("slot_count", 6))) \
 		/ maxf(float(int(_config.get("grid_cols", 2))), 1.0))
 	var desired := minf(760.0, 340.0 + float(rows) * 152.0)
-	var height := minf(desired, viewport.y - 48.0)
 	## In-world inspector rail: preserve the bunker view and keep the panel at
 	## comfortable eye level rather than pinning it to a screen corner.
-	var panel_size := Vector2(width, height)
-	_panel.custom_maximum_size = panel_size
-	_panel.position = Vector2(viewport.x - width - 24.0, (viewport.y - height) * 0.5)
-	_panel.size = panel_size
+	UIPanelLayout.fit(_panel, viewport, Vector2(440.0, desired),
+		Vector2(24.0, 24.0), 1.0, 0.5)
 
 func _ensure_pool(needed: int) -> void:
 	while _cards.size() < needed:

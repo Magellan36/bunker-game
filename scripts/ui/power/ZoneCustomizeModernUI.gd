@@ -429,14 +429,7 @@ func _layout() -> void:
 		return
 	var wanted: Vector2 = RENAME_SIZE if _mode == MODE_RENAME else COLOR_SIZE
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var actual: Vector2 = Vector2(
-		minf(wanted.x, maxf(420.0, viewport_size.x - EDGE_MARGIN.x * 2.0)),
-		minf(wanted.y, maxf(360.0, viewport_size.y - EDGE_MARGIN.y * 2.0)))
-	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_panel.offset_left = -actual.x * 0.5
-	_panel.offset_right = actual.x * 0.5
-	_panel.offset_top = -actual.y * 0.5
-	_panel.offset_bottom = actual.y * 0.5
+	UIPanelLayout.fit(_panel, viewport_size, wanted, EDGE_MARGIN)
 
 
 func _update_input_hint() -> void:

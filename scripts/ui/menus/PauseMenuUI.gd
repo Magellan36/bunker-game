@@ -217,11 +217,7 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport := get_viewport().get_visible_rect().size
-	var panel_size := Vector2(
-		minf(PANEL_MAX.x, viewport.x - PANEL_MARGIN.x * 2.0),
-		minf(PANEL_MAX.y, viewport.y - PANEL_MARGIN.y * 2.0))
-	_panel.position = (viewport - panel_size) * 0.5
-	_panel.size = panel_size
+	UIPanelLayout.fit(_panel, viewport, PANEL_MAX, PANEL_MARGIN)
 
 func _show_slots(saving: bool) -> void:
 	_refresh_slot_labels()

@@ -250,13 +250,8 @@ func _layout() -> void:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 	var requested_height: float = PANEL_SIZE.y if _message_card.visible else 224.0
-	var target: Vector2 = Vector2(
-		minf(PANEL_SIZE.x, maxf(360.0, viewport_size.x - SCREEN_MARGIN.x * 2.0)),
-		minf(requested_height, maxf(200.0, viewport_size.y - SCREEN_MARGIN.y * 2.0))
-	)
-	_panel.custom_maximum_size = target
-	_panel.position = (viewport_size - target) * 0.5
-	_panel.size = target
+	UIPanelLayout.fit(_panel, viewport_size,
+		Vector2(PANEL_SIZE.x, requested_height), SCREEN_MARGIN)
 
 func _restore_previous_focus() -> void:
 	if _previous_focus == null:
