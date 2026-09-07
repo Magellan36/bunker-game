@@ -292,10 +292,9 @@ func _build_workspace() -> Control:
 
 	var content: VBoxContainer = VBoxContainer.new()
 	content.name = "SettingsContent"
-	content.custom_minimum_size.x = 790
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 10)
-	_content_scroll.add_child(content)
+	BunkerUIComponents.scroll_content(_content_scroll, content, 0, 0, 2)
 
 	_build_display_section(content)
 	_build_rendering_section(content)

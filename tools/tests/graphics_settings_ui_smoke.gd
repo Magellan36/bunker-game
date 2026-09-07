@@ -38,6 +38,15 @@ func _run() -> void:
 	var scroll: ScrollContainer = panel.get("_content_scroll") as ScrollContainer
 	_check(scroll != null and scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED,
 		"settings content uses a bounded vertical scroll region")
+	var scroll_gutter: MarginContainer = scroll.get_node_or_null("ScrollContentGutter") as MarginContainer
+	var settings_content: Control = scroll_gutter.get_node_or_null("SettingsContent") as Control \
+		if scroll_gutter != null else null
+	_check(scroll_gutter != null and scroll_gutter.get_theme_constant("margin_right") >= 20,
+		"settings content reserves the shared vertical-scrollbar gutter")
+	if settings_content != null and scroll.get_v_scroll_bar().visible:
+		_check(settings_content.get_global_rect().end.x \
+			<= scroll.get_v_scroll_bar().get_global_rect().position.x,
+			"graphics controls end before the visible scrollbar")
 	var preset: OptionButton = panel.get("_preset_option") as OptionButton
 	_check(preset != null and preset.item_count == 5 and preset.is_item_disabled(4),
 		"preset control represents read-only Custom state")

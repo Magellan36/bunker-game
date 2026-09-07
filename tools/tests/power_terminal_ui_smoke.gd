@@ -32,6 +32,13 @@ func _run() -> void:
 	_check(tabs.all(func(tab: Button) -> bool:
 		return tab.custom_minimum_size.y <= 34.0),
 		"power workspace tabs use compact desktop density")
+	var power_scrolls: Array[Node] = panel.find_children("*", "ScrollContainer", true, false)
+	_check(not power_scrolls.is_empty() and power_scrolls.all(func(node: Node) -> bool:
+		var scroll := node as ScrollContainer
+		return scroll.get_child_count() == 1 \
+			and scroll.get_child(0).name == "ScrollContentGutter" \
+			and (scroll.get_child(0) as MarginContainer).get_theme_constant("margin_right") >= 20),
+		"every Power Terminal list reserves the shared scrollbar gutter")
 	var priority_step: Button = ui.call("_priority_button", "+") as Button
 	_check(priority_step.custom_minimum_size.y <= 30.0,
 		"load-priority stepping controls avoid oversized rows")

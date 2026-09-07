@@ -139,18 +139,11 @@ func _build() -> void:
 	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_scroll.follow_focus = true
 	_scroll_viewport.add_child(_scroll)
-	var scroll_inset := MarginContainer.new()
-	scroll_inset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll_inset.add_theme_constant_override("margin_left", 2)
-	scroll_inset.add_theme_constant_override("margin_top", 2)
-	scroll_inset.add_theme_constant_override("margin_right", 10)
-	scroll_inset.add_theme_constant_override("margin_bottom", 2)
-	_scroll.add_child(scroll_inset)
 	_grid = GridContainer.new()
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid.add_theme_constant_override("h_separation", 8)
 	_grid.add_theme_constant_override("v_separation", 8)
-	scroll_inset.add_child(_grid)
+	BunkerUIComponents.scroll_content(_scroll, _grid)
 	BunkerUIComponents.divider(body)
 	_selection_panel = PanelContainer.new()
 	_selection_panel.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(false))

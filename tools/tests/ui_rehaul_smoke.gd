@@ -116,6 +116,11 @@ func _test_runtime_ui() -> void:
 	var object_grid: GridContainer = workspace.catalog.get("_items") as GridContainer
 	_check(object_grid != null and object_grid.columns == 2,
 		"build catalog presents large previews in a two-column object grid")
+	var object_scroll: ScrollContainer = workspace.catalog.get("_scroll") as ScrollContainer
+	var object_gutter: MarginContainer = object_grid.get_parent() as MarginContainer
+	_check(object_scroll != null and object_gutter.name == "ScrollContentGutter" \
+		and object_gutter.get_theme_constant("margin_right") >= 20,
+		"build cards reserve room for the visible scrollbar")
 	var first_card: Control = workspace.catalog.get("_first_item") as Control
 	_check(first_card != null and first_card.custom_minimum_size.y >= 160.0,
 		"build cards reserve enough height for previews and information bands")
@@ -217,6 +222,11 @@ func _test_runtime_ui() -> void:
 	var storage_panel: PanelContainer = storage.get("_panel")
 	_check(storage_panel != null and storage_panel.size.x <= 460.0,
 		"storage inspector is a compact in-world rail")
+	var storage_grid: GridContainer = storage.get("_grid") as GridContainer
+	var storage_gutter: MarginContainer = storage_grid.get_parent() as MarginContainer
+	_check(storage_gutter.name == "ScrollContentGutter" \
+		and storage_gutter.get_theme_constant("margin_right") >= 20,
+		"storage slots reserve room for the visible scrollbar")
 	storage.free()
 
 func _test_focusable_scrollbar() -> void:

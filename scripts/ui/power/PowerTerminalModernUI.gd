@@ -398,7 +398,7 @@ func _build_sources_card(parent: Container) -> void:
 	_source_list = VBoxContainer.new()
 	_source_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_source_list.add_theme_constant_override("separation", 6)
-	scroll.add_child(_source_list)
+	C.scroll_content(scroll, _source_list, 0, 0, 2)
 
 
 func _build_zone_card(parent: Container) -> void:
@@ -454,7 +454,7 @@ func _build_preview_card(parent: Container) -> void:
 	body.add_child(scroll)
 	_consumer_preview = VBoxContainer.new()
 	_consumer_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_consumer_preview)
+	C.scroll_content(scroll, _consumer_preview, 0, 0, 2)
 	_manage_priorities = _action("Manage load priorities", "log")
 	_manage_priorities.pressed.connect(_set_tab.bind(PRIORITY))
 	body.add_child(_manage_priorities)
@@ -482,7 +482,7 @@ func _device_column(parent: Container, title_text: String, icon: String) -> VBox
 	var list: VBoxContainer = VBoxContainer.new()
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 7)
-	scroll.add_child(list)
+	C.scroll_content(scroll, list, 0, 0, 2)
 	return list
 
 
@@ -510,7 +510,7 @@ func _build_priority(stack: Control) -> void:
 	_priority_list = VBoxContainer.new()
 	_priority_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_priority_list.add_theme_constant_override("separation", 6)
-	scroll.add_child(_priority_list)
+	C.scroll_content(scroll, _priority_list, 0, 0, 2)
 
 	var guide_card: PanelContainer = _card()
 	guide_card.custom_minimum_size.x = 350.0
@@ -588,7 +588,7 @@ func _build_network(stack: Control) -> void:
 	_network_flow_list = VBoxContainer.new()
 	_network_flow_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_network_flow_list.add_theme_constant_override("separation", 7)
-	flow_scroll.add_child(_network_flow_list)
+	C.scroll_content(flow_scroll, _network_flow_list, 0, 0, 2)
 
 	var shared_card: PanelContainer = _card()
 	shared_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -603,7 +603,7 @@ func _build_network(stack: Control) -> void:
 	_network_shared_list = VBoxContainer.new()
 	_network_shared_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_network_shared_list.add_theme_constant_override("separation", 7)
-	shared_scroll.add_child(_network_shared_list)
+	C.scroll_content(shared_scroll, _network_shared_list, 0, 0, 2)
 
 
 func _page(stack: Control, page_name: String, vertical: bool) -> Control:

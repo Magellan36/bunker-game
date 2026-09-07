@@ -6,6 +6,10 @@ extends RefCounted
 ## hierarchy only; feature UIs keep their own data and gameplay contracts.
 
 const REDESIGN_THEME_PATH := "res://assets/ui/themes/BunkerRedesignTheme.tres"
+## ScrollContainer bars overlay their viewport in Godot. Content placed flush
+## to the right edge therefore sits beneath a visible vertical bar. Every
+## scrollable bunker surface reserves this presentation-only gutter.
+const SCROLLBAR_CONTENT_GUTTER: int = 20
 
 
 static func apply_theme(root: Control) -> void:
@@ -36,6 +40,21 @@ static func panel_box(bg: Color, border: Color, radius: int = 8,
 static func inset(child: Control, left: int = 18, top: int = 16,
 		right: int = 18, bottom: int = 16) -> MarginContainer:
 	return BunkerPanelStyle.margin(child, left, top, right, bottom)
+
+
+static func scroll_content(scroll: ScrollContainer, child: Control,
+		left: int = 2, top: int = 2, bottom: int = 2,
+		right: int = SCROLLBAR_CONTENT_GUTTER) -> MarginContainer:
+	var gutter := MarginContainer.new()
+	gutter.name = "ScrollContentGutter"
+	gutter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gutter.add_theme_constant_override("margin_left", left)
+	gutter.add_theme_constant_override("margin_top", top)
+	gutter.add_theme_constant_override("margin_right", right)
+	gutter.add_theme_constant_override("margin_bottom", bottom)
+	scroll.add_child(gutter)
+	gutter.add_child(child)
+	return gutter
 
 
 static func icon_well(symbol: String, side: float = 48.0,

@@ -136,6 +136,7 @@ follow_focus = true
 layout_mode = 2
 size_flags_horizontal = 3
 metadata/ui_padding = 6
+metadata/ui_scroll_gutter = 20
 
 [node name="Details" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset"]
 layout_mode = 2

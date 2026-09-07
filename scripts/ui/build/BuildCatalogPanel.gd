@@ -138,20 +138,13 @@ func _build_items(parent: VBoxContainer) -> void:
 	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_scroll.follow_focus = true
 	_scroll_viewport.add_child(_scroll)
-	var focus_inset := MarginContainer.new()
-	focus_inset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	focus_inset.add_theme_constant_override("margin_left", 3)
-	focus_inset.add_theme_constant_override("margin_top", 3)
-	focus_inset.add_theme_constant_override("margin_right", 9)
-	focus_inset.add_theme_constant_override("margin_bottom", 3)
-	_scroll.add_child(focus_inset)
 	_items = GridContainer.new()
 	_items.name = "Objects"
 	_items.columns = 2
 	_items.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_items.add_theme_constant_override("h_separation", 8)
 	_items.add_theme_constant_override("v_separation", 8)
-	focus_inset.add_child(_items)
+	BunkerUIComponents.scroll_content(_scroll, _items, 3, 3, 3)
 
 
 func _build_footer(parent: VBoxContainer) -> void:
@@ -191,6 +184,11 @@ func _rebuild_category_buttons() -> void:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.tooltip_text = "%s objects" % category
 		BunkerUIComponents.style_segment(button, true)
+		## The outline-based Structure/Furniture icons and compact Lighting bolt
+		## need a slightly larger canvas to carry the same visual weight as the
+		## solid Power and Water category symbols.
+		if category in ["Structure", "Furniture", "Lighting"]:
+			button.add_theme_constant_override("icon_max_width", 24)
 		button.pressed.connect(_category_changed.bind(category))
 		_category_grid.add_child(button)
 		_category_buttons[category] = button

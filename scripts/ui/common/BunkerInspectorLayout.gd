@@ -35,6 +35,9 @@ func _apply_metrics() -> void:
 		if control.has_meta("ui_padding"):
 			for edge: String in ["left", "top", "right", "bottom"]:
 				control.add_theme_constant_override("margin_" + edge, roundi(float(control.get_meta("ui_padding")) * factor))
+		if control.has_meta("ui_scroll_gutter"):
+			control.add_theme_constant_override("margin_right",
+				roundi(float(control.get_meta("ui_scroll_gutter")) * factor))
 		if control.has_meta("ui_icon_size"):
 			var side: float = roundf(float(control.get_meta("ui_icon_size")) * factor)
 			control.custom_minimum_size = Vector2(side, side)
