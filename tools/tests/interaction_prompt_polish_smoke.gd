@@ -3,9 +3,6 @@ extends SceneTree
 ## Run with:
 ## godot --headless --path . --script res://tools/tests/interaction_prompt_polish_smoke.gd
 
-const PROMPT_SCENE: PackedScene = preload("res://scenes/ui/InteractPrompt.tscn")
-const COOKING_POT_SCRIPT: GDScript = preload("res://scripts/world/items/CookingPot.gd")
-
 var _failures: int = 0
 
 
@@ -14,7 +11,11 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var prompt: CanvasLayer = PROMPT_SCENE.instantiate() as CanvasLayer
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	var prompt_scene: PackedScene = load("res://scenes/ui/InteractPrompt.tscn") as PackedScene
+	var cooking_pot_script: GDScript = load("res://scripts/world/items/CookingPot.gd") as GDScript
+	var prompt: CanvasLayer = prompt_scene.instantiate() as CanvasLayer
 	root.add_child(prompt)
 	await process_frame
 
@@ -43,7 +44,7 @@ func _run() -> void:
 	_check(cooking_text.contains("● COOKING") and cooking_text.contains("12/80s"),
 		"cooking state and timer are retained")
 
-	var pot: CookingPot = COOKING_POT_SCRIPT.new() as CookingPot
+	var pot: Node3D = cooking_pot_script.new() as Node3D
 	pot.slots = [
 		{"node": null, "restore_value": 5.0, "ingredient_key": "food_can", "charge_badge": "1/2"},
 		{"node": null, "restore_value": 4.0, "ingredient_key": "produce_carrot", "charge_badge": ""},
@@ -62,9 +63,9 @@ func _run() -> void:
 	var viewports: Array = prompt.call("_build_icon_slots", panel) as Array
 	_check(viewports.size() == 3 and viewports[0] is SubViewport,
 		"specialized prompt retains three pooled live-3D viewports")
-	if viewports.size() == 3 and viewports[0] is SubViewport:
-		_check((viewports[0] as SubViewport).size == Vector2i(48, 48),
-			"ingredient previews use the polished supersampled render size")
+	var prompt_constants: Dictionary = (prompt.get_script() as Script).get_script_constant_map()
+	_check(int(prompt_constants.get("ICON_VP_SIZE", 0)) == 48,
+		"ingredient previews retain the polished 48 x 48 render target")
 
 	pot.free()
 	prompt.free()

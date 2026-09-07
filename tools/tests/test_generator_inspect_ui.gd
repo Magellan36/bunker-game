@@ -184,8 +184,14 @@ func _check_state_and_input() -> void:
 		ui.refresh(100.0, 100.0, false, false, false, grid_state)
 		_expect(_status(ui, "GridStatus") == "Grid " + grid_state.to_lower(), "grid state missing: " + grid_state)
 	ui.refresh(-10.0, 140.0, false, false, false, "OFFLINE")
-	_expect((ui._view.get_node("%FuelBar") as ProgressBar).value == 0.0, "fuel clamp lost")
-	_expect((ui._view.get_node("%ConditionBar") as ProgressBar).value == 100.0, "health clamp lost")
+	var fuel_bar: ProgressBar = ui._view.get_node("%FuelBar") as ProgressBar
+	var condition_bar: ProgressBar = ui._view.get_node("%ConditionBar") as ProgressBar
+	_expect(float(fuel_bar.get("_target_value")) == 0.0, "fuel target clamp lost")
+	_expect(float(condition_bar.get("_target_value")) == 100.0, "health target clamp lost")
+	_expect((ui._view.get_node("%FuelValue") as Label).text == "0%",
+		"fuel label did not update immediately while the fill eases")
+	_expect((ui._view.get_node("%ConditionValue") as Label).text == "100%",
+		"health label did not update immediately while the fill eases")
 	_expect((ui._view.get_node("%Watts") as Label).text == "5000 W", "rated output incorrectly replaced by guessed live draw")
 
 	var joy := InputEventJoypadButton.new()
