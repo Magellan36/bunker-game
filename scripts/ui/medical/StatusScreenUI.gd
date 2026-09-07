@@ -148,6 +148,7 @@ func open() -> void:
 		return
 	var focus_owner: Control = get_viewport().gui_get_focus_owner()
 	_previous_focus = weakref(focus_owner) if focus_owner != null else null
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	set_process(true)
@@ -166,13 +167,13 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
-	visible = false
 	set_process(false)
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if _previous_focus != null:
 		var previous: Variant = _previous_focus.get_ref()
 		if previous is Control and is_instance_valid(previous as Control):
 			(previous as Control).grab_focus()
+	UIPanelLifecycle.dismiss(self, _panel)
 	closed.emit()
 
 
@@ -823,7 +824,7 @@ func _set_tab(tab_id: int) -> void:
 		_pages[index].visible = index == tab_id
 		_tab_buttons[index].button_pressed = index == tab_id
 	_refresh_all()
-	_reset_scrolls()
+	UIFade.content(_pages[tab_id])
 	if tab_id == StatusTab.HEALTH:
 		var body_button: Button = _body_buttons.get(_selected_part) as Button
 		if body_button != null:
@@ -838,11 +839,13 @@ func _select_body_part(part: int) -> void:
 	_selected_condition_key = _condition_key(conditions[0]) if not conditions.is_empty() else ""
 	_condition_signature = "__rebuild__"
 	_refresh_health()
+	UIFade.content(_detail_content)
 
 
 func _select_condition(key: String) -> void:
 	_selected_condition_key = key
 	_refresh_health()
+	UIFade.content(_detail_content)
 
 
 func _select_inventory_slot(slot: int) -> void:
@@ -850,6 +853,7 @@ func _select_inventory_slot(slot: int) -> void:
 	for index: int in range(_inventory_cards.size()):
 		_inventory_cards[index].button_pressed = index == _selected_inventory_slot
 	_refresh_inventory_detail()
+	UIFade.content(_inventory_detail_title.get_parent() as CanvasItem)
 
 
 func _select_initial_medical_target() -> void:

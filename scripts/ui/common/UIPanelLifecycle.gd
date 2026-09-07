@@ -18,7 +18,8 @@ static func prepare_open(owner: CanvasLayer) -> void:
 		if candidate.has_method("mark_open"):
 			candidate.call("mark_open")
 
-static func dismiss(owner: CanvasLayer, surface: CanvasItem) -> void:
+static func dismiss(owner: CanvasLayer, surface: CanvasItem,
+		on_hidden: Callable = Callable()) -> void:
 	if owner.get_meta(EXITING, false) == true:
 		return
 	owner.set_meta(EXITING, true)
@@ -26,7 +27,7 @@ static func dismiss(owner: CanvasLayer, surface: CanvasItem) -> void:
 	var saved: Array = []
 	_disable_controls(owner, saved)
 	owner.set_meta(SAVED, saved)
-	UIFade.fade_out(surface, UIMotion.EXIT, _finish.bind(weakref(owner)))
+	UIFade.fade_out(surface, UIMotion.EXIT, _finish.bind(weakref(owner), on_hidden))
 
 static func _disable_controls(node: Node, saved: Array) -> void:
 	for child: Node in node.get_children():
@@ -50,10 +51,12 @@ static func _restore_controls(owner: CanvasLayer) -> void:
 			control.focus_mode = int(record[2]) as Control.FocusMode
 	owner.remove_meta(SAVED)
 
-static func _finish(reference: WeakRef) -> void:
+static func _finish(reference: WeakRef, on_hidden: Callable = Callable()) -> void:
 	var owner: CanvasLayer = reference.get_ref() as CanvasLayer
 	if not is_instance_valid(owner) or owner.get_meta(EXITING, false) != true:
 		return
 	owner.visible = false
 	_restore_controls(owner)
 	owner.set_meta(EXITING, false)
+	if on_hidden.is_valid():
+		on_hidden.call()

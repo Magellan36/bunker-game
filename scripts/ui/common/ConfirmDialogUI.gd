@@ -64,6 +64,7 @@ func open(title: String, message: String, confirm_label: String = "Confirm",
 	_cancel_text = cancel_label
 	_tone = tone
 	_symbol = symbol
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	_refresh_presentation()
@@ -83,9 +84,9 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
-	visible = false
 	Input.mouse_mode = _previous_mouse_mode
 	_restore_previous_focus()
+	UIPanelLifecycle.dismiss(self, _root)
 
 
 func is_open() -> bool:
@@ -191,8 +192,8 @@ func _build_interface() -> void:
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	footer.add_theme_constant_override("separation", 18)
 	body.add_child(footer)
-	C.key_hint(footer, "A / ENTER", "Select")
-	C.key_hint(footer, "B / ESC", "Cancel")
+	C.key_hint(footer, "ENTER", "Select", "ENTER", "A")
+	C.key_hint(footer, "ESC", "Cancel", "ESC", "B")
 
 	_controller_nav = NAV.new() as ControllerUINavigation
 	_controller_nav.ui_root = self

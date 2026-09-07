@@ -94,6 +94,7 @@ func _ready() -> void:
 func open() -> void:
 	if not _is_open:
 		_previous_mouse_mode = Input.mouse_mode
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	_refresh_from_settings()
@@ -108,13 +109,13 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
-	visible = false
 	## Controller/keyboard slider adjustments do not emit drag_ended, so close
 	## is the final persistence boundary for any live-only slider changes.
 	GraphicsSettings.save_now()
 	if _restart_confirm_dialog != null and is_instance_valid(_restart_confirm_dialog):
 		_restart_confirm_dialog.close()
 	Input.mouse_mode = _previous_mouse_mode
+	UIPanelLifecycle.dismiss(self, _panel)
 
 
 func is_open() -> bool:
@@ -552,10 +553,10 @@ func _build_footer() -> Control:
 	var footer: HBoxContainer = HBoxContainer.new()
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	footer.add_theme_constant_override("separation", 24)
-	BunkerUIComponents.key_hint(footer, "A / ENTER", "Select")
-	BunkerUIComponents.key_hint(footer, "D-PAD / R-STICK", "Navigate")
-	BunkerUIComponents.key_hint(footer, "SCROLLBAR", "Scroll")
-	BunkerUIComponents.key_hint(footer, "B / ESC", "Back")
+	BunkerUIComponents.key_hint(footer, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer, "ARROWS", "Navigate", "ARROWS", "D-PAD / R-STICK")
+	BunkerUIComponents.key_hint(footer, "WHEEL", "Scroll", "WHEEL", "SCROLLBAR")
+	BunkerUIComponents.key_hint(footer, "ESC", "Back", "ESC", "B")
 	return footer
 
 

@@ -33,6 +33,30 @@ func _run() -> void:
 	UIFade.fade_in(surface, 0.01)
 	await create_timer(0.10).timeout
 	check(not callback_state[0] and is_equal_approx(surface.modulate.a, 1.0), "reopen cancels stale close")
+	var owner: CanvasLayer = CanvasLayer.new()
+	root.add_child(owner)
+	var lifecycle_surface: Control = Control.new()
+	owner.add_child(lifecycle_surface)
+	var lifecycle_button: Button = Button.new()
+	lifecycle_surface.add_child(lifecycle_button)
+	var hidden_callback: Array[bool] = [false]
+	UIPanelLifecycle.dismiss(
+		owner, lifecycle_surface, func() -> void: hidden_callback[0] = true)
+	check(owner.get_meta(UIPanelLifecycle.EXITING, false) == true,
+		"dismiss marks presentation exiting immediately")
+	check(lifecycle_button.focus_mode == Control.FOCUS_NONE,
+		"dismiss removes interaction immediately")
+	UIPanelLifecycle.prepare_open(owner)
+	await create_timer(UIMotion.EXIT + 0.04).timeout
+	check(not hidden_callback[0] and owner.visible,
+		"lifecycle reopen cancels stale completion")
+	check(lifecycle_button.focus_mode == Control.FOCUS_ALL,
+		"lifecycle reopen restores interaction")
+	UIPanelLifecycle.dismiss(
+		owner, lifecycle_surface, func() -> void: hidden_callback[0] = true)
+	await create_timer(UIMotion.EXIT + 0.04).timeout
+	check(hidden_callback[0] and not owner.visible,
+		"lifecycle completion hides after logical close")
 	var preview: TextureRect = TextureRect.new()
 	surface.add_child(preview)
 	var texture: GradientTexture1D = GradientTexture1D.new()

@@ -186,9 +186,10 @@ static func build_viewport(parent: Node, pixel_size: int, cam_size_multiplier: f
 	## against THIS (not the final cam.size) — otherwise the mesh is scaled
 	## up to fill the same 85% of the frame and the zoom is a no-op.
 	cam.set_meta("preview_base_size", CAM_SIZE_PER_PIXEL * float(pixel_size))
-	vp.add_child(cam)   ## Must be in tree before look_at()
-	cam.position = CAM_POSITION
-	cam.look_at(Vector3.ZERO, Vector3.UP)
+	vp.add_child(cam)
+	## Preview builders may run while their owning Control is entering the tree.
+	## The explicit transform variant is safe in that window and frames identically.
+	cam.look_at_from_position(CAM_POSITION, Vector3.ZERO, Vector3.UP)
 
 	var light := OmniLight3D.new()
 	light.position     = LIGHT_POSITION

@@ -3,8 +3,6 @@ extends SceneTree
 ## Run with:
 ## godot --headless --path . --script res://tools/tests/power_terminal_ui_smoke.gd
 
-const UI_SCRIPT: GDScript = preload("res://scripts/ui/power/PowerTerminalModernUI.gd")
-const GRAPH_SCRIPT: GDScript = preload("res://scripts/ui/power/PowerTerminalLoadGraph.gd")
 var _failures: int = 0
 
 
@@ -13,7 +11,11 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var ui: CanvasLayer = UI_SCRIPT.new() as CanvasLayer
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	var ui_script: GDScript = load("res://scripts/ui/power/PowerTerminalModernUI.gd") as GDScript
+	var graph_script: GDScript = load("res://scripts/ui/power/PowerTerminalLoadGraph.gd") as GDScript
+	var ui: CanvasLayer = ui_script.new() as CanvasLayer
 	root.add_child(ui)
 	await process_frame
 	await process_frame
@@ -28,7 +30,7 @@ func _run() -> void:
 	_check(tabs.size() == 4 and pages.size() == 4,
 		"overview/devices/load-priority/zone-network tabs exist")
 	var graph: Control = ui.get("_graph") as Control
-	_check(graph != null and graph.get_script() == GRAPH_SCRIPT,
+	_check(graph != null and graph.get_script() == graph_script,
 		"overview owns the continuous 60-second graph")
 	var reset: Button = ui.get("_overview_reset") as Button
 	_check(reset != null and reset.disabled,
@@ -47,8 +49,10 @@ func _run() -> void:
 	_check((pages[2] as Control).visible and not (pages[0] as Control).visible,
 		"tab switching owns one visible workspace")
 	ui.call("close")
-	_check(not bool(ui.get("_is_open")) and not ui.visible,
-		"close hides without freeing persistent history")
+	_check(not bool(ui.get("_is_open")) and ui.visible,
+		"close ends interaction immediately while retaining the exit presentation")
+	await create_timer(UIMotion.EXIT + 0.04).timeout
+	_check(not ui.visible, "short exit hides without freeing persistent history")
 	ui.free()
 	if _failures == 0:
 		print("POWER_TERMINAL_UI_SMOKE_OK")

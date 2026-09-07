@@ -157,6 +157,7 @@ func open(npc_name: String, npc: Node = null) -> void:
 	if not _is_open:
 		var focus_owner: Control = get_viewport().gui_get_focus_owner()
 		_previous_focus = weakref(focus_owner) if focus_owner != null else null
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	set_process(true)
@@ -193,11 +194,9 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
-	visible = false
 	set_process(false)
 	_disconnect_npc_signals()
 	_proximity.unbind()
-	_portrait.clear_npc()
 	remove_from_group("npc_talk_ui")
 	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused != null and _root.is_ancestor_of(focused):
@@ -209,7 +208,13 @@ func close() -> void:
 			(previous as Control).grab_focus()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_npc = null
+	UIPanelLifecycle.dismiss(self, _panel, _finish_close_presentation)
 	closed.emit()
+
+
+func _finish_close_presentation() -> void:
+	if not _is_open:
+		_portrait.clear_npc()
 
 
 func is_open() -> bool:
@@ -783,8 +788,7 @@ func _set_tab(index: int, refresh_content: bool = true) -> void:
 			_rebuild_health(true)
 		elif index == ResidentTab.ACTIVITY_LOG:
 			_rebuild_log_rows()
-	if index < _scrolls.size():
-		_reset_scroll(_scrolls[index])
+	UIFade.content(_pages[index])
 
 
 func _cycle_tab(direction: int) -> void:
@@ -1126,6 +1130,7 @@ func _select_medical_part(part: int) -> void:
 	for key: Variant in _medical_part_buttons.keys():
 		(_medical_part_buttons[key] as Button).button_pressed = int(key) == part
 	_rebuild_selected_conditions()
+	UIFade.content(_medical_conditions_box)
 
 
 func _rebuild_selected_conditions() -> void:

@@ -88,6 +88,7 @@ func open(station: Node) -> void:
 	if not is_open:
 		_previous_focus = weakref(get_viewport().gui_get_focus_owner())
 	_current_station = resolved_station
+	UIPanelLifecycle.prepare_open(self)
 	is_open = true
 	visible = true
 	_refresh_elapsed = REFRESH_INTERVAL
@@ -106,7 +107,7 @@ func open(station: Node) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	FADE.fade_in(_panel)
 	if _water_node_button != null:
-		_water_node_button.call_deferred("grab_focus")
+		call_deferred("_focus_current_navigation_target")
 
 
 func close() -> void:
@@ -115,7 +116,6 @@ func close() -> void:
 	is_open = false
 	_current_station = null
 	_proximity.unbind()
-	visible = false
 	set_process(false)
 	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused != null and _view.is_ancestor_of(focused):
@@ -125,6 +125,7 @@ func close() -> void:
 			if is_instance_valid(previous) and previous.is_visible_in_tree():
 				previous.grab_focus()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	UIPanelLifecycle.dismiss(self, _panel)
 	closed.emit()
 
 
@@ -144,7 +145,7 @@ func _process(delta: float) -> void:
 				and _active_tab == BUNKER_TAB
 				and _water_node_button != null
 			):
-				_water_node_button.call_deferred("grab_focus")
+				call_deferred("_focus_current_navigation_target")
 		_refresh_live_data()
 	if _controller_hints != InputMode.is_controller():
 		_update_input_hint()
@@ -622,6 +623,7 @@ func _update_water_node_text(button: Button) -> void:
 
 func _select_water_upgrade() -> void:
 	_rebuild_detail()
+	UIFade.content(_detail_content)
 	if _detail_scroll != null:
 		_detail_scroll.set_deferred("scroll_vertical", 0)
 
@@ -807,7 +809,7 @@ func _on_research_action() -> void:
 	_refresh_live_data()
 	_state_signature = _research_state_signature()
 	if _action_button != null:
-		_action_button.call_deferred("grab_focus")
+		call_deferred("_focus_current_action")
 
 
 func _refresh_live_data() -> void:
@@ -928,12 +930,9 @@ func _set_tab(index: int) -> void:
 		_tabs[button_index].set_pressed_no_signal(button_index == _active_tab)
 	for page_index: int in range(_pages.size()):
 		_pages[page_index].visible = page_index == _active_tab
+	UIFade.content(_pages[_active_tab])
 	if InputMode.is_controller():
-		var target: Control = (
-			_water_node_button if _active_tab == BUNKER_TAB else _tabs[_active_tab]
-		)
-		if target != null:
-			target.call_deferred("grab_focus")
+		call_deferred("_focus_current_navigation_target")
 
 
 func _cycle_tab(direction: int) -> void:
@@ -944,7 +943,7 @@ func _change_zoom(direction: int) -> void:
 	_zoom_index = clampi(_zoom_index + direction, 0, ZOOM_STEPS.size() - 1)
 	_rebuild_pathway()
 	if _water_node_button != null:
-		_water_node_button.call_deferred("grab_focus")
+		call_deferred("_focus_current_navigation_target")
 
 
 func _reset_path_view() -> void:
@@ -953,7 +952,22 @@ func _reset_path_view() -> void:
 	_path_scroll.set_deferred("scroll_horizontal", 0)
 	_path_scroll.set_deferred("scroll_vertical", 0)
 	if _water_node_button != null:
-		_water_node_button.call_deferred("grab_focus")
+		call_deferred("_focus_current_navigation_target")
+
+
+func _focus_current_action() -> void:
+	if is_open and is_instance_valid(_action_button) and _action_button.is_inside_tree():
+		_action_button.grab_focus()
+
+
+func _focus_current_navigation_target() -> void:
+	if not is_open:
+		return
+	var target: Control = (
+		_water_node_button if _active_tab == BUNKER_TAB else _tabs[_active_tab]
+	)
+	if is_instance_valid(target) and target.is_inside_tree() and target.is_visible_in_tree():
+		target.grab_focus()
 
 
 func _scaled_rect(rect: Rect2, zoom: float) -> Rect2:

@@ -16,6 +16,7 @@ SOURCES = (
     "UIFade.gd",
     "UIMotion.gd",
     "UIPanelLayout.gd",
+    "UIPanelLifecycle.gd",
     "UIPreviewMotion.gd",
 )
 

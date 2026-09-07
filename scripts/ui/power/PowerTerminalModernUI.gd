@@ -127,6 +127,7 @@ func _ready() -> void:
 func open() -> void:
 	if not _is_open:
 		_previous_focus = weakref(get_viewport().gui_get_focus_owner())
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	_refresh_elapsed = REFRESH_INTERVAL
@@ -147,7 +148,6 @@ func close() -> void:
 			and bool(_zone_customize_ui.call("is_open")):
 		_zone_customize_ui.call("close")
 	_proximity.unbind()
-	visible = false
 	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused != null and _view.is_ancestor_of(focused):
 		focused.release_focus()
@@ -155,6 +155,7 @@ func close() -> void:
 			var previous: Control = _previous_focus.get_ref() as Control
 			if is_instance_valid(previous) and previous.is_visible_in_tree():
 				previous.grab_focus()
+	UIPanelLifecycle.dismiss(self, _view)
 	closed.emit()
 
 
@@ -623,7 +624,7 @@ func _set_tab(index: int) -> void:
 	var focus: Control = get_viewport().gui_get_focus_owner()
 	if focus != null and not focus.is_visible_in_tree():
 		_tabs[_active_tab].grab_focus()
-	_reset_scrolls(_pages[_active_tab])
+	UIFade.content(_pages[_active_tab])
 
 
 func _apply_panel_metrics() -> void:

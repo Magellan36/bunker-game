@@ -103,7 +103,6 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
-	visible = false
 	set_process(false)
 	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused != null and _view.is_ancestor_of(focused):
@@ -112,6 +111,7 @@ func close() -> void:
 			var previous: Control = _previous_focus.get_ref() as Control
 			if is_instance_valid(previous) and previous.is_visible_in_tree():
 				previous.grab_focus()
+	UIPanelLifecycle.dismiss(self, _panel)
 	closed.emit()
 
 
@@ -124,6 +124,7 @@ func _begin_open(zone_key: String, mode: int) -> void:
 		_previous_focus = weakref(get_viewport().gui_get_focus_owner())
 	_zone_key = zone_key
 	_mode = mode
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	_update_zone_preview()

@@ -208,9 +208,9 @@ func _build() -> void:
 	var hints := HBoxContainer.new()
 	hints.alignment = BoxContainer.ALIGNMENT_CENTER
 	hints.add_theme_constant_override("separation", 12)
-	BunkerUIComponents.key_hint(hints, "A", "Carry")
-	BunkerUIComponents.key_hint(hints, "Y", "Inventory")
-	BunkerUIComponents.key_hint(hints, "B / ESC", "Close")
+	BunkerUIComponents.key_hint(hints, "CLICK", "Carry", "CLICK", "A")
+	BunkerUIComponents.key_hint(hints, "CLICK", "Inventory", "CLICK", "Y")
+	BunkerUIComponents.key_hint(hints, "ESC", "Close", "ESC", "B")
 	body.add_child(hints)
 	get_viewport().size_changed.connect(_layout)
 
@@ -248,6 +248,7 @@ func open(target: Node3D) -> void:
 			push_warning("StorageUI: target is missing %s" % required)
 			return
 	_target = target
+	UIPanelLifecycle.prepare_open(self)
 	_config = DEFAULTS.duplicate(true)
 	_config.merge(target.get_ui_config(), true)
 	var slots := maxi(1, int(_config["slot_count"]))
@@ -274,7 +275,8 @@ func open(target: Node3D) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 func close() -> void:
-	visible = false
+	if not is_open:
+		return
 	is_open = false
 	set_process(false)
 	if _proximity != null:
@@ -283,6 +285,7 @@ func close() -> void:
 	_selected_visual = -1
 	if interaction_system != null:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	UIPanelLifecycle.dismiss(self, _panel)
 
 func _process(delta: float) -> void:
 	_refresh_elapsed += delta

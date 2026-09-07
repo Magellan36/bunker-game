@@ -265,6 +265,7 @@ func _category_changed(category: String) -> void:
 	_update_category_buttons()
 	_rebuild_subcategories()
 	_rebuild_items()
+	UIFade.content(_scroll_viewport)
 
 
 func _subcategory_changed(group: String) -> void:
@@ -273,6 +274,7 @@ func _subcategory_changed(group: String) -> void:
 	_subcategory = group
 	_update_subcategory_buttons()
 	_rebuild_items()
+	UIFade.content(_scroll_viewport)
 
 
 func _filtered() -> Array:

@@ -363,10 +363,10 @@ func _build_footer() -> Control:
 	var footer := HBoxContainer.new()
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	footer.add_theme_constant_override("separation", 16)
-	BunkerUIComponents.key_hint(footer, "A", "Select")
-	BunkerUIComponents.key_hint(footer, "D-PAD", "Navigate")
-	BunkerUIComponents.key_hint(footer, "SCROLLBAR", "Scroll")
-	BunkerUIComponents.key_hint(footer, "B", "Close")
+	BunkerUIComponents.key_hint(footer, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer, "ARROWS", "Navigate", "ARROWS", "D-PAD / R-STICK")
+	BunkerUIComponents.key_hint(footer, "WHEEL", "Scroll", "WHEEL", "SCROLLBAR")
+	BunkerUIComponents.key_hint(footer, "ESC", "Close", "ESC", "B")
 	return footer
 
 
@@ -470,6 +470,7 @@ func _rebuild_products() -> void:
 		shown += 1
 	_catalog_meta.text = "%d ITEM%s AVAILABLE" % [shown, "" if shown == 1 else "S"]
 	_product_scroll.set_deferred("scroll_vertical", 0)
+	UIFade.content(_product_viewport)
 
 
 func _add(item_id: int) -> void:

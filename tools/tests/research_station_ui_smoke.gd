@@ -4,8 +4,6 @@ extends SceneTree
 ## Run with:
 ## godot --headless --path . --script res://tools/tests/research_station_ui_smoke.gd
 
-const UI_SCRIPT: GDScript = preload("res://scripts/ui/research/ResearchStationModernUI.gd")
-const PATH_SCRIPT: GDScript = preload("res://scripts/ui/research/ResearchPathCanvas.gd")
 var _failures: int = 0
 
 
@@ -14,7 +12,17 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var ui: CanvasLayer = UI_SCRIPT.new() as CanvasLayer
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	var ui_script: GDScript = load("res://scripts/ui/research/ResearchStationModernUI.gd") as GDScript
+	var path_script: GDScript = load("res://scripts/ui/research/ResearchPathCanvas.gd") as GDScript
+	var station_script: GDScript = GDScript.new()
+	station_script.source_code = """extends \"res://scripts/world/furniture/ResearchStation.gd\"
+func _ready() -> void:
+	pass
+"""
+	_check(station_script.reload() == OK, "research station test double compiles")
+	var ui: CanvasLayer = ui_script.new() as CanvasLayer
 	root.add_child(ui)
 	await process_frame
 	await process_frame
@@ -33,7 +41,7 @@ func _run() -> void:
 	_check(material_counts.size() == 4, "all four research material stores remain visible")
 	var path_canvas: Control = ui.get("_path_canvas") as Control
 	_check(
-		path_canvas != null and path_canvas.get_script() == PATH_SCRIPT,
+		path_canvas != null and path_canvas.get_script() == path_script,
 		"research pathways use the native dependency canvas"
 	)
 	var navigation: Node = ui.get("_controller_nav") as Node
@@ -46,8 +54,10 @@ func _run() -> void:
 		"d-pad/right-stick navigate while left stick remains player movement"
 	)
 
-	var station: ResearchStation = ResearchStation.new()
+	var station: Node = station_script.new() as Node
 	station.stored_materials = {"metal": 8, "plastic": 7, "paper": 3, "organic": 6}
+	root.add_child(station)
+	await process_frame
 	ui.call("open", station)
 	await process_frame
 	_check(bool(ui.get("is_open")) and ui.visible, "open presents the reusable workspace")
@@ -70,8 +80,12 @@ func _run() -> void:
 	)
 	ui.call("_on_research_action")
 	_check(not station.is_paused, "resume delegates to the established station backend")
+	await process_frame
 	ui.call("close")
-	_check(not bool(ui.get("is_open")) and not ui.visible, "close hides the reusable workspace")
+	_check(not bool(ui.get("is_open")) and ui.visible,
+		"close ends interaction immediately while retaining the exit presentation")
+	await create_timer(UIMotion.EXIT + 0.04).timeout
+	_check(not ui.visible, "short exit hides the reusable workspace")
 	station.free()
 	ui.free()
 	if _failures == 0:

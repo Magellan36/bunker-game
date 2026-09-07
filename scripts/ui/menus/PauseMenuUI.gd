@@ -45,6 +45,7 @@ func toggle() -> void:
 func open() -> void:
 	if _visible_state:
 		return
+	UIPanelLifecycle.prepare_open(self)
 	_visible_state = true
 	visible = true
 	_slot_panel.hide()
@@ -60,11 +61,11 @@ func close() -> void:
 	if not _visible_state:
 		return
 	_visible_state = false
-	visible = false
 	_close_confirm_dialog()
 	Input.mouse_mode = _prev_mouse_mode
 	if player != null and player.has_method("set_movement_locked"):
 		player.call("set_movement_locked", false)
+	UIPanelLifecycle.dismiss(self, _panel)
 
 func is_open() -> bool:
 	return _visible_state
@@ -202,15 +203,9 @@ func _build_footer() -> Control:
 	var footer := HBoxContainer.new()
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	footer.add_theme_constant_override("separation", 34)
-	for hint_text: String in [
-		"A / Enter   Select",
-		"B / Esc   Resume",
-		"Right stick / D-pad   Navigate",
-	]:
-		var hint := Label.new()
-		hint.text = hint_text
-		BunkerPanelStyle.muted(hint, 12)
-		footer.add_child(hint)
+	BunkerUIComponents.key_hint(footer, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer, "ESC", "Resume", "ESC", "B")
+	BunkerUIComponents.key_hint(footer, "ARROWS", "Navigate", "ARROWS", "D-PAD / R-STICK")
 	return footer
 
 func _layout() -> void:

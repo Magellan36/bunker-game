@@ -11,8 +11,13 @@ remains the player-tested baseline until explicit promotion. No force pushes.
    controller ownership and range/scroll helpers. Device-family integration.
    Validation: Godot 4.7.2; isolated motion/layout contracts passed;
    device UI/owner contracts passed 2,396 checks over six resolutions.
-2. **Screen-family integration** (in progress): layouts, input-aware hints,
-   tab/detail motion, retained cart rows, reduced-motion consumers and lifecycle.
+2. **Screen-family integration**: bounded layouts across Build, Storage, Pause,
+   Graphics, Confirmation, Zone Customization, Power, Research, Status and NPC;
+   Build's approved 440 x 760 left rail; input-aware recurring hints; restrained
+   interruptible tab/detail transitions; retained Shop cart rows with exact
+   focus/scroll restoration; Reduced UI Motion in Graphics; and immediate logical
+   close with a short visual exit that a reopen can cancel. Validation: the full
+   Godot 4.7.2 UI screen-smoke set passes.
 3. **Final verification and documentation** (pending): UI reference, screen
    coverage, integration/visual checks, approval checklist and remaining limits.
 
