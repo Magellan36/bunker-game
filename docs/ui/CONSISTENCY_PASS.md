@@ -41,10 +41,19 @@ The implementation portion of the approved consistency pass is complete on
   remains. Build retains its deliberate in-world cursor during placement and
   requests the OS cursor only while its catalog or Shop needs it.
 - Desktop-density tokens keep the approved type scale while tightening
-  vertical button padding. Graphics, Power Load Priority, Pause, Storage,
+  vertical button padding. Graphics, Power Load Order, Pause, Storage,
   confirmation, Research, NPC, Shop and ordinary device-inspector controls use
   the denser information-first rhythm; preview-led and medical layouts retain
   their specialized geometry.
+- Scrollable content reserves a shared right-side gutter, keeping controls and
+  text clear of the scrollbar in Graphics, Build, Storage, Power and ordinary
+  device inspectors at all six tested viewport sizes.
+- Build placement keeps its custom cursor, clears interaction prompts, and
+  separates the persistent clock, compact SHOP shortcut, placement helper,
+  toolbar and toast lane without changing the approved Build workflow.
+- Storage omits redundant empty-slot and capacity-bar copy. Power and water
+  inspectors use compact single-line status rows, uppercase allocation tiers,
+  and consistent POWER ON / POWER OFF actions whose chrome reflects state.
 
 ## Checkpoint commits
 
@@ -55,6 +64,9 @@ The implementation portion of the approved consistency pass is complete on
 | `adfdcf30be7e232c2266c96f1dd76dbfe82701e3` | Retained Shop cart rows with exact focus and scroll preservation |
 | `5882d2a3354c9cef80364aa86e74f88c499f9b8b` | Input-aware hints, restrained transitions and interruptible screen lifecycle |
 | `96e5b1a25b4ec5ca77dff293812d56a9f2ed7727` | Shared formatting and official-notification cleanup |
+| `3b6fa18faf89d84dd29f85ff4197ef7ed410f5aa` | Build cursor, prompt dismissal and collision-free Build HUD lanes |
+| `fc018493bb3e532a690a93e572321234f12868af` | Shared scrollbar gutter and category-icon sizing |
+| `2b740d0f650bedc59b83bdcc1e0108d0e3baf860` | Compact Storage/device information and unified power-state presentation |
 
 Every commit is a non-force descendant of the prior `testing` checkpoint.
 `main` remains at the approved baseline until explicit promotion.
@@ -119,7 +131,7 @@ Every commit is a non-force descendant of the prior `testing` checkpoint.
 | Godot 4.7.2 full editor import/registration | Exit 0; no GDScript parse or compile diagnostics |
 | Shared consistency contracts | 0 failures |
 | Screen-family smoke suite | 7/7 passed |
-| Device inspector/owner contracts | 2,396 checks, 0 failures over six resolutions |
+| Device inspector/owner contracts | 2,294 checks, 0 failures over six resolutions |
 | Formatting-sensitive HUD, inventory, notification and utility smokes | 4/4 success markers; 0 GDScript script errors |
 | Supplemental HUD, needs, motion, interaction, loading and generator-inspector smokes | Success markers; 0 assertion failures |
 | UI placeholder provenance | Development placeholders are manifest-tracked; release mode intentionally remains blocking |

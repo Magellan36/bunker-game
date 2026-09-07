@@ -26,6 +26,10 @@ func _run() -> void:
 	check(UIFormat.integer(1234567) == "1,234,567", "integer grouping is shared")
 	check(UIFormat.money(-1234) == "-$1,234", "signed currency is shared")
 	check(UIFormat.percent(82.6) == "83%", "percentage rounding is shared")
+	check(UIFormat.allocation_tier(1) == "CRITICAL"
+		and UIFormat.allocation_tier(3) == "STANDARD"
+		and UIFormat.allocation_tier(5) == "LUXURY",
+		"allocation tiers are shared and uppercase")
 	check(UIFormat.water_quality(82.6) == "Water quality 83%",
 		"water-quality wording is shared")
 	check(UIFormat.battery(46.2) == "46% battery remaining",
