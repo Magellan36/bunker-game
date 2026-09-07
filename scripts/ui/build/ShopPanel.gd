@@ -186,7 +186,7 @@ func _build_category_rail() -> Control:
 		button.text = ""
 		button.toggle_mode = true
 		BunkerUIComponents.style_segment(button)
-		button.custom_minimum_size.y = 58
+		button.custom_minimum_size.y = 50
 		_add_category_content(button, category,
 			String(CATEGORY_ICONS.get(category, "shop")))
 		button.pressed.connect(_set_category.bind(category))
@@ -331,7 +331,7 @@ func _build_cart() -> Control:
 	body.add_child(totals)
 	_checkout = Button.new()
 	_checkout.text = "Checkout"
-	_checkout.custom_minimum_size.y = 52
+	_checkout.custom_minimum_size.y = 40
 	BunkerPanelStyle.icon_button(_checkout, "check", true)
 	_checkout.pressed.connect(_checkout_order)
 	body.add_child(_checkout)

@@ -174,7 +174,7 @@ func _build_interface() -> void:
 	_cancel_button = Button.new()
 	_cancel_button.name = "Cancel"
 	_cancel_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cancel_button.custom_minimum_size.y = 48.0
+	_cancel_button.custom_minimum_size.y = 36.0
 	_cancel_button.icon = S.icon("close")
 	S.button(_cancel_button)
 	_cancel_button.pressed.connect(_cancel)
@@ -182,7 +182,7 @@ func _build_interface() -> void:
 	_confirm_button = Button.new()
 	_confirm_button.name = "Confirm"
 	_confirm_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_confirm_button.custom_minimum_size.y = 48.0
+	_confirm_button.custom_minimum_size.y = 36.0
 	_confirm_button.icon = S.icon("check")
 	S.button(_confirm_button, true)
 	_confirm_button.pressed.connect(_confirm)

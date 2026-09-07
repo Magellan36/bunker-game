@@ -36,8 +36,10 @@ static func button(parent: Node, key: String, text: String, callback: Callable, 
 	control.text = text
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	control.set_meta("ui_font_size", 18)
-	control.set_meta("ui_min_height", 48 if primary else 44)
-	control.custom_minimum_size.y = 48 if primary else 44
+	var minimum_height: float = (BunkerDesign.PRIMARY_CONTROL_HEIGHT if primary
+		else BunkerDesign.CONTROL_HEIGHT)
+	control.set_meta("ui_min_height", minimum_height)
+	control.custom_minimum_size.y = minimum_height
 	control.add_theme_font_size_override("font_size", 18)
 	control.clip_text = true
 	control.tooltip_text = text
@@ -150,8 +152,8 @@ static func option(parent: Node, key: String) -> OptionButton:
 	control.fit_to_longest_item = false
 	control.clip_text = true
 	control.set_meta("ui_font_size", 16)
-	control.set_meta("ui_min_height", 44)
-	control.custom_minimum_size.y = 44
+	control.set_meta("ui_min_height", BunkerDesign.CONTROL_HEIGHT)
+	control.custom_minimum_size.y = BunkerDesign.CONTROL_HEIGHT
 	parent.add_child(control)
 	for state: String in ["normal", "hover", "pressed", "disabled", "focus"]:
 		control.add_theme_stylebox_override(state, control.get_theme_stylebox(state, "Button"))
@@ -163,5 +165,5 @@ static func option(parent: Node, key: String) -> OptionButton:
 	popup.add_theme_font_size_override("font_size", 16)
 	popup.add_theme_color_override("font_color", color(control, "text"))
 	popup.add_theme_color_override("font_hover_color", color(control, "text"))
-	popup.add_theme_constant_override("v_separation", 12)
+	popup.add_theme_constant_override("v_separation", 6)
 	return control

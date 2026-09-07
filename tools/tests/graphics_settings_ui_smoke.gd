@@ -31,6 +31,9 @@ func _run() -> void:
 	_check(navigation.size() == 4, "display/rendering/effects/camera navigation exists")
 	for section_key: String in ["display", "rendering", "effects", "camera"]:
 		_check(navigation.has(section_key), "navigation includes %s" % section_key)
+		var section_button: Button = navigation.get(section_key) as Button
+		_check(section_button.custom_minimum_size.y <= 36.0,
+			"%s navigation uses desktop-density height" % section_key)
 
 	var scroll: ScrollContainer = panel.get("_content_scroll") as ScrollContainer
 	_check(scroll != null and scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED,
@@ -38,6 +41,8 @@ func _run() -> void:
 	var preset: OptionButton = panel.get("_preset_option") as OptionButton
 	_check(preset != null and preset.item_count == 5 and preset.is_item_disabled(4),
 		"preset control represents read-only Custom state")
+	_check(preset.custom_minimum_size.y <= 34.0,
+		"graphics options keep compact vertical padding")
 
 	var switches: Array[CheckButton] = []
 	for property_name: String in [
@@ -49,6 +54,9 @@ func _run() -> void:
 		if toggle != null:
 			switches.append(toggle)
 	_check(switches.size() == 11, "all live boolean and UI motion settings remain connected")
+	_check(switches.all(func(toggle: CheckButton) -> bool:
+		return toggle.custom_minimum_size.y <= 34.0),
+		"graphics toggles use information-first desktop density")
 	var reduced_motion: CheckButton = panel.get("_reduced_motion_check") as CheckButton
 	_check(reduced_motion != null and reduced_motion.button_pressed == UIMotion.reduced(),
 		"reduced UI motion control reflects the shared preference")

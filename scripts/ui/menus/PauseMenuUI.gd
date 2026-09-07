@@ -119,7 +119,7 @@ func _build_ui() -> void:
 func _build_action_rail() -> Control:
 	var rail := VBoxContainer.new()
 	rail.custom_minimum_size.x = 300
-	rail.add_theme_constant_override("separation", 9)
+	rail.add_theme_constant_override("separation", 6)
 	var brand := HBoxContainer.new()
 	brand.add_theme_constant_override("separation", 9)
 	var bunker_icon := TextureRect.new()
@@ -163,7 +163,7 @@ func _action_button(caption: String, symbol: String, callback: Callable,
 		accent: bool = false, danger: bool = false) -> Button:
 	var button := Button.new()
 	button.text = caption
-	button.custom_minimum_size.y = 56
+	button.custom_minimum_size.y = 38
 	BunkerPanelStyle.icon_button(button, symbol, accent, danger)
 	button.pressed.connect(callback)
 	return button

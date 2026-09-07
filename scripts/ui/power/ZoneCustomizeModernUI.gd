@@ -241,7 +241,7 @@ func _build_rename_content(parent: Container) -> void:
 	_name_edit = LineEdit.new()
 	_name_edit.max_length = NAME_LIMIT
 	_name_edit.placeholder_text = "Automatic zone name"
-	_name_edit.custom_minimum_size.y = 48.0
+	_name_edit.custom_minimum_size.y = 34.0
 	S.field(_name_edit)
 	_name_edit.text_changed.connect(_on_name_changed)
 	_name_edit.text_submitted.connect(_on_name_submitted)

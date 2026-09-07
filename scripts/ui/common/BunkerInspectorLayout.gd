@@ -52,8 +52,8 @@ func _apply_metrics() -> void:
 			var style: StyleBox = theme.get_stylebox(state, button_type)
 			style.content_margin_left = 16.0 * factor
 			style.content_margin_right = 16.0 * factor
-			style.content_margin_top = 8.0 * factor
-			style.content_margin_bottom = 8.0 * factor
+			style.content_margin_top = BunkerDesign.CONTROL_VERTICAL_PADDING * factor
+			style.content_margin_bottom = BunkerDesign.CONTROL_VERTICAL_PADDING * factor
 	var panel_style: StyleBox = theme.get_stylebox("panel", "PanelContainer")
 	panel_style.content_margin_top = 0.0
 	panel_style.content_margin_bottom = 0.0

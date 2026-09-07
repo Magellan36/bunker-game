@@ -29,6 +29,13 @@ func _run() -> void:
 	var pages: Array = ui.get("_pages") as Array
 	_check(tabs.size() == 4 and pages.size() == 4,
 		"overview/devices/load-priority/zone-network tabs exist")
+	_check(tabs.all(func(tab: Button) -> bool:
+		return tab.custom_minimum_size.y <= 34.0),
+		"power workspace tabs use compact desktop density")
+	var priority_step: Button = ui.call("_priority_button", "+") as Button
+	_check(priority_step.custom_minimum_size.y <= 30.0,
+		"load-priority stepping controls avoid oversized rows")
+	priority_step.free()
 	var graph: Control = ui.get("_graph") as Control
 	_check(graph != null and graph.get_script() == graph_script,
 		"overview owns the continuous 60-second graph")

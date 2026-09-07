@@ -22,6 +22,12 @@ const CAPTION_SIZE: int = 12
 const HINT_SIZE: int = 12
 const ICON_SIZE: int = 24
 const COMPACT_ICON_SIZE: int = 20
+## Desktop-density controls: retain readable type while avoiding touch-first
+## vertical padding in information-heavy workspaces.
+const CONTROL_HEIGHT: float = 34.0
+const PRIMARY_CONTROL_HEIGHT: float = 38.0
+const COMPACT_CONTROL_HEIGHT: float = 30.0
+const CONTROL_VERTICAL_PADDING: float = 4.0
 const CONTROL_RADIUS: int = 7
 const FOCUS_RADIUS: int = 9
 const FOCUS_WIDTH: int = 2

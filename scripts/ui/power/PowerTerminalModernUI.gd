@@ -277,7 +277,7 @@ func _build_tabs(parent: Container) -> void:
 		button.text = labels[index]
 		button.icon = S.icon(icons[index])
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size.y = 44.0
+		button.custom_minimum_size.y = 32.0
 		button.toggle_mode = true
 		C.style_segment(button)
 		button.pressed.connect(_set_tab.bind(index))
@@ -873,12 +873,12 @@ func _add_source(device: Dictionary, kind: String, shared: bool, peers: Array) -
 	var id: String = String(device.get("id", ""))
 	var key: String = ("shared:" if shared else "local:") + kind + ":" + id
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 66.0
+	card.custom_minimum_size.y = 52.0
 	_source_list.add_child(card)
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	card.add_child(C.inset(row, 12, 8, 12, 8))
-	row.add_child(C.icon_well("power" if kind == "generator" else "battery", 44.0, S.BLUE))
+	card.add_child(C.inset(row, 12, 5, 12, 5))
+	row.add_child(C.icon_well("power" if kind == "generator" else "battery", 36.0, S.BLUE))
 	var identity: VBoxContainer = VBoxContainer.new()
 	identity.custom_minimum_size.x = 150.0
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1047,11 +1047,11 @@ func _build_device_column(parent: VBoxContainer, devices: Array,
 		var id: String = String(device.get("id", ""))
 		var key: String = ("remote:" if remote else "local:") + kind + ":" + id
 		var card: PanelContainer = _card(Color("1a201f"))
-		card.custom_minimum_size.y = 104.0
+		card.custom_minimum_size.y = 86.0
 		parent.add_child(card)
 		var body: VBoxContainer = VBoxContainer.new()
 		body.add_theme_constant_override("separation", 5)
-		card.add_child(C.inset(body, 11, 9, 11, 9))
+		card.add_child(C.inset(body, 11, 6, 11, 6))
 		var heading: HBoxContainer = HBoxContainer.new()
 		body.add_child(heading)
 		var shown_kind: String = String(device.get("type", "device")) if kind == "consumer" else kind
@@ -1156,11 +1156,11 @@ func _sync_priorities(snapshot: Dictionary) -> void:
 func _add_priority_row(consumer: Dictionary, peers: Array) -> void:
 	var id: String = String(consumer.get("id", ""))
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 68.0
+	card.custom_minimum_size.y = 50.0
 	_priority_list.add_child(card)
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	card.add_child(C.inset(row, 12, 8, 12, 8))
+	card.add_child(C.inset(row, 12, 4, 12, 4))
 	var identity: VBoxContainer = VBoxContainer.new()
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(identity)
@@ -1176,7 +1176,7 @@ func _add_priority_row(consumer: Dictionary, peers: Array) -> void:
 	decrement.pressed.connect(_change_priority.bind(id, -1))
 	row.add_child(decrement)
 	var priority_label: Button = _pill("P3", S.BLUE)
-	priority_label.custom_minimum_size = Vector2(54.0, 34.0)
+	priority_label.custom_minimum_size = Vector2(54.0, 28.0)
 	row.add_child(priority_label)
 	var increment: Button = _priority_button("+")
 	increment.tooltip_text = "Move toward first-shed priority"
@@ -1325,13 +1325,13 @@ func _device_zone_name(device_id: String, zones: Array, field: String) -> String
 func _flow_row(direction: String, zone_label: String, amount: float,
 		color: Color) -> PanelContainer:
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 64.0
+	card.custom_minimum_size.y = 50.0
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	card.add_child(C.inset(row, 11, 8, 11, 8))
+	card.add_child(C.inset(row, 11, 5, 11, 5))
 	var swatch: ColorRect = ColorRect.new()
 	swatch.color = color
-	swatch.custom_minimum_size = Vector2(8.0, 42.0)
+	swatch.custom_minimum_size = Vector2(8.0, 34.0)
 	row.add_child(swatch)
 	var identity: VBoxContainer = VBoxContainer.new()
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1345,11 +1345,11 @@ func _flow_row(direction: String, zone_label: String, amount: float,
 
 func _connection_row(copy: String, device: Dictionary, kind: String) -> PanelContainer:
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 66.0
+	card.custom_minimum_size.y = 52.0
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	card.add_child(C.inset(row, 11, 8, 11, 8))
-	row.add_child(C.icon_well("battery" if kind == "battery" else "running", 42.0, S.BLUE))
+	card.add_child(C.inset(row, 11, 5, 11, 5))
+	row.add_child(C.icon_well("battery" if kind == "battery" else "running", 36.0, S.BLUE))
 	var identity: VBoxContainer = VBoxContainer.new()
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(identity)
@@ -1535,7 +1535,7 @@ func _action(text_value: String, icon: String) -> Button:
 	button.text = text_value
 	button.icon = S.icon(icon)
 	S.button(button)
-	button.custom_minimum_size.y = 38.0
+	button.custom_minimum_size.y = 32.0
 	button.add_theme_font_size_override("font_size", 13)
 	button.add_theme_constant_override("icon_max_width", 20)
 	return button
@@ -1544,8 +1544,8 @@ func _action(text_value: String, icon: String) -> Button:
 func _priority_button(text_value: String) -> Button:
 	var button: Button = Button.new()
 	button.text = text_value
-	button.custom_minimum_size = Vector2(42.0, 38.0)
 	S.button(button)
+	button.custom_minimum_size = Vector2(34.0, 28.0)
 	button.add_theme_font_size_override("font_size", 20)
 	return button
 
@@ -1580,14 +1580,14 @@ func _status_line(text_value: String, color: Color) -> Label:
 func _empty(text_value: String, icon: String) -> PanelContainer:
 	var card: PanelContainer = _card(Color("1a201f"))
 	card.name = "EmptyState"
-	card.custom_minimum_size.y = 62.0
+	card.custom_minimum_size.y = 48.0
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	card.add_child(C.inset(row, 12, 9, 12, 9))
+	card.add_child(C.inset(row, 12, 6, 12, 6))
 	var texture: TextureRect = TextureRect.new()
 	texture.texture = S.icon(icon)
 	texture.self_modulate = S.MUTED.darkened(0.25)
-	texture.custom_minimum_size = Vector2(30.0, 30.0)
+	texture.custom_minimum_size = Vector2(26.0, 26.0)
 	texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	row.add_child(texture)

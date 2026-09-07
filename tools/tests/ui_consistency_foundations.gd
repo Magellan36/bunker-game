@@ -32,6 +32,9 @@ func _run() -> void:
 		"battery wording is shared")
 	check(UIFormat.uses(2, 4) == "2 / 4 uses remaining",
 		"charge wording is shared")
+	check(BunkerDesign.CONTROL_HEIGHT == 34.0
+		and BunkerDesign.CONTROL_VERTICAL_PADDING == 4.0,
+		"desktop control density is shared without changing typography")
 	var item: ChargeItem = ChargeItem.new()
 	check(ItemPresentation.title(item) == "Field Dressing",
 		"item names use the shared precedence and trimming")

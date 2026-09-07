@@ -189,18 +189,18 @@ func _build() -> void:
 	_state_row.add_child(_state_bar)
 	_state_row.hide()
 	var actions := HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 10)
+	actions.add_theme_constant_override("separation", 6)
 	body.add_child(actions)
 	_carry = Button.new()
 	_carry.text = "Carry item"
-	_carry.custom_minimum_size.y = 46
+	_carry.custom_minimum_size.y = 36
 	_carry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	BunkerPanelStyle.icon_button(_carry, "move")
 	_carry.pressed.connect(_take_for_carry)
 	actions.add_child(_carry)
 	_inventory = Button.new()
 	_inventory.text = "Add to inventory"
-	_inventory.custom_minimum_size.y = 46
+	_inventory.custom_minimum_size.y = 36
 	_inventory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	BunkerPanelStyle.icon_button(_inventory, "plus", true)
 	_inventory.pressed.connect(_take_for_inventory)

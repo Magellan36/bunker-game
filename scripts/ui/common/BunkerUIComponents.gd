@@ -124,7 +124,8 @@ static func style_segment(button: Button, compact: bool = false) -> void:
 	UIButtonMotion.attach(button)
 	button.focus_mode = Control.FOCUS_ALL
 	button.toggle_mode = true
-	button.custom_minimum_size.y = 38.0 if compact else 44.0
+	button.custom_minimum_size.y = (BunkerDesign.COMPACT_CONTROL_HEIGHT if compact
+		else BunkerDesign.CONTROL_HEIGHT)
 	button.add_theme_font_size_override("font_size", 12 if compact else 14)
 	button.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
 	button.add_theme_color_override("font_hover_color", BunkerPanelStyle.IVORY)
@@ -133,14 +134,14 @@ static func style_segment(button: Button, compact: bool = false) -> void:
 	button.add_theme_color_override("icon_hover_color", BunkerPanelStyle.BLUE)
 	button.add_theme_color_override("icon_pressed_color", BunkerPanelStyle.BLUE)
 	button.add_theme_constant_override("icon_max_width", 20 if compact else 24)
-	button.add_theme_stylebox_override("normal", panel_box(
-		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.42), 7, 1, 7))
-	button.add_theme_stylebox_override("hover", panel_box(
-		Color("202b2e"), BunkerPanelStyle.BLUE.darkened(0.2), 7, 1, 7))
-	button.add_theme_stylebox_override("pressed", panel_box(
-		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7, 2, 6))
-	button.add_theme_stylebox_override("hover_pressed", panel_box(
-		BunkerPanelStyle.BLUE_DARK.lightened(0.07), BunkerPanelStyle.BLUE, 7, 2, 6))
+	button.add_theme_stylebox_override("normal", BunkerPanelStyle.button_box(
+		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.42)))
+	button.add_theme_stylebox_override("hover", BunkerPanelStyle.button_box(
+		Color("202b2e"), BunkerPanelStyle.BLUE.darkened(0.2)))
+	button.add_theme_stylebox_override("pressed", BunkerPanelStyle.button_box(
+		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7, 2, 9, 3))
+	button.add_theme_stylebox_override("hover_pressed", BunkerPanelStyle.button_box(
+		BunkerPanelStyle.BLUE_DARK.lightened(0.07), BunkerPanelStyle.BLUE, 7, 2, 9, 3))
 	button.add_theme_stylebox_override("focus", panel_box(
 		Color.TRANSPARENT, BunkerPanelStyle.IVORY, 9, 2))
 

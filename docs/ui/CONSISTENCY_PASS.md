@@ -31,6 +31,21 @@ remains the sole toast/history owner.
 The implementation portion of the approved consistency pass is complete on
 `testing`. Promotion to `main` remains a separate, explicit approval step.
 
+## Post-pass polish
+
+- Build Mode is an exclusive workspace: entering it logically closes other
+  active UI surfaces through their own lifecycle, fades the pooled world
+  interaction prompts, and suppresses new prompts until Build exits.
+- Cursor ownership is reconciled centrally. Keyboard/mouse menus request a
+  visible cursor; controller menus hide it; gameplay captures it when no menu
+  remains. Build retains its deliberate in-world cursor during placement and
+  requests the OS cursor only while its catalog or Shop needs it.
+- Desktop-density tokens keep the approved type scale while tightening
+  vertical button padding. Graphics, Power Load Priority, Pause, Storage,
+  confirmation, Research, NPC, Shop and ordinary device-inspector controls use
+  the denser information-first rhythm; preview-led and medical layouts retain
+  their specialized geometry.
+
 ## Checkpoint commits
 
 | Commit | Scope |

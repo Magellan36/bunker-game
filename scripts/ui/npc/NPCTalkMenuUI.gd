@@ -445,7 +445,7 @@ func _build_needs_strip(parent: Container) -> void:
 		var key: String = String(entry["key"])
 		var color: Color = entry["color"] as Color
 		var card: PanelContainer = _card(Color("151c1b"), S.BRASS.darkened(0.4), 7)
-		card.custom_minimum_size.y = 78.0
+		card.custom_minimum_size.y = 58.0
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(card)
 		var card_row: HBoxContainer = HBoxContainer.new()
@@ -527,7 +527,7 @@ func _build_overview(parent: VBoxContainer) -> void:
 	_talk_to_button.text = "Talk to resident"
 	_talk_to_button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	S.icon_button(_talk_to_button, "talk", true)
-	_talk_to_button.custom_minimum_size.y = 55.0
+	_talk_to_button.custom_minimum_size.y = 38.0
 	_talk_to_button.pressed.connect(_open_talk_tab)
 	right.add_child(_talk_to_button)
 
@@ -618,7 +618,7 @@ func _build_at_a_glance(parent: Container) -> void:
 
 func _build_fact_row(parent: Container, symbol: String, title_text: String, value_text: String) -> Label:
 	var row: HBoxContainer = HBoxContainer.new()
-	row.custom_minimum_size.y = 67.0
+	row.custom_minimum_size.y = 48.0
 	row.add_theme_constant_override("separation", 10)
 	parent.add_child(row)
 	row.add_child(_icon(symbol, 23.0, S.IVORY))
@@ -648,7 +648,7 @@ func _build_talk(parent: VBoxContainer) -> void:
 	dialogue_row.add_child(dialogue_copy)
 	_dialogue_label = _label("Select Talk to begin a conversation.", 15, S.IVORY)
 	_dialogue_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_dialogue_label.custom_minimum_size.y = 54.0
+	_dialogue_label.custom_minimum_size.y = 40.0
 	dialogue_copy.add_child(_dialogue_label)
 	var talk_again: Button = Button.new()
 	talk_again.text = "Talk again"
@@ -691,7 +691,7 @@ func _build_requests(parent: VBoxContainer) -> void:
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0.0, 54.0)
+		button.custom_minimum_size = Vector2(0.0, 38.0)
 		S.icon_button(button, String(entry["icon"]))
 		button.pressed.connect(_on_job_command_pressed.bind(String(entry["type"])))
 		grid.add_child(button)
@@ -703,7 +703,7 @@ func _request_button(text_value: String, symbol: String, callback: Callable) -> 
 	button.text = text_value
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size.y = 52.0
+	button.custom_minimum_size.y = 36.0
 	S.icon_button(button, symbol)
 	button.pressed.connect(callback)
 	return button
@@ -1445,7 +1445,7 @@ func _empty_state(message: String) -> Label:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.custom_minimum_size.y = 58.0
+	label.custom_minimum_size.y = 42.0
 	return label
 
 

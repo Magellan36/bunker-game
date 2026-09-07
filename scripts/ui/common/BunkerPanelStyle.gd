@@ -32,21 +32,31 @@ static func box(bg: Color = BG, border: Color = BRASS, radius: int = 8, width: i
 	s.set_corner_radius_all(radius)
 	return s
 
+static func button_box(bg: Color, border: Color, radius: int = 7, width: int = 1,
+		horizontal_padding: float = 10.0,
+		vertical_padding: float = BunkerDesign.CONTROL_VERTICAL_PADDING) -> StyleBoxFlat:
+	var style := box(bg, border, radius, width)
+	style.content_margin_left = horizontal_padding
+	style.content_margin_right = horizontal_padding
+	style.content_margin_top = vertical_padding
+	style.content_margin_bottom = vertical_padding
+	return style
+
 static func button(control: Button, accent: bool = false, danger: bool = false) -> void:
 	UIButtonMotion.attach(control)
 	control.focus_mode = Control.FOCUS_ALL
-	control.custom_minimum_size.y = maxf(control.custom_minimum_size.y, 42.0)
+	control.custom_minimum_size.y = maxf(control.custom_minimum_size.y, BunkerDesign.CONTROL_HEIGHT)
 	control.add_theme_font_size_override("font_size", 17)
 	control.add_theme_color_override("font_color", IVORY)
 	control.add_theme_color_override("font_hover_color", IVORY)
 	control.add_theme_color_override("font_pressed_color", IVORY)
 	var normal_bg := BLUE_DARK if accent else (Color("512923") if danger else SURFACE)
 	var edge := BLUE if accent else (RED if danger else BRASS.darkened(0.18))
-	control.add_theme_stylebox_override("normal", box(normal_bg, edge, 7, 1))
-	control.add_theme_stylebox_override("hover", box(normal_bg.lightened(0.07), BLUE if not danger else RED, 7, 1))
-	control.add_theme_stylebox_override("pressed", box(normal_bg.darkened(0.08), edge, 7, 1))
+	control.add_theme_stylebox_override("normal", button_box(normal_bg, edge))
+	control.add_theme_stylebox_override("hover", button_box(normal_bg.lightened(0.07), BLUE if not danger else RED))
+	control.add_theme_stylebox_override("pressed", button_box(normal_bg.darkened(0.08), edge))
 	control.add_theme_stylebox_override("focus", box(Color.TRANSPARENT, IVORY, BunkerDesign.FOCUS_RADIUS, BunkerDesign.FOCUS_WIDTH))
-	control.add_theme_stylebox_override("disabled", box(SURFACE.darkened(0.1), BRASS.darkened(0.45), 7, 1))
+	control.add_theme_stylebox_override("disabled", button_box(SURFACE.darkened(0.1), BRASS.darkened(0.45)))
 	control.add_theme_color_override("font_disabled_color", MUTED.darkened(0.35))
 	control.add_theme_constant_override("icon_max_width", BunkerDesign.ICON_SIZE)
 

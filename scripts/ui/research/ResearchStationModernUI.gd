@@ -671,7 +671,7 @@ func _rebuild_detail() -> void:
 
 	_detail_content.add_child(_tier_segments(completed, maximum))
 	_action_button = Button.new()
-	_action_button.custom_minimum_size.y = 48.0
+	_action_button.custom_minimum_size.y = 36.0
 	_action_button.pressed.connect(_on_research_action)
 	_detail_content.add_child(_action_button)
 	_style_research_action()

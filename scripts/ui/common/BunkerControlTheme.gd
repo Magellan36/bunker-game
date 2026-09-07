@@ -48,8 +48,8 @@ static func install(theme: Theme) -> void:
 		var normal: StyleBoxFlat = _box(BunkerDesign.SURFACE, BunkerDesign.BRASS.darkened(0.24), 7)
 		normal.content_margin_left = 10
 		normal.content_margin_right = 10
-		normal.content_margin_top = 6
-		normal.content_margin_bottom = 6
+		normal.content_margin_top = 3
+		normal.content_margin_bottom = 3
 		theme.set_stylebox("panel" if kind == "PopupMenu" else "normal", kind, normal)
 		theme.set_stylebox("focus", kind, _box(Color.TRANSPARENT, BunkerDesign.IVORY, 9, 2))
 		theme.set_color("font_color", kind, BunkerDesign.IVORY)

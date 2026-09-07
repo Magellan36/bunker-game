@@ -231,7 +231,7 @@ func _build_navigation_rail() -> Control:
 
 	var back_button: Button = Button.new()
 	back_button.text = "Back to Pause"
-	back_button.custom_minimum_size.y = 54
+	back_button.custom_minimum_size.y = 36
 	BunkerPanelStyle.icon_button(back_button, "arrow")
 	back_button.pressed.connect(close)
 	rail.add_child(back_button)
@@ -244,7 +244,7 @@ func _section_button(caption: String, symbol: String, section_key: String) -> Bu
 	button.icon = BunkerPanelStyle.icon(symbol)
 	button.expand_icon = true
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	button.custom_minimum_size.y = 52
+	button.custom_minimum_size.y = 36
 	BunkerUIComponents.style_segment(button)
 	button.pressed.connect(_jump_to_section.bind(section_key))
 	_section_buttons[section_key] = button
@@ -308,9 +308,9 @@ func _build_workspace() -> Control:
 func _build_preset_card() -> PanelContainer:
 	var card: PanelContainer = PanelContainer.new()
 	card.name = "QualityPresetCard"
-	card.custom_minimum_size.y = 86
+	card.custom_minimum_size.y = 66
 	card.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("172328"), BunkerPanelStyle.BLUE.darkened(0.24), 9, 1, 12))
+		Color("172328"), BunkerPanelStyle.BLUE.darkened(0.24), 9, 1, 7))
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 18)
 	card.add_child(row)
@@ -386,7 +386,7 @@ func _build_effects_section(parent: VBoxContainer) -> void:
 	var grid: GridContainer = GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
+	grid.add_theme_constant_override("v_separation", 6)
 	section.add_child(grid)
 	_sdfgi_check = _make_switch(_on_sdfgi_toggled)
 	grid.add_child(_effect_card("Real-time GI", "Dynamic bounced light throughout the bunker.", _sdfgi_check))
@@ -431,7 +431,7 @@ func _section(parent: VBoxContainer, section_key: String, title_text: String, me
 	var section: VBoxContainer = VBoxContainer.new()
 	section.name = title_text.capitalize().replace(" ", "") + "Section"
 	section.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	section.add_theme_constant_override("separation", 8)
+	section.add_theme_constant_override("separation", 6)
 	parent.add_child(section)
 	_section_anchors[section_key] = section
 	BunkerUIComponents.section_header(section, title_text, meta_text)
@@ -440,11 +440,11 @@ func _section(parent: VBoxContainer, section_key: String, title_text: String, me
 
 func _setting_card(title_text: String, description_text: String, control: Control, warning: bool = false) -> PanelContainer:
 	var card: PanelContainer = PanelContainer.new()
-	card.custom_minimum_size.y = 74
+	card.custom_minimum_size.y = 54
 	var edge_color: Color = BunkerPanelStyle.BRASS.darkened(0.35)
 	if warning:
 		edge_color = BunkerPanelStyle.BRASS.lightened(0.08)
-	card.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(Color("1b211f"), edge_color, 8, 1, 11))
+	card.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(Color("1b211f"), edge_color, 8, 1, 6))
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 18)
 	card.add_child(row)
@@ -470,9 +470,9 @@ func _setting_card(title_text: String, description_text: String, control: Contro
 
 func _effect_card(title_text: String, description_text: String, toggle: CheckButton) -> PanelContainer:
 	var card: PanelContainer = PanelContainer.new()
-	card.custom_minimum_size = Vector2(385, 92)
+	card.custom_minimum_size = Vector2(385, 64)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(Color("1b211f"), BunkerPanelStyle.BRASS.darkened(0.38), 8, 1, 10))
+	card.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(Color("1b211f"), BunkerPanelStyle.BRASS.darkened(0.38), 8, 1, 6))
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	card.add_child(row)
@@ -498,7 +498,7 @@ func _effect_card(title_text: String, description_text: String, toggle: CheckBut
 
 func _make_option(labels: Array[String]) -> OptionButton:
 	var option: OptionButton = OptionButton.new()
-	option.custom_minimum_size = Vector2(CONTROL_WIDTH, 46)
+	option.custom_minimum_size = Vector2(CONTROL_WIDTH, 32)
 	option.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	for label_text: String in labels:
 		option.add_item(label_text)
@@ -509,11 +509,11 @@ func _make_option(labels: Array[String]) -> OptionButton:
 func _make_switch(callback: Callable) -> CheckButton:
 	var toggle: CheckButton = CheckButton.new()
 	toggle.text = "OFF"
-	toggle.custom_minimum_size = Vector2(118, 46)
+	toggle.custom_minimum_size = Vector2(118, 32)
 	toggle.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	BunkerPanelStyle.button(toggle)
-	toggle.add_theme_stylebox_override("pressed", BunkerUIComponents.panel_box(BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7, 2, 6))
-	toggle.add_theme_stylebox_override("hover_pressed", BunkerUIComponents.panel_box(BunkerPanelStyle.BLUE_DARK.lightened(0.06), BunkerPanelStyle.BLUE, 7, 2, 6))
+	toggle.add_theme_stylebox_override("pressed", BunkerPanelStyle.button_box(BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7, 2, 9, 3))
+	toggle.add_theme_stylebox_override("hover_pressed", BunkerPanelStyle.button_box(BunkerPanelStyle.BLUE_DARK.lightened(0.06), BunkerPanelStyle.BLUE, 7, 2, 9, 3))
 	toggle.toggled.connect(func(pressed: bool) -> void:
 		toggle.text = "ON" if pressed else "OFF")
 	toggle.toggled.connect(callback)
