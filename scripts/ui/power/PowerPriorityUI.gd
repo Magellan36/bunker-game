@@ -19,9 +19,8 @@ func _build_content() -> void:
 	_status = W.status(_statuses, "PowerState")
 	_watts = W.stat(_details, "Watts", "Rated load")
 	_priority_control = _add_priority(_details, _apply_priority)
-	_priority_control.set_hint("1 is critical · 5 is shed first during shortages")
 	_explanation = W.label(_details, "Explanation", "", 14, "secondary")
-	_toggle_btn = W.button(_footer, "Toggle", "Turn load off", _on_toggle_pressed, "stopped", true)
+	_toggle_btn = W.button(_footer, "Toggle", "POWER OFF", _on_toggle_pressed, "stopped", true)
 
 func open(device_id: String, display_name: String, show_load_toggle: bool = false,
 		anchor_world: Vector3 = Vector3.INF, device: Node3D = null) -> void:
@@ -59,15 +58,18 @@ func _refresh_data() -> void:
 	W.set_stat(_watts, "%.0f W" % float(data.get("watts", 0.0)) if _registered else "—")
 	_priority_control.set_value(_priority, _registered)
 	_toggle_btn.disabled = not _registered
-	_toggle_btn.text = "Turn load off" if _active else "Turn load on"
-	_toggle_btn.tooltip_text = _toggle_btn.text
-	_explanation.text = "Priority controls which devices keep power during a shortage."
+	W.set_power_button(_toggle_btn, _active)
+	_explanation.text = ""
+	_explanation.hide()
 	if state == "SHED":
-		_explanation.text = "The network has shed this load. A higher priority may help it retain power."
+		_explanation.text = "The network has shed this load. Move its tier toward CRITICAL to retain power longer."
+		_explanation.show()
 	elif state == "UNWIRED":
 		_explanation.text = "Connect this device to the power network."
+		_explanation.show()
 	elif not _registered:
 		_explanation.text = "This device is no longer registered with the power network."
+		_explanation.show()
 
 func _apply_priority(value: int) -> void:
 	if not _is_open or not _registered:

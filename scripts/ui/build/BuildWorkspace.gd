@@ -195,7 +195,7 @@ func _build_helper() -> void:
 	_helper_panel.name = "PlacementHelper"
 	_helper_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_helper_panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("111615ef"), BunkerPanelStyle.BRASS.darkened(0.2), 8, 1, 6))
+		Color("111615ef"), BunkerPanelStyle.BRASS.darkened(0.2), 8, 1, 3))
 	add_child(_helper_panel)
 	_helper_row = HBoxContainer.new()
 	_helper_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -207,13 +207,13 @@ func _rebuild_helper_hints() -> void:
 	for child: Node in _helper_row.get_children():
 		child.queue_free()
 	if _controller_hints:
-		BunkerUIComponents.key_hint(_helper_row, "A", "Place")
-		BunkerUIComponents.key_hint(_helper_row, "LT / RT", "Rotate")
-		BunkerUIComponents.key_hint(_helper_row, "B", "Cancel")
+		BunkerUIComponents.key_hint(_helper_row, "A", "Place", "A", "A", true)
+		BunkerUIComponents.key_hint(_helper_row, "LT / RT", "Rotate", "LT / RT", "LT / RT", true)
+		BunkerUIComponents.key_hint(_helper_row, "B", "Cancel", "B", "B", true)
 	else:
-		BunkerUIComponents.key_hint(_helper_row, "LMB", "Place")
-		BunkerUIComponents.key_hint(_helper_row, "WHEEL", "Rotate")
-		BunkerUIComponents.key_hint(_helper_row, "RMB", "Cancel")
+		BunkerUIComponents.key_hint(_helper_row, "LMB", "Place", "LMB", "LMB", true)
+		BunkerUIComponents.key_hint(_helper_row, "WHEEL", "Rotate", "WHEEL", "WHEEL", true)
+		BunkerUIComponents.key_hint(_helper_row, "RMB", "Cancel", "RMB", "RMB", true)
 	var separator := VSeparator.new()
 	separator.custom_minimum_size.x = 1
 	_helper_row.add_child(separator)

@@ -23,7 +23,6 @@ var _root: Control
 var _panel: PanelContainer
 var _title: Label
 var _capacity: Label
-var _capacity_bar: ProgressBar
 var _scroll_viewport: Control
 var _scroll: ScrollContainer
 var _grid: GridContainer
@@ -116,14 +115,6 @@ func _build() -> void:
 	_capacity.add_theme_font_size_override("font_size", 14)
 	_capacity.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
 	cap_row.add_child(_capacity)
-	_capacity_bar = SMOOTH_BAR.new() as ProgressBar
-	_capacity_bar.show_percentage = false
-	_capacity_bar.custom_minimum_size.y = 7
-	_capacity_bar.add_theme_stylebox_override("background", BunkerPanelStyle.box(
-		BunkerPanelStyle.BG, Color.TRANSPARENT, 3, 0))
-	_capacity_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-		BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-	capacity_body.add_child(_capacity_bar)
 	var contents_heading: Dictionary = BunkerUIComponents.section_header(body, "Contents")
 	(contents_heading["meta"] as Label).text = "SELECT AN ITEM"
 	_scroll_viewport = Control.new()
@@ -330,8 +321,6 @@ func _refresh(force: bool) -> void:
 		if i == _selected_visual:
 			card.button_pressed = true
 	_capacity.text = "%d / %d" % [occupied, slots]
-	_capacity_bar.max_value = slots
-	SMOOTH_BAR.apply(_capacity_bar, occupied)
 	_refresh_selection()
 	var focus: Control = get_viewport().gui_get_focus_owner()
 	if focus != null and focus in _cards and focus.focus_mode == Control.FOCUS_NONE:

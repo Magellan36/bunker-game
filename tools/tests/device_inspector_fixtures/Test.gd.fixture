@@ -135,6 +135,13 @@ func _layout(ui: CanvasLayer) -> void:
 		check(ui._close_btn.is_visible_in_tree(), "close remains visible")
 		var scroll: ScrollContainer = view.get_node("%DetailsScroll") as ScrollContainer
 		check(scroll.size.x > 300 and scroll.size.y > 40, "usable details area")
+		var focus_inset: MarginContainer = scroll.get_node("FocusInset") as MarginContainer
+		check(focus_inset.get_theme_constant("margin_right") >= 20,
+			"scrollbar gutter: " + ui.name)
+		if scroll.get_v_scroll_bar().visible:
+			var details: Control = focus_inset.get_node("Details") as Control
+			check(details.get_global_rect().end.x <= scroll.get_v_scroll_bar().get_global_rect().position.x,
+				"scroll content clears bar: " + ui.name)
 		for item: Node in view.find_children("*", "Label", true, false):
 			var label: Label = item as Label
 			if label.is_visible_in_tree():
@@ -149,6 +156,17 @@ func _water() -> void:
 	var ui: CanvasLayer = panel("res://scripts/ui/water/WaterDispenserUI.gd")
 	ui.open(dispenser)
 	await _layout(ui)
+	check((ui._requested.get_node("Caption") as Label).get_theme_font_size("font_size") \
+		> (ui._requested.get_node("Value") as Label).get_theme_font_size("font_size"),
+		"water flow heading is larger than its value")
+	check(not (ui._quality.get_node("Hint") as Label).visible,
+		"water quality removes redundant helper copy")
+	check(ui._toggle_btn.text == "POWER OFF" \
+		and ui._toggle_btn.theme_type_variation == &"BunkerPrimaryButton",
+		"powered dispenser uses blue POWER OFF action")
+	check(ui._priority_control.get_node_or_null("Title") == null \
+		and (ui._priority_control.get_node("Controls/Value") as Label).text.ends_with("STANDARD"),
+		"water allocation is one uppercase tier row")
 	check(dispenser.writes == 0, "opening dispenser is read-only")
 	wm.maximum = 500.0
 	ui._refresh_data()
@@ -162,6 +180,9 @@ func _water() -> void:
 	ui._toggle_btn.grab_focus()
 	key(KEY_ENTER)
 	check(not dispenser.is_on, "keyboard toggle")
+	check(ui._toggle_btn.text == "POWER ON" \
+		and ui._toggle_btn.theme_type_variation == &"",
+		"powered-off dispenser uses subdued POWER ON action")
 	ui._on_priority_requested(0)
 	check(dispenser.priority == 1, "priority minimum")
 	ui._on_priority_requested(8)

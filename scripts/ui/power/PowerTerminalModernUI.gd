@@ -270,7 +270,7 @@ func _build_tabs(parent: Container) -> void:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	parent.add_child(row)
-	var labels: Array[String] = ["OVERVIEW", "DEVICES", "LOAD PRIORITY", "ZONE NETWORK"]
+	var labels: Array[String] = ["OVERVIEW", "DEVICES", "LOAD ORDER", "ZONE NETWORK"]
 	var icons: Array[String] = ["general", "battery", "log", "grid"]
 	for index: int in range(labels.size()):
 		var button: Button = Button.new()
@@ -455,7 +455,7 @@ func _build_preview_card(parent: Container) -> void:
 	_consumer_preview = VBoxContainer.new()
 	_consumer_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	C.scroll_content(scroll, _consumer_preview, 0, 0, 2)
-	_manage_priorities = _action("Manage load priorities", "log")
+	_manage_priorities = _action("Manage load order", "log")
 	_manage_priorities.pressed.connect(_set_tab.bind(PRIORITY))
 	body.add_child(_manage_priorities)
 
@@ -496,7 +496,7 @@ func _build_priority(stack: Control) -> void:
 	var body: VBoxContainer = VBoxContainer.new()
 	body.add_theme_constant_override("separation", 8)
 	list_card.add_child(C.inset(body, 14, 11, 14, 11))
-	var heading: HBoxContainer = _heading("LOAD PRIORITY", "log")
+	var heading: HBoxContainer = _heading("LOAD ORDER", "log")
 	body.add_child(heading)
 	_priority_count = _label("0 DEVICES", 12, S.BRASS.lightened(0.35))
 	heading.add_child(_priority_count)
@@ -523,7 +523,7 @@ func _build_priority(stack: Control) -> void:
 		"Higher-numbered tiers are disconnected first during an overload.", 13, S.MUTED)
 	copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	guide.add_child(copy)
-	var names: Array[String] = ["P1 · Critical", "P2 · Essential", "P3 · Standard", "P4 · Comfort", "P5 · First shed"]
+	var names: Array[String] = ["P1 · CRITICAL", "P2 · IMPORTANT", "P3 · STANDARD", "P4 · LOW", "P5 · LUXURY"]
 	var details: Array[String] = ["Never intentionally shed", "Life-support systems", "Normal bunker equipment", "Nonessential comfort", "Disconnected first"]
 	for index: int in range(names.size()):
 		guide.add_child(_priority_guide(names[index], details[index], index + 1))
@@ -531,7 +531,7 @@ func _build_priority(stack: Control) -> void:
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	guide.add_child(spacer)
 	var note: Label = _status_line(
-		"Priority changes settle after a short grid grace period.", S.BRASS.lightened(0.32))
+		"Order changes settle after a short grid grace period.", S.BRASS.lightened(0.32))
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	guide.add_child(note)
 
@@ -873,17 +873,21 @@ func _add_source(device: Dictionary, kind: String, shared: bool, peers: Array) -
 	var id: String = String(device.get("id", ""))
 	var key: String = ("shared:" if shared else "local:") + kind + ":" + id
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 52.0
+	card.custom_minimum_size.y = 46.0
 	_source_list.add_child(card)
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	card.add_child(C.inset(row, 12, 5, 12, 5))
-	row.add_child(C.icon_well("power" if kind == "generator" else "battery", 36.0, S.BLUE))
-	var identity: VBoxContainer = VBoxContainer.new()
+	row.add_child(C.icon_well("power" if kind == "generator" else "battery", 32.0, S.BLUE))
+	var identity: HBoxContainer = HBoxContainer.new()
 	identity.custom_minimum_size.x = 150.0
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	identity.add_theme_constant_override("separation", 10)
 	row.add_child(identity)
-	identity.add_child(_label(_device_name(kind, id, peers), 15, S.IVORY))
+	var name_label := _label(_device_name(kind, id, peers), 15, S.IVORY)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	identity.add_child(name_label)
 	var status: Label = _label("", 12, S.GREEN)
 	identity.add_child(status)
 	var value: Label = _label("", 17, S.IVORY)
@@ -1047,7 +1051,7 @@ func _build_device_column(parent: VBoxContainer, devices: Array,
 		var id: String = String(device.get("id", ""))
 		var key: String = ("remote:" if remote else "local:") + kind + ":" + id
 		var card: PanelContainer = _card(Color("1a201f"))
-		card.custom_minimum_size.y = 86.0
+		card.custom_minimum_size.y = 64.0
 		parent.add_child(card)
 		var body: VBoxContainer = VBoxContainer.new()
 		body.add_theme_constant_override("separation", 5)
@@ -1059,11 +1063,11 @@ func _build_device_column(parent: VBoxContainer, devices: Array,
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		heading.add_child(name_label)
+		var status: Label = _label("", 13, S.GREEN)
+		heading.add_child(status)
 		var badge: Button = _pill("SHARED" if kind == "battery" else "REMOTE", S.BLUE)
 		badge.visible = remote
 		heading.add_child(badge)
-		var status: Label = _label("", 13, S.GREEN)
-		body.add_child(status)
 		var value: Label = _label("", 13, S.MUTED)
 		body.add_child(value)
 		var bar: ProgressBar = _progress(S.BLUE)
@@ -1132,7 +1136,7 @@ func _refresh_device_consumers(consumers: Array, remote: bool) -> void:
 		var status: Label = row.get("status") as Label
 		status.text = "●  " + state
 		status.add_theme_color_override("font_color", _consumer_color(state))
-		(row.get("value") as Label).text = "%s · Priority P%d" % [
+		(row.get("value") as Label).text = "%s · P%d" % [
 			_watts(float(consumer.get("watts", 0.0))), int(consumer.get("priority", 3))]
 
 
@@ -1156,30 +1160,35 @@ func _sync_priorities(snapshot: Dictionary) -> void:
 func _add_priority_row(consumer: Dictionary, peers: Array) -> void:
 	var id: String = String(consumer.get("id", ""))
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 50.0
+	card.custom_minimum_size.y = 40.0
 	_priority_list.add_child(card)
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	card.add_child(C.inset(row, 12, 4, 12, 4))
-	var identity: VBoxContainer = VBoxContainer.new()
+	var identity: HBoxContainer = HBoxContainer.new()
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	identity.add_theme_constant_override("separation", 10)
 	row.add_child(identity)
-	identity.add_child(_label(_device_name(
-		String(consumer.get("type", "device")), id, peers), 15, S.IVORY))
+	var name_label := _label(_device_name(
+		String(consumer.get("type", "device")), id, peers), 15, S.IVORY)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	identity.add_child(name_label)
 	var detail: Label = _label("", 12, S.MUTED)
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	identity.add_child(detail)
 	var state: Button = _pill("ON", S.GREEN)
 	state.custom_minimum_size.x = 78.0
 	row.add_child(state)
 	var decrement: Button = _priority_button("−")
-	decrement.tooltip_text = "Move toward critical priority"
+	decrement.tooltip_text = "Move toward CRITICAL"
 	decrement.pressed.connect(_change_priority.bind(id, -1))
 	row.add_child(decrement)
 	var priority_label: Button = _pill("P3", S.BLUE)
 	priority_label.custom_minimum_size = Vector2(54.0, 28.0)
 	row.add_child(priority_label)
 	var increment: Button = _priority_button("+")
-	increment.tooltip_text = "Move toward first-shed priority"
+	increment.tooltip_text = "Move toward FIRST SHED"
 	increment.pressed.connect(_change_priority.bind(id, 1))
 	row.add_child(increment)
 	_priority_rows[id] = {"detail": detail, "state": state, "decrement": decrement,
@@ -1192,7 +1201,7 @@ func _refresh_priority_row(consumer: Dictionary) -> void:
 	if row.is_empty():
 		return
 	var priority_value: int = clampi(int(consumer.get("priority", 3)), 1, 5)
-	(row.get("detail") as Label).text = "%s draw" % _watts(float(consumer.get("watts", 0.0)))
+	(row.get("detail") as Label).text = "%s DRAW" % _watts(float(consumer.get("watts", 0.0)))
 	var state_name: String = _consumer_state(consumer)
 	var state: Button = row.get("state") as Button
 	state.text = state_name
@@ -1607,11 +1616,12 @@ func _priority_guide(title_text: String, detail_text: String,
 	var color: Color = S.BLUE if priority_value <= 2 else (
 		S.BRASS.lightened(0.25) if priority_value <= 4 else S.RED)
 	row.add_child(_pill("P%d" % priority_value, color))
-	var copy: VBoxContainer = VBoxContainer.new()
-	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(copy)
-	copy.add_child(_label(title_text, 13, S.IVORY))
-	copy.add_child(_label(detail_text, 11, S.MUTED))
+	var title := _label(title_text, 13, S.IVORY)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(title)
+	var detail := _label(detail_text, 11, S.MUTED)
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(detail)
 	return card
 
 

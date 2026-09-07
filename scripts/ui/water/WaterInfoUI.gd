@@ -29,7 +29,6 @@ func _build_content() -> void:
 	_sink_received = W.stat(_sink, "Received", "Receiving now")
 	_sink_quality = W.meter(_sink, "Quality", "Received water quality", "water")
 	_priority_control = _add_priority(_sink, _on_priority_requested)
-	_priority_control.set_hint("1 is served first · 5 is served last")
 	_purifier = W.column(_details, "Purifier", 16)
 	_input_quality = W.meter(_purifier, "InputQuality", "Input quality", "water")
 	_output_quality = W.meter(_purifier, "OutputQuality", "Purified output", "water")

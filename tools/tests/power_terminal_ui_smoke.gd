@@ -32,6 +32,8 @@ func _run() -> void:
 	_check(tabs.all(func(tab: Button) -> bool:
 		return tab.custom_minimum_size.y <= 34.0),
 		"power workspace tabs use compact desktop density")
+	_check((tabs[2] as Button).text == "LOAD ORDER",
+		"power allocation workspace omits redundant priority wording")
 	var power_scrolls: Array[Node] = panel.find_children("*", "ScrollContainer", true, false)
 	_check(not power_scrolls.is_empty() and power_scrolls.all(func(node: Node) -> bool:
 		var scroll := node as ScrollContainer
@@ -43,6 +45,17 @@ func _run() -> void:
 	_check(priority_step.custom_minimum_size.y <= 30.0,
 		"load-priority stepping controls avoid oversized rows")
 	priority_step.free()
+	var sample_consumer := {"id": "smoke", "type": "water_dispenser", "watts": 120.0,
+		"priority": 3, "active": true, "powered": true, "shed": false}
+	ui.call("_add_priority_row", sample_consumer, [sample_consumer])
+	var sample_rows: Dictionary = ui.get("_priority_rows") as Dictionary
+	var sample_row: Dictionary = sample_rows.get("smoke", {}) as Dictionary
+	var sample_detail: Label = sample_row.get("detail") as Label
+	var sample_card: PanelContainer = sample_detail.get_parent().get_parent().get_parent().get_parent() as PanelContainer \
+		if sample_detail != null else null
+	_check(sample_detail != null and sample_detail.get_parent() is HBoxContainer \
+		and sample_card != null and sample_card.custom_minimum_size.y <= 40.0,
+		"load name and draw share one compact line")
 	var graph: Control = ui.get("_graph") as Control
 	_check(graph != null and graph.get_script() == graph_script,
 		"overview owns the continuous 60-second graph")

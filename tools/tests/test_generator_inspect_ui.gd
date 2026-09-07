@@ -63,6 +63,9 @@ func _check_resolution(resolution: Vector2i) -> void:
 	var scroll: ScrollContainer = ui._view.get_node("%DetailsScroll") as ScrollContainer
 	_expect(scroll.size.y > 200.0, "%s: details collapsed" % resolution)
 	_expect(scroll.scroll_vertical == 0, "%s: inspector did not open at top" % resolution)
+	var focus_inset: MarginContainer = scroll.get_node("FocusInset") as MarginContainer
+	_expect(focus_inset.get_theme_constant("margin_right") >= 20,
+		"%s: inspector does not reserve its scrollbar gutter" % resolution)
 	if resolution == Vector2i(1920, 1080):
 		_expect(panel.size.is_equal_approx(Vector2(500.0, 740.0)), "1080p panel no longer matches compact 500x740 spec")
 		_expect(scroll.get_v_scroll_bar().max_value <= scroll.get_v_scroll_bar().page, "normal 1080p layout needs unnecessary scrolling")
@@ -137,6 +140,12 @@ func _check_state_and_input() -> void:
 	ui.open("Generator L", 5000.0, 90.0, 100.0, false, true)
 	await _settle()
 	_expect(_status(ui, "GeneratorStatus") == "Running", "running status incorrect")
+	_expect(ui._power_btn.text == "POWER OFF" \
+		and ui._power_btn.theme_type_variation == &"BunkerPrimaryButton",
+		"running generator does not use blue POWER OFF action")
+	_expect(not (ui._view.get_node("%FuelHint") as Label).visible \
+		and not (ui._view.get_node("%ConditionHint") as Label).visible,
+		"healthy generator omits redundant fuel and condition copy")
 	_expect(_status(ui, "GridStatus") == "Grid online", "online state incorrect")
 	for card_name: String in ["GeneratorStatus", "GridStatus"]:
 		var icon: TextureRect = ui._view.get_node("%" + card_name).get_node("Row/Icon")
@@ -169,7 +178,9 @@ func _check_state_and_input() -> void:
 	_expect(ui._toggle_btn.button_pressed, "backup toggle invented unconfirmed state")
 
 	ui.refresh(20.0, 25.0, false, false, true, "TRIPPED")
-	_expect(ui._power_btn.text == "Reset grid & start", "tripped-grid action lost")
+	_expect(ui._power_btn.text == "POWER ON" \
+		and ui._power_btn.theme_type_variation == &"",
+		"stopped generator uses subdued POWER ON action")
 	ui._power_btn.grab_focus()
 	_accept()
 	await get_tree().process_frame

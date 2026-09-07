@@ -159,6 +159,23 @@ func _test_runtime_ui() -> void:
 		"catalog remains open while an object is being placed")
 	_check(int(workspace.catalog.get("_selected_tile_id")) == int(first_item.tile_id),
 		"active placement remains visibly selected in the open catalog")
+	hud.set_ghost_active(true)
+	await process_frame
+	var build_cursor: Control = hud.get("_cursor") as Control
+	_check(build_cursor.visible,
+		"active placement keeps the custom Build cursor while the catalog remains open")
+	var build_plate: PanelContainer = workspace.get("_banner_panel") as PanelContainer
+	var helper: PanelContainer = workspace.get("_helper_panel") as PanelContainer
+	_check(build_plate.position.y >= 60.0,
+		"Build Mode plate clears the persistent clock HUD")
+	_check(workspace.shop_button.position.y >= 56.0 \
+		and workspace.shop_button.size.is_equal_approx(Vector2(162, 40)) \
+		and workspace.shop_button.text.is_empty() \
+		and _contains_label_text(workspace.shop_button, "SHOP"),
+		"SHOP shortcut matches the compact Cash HUD footprint below it")
+	_check(helper.size.y <= 28.0,
+		"placement helper keeps the notification lane clear")
+	hud.set_ghost_active(false)
 	hud.open_shop_menu()
 	await process_frame
 	_check(workspace.shop.visible and not workspace.catalog.visible, "shop opens its own overlay")
@@ -227,6 +244,16 @@ func _test_runtime_ui() -> void:
 	_check(storage_gutter.name == "ScrollContentGutter" \
 		and storage_gutter.get_theme_constant("margin_right") >= 20,
 		"storage slots reserve room for the visible scrollbar")
+	var storage_card_script := load("res://scripts/ui/common/BunkerItemCard.gd") as GDScript
+	var empty_card: Button = storage_card_script.new() as Button
+	root.add_child(empty_card)
+	await process_frame
+	_check(empty_card.custom_minimum_size.y <= 126.0 \
+		and not _contains_label_text(empty_card, "AVAILABLE"),
+		"empty storage slots omit the redundant Available line and stay compact")
+	_check(storage.get("_capacity_bar") == null,
+		"storage capacity no longer spends vertical space on a fill bar")
+	empty_card.free()
 	storage.free()
 
 func _test_focusable_scrollbar() -> void:
@@ -355,6 +382,13 @@ func _test_item_details() -> void:
 func _contains_button_text(root_node: Node, expected: String) -> bool:
 	for candidate: Node in root_node.find_children("*", "Button", true, false):
 		if candidate is Button and (candidate as Button).text == expected:
+			return true
+	return false
+
+
+func _contains_label_text(root_node: Node, expected: String) -> bool:
+	for node: Node in root_node.find_children("*", "Label", true, false):
+		if (node as Label).text == expected:
 			return true
 	return false
 

@@ -49,3 +49,7 @@ static func water_quality_color(quality: float) -> Color:
 	if quality <= 75.0:
 		return BunkerDesign.WARNING
 	return BunkerDesign.GREEN
+
+static func allocation_tier(value: int) -> String:
+	const TIER_NAMES: Array[String] = ["CRITICAL", "IMPORTANT", "STANDARD", "LOW", "LUXURY"]
+	return TIER_NAMES[clampi(value, 1, 5) - 1]

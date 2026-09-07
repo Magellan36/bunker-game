@@ -90,16 +90,26 @@ static func set_status(card: PanelContainer, text: String, token: String, kind: 
 		texture.set_meta("symbol", kind)
 	texture.self_modulate = tint
 
-static func stat(parent: Node, key: String, caption: String) -> VBoxContainer:
+static func stat(parent: Node, key: String, caption: String,
+		caption_size: int = 14, value_size: int = 18) -> VBoxContainer:
 	var box: VBoxContainer = column(parent, key, 3)
-	label(box, "Caption", caption, 14, "secondary")
-	label(box, "Value", "—", 18)
+	label(box, "Caption", caption, caption_size, "secondary")
+	label(box, "Value", "—", value_size)
 	return box
 
 static func set_stat(box: VBoxContainer, text: String, token: String = "text") -> void:
 	var value: Label = box.get_node("Value") as Label
 	value.text = text
 	value.add_theme_color_override("font_color", color(box, token))
+
+
+static func set_power_button(button: Button, powered: bool) -> void:
+	## Text describes the available action; chrome describes current state.
+	button.text = "POWER OFF" if powered else "POWER ON"
+	button.tooltip_text = button.text.capitalize()
+	button.theme_type_variation = &"BunkerPrimaryButton" if powered else &""
+	button.icon = icon("stopped" if powered else "running")
+	button.modulate = Color.WHITE if powered else Color(0.62, 0.64, 0.62, 1.0)
 
 static func meter(parent: Node, key: String, caption: String, kind: String) -> VBoxContainer:
 	var box: VBoxContainer = column(parent, key)

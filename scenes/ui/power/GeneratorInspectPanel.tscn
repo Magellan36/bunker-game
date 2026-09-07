@@ -200,8 +200,9 @@ script = ExtResource("smooth_bar")
 
 [node name="FuelHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel"]
 unique_name_in_owner = true
+visible = false
 layout_mode = 2
-text = "Fuel available"
+text = ""
 autowrap_mode = 2
 theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
 metadata/ui_font_size = 14
@@ -246,8 +247,9 @@ script = ExtResource("smooth_bar")
 
 [node name="ConditionHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition"]
 unique_name_in_owner = true
+visible = false
 layout_mode = 2
-text = "In good condition"
+text = ""
 autowrap_mode = 2
 theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
 metadata/ui_font_size = 14
@@ -288,7 +290,7 @@ metadata/ui_min_height = 40
 [node name="Power" type="Button" parent="Panel/Margin/Content"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Start generator"
+text = "POWER ON"
 theme_type_variation = &"BunkerPrimaryButton"
 expand_icon = true
 metadata/ui_font_size = 18

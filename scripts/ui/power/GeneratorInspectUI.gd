@@ -171,23 +171,20 @@ func _refresh_display() -> void:
 	# The passed grid state is global; this is not a per-generator wire check.
 	(_view.get_node("%GridStatus") as Control).tooltip_text = "Bunker-wide grid state. Does not confirm this generator's wire connection."
 
-	_update_meter("Fuel", _fuel, "fuel", "Fuel available", "Low fuel", "Very low fuel", "Empty — refuel to run")
-	_update_meter("Condition", _health, "health", "In good condition", "Worn — maintenance advised", "Critical condition", "Broken — repair required")
+	_update_meter("Fuel", _fuel, "fuel", "", "Low fuel", "Very low fuel", "Empty — refuel to run")
+	_update_meter("Condition", _health, "health", "", "Worn — maintenance advised", "Critical condition", "Broken — repair required")
 	_toggle_btn.set_pressed_no_signal(_is_backup)
 	_toggle_btn.text = "Backup mode: On" if _is_backup else "Backup mode: Off"
 	_toggle_btn.add_theme_color_override("icon_normal_color", _color("blue"))
 	(_view.get_node("%BackupHint") as Label).text = "Waits until primary power fails."
 	_toggle_btn.tooltip_text = "Starts automatically when primary power fails, provided fuel and condition allow."
 
-	_power_btn.theme_type_variation = &"BunkerDangerButton" if _is_running else &"BunkerPrimaryButton"
-	_power_btn.icon = STOPPED_ICON if _is_running else RUNNING_ICON
-	_power_btn.text = "Shut down generator" if _is_running else "Start generator"
+	W.set_power_button(_power_btn, _is_running)
 	var hint: String = "Starts this generator and supplies power to connected devices."
 	var hint_color: Color = _color("secondary")
 	if _is_running:
 		hint = "Stops this generator. Devices relying on it may lose power."
 	elif _grid_tripped:
-		_power_btn.text = "Reset grid & start"
 		hint = "Resets the main breaker and attempts to start this generator."
 		hint_color = _color("warning")
 	if not _is_running and (_fuel <= 0.0 or _health <= 0.0):
@@ -228,6 +225,7 @@ func _update_meter(prefix: String, value: float, threshold_key: String,
 	fill.border_color = color
 	var label: Label = _view.get_node("%" + prefix + "Hint") as Label
 	label.text = hint
+	label.visible = not hint.is_empty()
 	label.add_theme_color_override("font_color", _color("secondary") if value > warn else color)
 
 func _grid_state_color(state: String) -> Color:

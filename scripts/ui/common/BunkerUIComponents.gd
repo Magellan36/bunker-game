@@ -177,25 +177,27 @@ static func status_style(active: bool) -> StyleBoxFlat:
 
 
 static func key_hint(parent: Container, key_text: String, action_text: String,
-		keyboard_key: String = "", controller_key: String = "") -> void:
+		keyboard_key: String = "", controller_key: String = "",
+		compact: bool = false) -> void:
 	var group := BunkerInputHint.new()
 	group.keyboard_key = keyboard_key if not keyboard_key.is_empty() else key_text
 	group.controller_key = controller_key if not controller_key.is_empty() else key_text
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override("separation", 7)
+	group.add_theme_constant_override("separation", 5 if compact else 7)
 	parent.add_child(group)
 	var keycap := PanelContainer.new()
 	keycap.custom_minimum_size = Vector2(
-		maxf(34.0, float(key_text.length()) * 8.0 + 14.0), 24)
+		maxf(34.0, float(key_text.length()) * 8.0 + 14.0), 20 if compact else 24)
 	keycap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	keycap.add_theme_stylebox_override("panel", panel_box(
-		BunkerDesign.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.1), 5, 1, 3))
+		BunkerDesign.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.1), 5, 1,
+		1 if compact else 3))
 	group.add_child(keycap)
 	var key := Label.new()
 	key.text = key_text
 	key.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	key.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	key.add_theme_font_size_override("font_size", 11)
+	key.add_theme_font_size_override("font_size", 10 if compact else 11)
 	key.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
 	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	keycap.add_child(key)
@@ -204,6 +206,6 @@ static func key_hint(parent: Container, key_text: String, action_text: String,
 	var action := Label.new()
 	action.text = action_text
 	action.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	action.add_theme_font_size_override("font_size", 12)
+	action.add_theme_font_size_override("font_size", 11 if compact else 12)
 	action.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
 	group.add_child(action)

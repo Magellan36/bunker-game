@@ -755,7 +755,7 @@ func _draw_consumers_section(snap: Dictionary, x: float, y: float, w: float) -> 
 	## These are SAME-ZONE consumers only — snap["consumers"] is already
 	## zone-filtered by the terminal before being handed to the UI.
 	_priority_hit_rects.clear()
-	_draw_string_at("  (◄ N ► sets shed priority: 1=critical, 5=first shed)",
+	_draw_string_at("  (◄ N ► sets shed order: 1=CRITICAL, 5=FIRST SHED)",
 		Vector2(x, y), DIM_COLOR, FONT_SIZE_S)
 	y += 14.0
 

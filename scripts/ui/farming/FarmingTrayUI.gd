@@ -32,7 +32,6 @@ func _build_content() -> void:
 		_cells.append(card)
 		_seed_lock_dd.append(option)
 	_priority_control = _add_priority(_footer, _on_priority_requested)
-	_priority_control.set_hint("Water allocation · 1 is served first, 5 last")
 
 func open(tray: FarmingTray) -> void:
 	if not is_instance_valid(tray):
