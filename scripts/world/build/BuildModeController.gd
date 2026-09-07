@@ -429,6 +429,9 @@ func _on_zone_color_changed(_zone_key: String) -> void:
 
 # ─── Activation ───────────────────────────────────────────────────────────────
 func enter_build_mode() -> void:
+	_close_unrelated_ui()
+	if interact_prompt != null and interact_prompt.has_method("dismiss_for_build_mode"):
+		interact_prompt.call("dismiss_for_build_mode")
 	is_active = true
 	_ghost_active = false
 	## Build sessions intentionally reopen on the Construct workspace instead
@@ -472,8 +475,23 @@ func enter_build_mode() -> void:
 	## the player opens the build panel, regardless of registration timing.
 	call_deferred("_recolor_wire_zones")
 
+func _close_unrelated_ui() -> void:
+	## Build is an exclusive workspace. Ask every other active UI to run its
+	## own close path so gameplay ownership changes immediately while its
+	## approved short exit fade remains intact.
+	for navigation: Node in get_tree().get_nodes_in_group("controller_ui_nav"):
+		if not navigation.has_method("is_active") or not bool(navigation.call("is_active")):
+			continue
+		var surface: Node = navigation.get("ui_root") as Node
+		var belongs_to_build := surface == build_hud \
+			or (build_hud != null and is_instance_valid(surface) and build_hud.is_ancestor_of(surface))
+		if not belongs_to_build and navigation.has_method("request_close"):
+			navigation.call("request_close")
+
 func exit_build_mode() -> void:
 	is_active = false
+	if interact_prompt != null and interact_prompt.has_method("resume_after_build_mode"):
+		interact_prompt.call("resume_after_build_mode")
 	## Aug 2026 — clean handoff of prompt ownership back to
 	## InteractionSystem (its _process() resumes driving `prompt` the moment
 	## build mode ends). Without this, the Build Station exit prompt could

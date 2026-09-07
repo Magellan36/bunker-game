@@ -61,6 +61,7 @@ func _ready() -> void:
 	## hovering a Control transfers focus and A activates it.
 	_controller_nav.right_stick_navigation = false
 	_controller_nav.blocks_world_cursor = false
+	_controller_nav.mouse_cursor_required = true
 	add_child(_controller_nav)
 	get_viewport().size_changed.connect(_layout)
 	_controller_hints = InputMode.is_controller()
@@ -278,6 +279,7 @@ func _layout() -> void:
 
 
 func show_catalog() -> void:
+	_controller_nav.mouse_cursor_required = true
 	shop.hide()
 	summary.hide()
 	_toolbar_panel.show()
@@ -287,6 +289,7 @@ func show_catalog() -> void:
 
 
 func show_shop() -> void:
+	_controller_nav.mouse_cursor_required = true
 	catalog.hide()
 	summary.hide()
 	_helper_panel.hide()
@@ -297,6 +300,7 @@ func show_shop() -> void:
 
 
 func hide_menus() -> void:
+	_controller_nav.mouse_cursor_required = false
 	catalog.hide()
 	shop.hide()
 	_toolbar_panel.show()
@@ -304,6 +308,7 @@ func hide_menus() -> void:
 
 
 func placement_started(tile_id: int, item_name: String, price: int) -> void:
+	_controller_nav.mouse_cursor_required = false
 	shop.hide()
 	summary.hide()
 	catalog.set_selected_item(tile_id, item_name, price)
@@ -314,6 +319,7 @@ func placement_started(tile_id: int, item_name: String, price: int) -> void:
 
 
 func close_all() -> void:
+	_controller_nav.mouse_cursor_required = false
 	var focus: Control = get_viewport().gui_get_focus_owner()
 	if focus != null and is_ancestor_of(focus):
 		focus.release_focus()

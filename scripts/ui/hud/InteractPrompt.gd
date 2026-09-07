@@ -107,6 +107,7 @@ var _job_glyphs: Array = []
 var _panel_appear: Array[float] = []
 var _panel_was_visible: Array[bool] = []
 var _fuel_percent_regex: RegEx = RegEx.new()
+var _suppressed_for_build: bool = false
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
@@ -119,6 +120,11 @@ func _ready() -> void:
 	_fuel_percent_regex.compile("(?i)([0-9]+)%[ ]+fuel")
 
 func _process(delta: float) -> void:
+	## Build owns the screen while active. Existing prompt cards finish their
+	## standard short fade, then remain suppressed even if InteractionSystem
+	## continues publishing candidates during the handoff.
+	if _suppressed_for_build:
+		return
 	var camera: Camera3D = get_viewport().get_camera_3d()
 
 	# ── No camera — hide everything ──────────────────────────────────────────
@@ -777,6 +783,25 @@ func show_prompt(text: String, world_position: Vector3) -> void:
 
 func hide_prompt() -> void:
 	set_prompts([])
+
+func dismiss_for_build_mode() -> void:
+	if _suppressed_for_build:
+		return
+	_suppressed_for_build = true
+	for index: int in _pool.size():
+		var panel: PanelContainer = _pool[index] as PanelContainer
+		if panel.visible:
+			UIFade.fade_out(panel, UIMotion.EXIT, Callable(panel, "hide"))
+		_panel_was_visible[index] = false
+
+func resume_after_build_mode() -> void:
+	_suppressed_for_build = false
+	for index: int in _pool.size():
+		var panel: PanelContainer = _pool[index] as PanelContainer
+		UIFade.cancel(panel)
+		panel.visible = false
+		panel.modulate.a = 1.0
+		_panel_was_visible[index] = false
 
 
 ## External world-job API used by NPC's preserved show/update/hide banner

@@ -215,6 +215,7 @@ func _build_ui() -> void:
 	column.add_child(_ornament())
 
 	var navigation: ControllerUINavigation = NAV_SCRIPT.new() as ControllerUINavigation
+	navigation.mouse_cursor_required = false
 	navigation.ui_root = _root
 	navigation.close_on_cancel = false
 	navigation.stick_navigation = true

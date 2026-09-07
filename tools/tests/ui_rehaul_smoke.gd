@@ -200,10 +200,15 @@ func _test_runtime_ui() -> void:
 	_check(ControllerUINavigation.owns_directional_input(self), "build workspace owns d-pad focus")
 	_check(not ControllerUINavigation.blocks_world_cursor_input(self),
 		"build workspace leaves its right-stick pointer active")
+	var build_nav: ControllerUINavigation = workspace.get("_controller_nav") as ControllerUINavigation
+	_check(build_nav.mouse_cursor_required,
+		"open build catalog requests the mouse cursor in keyboard mode")
 	hud.close_workspace_menu()
 	await process_frame
 	_check(ControllerUINavigation.owns_directional_input(self),
 		"toolbar remains controller-navigable when catalogs are closed")
+	_check(not build_nav.mouse_cursor_required,
+		"build placement returns cursor ownership to the in-world tool")
 	await _test_focusable_scrollbar()
 	var storage_script: GDScript = load("res://scripts/ui/inventory/StorageUI.gd") as GDScript
 	var storage: CanvasLayer = storage_script.new()

@@ -48,6 +48,11 @@ extends Node
 ## BuildWorkspace sets this false because its UI and build-world cursor are
 ## designed to coexist; modal inspectors and menus retain the safe default.
 @export var blocks_world_cursor: bool = true
+## Whether keyboard/mouse mode needs the OS cursor while this navigation
+## surface is active. Build switches this off during world placement because
+## its established in-world tool cursor owns pointing there; normal menus and
+## inspectors retain the visible-cursor default.
+@export var mouse_cursor_required: bool = true
 
 const DPAD_UP: int    = 11
 const DPAD_DOWN: int  = 12
@@ -237,6 +242,12 @@ func _active() -> bool:
 ## different UI by mistake).
 func is_active() -> bool:
 	return _active()
+
+## Public close request used when another exclusive workspace takes ownership
+## (for example Build Mode dismissing an open Storage inspector). Keeping the
+## dispatch here preserves each screen's own close cleanup and exit animation.
+func request_close() -> void:
+	_close_ui()
 
 static func owns_directional_input(tree: SceneTree) -> bool:
 	if tree == null:

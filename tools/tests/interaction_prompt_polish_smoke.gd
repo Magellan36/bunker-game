@@ -67,6 +67,21 @@ func _run() -> void:
 	_check(int(prompt_constants.get("ICON_VP_SIZE", 0)) == 48,
 		"ingredient previews retain the polished 48 x 48 render target")
 
+	## Build Mode suppresses the complete prompt family, including entries
+	## that InteractionSystem may continue publishing during the transition.
+	panel.visible = true
+	prompt.get("_pool").append(panel)
+	prompt.get("_panel_appear").append(1.0)
+	prompt.get("_panel_was_visible").append(true)
+	prompt.call("dismiss_for_build_mode")
+	_check(bool(prompt.get("_suppressed_for_build")),
+		"build handoff suppresses subsequent prompt rendering immediately")
+	await create_timer(UIMotion.EXIT + 0.03).timeout
+	_check(not panel.visible, "visible interaction prompts finish a short exit fade")
+	prompt.call("resume_after_build_mode")
+	_check(not bool(prompt.get("_suppressed_for_build")) and panel.modulate.a == 1.0,
+		"leaving build clears stale fades for the newest prompt state")
+
 	pot.free()
 	prompt.free()
 	if _failures == 0:
