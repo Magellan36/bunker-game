@@ -166,13 +166,18 @@ func _test_runtime_ui() -> void:
 	var plus_button: Button = cart_targets.get("2:plus") as Button
 	if plus_button != null:
 		plus_button.grab_focus()
+	var cart_scroll: ScrollContainer = workspace.shop.get("_cart_scroll") as ScrollContainer
+	var prior_scroll: int = cart_scroll.scroll_vertical
 	shop_cart.change(2, 1)
 	await process_frame
 	await process_frame
 	cart_targets = workspace.shop.get("_cart_focus_targets") as Dictionary
 	var restored_plus: Button = cart_targets.get("2:plus") as Button
-	_check(plus_button != null and root.get_viewport().gui_get_focus_owner() == restored_plus,
-		"cart quantity refresh restores the exact controller focus target")
+	_check(plus_button != null and restored_plus == plus_button \
+		and root.get_viewport().gui_get_focus_owner() == restored_plus,
+		"cart quantity refresh retains the exact controller focus target")
+	_check(cart_scroll.scroll_vertical == prior_scroll,
+		"cart quantity refresh preserves its exact scroll position")
 	## Reproduce the reported lifecycle: leave Build Mode while Shop owns the
 	## workspace, then enter again. The catalog and shared dock must be restored
 	## without relying on any remembered child visibility.
@@ -229,7 +234,10 @@ func _test_focusable_scrollbar() -> void:
 	bar.grab_focus()
 	var before := bar.value
 	var handled: bool = nav.call("_adjust_focused_range", Vector2.DOWN, 1.0)
-	_check(handled and bar.value > before, "focused scrollbar scrolls with directional input")
+	_check(handled and float(bar.get_meta(UIScrollMotion.TARGET, before)) > before,
+		"focused scrollbar accepts directional input immediately")
+	await create_timer(UIMotion.SCROLL + 0.02).timeout
+	_check(bar.value > before, "focused scrollbar completes its smooth step")
 	ui.free()
 
 func _test_storage_contract() -> void:

@@ -57,6 +57,8 @@ var _checkout: Button
 var _category_buttons: Dictionary = {}
 var _subcategory_buttons: Dictionary = {}
 var _cart_focus_targets: Dictionary = {}
+var _cart_row_nodes: Dictionary = {}
+var _empty_cart: Control = null
 var _last_cash: int = -1
 
 
@@ -483,22 +485,54 @@ func _refresh_cart() -> void:
 		return
 	var focus_key := _focused_cart_key()
 	var prior_scroll := _cart_scroll.scroll_vertical
-	_cart_focus_targets.clear()
-	for child: Node in _cart_rows.get_children():
-		_cart_rows.remove_child(child)
-		child.queue_free()
-	var count: int = 0
+	var active_ids: Array[int] = []
 	for item_id_value: Variant in cart.lines.keys():
-		var item_id := int(item_id_value)
+		active_ids.append(int(item_id_value))
+	for item_id_value: Variant in _cart_row_nodes.keys():
+		var existing_id := int(item_id_value)
+		if existing_id not in active_ids:
+			_remove_cart_row(existing_id)
+	var count: int = 0
+	for row_index: int in range(active_ids.size()):
+		var item_id := active_ids[row_index]
 		var quantity := cart.quantity(item_id)
 		count += quantity
-		_cart_rows.add_child(_make_cart_row(item_id, quantity))
-	if cart.lines.is_empty():
-		_cart_rows.add_child(_build_empty_cart())
+		var record: Dictionary = _cart_row_nodes.get(item_id, {}) as Dictionary
+		if record.is_empty():
+			var row := _make_cart_row(item_id, quantity)
+			_cart_rows.add_child(row)
+			record = _cart_row_nodes[item_id] as Dictionary
+		_update_cart_row(record, item_id, quantity)
+		var row_control: Control = record["row"] as Control
+		row_control.show()
+		_cart_rows.move_child(row_control, row_index)
+	if _empty_cart == null:
+		_empty_cart = _build_empty_cart()
+		_cart_rows.add_child(_empty_cart)
+	_empty_cart.visible = active_ids.is_empty()
+	if _empty_cart.visible:
+		_cart_rows.move_child(_empty_cart, 0)
 	_cart_count.text = "%d ITEM%s" % [count, "" if count == 1 else "S"]
 	_refresh_financials()
-	if not focus_key.is_empty():
-		_restore_cart_focus.call_deferred(focus_key, prior_scroll)
+	_restore_cart_state.call_deferred(focus_key, prior_scroll)
+
+
+func _remove_cart_row(item_id: int) -> void:
+	var record: Dictionary = _cart_row_nodes.get(item_id, {}) as Dictionary
+	if record.is_empty():
+		return
+	var row: Control = record.get("row") as Control
+	if is_instance_valid(row):
+		row.queue_free()
+	for action: String in ["minus", "plus", "remove"]:
+		_cart_focus_targets.erase("%d:%s" % [item_id, action])
+	_cart_row_nodes.erase(item_id)
+
+
+func _update_cart_row(record: Dictionary, item_id: int, quantity: int) -> void:
+	var info: Dictionary = FarmingShopHelper.SHOP_ITEM_INFO[item_id]
+	(record["amount"] as Label).text = str(quantity)
+	(record["line_total"] as Label).text = _money(int(info["price"]) * quantity)
 
 
 func _build_empty_cart() -> Control:
@@ -604,6 +638,11 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	_register_cart_focus(remove, "%d:remove" % item_id)
 	remove.pressed.connect(cart.remove.bind(item_id))
 	controls.add_child(remove)
+	_cart_row_nodes[item_id] = {
+		"row": frame,
+		"amount": amount,
+		"line_total": line_total,
+	}
 	return frame
 
 
@@ -629,10 +668,12 @@ func _focused_cart_key() -> String:
 	return ""
 
 
-func _restore_cart_focus(key: String, scroll_position: int) -> void:
+func _restore_cart_state(key: String, scroll_position: int) -> void:
 	if not is_visible_in_tree():
 		return
 	_cart_scroll.scroll_vertical = scroll_position
+	if key.is_empty():
+		return
 	var target: Button = _cart_focus_targets.get(key) as Button
 	if target != null and is_instance_valid(target):
 		target.grab_focus()
