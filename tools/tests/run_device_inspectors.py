@@ -60,7 +60,7 @@ def main() -> int:
 SOURCE_NAMES = {
     "BunkerDeviceInspector.gd", "BunkerInspectorLayout.gd", "BunkerInspectorWidgets.gd",
     "BunkerDesign.gd", "BunkerPanelStyle.gd", "BunkerControlTheme.gd", "BunkerSmoothProgressBar.gd",
-    "UIMotion.gd", "UIPanelLayout.gd", "UIPanelLifecycle.gd", "UIButtonMotion.gd", "UIScrollMotion.gd", "UIKit.gd",
+    "UIMotion.gd", "UIPanelLayout.gd", "UIPanelLifecycle.gd", "UIButtonMotion.gd", "UIScrollMotion.gd", "UIFormat.gd", "UIKit.gd",
     "BunkerPriorityControl.gd", "BunkerSymbolTexture.gd", "UIProximityClose.gd",
     "UIFade.gd", "ControllerUINavigation.gd", "GeneratorInspectUI.gd",
     "BatteryInspectUI.gd", "BreakerInspectUI.gd", "PowerPriorityUI.gd",

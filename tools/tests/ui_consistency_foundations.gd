@@ -1,6 +1,15 @@
 extends SceneTree
 var failures: int = 0
 
+
+class ChargeItem:
+	extends Node
+	var _charges: int = 2
+	var _max_charges: int = 4
+
+	func get_display_name() -> String:
+		return "  Field Dressing  "
+
 func _initialize() -> void:
 	_run.call_deferred()
 
@@ -14,6 +23,29 @@ func _run() -> void:
 	# the persisted accessibility preference in the same Godot user directory.
 	var previous_reduced: bool = UIMotion.reduced()
 	UIMotion.set_reduced(false)
+	check(UIFormat.integer(1234567) == "1,234,567", "integer grouping is shared")
+	check(UIFormat.money(-1234) == "-$1,234", "signed currency is shared")
+	check(UIFormat.percent(82.6) == "83%", "percentage rounding is shared")
+	check(UIFormat.water_quality(82.6) == "Water quality 83%",
+		"water-quality wording is shared")
+	check(UIFormat.battery(46.2) == "46% battery remaining",
+		"battery wording is shared")
+	check(UIFormat.uses(2, 4) == "2 / 4 uses remaining",
+		"charge wording is shared")
+	var item: ChargeItem = ChargeItem.new()
+	check(ItemPresentation.title(item) == "Field Dressing",
+		"item names use the shared precedence and trimming")
+	check(ItemPresentation.detail(item) == "2 / 4 uses remaining",
+		"item details use shared charge formatting")
+	var fallback_item: Node = Node.new()
+	fallback_item.name = "WaterBottleItem12"
+	check(ItemPresentation.title(fallback_item) == "Water Bottle",
+		"fallback item names split words and remove technical suffixes")
+	check(ItemPresentation.record_detail({
+		"current_fill_mL": 240.0, "stored_water_quality": 82.0,
+	}) == "240 mL  •  82% quality", "serialized water details use shared formatting")
+	item.free()
+	fallback_item.free()
 	var surface: Control = Control.new()
 	root.add_child(surface)
 	var bar: BunkerSmoothProgressBar = BunkerSmoothProgressBar.new()

@@ -272,7 +272,7 @@ func _update_cost_label(total_cost: int) -> void:
 		_cost_label.font_size = 32
 		add_child(_cost_label)
 	_cost_label.visible = true
-	_cost_label.text = "$%d  (%.1fm)" % [total_cost, _run_length]
+	_cost_label.text = "%s  (%.1fm)" % [UIFormat.money(total_cost), _run_length]
 	_cost_label.global_position = _midpoint() + Vector3(0.0, 1.2, 0.0)
 
 func _confirm_wall() -> void:

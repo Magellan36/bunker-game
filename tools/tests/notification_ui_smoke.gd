@@ -8,32 +8,39 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	NotificationManager.set("_queue", [])
-	NotificationManager.set("_history", [])
-	NotificationManager.notify(UIKit.Domain.POWER,
-		NotificationManager.Severity.WARNING, "Generator L fuel reserve low")
-	NotificationManager.notify(UIKit.Domain.POWER,
-		NotificationManager.Severity.WARNING, "Generator L fuel reserve low")
-	var queue: Array = NotificationManager.get("_queue")
-	var history: Array[Dictionary] = NotificationManager.get_history()
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	var notifications: Node = root.get_node("NotificationManager")
+	var constants: Dictionary = (notifications.get_script() as Script).get_script_constant_map()
+	var severity: Dictionary = constants.get("Severity", {}) as Dictionary
+	var warning: int = int(severity.get("WARNING", 1))
+	var info: int = int(severity.get("INFO", 0))
+	notifications.set("_queue", [])
+	notifications.set("_history", [])
+	notifications.call("notify", UIKit.Domain.POWER, warning, "Generator L fuel reserve low")
+	notifications.call("notify", UIKit.Domain.POWER, warning, "Generator L fuel reserve low")
+	var queue: Array = notifications.get("_queue")
+	var history: Array[Dictionary] = notifications.call("get_history") as Array[Dictionary]
 	_check(queue.size() == 1 and int(queue[0].count) == 2,
 		"duplicate live alerts collapse with a count")
 	_check(history.size() == 1 and int(history[0].count) == 2,
 		"duplicate journal events collapse with a count")
-	NotificationManager.feedback(UIKit.Domain.NEUTRAL,
-		NotificationManager.Severity.INFO, "Item moved")
-	_check(NotificationManager.get_history().size() == 1,
+	notifications.call("feedback", UIKit.Domain.NEUTRAL, info, "Item moved")
+	_check((notifications.call("get_history") as Array).size() == 1,
 		"temporary feedback stays out of Bunker Log")
-	NotificationManager.notify(UIKit.Domain.INVENTORY,
-		NotificationManager.Severity.WARNING, "Inventory full")
-	_check(NotificationManager.get_history().size() == 2,
+	notifications.call("notify", UIKit.Domain.INVENTORY, warning, "Inventory full")
+	_check((notifications.call("get_history") as Array).size() == 2,
 		"inventory warnings are journaled in Bunker Log")
-	_check(NotificationManager.TOAST_WIDTH == 520.0
-		and NotificationManager.TOAST_HEIGHT == 48.0,
+	_check(float(constants.get("TOAST_WIDTH", 0.0)) == 520.0
+		and float(constants.get("TOAST_HEIGHT", 0.0)) == 48.0,
 		"toast uses approved compact geometry")
-	_check(NotificationManager.MAX_VISIBLE_TOASTS == 3,
+	_check(int(constants.get("MAX_VISIBLE_TOASTS", 0)) == 3,
 		"visible stack remains capped")
-	var history_ui := NotificationHistoryUI.new()
+	# History is already captured; keep the headless renderer from repeatedly
+	# drawing live toasts while the log view is exercised.
+	notifications.set("_queue", [])
+	var history_script: GDScript = load("res://scripts/ui/notifications/NotificationHistoryUI.gd") as GDScript
+	var history_ui: Control = history_script.new() as Control
 	root.add_child(history_ui)
 	await process_frame
 	_check(history_ui.get("_filter_buttons").size() == 6,

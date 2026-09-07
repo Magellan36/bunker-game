@@ -109,7 +109,7 @@ func set_sleep_cap(value: float) -> void:
 	needs_gauge.set_sleep_cap(value / 100.0)
 
 func set_cash(amount: int) -> void:
-	cash_label.text = "$%s" % _format_cash(amount)
+	cash_label.text = UIFormat.money(amount)
 
 func set_clock(display: String) -> void:
 	clock_label.text = display
@@ -163,7 +163,7 @@ func spawn_float_label(screen_pos: Vector2, amount: int, positive: bool) -> void
 		return
 
 	var lbl: Label = Label.new()
-	lbl.text = ("+$%d" if positive else "-$%d") % amount
+	lbl.text = ("+" if positive else "-") + UIFormat.money(absi(amount))
 	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "float_label", 18))
 	var col: Color = Color(0.30, 0.95, 0.35, 1.0) if positive else Color(0.95, 0.28, 0.22, 1.0)
 	lbl.add_theme_color_override("font_color", col)
@@ -221,7 +221,7 @@ func show_cash_delta(amount: int, positive: bool) -> void:
 		_cash_delta_tween.kill()
 
 	var lbl: Label = Label.new()
-	lbl.text = ("+$%d" if positive else "-$%d") % amount
+	lbl.text = ("+" if positive else "-") + UIFormat.money(absi(amount))
 	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "cash_delta", 12))
 	var col: Color = Color(0.30, 0.95, 0.35, 1.0) if positive else Color(0.95, 0.28, 0.22, 1.0)
 	lbl.add_theme_color_override("font_color", col)
@@ -245,15 +245,3 @@ func show_cash_delta(amount: int, positive: bool) -> void:
 	tw.tween_property(lbl, "modulate:a", 0.0, 0.35).set_ease(Tween.EASE_IN)
 	tw.tween_callback(lbl.queue_free)
 	tw.tween_callback(func() -> void: _cash_delta_label = null)
-
-# ─── Helpers ──────────────────────────────────────────────────────────────────
-func _format_cash(amount: int) -> String:
-	var s: String = str(amount)
-	var result: String = ""
-	var count: int = 0
-	for i in range(s.length() - 1, -1, -1):
-		if count > 0 and count % 3 == 0:
-			result = "," + result
-		result = s[i] + result
-		count += 1
-	return result

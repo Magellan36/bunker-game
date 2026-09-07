@@ -423,12 +423,12 @@ func _on_pm_generator_stopped(gen_id: String, reason: String) -> void:
 func _on_pm_generator_fuel_low(gen_id: String, fuel_pct: float) -> void:
 	notify(UIKit.Domain.POWER, Severity.WARNING,
 		"%s fuel reserve low" % _power_device_name("generator", gen_id),
-		DURATION_SENTINEL, true, "%d%% remaining" % int(round(fuel_pct)))
+		DURATION_SENTINEL, true, "%s remaining" % UIFormat.percent(fuel_pct))
 
 func _on_pm_battery_low(bat_id: String, charge_pct: float) -> void:
 	notify(UIKit.Domain.POWER, Severity.WARNING,
 		"%s charge low" % _power_device_name("battery", bat_id),
-		DURATION_SENTINEL, true, "%d%% remaining" % int(round(charge_pct)))
+		DURATION_SENTINEL, true, "%s remaining" % UIFormat.percent(charge_pct))
 
 func _on_pm_battery_drained(bat_id: String) -> void:
 	notify(UIKit.Domain.POWER, Severity.WARNING,

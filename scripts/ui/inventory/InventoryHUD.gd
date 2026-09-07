@@ -353,21 +353,11 @@ func _item_hud_state(item: Node) -> Dictionary:
 
 
 func _get_charge_info(item: Node) -> Array:
-	if item.has_method("get_charge_info"):
-		return item.call("get_charge_info") as Array
-	if "_bites_left" in item and "TOTAL_BITES" in item:
-		return [int(item.get("_bites_left")), int(item.get("TOTAL_BITES"))]
-	if "_charges" in item and "_max_charges" in item:
-		return [int(item.get("_charges")), int(item.get("_max_charges"))]
-	if "_charges_left" in item and "TOTAL_CHARGES" in item:
-		return [int(item.get("_charges_left")), int(item.get("TOTAL_CHARGES"))]
-	return []
+	return ItemPresentation.charge_info(item)
 
 
 func _item_display_name(item: Node) -> String:
-	if item.has_method("get_display_name"):
-		return String(item.call("get_display_name"))
-	return _prettify_name(item.name)
+	return ItemPresentation.title(item)
 
 
 func _quality_color(quality: float) -> Color:
@@ -419,15 +409,3 @@ func _has_low_flashlight() -> bool:
 			if fraction > 0.0 and fraction <= 0.25:
 				return true
 	return false
-
-
-func _prettify_name(raw: String) -> String:
-	var source: String = raw.strip_edges()
-	while source.length() > 0 and source[-1].is_valid_int():
-		source = source.substr(0, source.length() - 1)
-	var result: String = ""
-	for i: int in source.length():
-		if i > 0 and source[i] == source[i].to_upper() and source[i] != " ":
-			result += " "
-		result += source[i]
-	return result.strip_edges()

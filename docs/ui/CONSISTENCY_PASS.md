@@ -21,6 +21,12 @@ remains the player-tested baseline until explicit promotion. No force pushes.
 3. **Final verification and documentation** (pending): UI reference, screen
    coverage, integration/visual checks, approval checklist and remaining limits.
 
+Shared presentation formatting now owns integer grouping, signed currency,
+percentages, item-name fallbacks, charge/battery wording and water-quality
+wording. It receives values only and never mutates gameplay state. The obsolete
+`TransientNotice` has no executable callers and was removed; `NotificationManager`
+remains the sole toast/history owner.
+
 Checkpoints are incremental, not a claim that the entire pass is already done.
 
 ## Locked contracts

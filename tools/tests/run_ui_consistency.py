@@ -12,7 +12,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 COMMON = ROOT / "scripts/ui/common"
 SOURCES = (
+    "BunkerDesign.gd",
     "BunkerSmoothProgressBar.gd",
+    "ItemPresentation.gd",
+    "UIFormat.gd",
     "UIFade.gd",
     "UIMotion.gd",
     "UIPanelLayout.gd",

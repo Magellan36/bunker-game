@@ -2,15 +2,6 @@ extends SceneTree
 ## Headless inventory HUD contract smoke. Run with:
 ## godot --headless --path . --script res://tools/tests/inventory_hud_polish_smoke.gd
 
-const INVENTORY_HUD_SCRIPT: GDScript = preload("res://scripts/ui/inventory/InventoryHUD.gd")
-const FLASHLIGHT_SCRIPT: GDScript = preload("res://scripts/world/items/Flashlight.gd")
-const WATER_BOTTLE_SCRIPT: GDScript = preload("res://scripts/world/items/WaterBottle.gd")
-const FOOD_CAN_SCRIPT: GDScript = preload("res://scripts/world/items/FoodCan.gd")
-const BANDAGE_SCRIPT: GDScript = preload("res://scripts/world/items/Bandage.gd")
-const ANTIBIOTICS_SCRIPT: GDScript = preload("res://scripts/world/items/Antibiotics.gd")
-const SPLINT_SCRIPT: GDScript = preload("res://scripts/world/items/Splint.gd")
-const TRAUMA_KIT_SCRIPT: GDScript = preload("res://scripts/world/items/TraumaKit.gd")
-
 var _failures: int = 0
 
 
@@ -37,7 +28,10 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var hud: Control = INVENTORY_HUD_SCRIPT.new() as Control
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	var inventory_hud_script: GDScript = load("res://scripts/ui/inventory/InventoryHUD.gd") as GDScript
+	var hud: Control = inventory_hud_script.new() as Control
 	var inventory: MockInventory = MockInventory.new()
 	var bottle: MockItem = MockItem.new()
 	bottle.display_name = "Water Bottle"
@@ -58,7 +52,7 @@ func _run() -> void:
 	hud.call("set_selected", 1)
 	await process_frame
 
-	var constants: Dictionary = INVENTORY_HUD_SCRIPT.get_script_constant_map()
+	var constants: Dictionary = inventory_hud_script.get_script_constant_map()
 	_check(int(constants.get("SLOT_COUNT", 0)) == 4, "four-slot inventory is preserved")
 	_check(is_equal_approx(float(constants.get("SLOT_SIZE", 0.0)), 72.0),
 		"approved compact slot size is preserved")

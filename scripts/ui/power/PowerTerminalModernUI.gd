@@ -832,14 +832,14 @@ func _render_live_metrics() -> void:
 	var display_percent: float = 0.0
 	if _display_capacity_watts > 0.0:
 		display_percent = _display_draw_watts / _display_capacity_watts * 100.0
-	_load_percent.text = "%d%%" % int(round(display_percent))
+	_load_percent.text = UIFormat.percent(display_percent)
 	var headroom: float = _display_capacity_watts - _display_draw_watts
 	_headroom_value.text = "%s%s" % ["+" if headroom >= 0.0 else "", _watts(headroom)]
 	if _battery_connected and _display_battery_capacity > 0.0:
 		var battery_percent: float = clampf(
 			_display_battery_charge / _display_battery_capacity * 100.0, 0.0, 100.0
 		)
-		_battery_value.text = "%d%%" % int(round(battery_percent))
+		_battery_value.text = UIFormat.percent(battery_percent)
 		_battery_meta.text = "%s of %s reserved" % [
 			_wh(_display_battery_charge), _wh(_display_battery_capacity)
 		]
@@ -935,7 +935,7 @@ func _refresh_battery_sources(batteries: Array, shared: bool) -> void:
 		var status: Label = row.get("status") as Label
 		status.text = "●  %s%s" % [state, " · SHARED" if shared else ""]
 		status.add_theme_color_override("font_color", _battery_color(state))
-		(row.get("value") as Label).text = "%d%%" % int(round(percent))
+		(row.get("value") as Label).text = UIFormat.percent(percent)
 		(row.get("detail") as Label).text = "%s of %s" % [_wh(charge), _wh(capacity)]
 		var bar: ProgressBar = row.get("bar") as ProgressBar
 		SMOOTH_BAR.apply(bar, percent)

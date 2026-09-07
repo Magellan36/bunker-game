@@ -244,10 +244,10 @@ func _item_row(record: Dictionary) -> Control:
 	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	copy.add_theme_constant_override("separation", 0)
 	row.add_child(copy)
-	var item_name: Label = _label(String(record.get("display_name", "Unknown item")), 13, S.IVORY)
+	var item_name: Label = _label(ItemPresentation.record_title(record), 13, S.IVORY)
 	item_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	copy.add_child(item_name)
-	var detail_text: String = _item_detail(record.get("data", {}) as Dictionary)
+	var detail_text: String = ItemPresentation.record_detail(record.get("data", {}) as Dictionary)
 	var detail: Label = _label(detail_text if not detail_text.is_empty() else "Discarded item", 10, S.MUTED)
 	detail.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	copy.add_child(detail)
@@ -271,39 +271,6 @@ func _record_icon(record: Dictionary) -> String:
 	if "battery" in item_type or "flashlight" in item_type:
 		return "battery"
 	return "container"
-
-
-func _item_detail(data: Dictionary) -> String:
-	var details: Array[String] = []
-	if data.has("current_fill_mL"):
-		details.append("%d mL" % int(round(float(data["current_fill_mL"]))))
-	if data.has("stored_water_quality"):
-		details.append("%d%% quality" % int(round(float(data["stored_water_quality"]))))
-	elif data.has("filter_quality"):
-		details.append("%d%% quality" % int(round(float(data["filter_quality"]))))
-	elif data.has("_fuel_remaining"):
-		details.append("%d%% fuel" % int(round(float(data["_fuel_remaining"]))))
-	elif data.has("_battery"):
-		details.append("%d%% charge" % int(round(float(data["_battery"]))))
-	elif data.has("_charges_left"):
-		var remaining: int = int(data["_charges_left"])
-		var maximum: int = int(data.get("_max_charges", remaining))
-		details.append("%d / %d uses" % [remaining, maximum])
-	elif data.has("_charges"):
-		var charges: int = int(data["_charges"])
-		var max_charges: int = int(data.get("_max_charges", charges))
-		details.append("%d / %d uses" % [charges, max_charges])
-	elif data.has("_bites_left"):
-		var servings: int = int(data["_bites_left"])
-		details.append("%d serving%s left" % [servings, "" if servings == 1 else "s"])
-	elif data.has("fill_value"):
-		details.append("%d%% full" % int(round(float(data["fill_value"]))))
-
-	if details.size() < 2 and data.has("material"):
-		var material: String = String(data["material"]).capitalize()
-		if not material.is_empty():
-			details.append(material)
-	return "  •  ".join(details)
 
 
 func _player_holds(candidate: Node) -> bool:

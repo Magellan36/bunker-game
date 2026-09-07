@@ -358,7 +358,7 @@ func refresh_live() -> void:
 	var cash := int(hud.available_cash())
 	if cash != _last_cash:
 		_last_cash = cash
-		_cash_label.text = "$%s AVAILABLE" % _money(cash)
+		_cash_label.text = "%s AVAILABLE" % UIFormat.money(cash)
 	if _selected_tile_id >= 0:
 		_mode_meta.add_theme_color_override("font_color",
 			BunkerPanelStyle.RED if cash < _selected_price else BunkerPanelStyle.GREEN)
@@ -382,7 +382,7 @@ func _update_mode_card() -> void:
 		_mode_eyebrow.text = "PLACING NOW"
 		_mode_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
 		_mode_title.text = _selected_name
-		_mode_meta.text = "$%s" % _money(_selected_price)
+		_mode_meta.text = UIFormat.money(_selected_price)
 		_mode_meta.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
 	else:
 		_mode_meta.hide()
@@ -397,12 +397,3 @@ func _reveal_selected() -> void:
 	var card: BuildCatalogCard = _item_cards.get(_selected_tile_id) as BuildCatalogCard
 	if card != null and card.is_visible_in_tree():
 		_scroll.ensure_control_visible(card)
-
-
-func _money(value: int) -> String:
-	var raw := str(value)
-	var out := ""
-	while raw.length() > 3:
-		out = "," + raw.right(3) + out
-		raw = raw.left(raw.length() - 3)
-	return raw + out

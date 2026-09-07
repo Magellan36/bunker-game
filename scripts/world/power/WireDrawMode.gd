@@ -298,7 +298,8 @@ func _try_pick_dest() -> bool:
 
 	if world_node != null and world_node.has_method("get_cash"):
 		if world_node.get_cash() < cost:
-			_show_warning("Not enough cash — need $%d (%dm × $%.0f/m)" % [cost, int(dist), COST_PER_M])
+			_show_warning("Not enough cash — need %s (%dm × %s/m)" % [
+				UIFormat.money(cost), int(dist), UIFormat.money(roundi(COST_PER_M))])
 			return true
 
 	# Spend cash
@@ -480,7 +481,7 @@ func _update_cost_label(midpoint: Vector3, cost: int) -> void:
 		parent.add_child(lbl)
 		_cost_label = lbl
 
-	_cost_label.text            = "$%d" % cost
+	_cost_label.text            = UIFormat.money(cost)
 	## Raise 0.7 m above midpoint so it clears the wire and any floor geometry.
 	_cost_label.global_position = midpoint + Vector3(0.0, 0.70, 0.0)
 	_cost_label.visible         = true

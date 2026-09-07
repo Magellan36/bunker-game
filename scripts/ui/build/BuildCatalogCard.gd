@@ -141,8 +141,8 @@ func configure(id: int, title: String, price: int, texture: Texture2D) -> void:
 	item_name = title
 	item_price = price
 	_name_label.text = title
-	_price_label.text = "$%s" % _money(price)
-	tooltip_text = "%s — $%s\nSelect to begin placement" % [title, _money(price)]
+	_price_label.text = UIFormat.money(price)
+	tooltip_text = "%s — %s\nSelect to begin placement" % [title, UIFormat.money(price)]
 	set_preview(texture)
 
 
@@ -154,12 +154,3 @@ func set_selected(selected: bool) -> void:
 	set_pressed_no_signal(selected)
 	if _selected_badge != null:
 		_selected_badge.visible = selected
-
-
-func _money(value: int) -> String:
-	var raw := str(value)
-	var out := ""
-	while raw.length() > 3:
-		out = "," + raw.right(3) + out
-		raw = raw.left(raw.length() - 3)
-	return raw + out

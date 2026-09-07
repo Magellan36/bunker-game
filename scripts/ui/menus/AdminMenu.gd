@@ -148,7 +148,7 @@ func _ready() -> void:
 			["Hookup Output x2 (Tier +1)", _on_hookup_output_double_pressed],
 		]},
 		{ "name": "ECONOMY", "rows": [
-			["+ $%s Cash" % _format_thousands(ADMIN_CASH_STEP), _on_add_cash_pressed],
+			["+ %s Cash" % UIFormat.money(ADMIN_CASH_STEP), _on_add_cash_pressed],
 		]},
 		{ "name": "RESEARCH", "rows": [
 			["+10 Each Material Type", _on_add_research_materials_pressed],
@@ -466,17 +466,6 @@ func _draw_str(text: String, pos: Vector2, color: Color, size: int) -> void:
 
 ## 100000 → "100,000". Local to this menu — no shared number-format helper
 ## exists in the project yet, and this is the only caller.
-func _format_thousands(value: int) -> String:
-	var s: String = str(absi(value))
-	var out: String = ""
-	var count: int = 0
-	for i: int in range(s.length() - 1, -1, -1):
-		out = s[i] + out
-		count += 1
-		if count % 3 == 0 and i > 0:
-			out = "," + out
-	return ("-" if value < 0 else "") + out
-
 # ─── Button callbacks ──────────────────────────────────────────────────────────
 func _get_power_manager() -> PowerManager:
 	return get_tree().get_first_node_in_group("power_manager") as PowerManager

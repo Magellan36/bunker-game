@@ -533,7 +533,7 @@ func _remove_cart_row(item_id: int) -> void:
 func _update_cart_row(record: Dictionary, item_id: int, quantity: int) -> void:
 	var info: Dictionary = FarmingShopHelper.SHOP_ITEM_INFO[item_id]
 	(record["amount"] as Label).text = str(quantity)
-	(record["line_total"] as Label).text = _money(int(info["price"]) * quantity)
+	(record["line_total"] as Label).text = UIFormat.money(int(info["price"]) * quantity)
 
 
 func _build_empty_cart() -> Control:
@@ -601,11 +601,11 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	name.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
 	copy.add_child(name)
 	var each := Label.new()
-	each.text = "%s each" % _money(int(info["price"]))
+	each.text = "%s each" % UIFormat.money(int(info["price"]))
 	BunkerPanelStyle.muted(each, 11)
 	copy.add_child(each)
 	var line_total := Label.new()
-	line_total.text = _money(int(info["price"]) * quantity)
+	line_total.text = UIFormat.money(int(info["price"]) * quantity)
 	line_total.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	line_total.add_theme_font_size_override("font_size", 14)
 	line_total.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
@@ -694,9 +694,9 @@ func _refresh_financials() -> void:
 	var total := cart.total(FarmingShopHelper.SHOP_ITEM_INFO)
 	if cash != _last_cash:
 		_last_cash = cash
-		_balance.text = _money(cash)
-	_total_value.text = _money(total)
-	_remaining_value.text = _money(cash - total)
+		_balance.text = UIFormat.money(cash)
+	_total_value.text = UIFormat.money(total)
+	_remaining_value.text = UIFormat.money(cash - total)
 	_remaining_value.add_theme_color_override("font_color",
 		BunkerPanelStyle.RED if total > cash else BunkerPanelStyle.MUTED)
 	_checkout.disabled = cart.lines.is_empty() or cash < total
@@ -736,18 +736,6 @@ func _set_message(text: String, tone: String) -> void:
 	_message_icon.texture = BunkerPanelStyle.icon(symbol)
 	_message_icon.self_modulate = accent
 	_message.add_theme_color_override("font_color", accent)
-
-
-func _money(value: int) -> String:
-	var sign_text := "-" if value < 0 else ""
-	var raw := str(absi(value))
-	var out := ""
-	while raw.length() > 3:
-		out = "," + raw.right(3) + out
-		raw = raw.left(raw.length() - 3)
-	return sign_text + "$" + raw + out
-
-
 func _add_category_content(button: Button, caption: String, symbol: String) -> void:
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE

@@ -66,10 +66,11 @@ func _refresh_data() -> void:
 	W.set_status(_running, "On" if _dispenser.is_on else "Off", "success" if _dispenser.is_on else "inactive", "running" if _dispenser.is_on else "stopped")
 	W.set_status(_connection, "Water connected" if connected else "Disconnected", "success" if connected else "warning", "grid")
 	W.set_meter(_storage, _dispenser.current_fill_mL / WaterDispenser.MAX_STORAGE_ML * 100.0,
-		"%d%%" % roundi(_dispenser.current_fill_mL / WaterDispenser.MAX_STORAGE_ML * 100.0),
+		UIFormat.percent(_dispenser.current_fill_mL / WaterDispenser.MAX_STORAGE_ML * 100.0),
 		"%.0f / %.0f mL stored" % [_dispenser.current_fill_mL, WaterDispenser.MAX_STORAGE_ML])
 	var quality: float = _dispenser.stored_water_quality
-	W.set_meter(_quality, quality, "%.0f%%" % quality, "Quality of water currently in the tank.", W.quality_token(quality))
+	W.set_meter(_quality, quality, UIFormat.percent(quality),
+		"Quality of water currently in the tank.", W.quality_token(quality))
 	W.set_stat(_requested, "%.0f mL/day · %.2f mL/min" % [requested, requested / 1440.0])
 	# Range.max_value can emit value_changed while clamping. Block the entire
 	# update, not only the final value assignment: refreshing must NEVER write.

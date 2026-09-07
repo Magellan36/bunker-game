@@ -2023,17 +2023,13 @@ BBCode, reusing `WaterBottle`'s exact `GOOD_COLOR_HEX`/`CRIT_COLOR_HEX`
 literals (`4dd959`/`ff594d`) rather than deriving new ones.
 
 ### Item 4 — Low-filter warning at 50%
-New **`TransientNotice.gd`** (`scripts/ui/hud/`) — this codebase had no
-toast/notification system at all before this (checked: `HUD.gd` has no
-transient-message mechanism). Deliberately minimal: one string in, no
-queueing/stacking, shown ~3s then fades out (`UIFade.fade_out()`, a new
-counterpart added to `UIFade.gd` alongside this — the first caller needing
-a fade OUT rather than in) and frees itself. `WaterPurifier._warned_low`
-fires `_fire_low_filter_notice()` exactly once when `filter_quality`
-crosses from above 50% to at-or-below, and re-arms if it goes back above
-(filter replaced). Two purifiers crossing 50% at once just spawn two
-overlapping notices — an accepted rough edge, not solved here (no
-notice-queueing system, out of scope for a pass this size).
+`WaterPurifier._warned_low` fires exactly once when `filter_quality` crosses
+from above 50% to at-or-below, and re-arms if it goes back above after a
+replacement. The original implementation predated the central notification
+system and used a standalone `TransientNotice.gd`. The live warning now routes
+through `NotificationManager` so stacking, deduplication and history follow the
+same policy as every other system alert; the orphaned standalone implementation
+was removed during the September 2026 UI consistency pass.
 
 ### Item 5 — Inventory badge for Used Filters
 `PurifierFilterItem.get_charge_info() -> Array` — `[]` for fresh filters

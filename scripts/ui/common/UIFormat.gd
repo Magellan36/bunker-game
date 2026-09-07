@@ -12,6 +12,36 @@ static func integer(value: int) -> String:
 static func money(value: int) -> String:
 	return ("-" if value < 0 else "") + "$" + integer(absi(value))
 
+
+static func rounded_integer(value: float) -> String:
+	return integer(roundi(value))
+
+
+static func percent(value: float) -> String:
+	return "%s%%" % rounded_integer(value)
+
+
+static func uses(current: int, maximum: int, remaining: bool = true) -> String:
+	return "%s / %s uses%s" % [
+		integer(current), integer(maximum), " remaining" if remaining else ""]
+
+
+static func battery(value: float) -> String:
+	return "%s battery remaining" % percent(value)
+
+
+static func battery_charge(value: float) -> String:
+	return "%s charge" % percent(value)
+
+
+static func water_quality(value: float) -> String:
+	return "Water quality %s" % percent(value)
+
+
+static func water_quality_short(value: float) -> String:
+	return "%s quality" % percent(value)
+
+
 static func water_quality_color(quality: float) -> Color:
 	# Same boundaries as WaterQualityColor; UI uses approved semantic tints.
 	if quality <= 50.0:

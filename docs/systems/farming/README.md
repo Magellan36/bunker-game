@@ -180,9 +180,9 @@ light. Fixed by moving the `_is_preview_only` return before the
   `NotificationManager` (the project's current central toast/history
   system) existed. `NotificationManager` is used instead — `NEUTRAL` domain
   since farming has no domain of its own, `WARNING` severity since this is
-  a localized per-plant problem, not a total-system failure. Note:
-  `WaterPurifier.gd`'s existing low-filter warning still uses the older
-  `TransientNotice.gd` directly — left untouched, out of scope here.
+  a localized per-plant problem, not a total-system failure. The purifier's
+  matching low-filter warning now uses the same official notification system;
+  the superseded standalone `TransientNotice.gd` has been retired.
 - **Item 3 — `FARM_DEBUG` on-screen readout**: `FarmPlant.gd` follows the
   same per-file debug-const convention as `GrowLight.WIRE_DEBUG`/
   `WaterPipeDrawMode.PIPE_DEBUG` (no shared debug-flag file). When

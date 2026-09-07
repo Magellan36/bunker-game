@@ -1839,7 +1839,7 @@ func _update_cost_label(midpoint: Vector3, cost: int) -> void:
 		parent.add_child(lbl)
 		_cost_label = lbl
 
-	_cost_label.text            = "$%d" % cost
+	_cost_label.text            = UIFormat.money(cost)
 	## Raise above midpoint so it clears the pipe/ceiling and any floor
 	## geometry — pipes sit higher than wires (WATER_CEILING_Y vs WIRE_Y),
 	## so this offset is smaller than WireDrawMode's 0.70m equivalent.

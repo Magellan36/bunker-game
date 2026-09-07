@@ -71,7 +71,7 @@ func _refresh_source(wm: WaterManager) -> void:
 	W.set_stat(_source_output, "%.0f mL/day · %.2f mL/min" % [daily, hookup.get_per_minute_output_mL()])
 	W.set_stat(_source_demand, "%d device%s · %.0f / %.0f mL/day requested" % [count, "" if count == 1 else "s", demand, daily],
 		"warning" if demand > daily else "text")
-	W.set_meter(_source_quality, hookup.water_quality, "%.0f%%" % hookup.water_quality,
+	W.set_meter(_source_quality, hookup.water_quality, UIFormat.percent(hookup.water_quality),
 		"Raw water before downstream purification.", W.quality_token(hookup.water_quality))
 
 func _refresh_sink(wm: WaterManager) -> void:
@@ -86,7 +86,7 @@ func _refresh_sink(wm: WaterManager) -> void:
 		"blue" if connected else "warning")
 	_sink_quality.visible = connected
 	var quality: float = float(info.get("quality", 0.0))
-	W.set_meter(_sink_quality, quality, "%.0f%%" % quality, "", W.quality_token(quality))
+	W.set_meter(_sink_quality, quality, UIFormat.percent(quality), "", W.quality_token(quality))
 	_priority_control.set_value(sink.priority)
 
 func _refresh_purifier(wm: WaterManager) -> void:
@@ -102,9 +102,9 @@ func _refresh_purifier(wm: WaterManager) -> void:
 	W.set_status(_connection, "Water connected" if connected else "Disconnected", "success" if connected else "warning", "grid")
 	_input_quality.visible = connected
 	_output_quality.visible = connected
-	W.set_meter(_input_quality, incoming, "%.0f%%" % incoming, "", W.quality_token(incoming))
-	W.set_meter(_output_quality, outgoing, "%.0f%%" % outgoing, "", W.quality_token(outgoing))
-	W.set_meter(_filter, purifier.filter_quality, "%.0f%%" % purifier.filter_quality,
+	W.set_meter(_input_quality, incoming, UIFormat.percent(incoming), "", W.quality_token(incoming))
+	W.set_meter(_output_quality, outgoing, UIFormat.percent(outgoing), "", W.quality_token(outgoing))
+	W.set_meter(_filter, purifier.filter_quality, UIFormat.percent(purifier.filter_quality),
 		"Use a purifier filter item to replace the installed filter.", W.quality_token(purifier.filter_quality))
 	var flow: float = purifier.current_flow_mL_per_day
 	W.set_stat(_flow, "%.0f mL/day" % flow, "success" if flow < 2500.0 else ("warning" if flow < 4000.0 else "critical"))

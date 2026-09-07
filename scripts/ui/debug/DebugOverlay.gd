@@ -127,7 +127,7 @@ func _collect_lines() -> Array[Dictionary]:
 		out.append(_t("Player (%.2f, %.2f, %.2f)" % [p.x, p.y, p.z]))
 
 	if world_ref != null and is_instance_valid(world_ref) and world_ref.has_method("get_cash"):
-		out.append(_t("Cash  $%d" % world_ref.get_cash()))
+		out.append(_t("Cash  %s" % UIFormat.money(int(world_ref.get_cash()))))
 
 	out.append(_t("[F11] hide  |  [F12] time warp  |  [F1] build mode"))
 	out.append(_sep())

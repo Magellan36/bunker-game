@@ -1366,7 +1366,7 @@ func _on_submenu_draw(ctrl: Control) -> void:
 			ctrl.draw_string(font, Vector2(name_x, row_y + 26.0),
 				item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, fs_value, COLOR_TEXT)
 			ctrl.draw_string(font, Vector2(name_x, row_y + 44.0),
-				"$%d" % item["price"], HORIZONTAL_ALIGNMENT_LEFT, -1, fs_state, PRICE_COLOR)
+				UIFormat.money(int(item["price"])), HORIZONTAL_ALIGNMENT_LEFT, -1, fs_state, PRICE_COLOR)
 
 ## Returns the row index (0-based) within the current submenu level, or -1.
 func _get_submenu_item_at(pos: Vector2) -> int:

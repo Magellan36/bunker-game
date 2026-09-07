@@ -2,8 +2,8 @@
   "generated_at": "2026-08-04T15:41:17.329142+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 122,
-  "total_lines": 48670,
+  "script_count": 121,
+  "total_lines": 48598,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -1697,38 +1697,6 @@
       ],
       "autoload_references": [],
       "complexity_score": 92
-    },
-    {
-      "path": "res://scripts/ui/hud/TransientNotice.gd",
-      "line_count": 72,
-      "class_name": "TransientNotice",
-      "extends": "CanvasLayer",
-      "exports": [],
-      "signals": [],
-      "connect_call_sites": [
-        {
-          "target_expr": "_canvas",
-          "signal": "draw"
-        },
-        {
-          "target_expr": "timer",
-          "signal": "timeout"
-        }
-      ],
-      "public_functions": [
-        {
-          "name": "show_message",
-          "args": "text: String",
-          "returns": "void"
-        }
-      ],
-      "private_function_count": 2,
-      "preloads": [
-        "res://assets/fonts/IosevkaCharon-Regular.ttf"
-      ],
-      "group_lookups": [],
-      "autoload_references": [],
-      "complexity_score": 76
     },
     {
       "path": "res://scripts/ui/inventory/BasketUI.gd",
@@ -7182,7 +7150,6 @@
       ],
       "private_function_count": 11,
       "preloads": [
-        "res://scripts/ui/hud/TransientNotice.gd",
         "res://scripts/ui/water/WaterInfoUI.gd",
         "res://scripts/world/water/WaterPipeElbow.gd"
       ],
@@ -7643,11 +7610,6 @@
     {
       "from": "res://scripts/world/water/WaterManager.gd",
       "to": "res://scripts/world/water/WaterPipeSegment.gd",
-      "via": "preload"
-    },
-    {
-      "from": "res://scripts/world/water/WaterPurifier.gd",
-      "to": "res://scripts/ui/hud/TransientNotice.gd",
       "via": "preload"
     },
     {
