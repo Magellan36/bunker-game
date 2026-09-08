@@ -21,7 +21,6 @@ var _config := {}
 var _root: Control
 var _panel: PanelContainer
 var _title: Label
-var _capacity: Label
 var _scroll_viewport: Control
 var _scroll: ScrollContainer
 var _grid: GridContainer
@@ -96,25 +95,6 @@ func _build() -> void:
 	_close.pressed.connect(close)
 	header.add_child(_close)
 	BunkerUIComponents.divider(body)
-	var capacity_panel := PanelContainer.new()
-	capacity_panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("17232a"), BunkerPanelStyle.BLUE.darkened(0.32), 7, 1, 8))
-	body.add_child(capacity_panel)
-	var capacity_body := VBoxContainer.new()
-	capacity_body.add_theme_constant_override("separation", 5)
-	capacity_panel.add_child(capacity_body)
-	var cap_row := HBoxContainer.new()
-	capacity_body.add_child(cap_row)
-	var cap_label := Label.new()
-	cap_label.text = "STORAGE CAPACITY"
-	cap_label.add_theme_font_size_override("font_size", 11)
-	cap_label.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	cap_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cap_row.add_child(cap_label)
-	_capacity = Label.new()
-	_capacity.add_theme_font_size_override("font_size", 14)
-	_capacity.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
-	cap_row.add_child(_capacity)
 	var contents_heading: Dictionary = BunkerUIComponents.section_header(body, "Contents")
 	(contents_heading["meta"] as Label).text = "SELECT AN ITEM"
 	_scroll_viewport = Control.new()
@@ -280,7 +260,6 @@ func _refresh(force: bool) -> void:
 		close()
 		return
 	var slots := int(_config["slot_count"])
-	var occupied := 0
 	for i in _cards.size():
 		var card: Button = _cards[i]
 		card.visible = i < slots
@@ -289,8 +268,6 @@ func _refresh(force: bool) -> void:
 		var shown := _slot(i)
 		var item: Node = shown[0]
 		var count := int(shown[1])
-		if item != null and is_instance_valid(item):
-			occupied += 1
 		var sig := ItemPresentation.signature(item, count)
 		if force or sig != _signatures[i]:
 			var new_id := item.get_instance_id() if item != null and is_instance_valid(item) else 0
@@ -308,7 +285,6 @@ func _refresh(force: bool) -> void:
 				card.focus_mode = Control.FOCUS_NONE
 		if i == _selected_visual:
 			card.button_pressed = true
-	_capacity.text = "%d / %d" % [occupied, slots]
 	_configure_focus_neighbors()
 	_refresh_selection()
 	var focus: Control = get_viewport().gui_get_focus_owner()

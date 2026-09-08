@@ -111,21 +111,25 @@ static func set_power_button(button: Button, powered: bool) -> void:
 	button.icon = icon("stopped" if powered else "running")
 	button.modulate = Color.WHITE if powered else Color(0.62, 0.64, 0.62, 1.0)
 
+static func frame(parent: Node, key: String) -> MarginContainer:
+	var card := PanelContainer.new()
+	card.name = key
+	card.theme_type_variation = &"BunkerInspectorCard"
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		BunkerPanelStyle.SURFACE, BunkerPanelStyle.BRASS, 7, 1))
+	parent.add_child(card)
+	var margin := MarginContainer.new()
+	margin.name = "Inset"
+	margin.set_meta("ui_padding", 10)
+	card.add_child(margin)
+	return margin
+
 static func meter(parent: Node, key: String, caption: String, kind: String,
 		boxed: bool = false) -> VBoxContainer:
 	var content_parent: Node = parent
 	if boxed:
-		## Reuse the inspector-card vocabulary for grouped readouts instead of
-		## inventing device-specific chrome.
-		var card := PanelContainer.new()
-		card.name = key + "Card"
-		card.theme_type_variation = &"BunkerInspectorCard"
-		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		parent.add_child(card)
-		var margin := MarginContainer.new()
-		margin.set_meta("ui_padding", 10)
-		card.add_child(margin)
-		content_parent = margin
+		content_parent = frame(parent, key + "Card")
 	var box: VBoxContainer = column(content_parent, key)
 	var row := HBoxContainer.new()
 	row.name = "Heading"

@@ -512,6 +512,10 @@ func _prepare_scrollbars(node: Node) -> void:
 	if node is ScrollContainer:
 		var scroll := node as ScrollContainer
 		for bar: ScrollBar in [scroll.get_v_scroll_bar(), scroll.get_h_scroll_bar()]:
+			if not bar.has_meta(&"shared_scrollbar_skin"):
+				bar.set_meta(&"shared_scrollbar_skin", true)
+				for state: String in ["grabber", "grabber_highlight", "grabber_pressed"]:
+					bar.add_theme_stylebox_override(state, BunkerControlTheme.scrollbar_style(state))
 			var useful := bar.visible and bar.max_value > bar.page + 0.5
 			bar.focus_mode = Control.FOCUS_ALL if useful else Control.FOCUS_NONE
 			if not bar.has_meta(&"scroll_drag_wired"):

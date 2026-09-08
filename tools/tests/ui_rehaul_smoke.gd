@@ -292,6 +292,8 @@ func _test_runtime_ui() -> void:
 		"empty storage slots omit the redundant Available line and stay compact")
 	_check(storage.get("_capacity_bar") == null,
 		"storage capacity no longer spends vertical space on a fill bar")
+	_check(not _contains_label_text(storage, "STORAGE CAPACITY"),
+		"storage removes the entire capacity card")
 	empty_card.free()
 	storage.free()
 

@@ -10,10 +10,12 @@ var _hint: Label
 
 func _ready() -> void:
 	set_meta("ui_gap", 0)
+	size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var frame: MarginContainer = W.frame(self, "PriorityCard")
 	var row := HBoxContainer.new()
 	row.name = "Controls"
 	row.set_meta("ui_gap", 10)
-	add_child(row)
+	frame.add_child(row)
 	_less = W.button(row, "Decrease", "−", func(): priority_requested.emit(maxi(1, _value - 1)))
 	_less.size_flags_horizontal = Control.SIZE_FILL
 	_less.custom_minimum_size.x = 48

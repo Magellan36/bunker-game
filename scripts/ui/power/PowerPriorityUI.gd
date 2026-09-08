@@ -55,7 +55,7 @@ func _refresh_data() -> void:
 		text = "Unavailable"
 		token = "inactive"
 	W.set_status(_status, text, token, "power")
-	W.set_stat(_watts, "%.0f W" % float(data.get("watts", 0.0)) if _registered else "—")
+	W.set_stat(_watts, "%.0f W" % float(data.get("watts", 0.0)) if _registered else "0 W")
 	_priority_control.set_value(_priority, _registered)
 	_toggle_btn.disabled = not _registered
 	W.set_power_button(_toggle_btn, _active)

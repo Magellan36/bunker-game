@@ -20,9 +20,9 @@ static func install(theme: Theme) -> void:
 			BunkerDesign.IVORY if role in ["Title", "Body"] else BunkerDesign.MUTED)
 	for kind: String in ["HScrollBar", "VScrollBar"]:
 		theme.set_stylebox("scroll", kind, _box(BunkerDesign.BG, Color.TRANSPARENT, 5, 0))
-		theme.set_stylebox("grabber", kind, _box(BunkerDesign.BRASS.darkened(0.3), Color.TRANSPARENT, 5, 0))
-		theme.set_stylebox("grabber_highlight", kind, _box(BunkerDesign.BLUE, Color.TRANSPARENT, 5, 0))
-		theme.set_stylebox("grabber_pressed", kind, _box(BunkerDesign.BLUE_DARK, BunkerDesign.BLUE))
+		theme.set_stylebox("grabber", kind, scrollbar_style("grabber"))
+		theme.set_stylebox("grabber_highlight", kind, scrollbar_style("grabber_highlight"))
+		theme.set_stylebox("grabber_pressed", kind, scrollbar_style("grabber_pressed"))
 		theme.set_stylebox("focus", kind, _box(Color.TRANSPARENT, BunkerDesign.IVORY, 5, 2))
 	for kind: String in ["HSlider", "VSlider"]:
 		var track: StyleBoxFlat = _box(BunkerDesign.BG, BunkerDesign.BRASS.darkened(0.4), 3)
@@ -72,3 +72,12 @@ static func install(theme: Theme) -> void:
 	theme.set_stylebox("panel", "TooltipPanel", tooltip)
 	theme.set_color("font_color", "TooltipLabel", BunkerDesign.IVORY)
 	theme.set_font_size("font_size", "TooltipLabel", BunkerDesign.SECONDARY_SIZE)
+
+
+static func scrollbar_style(state: String) -> StyleBoxFlat:
+	var tint: Color = BunkerDesign.IVORY
+	if state == "grabber":
+		tint = tint.darkened(0.18)
+	elif state == "grabber_pressed":
+		tint = tint.darkened(0.08)
+	return _box(tint, Color.TRANSPARENT, 5, 0)

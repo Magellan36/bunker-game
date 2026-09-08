@@ -136,8 +136,14 @@ func _layout(ui: CanvasLayer) -> void:
 		var scroll: ScrollContainer = view.get_node("%DetailsScroll") as ScrollContainer
 		check(scroll.size.x > 300 and scroll.size.y > 40, "usable details area")
 		var focus_inset: MarginContainer = scroll.get_node("FocusInset") as MarginContainer
-		check(focus_inset.get_theme_constant("margin_right") >= 20,
-			"scrollbar gutter: " + ui.name)
+		var details_bounds: Rect2 = (focus_inset.get_node("Details") as Control).get_global_rect()
+		var status_bounds: Rect2 = (view.get_node("Panel/Margin/Content/StatusRow") as Control).get_global_rect()
+		check(absf(details_bounds.position.x - status_bounds.position.x) < 1.1 \
+			and absf(details_bounds.end.x - status_bounds.end.x) < 1.1,
+			"shared content edges: %s %s details=%s status=%s" % [ui.name, resolution, details_bounds, status_bounds])
+		var thumb := scroll.get_v_scroll_bar().get_theme_stylebox("grabber") as StyleBoxFlat
+		check(thumb.bg_color.is_equal_approx(BunkerDesign.IVORY.darkened(0.18)),
+			"shared ivory scrollbar: " + ui.name)
 		if scroll.get_v_scroll_bar().visible:
 			var details: Control = focus_inset.get_node("Details") as Control
 			check(details.get_global_rect().end.x <= scroll.get_v_scroll_bar().get_global_rect().position.x,
@@ -171,7 +177,7 @@ func _water() -> void:
 		and ui._toggle_btn.theme_type_variation == &"BunkerPrimaryButton",
 		"powered dispenser uses blue POWER OFF action")
 	check(ui._priority_control.get_node_or_null("Title") == null \
-		and (ui._priority_control.get_node("Controls/Value") as Label).text.ends_with("STANDARD"),
+		and (ui._priority_control.get_node("PriorityCard/Inset/Controls/Value") as Label).text.ends_with("STANDARD"),
 		"water allocation is one uppercase tier row")
 	check(dispenser.writes == 0, "opening dispenser is read-only")
 	wm.maximum = 500.0

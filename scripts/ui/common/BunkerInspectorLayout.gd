@@ -16,6 +16,9 @@ func _ready() -> void:
 	resized.connect(_apply_metrics)
 	$Panel.resized.connect(_position_panel)
 	$Panel.minimum_size_changed.connect(_queue_panel_fit)
+	var scroll := get_node("%DetailsScroll") as ScrollContainer
+	scroll.get_v_scroll_bar().visibility_changed.connect(_sync_scroll_lane.call_deferred)
+	scroll.get_v_scroll_bar().resized.connect(_sync_scroll_lane.call_deferred)
 	_apply_metrics()
 
 func _apply_metrics() -> void:
@@ -61,6 +64,21 @@ func _apply_metrics() -> void:
 	panel_style.content_margin_top = 0.0
 	panel_style.content_margin_bottom = 0.0
 	_fit_panel()
+	_sync_scroll_lane()
+
+func _sync_scroll_lane() -> void:
+	var scroll := get_node("%DetailsScroll") as ScrollContainer
+	var lane := scroll.get_parent() as Control
+	if lane == null or not lane.has_meta("ui_scroll_lane"):
+		return
+	var gutter: float = float(lane.get_meta("ui_scroll_lane")) * _scale_factor()
+	# Give the scrollbar its own lane in the panel margin. The content keeps
+	# the status row's exact edges whether the scrollbar is visible or hidden.
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_right = gutter
+	var inset := scroll.get_node("FocusInset") as MarginContainer
+	inset.add_theme_constant_override("margin_left", 0)
+	inset.add_theme_constant_override("margin_right", roundi(gutter))
 
 func _queue_panel_fit() -> void:
 	# Wrapped labels can temporarily request a very tall panel before their

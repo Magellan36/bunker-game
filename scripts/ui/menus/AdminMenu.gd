@@ -262,10 +262,10 @@ func _build_scroll_area() -> void:
 	## theme.
 	var scroll_theme: Theme = Theme.new()
 	var grabber: StyleBoxFlat = StyleBoxFlat.new()
-	grabber.bg_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.65)
+	grabber.bg_color = BunkerDesign.IVORY.darkened(0.18)
 	grabber.set_corner_radius_all(4)
 	var grabber_hi: StyleBoxFlat = grabber.duplicate() as StyleBoxFlat
-	grabber_hi.bg_color = Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.85)
+	grabber_hi.bg_color = BunkerDesign.IVORY
 	var track: StyleBoxFlat = StyleBoxFlat.new()
 	track.bg_color = Color(0.0, 0.0, 0.0, 0.25)
 	track.set_corner_radius_all(4)
@@ -345,7 +345,7 @@ func _style_row_btn(btn: Button) -> void:
 	normal.set_corner_radius_all(4)
 	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
 	hover.bg_color     = ROW_BG_HOVER
-	hover.border_color = Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.85)
+	hover.border_color = BunkerDesign.IVORY
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover",  hover)
 	btn.add_theme_stylebox_override("pressed", hover)

@@ -97,6 +97,19 @@ not a claim of physical-controller or GPU appearance acceptance. The optional
 C# editor bridge is excluded; existing font-cache/ObjectDB exit diagnostics
 in supplemental screen fixtures remain separate from GDScript failures.
 
+## Inspector framing follow-up
+
+Stored Water and allocation controls reuse a full-width amber inspector card.
+An explicit scrollbar lane in the outer margin keeps detail boxes aligned with
+the status row at every tested resolution, including when scrolling is needed.
+The remaining Storage Capacity card is removed; Contents and its item viewport
+receive the freed space. Shared scrollbar thumbs use ivory in normal, hover
+and pressed states. Generator backup copy now states the automatic-start rule
+in plain language, and unregistered rated-load readings display `0 W`.
+
+Godot 4.7.2 validation: 2,352 device/owner checks with no failures across all six
+target resolutions, plus the Build/Storage/controller screen smoke.
+
 ## Checkpoint commits
 
 | Commit | Scope |

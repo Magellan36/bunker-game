@@ -76,20 +76,27 @@ unique_name_in_owner = true
 layout_mode = 2
 metadata/ui_gap = 10
 
-[node name="DetailsScroll" type="ScrollContainer" parent="Panel/Margin/Content"]
+[node name="DetailsLane" type="Control" parent="Panel/Margin/Content"]
+layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 40)
+metadata/ui_scroll_lane = 16
+
+[node name="DetailsScroll" type="ScrollContainer" parent="Panel/Margin/Content/DetailsLane"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
+theme_override_constants/h_separation = 0
 follow_focus = true
 
-[node name="FocusInset" type="MarginContainer" parent="Panel/Margin/Content/DetailsScroll"]
+[node name="FocusInset" type="MarginContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
-metadata/ui_padding = 6
-metadata/ui_scroll_gutter = 20
+metadata/ui_padding = 0
+metadata/ui_scroll_gutter = 16
 
-[node name="Details" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset"]
+[node name="Details" type="VBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3

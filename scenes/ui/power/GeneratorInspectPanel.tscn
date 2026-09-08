@@ -125,50 +125,57 @@ text = "Grid online"
 autowrap_mode = 2
 metadata/ui_font_size = 16
 
-[node name="DetailsScroll" type="ScrollContainer" parent="Panel/Margin/Content"]
+[node name="DetailsLane" type="Control" parent="Panel/Margin/Content"]
+layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 40)
+metadata/ui_scroll_lane = 16
+
+[node name="DetailsScroll" type="ScrollContainer" parent="Panel/Margin/Content/DetailsLane"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
+theme_override_constants/h_separation = 0
 follow_focus = true
 
-[node name="FocusInset" type="MarginContainer" parent="Panel/Margin/Content/DetailsScroll"]
+[node name="FocusInset" type="MarginContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
-metadata/ui_padding = 6
-metadata/ui_scroll_gutter = 20
+metadata/ui_padding = 0
+metadata/ui_scroll_gutter = 16
 
-[node name="Details" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset"]
+[node name="Details" type="VBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset"]
 layout_mode = 2
 size_flags_horizontal = 3
 metadata/ui_gap = 10
 
-[node name="Output" type="HBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+[node name="Output" type="HBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 layout_mode = 2
 metadata/ui_gap = 10
 
-[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Output"]
+[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Output"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Rated output"
 theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
 metadata/ui_font_size = 18
 
-[node name="Watts" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Output"]
+[node name="Watts" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Output"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "0 W"
 metadata/ui_font_size = 28
 
-[node name="Fuel" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+[node name="Fuel" type="VBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 layout_mode = 2
 metadata/ui_gap = 6
 
-[node name="Heading" type="HBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel"]
+[node name="Heading" type="HBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel"]
 layout_mode = 2
 metadata/ui_gap = 8
 
-[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel/Heading"]
+[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel/Heading"]
 layout_mode = 2
 expand_mode = 1
 stretch_mode = 5
@@ -176,19 +183,19 @@ mouse_filter = 2
 self_modulate = Color(0.4, 0.749, 1, 1)
 metadata/ui_icon_size = 20
 
-[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel/Heading"]
+[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel/Heading"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Fuel"
 metadata/ui_font_size = 18
 
-[node name="FuelValue" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel/Heading"]
+[node name="FuelValue" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel/Heading"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "100%"
 metadata/ui_font_size = 18
 
-[node name="FuelBar" type="ProgressBar" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel"]
+[node name="FuelBar" type="ProgressBar" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"BunkerMeter"
@@ -198,7 +205,7 @@ mouse_filter = 2
 metadata/ui_min_height = 12
 script = ExtResource("smooth_bar")
 
-[node name="FuelHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Fuel"]
+[node name="FuelHint" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
@@ -207,15 +214,15 @@ autowrap_mode = 2
 theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
 metadata/ui_font_size = 14
 
-[node name="Condition" type="VBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+[node name="Condition" type="VBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 layout_mode = 2
 metadata/ui_gap = 6
 
-[node name="Heading" type="HBoxContainer" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition"]
+[node name="Heading" type="HBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition"]
 layout_mode = 2
 metadata/ui_gap = 8
 
-[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition/Heading"]
+[node name="Icon" type="TextureRect" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition/Heading"]
 layout_mode = 2
 expand_mode = 1
 stretch_mode = 5
@@ -223,19 +230,19 @@ mouse_filter = 2
 self_modulate = Color(0.4, 0.749, 1, 1)
 metadata/ui_icon_size = 20
 
-[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition/Heading"]
+[node name="Caption" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition/Heading"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Condition"
 metadata/ui_font_size = 18
 
-[node name="ConditionValue" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition/Heading"]
+[node name="ConditionValue" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition/Heading"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "100%"
 metadata/ui_font_size = 18
 
-[node name="ConditionBar" type="ProgressBar" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition"]
+[node name="ConditionBar" type="ProgressBar" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"BunkerMeter"
@@ -245,7 +252,7 @@ mouse_filter = 2
 metadata/ui_min_height = 12
 script = ExtResource("smooth_bar")
 
-[node name="ConditionHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details/Condition"]
+[node name="ConditionHint" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
@@ -254,10 +261,10 @@ autowrap_mode = 2
 theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
 metadata/ui_font_size = 14
 
-[node name="Divider" type="HSeparator" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+[node name="Divider" type="HSeparator" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 layout_mode = 2
 
-[node name="Backup" type="Button" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+[node name="Backup" type="Button" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Backup mode: Off"
@@ -267,10 +274,10 @@ toggle_mode = true
 metadata/ui_font_size = 18
 metadata/ui_min_height = 44
 
-[node name="BackupHint" type="Label" parent="Panel/Margin/Content/DetailsScroll/FocusInset/Details"]
+[node name="BackupHint" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Waits until primary power fails."
+text = "This generator will power on when other power sources fail."
 autowrap_mode = 2
 theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
 metadata/ui_font_size = 14

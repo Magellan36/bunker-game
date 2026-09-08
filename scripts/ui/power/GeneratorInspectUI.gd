@@ -53,7 +53,7 @@ func _ready() -> void:
 	watts_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	(_view.get_node("Panel/Margin/Content/Header/PowerIcon") as TextureRect).texture = W.icon("power")
 	for prefix: String in ["Fuel", "Condition"]:
-		var meter_icon: TextureRect = _view.get_node("Panel/Margin/Content/DetailsScroll/FocusInset/Details/" + prefix + "/Heading/Icon") as TextureRect
+		var meter_icon: TextureRect = _view.get_node("Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/" + prefix + "/Heading/Icon") as TextureRect
 		meter_icon.texture = W.icon(prefix.to_lower())
 	_toggle_btn.icon = GRID_ICON
 	_toggle_btn.pressed.connect(_on_toggle_pressed)
@@ -181,7 +181,7 @@ func _refresh_display() -> void:
 	_toggle_btn.set_pressed_no_signal(_is_backup)
 	_toggle_btn.text = "Backup mode: On" if _is_backup else "Backup mode: Off"
 	_toggle_btn.add_theme_color_override("icon_normal_color", _color("blue"))
-	(_view.get_node("%BackupHint") as Label).text = "Waits until primary power fails."
+	(_view.get_node("%BackupHint") as Label).text = "This generator will power on when other power sources fail."
 	_toggle_btn.tooltip_text = "Starts automatically when primary power fails, provided fuel and condition allow."
 
 	W.set_power_button(_power_btn, _is_running)
