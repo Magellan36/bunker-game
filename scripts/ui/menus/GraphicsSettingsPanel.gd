@@ -247,6 +247,7 @@ func _section_button(caption: String, symbol: String, section_key: String) -> Bu
 	button.custom_minimum_size.y = 36
 	BunkerUIComponents.style_segment(button)
 	button.pressed.connect(_jump_to_section.bind(section_key))
+	button.set_meta(&"ui_tab", true)
 	_section_buttons[section_key] = button
 	return button
 

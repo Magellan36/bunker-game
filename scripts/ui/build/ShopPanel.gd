@@ -191,6 +191,7 @@ func _build_category_rail() -> Control:
 			String(CATEGORY_ICONS.get(category, "shop")))
 		button.pressed.connect(_set_category.bind(category))
 		box.add_child(button)
+		button.set_meta(&"ui_tab", true)
 		_category_buttons[category] = button
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL

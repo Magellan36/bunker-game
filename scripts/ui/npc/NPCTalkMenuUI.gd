@@ -356,6 +356,7 @@ func _build_tabs(parent: Container) -> void:
 		C.style_segment(button)
 		button.pressed.connect(_set_tab.bind(index, true))
 		row.add_child(button)
+		button.set_meta(&"ui_tab", true)
 		_tab_buttons.append(button)
 
 

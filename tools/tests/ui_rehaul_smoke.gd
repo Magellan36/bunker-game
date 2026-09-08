@@ -137,11 +137,25 @@ func _test_runtime_ui() -> void:
 		var category_button := node as Button
 		category_icons_consistent = category_icons_consistent \
 			and not category_button.expand_icon \
-			and category_button.get_theme_constant("icon_max_width") == 20
+			and category_button.get_theme_constant("icon_max_width") == 16
+		_check(category_button.get_global_rect().end.x <= workspace.catalog.get_global_rect().end.x - 10,
+			"category button stays inside the rail: " + category_button.text)
+		_check(category_button.size.x >= category_button.get_minimum_size().x,
+			"category label and icon fit their button: " + category_button.text)
 	_check(category_icons_consistent,
 		"build categories retain one fixed icon canvas regardless of label width")
-	_check(workspace.catalog.get("_mode_card") != null,
-		"build catalog has an explicit browse/placement state block")
+	_check(workspace.catalog.find_child("PlacementState", true, false) == null,
+		"build catalog omits the redundant placement state block")
+	for resolution in [Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3440, 1440), Vector2i(3840, 2160)]:
+		root.size = resolution
+		await process_frame
+		await process_frame
+		for category_button: Button in category_grid.get_children():
+			_check(category_button.get_global_rect().end.x <= workspace.catalog.get_global_rect().end.x - 10,
+				"category fits at %s: %s" % [resolution, category_button.text])
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	await process_frame
 	var object_viewport := workspace.catalog.get("_scroll_viewport") as Control
 	_check(not _contains_label_text(workspace.catalog,
 		"Placement is charged only when the object is built") \
@@ -239,7 +253,18 @@ func _test_runtime_ui() -> void:
 	var build_nav: ControllerUINavigation = workspace.get("_controller_nav") as ControllerUINavigation
 	_check(build_nav.mouse_cursor_required,
 		"open build catalog requests the mouse cursor in keyboard mode")
+	workspace.catalog.call("_category_changed", "Structure")
+	build_nav.call("_cycle_tabs", 1)
+	_check(String(workspace.catalog.get("_category")) == "Furniture",
+		"RB cycles Construct categories while the catalog is open")
+	build_nav.call("_cycle_tabs", -1)
+	_check(String(workspace.catalog.get("_category")) == "Structure",
+		"LB returns to the previous Construct category")
 	hud.close_workspace_menu()
+	await process_frame
+	build_nav.call("_cycle_tabs", 1)
+	_check(int(hud.get("active_tool")) == 3,
+		"RB cycles tools when the Construct catalog is closed")
 	await process_frame
 	_check(ControllerUINavigation.owns_directional_input(self),
 		"toolbar remains controller-navigable when catalogs are closed")
@@ -287,6 +312,19 @@ func _test_focusable_scrollbar() -> void:
 	nav.call("_prepare_scrollbars", ui)
 	var bar := scroll.get_v_scroll_bar()
 	_check(bar.focus_mode == Control.FOCUS_ALL, "visible scrollbar becomes a controller focus target")
+	var entry := Button.new()
+	entry.text = "Item"
+	entry.position = Vector2(10, 10)
+	content.add_child(entry)
+	await process_frame
+	await process_frame
+	entry.grab_focus()
+	nav.set("_move_cooldown", 0.0)
+	nav.call("_move_focus", Vector2.RIGHT)
+	_check(bar.has_focus(), "right from content reaches its scrollbar")
+	nav.set("_move_cooldown", 0.0)
+	nav.call("_move_focus", Vector2.LEFT)
+	_check(entry.has_focus(), "left from scrollbar returns to content")
 	bar.grab_focus()
 	var before := bar.value
 	var handled: bool = nav.call("_adjust_focused_range", Vector2.DOWN, 1.0)

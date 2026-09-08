@@ -282,6 +282,7 @@ func _build_tabs(parent: Container) -> void:
 		C.style_segment(button)
 		button.pressed.connect(_set_tab.bind(index))
 		row.add_child(button)
+		button.set_meta(&"ui_tab", true)
 		_tabs.append(button)
 
 
@@ -1463,7 +1464,7 @@ func _on_zone_color_changed(zone_key: String, new_color: Color) -> void:
 
 func _update_input_hint() -> void:
 	_controller_hints = InputMode.is_controller()
-	_footer.text = "[A] Select     D-pad / R-stick  Navigate     Scrollbar  Scroll     [B] Close" \
+	_footer.text = "LB / RB  Tabs     [A] Select     D-pad / R-stick  Navigate     Scrollbar  Scroll     [B] Close" \
 		if _controller_hints else "Enter / Space  Select     Arrows  Navigate     Scrollbar / Wheel  Scroll     Esc / E  Close"
 
 

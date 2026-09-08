@@ -79,6 +79,8 @@ const SLIDER_REPEAT_MAX_STEP_MULT: float = 500.0
 
 static var _open_serial: int = 0
 var _open_order: int = 0
+## Optional context-specific tabs (Build switches between tools and categories).
+var tab_provider: Callable
 var _held_focus: WeakRef
 var _stick_hold_time: float = 0.0
 var _was_active: bool = false
@@ -178,6 +180,16 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventJoypadMotion and event.axis in [JOY_AXIS_LEFT_X, JOY_AXIS_LEFT_Y]:
 		get_viewport().set_input_as_handled()
 		return
+	if event is InputEventKey and event.pressed and not event.echo and close_on_cancel \
+			and event.keycode in [KEY_ESCAPE, KEY_E]:
+		get_viewport().set_input_as_handled()
+		_close_ui()
+		return
+	if event is InputEventJoypadButton and event.pressed \
+			and event.button_index in [JOY_BUTTON_LEFT_SHOULDER, JOY_BUTTON_RIGHT_SHOULDER]:
+		if _cycle_tabs(-1 if event.button_index == JOY_BUTTON_LEFT_SHOULDER else 1):
+			get_viewport().set_input_as_handled()
+			return
 	## B — close/cancel this UI. Only the topmost open controller UI closes
 	## (see _is_topmost), so stacked UIs cancel one at a time. B is consumed
 	## ONLY when it actually closes — a close_on_cancel=false nav lets B fall
@@ -372,15 +384,8 @@ func _move_popup(popup: PopupMenu, direction: int) -> void:
 			popup.set_focused_item(index)
 			return
 
-## Moves focus to the control most in `dir`. Nearest-ahead scoring (Aug 2026):
-## among candidates within MIN_DIR_DOT of the pressed direction, the CLOSEST
-## wins, with a 2x penalty on off-axis distance — so a slightly-farther
-## on-column button beats a near diagonal one, and pressing up from a bottom
-## row (e.g. a priority ◄/►) lands on the nearest button in the row above
-## instead of leaping to a far-away vertically-aligned one (the old
-## "most-aligned wins" rule, which caused the bottom-row jump). Pressing
-## toward an empty edge stays put. First press (no current focus) accepts
-## anything in the general direction and falls back to the first focusable.
+## Prefer controls in the same visible row/column, then the nearest diagonal.
+## Explicit neighbors remain authoritative for physical slot grids.
 func _move_focus(dir: Vector2) -> void:
 	if _move_cooldown > 0.0:
 		return
@@ -401,8 +406,7 @@ func _move_focus(dir: Vector2) -> void:
 
 	var ndir: Vector2 = dir.normalized()
 	var best: Control = null
-	var best_along: float = INF
-	var best_perp: float = INF
+	var best_score: float = INF
 	## Anchor for the no-current-focus case: the UI root's center when it's a
 	## Control, else the origin (CanvasLayer roots have no rect).
 	var base := Vector2.ZERO
@@ -423,19 +427,20 @@ func _move_focus(dir: Vector2) -> void:
 			dot = maxf(dot, 0.0)
 		if dot < MIN_DIR_DOT:
 			continue
-		## Nearest-ahead (Aug 2026): the CLOSEST candidate in the pressed
-		## direction wins — forward distance (along) is the PRIMARY key and
-		## horizontal offset (perp) only breaks ties. This keeps vertical
-		## lists (graphics settings' stacked option rows) stepping exactly
-		## one row at a time even when controls sit at different X positions
-		## (wide OptionButtons vs. narrow CheckBoxes), while bottom-row
-		## priority buttons still land on the nearest button above instead of
-		## leaping to a far-away vertically-aligned one.
 		var along: float = delta.dot(ndir)
 		var perp: float = (delta - ndir * along).length()
-		if along < best_along or (along == best_along and perp < best_perp):
-			best_along = along
-			best_perp  = perp
+		var score: float = along + perp * 4.0
+		# Controls overlapping on the perpendicular axis belong to the same
+		# visual row/column. Prefer that lane before crossing into another.
+		if has_current:
+			var here: Rect2 = current.get_global_rect()
+			var there: Rect2 = c.get_global_rect()
+			var aligned: bool = (there.position.y < here.end.y and there.end.y > here.position.y) \
+				if dir.x != 0 else (there.position.x < here.end.x and there.end.x > here.position.x)
+			if not aligned:
+				score += 10000.0
+		if score < best_score:
+			best_score = score
 			best = c
 
 	if best == null:
@@ -559,6 +564,12 @@ func _collect_focusables() -> Array:
 	return out
 
 func _collect_focusables_into(node: Node, out: Array) -> void:
+	# Godot owns scrollbars as internal children; get_children() omits them.
+	# Register them explicitly so spatial navigation can actually reach them.
+	if node is ScrollContainer:
+		for bar: ScrollBar in [node.get_v_scroll_bar(), node.get_h_scroll_bar()]:
+			if bar.focus_mode != Control.FOCUS_NONE and bar.is_visible_in_tree():
+				out.append(bar)
 	if node is Control:
 		var c := node as Control
 		if c.focus_mode != Control.FOCUS_NONE and c.is_visible_in_tree() \
@@ -594,3 +605,21 @@ func _range_multiplier(held_seconds: float) -> float:
 	var max_multiplier: float = maxf(1.0, (slider.max_value - slider.min_value) * 0.01 / increment)
 	var ramp: float = clampf((held_seconds - SLIDER_HOLD_DELAY) / SLIDER_RAMP_TIME, 0.0, 1.0)
 	return maxf(1.0, floorf(lerpf(1.0, max_multiplier, ramp)))
+
+
+func _cycle_tabs(direction: int) -> bool:
+	var tabs: Array = tab_provider.call() if tab_provider.is_valid() else []
+	if tabs.is_empty():
+		for control in _collect_focusables():
+			if control.has_meta(&"ui_tab"):
+				tabs.append(control)
+	if tabs.is_empty():
+		return false
+	var index: int = 0
+	for i in tabs.size():
+		if tabs[i].button_pressed:
+			index = i
+	var target: Button = tabs[wrapi(index + direction, 0, tabs.size())]
+	target.pressed.emit()
+	target.grab_focus()
+	return true

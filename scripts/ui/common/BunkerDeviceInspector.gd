@@ -44,12 +44,6 @@ func _ready() -> void:
 	_proximity.ui = self
 	add_child(_proximity)
 	_build_content()
-	for node: Node in _view.find_children("*", "OptionButton", true, false):
-		var option: OptionButton = node as OptionButton
-		# A native popup owns its own D-pad/A/B. The nav remains registered
-		# and active for the world-input gate, but stops handling events.
-		option.get_popup().about_to_popup.connect(_set_popup_active.bind(true))
-		option.get_popup().popup_hide.connect(_set_popup_active.bind(false))
 	_view.call("_apply_metrics")
 	set_process(false)
 
@@ -136,10 +130,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_ESCAPE or event.keycode == KEY_E:
 			close()
 			get_viewport().set_input_as_handled()
-
-func _set_popup_active(active: bool) -> void:
-	_controller_nav.set_process_input(not active)
-	_controller_nav.set_process(not active)
 
 func _add_priority(parent: Node, callback: Callable) -> VBoxContainer:
 	var control: VBoxContainer = PRIORITY.new()

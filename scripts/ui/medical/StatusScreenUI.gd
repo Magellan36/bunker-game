@@ -181,7 +181,7 @@ func _input(event: InputEvent) -> void:
 	if not _is_open:
 		return
 	var keyboard_close: bool = event is InputEventKey and event.pressed and not event.echo \
-		and (event.keycode == KEY_TAB or event.keycode == KEY_ESCAPE)
+		and (event.keycode in [KEY_TAB, KEY_ESCAPE, KEY_E])
 	var view_close: bool = event is InputEventJoypadButton and event.pressed \
 		and event.button_index == JOY_BUTTON_BACK
 	if keyboard_close or view_close:
@@ -192,7 +192,7 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_Q:
 			_set_tab(wrapi(_active_tab - 1, 0, _tab_buttons.size()))
 			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_E:
+		elif event.keycode == KEY_R:
 			_set_tab(wrapi(_active_tab + 1, 0, _tab_buttons.size()))
 			get_viewport().set_input_as_handled()
 
@@ -297,6 +297,7 @@ func _make_tab(parent: HBoxContainer, tab_id: int, title: String, symbol: String
 	C.style_segment(button)
 	button.pressed.connect(_set_tab.bind(tab_id))
 	parent.add_child(button)
+	button.set_meta(&"ui_tab", true)
 	_tab_buttons.append(button)
 
 
@@ -805,7 +806,7 @@ func _build_footer() -> void:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_content.add_child(row)
-	_footer_hint = _label("Q / E: tabs   •   Enter / Space: select   •   Tab / Esc: close", 12, S.MUTED)
+	_footer_hint = _label("Q / R: tabs   •   Enter / Space: select   •   Tab / Esc / E: close", 12, S.MUTED)
 	row.add_child(_footer_hint)
 
 
@@ -1217,7 +1218,7 @@ func _refresh_footer() -> void:
 	if InputMode.is_controller():
 		_footer_hint.text = "LB / RB: tabs   •   D-pad / right stick: navigate   •   A: select   •   View / B: close"
 	else:
-		_footer_hint.text = "Q / E: tabs   •   Enter / Space: select   •   Tab / Esc: close"
+		_footer_hint.text = "Q / R: tabs   •   Enter / Space: select   •   Tab / Esc / E: close"
 
 
 func _active_conditions() -> Array[MedicalCondition]:

@@ -62,6 +62,7 @@ func _ready() -> void:
 	_controller_nav.right_stick_navigation = false
 	_controller_nav.blocks_world_cursor = false
 	_controller_nav.mouse_cursor_required = true
+	_controller_nav.tab_provider = _controller_tabs
 	add_child(_controller_nav)
 	get_viewport().size_changed.connect(_layout)
 	_controller_hints = InputMode.is_controller()
@@ -402,3 +403,12 @@ func _focusable_at(node: Node, point: Vector2) -> Control:
 					and control.get_global_rect().has_point(point):
 				return control
 	return null
+
+
+func _controller_tabs() -> Array:
+	if shop.visible:
+		return shop._category_buttons.values()
+	if catalog.visible:
+		return catalog._category_buttons.values()
+	# Undo is an action, not a persistent tool mode.
+	return _tool_buttons.filter(func(button: Button) -> bool: return button != _tool_buttons[4])

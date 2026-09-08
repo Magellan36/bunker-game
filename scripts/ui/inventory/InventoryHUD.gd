@@ -231,64 +231,11 @@ func _draw_item_meter(rect: Rect2, item: Node) -> void:
 	var state: Dictionary = _item_hud_state(item)
 	match String(state.get("kind", "none")):
 		"liquid":
-			_draw_liquid_gauge(rect, state)
+			ItemStateMeter._draw_liquid_gauge(self, rect, state)
 		"battery":
-			_draw_battery_meter(rect, state)
+			ItemStateMeter._draw_battery_meter(self, rect, state, _low_battery_phase)
 		"charges":
-			_draw_charge_pips(rect, state)
-
-
-func _draw_liquid_gauge(rect: Rect2, state: Dictionary) -> void:
-	var center: Vector2 = rect.position + Vector2(SLOT_SIZE - 17.0, 17.0)
-	var fraction: float = clampf(float(state.get("fraction", 0.0)), 0.0, 1.0)
-	var quality: float = clampf(float(state.get("quality", 0.0)), 0.0, 100.0)
-	draw_circle(center, 12.0, Color("101514ed"))
-	draw_arc(center, 9.0, -PI * 0.5, PI * 1.5, 32, EMPTY, 2.5, true)
-	if fraction > 0.0:
-		draw_arc(center, 9.0, -PI * 0.5, -PI * 0.5 + TAU * fraction,
-			maxi(4, int(32.0 * fraction)), WATER_BLUE, 2.5, true)
-	_draw_drop(center, _quality_color(quality) if fraction > 0.0 else EMPTY)
-
-
-func _draw_drop(center: Vector2, color: Color) -> void:
-	var points: PackedVector2Array = PackedVector2Array([
-		center + Vector2(0.0, -5.0), center + Vector2(4.0, 1.0),
-		center + Vector2(3.0, 4.0), center + Vector2(0.0, 5.0),
-		center + Vector2(-3.0, 4.0), center + Vector2(-4.0, 1.0),
-	])
-	draw_colored_polygon(points, color)
-
-
-func _draw_battery_meter(rect: Rect2, state: Dictionary) -> void:
-	var fraction: float = clampf(float(state.get("fraction", 0.0)), 0.0, 1.0)
-	var lit_bars: int = ceili(fraction * 4.0) if fraction > 0.0 else 0
-	var origin: Vector2 = rect.position + Vector2(SLOT_SIZE - 33.0, 10.0)
-	var shell: Rect2 = Rect2(origin, Vector2(24.0, 12.0))
-	UIKit.draw_rounded_rect(self, shell, Color("101514ed"), BORDER, 1.0, 3.0)
-	draw_rect(Rect2(origin + Vector2(24.0, 3.0), Vector2(2.0, 6.0)), BORDER, true)
-	for i: int in 4:
-		var bar: Rect2 = Rect2(origin + Vector2(3.0 + float(i) * 5.0, 3.0), Vector2(3.0, 6.0))
-		var color: Color = EMPTY
-		if i < lit_bars:
-			if lit_bars == 1:
-				var pulse: float = 0.72 + sin(_low_battery_phase) * 0.20
-				color = Color(RED.r, RED.g, RED.b, pulse)
-			elif lit_bars == 2:
-				color = AMBER
-			else:
-				color = GREEN
-		draw_rect(bar, color, true)
-
-
-func _draw_charge_pips(rect: Rect2, state: Dictionary) -> void:
-	var current: int = maxi(0, int(state.get("current", 0)))
-	var maximum: int = maxi(1, int(state.get("maximum", 1)))
-	var visible_pips: int = mini(maximum, 4)
-	var start_x: float = rect.end.x - 10.0 - float(visible_pips - 1) * 9.0
-	for i: int in visible_pips:
-		var center: Vector2 = Vector2(start_x + float(i) * 9.0, rect.position.y + 14.0)
-		draw_circle(center, 3.2, GREEN if i < current else EMPTY)
-		draw_arc(center, 3.2, 0.0, TAU, 16, Color("0b100f"), 1.0, true)
+			ItemStateMeter._draw_charge_pips(self, rect, state)
 
 
 func _draw_identity_drawer(slot: int, item: Node) -> void:
@@ -333,24 +280,7 @@ func _drawer_font_size(text: String) -> int:
 
 # ─── Item presentation contract ───────────────────────────────────────────────
 func _item_hud_state(item: Node) -> Dictionary:
-	if not is_instance_valid(item):
-		return {"kind": "none"}
-	if item.has_method("get_inventory_hud_state"):
-		var result: Variant = item.call("get_inventory_hud_state")
-		if result is Dictionary:
-			return result as Dictionary
-	if item.has_method("get_bottle_badge_info"):
-		var bottle: Dictionary = item.call("get_bottle_badge_info") as Dictionary
-		return {
-			"kind": "liquid",
-			"fraction": float(bottle.get("fill_pct", 0.0)),
-			"quality": float(bottle.get("quality", 0.0)),
-		}
-	var charges: Array = _get_charge_info(item)
-	if charges.size() == 2:
-		return {"kind": "charges", "current": int(charges[0]), "maximum": int(charges[1])}
-	return {"kind": "none"}
-
+	return ItemPresentation.hud_state(item)
 
 func _get_charge_info(item: Node) -> Array:
 	return ItemPresentation.charge_info(item)

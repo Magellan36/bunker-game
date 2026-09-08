@@ -52,6 +52,15 @@ func _run() -> void:
 	hud.call("set_selected", 1)
 	await process_frame
 
+	var storage: CanvasLayer = load("res://scripts/ui/inventory/StorageUI.gd").new()
+	root.add_child(storage)
+	for item in [bottle, flashlight, bandage]:
+		storage.call("_refresh_item_state", item)
+		var meter: ItemStateMeter = storage.get("_state_meter")
+		_check(meter.state == hud.call("_item_hud_state", item),
+			"storage and inventory share the same meter state: " + item.display_name)
+	storage.free()
+
 	var constants: Dictionary = inventory_hud_script.get_script_constant_map()
 	_check(int(constants.get("SLOT_COUNT", 0)) == 4, "four-slot inventory is preserved")
 	_check(is_equal_approx(float(constants.get("SLOT_SIZE", 0.0)), 72.0),

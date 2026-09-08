@@ -75,6 +75,33 @@ func _run() -> void:
 	ui.call("_set_tab", 2)
 	_check((pages[2] as Control).visible and not (pages[0] as Control).visible,
 		"tab switching owns one visible workspace")
+	await process_frame
+	await process_frame
+	tabs[2].grab_focus()
+	nav.set("_move_cooldown", 0.0)
+	nav.call("_move_focus", Vector2.RIGHT)
+	_check(root.gui_get_focus_owner() == tabs[3], "right from Load Order selects Zone Network")
+	var bumper := InputEventJoypadButton.new()
+	bumper.button_index = JOY_BUTTON_RIGHT_SHOULDER
+	bumper.pressed = true
+	root.push_input(bumper)
+	_check(int(ui.get("_active_tab")) == 3, "RB cycles the active tab")
+	bumper.button_index = JOY_BUTTON_LEFT_SHOULDER
+	root.push_input(bumper)
+	_check(int(ui.get("_active_tab")) == 2, "LB cycles back to Load Order")
+	ui.call("_add_priority_row", sample_consumer, [sample_consumer])
+	await process_frame
+	await process_frame
+	var rows: Dictionary = ui.get("_priority_rows")
+	var minus: Button = rows["smoke"]["decrement"]
+	var plus: Button = rows["smoke"]["increment"]
+	minus.grab_focus()
+	nav.set("_move_cooldown", 0.0)
+	nav.call("_move_focus", Vector2.RIGHT)
+	_check(root.gui_get_focus_owner() == plus, "right within a load row moves from minus to plus")
+	nav.set("_move_cooldown", 0.0)
+	nav.call("_move_focus", Vector2.LEFT)
+	_check(root.gui_get_focus_owner() == minus, "left within a load row returns to minus, not a tab")
 	ui.call("close")
 	_check(not bool(ui.get("_is_open")) and ui.visible,
 		"close ends interaction immediately while retaining the exit presentation")

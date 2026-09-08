@@ -64,6 +64,39 @@ The implementation portion of the approved consistency pass is complete on
   inspector-card treatment, while generator output uses the shared amber value
   treatment and preserves the divider above its power action.
 
+## Controller and content-density follow-up
+
+- Shared directional focus now prefers the visible row/column. Power Terminal
+  regression checks cover Load Order → Zone Network, both shoulder buttons,
+  and direct movement between a consumer's decrement/increment controls.
+- Primary tabs in Power, Research, NPC, Status, Graphics and Shop participate
+  in shared LB/RB cycling. Build chooses categories while Construct is open
+  and tool modes while it is closed; Undo remains an explicit action.
+- Scrollbars are explicitly included in focus discovery because Godot keeps
+  them as internal children. They accept D-pad/right-stick scrolling and can
+  be entered and left through spatial navigation. Native option popups retain
+  their focus surface while shared navigation continues blocking left-stick
+  focus and providing right-stick selection.
+- Construct removes the redundant placement-state box. Category icons use a
+  16 px canvas, 3 px text gap and compact shared button chrome. Actual category
+  bounds are checked at all six target resolutions.
+- Research removes its redundant station-state header box and uses a smaller
+  shared icon well and close button, leaving more space for content.
+- Storage and Inventory share ItemStateMeter drawing and ItemPresentation
+  state extraction: circular liquid fill, quality-colored droplet, battery
+  segments and charge dots. Storage retains exact quantities in its detail
+  text, physical slot mapping and transfer ownership.
+- Storage uses the inspector keyboard/controller footer. Esc/E closing is
+  shared across in-game menus; Status uses Q/R for keyboard tab cycling.
+  Build's existing closing/proximity rules remain unchanged.
+
+Validation: Godot 4.7.2 isolated import and seven screen smokes; shared
+consistency contracts; inventory meter parity; and device/owner contracts
+across six resolutions. These are automated geometry/input/state checks,
+not a claim of physical-controller or GPU appearance acceptance. The optional
+C# editor bridge is excluded; existing font-cache/ObjectDB exit diagnostics
+in supplemental screen fixtures remain separate from GDScript failures.
+
 ## Checkpoint commits
 
 | Commit | Scope |

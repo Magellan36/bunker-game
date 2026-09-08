@@ -28,15 +28,8 @@ var _items: GridContainer
 var _section_title: Label
 var _section_meta: Label
 var _cash_label: Label
-var _mode_card: PanelContainer
-var _mode_icon: TextureRect
-var _mode_eyebrow: Label
-var _mode_title: Label
-var _mode_meta: Label
 var _first_item: BuildCatalogCard
 var _selected_tile_id: int = -1
-var _selected_name: String = ""
-var _selected_price: int = 0
 var _last_cash: int = -1
 var _category_buttons: Dictionary = {}
 var _subcategory_buttons: Dictionary = {}
@@ -55,50 +48,12 @@ func _ready() -> void:
 	BunkerUIComponents.header(body, "CONSTRUCTION", "Build catalog", "build",
 		func() -> void: hud.close_workspace_menu())
 	BunkerUIComponents.divider(body)
-	_build_mode_card(body)
 	_build_categories(body)
 	_build_items(body)
 	_rebuild_category_buttons()
 	_rebuild_subcategories()
 	_rebuild_items()
-	_update_mode_card()
 
-
-func _build_mode_card(parent: VBoxContainer) -> void:
-	_mode_card = PanelContainer.new()
-	_mode_card.name = "PlacementState"
-	_mode_card.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(false))
-	parent.add_child(_mode_card)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	_mode_card.add_child(row)
-	_mode_icon = TextureRect.new()
-	_mode_icon.texture = BunkerPanelStyle.icon("plus")
-	_mode_icon.self_modulate = BunkerPanelStyle.BLUE
-	_mode_icon.custom_minimum_size = Vector2(28, 28)
-	_mode_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_mode_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_mode_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(_mode_icon)
-	var copy := VBoxContainer.new()
-	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	copy.add_theme_constant_override("separation", 0)
-	row.add_child(copy)
-	_mode_eyebrow = Label.new()
-	_mode_eyebrow.add_theme_font_size_override("font_size", 11)
-	_mode_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	copy.add_child(_mode_eyebrow)
-	_mode_title = Label.new()
-	_mode_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_mode_title.add_theme_font_size_override("font_size", 16)
-	_mode_title.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
-	copy.add_child(_mode_title)
-	_mode_meta = Label.new()
-	_mode_meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_mode_meta.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_mode_meta.add_theme_font_size_override("font_size", 12)
-	_mode_meta.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
-	row.add_child(_mode_meta)
 
 
 func _build_categories(parent: VBoxContainer) -> void:
@@ -165,7 +120,13 @@ func _rebuild_category_buttons() -> void:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.tooltip_text = "%s objects" % category
 		BunkerUIComponents.style_segment(button, true)
-		button.add_theme_constant_override("icon_max_width", 20)
+		button.add_theme_constant_override("icon_max_width", 16)
+		button.add_theme_constant_override("h_separation", 3)
+		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+			var chrome: StyleBox = button.get_theme_stylebox(state).duplicate()
+			chrome.content_margin_left = 4
+			chrome.content_margin_right = 4
+			button.add_theme_stylebox_override(state, chrome)
 		button.pressed.connect(_category_changed.bind(category))
 		_category_grid.add_child(button)
 		_category_buttons[category] = button
@@ -303,30 +264,19 @@ func close() -> void:
 
 func _choose(tile_id: int) -> void:
 	_selected_tile_id = tile_id
-	var card: BuildCatalogCard = _item_cards.get(tile_id) as BuildCatalogCard
-	if card != null:
-		_selected_name = card.item_name
-		_selected_price = card.item_price
 	_update_selected_cards()
-	_update_mode_card()
 	hud.choose_build_item(tile_id)
 
 
-func set_selected_item(tile_id: int, item_name: String, price: int) -> void:
+func set_selected_item(tile_id: int, _item_name: String, _price: int) -> void:
 	_selected_tile_id = tile_id
-	_selected_name = item_name
-	_selected_price = price
 	_update_selected_cards()
-	_update_mode_card()
 	_reveal_selected.call_deferred()
 
 
 func clear_placement_state() -> void:
 	_selected_tile_id = -1
-	_selected_name = ""
-	_selected_price = 0
 	_update_selected_cards()
-	_update_mode_card()
 
 
 func refresh_live() -> void:
@@ -334,9 +284,6 @@ func refresh_live() -> void:
 	if cash != _last_cash:
 		_last_cash = cash
 		_cash_label.text = "%s AVAILABLE" % UIFormat.money(cash)
-	if _selected_tile_id >= 0:
-		_mode_meta.add_theme_color_override("font_color",
-			BunkerPanelStyle.RED if cash < _selected_price else BunkerPanelStyle.GREEN)
 
 
 func _update_selected_cards() -> void:
@@ -346,26 +293,6 @@ func _update_selected_cards() -> void:
 		if card != null:
 			card.set_selected(tile_id == _selected_tile_id)
 
-
-func _update_mode_card() -> void:
-	var placing := _selected_tile_id >= 0
-	_mode_card.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(placing))
-	_mode_icon.texture = BunkerPanelStyle.icon("check" if placing else "plus")
-	_mode_icon.self_modulate = BunkerPanelStyle.GREEN if placing else BunkerPanelStyle.BLUE
-	if placing:
-		_mode_meta.show()
-		_mode_eyebrow.text = "PLACING NOW"
-		_mode_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
-		_mode_title.text = _selected_name
-		_mode_meta.text = UIFormat.money(_selected_price)
-		_mode_meta.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
-	else:
-		_mode_meta.hide()
-		_mode_eyebrow.text = "READY"
-		_mode_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-		_mode_title.text = "Choose an object to begin"
-		_mode_meta.text = ""
-		_mode_meta.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
 
 
 func _reveal_selected() -> void:

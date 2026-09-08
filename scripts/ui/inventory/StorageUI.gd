@@ -3,7 +3,6 @@ extends CanvasLayer
 ## objects keep ownership of slots and transfers; this file only presents
 ## their existing contract, so physical-slot mappings remain authoritative.
 
-const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
 
 const DEFAULTS := {
 	"title": "Storage", "slot_count": 6, "grid_cols": 2, "grid_rows": 3,
@@ -31,8 +30,8 @@ var _selection_detail: Label
 var _selection_panel: PanelContainer
 var _selection_eyebrow: Label
 var _state_row: HBoxContainer
-var _state_label: Label
-var _state_bar: ProgressBar
+var _state_meter: ItemStateMeter
+var _footer_hint: Label
 var _carry: Button
 var _inventory: Button
 var _close: Button
@@ -158,20 +157,8 @@ func _build() -> void:
 	_state_row = HBoxContainer.new()
 	_state_row.add_theme_constant_override("separation", 9)
 	selected_body.add_child(_state_row)
-	_state_label = Label.new()
-	_state_label.custom_minimum_size.x = 72
-	BunkerPanelStyle.muted(_state_label, 11)
-	_state_row.add_child(_state_label)
-	_state_bar = SMOOTH_BAR.new() as ProgressBar
-	_state_bar.show_percentage = false
-	_state_bar.max_value = 100.0
-	_state_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_state_bar.custom_minimum_size.y = 7
-	_state_bar.add_theme_stylebox_override("background", BunkerPanelStyle.box(
-		BunkerPanelStyle.BG, Color.TRANSPARENT, 3, 0))
-	_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-		BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-	_state_row.add_child(_state_bar)
+	_state_meter = ItemStateMeter.new()
+	_state_row.add_child(_state_meter)
 	_state_row.hide()
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 6)
@@ -190,13 +177,11 @@ func _build() -> void:
 	BunkerPanelStyle.icon_button(_inventory, "plus", true)
 	_inventory.pressed.connect(_take_for_inventory)
 	actions.add_child(_inventory)
-	var hints := HBoxContainer.new()
-	hints.alignment = BoxContainer.ALIGNMENT_CENTER
-	hints.add_theme_constant_override("separation", 12)
-	BunkerUIComponents.key_hint(hints, "CLICK", "Carry", "CLICK", "A")
-	BunkerUIComponents.key_hint(hints, "CLICK", "Inventory", "CLICK", "Y")
-	BunkerUIComponents.key_hint(hints, "ESC", "Close", "ESC", "B")
-	body.add_child(hints)
+	_footer_hint = Label.new()
+	_footer_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	BunkerPanelStyle.muted(_footer_hint, 12)
+	body.add_child(_footer_hint)
+
 	get_viewport().size_changed.connect(_layout)
 
 func _layout() -> void:
@@ -273,6 +258,8 @@ func close() -> void:
 	UIPanelLifecycle.dismiss(self, _panel)
 
 func _process(delta: float) -> void:
+	_footer_hint.text = "[A] Select · D-pad / R-stick: navigate · [B] Close" if InputMode.is_controller() else "Enter / Space: select · Esc / E: close"
+
 	_refresh_elapsed += delta
 	if _refresh_elapsed >= 0.1:
 		_refresh_elapsed = 0.0
@@ -369,39 +356,9 @@ func _refresh_selection() -> void:
 		or (inventory.has_method("is_full") and inventory.is_full())
 
 func _refresh_item_state(item: Node) -> void:
-	_state_row.hide()
-	if item == null or not is_instance_valid(item):
-		return
-	if item.has_method("get_bottle_badge_info"):
-		var info: Dictionary = item.call("get_bottle_badge_info")
-		var quality := clampf(float(info.get("quality", 0.0)), 0.0, 100.0)
-		_state_label.text = "QUALITY"
-		SMOOTH_BAR.apply(_state_bar, quality)
-		var color := BunkerPanelStyle.GREEN if quality >= 70.0 \
-			else (BunkerPanelStyle.BRASS.lightened(0.25) \
-			if quality >= 35.0 else BunkerPanelStyle.RED)
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-			color, Color.TRANSPARENT, 3, 0))
-		_state_row.show()
-	elif "_charges" in item and "_max_charges" in item and int(item.get("_max_charges")) > 0:
-		_state_label.text = "REMAINING"
-		SMOOTH_BAR.apply(_state_bar, 100.0 * float(item.get("_charges")) \
-			/ float(item.get("_max_charges")))
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-			BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-		_state_row.show()
-	elif "_fuel_remaining" in item:
-		_state_label.text = "FUEL"
-		SMOOTH_BAR.apply(_state_bar, clampf(float(item.get("_fuel_remaining")), 0.0, 100.0))
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-			BunkerPanelStyle.BRASS.lightened(0.28), Color.TRANSPARENT, 3, 0))
-		_state_row.show()
-	elif "_battery" in item:
-		_state_label.text = "BATTERY"
-		SMOOTH_BAR.apply(_state_bar, clampf(float(item.get("_battery")), 0.0, 100.0))
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-			BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-		_state_row.show()
+	_state_meter.state = ItemPresentation.hud_state(item)
+	_state_row.visible = String(_state_meter.state.get("kind", "none")) != "none"
+	_state_meter.queue_redraw()
 
 func _take_for_carry() -> void:
 	if not _selection_valid() or _carry.disabled:
@@ -461,7 +418,7 @@ func _configure_focus_neighbors() -> void:
 		var up := _find_focus_slot(active, row, column, columns, Vector2i.UP)
 		var down := _find_focus_slot(active, row, column, columns, Vector2i.DOWN)
 		card.focus_neighbor_left = card.get_path_to(_cards[left]) if left >= 0 else NodePath(".")
-		card.focus_neighbor_right = card.get_path_to(_cards[right]) if right >= 0 else NodePath(".")
+		card.focus_neighbor_right = card.get_path_to(_cards[right]) if right >= 0 else (card.get_path_to(_scroll.get_v_scroll_bar()) if _scroll.get_v_scroll_bar().visible else NodePath("."))
 		card.focus_neighbor_top = card.get_path_to(_cards[up]) if up >= 0 else card.get_path_to(_close)
 		var lower_action: Button = _carry if column < ceili(float(columns) * 0.5) else _inventory
 		card.focus_neighbor_bottom = card.get_path_to(_cards[down]) if down >= 0 \

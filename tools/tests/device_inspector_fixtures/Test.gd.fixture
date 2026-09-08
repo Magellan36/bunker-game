@@ -261,7 +261,9 @@ func _farming() -> void:
 	var option: OptionButton = ui._seed_lock_dd[1]
 	option.show_popup()
 	await settle()
-	check(not ui._controller_nav.is_processing_input() and ui._controller_nav.is_active(), "popup owns input; world gate remains")
+	check(ui._controller_nav.is_processing_input() and ui._controller_nav.is_active() \
+		and ui._controller_nav._visible_popup() == option.get_popup(),
+		"popup keeps native focus while shared nav owns stick suppression and world gate")
 	option.get_popup().hide()
 	await settle()
 	check(ui._controller_nav.is_processing_input(), "nav restored after popup")

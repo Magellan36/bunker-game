@@ -137,3 +137,23 @@ static func _script_constant(item: Node, constant_name: String, fallback: Varian
 	if script != null and script.has_method("get_script_constant_map"):
 		return script.get_script_constant_map().get(constant_name, fallback)
 	return fallback
+
+
+static func hud_state(item: Node) -> Dictionary:
+	if not is_instance_valid(item):
+		return {"kind": "none"}
+	if item.has_method("get_inventory_hud_state"):
+		var result: Variant = item.call("get_inventory_hud_state")
+		if result is Dictionary:
+			return result as Dictionary
+	if item.has_method("get_bottle_badge_info"):
+		var bottle: Dictionary = item.call("get_bottle_badge_info") as Dictionary
+		return {
+			"kind": "liquid",
+			"fraction": float(bottle.get("fill_pct", 0.0)),
+			"quality": float(bottle.get("quality", 0.0)),
+		}
+	var charges: Array = charge_info(item)
+	if charges.size() == 2:
+		return {"kind": "charges", "current": int(charges[0]), "maximum": int(charges[1])}
+	return {"kind": "none"}

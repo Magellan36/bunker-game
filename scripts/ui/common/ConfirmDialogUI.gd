@@ -111,7 +111,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
 		return
 	var cancel_pressed: bool = event is InputEventKey and event.pressed \
-		and event.keycode == KEY_ESCAPE
+		and event.keycode in [KEY_ESCAPE, KEY_E]
 	cancel_pressed = cancel_pressed or (event is InputEventJoypadButton \
 		and event.pressed and event.button_index == JOY_BUTTON_B)
 	if cancel_pressed:
