@@ -110,6 +110,29 @@ in plain language, and unregistered rated-load readings display `0 W`.
 Godot 4.7.2 validation: 2,352 device/owner checks with no failures across all six
 target resolutions, plus the Build/Storage/controller screen smoke.
 
+## Research and power history follow-up
+
+Research progress reads the owner's clock each frame, independently of the
+slower material/tree refresh. Its retained smooth bar targets individual whole
+percentages; research timing, material consumption and pause/resume stay with
+ResearchStation. Tests exercise consecutive 1% updates without rebuilding the
+bar or advancing the owner's clock.
+
+Power history uses a fixed 60-second axis, continuous movement between samples,
+a restrained load-area fill and endpoint, and eased scale changes with headroom
+and hysteresis. Capacity dashes are six pixels with four-pixel gaps, independent
+of sample density. Unchanged refreshes do not restart motion, recorded historical
+values remain exact, and Reduced UI Motion suppresses interpolation/scrolling.
+Power Terminal summaries use player-facing equipment counts and overload status;
+solver node/edge/reachability counts are removed. Missing power readings show
+`0 W`, including absent battery supply. Load-order rows retain their compact
+layout and share the amber framing of inspector allocation controls.
+
+Godot 4.7.2 targeted checks cover dash length/density, constant sample spacing,
+inter-sample scrolling, unchanged-refresh stability, zero readings, player-facing
+copy, and research's 1% updates. Visual/controller acceptance remains an in-game
+review; headless checks do not substitute for GPU appearance review.
+
 ## Checkpoint commits
 
 | Commit | Scope |

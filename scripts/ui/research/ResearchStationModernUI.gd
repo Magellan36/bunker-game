@@ -128,6 +128,9 @@ func close() -> void:
 func _process(delta: float) -> void:
 	if not is_open:
 		return
+	# Progress follows the owner's live clock, independently of the slower
+	# material/tree refresh. Each percent change uses the shared smooth fill.
+	_refresh_research_progress()
 	_refresh_elapsed += delta
 	if _refresh_elapsed >= REFRESH_INTERVAL:
 		_refresh_elapsed = 0.0
@@ -834,9 +837,9 @@ func _refresh_research_progress() -> void:
 	var fraction: float = clampf(_current_station._elapsed / duration, 0.0, 1.0)
 	var remaining: float = maxf(duration - _current_station._elapsed, 0.0)
 	if _research_progress_bar != null:
-		SMOOTH_BAR.apply(_research_progress_bar, fraction * 100.0)
+		SMOOTH_BAR.apply(_research_progress_bar, floorf(fraction * 100.0))
 	if _research_progress_label != null:
-		_research_progress_label.text = "%d%%" % roundi(fraction * 100.0)
+		_research_progress_label.text = "%d%%" % floori(fraction * 100.0)
 	if _research_time_value != null:
 		_research_time_value.text = "%s remaining" % _format_duration(remaining)
 

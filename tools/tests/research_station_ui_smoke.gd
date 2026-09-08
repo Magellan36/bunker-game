@@ -72,6 +72,21 @@ func _ready() -> void:
 		station.active_upgrade != null and action.text == "Pause Research",
 		"begin action delegates to the established station backend"
 	)
+	station.set_process(false)
+	var progress: BunkerSmoothProgressBar = ui.get("_research_progress_bar") as BunkerSmoothProgressBar
+	progress.snap_to(0.0)
+	for percent: int in range(1, 10):
+		station._elapsed = station.active_upgrade.duration_seconds * (float(percent) + 0.01) / 100.0
+		var owner_elapsed: float = station._elapsed
+		ui.set("_refresh_elapsed", 0.0)
+		ui.call("_process", 0.001)
+		_check(progress == ui.get("_research_progress_bar") and progress._target_value == percent,
+			"each 1% update reaches the retained progress bar between coarse refreshes")
+		var previous: float = progress.value
+		progress.call("_process", 0.04)
+		_check(progress.value > previous and progress.value < percent,
+			"research fill eases toward each percent")
+		_check(station._elapsed == owner_elapsed, "presentation does not advance research time")
 	ui.call("_on_research_action")
 	action = ui.get("_action_button") as Button
 	_check(

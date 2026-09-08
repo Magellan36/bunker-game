@@ -17,7 +17,7 @@ const EDGE := Vector2(44.0, 36.0)
 const SAMPLE_INTERVAL: float = 1.0
 const REFRESH_INTERVAL: float = 0.20
 const LIVE_VALUE_RESPONSE: float = 9.0
-const HISTORY_LEN: int = 60
+const HISTORY_LEN: int = 61 # endpoints cover a full 60-second window
 const OVERVIEW: int = 0
 const DEVICES: int = 1
 const PRIORITY: int = 2
@@ -27,6 +27,7 @@ var connected_grid_key: String = ""
 var connected_zone_index: int = -1
 var _is_open: bool = false
 var _sample_elapsed: float = 0.0
+var _history_serial: int = 0
 var _refresh_elapsed: float = 0.0
 var _controller_hints: bool = false
 var _active_tab: int = OVERVIEW
@@ -340,7 +341,7 @@ func _build_metrics(parent: Container) -> void:
 	_headroom_meta = _label("Stable", 13, S.MUTED)
 	body.add_child(_headroom_meta)
 	body = _metric(parent, "BATTERY RESERVE", "battery", 1.2)
-	_battery_value = _label("NONE", 27, S.BLUE.lightened(0.18))
+	_battery_value = _label("0 W", 27, S.BLUE.lightened(0.18))
 	body.add_child(_battery_value)
 	_battery_meta = _label("No battery connected", 13, S.MUTED)
 	body.add_child(_battery_meta)
@@ -423,9 +424,9 @@ func _build_zone_card(parent: Container) -> void:
 	identity.add_child(_zone_name)
 	_zone_state = _label("OFFLINE", 14, S.RED)
 	identity.add_child(_zone_state)
-	_zone_counts = _label("0 nodes\n0 edges\n0 reachable", 13, S.MUTED)
+	_zone_counts = _label("0 generators\n0 devices", 13, S.MUTED)
 	main.add_child(_zone_counts)
-	_zone_brownout = _status_line("No brownout edges", S.GREEN)
+	_zone_brownout = _status_line("Supply stable", S.GREEN)
 	body.add_child(_zone_brownout)
 	_zone_flow = _status_line("Single zone · No cross-zone flow", S.MUTED)
 	body.add_child(_zone_flow)
@@ -553,10 +554,10 @@ func _build_network(stack: Control) -> void:
 	_network_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary.add_child(_network_detail)
 	C.divider(summary)
-	_network_counts = _label("Nodes  0\nEdges  0\nReachable  0", 16, S.IVORY)
+	_network_counts = _label("Generators  0\nBatteries  0\nDevices  0", 16, S.IVORY)
 	_network_counts.add_theme_constant_override("line_spacing", 5)
 	summary.add_child(_network_counts)
-	_network_brownout = _status_line("No brownout edges", S.GREEN)
+	_network_brownout = _status_line("Supply stable", S.GREEN)
 	summary.add_child(_network_brownout)
 	C.divider(summary)
 	_network_rename = _action("Rename zone", "general")
@@ -642,6 +643,7 @@ func _sample_history() -> void:
 		return
 	_draw_history.append(float(snapshot.get("total_draw_watts", 0.0)))
 	_cap_history.append(float(snapshot.get("total_capacity_watts", 0.0)))
+	_history_serial += 1
 	while _draw_history.size() > HISTORY_LEN:
 		_draw_history.remove_at(0)
 	while _cap_history.size() > HISTORY_LEN:
@@ -659,7 +661,7 @@ func _refresh_interface() -> void:
 		return
 	_refresh_header(snapshot, zone)
 	_refresh_metrics(snapshot)
-	_graph.call("set_history", _draw_history, _cap_history)
+	_graph.call("set_history", _draw_history, _cap_history, _history_serial, _sample_elapsed)
 	_sync_sources(snapshot, zone, zones)
 	_refresh_zone(snapshot, zone)
 	_sync_preview(snapshot)
@@ -790,7 +792,7 @@ func _refresh_metrics(snapshot: Dictionary) -> void:
 		battery_capacity += float(battery.get("capacity_wh", 0.0))
 	if batteries.is_empty() or battery_capacity <= 0.0:
 		_battery_connected = false
-		_battery_value.text = "NONE"
+		_battery_value.text = "0 W"
 		_battery_meta.text = "No battery connected"
 		_battery_bar.visible = false
 	else:
@@ -835,7 +837,7 @@ func _render_live_metrics() -> void:
 		display_percent = _display_draw_watts / _display_capacity_watts * 100.0
 	_load_percent.text = UIFormat.percent(display_percent)
 	var headroom: float = _display_capacity_watts - _display_draw_watts
-	_headroom_value.text = "%s%s" % ["+" if headroom >= 0.0 else "", _watts(headroom)]
+	_headroom_value.text = "%s%s" % ["+" if roundi(headroom) > 0 else "", _watts(headroom)]
 	if _battery_connected and _display_battery_capacity > 0.0:
 		var battery_percent: float = clampf(
 			_display_battery_charge / _display_battery_capacity * 100.0, 0.0, 100.0
@@ -954,11 +956,11 @@ func _refresh_zone(snapshot: Dictionary, zone: Dictionary) -> void:
 	_zone_name.text = _zone_name_for(zone) if wired else "Unwired"
 	_zone_state.text = "●  " + state
 	_zone_state.add_theme_color_override("font_color", _state_color(state))
-	_zone_counts.text = "%d nodes\n%d edges\n%d reachable" % [
-		int(snapshot.get("wire_node_count", 0)), int(snapshot.get("wire_edge_count", 0)),
-		int(snapshot.get("reachable_node_count", 0))]
+	_zone_counts.text = "%d generators\n%d devices" % [
+		(snapshot.get("generators", []) as Array).size(),
+		(snapshot.get("consumers", []) as Array).size()]
 	var overloaded: bool = bool(zone.get("overloaded", false)) if wired else false
-	_zone_brownout.text = "⚠  Brownout edges detected" if overloaded else "●  No brownout edges"
+	_zone_brownout.text = "⚠  Supply overloaded" if overloaded else "●  Supply stable"
 	_zone_brownout.add_theme_color_override("font_color", S.BRASS.lightened(0.3) if overloaded else S.GREEN)
 	_zone_flow.text = _flow_summary(zone)
 	var can_customize: bool = wired and not String(zone.get("zone_key", "")).is_empty()
@@ -1161,6 +1163,7 @@ func _sync_priorities(snapshot: Dictionary) -> void:
 func _add_priority_row(consumer: Dictionary, peers: Array) -> void:
 	var id: String = String(consumer.get("id", ""))
 	var card: PanelContainer = _card(Color("1a201f"))
+	card.add_theme_stylebox_override("panel", C.panel_box(S.SURFACE, S.BRASS, 7, 1))
 	card.custom_minimum_size.y = 40.0
 	_priority_list.add_child(card)
 	var row: HBoxContainer = HBoxContainer.new()
@@ -1233,14 +1236,12 @@ func _refresh_network(snapshot: Dictionary, zone: Dictionary, zones: Array) -> v
 	_network_state.add_theme_color_override("font_color", _state_color(state))
 	_network_detail.text = "This terminal's enclosed power segment and permitted cross-zone links." \
 		if wired else "Wire this terminal into an enclosed zone to inspect network flow."
-	_network_counts.text = "Nodes  %d\nEdges  %d\nReachable  %d\nGenerators  %d\nBatteries  %d\nConsumers  %d" % [
-		int(snapshot.get("wire_node_count", 0)), int(snapshot.get("wire_edge_count", 0)),
-		int(snapshot.get("reachable_node_count", 0)),
+	_network_counts.text = "Generators  %d\nBatteries  %d\nDevices  %d" % [
 		(snapshot.get("generators", []) as Array).size(),
 		(snapshot.get("batteries", []) as Array).size(),
 		(snapshot.get("consumers", []) as Array).size()]
 	var overloaded: bool = bool(zone.get("overloaded", false)) if wired else false
-	_network_brownout.text = "⚠  Brownout edges detected" if overloaded else "●  No brownout edges"
+	_network_brownout.text = "⚠  Supply overloaded" if overloaded else "●  Supply stable"
 	_network_brownout.add_theme_color_override("font_color", S.BRASS.lightened(0.32) if overloaded else S.GREEN)
 	var customizable: bool = wired and not String(zone.get("zone_key", "")).is_empty()
 	_network_rename.disabled = not customizable
@@ -1674,6 +1675,8 @@ func _device_plural(kind: String) -> String:
 
 
 func _watts(value: float) -> String:
+	if roundi(value) == 0:
+		return "0 W"
 	var sign_value: String = "-" if value < 0.0 else ""
 	var magnitude: float = absf(value)
 	if magnitude >= 10000.0:

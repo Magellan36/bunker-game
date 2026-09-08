@@ -57,6 +57,17 @@ func _run() -> void:
 		and sample_card != null and sample_card.custom_minimum_size.y <= 40.0,
 		"load name and draw share one compact line")
 	var graph: Control = ui.get("_graph") as Control
+	_check(ui.call("_watts", 0.0) == "0 W" and ui.call("_watts", -0.01) == "0 W",
+		"zero power has consistent units without negative zero")
+	ui.call("_refresh_metrics", {"batteries": []})
+	_check((ui.get("_battery_value") as Label).text == "0 W",
+		"absent battery supply shows 0 W instead of NONE")
+	ui.call("_refresh_zone", {}, {})
+	ui.call("_refresh_network", {}, {}, [])
+	for field: String in ["_zone_counts", "_zone_brownout", "_network_counts", "_network_brownout"]:
+		var copy: String = (ui.get(field) as Label).text.to_lower()
+		_check(not copy.contains("nodes") and not copy.contains("edges") and not copy.contains("reachable"),
+			"power summaries omit solver/debug vocabulary")
 	_check(graph != null and graph.get_script() == graph_script,
 		"overview owns the continuous 60-second graph")
 	var reset: Button = ui.get("_overview_reset") as Button
