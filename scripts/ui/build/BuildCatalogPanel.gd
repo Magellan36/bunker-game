@@ -58,7 +58,6 @@ func _ready() -> void:
 	_build_mode_card(body)
 	_build_categories(body)
 	_build_items(body)
-	_build_footer(body)
 	_rebuild_category_buttons()
 	_rebuild_subcategories()
 	_rebuild_items()
@@ -147,28 +146,6 @@ func _build_items(parent: VBoxContainer) -> void:
 	BunkerUIComponents.scroll_content(_scroll, _items, 3, 3, 3)
 
 
-func _build_footer(parent: VBoxContainer) -> void:
-	BunkerUIComponents.divider(parent)
-	var footer := HBoxContainer.new()
-	footer.add_theme_constant_override("separation", 8)
-	parent.add_child(footer)
-	var charge_icon := TextureRect.new()
-	charge_icon.texture = BunkerPanelStyle.icon("check")
-	charge_icon.self_modulate = BunkerPanelStyle.BRASS.lightened(0.3)
-	charge_icon.custom_minimum_size = Vector2(18, 18)
-	charge_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	charge_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	charge_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	footer.add_child(charge_icon)
-	var instruction := Label.new()
-	instruction.text = "Placement is charged only when the object is built"
-	instruction.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	instruction.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	instruction.add_theme_font_size_override("font_size", 12)
-	instruction.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
-	footer.add_child(instruction)
-
-
 func _rebuild_category_buttons() -> void:
 	_category_buttons.clear()
 	for child: Node in _category_grid.get_children():
@@ -179,16 +156,16 @@ func _rebuild_category_buttons() -> void:
 		button.name = category
 		button.text = category
 		button.icon = BunkerPanelStyle.icon(String(CATEGORY_ICONS.get(category, "build")))
-		button.expand_icon = true
+		## Native expand_icon scales against the text's remaining width, which
+		## made long labels such as Structure squeeze their symbol while short
+		## labels such as Power retained a large one. Keep every category on the
+		## shared fixed icon canvas instead.
+		button.expand_icon = false
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.tooltip_text = "%s objects" % category
 		BunkerUIComponents.style_segment(button, true)
-		## The outline-based Structure/Furniture icons and compact Lighting bolt
-		## need a slightly larger canvas to carry the same visual weight as the
-		## solid Power and Water category symbols.
-		if category in ["Structure", "Furniture", "Lighting"]:
-			button.add_theme_constant_override("icon_max_width", 24)
+		button.add_theme_constant_override("icon_max_width", 20)
 		button.pressed.connect(_category_changed.bind(category))
 		_category_grid.add_child(button)
 		_category_buttons[category] = button

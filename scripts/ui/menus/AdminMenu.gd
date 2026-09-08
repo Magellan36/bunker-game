@@ -122,12 +122,11 @@ func _ready() -> void:
 	layer   = 128   ## On top of everything (PauseMenuUI sits above at 200)
 	visible = false
 	set_process(false)
-	## Controller navigation (Aug 2026) — d-pad + left stick drive focus
-	## (movement is locked while this is open), B closes this UI. See
+	## Controller navigation — d-pad + right stick drive focus; B closes.
 	## scripts/ui/common/ControllerUINavigation.gd.
 	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	controller_nav.ui_root = self
-	controller_nav.stick_navigation = true
+	controller_nav.stick_navigation = false
 	add_child(controller_nav)
 
 	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")

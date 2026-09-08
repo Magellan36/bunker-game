@@ -159,6 +159,12 @@ func _water() -> void:
 	check((ui._requested.get_node("Caption") as Label).get_theme_font_size("font_size") \
 		> (ui._requested.get_node("Value") as Label).get_theme_font_size("font_size"),
 		"water flow heading is larger than its value")
+	check(ui._storage.get_parent() is MarginContainer \
+		and ui._storage.get_parent().get_parent() is PanelContainer,
+		"stored water readout reuses the boxed inspector-card treatment")
+	check(not (ui._view.get_node("%NavigationHint") as Label).text.contains("Walk away") \
+		and not (ui._view.get_node("%NavigationHint") as Label).text.contains("WASD"),
+		"device footer keeps one concise navigation line")
 	check(not (ui._quality.get_node("Hint") as Label).visible,
 		"water quality removes redundant helper copy")
 	check(ui._toggle_btn.text == "POWER OFF" \
@@ -306,6 +312,13 @@ func _power_owners() -> void:
 	panels.append(gen_ui)
 	await _layout(gen_ui)
 	check(not player.interaction_system.build_mode_active, "generator does not pretend to enter build mode")
+	var watts := gen_ui._view.get_node("%Watts") as Label
+	check(watts.get_theme_color("font_color") == BunkerPanelStyle.BRASS.lightened(0.28) \
+		and watts.has_theme_stylebox_override("normal"),
+		"generator rated output uses boxed amber value treatment")
+	gen_ui.refresh(100.0, 100.0, false, true, false, "ONLINE")
+	check(not (gen_ui._view.get_node("%ActionHint") as Label).visible,
+		"running generator omits redundant shutdown warning")
 	pm.fuel = 19.0
 	generator.set_fuel(19.0)
 	await settle()
@@ -428,10 +441,13 @@ func _lifecycle() -> void:
 	check(not ui.is_open(), "keyboard E closes")
 	ui.open(host)
 	# Input is polled like Player.gd; the open inspector must not lock it.
+	ui._toggle_btn.grab_focus()
 	var event := InputEventJoypadMotion.new()
 	event.axis = JOY_AXIS_LEFT_X
 	event.axis_value = 1.0
 	Input.parse_input_event(event)
+	await get_tree().process_frame
+	check(ui._toggle_btn.has_focus(), "left stick never changes inspector focus")
 	await get_tree().create_timer(0.2).timeout
 	event.axis_value = 0.0
 	Input.parse_input_event(event)

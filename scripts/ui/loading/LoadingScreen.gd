@@ -218,7 +218,7 @@ func _build_ui() -> void:
 	navigation.mouse_cursor_required = false
 	navigation.ui_root = _root
 	navigation.close_on_cancel = false
-	navigation.stick_navigation = true
+	navigation.stick_navigation = false
 	_root.add_child(navigation)
 
 

@@ -42,6 +42,7 @@ var _signatures: Array[String] = []
 var _shown_ids: Array[int] = []
 var _selected_visual := -1
 var _proximity: Node
+var _controller_nav: ControllerUINavigation
 var _refresh_elapsed := 0.0
 
 func _ready() -> void:
@@ -49,9 +50,9 @@ func _ready() -> void:
 	_build()
 	visible = false
 	set_process(false)
-	var nav := ControllerUINavigation.new()
-	nav.ui_root = self
-	add_child(nav)
+	_controller_nav = ControllerUINavigation.new()
+	_controller_nav.ui_root = self
+	add_child(_controller_nav)
 	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
 	_proximity.ui = self
 	add_child(_proximity)
@@ -321,6 +322,7 @@ func _refresh(force: bool) -> void:
 		if i == _selected_visual:
 			card.button_pressed = true
 	_capacity.text = "%d / %d" % [occupied, slots]
+	_configure_focus_neighbors()
 	_refresh_selection()
 	var focus: Control = get_viewport().gui_get_focus_owner()
 	if focus != null and focus in _cards and focus.focus_mode == Control.FOCUS_NONE:
@@ -438,6 +440,72 @@ func _focus_initial_item() -> void:
 			_cards[i].grab_focus()
 			return
 	_close.grab_focus()
+
+
+func _configure_focus_neighbors() -> void:
+	## The slot grid can contain non-focusable empty cells. Explicit geometry
+	## keeps horizontal D-pad motion in its row instead of letting a nearby
+	## lower card win the generic spatial search.
+	var count := mini(int(_config.get("slot_count", 0)), _cards.size())
+	var columns := maxi(1, int(_config.get("grid_cols", 2)))
+	var active: Array[int] = []
+	for index in count:
+		if _cards[index].visible and _cards[index].focus_mode != Control.FOCUS_NONE:
+			active.append(index)
+	for index in active:
+		var card: Button = _cards[index]
+		var row := floori(float(index) / float(columns))
+		var column := index % columns
+		var left := _find_focus_slot(active, row, column, columns, Vector2i.LEFT)
+		var right := _find_focus_slot(active, row, column, columns, Vector2i.RIGHT)
+		var up := _find_focus_slot(active, row, column, columns, Vector2i.UP)
+		var down := _find_focus_slot(active, row, column, columns, Vector2i.DOWN)
+		card.focus_neighbor_left = card.get_path_to(_cards[left]) if left >= 0 else NodePath(".")
+		card.focus_neighbor_right = card.get_path_to(_cards[right]) if right >= 0 else NodePath(".")
+		card.focus_neighbor_top = card.get_path_to(_cards[up]) if up >= 0 else card.get_path_to(_close)
+		var lower_action: Button = _carry if column < ceili(float(columns) * 0.5) else _inventory
+		card.focus_neighbor_bottom = card.get_path_to(_cards[down]) if down >= 0 \
+			else card.get_path_to(lower_action)
+	var first := active[0] if not active.is_empty() else -1
+	var last_left := _last_focus_slot(active, columns, 0)
+	var last_right := _last_focus_slot(active, columns, mini(1, columns - 1))
+	_close.focus_neighbor_bottom = _close.get_path_to(_cards[first]) if first >= 0 else _close.get_path_to(_carry)
+	_carry.focus_neighbor_left = NodePath(".")
+	_carry.focus_neighbor_right = _carry.get_path_to(_inventory)
+	_carry.focus_neighbor_top = _carry.get_path_to(_cards[last_left]) if last_left >= 0 else _carry.get_path_to(_close)
+	_carry.focus_neighbor_bottom = NodePath(".")
+	_inventory.focus_neighbor_left = _inventory.get_path_to(_carry)
+	_inventory.focus_neighbor_right = NodePath(".")
+	_inventory.focus_neighbor_top = _inventory.get_path_to(_cards[last_right]) if last_right >= 0 else _inventory.get_path_to(_close)
+	_inventory.focus_neighbor_bottom = NodePath(".")
+
+
+func _find_focus_slot(active: Array[int], row: int, column: int, columns: int,
+		direction: Vector2i) -> int:
+	var best := -1
+	var best_distance := 1_000_000
+	for candidate in active:
+		var candidate_row := floori(float(candidate) / float(columns))
+		var candidate_column := candidate % columns
+		var matches := (direction.x < 0 and candidate_row == row and candidate_column < column) \
+			or (direction.x > 0 and candidate_row == row and candidate_column > column) \
+			or (direction.y < 0 and candidate_column == column and candidate_row < row) \
+			or (direction.y > 0 and candidate_column == column and candidate_row > row)
+		if not matches:
+			continue
+		var distance := absi(candidate_column - column) + absi(candidate_row - row)
+		if distance < best_distance:
+			best = candidate
+			best_distance = distance
+	return best
+
+
+func _last_focus_slot(active: Array[int], columns: int, preferred_column: int) -> int:
+	var best := -1
+	for candidate in active:
+		if candidate % columns == preferred_column and candidate > best:
+			best = candidate
+	return best if best >= 0 else (active[-1] if not active.is_empty() else -1)
 
 func _input(event: InputEvent) -> void:
 	if not is_open or not (event is InputEventJoypadButton) or not event.pressed:

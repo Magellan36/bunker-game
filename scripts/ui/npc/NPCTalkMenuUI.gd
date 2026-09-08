@@ -1366,9 +1366,9 @@ func _update_footer() -> void:
 	if _footer_hint == null:
 		return
 	_footer_hint.text = (
-		"LB / RB  Switch tab    •    D-pad / Right stick  Navigate    •    A  Select    •    B / E  Close    •    Walk away to close"
+		"LB / RB  Switch tab    •    D-pad / Right stick  Navigate    •    A  Select    •    B / E  Close"
 		if InputMode.is_controller()
-		else "Click  Select    •    Mouse wheel  Scroll    •    E / Esc  Close    •    Walk away to close"
+		else "Click  Select    •    Mouse wheel  Scroll    •    E / Esc  Close"
 	)
 
 

@@ -430,7 +430,12 @@ func _on_zone_color_changed(_zone_key: String) -> void:
 # ─── Activation ───────────────────────────────────────────────────────────────
 func enter_build_mode() -> void:
 	_close_unrelated_ui()
-	if interact_prompt != null and interact_prompt.has_method("dismiss_for_build_mode"):
+	## Resolve through the shared prompt group as well as the injected handle.
+	## This covers scene-order handoffs where Build can open before MainWorld's
+	## late reference injection and guarantees every prompt renderer is cleared.
+	get_tree().call_group("interact_prompt", "dismiss_for_build_mode")
+	if interact_prompt != null and not interact_prompt.is_in_group("interact_prompt") \
+			and interact_prompt.has_method("dismiss_for_build_mode"):
 		interact_prompt.call("dismiss_for_build_mode")
 	is_active = true
 	_ghost_active = false
@@ -490,7 +495,9 @@ func _close_unrelated_ui() -> void:
 
 func exit_build_mode() -> void:
 	is_active = false
-	if interact_prompt != null and interact_prompt.has_method("resume_after_build_mode"):
+	get_tree().call_group("interact_prompt", "resume_after_build_mode")
+	if interact_prompt != null and not interact_prompt.is_in_group("interact_prompt") \
+			and interact_prompt.has_method("resume_after_build_mode"):
 		interact_prompt.call("resume_after_build_mode")
 	## Aug 2026 — clean handoff of prompt ownership back to
 	## InteractionSystem (its _process() resumes driving `prompt` the moment
@@ -846,27 +853,14 @@ func _process(_delta: float) -> void:
 	else:
 		_rt_held = false
 
-	## Build Station exit prompt — the ONLY prompt visible during build
-	## mode, by design. InteractionSystem's own prompt logic is fully
-	## inert while build mode is active (see its _process() — it returns
-	## immediately without touching `prompt` at all now, see the
-	## InteractionSystem.gd coordination note below), so this is the sole
-	## owner of `interact_prompt` for the entire duration of build mode.
+	## Build Station proximity still reserves the controller exit action, but
+	## Build Mode no longer publishes a world interaction prompt. The Build HUD
+	## is the sole visual surface while this workspace is open.
 	var in_reach: bool = false
 	if build_station != null and is_instance_valid(build_station):
 		var player_node: Node3D = get_parent()
 		var dist: float = player_node.global_position.distance_to(build_station.global_position)
 		in_reach = dist <= BUILD_STATION_EXIT_REACH
-		if interact_prompt != null:
-			if in_reach:
-				interact_prompt.set_prompts([{
-					"text":      "[E] Close Build Mode",
-					"world_pos": build_station.global_position + Vector3(0.0, 1.1, 0.0),
-					"dist":      dist,
-					"icons":     [],
-				}])
-			else:
-				interact_prompt.hide_prompt()
 	## Controller (Aug 2026) — tell the HUD whether A is reserved for
 	## "Exit Build Mode", so its A branch lets the press fall through to
 	## the exit check in _unhandled_input instead of acting on the menu.

@@ -132,14 +132,14 @@ func _ready() -> void:
 	_show_category("body")
 	_rebuild_preview()
 
-	## Controller UI navigation (Aug 2026) — d-pad + left stick drive button
+	## Controller UI navigation — d-pad + right stick drive button
 	## focus; A activates the focused button (Godot default). See
 	## scripts/ui/common/ControllerUINavigation.gd. Loaded by path (not the
 	## class_name global) so a stale global-class cache never breaks it.
 	var nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	nav.ui_root = self
 	nav.close_on_cancel = false   ## B must not exit character creation
-	nav.stick_navigation = true   ## left and right sticks navigate this full-screen menu
+	nav.stick_navigation = false
 	add_child(nav)
 	category_body_button.grab_focus()
 

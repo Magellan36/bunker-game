@@ -76,6 +76,9 @@ func _run() -> void:
 	prompt.call("dismiss_for_build_mode")
 	_check(bool(prompt.get("_suppressed_for_build")),
 		"build handoff suppresses subsequent prompt rendering immediately")
+	prompt.call("set_prompts", [{"text": "must not persist"}])
+	_check((prompt.get("_active") as Array).is_empty(),
+		"prompt publishers cannot queue latent cards while Build owns the screen")
 	await create_timer(UIMotion.EXIT + 0.03).timeout
 	_check(not panel.visible, "visible interaction prompts finish a short exit fade")
 	prompt.call("resume_after_build_mode")

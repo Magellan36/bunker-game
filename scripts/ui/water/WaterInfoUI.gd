@@ -35,7 +35,7 @@ func _build_content() -> void:
 	_filter = W.meter(_purifier, "Filter", "Filter quality", "condition")
 	_flow = W.stat(_purifier, "Flow", "Water flow")
 	_warning = W.label(_purifier, "Warnings", "", 14, "warning")
-	W.label(_footer, "Help", "Live network readings. Walk away to close this panel.", 14, "secondary")
+	W.label(_footer, "Help", "Live network readings.", 14, "secondary")
 
 func open(display_name: String, mode: String, device_ref: Node) -> void:
 	if not is_instance_valid(device_ref) or not device_ref is Node3D:

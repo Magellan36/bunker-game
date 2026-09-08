@@ -84,7 +84,7 @@ func _ready() -> void:
 	visible = false
 	var controller_nav: ControllerUINavigation = ControllerUINavigation.new()
 	controller_nav.ui_root = self
-	controller_nav.stick_navigation = true
+	controller_nav.stick_navigation = false
 	controller_nav.close_on_cancel = true
 	add_child(controller_nav)
 	get_viewport().size_changed.connect(_layout)

@@ -3,6 +3,7 @@ extends Node
 ## Requires InputMode (normal project autoload); does not create a PowerManager.
 
 const UI_SCRIPT: GDScript = preload("res://scripts/ui/power/GeneratorInspectUI.gd")
+const PANEL_STYLE: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
 const SIZES: Array[Vector2i] = [Vector2i(1280, 720), Vector2i(1366, 768),
 	Vector2i(1600, 900), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3440, 1440)]
 var _failures: Array[String] = []
@@ -146,6 +147,15 @@ func _check_state_and_input() -> void:
 	_expect(not (ui._view.get_node("%FuelHint") as Label).visible \
 		and not (ui._view.get_node("%ConditionHint") as Label).visible,
 		"healthy generator omits redundant fuel and condition copy")
+	var watts := ui._view.get_node("%Watts") as Label
+	_expect(watts.get_theme_color("font_color") == PANEL_STYLE.BRASS.lightened(0.28) \
+		and watts.has_theme_stylebox_override("normal"),
+		"rated output value uses the shared boxed amber treatment")
+	_expect(not (ui._view.get_node("%ActionHint") as Label).visible,
+		"running generator omits the redundant shutdown warning")
+	_expect(not (ui._view.get_node("%NavigationHint") as Label).text.contains("Walk away") \
+		and not (ui._view.get_node("%NavigationHint") as Label).text.contains("WASD"),
+		"generator footer keeps one concise navigation line")
 	_expect(_status(ui, "GridStatus") == "Grid online", "online state incorrect")
 	for card_name: String in ["GeneratorStatus", "GridStatus"]:
 		var icon: TextureRect = ui._view.get_node("%" + card_name).get_node("Row/Icon")

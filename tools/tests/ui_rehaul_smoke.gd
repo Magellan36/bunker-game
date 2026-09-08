@@ -104,6 +104,7 @@ func _test_runtime_ui() -> void:
 	root.add_child(hud)
 	await process_frame
 	hud.show_hud()
+	await process_frame
 	var workspace: Control = hud.get("_workspace")
 	_check(workspace != null, "build workspace instantiates")
 	_check(workspace.catalog.size.x <= 440.0 and workspace.catalog.size.y <= 760.0,
@@ -131,8 +132,21 @@ func _test_runtime_ui() -> void:
 	var category_grid: GridContainer = workspace.catalog.get("_category_grid") as GridContainer
 	_check(category_grid != null and category_grid.columns == 4,
 		"build categories are immediate labeled controls instead of a dropdown")
+	var category_icons_consistent := true
+	for node: Node in category_grid.get_children():
+		var category_button := node as Button
+		category_icons_consistent = category_icons_consistent \
+			and not category_button.expand_icon \
+			and category_button.get_theme_constant("icon_max_width") == 20
+	_check(category_icons_consistent,
+		"build categories retain one fixed icon canvas regardless of label width")
 	_check(workspace.catalog.get("_mode_card") != null,
 		"build catalog has an explicit browse/placement state block")
+	var object_viewport := workspace.catalog.get("_scroll_viewport") as Control
+	_check(not _contains_label_text(workspace.catalog,
+		"Placement is charged only when the object is built") \
+		and object_viewport.get_global_rect().end.y >= workspace.catalog.get_global_rect().end.y - 30.0,
+		"build object selection extends through the removed footer space")
 	_check(workspace.shop.size.x >= 900.0 and workspace.shop.size.x <= 1380.0 \
 		and workspace.shop.size.y <= 780.0,
 		"shop uses a bounded desktop workspace (%s)" % workspace.shop.size)
@@ -280,6 +294,21 @@ func _test_focusable_scrollbar() -> void:
 		"focused scrollbar accepts directional input immediately")
 	await create_timer(UIMotion.SCROLL + 0.02).timeout
 	_check(bar.value > before, "focused scrollbar completes its smooth step")
+	var upper := Button.new()
+	upper.text = "Upper"
+	upper.position = Vector2(300, 0)
+	ui.add_child(upper)
+	var lower := Button.new()
+	lower.text = "Lower"
+	lower.position = Vector2(300, 60)
+	ui.add_child(lower)
+	upper.grab_focus()
+	var left_stick := InputEventJoypadMotion.new()
+	left_stick.axis = JOY_AXIS_LEFT_Y
+	left_stick.axis_value = 1.0
+	root.get_viewport().push_input(left_stick)
+	await process_frame
+	_check(upper.has_focus(), "left stick is hard-blocked from UI focus navigation")
 	ui.free()
 
 func _test_storage_contract() -> void:
@@ -315,6 +344,13 @@ func _test_storage_contract() -> void:
 	var shown_ids: Array = storage.get("_shown_ids")
 	_check(shown_ids[0] == (target.slots[2] as Node).get_instance_id(),
 		"storage preserves physical display_order mapping")
+	var storage_cards: Array = storage.get("_cards") as Array
+	(storage_cards[1] as Button).grab_focus()
+	var storage_nav: ControllerUINavigation = storage.get("_controller_nav") as ControllerUINavigation
+	storage_nav.set("_move_cooldown", 0.0)
+	storage_nav.call("_move_focus", Vector2.LEFT)
+	_check((storage_cards[0] as Button).has_focus(),
+		"storage D-pad left follows the visible row instead of moving down")
 	storage.call("_select", 0)
 	storage.call("_take_for_inventory")
 	_check(storage.is_open, "inventory transfer keeps storage open")

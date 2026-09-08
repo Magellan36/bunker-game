@@ -126,7 +126,7 @@ func _process(delta: float) -> void:
 func _update_input_hints() -> void:
 	_controller_hints = InputMode.is_controller()
 	var hint: Label = _view.get_node("%NavigationHint") as Label
-	hint.text = "[A] Select · D-pad / R-stick: navigate · [B] Close\nLeft stick: move · Walk away to close" if _controller_hints else "Enter / Space: select · Esc / E: close\nWASD: move · Walk away to close"
+	hint.text = "[A] Select · D-pad / R-stick: navigate · [B] Close" if _controller_hints else "Enter / Space: select · Esc / E: close"
 	hint.add_theme_color_override("font_color", W.color(_view, "secondary"))
 
 func _unhandled_input(event: InputEvent) -> void:

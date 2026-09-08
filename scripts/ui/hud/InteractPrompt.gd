@@ -776,6 +776,11 @@ func _collect_world_job_entries() -> Array:
 ## haven't opted into Focus Mode filtering yet — a missing key defaults
 ## to shown) }. Pass [] to hide all panels.
 func set_prompts(new_entries: Array) -> void:
+	if _suppressed_for_build:
+		## Build owns the screen. Do not retain publisher updates as latent
+		## state that can flash back when the workspace closes.
+		_active.clear()
+		return
 	_active = new_entries
 
 func show_prompt(text: String, world_position: Vector3) -> void:

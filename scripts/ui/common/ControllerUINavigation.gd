@@ -7,8 +7,7 @@ extends Node
 ## controller (or point ui_root at it):
 ##   - D-pad:     moves focus one step in the pressed cardinal direction.
 ##   - Right stick: duplicates d-pad navigation and adjusts focused sliders.
-##   - Left stick: remains player movement in ordinary in-world inspectors;
-##                 full-screen menus may opt it into navigation.
+##   - Left stick: never changes UI focus; it remains a gameplay axis.
 ##   - Scrollbars: are focusable controls; up/down scrolls while focused.
 ##   - A (ui_accept): activates the focused button (Godot default).
 ##   - B (ui_cancel): closes this UI (close_on_cancel, topmost-only).
@@ -17,8 +16,7 @@ extends Node
 ## This consumes joypad movement events in _input() BEFORE Godot's built-in
 ## focus navigation, for two reasons:
 ##   1. It lets the right stick pick a button by analog direction (not just
-##      the four cardinal ui_* actions), with optional left-stick parity on
-##      full-screen menus.
+##      the four cardinal ui_* actions).
 ##   2. Consumed events never reach _unhandled_input handlers — so while a
 ##      UI with this node is open, the d-pad/stick cannot also trigger other
 ##      gamepad actions (e.g. InteractionSystem's inventory cycling).
@@ -36,9 +34,8 @@ extends Node
 ## Pause menu (layer 200) underneath. Set false for UIs that must not be
 ## closed by the pad (character creation).
 @export var close_on_cancel: bool = true
-## When true, the left stick also drives focus (analog "best guess").
-## In-game UIs are d-pad-only (left stick stays reserved for movement), so
-## this defaults to false; the character creation menu opts in.
+## Deprecated compatibility property. Left-stick focus is hard-blocked on
+## every UI; callers should leave this false.
 @export var stick_navigation: bool = false
 ## Most UIs use the right stick as a second D-pad. Build Mode is the one
 ## deliberate exception: its existing virtual pointer owns the right stick,
@@ -170,8 +167,16 @@ func _input(event: InputEvent) -> void:
 	## because _process() mirrors that motion onto the popup's focused item.
 	var open_popup := _visible_popup()
 	if open_popup != null:
-		if event is InputEventJoypadMotion and (event.axis == JOY_AXIS_RIGHT_X or event.axis == JOY_AXIS_RIGHT_Y):
+		if event is InputEventJoypadMotion and event.axis in [JOY_AXIS_LEFT_X,
+				JOY_AXIS_LEFT_Y, JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y]:
 			get_viewport().set_input_as_handled()
+		return
+	## Godot's default ui_left/right/up/down actions include the left stick.
+	## Consume those motion events before GUI focus sees them. Input action
+	## state is still polled by Player, so ordinary inspector movement and
+	## walk-away closing remain intact.
+	if event is InputEventJoypadMotion and event.axis in [JOY_AXIS_LEFT_X, JOY_AXIS_LEFT_Y]:
+		get_viewport().set_input_as_handled()
 		return
 	## B — close/cancel this UI. Only the topmost open controller UI closes
 	## (see _is_topmost), so stacked UIs cancel one at a time. B is consumed
@@ -207,12 +212,11 @@ func _input(event: InputEvent) -> void:
 			_move_focus(dir)
 			get_viewport().set_input_as_handled()
 			return
-	## Right stick owns UI navigation. Left stick is consumed only by a
-	## full-screen UI that explicitly opts it into navigation.
+	## Right stick owns analog UI navigation.
 	## focus navigation doesn't also act; the actual move is polled in
 	## _process() so a held stick keeps repeating.
-	if right_stick_navigation and event is InputEventJoypadMotion and (event.axis == JOY_AXIS_RIGHT_X or event.axis == JOY_AXIS_RIGHT_Y \
-			or (stick_navigation and (event.axis == JOY_AXIS_LEFT_X or event.axis == JOY_AXIS_LEFT_Y))):
+	if right_stick_navigation and event is InputEventJoypadMotion and \
+			(event.axis == JOY_AXIS_RIGHT_X or event.axis == JOY_AXIS_RIGHT_Y):
 		get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.pressed:
 		var key_dir := Vector2.ZERO
@@ -319,8 +323,6 @@ func _try_stick_move(_delta: float) -> void:
 	if _move_cooldown > 0.0:
 		return
 	var stick := Vector2(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y))
-	if stick.length() < stick_deadzone and stick_navigation:
-		stick = Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
 	if stick.length() < stick_deadzone:
 		_stick_direction = Vector2.ZERO
 		_stick_hold_time = 0.0
@@ -390,6 +392,12 @@ func _move_focus(dir: Vector2) -> void:
 	var from := Vector2.ZERO
 	if has_current:
 		from = (current as Control).get_global_rect().get_center()
+		var explicit: Control = _explicit_neighbor(current as Control, dir)
+		if explicit != null:
+			if explicit != current:
+				explicit.grab_focus()
+			_move_cooldown = move_repeat_delay
+			return
 
 	var ndir: Vector2 = dir.normalized()
 	var best: Control = null
@@ -439,6 +447,25 @@ func _move_focus(dir: Vector2) -> void:
 		return
 	best.grab_focus()
 	_move_cooldown = move_repeat_delay
+
+
+func _explicit_neighbor(current: Control, dir: Vector2) -> Control:
+	var path := NodePath()
+	if absf(dir.x) > absf(dir.y):
+		path = current.focus_neighbor_right if dir.x > 0.0 else current.focus_neighbor_left
+	else:
+		path = current.focus_neighbor_bottom if dir.y > 0.0 else current.focus_neighbor_top
+	if path.is_empty():
+		return null
+	if path == NodePath("."):
+		return current
+	var candidate: Control = current.get_node_or_null(path) as Control
+	if candidate == null or candidate.focus_mode == Control.FOCUS_NONE \
+			or not candidate.is_visible_in_tree():
+		return current
+	if "disabled" in candidate and bool(candidate.get("disabled")):
+		return current
+	return candidate
 
 # ─── Slider d-pad support (Aug 2026) ──────────────────────────────────────────
 func _is_focused_slider() -> bool:

@@ -16,7 +16,7 @@ var _priority_control: VBoxContainer
 func _build_content() -> void:
 	_running = W.status(_statuses, "Running")
 	_connection = W.status(_statuses, "Connection")
-	_storage = W.meter(_details, "Storage", "Stored water", "water")
+	_storage = W.meter(_details, "Storage", "Stored water", "water", true)
 	_quality = W.meter(_details, "Quality", "Water quality", "condition")
 	_requested = W.stat(_details, "Requested", "Requested flow", 18, 14)
 	_rate_slider = HSlider.new()

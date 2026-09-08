@@ -46,6 +46,11 @@ func _ready() -> void:
 	_toggle_btn = _view.get_node("%Backup") as Button
 	_power_btn = _view.get_node("%Power") as Button
 	_close_btn = _view.get_node("%Close") as Button
+	var watts_label := _view.get_node("%Watts") as Label
+	watts_label.add_theme_color_override("font_color", BunkerPanelStyle.BRASS.lightened(0.28))
+	watts_label.add_theme_stylebox_override("normal", BunkerPanelStyle.button_box(
+		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.12), 7, 1, 10, 3))
+	watts_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	(_view.get_node("Panel/Margin/Content/Header/PowerIcon") as TextureRect).texture = W.icon("power")
 	for prefix: String in ["Fuel", "Condition"]:
 		var meter_icon: TextureRect = _view.get_node("Panel/Margin/Content/DetailsScroll/FocusInset/Details/" + prefix + "/Heading/Icon") as TextureRect
@@ -183,15 +188,17 @@ func _refresh_display() -> void:
 	var hint: String = "Starts this generator and supplies power to connected devices."
 	var hint_color: Color = _color("secondary")
 	if _is_running:
-		hint = "Stops this generator. Devices relying on it may lose power."
+		hint = ""
 	elif _grid_tripped:
 		hint = "Resets the main breaker and attempts to start this generator."
 		hint_color = _color("warning")
 	if not _is_running and (_fuel <= 0.0 or _health <= 0.0):
 		hint = "Refuel and repair as needed before this generator can run." if not _grid_tripped else "Start resets the grid; this generator still needs fuel and working condition."
 		hint_color = _color("warning")
-	(_view.get_node("%ActionHint") as Label).text = hint
-	(_view.get_node("%ActionHint") as Label).add_theme_color_override("font_color", hint_color)
+	var action_hint := _view.get_node("%ActionHint") as Label
+	action_hint.text = hint
+	action_hint.visible = not hint.is_empty()
+	action_hint.add_theme_color_override("font_color", hint_color)
 
 func _set_status(card_name: String, text: String, color: Color, icon: Texture2D) -> void:
 	var card: PanelContainer = _view.get_node("%" + card_name) as PanelContainer
@@ -244,7 +251,7 @@ func _process(_delta: float) -> void:
 
 func _update_input_hints() -> void:
 	_controller_hints = InputMode.is_controller()
-	(_view.get_node("%NavigationHint") as Label).text = "[A] Select · D-pad: navigate · [B] Close\nLeft stick: move · Walk away to close" if _controller_hints else "Enter / Space: select · Esc / E: close\nWASD: move · Walk away to close"
+	(_view.get_node("%NavigationHint") as Label).text = "[A] Select · D-pad / R-stick: navigate · [B] Close" if _controller_hints else "Enter / Space: select · Esc / E: close"
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open or not _controller_nav._is_topmost():
