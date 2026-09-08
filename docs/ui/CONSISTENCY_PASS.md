@@ -54,6 +54,15 @@ The implementation portion of the approved consistency pass is complete on
 - Storage omits redundant empty-slot and capacity-bar copy. Power and water
   inspectors use compact single-line status rows, uppercase allocation tiers,
   and consistent POWER ON / POWER OFF actions whose chrome reflects state.
+- Build category buttons use one fixed symbol canvas, the object viewport owns
+  the retired footer space, and every shared prompt renderer is dismissed by
+  group while Build is open so no world prompt can be republished or frozen.
+- Left-stick motion is blocked from UI focus globally while remaining available
+  to player movement. D-pad and right stick own UI selection, and explicit
+  neighbor maps keep Storage navigation aligned with its visible slot grid.
+- Device footers retain one concise input line. Stored Water reuses the shared
+  inspector-card treatment, while generator output uses the shared amber value
+  treatment and preserves the divider above its power action.
 
 ## Checkpoint commits
 
@@ -67,6 +76,7 @@ The implementation portion of the approved consistency pass is complete on
 | `3b6fa18faf89d84dd29f85ff4197ef7ed410f5aa` | Build cursor, prompt dismissal and collision-free Build HUD lanes |
 | `fc018493bb3e532a690a93e572321234f12868af` | Shared scrollbar gutter and category-icon sizing |
 | `2b740d0f650bedc59b83bdcc1e0108d0e3baf860` | Compact Storage/device information and unified power-state presentation |
+| `e87ed2f09bf61b661d3270140fcb993229fe59aa` | Fixed Build icon sizing, prompt ownership, inspector cards and controller navigation |
 
 Every commit is a non-force descendant of the prior `testing` checkpoint.
 `main` remains at the approved baseline until explicit promotion.
@@ -131,7 +141,7 @@ Every commit is a non-force descendant of the prior `testing` checkpoint.
 | Godot 4.7.2 full editor import/registration | Exit 0; no GDScript parse or compile diagnostics |
 | Shared consistency contracts | 0 failures |
 | Screen-family smoke suite | 7/7 passed |
-| Device inspector/owner contracts | 2,294 checks, 0 failures over six resolutions |
+| Device inspector/owner contracts | 2,288 checks, 0 failures over six resolutions |
 | Formatting-sensitive HUD, inventory, notification and utility smokes | 4/4 success markers; 0 GDScript script errors |
 | Supplemental HUD, needs, motion, interaction, loading and generator-inspector smokes | Success markers; 0 assertion failures |
 | UI placeholder provenance | Development placeholders are manifest-tracked; release mode intentionally remains blocking |
