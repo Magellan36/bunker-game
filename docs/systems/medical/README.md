@@ -851,7 +851,9 @@ surface is now the player's overall Status workspace rather than a
 medical-only screen. It remains non-modal: simulation and left-stick
 movement continue while it is open. A persistent five-gauge strip shows
 Health, Food, Water, Stamina and Sleep, while four focused sections keep
-the information digestible: Overview, Health, Needs and Inventory.
+the information digestible: Overview, Health, NPCs and Inventory. Player
+needs remain visible at all times in the persistent summary strip, so the
+former duplicate Needs section was removed.
 
 Health preserves the six-region body model and the exact existing
 `PlayerMedical` condition data. Selecting a region exposes its condition
@@ -865,12 +867,14 @@ as an equally valid in-world path. Trauma Kits are summarized as carried
 supplies but stay out of individual-condition actions because their
 existing contract is intentionally multi-target.
 
-Needs presents current values and attainable caps, with
-`get_needs_cap_reason_text()` explaining any medical cap reduction.
 Inventory is an inspection view of the same four quick slots, including
 prebuilt 3D previews and item-specific details; it deliberately does not
-silently change the active held item. Overview condenses the three
-sections into actionable at-a-glance cards.
+silently change the active held item. NPCs presents compact resident rows
+with the existing live head renderer, needs, mood, current activity, health
+effects, traits, skills, and directional relationships. Rows expand in place
+for the complete resident detail without duplicating any simulation state.
+Overview condenses Health, NPCs and Inventory into actionable at-a-glance
+cards; its NPC preview reuses the same cached portrait renderers.
 
 **Fully controller-navigable**, per the project's standing convention —
 d-pad and right stick navigate the real focusable controls, A selects,

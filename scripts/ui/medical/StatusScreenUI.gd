@@ -13,6 +13,7 @@ const PREVIEW: GDScript = preload("res://scripts/ui/common/ItemPreviewKit.gd")
 const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
 const ITEM_CARD: GDScript = preload("res://scripts/ui/common/BunkerItemCard.gd")
 const PRESENT: GDScript = preload("res://scripts/ui/common/ItemPresentation.gd")
+const NPC_PORTRAIT: GDScript = preload("res://scripts/ui/npc/NPCPortraitViewport.gd")
 
 const PANEL_MAX: Vector2 = Vector2(1420.0, 820.0)
 const SCREEN_MARGIN: Vector2 = Vector2(42.0, 34.0)
@@ -23,7 +24,7 @@ const WATER_COLOR: Color = Color("62bfff")
 const STAMINA_COLOR: Color = Color("76d6b0")
 const SLEEP_COLOR: Color = Color("a493df")
 
-enum StatusTab { OVERVIEW, HEALTH, NEEDS, INVENTORY }
+enum StatusTab { OVERVIEW, HEALTH, NPCS, INVENTORY }
 
 const BODY_PARTS: Array[int] = [
 	MedicalCondition.BodyPart.HEAD,
@@ -71,8 +72,11 @@ var _summary_metrics: Dictionary = {}
 
 var _overview_condition_count: Label = null
 var _overview_condition_copy: Label = null
-var _overview_needs_count: Label = null
-var _overview_needs_copy: Label = null
+var _overview_npc_count: Label = null
+var _overview_npc_copy: Label = null
+var _overview_npc_list: VBoxContainer = null
+var _overview_npc_rows: Dictionary = {}
+var _overview_npc_signature: String = ""
 var _overview_inventory_count: Label = null
 var _overview_inventory_copy: Label = null
 
@@ -87,8 +91,6 @@ var _condition_signature: String = ""
 var _detail_empty: VBoxContainer = null
 var _detail_content: VBoxContainer = null
 var _detail_title: Label = null
-var _detail_location: Label = null
-var _detail_location_panel: PanelContainer = null
 var _detail_warning: PanelContainer = null
 var _detail_warning_label: Label = null
 var _detail_severity_value: Label = null
@@ -104,9 +106,12 @@ var _treatment_stock_panel: PanelContainer = null
 var _treatment_button: Button = null
 var _supply_labels: Dictionary = {}
 
-var _needs_rows: Dictionary = {}
-var _needs_reason_panel: PanelContainer = null
-var _needs_reason_label: Label = null
+var _npc_list: VBoxContainer = null
+var _npc_cards: Dictionary = {}
+var _npc_portraits: Dictionary = {}
+var _npc_portrait_host: Control = null
+var _expanded_npc_id: int = -1
+var _npc_signature: String = ""
 
 var _inventory_cards: Array[Button] = []
 var _inventory_viewports: Array[SubViewport] = []
@@ -156,6 +161,7 @@ func open() -> void:
 	_select_initial_medical_target()
 	_set_tab(StatusTab.OVERVIEW)
 	_refresh_all()
+	_set_npc_portraits_active(true)
 	_reset_scrolls()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	UIFade.fade_in(_panel)
@@ -168,6 +174,7 @@ func close() -> void:
 		return
 	_is_open = false
 	set_process(false)
+	_set_npc_portraits_active(false)
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if _previous_focus != null:
 		var previous: Variant = _previous_focus.get_ref()
@@ -282,7 +289,7 @@ func _build_tabs() -> void:
 	_content.add_child(row)
 	_make_tab(row, StatusTab.OVERVIEW, "OVERVIEW", "overview")
 	_make_tab(row, StatusTab.HEALTH, "HEALTH", "health")
-	_make_tab(row, StatusTab.NEEDS, "NEEDS", "general")
+	_make_tab(row, StatusTab.NPCS, "NPCS", "general")
 	_make_tab(row, StatusTab.INVENTORY, "INVENTORY", "storage")
 
 
@@ -356,9 +363,9 @@ func _build_pages() -> void:
 	_content.add_child(host)
 	var overview: Control = _build_overview_page()
 	var health: Control = _build_health_page()
-	var needs: Control = _build_needs_page()
+	var npcs: Control = _build_npc_page()
 	var inventory_page: Control = _build_inventory_page()
-	for page: Control in [overview, health, needs, inventory_page]:
+	for page: Control in [overview, health, npcs, inventory_page]:
 		page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		host.add_child(page)
 		_pages.append(page)
@@ -372,47 +379,20 @@ func _build_overview_page() -> Control:
 	var stack: VBoxContainer = VBoxContainer.new()
 	stack.add_theme_constant_override("separation", 12)
 	page.add_child(stack)
-	var intro: HBoxContainer = HBoxContainer.new()
-	intro.add_theme_constant_override("separation", 12)
-	stack.add_child(intro)
-	var intro_copy: VBoxContainer = VBoxContainer.new()
-	intro_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	intro.add_child(intro_copy)
-	intro_copy.add_child(_label("AT A GLANCE", 12, S.BLUE))
-	intro_copy.add_child(_label("Your bunker-day readiness", 23, S.IVORY))
-	var hint: Label = _label("Open any section for detail and actions.", 13, S.MUTED)
-	hint.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	intro.add_child(hint)
-
 	var cards: HBoxContainer = HBoxContainer.new()
-	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cards.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	cards.add_theme_constant_override("separation", 12)
 	stack.add_child(cards)
 	var health_refs: Dictionary = _overview_card(cards, "health", "HEALTH", "Body condition and treatment", StatusTab.HEALTH, S.RED)
 	_overview_condition_count = health_refs["value"] as Label
 	_overview_condition_copy = health_refs["copy"] as Label
-	var needs_refs: Dictionary = _overview_card(cards, "general", "NEEDS", "Daily readiness and reduced caps", StatusTab.NEEDS, WATER_COLOR)
-	_overview_needs_count = needs_refs["value"] as Label
-	_overview_needs_copy = needs_refs["copy"] as Label
+	var npc_refs: Dictionary = _overview_card(cards, "general", "NPCS", "Bunker residents at a glance", StatusTab.NPCS, WATER_COLOR)
+	_overview_npc_count = npc_refs["value"] as Label
+	_overview_npc_copy = npc_refs["copy"] as Label
+	_overview_npc_list = npc_refs["body"] as VBoxContainer
 	var inventory_refs: Dictionary = _overview_card(cards, "storage", "INVENTORY", "Carried supplies and equipment", StatusTab.INVENTORY, S.BLUE)
 	_overview_inventory_count = inventory_refs["value"] as Label
 	_overview_inventory_copy = inventory_refs["copy"] as Label
-
-	var advice: PanelContainer = PanelContainer.new()
-	advice.add_theme_stylebox_override("panel", C.panel_box(
-		Color("192423"), S.BLUE.darkened(0.35), 8, 1, 12))
-	stack.add_child(advice)
-	var advice_row: HBoxContainer = HBoxContainer.new()
-	advice_row.add_theme_constant_override("separation", 10)
-	advice.add_child(advice_row)
-	advice_row.add_child(_icon("status", 26.0, S.BLUE))
-	var advice_copy: VBoxContainer = VBoxContainer.new()
-	advice_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	advice_row.add_child(advice_copy)
-	advice_copy.add_child(_label("STATUS WORKSPACE", 10, S.BLUE))
-	var note: Label = _label("Inspect injuries, apply carried treatment supplies, review needs, or identify what is occupying each quick slot.", 13, S.MUTED)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	advice_copy.add_child(note)
 	return page
 
 
@@ -421,8 +401,8 @@ func _overview_card(parent: HBoxContainer, symbol: String, title: String,
 	var button: Button = Button.new()
 	button.text = ""
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size.y = 310.0
+	button.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	button.custom_minimum_size.y = 300.0
 	button.focus_mode = Control.FOCUS_ALL
 	button.add_theme_stylebox_override("normal", C.panel_box(Color("1b2221"), S.BRASS.darkened(0.32), 9, 1, 14))
 	button.add_theme_stylebox_override("hover", C.panel_box(Color("202b2b"), accent.darkened(0.22), 9, 1, 14))
@@ -432,8 +412,8 @@ func _overview_card(parent: HBoxContainer, symbol: String, title: String,
 	parent.add_child(button)
 	var stack: VBoxContainer = VBoxContainer.new()
 	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stack.add_theme_constant_override("separation", 11)
-	var button_margin: MarginContainer = C.inset(stack, 18, 18, 18, 16)
+	stack.add_theme_constant_override("separation", 6)
+	var button_margin: MarginContainer = C.inset(stack, 14, 12, 14, 12)
 	button_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	button_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(button_margin)
@@ -445,6 +425,11 @@ func _overview_card(parent: HBoxContainer, symbol: String, title: String,
 	copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	copy.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stack.add_child(copy)
+	var body: VBoxContainer = VBoxContainer.new()
+	body.name = title.capitalize() + "OverviewBody"
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 5)
+	stack.add_child(body)
 	var open_row: HBoxContainer = HBoxContainer.new()
 	open_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stack.add_child(open_row)
@@ -452,7 +437,7 @@ func _overview_card(parent: HBoxContainer, symbol: String, title: String,
 	open_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	open_row.add_child(open_label)
 	open_row.add_child(_icon("arrow", 20.0, S.BLUE))
-	return {"value": value, "copy": copy}
+	return {"value": value, "copy": copy, "body": body}
 
 
 func _build_health_page() -> Control:
@@ -471,6 +456,7 @@ func _build_health_page() -> Control:
 	diagram.name = "BodyMap"
 	diagram.custom_minimum_size = Vector2(270.0, 252.0)
 	diagram.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	diagram.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body_stack.add_child(diagram)
 	for part: int in BODY_PARTS:
 		_make_body_button(diagram, part)
@@ -478,6 +464,7 @@ func _build_health_page() -> Control:
 	body_list.columns = 2
 	body_list.add_theme_constant_override("h_separation", 5)
 	body_list.add_theme_constant_override("v_separation", 4)
+	body_list.size_flags_vertical = Control.SIZE_SHRINK_END
 	body_stack.add_child(body_list)
 	for part: int in BODY_PARTS:
 		var select: Button = Button.new()
@@ -516,7 +503,7 @@ func _build_health_page() -> Control:
 	_condition_list = VBoxContainer.new()
 	_condition_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_condition_list.add_theme_constant_override("separation", 8)
-	condition_scroll.add_child(_condition_list)
+	C.scroll_content(condition_scroll, _condition_list, 0, 0, 0)
 
 	var detail_panel: PanelContainer = _section_panel()
 	detail_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -529,7 +516,8 @@ func _build_health_page() -> Control:
 	_scrolls.append(detail_scroll)
 	var detail_host: VBoxContainer = VBoxContainer.new()
 	detail_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	detail_scroll.add_child(C.inset(detail_host, 14, 12, 14, 12))
+	var detail_margin: MarginContainer = C.inset(detail_host, 12, 10, 0, 10)
+	C.scroll_content(detail_scroll, detail_margin, 0, 0, 0)
 	_build_health_detail(detail_host)
 	return page
 
@@ -578,15 +566,11 @@ func _build_health_detail(parent: VBoxContainer) -> void:
 	title_stack.add_child(_label("CONDITION", 10, S.BLUE))
 	_detail_title = _label("Open wound", 23, S.IVORY)
 	title_stack.add_child(_detail_title)
-	var location_refs: Dictionary = _pill(heading, "HEAD", S.BLUE, 82.0)
-	_detail_location_panel = location_refs["panel"] as PanelContainer
-	_detail_location = location_refs["label"] as Label
-
 	_detail_warning = PanelContainer.new()
 	_detail_content.add_child(_detail_warning)
 	_detail_warning_label = _label("INFECTION ACTIVE", 11, INFECTION_COLOR)
 	_detail_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_detail_warning.add_child(C.inset(_detail_warning_label, 8, 6, 8, 6))
+	_detail_warning.add_child(C.inset(_detail_warning_label, 8, 3, 8, 3))
 
 	var metrics: HBoxContainer = HBoxContainer.new()
 	metrics.add_theme_constant_override("separation", 8)
@@ -653,10 +637,10 @@ func _build_health_detail(parent: VBoxContainer) -> void:
 func _detail_metric(parent: HBoxContainer, title: String, color: Color) -> Dictionary:
 	var card: PanelContainer = PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.add_theme_stylebox_override("panel", C.panel_box(Color("202625"), S.BRASS.darkened(0.44), 7, 1, 9))
+	card.add_theme_stylebox_override("panel", C.panel_box(Color("202625"), S.BRASS.darkened(0.44), 7, 1, 6))
 	parent.add_child(card)
 	var stack: VBoxContainer = VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 4)
+	stack.add_theme_constant_override("separation", 2)
 	card.add_child(stack)
 	var row: HBoxContainer = HBoxContainer.new()
 	stack.add_child(row)
@@ -685,67 +669,131 @@ func _supply_chip(parent: HBoxContainer, symbol: String, kind: String) -> Dictio
 	return {"label": label}
 
 
-func _build_needs_page() -> Control:
+func _build_npc_page() -> Control:
 	var page: VBoxContainer = VBoxContainer.new()
-	page.name = "NeedsPage"
-	page.add_theme_constant_override("separation", 10)
-	var header: HBoxContainer = HBoxContainer.new()
-	page.add_child(header)
-	var titles: VBoxContainer = VBoxContainer.new()
-	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(titles)
-	titles.add_child(_label("DAILY READINESS", 11, S.BLUE))
-	titles.add_child(_label("Needs and recovery", 23, S.IVORY))
-	var explainer: Label = _label("Caps show the highest value currently reachable.", 12, S.MUTED)
-	explainer.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	header.add_child(explainer)
-	_needs_reason_panel = PanelContainer.new()
-	_needs_reason_panel.add_theme_stylebox_override("panel", C.panel_box(Color("2c241b"), INFECTION_COLOR.darkened(0.15), 7, 1, 8))
-	page.add_child(_needs_reason_panel)
-	_needs_reason_label = _label("", 12, INFECTION_COLOR)
-	_needs_reason_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_needs_reason_panel.add_child(_needs_reason_label)
-	var grid: GridContainer = GridContainer.new()
-	grid.columns = 2
-	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	page.add_child(grid)
-	_needs_rows["health"] = _need_card(grid, "health", "HEALTH", "Physical resilience. Deprivation and bleeding reduce this value.", S.RED)
-	_needs_rows["food"] = _need_card(grid, "food", "FOOD", "Eat before the reserve is exhausted; illness can reduce the attainable cap.", FOOD_COLOR)
-	_needs_rows["water"] = _need_card(grid, "water", "WATER", "Hydration depletes quickly and directly threatens health at zero.", WATER_COLOR)
-	_needs_rows["stamina"] = _need_card(grid, "stamina", "STAMINA", "Short-term exertion reserve used by sprinting and demanding actions.", STAMINA_COLOR)
-	_needs_rows["sleep"] = _need_card(grid, "sleep", "SLEEP", "Rest in a bed to recover. Medical conditions may reduce the cap.", SLEEP_COLOR)
+	page.name = "NPCPage"
+	page.add_theme_constant_override("separation", 8)
+	var header: Dictionary = C.section_header(page, "BUNKER RESIDENTS", "SELECT TO EXPAND")
+	(header["title"] as Label).add_theme_color_override("font_color", S.BLUE)
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	page.add_child(scroll)
+	_scrolls.append(scroll)
+	_npc_list = VBoxContainer.new()
+	_npc_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_npc_list.add_theme_constant_override("separation", 7)
+	C.scroll_content(scroll, _npc_list, 0, 0, 0)
+	_npc_portrait_host = Control.new()
+	_npc_portrait_host.name = "SharedNPCPortraitRenderers"
+	_npc_portrait_host.visible = false
+	_npc_portrait_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	page.add_child(_npc_portrait_host)
 	return page
 
 
-func _need_card(parent: GridContainer, symbol: String, title: String, copy_text: String, color: Color) -> Dictionary:
-	var card: PanelContainer = PanelContainer.new()
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size.y = 125.0
-	card.add_theme_stylebox_override("panel", C.panel_box(Color("1b2221"), S.BRASS.darkened(0.38), 8, 1, 11))
-	parent.add_child(card)
+func _build_npc_card(npc: Node) -> Dictionary:
+	var npc_key: int = npc.get_instance_id()
+	var button: Button = Button.new()
+	button.name = "NPC_%d" % npc_key
+	button.text = ""
+	button.focus_mode = Control.FOCUS_ALL
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size.y = 96.0
+	button.add_theme_stylebox_override("normal", C.panel_box(Color("1b2221"), S.BRASS.darkened(0.38), 8, 1, 7))
+	button.add_theme_stylebox_override("hover", C.panel_box(Color("202b2b"), S.BLUE.darkened(0.2), 8, 1, 7))
+	button.add_theme_stylebox_override("pressed", C.panel_box(Color("1f3035"), S.BLUE, 8, 2, 6))
+	button.add_theme_stylebox_override("focus", C.panel_box(Color.TRANSPARENT, S.IVORY, 9, 2))
+	button.pressed.connect(_toggle_npc_card.bind(npc_key))
+	_npc_list.add_child(button)
 	var stack: VBoxContainer = VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 5)
-	card.add_child(stack)
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	stack.add_child(row)
-	row.add_child(_icon(symbol, 25.0, color))
-	var title_label: Label = _label(title, 12, color)
-	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(title_label)
-	var value: Label = _label("100 / 100", 16, S.IVORY)
-	row.add_child(value)
-	var bar: ProgressBar = _progress(color, 9.0)
+	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stack.add_theme_constant_override("separation", 7)
+	var margin: MarginContainer = C.inset(stack, 8, 6, 8, 6)
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(margin)
+	var summary: HBoxContainer = HBoxContainer.new()
+	summary.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	summary.add_theme_constant_override("separation", 10)
+	stack.add_child(summary)
+	var portrait: TextureRect = _npc_portrait_rect(npc, Vector2(76.0, 82.0))
+	summary.add_child(portrait)
+	var identity: VBoxContainer = VBoxContainer.new()
+	identity.custom_minimum_size.x = 180.0
+	identity.add_theme_constant_override("separation", 2)
+	summary.add_child(identity)
+	var name_label: Label = _label("", 17, S.IVORY)
+	identity.add_child(name_label)
+	var age_label: Label = _label("", 10, S.MUTED)
+	identity.add_child(age_label)
+	var activity_label: Label = _label("", 11, S.BLUE)
+	activity_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	identity.add_child(activity_label)
+	var metrics: HBoxContainer = HBoxContainer.new()
+	metrics.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metrics.add_theme_constant_override("separation", 6)
+	summary.add_child(metrics)
+	var metric_refs: Dictionary = {}
+	for spec: Array in [["health", "HEALTH", S.RED], ["energy", "ENERGY", STAMINA_COLOR], ["hunger", "FOOD", FOOD_COLOR], ["thirst", "WATER", WATER_COLOR], ["mood", "MOOD", SLEEP_COLOR]]:
+		metric_refs[spec[0]] = _npc_metric(metrics, spec[1], spec[2])
+	var badges: VBoxContainer = VBoxContainer.new()
+	badges.custom_minimum_size.x = 150.0
+	badges.add_theme_constant_override("separation", 4)
+	summary.add_child(badges)
+	var health_badge: Label = _compact_badge(badges, "HEALTHY", S.GREEN)
+	var relationship_badge: Label = _compact_badge(badges, "NEUTRAL", S.MUTED)
+	var expanded: VBoxContainer = VBoxContainer.new()
+	expanded.visible = false
+	expanded.add_theme_constant_override("separation", 6)
+	stack.add_child(expanded)
+	C.divider(expanded)
+	var detail_grid: GridContainer = GridContainer.new()
+	detail_grid.columns = 2
+	detail_grid.add_theme_constant_override("h_separation", 8)
+	detail_grid.add_theme_constant_override("v_separation", 6)
+	expanded.add_child(detail_grid)
+	var detail_refs: Dictionary = {}
+	for section: String in ["CURRENT STATUS", "HEALTH EFFECTS", "KNOWN TRAITS", "SKILLS", "RELATIONSHIPS"]:
+		detail_refs[section] = _npc_detail_box(detail_grid, section)
+	return {"npc": npc, "button": button, "name": name_label, "age": age_label,
+		"activity": activity_label, "metrics": metric_refs, "health_badge": health_badge,
+		"relationship_badge": relationship_badge, "expanded": expanded, "details": detail_refs}
+
+
+func _npc_metric(parent: HBoxContainer, title: String, color: Color) -> Dictionary:
+	var stack: VBoxContainer = VBoxContainer.new()
+	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.add_theme_constant_override("separation", 2)
+	parent.add_child(stack)
+	stack.add_child(_label(title, 9, S.MUTED))
+	var value: Label = _label("100", 11, S.IVORY)
+	stack.add_child(value)
+	var bar: ProgressBar = _progress(color, 5.0)
 	stack.add_child(bar)
-	var copy: Label = _label(copy_text, 11, S.MUTED)
-	copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	stack.add_child(copy)
-	var state: Label = _label("STABLE", 10, color)
-	stack.add_child(state)
-	return {"value": value, "bar": bar, "state": state, "color": color}
+	return {"value": value, "bar": bar}
+
+
+func _compact_badge(parent: Container, text_value: String, color: Color) -> Label:
+	var refs: Dictionary = _pill(parent, text_value, color, 140.0)
+	var panel: PanelContainer = refs["panel"] as PanelContainer
+	panel.custom_minimum_size.y = 25.0
+	return refs["label"] as Label
+
+
+func _npc_detail_box(parent: GridContainer, title: String) -> Label:
+	var panel: PanelContainer = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", C.panel_box(Color("202625"), S.BRASS.darkened(0.43), 7, 1, 7))
+	parent.add_child(panel)
+	var stack: VBoxContainer = VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 3)
+	panel.add_child(stack)
+	stack.add_child(_label(title, 9, S.BLUE))
+	var value: Label = _label("—", 11, S.MUTED)
+	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stack.add_child(value)
+	return value
 
 
 func _build_inventory_page() -> Control:
@@ -830,6 +878,9 @@ func _set_tab(tab_id: int) -> void:
 		var body_button: Button = _body_buttons.get(_selected_part) as Button
 		if body_button != null:
 			body_button.grab_focus()
+	elif tab_id == StatusTab.NPCS and not _npc_cards.is_empty():
+		var first_refs: Dictionary = _npc_cards.values()[0] as Dictionary
+		(first_refs["button"] as Button).grab_focus()
 	elif tab_id == StatusTab.INVENTORY and not _inventory_cards.is_empty():
 		_inventory_cards[_selected_inventory_slot].grab_focus()
 
@@ -879,8 +930,8 @@ func _refresh_all() -> void:
 	_refresh_tabs()
 	if _active_tab == StatusTab.HEALTH:
 		_refresh_health()
-	elif _active_tab == StatusTab.NEEDS:
-		_refresh_needs()
+	elif _active_tab == StatusTab.NPCS:
+		_refresh_npcs()
 	elif _active_tab == StatusTab.INVENTORY:
 		_refresh_inventory()
 
@@ -892,7 +943,8 @@ func _refresh_tabs() -> void:
 	var occupied: int = _inventory_occupied_count()
 	_tab_buttons[StatusTab.OVERVIEW].text = "OVERVIEW"
 	_tab_buttons[StatusTab.HEALTH].text = "HEALTH  %d" % condition_count if condition_count > 0 else "HEALTH"
-	_tab_buttons[StatusTab.NEEDS].text = "NEEDS"
+	var resident_count: int = _npcs().size()
+	_tab_buttons[StatusTab.NPCS].text = "NPCS  %d" % resident_count if resident_count > 0 else "NPCS"
 	_tab_buttons[StatusTab.INVENTORY].text = "INVENTORY  %d/4" % occupied
 
 
@@ -951,11 +1003,15 @@ func _refresh_overview() -> void:
 	for condition: MedicalCondition in conditions:
 		if _treatment_kind(condition) != "none" and not condition.is_treated:
 			untreated += 1
-	_overview_condition_count.text = "%d ACTIVE" % conditions.size() if not conditions.is_empty() else "CLEAR"
+	_overview_condition_count.text = "%d ACTIVE" % conditions.size()
+	var health_color: Color = _condition_count_color(conditions.size())
+	_overview_condition_count.add_theme_color_override("font_color", health_color)
 	_overview_condition_copy.text = "%d condition%s can be treated from carried supplies." % [untreated, "" if untreated == 1 else "s"] if untreated > 0 else "No untreated condition currently needs a carried medical item."
-	var capped_names: Array[String] = _capped_need_names()
-	_overview_needs_count.text = "%d CAPPED" % capped_names.size() if not capped_names.is_empty() else "STABLE"
-	_overview_needs_copy.text = "%s cannot currently reach 100%%." % ", ".join(capped_names) if not capped_names.is_empty() else "Food, water, and sleep can currently reach their full values."
+	var residents: Array[Node] = _npcs()
+	_overview_npc_count.text = "%d RESIDENT%s" % [residents.size(), "" if residents.size() == 1 else "S"]
+	_overview_npc_copy.text = "Health, needs, mood, and current activity."
+	_rebuild_overview_npcs(residents)
+	_cleanup_npc_portraits(residents)
 	var occupied: int = _inventory_occupied_count()
 	_overview_inventory_count.text = "%d / 4" % occupied
 	_overview_inventory_copy.text = "%d open quick slot%s available." % [4 - occupied, "" if 4 - occupied == 1 else "s"]
@@ -1015,32 +1071,33 @@ func _rebuild_condition_cards_if_needed(conditions: Array[MedicalCondition]) -> 
 		var button: Button = Button.new()
 		button.text = ""
 		button.toggle_mode = true
-		button.custom_minimum_size.y = 104.0
+		button.custom_minimum_size.y = 74.0
 		button.focus_mode = Control.FOCUS_ALL
-		button.add_theme_stylebox_override("normal", C.panel_box(Color("1b2221"), S.BRASS.darkened(0.38), 8, 1, 9))
-		button.add_theme_stylebox_override("hover", C.panel_box(Color("202b2b"), S.BLUE.darkened(0.2), 8, 1, 9))
-		button.add_theme_stylebox_override("pressed", C.panel_box(Color("1f3035"), S.BLUE, 8, 2, 8))
+		button.add_theme_stylebox_override("normal", C.panel_box(Color("1b2221"), S.BRASS.darkened(0.38), 8, 1, 6))
+		button.add_theme_stylebox_override("hover", C.panel_box(Color("202b2b"), S.BLUE.darkened(0.2), 8, 1, 6))
+		button.add_theme_stylebox_override("pressed", C.panel_box(Color("1f3035"), S.BLUE, 8, 2, 5))
 		button.add_theme_stylebox_override("focus", C.panel_box(Color.TRANSPARENT, S.IVORY, 9, 2))
 		button.pressed.connect(_select_condition.bind(key))
 		_condition_list.add_child(button)
 		var row: HBoxContainer = HBoxContainer.new()
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_theme_constant_override("separation", 10)
-		var card_margin: MarginContainer = C.inset(row, 10, 9, 10, 9)
+		row.add_theme_constant_override("separation", 7)
+		var card_margin: MarginContainer = C.inset(row, 8, 5, 8, 5)
 		card_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		card_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		button.add_child(card_margin)
-		var icon_well: PanelContainer = C.icon_well(_condition_icon(condition), 42.0, _condition_color(condition))
+		var icon_well: PanelContainer = C.icon_well(_condition_icon(condition), 34.0, _condition_color(condition))
 		row.add_child(icon_well)
 		var stack: VBoxContainer = VBoxContainer.new()
 		stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stack.add_theme_constant_override("separation", 1)
 		row.add_child(stack)
-		var title: Label = _label(_condition_title(condition), 16, S.IVORY)
+		var title: Label = _label(_condition_title(condition), 14, S.IVORY)
 		stack.add_child(title)
 		var state: Label = _label("", 11, S.MUTED)
 		stack.add_child(state)
-		var bar: ProgressBar = _progress(_condition_color(condition), 7.0)
+		var bar: ProgressBar = _progress(_condition_color(condition), 5.0)
 		stack.add_child(bar)
 		var value: Label = _label("", 11, S.MUTED)
 		value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1066,9 +1123,6 @@ func _update_condition_cards(conditions: Array[MedicalCondition]) -> void:
 func _refresh_condition_detail(condition: MedicalCondition) -> void:
 	var color: Color = _condition_color(condition)
 	_detail_title.text = _condition_title(condition)
-	_detail_location.text = MedicalCondition.body_part_label(condition.body_part).to_upper()
-	_detail_location.add_theme_color_override("font_color", color)
-	_detail_location_panel.add_theme_stylebox_override("panel", C.panel_box(Color("202625"), color.darkened(0.18), 16, 1, 6))
 	var infection_active: bool = condition.id == "open_wound" and condition.is_infected
 	_detail_warning.visible = infection_active
 	if infection_active:
@@ -1144,43 +1198,104 @@ func _refresh_supplies() -> void:
 		label.add_theme_color_override("font_color", S.IVORY if charges > 0 else S.MUTED.darkened(0.25))
 
 
-func _refresh_needs() -> void:
-	var health: float = player_stats.health if player_stats != null else 100.0
-	var food: float = player_stats.food if player_stats != null else 100.0
-	var water: float = player_stats.water if player_stats != null else 100.0
-	var sleep: float = player_stats.sleep if player_stats != null else 100.0
-	var food_cap: float = player_stats.food_cap if player_stats != null else 100.0
-	var water_cap: float = player_stats.water_cap if player_stats != null else 100.0
-	var sleep_cap: float = player_stats.sleep_cap if player_stats != null else 100.0
-	_update_need_card("health", health, 100.0)
-	_update_need_card("food", food, food_cap)
-	_update_need_card("water", water, water_cap)
-	_update_need_card("stamina", _player_stamina(), 100.0)
-	_update_need_card("sleep", sleep, sleep_cap)
-	var reason: String = player_medical.get_needs_cap_reason_text() if player_medical != null else ""
-	_needs_reason_panel.visible = not reason.is_empty()
-	_needs_reason_label.text = reason
+func _refresh_npcs() -> void:
+	var residents: Array[Node] = _npcs()
+	var signature_parts: Array[String] = []
+	for npc: Node in residents:
+		signature_parts.append(str(npc.get_instance_id()))
+	var signature: String = "|".join(signature_parts)
+	if signature != _npc_signature:
+		_npc_signature = signature
+		_clear_children(_npc_list)
+		_npc_cards.clear()
+		if residents.is_empty():
+			var empty: Label = _label("No NPC residents are currently in the bunker.", 13, S.MUTED)
+			empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_npc_list.add_child(C.inset(empty, 12, 28, 12, 28))
+		else:
+			for npc: Node in residents:
+				_npc_cards[npc.get_instance_id()] = _build_npc_card(npc)
+	_cleanup_npc_portraits(residents)
+	for refs_value: Variant in _npc_cards.values():
+		_update_npc_card(refs_value as Dictionary)
 
 
-func _update_need_card(key: String, value: float, cap: float) -> void:
-	var refs: Dictionary = _needs_rows.get(key, {}) as Dictionary
-	if refs.is_empty():
+func _update_npc_card(refs: Dictionary) -> void:
+	var npc: Node = refs["npc"] as Node
+	if npc == null or not is_instance_valid(npc):
 		return
-	(refs["value"] as Label).text = "%d / %d" % [roundi(value), roundi(cap)]
-	SMOOTH_BAR.apply(refs["bar"] as ProgressBar, clampf(value, 0.0, 100.0))
-	var state: Label = refs["state"] as Label
-	if cap < 99.5:
-		state.text = "CAPPED BY CONDITION"
-		state.add_theme_color_override("font_color", INFECTION_COLOR)
-	elif value <= 20.0:
-		state.text = "CRITICAL"
-		state.add_theme_color_override("font_color", S.RED)
-	elif value <= 50.0:
-		state.text = "LOW"
-		state.add_theme_color_override("font_color", FOOD_COLOR)
-	else:
-		state.text = "STABLE"
-		state.add_theme_color_override("font_color", refs["color"] as Color)
+	(refs["name"] as Label).text = String(npc.get("npc_name"))
+	(refs["age"] as Label).text = "AGE %d" % int(npc.get("age"))
+	(refs["activity"] as Label).text = _npc_activity(npc).to_upper()
+	var metrics: Dictionary = refs["metrics"] as Dictionary
+	for key: String in ["health", "energy", "hunger", "thirst", "mood"]:
+		var metric: Dictionary = metrics[key] as Dictionary
+		var amount: float = clampf(float(npc.get(key)), 0.0, 100.0)
+		(metric["value"] as Label).text = "%d" % roundi(amount)
+		SMOOTH_BAR.apply(metric["bar"] as ProgressBar, amount)
+	var health_count: int = _npc_conditions(npc).size()
+	var health_text: String = "HEALTHY" if health_count == 0 else "%d HEALTH EFFECT%s" % [health_count, "" if health_count == 1 else "S"]
+	var health_color: Color = _condition_count_color(health_count)
+	_set_badge(refs["health_badge"] as Label, health_text, health_color)
+	var relationship: String = _npc_relationship_label(npc, "player")
+	_set_badge(refs["relationship_badge"] as Label, relationship.to_upper(), _relationship_color(relationship))
+	var expanded: VBoxContainer = refs["expanded"] as VBoxContainer
+	expanded.visible = npc.get_instance_id() == _expanded_npc_id
+	(refs["button"] as Button).custom_minimum_size.y = 310.0 if expanded.visible else 96.0
+	if not expanded.visible:
+		return
+	var details: Dictionary = refs["details"] as Dictionary
+	(details["CURRENT STATUS"] as Label).text = _npc_current_status(npc)
+	(details["HEALTH EFFECTS"] as Label).text = _npc_health_text(npc)
+	(details["KNOWN TRAITS"] as Label).text = _npc_traits_text(npc)
+	(details["SKILLS"] as Label).text = _npc_skills_text(npc)
+	(details["RELATIONSHIPS"] as Label).text = _npc_relationships_text(npc)
+
+
+func _toggle_npc_card(npc_key: int) -> void:
+	_expanded_npc_id = -1 if _expanded_npc_id == npc_key else npc_key
+	_refresh_npcs()
+	var refs: Dictionary = _npc_cards.get(npc_key, {}) as Dictionary
+	if not refs.is_empty():
+		(refs["button"] as Button).grab_focus()
+
+
+func _rebuild_overview_npcs(residents: Array[Node]) -> void:
+	var signature_parts: Array[String] = []
+	for npc: Node in residents:
+		signature_parts.append(str(npc.get_instance_id()))
+	var signature: String = "|".join(signature_parts)
+	if signature != _overview_npc_signature:
+		_overview_npc_signature = signature
+		_clear_children(_overview_npc_list)
+		_overview_npc_rows.clear()
+		if residents.is_empty():
+			_overview_npc_list.add_child(_label("No residents", 11, S.MUTED))
+		for npc: Node in residents:
+			var row: HBoxContainer = HBoxContainer.new()
+			row.add_theme_constant_override("separation", 6)
+			_overview_npc_list.add_child(row)
+			row.add_child(_npc_portrait_rect(npc, Vector2(28.0, 30.0)))
+			var copy: VBoxContainer = VBoxContainer.new()
+			copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			copy.add_theme_constant_override("separation", 0)
+			row.add_child(copy)
+			var identity: Label = _label("", 11, S.IVORY)
+			copy.add_child(identity)
+			var needs: Label = _label("", 9, S.MUTED)
+			copy.add_child(needs)
+			var state: Label = _label("", 9, S.BLUE)
+			state.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			copy.add_child(state)
+			_overview_npc_rows[npc.get_instance_id()] = {"npc": npc, "identity": identity, "needs": needs, "state": state}
+	for refs_value: Variant in _overview_npc_rows.values():
+		var refs: Dictionary = refs_value as Dictionary
+		var npc: Node = refs["npc"] as Node
+		(refs["identity"] as Label).text = "%s  •  %d" % [String(npc.get("npc_name")), int(npc.get("age"))]
+		(refs["needs"] as Label).text = "H %d  E %d  F %d  W %d  M %d" % [roundi(float(npc.get("health"))), roundi(float(npc.get("energy"))), roundi(float(npc.get("hunger"))), roundi(float(npc.get("thirst"))), roundi(float(npc.get("mood")))]
+		var condition_count: int = _npc_conditions(npc).size()
+		var health_state: String = "HEALTHY" if condition_count == 0 else "%d EFFECT%s" % [condition_count, "" if condition_count == 1 else "S"]
+		(refs["state"] as Label).text = "%s  •  %s  •  %s" % [_npc_activity(npc).to_upper(), health_state, _npc_relationship_label(npc, "player").to_upper()]
 
 
 func _refresh_inventory() -> void:
@@ -1225,6 +1340,170 @@ func _active_conditions() -> Array[MedicalCondition]:
 	var result: Array[MedicalCondition] = []
 	if player_medical != null:
 		result.assign(player_medical.active_conditions)
+	return result
+
+
+func _npcs() -> Array[Node]:
+	var result: Array[Node] = []
+	for candidate: Node in get_tree().get_nodes_in_group("npc"):
+		if is_instance_valid(candidate) and "npc_name" in candidate:
+			result.append(candidate)
+	result.sort_custom(func(a: Node, b: Node) -> bool:
+		return String(a.get("npc_name")).naturalnocasecmp_to(String(b.get("npc_name"))) < 0)
+	return result
+
+
+func _npc_portrait_rect(npc: Node, minimum_size: Vector2) -> TextureRect:
+	var key: int = npc.get_instance_id()
+	var portrait: NPCPortraitViewport = _npc_portraits.get(key) as NPCPortraitViewport
+	if portrait == null or not is_instance_valid(portrait):
+		portrait = NPC_PORTRAIT.new() as NPCPortraitViewport
+		portrait.viewport_size = Vector2i(160, 176)
+		portrait.custom_minimum_size = Vector2.ONE
+		portrait.size = Vector2.ONE
+		_npc_portrait_host.add_child(portrait)
+		portrait.show_npc(npc)
+		_npc_portraits[key] = portrait
+	var texture: TextureRect = TextureRect.new()
+	texture.custom_minimum_size = minimum_size
+	texture.texture = portrait.get_portrait_texture()
+	texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return texture
+
+
+func _set_npc_portraits_active(active: bool) -> void:
+	for portrait_value: Variant in _npc_portraits.values():
+		var portrait: NPCPortraitViewport = portrait_value as NPCPortraitViewport
+		if portrait != null and is_instance_valid(portrait):
+			portrait.set_active(active)
+
+
+func _cleanup_npc_portraits(residents: Array[Node]) -> void:
+	var live: Dictionary = {}
+	for npc: Node in residents:
+		live[npc.get_instance_id()] = true
+	for key_value: Variant in _npc_portraits.keys():
+		if live.has(key_value):
+			continue
+		var portrait: NPCPortraitViewport = _npc_portraits[key_value] as NPCPortraitViewport
+		if portrait != null and is_instance_valid(portrait):
+			portrait.queue_free()
+		_npc_portraits.erase(key_value)
+
+
+func _npc_activity(npc: Node) -> String:
+	var brain_value: Variant = npc.get("brain")
+	if brain_value is Node and (brain_value as Node).has_method("current_label"):
+		return String((brain_value as Node).call("current_label"))
+	return "Idle"
+
+
+func _npc_conditions(npc: Node) -> Array:
+	var medical_value: Variant = npc.get("medical")
+	if medical_value is Node:
+		var conditions_value: Variant = (medical_value as Node).get("active_conditions")
+		if conditions_value is Array:
+			return conditions_value as Array
+	return []
+
+
+func _npc_relationship_label(npc: Node, target_id: String) -> String:
+	return String(npc.call("get_relationship_label", target_id)) if npc.has_method("get_relationship_label") else "Neutral"
+
+
+func _relationship_color(label_text: String) -> Color:
+	match label_text.to_lower():
+		"hostile": return S.RED
+		"cold": return INFECTION_COLOR
+		"friendly": return S.BLUE
+		"close": return S.GREEN
+	return S.MUTED
+
+
+func _set_badge(label: Label, text_value: String, color: Color) -> void:
+	label.text = text_value
+	label.add_theme_color_override("font_color", color)
+	var panel: PanelContainer = label.get_parent() as PanelContainer
+	if panel != null:
+		panel.add_theme_stylebox_override("panel", C.panel_box(Color("202625"), color.darkened(0.2), 16, 1, 4))
+
+
+func _condition_count_color(count: int) -> Color:
+	if count <= 0:
+		return S.GREEN
+	if count <= 2:
+		return S.GREEN.lerp(INFECTION_COLOR, float(count) / 2.0)
+	if count < 4:
+		return INFECTION_COLOR.lerp(S.RED, float(count - 2) / 2.0)
+	return S.RED
+
+
+func _npc_current_status(npc: Node) -> String:
+	var lines: Array[String] = ["Activity: %s" % _npc_activity(npc)]
+	var held: Variant = npc.get("held_item")
+	if held is Node and is_instance_valid(held as Node):
+		var held_node: Node = held as Node
+		var held_name: String = String(held_node.call("get_display_name")) if held_node.has_method("get_display_name") else held_node.name
+		lines.append("Carrying: %s" % held_name)
+	else:
+		lines.append("Carrying: Nothing")
+	if npc.has_method("get_status_labels"):
+		var status_value: Variant = npc.call("get_status_labels")
+		if status_value is Array and not (status_value as Array).is_empty():
+			lines.append_array(_string_array(status_value as Array))
+	return "\n".join(lines)
+
+
+func _npc_health_text(npc: Node) -> String:
+	var conditions: Array = _npc_conditions(npc)
+	if conditions.is_empty():
+		return "No active conditions"
+	var lines: Array[String] = []
+	for condition_value: Variant in conditions:
+		if condition_value is MedicalCondition:
+			var condition: MedicalCondition = condition_value as MedicalCondition
+			lines.append("%s — %s" % [_condition_title(condition), MedicalCondition.body_part_label(condition.body_part)])
+	return "\n".join(lines) if not lines.is_empty() else "%d active" % conditions.size()
+
+
+func _npc_traits_text(npc: Node) -> String:
+	if npc.has_method("get_personality_words"):
+		var words_value: Variant = npc.call("get_personality_words")
+		if words_value is Array and not (words_value as Array).is_empty():
+			return " • ".join(_string_array(words_value as Array))
+	return "No known traits"
+
+
+func _npc_skills_text(npc: Node) -> String:
+	var skills_value: Variant = npc.get("skills")
+	if not (skills_value is Dictionary):
+		return "No recorded skills"
+	var pieces: Array[String] = []
+	var skills: Dictionary = skills_value as Dictionary
+	for key_value: Variant in skills.keys():
+		pieces.append("%s %d" % [String(key_value).capitalize(), roundi(float(skills[key_value]) * 10.0)])
+	pieces.sort()
+	return " • ".join(pieces)
+
+
+func _npc_relationships_text(npc: Node) -> String:
+	var player_value: float = float(npc.call("get_relationship", "player")) if npc.has_method("get_relationship") else 0.0
+	var pieces: Array[String] = ["You: %s  %+.0f" % [_npc_relationship_label(npc, "player"), player_value]]
+	for other: Node in _npcs():
+		if other == npc:
+			continue
+		var target_id: String = String(other.get("npc_id"))
+		var value: float = float(npc.call("get_relationship", target_id)) if npc.has_method("get_relationship") else 0.0
+		pieces.append("%s: %s  %+.0f" % [String(other.get("npc_name")), _npc_relationship_label(npc, target_id), value])
+	return "\n".join(pieces)
+
+
+func _string_array(values: Array) -> Array[String]:
+	var result: Array[String] = []
+	for value: Variant in values:
+		result.append(String(value))
 	return result
 
 

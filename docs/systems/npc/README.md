@@ -54,6 +54,10 @@ directly commanded by the player. Persists through save/load.
   see `docs/systems/ui/README.md`'s `UIKit`/`NeedsGauge` sections for the
   broader palette convention this now matches), Status line, Skills, Personality,
   Talk → dialogue + command buttons + "Ask About" relationship Q&A, Close.
+- **`NPCPortraitViewport.gd`** (`scripts/ui/npc/`) — shared live head-and-
+  shoulders renderer used by the talk panel and the Status workspace's compact
+  overview/expandable NPC cards. Status caches one renderer per resident and
+  shares its texture between views instead of duplicating animated models.
 - **`NPC.tscn`** (`scenes/npc/`) — `CharacterBody3D`, capsule mesh/collision
   (radius 0.4, matches `BunkerNavMesh`'s `agent_radius`).
 - **`PickupableItem.gd`** (`scripts/world/items/`) — heavy items
@@ -2152,4 +2156,3 @@ called (the same clean-abandon method the existing stuck-recovery system already
 activity it was mid-way through is cleanly dropped and the brain picks something fresh next tick.
 Deliberately minimal: needs/mood/relationships/held item are all left completely untouched — "no
 adverse effects," per spec. Only ever expected to fire if Layer 1 is somehow bypassed.
-

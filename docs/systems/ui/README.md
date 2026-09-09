@@ -103,8 +103,8 @@ Do not silently migrate unrelated screens. See
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
 | `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain), `ItemPreviewKit.gd` (~235 — Aug 2026, shared static 3D item-preview builder used by `InventoryHUD`/`StorageUI`, see "Shared Item Preview Kit" and "Preview Scale Normalization + Deep Mesh Walk" below), `TrashBagInfoPanel.gd` (~200 — Aug 2026, first AMBIENT hover panel — a NEW panel category, see "Ambient Hover Panels (Aug 2026)" below) | Shared fade-in helper + shared theme/drawing kit + shared 3D item-preview builder — put any future cross-panel UI utility here |
 | `notifications/` | `NotificationManager.gd` (~175) | Central toast/notification system (see "NotificationManager" below) |
-| `medical/` | `StatusScreenUI.gd` (Aug 2026 — see "Medical Status Screen" below) | Medical Layer-3 deep-dive status screen |
-| `npc/` | `NPCTalkMenuUI.gd` | NPC E-panel (needs bars, status, skills, personality) — see `docs/systems/npc/README.md` for full detail; fixed per-stat bar colors as of Aug 2026, see "Cooking Pot UI Fixes..." below is unrelated — see the NPC doc directly for the color table |
+| `medical/` | `StatusScreenUI.gd` (Sep 2026 — see "Medical Status Screen" below) | Player Status workspace with Health, NPC resident overview, and inventory inspection |
+| `npc/` | `NPCTalkMenuUI.gd`, `NPCPortraitViewport.gd` | NPC E-panel plus the shared live head renderer reused by resident summaries in Status; see `docs/systems/npc/README.md` for full detail |
 
 ## Public API (representative — not exhaustive, see each panel's own header)
 Every interaction panel follows the same shape: `open(...)` / `close()` /

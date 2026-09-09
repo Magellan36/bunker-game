@@ -55,7 +55,9 @@ func _run() -> void:
 	var tabs: Array = ui.get("_tab_buttons") as Array
 	var pages: Array = ui.get("_pages") as Array
 	_check(tabs.size() == 4 and pages.size() == 4,
-		"overview, health, needs, and inventory sections exist")
+		"overview, health, NPC, and inventory sections exist")
+	_check((pages[2] as Control).name == "NPCPage",
+		"NPC workspace replaces the redundant needs page")
 	var summaries: Dictionary = ui.get("_summary_metrics") as Dictionary
 	_check(summaries.size() == 5,
 		"persistent health, food, water, stamina, and sleep summary exists")
@@ -76,6 +78,13 @@ func _run() -> void:
 	var condition_cards: Dictionary = ui.get("_condition_cards") as Dictionary
 	_check(condition_cards.size() == 2,
 		"health section presents each active condition on the selected body region")
+	for refs_value: Variant in condition_cards.values():
+		var refs: Dictionary = refs_value as Dictionary
+		_check((refs["button"] as Button).custom_minimum_size.y <= 74.0,
+			"medical condition rows use compact information-first sizing")
+	var gutters: Array[Node] = ui.find_children("ScrollContentGutter", "MarginContainer", true, false)
+	_check(gutters.size() >= 3,
+		"health and NPC scroll surfaces reserve the shared scrollbar gutter")
 	_check(String(ui.call("_treatment_kind", bleed)) == "bandage",
 		"bleeding retains Bandage treatment mapping")
 	_check(String(ui.call("_treatment_kind", wound)) == "antibiotics",
