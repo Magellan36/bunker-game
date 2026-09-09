@@ -744,7 +744,7 @@ func _refresh_connectable_dots() -> void:
 
 	## Connectable tile IDs — generators, terminal, wall lights, water hookup/sink/dispenser
 	const CONNECTABLE_TILES: Array[int] = [
-		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L,
+		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT,
 		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER,
 		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO,
 		TILE_STOVE
@@ -799,13 +799,6 @@ func _refresh_connectable_dots() -> void:
 			dot_x = 0.0
 		dot_mi.position = Vector3(dot_x, dot_y, 0.0)
 		obj.add_child(dot_mi)
-		if tile_id in [TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO, TILE_STOVE]:
-			var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-			if pm != null:
-				for data: Dictionary in pm.get_wire_nodes():
-					if data.get("device_id", "") == str(obj.get_instance_id()):
-						dot_mi.global_position = data["pos"]
-						break
 		_connectable_dots[obj] = dot_mi
 
 func _clear_connectable_dots() -> void:
@@ -2374,11 +2367,13 @@ func _get_hovered_wire_segment() -> Node3D:
 		## Pregen wires are protected — skip so they never show the red hover highlight.
 		if ws.has_meta("_is_pregen"):
 			continue
-		if ws.is_queued_for_deletion() or not ws is WireSegment:
+		## Point-to-ray distance check
+		var to_ws: Vector3 = ws.global_position - ray_origin
+		var proj: float    = to_ws.dot(ray_dir)
+		if proj < 0.0 or proj > ray_length:
 			continue
-		var wire := ws as WireSegment
-		var perp_dist: float = _closest_dist_ray_to_segment(
-			ray_origin, ray_dir, ray_length, wire.point_a, wire.point_b)
+		var closest_on_ray: Vector3 = ray_origin + ray_dir * proj
+		var perp_dist: float = ws.global_position.distance_to(closest_on_ray)
 		if perp_dist < best_dist:
 			best_dist = perp_dist
 			best_ws   = ws
@@ -2402,16 +2397,6 @@ func _try_deconstruct_wire(ws: Node3D) -> void:
 	var pt_b: Vector3   = ws.get("point_b") if ws.get("point_b") != null else Vector3.ZERO
 	var length: float   = pt_a.distance_to(pt_b)
 	var refund: int     = int(length * WIRE_COST_PER_M)
-
-	# Deconstruction already returns this portion of the paid run. Undo must
-	# only refund the remainder, including when the run was split for a tap.
-	if ws is WireSegment and not ws.run_id.is_empty():
-		for entry: Dictionary in _undo_stack:
-			if entry.get("run_id", "") == ws.run_id:
-				entry["cost"] = maxi(0, int(entry.get("cost", 0)) - refund)
-
-	if world_node != null and world_node.has_method("forget_player_wire"):
-		world_node.forget_player_wire(ws)
 
 	## Unregister from PowerManager
 	if pm != null and not edge_id.is_empty():

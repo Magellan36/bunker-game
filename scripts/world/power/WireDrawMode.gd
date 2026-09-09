@@ -13,7 +13,7 @@ extends Node
 ##
 ## Wire nodes are positions registered with PowerManager.register_wire_node().
 ## We query PM.get_wire_nodes() (returns Array[Dictionary] with "pos" key)
-## to find snappable nodes within SNAP_PIXELS of the cursor on screen.
+## to find snappable nodes within SNAP_RADIUS of the cursor world hit.
 
 ## Emitted after a wire is successfully placed.
 signal wire_placed(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vector3)
@@ -27,13 +27,14 @@ signal wire_tool_exit_requested()
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
 ## Flip false to silence all [WireDrawMode] click/snap prints.
-const WIRE_DEBUG: bool = false
+const WIRE_DEBUG: bool = true
 func _wdbg(msg: String) -> void:
 	if WIRE_DEBUG:
 		print(msg)
 
 # ─── Tuning ───────────────────────────────────────────────────────────────────
-const SNAP_PIXELS: float = 18.0  ## includes elevated connectors in screen space
+const SNAP_RADIUS:      float = 2.5    ## metres — auto-snap attraction radius; generous so generators/wires are always reachable
+const FREE_JOINT_MIN:   float = 1.5    ## metres — only allow free joint creation when nearest node is farther than this
 const COST_PER_M:       float = 8.0    ## dollars per metre
 const WIRE_RADIUS:      float = 0.025  ## tube radius for ghost and real wire
 const DOT_RADIUS:       float = 0.06   ## radius of the source / dest snap dot
@@ -55,7 +56,6 @@ var ray_length:  float       = 50.0
 var _phase:       int     = 0
 var _source_key:  String  = ""
 var _source_pos:  Vector3 = Vector3.ZERO
-var _source_existing: bool = false
 
 ## Ghost visuals — NOT in the "wire_segment" group so group broadcasts
 ## (e.g. hide-on-exit-build-mode) never accidentally kill them mid-drag.
@@ -107,7 +107,7 @@ func _process(delta: float) -> void:
 	if _phase == 0:
 		_clear_ghost()
 		_clear_cost_label()
-		if cursor_world.is_finite():
+		if cursor_world != Vector3.ZERO:
 			## Auto-snap cursor to nearest node for hover highlight — makes it
 			## visually clear which node will be selected on click.
 			var hover: Dictionary = _get_nearest_wire_node(cursor_world, "")
@@ -116,12 +116,12 @@ func _process(delta: float) -> void:
 			_update_hover_label({})
 		return
 
-	if not cursor_world.is_finite():
+	if cursor_world == Vector3.ZERO:
 		return
 
 	# Find nearest snappable destination node.
 	# The cursor "effective position" is snapped to the nearest node when within
-	# SNAP_PIXELS, so the ghost wire locks onto it before the player clicks.
+	# SNAP_RADIUS, so the ghost wire locks onto it before the player clicks.
 	var nearest: Dictionary = _get_nearest_wire_node(cursor_world, _source_key)
 	var snapped:  bool      = not nearest.is_empty()
 	## Snap to existing node if within radius, otherwise use grid position.
@@ -132,7 +132,7 @@ func _process(delta: float) -> void:
 
 	# Pulse animation for dots
 	_pulse_t += delta * DOT_PULSE_SPEED
-	var pulse_scale: float = 1.0 if UIMotion.reduced() else 1.0 + 0.06 * sin(_pulse_t)
+	var pulse_scale: float = 1.0 + 0.18 * sin(_pulse_t)
 
 	# Source dot — stays fixed at source
 	if _dot_src == null:
@@ -155,7 +155,7 @@ func _process(delta: float) -> void:
 
 	# Live cost label at wire midpoint
 	var midpoint: Vector3 = (_source_pos + dest_pos) * 0.5
-	var dist: float = WireRoute.length(WireRoute.points(_source_pos, dest_pos))
+	var dist: float = _source_pos.distance_to(dest_pos)
 	var cost: int   = int(ceil(dist * COST_PER_M))
 	_update_cost_label(midpoint, cost)
 
@@ -190,82 +190,161 @@ func handle_input(event: InputEvent) -> bool:
 
 # ─── Phase 0: pick source node ───────────────────────────────────────────────
 func _try_pick_source() -> bool:
-	var cursor: Vector3 = _get_cursor_world_pos()
-	if not cursor.is_finite():
+	var cursor_world: Vector3 = _get_cursor_world_pos()
+	if cursor_world == Vector3.ZERO:
 		return false
-	var nearest: Dictionary = _get_nearest_wire_node(cursor, "")
-	_source_existing = not nearest.is_empty()
-	_source_pos = nearest["pos"] if _source_existing else _grid_snap(cursor)
-	_source_key = nearest["key"] if _source_existing else _make_free_key(_source_pos)
-	_phase = 1
+
+	## Prefer snapping to an existing PM wire node within SNAP_RADIUS.
+	## IMPORTANT: if ANY node exists within SNAP_RADIUS, always snap to it —
+	## never create a free joint, which would form a new disconnected zone.
+	var nearest: Dictionary = _get_nearest_wire_node(cursor_world, "")
+	if not nearest.is_empty():
+		_source_key = nearest["key"]
+		_source_pos = nearest["pos"]
+		_wdbg("[WireDrawMode] Phase0: snapped to existing node key=%s pos=%s" % [_source_key, _source_pos])
+	else:
+		## No existing node within SNAP_RADIUS — safe to create a free joint
+		## only if we're genuinely far from everything (> FREE_JOINT_MIN).
+		## This prevents accidentally starting a new isolated zone when clicking
+		## just outside snap range of a generator or existing wire.
+		var any_nearby: Dictionary = _get_nearest_wire_node_wide(cursor_world, "", FREE_JOINT_MIN)
+		if not any_nearby.is_empty():
+			## Too close to an existing node but outside SNAP_RADIUS — snap anyway
+			## with a helpful hint so the player knows what happened.
+			_source_key = any_nearby["key"]
+			_source_pos = any_nearby["pos"]
+			_wdbg("[WireDrawMode] Phase0: forced-snap to nearby node key=%s (within FREE_JOINT_MIN)" % _source_key)
+		else:
+			## Genuinely open space — create a free joint.
+			## But first check for an existing node at the same XZ (different Y)
+			## so we don't accidentally create a disconnected zone.
+			var grid_pos: Vector3 = _grid_snap(cursor_world)
+			var xz_match: Dictionary = _find_existing_node_at_xz(grid_pos)
+			if not xz_match.is_empty():
+				_source_key = xz_match["key"]
+				_source_pos = xz_match["pos"]
+				_wdbg("[WireDrawMode] Phase0: XZ-matched existing node key=%s (Y-diff absorbed)" % _source_key)
+			else:
+				_source_key = _make_free_key(grid_pos)
+				_source_pos = grid_pos
+				var pm: PowerManager = _get_pm()
+				if pm != null:
+					pm.register_wire_node(grid_pos, "joint", "")
+				_wdbg("[WireDrawMode] Phase0: free joint at grid_pos=%s key=%s" % [grid_pos, _source_key])
+
+	_phase   = 1
 	_pulse_t = 0.0
 	return true
 
+# ─── Phase 1: pick destination node and place wire ───────────────────────────
 func _try_pick_dest() -> bool:
-	var cursor: Vector3 = _get_cursor_world_pos()
-	var pm: PowerManager = _get_pm()
-	if not cursor.is_finite() or pm == null:
+	var cursor_world: Vector3 = _get_cursor_world_pos()
+	if cursor_world == Vector3.ZERO:
 		return false
-	if _source_existing and not pm._wire_nodes.has(_source_key):
-		_show_warning("The starting connection was removed")
-		_cancel()
-		return true
-	var nearest: Dictionary = _get_nearest_wire_node(cursor, _source_key)
-	var destination: Vector3 = nearest["pos"] if not nearest.is_empty() else _grid_snap(cursor)
-	var path: PackedVector3Array = WireRoute.points(_source_pos, destination)
-	if path.size() < 2:
-		_show_warning("Select a different connection")
-		return true
-	var keys: Array[String] = []
-	for point: Vector3 in path:
-		keys.append(_make_free_key(point))
-	keys[0] = _source_key
+
+	var dest_key: String
+	var dest_pos: Vector3
+
+	var nearest: Dictionary = _get_nearest_wire_node(cursor_world, _source_key)
 	if not nearest.is_empty():
-		keys[-1] = nearest["key"]
-	for i: int in range(1, keys.size()):
-		if keys[i - 1] == keys[i] or pm.has_wire_edge(WireRoute.edge_id(keys[i - 1], keys[i])):
-			_show_warning("A wire already occupies part of this route")
-			return true
-	for edge: Dictionary in pm.get_wire_edges():
-		if bool(edge.get("no_visual", false)):
-			continue
-		for i: int in range(1, path.size()):
-			if WireRoute.overlaps(path[i - 1], path[i], pm.get_wire_node_pos(edge["node_a"]), pm.get_wire_node_pos(edge["node_b"])):
-				_show_warning("A wire already occupies part of this route")
-				return true
-	var cost: int = ceili(WireRoute.length(path) * COST_PER_M)
-	if world_node == null or not world_node.spend_cash(cost):
-		_show_warning("Not enough cash for this wire")
+		dest_key = nearest["key"]
+		dest_pos = nearest["pos"]
+		_wdbg("[WireDrawMode] Phase1: snapped dest to existing node key=%s pos=%s" % [dest_key, dest_pos])
+	else:
+		## Check for nodes within FREE_JOINT_MIN — force-snap rather than orphan.
+		var any_nearby: Dictionary = _get_nearest_wire_node_wide(cursor_world, _source_key, FREE_JOINT_MIN)
+		if not any_nearby.is_empty():
+			dest_key = any_nearby["key"]
+			dest_pos = any_nearby["pos"]
+			_wdbg("[WireDrawMode] Phase1: forced-snap dest to nearby node key=%s" % dest_key)
+		else:
+			## Genuinely open space — create a free joint.
+			## But first check for an existing node at the same XZ (different Y)
+			## to avoid creating a disconnected zone.
+			var grid_pos: Vector3 = _grid_snap(cursor_world)
+			var xz_match: Dictionary = _find_existing_node_at_xz(grid_pos)
+			if not xz_match.is_empty():
+				dest_key = xz_match["key"]
+				dest_pos = xz_match["pos"]
+				_wdbg("[WireDrawMode] Phase1: XZ-matched existing dest node key=%s (Y-diff absorbed)" % dest_key)
+			else:
+				dest_key = _make_free_key(grid_pos)
+				dest_pos = grid_pos
+				var pm2: PowerManager = _get_pm()
+				if pm2 != null:
+					pm2.register_wire_node(grid_pos, "joint", "")
+				_wdbg("[WireDrawMode] Phase1: free dest joint at grid_pos=%s key=%s" % [grid_pos, dest_key])
+
+	if dest_key == _source_key:
+		_show_warning("Select a different node")
 		return true
-	var color_snapshot: Dictionary = pm.snapshot_zone_colors()
-	var run: String = "wire_%d" % Time.get_ticks_usec()
-	pm.begin_bulk()
-	for i: int in path.size():
-		if not pm._wire_nodes.has(keys[i]):
-			keys[i] = pm.register_wire_node(path[i], "joint", "", true)
-	for i: int in range(1, path.size()):
-		var id: String = WireRoute.edge_id(keys[i - 1], keys[i])
-		var seg := _spawn_wire_segment(path[i - 1], path[i], id) as WireSegment
-		seg.player_placed = true
-		seg.run_id = run
-		seg.set_meta("zone_color_snap", color_snapshot)
-		pm.register_wire_edge(keys[i - 1], keys[i], seg)
-		seg.play_placement()
-		var midpoint: Vector3 = (path[i - 1] + path[i]) * 0.5
-		wire_placed.emit(seg, id, cost if i == 1 else 0, midpoint)
-		wire_nodes_connected.emit(keys[i - 1], path[i - 1], keys[i], path[i])
-	pm.end_bulk()
-	_spawn_float_label((_source_pos + destination) * 0.5, cost, false)
-	_cancel()
+
+	## ── Duplicate wire check ──────────────────────────────────────────────
+	## Build the same canonical edge_id PM would produce and check if it exists.
+	var pm_check: PowerManager = _get_pm()
+	if pm_check != null:
+		var parts_check: Array[String] = [_source_key, dest_key]
+		parts_check.sort()
+		var would_be_id: String = "e_%s__%s" % [parts_check[0], parts_check[1]]
+		var existing_edges: Dictionary = pm_check.get("_wire_edges") if pm_check.get("_wire_edges") != null else {}
+		if existing_edges.has(would_be_id):
+			_show_warning("A wire is already placed there")
+			_wdbg("[WireDrawMode] Blocked duplicate wire: %s" % would_be_id)
+			return true
+
+	# Cost check
+	var dist: float = _source_pos.distance_to(dest_pos)
+	var cost: int   = int(ceil(dist * COST_PER_M))
+
+	if world_node != null and world_node.has_method("get_cash"):
+		if world_node.get_cash() < cost:
+			_show_warning("Not enough cash — need %s (%dm × %s/m)" % [
+				UIFormat.money(cost), int(dist), UIFormat.money(roundi(COST_PER_M))])
+			return true
+
+	# Spend cash
+	if world_node != null and world_node.has_method("spend_cash"):
+		world_node.spend_cash(cost)
+
+	# Register edge in PowerManager — no capacity_w arg in v3.1
+	var pm: PowerManager = _get_pm()
+	var edge_id: String = ""
+	if pm != null:
+		edge_id = pm.register_wire_edge(_source_key, dest_key)
+
+	# Spawn permanent WireSegment
+	var seg: Node3D = _spawn_wire_segment(_source_pos, dest_pos, edge_id)
+
+	# Notify BuildModeController
+	var midpoint: Vector3 = (_source_pos + dest_pos) * 0.5
+	## Floating "-$X" label at the moment of spend (July 2026 playtest pass,
+	## added for parity with the "+$X" refund label BuildUndoStack's "wire"
+	## case already shows on undo) — pipes now show the equivalent pair too,
+	## see WaterPipeDrawMode._spawn_float_label().
+	_spawn_float_label(midpoint, cost, false)
+	wire_placed.emit(seg, edge_id, cost, midpoint)
+	wire_nodes_connected.emit(_source_key, _source_pos, dest_key, dest_pos)
+
+	# Reset to idle
+	_clear_ghost()
+	_clear_cost_label()
+	_phase      = 0
+	_source_key = ""
 	return true
 
+# ─── Ghost wire ──────────────────────────────────────────────────────────────
 func _update_ghost_wire(from: Vector3, to: Vector3, snapped: bool) -> void:
 	if _ghost_wire == null:
 		_ghost_wire = WireSegment.make_ghost_wire(_get_scene_root(), from, to)
 	else:
-		_ghost_wire.set_endpoints(from, to)
+		if _ghost_wire.has_method("set_endpoints"):
+			_ghost_wire.set_endpoints(from, to)
+
 	_ghost_wire.visible = true
-	(_ghost_wire as WireSegment).set_preview_color(SNAP_COLOR if snapped else GHOST_COLOR)
+
+	var mat: StandardMaterial3D = _ghost_wire.get("_material")
+	if mat != null:
+		mat.albedo_color = SNAP_COLOR if snapped else GHOST_COLOR
 
 func _clear_ghost() -> void:
 	if _ghost_wire != null:
@@ -459,35 +538,76 @@ func _spawn_wire_segment(from: Vector3, to: Vector3, edge_id: String) -> Node3D:
 # ─── Raycasting ──────────────────────────────────────────────────────────────
 func _get_cursor_world_pos() -> Vector3:
 	if camera == null:
-		return Vector3.INF
-	var mouse: Vector2 = camera.get_viewport().get_mouse_position()
-	var origin: Vector3 = camera.project_ray_origin(mouse)
-	var direction: Vector3 = camera.project_ray_normal(mouse)
-	if absf(direction.y) < 0.0001:
-		return Vector3.INF
-	var t: float = (_WIRE_Y - origin.y) / direction.y
-	return origin + direction * t if t >= 0.0 else Vector3.INF
+		return Vector3.ZERO
+	var vp: Viewport = camera.get_viewport()
+	if vp == null:
+		return Vector3.ZERO
+	var mouse: Vector2 = vp.get_mouse_position()
+	var from: Vector3  = camera.project_ray_origin(mouse)
+	var dir: Vector3   = camera.project_ray_normal(mouse)
+	var to: Vector3    = from + dir * ray_length
 
-func _get_nearest_wire_node(_world_pos: Vector3, exclude_key: String) -> Dictionary:
+	var space: PhysicsDirectSpaceState3D   = camera.get_world_3d().direct_space_state
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
+	query.collision_mask = 0xFFFFFFFF
+	## Skip physics-only failsafes (the bunker ceiling) — the wire tool's ray
+	## comes from above in the top-down camera and would otherwise hit the
+	## ceiling's top face before any wall/floor it's meant to target.
+	query.exclude = BuildModeController.get_failsafe_exclude_rids(self)
+	var result: Dictionary = space.intersect_ray(query)
+	if result.is_empty():
+		var t: float = (1.0 - from.y) / max(abs(dir.y), 0.0001)
+		if t > 0.0:
+			return from + dir * t
+		return Vector3.ZERO
+	return result["position"]
+
+# ─── Wire node query ─────────────────────────────────────────────────────────
+func _get_nearest_wire_node(world_pos: Vector3, exclude_key: String) -> Dictionary:
 	var pm: PowerManager = _get_pm()
-	if pm == null or camera == null:
+	if pm == null:
 		return {}
-	var mouse: Vector2 = camera.get_viewport().get_mouse_position()
-	var best_distance: float = SNAP_PIXELS
+
+	var nodes: Array = pm.get_wire_nodes()
+	var best_dist: float = SNAP_RADIUS
 	var best: Dictionary = {}
-	for data: Dictionary in pm.get_wire_nodes():
-		var key: String = data.get("key", "")
-		var position: Vector3 = data.get("pos", Vector3.ZERO)
-		if key == exclude_key or bool(pm._wire_nodes[key].get("wall_feed", false)) or camera.is_position_behind(position):
+
+	for node_data: Dictionary in nodes:
+		var k: String  = node_data.get("key", "")
+		var p: Vector3 = node_data.get("pos", Vector3.ZERO)
+		if k == exclude_key:
 			continue
-		var distance: float = camera.unproject_position(position).distance_to(mouse)
-		if distance < best_distance or (is_equal_approx(distance, best_distance) and key < String(best.get("key", "~"))):
-			best_distance = distance
-			best = data
+		var d: float = Vector2(world_pos.x, world_pos.z).distance_to(Vector2(p.x, p.z))
+		if d < best_dist:
+			best_dist = d
+			best = node_data
+
 	return best
 
+## Wider search — same as _get_nearest_wire_node but uses a custom radius
+## instead of SNAP_RADIUS. Used for forced-snap / anti-orphan checks.
+func _get_nearest_wire_node_wide(world_pos: Vector3, exclude_key: String, radius: float) -> Dictionary:
+	var pm: PowerManager = _get_pm()
+	if pm == null:
+		return {}
 
+	var nodes: Array = pm.get_wire_nodes()
+	var best_dist: float = radius
+	var best: Dictionary = {}
 
+	for node_data: Dictionary in nodes:
+		var k: String  = node_data.get("key", "")
+		var p: Vector3 = node_data.get("pos", Vector3.ZERO)
+		if k == exclude_key:
+			continue
+		var d: float = Vector2(world_pos.x, world_pos.z).distance_to(Vector2(p.x, p.z))
+		if d < best_dist:
+			best_dist = d
+			best = node_data
+
+	return best
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 func _get_pm() -> PowerManager:
 	return get_tree().get_first_node_in_group("power_manager") as PowerManager
 
@@ -534,7 +654,12 @@ func cancel_placement() -> void:
 
 # ─── Grid snap helpers ────────────────────────────────────────────────────────
 const _WIRE_GRID: float = 0.25   ## must match PowerManager.SNAP_GRID
-## Canonical free-floor-joint height. Selected device nodes keep their actual Y.
+## Canonical wire height — must match MainWorld._rebuild_auto_wires WIRE_Y.
+## All free joints and player wire endpoints are clamped to this Y so their
+## snap keys match the auto-wire nodes (which are always at Y=1.0).
+## Without this, a cursor raycast hitting the floor (Y≈0) produces a key like
+## "X,0,Z" that never merges with an existing "X,4,Z" auto-wire node, causing
+## spurious new zones every time the player places a wire mid-run.
 const _WIRE_Y: float = 1.0
 
 ## Snap a world position to the 0.25 m grid.
@@ -556,3 +681,20 @@ func _make_free_key(pos: Vector3) -> String:
 	var iy: int = roundi(pos.y / _WIRE_GRID)
 	var iz: int = roundi(pos.z / _WIRE_GRID)
 	return "%d,%d,%d" % [ix, iy, iz]
+
+## Look for an existing PM wire node at the same XZ position as `pos`,
+## regardless of Y.  If found, return that node's key and position so that
+## the new wire connects to the existing grid rather than creating a
+## disconnected free joint at a different Y level.
+## Returns {} if no match found.
+func _find_existing_node_at_xz(pos: Vector3) -> Dictionary:
+	var pm: PowerManager = _get_pm()
+	if pm == null:
+		return {}
+	var snap_x: float = roundf(pos.x / _WIRE_GRID) * _WIRE_GRID
+	var snap_z: float = roundf(pos.z / _WIRE_GRID) * _WIRE_GRID
+	for node_data: Dictionary in (pm.get_wire_nodes() as Array):
+		var np: Vector3 = node_data.get("pos", Vector3.ZERO)
+		if absf(np.x - snap_x) < _WIRE_GRID * 0.5 and absf(np.z - snap_z) < _WIRE_GRID * 0.5:
+			return node_data
+	return {}

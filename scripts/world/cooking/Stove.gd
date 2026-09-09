@@ -116,6 +116,67 @@ func _register_deferred() -> void:
 		1,        ## priority — appliance-tier, not life-support
 		false)    ## NOT active from the start
 
+	_auto_connect_to_nearby_wires(pm)
+
+
+## Copied (pattern) from GrowLight._auto_connect_to_nearby_wires() — confirmed
+## Aug 2026 that the Stove should auto-connect like every other consumer.
+func _auto_connect_to_nearby_wires(pm: PowerManager) -> void:
+	if _pm_node_key == "":
+		return
+	const AUTO_CONNECT_RADIUS: float = 0.75
+	var my_pos: Vector3 = global_position
+
+	var edge_endpoint_keys: Dictionary = {}
+	var edges: Array[Dictionary] = pm.get_wire_edges()
+	for ed: Dictionary in edges:
+		var na: String = ed.get("node_a", "")
+		var nb: String = ed.get("node_b", "")
+		if not na.is_empty(): edge_endpoint_keys[na] = true
+		if not nb.is_empty(): edge_endpoint_keys[nb] = true
+
+	var best_key:  String = ""
+	var best_dist: float  = AUTO_CONNECT_RADIUS + 0.001
+
+	for pass_idx: int in range(2):
+		for wn: Dictionary in pm.get_wire_nodes():
+			var wn_key: String = wn.get("key", "")
+			if wn_key == _pm_node_key:
+				continue
+			if wn.get("role", "joint") != "joint":
+				continue
+			if pass_idx == 0 and not edge_endpoint_keys.has(wn_key):
+				continue
+			var wn_pos: Vector3 = wn.get("pos", Vector3.ZERO)
+			var dx: float = wn_pos.x - my_pos.x
+			var dz: float = wn_pos.z - my_pos.z
+			var dist: float = sqrt(dx * dx + dz * dz)
+			if dist < best_dist:
+				best_dist = dist
+				best_key  = wn_key
+		if best_key != "":
+			break
+
+	if best_key != "":
+		var ac_eid: String = pm.register_wire_edge(_pm_node_key, best_key, null, true)
+		pm.set_wire_edge_no_visual(ac_eid)
+
+
+## Called by BuildModeController after a new wire node is placed nearby.
+func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
+	if _pm_node_key == "":
+		return
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
+		return
+	const AUTO_CONNECT_RADIUS: float = 0.75
+	var dx: float = wn_pos.x - global_position.x
+	var dz: float = wn_pos.z - global_position.z
+	if sqrt(dx * dx + dz * dz) <= AUTO_CONNECT_RADIUS:
+		var nw_eid: String = pm.register_wire_edge(_pm_node_key, wn_key, null, true)
+		pm.set_wire_edge_no_visual(nw_eid)
+
+
 # ─── PowerManager callbacks (required interface) ──────────────────────────────
 ## The registered consumer is only EVER active while cooking (see
 ## _refresh_cooking_state), so `on` here is only ever true while

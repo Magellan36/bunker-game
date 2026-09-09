@@ -156,28 +156,6 @@ func _undo() -> void:
 					reg_entry["world_pos"] = old_pos
 					break
 
-	elif type == "wire_run":
-		var pm_run: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
-		var run: String = entry["run_id"]
-		if pm_run != null:
-			pm_run.begin_bulk()
-		for raw: Node in _owner.get_tree().get_nodes_in_group("wire_segment"):
-			var seg := raw as WireSegment
-			if seg != null and seg.run_id == run and not seg.is_queued_for_deletion():
-				if _owner.world_node != null and _owner.world_node.has_method("forget_player_wire"):
-					_owner.world_node.forget_player_wire(seg)
-				if pm_run != null:
-					pm_run.unregister_wire_edge(seg.edge_id)
-				seg.queue_free()
-		if pm_run != null:
-			pm_run.restore_zone_colors(entry.get("zone_color_snap", {}))
-			pm_run.end_bulk()
-		var refund: int = entry.get("cost", 0)
-		if _owner.world_node != null:
-			_owner.world_node.add_cash(refund)
-		_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), refund, true)
-		_owner._recolor_wire_zones()
-
 	elif type == "wire":
 		## Undo a wire placement: free the segment node, unregister the PM edge, refund cash.
 		var seg_node_raw: Variant = entry.get("node", null)
@@ -319,20 +297,26 @@ func _push_undo_move(body: Node3D, reg_entry: Dictionary, old_pos: Vector3) -> v
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
 func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vector3) -> void:
-	var seg := seg_node as WireSegment
-	var run: String = seg.run_id if seg != null else ""
-	var snap: Dictionary = seg_node.get_meta("zone_color_snap", {})
-	if not run.is_empty() and not _owner._undo_stack.is_empty() and _owner._undo_stack[-1].get("run_id", "") == run:
-		_owner._undo_stack[-1]["cost"] += cost
-		return
+	## Capture color state BEFORE this wire's placement causes a zone-merge/recolor.
+	var zone_color_snap: Dictionary = {}
+	var pm: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
+		zone_color_snap = pm.snapshot_zone_colors()
+
 	_owner._undo_stack.append({
-		"type": "wire" if run.is_empty() else "wire_run", "run_id": run,
-		"node": seg_node, "edge_id": edge_id, "cost": cost,
-		"world_pos": midpoint, "zone_color_snap": snap,
+		"type":            "wire",
+		"node":            seg_node,
+		"edge_id":         edge_id,
+		"cost":            cost,
+		"world_pos":       midpoint,
+		"zone_color_snap": zone_color_snap,   ## restore on undo
 	})
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
 
+## Mirrors _push_undo_wire() immediately above. No zone-color snapshot —
+## the water system has no zones/breakers to preserve (see
+## docs/systems/water/README.md Non-responsibilities).
 func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: Array, midpoint: Vector3) -> void:
 	_owner._undo_stack.append({
 		"type":        "pipe",

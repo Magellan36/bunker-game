@@ -613,9 +613,6 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 		var dead_wire_keys: Array[String] = []
 		for pw_key: String in _owner._player_wire_segs:
 			var pw: Dictionary = _owner._player_wire_segs[pw_key]
-			var live: Variant = pw.get("seg_node")
-			if is_instance_valid(live) and live is WireSegment and not live.is_queued_for_deletion() and live.player_placed and pm.has_wire_edge(live.edge_id) and (not is_equal_approx(live.point_a.y, WIRE_Y) or not is_equal_approx(live.point_b.y, WIRE_Y)):
-				continue
 			var pa: Vector3 = pw["pos_a"]
 			var pb: Vector3 = pw["pos_b"]
 			var a_ok: bool = _near_boundary.call(pa)

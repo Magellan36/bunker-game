@@ -190,10 +190,7 @@ func _register_deferred() -> void:
 	_pm_node_key = pm.register_wire_node(
 		global_position,
 		"consumer",    ## role must be "consumer" for _is_consumer_reachable() BFS
-		dev_id, true)  ## preserve the wall mounting height
-	var feed := WallWireAttachment.new()
-	add_child(feed)
-	feed.bind(self, pm, _pm_node_key)
+		dev_id)        ## device_id links wire node → consumer dict entry
 
 # ─── Mesh ─────────────────────────────────────────────────────────────────────
 func _build_mesh() -> void:
