@@ -33,8 +33,6 @@ var power_watts:    float  = 0.0
 var power_priority: int    = 1
 var power_zone:     String = "main"
 var _pm_node_key:   String = ""
-var _auto_wire_edge_id: String = ""
-var _wire_refresh_queued: bool = false
 var _is_connected:  bool   = false  ## True when reachable via the wire graph (cosmetic only now)
 
 ## Internal refs
@@ -192,87 +190,11 @@ func _register_deferred() -> void:
 	_pm_node_key = pm.register_wire_node(
 		global_position,
 		"consumer",    ## role must be "consumer" for _is_consumer_reachable() BFS
-		dev_id)        ## device_id links wire node → consumer dict entry
-
-	## Wall-mounted terminals receive power through a short logical handoff to a
-	## nearby physical wire. Listening to graph mutations covers both placement
-	## orders without coupling this device to BuildModeController.
-	if not pm.wire_edge_registered.is_connected(_queue_wire_attachment_refresh):
-		pm.wire_edge_registered.connect(_queue_wire_attachment_refresh)
-	if not pm.wire_edge_unregistered.is_connected(_queue_wire_attachment_refresh):
-		pm.wire_edge_unregistered.connect(_queue_wire_attachment_refresh)
-	_queue_wire_attachment_refresh("")
-
-
-func _queue_wire_attachment_refresh(_changed_edge_id: String) -> void:
-	if _wire_refresh_queued:
-		return
-	_wire_refresh_queued = true
-	call_deferred("_refresh_wire_attachment")
-
-
-func _refresh_wire_attachment() -> void:
-	_wire_refresh_queued = false
-	if _pm_node_key.is_empty() or not is_inside_tree():
-		return
-	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm == null:
-		return
-
-	## Only physical edges establish the local handoff. This prevents terminals
-	## from daisy-chaining through other invisible device feeds.
-	var physical_endpoint_keys: Dictionary = {}
-	var auto_target_key: String = ""
-	for edge: Dictionary in pm.get_wire_edges():
-		var edge_id: String = String(edge.get("id", ""))
-		var node_a: String = String(edge.get("node_a", ""))
-		var node_b: String = String(edge.get("node_b", ""))
-		if edge_id == _auto_wire_edge_id:
-			auto_target_key = node_b if node_a == _pm_node_key else node_a
-			continue
-		if bool(edge.get("no_visual", false)):
-			continue
-		## An explicit visible wire to the terminal always wins.
-		if node_a == _pm_node_key or node_b == _pm_node_key:
-			return
-		physical_endpoint_keys[node_a] = true
-		physical_endpoint_keys[node_b] = true
-
-	if not auto_target_key.is_empty() and physical_endpoint_keys.has(auto_target_key):
-		return
-	if not _auto_wire_edge_id.is_empty() and pm.has_wire_edge(_auto_wire_edge_id):
-		pm.unregister_wire_edge(_auto_wire_edge_id)
-	_auto_wire_edge_id = ""
-	if physical_endpoint_keys.is_empty():
-		return
-
-	const AUTO_CONNECT_RADIUS: float = 0.75
-	var best_key: String = ""
-	var best_dist_sq: float = AUTO_CONNECT_RADIUS * AUTO_CONNECT_RADIUS
-	## Prefer physical endpoints; then allow the graph's intermediate joints so
-	## a terminal beside the middle of a long run can trigger the normal split.
-	for pass_idx: int in range(2):
-		for wire_node: Dictionary in pm.get_wire_nodes():
-			var wire_key: String = String(wire_node.get("key", ""))
-			if wire_key.is_empty() or wire_key == _pm_node_key:
-				continue
-			if String(wire_node.get("role", "joint")) != "joint":
-				continue
-			if pass_idx == 0 and not physical_endpoint_keys.has(wire_key):
-				continue
-			var wire_pos: Vector3 = wire_node.get("pos", Vector3.ZERO)
-			var dx: float = wire_pos.x - global_position.x
-			var dz: float = wire_pos.z - global_position.z
-			var dist_sq: float = dx * dx + dz * dz
-			if dist_sq < best_dist_sq or (is_equal_approx(dist_sq, best_dist_sq) and wire_key < best_key):
-				best_dist_sq = dist_sq
-				best_key = wire_key
-		if not best_key.is_empty():
-			break
-
-	if not best_key.is_empty():
-		_auto_wire_edge_id = pm.register_wire_edge(_pm_node_key, best_key, null, true)
-		pm.set_wire_edge_no_visual(_auto_wire_edge_id)
+		dev_id,
+		true)           ## preserve the wall mounting height
+	var feed := WallWireAttachment.new()
+	add_child(feed)
+	feed.bind(self, pm, _pm_node_key)
 
 # ─── Mesh ─────────────────────────────────────────────────────────────────────
 func _build_mesh() -> void:

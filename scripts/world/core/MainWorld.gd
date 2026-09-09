@@ -389,12 +389,21 @@ func _restore_npcs(saved: Array) -> void:
 ## _player_wire_segs stores pos_a/pos_b instead of keys.
 func get_player_wires_for_save() -> Array:
 	var out: Array = []
-	for entry: Dictionary in _player_wire_segs.values():
+	for raw: Node in get_tree().get_nodes_in_group("wire_segment"):
+		var seg := raw as WireSegment
+		if seg == null or seg.is_queued_for_deletion() or not seg.player_placed:
+			continue
 		out.append({
-			"pos_a": SaveManager.vec3_to_dict(entry["pos_a"]),
-			"pos_b": SaveManager.vec3_to_dict(entry["pos_b"]),
+			"pos_a": SaveManager.vec3_to_dict(seg.point_a),
+			"pos_b": SaveManager.vec3_to_dict(seg.point_b),
 		})
 	return out
+
+## Explicit delete/undo already owns the refund; discard only its tracking handle.
+func forget_player_wire(seg: Node3D) -> void:
+	for key: String in _player_wire_segs.keys():
+		if _player_wire_segs[key].get("seg_node") == seg:
+			_player_wire_segs.erase(key)
 
 ## Rebuilds every player-placed wire from get_player_wires_for_save()'s
 ## output. Registering a "joint" wire node at a position that already holds a
@@ -412,24 +421,22 @@ func restore_player_wires(data: Array) -> void:
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
+	pm.begin_bulk()
 	for saved: Dictionary in data:
 		var pos_a: Vector3 = SaveManager.dict_to_vec3(saved.get("pos_a", {}))
 		var pos_b: Vector3 = SaveManager.dict_to_vec3(saved.get("pos_b", {}))
-		var key_a: String = pm.register_wire_node(pos_a, "joint", "")
-		var key_b: String = pm.register_wire_node(pos_b, "joint", "")
-		var edge_id: String = pm.register_wire_edge(key_a, key_b)
-		if edge_id.is_empty():
+		var key_a: String = pm.register_wire_node(pos_a, "joint", "", true)
+		var key_b: String = pm.register_wire_node(pos_b, "joint", "", true)
+		var edge_id: String = WireRoute.edge_id(key_a, key_b)
+		if key_a == key_b or pm.has_wire_edge(edge_id):
 			continue
-		var wire_script: GDScript = load("res://scripts/world/power/WireSegment.gd")
-		var seg: Node3D = Node3D.new()
-		if wire_script != null:
-			seg.set_script(wire_script)
+		var seg := WireSegment.new()
+		seg.player_placed = true
+		seg.edge_id = edge_id
 		seg.name = "WireSegment"
 		add_child(seg)
-		if seg.has_method("set_endpoints"):
-			seg.set_endpoints(pos_a, pos_b)
-		if "edge_id" in seg:
-			seg.edge_id = edge_id
+		seg.set_endpoints(pos_a, pos_b)
+		pm.register_wire_edge(key_a, key_b, seg)
 		seg.visible = true
 
 		var stable_key: String = "pw_%s_%s" % [key_a, key_b]
@@ -440,6 +447,7 @@ func restore_player_wires(data: Array) -> void:
 			"pm_edge_id": edge_id,
 			"stable_key": stable_key,
 		}
+	pm.end_bulk()
 
 ## Instantiates PowerManager and adds it to the "power_manager" group so
 ## WallLight nodes can find it via get_first_node_in_group().

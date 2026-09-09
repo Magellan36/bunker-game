@@ -20,19 +20,56 @@ wires, and every powered device (lights, appliances, terminals). Decides who
 has power, who gets shed under overload, and drives the visual/UX state of
 every electrical device in the game.
 
-## Connection-policy checkpoint (September 2026)
+## Wiring polish — September 2026
 
-- Free-standing consumers, including stoves and grow lights, require a wire
-  drawn explicitly by the player. Merely placing one near a wire does not
-  create a hidden graph edge.
-- Wall-mounted devices that cannot meet a floor-level run directly retain a
-  restrained logical handoff: wall lights and power terminals connect to a
-  physical wire within 0.75m in XZ, without drawing an extra diagonal line.
-- `PowerTerminal.gd` listens to wire-edge registration/removal itself, so the
-  handoff works whether the terminal or the nearby wire is placed first.
-- Breaker snap/split behavior is specialized graph topology and is unchanged.
-- This checkpoint changes no routing geometry, wire visuals, solver policy,
-  persistence, build controller, or `MainWorld.gd` behavior.
+This pass changes connection geometry, placement and build-mode wire presentation.
+Generator output, fuel, battery behavior, load priorities, breaker policy, device
+models/materials/FX and the approved UIs retain their existing behavior.
+
+- **Manual devices:** ceiling grow lights and stoves no longer scan for nearby
+  wires. The player draws their connections. Existing generator/battery and
+  ordinary device registration conventions remain in place.
+- **Wall devices:** wall lights and power terminals use `WallWireAttachment`.
+  A visible horizontal wire at or below the device, within 0.75m in XZ, can feed
+  it through one `no_visual` edge. The helper selects a real sample along the
+  run, coalesces topology events, and removes/reselects its feed when wires
+  change. It does not connect through another invisible device feed. Breakers
+  keep their specialized perimeter cut-point logic.
+- **Height:** `register_wire_node(pos, role, device_id, preserve_height=false)`
+  retains the existing Y=1m default. Raised devices and manual route joints
+  opt into actual Y. Keys include height; a raised run cannot split a lower
+  run merely because their XZ projections overlap.
+- **Routing:** `WireRoute.points()` travels horizontally at the higher end's
+  height, then vertically at the lower end's XZ. Reversing the clicks produces
+  the same route. Preview and payment use this path; payment remains $8/m,
+  rounded up once for the full run. Equal-height and vertically aligned routes
+  omit redundant pieces.
+- **Placement:** screen-space targeting includes elevated connectors. The first
+  click is a draft only. Cancel, duplicate/overlapping routes, and insufficient
+  cash do not leave draft joints or spend cash. Wall feeds have no manual socket.
+- **Presentation:** shared tube geometry, small matching-radius end/join caps,
+  brief placement fade, eased color changes and a restrained selection pulse.
+  Endpoints remain exact; animation never delays or moves electrical connections.
+  Existing Reduced Motion preference removes the transition/pulse. Real wires
+  keep their build-mode visibility and zone-color behavior; no device FX added.
+- **Lifecycle:** a bent run is one undo action; split descendants keep run and
+  player ownership. Deconstruction uses whole-segment ray math and reduces any
+  later undo refund by money already returned. Saves use surviving owned
+  segments, not stale placement handles. The endpoint-pair save format and old
+  horizontal-wire saves remain compatible.
+
+`WireRoute.gd` is a pure geometry helper; `WallWireAttachment.gd` owns only the
+local wall-feed lifecycle. Graph state stays in PowerManager/PowerGraph.
+`MainWorld.gd` changes are confined to its existing player-wire save/restore
+block; no startup, scene, floor, lighting or pregen behavior is involved.
+
+Validation: Godot 4.7.2 `power_wiring_smoke.gd` covers deterministic raised
+routing, separate height planes, atomic cancel/payment, wall-before-wire and
+wire-before-wall feeds, split ownership, one-action undo/refunds, overlap
+rejection, save/load height preservation, reusable preview geometry, vertical
+deconstruction targeting and Reduced Motion. `power_terminal_ui_smoke.gd` also
+passes. A full fresh-clone boot remains blocked only by pre-existing missing
+character-creation placeholder SVG resources and optional local C# autoloads.
 
 ## Responsibilities
 - Own the wire graph (nodes/edges), zones (breaker-bounded regions), and their
@@ -58,9 +95,8 @@ every electrical device in the game.
 - **Does not own wire *placement* interaction** (player drawing a wire with the
   wire tool) — that's `WireDrawMode.gd`. This system only registers/stores the
   resulting nodes/edges once told to.
-- **Does not own save/load** — `SaveManager` (see `docs/systems/world-core/`)
-  does not currently persist any power-system state at all (tracked gap, not
-  a bug — see Known tradeoffs).
+- **Does not own save/load** — MainWorld and BuildModeController provide the
+  phase-ordered fields registered with `SaveManager`; see Persistence below.
 
 ## Files
 | File | Lines | Role | Doc |
@@ -75,7 +111,9 @@ every electrical device in the game.
 | `BatteryBank.gd` | ~625 | Battery device + its own hand-drawn panel, low-charge flicker VFX | inline below |
 | `PowerTerminal.gd` | ~250 | Wall terminal world-object (draws 0W, priority 1 critical, cosmetic-only screen glow) | inline below |
 | `PowerPriorityInteractable.gd` | ~55 | Priority-adjustment device trigger (opens `PowerPriorityUI`) | inline below |
-| `WireSegment.gd` | ~215 | Wire visual mesh/tube segment | inline below |
+| `WireSegment.gd` | ~160 | Pooled wire tubes, caps and restrained motion | Wiring polish above |
+| `WireRoute.gd` | ~40 | Pure height-aware route, length and overlap math | Wiring polish above |
+| `WallWireAttachment.gd` | ~80 | Event-driven invisible local wall feeds | Wiring polish above |
 | `WireDrawMode.gd` | ~670 | Player wire-drawing tool (build mode only) | inline below |
 | `WallLight.gd` | ~430 | Consumer device — sets `power_zone`/`power_priority` before `_ready()` registers; default priority **1** (critical) | inline below |
 | `WireGraphBuilder.gd` | ~1510 | Auto-wire perimeter rebuild engine (incremental node/edge diff on chunk dig/expand). Owned/instantiated by `MainWorld`, not part of the PowerManager cluster — see `docs/systems/world-core/README.md` | inline below |

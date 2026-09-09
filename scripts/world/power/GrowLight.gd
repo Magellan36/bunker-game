@@ -249,21 +249,13 @@ func _exit_tree() -> void:
 		pm.unregister_wire_node(_pm_node_key)
 	pm.unregister_consumer(str(get_instance_id()))
 
-# ─── PowerManager registration ───────────────────────────────────────────────
+# ─── PowerManager registration (manual elevated connector) ──────────────────
 func _register_deferred() -> void:
-	_register_with_power_manager()
-
-func _register_with_power_manager() -> void:
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		push_warning("GrowLight: PowerManager not found — will never receive power.")
 		return
-
-	_pm_node_key = pm.register_wire_node(
-		global_position,
-		"consumer",
-		str(get_instance_id()))
-
+	pm.begin_bulk()
 	pm.register_consumer(
 		str(get_instance_id()),
 		TIER_WATTS.get(tier, 75.0),
@@ -271,6 +263,12 @@ func _register_with_power_manager() -> void:
 		TIER_TYPE_TAG.get(tier, "grow_light_normal"),
 		power_priority,
 		true)
+	_pm_node_key = pm.register_wire_node(
+		global_position,
+		"consumer",
+		str(get_instance_id()),
+		true)
+	pm.end_bulk()
 
 # ─── PowerManager callbacks ───────────────────────────────────────────────────
 func set_powered(on: bool) -> void:
