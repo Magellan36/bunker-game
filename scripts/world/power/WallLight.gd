@@ -244,130 +244,18 @@ func _get_interaction_system() -> Node:
 ## later — this guarantees the perimeter wire edges exist by the time we search,
 ## even if the perimeter build happened in the same frame as _ready().
 func _register_wire_deferred() -> void:
-	_register_with_power_manager()
-	## Second-pass auto-connect: fires next frame after registration.
-	## Handles the startup case where _compute_and_rebuild_wires() may not
-	## have created all perimeter edges yet when _register_with_power_manager ran.
-	call_deferred("_auto_connect_deferred")
-
-## Deferred second-pass auto-connect — guaranteed to fire after all same-frame
-## perimeter wire edges are registered.  Safe to call multiple times (PM dedupes).
-func _auto_connect_deferred() -> void:
-	if _pm_node_key == "":
-		return  ## registration didn't complete — skip silently
-	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm != null:
-		_auto_connect_to_nearby_wires(pm)
-
-func _register_with_power_manager() -> void:
-	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm == null:
-		push_warning("WallLight id=%d: PowerManager not found in group 'power_manager' — skipping registration. global_pos=%s" % [
-			get_instance_id(), str(global_position)])
-		return
-	var pm_status: Dictionary = pm.get_status()
-	_wdbg("[LIGHT] _register_with_power_manager — id=%d pos=%s pm_wire_nodes=%d pm_edges=%d" % [
-		get_instance_id(), str(global_position),
-		pm_status.get("wire_nodes", -1), pm_status.get("wire_edges", -1)])
-
-	## 1. Register a wire node at this light's world position.
-	_pm_node_key = pm.register_wire_node(
-		global_position,
-		"consumer",
-		str(get_instance_id()))
-
-	## 2. Register as a consumer. No zone parameter in v3.x.
-	pm.register_consumer(
-		str(get_instance_id()),
-		power_watts,
-		self,
-		"wall_light",
-		power_priority,
-		true)
-
-	## 3. Auto-connect: scan all existing wire nodes for any within 0.75 m XZ.
-	_auto_connect_to_nearby_wires(pm)
-
-## Scans existing PM wire nodes and connects this light to the nearest one within
-## AUTO_CONNECT_RADIUS that is already an edge endpoint (a live graph node).
-## Falls back to any nearby node if no edge-endpoint is found.
-## Safe to call multiple times — PM deduplicates edges internally.
-func _auto_connect_to_nearby_wires(pm: PowerManager) -> void:
-	if _pm_node_key == "":
-		return
-	const AUTO_CONNECT_RADIUS: float = 0.75
-	## Use the wire-node's registered position (Y-normalised to 1.0) for XZ comparison,
-	## not global_position directly, so snap-key math stays consistent.
-	var my_pos: Vector3 = global_position   ## Y already 1.0 (LIGHT_PLACEMENT_Y)
-
-	## Build the set of nodes that are already endpoints in at least one edge.
-	## Orphan intermediate joints exist in _wire_nodes but have no edges yet;
-	## connecting to them without the edge-split guarantee can leave the light
-	## in an isolated 2-node zone.
-	var edge_endpoint_keys: Dictionary = {}
-	var edges: Array[Dictionary] = pm.get_wire_edges()
-	for ed: Dictionary in edges:
-		var na: String = ed.get("node_a", "")
-		var nb: String = ed.get("node_b", "")
-		if not na.is_empty(): edge_endpoint_keys[na] = true
-		if not nb.is_empty(): edge_endpoint_keys[nb] = true
-
-	## Two-pass search: pass 1 = connected endpoint nodes, pass 2 = any node.
-	## We prefer the nearest endpoint node; only fall back to orphans if the
-	## ring has no live node within radius (e.g. very first wire placed).
-	var best_key:  String = ""
-	var best_dist: float  = AUTO_CONNECT_RADIUS + 0.001
-
-	for pass_idx: int in range(2):
-		for wn: Dictionary in pm.get_wire_nodes():
-			var wn_key: String = wn.get("key", "")
-			if wn_key == _pm_node_key:
-				continue
-			## Only snap to ring joints — never to generator/battery/consumer/breaker nodes.
-			## Generators must be manually wired by the player; auto-snapping a light to
-			## a gen node would give it a private 2-node zone with no ring connection.
-			if wn.get("role", "joint") != "joint":
-				continue
-			## Pass 0: only consider nodes with live edges.
-			## Pass 1: consider any node (fallback).
-			if pass_idx == 0 and not edge_endpoint_keys.has(wn_key):
-				continue
-			var wn_pos: Vector3 = wn.get("pos", Vector3.ZERO)
-			var dx: float = wn_pos.x - my_pos.x
-			var dz: float = wn_pos.z - my_pos.z
-			var dist: float = sqrt(dx * dx + dz * dz)
-			if dist < best_dist:
-				best_dist = dist
-				best_key  = wn_key
-		if best_key != "":
-			break   ## Found a good candidate in this pass — stop.
-
-	if best_key != "":
-		_wdbg("[LIGHT] auto-connect id=%d -> key=%s dist=%.3f" % [
-			get_instance_id(), best_key, best_dist])
-		var ac_eid: String = pm.register_wire_edge(_pm_node_key, best_key, null, true)
-		## Stamp no_visual even if the edge already existed (pre-flag sessions).
-		pm.set_wire_edge_no_visual(ac_eid)
-	else:
-		push_warning("[LIGHT] auto-connect id=%d: no node within %.2fm (wire_nodes=%d)" % [
-			get_instance_id(), AUTO_CONNECT_RADIUS, pm.get_wire_nodes().size()])
-
-## Called by BuildModeController after a new wire node is placed in the scene.
-func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
-	if _pm_node_key == "":
-		return
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
-	const AUTO_CONNECT_RADIUS: float = 0.75
-	var my_pos: Vector3 = global_position
-	var dx: float = wn_pos.x - my_pos.x
-	var dz: float = wn_pos.z - my_pos.z
-	if sqrt(dx * dx + dz * dz) <= AUTO_CONNECT_RADIUS:
-		var nw_eid: String = pm.register_wire_edge(_pm_node_key, wn_key, null, true)
-		pm.set_wire_edge_no_visual(nw_eid)
+	pm.begin_bulk()
+	pm.register_consumer(str(get_instance_id()), power_watts, self, "wall_light", power_priority, true)
+	_pm_node_key = pm.register_wire_node(global_position, "consumer", str(get_instance_id()), true)
+	pm.end_bulk()
+	var feed := WallWireAttachment.new()
+	add_child(feed)
+	feed.bind(self, pm, _pm_node_key)
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 func _build_fixture() -> void:
 	# ── Load GLB model ────────────────────────────────────────────────────────
 	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null

@@ -64,8 +64,8 @@ The water/power systems have managers because they solve a *shared graph*
 - **Grow lights** (`GrowLight.gd`, `scripts/world/power/` — NOT
   `scripts/world/farming/`, since structurally it's a `PowerManager`
   consumer device like `WallLight`) — `tier` export ("normal"/"pro"),
-  75W/100W, both default priority 3. Auto-connects to the nearest wire node
-  within 0.75m exactly like `WallLight._auto_connect_to_nearby_wires()`.
+  75W/100W, both default priority 3. Requires manual wiring at its ceiling
+  mounting height; see `docs/systems/power/README.md` Wiring polish.
   Growth contract read by `FarmPlant` via a **nearest-light-within-radius
   match** (no parent/child relationship, no registration handshake):
   `get_active_growth_speed() -> float` (0.0 unpowered/shed, 0.5 normal,

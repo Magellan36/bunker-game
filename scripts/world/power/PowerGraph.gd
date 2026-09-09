@@ -64,15 +64,12 @@ func _init(owner: PowerManager) -> void:
 	_owner = owner
 
 
-func register_wire_node(pos: Vector3, role: String, device_id: String = "") -> String:
+func register_wire_node(pos: Vector3, role: String, device_id: String = "", preserve_height: bool = false) -> String:
 	_owner._pmdbg("[PM:REG] register_wire_node pos=%s role=%s device_id=%s" % [str(pos), role, device_id])
-	## Non-breaker nodes (generators, batteries, consumers, joints) are always
-	## normalised to WIRE_GRID_Y so their snap keys land on the same Y plane as
-	## the auto-built perimeter grid.  Without this a generator placed at Y≈0.5
-	## gets a different iy than perimeter nodes at Y=1.0, making BFS treat them
-	## as separate zones even when they share the same XZ column.
+	## Existing callers keep the canonical perimeter plane. Height-aware
+	## devices and manual route joints opt in to their actual mounting Y.
 	var wire_pos: Vector3 = pos
-	if role != "breaker":
+	if role != "breaker" and not preserve_height:
 		wire_pos = Vector3(pos.x, WIRE_GRID_Y, pos.z)
 	var key: String = _snap_key(wire_pos)
 	if _owner._wire_nodes.has(key):
@@ -82,13 +79,13 @@ func register_wire_node(pos: Vector3, role: String, device_id: String = "") -> S
 		## collide with a generator or battery that sits on the wall face.  Without
 		## this guard the device's device_id is erased → BFS never seeds from it →
 		## active_draw=0 even though the grid is fully connected.
-		if existing_role in ["breaker", "generator", "battery"]:
+		if existing_role in ["breaker", "generator", "battery"] or role == "joint":
 			_owner._pmdbg("[PM:REG] SKIP overwrite of %s node key=%s (new role=%s)" % [existing_role, key, role])
 			return key
 		push_warning("PowerManager: wire node '%s' already exists — updating role." % key)
 	_owner._wire_nodes[key] = {
 		"key":       key,
-		"pos":       _snapped_pos(wire_pos),
+		"pos":       Vector3(roundf(wire_pos.x / SNAP_GRID) * SNAP_GRID, wire_pos.y, roundf(wire_pos.z / SNAP_GRID) * SNAP_GRID) if preserve_height else _snapped_pos(wire_pos),
 		"role":      role,
 		"device_id": device_id,
 		"reachable": false,
@@ -130,6 +127,11 @@ func get_wire_node_pos(node_key: String) -> Vector3:
 const NEAREST_FALLBACK_DIST: float = 1.5   ## world-units XZ; ~6 snap cells
 
 func get_wire_node_key_at_pos(pos: Vector3) -> String:
+	var exact: String = _snap_key(pos)
+	if _owner._wire_nodes.has(exact):
+		return exact
+	if absf(pos.y - WIRE_GRID_Y) > SNAP_GRID * 0.5:
+		return ""
 	var key: String = _snap_key(Vector3(pos.x, WIRE_GRID_Y, pos.z))
 	if _owner._wire_nodes.has(key):
 		return key
@@ -145,6 +147,8 @@ func get_wire_node_key_at_pos(pos: Vector3) -> String:
 	var best_dist: float  = NEAREST_FALLBACK_DIST
 	for wn: Dictionary in _owner._wire_nodes.values():
 		var wpos: Vector3 = wn.get("pos", Vector3.ZERO)
+		if absf(wpos.y - pos.y) > SNAP_GRID * 0.5:
+			continue
 		var dx: float = wpos.x - pos.x
 		var dz: float = wpos.z - pos.z
 		var d: float  = sqrt(dx * dx + dz * dz)
@@ -163,11 +167,7 @@ func get_wire_node_key_at_pos(pos: Vector3) -> String:
 ## are correctly detected as dead after an expansion removes those nodes.
 
 func has_wire_node_at_pos(pos: Vector3) -> bool:
-	var key: String = _snap_key(Vector3(pos.x, WIRE_GRID_Y, pos.z))
-	return _owner._wire_nodes.has(key)
-
-## Remove a wire node and any edges that reference it.
-## Call from device _exit_tree() before unregistering the consumer/generator.
+	return _owner._wire_nodes.has(_snap_key(pos))
 
 func unregister_wire_node(node_key: String) -> void:
 	if not _owner._wire_nodes.has(node_key):
@@ -195,29 +195,10 @@ func unregister_wire_node(node_key: String) -> void:
 ##   scene_node — the WireSegment Node3D in the scene (visual); may be null
 ## Returns edge_id — store it to unregister on deconstruct.
 ## NOTE: no capacity_w param — wires have no per-edge limit.
-## Resolve a snap key to an existing wire node at the same XZ grid position,
-## regardless of Y.  Fixes connectivity when a free joint or generator node is
-## at a slightly different Y than existing wire-grid nodes at the same column.
-## If no same-XZ node exists the original key is returned unchanged.
+## Compatibility wrapper: exact height-bearing keys are never aliased by XZ.
 
 func _resolve_node_key(key: String) -> String:
-	if _owner._wire_nodes.has(key):
-		return key   ## exact match — fastest path
-	## Extract XZ index from key (format "ix,iy,iz").
-	var parts: PackedStringArray = key.split(",")
-	if parts.size() != 3:
-		return key
-	var ix: int = int(parts[0])
-	var iz: int = int(parts[2])
-	## Scan existing nodes for one at the same XZ.
-	for existing_key: String in _owner._wire_nodes:
-		var ep: PackedStringArray = existing_key.split(",")
-		if ep.size() != 3:
-			continue
-		if int(ep[0]) == ix and int(ep[2]) == iz:
-			return existing_key
-	return key   ## no match — keep original
-
+	return key
 
 func register_wire_edge(
 		node_a_id:  String,
@@ -225,9 +206,7 @@ func register_wire_edge(
 		scene_node: Node  = null,
 		no_visual:  bool  = false) -> String:
 
-	## Normalise both keys to existing same-XZ nodes so that a generator at
-	## Y≠0 (or a free joint at a slightly different Y) correctly merges with
-	## the existing wire graph instead of forming an isolated zone.
+	## Resolve exact keys; different heights remain separate until explicitly wired.
 	node_a_id = _resolve_node_key(node_a_id)
 	node_b_id = _resolve_node_key(node_b_id)
 
@@ -301,7 +280,7 @@ func register_wire_edge(
 
 	var seg_len: float = pos_a.distance_to(pos_b)
 	var intermediate_count: int = 0
-	if seg_len > SNAP_GRID * 1.5:
+	if not no_visual and seg_len > SNAP_GRID * 1.5:
 		## Number of interior steps between the two endpoints.
 		var steps: int = roundi(seg_len / SNAP_GRID)
 		for i: int in range(1, steps):
@@ -312,7 +291,7 @@ func register_wire_edge(
 			if not _owner._wire_nodes.has(ikey):
 				_owner._wire_nodes[ikey] = {
 					"key":       ikey,
-					"pos":       _snapped_pos(ipos),
+					"pos":       ipos,
 					"role":      "joint",
 					"device_id": "",
 					"reachable": false,
@@ -442,6 +421,8 @@ func _split_wire_edge_at(mid_key: String) -> void:
 	_owner._pmdbg("[SPLIT] _split_wire_edge_at mid_key=%s  mid_pos=%s  total_edges=%d" % [
 		mid_key, str(mid_pos), _owner._wire_edges.size()])
 	for edge: Dictionary in _owner._wire_edges.values():
+		if bool(edge.get("no_visual", false)):
+			continue
 		var a_key: String = edge["node_a"]
 		var b_key: String = edge["node_b"]
 		## If mid IS already one of the endpoints, the breaker node was snapped
@@ -678,6 +659,9 @@ func _split_wire_edge_at(mid_key: String) -> void:
 						if wire_script != null:
 							var new_seg: Node3D = Node3D.new()
 							new_seg.set_script(wire_script)
+							if orig_node is WireSegment:
+								new_seg.set("player_placed", orig_node.player_placed)
+								new_seg.set("run_id", orig_node.run_id)
 							new_seg.name = "WireSegment"
 							## Add to same parent as the A-side segment so it lives in
 							## the same scene subtree and gets the build-mode visibility
@@ -713,35 +697,17 @@ func _split_wire_edge_at(mid_key: String) -> void:
 
 
 ## Returns true if point P lies on segment A→B (collinear + between/at endpoints).
-## Works in the XZ plane only — Y is ignored so that breakers placed slightly
-## above the wire (different Y snap level) still register as on-segment.
+## Full 3D test: an elevated run must not split a lower run sharing its XZ.
 ## Tolerance: half the snap grid (0.125 m) for collinearity check.
 ## NOTE: endpoint hits (t≈0 or t≈1) ARE included so a breaker snapped exactly
 ## onto a wire endpoint is detected and the edge can be re-routed through it.
 
 func _point_on_segment(p: Vector3, a: Vector3, b: Vector3) -> bool:
-	## Project everything to 2D XZ.
-	var ab: Vector2 = Vector2(b.x - a.x, b.z - a.z)
-	var ap: Vector2 = Vector2(p.x - a.x, p.z - a.z)
-	var len_sq: float = ab.length_squared()
-	if len_sq < 0.0001:
-		return false   ## Degenerate edge (zero length).
-	## Cross product magnitude in 2D = |ab.x*ap.y - ab.y*ap.x|.
-	## If P is collinear with A→B this is zero; tolerance = half snap grid.
-	var cross: float = ab.x * ap.y - ab.y * ap.x
-	var tol: float   = SNAP_GRID * 0.5   ## 0.125 m
-	if cross * cross > len_sq * tol * tol:
+	var ab: Vector3 = b - a
+	if ab.length_squared() < 0.000001:
 		return false
-	## Check that P is between A and B inclusive (t ∈ [0, 1] with small margin).
-	## Endpoints are intentionally included — a breaker at an edge endpoint is
-	## still considered "on" that edge so we re-route the edge through the breaker.
-	var t: float = ab.dot(ap) / len_sq
-	return t >= -0.001 and t <= 1.001
-
-
-## Remove a breaker (sold / deconstructed).
-## Re-stitches the wire edge that was split when the breaker was placed,
-## restoring A→B connectivity so the zone is not permanently severed.
+	var t: float = ab.dot(p - a) / ab.length_squared()
+	return t >= -0.001 and t <= 1.001 and p.distance_to(a + ab * t) <= SNAP_GRID * 0.5
 
 func get_wire_nodes() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
@@ -795,7 +761,7 @@ func _remove_wire_edge_internal(edge_id: String, is_split: bool = false) -> void
 	## Collect ALL snap keys that lie on this edge's geometric segment,
 	## including the auto-generated intermediates (which share the segment).
 	## We reconstruct them from the recorded positions, same way register_wire_edge did.
-	var candidate_keys: Array[String] = []
+	var candidate_keys: Array[String] = [na, nb]
 	if _owner._wire_nodes.has(na) and _owner._wire_nodes.has(nb):
 		var pos_a: Vector3 = _owner._wire_nodes[na].get("pos", Vector3.ZERO)
 		var pos_b: Vector3 = _owner._wire_nodes[nb].get("pos", Vector3.ZERO)

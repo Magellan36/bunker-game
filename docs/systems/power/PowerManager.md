@@ -18,6 +18,17 @@ identical-signature forwarding wrapper methods for every function it
 delegates, so none of the ~64 external call sites across the repo needed to
 change when the split happened.
 
+## Height-aware wire registration
+
+`register_wire_node(pos, role, device_id="", preserve_height=false)` forwards
+through the existing PowerGraph owner. Default callers retain the canonical
+Y=1 m wire plane; opting in keeps actual Y and quarter-metre XZ/key snapping.
+A joint registration cannot overwrite an existing device role. Edge splitting
+uses 3D segment distance, excludes logical-only feeds, and carries player/run
+ownership to new visuals. Invisible feeds create no intermediate pick targets.
+These are graph/geometry changes; solver allocation and timing are unchanged.
+See README's Wiring polish section for route, wall-feed and validation contracts.
+
 ## Grid state machine
 `ONLINE → BROWNOUT → OVERLOADED → TRIPPED → OFFLINE`
 - **BROWNOUT** — load-shed active (priority 5→2 items cut), grid still running.

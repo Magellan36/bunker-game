@@ -602,8 +602,8 @@ func _process(delta: float) -> void:
 ## BuildModeController, MainWorld, etc.) needs zero changes.
 ## ─────────────────────────────────────────────────────────────────────────────
 
-func register_wire_node(pos: Vector3, role: String, device_id: String = "") -> String:
-	return _graph.register_wire_node(pos, role, device_id)
+func register_wire_node(pos: Vector3, role: String, device_id: String = "", preserve_height: bool = false) -> String:
+	return _graph.register_wire_node(pos, role, device_id, preserve_height)
 
 func get_wire_node_role(node_key: String) -> String:
 	return _graph.get_wire_node_role(node_key)
