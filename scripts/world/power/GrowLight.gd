@@ -14,10 +14,9 @@ class_name GrowLight
 ## PowerPriorityInteractable proxy needed, that proxy only exists for
 ## Node3D-without-a-body hosts like WallLight).
 ##
-## Auto-connects to the nearest wire node within AUTO_CONNECT_RADIUS, same
-## exact mechanism WallLight._auto_connect_to_nearby_wires() uses — a grow
-## light placed near an existing wire run just works with no separate
-## wire-drawing step.
+## Grow lights are free-standing consumers and require an explicit player-drawn
+## wire connection. Invisible proximity feeds are reserved for wall-mounted
+## devices whose connection point is above the floor-level wire run.
 ##
 ## Growth contract read by FarmPlant.gd (plan §4, "pure XZ position match" —
 ## no parent/child relationship or registration handshake with any tray):
@@ -250,17 +249,9 @@ func _exit_tree() -> void:
 		pm.unregister_wire_node(_pm_node_key)
 	pm.unregister_consumer(str(get_instance_id()))
 
-# ─── PowerManager registration (mirrors WallLight's auto-connect exactly) ────
+# ─── PowerManager registration ───────────────────────────────────────────────
 func _register_deferred() -> void:
 	_register_with_power_manager()
-	call_deferred("_auto_connect_deferred")
-
-func _auto_connect_deferred() -> void:
-	if _pm_node_key == "":
-		return
-	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm != null:
-		_auto_connect_to_nearby_wires(pm)
 
 func _register_with_power_manager() -> void:
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
@@ -280,65 +271,6 @@ func _register_with_power_manager() -> void:
 		TIER_TYPE_TAG.get(tier, "grow_light_normal"),
 		power_priority,
 		true)
-
-	_auto_connect_to_nearby_wires(pm)
-
-## Scans existing PM wire nodes and connects to the nearest one within
-## AUTO_CONNECT_RADIUS — copied verbatim from WallLight._auto_connect_to_nearby_wires().
-func _auto_connect_to_nearby_wires(pm: PowerManager) -> void:
-	if _pm_node_key == "":
-		return
-	const AUTO_CONNECT_RADIUS: float = 0.75
-	var my_pos: Vector3 = global_position
-
-	var edge_endpoint_keys: Dictionary = {}
-	var edges: Array[Dictionary] = pm.get_wire_edges()
-	for ed: Dictionary in edges:
-		var na: String = ed.get("node_a", "")
-		var nb: String = ed.get("node_b", "")
-		if not na.is_empty(): edge_endpoint_keys[na] = true
-		if not nb.is_empty(): edge_endpoint_keys[nb] = true
-
-	var best_key:  String = ""
-	var best_dist: float  = AUTO_CONNECT_RADIUS + 0.001
-
-	for pass_idx: int in range(2):
-		for wn: Dictionary in pm.get_wire_nodes():
-			var wn_key: String = wn.get("key", "")
-			if wn_key == _pm_node_key:
-				continue
-			if wn.get("role", "joint") != "joint":
-				continue
-			if pass_idx == 0 and not edge_endpoint_keys.has(wn_key):
-				continue
-			var wn_pos: Vector3 = wn.get("pos", Vector3.ZERO)
-			var dx: float = wn_pos.x - my_pos.x
-			var dz: float = wn_pos.z - my_pos.z
-			var dist: float = sqrt(dx * dx + dz * dz)
-			if dist < best_dist:
-				best_dist = dist
-				best_key  = wn_key
-		if best_key != "":
-			break
-
-	if best_key != "":
-		_wdbg("[GROWLIGHT] auto-connect id=%d -> key=%s dist=%.3f" % [get_instance_id(), best_key, best_dist])
-		var ac_eid: String = pm.register_wire_edge(_pm_node_key, best_key, null, true)
-		pm.set_wire_edge_no_visual(ac_eid)
-
-## Called by BuildModeController after a new wire node is placed (mirrors WallLight).
-func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
-	if _pm_node_key == "":
-		return
-	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm == null:
-		return
-	const AUTO_CONNECT_RADIUS: float = 0.75
-	var dx: float = wn_pos.x - global_position.x
-	var dz: float = wn_pos.z - global_position.z
-	if sqrt(dx * dx + dz * dz) <= AUTO_CONNECT_RADIUS:
-		var nw_eid: String = pm.register_wire_edge(_pm_node_key, wn_key, null, true)
-		pm.set_wire_edge_no_visual(nw_eid)
 
 # ─── PowerManager callbacks ───────────────────────────────────────────────────
 func set_powered(on: bool) -> void:

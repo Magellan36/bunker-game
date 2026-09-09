@@ -20,6 +20,20 @@ wires, and every powered device (lights, appliances, terminals). Decides who
 has power, who gets shed under overload, and drives the visual/UX state of
 every electrical device in the game.
 
+## Connection-policy checkpoint (September 2026)
+
+- Free-standing consumers, including stoves and grow lights, require a wire
+  drawn explicitly by the player. Merely placing one near a wire does not
+  create a hidden graph edge.
+- Wall-mounted devices that cannot meet a floor-level run directly retain a
+  restrained logical handoff: wall lights and power terminals connect to a
+  physical wire within 0.75m in XZ, without drawing an extra diagonal line.
+- `PowerTerminal.gd` listens to wire-edge registration/removal itself, so the
+  handoff works whether the terminal or the nearby wire is placed first.
+- Breaker snap/split behavior is specialized graph topology and is unchanged.
+- This checkpoint changes no routing geometry, wire visuals, solver policy,
+  persistence, build controller, or `MainWorld.gd` behavior.
+
 ## Responsibilities
 - Own the wire graph (nodes/edges), zones (breaker-bounded regions), and their
   adjacency/connectivity.
