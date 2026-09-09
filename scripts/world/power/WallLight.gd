@@ -85,6 +85,7 @@ var power_priority: int = 1
 ## Snap key returned by PowerManager.register_wire_node() — needed to
 ## unregister the wire node in _exit_tree(). Empty until registered.
 var _pm_node_key: String = ""
+var _wire_attachment: WallWireAttachment = null
 
 ## Set TRUE by preview systems (GhostModelBuilder.build_real_instance)
 ## BEFORE add_child(), so a preview thumbnail still builds its fixture
@@ -251,9 +252,13 @@ func _register_wire_deferred() -> void:
 	pm.register_consumer(str(get_instance_id()), power_watts, self, "wall_light", power_priority, true)
 	_pm_node_key = pm.register_wire_node(global_position, "consumer", str(get_instance_id()), true)
 	pm.end_bulk()
-	var feed := WallWireAttachment.new()
-	add_child(feed)
-	feed.bind(self, pm, _pm_node_key)
+	_wire_attachment = WallWireAttachment.new()
+	add_child(_wire_attachment)
+	_wire_attachment.bind(self, pm, _pm_node_key)
+
+func refresh_power_attachment() -> void:
+	if is_instance_valid(_wire_attachment):
+		_wire_attachment.request_refresh()
 
 
 func _build_fixture() -> void:

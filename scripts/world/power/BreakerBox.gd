@@ -64,6 +64,9 @@ var _tripped:    bool   = false
 var _pm_id:      String = ""
 var _wire_key:   String = ""
 var _breaker_id: String = ""
+var _attachment_queued: bool = false
+var _attachment_refreshing: bool = false
+var _force_attachment_rebind: bool = false
 
 ## Pass-through flags — set by player via settings panel, sent to PM.
 var _pass_battery:   bool = true
@@ -140,273 +143,99 @@ func _register_with_pm() -> void:
 		push_warning("BreakerBox: PowerManager not found")
 		return
 	_pm_id = str(get_instance_id())
+	if not pm.wire_edge_registered.is_connected(_queue_attachment_refresh):
+		pm.wire_edge_registered.connect(_queue_attachment_refresh)
+	if not pm.wire_edge_unregistered.is_connected(_queue_attachment_refresh):
+		pm.wire_edge_unregistered.connect(_queue_attachment_refresh)
 	call_deferred("_register_wire_deferred")
 
 
 func _register_wire_deferred() -> void:
-	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm == null or _pm_id.is_empty():
+	_queue_attachment_refresh("")
+
+
+func _queue_attachment_refresh(_changed_edge_id: String) -> void:
+	if _attachment_queued or _attachment_refreshing or not is_inside_tree():
 		return
-	_wdbg("[BreakerBox] _register_wire_deferred: global_pos=%s pm_id=%s" % [global_position, _pm_id])
-
-	## ── Snap onto the nearest wire edge's axis ─────────────────────────────────
-	## Wall-snapping pushes the breaker off the wire plane (e.g. wire at Z=4.50,
-	## breaker at Z=4.69).  Naively rounding XZ lands on a different snap row
-	## (Z=4.75) which is 0.25 m from the wire — outside _point_on_segment's
-	## 0.125 m collinearity tolerance, so the split never fires.
-	##
-	## Correct approach:
-	##   1. Iterate every wire edge.  For each, project the breaker's XZ onto the
-	##      edge's axis and check it is within the collinearity band (< 0.2 m
-	##      perpendicular) and between the endpoints (t ∈ [0,1]).
-	##   2. Among qualifying edges pick the closest (smallest perpendicular dist).
-	##   3. Build reg_pos by keeping the edge's perpendicular coordinate exactly
-	##      (preserving the wire's Z or X) and rounding only the along-axis
-	##      coordinate to the 0.25 m snap grid.
-	## This guarantees the breaker node lands on the wire's exact Z/X plane so
-	## _split_wire_edge_at() passes the collinearity check and splits correctly,
-	## while placing the split point as close as possible to the breaker center.
-	const WIRE_GRID_Y:   float = 1.0
-	const SNAP_GRID:     float = 0.25
-	const PERP_BAND:     float = 0.40   ## max off-axis distance to qualify (wall thickness can push breaker ~0.22 m off wire)
-	const SEARCH_RADIUS: float = 1.0    ## max XZ distance from breaker to edge midpoint
-
-	var reg_pos: Vector3 = global_position  ## fallback: raw position
-	var snap_axis: String = ""             ## "x" or "z" — wire run axis of the chosen edge (for visual align)
-
-	if pm != null:
-		var all_edges: Array = pm.get_wire_edges() as Array
-		var all_nodes_arr: Array = pm.get_wire_nodes() as Array
-		## Build a quick key→pos lookup.
-		## Some nodes are auto-created with pos=Vector3.ZERO before
-		## register_wire_node() is called for them — reconstruct their
-		## position from the snap key integers in that case.
-		var node_pos: Dictionary = {}
-		for wn: Dictionary in all_nodes_arr:
-			var wn_key: String  = wn.get("key", "")
-			var wn_pos: Vector3 = wn.get("pos", Vector3.ZERO)
-			if wn_pos == Vector3.ZERO and wn_key != "":
-				var tok: PackedStringArray = wn_key.split(",")
-				if tok.size() == 3:
-					wn_pos = Vector3(
-						int(tok[0]) * SNAP_GRID,
-						int(tok[1]) * SNAP_GRID,
-						int(tok[2]) * SNAP_GRID)
-			node_pos[wn_key] = wn_pos
-
-		var my_xz: Vector2  = Vector2(global_position.x, global_position.z)
-		var best_perp: float = INF
-		var best_pos:  Vector3 = Vector3.ZERO
-		var found: bool = false
-		var best_axis: String = ""   ## records winning edge's run axis for visual align
-
-		for edge: Dictionary in all_edges:
-			var a_key: String = edge.get("node_a", "")
-			var b_key: String = edge.get("node_b", "")
-			if not node_pos.has(a_key) or not node_pos.has(b_key):
-				continue
-			var a_pos: Vector3 = node_pos[a_key]
-			var b_pos: Vector3 = node_pos[b_key]
-			var a2: Vector2 = Vector2(a_pos.x, a_pos.z)
-			var b2: Vector2 = Vector2(b_pos.x, b_pos.z)
-			var ab: Vector2 = b2 - a2
-			var len_sq: float = ab.length_squared()
-			if len_sq < 0.0001:
-				continue
-			## Project my_xz onto the A→B axis.
-			var ap: Vector2 = my_xz - a2
-			var t: float    = ab.dot(ap) / len_sq
-			if t < -0.01 or t > 1.01:
-				continue   ## outside segment span
-			## Perpendicular distance from my point to the line.
-			var closest_on_seg: Vector2 = a2 + ab * clampf(t, 0.0, 1.0)
-			var perp: float = my_xz.distance_to(closest_on_seg)
-			if perp > PERP_BAND:
-				continue   ## too far off-axis
-			if perp < best_perp:
-				best_perp = perp
-				## Keep the wire's exact perpendicular coord; snap only along-axis.
-				## Determine dominant axis by whichever component of ab is larger.
-				var is_x_run: bool = absf(ab.x) >= absf(ab.y)   ## ab.y = ab along Z
-				if is_x_run:
-					## Wire runs along X → keep a_pos.z exactly, snap X.
-					var snapped_x: float = roundf(global_position.x / SNAP_GRID) * SNAP_GRID
-					best_pos = Vector3(snapped_x, WIRE_GRID_Y, a_pos.z)
-				else:
-					## Wire runs along Z → keep a_pos.x exactly, snap Z.
-					var snapped_z: float = roundf(global_position.z / SNAP_GRID) * SNAP_GRID
-					best_pos = Vector3(a_pos.x, WIRE_GRID_Y, snapped_z)
-				best_axis = "x" if is_x_run else "z"
-				found = true
-
-		if found:
-			reg_pos = best_pos
-			snap_axis = best_axis
-			_wdbg("[BreakerBox]   edge-snapped reg_pos from %s → %s (perp=%.3fm)" \
-				% [global_position, reg_pos, best_perp])
-		else:
-			## No qualifying edge found — fall back to the old nearest-node search.
-			var best_dist: float = 0.5   ## within 0.5 m
-			for wn: Dictionary in all_nodes_arr:
-				var wn_pos: Vector3 = wn.get("pos", Vector3.ZERO)
-				var dx: float = wn_pos.x - global_position.x
-				var dz: float = wn_pos.z - global_position.z
-				var d: float  = sqrt(dx * dx + dz * dz)
-				if d < best_dist:
-					best_dist = d
-					reg_pos   = wn_pos
-			_wdbg("[BreakerBox]   no nearby edge found — nearest-node fallback reg_pos=%s" % reg_pos)
-
-	## ── Align the VISUAL mesh with the electrical cut-point (along-axis) ───────
-	## The cut-point (reg_pos) snaps the ALONG-WIRE coordinate to the 0.25 m
-	## grid.  Nudge the box's along-axis to reg_pos so its body sits over the
-	## cut, while KEEPING the breaker's wall-face offset on the perpendicular
-	## axis (reg_pos puts the perp coord on the wire plane, which would embed
-	## the box in the wall).  NOTE: the primary zone-seam offset was a missing
-	## A→M tube in PowerManager._split_wire_edge_at() — fixed there.  This nudge
-	## handles only the residual sub-grid along-axis offset.
-	_wire_key = pm.register_wire_node(reg_pos, "breaker", _pm_id)
-	## Move the box ONLY along the wire run axis so it sits over the cut-point.
-	## The perpendicular (wall-face) coordinate is left at global_position so
-	## the breaker stays flush against the wall and never embeds into it.
-	## snap_axis is "" in the nearest-node fallback path — skip there (no
-	## reliable run axis), preserving the breaker's raw placement.
-	if snap_axis == "x":
-		var new_gp_x: Vector3 = global_position
-		new_gp_x.x = reg_pos.x
-		global_position = new_gp_x
-		_wdbg("[BreakerBox]   visual aligned to cut-point (X-run): global_pos→%s" % new_gp_x)
-	elif snap_axis == "z":
-		var new_gp_z: Vector3 = global_position
-		new_gp_z.z = reg_pos.z
-		global_position = new_gp_z
-		_wdbg("[BreakerBox]   visual aligned to cut-point (Z-run): global_pos→%s" % new_gp_z)
-	_wdbg("[BreakerBox]   wire_key=%s  breaker_id to follow" % _wire_key)
-	if not _wire_key.is_empty():
-		_breaker_id = pm.register_breaker(_wire_key, self)
-	_wdbg("[BreakerBox]   breaker_id=%s" % _breaker_id)
-	_auto_connect_to_nearby_wires(pm)
+	_attachment_queued = true
+	call_deferred("_refresh_breaker_attachment")
 
 
-func _auto_connect_to_nearby_wires(pm: PowerManager) -> void:
-	## NOTE: The primary split is handled by PM._split_wire_edge_at() during
-	## register_breaker().  This function exists as a fallback for inward-facing
-	## wall breakers whose snap key may not land exactly on an existing edge.
-	##
-	## Strategy: find the closest collinear wire node along each axis direction
-	## (±X and ±Z).  Connect only to the nearest one per direction — at most 2
-	## total — so we never create a high-degree junction that confuses zone BFS.
-	##
-	## "Collinear" = the candidate node shares approximately the same X (for a
-	## Z-run wire) or the same Z (for an X-run wire) within 0.15m.
-	##
-	## IMPORTANT: If the breaker is already embedded in the graph (the split
-	## succeeded OR it landed exactly on an existing wire endpoint), skip
-	## auto-connect entirely.  Running it when the breaker already has 2+ edges
-	## creates tiny orphan stub edges that the BFS sees as separate zones.
-	if _wire_key.is_empty():
-		return
+func refresh_power_attachment() -> void:
+	_force_attachment_rebind = true
+	_queue_attachment_refresh("")
 
-	## Count edges that already touch our wire node in the PM graph.
-	var existing_count: int = 0
-	for edge: Dictionary in (pm.get_wire_edges() as Array):
+
+func _has_live_cut_point(pm: PowerManager) -> bool:
+	if _breaker_id.is_empty() or not pm._breakers.has(_breaker_id):
+		return false
+	var physical_sides: int = 0
+	for edge: Dictionary in pm.get_wire_edges():
+		if bool(edge.get("no_visual", false)):
+			continue
 		if edge.get("node_a", "") == _wire_key or edge.get("node_b", "") == _wire_key:
-			existing_count += 1
-	if existing_count >= 2:
-		_wdbg("[BreakerBox] _auto_connect: breaker already has %d edges — SKIPPING stub generation" % existing_count)
-		return
-	_wdbg("[BreakerBox] _auto_connect: breaker has %d edge(s) — proceeding with auto-connect" % existing_count)
-
-	const SEARCH_RADIUS: float = 2.0   ## wide search, collinearity filter keeps it tight
-	const COLINEAR_TOL:  float = 0.15  ## max off-axis deviation to be "on same wall run"
-
-	## Use the PM-registered (wire-snapped) position for all geometry math so
-	## collinearity checks work even when the breaker visual is at the wall face.
-	var my_pos: Vector3  = global_position
-	var all_nodes: Array = pm.get_wire_nodes() as Array
-	for wn: Dictionary in all_nodes:
-		if wn.get("key", "") == _wire_key:
-			my_pos = wn.get("pos", global_position)
-			break
-	_wdbg("[BreakerBox] _auto_connect_to_nearby_wires: my_pos=%s  total_nodes=%d" % [my_pos, all_nodes.size()])
-
-	## Collect candidates along each axis separately:
-	##   neg_x: nodes to my -X that share ~same Z  (X-run wire, going left)
-	##   pos_x: nodes to my +X that share ~same Z  (X-run wire, going right)
-	##   neg_z: nodes to my -Z that share ~same X  (Z-run wire, going back)
-	##   pos_z: nodes to my +Z that share ~same X  (Z-run wire, going front)
-	## For each direction, keep only the closest.
-	var best: Dictionary = {
-		"neg_x": {"key": "", "dist": INF},
-		"pos_x": {"key": "", "dist": INF},
-		"neg_z": {"key": "", "dist": INF},
-		"pos_z": {"key": "", "dist": INF},
-	}
-
-	for wn: Dictionary in all_nodes:
-		var wn_key: String = wn.get("key", "")
-		if wn_key == _wire_key:
-			continue
-		var wn_pos: Vector3 = wn.get("pos", Vector3.ZERO)
-		var dx: float = wn_pos.x - my_pos.x
-		var dz: float = wn_pos.z - my_pos.z
-		var xz_dist: float = sqrt(dx * dx + dz * dz)
-		if xz_dist > SEARCH_RADIUS or xz_dist < 0.05:
-			continue
-
-		## X-run candidates (share ~same Z):
-		if absf(dz) <= COLINEAR_TOL:
-			if dx < 0.0 and xz_dist < best["neg_x"]["dist"]:
-				best["neg_x"]["key"]  = wn_key
-				best["neg_x"]["dist"] = xz_dist
-			elif dx > 0.0 and xz_dist < best["pos_x"]["dist"]:
-				best["pos_x"]["key"]  = wn_key
-				best["pos_x"]["dist"] = xz_dist
-
-		## Z-run candidates (share ~same X):
-		if absf(dx) <= COLINEAR_TOL:
-			if dz < 0.0 and xz_dist < best["neg_z"]["dist"]:
-				best["neg_z"]["key"]  = wn_key
-				best["neg_z"]["dist"] = xz_dist
-			elif dz > 0.0 and xz_dist < best["pos_z"]["dist"]:
-				best["pos_z"]["key"]  = wn_key
-				best["pos_z"]["dist"] = xz_dist
-
-	## Connect to the nearest node in each filled direction.
-	for dir: String in best:
-		var candidate: Dictionary = best[dir]
-		var ckey: String = candidate.get("key", "")
-		if not ckey.is_empty():
-			_wdbg("[BreakerBox]   → CONNECTING dir=%s to %s (dist=%.3f)" % [dir, ckey, candidate["dist"]])
-			pm.register_wire_edge(_wire_key, ckey, null)
+			physical_sides += 1
+	return physical_sides >= 2
 
 
-func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
-	if _wire_key.is_empty():
+func _detach_from_grid(pm: PowerManager) -> void:
+	if not _breaker_id.is_empty():
+		pm.unregister_breaker(_breaker_id)
+	if not _wire_key.is_empty():
+		pm.unregister_wire_node(_wire_key)
+	_breaker_id = ""
+	_wire_key = ""
+
+
+func _refresh_breaker_attachment() -> void:
+	_attachment_queued = false
+	if _attachment_refreshing or _pm_id.is_empty() or not is_inside_tree():
 		return
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
-	## Use the PM-registered position (wire-snapped) rather than global_position
-	## so the collinearity check works even when the breaker visual is at the
-	## wall face (slightly off the wire grid).
-	const SEARCH_RADIUS: float = 2.0
-	const COLINEAR_TOL:  float = 0.15
-	## Resolve our actual registered position from PM.
-	var my_pos: Vector3 = global_position
-	for wn: Dictionary in (pm.get_wire_nodes() as Array):
-		if wn.get("key", "") == _wire_key:
-			my_pos = wn.get("pos", global_position)
-			break
-	var dx: float = wn_pos.x - my_pos.x
-	var dz: float = wn_pos.z - my_pos.z
-	var dist: float = sqrt(dx * dx + dz * dz)
-	if dist > SEARCH_RADIUS or dist < 0.05:
+	var force_rebind: bool = _force_attachment_rebind
+	_force_attachment_rebind = false
+	if not force_rebind and _has_live_cut_point(pm):
 		return
-	## Must be collinear: shares same X (Z-run) or same Z (X-run).
-	if absf(dz) <= COLINEAR_TOL or absf(dx) <= COLINEAR_TOL:
-		_wdbg("[BreakerBox] notify_wire_placed → connecting to %s" % wn_key)
-		pm.register_wire_edge(_wire_key, wn_key, null)
+
+	var candidate: Dictionary = WallWireAttachment.find_candidate(global_position, pm)
+	if candidate.is_empty():
+		if force_rebind:
+			_attachment_refreshing = true
+			pm.begin_bulk()
+			_detach_from_grid(pm)
+			pm.end_bulk()
+			_attachment_refreshing = false
+		return
+
+	var cut_pos: Vector3 = candidate["pos"]
+	var cut_key: String = pm._graph._snap_key(cut_pos)
+	if not force_rebind and cut_key == _wire_key and not _breaker_id.is_empty():
+		pm.resplit_breaker(_wire_key)
+		return
+
+	var restore_tripped: bool = _tripped
+	_attachment_refreshing = true
+	pm.begin_bulk()
+	_detach_from_grid(pm)
+	_wire_key = pm.register_wire_node(cut_pos, "breaker", _pm_id, true)
+	_breaker_id = pm.register_breaker(_wire_key, self)
+	if not _breaker_id.is_empty():
+		pm.set_breaker_passthrough(_breaker_id, _pass_battery, _pass_generator)
+		_apply_breaker_variant(pm)
+		if restore_tripped:
+			pm.trip_breaker(_breaker_id)
+	pm.end_bulk()
+	_attachment_refreshing = false
+
+
+func _apply_breaker_variant(_pm: PowerManager) -> void:
+	pass
+
+
+func notify_wire_placed(_wn_key: String, _wn_pos: Vector3) -> void:
+	_queue_attachment_refresh("")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

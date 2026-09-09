@@ -186,6 +186,16 @@ func _update_move_ghost() -> void:
 		else:
 			_owner._move_ghost.visible = false
 			return
+	elif mv_tile == _owner.TILE_TERMINAL:
+		snap_pos.y = _owner.PLACEMENT_Y
+		var terminal_snap: Dictionary = _owner._snap_to_nearest_wall(
+			snap_pos, 0.45, 0.04, _owner.LIGHT_WALL_SNAP_RANGE)
+		if not terminal_snap.is_empty():
+			snap_pos = terminal_snap["pos"]
+			ghost_angle_deg = terminal_snap["angle_deg"]
+		else:
+			_owner._move_ghost.visible = false
+			return
 	elif mv_tile == _owner.TILE_BREAKER or mv_tile == _owner.TILE_BREAKER_SMART:
 		snap_pos.y = _owner.PLACEMENT_Y
 		## Same July 2026 fix as TILE_LIGHT above, reusing the existing proven
@@ -287,6 +297,8 @@ func _move_confirm() -> void:
 	## after an automatic boundary-tracking move (see WaterHookup.gd).
 	if tile_id == _owner.TILE_WATER_HOOKUP and _owner._move_source_body.has_method("update_graph_node_position"):
 		_owner._move_source_body.call("update_graph_node_position")
+	if _owner._move_source_body.has_method("refresh_power_attachment"):
+		_owner._move_source_body.call_deferred("refresh_power_attachment")
 
 	_owner._move_source_body.visible = true
 	for child in _owner._move_source_body.get_children():
@@ -326,4 +338,3 @@ func _destroy_move_ghost() -> void:
 	if _owner._move_ghost != null:
 		_owner._move_ghost.queue_free()
 		_owner._move_ghost = null
-

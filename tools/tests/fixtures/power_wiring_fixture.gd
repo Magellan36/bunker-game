@@ -32,6 +32,9 @@ class TestBuild extends BuildModeController:
 	func _recolor_wire_zones() -> void: pass
 	func _spawn_float_label_at_pos(_pos: Vector3, _amount: int, _positive: bool) -> void: pass
 
+class TestBreaker extends BreakerBox:
+	func _ready() -> void: pass
+
 var failures: int = 0
 var world: TestWorld
 var pm: PowerManager
@@ -159,6 +162,29 @@ func _run() -> void:
 	await get_tree().process_frame
 	check(pm.has_wire_edge(feed._edge_id), "wire placed after wall connects")
 	wall.free()
+	clear_graph()
+
+	# Breakers share the wall-feed search, but replace the invisible feed with
+	# a real cut point on the physical run below them.
+	var breaker := TestBreaker.new()
+	world.add_child(breaker)
+	breaker.position = Vector3(1, 2.5, 0)
+	breaker._register_with_pm()
+	await get_tree().process_frame
+	check(breaker.get_breaker_id().is_empty(), "breaker waits for a physical wire")
+	pm.register_wire_edge(node_at(Vector3(0, 1, 0)), node_at(Vector3(2, 1, 0)))
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(not breaker.get_breaker_id().is_empty(), "wire placed beneath attaches breaker")
+	check(pm.get_wire_node_pos(breaker._wire_key) == Vector3(1, 1, 0), "breaker electrical cut stays on wire height")
+	var breaker_sides: int = 0
+	for edge: Dictionary in pm.get_wire_edges():
+		if not bool(edge.get("no_visual", false)) and (edge.get("node_a", "") == breaker._wire_key or edge.get("node_b", "") == breaker._wire_key):
+			breaker_sides += 1
+	check(breaker_sides == 2, "breaker splits physical run into two sides")
+	check(pm.get_wire_zones().size() == 2, "breaker creates separate grid zones")
+	breaker.free()
+	await get_tree().process_frame
 	clear_graph()
 	tool.picked = {}
 	tool.cursor = Vector3(0, 1, 0)

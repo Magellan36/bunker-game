@@ -645,8 +645,22 @@ func _update_ghost() -> void:
 	elif _owner._selected_tile == _owner.TILE_GEN_S or _owner._selected_tile == _owner.TILE_GEN_M \
 			or _owner._selected_tile == _owner.TILE_GEN_L:
 		snap_pos.y = _owner.GEN_PLACEMENT_Y
-	elif _owner._selected_tile == _owner.TILE_WIRE or _owner._selected_tile == _owner.TILE_TERMINAL:
+	elif _owner._selected_tile == _owner.TILE_WIRE:
 		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_TERMINAL:
+		snap_pos.y = _owner.PLACEMENT_Y
+		var terminal_snap: Dictionary = _owner._snap_to_nearest_wall(
+			snap_pos, 0.45, 0.04, _owner.LIGHT_WALL_SNAP_RANGE)
+		if terminal_snap.is_empty():
+			_owner._ghost.visible = false
+			_owner._ghost_valid = false
+			return
+		snap_pos = terminal_snap["pos"]
+		_owner._current_angle_deg = terminal_snap["angle_deg"]
+		for i: int in _owner.EIGHT_DIR_ANGLES.size():
+			if absf(_owner.EIGHT_DIR_ANGLES[i] - _owner._current_angle_deg) < 1.0:
+				_owner._orient_index = i
+				break
 	elif _owner._selected_tile == _owner.TILE_HEAVY:
 		snap_pos.y = _owner.HEAVY_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_HALF_WALL:

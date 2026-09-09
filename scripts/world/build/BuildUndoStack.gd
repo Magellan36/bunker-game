@@ -145,16 +145,23 @@ func _undo() -> void:
 		_owner._spawn_float_label_at_pos(center, cost, true)
 
 	elif type == "move":
-		## Undo a move: teleport the object back to its original position
+		## Undo a move: restore both transform components used by wall snapping.
 		var body: Node3D = entry["node"] as Node3D
 		if is_instance_valid(body):
 			var old_pos: Vector3 = entry["old_pos"]
+			var old_angle: float = float(entry.get("old_angle_deg", body.rotation_degrees.y))
 			body.global_position = old_pos
+			body.rotation_degrees = Vector3(0.0, old_angle, 0.0)
 			# Update the registry entry too
 			for reg_entry: Dictionary in _owner._placed_objects:
 				if reg_entry["node"] == body:
 					reg_entry["world_pos"] = old_pos
+					reg_entry["angle_deg"] = old_angle
 					break
+			# Wall-fed power devices key their invisible electrical attachment by
+			# position, so an undone move must restore that attachment as well.
+			if body.has_method("refresh_power_attachment"):
+				body.call_deferred("refresh_power_attachment")
 
 	elif type == "wire_run":
 		var pm_run: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
@@ -312,9 +319,10 @@ func _push_undo_dig_rock(chunk_id: Vector2i, center: Vector3) -> void:
 
 func _push_undo_move(body: Node3D, reg_entry: Dictionary, old_pos: Vector3) -> void:
 	_owner._undo_stack.append({
-		"type":    "move",
-		"node":    body,
-		"old_pos": old_pos,
+		"type":          "move",
+		"node":          body,
+		"old_pos":       old_pos,
+		"old_angle_deg": float(reg_entry.get("angle_deg", body.rotation_degrees.y)),
 	})
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()

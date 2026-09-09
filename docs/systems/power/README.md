@@ -34,7 +34,9 @@ models/materials/FX and the approved UIs retain their existing behavior.
   it through one `no_visual` edge. The helper selects a real sample along the
   run, coalesces topology events, and removes/reselects its feed when wires
   change. It does not connect through another invisible device feed. Breakers
-  keep their specialized perimeter cut-point logic.
+  use the same physical-wire lookup, but register at that sampled wire position
+  as a true graph cut point instead of adding a feed edge. This keeps their
+  wall-mounted visual flush while still splitting the run beneath into zones.
 - **Height:** `register_wire_node(pos, role, device_id, preserve_height=false)`
   retains the existing Y=1m default. Raised devices and manual route joints
   opt into actual Y. Keys include height; a raised run cannot split a lower
@@ -65,7 +67,8 @@ block; no startup, scene, floor, lighting or pregen behavior is involved.
 
 Validation: Godot 4.7.2 `power_wiring_smoke.gd` covers deterministic raised
 routing, separate height planes, atomic cancel/payment, wall-before-wire and
-wire-before-wall feeds, split ownership, one-action undo/refunds, overlap
+wire-before-wall feeds, breaker-before-wire attachment and two-zone splitting,
+split ownership, one-action undo/refunds, overlap
 rejection, save/load height preservation, reusable preview geometry, vertical
 deconstruction targeting and Reduced Motion. `power_terminal_ui_smoke.gd` also
 passes. A full fresh-clone boot remains blocked only by pre-existing missing

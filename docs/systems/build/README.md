@@ -41,7 +41,8 @@ stack, and the wire-draw tool's host controller.
 - `WallSnapHelpers.gd`: snaps wall-lights and breakers to the nearest wall
   face within range, and the pregen-vs-player-wall interior-face check used
   to fix the expanded-area wall/breaker snap bug (see `HANDOVER.md`
-  history).
+  history). Breaker visuals stay on the true wall face; their separate
+  electrical cut point is sampled from the physical wire beneath.
 - `WallDrawMode.gd`: click-drag-click wall placement tool. See "Wall Draw
   Mode" section below.
 - `PlacementIndicator.gd`: small standalone visual indicator node (not part
@@ -695,9 +696,11 @@ Player enters build mode (BuildModeHUD tool_selected / enter_build_mode())
   `PowerManager` in the new device's own `_ready()` (see
   `docs/systems/power/README.md` Common edits — nothing else in
   `BuildModeController` needs to know about the device's internal behavior).
-- **New wall-snappable device (like lights/breakers):** add a
+- **New wall-snappable device (like lights/breakers/terminals):** add a
   `_snap_*_to_wall()` method to `WallSnapHelpers.gd` following
-  `_snap_light_to_wall()`/`_snap_breaker_to_wall()`'s shape.
+  `_snap_light_to_wall()`/`_snap_breaker_to_wall()`'s shape, or use the shared
+  nearest-wall path when the device only needs a simple face offset. Add the
+  same rule to move placement so the committed and preview transforms match.
 - **New tool (beyond Construct/Deconstruct/Move/Duplicate/Wire):** add a new
   `TOOL_*` constant, a new `RefCounted` helper slice (own file) following the
   `_owner: BuildModeController` pattern if the tool's logic is self-contained

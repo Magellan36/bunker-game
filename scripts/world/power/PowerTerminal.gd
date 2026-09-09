@@ -34,6 +34,7 @@ var power_priority: int    = 1
 var power_zone:     String = "main"
 var _pm_node_key:   String = ""
 var _is_connected:  bool   = false  ## True when reachable via the wire graph (cosmetic only now)
+var _wire_attachment: WallWireAttachment = null
 
 ## Internal refs
 var _screen_mesh:  MeshInstance3D = null
@@ -192,9 +193,13 @@ func _register_deferred() -> void:
 		"consumer",    ## role must be "consumer" for _is_consumer_reachable() BFS
 		dev_id,
 		true)           ## preserve the wall mounting height
-	var feed := WallWireAttachment.new()
-	add_child(feed)
-	feed.bind(self, pm, _pm_node_key)
+	_wire_attachment = WallWireAttachment.new()
+	add_child(_wire_attachment)
+	_wire_attachment.bind(self, pm, _pm_node_key)
+
+func refresh_power_attachment() -> void:
+	if is_instance_valid(_wire_attachment):
+		_wire_attachment.request_refresh()
 
 # ─── Mesh ─────────────────────────────────────────────────────────────────────
 func _build_mesh() -> void:
@@ -261,9 +266,6 @@ func _build_mesh() -> void:
 		lmat.emission_energy_multiplier = 1.2
 		led.set_surface_override_material(0, lmat)
 		add_child(led)
-
-	## Flip 180° so screen faces +Z (front) — was backwards in all instances
-	rotation.y = PI
 
 # ─── Static ghost helper (for BuildModeController preview) ───────────────────
 static func build_ghost_mesh() -> Mesh:

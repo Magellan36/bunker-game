@@ -252,43 +252,13 @@ func _snap_breaker_to_wall(base_pos: Vector3) -> Dictionary:
 		if hit_dist < best_dist:
 			best_dist = hit_dist
 			var snapped_xz: Vector3 = hit["position"] - dir * BREAKER_HALF_DEPTH
-			## ── Snap BOTH axes to the 0.25 m wire grid ───────────────────────
-			## The wire runs at exact 0.25 m grid coordinates (e.g. Z=4.5).
-			## The physical wall face sits slightly proud of that (e.g. Z=4.72).
-			##
-			## Problem: the breaker visual lands at Z=4.72 (wall face minus half-
-			## depth), but the wire/PM split is at Z=4.5.  The colour boundary
-			## therefore appears 0.22 m away from the breaker centre.
-			##
-			## Fix: snap the wall-perpendicular axis (the one pointing INTO the
-			## wall, i.e. dir's dominant axis) toward the bunker interior using
-			## floor/ceil instead of round.  "Interior" is OPPOSITE to the wall
-			## normal (dir), so:
-			##   dir.z > 0  → interior is −Z → snap with floor
-			##   dir.z < 0  → interior is +Z → snap with ceil
-			##   dir.x > 0  → interior is −X → snap with floor
-			##   dir.x < 0  → interior is +X → snap with ceil
-			## The along-wall axis (the other one) simply uses round — it is
-			## already close enough to the grid since the player aimed there.
-			var final_x: float = snapped_xz.x
-			var final_z: float = snapped_xz.z
-			if absf(dir.z) > 0.5:
-				## Z-facing wall: perp axis = Z, along-wall axis = X
-				final_x = roundf(snapped_xz.x / _owner.grid_size) * _owner.grid_size
-				if dir.z > 0.0:
-					final_z = floorf(snapped_xz.z / _owner.grid_size) * _owner.grid_size  ## interior = −Z
-				else:
-					final_z = ceilf(snapped_xz.z / _owner.grid_size) * _owner.grid_size   ## interior = +Z
-			else:
-				## X-facing wall: perp axis = X, along-wall axis = Z
-				final_z = roundf(snapped_xz.z / _owner.grid_size) * _owner.grid_size
-				if dir.x > 0.0:
-					final_x = floorf(snapped_xz.x / _owner.grid_size) * _owner.grid_size  ## interior = −X
-				else:
-					final_x = ceilf(snapped_xz.x / _owner.grid_size) * _owner.grid_size   ## interior = +X
+			## Keep the visual flush to the actual wall face. BreakerBox projects
+			## its separate electrical cut-point onto the beneath-wire grid.
 			best_result = {
-				"pos":       Vector3(final_x, base_pos.y, final_z),
-				"angle_deg": d["angle_deg"],
+				"pos": Vector3(snapped_xz.x, base_pos.y, snapped_xz.z),
+				## Breaker controls live on local +Z, unlike the wall light/terminal
+				## fronts on -Z, so face +Z into the room rather than into the wall.
+				"angle_deg": fmod(float(d["angle_deg"]) + 180.0, 360.0),
 			}
 			best_is_true_pregen = is_true_pregen
 

@@ -25,42 +25,55 @@ func _queue_refresh(_changed: String) -> void:
 	_queued = true
 	_refresh.call_deferred()
 
+func request_refresh() -> void:
+	_queue_refresh("")
+
+## Shared beneath-wire query for wall lights, terminals and breakers. Returns
+## an exact physical-wire sample so logical feeds and breaker cuts attach to
+## the same graph position without moving the wall-mounted visual.
+static func find_candidate(host_position: Vector3, pm: PowerManager,
+		radius: float = RADIUS) -> Dictionary:
+	var best := Vector3.INF
+	var best_distance: float = radius
+	var best_id: String = "~"
+	for edge: Dictionary in pm.get_wire_edges():
+		if bool(edge.get("no_visual", false)):
+			continue
+		var a: Vector3 = pm.get_wire_node_pos(edge["node_a"])
+		var b: Vector3 = pm.get_wire_node_pos(edge["node_b"])
+		if not is_equal_approx(a.y, b.y) or a.y > host_position.y:
+			continue
+		var ab := Vector2(b.x - a.x, b.z - a.z)
+		if ab.length_squared() < 0.000001:
+			continue
+		var ap := Vector2(host_position.x - a.x, host_position.z - a.z)
+		var t: float = clampf(ap.dot(ab) / ab.length_squared(), 0.0, 1.0)
+		var steps: int = maxi(1, roundi(a.distance_to(b) / PowerManager.SNAP_GRID))
+		if a.distance_to(b) <= PowerManager.SNAP_GRID * 1.5:
+			steps = 1
+		t = roundf(t * steps) / steps
+		var candidate: Vector3 = a.lerp(b, t)
+		var distance: float = Vector2(candidate.x - host_position.x,
+			candidate.z - host_position.z).length()
+		if distance < best_distance or (is_equal_approx(distance, best_distance)
+				and String(edge["id"]) < best_id):
+			best = candidate
+			best_distance = distance
+			best_id = edge["id"]
+	return {} if not best.is_finite() else {
+		"pos": best, "edge_id": best_id, "distance": best_distance}
+
 func _refresh() -> void:
 	_queued = false
 	if not is_instance_valid(host) or host.is_queued_for_deletion() or not is_instance_valid(manager):
 		return
 	if not manager._wire_nodes.has(device_key):
 		return
-	var best := Vector3.INF
-	var best_distance: float = RADIUS
-	var best_id: String = "~"
-	for edge: Dictionary in manager.get_wire_edges():
-		if bool(edge.get("no_visual", false)):
-			continue
-		var a: Vector3 = manager.get_wire_node_pos(edge["node_a"])
-		var b: Vector3 = manager.get_wire_node_pos(edge["node_b"])
-		if not is_equal_approx(a.y, b.y) or a.y > host.global_position.y:
-			continue
-		var ab := Vector2(b.x - a.x, b.z - a.z)
-		if ab.length_squared() < 0.000001:
-			continue
-		var ap := Vector2(host.global_position.x - a.x, host.global_position.z - a.z)
-		var t: float = clampf(ap.dot(ab) / ab.length_squared(), 0.0, 1.0)
-		# Choose a real snap sample on this run rather than rounding a
-		# diagonal projection off its line and creating a disconnected tap.
-		var steps: int = maxi(1, roundi(a.distance_to(b) / PowerManager.SNAP_GRID))
-		if a.distance_to(b) <= PowerManager.SNAP_GRID * 1.5:
-			steps = 1
-		t = roundf(t * steps) / steps
-		var candidate: Vector3 = a.lerp(b, t)
-		var distance: float = Vector2(candidate.x - host.global_position.x, candidate.z - host.global_position.z).length()
-		if distance < best_distance or (is_equal_approx(distance, best_distance) and String(edge["id"]) < best_id):
-			best = candidate
-			best_distance = distance
-			best_id = edge["id"]
+	var candidate_data: Dictionary = find_candidate(host.global_position, manager)
 	_refreshing = true
 	manager.begin_bulk()
-	if best.is_finite():
+	if not candidate_data.is_empty():
+		var best: Vector3 = candidate_data["pos"]
 		var key: String = manager._graph._snap_key(best)
 		if key != _target_key or not manager.has_wire_edge(_edge_id):
 			if manager.has_wire_edge(_edge_id):
