@@ -26,6 +26,19 @@ const MODEL_PATH:  String  = "res://assets/models/stove.glb"
 const MODEL_SCALE: Vector3 = Vector3(0.7257, 0.7257, 0.7257)
 const FOOTPRINT_X: float = 0.85
 const FOOTPRINT_Z: float = 0.7768
+const NPC_WORK_STANDOFF: float = 0.75
+
+func get_npc_interaction_slots(_action: StringName) -> Array[Dictionary]:
+	## The controls and cooking surface face local +Z. One authored slot keeps
+	## residents out of the stove collider and gives work a stable facing.
+	var basis: Basis = global_transform.basis.orthonormalized()
+	var position: Vector3 = global_transform * Vector3(
+		0.0, 0.0, FOOTPRINT_Z * 0.5 + NPC_WORK_STANDOFF)
+	return [{
+		"slot_id": &"front",
+		"claim_group": &"front",
+		"transform": Transform3D(basis, position),
+	}]
 const MODEL_HEIGHT: float = 1.1558
 
 const COLOR_LIGHT_ON:  Color = Color(0.30, 1.00, 0.40, 1.0)   ## green, matches HeavyConsumerTest's COLOR_ON
@@ -359,6 +372,11 @@ func npc_set_powered(on: bool) -> bool:
 	_refresh_cooking_state()
 	_refresh_indicator()
 	return true
+
+## Side-effect-free availability query for autonomous NPC scoring. Commands
+## still call npc_set_powered(), which remains the authoritative mutation.
+func npc_can_power_on() -> bool:
+	return powered_on or _is_grid_connected()
 
 
 # ─── Cooking-active / power-draw logic ────────────────────────────────────────

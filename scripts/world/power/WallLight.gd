@@ -260,6 +260,9 @@ func refresh_power_attachment() -> void:
 	if is_instance_valid(_wire_attachment):
 		_wire_attachment.request_refresh()
 
+func get_wall_wire_connector() -> Vector3:
+	return to_global(Vector3(0.0, LAMP_Y_OFFSET, 0.0))
+
 
 func _build_fixture() -> void:
 	# ── Load GLB model ────────────────────────────────────────────────────────

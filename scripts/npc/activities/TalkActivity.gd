@@ -64,7 +64,10 @@ func enter(npc: NPC) -> void:
 		npc.lock_movement()
 		var target_pos: Vector3 = (_partner as Node3D).global_position
 		target_pos.y = npc.global_position.y
-		npc.look_at(target_pos, Vector3.UP)
+		## Two residents can momentarily share an origin after a spawn/load.
+		## Godot rejects look_at(origin), so wait until separation exists.
+		if target_pos.distance_squared_to(npc.global_position) > 0.0001:
+			npc.look_at(target_pos, Vector3.UP)
 
 func tick(npc: NPC, delta: float) -> void:
 	if _partner == null or not is_instance_valid(_partner):

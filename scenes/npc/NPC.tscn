@@ -8,6 +8,8 @@ radius = 0.4
 height = 1.8
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_npc1"]
+radius = 0.4
+height = 1.8
 
 [node name="NPC" type="CharacterBody3D"]
 script = ExtResource("1")

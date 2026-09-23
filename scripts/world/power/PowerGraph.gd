@@ -348,6 +348,8 @@ func _find_wire_segment_by_edge_id(target_eid: String) -> Node3D:
 	for ws: Node in _owner.get_tree().get_nodes_in_group("wire_segment"):
 		if not is_instance_valid(ws):
 			continue
+		if ws.has_meta("_wall_feed_visual") or ws.is_queued_for_deletion():
+			continue
 		if "edge_id" in ws and String(ws.get("edge_id")) == target_eid:
 			return ws as Node3D
 	return null

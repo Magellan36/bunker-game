@@ -18,6 +18,7 @@ var point_b := Vector3.ZERO
 var is_ghost: bool = false
 var player_placed: bool = false
 var run_id: String = ""
+var _custom_path := PackedVector3Array()
 var _powered: bool = false
 var _burnt: bool = false
 var _overloaded: bool = false
@@ -34,6 +35,7 @@ func _ready() -> void:
 	if not is_ghost:
 		add_to_group("wire_segment")
 	visible = is_ghost
+	_sync_build_visibility()
 	_material = StandardMaterial3D.new()
 	_material.albedo_color = COLOR_GHOST
 	_material.no_depth_test = true
@@ -42,13 +44,31 @@ func _ready() -> void:
 	_material.render_priority = 1
 	set_process(false)
 
+## Split/reconciled tubes can appear after the build-mode entry broadcast.
+## Read current mode whenever created or rebuilt, including reused tubes.
+func _sync_build_visibility() -> void:
+	if is_ghost:
+		return
+	var build: Node = get_tree().get_first_node_in_group("build_mode_controller")
+	visible = is_instance_valid(build) and bool(build.get("is_active"))
+
 func set_endpoints(a: Vector3, b: Vector3) -> void:
 	if not is_inside_tree() or is_queued_for_deletion():
 		return
+	_sync_build_visibility()
 	if point_a.is_equal_approx(a) and point_b.is_equal_approx(b) and not _tubes.is_empty():
 		return
 	point_a = a
 	point_b = b
+	_rebuild_mesh()
+
+## Device-owned drops share wire styling, but follow the wall before turning
+## along the floor. They are regenerated from the attachment, not saved runs.
+func set_path(path: PackedVector3Array) -> void:
+	_sync_build_visibility()
+	_custom_path = path
+	point_a = path[0]
+	point_b = path[path.size() - 1]
 	_rebuild_mesh()
 
 func _piece(mesh: Mesh) -> MeshInstance3D:
@@ -72,7 +92,7 @@ func _rebuild_mesh() -> void:
 		_unit_cap.height = WIRE_RADIUS * 2.0
 		_unit_cap.radial_segments = WIRE_SEGMENTS
 		_unit_cap.rings = 4
-	var path: PackedVector3Array = WireRoute.points(point_a, point_b)
+	var path: PackedVector3Array = _custom_path if not _custom_path.is_empty() else WireRoute.points(point_a, point_b)
 	while _tubes.size() < path.size() - 1:
 		_tubes.append(_piece(_unit_tube))
 	while _caps.size() < path.size():

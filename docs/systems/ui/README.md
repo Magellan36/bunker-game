@@ -336,8 +336,9 @@ the run log.
   registered scene nodes to player-facing generator/battery/breaker names
   rather than exposing registry or instance IDs.
 - `NotificationHistoryUI.gd` is embedded in the right side of the redesigned
-  pause workspace. Its All/Critical/Power/Water/Farming filters, code-drawn
-  icons, relative times, duplicate counts and NEW state are native Controls.
+  pause workspace under the compact `Log` heading. Its
+  All/Critical/Inventory/Power/Water/Farming filters, code-drawn icons,
+  relative times, duplicate counts and NEW state are native Controls.
 - `PauseMenuUI.gd` keeps its non-pausing world behavior, movement lock,
   settings and exit confirmation. Its left rail exposes Continue, Save, Load,
   Settings and Exit; Save/Load expand the same three authoritative slots.
@@ -360,6 +361,10 @@ overhaul (Phase 5). Key changes:
 - **Advanced Quality**: SDFGI, SSAO, SSIL, Volumetric Fog, Glow, DOF checkboxes.
 - **Flashlight**: Beam Volumetrics, Shadow Casting checkboxes.
 - **Camera**: FOV slider (60-100°).
+- **Compact presentation**: visible explanatory copy and the live-settings
+  banner are omitted; rows and controls use borderless, compact menu buttons.
+- **Typography**: the shared bunker font is assigned at the theme root so it
+  reaches labels, buttons, options, toggles, sliders, and popup content.
 - **ScrollContainer** with max height (520px), section headers matching
   `PauseMenuUI`, `ScrollContainer` with max height so it never runs off-screen.
 - **UIKit.settings_controls_theme()**: applied to root panel so all

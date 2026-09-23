@@ -337,9 +337,20 @@ func _get_npcs_for_save() -> Array:
 			"energy":        npc.energy,
 			"hunger":        npc.hunger,
 			"thirst":        npc.thirst,
+			"health":        npc.health,
 			"skills":        npc.skills.duplicate(),
 			"seed":          npc.generation_seed,
 			"mood":          npc.mood,
+			"personality":   npc.personality.duplicate(),
+			"age":           npc.age,
+			"birthday_day":  npc._birthday_day_of_year,
+			"birthday_checked_day": npc._birthday_last_checked_day,
+			"gender":        str(npc.get_meta("_adventurer_random_gender", "")),
+			"irritability":  npc.irritability,
+			"gift_saturation": npc.gift_saturation,
+			"relax_cooldown": npc._relax_cooldown_hours,
+			"relax_used":     npc._relax_time_used_today,
+			"relax_day_clock": npc._relax_day_clock,
 			"npc_id":        npc.npc_id,
 			"relationships": npc.relationships.duplicate(),
 		})
@@ -365,14 +376,31 @@ func _restore_npcs(saved: Array) -> void:
 		return
 	for entry: Dictionary in saved:
 		var npc: Node3D = scene.instantiate()
+		## The model resolves gender during _ready(), so restore its metadata
+		## before adding the NPC to the tree. All other randomized identity
+		## fields can be overwritten immediately after _ready().
+		var saved_gender: String = str(entry.get("gender", ""))
+		if saved_gender == "male" or saved_gender == "female":
+			npc.set_meta("_adventurer_random_gender", saved_gender)
 		add_child(npc)
 		npc.global_position = SaveManager.dict_to_vec3(entry.get("pos", {}))
 		npc.npc_name        = str(entry.get("name", "Survivor"))
 		npc.energy          = float(entry.get("energy", 100.0))
 		npc.hunger          = float(entry.get("hunger", 100.0))
 		npc.thirst          = float(entry.get("thirst", 100.0))
+		npc.health          = float(entry.get("health", 100.0))
 		npc.mood            = float(entry.get("mood", 100.0))
 		npc.generation_seed = int(entry.get("seed", 0))
+		npc.personality      = (entry.get("personality", npc.personality) as Dictionary).duplicate()
+		npc.refresh_behavior_profile()
+		npc.age              = int(entry.get("age", npc.age))
+		npc._birthday_day_of_year = int(entry.get("birthday_day", npc._birthday_day_of_year))
+		npc._birthday_last_checked_day = int(entry.get("birthday_checked_day", npc._birthday_last_checked_day))
+		npc.irritability     = float(entry.get("irritability", 0.0))
+		npc.gift_saturation  = float(entry.get("gift_saturation", 0.0))
+		npc._relax_cooldown_hours = float(entry.get("relax_cooldown", npc._relax_cooldown_hours))
+		npc._relax_time_used_today = float(entry.get("relax_used", 0.0))
+		npc._relax_day_clock = float(entry.get("relax_day_clock", 0.0))
 		npc.npc_id           = str(entry.get("npc_id", npc.npc_id))
 		NPC._register_id(npc.npc_id)
 		npc.relationships    = (entry.get("relationships", {}) as Dictionary).duplicate()
@@ -817,8 +845,15 @@ func _dev_spawn_npc() -> void:
 		return
 	var npc: Node3D = npc_scene.instantiate()
 	add_child(npc)
+	## Repeated admin spawns used to stack every CharacterBody at one exact
+	## transform. Collision recovery could launch the pile through the floor,
+	## which then looked like navigation teleporting when the abyss failsafe
+	## rescued them. Fan new residents across a small row instead.
+	var existing_count: int = get_tree().get_nodes_in_group("npc").size()
+	var row_offset: float = float((existing_count % 5) - 2) * 1.1
 	npc.global_position = player.global_position \
-		+ (-player.global_transform.basis.z * 2.0) \
+		+ (-player.global_transform.basis.z * (2.5 + float(existing_count / 5) * 1.1)) \
+		+ (player.global_transform.basis.x * row_offset) \
 		+ Vector3(0.0, 0.5, 0.0)
 	_wdbg("[DEV] Spawned NPC")
 
@@ -957,7 +992,7 @@ func _setup_bunker_ceiling() -> void:
 	ceiling_body.add_to_group("physics_failsafe")
 	## Parent to the scene root (NOT this node) so BunkerNavMesh's bake —
 	## which parses the "main_world" subtree — never rasterizes this box.
-	get_tree().root.add_child(ceiling_body)
+	get_tree().root.add_child.call_deferred(ceiling_body)
 	ceiling_body.position = Vector3(center_x, CEILING_Y, center_z)
 	_bunker_ceiling = ceiling_body
 

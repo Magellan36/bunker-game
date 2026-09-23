@@ -16,6 +16,7 @@ static func apply_theme(root: Control) -> void:
 	var resource: Resource = load(REDESIGN_THEME_PATH)
 	if resource is Theme:
 		root.theme = (resource as Theme).duplicate(true) as Theme
+		root.theme.default_font = UIKit.font()
 		BunkerControlTheme.install(root.theme)
 	else:
 		BunkerPanelStyle.apply(root)
@@ -139,7 +140,8 @@ static func divider(parent: Container) -> HSeparator:
 	return separator
 
 
-static func style_segment(button: Button, compact: bool = false) -> void:
+static func style_segment(button: Button, compact: bool = false,
+		borderless: bool = false) -> void:
 	UIButtonMotion.attach(button)
 	button.focus_mode = Control.FOCUS_ALL
 	button.toggle_mode = true
@@ -153,16 +155,20 @@ static func style_segment(button: Button, compact: bool = false) -> void:
 	button.add_theme_color_override("icon_hover_color", BunkerPanelStyle.BLUE)
 	button.add_theme_color_override("icon_pressed_color", BunkerPanelStyle.BLUE)
 	button.add_theme_constant_override("icon_max_width", 20 if compact else 24)
+	var border_width: int = 0 if borderless else 1
 	button.add_theme_stylebox_override("normal", BunkerPanelStyle.button_box(
-		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.42)))
+		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.42), 7, border_width))
 	button.add_theme_stylebox_override("hover", BunkerPanelStyle.button_box(
-		Color("202b2e"), BunkerPanelStyle.BLUE.darkened(0.2)))
+		Color("202b2e"), BunkerPanelStyle.BLUE.darkened(0.2), 7, border_width))
 	button.add_theme_stylebox_override("pressed", BunkerPanelStyle.button_box(
-		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7, 2, 9, 3))
+		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7,
+		0 if borderless else 2, 9, 3))
 	button.add_theme_stylebox_override("hover_pressed", BunkerPanelStyle.button_box(
-		BunkerPanelStyle.BLUE_DARK.lightened(0.07), BunkerPanelStyle.BLUE, 7, 2, 9, 3))
+		BunkerPanelStyle.BLUE_DARK.lightened(0.07), BunkerPanelStyle.BLUE, 7,
+		0 if borderless else 2, 9, 3))
 	button.add_theme_stylebox_override("focus", panel_box(
-		Color.TRANSPARENT, BunkerPanelStyle.IVORY, 9, 2))
+		BunkerPanelStyle.BLUE_DARK if borderless else Color.TRANSPARENT,
+		BunkerPanelStyle.IVORY, 9, 0 if borderless else 2))
 
 
 static func style_tool(button: Button) -> void:

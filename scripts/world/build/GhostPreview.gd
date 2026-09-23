@@ -630,8 +630,20 @@ func _update_ghost() -> void:
 
 	var world_pos: Vector3 = result["position"]
 	var snap_pos: Vector3  = _owner._snap_to_grid(world_pos)
+	_owner._ghost_door_candidate = {}
+	if _owner._selected_tile == _owner.TILE_BUNKER_DOOR:
+		var door_candidate: Dictionary = _owner._resolve_door_placement(world_pos)
+		_owner._ghost_door_candidate = door_candidate
+		if door_candidate.has("pos"):
+			snap_pos = door_candidate["pos"]
+			_owner._current_angle_deg = float(door_candidate.get("angle_deg", 0.0))
+	# Door candidates already carry the host wall's exact floor-plane Y. Do not
+	# replace it with the legacy generic PLACEMENT_Y (2.0m), which would make
+	# both the preview and final door hover while the wall cut remained correct.
+	if _owner._selected_tile == _owner.TILE_BUNKER_DOOR:
+		pass
 	# Use shelf-specific Y for the shelf family, standard for everything else
-	if _owner._selected_tile == _owner.TILE_SHELVING or \
+	elif _owner._selected_tile == _owner.TILE_SHELVING or \
 			_owner._selected_tile == _owner.TILE_SMALL_SHELF or \
 			_owner._selected_tile == _owner.TILE_LARGE_SHELF:
 		snap_pos.y = _owner.SHELF_PLACEMENT_Y
@@ -788,6 +800,8 @@ func _update_ghost() -> void:
 	var player: Node3D = _owner.get_parent()
 	var dist: float    = player.global_position.distance_to(snap_pos)
 	_owner._ghost_valid = (dist <= _owner.build_reach)
+	if _owner._selected_tile == _owner.TILE_BUNKER_DOOR:
+		_owner._ghost_valid = _owner._ghost_valid and bool(_owner._ghost_door_candidate.get("valid", false))
 
 	# Also invalid if insufficient cash
 	if _owner._ghost_valid and _owner.world_node != null:
@@ -797,7 +811,8 @@ func _update_ghost() -> void:
 	# Also invalid if another object already occupies this snap position.
 	# Lights use a tighter overlap radius so multiple can sit along a wall.
 	_owner._ghost_blocked_by_occupation = false
-	if _owner._ghost_valid and _owner._is_position_occupied_for_tile(snap_pos, _owner._selected_tile):
+	if _owner._ghost_valid and _owner._selected_tile != _owner.TILE_BUNKER_DOOR \
+			and _owner._is_position_occupied_for_tile(snap_pos, _owner._selected_tile):
 		_owner._ghost_valid = false
 		_owner._ghost_blocked_by_occupation = true
 

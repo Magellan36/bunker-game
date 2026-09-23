@@ -108,6 +108,9 @@ func _ready() -> void:
 	if not _is_preview_only:
 		add_to_group("pickup")
 		_maybe_create_nav_obstacle()
+		## Procedural subclasses commonly create their collision shapes after
+		## calling super._ready(). Re-measure once that construction stack ends.
+		call_deferred("_refresh_nav_obstacle_radius")
 
 ## NPC Pass 2, Part 11 — every loose item (light and heavy alike, Aug 2026
 ## update) gets a NavigationObstacle3D child so every NavigationAgent3D in
@@ -142,6 +145,11 @@ func _maybe_create_nav_obstacle() -> void:
 	_nav_obstacle.avoidance_enabled = true
 	add_child(_nav_obstacle)
 
+
+func _refresh_nav_obstacle_radius() -> void:
+	if _nav_obstacle != null:
+		_nav_obstacle.radius = _compute_obstacle_radius()
+
 ## Lets external code (an NPC actively approaching this item to grab it)
 ## temporarily suspend obstacle avoidance while it's still on the ground.
 ## pickup()/drop() already handle the held/dropped states correctly —
@@ -166,9 +174,9 @@ func set_nav_obstacle_enabled(enabled: bool) -> void:
 ## a PickupableItem's own body_shape_entered/exited, so it was pure physics-
 ## server overhead on every active item (not just stored ones) for no
 ## payoff. Removed entirely in _ready() rather than toggled.
-func deactivate_dynamic_state() -> void:
+func deactivate_dynamic_state(keep_navigation_obstacle: bool = false) -> void:
 	set_physics_process(false)
-	set_nav_obstacle_enabled(false)
+	set_nav_obstacle_enabled(keep_navigation_obstacle)
 
 func restore_dynamic_state() -> void:
 	set_physics_process(true)
@@ -200,6 +208,10 @@ func _compute_obstacle_radius() -> float:
 
 # ─── Physics: follow hold point + knockout check ─────────────────────────────
 func _physics_process(delta: float) -> void:
+	if _nav_obstacle != null:
+		## RVO needs the obstacle's actual motion to predict where it will be;
+		## position alone only produces late, reactive sidestepping.
+		_nav_obstacle.velocity = linear_velocity
 	if not is_held or _hold_point == null:
 		_apply_settle_sleep()
 		return
@@ -375,7 +387,9 @@ func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vecto
 	freeze_mode     = RigidBody3D.FREEZE_MODE_STATIC
 	collision_layer = 1
 	collision_mask  = 1
-	deactivate_dynamic_state()   ## placed/frozen — stop spending CPU on it (Aug 2026)
+	## A floor-placed RigidBody is excluded from static navmesh parsing. Keep
+	## its avoidance footprint active even while its own physics tick sleeps.
+	deactivate_dynamic_state(true)
 	add_to_group("pickup")
 	_set_held_culling(false)
 	_on_drop_extra()

@@ -112,6 +112,24 @@ func _run() -> void:
 	var build := TestBuild.new()
 	world.add_child(build)
 	build.world_node = world
+	build.add_to_group("build_mode_controller")
+	build.is_active = true
+	var visibility_probe := WireSegment.new()
+	world.add_child(visibility_probe)
+	visibility_probe.set_endpoints(high, low)
+	check(visibility_probe.visible, "new wire is immediately visible during build")
+	visibility_probe.visible = false
+	visibility_probe.set_endpoints(high, low)
+	check(visibility_probe.visible, "reused unchanged wire restores current build visibility")
+	build.is_active = false
+	visibility_probe.set_endpoints(high, low)
+	check(not visibility_probe.visible, "rebuilt wire stays hidden outside build")
+	var hidden_probe := WireSegment.new()
+	world.add_child(hidden_probe)
+	check(not hidden_probe.visible, "new wire outside build stays hidden")
+	hidden_probe.free()
+	visibility_probe.free()
+	build.is_active = true
 	var undo := BuildUndoStack.new(build)
 	tool.wire_placed.connect(undo._push_undo_wire)
 	tool.wire_placed.connect(world._on_player_wire_placed)
@@ -136,7 +154,22 @@ func _run() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	check(pm.has_wire_edge(feed._edge_id), "wall taps existing run")
-	check(pm._wire_edges.get(feed._edge_id, {}).get("no_visual", false), "wall feed is invisible")
+	check(pm._wire_edges.get(feed._edge_id, {}).get("no_visual", false), "logical feed does not create a duplicate straight wire")
+	check(is_instance_valid(feed._visual) and feed._visual._custom_path.size() == 4, "wall feed has a routed visual drop")
+	var original_drop: WireSegment = feed._visual
+	pm.reconcile_wire_visuals()
+	check(not original_drop.is_queued_for_deletion(), "graph reconciliation preserves device lead")
+	check(pm._graph._find_wire_segment_by_edge_id(feed._edge_id) == null, "graph lookup excludes device lead")
+	original_drop.free()
+	feed.request_refresh()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(is_instance_valid(feed._visual), "refresh replaces previously freed visual")
+	var queued_drop: WireSegment = feed._visual
+	queued_drop.queue_free()
+	feed._refresh()
+	check(is_instance_valid(feed._visual) and feed._visual != queued_drop,
+		"refresh replaces queued visual before deletion")
 	check(world.get_player_wires_for_save().size() == 3, "split pieces preserve ownership")
 	undo._undo()
 	await get_tree().process_frame
@@ -144,13 +177,14 @@ func _run() -> void:
 	check(world.test_cash == 10000, "undo refunds once")
 	check(world.get_player_wires_for_save().is_empty(), "undo removes split run from save")
 	check(pm.get_wire_edges().is_empty(), "undo removes run and dangling wall feed")
+	check(not is_instance_valid(feed._visual), "undo removes automatic drop")
 	check(world._player_wire_segs.is_empty(), "undo clears stale expansion tracking")
 	wall.free()
 	clear_graph()
 
 	wall = Node3D.new()
 	world.add_child(wall)
-	wall.position = Vector3(1, 2.5, 0)
+	wall.position = Vector3(1, 2.5, 0.9)
 	wall_key = node_at(wall.position, "consumer")
 	feed = WallWireAttachment.new()
 	wall.add_child(feed)
@@ -161,6 +195,17 @@ func _run() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	check(pm.has_wire_edge(feed._edge_id), "wire placed after wall connects")
+	check(is_instance_valid(feed._visual), "offset floor wire gets a visual drop")
+	if is_instance_valid(feed._visual):
+		check(feed._visual.point_a.is_equal_approx(wall.position), "drop begins at device")
+		check(is_equal_approx(feed._visual.point_b.y, 1.0), "drop ends at floor wire height")
+	check(WallWireAttachment.find_candidate(Vector3(1, 2.5, 1.1), pm).is_empty(), "outside horizontal tolerance rejected")
+	check(WallWireAttachment.find_candidate(Vector3(1, 5.0, 0), pm).is_empty(), "another floor outside drop limit rejected")
+	wall.position.z = 0.5
+	feed.request_refresh()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(feed._visual.point_a.is_equal_approx(wall.position), "move updates drop")
 	wall.free()
 	clear_graph()
 
@@ -168,7 +213,8 @@ func _run() -> void:
 	# a real cut point on the physical run below them.
 	var breaker := TestBreaker.new()
 	world.add_child(breaker)
-	breaker.position = Vector3(1, 2.5, 0)
+	breaker.position = Vector3(1, 2.5, 0.9)
+	breaker.rotation.y = deg_to_rad(37.0)
 	breaker._register_with_pm()
 	await get_tree().process_frame
 	check(breaker.get_breaker_id().is_empty(), "breaker waits for a physical wire")
@@ -183,9 +229,27 @@ func _run() -> void:
 			breaker_sides += 1
 	check(breaker_sides == 2, "breaker splits physical run into two sides")
 	check(pm.get_wire_zones().size() == 2, "breaker creates separate grid zones")
+	check(is_instance_valid(breaker._attachment_visual), "offset breaker gets visual drop")
+	pm.reconcile_wire_visuals()
+	check(not breaker._attachment_visual.is_queued_for_deletion(), "reconciliation preserves breaker lead")
+	breaker._attachment_visual.free()
+	breaker._queue_attachment_refresh("")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(is_instance_valid(breaker._attachment_visual), "breaker refresh replaces freed visual")
+	if is_instance_valid(breaker._attachment_visual):
+		var path: PackedVector3Array = breaker._attachment_visual._custom_path
+		check(path[0].is_equal_approx(breaker.get_wall_wire_connector()), "breaker drop starts at elevated connector")
+		check((path[1] - path[0]).normalized().dot(-breaker.global_basis.z) > 0.999, "breaker lead enters angled wall")
+		check(is_equal_approx(path[1].x, path[2].x) and is_equal_approx(path[1].z, path[2].z), "drop is vertical inside wall")
+	clear_graph()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(not is_instance_valid(breaker._attachment_visual), "wire deletion removes breaker drop")
 	breaker.free()
 	await get_tree().process_frame
 	clear_graph()
+	await check_angled_breaker_pair()
 	tool.picked = {}
 	tool.cursor = Vector3(0, 1, 0)
 	tool._try_pick_source()
@@ -232,6 +296,54 @@ func _run() -> void:
 	world.free()
 	print("POWER_WIRING_SMOKE_%s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(0 if failures == 0 else 1)
+
+func check_angled_breaker_pair() -> void:
+	# Two offset mounts along one angled wall, on both faces and in either
+	# placement order. The wire can be laid before or after the devices.
+	for side: float in [-1.0, 1.0]:
+		for wire_first: bool in [false, true]:
+			var a := Vector3(0, 1, 0)
+			var b := Vector3(6, 1, 4)
+			var along: Vector3 = (b - a).normalized()
+			var normal := Vector3(along.z, 0, -along.x) * side
+			var pair: Array[TestBreaker] = []
+			if wire_first:
+				pm.register_wire_edge(node_at(a), node_at(b))
+			for fraction: float in ([0.25, 0.75] if wire_first else [0.75, 0.25]):
+				var device := TestBreaker.new()
+				world.add_child(device)
+				device.position = a.lerp(b, fraction) + normal * 0.6
+				device.position.y = 2.0
+				device.rotation.y = atan2(normal.x, normal.z)
+				device._register_with_pm()
+				pair.append(device)
+				await get_tree().process_frame
+				await get_tree().process_frame
+			if not wire_first:
+				pm.register_wire_edge(node_at(a), node_at(b))
+			await get_tree().process_frame
+			await get_tree().process_frame
+			check(not pair[0]._breaker_id.is_empty() and not pair[1]._breaker_id.is_empty(),
+				"both angled-wall breakers attach")
+			check(pair[0]._wire_key != pair[1]._wire_key, "angled breakers use distinct cuts")
+			check(pm.get_wire_zones().size() == 3, "two angled breakers create three zones")
+			check(pm.get_wire_zones_with_colors().size() == 3, "middle zone participates in zone colors")
+			pm.reconcile_wire_visuals()
+			check(pm.get_wire_zones().size() == 3, "reconciliation preserves three zones")
+			await get_tree().process_frame
+			for edge: Dictionary in pm.get_wire_edges():
+				if bool(edge.get("no_visual", false)):
+					continue
+				var segment: Node3D = pm._graph._find_wire_segment_by_edge_id(edge["id"])
+				check(is_instance_valid(segment) and segment.visible,
+					"every multi-breaker split segment visible without reopening build")
+			pair[0].free()
+			await get_tree().process_frame
+			await get_tree().process_frame
+			check(pm.get_wire_zones().size() == 2, "removing one angled breaker preserves remaining cut")
+			pair[1].free()
+			await get_tree().process_frame
+			clear_graph()
 
 func save_vec(pos: Vector3) -> Dictionary:
 	return {"x": pos.x, "y": pos.y, "z": pos.z}

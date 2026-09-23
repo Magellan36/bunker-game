@@ -101,6 +101,24 @@ static func log_stuck_escalation(npc: Node, obstruction: Node, streak: int) -> v
 	print("%s STUCK ESCALATION — %s failed to clear the stall %d times in a row, nudging free instead of retrying" \
 		% [_fmt(npc), name, streak])
 
+static func log_stuck_yield(npc: Node, obstruction: Node, streak: int) -> void:
+	if not enabled:
+		return
+	var name: String = "unknown obstruction"
+	if obstruction != null and "npc_name" in obstruction:
+		name = "NPC:%s" % obstruction.npc_name
+	elif obstruction != null:
+		name = str(obstruction.name)
+	print("%s STUCK YIELD — %s blocked progress %d times; re-scoring without relocation" \
+		% [_fmt(npc), name, streak])
+
+static func log_free_time_intention(npc: Node, purpose: String, target: Node, destination: Vector3) -> void:
+	if not enabled:
+		return
+	var target_name: String = str(target.name) if target != null and is_instance_valid(target) else "open floor"
+	print("%s free-time intention — %s; target=%s destination=(%.1f, %.1f)" \
+		% [_fmt(npc), purpose, target_name, destination.x, destination.z])
+
 ## Job lifecycle — call from JobBoard (_mark/claim/release) and JobActivity.
 static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
 	if not enabled:
@@ -192,9 +210,7 @@ static func log_cleaning(npc: Node, stage: String, detail: String) -> void:
 static func dump_cleaning_state(tree: SceneTree) -> void:
 	print("═══ NPC Cleaning Debug Dump ═══════════════════════════")
 	var snap: Dictionary = JobBoard.get_cleaning_debug_snapshot()
-	print("Idle gate: %.1fs%s" % [
-		float(snap["idle_gate_sec"]),
-		" (DEBUG override active — real gameplay uses 90s)" if bool(snap["idle_gate_is_debug"]) else ""])
+	print("Idle gate: %.1fs" % float(snap["idle_gate_sec"]))
 	print("Ready now — trash: %d   organizable: %d" % [int(snap["trash_count"]), int(snap["organizable_count"])])
 	if int(snap["trash_blocked_by_no_receptacle"]) > 0:
 		print("  ⚠ %d trash item(s) exist but no trash_receptacle in the level — permanently blocked until one's added" \
@@ -316,6 +332,12 @@ static func _dump_one(npc: Node) -> void:
 	print("── %s ──────────────────────────────" % npc_name)
 	print("  pos=%s  activity=%s  held=%s" % [pos, activity, held])
 	print("  movement_locked=%s  stuck_recoveries=%d" % [locked, stuck])
+	if npc.has_method("get_spatial_commitment_debug_info"):
+		var spatial: Dictionary = npc.get_spatial_commitment_debug_info()
+		if not spatial.is_empty():
+			print("  spatial_commitment=%s" % str(spatial))
+	if npc.has_method("get_behavior_profile_debug_info"):
+		print("  behavior_profile=%s" % str(npc.get_behavior_profile_debug_info()))
 
 	if "health" in npc and "energy" in npc and "hunger" in npc and "thirst" in npc:
 		print("  Health=%.1f  Energy=%.1f  Hunger=%.1f  Thirst=%.1f" % [

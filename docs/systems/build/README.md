@@ -104,6 +104,19 @@ handling as the Medium Table fix — see that entry for the general
 explanation; this file's node carried its own stray `(-4.1, 0, 0.8)`
 offset, corrected the same way via `_recenter_glb_mesh()`.
 
+**Sep 2026 — Chair model swapped to `Chair_1` (Ultimate House Interior
+Pack).** `Chair.gd` now loads `assets/models/chair1.glb` (exported from
+`Blends/Chair_1.blend`; low-poly, single flat-brown `Wood` material, no
+textures). Non-uniform scale `Vector3(0.8202, 0.7027, 0.7576)`:
+`scale.y = SEAT_SURFACE_Y / seat_top = 0.4971 / 0.7074` so the new seat
+lands EXACTLY on the existing `SEAT_SURFACE_Y = 0.4971` constant (the
+dominant seat slab's top surface is at GLB-local Y ≈ 0.7074); `scale.x/z`
+map the 0.762×0.825 native footprint to the existing `FOOTPRINT = 0.625`
+so the visual sits inside the same collision box. Backrest verified on
+local -Z (all verts above y=1.0 are at -Z), matching the backrest-at--Z
+convention — no rotation. This GLB's wrapper carries no stray translation
+(identity transform), so `_recenter_glb_mesh()` is a harmless no-op here.
+
 **Aug 2026 — Medium Table + Build Station now use a real GLB model.**
 `Table.gd`'s `cell_count == 2` path and `BuildStation.gd`'s tabletop both
 now load `assets/models/wooden_table.glb` (non-uniform scale
@@ -228,6 +241,31 @@ storage furniture sharing the `LightStorage.gd` base. These two are the
 current **reference example of complete new-object wiring** (see the
 checklist below): every layer that a new placeable furniture type must
 touch is wired here.
+
+**Sep 2026 — End Table visual swapped to `NightStand_2` (Ultimate House
+Interior Pack).** `EndTable.gd` now loads `assets/models/nightstand2.glb`
+(exported from `Blends/NightStand_2.blend`; 2 materials — Wood body +
+Metal drawer knob). Uniform scale `0.9451` maps the native 0.952×0.952
+footprint to the existing 0.90×0.90 occupancy (`_tile_half_extents`
+0.45); scaled height 0.893. The knob is authored on the model's +Z, which
+IS the EndTable's front (no rotation — verified in-editor that the knob
+faces the player/arrow). The procedural leg+tabletop+cabinet mesh and its
+cabinet trimesh collision were removed; collision is now a single
+invisible box matching the scaled footprint. `build_ghost_mesh()` returns
+the scaled 0.90×0.893×0.90 box.
+
+**Sep 2026 — Dresser visual swapped to `Drawer_5` (Ultimate House
+Interior Pack).** `Dresser.gd` now loads `assets/models/drawer5.glb`
+(exported from `Blends/Drawer_5.blend`; 3 materials — Wood body,
+Wood_Dark drawer faces, Wood_Light knobs). Uniform scale `0.68` maps the
+native 2.794 width to the existing 1.90 Dresser width (`_tile_half_extents`
+0.95) — no scrunching, so height/depth follow the model's natural
+proportions (scaled 0.906 × 0.784, both inside the 1.90×0.96 occupancy
+box). Drawer fronts/knobs are authored on the model's +Z, same as the old
+procedural Dresser, so no rotation. The procedural body+top+2×3-drawer
+mesh and its trimesh collision were removed; collision is now a single
+invisible box matching the scaled footprint.
+`build_ghost_mesh()` returns the scaled 1.90×0.906×0.784 box.
 
 - `EndTable.gd` / `Dresser.gd`: mesh-only subclasses of
   `scripts/world/furniture/LightStorage.gd`, each exposing

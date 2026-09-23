@@ -213,6 +213,7 @@ func _rebuild_helper_hints() -> void:
 		BunkerUIComponents.key_hint(_helper_row, "B", "Cancel", "B", "B", true)
 	else:
 		BunkerUIComponents.key_hint(_helper_row, "LMB", "Place", "LMB", "LMB", true)
+		BunkerUIComponents.key_hint(_helper_row, "CTRL", "45° Snap", "CTRL", "CTRL", true)
 		BunkerUIComponents.key_hint(_helper_row, "WHEEL", "Rotate", "WHEEL", "WHEEL", true)
 		BunkerUIComponents.key_hint(_helper_row, "RMB", "Cancel", "RMB", "RMB", true)
 	var separator := VSeparator.new()

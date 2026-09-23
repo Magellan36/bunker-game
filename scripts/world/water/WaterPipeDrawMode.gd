@@ -8,10 +8,11 @@ class_name WaterPipeDrawMode
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## ROUTING MODEL (rewritten per playtest feedback, July 2026):
-## Pipes run along the "ceiling" (WATER_CEILING_Y — see that constant) in
-## strictly axis-aligned (Manhattan/right-angle) segments — NO diagonal runs,
-## ever. Every bend is exactly 90°. When a run reaches a connectable object
-## that sits below ceiling height (e.g. WaterTestSink, registered at its own
+## Pipes normally run along the "ceiling" (WATER_CEILING_Y — see that constant)
+## in axis-aligned (Manhattan/right-angle) segments. Holding Ctrl is the
+## deliberate manual-routing override: the horizontal run follows one direct
+## 45-degree-snapped bearing, matching wall placement. When a run reaches a
+## connectable object that sits below ceiling height (e.g. WaterTestSink, registered at its own
 ## physical connection point — see WaterGraph node roles), the path runs
 ## horizontally at ceiling height directly above that object, then adds one
 ## final VERTICAL segment straight down into it — simulating a pipe dropping
@@ -36,6 +37,8 @@ class_name WaterPipeDrawMode
 ## (mirrors WireDrawMode.wire_placed's own midpoint arg).
 signal pipe_placed(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: Array, midpoint: Vector3)
 signal pipe_tool_exit_requested()
+
+const DragMath = preload("res://scripts/world/build/DragPlacementMath.gd")
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 ## Height every horizontal pipe run travels at — near the ceiling (walls are
@@ -133,9 +136,8 @@ const MAX_TRACE_LEGS: int = 20
 ## space (see _resolve_destination() — no existing node, no mid-span split):
 ## route along the bunker's wall perimeter (_trace_wall_locked_path(), via
 ## WallPerimeterRegistry) instead of a raw diagonal-shortest Manhattan cut
-## across the room. Hold CTRL to fall back to the pre-existing freeform
-## routing (_trace_wall_hugging_path()) for either mode — see the two call
-## sites in _update_ghost_preview()/_try_confirm_full_path(). An anchored
+## across the room. Hold CTRL to bypass both automatic routers and place one
+## direct, octant-snapped horizontal run (_trace_direct_snapped_path()). An anchored
 ## destination (existing node / mid-span split) always keeps using the
 ## freeform trace regardless of this flag — it's already a valid real
 ## connection point, wall-locking only applies to fresh open-floor runs.
@@ -327,6 +329,49 @@ func _resolve_single_leg(from_pos: Vector3, cursor_pos: Vector3, debug: bool = f
 	var path: Array = _avoid_existing_pipes(raw_path, debug)
 	var valid: bool = _is_path_in_bounds(path, debug)
 	return { "dest": dest, "path": path, "valid": valid }
+
+## Manual Ctrl routing preserves the vertical rise/drop needed by floor-level
+## fixtures, but connects the two ceiling points directly. _resolve_destination
+## applies the shared 45-degree snap to free endpoints; real nodes and explicit
+## mid-pipe junctions remain exact so connectivity is never sacrificed.
+func _build_direct_pipe_path(from_pos: Vector3, to_pos: Vector3) -> Array:
+	var path: Array = []
+	if absf(from_pos.y - WATER_CEILING_Y) > MIN_POINT_GAP:
+		_append_if_distinct(path, from_pos)
+	_append_if_distinct(path, Vector3(from_pos.x, WATER_CEILING_Y, from_pos.z))
+	_append_if_distinct(path, Vector3(to_pos.x, WATER_CEILING_Y, to_pos.z))
+	if absf(to_pos.y - WATER_CEILING_Y) > MIN_POINT_GAP:
+		_append_if_distinct(path, to_pos)
+	return path
+
+func _trace_direct_snapped_path(source_pos: Vector3, source_key: String,
+		cursor_pos: Vector3, debug: bool = false) -> Dictionary:
+	var dest: Dictionary = _resolve_destination(cursor_pos, debug)
+	if dest.is_empty():
+		return {"waypoints": [], "waypoint_keys": [],
+			"waypoint_split_candidates": [], "valid": false, "final_key": ""}
+	var waypoints: Array = _build_direct_pipe_path(source_pos, dest["pos"])
+	var waypoint_keys: Array = []
+	var split_candidates: Array = []
+	for i in range(waypoints.size()):
+		waypoint_keys.append(source_key if i == 0 else "")
+		split_candidates.append({})
+	if not waypoints.is_empty():
+		waypoint_keys[waypoint_keys.size() - 1] = dest.get("existing_key", "")
+		split_candidates[split_candidates.size() - 1] = dest.get("split_candidate", {})
+
+	var valid: bool = waypoints.size() >= 2 and _is_path_in_bounds(waypoints, debug)
+	var pillar_registry: PillarRegistry = _get_pillar_registry()
+	for i in range(waypoints.size() - 1):
+		if not _leg_clears_all_pillars(waypoints[i], waypoints[i + 1], pillar_registry):
+			valid = false
+	return {
+		"waypoints": waypoints,
+		"waypoint_keys": waypoint_keys,
+		"waypoint_split_candidates": split_candidates,
+		"valid": valid,
+		"final_key": dest.get("existing_key", ""),
+	}
 
 func _get_pillar_registry() -> PillarRegistry:
 	return get_tree().get_first_node_in_group("pillar_registry") as PillarRegistry
@@ -780,15 +825,14 @@ func _trace_wall_locked_path(source_pos: Vector3, source_key: String, cursor_pos
 		"valid": valid, "final_key": "",
 	}
 
-## Picks freeform (_trace_wall_hugging_path()) vs. wall-locked
-## (_trace_wall_locked_path()) routing for one trace call — CTRL held, or
-## WALL_LOCKED_ROUTING_ENABLED flipped off, means freeform (today's
-## pre-existing behavior); otherwise wall-locked is the default. Single
-## shared chooser so _update_ghost_preview()'s per-frame call and
+## Picks direct Ctrl routing vs. the normal wall-locked router for one trace
+## call. This shared chooser keeps _update_ghost_preview()'s per-frame call and
 ## _try_confirm_full_path()'s confirm-time call can never disagree about
 ## which mode a given click actually used.
 func _trace_active_path(source_pos: Vector3, source_key: String, cursor_pos: Vector3, debug: bool = false) -> Dictionary:
-	if not WALL_LOCKED_ROUTING_ENABLED or Input.is_key_pressed(KEY_CTRL):
+	if Input.is_key_pressed(KEY_CTRL):
+		return _trace_direct_snapped_path(source_pos, source_key, cursor_pos, debug)
+	if not WALL_LOCKED_ROUTING_ENABLED:
 		return _trace_wall_hugging_path(source_pos, source_key, cursor_pos, debug)
 	return _trace_wall_locked_path(source_pos, source_key, cursor_pos, debug)
 
@@ -1274,9 +1318,8 @@ func _append_if_distinct(path: Array, p: Vector3) -> void:
 ## graph node (any role — hookup/joint/corner/endpoint) within
 ## DEST_SNAP_RADIUS of the cursor's XZ position if one exists and isn't the
 ## current source itself; otherwise a fresh mid-air waypoint directly above
-## the cursor at ceiling height. No wall detection, no freehand/Shift
-## override — every destination this phase produces is reachable via a
-## strictly axis-aligned path (see _build_manhattan_path()).
+## the cursor at ceiling height. Ctrl quantizes that free endpoint to a 45°
+## bearing; _trace_direct_snapped_path() then bypasses automatic routing.
 ## `debug` gates verbose split-candidate logging — MUST be false for the
 ## per-frame ghost preview call (_update_ghost_preview()) or PIPE_DEBUG
 ## would flood the console at 60fps; only _try_confirm_segment() (a one-off
@@ -1300,7 +1343,11 @@ func _resolve_destination(cursor_pos: Vector3, debug: bool = false) -> Dictionar
 	if not split.is_empty():
 		return { "pos": split["pos"], "split_candidate": split }
 
-	return { "pos": _grid_snap_xz(cursor_xz) }
+	var free_pos: Vector3 = _grid_snap_xz(cursor_xz)
+	if Input.is_key_pressed(KEY_CTRL):
+		free_pos = DragMath.snap_xz_to_octant(_source_pos, free_pos, _PIPE_GRID)
+		free_pos.y = WATER_CEILING_Y
+	return { "pos": free_pos }
 
 
 ## Same 0.25 m grid every other placeable in the game snaps to
@@ -1424,25 +1471,25 @@ func _find_split_candidate(wm: WaterManager, cursor_pos: Vector3, debug: bool = 
 			[raw_closest, closest, seg.edge_id, seg.point_a, seg.point_b])
 	return best
 
-## Grid-snaps a split point along `seg`'s own line to the same 0.25m grid
-## (`_PIPE_GRID`) every other pipe waypoint already uses. Only the VARYING
-## axis (the one the segment actually runs along) is snapped and then
-## clamped strictly between the segment's own two endpoints; the fixed
-## lateral coordinate is copied exactly from the segment (never
-## independently snapped) so the returned point is always precisely ON the
-## pipe's line, never off to one side.
+## Grid-snaps travel along `seg`'s own line to the same 0.25m component grid
+## (`_PIPE_GRID`) every other pipe waypoint uses. This keeps the result on the
+## source segment for cardinal and Ctrl-diagonal pipes instead of snapping X
+## and Z independently and drifting off the line.
 func _grid_snap_split_point(pos: Vector3, seg: WaterPipeSegment) -> Vector3:
-	var seg_is_x: bool = absf(seg.point_a.x - seg.point_b.x) > absf(seg.point_a.z - seg.point_b.z)
-	if seg_is_x:
-		var lo: float = minf(seg.point_a.x, seg.point_b.x)
-		var hi: float = maxf(seg.point_a.x, seg.point_b.x)
-		var snapped_x: float = clampf(roundf(pos.x / _PIPE_GRID) * _PIPE_GRID, lo, hi)
-		return Vector3(snapped_x, pos.y, seg.point_a.z)
-	else:
-		var lo2: float = minf(seg.point_a.z, seg.point_b.z)
-		var hi2: float = maxf(seg.point_a.z, seg.point_b.z)
-		var snapped_z: float = clampf(roundf(pos.z / _PIPE_GRID) * _PIPE_GRID, lo2, hi2)
-		return Vector3(seg.point_a.x, pos.y, snapped_z)
+	var delta := Vector2(seg.point_b.x - seg.point_a.x, seg.point_b.z - seg.point_a.z)
+	var length: float = delta.length()
+	if length <= MIN_POINT_GAP:
+		return seg.point_a
+	var direction: Vector2 = delta / length
+	var from_start := Vector2(pos.x - seg.point_a.x, pos.z - seg.point_a.z)
+	var distance: float = clampf(from_start.dot(direction), 0.0, length)
+	var dominant: float = maxf(absf(direction.x), absf(direction.y))
+	var component: float = roundf((distance * dominant) / _PIPE_GRID) * _PIPE_GRID
+	distance = clampf(component / dominant, 0.0, length)
+	return Vector3(
+		seg.point_a.x + direction.x * distance,
+		pos.y,
+		seg.point_a.z + direction.y * distance)
 
 ## MUTATES the graph: splits an existing pipe edge at `candidate["pos"]`
 ## (assumed already precisely ON the segment's line). Tears down the old
@@ -1491,10 +1538,9 @@ func _split_pipe_at(wm: WaterManager, candidate: Dictionary) -> String:
 
 	return new_key
 
-## True if leg [a,b] runs COLLINEAR with `seg` (same axis, same lateral
-## coordinate) AND their ranges overlap along that axis — i.e. the new leg
-## would literally run on top of the existing pipe. Perpendicular crossings
-## are a SEPARATE, explicitly ALLOWED case — see _find_perpendicular_crossing().
+## True if leg [a,b] runs parallel and close enough to `seg` that their
+## projected ranges overlap — i.e. the new leg would run on top of the
+## existing pipe. The vector form supports cardinal and Ctrl-diagonal pipes.
 ## `debug` gates the verbose per-check prints — MUST be false for the
 ## per-frame ghost preview call (else PIPE_DEBUG would flood the console at
 ## 60fps) and true only for the actual confirm-click call, see
@@ -1516,40 +1562,30 @@ func _leg_collinear_overlaps(a: Vector3, b: Vector3, seg: WaterPipeSegment, debu
 		if debug: _pdbg("[PipeDebug]     -> false: different height (leg.y=%.3f seg.y=%.3f, diff=%.4f)" % [a.y, seg.point_a.y, absf(a.y - seg.point_a.y)])
 		return false
 
-	var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
-	var seg_is_x: bool = absf(seg.point_a.x - seg.point_b.x) > absf(seg.point_a.z - seg.point_b.z)
-	if leg_is_x != seg_is_x:
-		if debug: _pdbg("[PipeDebug]     -> false: different axis (leg_is_x=%s seg_is_x=%s)" % [leg_is_x, seg_is_x])
-		return false   ## Different axis — perpendicular or non-interacting, not an overlap.
-
-	if leg_is_x:
-		var lateral_diff: float = absf(a.z - seg.point_a.z)
-		if lateral_diff > COLLINEAR_LATERAL_TOLERANCE:
-			if debug: _pdbg("[PipeDebug]     -> false: lateral offset %.4f exceeds tolerance %.4f (leg.z=%.3f seg.z=%.3f)" %
-				[lateral_diff, COLLINEAR_LATERAL_TOLERANCE, a.z, seg.point_a.z])
-			return false   ## Different lateral offset — parallel, not the same line.
-		var lo: float  = minf(a.x, b.x)
-		var hi: float  = maxf(a.x, b.x)
-		var slo: float = minf(seg.point_a.x, seg.point_b.x)
-		var shi: float = maxf(seg.point_a.x, seg.point_b.x)
-		var range_overlap: bool = lo < shi and hi > slo
-		if debug: _pdbg("[PipeDebug]     -> X-axis, lateral_diff=%.4f (ok), leg_x=[%.3f,%.3f] seg_x=[%.3f,%.3f] range_overlap=%s" %
-			[lateral_diff, lo, hi, slo, shi, range_overlap])
-		return range_overlap
-	else:
-		var lateral_diff2: float = absf(a.x - seg.point_a.x)
-		if lateral_diff2 > COLLINEAR_LATERAL_TOLERANCE:
-			if debug: _pdbg("[PipeDebug]     -> false: lateral offset %.4f exceeds tolerance %.4f (leg.x=%.3f seg.x=%.3f)" %
-				[lateral_diff2, COLLINEAR_LATERAL_TOLERANCE, a.x, seg.point_a.x])
-			return false
-		var lo2: float  = minf(a.z, b.z)
-		var hi2: float  = maxf(a.z, b.z)
-		var slo2: float = minf(seg.point_a.z, seg.point_b.z)
-		var shi2: float = maxf(seg.point_a.z, seg.point_b.z)
-		var range_overlap2: bool = lo2 < shi2 and hi2 > slo2
-		if debug: _pdbg("[PipeDebug]     -> Z-axis, lateral_diff=%.4f (ok), leg_z=[%.3f,%.3f] seg_z=[%.3f,%.3f] range_overlap=%s" %
-			[lateral_diff2, lo2, hi2, slo2, shi2, range_overlap2])
-		return range_overlap2
+	var p := Vector2(a.x, a.z)
+	var r := Vector2(b.x - a.x, b.z - a.z)
+	var q := Vector2(seg.point_a.x, seg.point_a.z)
+	var s := Vector2(seg.point_b.x - seg.point_a.x, seg.point_b.z - seg.point_a.z)
+	var leg_length: float = r.length()
+	var seg_length: float = s.length()
+	if leg_length <= MIN_POINT_GAP or seg_length <= MIN_POINT_GAP:
+		return false
+	var leg_direction: Vector2 = r / leg_length
+	var seg_direction: Vector2 = s / seg_length
+	if absf(leg_direction.cross(seg_direction)) > 0.001:
+		return false
+	var lateral: float = absf((q - p).cross(leg_direction))
+	if lateral > COLLINEAR_LATERAL_TOLERANCE:
+		return false
+	var seg_start: float = (q - p).dot(leg_direction)
+	var seg_end: float = (q + s - p).dot(leg_direction)
+	var overlap: bool = (
+		maxf(0.0, minf(seg_start, seg_end))
+		< minf(leg_length, maxf(seg_start, seg_end)))
+	if debug:
+		_pdbg("[PipeDebug]     -> parallel lateral=%.4f ranges=[0,%.3f]/[%.3f,%.3f] overlap=%s" %
+			[lateral, leg_length, minf(seg_start, seg_end), maxf(seg_start, seg_end), overlap])
+	return overlap
 
 func _find_collinear_conflict(a: Vector3, b: Vector3, debug: bool = false) -> WaterPipeSegment:
 	for node: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
@@ -1732,46 +1768,46 @@ func _avoid_existing_pipes(path: Array, debug: bool = false) -> Array:
 			current = b + offset
 	return out
 
-## Finds the single interior crossing point (if any) between leg [a,b] and
-## `seg`, when they're PERPENDICULAR (different axis) and both ranges
-## actually include that coordinate — a true "+" intersection, explicitly
-## ALLOWED per Brannon's request (unlike a collinear overlap). Returns
-## Vector3.INF if there's no such crossing.
+## Finds the single interior XZ crossing point between leg [a,b] and `seg`.
+## Despite the legacy name this now handles any non-parallel angle, including
+## Ctrl-placed diagonal pipes. Collinear overlap remains a separate blocked
+## case. Returns Vector3.INF when the finite segments do not cross.
 func _find_perpendicular_crossing(a: Vector3, b: Vector3, seg: WaterPipeSegment) -> Vector3:
 	if absf(seg.point_a.y - seg.point_b.y) > MIN_POINT_GAP:
 		return Vector3.INF
 	if absf(a.y - b.y) > MIN_POINT_GAP:
 		return Vector3.INF
+	if absf(a.y - seg.point_a.y) > MIN_POINT_GAP:
+		return Vector3.INF
 
-	var leg_is_x: bool = absf(a.x - b.x) > absf(a.z - b.z)
-	var seg_is_x: bool = absf(seg.point_a.x - seg.point_b.x) > absf(seg.point_a.z - seg.point_b.z)
-	if leg_is_x == seg_is_x:
-		return Vector3.INF   ## Same axis — that's _leg_collinear_overlaps()'s job, never a "crossing" here.
-
-	var cross: Vector3
-	if leg_is_x:
-		cross = Vector3(seg.point_a.x, a.y, a.z)
-		if cross.x < minf(a.x, b.x) - MIN_POINT_GAP or cross.x > maxf(a.x, b.x) + MIN_POINT_GAP:
-			return Vector3.INF
-		if cross.z < minf(seg.point_a.z, seg.point_b.z) - MIN_POINT_GAP or cross.z > maxf(seg.point_a.z, seg.point_b.z) + MIN_POINT_GAP:
-			return Vector3.INF
-	else:
-		cross = Vector3(a.x, a.y, seg.point_a.z)
-		if cross.z < minf(a.z, b.z) - MIN_POINT_GAP or cross.z > maxf(a.z, b.z) + MIN_POINT_GAP:
-			return Vector3.INF
-		if cross.x < minf(seg.point_a.x, seg.point_b.x) - MIN_POINT_GAP or cross.x > maxf(seg.point_a.x, seg.point_b.x) + MIN_POINT_GAP:
-			return Vector3.INF
+	var p := Vector2(a.x, a.z)
+	var r := Vector2(b.x - a.x, b.z - a.z)
+	var q := Vector2(seg.point_a.x, seg.point_a.z)
+	var s := Vector2(seg.point_b.x - seg.point_a.x, seg.point_b.z - seg.point_a.z)
+	var denominator: float = r.cross(s)
+	if absf(denominator) <= 0.000001:
+		return Vector3.INF
+	var offset: Vector2 = q - p
+	var t: float = offset.cross(s) / denominator
+	var u: float = offset.cross(r) / denominator
+	if t < 0.0 or t > 1.0 or u < 0.0 or u > 1.0:
+		return Vector3.INF
+	var cross_2d: Vector2 = p + r * t
+	var cross := Vector3(cross_2d.x, a.y, cross_2d.y)
 
 	## Exclude crossings essentially AT one of the leg's own endpoints —
 	## that's just a normal node join, not a mid-span "+" crossing.
 	if cross.distance_to(a) < SPLIT_ENDPOINT_EXCLUDE or cross.distance_to(b) < SPLIT_ENDPOINT_EXCLUDE:
 		return Vector3.INF
+	if (cross.distance_to(seg.point_a) < SPLIT_ENDPOINT_EXCLUDE
+			or cross.distance_to(seg.point_b) < SPLIT_ENDPOINT_EXCLUDE):
+		return Vector3.INF
 	return cross
 
-## MUTATES the graph — called only from _try_confirm_segment(), never from
-## the read-only ghost preview. Walks the (already detour-avoided) `path`
-## leg by leg; for each leg, finds every existing pipe it perpendicularly
-## crosses, splits that existing pipe at the crossing (_split_pipe_at() —
+## MUTATES the graph — called only while confirming, never from the read-only
+## ghost preview. Walks `path` leg by leg; for each leg, finds every existing
+## pipe it crosses at a non-parallel angle and splits that existing pipe at
+## the crossing (_split_pipe_at() —
 ## creates a real shared joint, exactly the "+"" formation Brannon asked to
 ## allow), and inserts the crossing as a waypoint carrying that joint's key.
 ## Multiple crossings on one leg are ordered along the leg before insertion.

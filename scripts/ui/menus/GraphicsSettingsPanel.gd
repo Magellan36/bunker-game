@@ -47,7 +47,6 @@ var _content_scroll: ScrollContainer = null
 var _section_buttons: Dictionary = {}
 var _section_anchors: Dictionary = {}
 var _first_nav_button: Button = null
-var _preset_state: Label = null
 var _render_scale_value: Label = null
 var _fov_value: Label = null
 
@@ -79,6 +78,7 @@ var _pending_restart_driver: String = ""
 
 
 func _ready() -> void:
+	GraphicsSettings.graphics_change_rejected.connect(_on_graphics_change_rejected)
 	layer = 210
 	_build_ui()
 	visible = false
@@ -198,41 +198,14 @@ func _build_navigation_rail() -> Control:
 	rail.add_child(_section_button("Effects", "power", "effects"))
 	rail.add_child(_section_button("Camera", "search", "camera"))
 
-	var live_panel: PanelContainer = PanelContainer.new()
-	live_panel.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(true))
-	var live_row: HBoxContainer = HBoxContainer.new()
-	live_row.add_theme_constant_override("separation", 10)
-	live_panel.add_child(live_row)
-	var live_icon: TextureRect = TextureRect.new()
-	live_icon.texture = BunkerPanelStyle.icon("check")
-	live_icon.self_modulate = BunkerPanelStyle.GREEN
-	live_icon.custom_minimum_size = Vector2(28, 28)
-	live_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	live_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	live_row.add_child(live_icon)
-	var live_copy: VBoxContainer = VBoxContainer.new()
-	live_copy.add_theme_constant_override("separation", 0)
-	live_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	live_row.add_child(live_copy)
-	var live_title: Label = Label.new()
-	live_title.text = "LIVE SETTINGS"
-	live_title.add_theme_font_size_override("font_size", 12)
-	live_title.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
-	live_copy.add_child(live_title)
-	var live_detail: Label = Label.new()
-	live_detail.text = "Changes apply immediately"
-	BunkerPanelStyle.muted(live_detail, 12)
-	live_copy.add_child(live_detail)
-	rail.add_child(live_panel)
-
 	var grow: Control = Control.new()
 	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	rail.add_child(grow)
 
 	var back_button: Button = Button.new()
 	back_button.text = "Back to Pause"
-	back_button.custom_minimum_size.y = 36
-	BunkerPanelStyle.icon_button(back_button, "arrow")
+	back_button.custom_minimum_size.y = BunkerDesign.COMPACT_CONTROL_HEIGHT
+	BunkerPanelStyle.icon_button(back_button, "arrow", false, false, true, true)
 	back_button.pressed.connect(close)
 	rail.add_child(back_button)
 	return rail
@@ -244,8 +217,7 @@ func _section_button(caption: String, symbol: String, section_key: String) -> Bu
 	button.icon = BunkerPanelStyle.icon(symbol)
 	button.expand_icon = true
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	button.custom_minimum_size.y = 36
-	BunkerUIComponents.style_segment(button)
+	BunkerUIComponents.style_segment(button, true, true)
 	button.pressed.connect(_jump_to_section.bind(section_key))
 	button.set_meta(&"ui_tab", true)
 	_section_buttons[section_key] = button
@@ -276,11 +248,6 @@ func _build_workspace() -> Control:
 	title.text = "Display & quality"
 	BunkerPanelStyle.title(title, 28)
 	titles.add_child(title)
-	var description: Label = Label.new()
-	description.text = "Tune image quality, performance, effects, and camera comfort."
-	BunkerPanelStyle.muted(description, 13)
-	titles.add_child(description)
-
 	workspace.add_child(_build_preset_card())
 
 	_content_scroll = ScrollContainer.new()
@@ -308,7 +275,7 @@ func _build_workspace() -> Control:
 func _build_preset_card() -> PanelContainer:
 	var card: PanelContainer = PanelContainer.new()
 	card.name = "QualityPresetCard"
-	card.custom_minimum_size.y = 66
+	card.custom_minimum_size.y = 48
 	card.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
 		Color("172328"), BunkerPanelStyle.BLUE.darkened(0.24), 9, 1, 7))
 	var row: HBoxContainer = HBoxContainer.new()
@@ -317,22 +284,17 @@ func _build_preset_card() -> PanelContainer:
 	var icon: TextureRect = TextureRect.new()
 	icon.texture = BunkerPanelStyle.icon("condition")
 	icon.self_modulate = BunkerPanelStyle.BLUE
-	icon.custom_minimum_size = Vector2(38, 38)
+	icon.custom_minimum_size = Vector2(30, 30)
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	row.add_child(icon)
 	var copy: VBoxContainer = VBoxContainer.new()
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	copy.add_theme_constant_override("separation", 2)
 	row.add_child(copy)
 	var title: Label = Label.new()
 	title.text = "Quality preset"
-	BunkerPanelStyle.title(title, 20)
+	BunkerPanelStyle.title(title, 18)
 	copy.add_child(title)
-	_preset_state = Label.new()
-	_preset_state.text = "Balanced baseline"
-	BunkerPanelStyle.muted(_preset_state, 12)
-	copy.add_child(_preset_state)
 	_preset_option = _make_option(PRESET_NAMES)
 	_preset_option.tooltip_text = "Choose a complete quality baseline. Adjusting an individual quality setting creates a Custom preset."
 	_preset_option.set_item_disabled(GraphicsSettings.Preset.CUSTOM, true)
@@ -342,34 +304,36 @@ func _build_preset_card() -> PanelContainer:
 
 
 func _build_display_section(parent: VBoxContainer) -> void:
-	var section: VBoxContainer = _section(parent, "display", "DISPLAY", "Window and frame delivery")
+	var section: VBoxContainer = _section(parent, "display", "DISPLAY")
 	_window_mode_option = _make_option(WINDOW_MODE_LABELS)
 	_window_mode_option.item_selected.connect(_on_window_mode_changed)
-	section.add_child(_setting_card("Window mode", "Choose windowed, borderless, or exclusive fullscreen presentation.", _window_mode_option))
+	section.add_child(_setting_card("Window mode", _window_mode_option))
 	_resolution_option = _make_option(RESOLUTION_LABELS)
 	_resolution_option.item_selected.connect(_on_resolution_changed)
-	section.add_child(_setting_card("Resolution", "Available while Windowed mode is active.", _resolution_option))
+	section.add_child(_setting_card("Resolution", _resolution_option))
 	_vsync_check = _make_switch(_on_vsync_toggled)
-	section.add_child(_setting_card("Vertical sync", "Prevents visible screen tearing by matching display refresh.", _vsync_check))
+	section.add_child(_setting_card("Vertical sync", _vsync_check))
 	_fps_cap_option = _make_option(FPS_CAP_LABELS)
 	_fps_cap_option.item_selected.connect(_on_fps_cap_changed)
-	section.add_child(_setting_card("Frame-rate cap", "Limit GPU load and frame delivery, or leave uncapped.", _fps_cap_option))
+	section.add_child(_setting_card("Frame-rate cap", _fps_cap_option))
 
 
 func _build_rendering_section(parent: VBoxContainer) -> void:
-	var section: VBoxContainer = _section(parent, "rendering", "RENDERING", "Core image quality")
+	var section: VBoxContainer = _section(parent, "rendering", "RENDERING")
 	_rendering_driver_option = _make_option(RENDERING_DRIVER_LABELS)
+	for index in RENDERING_DRIVER_VALUES.size():
+		_rendering_driver_option.set_item_disabled(index, not GraphicsSettings.is_rendering_driver_supported(RENDERING_DRIVER_VALUES[index]))
 	_rendering_driver_option.item_selected.connect(_on_rendering_driver_changed)
-	section.add_child(_setting_card("Rendering driver", "Low-level renderer. Changing this setting requires a restart.", _rendering_driver_option, true))
+	section.add_child(_setting_card("Rendering driver", _rendering_driver_option, true))
 	_aa_option = _make_option(AA_LABELS)
 	_aa_option.item_selected.connect(_on_aa_changed)
-	section.add_child(_setting_card("Anti-aliasing", "Smooth jagged object edges using a performance-quality profile.", _aa_option))
+	section.add_child(_setting_card("Anti-aliasing", _aa_option))
 	_aniso_option = _make_option(ANISO_LABELS)
 	_aniso_option.item_selected.connect(_on_aniso_changed)
-	section.add_child(_setting_card("Texture filtering", "Keeps surfaces sharper when viewed from an angle.", _aniso_option))
+	section.add_child(_setting_card("Texture filtering", _aniso_option))
 	_shadow_quality_option = _make_option(SHADOW_QUALITY_LABELS)
 	_shadow_quality_option.item_selected.connect(_on_shadow_quality_changed)
-	section.add_child(_setting_card("Shadow quality", "Controls shadow-map detail and memory use.", _shadow_quality_option))
+	section.add_child(_setting_card("Shadow quality", _shadow_quality_option))
 	_render_scale_slider = HSlider.new()
 	_render_scale_slider.min_value = RENDER_SCALE_MIN
 	_render_scale_slider.max_value = RENDER_SCALE_MAX
@@ -378,41 +342,41 @@ func _build_rendering_section(parent: VBoxContainer) -> void:
 	_render_scale_slider.value_changed.connect(_on_render_scale_changed)
 	_render_scale_slider.drag_ended.connect(_on_render_scale_drag_ended)
 	_render_scale_value = _value_label("100%")
-	section.add_child(_setting_card("Render scale", "Render the 3D world below native resolution to improve performance.", _slider_control(_render_scale_slider, _render_scale_value)))
+	section.add_child(_setting_card("Render scale", _slider_control(_render_scale_slider, _render_scale_value)))
 
 
 func _build_effects_section(parent: VBoxContainer) -> void:
-	var section: VBoxContainer = _section(parent, "effects", "EFFECTS", "Lighting, atmosphere, and performance safeguards")
+	var section: VBoxContainer = _section(parent, "effects", "EFFECTS")
 	var grid: GridContainer = GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 6)
 	section.add_child(grid)
 	_sdfgi_check = _make_switch(_on_sdfgi_toggled)
-	grid.add_child(_effect_card("Real-time GI", "Dynamic bounced light throughout the bunker.", _sdfgi_check))
+	grid.add_child(_effect_card("Real-time GI", _sdfgi_check))
 	_ssao_check = _make_switch(_on_ssao_toggled)
-	grid.add_child(_effect_card("Ambient occlusion", "Adds grounding shadows around nearby surfaces.", _ssao_check))
+	grid.add_child(_effect_card("Ambient occlusion", _ssao_check))
 	_ssil_check = _make_switch(_on_ssil_toggled)
-	grid.add_child(_effect_card("Indirect lighting", "Adds screen-space bounced-light detail.", _ssil_check))
+	grid.add_child(_effect_card("Indirect lighting", _ssil_check))
 	_vol_fog_check = _make_switch(_on_vol_fog_toggled)
-	grid.add_child(_effect_card("Volumetric fog", "Enables atmospheric depth and light scattering.", _vol_fog_check))
+	grid.add_child(_effect_card("Volumetric fog", _vol_fog_check))
 	_glow_check = _make_switch(_on_glow_toggled)
-	grid.add_child(_effect_card("Glow & bloom", "Lets bright lights gently spill into nearby pixels.", _glow_check))
+	grid.add_child(_effect_card("Glow & bloom", _glow_check))
 	_dof_check = _make_switch(_on_dof_toggled)
-	grid.add_child(_effect_card("Depth of field", "Adds cinematic focus blur where supported.", _dof_check))
+	grid.add_child(_effect_card("Depth of field", _dof_check))
 	_shadow_check = _make_switch(_on_shadow_toggled)
-	grid.add_child(_effect_card("Dynamic shadows", "Allows placed lights to cast nearby shadows.", _shadow_check))
+	grid.add_child(_effect_card("Dynamic shadows", _shadow_check))
 	_dr_check = _make_switch(_on_dr_toggled)
 	_dr_check.tooltip_text = "Automatically lowers render resolution when frame rate drops and restores it once performance recovers. Render Scale remains the quality ceiling."
-	grid.add_child(_effect_card("Dynamic resolution", "Lowers resolution temporarily to protect frame rate.", _dr_check))
+	grid.add_child(_effect_card("Dynamic resolution", _dr_check))
 	_vol_check = _make_switch(_on_vol_toggled)
-	grid.add_child(_effect_card("Flashlight beams", "Enables volumetric light inside flashlight beams.", _vol_check))
+	grid.add_child(_effect_card("Flashlight beams", _vol_check))
 
 
 func _build_camera_section(parent: VBoxContainer) -> void:
-	var section: VBoxContainer = _section(parent, "camera", "CAMERA", "View comfort")
+	var section: VBoxContainer = _section(parent, "camera", "CAMERA")
 	_reduced_motion_check = _make_switch(_on_reduced_motion_toggled)
-	section.add_child(_setting_card("Reduced UI motion", "Makes panel, content, preview, and meter transitions immediate.", _reduced_motion_check))
+	section.add_child(_setting_card("Reduced UI motion", _reduced_motion_check))
 	_fov_slider = HSlider.new()
 	_fov_slider.min_value = 45.0
 	_fov_slider.max_value = 75.0
@@ -421,26 +385,26 @@ func _build_camera_section(parent: VBoxContainer) -> void:
 	_fov_slider.value_changed.connect(_on_fov_changed)
 	_fov_slider.drag_ended.connect(_on_fov_drag_ended)
 	_fov_value = _value_label("60°")
-	section.add_child(_setting_card("Camera field of view", "Adjust the visible scene area without changing the quality preset.", _slider_control(_fov_slider, _fov_value)))
+	section.add_child(_setting_card("Camera field of view", _slider_control(_fov_slider, _fov_value)))
 	var bottom_space: Control = Control.new()
 	bottom_space.custom_minimum_size.y = 4
 	section.add_child(bottom_space)
 
 
-func _section(parent: VBoxContainer, section_key: String, title_text: String, meta_text: String) -> VBoxContainer:
+func _section(parent: VBoxContainer, section_key: String, title_text: String) -> VBoxContainer:
 	var section: VBoxContainer = VBoxContainer.new()
 	section.name = title_text.capitalize().replace(" ", "") + "Section"
 	section.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	section.add_theme_constant_override("separation", 6)
 	parent.add_child(section)
 	_section_anchors[section_key] = section
-	BunkerUIComponents.section_header(section, title_text, meta_text)
+	BunkerUIComponents.section_header(section, title_text)
 	return section
 
 
-func _setting_card(title_text: String, description_text: String, control: Control, warning: bool = false) -> PanelContainer:
+func _setting_card(title_text: String, control: Control, warning: bool = false) -> PanelContainer:
 	var card: PanelContainer = PanelContainer.new()
-	card.custom_minimum_size.y = 54
+	card.custom_minimum_size.y = 40
 	var edge_color: Color = BunkerPanelStyle.BRASS.darkened(0.35)
 	if warning:
 		edge_color = BunkerPanelStyle.BRASS.lightened(0.08)
@@ -451,26 +415,20 @@ func _setting_card(title_text: String, description_text: String, control: Contro
 	var copy: VBoxContainer = VBoxContainer.new()
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	copy.alignment = BoxContainer.ALIGNMENT_CENTER
-	copy.add_theme_constant_override("separation", 2)
 	row.add_child(copy)
 	var title: Label = Label.new()
 	title.text = title_text
 	BunkerPanelStyle.title(title, 17)
 	copy.add_child(title)
-	var description: Label = Label.new()
-	description.text = description_text
-	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	BunkerPanelStyle.muted(description, 12)
-	copy.add_child(description)
 	control.custom_minimum_size.x = maxf(control.custom_minimum_size.x, CONTROL_WIDTH)
 	control.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(control)
 	return card
 
 
-func _effect_card(title_text: String, description_text: String, toggle: CheckButton) -> PanelContainer:
+func _effect_card(title_text: String, toggle: CheckButton) -> PanelContainer:
 	var card: PanelContainer = PanelContainer.new()
-	card.custom_minimum_size = Vector2(385, 64)
+	card.custom_minimum_size = Vector2(385, 40)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(Color("1b211f"), BunkerPanelStyle.BRASS.darkened(0.38), 8, 1, 6))
 	var row: HBoxContainer = HBoxContainer.new()
@@ -479,18 +437,11 @@ func _effect_card(title_text: String, description_text: String, toggle: CheckBut
 	var copy: VBoxContainer = VBoxContainer.new()
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	copy.alignment = BoxContainer.ALIGNMENT_CENTER
-	copy.add_theme_constant_override("separation", 2)
 	row.add_child(copy)
 	var title: Label = Label.new()
 	title.text = title_text
 	BunkerPanelStyle.title(title, 16)
 	copy.add_child(title)
-	var description: Label = Label.new()
-	description.text = description_text
-	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	description.custom_minimum_size.x = 190
-	BunkerPanelStyle.muted(description, 11)
-	copy.add_child(description)
 	toggle.custom_minimum_size.x = 106
 	row.add_child(toggle)
 	return card
@@ -498,22 +449,24 @@ func _effect_card(title_text: String, description_text: String, toggle: CheckBut
 
 func _make_option(labels: Array[String]) -> OptionButton:
 	var option: OptionButton = OptionButton.new()
-	option.custom_minimum_size = Vector2(CONTROL_WIDTH, 32)
+	option.custom_minimum_size = Vector2(CONTROL_WIDTH, BunkerDesign.COMPACT_CONTROL_HEIGHT)
 	option.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	for label_text: String in labels:
 		option.add_item(label_text)
-	BunkerPanelStyle.button(option)
+	BunkerPanelStyle.button(option, false, false, true, true)
 	return option
 
 
 func _make_switch(callback: Callable) -> CheckButton:
 	var toggle: CheckButton = CheckButton.new()
 	toggle.text = "OFF"
-	toggle.custom_minimum_size = Vector2(118, 32)
+	toggle.custom_minimum_size = Vector2(118, BunkerDesign.COMPACT_CONTROL_HEIGHT)
 	toggle.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	BunkerPanelStyle.button(toggle)
-	toggle.add_theme_stylebox_override("pressed", BunkerPanelStyle.button_box(BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7, 2, 9, 3))
-	toggle.add_theme_stylebox_override("hover_pressed", BunkerPanelStyle.button_box(BunkerPanelStyle.BLUE_DARK.lightened(0.06), BunkerPanelStyle.BLUE, 7, 2, 9, 3))
+	BunkerPanelStyle.button(toggle, false, false, true, true)
+	toggle.add_theme_stylebox_override("pressed", BunkerPanelStyle.button_box(
+		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7, 0, 9, 2))
+	toggle.add_theme_stylebox_override("hover_pressed", BunkerPanelStyle.button_box(
+		BunkerPanelStyle.BLUE_DARK.lightened(0.06), BunkerPanelStyle.BLUE, 7, 0, 9, 2))
 	toggle.toggled.connect(func(pressed: bool) -> void:
 		toggle.text = "ON" if pressed else "OFF")
 	toggle.toggled.connect(callback)
@@ -630,17 +583,6 @@ func _refresh_preset_display() -> void:
 	if preset_index < 0 or preset_index >= PRESET_NAMES.size():
 		preset_index = GraphicsSettings.Preset.CUSTOM
 	_preset_option.select(preset_index)
-	match preset_index:
-		GraphicsSettings.Preset.LOW:
-			_preset_state.text = "Maximum performance"
-		GraphicsSettings.Preset.MEDIUM:
-			_preset_state.text = "Balanced baseline"
-		GraphicsSettings.Preset.HIGH:
-			_preset_state.text = "Enhanced lighting & detail"
-		GraphicsSettings.Preset.ULTRA:
-			_preset_state.text = "Maximum visual quality"
-		_:
-			_preset_state.text = "Individually tuned"
 
 
 func _select_if_valid(option: OptionButton, index: int) -> void:
@@ -655,6 +597,12 @@ func _set_switch(toggle: CheckButton, pressed: bool) -> void:
 
 func _mark_preset_custom() -> void:
 	_refresh_preset_display()
+
+
+func _on_graphics_change_rejected(reason: String) -> void:
+	NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, reason)
+	# Restore the dropdown/toggle after its event handler finishes.
+	_refresh_from_settings.call_deferred()
 
 
 func _on_preset_selected(index: int) -> void:
@@ -741,9 +689,13 @@ func _ensure_restart_confirm_dialog() -> void:
 
 
 func _relaunch_with_driver(driver: String) -> void:
+	if not GraphicsSettings.is_rendering_driver_supported(driver):
+		return
 	_write_override_cfg(driver)
 	var executable_path: String = OS.get_executable_path()
 	var arguments: PackedStringArray = ["--rendering-driver", driver]
+	if OS.has_feature("editor"):
+		arguments.append_array(["--path", ProjectSettings.globalize_path("res://")])
 	var process_id: int = OS.create_process(executable_path, arguments)
 	if process_id == -1:
 		push_error("[GraphicsSettingsPanel] Failed to relaunch with --rendering-driver %s — staying on current session." % driver)
@@ -752,6 +704,9 @@ func _relaunch_with_driver(driver: String) -> void:
 
 
 func _write_override_cfg(driver: String) -> void:
+	# Never write beside a shared editor installation or set Windows keys on Linux.
+	if OS.has_feature("editor") or OS.get_name() != "Windows":
+		return
 	var executable_directory: String = OS.get_executable_path().get_base_dir()
 	var override_path: String = executable_directory.path_join("override.cfg")
 	var config: ConfigFile = ConfigFile.new()

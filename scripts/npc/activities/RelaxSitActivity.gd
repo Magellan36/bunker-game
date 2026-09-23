@@ -18,7 +18,7 @@ func label() -> String:
 	match _state:
 		SState.SEEK: return "Finding a seat"
 		SState.STANDING: return "Standing up"
-		_: return "Relaxing (Sitting)"
+		_: return "Sitting around"
 
 func score(_npc: NPC) -> float:
 	return 0.0   ## delegation-only

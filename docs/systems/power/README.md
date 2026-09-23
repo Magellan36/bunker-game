@@ -112,7 +112,7 @@ character-creation placeholder SVG resources and optional local C# autoloads.
 | `UpgradedBreakerBox.gd` | ~80 | Extends `BreakerBox` — "smart" breaker, self-trips to isolate zones instead of shared brownout | inline below |
 | `GeneratorObject.gd` | ~460 | Generator device — registers with PowerManager, fuel/health sim, exhaust smoke VFX | inline below |
 | `BatteryBank.gd` | ~625 | Battery device + its own hand-drawn panel, low-charge flicker VFX | inline below |
-| `PowerTerminal.gd` | ~250 | Wall terminal world-object (draws 0W, priority 1 critical, cosmetic-only screen glow) | inline below |
+| `PowerTerminal.gd` | ~250 | Wall terminal world-object (draws 0W, priority 1 critical; hand-made OBJ panel — dark screen when unpowered, lit cyan screen when connected; normals rebuilt via `BuildMaterials.build_auto_smooth_mesh()` to fix the smooth-normal "diagonal seam" on the flat screen) | inline below |
 | `PowerPriorityInteractable.gd` | ~55 | Priority-adjustment device trigger (opens `PowerPriorityUI`) | inline below |
 | `WireSegment.gd` | ~160 | Pooled wire tubes, caps and restrained motion | Wiring polish above |
 | `WireRoute.gd` | ~40 | Pure height-aware route, length and overlap math | Wiring polish above |

@@ -4,8 +4,8 @@ class_name NPCBrain
 ## The Utility-AI decision loop. One instance per NPC (created in NPC._ready).
 ## Every THINK_INTERVAL (staggered per-NPC so all NPCs never think the same
 ## frame) it scores all candidate activities and switches when a challenger
-## meaningfully beats the incumbent (hysteresis via SWITCH_MARGIN, so NPCs
-## don't flip-flop between near-tied options).
+## meaningfully beats the incumbent. The incumbent owns its switch margin:
+## passive activities yield readily while purposeful work keeps more inertia.
 ##
 ## Parts 3 and 4 extend ONLY the _candidates array (and add activity classes)
 ## — the loop itself never changes. When Part 4 lands, job candidates are
@@ -17,12 +17,13 @@ class_name NPCBrain
 ## Needs-driven scores use (100 - need) so "emptier need = higher urgency".
 
 const THINK_INTERVAL: float = 1.0
-const SWITCH_MARGIN:  float = 8.0   ## challenger must beat incumbent by this
-
 var _npc: NPC = null
 var _think_timer: float = 0.0
 var _current: NPCActivity = null
 var _candidates: Array[NPCActivity] = []
+var _deferred_intent: Dictionary = {}
+var _behavior_clock_hours: float = 0.0
+const RESUME_INTENT_LIFETIME_HOURS: float = 2.0
 
 func setup(npc: NPC) -> void:
 	_npc = npc
@@ -40,16 +41,23 @@ func setup(npc: NPC) -> void:
 		RefuelActivity.new(),
 		PutAwayHeldItemActivity.new(),
 		GardeningActivity.new(),
+		CookingActivity.new(),
 	]
 
 func current_label() -> String:
 	return _current.label() if _current != null else "Idle"
 
+func has_current_activity() -> bool:
+	return _current != null
+
 ## Aug 2026 — structured debug snapshot of whatever the NPC is currently
 ## doing, for NPCDebug.dump_cleaning_state(). Empty Dictionary if idle or
 ## the current activity doesn't implement debug_info().
 func get_current_activity_debug_info() -> Dictionary:
-	return _current.debug_info() if _current != null else {}
+	var info: Dictionary = _current.debug_info() if _current != null else {}
+	if not _deferred_intent.is_empty():
+		info["deferred_intent"] = _deferred_intent.duplicate(true)
+	return info
 
 func is_relaxing() -> bool:
 	return _current is RelaxActivity
@@ -59,6 +67,25 @@ func is_talking() -> bool:
 
 func is_current_interruptible() -> bool:
 	return _current == null or _current.interruptible()
+
+## Companionship is a lightweight overlay, not a conversation command. It may
+## coexist with nearby leisure and the two jobs that naturally make sense to
+## share (gardening/cleaning), even when the current job is non-interruptible.
+func is_companionship_compatible() -> bool:
+	return _activity_allows_companionship(_current)
+
+func _activity_allows_companionship(activity: NPCActivity) -> bool:
+	return activity == null \
+		or activity is WanderActivity \
+		or activity is SitActivity \
+		or activity is LieActivity \
+		or activity is RelaxActivity \
+		or activity is GardeningActivity \
+		or activity is CleaningActivity
+
+func _prepare_companionship_for(activity: NPCActivity) -> void:
+	if not _activity_allows_companionship(activity):
+		_npc.end_companionship()
 
 ## Reaches into the current TalkActivity instance directly — same-file
 ## access, no privacy concern; used by NPC.end_talk_session().
@@ -90,12 +117,15 @@ func force_command(activity: NPCActivity) -> void:
 	if _current != null:
 		NPCDebug.log_activity(_npc, _current.label(), "Commanded: " + activity.label())
 		_current.exit(_npc)
+		_npc.cancel_navigation()
+	_prepare_companionship_for(activity)
 	_current = activity
 	_current.enter(_npc)
 	_think_timer = THINK_INTERVAL   ## don't immediately re-think and override the command
 
 ## Called by NPC._physics_process every frame.
 func tick(delta: float) -> void:
+	_behavior_clock_hours += _npc.game_hours(delta)
 	## Pass-out (Part 14) preempts everything, checked every frame — an
 	## empty energy bar collapses the NPC immediately, not on the next
 	## think-cycle, and can't be interrupted by anything else.
@@ -103,7 +133,9 @@ func tick(delta: float) -> void:
 		if _current != null:
 			NPCDebug.log_activity(_npc, _current.label(), "Passed Out")
 			_current.exit(_npc)
+			_npc.cancel_navigation()
 		_current = PassedOutActivity.new()
+		_prepare_companionship_for(_current)
 		_current.enter(_npc)
 
 	if _current != null:
@@ -117,12 +149,15 @@ func tick(delta: float) -> void:
 		var handoff: NPCActivity = _current.take_handoff()
 		if handoff != null:
 			_current.exit(_npc)
+			_npc.cancel_navigation()
+			_prepare_companionship_for(handoff)
 			_current = handoff
 			_current.enter(_npc)
 			_current.begin_with_item(_npc, _npc.held_item)   ## no-op unless the successor implements it
 			_think_timer = THINK_INTERVAL   ## same reasoning as force_command() — don't immediately override this
 		elif _current.done(_npc):
 			_current.exit(_npc)
+			_npc.cancel_navigation()
 			_current = null
 
 	_think_timer -= delta
@@ -132,6 +167,7 @@ func tick(delta: float) -> void:
 	_think()
 
 func _think() -> void:
+	_prune_deferred_intent()
 	var best: NPCActivity = null
 	var best_score: float = 0.0
 
@@ -140,6 +176,13 @@ func _think() -> void:
 	var scan: Array[NPCActivity] = _candidates.duplicate()
 	for job: Dictionary in JobBoard.get_open_jobs():
 		scan.append(JobActivity.new(job))
+	## Resume only at an idle boundary, never by preempting the need/work that
+	## caused the interruption. The normal score scan may still prefer a real
+	## job or urgent need over this bounded continuity bonus.
+	if _current == null and not _deferred_intent.is_empty():
+		var resumed := WanderActivity.new()
+		resumed.configure_resume(_deferred_intent)
+		scan.append(resumed)
 
 	for cand: NPCActivity in scan:
 		if cand == _current:
@@ -166,11 +209,17 @@ func _think() -> void:
 
 	if _current == null:
 		NPCDebug.log_activity(_npc, "Idle", best.label())
+		if best.is_resume_candidate():
+			_deferred_intent.clear()
 		_start(best)
 		return
 
-	## Incumbent defends its seat: challenger needs margin AND permission.
-	if _current.interruptible() and best_score > _current.score(_npc) + SWITCH_MARGIN:
+	## Incumbent defends its seat: challenger needs its activity-specific
+	## margin AND permission. A single global margin made endless Wander
+	## suppress low-scored but meaningful work indefinitely.
+	var current_score: float = _current.score(_npc)
+	var margin: float = _current.switch_margin()
+	if _current.interruptible() and best_score > current_score + margin:
 		## Aug 2026 — this is the exact moment an activity gets
 		## preempted, and previously the ONLY thing logged was the bare
 		## "X -> Y" label transition, with no indication of WHY —
@@ -178,7 +227,7 @@ func _think() -> void:
 		## incumbent's own score was. This was the missing piece when
 		## diagnosing a session getting dropped for no visible reason.
 		if NPCDebug.enabled:
-			NPCDebug.log_interrupt(_npc, _current.label(), _current.score(_npc), best.label(), best_score, SWITCH_MARGIN)
+			NPCDebug.log_interrupt(_npc, _current.label(), current_score, best.label(), best_score, margin)
 			## Aug 2026 — canary: this exact combination (interruptible
 			## while still physically holding something) is what let the
 			## trash-delivery bug's stale _item==null state produce a
@@ -186,10 +235,13 @@ func _think() -> void:
 			if _npc.held_item != null:
 				NPCDebug.log_suspicious_interrupt(_npc, _current.label(), best.label())
 		NPCDebug.log_activity(_npc, _current.label(), best.label())
+		_capture_resume_intent()
 		_current.exit(_npc)
+		_npc.cancel_navigation()
 		_start(best)
 
 func _start(activity: NPCActivity) -> void:
+	_prepare_companionship_for(activity)
 	_current = activity
 	_current.enter(_npc)
 
@@ -198,4 +250,24 @@ func _start(activity: NPCActivity) -> void:
 func stop_current() -> void:
 	if _current != null:
 		_current.exit(_npc)
+		_npc.cancel_navigation()
 		_current = null
+	_deferred_intent.clear()
+
+
+func _capture_resume_intent() -> void:
+	var intent: Dictionary = _current.make_resume_intent(_npc)
+	if intent.is_empty():
+		return
+	intent["started_game_time"] = _behavior_clock_hours
+	intent["expires_game_time"] = _behavior_clock_hours + RESUME_INTENT_LIFETIME_HOURS
+	intent["resume_count"] = int(intent.get("resume_count", 0)) + 1
+	_deferred_intent = intent
+
+
+func _prune_deferred_intent() -> void:
+	if _deferred_intent.is_empty():
+		return
+	if _behavior_clock_hours >= float(_deferred_intent.get("expires_game_time", -INF)) \
+			or _npc.held_item != null:
+		_deferred_intent.clear()

@@ -48,24 +48,17 @@ const CLEANING_SANITY_Y_MIN: float = -20.0
 const CLEANING_SANITY_Y_MAX: float = 30.0
 
 const CLEANING_IDLE_MIN_SEC: float = 90.0
-## Debug-only override (F7 → NPCDebug.enabled) so idle-gate timing can be
-## tested in seconds instead of minutes. Never changes real gameplay —
-## only takes effect while NPCDebug.enabled is true.
-const CLEANING_IDLE_MIN_SEC_DEBUG: float = 5.0
 
 ## Aug 2026 — exponential clutter scaling. 90s at zero clutter, dropping
 ## to exactly 0s once total clutter reaches CLUTTER_IDLE_ZERO_AT (20).
 ## The exponent (4.0) is what gives it the "stays close to 90s, then
 ## drops sharply near the cap" shape you asked for — try tuning this one
 ## constant first if the curve ever feels off, before touching the
-## formula itself. Debug override still always wins over this — it's for
-## fast iteration, not meant to reflect real clutter-scaled timing.
+## formula itself.
 const CLUTTER_IDLE_ZERO_AT: int = 20
 const CLUTTER_IDLE_CURVE_POWER: float = 4.0
 
 func _effective_cleaning_idle_min_sec() -> float:
-	if NPCDebug.enabled:
-		return CLEANING_IDLE_MIN_SEC_DEBUG
 	var clutter: int = get_total_clutter_count()
 	if clutter >= CLUTTER_IDLE_ZERO_AT:
 		return 0.0
@@ -152,14 +145,11 @@ func get_cleaning_debug_snapshot() -> Dictionary:
 		"pending": pending,
 		"trash_blocked_by_no_receptacle": _trash_blocked_by_no_receptacle,
 		"idle_gate_sec": idle_needed,
-		"idle_gate_is_debug": NPCDebug.enabled,
 	}
 
 func _has_trash_receptacle() -> bool:
-	## Self-gating mechanism — returns false today since nothing occupies
-	## this group yet, meaning trash items never make it into
-	## _trash_items_cache until a receptacle is actually added later. No
-	## other change needed when that happens.
+	## Self-gating convention implemented by TrashCan and any future
+	## receptacle with the same group/API contract.
 	return not get_tree().get_nodes_in_group("trash_receptacle").is_empty()
 
 ## Aug 2026 fix — generic, scalable convention. An item is trash if EITHER:

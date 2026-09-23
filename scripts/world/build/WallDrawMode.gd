@@ -1,12 +1,14 @@
 extends Node
 ## WallDrawMode.gd (rewrite — single stretched wall, not N segments)
-## Click-drag-click wall placement. Click 1 anchors the start (grid-snapped),
-## dragging stretches ONE wall mesh/collision from start to cursor at a free
-## 360° angle, click 2 confirms and spawns exactly one StaticBody3D sized to
-## the exact run length. Q/E cycle height tier at any time.
+## Click-drag-click wall placement. Both anchors snap to nearby registered wall
+## runs, otherwise they use the build grid. Dragging stretches ONE wall
+## mesh/collision at a free 360° angle; click 2 confirms a StaticBody3D sized
+## to the exact run length. Q/E cycle height tier at any time.
 
 signal wall_placed(node: Node3D, tile_id: int, price: int, pos: Vector3, angle_deg: float)
 signal wall_tool_exit_requested()
+
+const DragMath = preload("res://scripts/world/build/DragPlacementMath.gd")
 
 const WALL_CELL_SIZE:  float = 1.0    ## $/price-per-meter unit — confirmed real mesh cell size
 const WALL_THICKNESS:  float = 0.3    ## Confirmed from tile_set.tscn's BoxMesh
@@ -14,6 +16,10 @@ const WALL_HEIGHT_FULL: float = 3.0   ## Matches BuildModeController.WALL_HEIGHT
 const TRUE_FLOOR_Y:    float = 0.5    ## True floor Y in this coordinate frame
 
 const IDLE_SLIVER_LENGTH: float = WALL_CELL_SIZE * 0.25   ## 1/4 of a normal 1m cell
+const IDLE_WALL_PREVIEW_OFFSET: float = 0.28
+const IDLE_PILLAR_PREVIEW_OFFSET: float = 0.16
+const CONNECTION_DOT_RADIUS: float = 0.065
+const CONNECTION_DOT_COLOR: Color = Color(0.45, 0.85, 1.0, 0.92)
 
 const MIN_LENGTH: float = IDLE_SLIVER_LENGTH   ## Matches the idle sliver exactly — see class comment
 
@@ -34,18 +40,27 @@ var _start_pos: Vector3 = Vector3.ZERO
 var _end_pos:   Vector3 = Vector3.ZERO
 var _run_angle_deg: float = 0.0
 var _run_length: float = 0.0
+var _start_snap: Dictionary = {}
+var _end_snap: Dictionary = {}
+var _idle_snap: Dictionary = {}
 
 var _ghost_body: MeshInstance3D = null
 var _cost_label: Label3D = null
+var _pillar_connection_dots: Array[MeshInstance3D] = []
 
 func _ready() -> void:
 	set_process(false)
 
 func activate() -> void:
 	_phase = 0
+	_run_angle_deg = 0.0
 	_start_pos = Vector3.ZERO
 	_end_pos   = Vector3.ZERO
+	_start_snap = {}
+	_end_snap = {}
+	_idle_snap = {}
 	_clear_ghost()
+	_refresh_pillar_connection_dots()
 	if build_controller != null:
 		HEIGHT_TIERS = [
 			build_controller.TILE_QUARTER_WALL,
@@ -59,6 +74,7 @@ func activate() -> void:
 func deactivate() -> void:
 	set_process(false)
 	_clear_ghost()
+	_clear_pillar_connection_dots()
 
 func handle_input(event: InputEvent) -> bool:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -105,9 +121,10 @@ func _start_drag() -> void:
 	var hit: Dictionary = build_controller._raycast_to_grid()
 	if hit.is_empty():
 		return
-	_start_pos   = build_controller._snap_to_grid(hit["position"])
-	_start_pos.y = TRUE_FLOOR_Y
+	_start_snap = _resolve_cursor(hit["position"])
+	_start_pos = _start_snap["pos"]
 	_end_pos     = _start_pos
+	_end_snap = _start_snap.duplicate()
 	_phase = 1
 
 func _process(_delta: float) -> void:
@@ -116,11 +133,17 @@ func _process(_delta: float) -> void:
 	if _phase == 0:
 		_update_idle_ghost()
 		return
+	_refresh_drag_endpoint()
+
+func _refresh_drag_endpoint() -> bool:
 	var hit: Dictionary = build_controller._raycast_to_grid()
 	if hit.is_empty():
-		return
-	var cursor: Vector3 = build_controller._snap_to_grid(hit["position"])
-	_end_pos = Vector3(cursor.x, TRUE_FLOOR_Y, cursor.z)
+		return false
+	_end_snap = _resolve_cursor(hit["position"])
+	_end_pos = _end_snap["pos"]
+	if Input.is_key_pressed(KEY_CTRL):
+		_end_snap = _ctrl_constrained_snap(hit["position"], _end_snap)
+		_end_pos = _end_snap["pos"]
 
 	var dx: float = _end_pos.x - _start_pos.x
 	var dz: float = _end_pos.z - _start_pos.z
@@ -128,8 +151,69 @@ func _process(_delta: float) -> void:
 	if raw_angle_deg < 0.0:
 		raw_angle_deg += 360.0
 	_run_angle_deg = raw_angle_deg
-	_run_length    = maxf(MIN_LENGTH, Vector2(dx, dz).length())
+	_run_length = maxf(MIN_LENGTH, Vector2(dx, dz).length())
 	_rebuild_ghost()
+	return true
+
+func _ctrl_constrained_snap(hit_pos: Vector3, candidate: Dictionary) -> Dictionary:
+	var support: Node3D = candidate.get("wall") as Node3D
+	if is_instance_valid(support) and candidate.get("target_kind", "wall") == "wall":
+		var intersection: Vector3 = DragMath.snap_xz_octant_to_segment(
+			_start_pos, hit_pos, candidate["run_start"], candidate["run_end"])
+		if intersection.is_finite():
+			intersection.y = TRUE_FLOOR_Y
+			## Resolve again at the exact intersection so shared perimeter seams
+			## retain every support node needed by collision exemptions.
+			var exact_snap: Dictionary = build_controller._snap_wall_run_point(
+				intersection, WallSnapHelpers.WALL_RUN_JUNCTION_EPSILON * 2.0)
+			if not exact_snap.is_empty():
+				return exact_snap
+	## A discrete pillar socket or unreachable wall target may only keep its
+	## snap if it already lies on the selected octant. Otherwise Ctrl wins.
+	if is_instance_valid(support) and DragMath.is_xz_octant_aligned(
+			_start_pos, candidate["pos"]):
+		return candidate
+	var free_pos: Vector3 = build_controller._snap_to_grid(hit_pos)
+	free_pos.y = TRUE_FLOOR_Y
+	free_pos = DragMath.snap_xz_to_octant(
+		_start_pos, free_pos, float(build_controller.grid_size))
+	return {"pos": free_pos, "wall": null, "walls": [], "at_cap": false}
+
+## Wall placement has one cursor contract. Every visual and committed phase
+## calls this resolver, so the idle marker cannot advertise a junction that the
+## click or final placement later quantizes somewhere else.
+func _resolve_cursor(hit_pos: Vector3) -> Dictionary:
+	var wall_snap: Dictionary = build_controller._snap_wall_run_point(hit_pos)
+	if not wall_snap.is_empty():
+		var snapped: Vector3 = wall_snap["pos"]
+		snapped.y = TRUE_FLOOR_Y
+		wall_snap["pos"] = snapped
+		return wall_snap
+	var grid_pos: Vector3 = build_controller._snap_to_grid(hit_pos)
+	grid_pos.y = TRUE_FLOOR_Y
+	return {"pos": grid_pos, "wall": null, "walls": [], "at_cap": false}
+
+func _snap_nodes(snap: Dictionary) -> Array[Node3D]:
+	var nodes: Array[Node3D] = []
+	for value: Variant in snap.get("walls", []):
+		var node: Node3D = value as Node3D
+		if is_instance_valid(node) and not nodes.has(node):
+			nodes.append(node)
+	return nodes
+
+func _junction_nodes() -> Array[Node3D]:
+	var nodes: Array[Node3D] = _snap_nodes(_start_snap)
+	for node: Node3D in _snap_nodes(_end_snap):
+		if not nodes.has(node):
+			nodes.append(node)
+	return nodes
+
+## A run may branch from a wall at any angle or continue from an end cap. It
+## may not lie along the middle of an existing run, and both endpoints may not
+## resolve to the same wall segment; those cases are overlays, not junctions.
+func _junctions_are_valid() -> bool:
+	return build_controller._wall_run_junctions_are_valid(
+		_start_snap, _end_snap, _end_pos - _start_pos)
 
 func _current_tier_height(tile_id: int) -> float:
 	if build_controller == null:
@@ -161,8 +245,11 @@ func _wall_run_footprint() -> Vector2:
 func _wall_run_is_occupied() -> bool:
 	if build_controller == null or HEIGHT_TIERS.is_empty():
 		return false
+	if not _junctions_are_valid():
+		return true
 	return build_controller._is_position_occupied(
-		_midpoint(), HEIGHT_TIERS[_tier_index], null, _wall_run_footprint(), _run_angle_deg)
+		_midpoint(), HEIGHT_TIERS[_tier_index], null, _wall_run_footprint(),
+		_run_angle_deg, _junction_nodes())
 
 ## Samples points evenly along the run (roughly one per WALL_CELL_SIZE, at
 ## least the two endpoints) so a bounds check actually covers the whole
@@ -176,9 +263,11 @@ func _sample_points_along_run() -> Array[Vector3]:
 	return points
 
 func _wall_run_is_inside_bunker() -> bool:
-	var half_extent: Vector2 = _wall_footprint_half_extent()
+	## Occupancy against the perimeter walls protects the wall's width. Bounds
+	## validate the centre line only, allowing a snapped endpoint to meet the
+	## registered perimeter centre line and overlap inside its thickness.
 	for p: Vector3 in _sample_points_along_run():
-		if not build_controller._is_inside_bunker(p, half_extent):
+		if not build_controller._is_inside_bunker(p):
 			return false
 	return true
 
@@ -235,8 +324,9 @@ func _update_idle_ghost() -> void:
 		return
 	if HEIGHT_TIERS.is_empty():
 		return
-	var cursor: Vector3 = build_controller._snap_to_grid(hit["position"])
-	cursor.y = TRUE_FLOOR_Y
+	_idle_snap = _resolve_cursor(hit["position"])
+	var cursor: Vector3 = _idle_snap["pos"]
+	var preview_cursor: Vector3 = _idle_preview_position(_idle_snap)
 
 	var tile_id: int = HEIGHT_TIERS[_tier_index]
 	var height:  float = _current_tier_height(tile_id)
@@ -244,19 +334,37 @@ func _update_idle_ghost() -> void:
 	_clear_ghost()
 	_ghost_body = _build_wall_mesh(IDLE_SLIVER_LENGTH, height)
 	add_child(_ghost_body)
-	_ghost_body.global_position = cursor + Vector3(0.0, height * 0.5, 0.0)
-	## No drag direction exists yet — keep the last-used run angle so the
-	## sliver doesn't visually snap back to 0° between successive walls.
-	_ghost_body.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)
+	_ghost_body.global_position = preview_cursor + Vector3(0.0, height * 0.5, 0.0)
+	## Idle is always neutral; the placed run's angle must not leak into the
+	## next wall's start affordance.
+	_ghost_body.rotation_degrees = Vector3.ZERO
 
-	var valid: bool = build_controller._is_inside_bunker(cursor, _wall_footprint_half_extent())
+	## A snapped anchor sits on the registered perimeter centre line by design.
+	## Its support wall contains the sliver; unsnapped floor anchors still use
+	## the conservative footprint-aware bounds check.
+	var bounds_extent: Vector2 = (Vector2.ZERO if is_instance_valid(
+		_idle_snap.get("wall") as Node3D) else _wall_footprint_half_extent())
+	var valid: bool = build_controller._is_inside_bunker(cursor, bounds_extent)
 	## Aug 2026 — also mark the idle sliver red if it would overlap an object.
 	if valid:
 		valid = not build_controller._is_position_occupied(cursor, tile_id, null,
-			Vector2(WALL_THICKNESS * 0.5, IDLE_SLIVER_LENGTH * 0.5), _run_angle_deg)
+			Vector2(WALL_THICKNESS * 0.5, IDLE_SLIVER_LENGTH * 0.5), _run_angle_deg,
+			_snap_nodes(_idle_snap))
 	_apply_ghost_material(valid)
 	if _cost_label != null:
 		_cost_label.visible = false
+
+func _idle_preview_position(snap: Dictionary) -> Vector3:
+	var position: Vector3 = snap.get("pos", Vector3.ZERO)
+	var support: Node3D = snap.get("wall") as Node3D
+	if not is_instance_valid(support):
+		return position
+	var normal: Vector3 = snap.get("normal", Vector3.ZERO)
+	var offset: float = (
+		IDLE_PILLAR_PREVIEW_OFFSET
+		if snap.get("target_kind", "wall") == "pillar"
+		else IDLE_WALL_PREVIEW_OFFSET)
+	return position + normal.normalized() * offset
 
 func _clear_ghost() -> void:
 	if _ghost_body != null and is_instance_valid(_ghost_body):
@@ -278,6 +386,9 @@ func _update_cost_label(total_cost: int) -> void:
 func _confirm_wall() -> void:
 	if build_controller == null or HEIGHT_TIERS.is_empty():
 		return
+	## Re-evaluate Ctrl and the current cursor on the click frame so commit and
+	## preview can never disagree if the modifier changed between frames.
+	_refresh_drag_endpoint()
 	var tile_id: int = HEIGHT_TIERS[_tier_index]
 	var height:  float = _current_tier_height(tile_id)
 	var price:   int = build_controller._price_for_tile(tile_id)
@@ -328,14 +439,64 @@ func _confirm_wall() -> void:
 
 	wall_placed.emit(body, tile_id, total_cost, _midpoint(), _run_angle_deg)
 	build_controller._spawn_float_label_at_pos(_midpoint(), total_cost, false)
+	## The mode remains active after placement, so refresh availability now;
+	## otherwise a newly occupied pillar socket would keep its blue dot until
+	## the player left and re-entered wall mode.
+	_refresh_pillar_connection_dots()
 
 	_phase = 0
+	_run_angle_deg = 0.0
 	_start_pos = Vector3.ZERO
 	_end_pos   = Vector3.ZERO
+	_start_snap = {}
+	_end_snap = {}
+	_idle_snap = {}
 	_clear_ghost()
 
 func _cancel_drag() -> void:
 	_phase = 0
+	_run_angle_deg = 0.0
 	_start_pos = Vector3.ZERO
 	_end_pos   = Vector3.ZERO
+	_start_snap = {}
+	_end_snap = {}
+	_idle_snap = {}
 	_clear_ghost()
+
+func _refresh_pillar_connection_dots() -> void:
+	_clear_pillar_connection_dots()
+	if build_controller == null:
+		return
+	var parent: Node = (
+		build_controller.gridmap.get_parent()
+		if build_controller.gridmap != null
+		else build_controller.get_tree().get_root())
+	for point: Vector3 in build_controller._pillar_wall_snap_points(TRUE_FLOOR_Y + 0.08):
+		var sphere := SphereMesh.new()
+		sphere.radius = CONNECTION_DOT_RADIUS
+		sphere.height = CONNECTION_DOT_RADIUS * 2.0
+		sphere.radial_segments = 8
+		sphere.rings = 4
+		var material := StandardMaterial3D.new()
+		material.albedo_color = CONNECTION_DOT_COLOR
+		material.emission_enabled = true
+		material.emission = CONNECTION_DOT_COLOR
+		material.emission_energy_multiplier = 1.2
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.no_depth_test = true
+		material.render_priority = 3
+		var dot := MeshInstance3D.new()
+		dot.mesh = sphere
+		dot.material_override = material
+		dot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		dot.extra_cull_margin = 10.0
+		parent.add_child(dot)
+		dot.global_position = point
+		_pillar_connection_dots.append(dot)
+
+func _clear_pillar_connection_dots() -> void:
+	for dot: MeshInstance3D in _pillar_connection_dots:
+		if is_instance_valid(dot):
+			dot.queue_free()
+	_pillar_connection_dots.clear()

@@ -22,6 +22,30 @@ const TIER_CONFIG: Array = [
 	{ "size": Vector3(1.85, 1.70, 0.925), "watts": 5000, "label": "Generator L" },
 ]
 
+const NPC_WORK_STANDOFF: float = 0.75
+
+func get_npc_interaction_slots(_action: StringName) -> Array[Dictionary]:
+	## Every tier's control panel is on local +Z. Larger generators expose two
+	## non-overlapping positions for observation and future repair work.
+	var cfg: Dictionary = TIER_CONFIG[clampi(generator_tier, 0, TIER_CONFIG.size() - 1)]
+	var size: Vector3 = cfg["size"]
+	var offsets: Array[float] = [0.0]
+	if size.x >= 1.0:
+		offsets = [-size.x * 0.22, size.x * 0.22]
+	var result: Array[Dictionary] = []
+	var basis: Basis = global_transform.basis.orthonormalized()
+	for index: int in offsets.size():
+		var position: Vector3 = global_transform * Vector3(
+			offsets[index], 0.0, size.z * 0.5 + NPC_WORK_STANDOFF)
+		var slot_id: StringName = &"front" if offsets.size() == 1 \
+			else (&"front_left" if index == 0 else &"front_right")
+		result.append({
+			"slot_id": slot_id,
+			"claim_group": slot_id,
+			"transform": Transform3D(basis, position),
+		})
+	return result
+
 const COLOR_BODY:     Color = Color(0.38, 0.38, 0.38, 1.0)
 const COLOR_PANEL:    Color = Color(0.25, 0.25, 0.28, 1.0)
 const COLOR_RUNNING:  Color = Color(0.15, 0.90, 0.20, 1.0)

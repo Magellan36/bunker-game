@@ -42,26 +42,38 @@ static func button_box(bg: Color, border: Color, radius: int = 7, width: int = 1
 	style.content_margin_bottom = vertical_padding
 	return style
 
-static func button(control: Button, accent: bool = false, danger: bool = false) -> void:
+static func button(control: Button, accent: bool = false, danger: bool = false,
+		compact: bool = false, borderless: bool = false) -> void:
 	UIButtonMotion.attach(control)
 	control.focus_mode = Control.FOCUS_ALL
-	control.custom_minimum_size.y = maxf(control.custom_minimum_size.y, BunkerDesign.CONTROL_HEIGHT)
-	control.add_theme_font_size_override("font_size", 17)
+	var minimum_height: float = (BunkerDesign.COMPACT_CONTROL_HEIGHT if compact
+		else BunkerDesign.CONTROL_HEIGHT)
+	var border_width: int = 0 if borderless else 1
+	var vertical_padding: float = 2.0 if compact else BunkerDesign.CONTROL_VERTICAL_PADDING
+	control.custom_minimum_size.y = maxf(control.custom_minimum_size.y, minimum_height)
+	control.add_theme_font_size_override("font_size", 15 if compact else 17)
 	control.add_theme_color_override("font_color", IVORY)
 	control.add_theme_color_override("font_hover_color", IVORY)
 	control.add_theme_color_override("font_pressed_color", IVORY)
 	var normal_bg := BLUE_DARK if accent else (Color("512923") if danger else SURFACE)
 	var edge := BLUE if accent else (RED if danger else BRASS.darkened(0.18))
-	control.add_theme_stylebox_override("normal", button_box(normal_bg, edge))
-	control.add_theme_stylebox_override("hover", button_box(normal_bg.lightened(0.07), BLUE if not danger else RED))
-	control.add_theme_stylebox_override("pressed", button_box(normal_bg.darkened(0.08), edge))
-	control.add_theme_stylebox_override("focus", box(Color.TRANSPARENT, IVORY, BunkerDesign.FOCUS_RADIUS, BunkerDesign.FOCUS_WIDTH))
-	control.add_theme_stylebox_override("disabled", button_box(SURFACE.darkened(0.1), BRASS.darkened(0.45)))
+	control.add_theme_stylebox_override("normal", button_box(normal_bg, edge, 7,
+		border_width, 10.0, vertical_padding))
+	control.add_theme_stylebox_override("hover", button_box(normal_bg.lightened(0.07),
+		BLUE if not danger else RED, 7, border_width, 10.0, vertical_padding))
+	control.add_theme_stylebox_override("pressed", button_box(normal_bg.darkened(0.08), edge,
+		7, border_width, 10.0, vertical_padding))
+	control.add_theme_stylebox_override("focus", box(
+		BLUE_DARK if borderless else Color.TRANSPARENT, IVORY,
+		BunkerDesign.FOCUS_RADIUS, 0 if borderless else BunkerDesign.FOCUS_WIDTH))
+	control.add_theme_stylebox_override("disabled", button_box(SURFACE.darkened(0.1),
+		BRASS.darkened(0.45), 7, border_width, 10.0, vertical_padding))
 	control.add_theme_color_override("font_disabled_color", MUTED.darkened(0.35))
 	control.add_theme_constant_override("icon_max_width", BunkerDesign.ICON_SIZE)
 
-static func icon_button(control: Button, kind: String, accent: bool = false, danger: bool = false) -> void:
-	button(control, accent, danger)
+static func icon_button(control: Button, kind: String, accent: bool = false,
+		danger: bool = false, compact: bool = false, borderless: bool = false) -> void:
+	button(control, accent, danger, compact, borderless)
 	control.icon = icon(kind)
 	control.expand_icon = true
 	control.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT

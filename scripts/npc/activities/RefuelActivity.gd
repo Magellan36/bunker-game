@@ -32,6 +32,15 @@ func score(npc: NPC) -> float:
 		* npc.get_job_priority_weight("REFUEL")
 
 func enter(npc: NPC) -> void:
+	## This candidate instance is reused for the NPC's lifetime. Clear every
+	## per-session reference before deciding whether an already-held can can
+	## be resumed; otherwise a vanished fetch target/generator leaks into the
+	## next autonomous refuel session.
+	_can = null
+	_fetch_loose = null
+	_fetch_shelf = {}
+	_current_gen = null
+	_phase = "fetch"
 	_refueled_ids = {}
 	_finished = false
 	if npc.held_item != null and npc.held_item.has_method("refuel_tick"):
@@ -167,3 +176,7 @@ func exit(npc: NPC) -> void:
 	if _finished and npc.held_item != null and npc.held_item == _can:
 		NPCItemUser.drop_held(npc)   ## session truly over — set the (empty or spare) can down
 	on_session_exit(npc, "refuel", _finished, detail)
+	_can = null
+	_fetch_loose = null
+	_fetch_shelf = {}
+	_current_gen = null

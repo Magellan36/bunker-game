@@ -56,8 +56,13 @@ func debug_info() -> Dictionary:
 ## already. Cleaning doesn't need it (its targets are loose items
 ## approached directly, not stationary trays/generators approached
 ## from a direction).
-static func approach_point(npc: NPC, target: Node, distance: float = 1.0) -> Vector3:
+static func approach_point(npc: NPC, target: Node, distance: float = 1.0,
+		action: StringName = &"work") -> Vector3:
 	var t3: Node3D = target as Node3D
+	var lease: Dictionary = npc.claim_interaction_slot(t3, action, distance)
+	if not lease.is_empty():
+		var slot_transform: Transform3D = lease.get("transform", t3.global_transform)
+		return slot_transform.origin
 	var to_npc: Vector3 = npc.global_position - t3.global_position
 	to_npc.y = 0.0
 	if to_npc.length() < 0.01:

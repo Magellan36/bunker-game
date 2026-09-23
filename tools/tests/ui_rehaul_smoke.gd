@@ -19,6 +19,10 @@ const TARGETS := [
 	"res://scripts/ui/build/ShopPanel.gd",
 	"res://scripts/ui/build/BuildWorkspace.gd",
 	"res://scripts/ui/build/BuildModeHUD.gd",
+	"res://scripts/world/build/BuildMaterials.gd",
+	"res://scripts/world/build/GhostModelBuilder.gd",
+	"res://scripts/world/build/MoveDuplicateTool.gd",
+	"res://scripts/world/build/BuildUndoStack.gd",
 	"res://scripts/world/build/FarmingShopHelper.gd",
 	"res://scripts/world/build/BuildModeController.gd",
 	"res://scripts/player/Player.gd",
@@ -90,6 +94,7 @@ func _run() -> void:
 			"loads %s" % path)
 	_test_cart()
 	_test_checkout_guards()
+	_test_build_tool_highlight_contracts()
 	_test_panel_geometry()
 	_test_item_details()
 	await _test_runtime_ui()
@@ -97,6 +102,59 @@ func _run() -> void:
 	if failures == 0:
 		print("UI_REHAUL_SMOKE_OK: %d scripts + cart/geometry contracts" % TARGETS.size())
 	quit(failures)
+
+func _test_build_tool_highlight_contracts() -> void:
+	var controller := BuildModeController.new()
+	controller._materials = BuildMaterials.new(controller)
+	controller._build_ghost_materials()
+
+	## Root meshes and ShaderMaterial overrides both occur in imported object
+	## trees. A complete hover cycle must cover the root and restore its exact
+	## material type rather than narrowing it to StandardMaterial3D.
+	var visual := MeshInstance3D.new()
+	visual.mesh = BoxMesh.new()
+	var original := ShaderMaterial.new()
+	visual.set_surface_override_material(0, original)
+	controller._set_hover_highlight(visual, controller._mat_hover)
+	_check(visual.get_surface_override_material(0) == controller._mat_hover,
+		"build tool highlight covers a MeshInstance3D root")
+	controller._clear_hover_glow()
+	_check(visual.get_surface_override_material(0) == original,
+		"build tool highlight restores ShaderMaterial overrides exactly")
+
+	var ordinary := {"player_placed": true, "tile_id": controller.TILE_CHAIR}
+	var level := {"player_placed": false, "tile_id": controller.TILE_WALL}
+	var station := {"player_placed": true, "tile_id": controller.TILE_BUILD_STATION}
+	var purifier := {"player_placed": true, "tile_id": controller.TILE_WATER_PURIFIER}
+	_check(controller._entry_supports_tool(ordinary, 1)
+		and controller._entry_supports_tool(ordinary, 2)
+		and controller._entry_supports_tool(ordinary, 3),
+		"ordinary build objects share delete/duplicate/move targeting")
+	_check(not controller._entry_supports_tool(level, 1),
+		"level geometry stays outside player modification tools")
+	_check(not controller._entry_supports_tool(station, 1)
+		and not controller._entry_supports_tool(station, 2)
+		and controller._entry_supports_tool(station, 3),
+		"singleton stations are move-only")
+	_check(not controller._entry_supports_tool(purifier, 3),
+		"pipe-graph purifier cannot be visually moved away from its graph node")
+
+	## Move cancel only restores the source root. Child visibility is object
+	## state and must not be overwritten by the build tool.
+	var source := Node3D.new()
+	var hidden_state_mesh := MeshInstance3D.new()
+	hidden_state_mesh.visible = false
+	source.add_child(hidden_state_mesh)
+	source.visible = false
+	controller._move_source_body = source
+	var move_tool := MoveDuplicateTool.new(controller)
+	move_tool._cancel_move_confirm()
+	_check(source.visible and not hidden_state_mesh.visible,
+		"move cancellation preserves intentional child visibility")
+
+	visual.free()
+	source.free()
+	controller.free()
 
 func _test_runtime_ui() -> void:
 	var hud_script := load("res://scripts/ui/build/BuildModeHUD.gd") as GDScript

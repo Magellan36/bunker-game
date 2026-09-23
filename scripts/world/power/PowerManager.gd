@@ -2235,7 +2235,7 @@ func get_wire_zones() -> Array[Dictionary]:
 
 	## Build a node→edge adjacency that skips breaker nodes as pass-through:
 	## an edge is included if AT LEAST ONE endpoint is NOT a breaker.
-	## Edges where both endpoints are breakers are excluded from all zones.
+	## Edges where both endpoints are breakers form their own bounded zones.
 	## The adjacency maps non-breaker snap keys to their neighbouring non-breaker
 	## snap keys via edges that don't cross two breakers.
 	##
@@ -2254,7 +2254,7 @@ func get_wire_zones() -> Array[Dictionary]:
 		var a_is_brk: bool = breaker_keys.has(na)
 		var b_is_brk: bool = breaker_keys.has(nb)
 		if a_is_brk and b_is_brk:
-			continue   ## Edge between two breakers — skip
+			continue   ## No pass-through adjacency; BFS still seeds this edge.
 		## Add to each non-breaker endpoint's list.
 		if not a_is_brk:
 			if not node_edges.has(na):
@@ -2274,12 +2274,8 @@ func get_wire_zones() -> Array[Dictionary]:
 	for start_eid: String in _wire_edges:
 		if visited_edges.has(start_eid):
 			continue
-		var edge: Dictionary = _wire_edges[start_eid]
-		var na: String = edge.get("node_a", "")
-		var nb: String = edge.get("node_b", "")
-		## Skip edges between two breakers.
-		if breaker_keys.has(na) and breaker_keys.has(nb):
-			continue
+		## A direct breaker-to-breaker span is a valid middle zone. Seed it
+		## normally; expansion below stops at both breaker endpoints.
 
 		## BFS flood-fill.
 		var zone_edges: Array[String] = []
@@ -2432,6 +2428,10 @@ func reconcile_wire_visuals() -> int:
 	var orphan_tubes: Array       = []   ## tubes whose edge_id isn't in graph
 	for ws: Node in get_tree().get_nodes_in_group("wire_segment"):
 		if not is_instance_valid(ws):
+			continue
+		## Wall leads use an edge for color, but their device owns the geometry
+		## and lifetime. They are not duplicate or logical-edge graph tubes.
+		if ws.has_meta("_wall_feed_visual"):
 			continue
 		## Never touch drag-preview / ghost tubes — they're transient.
 		if "is_ghost" in ws and bool(ws.get("is_ghost")):

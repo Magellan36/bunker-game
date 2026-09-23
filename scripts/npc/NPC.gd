@@ -1,5 +1,9 @@
 extends CharacterBody3D
 class_name NPC
+const NPC_INTERACTION_SLOTS: GDScript = preload("res://scripts/npc/NPCInteractionSlots.gd")
+const NPC_DOOR_COORDINATOR: GDScript = preload("res://scripts/npc/NPCDoorCoordinator.gd")
+const NPC_LEISURE_PLANNER: GDScript = preload("res://scripts/npc/NPCLeisurePlanner.gd")
+const NPC_COMPANIONSHIP: GDScript = preload("res://scripts/npc/NPCCompanionship.gd")
 ## NPC.gd  (rewritten in NPC Pass 2, Part 1 — navmesh locomotion)
 ## Wanders the dug-out bunker using real NavigationAgent3D pathfinding over
 ## BunkerNavMesh's runtime-baked navmesh, and can be talked to via [E].
@@ -102,16 +106,13 @@ const HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR: float = 5.0
 # ─── Personality / mood / irritability (Part 20) ───────────────────────────
 var generation_seed: int = 0
 
-## 5 traits, 0.0–1.0, fully random at spawn, FIXED for the NPC's life (no
-## mechanism changes them after generation — may become possible later).
-## Only "resilience" and "optimism" drive concrete mechanics this pass (see
-## _irritability_trait_mult()/_mood_recovery_trait_mult() below). The other
-## three are generated and shown in the E-panel but mechanically inert:
-## FUTURE WORK — sociability is wired (scales relationship-change rate,
-## including Give/Takeaway/Snatch — see _sociability_trait_mult()).
-## work_ethic could scale skill-gain rate or job willingness, neuroticism could scale mood's
-## volatility (bigger swings from the same inputs). None of that is built.
+## 5 optional traits, 0.0–1.0, generated at spawn and persisted. Resilience
+## affects irritability/forgetfulness, sociability affects relationship and
+## talk behavior, work ethic biases utility scores, neuroticism scales mood
+## volatility, and optimism scales mood recovery.
 var personality: Dictionary = {}
+var behavior_profile: RefCounted = null
+var leisure_planner: RefCounted = null
 const PERSONALITY_TRAIT_KEYS: Array[String] = [
 	"resilience", "sociability", "work_ethic", "neuroticism", "optimism",
 ]
@@ -1246,6 +1247,16 @@ func is_available_to_talk() -> bool:
 		return false
 	return brain.is_current_interruptible()
 
+## Broader than conversation availability: a resident may be pleasant company
+## while gardening, cleaning, or quietly relaxing without abandoning that job.
+func is_available_for_companionship() -> bool:
+	if health <= 0.0 or is_passed_out() or brain == null:
+		return false
+	return brain.is_companionship_compatible()
+
+func end_companionship() -> void:
+	NPC_COMPANIONSHIP.end_for(self)
+
 ## Called on the partner by the initiator's TalkActivity. Forces the
 ## partner into their own (non-initiator) TalkActivity instance.
 func start_talk_session(initiator: NPC) -> bool:
@@ -1627,11 +1638,25 @@ func _tick_needs(delta: float) -> void:
 ## (see _on_velocity_computed below) can never overwrite the halt with a
 ## stale travel-direction velocity.
 var _movement_locked: bool = false
+var _requested_nav_target: Vector3 = Vector3.ZERO
+var _raw_nav_target: Vector3 = Vector3.ZERO
+var _nav_route_valid: bool = false
+var _nav_route_failed: bool = false
+var _nav_route_revision: int = 0
+var _nav_desired_distance: float = 1.1
+var _interaction_slot_lease: Dictionary = {}
+var _door_passage_lease: Dictionary = {}
+var _last_requested_nav_speed: float = 0.0
+const NAV_DEFAULT_TARGET_DISTANCE: float = 1.1
+const NAV_PRECISE_TARGET_DISTANCE: float = 0.2
 
 ## The chair this NPC is currently seated in, or null. Mirrors Player.gd's
 ## seated_chair so the shared AdventurerModelController can drive the sit
 ## animations for both. Set/cleared by SitActivity/RelaxSitActivity.
 var seated_chair: Node3D = null
+## Mirrors Player.sleeping_bed so NPC bed use goes through the authored
+## sit/lie/stand animation instead of relocating the CharacterBody root.
+var sleeping_bed: Node3D = null
 
 ## True while this NPC is physically mid-sit-sequence: seated in a chair
 ## (seated_chair set) OR mid stand-up (seated_chair already cleared but the
@@ -1641,28 +1666,24 @@ var seated_chair: Node3D = null
 ## set_physics_process(false) freeze. Gravity + move_and_slide would fight
 ## that eased position, so _physics_process skips them (Aug 2026 NPC sit port).
 func in_sit_sequence() -> bool:
-	if seated_chair != null:
+	if seated_chair != null or sleeping_bed != null:
 		return true
 	var model: Node = get_node_or_null("CharacterModel")
 	if model != null and "is_sit_sequence_active" in model:
 		return model.is_sit_sequence_active()
 	return false
 
-## Aug 2026 NPC sit port — set when an activity asks this NPC to STAND UP but
-## needs to release the chair synchronously (exit() on a session end /
-## interrupt / command). The NPC keeps the model's sit_to_stand animation
-## playing (in_sit_sequence() stays true), then snaps to this position the
-## frame the model reports standing finished. Cleared by _physics_process.
-var _pending_stand_pos: Vector3 = Vector3.ZERO
-var _stand_pos_pending: bool = false
-
 func halt_movement(delta: float) -> void:
 	_movement_locked = true
-	velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
-	velocity.z = lerp(velocity.z, 0.0, acceleration * delta)
+	# Activity transitions sometimes pass a large delta for an immediate stop.
+	# Clamp the interpolation so it can never extrapolate through zero and
+	# reverse the NPC at many times its requested walking speed.
+	var blend: float = clampf(acceleration * delta, 0.0, 1.0)
+	velocity.x = lerp(velocity.x, 0.0, blend)
+	velocity.z = lerp(velocity.z, 0.0, blend)
 
-## One-time hard stop for the exact instant an NPC snaps into a seated/lying
-## position (SitActivity, LieActivity) — those states return early every
+## One-time hard stop for the exact instant an NPC enters a seated/lying
+## animation sequence (SitActivity, LieActivity) — those states return early every
 ## frame afterward and never call halt_movement() again, so they need an
 ## explicit lock at the moment of transition rather than relying on a
 ## per-frame call.
@@ -1704,22 +1725,36 @@ func _ready() -> void:
 	## Agent built in code (no scene edit needed; scene stays Pass-1 shape).
 	nav_agent = NavigationAgent3D.new()
 	nav_agent.name = "NavAgent"
-	## Reached-checks are 3D. Path points sit on the floor (y≈0.5) while this
-	## node's origin is the capsule CENTER (y≈1.4) — a constant ~0.9 vertical
-	## offset. Desired distances must exceed it or no waypoint can ever
-	## register as reached (the Part 1–8 wall-sticking root cause). 1.1
-	## leaves ~0.63 of effective XZ arrival tolerance. (Part 9)
-	nav_agent.path_desired_distance = 1.1
-	nav_agent.target_desired_distance = 1.1
+	## Returned path points originate on the floor while the CharacterBody
+	## origin is at the capsule center. Lift path points to body height so a
+	## tight horizontal waypoint tolerance can be used; a 1.1m tolerance used
+	## to hide this vertical mismatch and let NPCs cut 0.63m across corners.
+	## Godot SUBTRACTS path_height_offset from returned path points. The
+	## negative value therefore raises floor-level waypoints to the capsule
+	## center; a positive value pushes them below the floor and makes the tight
+	## 3D waypoint tolerance impossible to satisfy.
+	nav_agent.path_height_offset = -0.9
+	nav_agent.path_desired_distance = 0.35
+	nav_agent.target_desired_distance = NAV_DEFAULT_TARGET_DISTANCE
 	nav_agent.path_max_distance = 3.0
 	nav_agent.radius = 0.4               ## matches BunkerNavMesh.agent_radius (Part 8)
+	nav_agent.max_speed = move_speed
 	## Real dynamic avoidance (Part 11) — routes around heavy items'
 	## NavigationObstacle3D (PickupableItem.gd) AND every other NPC's own
 	## agent continuously, replacing Part 10.1's reactive post-collision
 	## steering hack entirely.
 	nav_agent.avoidance_enabled = true
+	## Defaults are tuned for large outdoor crowds. In this bunker, considering
+	## agents 50m away makes unrelated residents influence every doorway queue.
+	nav_agent.neighbor_distance = 5.0
+	nav_agent.time_horizon_obstacles = 1.0
 	nav_agent.velocity_computed.connect(_on_velocity_computed)
 	add_child(nav_agent)
+	var nav_owner: Node = get_tree().get_first_node_in_group("bunker_navmesh")
+	if nav_owner != null and nav_owner.has_signal("navigation_revision_changed"):
+		nav_owner.connect("navigation_revision_changed", _on_navigation_revision_changed)
+		if nav_owner.has_method("get_navigation_revision"):
+			_nav_route_revision = int(nav_owner.get_navigation_revision())
 
 	## Carry anchor — chest-height, slightly forward; items follow it with
 	## the same PickupableItem physics the player's HoldPoint gets.
@@ -1737,6 +1772,7 @@ func _ready() -> void:
 	_roll_birthday()
 	_relax_cooldown_hours = randf_range(1.0, RELAX_MIN_GAP_HOURS)   ## staggered head-start — never eligible to relax the instant they spawn
 	brain = NPCBrain.new()
+	refresh_behavior_profile()
 	brain.setup(self)
 
 	medical = NPCMedical.new()
@@ -1744,17 +1780,43 @@ func _ready() -> void:
 	add_child(medical)
 	medical.setup(self)
 
-func _physics_process(delta: float) -> void:
-	## Aug 2026 NPC sit port — when an activity released the chair (seated_chair
-	## cleared) but asked us to finish the stand-up animation before moving, snap
-	## to the stand position the moment the model's sit_to_stand actually ends
-	## (in_sit_sequence() flips false). This lets even the exit()-driven / session
-	## timer cases play the full animated stand-up instead of teleporting.
-	if _stand_pos_pending and not in_sit_sequence():
-		global_position = _pending_stand_pos
-		_stand_pos_pending = false
-		_pending_stand_pos = Vector3.ZERO
+func _exit_tree() -> void:
+	NPC_COMPANIONSHIP.end_for(self)
+	release_interaction_slot()
+	_release_door_passage()
+	NPC_DOOR_COORDINATOR.release_owner(self)
 
+
+func refresh_behavior_profile() -> void:
+	leisure_planner = NPC_LEISURE_PLANNER.new()
+	leisure_planner.setup(self)
+	behavior_profile = leisure_planner.profile
+
+
+func get_leisure_score(mode: StringName, base_score: float) -> float:
+	return leisure_planner.score(mode, base_score) if leisure_planner != null else base_score
+
+
+func get_leisure_sitting_hours() -> float:
+	return leisure_planner.sitting_session_hours() if leisure_planner != null else 1.0
+
+
+func get_leisure_agenda_beat_count() -> int:
+	return leisure_planner.agenda_beat_count() if leisure_planner != null else 2
+
+
+func get_leisure_observation_seconds(min_seconds: float, max_seconds: float) -> float:
+	return leisure_planner.observation_seconds(min_seconds, max_seconds) \
+		if leisure_planner != null else randf_range(min_seconds, max_seconds)
+
+
+func get_behavior_profile_debug_info() -> Dictionary:
+	return leisure_planner.debug_info() if leisure_planner != null else {}
+
+func _physics_process(delta: float) -> void:
+	NPC_COMPANIONSHIP.tick(self)
+	if leisure_planner != null:
+		leisure_planner.tick(game_hours(delta))
 	## Aug 2026 NPC sit port — while the NPC is physically mid-sit-sequence the
 	## AdventurerModelController owns the position (eased approach→seat /
 	## seat→approach, plus its vertical landing and foot clamp), mirroring the
@@ -1794,17 +1856,192 @@ func _physics_process(delta: float) -> void:
 		else:
 			_process_wander(delta)
 
+
+func get_companion() -> NPC:
+	return NPC_COMPANIONSHIP.partner_for(self)
+
+
+func is_position_compatible_with_companionship(position: Vector3, extra_radius: float = 0.0) -> bool:
+	return NPC_COMPANIONSHIP.is_position_compatible(self, position, extra_radius)
+
 # ─── Navigation primitives (used by wander now; by every activity later) ──
 ## Point the agent at a world position. Y is flattened — paths are XZ-only.
-func set_nav_target(world_pos: Vector3) -> void:
-	if nav_agent != null:
-		## Snap target to the real floor plane (0.5), not y=0 — keeps the
-		## vertical offset to this node's origin at ~0.9, inside the 1.1
-		## desired-distance budget above. (Part 9)
-		nav_agent.target_position = Vector3(world_pos.x, 0.5, world_pos.z)
+func set_nav_target(world_pos: Vector3, desired_distance: float = NAV_DEFAULT_TARGET_DISTANCE) -> bool:
+	if nav_agent == null:
+		return false
+	var raw := Vector3(world_pos.x, 0.5, world_pos.z)
+	var requested_distance := maxf(0.05, desired_distance)
+	if raw.distance_squared_to(_raw_nav_target) < 0.01 \
+			and is_equal_approx(requested_distance, _nav_desired_distance) \
+			and (_nav_route_valid or _nav_route_failed):
+		return _nav_route_valid
+	_raw_nav_target = raw
+	_nav_desired_distance = requested_distance
+	return _evaluate_nav_route()
+
+
+func _evaluate_nav_route() -> bool:
+	_nav_route_valid = false
+	_nav_route_failed = false
+	if nav_agent == null:
+		return false
+	var nav_map: RID = nav_agent.get_navigation_map()
+	if not nav_map.is_valid() or NavigationServer3D.map_get_iteration_id(nav_map) <= 0:
+		return false
+	var start: Vector3 = NavigationServer3D.map_get_closest_point(nav_map,
+		Vector3(global_position.x, 0.5, global_position.z))
+	var target: Vector3 = NavigationServer3D.map_get_closest_point(nav_map, _raw_nav_target)
+	var path: PackedVector3Array = NavigationServer3D.map_get_path(nav_map, start, target, true)
+	## Godot may return a useful-looking PARTIAL path for a disconnected goal.
+	## Never turn its wall-side endpoint into a successful movement target.
+	## This validates graph connectivity, not interaction arrival distance. A
+	## wall is often thinner than an activity's 1.1m stop radius, so using that
+	## radius here would misclassify a partial path across the wall as complete.
+	var endpoint_tolerance := 0.2
+	if path.is_empty() or path[path.size() - 1].distance_to(target) > endpoint_tolerance:
+		_nav_route_failed = true
+		lock_movement()
+		_last_requested_nav_speed = 0.0
+		return false
+	_requested_nav_target = target
+	_nav_route_valid = true
+	nav_agent.target_desired_distance = _nav_desired_distance
+	nav_agent.target_position = target
+	return true
+
+
+func _on_navigation_revision_changed(revision: int) -> void:
+	_nav_route_revision = revision
+	if _raw_nav_target != Vector3.ZERO:
+		_evaluate_nav_route()
+
+func project_navigation_point(world_pos: Vector3) -> Vector3:
+	var target := Vector3(world_pos.x, 0.5, world_pos.z)
+	if nav_agent == null:
+		return target
+	var nav_map: RID = nav_agent.get_navigation_map()
+	if nav_map.is_valid() and NavigationServer3D.map_get_iteration_id(nav_map) > 0:
+		target = NavigationServer3D.map_get_closest_point(nav_map, target)
+	return target
+
+## Read-only route query used by interaction-slot selection. Euclidean
+## distance can make a point on the far side of a wall look like the closest
+## approach; path length rejects disconnected candidates and correctly prices
+## candidates that require walking through a doorway.
+func get_navigation_route_cost(world_pos: Vector3) -> float:
+	if nav_agent == null:
+		return INF
+	var nav_map: RID = nav_agent.get_navigation_map()
+	if not nav_map.is_valid() or NavigationServer3D.map_get_iteration_id(nav_map) <= 0:
+		return INF
+	var start: Vector3 = NavigationServer3D.map_get_closest_point(nav_map,
+		Vector3(global_position.x, 0.5, global_position.z))
+	var requested := Vector3(world_pos.x, 0.5, world_pos.z)
+	var target: Vector3 = NavigationServer3D.map_get_closest_point(nav_map, requested)
+	var path: PackedVector3Array = NavigationServer3D.map_get_path(nav_map, start, target, true)
+	if path.is_empty() or path[path.size() - 1].distance_to(target) > 0.2:
+		return INF
+	var cost: float = 0.0
+	for index: int in range(1, path.size()):
+		cost += path[index - 1].distance_to(path[index])
+	return cost
+
+## Tests whether the NPC's full collision capsule can actually stand at an
+## interaction slot right now.  Navigation answers structural reachability;
+## this complementary physics query accounts for movable furniture and loose
+## objects that are deliberately not baked into the navigation mesh.
+func is_interaction_position_clear(world_pos: Vector3, target: Node3D = null) -> bool:
+	if collision == null or collision.shape == null or not is_inside_tree():
+		return true
+	var world: World3D = get_world_3d()
+	if world == null:
+		return true
+	var projected_here: Vector3 = project_navigation_point(global_position)
+	var origin_above_nav: float = maxf(global_position.y - projected_here.y, 0.0)
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = collision.shape
+	query.transform = Transform3D(global_transform.basis.orthonormalized(),
+		Vector3(world_pos.x, world_pos.y + origin_above_nav + 0.02, world_pos.z))
+	query.collision_mask = collision_mask
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	var excluded: Array[RID] = [get_rid()]
+	if target is CollisionObject3D:
+		excluded.append((target as CollisionObject3D).get_rid())
+	query.exclude = excluded
+	return world.direct_space_state.intersect_shape(query, 8).is_empty()
+
+func claim_interaction_slot(target: Node3D, action: StringName,
+		distance: float = 1.0, authored: Array[Dictionary] = []) -> Dictionary:
+	release_interaction_slot()
+	_interaction_slot_lease = NPC_INTERACTION_SLOTS.claim_best(self, target, action, distance, authored)
+	return _interaction_slot_lease
+
+func release_interaction_slot() -> void:
+	if not _interaction_slot_lease.is_empty():
+		NPC_INTERACTION_SLOTS.release(_interaction_slot_lease, self)
+	_interaction_slot_lease = {}
+
+func is_interaction_slot_claimed_by_other(target: Node3D, action: StringName,
+		claim_group: StringName) -> bool:
+	return NPC_INTERACTION_SLOTS.is_claimed_by_other(target, action, claim_group, self)
+
+func get_interaction_slot_position() -> Vector3:
+	if _interaction_slot_lease.is_empty():
+		return global_position
+	var transform: Transform3D = _interaction_slot_lease.get("transform", global_transform)
+	return transform.origin
+
+func face_interaction_slot() -> void:
+	if _interaction_slot_lease.is_empty():
+		return
+	var transform: Transform3D = _interaction_slot_lease.get("transform", global_transform)
+	rotation.y = transform.basis.get_euler().y
+
+func get_spatial_commitment_debug_info() -> Dictionary:
+	var info: Dictionary = {}
+	if not _interaction_slot_lease.is_empty():
+		info["slot"] = String(_interaction_slot_lease.get("slot_id", &""))
+		info["slot_action"] = String(_interaction_slot_lease.get("action", &""))
+		info["slot_target_id"] = int(_interaction_slot_lease.get("target_id", 0))
+	if not _door_passage_lease.is_empty():
+		info["door_id"] = int(_door_passage_lease.get("door_id", 0))
+		info["door_direction"] = int(_door_passage_lease.get("direction", 0))
+	return info
 
 func nav_finished() -> bool:
-	return nav_agent == null or nav_agent.is_navigation_finished()
+	if nav_agent == null:
+		return true
+	if not _nav_route_valid or not nav_agent.is_navigation_finished():
+		return false
+	return NPCItemUser.flat_distance(global_position, _requested_nav_target) \
+		<= _nav_desired_distance + 0.25
+
+
+func nav_failed() -> bool:
+	return _nav_route_failed
+
+## Force NavigationAgent3D to invalidate an unchanged target. Assigning the
+## same target is a no-op, so recovery briefly changes it to the current floor
+## point before restoring the requested destination.
+func force_nav_repath() -> void:
+	if nav_agent == null:
+		return
+	_evaluate_nav_route()
+
+func cancel_navigation() -> void:
+	lock_movement()
+	release_interaction_slot()
+	_release_door_passage()
+	_last_requested_nav_speed = 0.0
+	_soft_repath_attempted = false
+	if nav_agent != null:
+		nav_agent.target_desired_distance = NAV_DEFAULT_TARGET_DISTANCE
+		_requested_nav_target = Vector3(global_position.x, 0.5, global_position.z)
+		nav_agent.target_position = _requested_nav_target
+	_nav_route_valid = false
+	_nav_route_failed = false
+	_raw_nav_target = Vector3.ZERO
 
 ## Steer toward the agent's next waypoint. Call once per physics frame while
 ## traveling; pairs with move_and_slide() in _physics_process. With real
@@ -1817,17 +2054,90 @@ func nav_finished() -> bool:
 func nav_steer(delta: float) -> void:
 	_movement_locked = false   ## actively requesting movement again (Part 13)
 	_last_steer_delta = delta
-	if nav_agent == null or nav_agent.is_navigation_finished():
-		velocity.x = lerp(velocity.x, 0.0, acceleration * delta)
-		velocity.z = lerp(velocity.z, 0.0, acceleration * delta)
+	if nav_agent == null or not _nav_route_valid or nav_agent.is_navigation_finished():
+		# Use the same clamped stop path as activity transitions and lock out
+		# any avoidance callback left over from the preceding travel frame.
+		halt_movement(delta)
+		_last_requested_nav_speed = 0.0
 		return
 	var next: Vector3 = nav_agent.get_next_path_position()
+	if not _door_passage_allows(next):
+		halt_movement(delta)
+		_last_requested_nav_speed = 0.0
+		return
 	var dir: Vector3 = next - global_position
 	dir.y = 0.0
 	if dir.length() < 0.01:
 		return
 	dir = dir.normalized()
-	nav_agent.set_velocity(dir * move_speed * get_status_speed_multiplier())   ## Part 14
+	_last_requested_nav_speed = move_speed * get_status_speed_multiplier()
+	nav_agent.max_speed = _last_requested_nav_speed
+	nav_agent.set_velocity(dir * _last_requested_nav_speed)   ## Part 14
+
+func _door_passage_allows(next_path_point: Vector3) -> bool:
+	if not _door_passage_lease.is_empty():
+		if Time.get_ticks_msec() >= int(_door_passage_lease.get("expires", 0)):
+			_release_door_passage()
+		var door_ref: WeakRef = _door_passage_lease.get("door_ref") as WeakRef
+		var door: Node3D = door_ref.get_ref() as Node3D if door_ref != null else null
+		if door == null or not is_instance_valid(door):
+			_release_door_passage()
+		else:
+			var info: Dictionary = door.get_npc_portal_info() if door.has_method("get_npc_portal_info") else {}
+			var local: Vector3 = door.to_local(global_position)
+			var direction: int = int(_door_passage_lease.get("direction", 0))
+			if info.is_empty() or local.x * direction >= float(info.get("exit_distance", 0.9)):
+				_release_door_passage()
+			elif not bool(info.get("open", false)):
+				_release_door_passage()
+				if door.has_method("request_npc_open"):
+					door.request_npc_open(self)
+				return false
+			else:
+				return true
+
+	var best_door: Node3D = null
+	var best_direction: int = 0
+	var best_plane_distance: float = INF
+	for candidate: Node in get_tree().get_nodes_in_group("npc_bottleneck"):
+		if not candidate is Node3D or not candidate.has_method("get_npc_portal_info"):
+			continue
+		var door := candidate as Node3D
+		var info: Dictionary = door.get_npc_portal_info()
+		var here: Vector3 = door.to_local(global_position)
+		var next_local: Vector3 = door.to_local(next_path_point)
+		var target_local: Vector3 = door.to_local(_requested_nav_target)
+		var wait_distance: float = float(info.get("wait_distance", 1.15))
+		var half_width: float = float(info.get("half_width", 0.9))
+		if absf(here.x) > wait_distance or absf(here.z) > half_width + 0.45:
+			continue
+		var travel_x: float = target_local.x - here.x
+		if absf(travel_x) < 0.2:
+			travel_x = next_local.x - here.x
+		var direction: int = 1 if travel_x > 0.0 else -1
+		## Only arbitrate when the route actually crosses the door plane.
+		if here.x * direction >= 0.0 or target_local.x * direction <= 0.0:
+			continue
+		if absf(here.x) < best_plane_distance:
+			best_plane_distance = absf(here.x)
+			best_door = door
+			best_direction = direction
+	if best_door == null:
+		return true
+	var best_info: Dictionary = best_door.get_npc_portal_info()
+	if not bool(best_info.get("open", false)):
+		if best_door.has_method("request_npc_open"):
+			best_door.request_npc_open(self)
+		return false
+	_door_passage_lease = NPC_DOOR_COORDINATOR.request(self, best_door, best_direction)
+	return not _door_passage_lease.is_empty()
+
+func _release_door_passage() -> void:
+	if not _door_passage_lease.is_empty():
+		NPC_DOOR_COORDINATOR.release(_door_passage_lease, self)
+	## Also removes a queued (not-yet-granted) request during retarget/cancel.
+	NPC_DOOR_COORDINATOR.release_owner(self)
+	_door_passage_lease = {}
 
 var _last_steer_delta: float = 0.0
 
@@ -1838,11 +2148,22 @@ var _last_steer_delta: float = 0.0
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
 	if _movement_locked:
 		return   ## a stationary phase (Part 13) started after this request was
-				 ## submitted — the request is stale, ignore it
-	velocity.x = lerp(velocity.x, safe_velocity.x, acceleration * _last_steer_delta)
-	velocity.z = lerp(velocity.z, safe_velocity.z, acceleration * _last_steer_delta)
-	if Vector2(safe_velocity.x, safe_velocity.z).length() > 0.05:
-		rotation.y = atan2(-safe_velocity.x, -safe_velocity.z)
+					 ## submitted — the request is stale, ignore it
+	## Navigation avoidance may return a velocity up to agent.max_speed. That
+	## property previously kept Godot's high default, so a retarget amid nearby
+	## agents could produce several frames of 10m/s-looking motion: a continuous
+	## "smooth teleport." Cap twice—on the agent above and at this boundary—so
+	## avoidance can redirect movement but can never accelerate the resident.
+	var safe_xz: Vector2 = Vector2(safe_velocity.x, safe_velocity.z)
+	if _last_requested_nav_speed <= 0.0:
+		safe_xz = Vector2.ZERO
+	elif safe_xz.length() > _last_requested_nav_speed:
+		safe_xz = safe_xz.normalized() * _last_requested_nav_speed
+	var blend: float = clampf(acceleration * _last_steer_delta, 0.0, 1.0)
+	velocity.x = lerp(velocity.x, safe_xz.x, blend)
+	velocity.z = lerp(velocity.z, safe_xz.y, blend)
+	if safe_xz.length() > 0.05:
+		rotation.y = atan2(-safe_xz.x, -safe_xz.y)
 
 # ─── Wander state machine ─────────────────────────────────────────────────
 func _enter_idle() -> void:
@@ -1969,6 +2290,9 @@ func _process(delta: float) -> void:
 		_overhead_label.modulate = Color(0.88, 0.90, 0.92, 0.95)
 		add_child(_overhead_label)
 	var activity: String = brain.current_label() if brain != null else "Idle"
+	var companion: NPC = get_companion()
+	if companion != null and not activity.begins_with("Spending time"):
+		activity += " (with %s)" % companion.npc_name
 	_overhead_label.text = "%s — %s" % [npc_name, activity]
 	_update_relationship_debug_label()
 
@@ -2014,22 +2338,22 @@ func _name_for_relationship_id(target_id: String) -> String:
 
 # ─── Stuck recovery (Part 7) ────────────────────────────────────────────────
 ## Fires only while the nav agent has an active, unfinished target — i.e.
-## during any activity's travel phase. Idle/consume/work-in-place moments
-## are correctly stationary and never flagged. If the NPC hasn't displaced
-## STUCK_MIN_DISPLACEMENT in STUCK_CHECK_INTERVAL seconds while trying to
-## travel, hard-abort the current activity so the brain re-scores fresh —
-## every activity's exit() already releases jobs/chairs/items cleanly, so
-## this is always a safe, non-destructive reset.
+## during an activity's travel phase. Idle/consume/work-in-place moments are
+## correctly stationary and never flagged. Progress expectations scale with
+## requested speed. The first recovery only repaths; a repeated stall then
+## exits the current activity and escalates based on the actual obstruction.
 ## Aug 2026 fix (Brannon-requested) — interval tightened from 1.0s to
 ## 0.25s, same "stop and re-register almost immediately" reasoning as
 ## STUCK_GRACE_PERIOD's own comment — checked 4x more often, so real
 ## displacement is confirmed (or not) in a quarter of the time.
 const STUCK_CHECK_INTERVAL: float = 0.25
 const STUCK_MIN_DISPLACEMENT: float = 0.15
+const STUCK_PROGRESS_FRACTION: float = 0.25
 
 var _stuck_timer: float = 0.0
 var _stuck_ref_pos: Vector3 = Vector3.ZERO
 var _stuck_recoveries: int = 0   ## exposed for the Part 7 debug dump
+var _soft_repath_attempted: bool = false
 
 ## Aug 2026 — how many CONSECUTIVE stuck-recoveries have targeted the
 ## same obstruction (or found none). This is what was missing: without
@@ -2039,30 +2363,16 @@ var _stuck_recoveries: int = 0   ## exposed for the Part 7 debug dump
 ## per second, since the item causing the stall correctly kept getting
 ## re-identified as the obstruction every time.
 const STUCK_ESCALATE_AFTER: int = 2
-const STUCK_NUDGE_DISTANCE: float = 0.6
 var _stuck_streak_obstruction_id: int = -1
 var _stuck_streak_count: int = 0
 
-## Aug 2026 — separate streak for "blocked by ANOTHER NPC," not an item.
-## _find_stuck_obstruction() only ever detects RigidBody3D colliders, so
-## it never identifies another NPC (CharacterBody3D) as the cause —
-## several NPCs converging on the same clutter hotspot and physically
-## boxing each other in showed up as an unidentifiable ("?") obstruction
-## every single time, which meant the old fallback (a RANDOM-direction
-## nudge) had real odds of shoving an NPC straight into someone else —
-## exactly the reported "shuffling around each other" behavior. This
-## streak lets a repeated NPC-on-NPC jam escalate to a bigger, more
-## decisive displacement instead of a lot of small ineffective ones.
-const STUCK_NPC_BACKOFF_AFTER: int = 2
-const STUCK_NPC_BACKOFF_DISTANCE: float = 2.5
+## Consecutive stalls caused by another resident. Ordinary congestion is not
+## permission to teleport either agent: the intention yields and normal
+## avoidance plus the next utility choice create separation naturally.
 var _stuck_npc_streak: int = 0
 
-## Aug 2026 — separate streak for "wedged against static level geometry"
-## (walls, corners). Same directed-nudge-with-escalating-backoff shape as
-## the NPC-vs-NPC case above, just using the real collision normal
-## instead of a direction toward/away from another agent.
-const STUCK_WALL_BACKOFF_AFTER: int = 2
-const STUCK_WALL_BACKOFF_DISTANCE: float = 1.2
+## Separate diagnostic streak for static level geometry (walls/corners).
+## Static contact is still not permission to rewrite an NPC transform.
 var _stuck_wall_streak: int = 0
 
 ## Aug 2026 — separate streak specifically for "recovery fired but NO
@@ -2070,15 +2380,11 @@ var _stuck_wall_streak: int = 0
 ## streak below (_stuck_streak_obstruction_id/_stuck_streak_count) can
 ## never track this case — there's no real id to compare, so it silently
 ## reset to 1 every single time, forever, meaning a genuinely unexplained
-## stall NEVER escalated or gave up. It just repeated the same blind
-## random-direction position teleport (_nudge_free_of_obstruction's
-## null-obstruction fallback) roughly once a second, indefinitely — the
-## actual mechanism behind NPCs clipping through walls and disappearing.
-## Capping it here doesn't fully eliminate the theoretical risk of one
-## unlucky teleport landing inside geometry, but reduces "run forever
-## until it eventually does" down to at most STUCK_UNKNOWN_GIVEUP_AFTER
-## attempts before standing fast instead.
-const STUCK_UNKNOWN_GIVEUP_AFTER: int = 3
+## stall NEVER escalated or gave up. It used to repeat a blind random
+## relocation roughly once a second, indefinitely — the actual mechanism
+## behind NPCs clipping through walls and disappearing.
+## Unknown stalls now yield and re-score without any direct position change;
+## this streak remains diagnostic context only.
 var _stuck_unknown_streak: int = 0
 
 ## Aug 2026 fix (Brannon-requested) — grace period before
@@ -2117,9 +2423,11 @@ func _tick_stuck_recovery(delta: float) -> void:
 	## cleared only when nav_steer() next runs to resume real travel, so
 	## it's a direct read of "an activity wants me still" instead of an
 	## indirect, frequently-wrong guess from the navigation layer.
-	if nav_agent == null or _movement_locked:
+	if nav_agent == null or _movement_locked or not _nav_route_valid or nav_agent.is_navigation_finished() \
+			or (brain != null and not brain.has_current_activity() and current_task == null):
 		_stuck_timer = 0.0
 		_stuck_ref_pos = global_position
+		_stuck_grace_elapsed = 0.0
 		return
 	_stuck_timer += delta
 	if _stuck_timer < STUCK_CHECK_INTERVAL:
@@ -2127,7 +2435,12 @@ func _tick_stuck_recovery(delta: float) -> void:
 	var moved: float = global_position.distance_to(_stuck_ref_pos)
 	_stuck_timer = 0.0
 	_stuck_ref_pos = global_position
-	if moved < STUCK_MIN_DISPLACEMENT:
+	## Scale the expectation to the NPC's actual requested speed. Fixed 0.15m
+	## checks falsely classified exhausted, elderly, or injured NPCs as stuck.
+	var expected_progress: float = clampf(
+		_last_requested_nav_speed * STUCK_CHECK_INTERVAL * STUCK_PROGRESS_FRACTION,
+		0.03, STUCK_MIN_DISPLACEMENT)
+	if moved < expected_progress:
 		_stuck_grace_elapsed += STUCK_CHECK_INTERVAL
 		if _stuck_grace_elapsed >= STUCK_GRACE_PERIOD:
 			_stuck_grace_elapsed = 0.0
@@ -2150,18 +2463,33 @@ func _tick_stuck_recovery(delta: float) -> void:
 		_stuck_grace_elapsed = 0.0
 		_stuck_unknown_streak = 0
 		_stuck_wall_streak = 0
+		_soft_repath_attempted = false
 
 func _recover_from_stuck() -> void:
 	_stuck_recoveries += 1
-	NPCDebug.log_stuck(self)
+	var activity_label: String = brain.current_label() if brain != null else "legacy movement"
+	var activity_info: Dictionary = brain.get_current_activity_debug_info() if brain != null else {}
+	NPCDebug.log_stuck(self, activity_label, activity_info)
+
+	## First response is non-destructive: ask the navigation server for a fresh
+	## path to the projected target. Aborting the intention and dropping held
+	## items on the first half-second pause made ordinary avoidance congestion
+	## look like indecision. Escalate only if the fresh path also makes no
+	## progress during the next grace window.
+	if not _soft_repath_attempted and nav_agent != null:
+		_soft_repath_attempted = true
+		velocity.x = 0.0
+		velocity.z = 0.0
+		force_nav_repath()
+		return
+	_soft_repath_attempted = false
 	var stuck_item: RigidBody3D = _find_stuck_obstruction()
 	var stuck_npc: CharacterBody3D = null
 	if stuck_item == null:
 		stuck_npc = _find_stuck_obstruction_npc()
 	if brain != null:
 		brain.stop_current()
-	velocity.x = 0.0
-	velocity.z = 0.0
+	lock_movement()
 
 	## Aug 2026 fix — stop_current() only ever released whatever the
 	## interrupted activity had CLAIMED, never what it was physically
@@ -2183,24 +2511,14 @@ func _recover_from_stuck() -> void:
 		NPCItemUser.drop_held(self)
 
 	if stuck_npc != null:
-		## Aug 2026 — blocked by ANOTHER NPC, not an item. Forcing a
-		## CleaningActivity here would do nothing useful — the problem
-		## isn't a target to pick up, it's a crowd to get out of. Nudge
-		## directly away from the SPECIFIC NPC that's in the way (not a
-		## random direction — a directed nudge actually creates
-		## separation instead of a coin-flip chance of shoving into
-		## someone else). A repeated jam (STUCK_NPC_BACKOFF_AFTER in a
-		## row) escalates to a bigger, more decisive displacement rather
-		## than a lot of small ineffective ones.
+		## Yield the intention and let normal avoidance plus the next utility
+		## choice create separation. Directly changing global_position here
+		## was the visible "teleport on task switch."
 		_stuck_npc_streak += 1
 		_stuck_streak_obstruction_id = -1
 		_stuck_streak_count = 0
 		if NPCDebug.enabled:
-			NPCDebug.log_stuck_escalation(self, stuck_npc, _stuck_npc_streak)
-		var backoff: float = STUCK_NPC_BACKOFF_DISTANCE if _stuck_npc_streak >= STUCK_NPC_BACKOFF_AFTER else STUCK_NUDGE_DISTANCE
-		_nudge_free_of_obstruction(stuck_npc, backoff)
-		if _stuck_npc_streak >= STUCK_NPC_BACKOFF_AFTER:
-			_stuck_npc_streak = 0
+			NPCDebug.log_stuck_yield(self, stuck_npc, _stuck_npc_streak)
 		return
 	_stuck_npc_streak = 0
 
@@ -2208,36 +2526,21 @@ func _recover_from_stuck() -> void:
 	if stuck_item == null:
 		stuck_wall = _find_stuck_obstruction_static()
 	if stuck_wall != null:
-		## Aug 2026 fix — this is the real fix for the majority case (see
-		## Part A's own header). Directed nudge using the actual collision
-		## normal — same escalating-backoff shape as the NPC case above.
+		## Stop and re-score. Physics interpolation made even small direct
+		## position corrections read as a rapid smooth teleport, so recovery
+		## never writes the NPC transform, including for known wall contact.
 		_stuck_wall_streak += 1
 		if NPCDebug.enabled:
-			NPCDebug.log_stuck_escalation(self, stuck_wall.get_collider(), _stuck_wall_streak)
-		var wall_away: Vector3 = stuck_wall.get_normal()
-		var wall_backoff: float = STUCK_WALL_BACKOFF_DISTANCE if _stuck_wall_streak >= STUCK_WALL_BACKOFF_AFTER else STUCK_NUDGE_DISTANCE
-		_nudge_free_of_obstruction(stuck_wall.get_collider() as Node3D, wall_backoff, wall_away)
-		if _stuck_wall_streak >= STUCK_WALL_BACKOFF_AFTER:
-			_stuck_wall_streak = 0
+			NPCDebug.log_stuck_yield(self, stuck_wall.get_collider(), _stuck_wall_streak)
 		return
 	_stuck_wall_streak = 0
 
 	if stuck_item == null:
-		## Aug 2026 fix — see STUCK_UNKNOWN_GIVEUP_AFTER's own comment.
-		## Genuinely no obstruction (item or NPC) identified. The
-		## obstruction_id-based streak below can never track this case
-		## (there's no real id to compare against), which is exactly what
-		## let an unexplained stall repeat this branch forever, once a
-		## second, each time applying a blind random-direction position
-		## teleport with zero collision awareness.
+		## Never guess a relocation direction for an unidentified stall.
+		## Abandon the intention and let the next think choose a fresh target.
 		_stuck_unknown_streak += 1
 		if NPCDebug.enabled:
-			NPCDebug.log_stuck_escalation(self, null, _stuck_unknown_streak)
-		if _stuck_unknown_streak <= STUCK_UNKNOWN_GIVEUP_AFTER:
-			_nudge_free_of_obstruction(null, STUCK_NUDGE_DISTANCE)
-		## else: give up nudging this round — stand fast and let the
-		## brain re-score completely fresh next think-cycle instead of
-		## rolling the dice on position again with no information at all.
+			NPCDebug.log_stuck_yield(self, null, _stuck_unknown_streak)
 		return
 	_stuck_unknown_streak = 0
 
@@ -2259,42 +2562,13 @@ func _recover_from_stuck() -> void:
 	## just repeats the same failed loop — the NPC can't even close the
 	## distance to something it's already touching. Give up on it
 	## permanently (see job_state.blacklist_cleaning_item()) rather than
-	## retrying forever, and break the immediate deadlock the same way as
-	## before: nudge the NPC a short distance away (a real position
-	## change, not a movement command — movement is exactly what isn't
-	## working) and let the NEXT think-cycle decide fresh, with no forced
-	## target at all.
+	## retrying forever. The next think-cycle chooses fresh; recovery never
+	## rewrites the NPC position.
 	job_state.blacklist_cleaning_item(self, stuck_item, "stuck-recovery failed %d times in a row" % _stuck_streak_count)
 	if NPCDebug.enabled:
-		NPCDebug.log_stuck_escalation(self, stuck_item, _stuck_streak_count)
-	_nudge_free_of_obstruction(stuck_item, STUCK_NUDGE_DISTANCE)
+		NPCDebug.log_stuck_yield(self, stuck_item, _stuck_streak_count)
 	_stuck_streak_obstruction_id = -1
 	_stuck_streak_count = 0
-
-## Direct position nudge away from whatever's blocking the NPC — bypasses
-## normal collision-respecting movement entirely, which is the point: a
-## wedged NPC can't walk itself out, so this moves it out instead. Falls
-## back to a random horizontal direction if no obstruction is known
-## (e.g. the last few recoveries found nothing specific). Aug 2026 —
-## `distance` param (was always STUCK_NUDGE_DISTANCE before) and the
-## type widened from RigidBody3D to Node3D so this can also be called
-## with another NPC (CharacterBody3D) as the obstruction.
-func _nudge_free_of_obstruction(obstruction: Node3D, distance: float = STUCK_NUDGE_DISTANCE, direction_override: Vector3 = Vector3.ZERO) -> void:
-	var away: Vector3
-	if direction_override != Vector3.ZERO:
-		## Aug 2026 — real collision-normal direction (walls), when known.
-		## Strictly more informed than guessing from obstruction.global_position,
-		## which for a large StaticBody3D wall segment isn't a meaningful
-		## "away" direction relative to the actual point of contact.
-		away = direction_override
-	elif obstruction != null and is_instance_valid(obstruction):
-		away = global_position - obstruction.global_position
-	else:
-		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
-	away.y = 0.0
-	if away.length() < 0.01:
-		away = Vector3(1.0, 0.0, 0.0)
-	global_position += away.normalized() * distance
 
 ## Best-effort — mirrors _handle_physics_pushes()'s own collision
 ## detection. Not guaranteed to find the TRUE cause of the stall (could be
@@ -2353,7 +2627,7 @@ const HEAVY_PUSH_MASS: float = 3.0      ## mirrors PickupableItem.HEAVY_OBSTACLE
 										## guarantee), give it a small acknowledging
 										## shove but let normal collision resistance stand
 
-func _handle_physics_pushes(delta: float) -> void:
+func _handle_physics_pushes(_delta: float) -> void:
 	for i: int in get_slide_collision_count():
 		var col: KinematicCollision3D = get_slide_collision(i)
 		var body: Object = col.get_collider()
@@ -2369,10 +2643,6 @@ func _handle_physics_pushes(delta: float) -> void:
 
 		if rb.mass < HEAVY_PUSH_MASS:
 			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE)
-			var blocked: Vector3 = velocity - get_real_velocity()
-			blocked.y = 0.0
-			if blocked.length() > 0.01:
-				global_position += blocked * delta
 		else:
 			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE / rb.mass)
 
@@ -2621,7 +2891,7 @@ func get_relationship_dialogue_line(target_id: String) -> String:
 ## `* npc.get_work_ethic_passive_mult()`), so Relax was ALWAYS outscoring
 ## Wander by a fixed ~20% whenever both were live — the imbalance wasn't
 ## a scoring-ratio problem. The real cause: at a 1.0-hour daily budget, one
-## ~20-40min session (RelaxActivity.SESSION_MIN/MAX) burns most/all of it,
+## a prolonged sitting session burns a meaningful portion of it,
 ## so Relax's score() returned a flat 0 (ineligible, not merely losing) for
 ## nearly the entire day — Wander won by DEFAULT during that gap, not by
 ## out-competing Relax. Raising the budget gives Relax many more real

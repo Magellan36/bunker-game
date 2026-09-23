@@ -12,21 +12,21 @@ config_version=5
 
 config/name="BunkerGame"
 run/main_scene="res://scenes/ui/character_creation/CharacterCreation.tscn"
-config/features=PackedStringArray("4.7", "C#", "Forward Plus")
+config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
 
-McpRuntimeInit="*res://scripts/core/McpRuntimeInit.cs"
 CharacterCreationData="*res://scripts/core/CharacterCreationData.gd"
 FocusMode="*res://scripts/core/FocusMode.gd"
 InputMode="*res://scripts/core/InputMode.gd"
-WorldManager="*uid://bs5q8ntodn0tk"
+WorldManager="*res://scripts/world/core/WorldManager.gd"
 SaveManager="*res://scripts/world/core/SaveManager.gd"
-DeviceDatabase="*uid://beaovkailgag2"
+DeviceDatabase="*res://scripts/world/power/DeviceDatabase.gd"
 GraphicsSettings="*res://scripts/core/GraphicsSettings.gd"
 NotificationManager="*res://scripts/ui/notifications/NotificationManager.gd"
 JobBoard="*res://scripts/npc/JobBoard.gd"
+_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
 
 [debug]
 
@@ -45,7 +45,7 @@ project/assembly_name="BunkerGame"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/jts_colorpickerkit/plugin.cfg", "res://addons/godot_mcp/plugin.cfg")
+enabled=PackedStringArray("res://addons/beehave/plugin.cfg", "res://addons/dialogue_manager/plugin.cfg", "res://addons/gdUnit4/plugin.cfg", "res://addons/godot_ai/plugin.cfg", "res://addons/godot_state_charts/plugin.cfg", "res://addons/jts_colorpickerkit/plugin.cfg")
 
 [gui]
 

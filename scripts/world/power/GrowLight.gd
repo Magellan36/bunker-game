@@ -51,15 +51,35 @@ const TIER_TYPE_TAG: Dictionary = {
 	"pro":    "grow_light_pro",
 }
 
-# ─── Model geometry (§4.1) ────────────────────────────────────────────────────
-const TUBE_LENGTH: float  = 0.62
-const TUBE_RADIUS: float  = 0.035
-const TUBE_SPACING: float = 0.22   ## gap between the 3 parallel tubes (Z axis)
-const COVER_COLOR: Color  = Color(0.15, 0.15, 0.16, 1.0)
+# ─── Model (hand-made Tinkercad OBJ swap, Sep 2026) ─────────────────────────
+## Hand-made models (assets/models/grow_light/) replace the old procedural
+## fixture. Per tier there are TWO OBJs: the *Unpowered* model is the full
+## physical fixture (dark cover plate + translucent white tubes + two tall
+## ceiling-mount support panels); the *Powered* model is ONLY the 3 glowing
+## tubes, positioned at byte-identical coordinates to the tubes inside the
+## Unpowered fixture so the glow overlays them exactly.
+##
+## MODEL_SCALE maps the fixture's 20-unit plate width to the 0.70m footprint
+## used by the collision box / ghost box below (20 * 0.035 = 0.70). The
+## model's 2-unit tube thickness lands on the old TUBE_RADIUS 0.035 exactly
+## (2 * 0.035 / 2 = 0.035), confirming this is the intended scale.
+const MODEL_PATHS_UNPOWERED: Dictionary = {
+	"normal": "res://assets/models/grow_light/regular_unpowered/tinker.obj",
+	"pro":    "res://assets/models/grow_light/pro_unpowered/tinker.obj",
+}
+const MODEL_PATHS_POWERED: Dictionary = {
+	"normal": "res://assets/models/grow_light/regular_powered/tinker.obj",
+	"pro":    "res://assets/models/grow_light/pro_powered/tinker.obj",
+}
+const MODEL_SCALE: float = 0.035
 
-## Unshaded/emissive white tube material — matches the connectable-dot
-## material's unshaded convention already used elsewhere in this codebase.
-const TUBE_COLOR_ON:  Color = Color(1.0, 1.0, 0.98, 1.0)
+## Powered tube glow color — matches each tier's Powered MTL albedo exactly
+## (regular: warm white; pro: cool cyan), so the lit state reads as the
+## user's intended lamp color rather than forcing both tiers to white.
+const TUBE_GLOW_COLOR: Dictionary = {
+	"normal": Color(0.9725, 0.9020, 0.7176, 1.0),
+	"pro":    Color(0.5216, 0.8039, 0.9020, 1.0),
+}
 
 ## Shed (overloaded grid) state — reused VERBATIM from WallLight's own
 ## SHED_COLOR/SHED_ENERGY so a shed grow light reads consistently with every
@@ -78,7 +98,7 @@ const TUBE_ENERGY_ON: float = 2.0
 ## a grow light should read as "bright grow-lamp white," not "cozy room
 ## light." Fog contribution reuses WallLight's same low-contribution fix
 ## (avoid ambient haze buildup with many lights in one room).
-const SPOT_LIGHT_ENERGY: float = 1.1
+const SPOT_LIGHT_ENERGY: float = 1.65   ## 1.1 × 1.5 (raised Sep 2026 at Brannon's request)
 const SPOT_LIGHT_RANGE:  float = 3.0
 const SPOT_VOLUMETRIC_FOG_ENERGY: float = 0.15
 ## Cheap perf guard for large farm rooms (plan §5's "if FPS dips, cull the
@@ -99,13 +119,12 @@ const SPOT_DISTANCE_FADE_LENGTH: float = 4.0
 ## BuildModeController.WALL_HEIGHT_M (both cite the same tile_set.tscn 3.0m
 ## figure — two independent constants, same value, same reasoning as
 ## WaterPipeDrawMode.WATER_CEILING_Y already documents for that pair).
-## WIRE_LENGTH is derived, not hand-typed: since GROW_LIGHT_PLACEMENT_Y is
-## exactly 7/8 wall height, the remaining 1/8 (0.375m) is exactly the gap
-## from this node's local origin up to the ceiling.
+## NOTE: these constants are historical. The hand-made OBJ swap (Sep 2026)
+## bakes the fixture's own ceiling-mount support panels into the Unpowered
+## model, so _build_support_wires() was removed — the model carries its
+## supports. WALL_HEIGHT_M is retained only because GROW_LIGHT_PLACEMENT_Y
+## derivation lives in BuildModeController (this file's copy is now unused).
 const WALL_HEIGHT_M: float = 3.0
-const WIRE_LENGTH: float = WALL_HEIGHT_M * (1.0 / 8.0)
-const WIRE_RADIUS: float = 0.02
-const WIRE_COLOR: Color = Color(0.05, 0.05, 0.06, 1.0)   ## unlit dark grey/black
 
 # ─── Power grid ───────────────────────────────────────────────────────────────
 var power_priority: int = 3   ## Both tiers default to priority 3 (plan §3.1)
@@ -190,8 +209,13 @@ static func get_best_growth_speed_near(pos: Vector3) -> float:
 					best = maxf(best, light.get_active_growth_speed())
 	return best
 
-## Tube materials — one per tube so all 3 update together in set_powered()/set_shed().
-var _tube_mats: Array[StandardMaterial3D] = []
+## Fixture visuals (Sep 2026 hand-made OBJ swap) — the Unpowered model is the
+## full physical fixture (plate + tubes + support panels), always shown. The
+## Powered model is the glowing-tube overlay, shown only when lit/shed and
+## driven by _refresh_glow(). _base_mi/_glow_mi are the two MeshInstance3D.
+var _base_mi: MeshInstance3D = null
+var _glow_mi: MeshInstance3D = null
+var _glow_mat: StandardMaterial3D = null
 
 ## Polish Plan Group 2 item 5 — the real light (WallLight pattern), later
 ## converted from OmniLight3D to a downward-facing SpotLight3D (Aug 2026 —
@@ -275,30 +299,37 @@ func set_powered(on: bool) -> void:
 	_is_powered = on
 	if on:
 		_is_shed = false
-	_refresh_tubes()
+	_refresh_glow()
 
 func set_shed(shed_on: bool) -> void:
 	_is_shed = shed_on
 	if shed_on:
 		_is_powered = false
-	_refresh_tubes()
+	_refresh_glow()
 
-func _refresh_tubes() -> void:
+## Drives the Powered glow-tube overlay (and the spot light) from the grid
+## state — same 3-state shape as the old procedural _refresh_tubes(), but
+## now the lit tube layer is the hand-made Powered OBJ instead of material
+## emission on procedural cylinders. The base (Unpowered) fixture is always
+## shown unchanged; only the overlay's material + visibility toggle.
+func _refresh_glow() -> void:
+	if _glow_mat == null:
+		return
 	var col: Color
 	var energy: float
 	if _is_powered:
-		col    = TUBE_COLOR_ON
+		col    = TUBE_GLOW_COLOR.get(tier, TUBE_GLOW_COLOR["normal"])
 		energy = TUBE_ENERGY_ON
 	elif _is_shed:
 		col    = SHED_COLOR
 		energy = SHED_ENERGY
 	else:
-		col    = SHED_COLOR
+		col    = TUBE_GLOW_COLOR.get(tier, TUBE_GLOW_COLOR["normal"])
 		energy = 0.0
-	for mat: StandardMaterial3D in _tube_mats:
-		mat.emission = col
-		mat.emission_energy_multiplier = energy
-		mat.albedo_color = col if energy > 0.0 else Color(0.25, 0.25, 0.26, 1.0)
+	_glow_mi.visible = energy > 0.0
+	_glow_mat.emission = col
+	_glow_mat.emission_energy_multiplier = energy
+	_glow_mat.albedo_color = col if energy > 0.0 else Color(0.25, 0.25, 0.26, 1.0)
 
 	## Polish Plan Group 2 item 5 — real light mirrors the tube state
 	## exactly: full white when powered, faint orange when shed, dark/off
@@ -306,7 +337,7 @@ func _refresh_tubes() -> void:
 	if _spot == null:
 		return
 	if _is_powered:
-		_spot.light_color  = TUBE_COLOR_ON
+		_spot.light_color  = TUBE_GLOW_COLOR.get(tier, TUBE_GLOW_COLOR["normal"])
 		_spot.light_energy = SPOT_LIGHT_ENERGY
 		_spot.visible      = true
 	elif _is_shed:
@@ -369,64 +400,14 @@ func _get_interaction_system() -> Node:
 							return s2
 	return null
 
-# ─── Model (procedural — no GLB, matches GeneratorObject/WaterPurifier convention) ──
+# ─── Model (hand-made OBJ swap — replaces the procedural fixture) ───────────
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
 	box.size = Vector3(0.70, 0.10, 0.70)
 	return box
 
 func _build_fixture() -> void:
-	_tube_mats.clear()
-
-	## 3 glowing tubes, lying on their sides (long axis horizontal along X),
-	## equally spaced across the 1×1 footprint on the Z axis.
-	for i: int in range(3):
-		var tube_mi: MeshInstance3D = MeshInstance3D.new()
-		var tube_mesh: CylinderMesh = CylinderMesh.new()
-		tube_mesh.top_radius    = TUBE_RADIUS
-		tube_mesh.bottom_radius = TUBE_RADIUS
-		tube_mesh.height        = TUBE_LENGTH
-		tube_mesh.radial_segments = 10
-		tube_mi.mesh = tube_mesh
-		## CylinderMesh's long axis is local Y by default — rotate 90° so it lies horizontal.
-		tube_mi.rotation_degrees = Vector3(0.0, 0.0, 90.0)
-		tube_mi.position = Vector3(0.0, 0.0, (i - 1) * TUBE_SPACING)
-
-		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.shading_mode     = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.emission_enabled = true
-		mat.albedo_color     = Color(0.25, 0.25, 0.26, 1.0)
-		mat.emission         = SHED_COLOR
-		mat.emission_energy_multiplier = 0.0
-		tube_mi.set_surface_override_material(0, mat)
-		add_child(tube_mi)
-		_tube_mats.append(mat)
-
-	## Dark grey cover — flat top plate + two thin side-wall panels dropping
-	## down partway along the tubes' height, wrapping 2 of the 4 sides only
-	## (leave the short ends open, matching a real shop-light reflector).
-	var cover_mat: StandardMaterial3D = StandardMaterial3D.new()
-	cover_mat.albedo_color = COVER_COLOR
-	cover_mat.metallic     = 0.10
-	cover_mat.roughness    = 0.80
-
-	var top_mi:   MeshInstance3D = MeshInstance3D.new()
-	var top_mesh: BoxMesh        = BoxMesh.new()
-	top_mesh.size = Vector3(0.66, 0.03, 0.66)
-	top_mi.mesh   = top_mesh
-	top_mi.position = Vector3(0.0, TUBE_RADIUS + 0.05, 0.0)
-	top_mi.set_surface_override_material(0, cover_mat)
-	add_child(top_mi)
-
-	for side: int in [-1, 1]:
-		var side_mi:   MeshInstance3D = MeshInstance3D.new()
-		var side_mesh: BoxMesh        = BoxMesh.new()
-		side_mesh.size = Vector3(0.66, 0.10, 0.03)
-		side_mi.mesh   = side_mesh
-		side_mi.position = Vector3(0.0, 0.0, side * 0.33)
-		side_mi.set_surface_override_material(0, cover_mat)
-		add_child(side_mi)
-
+	_load_fixture_models()
 	## No collision beyond the parent StaticBody3D itself needing a shape for
 	## interaction proximity/raycast — add a slim invisible collider matching
 	## the 1×1 footprint used by _tile_half_extents().
@@ -436,8 +417,76 @@ func _build_fixture() -> void:
 	shape.shape = box
 	add_child(shape)
 
-	_build_support_wires()
 	_build_spot_light()
+
+## Loads the per-tier Unpowered (full fixture) + Powered (glow-tube overlay)
+## OBJ models and adds them as sibling MeshInstance3D children. Both use the
+## identical local transform — the Powered tubes were authored at the same
+## coordinates as the tubes baked into the Unpowered fixture, so one scale +
+## rotation + position places both. The glow material is a fresh
+## StandardMaterial3D (emission-driven), applied via material_override so the
+## OBJ's own MTL colors don't fight the glow tint.
+func _load_fixture_models() -> void:
+	var base_path: String = MODEL_PATHS_UNPOWERED.get(tier, MODEL_PATHS_UNPOWERED["normal"])
+	var glow_path: String = MODEL_PATHS_POWERED.get(tier, MODEL_PATHS_POWERED["normal"])
+
+	var base_mesh: ArrayMesh = load(base_path) as ArrayMesh
+	var glow_mesh: ArrayMesh = load(glow_path) as ArrayMesh
+	if base_mesh == null:
+		push_warning("GrowLight: base model missing at %s" % base_path)
+		return
+	if glow_mesh == null:
+		push_warning("GrowLight: glow model missing at %s" % glow_path)
+
+	## Angle-based normal rebuild (Sep 2026) — the OBJ carries no normals, so
+	## Godot's importer smooth-averages them and smears the boxy fixture's flat
+	## faces (the visible "needles to center" shading on the top plate). 45°
+	## auto-smooth splits the hard box edges flat while keeping the rounded
+	## tube surfaces smooth. See BuildMaterials.build_auto_smooth_mesh().
+	base_mesh = BuildMaterials.build_auto_smooth_mesh(base_mesh)
+	glow_mesh = BuildMaterials.build_auto_smooth_mesh(glow_mesh)
+
+	_base_mi = MeshInstance3D.new()
+	_base_mi.mesh = base_mesh
+	_base_mi.name = "Fixture"
+	_apply_mood_override_to_base(_base_mi)
+	add_child(_base_mi)
+
+	_glow_mi = MeshInstance3D.new()
+	_glow_mi.mesh = glow_mesh
+	_glow_mi.name = "GlowTubes"
+	_glow_mat = StandardMaterial3D.new()
+	_glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_glow_mat.emission_enabled = true
+	_glow_mat.albedo_color = Color(0.25, 0.25, 0.26, 1.0)
+	_glow_mi.material_override = _glow_mat
+	add_child(_glow_mi)
+
+	## Tinkercad OBJ convention — height runs along OBJ Z; rotate -90° about X
+	## so the fixture's "up" (support panels toward the ceiling) maps to Godot
+	## +Y. Matches every other hand-made OBJ load site (Splint/FarmProduce/Bed).
+	var t := Transform3D()
+	t = t.rotated(Vector3.RIGHT, -PI / 2.0)
+	t = t.scaled(Vector3.ONE * MODEL_SCALE)
+	_base_mi.transform = t
+	_glow_mi.transform = t
+
+## Dims/desaturates/mattens the fixture's dark-grey plate + light-grey
+## support panels so they read in-theme with the dark bunker (same reason
+## every other hand-made OBJ swap applies BuildMaterials mood overrides).
+## The translucent white tube surfaces are left untouched — they are the
+## "unlit tube" look and are tinted by the glow overlay instead.
+func _apply_mood_override_to_base(mi: MeshInstance3D) -> void:
+	if mi == null or mi.mesh == null:
+		return
+	for s: int in mi.mesh.get_surface_count():
+		var base: Material = mi.mesh.surface_get_material(s)
+		var is_tube: bool = false
+		if base is StandardMaterial3D:
+			is_tube = (base as StandardMaterial3D).transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+		if is_tube:
+			continue
+		BuildMaterials.apply_surface_override(mi, s, 0.6, 0.12, 0.8, 0.0)
 
 ## Aug 2026 — converted from OmniLight3D to a downward-facing SpotLight3D
 ## (was Polish Plan Group 2 item 5's OmniLight3D). Two independent reasons:
@@ -454,17 +503,17 @@ func _build_fixture() -> void:
 ## (negative X pitches down; verified against that file before writing
 ## this). spot_angle = 35.0 is a first-pass eyeballed value sized to cover
 ## roughly a 1-2 tile tray footprint from this fixture's mounting height
-## near the ceiling (see WIRE_LENGTH/GROW_LIGHT_PLACEMENT_Y above for the
+## near the ceiling (see GROW_LIGHT_PLACEMENT_Y above for the
 ## mount height) — tune in the Inspector if it reads too narrow/wide once
 ## seen over a real placed tray in-editor; this wasn't measured against
 ## FarmingTray.gd's actual footprint dimensions.
 ##
 ## Sits at fixture centre (same as the 3 tubes it's meant to represent).
-## Starts dark/invisible — only turns on via _refresh_tubes() once
+## Starts dark/invisible — only turns on via _refresh_glow() once
 ## PowerManager calls set_powered().
 func _build_spot_light() -> void:
 	var spot: SpotLight3D = SpotLight3D.new()
-	spot.light_color                 = TUBE_COLOR_ON
+	spot.light_color                 = TUBE_GLOW_COLOR.get(tier, TUBE_GLOW_COLOR["normal"])
 	spot.light_energy                = SPOT_LIGHT_ENERGY
 	spot.spot_range                  = SPOT_LIGHT_RANGE
 	spot.spot_angle                  = 35.0
@@ -536,30 +585,3 @@ func get_shadow_weight(from_pos: Vector3) -> float:
 		return 0.0
 	var t: float = 1.0 - (dist / SPOT_LIGHT_RANGE)
 	return SPOT_LIGHT_ENERGY * t * t
-
-## 4 thin corner support wires (Polish Plan Group 0 item 20) — one per
-## fixture footprint corner (matches the cover plate's 0.66×0.66 footprint,
-## corner inset mirrors FarmingTray's own leg-corner convention), running
-## straight up from this node's local origin to the ceiling above.
-func _build_support_wires() -> void:
-	var wire_mat: StandardMaterial3D = StandardMaterial3D.new()
-	wire_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	wire_mat.albedo_color = WIRE_COLOR
-
-	var corner_positions: Array[Vector2] = [
-		Vector2(-0.28, -0.28),
-		Vector2( 0.28, -0.28),
-		Vector2(-0.28,  0.28),
-		Vector2( 0.28,  0.28),
-	]
-	for p: Vector2 in corner_positions:
-		var wire_mi:   MeshInstance3D = MeshInstance3D.new()
-		var wire_mesh: CylinderMesh   = CylinderMesh.new()
-		wire_mesh.top_radius    = WIRE_RADIUS
-		wire_mesh.bottom_radius = WIRE_RADIUS
-		wire_mesh.height        = WIRE_LENGTH
-		wire_mesh.radial_segments = 6
-		wire_mi.mesh = wire_mesh
-		wire_mi.position = Vector3(p.x, WIRE_LENGTH * 0.5, p.y)
-		wire_mi.set_surface_override_material(0, wire_mat)
-		add_child(wire_mi)

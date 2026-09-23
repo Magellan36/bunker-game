@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Desktop pause workspace: primary actions at left, filterable Bunker Log at
+## Desktop pause workspace: primary actions at left, filterable Log at
 ## right. The world continues to simulate; only player movement is locked.
 
 const PANEL_MAX := Vector2(1240, 760)
@@ -163,8 +163,8 @@ func _action_button(caption: String, symbol: String, callback: Callable,
 		accent: bool = false, danger: bool = false) -> Button:
 	var button := Button.new()
 	button.text = caption
-	button.custom_minimum_size.y = 38
-	BunkerPanelStyle.icon_button(button, symbol, accent, danger)
+	button.custom_minimum_size.y = BunkerDesign.COMPACT_CONTROL_HEIGHT
+	BunkerPanelStyle.icon_button(button, symbol, accent, danger, true, true)
 	button.pressed.connect(callback)
 	return button
 
@@ -186,14 +186,14 @@ func _build_slot_panel() -> PanelContainer:
 	body.add_child(_load_slots)
 	for slot: int in range(1, SaveManager.SAVE_SLOT_COUNT + 1):
 		var save_button := Button.new()
-		save_button.custom_minimum_size.y = 38
-		BunkerPanelStyle.button(save_button)
+		save_button.custom_minimum_size.y = BunkerDesign.COMPACT_CONTROL_HEIGHT
+		BunkerPanelStyle.button(save_button, false, false, true, true)
 		save_button.pressed.connect(_on_save_slot_pressed.bind(slot))
 		_save_slots.add_child(save_button)
 		_save_slot_buttons.append(save_button)
 		var load_button := Button.new()
-		load_button.custom_minimum_size.y = 38
-		BunkerPanelStyle.button(load_button)
+		load_button.custom_minimum_size.y = BunkerDesign.COMPACT_CONTROL_HEIGHT
+		BunkerPanelStyle.button(load_button, false, false, true, true)
 		load_button.pressed.connect(_on_load_slot_pressed.bind(slot))
 		_load_slots.add_child(load_button)
 		_load_slot_buttons.append(load_button)

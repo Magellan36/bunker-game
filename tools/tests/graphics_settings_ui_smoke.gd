@@ -26,14 +26,18 @@ func _run() -> void:
 	if shell != null:
 		_check(shell.size.x <= 1240.0 and shell.size.y <= 760.0,
 			"shell keeps approved desktop bounds")
+		_check(shell.theme != null and shell.theme.default_font == UIKit.font(),
+			"settings shell uses the shared bunker font")
 
 	var navigation: Dictionary = panel.get("_section_buttons") as Dictionary
 	_check(navigation.size() == 4, "display/rendering/effects/camera navigation exists")
 	for section_key: String in ["display", "rendering", "effects", "camera"]:
 		_check(navigation.has(section_key), "navigation includes %s" % section_key)
 		var section_button: Button = navigation.get(section_key) as Button
-		_check(section_button.custom_minimum_size.y <= 36.0,
-			"%s navigation uses desktop-density height" % section_key)
+		_check(section_button.custom_minimum_size.y <= 30.0,
+			"%s navigation uses compact desktop-density height" % section_key)
+		_check(_button_is_borderless(section_button),
+			"%s navigation has no persistent border" % section_key)
 
 	var scroll: ScrollContainer = panel.get("_content_scroll") as ScrollContainer
 	_check(scroll != null and scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED,
@@ -50,8 +54,10 @@ func _run() -> void:
 	var preset: OptionButton = panel.get("_preset_option") as OptionButton
 	_check(preset != null and preset.item_count == 5 and preset.is_item_disabled(4),
 		"preset control represents read-only Custom state")
-	_check(preset.custom_minimum_size.y <= 34.0,
+	_check(preset.custom_minimum_size.y <= 30.0,
 		"graphics options keep compact vertical padding")
+	_check(_button_is_borderless(preset),
+		"graphics options have no persistent border")
 
 	var switches: Array[CheckButton] = []
 	for property_name: String in [
@@ -64,8 +70,19 @@ func _run() -> void:
 			switches.append(toggle)
 	_check(switches.size() == 11, "all live boolean and UI motion settings remain connected")
 	_check(switches.all(func(toggle: CheckButton) -> bool:
-		return toggle.custom_minimum_size.y <= 34.0),
+		return toggle.custom_minimum_size.y <= 30.0),
 		"graphics toggles use information-first desktop density")
+	_check(switches.all(func(toggle: CheckButton) -> bool:
+		return _button_is_borderless(toggle)),
+		"graphics toggles have no persistent border")
+	_check(not _tree_contains_text(panel, "LIVE SETTINGS")
+		and not _tree_contains_text(panel, "Changes apply immediately"),
+		"live-settings information card is removed")
+	_check(not _tree_contains_text(panel, "Tune image quality, performance, effects, and camera comfort.")
+		and not _tree_contains_text(panel, "Window and frame delivery")
+		and not _tree_contains_text(panel, "Core image quality")
+		and not _tree_contains_text(panel, "View comfort"),
+		"settings descriptions are removed")
 	var reduced_motion: CheckButton = panel.get("_reduced_motion_check") as CheckButton
 	_check(reduced_motion != null and reduced_motion.button_pressed == UIMotion.reduced(),
 		"reduced UI motion control reflects the shared preference")
@@ -88,3 +105,19 @@ func _check(condition: bool, message: String) -> void:
 		return
 	_failures += 1
 	push_error("GRAPHICS_SETTINGS_UI_SMOKE_FAIL: %s" % message)
+
+
+func _button_is_borderless(button: Button) -> bool:
+	var style: StyleBoxFlat = button.get_theme_stylebox("normal") as StyleBoxFlat
+	return style != null and style.border_width_left == 0 \
+		and style.border_width_top == 0 and style.border_width_right == 0 \
+		and style.border_width_bottom == 0
+
+
+func _tree_contains_text(root_node: Node, expected: String) -> bool:
+	if root_node is Label and (root_node as Label).text == expected:
+		return true
+	for child: Node in root_node.get_children():
+		if _tree_contains_text(child, expected):
+			return true
+	return false

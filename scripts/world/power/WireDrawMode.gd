@@ -25,6 +25,8 @@ signal wire_nodes_connected(key_a: String, pos_a: Vector3, key_b: String, pos_b:
 ## the wire tool. BuildModeController listens and switches active tool back to 0.
 signal wire_tool_exit_requested()
 
+const DragMath = preload("res://scripts/world/build/DragPlacementMath.gd")
+
 # ─── Debug ────────────────────────────────────────────────────────────────────
 ## Flip false to silence all [WireDrawMode] click/snap prints.
 const WIRE_DEBUG: bool = false
@@ -122,10 +124,12 @@ func _process(delta: float) -> void:
 	# Find nearest snappable destination node.
 	# The cursor "effective position" is snapped to the nearest node when within
 	# SNAP_PIXELS, so the ghost wire locks onto it before the player clicks.
-	var nearest: Dictionary = _get_nearest_wire_node(cursor_world, _source_key)
+	var nearest: Dictionary = _get_nearest_wire_node(
+		cursor_world, _source_key,
+		_source_pos if Input.is_key_pressed(KEY_CTRL) else Vector3.INF)
 	var snapped:  bool      = not nearest.is_empty()
 	## Snap to existing node if within radius, otherwise use grid position.
-	var dest_pos: Vector3   = nearest["pos"] if snapped else _grid_snap(cursor_world)
+	var dest_pos: Vector3 = _drag_destination(cursor_world, nearest)
 
 	# Update ghost wire
 	_update_ghost_wire(_source_pos, dest_pos, snapped)
@@ -210,8 +214,10 @@ func _try_pick_dest() -> bool:
 		_show_warning("The starting connection was removed")
 		_cancel()
 		return true
-	var nearest: Dictionary = _get_nearest_wire_node(cursor, _source_key)
-	var destination: Vector3 = nearest["pos"] if not nearest.is_empty() else _grid_snap(cursor)
+	var nearest: Dictionary = _get_nearest_wire_node(
+		cursor, _source_key,
+		_source_pos if Input.is_key_pressed(KEY_CTRL) else Vector3.INF)
+	var destination: Vector3 = _drag_destination(cursor, nearest)
 	var path: PackedVector3Array = WireRoute.points(_source_pos, destination)
 	if path.size() < 2:
 		_show_warning("Select a different connection")
@@ -258,6 +264,14 @@ func _try_pick_dest() -> bool:
 	_spawn_float_label((_source_pos + destination) * 0.5, cost, false)
 	_cancel()
 	return true
+
+func _drag_destination(cursor: Vector3, nearest: Dictionary) -> Vector3:
+	if not nearest.is_empty():
+		return nearest["pos"]
+	var destination: Vector3 = _grid_snap(cursor)
+	if Input.is_key_pressed(KEY_CTRL):
+		destination = DragMath.snap_xz_to_octant(_source_pos, destination, _WIRE_GRID)
+	return destination
 
 func _update_ghost_wire(from: Vector3, to: Vector3, snapped: bool) -> void:
 	if _ghost_wire == null:
@@ -468,7 +482,8 @@ func _get_cursor_world_pos() -> Vector3:
 	var t: float = (_WIRE_Y - origin.y) / direction.y
 	return origin + direction * t if t >= 0.0 else Vector3.INF
 
-func _get_nearest_wire_node(_world_pos: Vector3, exclude_key: String) -> Dictionary:
+func _get_nearest_wire_node(_world_pos: Vector3, exclude_key: String,
+		octant_origin: Vector3 = Vector3.INF) -> Dictionary:
 	var pm: PowerManager = _get_pm()
 	if pm == null or camera == null:
 		return {}
@@ -479,6 +494,13 @@ func _get_nearest_wire_node(_world_pos: Vector3, exclude_key: String) -> Diction
 		var key: String = data.get("key", "")
 		var position: Vector3 = data.get("pos", Vector3.ZERO)
 		if key == exclude_key or bool(pm._wire_nodes[key].get("wall_feed", false)) or camera.is_position_behind(position):
+			continue
+		## Ctrl is authoritative: scan past nearby off-angle nodes and only
+		## advertise an exact graph connection that preserves the selected
+		## 45-degree bearing. If none qualifies, placement remains a free
+		## octant-constrained endpoint instead of bending toward the wire/wall.
+		if octant_origin.is_finite() and not DragMath.is_xz_octant_aligned(
+				octant_origin, position):
 			continue
 		var distance: float = camera.unproject_position(position).distance_to(mouse)
 		if distance < best_distance or (is_equal_approx(distance, best_distance) and key < String(best.get("key", "~"))):

@@ -39,6 +39,20 @@ func label() -> String: return "Idle"
 func begin_with_item(_npc: NPC, _item: Node) -> void: pass
 func take_handoff() -> NPCActivity: return null
 
+## Optional safe-continuity hooks. Activities return semantic data only—never
+## live Node references, animation phases, claims, or paths. The brain keeps at
+## most one entry and offers it again only after normal utility selection has
+## returned to an idle boundary.
+func make_resume_intent(_npc: NPC) -> Dictionary: return {}
+func resume_from_intent(_npc: NPC, _intent: Dictionary) -> bool: return false
+func is_resume_candidate() -> bool: return false
+
+## How much better a challenger must score before this activity yields.
+## Purposeful activities keep a little inertia so near-tied utilities do not
+## flap every think tick. Passive activities override this with a smaller
+## value: idling should yield readily when the NPC finds something to do.
+func switch_margin() -> float: return 2.0
+
 ## Optional (Aug 2026) — structured debug snapshot for NPCDebug's on-demand
 ## dumps. Empty Dictionary means "nothing interesting to show" (the
 ## default, for every activity that doesn't override this). An activity

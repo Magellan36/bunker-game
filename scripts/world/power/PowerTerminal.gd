@@ -25,6 +25,29 @@ const PANEL_W: float = 0.7
 const PANEL_H: float = 0.9
 const PANEL_D: float = 0.08
 
+## Hand-made Tinkercad OBJ swap (Sep 2026) — replaces the procedural
+## housing/screen/LED box. Per grid state there are TWO complete terminal
+## models in assets/models/power_terminal/: the *Unpowered* model is the full
+## panel with a dark screen, and the *Powered* model is the same panel with a
+## lit cyan screen + green/red indicator LEDs. Both are full panels (not
+## overlays), so set_powered() swaps the whole visible mesh.
+## MODEL_SCALE maps the 70-unit width to PANEL_W (70 * 0.01 = 0.7); height 90
+## → 0.9 = PANEL_H exactly. The model is already Y-up in OBJ space (height
+## along Y, depth along Z), so NO rotation is applied — unlike the grow light
+## (which was Z-up). MODEL_Y_OFFSET lifts the model's bottom (OBJ Y=-45.5 →
+## -0.455) to the node origin (y=0, where the old panel's base sat) so the
+## terminal rises y=0→0.9 like before. MODEL_Z_OFFSET positions the model so
+## its back face sits against the wall plane the way the old centered box did
+## (the wall-snap pullback is 0.04; model back at OBJ Z=19 → +0.19 needs a
+## -0.15 shift to land at node-local +0.04, i.e. flush with the wall).
+const MODEL_PATHS: Dictionary = {
+	"unpowered": "res://assets/models/power_terminal/unpowered/tinker.obj",
+	"powered":   "res://assets/models/power_terminal/powered/tinker.obj",
+}
+const MODEL_SCALE:    float = 0.01
+const MODEL_Y_OFFSET: float = 0.455
+const MODEL_Z_OFFSET: float = -0.15
+
 ## Power grid settings
 ## power_watts is intentionally 0.0 — the terminal is a passive grid element,
 ## never a real load. power_priority=1 (critical) is belt-and-suspenders on
@@ -37,7 +60,8 @@ var _is_connected:  bool   = false  ## True when reachable via the wire graph (c
 var _wire_attachment: WallWireAttachment = null
 
 ## Internal refs
-var _screen_mesh:  MeshInstance3D = null
+var _base_mi:   MeshInstance3D = null   ## Unpowered model (dark screen) — default
+var _lit_mi:    MeshInstance3D = null   ## Powered model (cyan screen) — shown when connected
 var _ui_open:      bool           = false
 var _terminal_ui:  CanvasLayer    = null
 
@@ -86,17 +110,18 @@ func _exit_tree() -> void:
 ## PowerManager still calls this (the terminal is registered with 0 watts, so
 ## it's technically still a "consumer" in the registry — see _register_deferred
 ## for why). It now represents COSMETIC grid-connectivity, not real power —
-## the screen dims when the terminal's local zone is dead, but the terminal
-## remains fully usable regardless.
+## the screen model swaps between the dark (Unpowered) and lit cyan (Powered)
+## hand-made OBJs when the terminal's local zone is dead/alive, but the
+## terminal remains fully usable regardless.
 func set_powered(on: bool) -> void:
 	_is_connected = on
-	## Screen dims when the surrounding grid segment has no power flowing —
-	## purely visual, does not affect on_interact()/get_interact_prompt().
-	if _screen_mesh != null:
-		var mat: StandardMaterial3D = _screen_mesh.get_surface_override_material(0)
-		if mat != null:
-			mat.emission_enabled = on
-			mat.emission_energy_multiplier = 1.0 if on else 0.35
+	## Whole-model swap: the Powered OBJ is the same panel with a lit cyan
+	## screen + green/red indicator LEDs; the Unpowered OBJ has the dark
+	## screen. Purely visual, does not affect on_interact()/get_interact_prompt().
+	if _base_mi != null:
+		_base_mi.visible = not on
+	if _lit_mi != null:
+		_lit_mi.visible = on
 
 # ─── Interaction ─────────────────────────────────────────────────────────────
 ## Called by InteractionSystem when player presses E near this node.
@@ -201,71 +226,93 @@ func refresh_power_attachment() -> void:
 	if is_instance_valid(_wire_attachment):
 		_wire_attachment.request_refresh()
 
-# ─── Mesh ─────────────────────────────────────────────────────────────────────
+func get_wall_wire_connector() -> Vector3:
+	return to_global(Vector3(0.0, 0.45, 0.0))
+
+func get_wall_wire_inset() -> float:
+	return 0.06
+
+# ─── Mesh (hand-made OBJ swap — replaces the procedural housing/screen/LEDs) ─
 func _build_mesh() -> void:
 	## DO NOT override collision_layer here — _ready() already sets it to 1
 	## so the DetectArea (Area3D) picks up the terminal root on body_entered.
 	## Setting it to 5 here was preventing on_interact() from ever firing.
 	collision_mask  = 0
 
-	# Outer housing — dark grey metal box
-	var housing: MeshInstance3D = MeshInstance3D.new()
-	var hbox: BoxMesh = BoxMesh.new()
-	hbox.size = Vector3(PANEL_W, PANEL_H, PANEL_D)
-	housing.mesh = hbox
-	housing.position = Vector3(0.0, PANEL_H * 0.5, 0.0)
-	var hmat: StandardMaterial3D = StandardMaterial3D.new()
-	hmat.albedo_color = Color(0.14, 0.14, 0.16, 1.0)
-	hmat.metallic     = 0.4
-	hmat.roughness    = 0.8
-	housing.set_surface_override_material(0, hmat)
-	add_child(housing)
-	housing.create_trimesh_collision()
-	## Child StaticBody3D (from trimesh) must also be on layer 1 so
-	## the DetectArea picks up the terminal body on body_entered.
-	for child in housing.get_children():
-		if child is StaticBody3D:
-			(child as StaticBody3D).collision_layer = 1
-			(child as StaticBody3D).collision_mask  = 0
+	## Load both hand-made OBJ panels (Unpowered = dark screen, Powered = lit
+	## cyan screen) as sibling MeshInstance3D children at the SAME transform.
+	## The two models share an identical AABB (both 70×90×11 OBJ units), so one
+	## scale + offset places both. set_powered() toggles which one is visible.
+	_load_terminal_models()
 
-	# Screen — glowing green panel inset into front face
-	var screen: MeshInstance3D = MeshInstance3D.new()
-	var sbox: BoxMesh = BoxMesh.new()
-	sbox.size = Vector3(PANEL_W * 0.80, PANEL_H * 0.55, 0.005)
-	screen.mesh = sbox
-	screen.position = Vector3(0.0, PANEL_H * 0.58, -PANEL_D * 0.5 - 0.002)
-	var smat: StandardMaterial3D = StandardMaterial3D.new()
-	smat.albedo_color              = Color(0.02, 0.08, 0.04, 1.0)
-	smat.emission_enabled          = true
-	smat.emission                  = Color(0.10, 0.90, 0.30, 1.0)
-	smat.emission_energy_multiplier = 0.8
-	screen.set_surface_override_material(0, smat)
-	add_child(screen)
-	_screen_mesh = screen
+	## Invisible box collider matching the old panel footprint — the model is
+	## detailed (34–35 surfaces), so a trimesh collider would be wasteful; the
+	## DetectArea only needs a shape on the root to detect the terminal.
+	var shape: CollisionShape3D = CollisionShape3D.new()
+	var box: BoxShape3D = BoxShape3D.new()
+	box.size = Vector3(PANEL_W, PANEL_H, PANEL_D)
+	shape.shape = box
+	shape.position = Vector3(0.0, PANEL_H * 0.5, 0.0)
+	add_child(shape)
 
-	# Indicator strip — three small LEDs on the bottom bar
-	const LED_COLORS: Array[Color] = [
-		Color(0.0, 1.0, 0.3, 1.0),
-		Color(1.0, 0.7, 0.0, 1.0),
-		Color(0.1, 0.4, 1.0, 1.0),
-	]
-	for i: int in LED_COLORS.size():
-		var led: MeshInstance3D = MeshInstance3D.new()
-		var lsphere: SphereMesh = SphereMesh.new()
-		lsphere.radius = 0.012
-		lsphere.height = 0.024
-		led.mesh = lsphere
-		led.position = Vector3(
-			-0.08 + float(i) * 0.08,
-			PANEL_H * 0.20,
-			-PANEL_D * 0.5 - 0.01)
-		var lmat: StandardMaterial3D = StandardMaterial3D.new()
-		lmat.albedo_color              = LED_COLORS[i]
-		lmat.emission_enabled          = true
-		lmat.emission                  = LED_COLORS[i]
-		lmat.emission_energy_multiplier = 1.2
-		led.set_surface_override_material(0, lmat)
-		add_child(led)
+func _load_terminal_models() -> void:
+	var base_path: String = MODEL_PATHS["unpowered"]
+	var lit_path:  String = MODEL_PATHS["powered"]
+	var base_mesh: ArrayMesh = load(base_path) as ArrayMesh
+	var lit_mesh:  ArrayMesh = load(lit_path) as ArrayMesh
+	if base_mesh == null:
+		push_warning("PowerTerminal: model missing at %s" % base_path)
+		return
+	if lit_mesh == null:
+		push_warning("PowerTerminal: model missing at %s" % lit_path)
+
+	## Angle-based normal rebuild (Sep 2026) — the OBJ carries no normals, so
+	## Godot's importer smooth-averages them and smears the boxy panel's flat
+	## faces (the visible "diagonal seam" across the screen). Auto-smooth keeps
+	## rounded surfaces smooth while splitting hard box edges flat. See
+	## BuildMaterials.build_auto_smooth_mesh().
+	base_mesh = BuildMaterials.build_auto_smooth_mesh(base_mesh)
+	lit_mesh  = BuildMaterials.build_auto_smooth_mesh(lit_mesh)
+
+	_base_mi = MeshInstance3D.new()
+	_base_mi.mesh = base_mesh
+	_base_mi.name = "TerminalUnpowered"
+	_apply_mood_override(_base_mi)
+	add_child(_base_mi)
+
+	_lit_mi = MeshInstance3D.new()
+	_lit_mi.mesh = lit_mesh
+	_lit_mi.name = "TerminalPowered"
+	_apply_mood_override(_lit_mi)
+	## The Powered model's screen/LEDs are meant to read as lit — leave them
+	## slightly brighter than the mood override's flat default by re-applying
+	## the override only to the housing surfaces. Simpler: keep the override
+	## uniform so both states match the theme; the cyan screen still reads as
+	## lit against the dark screen at the same dimming.
+	add_child(_lit_mi)
+
+	## Same transform for both — identical AABB means one placement fits both.
+	var t := Transform3D()
+	t = t.scaled(Vector3.ONE * MODEL_SCALE)
+	t = t.translated(Vector3(0.0, MODEL_Y_OFFSET, MODEL_Z_OFFSET))
+	_base_mi.transform = t
+	_lit_mi.transform = t
+
+	## Default to the unpowered (dark) state until PowerManager tells us otherwise.
+	_base_mi.visible = true
+	_lit_mi.visible  = false
+
+## Dims/desaturates/mattens the terminal's surfaces so it reads in-theme with
+## the dark bunker. Deliberately STRONGER than the default mood override
+## (0.6/0.12/0.8) because this panel's hand-made MTL colors are bright and
+## saturated (cyan screen, white label, colored LED strip) and pop harshly
+## against the grim aesthetic. Chosen values are a tuning starting point for
+## Brannon to eyeball in-editor — adjust dark/desat/roughness here, not the
+## shared BuildMaterials default (other hand-made models use that).
+func _apply_mood_override(mi: MeshInstance3D) -> void:
+	if mi == null or mi.mesh == null:
+		return
+	BuildMaterials.apply_mood_override(mi, 0.5, 0.45, 0.85)
 
 # ─── Static ghost helper (for BuildModeController preview) ───────────────────
 static func build_ghost_mesh() -> Mesh:

@@ -12,19 +12,53 @@ extends Node
 ## WallLight.gd, GrowLight.gd, CharacterPreviewViewport.gd, ...).
 
 signal settings_changed
+signal graphics_change_rejected(reason: String)
 
 enum Preset { LOW, MEDIUM, HIGH, ULTRA, CUSTOM }
 
 const CFG_PATH: String = "user://graphics_settings.cfg"
 
-## Aug 2026 — Rendering Driver switch (Vulkan/D3D12). See
-## docs/systems/graphics/README.md "Rendering driver switch" for the full
-## design — short version: the driver is locked in at engine startup and
-## CANNOT change mid-session (Godot hard limitation, not something this
-## code works around), so this is a restart-based setting: save the
-## choice, relaunch to apply it. Windows-only (this project's stated
-## target platform) — matches project.godot's `driver.windows` key.
+# Conservative headroom for allocating new effects / compiling their pipelines.
+# This is a pressure guard, not a promise that High fits every GPU or scene.
+const GRAPHICS_MEMORY_HEADROOM: int = 2 * 1024 * 1024 * 1024
+const MEMORY_HEAVY_EFFECTS: Array[String] = [
+	"sdfgi_enabled", "ssil_enabled", "volumetric_fog_enabled",
+	"flashlight_volumetrics", "shadow_casting_enabled", "dof_enabled", "use_taa",
+]
+
+func _available_graphics_memory() -> int:
+	# On Linux use reclaimable RAM, not MemFree (which omits caches) or swap.
+	if OS.get_name() == "Linux" and FileAccess.file_exists("/proc/meminfo"):
+		for line: String in FileAccess.get_file_as_string("/proc/meminfo").split("\n"):
+			if line.begins_with("MemAvailable:"):
+				var parts: PackedStringArray = line.split(" ", false)
+				if parts.size() >= 2 and parts[1].is_valid_int():
+					return int(parts[1]) * 1024
+	return int(OS.get_memory_info().get("available", -1))
+
+func _reject_memory_increase(changes: Dictionary) -> bool:
+	var increases: bool = false
+	for field: String in MEMORY_HEAVY_EFFECTS:
+		if bool(changes.get(field, false)) and not bool(get(field)):
+			increases = true
+	for field: String in ["msaa", "shadow_quality", "render_scale"]:
+		if changes.has(field) and float(changes[field]) > float(get(field)):
+			increases = true
+	if not increases:
+		return false  # Always allow lowering settings, even under pressure.
+	var available: int = _available_graphics_memory()
+	if available < 0 or available >= GRAPHICS_MEMORY_HEADROOM:
+		return false  # Unknown memory must not permanently lock out settings.
+	var reason: String = "Graphics unchanged: only %.1f GiB of system memory is available. Close other apps before raising graphics quality." % (float(available) / 1073741824.0)
+	graphics_change_rejected.emit(reason)
+	return true
+
+
+## Rendering drivers are selected at startup. Direct3D is Windows-only.
 const RENDERING_DRIVERS: Array[String] = ["vulkan", "d3d12"]
+
+func is_rendering_driver_supported(driver: String) -> bool:
+	return driver == "vulkan" or (driver == "d3d12" and OS.get_name() == "Windows")
 
 ## Plain `int` rather than `Preset` — see apply_preset()'s header comment for
 ## why (avoids any int/enum ambiguity at the call boundary entirely).
@@ -224,15 +258,18 @@ func _on_node_added(node: Node) -> void:
 ## with the preset now (Aug 2026 — LOW/MEDIUM off, HIGH/ULTRA on), unlike
 ## camera_fov, which remains untouched by every preset (see PRESETS above
 ## and set_setting_live() below).
-func apply_preset(preset: int) -> void:
+func apply_preset(preset: int) -> bool:
 	if preset == Preset.CUSTOM or not PRESETS.has(preset):
-		return
+		return false
 	var vals: Dictionary = PRESETS[preset]
+	if _reject_memory_increase(vals):
+		return false
 	for key: String in vals:
 		set(key, vals[key])
 	current_preset = preset
 	_apply_all()
 	_save()
+	return true
 
 
 ## Generic single-setting override, used by GraphicsSettingsPanel's individual
@@ -240,8 +277,8 @@ func apply_preset(preset: int) -> void:
 ## only remaining field that doesn't participate in preset matching at all
 ## — shadow_casting_enabled joined the normal preset-driven fields Aug 2026).
 func set_setting(field: String, value: Variant) -> void:
-	set_setting_live(field, value)
-	_save()
+	if set_setting_live(field, value):
+		_save()
 
 
 ## Same as set_setting() but does NOT persist to disk — mutates + applies
@@ -250,7 +287,9 @@ func set_setting(field: String, value: Variant) -> void:
 ## call to save_now() once the interaction completes (e.g. Slider's
 ## drag_ended signal) so the settings file is only written once per
 ## interaction instead of on every intermediate tick.
-func set_setting_live(field: String, value: Variant) -> void:
+func set_setting_live(field: String, value: Variant) -> bool:
+	if _reject_memory_increase({field: value}):
+		return false
 	match field:
 		"sdfgi_enabled":            sdfgi_enabled = value
 		"ssao_enabled":             ssao_enabled = value
@@ -273,10 +312,11 @@ func set_setting_live(field: String, value: Variant) -> void:
 		"fps_cap":                  fps_cap = value
 		_:	
 			push_warning("[GraphicsSettings] Unknown field: %s" % field)
-			return
+			return false
 	if field != "camera_fov" and field != "dynamic_resolution_enabled":
 		current_preset = Preset.CUSTOM
 	_apply_all()
+	return true
 
 
 ## Persists current settings to disk. Call after a batch of set_setting_live()
@@ -293,7 +333,7 @@ func save_now() -> void:
 ## is responsible for deciding whether to show the restart prompt and for
 ## actually relaunching.
 func set_rendering_driver(value: String) -> void:
-	if not RENDERING_DRIVERS.has(value):
+	if not is_rendering_driver_supported(value):
 		push_warning("[GraphicsSettings] Unknown rendering driver: %s" % value)
 		return
 	rendering_driver = value
@@ -502,6 +542,9 @@ func _load() -> void:
 	window_mode              = cfg.get_value("graphics", "window_mode", window_mode)
 	fps_cap                  = cfg.get_value("graphics", "fps_cap", fps_cap)
 	rendering_driver         = cfg.get_value("graphics", "rendering_driver", rendering_driver)
+	# A settings file copied from Windows must not select Direct3D on Linux.
+	if not is_rendering_driver_supported(rendering_driver):
+		rendering_driver = "vulkan"
 	## Snapshot AFTER the load above — see session_start_rendering_driver's
 	## declaration comment for why this must be captured here, once, and
 	## never reassigned afterward.

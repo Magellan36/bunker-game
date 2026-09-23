@@ -115,11 +115,32 @@ func _undo() -> void:
 		var price:     int     = entry["price"]
 		var pos:       Vector3 = entry["world_pos"]
 		var angle_deg: float   = entry["angle_deg"]
+		var extra: Dictionary  = entry.get("extra", {})
 
-		if _owner.world_node != null:
-			_owner.world_node.spend_cash(price)
+		## Undoing a refund is a real purchase reversal. Keep the entry available
+		## when the player can no longer afford it instead of spawning for free.
+		if price > 0 and _owner.world_node != null \
+				and _owner.world_node.has_method("get_cash") \
+				and int(_owner.world_node.get_cash()) < price:
+			_owner._undo_stack.append(entry)
+			_owner._show_hud_warning("Not enough cash to undo deconstruction")
+			return
 
 		var body: Node3D = _owner._spawn_placed_object(tile_id, pos, angle_deg)
+		if body == null:
+			_owner._undo_stack.append(entry)
+			_owner._show_hud_warning("Object cannot be restored here")
+			return
+		if price > 0 and _owner.world_node != null \
+				and not _owner.world_node.spend_cash(price):
+			body.queue_free()
+			_owner._undo_stack.append(entry)
+			_owner._show_hud_warning("Not enough cash to undo deconstruction")
+			return
+		var footprint: Vector2 = _owner._tile_half_extents(tile_id)
+		var visual_aabb: AABB = _owner._ghost_preview.measure_visual_aabb(body)
+		if visual_aabb != AABB():
+			footprint = Vector2(visual_aabb.size.x * 0.5, visual_aabb.size.z * 0.5)
 		_owner._placed_objects.append({
 			"node":          body,
 			"tile_id":       tile_id,
@@ -127,8 +148,12 @@ func _undo() -> void:
 			"world_pos":     pos,
 			"angle_deg":     angle_deg,
 			"player_placed": true,
+			"footprint":     footprint,
 		})
+		if not extra.is_empty():
+			_owner.call_deferred("_apply_device_extra_deferred", body, tile_id, extra)
 		_owner._spawn_float_label_at_pos(pos, price, false)
+		_owner._refresh_connectable_dots()
 
 	elif type == "dig_rock":
 		## Undo a rock dig: restore the chunk and refund the cost
@@ -148,10 +173,14 @@ func _undo() -> void:
 		## Undo a move: restore both transform components used by wall snapping.
 		var body: Node3D = entry["node"] as Node3D
 		if is_instance_valid(body):
+			if entry.has("special_state") and body.has_method("restore_move_state"):
+				body.call("restore_move_state", entry["special_state"])
 			var old_pos: Vector3 = entry["old_pos"]
 			var old_angle: float = float(entry.get("old_angle_deg", body.rotation_degrees.y))
+			var move_delta: Vector3 = old_pos - body.global_position
 			body.global_position = old_pos
 			body.rotation_degrees = Vector3(0.0, old_angle, 0.0)
+			_owner._translate_external_storage_items(body, move_delta)
 			# Update the registry entry too
 			for reg_entry: Dictionary in _owner._placed_objects:
 				if reg_entry["node"] == body:
@@ -162,6 +191,8 @@ func _undo() -> void:
 			# position, so an undone move must restore that attachment as well.
 			if body.has_method("refresh_power_attachment"):
 				body.call_deferred("refresh_power_attachment")
+			if body.has_method("update_graph_node_position"):
+				body.call("update_graph_node_position")
 
 	elif type == "wire_run":
 		var pm_run: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
@@ -296,13 +327,15 @@ func _push_undo_place(body: Node3D, tile_id: int, price: int, pos: Vector3,
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
 
-func _push_undo_remove(tile_id: int, price: int, pos: Vector3, angle_deg: float) -> void:
+func _push_undo_remove(tile_id: int, price: int, pos: Vector3, angle_deg: float,
+		extra: Dictionary = {}) -> void:
 	_owner._undo_stack.append({
 		"type":      "remove",
 		"tile_id":   tile_id,
 		"price":     price,
 		"world_pos": pos,
 		"angle_deg": angle_deg,
+		"extra":     extra.duplicate(true),
 	})
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
@@ -318,12 +351,15 @@ func _push_undo_dig_rock(chunk_id: Vector2i, center: Vector3) -> void:
 		_owner._undo_stack.pop_front()
 
 func _push_undo_move(body: Node3D, reg_entry: Dictionary, old_pos: Vector3) -> void:
-	_owner._undo_stack.append({
+	var undo_entry: Dictionary = {
 		"type":          "move",
 		"node":          body,
 		"old_pos":       old_pos,
 		"old_angle_deg": float(reg_entry.get("angle_deg", body.rotation_degrees.y)),
-	})
+	}
+	if body.has_method("capture_move_state"):
+		undo_entry["special_state"] = body.call("capture_move_state")
+	_owner._undo_stack.append(undo_entry)
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
 func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vector3) -> void:

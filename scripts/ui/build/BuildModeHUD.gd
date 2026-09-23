@@ -39,6 +39,7 @@ const TOOL_FARMING:     int = 7   ## Farming shop (Jul 2026) — buy → spawn n
 const CATEGORIES: Dictionary = {
 	"Structure": [
 		{ "tile_id": 1, "name": "Wall",         "price": 50  },
+		{ "tile_id": 39, "name": "Bunker Door", "price": 500 },
 		{ "tile_id": 25, "name": "Half-Wall",   "price": 30  },
 		{ "tile_id": 26, "name": "Quarter-Wall","price": 15  },
 		{ "tile_id": 2, "name": "Pillar",       "price": 25  },
@@ -1727,8 +1728,9 @@ func _on_cancel_draw(btn: Control) -> void:
 # ─── Main canvas draw (border + toolbar) ──────────────────────────────────────
 func _on_canvas_draw() -> void:
 	_draw_border()
-	_draw_deconstruct_overlay()
-	_draw_dupe_rotate_overlay()
+	## Standard build objects receive full-model red/blue highlights from the
+	## controller. The old projected center squares are intentionally retired.
+	## Rock excavation keeps its area overlay because it has no object mesh.
 	_draw_rock_chunk_overlay()
 	## Toolbar and menus are real Controls in BuildWorkspace.
 	# Trigger submenu redraw

@@ -63,6 +63,29 @@ var _player_in_range: bool    = false
 var _interaction_system: Node = null   ## Injected by BuildModeController after spawn
 var _storage_ui: Node         = null   ## Injected by MainWorld after spawn (Aug 2026 — the shared StorageUI, was _shelf_ui)
 
+const NPC_STORAGE_STANDOFF: float = 0.75
+
+func get_npc_interaction_slots(_action: StringName) -> Array[Dictionary]:
+	## Shelves may be placed against either wall face. Publish both long-side
+	## approaches and let navmesh projection discard the blocked side.
+	var basis: Basis = global_transform.basis.orthonormalized()
+	var front_position: Vector3 = global_transform * Vector3(
+		0.0, 0.0, unit_d * 0.5 + NPC_STORAGE_STANDOFF)
+	var back_position: Vector3 = global_transform * Vector3(
+		0.0, 0.0, -unit_d * 0.5 - NPC_STORAGE_STANDOFF)
+	return [
+		{
+			"slot_id": &"front",
+			"claim_group": &"front",
+			"transform": Transform3D(basis, front_position),
+		},
+		{
+			"slot_id": &"back",
+			"claim_group": &"back",
+			"transform": Transform3D(basis.rotated(Vector3.UP, PI), back_position),
+		},
+	]
+
 ## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
 ## construct-tab preview code BEFORE add_child(), so this instance builds
 ## its real visual exactly like a placed object but skips every

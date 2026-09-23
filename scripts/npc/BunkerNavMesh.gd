@@ -1,5 +1,7 @@
 extends Node3D
 class_name BunkerNavMesh
+
+signal navigation_revision_changed(revision: int)
 ## BunkerNavMesh.gd  (rewritten in NPC Pass 2, Part 9 — parsed-collider bake)
 ## Owns the game's single runtime-baked NavigationMesh covering the dug-out
 ## bunker. Instantiated by MainWorld._ready().
@@ -50,6 +52,8 @@ var _poll_timer: float = 0.0
 var _last_fingerprint: int = -1
 var _baking: bool = false
 var _bake_queued_again: bool = false
+var _requested_revision: int = 0
+var _published_revision: int = 0
 
 func _ready() -> void:
 	add_to_group("bunker_navmesh")
@@ -59,23 +63,14 @@ func _ready() -> void:
 	NavigationServer3D.map_set_cell_size(nav_map, 0.1)
 	NavigationServer3D.map_set_cell_height(nav_map, 0.15)
 
-	_navmesh = NavigationMesh.new()
-	## Parse real static colliders on physics bit 1 (walls/floors/furniture
-	## all use collision_layer 5 = bits 1+3; mask 1 matches them all).
-	_navmesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
-	_navmesh.geometry_collision_mask = 1
-	## Agent shape — matches the NPC capsule exactly (radius 0.4, Part 7/8).
-	_navmesh.agent_radius = 0.4
-	_navmesh.agent_height = 1.8
-	_navmesh.agent_max_climb = 0.3
-	_navmesh.agent_max_slope = 30.0
-	_navmesh.cell_size = 0.1
-	_navmesh.cell_height = 0.15
+	_navmesh = _new_navigation_mesh()
 
 	_region = NavigationRegion3D.new()
 	_region.name = "BunkerNavRegion"
 	_region.navigation_mesh = _navmesh
 	add_child(_region)
+
+	_connect_topology_sources()
 
 	var world: Node = get_tree().get_first_node_in_group("main_world")
 	if world != null and "rock_surround" in world and world.rock_surround != null:
@@ -85,9 +80,37 @@ func _ready() -> void:
 		if rs.has_signal("chunk_restored"):
 			rs.chunk_restored.connect(func(_a = null, _b = null, _c = null) -> void: mark_dirty())
 
+
+func _new_navigation_mesh() -> NavigationMesh:
+	var mesh := NavigationMesh.new()
+	## Parse real static colliders on physics bit 1 (walls/floors/furniture
+	## all use collision_layer 5 = bits 1+3; mask 1 matches them all).
+	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	mesh.geometry_collision_mask = 1
+	## Bake a small clearance beyond the 0.4m physical capsule. Exact-radius
+	## paths scrape walls at polygon corners once physics tolerances are added.
+	mesh.agent_radius = 0.5
+	mesh.agent_height = 1.8
+	mesh.agent_max_climb = 0.3
+	mesh.agent_max_slope = 30.0
+	mesh.cell_size = 0.1
+	mesh.cell_height = 0.15
+	return mesh
+
+
+func _connect_topology_sources() -> void:
+	for node: Node in get_tree().get_nodes_in_group("navigation_topology_source"):
+		if node.has_signal("navigation_topology_changed") \
+				and not node.is_connected("navigation_topology_changed", mark_dirty):
+			node.connect("navigation_topology_changed", mark_dirty)
+
 func mark_dirty() -> void:
 	_dirty = true
 	_debounce = REBAKE_DEBOUNCE
+
+
+func get_navigation_revision() -> int:
+	return _published_revision
 
 func _process(delta: float) -> void:
 	_poll_timer -= delta
@@ -104,6 +127,8 @@ func _process(delta: float) -> void:
 ## Placed-object fingerprint — used ONLY as a "something changed, rebake"
 ## signal. The snapshot's footprint data is NOT used for geometry anymore.
 func _poll_placed_objects() -> void:
+	## Doors and other procedural topology sources can appear at runtime.
+	_connect_topology_sources()
 	var world: Node = get_tree().get_first_node_in_group("main_world")
 	if world == null or not ("_build_controller" in world):
 		return
@@ -125,10 +150,11 @@ func _rebake() -> void:
 	if world == null or not world.has_method("get_cleared_cell_keys"):
 		return
 
+	var staging_mesh: NavigationMesh = _new_navigation_mesh()
 	var src: NavigationMeshSourceGeometryData3D = NavigationMeshSourceGeometryData3D.new()
 
 	## ── Source 1: the real physics world (floors, walls, furniture, rocks) ─
-	NavigationServer3D.parse_source_geometry_data(_navmesh, src, world)
+	NavigationServer3D.parse_source_geometry_data(staging_mesh, src, world)
 
 	## ── Source 2: safety-net floor quads at the REAL floor height ──────────
 	## Coplanar with parsed floor-tile tops; harmless duplicate when tiles
@@ -148,14 +174,39 @@ func _rebake() -> void:
 		src.add_faces(PackedVector3Array([a, c, b,  a, d, c]), Transform3D.IDENTITY)
 
 	_baking = true
-	NavigationServer3D.bake_from_source_geometry_data(_navmesh, src, _on_bake_done)
+	_requested_revision += 1
+	var request_revision := _requested_revision
+	## Bake into an unpublished resource. Agents continue using the last known
+	## good topology until this complete mesh is atomically swapped in.
+	NavigationServer3D.bake_from_source_geometry_data_async(staging_mesh, src,
+		Callable(self, "_on_bake_done").bind(staging_mesh, request_revision))
 
-func _on_bake_done() -> void:
+func _on_bake_done(staging_mesh: NavigationMesh, request_revision: int) -> void:
 	_baking = false
-	_region.navigation_mesh = _navmesh
+	if request_revision < _requested_revision:
+		_bake_queued_again = true
+	else:
+		var nav_map: RID = get_world_3d().navigation_map
+		var previous_iteration := NavigationServer3D.map_get_iteration_id(nav_map)
+		_navmesh = staging_mesh
+		_region.navigation_mesh = _navmesh
+		_published_revision = request_revision
+		_publish_revision_when_synced(_published_revision, previous_iteration)
 	if NPCDebug.enabled:
 		print("[BunkerNavMesh] bake done: %d polygons, %d vertices" % [
-			_navmesh.get_polygon_count(), _navmesh.get_vertices().size()])
+			staging_mesh.get_polygon_count(), staging_mesh.get_vertices().size()])
 	if _bake_queued_again:
 		_bake_queued_again = false
 		mark_dirty()
+
+
+func _publish_revision_when_synced(revision: int, previous_iteration: int) -> void:
+	## Region assignment is queued inside NavigationServer3D. Do not make every
+	## NPC requery against the old map and cache a false unreachable result.
+	var nav_map: RID = get_world_3d().navigation_map
+	for _frame: int in range(8):
+		await get_tree().physics_frame
+		if NavigationServer3D.map_get_iteration_id(nav_map) != previous_iteration:
+			break
+	if revision == _published_revision:
+		navigation_revision_changed.emit(revision)

@@ -30,6 +30,7 @@ enum SState { SEEK, SEATED, STANDING }
 
 var _chair: Node = null
 var _state: SState = SState.SEEK
+var _approach_pos: Vector3 = Vector3.ZERO
 
 func label() -> String:
 	match _state:
@@ -54,7 +55,20 @@ func enter(npc: NPC) -> void:
 	_state = SState.SEEK
 	if _chair == null:
 		return
-	npc.set_nav_target((_chair as Node3D).global_position)
+	var seat_transform: Transform3D = (_chair as Node3D).get_seat_transform()
+	var approach_transform := Transform3D(seat_transform.basis,
+		seat_transform.origin + seat_transform.basis.z * APPROACH_OFFSET)
+	var lease: Dictionary = npc.claim_interaction_slot(_chair as Node3D, &"sit",
+		APPROACH_OFFSET, [{
+			"slot_id": &"front",
+			"claim_group": &"seat",
+			"transform": approach_transform,
+		}])
+	if lease.is_empty():
+		_chair = null
+		return
+	_approach_pos = npc.get_interaction_slot_position()
+	npc.set_nav_target(_approach_pos, NPC.NAV_PRECISE_TARGET_DISTANCE)
 
 func tick(npc: NPC, delta: float) -> void:
 	if _chair == null or not is_instance_valid(_chair):
@@ -65,15 +79,16 @@ func tick(npc: NPC, delta: float) -> void:
 		if _state != SState.SEEK and npc.seated_chair != null:
 			npc.seated_chair = null
 		_chair = null
+		npc.release_interaction_slot()
 		_state = SState.SEEK
 		return
 	match _state:
 		SState.SEEK:
 			npc.nav_steer(delta)
-			var chair_pos: Vector3 = (_chair as Node3D).global_position
+			var chair_pos: Vector3 = _chair_approach_position(npc)
 			var flat_dist: float = Vector2(npc.global_position.x, npc.global_position.z) \
 				.distance_to(Vector2(chair_pos.x, chair_pos.z))
-			if npc.nav_finished() or flat_dist < 0.9:
+			if not npc.nav_failed() and flat_dist < 0.3:
 				## Claim + start the animated sit-down (mirrors the player seat
 				## flow; the controller owns the eased approach→seat motion).
 				if _chair.has_method("npc_try_sit") and _chair.npc_try_sit(npc):
@@ -88,9 +103,8 @@ func tick(npc: NPC, delta: float) -> void:
 				_state = SState.STANDING
 		SState.STANDING:
 			if not npc.in_sit_sequence():
-				## sit_to_stand finished — place the NPC in front of the chair
-				## and release it, exactly like the player's stand completion.
-				npc.global_position = (_chair as Node3D).get_stand_position()
+				## The controller ends at the same approach point navigation reached.
+				## Never apply a second stand-position transform on task completion.
 				_release_chair(npc)
 				_state = SState.SEEK
 
@@ -100,32 +114,32 @@ func done(npc: NPC) -> bool:
 	return _chair == null
 
 func exit(npc: NPC) -> void:
-	## Cleanup on interrupt / command / session-end. If mid-sit, request an
-	## ANIMATED stand-up and let the NPC finish it (pending-stand snap in
-	## NPC._physics_process), so even an exit() doesn't teleport the NPC.
+	## Cleanup on interrupt / command / session-end. Clearing seated_chair
+	## requests the authored stand-up, which returns to the captured approach
+	## point. There is deliberately no post-animation root-position snap.
 	if _state != SState.SEEK and _chair != null and is_instance_valid(_chair):
 		npc.seated_chair = null
-		npc.set("_pending_stand_pos", (_chair as Node3D).get_stand_position())
-		npc.set("_stand_pos_pending", true)
 	_release_chair(npc)
 	_state = SState.SEEK
 
-## Claim + start the animated sit-down. Positions the NPC at the approach
-## point (standing height preserved), sets the controller's approach/seat
-## anchors exactly like MainWorld._wire_chair, then sets seated_chair to kick
-## off the controller's sitting_down phase — no instant snap to the seat.
+## Claim + start the animated sit-down. Navigation has already reached the
+## approach point precisely, so the controller starts from the NPC's achieved
+## physical position rather than snapping the root to a calculated anchor.
 func _begin_sit(npc: NPC) -> void:
 	var t: Transform3D = (_chair as Node3D).get_seat_transform()
 	npc.rotation.y = t.basis.get_euler().y
-	var approach_pos: Vector3 = t.origin + t.basis.z * APPROACH_OFFSET
-	approach_pos.y = npc.global_position.y
-	npc.global_position = approach_pos
+	var approach_pos: Vector3 = npc.global_position
 	var model: Node = npc.get_node_or_null("CharacterModel")
 	if model != null:
 		model.set("_chair_approach_pos", approach_pos)
 		model.set("_chair_seat_pos", Vector3(t.origin.x, approach_pos.y, t.origin.z))
 	npc.seated_chair = _chair   ## starts the controller's sitting_down phase
 	npc.lock_movement()
+
+func _chair_approach_position(npc: NPC) -> Vector3:
+	var approach_pos: Vector3 = _approach_pos
+	approach_pos.y = npc.global_position.y
+	return approach_pos
 
 ## Start the animated stand-up. Clearing seated_chair makes the controller
 ## play sit_to_stand and ease seat→approach; NPC.in_sit_sequence() keeps
@@ -147,9 +161,14 @@ func _release_chair(npc: NPC) -> void:
 	if _chair != null and is_instance_valid(_chair):
 		if _chair.has_method("npc_stand"):
 			_chair.npc_stand(npc)
+	npc.release_interaction_slot()
 	_chair = null
 
 func _find_free_chair(npc: NPC) -> Node:
+	return find_free_chair(npc)
+
+
+static func find_free_chair(npc: NPC) -> Node:
 	var best: Node = null
 	var best_d: float = INF
 	for c: Node in npc.get_tree().get_nodes_in_group("chair"):
@@ -157,7 +176,11 @@ func _find_free_chair(npc: NPC) -> Node:
 			continue
 		if c.has_method("is_seat_free") and not c.is_seat_free():
 			continue
+		if npc.is_interaction_slot_claimed_by_other(c as Node3D, &"sit", &"seat"):
+			continue
 		var c_pos: Vector3 = (c as Node3D).global_position
+		if not npc.is_position_compatible_with_companionship(c_pos, 1.0):
+			continue
 		var d: float = Vector2(c_pos.x, c_pos.z) \
 			.distance_to(Vector2(npc.global_position.x, npc.global_position.z))
 		if d < best_d:

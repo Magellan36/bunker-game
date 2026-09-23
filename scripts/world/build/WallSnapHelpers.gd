@@ -1,273 +1,281 @@
 extends RefCounted
 class_name WallSnapHelpers
-## WallSnapHelpers.gd  —  Stage 10 (BuildModeController slice) extraction
-## ─────────────────────────────────────────────────────────────────────────────
-## Wall/breaker-snap raycasting, extracted out of BuildModeController.gd: casts
-## four cardinal rays to find the nearest interior wall surface for lights and
-## breakers, plus the pregen-boundary interior-face correctness check both
-## snap functions depend on.
-##
-## SCOPE: _snap_light_to_wall, _snap_breaker_to_wall, _is_pregen_interior_face,
-## _snap_to_nearest_wall (generic parameterized version added July 2026 for the
-## water-system groundwork pass — see its own doc-comment below; used by
-## GhostPreview.gd for TILE_WATER_HOOKUP initial placement and by
-## MoveDuplicateTool.gd for TILE_WATER_HOOKUP moves).
-## `_snap_light_to_wall`/`_snap_breaker_to_wall` ARE called externally — from
-## `GhostPreview.gd`'s `_update_ghost()` via `_owner._snap_light_to_wall()`/
-## `_owner._snap_breaker_to_wall()` (GhostPreview calls through the
-## BuildModeController instance, so the forwarding wrappers below keep that
-## working unchanged). `_is_pregen_interior_face` is internal-only, called
-## from the other two functions within this same cluster.
-##
-## NOTE: a `static func _tile_half_extents()` sits physically between this
-## cluster and the next function in the original file — it's unrelated tile
-## footprint-size data (used by `_is_position_occupied`/
-## `_is_position_occupied_for_tile`), not wall-snap logic, so it was
-## deliberately left on BuildModeController rather than swept in.
-##
-## DESIGN — same `_owner` back-reference pattern as every prior extraction.
-## Nothing moved: `LIGHT_WALL_SNAP_RANGE`, `LIGHT_WALL_HALF_THICKNESS`,
-## `TILE_WALL`, `TILE_PILLAR`, `grid_size`, `rock_surround` all stay on
-## BuildModeController. Also routes `_owner._is_inside_bunker()`,
-## `_owner.get_world_3d()`, `_owner.get_parent()` (RefCounted has no
-## scene-tree access of its own — `node.get_parent()`/`walk_node.get_parent()`
-## calls on LOCAL collider-tree-walk variables inside the raycast loops stay
-## bare, only the two `get_parent()` calls on `self` got prefixed).
-##
-## BuildModeController holds one instance (`_wall_snap`) and forwards
-## `_snap_light_to_wall()`/`_snap_breaker_to_wall()` with identical signatures
-## (both called from GhostPreview as described above). `_is_pregen_interior_face()`
-## is only called from within this same cluster, so needs no wrapper.
-##
-## `_is_true_pregen` VS `_is_pregen` (July 2026 fix — expanded-area wall snap bug):
-## `_is_pregen` (set unconditionally by `BuildModeController.spawn_structure()`)
-## means "level structure, not a player object" — it's shared by BOTH the
-## original 4 pregen boundary walls AND autofill walls spawned by the dig
-## solver (`WireGraphBuilder.gd`) along expanded-area boundaries. Other systems
-## (deconstruct-hover suppression, wire-deletion protection, placement-
-## occupancy skip) correctly treat both the same way and are UNCHANGED here.
-## `_is_true_pregen` is a narrower tag, set ONLY by `BunkerPregen.gd`'s
-## `_wall()`/`_pillar()` calls, meaning "one of the original 4 boundary walls
-## specifically". Only true-pregen walls are routed through the strict
-## `_is_pregen_interior_face()` original-rectangle math below — autofill walls
-## are accepted the same simple way player-placed walls are, since the dig
-## solver already only places them on real interior-facing boundary edges.
-## See `_is_pregen_interior_face()`'s own comment for the bug this replaced.
+## Shared surface snapping for wall fixtures and drawn-wall junctions. Cardinal
+## rays cover pre-generated geometry; perpendicular rays cover player walls.
+## The surface normal determines rotation and offset. Local wall end caps are
+## rejected, and original perimeter walls retain their interior-only bounds test.
+## Electrical connections are handled separately by the devices.
 
 var _owner: BuildModeController = null
+
+const WALL_RUN_SNAP_RANGE: float = 0.65
+const WALL_RUN_JUNCTION_EPSILON: float = 0.02
 
 func _init(owner: BuildModeController) -> void:
 	_owner = owner
 
 
-## Cast four short rays (N/S/E/W) from the cursor XZ at lamp height.
-## Returns { "pos": Vector3, "angle_deg": float } for the closest wall hit
-## within _owner.LIGHT_WALL_SNAP_RANGE, or an empty dict if none found.
-## "angle_deg" is set so the light faces AWAY from the wall (into the room).
+## Resolve a wall-draw anchor against the centre line of the nearest registered
+## wall run. Unlike fixture snapping this is registry based: drawn walls need
+## exact, deterministic junction geometry at both ends, not a physics ray whose
+## result can change with collider import order. The returned `walls` array
+## includes adjacent one-metre perimeter segments that share the same junction,
+## allowing a new wall to meet cleanly on a seam between generated segments.
+func _snap_wall_run_point(base_pos: Vector3,
+		snap_range: float = WALL_RUN_SNAP_RANGE) -> Dictionary:
+	var cursor := Vector2(base_pos.x, base_pos.z)
+	var best_distance: float = snap_range
+	var best_node: Node3D = null
+	var best_pos := Vector2.ZERO
+	var best_at_cap: bool = false
+	var best_normal := Vector2.ZERO
+	var best_is_pillar: bool = false
+	var best_run_start := Vector2.ZERO
+	var best_run_end := Vector2.ZERO
+
+	for entry: Dictionary in _owner._placed_objects:
+		var tile_id: int = int(entry.get("tile_id", -1))
+		if tile_id not in _owner.WALL_DRAW_TILES:
+			continue
+		var wall: Node3D = entry.get("node") as Node3D
+		if not is_instance_valid(wall):
+			continue
+		var center3: Vector3 = entry.get("world_pos", wall.global_position)
+		var center := Vector2(center3.x, center3.z)
+		var half_extent: Vector2 = entry.get("footprint", _owner._tile_half_extents(tile_id))
+		var angle_rad: float = deg_to_rad(float(entry.get("angle_deg", wall.rotation_degrees.y)))
+		var width_axis := Vector2(cos(angle_rad), -sin(angle_rad))
+		var run_axis := Vector2(sin(angle_rad), cos(angle_rad))
+		var along: float = clampf((cursor - center).dot(run_axis), -half_extent.y, half_extent.y)
+		var candidate: Vector2 = center + run_axis * along
+		var distance: float = cursor.distance_to(candidate)
+		if distance <= best_distance:
+			best_distance = distance
+			best_node = wall
+			best_pos = candidate
+			best_at_cap = absf(along) >= half_extent.y - WALL_RUN_JUNCTION_EPSILON
+			var side: float = signf((cursor - center).dot(width_axis))
+			if is_zero_approx(side):
+				var plus_inside: bool = _owner._is_inside_bunker(Vector3(
+					center.x + width_axis.x * 0.35, base_pos.y,
+					center.y + width_axis.y * 0.35))
+				var minus_inside: bool = _owner._is_inside_bunker(Vector3(
+					center.x - width_axis.x * 0.35, base_pos.y,
+					center.y - width_axis.y * 0.35))
+				if plus_inside != minus_inside:
+					side = 1.0 if plus_inside else -1.0
+				elif is_instance_valid(_owner.camera):
+					var camera_xz := Vector2(_owner.camera.global_position.x, _owner.camera.global_position.z)
+					side = 1.0 if (camera_xz - center).dot(width_axis) >= 0.0 else -1.0
+				else:
+					side = 1.0
+			best_normal = width_axis * side
+			best_is_pillar = false
+			best_run_start = center - run_axis * half_extent.y
+			best_run_end = center + run_axis * half_extent.y
+
+	## Pillars expose four discrete wall sockets: the centre of each outer side.
+	## They deliberately compete in the same nearest-candidate pass as walls so
+	## corners feel identical regardless of which structural target is hovered.
+	for entry: Dictionary in _owner._placed_objects:
+		if int(entry.get("tile_id", -1)) != _owner.TILE_PILLAR:
+			continue
+		var pillar: Node3D = entry.get("node") as Node3D
+		if not is_instance_valid(pillar):
+			continue
+		var center3: Vector3 = entry.get("world_pos", pillar.global_position)
+		var center := Vector2(center3.x, center3.z)
+		var half_extent: Vector2 = entry.get("footprint",
+			_owner._tile_half_extents(_owner.TILE_PILLAR))
+		var angle_rad: float = deg_to_rad(float(entry.get("angle_deg", pillar.rotation_degrees.y)))
+		var x_axis := Vector2(cos(angle_rad), -sin(angle_rad))
+		var z_axis := Vector2(sin(angle_rad), cos(angle_rad))
+		for side_data: Dictionary in [
+			{"normal": x_axis, "extent": half_extent.x},
+			{"normal": -x_axis, "extent": half_extent.x},
+			{"normal": z_axis, "extent": half_extent.y},
+			{"normal": -z_axis, "extent": half_extent.y},
+		]:
+			var normal: Vector2 = side_data["normal"]
+			var candidate: Vector2 = center + normal * float(side_data["extent"])
+			var distance: float = cursor.distance_to(candidate)
+			if distance <= best_distance:
+				best_distance = distance
+				best_node = pillar
+				best_pos = candidate
+				best_at_cap = true
+				best_normal = normal
+				best_is_pillar = true
+				best_run_start = candidate
+				best_run_end = candidate
+
+	if best_node == null:
+		return {}
+
+	var supporting_walls: Array[Node3D] = []
+	for entry: Dictionary in _owner._placed_objects:
+		var tile_id: int = int(entry.get("tile_id", -1))
+		if tile_id not in _owner.WALL_DRAW_TILES and tile_id != _owner.TILE_PILLAR:
+			continue
+		var wall: Node3D = entry.get("node") as Node3D
+		if not is_instance_valid(wall):
+			continue
+		var center3: Vector3 = entry.get("world_pos", wall.global_position)
+		var center := Vector2(center3.x, center3.z)
+		var half_extent: Vector2 = entry.get("footprint", _owner._tile_half_extents(tile_id))
+		var angle_rad: float = deg_to_rad(float(entry.get("angle_deg", wall.rotation_degrees.y)))
+		if tile_id == _owner.TILE_PILLAR:
+			var x_axis := Vector2(cos(angle_rad), -sin(angle_rad))
+			var z_axis := Vector2(sin(angle_rad), cos(angle_rad))
+			var touches_socket: bool = false
+			for socket: Vector2 in [
+				center + x_axis * half_extent.x,
+				center - x_axis * half_extent.x,
+				center + z_axis * half_extent.y,
+				center - z_axis * half_extent.y,
+			]:
+				if socket.distance_to(best_pos) <= WALL_RUN_JUNCTION_EPSILON:
+					touches_socket = true
+					break
+			if touches_socket:
+				supporting_walls.append(wall)
+			continue
+		var run_axis := Vector2(sin(angle_rad), cos(angle_rad))
+		var along: float = clampf((best_pos - center).dot(run_axis), -half_extent.y, half_extent.y)
+		var nearest: Vector2 = center + run_axis * along
+		if nearest.distance_to(best_pos) <= WALL_RUN_JUNCTION_EPSILON:
+			supporting_walls.append(wall)
+
+	return {
+		"pos": Vector3(best_pos.x, base_pos.y, best_pos.y),
+		"wall": best_node,
+		"walls": supporting_walls,
+		"at_cap": best_at_cap,
+		"normal": Vector3(best_normal.x, 0.0, best_normal.y),
+		"target_kind": "pillar" if best_is_pillar else "wall",
+		"run_start": Vector3(best_run_start.x, base_pos.y, best_run_start.y),
+		"run_end": Vector3(best_run_end.x, base_pos.y, best_run_end.y),
+	}
+
+
+func _pillar_wall_snap_points(y: float) -> Array[Vector3]:
+	var points: Array[Vector3] = []
+	for entry: Dictionary in _owner._placed_objects:
+		if int(entry.get("tile_id", -1)) != _owner.TILE_PILLAR:
+			continue
+		var pillar: Node3D = entry.get("node") as Node3D
+		if not is_instance_valid(pillar):
+			continue
+		var center3: Vector3 = entry.get("world_pos", pillar.global_position)
+		var half_extent: Vector2 = entry.get("footprint",
+			_owner._tile_half_extents(_owner.TILE_PILLAR))
+		var angle_rad: float = deg_to_rad(float(entry.get("angle_deg", pillar.rotation_degrees.y)))
+		var x_axis := Vector2(cos(angle_rad), -sin(angle_rad))
+		var z_axis := Vector2(sin(angle_rad), cos(angle_rad))
+		for offset: Vector2 in [
+			x_axis * half_extent.x, -x_axis * half_extent.x,
+			z_axis * half_extent.y, -z_axis * half_extent.y,
+		]:
+			var socket := Vector2(center3.x + offset.x, center3.z + offset.y)
+			if not _pillar_socket_has_wall(socket):
+				points.append(Vector3(socket.x, y, socket.y))
+	return points
+
+
+## A blue socket is an availability indicator, not decoration. Hide it as soon
+## as any registered wall footprint covers that side point. Both pregenerated
+## and player walls live in _placed_objects, so this deliberately does not
+## inspect player_placed.
+func _pillar_socket_has_wall(socket: Vector2) -> bool:
+	const TOUCH_EPSILON: float = 0.04
+	for entry: Dictionary in _owner._placed_objects:
+		var tile_id: int = int(entry.get("tile_id", -1))
+		if tile_id not in _owner.WALL_DRAW_TILES:
+			continue
+		var wall: Node3D = entry.get("node") as Node3D
+		if not is_instance_valid(wall):
+			continue
+		var center3: Vector3 = entry.get("world_pos", wall.global_position)
+		var center := Vector2(center3.x, center3.z)
+		var half_extent: Vector2 = entry.get("footprint", _owner._tile_half_extents(tile_id))
+		var angle_rad: float = deg_to_rad(float(entry.get("angle_deg", wall.rotation_degrees.y)))
+		var width_axis := Vector2(cos(angle_rad), -sin(angle_rad))
+		var run_axis := Vector2(sin(angle_rad), cos(angle_rad))
+		var relative: Vector2 = socket - center
+		if (absf(relative.dot(width_axis)) <= half_extent.x + TOUCH_EPSILON
+				and absf(relative.dot(run_axis)) <= half_extent.y + TOUCH_EPSILON):
+			return true
+	return false
+
+
+func _wall_run_snap_nodes(snap: Dictionary) -> Array[Node3D]:
+	var nodes: Array[Node3D] = []
+	for value: Variant in snap.get("walls", []):
+		var node: Node3D = value as Node3D
+		if is_instance_valid(node) and not nodes.has(node):
+			nodes.append(node)
+	return nodes
+
+
+## Exact support nodes may be ignored by placement occupancy only when the
+## geometry is a junction, never when a proposed run would overlay the middle
+## of an existing wall.
+func _wall_run_junctions_are_valid(start_snap: Dictionary, end_snap: Dictionary,
+		run_direction: Vector3) -> bool:
+	if run_direction.length_squared() <= 0.000001:
+		return false
+	var start_nodes: Array[Node3D] = _wall_run_snap_nodes(start_snap)
+	var end_nodes: Array[Node3D] = _wall_run_snap_nodes(end_snap)
+	for node: Node3D in start_nodes:
+		if end_nodes.has(node):
+			return false
+	var direction: Vector3 = run_direction.normalized()
+	for snap: Dictionary in [start_snap, end_snap]:
+		var wall: Node3D = snap.get("wall") as Node3D
+		if not is_instance_valid(wall) or bool(snap.get("at_cap", false)):
+			continue
+		if absf(direction.dot(wall.global_basis.z.normalized())) > 0.999:
+			return false
+	return true
+
+
+## All fixtures share face detection; breakers expose their front on local +Z.
 func _snap_light_to_wall(base_pos: Vector3) -> Dictionary:
-	var lamp_y: float = base_pos.y + 1.5   ## lamp-centre world Y
-	var origin: Vector3 = Vector3(base_pos.x, lamp_y, base_pos.z)
-
-	# Cardinal directions: +X, -X, +Z, -Z
-	# angle_deg is the Y-rotation given to the WallLight node so its local +Z
-	# points TOWARD the wall (light/spot aims -Z = away from wall into room).
-	# WallLight local +Z rotated by angle_deg:
-	#   0°   → +Z direction  (wall is in +Z)
-	#   180° → -Z direction  (wall is in -Z)
-	#   90°  → +X direction  (wall is in +X)
-	#   270° → -X direction  (wall is in -X)
-	var directions: Array[Dictionary] = [
-		{ "dir": Vector3( 0, 0,  1), "angle_deg":   0.0 },   ## wall north (+Z)
-		{ "dir": Vector3( 0, 0, -1), "angle_deg": 180.0 },   ## wall south (-Z)
-		{ "dir": Vector3( 1, 0,  0), "angle_deg":  90.0 },   ## wall east  (+X)
-		{ "dir": Vector3(-1, 0,  0), "angle_deg": 270.0 },   ## wall west  (-X)
-	]
-
-	var space: PhysicsDirectSpaceState3D = _owner.get_world_3d().direct_space_state
-	var player: Node3D = _owner.get_parent()
-	var best_dist: float       = _owner.LIGHT_WALL_SNAP_RANGE
-	var best_result: Dictionary = {}
-	var best_is_true_pregen: bool = false   ## true = ORIGINAL 4 pregen boundary walls only
-
-	for d: Dictionary in directions:
-		var dir: Vector3 = d["dir"] as Vector3
-		var to_pt: Vector3 = origin + dir * _owner.LIGHT_WALL_SNAP_RANGE
-
-		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, to_pt)
-		query.collision_mask = 5
-		## hit_back_faces intentionally NOT set to false here.
-		## Player-placed walls use create_trimesh_collision() — their interior
-		## face normals point outward (away from the room), so they are "back
-		## faces" from the ray's perspective and would be silently skipped if
-		## hit_back_faces = false. We do the interior-face test manually below.
-		if player.has_method("get_rid"):
-			query.exclude = [player.get_rid()]
-
-		var hit: Dictionary = space.intersect_ray(query)
-		if hit.is_empty():
-			continue
-
-		# Confirm the hit normal opposes the ray direction — interior face only.
-		# A side or back face of a wall would have a normal that doesn't oppose
-		# the outbound ray, so we reject it here.
-		var hit_normal: Vector3 = hit.get("normal", Vector3.ZERO)
-		if hit_normal.dot(dir) >= 0.0:
-			continue  ## Not an interior-facing surface — skip
-
-		# Confirm the hit is actually a wall/pillar or GridMap geometry.
-		# Also track whether it's specifically one of the ORIGINAL 4 pregen
-		# boundary walls (_is_true_pregen) — NOT merely "any level structure"
-		# (_is_pregen, which autofill walls also carry). Only the true-pregen
-		# ones are valid inputs to the strict original-rectangle math in
-		# _is_pregen_interior_face(); autofill walls (dig solver, already
-		# computed against the real cleared-cell boundary) are accepted the
-		# same simple way player-placed walls are — see this file's header.
-		var is_wall: bool = false
-		var is_true_pregen: bool = false
-		var node: Node = hit.get("collider")
-		while node != null:
-			if node.has_meta("tile_id"):
-				var tid: int = node.get_meta("tile_id")
-				if BunkerStructure.is_wall_or_pillar(tid):
-					is_wall = true
-					is_true_pregen = node.has_meta("_is_true_pregen")
-				break
-			if node is GridMap:
-				is_wall = true
-				is_true_pregen = true   ## raw GridMap perimeter geometry — always true-pregen
-				break
-			node = node.get_parent()
-		if not is_wall:
-			continue
-
-		## Only the ORIGINAL 4 pregen boundary walls need the strict
-		## interior-face revalidation — reject side/exterior faces on those.
-		## Autofill walls skip this: the dig solver already only ever places
-		## them on true interior-facing boundary edges.
-		if is_true_pregen and _owner.rock_surround != null:
-			if not _is_pregen_interior_face(hit["position"], hit_normal):
-				continue
-
-		var hit_dist: float = origin.distance_to(hit["position"])
-		if hit_dist < best_dist:
-			best_dist = hit_dist
-			# Snap position: pull back from wall surface by half wall thickness
-			# so the light back face is flush, not buried inside the wall.
-			var snapped_xz: Vector3 = hit["position"] - dir * _owner.LIGHT_WALL_HALF_THICKNESS
-			best_result = {
-				"pos":       Vector3(snapped_xz.x, base_pos.y, snapped_xz.z),
-				"angle_deg": d["angle_deg"],
-			}
-			best_is_true_pregen = is_true_pregen
-
-	# Discard the result if the snap position is invalid.
-	# Only re-validated against the original bunker rectangle for true-pregen walls.
-	if not best_result.is_empty() and _owner.rock_surround != null and best_is_true_pregen:
-		if not _owner._is_inside_bunker(best_result["pos"]):
-			return {}
-
-	## Wall snap is the final word — NO wire-node XZ override here.
-	## Wire connection is handled by BreakerBox/_auto_connect_to_nearby_wires()
-	## at registration time, not by position-matching during ghost placement.
-
-	return best_result
+	return _snap_to_nearest_wall(base_pos, 1.5, _owner.LIGHT_WALL_HALF_THICKNESS,
+		_owner.LIGHT_WALL_SNAP_RANGE)
 
 
-## Snap a circuit breaker to the nearest interior wall surface.
-## Identical logic to _snap_light_to_wall but uses the breaker's half-depth
-## (0.07 m = BoxMesh Z/2) as the pull-back offset instead of _owner.LIGHT_WALL_HALF_THICKNESS.
-## Breaker centre Y = placement_y (it self-offsets its mesh like a wall panel).
-## Returns {} if no wall found within _owner.LIGHT_WALL_SNAP_RANGE.
 func _snap_breaker_to_wall(base_pos: Vector3) -> Dictionary:
-	const BREAKER_HALF_DEPTH: float = 0.07
-	var cast_y: float   = base_pos.y + 0.22
-	var origin: Vector3 = Vector3(base_pos.x, cast_y, base_pos.z)
+	var result: Dictionary = _snap_to_nearest_wall(base_pos, 0.22, 0.07,
+		_owner.LIGHT_WALL_SNAP_RANGE)
+	if not result.is_empty():
+		result["angle_deg"] = fposmod(float(result["angle_deg"]) + 180.0, 360.0)
+	return result
 
-	var directions: Array[Dictionary] = [
-		{ "dir": Vector3( 0, 0,  1), "angle_deg":   0.0 },
-		{ "dir": Vector3( 0, 0, -1), "angle_deg": 180.0 },
-		{ "dir": Vector3( 1, 0,  0), "angle_deg":  90.0 },
-		{ "dir": Vector3(-1, 0,  0), "angle_deg": 270.0 },
-	]
 
-	var space: PhysicsDirectSpaceState3D = _owner.get_world_3d().direct_space_state
-	var player: Node3D = _owner.get_parent()
-	var best_dist: float        = _owner.LIGHT_WALL_SNAP_RANGE
-	var best_result: Dictionary = {}
-	var best_is_true_pregen: bool = false   ## true = ORIGINAL 4 pregen boundary walls only
-
-	for d: Dictionary in directions:
-		var dir: Vector3   = d["dir"] as Vector3
-		var to_pt: Vector3 = origin + dir * _owner.LIGHT_WALL_SNAP_RANGE
-
-		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, to_pt)
-		query.collision_mask = 5
-		if player.has_method("get_rid"):
-			query.exclude = [player.get_rid()]
-
-		var hit: Dictionary = space.intersect_ray(query)
-		if hit.is_empty():
+## Cast perpendicular to each placed wall as well as the original cardinal rays.
+## This keeps the full snap range at arbitrary angles, including short wall runs.
+func _wall_cast_directions() -> Array[Vector3]:
+	var directions: Array[Vector3] = [Vector3.BACK, Vector3.FORWARD, Vector3.RIGHT, Vector3.LEFT]
+	for entry: Dictionary in _owner._placed_objects:
+		if not int(entry.get("tile_id", -1)) in _owner.WALL_DRAW_TILES:
 			continue
-
-		var hit_normal: Vector3 = hit.get("normal", Vector3.ZERO)
-		var normal_dot: float   = hit_normal.dot(dir)
-		if normal_dot >= 0.0:
+		var wall: Node3D = entry.get("node") as Node3D
+		if not is_instance_valid(wall):
 			continue
+		var normal: Vector3 = wall.global_basis.x.normalized()
+		if not directions.any(func(d: Vector3) -> bool: return absf(d.dot(normal)) > 0.99999):
+			directions.append(normal)
+			directions.append(-normal)
+	return directions
 
-		## Walk up collider tree to classify the hit surface.
-		## _is_true_pregen (ONLY the original 4 boundary walls) is distinct from
-		## the broader _is_pregen tag (also carried by autofill walls — see
-		## this file's header + BuildModeController.spawn_structure()).
-		var is_wall: bool         = false
-		var is_true_pregen: bool  = false
-		var hit_tile_id: int      = -1
-		var node: Node = hit.get("collider")
-		var walk_node: Node = node
-		while walk_node != null:
-			if walk_node.has_meta("_is_true_pregen"):
-				is_true_pregen = true
-			if walk_node.has_meta("tile_id"):
-				hit_tile_id = walk_node.get_meta("tile_id") as int
-				if BunkerStructure.is_wall_or_pillar(hit_tile_id):
-					is_wall = true
-				break
-			if walk_node is GridMap:
-				is_wall = true
-				is_true_pregen = true   ## raw GridMap perimeter geometry — always true-pregen
-				break
-			walk_node = walk_node.get_parent()
 
-		if not is_wall:
-			continue
-
-		## Only the ORIGINAL 4 pregen boundary walls (and raw GridMap) need the
-		## strict interior-face revalidation. Autofill walls skip this — the
-		## dig solver already only ever places them on true interior-facing
-		## boundary edges (see this file's header).
-		if is_true_pregen and _owner.rock_surround != null:
-			if not _is_pregen_interior_face(hit["position"], hit_normal):
-				continue
-
-		var hit_dist: float = origin.distance_to(hit["position"])
-		if hit_dist < best_dist:
-			best_dist = hit_dist
-			var snapped_xz: Vector3 = hit["position"] - dir * BREAKER_HALF_DEPTH
-			## Keep the visual flush to the actual wall face. BreakerBox projects
-			## its separate electrical cut-point onto the beneath-wire grid.
-			best_result = {
-				"pos": Vector3(snapped_xz.x, base_pos.y, snapped_xz.z),
-				## Breaker controls live on local +Z, unlike the wall light/terminal
-				## fronts on -Z, so face +Z into the room rather than into the wall.
-				"angle_deg": fmod(float(d["angle_deg"]) + 180.0, 360.0),
-			}
-			best_is_true_pregen = is_true_pregen
-
-	if not best_result.is_empty() and _owner.rock_surround != null and best_is_true_pregen:
-		var inside: bool = _owner._is_inside_bunker(best_result["pos"])
-		if not inside:
-			return {}
-
-	return best_result
+## Wall runs are thin on local X and long on local Z. Only +/-X faces mount
+## fixtures; +/-Z end caps and horizontal faces are never attachment surfaces.
+func _is_wall_broad_face(node: Node, normal: Vector3) -> bool:
+	if node is Node3D and int(node.get_meta("tile_id", -1)) in _owner.WALL_DRAW_TILES:
+		return absf(normal.dot((node as Node3D).global_basis.x.normalized())) > 0.99
+	return true
 
 
 ## Returns true if the hit point + hit normal represent a valid interior-facing
@@ -366,40 +374,14 @@ func _is_pregen_interior_face(hit_pos: Vector3, hit_normal: Vector3) -> bool:
 	return false
 
 
-## ─────────────────────────────────────────────────────────────────────────────
-## _snap_to_nearest_wall — generic, parameterized version of
-## _snap_light_to_wall()/_snap_breaker_to_wall() (July 2026, water-system
-## groundwork pass). Added ALONGSIDE those two — neither was modified —
-## specifically so a new caller (the Move tool, and the water hookup's
-## initial-placement ghost) can wall-snap ANY object without needing its own
-## copy-pasted 4-direction raycast loop.
-##
-## Same interior-face-only / is_true_pregen-gated logic as the two existing
-## functions above (see their own comments for the full rationale) — this is
-## a straight parameterization, not a behavior change to the existing pattern.
-##
-## Params:
-##   base_pos       — world-space cursor/candidate position (Y ignored on input,
-##                     preserved on output)
-##   cast_y_offset  — Y offset from base_pos.y to cast the rays at (e.g. lamp
-##                     height for a light, a lower offset for a wall panel)
-##   pullback_dist  — how far to pull the snapped position back off the wall
-##                     surface (half the object's own depth/thickness)
-##   snap_range     — max distance to search for a wall
-##
-## Returns { "pos": Vector3, "angle_deg": float } or {} if no wall found within
-## snap_range. angle_deg follows the exact same convention as the two existing
-## functions: 0°→wall in +Z, 90°→wall in +X, 180°→wall in -Z, 270°→wall in -X.
+## Find the nearest valid face at base_pos.y + cast_y_offset.
+## Preserve base Y and pull away from the surface by the fixture's back depth.
+## Return the supporting wall, position and yaw (local -Z faces into the room).
 func _snap_to_nearest_wall(base_pos: Vector3, cast_y_offset: float,
 		pullback_dist: float, snap_range: float) -> Dictionary:
 	var origin: Vector3 = Vector3(base_pos.x, base_pos.y + cast_y_offset, base_pos.z)
 
-	var directions: Array[Dictionary] = [
-		{ "dir": Vector3( 0, 0,  1), "angle_deg":   0.0 },
-		{ "dir": Vector3( 0, 0, -1), "angle_deg": 180.0 },
-		{ "dir": Vector3( 1, 0,  0), "angle_deg":  90.0 },
-		{ "dir": Vector3(-1, 0,  0), "angle_deg": 270.0 },
-	]
+	var directions: Array[Vector3] = _wall_cast_directions()
 
 	var space: PhysicsDirectSpaceState3D = _owner.get_world_3d().direct_space_state
 	var player: Node3D = _owner.get_parent()
@@ -407,8 +389,7 @@ func _snap_to_nearest_wall(base_pos: Vector3, cast_y_offset: float,
 	var best_result: Dictionary = {}
 	var best_is_true_pregen: bool = false
 
-	for d: Dictionary in directions:
-		var dir: Vector3   = d["dir"] as Vector3
+	for dir: Vector3 in directions:
 		var to_pt: Vector3 = origin + dir * snap_range
 
 		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, to_pt)
@@ -430,7 +411,7 @@ func _snap_to_nearest_wall(base_pos: Vector3, cast_y_offset: float,
 		while node != null:
 			if node.has_meta("tile_id"):
 				var tid: int = node.get_meta("tile_id")
-				if BunkerStructure.is_wall_or_pillar(tid):
+				if BunkerStructure.is_wall_or_pillar(tid) or tid in _owner.WALL_DRAW_TILES:
 					is_wall = true
 					is_true_pregen = node.has_meta("_is_true_pregen")
 				break
@@ -441,6 +422,8 @@ func _snap_to_nearest_wall(base_pos: Vector3, cast_y_offset: float,
 			node = node.get_parent()
 		if not is_wall:
 			continue
+		if not _is_wall_broad_face(node, hit_normal):
+			continue
 
 		if is_true_pregen and _owner.rock_surround != null:
 			if not _is_pregen_interior_face(hit["position"], hit_normal):
@@ -449,10 +432,11 @@ func _snap_to_nearest_wall(base_pos: Vector3, cast_y_offset: float,
 		var hit_dist: float = origin.distance_to(hit["position"])
 		if hit_dist < best_dist:
 			best_dist = hit_dist
-			var snapped_xz: Vector3 = hit["position"] - dir * pullback_dist
+			var snapped_xz: Vector3 = hit["position"] + hit_normal * pullback_dist
 			best_result = {
+				"wall": node,
 				"pos":       Vector3(snapped_xz.x, base_pos.y, snapped_xz.z),
-				"angle_deg": d["angle_deg"],
+				"angle_deg": fposmod(rad_to_deg(atan2(-hit_normal.x, -hit_normal.z)), 360.0),
 			}
 			best_is_true_pregen = is_true_pregen
 

@@ -57,6 +57,15 @@ func score(npc: NPC) -> float:
 		* npc.get_job_priority_weight("GARDENING")
 
 func enter(npc: NPC) -> void:
+	## The autonomous candidate is persistent, so a new session must not inherit
+	## target/fetch state from its previous run.
+	_item = null
+	_current_tray = null
+	_current_cell = -1
+	_current_task = ""
+	_fetch_loose = null
+	_fetch_shelf = {}
+	_phase = "pick_task"
 	_finished = false
 	_skipped = {}
 	if npc.held_item != null and (npc.held_item is BagOfSoilItem or npc.held_item is SeedItem or npc.held_item is FertilizerItem):
@@ -161,6 +170,8 @@ func _nearest_ready_plant(npc: NPC) -> Dictionary:
 	for tray: Node in npc.get_tree().get_nodes_in_group("farming_tray"):
 		if not is_instance_valid(tray):
 			continue
+		if not npc.is_position_compatible_with_companionship((tray as Node3D).global_position, 1.0):
+			continue
 		for i: int in range(tray.cell_count):
 			if _is_skipped(_cell_key(tray, i)):
 				continue
@@ -186,6 +197,8 @@ func _nearest_open_cell(npc: NPC, kind: String) -> Dictionary:
 	var best_d: float = INF
 	for tray: Node in npc.get_tree().get_nodes_in_group("farming_tray"):
 		if not is_instance_valid(tray):
+			continue
+		if not npc.is_position_compatible_with_companionship((tray as Node3D).global_position, 1.0):
 			continue
 		for i: int in range(tray.cell_count):
 			if _is_skipped(_cell_key(tray, i)):
@@ -216,6 +229,8 @@ func _nearest_tray_needing(npc: NPC, check_method: String) -> Node:
 		if _is_skipped(_cell_key(tray, -1)):
 			continue
 		if not is_instance_valid(tray) or not tray.call(check_method):
+			continue
+		if not npc.is_position_compatible_with_companionship((tray as Node3D).global_position, 1.0):
 			continue
 		var d: float = NPCItemUser.flat_distance(npc.global_position, (tray as Node3D).global_position)
 		if d < best_d:

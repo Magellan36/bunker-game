@@ -93,11 +93,7 @@ func _start_travel(npc: NPC) -> void:
 ## static obstacle's interior), which is why targeting it directly made
 ## the NPC walk into the object and get stuck fighting its collision.
 func _approach_point(npc: NPC, target: Node3D) -> Vector3:
-	var to_npc: Vector3 = npc.global_position - target.global_position
-	to_npc.y = 0.0
-	if to_npc.length() < 0.01:
-		to_npc = Vector3(0.0, 0.0, 1.0)   ## degenerate case: npc exactly at center
-	return target.global_position + to_npc.normalized() * APPROACH_DISTANCE
+	return NPCSessionActivity.approach_point(npc, target, APPROACH_DISTANCE, &"job")
 
 func tick(npc: NPC, delta: float) -> void:
 	if not _claimed:
@@ -124,6 +120,7 @@ func tick(npc: NPC, delta: float) -> void:
 				.distance_to(Vector2(t_pos.x, t_pos.z))
 			if flat_dist <= WORK_RANGE:
 				npc.velocity = Vector3.ZERO
+				npc.face_interaction_slot()
 				_phase = "work"
 				npc.show_work_banner()
 		"work":

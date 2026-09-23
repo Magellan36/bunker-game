@@ -1,7 +1,9 @@
 class_name WallWireAttachment
 extends Node
-## Invisible local wall feed. Topology events coalesce; no per-frame graph scan.
-const RADIUS: float = 0.75
+## Local wall feed with a device-owned visual drop. Topology events coalesce.
+## Horizontal tolerance is independent of mounting height.
+const RADIUS: float = 1.0
+const MAX_DROP: float = 3.5
 var manager: PowerManager
 var host: Node3D
 var device_key: String
@@ -9,6 +11,35 @@ var _edge_id: String = ""
 var _target_key: String = ""
 var _queued: bool = false
 var _refreshing: bool = false
+var _visual: WireSegment
+
+static func connector_position(device: Node3D) -> Vector3:
+	if device.has_method("get_wall_wire_connector"):
+		return device.call("get_wall_wire_connector")
+	return device.global_position
+
+static func update_visual(device: Node3D, previous_visual: Variant,
+		target: Vector3, source_edge: String) -> WireSegment:
+	## A freed Object cannot cross a typed Object argument boundary in GDScript.
+	## Validate before casting, and never reuse a node waiting for deletion.
+	var visual: WireSegment = null
+	if is_instance_valid(previous_visual) and not previous_visual.is_queued_for_deletion():
+		visual = previous_visual as WireSegment
+	if visual == null:
+		visual = WireSegment.new()
+		visual.set_meta("_wall_feed_visual", true)
+		device.add_child(visual)
+		## WireSegment inherits current build visibility on creation/rebuild.
+	var start: Vector3 = connector_position(device)
+	var toward_wall: Vector3 = device.global_basis.z.normalized()
+	var inset: float = 0.07
+	if device.has_method("get_wall_wire_inset"):
+		inset = float(device.call("get_wall_wire_inset"))
+	var elbow: Vector3 = start + toward_wall * inset
+	var foot := Vector3(elbow.x, target.y, elbow.z)
+	visual.edge_id = source_edge
+	visual.set_path(PackedVector3Array([start, elbow, foot, target]))
+	return visual
 
 func bind(device: Node3D, pm: PowerManager, key: String) -> void:
 	host = device
@@ -41,7 +72,7 @@ static func find_candidate(host_position: Vector3, pm: PowerManager,
 			continue
 		var a: Vector3 = pm.get_wire_node_pos(edge["node_a"])
 		var b: Vector3 = pm.get_wire_node_pos(edge["node_b"])
-		if not is_equal_approx(a.y, b.y) or a.y > host_position.y:
+		if not is_equal_approx(a.y, b.y) or a.y > host_position.y or host_position.y - a.y > MAX_DROP:
 			continue
 		var ab := Vector2(b.x - a.x, b.z - a.z)
 		if ab.length_squared() < 0.000001:
@@ -69,7 +100,7 @@ func _refresh() -> void:
 		return
 	if not manager._wire_nodes.has(device_key):
 		return
-	var candidate_data: Dictionary = find_candidate(host.global_position, manager)
+	var candidate_data: Dictionary = find_candidate(connector_position(host), manager)
 	_refreshing = true
 	manager.begin_bulk()
 	if not candidate_data.is_empty():
@@ -82,9 +113,13 @@ func _refresh() -> void:
 			if _target_key != device_key:
 				_edge_id = manager.register_wire_edge(device_key, _target_key, null, true)
 				manager.set_wire_edge_no_visual(_edge_id)
+		_visual = update_visual(host, _visual, best, _edge_id)
 	elif manager.has_wire_edge(_edge_id):
 		manager.unregister_wire_edge(_edge_id)
 		_edge_id = ""
 		_target_key = ""
+	if candidate_data.is_empty() and is_instance_valid(_visual):
+		_visual.queue_free()
+		_visual = null
 	manager.end_bulk()
 	_refreshing = false

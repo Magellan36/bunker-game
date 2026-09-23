@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://dg8v10e04k60e"]
 
-[ext_resource type="Script" uid="uid://dtdxnbhfq83y5" path="res://scripts/world/items/WaterCase.gd" id="1_water_case_script"]
+[ext_resource type="Script" uid="uid://cic6r2pumqwd6" path="res://scripts/world/items/WaterCase.gd" id="1_water_case_script"]
 [ext_resource type="Texture2D" path="res://assets/textures/items/water_case/water_bottle_label.png" id="2_water_bottle_label"]
 
 [sub_resource type="StandardMaterial3D" id="mat_plastic"]

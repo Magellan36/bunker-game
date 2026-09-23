@@ -67,6 +67,7 @@ var _breaker_id: String = ""
 var _attachment_queued: bool = false
 var _attachment_refreshing: bool = false
 var _force_attachment_rebind: bool = false
+var _attachment_visual: WireSegment
 
 ## Pass-through flags — set by player via settings panel, sent to PM.
 var _pass_battery:   bool = true
@@ -165,6 +166,12 @@ func refresh_power_attachment() -> void:
 	_force_attachment_rebind = true
 	_queue_attachment_refresh("")
 
+func get_wall_wire_connector() -> Vector3:
+	return to_global(Vector3(0.0, 0.22, 0.0))
+
+func get_wall_wire_inset() -> float:
+	return -0.09
+
 
 func _has_live_cut_point(pm: PowerManager) -> bool:
 	if _breaker_id.is_empty() or not pm._breakers.has(_breaker_id):
@@ -179,6 +186,9 @@ func _has_live_cut_point(pm: PowerManager) -> bool:
 
 
 func _detach_from_grid(pm: PowerManager) -> void:
+	if is_instance_valid(_attachment_visual):
+		_attachment_visual.queue_free()
+		_attachment_visual = null
 	if not _breaker_id.is_empty():
 		pm.unregister_breaker(_breaker_id)
 	if not _wire_key.is_empty():
@@ -197,11 +207,17 @@ func _refresh_breaker_attachment() -> void:
 	var force_rebind: bool = _force_attachment_rebind
 	_force_attachment_rebind = false
 	if not force_rebind and _has_live_cut_point(pm):
+		for edge: Dictionary in pm.get_wire_edges():
+			if not bool(edge.get("no_visual", false)) and (
+					edge.get("node_a") == _wire_key or edge.get("node_b") == _wire_key):
+				_attachment_visual = WallWireAttachment.update_visual(self,
+					_attachment_visual, pm.get_wire_node_pos(_wire_key), edge["id"])
+				break
 		return
 
-	var candidate: Dictionary = WallWireAttachment.find_candidate(global_position, pm)
+	var candidate: Dictionary = WallWireAttachment.find_candidate(WallWireAttachment.connector_position(self), pm)
 	if candidate.is_empty():
-		if force_rebind:
+		if force_rebind or not _wire_key.is_empty():
 			_attachment_refreshing = true
 			pm.begin_bulk()
 			_detach_from_grid(pm)
@@ -213,6 +229,7 @@ func _refresh_breaker_attachment() -> void:
 	var cut_key: String = pm._graph._snap_key(cut_pos)
 	if not force_rebind and cut_key == _wire_key and not _breaker_id.is_empty():
 		pm.resplit_breaker(_wire_key)
+		_attachment_visual = WallWireAttachment.update_visual(self, _attachment_visual, cut_pos, candidate["edge_id"])
 		return
 
 	var restore_tripped: bool = _tripped
@@ -228,6 +245,7 @@ func _refresh_breaker_attachment() -> void:
 			pm.trip_breaker(_breaker_id)
 	pm.end_bulk()
 	_attachment_refreshing = false
+	_attachment_visual = WallWireAttachment.update_visual(self, _attachment_visual, cut_pos, candidate["edge_id"])
 
 
 func _apply_breaker_variant(_pm: PowerManager) -> void:

@@ -1,2158 +1,421 @@
-# NPC System (Aug 2026)
-
-**Read this before opening any `scripts/npc/`, `scripts/ui/npc/`, or
-`scenes/npc/` file.** Only open the actual source for the specific
-function you're changing — this doc should tell you which one that is.
-
----
-
-## Purpose
-
-Full NPC survivor system: NPCs spawn into the bunker, path around it using
-real navmesh-based pathfinding (including dynamic obstacle avoidance for
-movable clutter), have needs (Energy/Hunger/Thirst/Health/Mood) that decay
-and produce real consequences (slower movement, forgetfulness, job
-avoidance, forced collapse), work a small set of real jobs (harvest,
-replace purifier filter, refuel generator), eat/drink/rest using the same
-world objects and physics the player uses, have a fixed random personality
-that shapes how they react to bad conditions, and can be talked to and
-directly commanded by the player. Persists through save/load.
-
----
-
-## Responsibilities
-
-- **`NPC.gd`** (`scripts/npc/`) — the NPC itself: navigation primitives,
-  needs/health/mood/irritability/relationships state and their tick loops,
-  personality generation, random name assignment (10-name pool, collision-
-  avoided), movement-lock/stuck-recovery, physics push-through for loose
-  items, all status/consequence helper functions, dialogue line selection
-  (ambient Talk line + relationship Q&A), Talk interaction, stable
-  `npc_id` identity.
-- **`NPCBrain.gd`** (`scripts/npc/`) — the Utility-AI decision loop and
-  every `NPCActivity` subclass: `WanderActivity`, `SitActivity`,
-  `LieActivity`, `DrinkActivity`, `EatActivity`, `JobActivity`,
-  `ForgetfulWanderActivity`, `PassedOutActivity`, `CommandRestActivity`,
-  `CommandHarvestActivity`.
-- **`NPCItemUser.gd`** (`scripts/npc/`) — shared item-interaction helpers:
-  find/claim/grab loose or shelved items, XZ-only proximity checks
-  (`flat_distance`), consumable filters.
-- **`BunkerNavMesh.gd`** (`scripts/npc/`) — runtime-baked `NavigationMesh`
-  parsed from the real physics world (static colliders), rebaked on
-  dig/build changes.
-- **`JobBoard.gd`** (`scripts/npc/`, autoload) — poll-based job posting for
-  HARVEST / REPLACE_FILTER / REFUEL, with claim/release.
-- **`NPCDebug.gd`** (`scripts/npc/`) — centralized, toggleable debug
-  logging (F7 "Toggle NPC Debug Logging") and the full-state dump (F7
-  "Print NPC Debug State").
-- **`NPCTalkMenuUI.gd`** (`scripts/ui/npc/`) — the E-panel: live
-  Health/Energy/Hunger/Thirst/Mood bars (Aug 2026 — fixed per-stat colors
-  matching the player's own `NeedsGauge` palette: Health red, Energy
-  purple, Thirst blue, all copied exactly; Hunger yellow reuses the
-  project's other established yellow since the player HUD has none; Mood
-  is `#bca0dc` exactly. No longer recolors by value the way it used to —
-  see `docs/systems/ui/README.md`'s `UIKit`/`NeedsGauge` sections for the
-  broader palette convention this now matches), Status line, Skills, Personality,
-  Talk → dialogue + command buttons + "Ask About" relationship Q&A, Close.
-- **`NPCPortraitViewport.gd`** (`scripts/ui/npc/`) — shared live head-and-
-  shoulders renderer used by the talk panel and the Status workspace's compact
-  overview/expandable NPC cards. Status caches one renderer per resident and
-  shares its texture between views instead of duplicating animated models.
-- **`NPC.tscn`** (`scenes/npc/`) — `CharacterBody3D`, capsule mesh/collision
-  (radius 0.4, matches `BunkerNavMesh`'s `agent_radius`).
-- **`PickupableItem.gd`** (`scripts/world/items/`) — heavy items
-  (mass ≥ 3.0) get an auto-sized `NavigationObstacle3D` child so NPCs route
-  around them dynamically; toggled off while held.
-- **`Chair.gd` / `Bed.gd`** (`scripts/world/furniture/`) — additive NPC
-  occupancy API (`npc_try_sit`/`npc_try_lie`, `is_seat_free`/`is_bed_free`,
-  seat/lie transforms) alongside the untouched player flow.
-- **`MainWorld.gd`** (`scripts/world/core/`) — cleared-cell accessors for
-  navmesh baking/wander targets; phase-4 `SaveManager` field for NPC
-  persistence.
-- **`AdminMenu.gd`** (`scripts/ui/menus/`) — full NPC test-tooling section
-  (spawn, per-need adjusters, skill randomize, despawn-all, force-rebake,
-  debug toggle/dump).
-
----
-
-## Visual model (Aug 2026, flagged — owned by Player-Model subsystem)
-`NPC.tscn`'s old placeholder capsule mesh is gone — NPCs now instance
-`res://scenes/player/PlayerModel.tscn` (same scene, same model/hair/
-animations/scale as the player) as a child named `CharacterModel`.
-`NPC.gd` lost its `mesh` onready var and the one line that set its
-shadow-cast exclusion directly — see
-`docs/systems/player-model/README.md` "Shared with NPCs" for the
-full picture. No per-NPC visual customization yet (all NPCs currently
-look identical) — that's intentionally deferred, not an oversight.
-
-**Shadow (Aug 2026, shadow-parity follow-up):** `CharacterShadowStandIn.attach(self)`
-is gone too — NPCs now get the same real-silhouette shadow Player has,
-via a second `CharacterModelShadow` instance in `NPC.tscn`. See
-`docs/systems/graphics/README.md` "Player model-based shadow".
-
-## Key Systems
-
-### Navigation
-`BunkerNavMesh` bakes from the **real physics world** —
-`NavigationServer3D.parse_source_geometry_data` walks the scene and picks
-up every static collider on mask bit 1 (floor tiles at their true height,
-walls/pillars/furniture/devices at their true footprints), plus a safety-
-net floor (cleared-cell quads at the correct floor height, y=0.5) as a
-belt-and-suspenders fallback. RigidBody3D items and CharacterBody3D
-(player/NPCs) are excluded automatically. Rebakes are debounced and async,
-triggered by dig/restore signals and a placed-object fingerprint poll.
-
-`NPCAgent` (`NavigationAgent3D` on each NPC) uses `path_desired_distance`/
-`target_desired_distance = 1.1` — not the more obvious ~0.5 — because path
-points sit on the floor (y≈0.5) while the NPC's own origin is its capsule
-CENTER (y≈1.4), a ~0.9 constant vertical offset that a tighter threshold
-could never satisfy. `set_nav_target()` snaps targets to y=0.5 to keep
-that offset consistent.
-
-Real-time dynamic avoidance (not just static navmesh) is enabled via
-`avoidance_enabled = true` + the `velocity_computed` signal — `nav_steer()`
-submits a *preferred* velocity, Godot returns a locally-adjusted *safe*
-velocity accounting for every nearby `NavigationObstacle3D` (heavy loose
-items) and other NPC agents, and that's what actually gets applied.
-
-### Physics Clutter (Push-Through / Avoidance / Resistance)
-Loose items are `RigidBody3D` and were never part of the navmesh (only
-static colliders are parsed). Tier is read from the item's own `mass`:
-- **Light** (mass < 3.0 — cans, bottles, produce, filters, fuel cans):
-  `NPC._handle_physics_pushes()` shoves them aside and corrects the NPC's
-  blocked motion back — walking through barely registers.
-- **Heavy** (mass ≥ 3.0 — crates, baskets, cooking pots, water/can cases):
-  get a `NavigationObstacle3D` child (`PickupableItem.gd`, auto-sized from
-  the item's actual collision geometry via `Shape3D.get_debug_mesh()`,
-  toggled off while held) — NPCs route around their *current* position
-  proactively via real-time avoidance, not a reactive post-collision hack.
-  A small residual shove still applies if one is ever grazed anyway.
-
-### Needs, Health, Status Consequences
-Five NPC-side stats, all 0–100: `energy`, `hunger`, `thirst`, `health`,
-`mood` (+ `irritability`, 0–100%, tracked separately — see Personality
-below). Energy/Hunger/Thirst drain on the shared compressed game-clock
-(`NPC.game_hours()`), matching `PlayerStats`' own rates exactly
-(`HUNGER_DRAIN_PER_GAME_HOUR = 1.39`, `THIRST_DRAIN_PER_GAME_HOUR = 2.08`).
-
-**Health** drains only while Hunger OR Thirst sits at literal 0 (not
-25%/50%) — both zeroed simultaneously stacks the drain. Health = 0 has no
-further consequence yet (`FUTURE WORK`, same as the Crisis Response note
-below).
-
-**Speed** (`NPC.get_status_speed_multiplier()`): Energy contributes ONE
-progressive tier (25% tier *replaces* the 50% tier's penalty, doesn't
-stack with it); Hunger/Thirst/Mood each contribute their own small,
-independent multiplier below their own threshold — all multiply together,
-so several low at once compounds (explicit design requirement).
-
-**Forgetfulness** (`NPC.get_forgetfulness_chance()`): a chance, rolled by
-`NPCBrain._think()` only at the exact moment a `JobActivity` would
-otherwise be picked, to instead force a **20-second, non-interruptible**
-`ForgetfulWanderActivity` detour. Hunger, Thirst, Mood, and (mildly) Energy
-each contribute a tiered chance value; **averaged**, not OR-combined
-(Part 21 — OR-combination made moderate sources compound too aggressively;
-averaging is the deliberately gentler curve), then scaled by the
-Resilience personality trait.
-
-**Pass-out** (`is_passed_out()` = `energy <= 0`): checked every physics
-frame ahead of everything else in `NPCBrain.tick()`, force-starts
-`PassedOutActivity` (non-interruptible, regenerates Energy slower than a
-bed or chair, only ends at Energy = 100) regardless of what the NPC was
-doing — cleanly exits/releases whatever was running via its own `exit()`.
-
-**Status labels** (`get_status_labels()`, shown in the E-panel's Status
-line only — never the overhead hover prompt): Forgetfulness and Slowing
-each collapse to **one** label with every contributing cause listed in
-parentheses (e.g. `"Very Forgetful (Starving, Dehydrated, Miserable)"`),
-not one line per cause. Irritability shows as its own word
-(Grumpy/Frustrated/Mad/Rage); the `(NN%)` suffix is debug-only
-(`NPCDebug.enabled`), removed for the final game.
-
-### Personality, Mood & Irritability
-**5 traits** (`NPC.personality`, keys in `PERSONALITY_TRAIT_KEYS`), each a
-float 0.0–1.0, generated at spawn (`randomize_personality()`) and **fixed
-for the NPC's life**. Traits are now **presence-based** (Aug 2026): each
-slot is present with 55% chance (`TRAIT_PRESENCE_CHANCE`), and any
-*present* trait is skewed into the low or high band — never the neutral
-middle. **Absent = baseline**: every `_*_trait_mult()` uses
-`.get(key, 0.5)`, so an absent trait behaves identically to a mid-band
-value mechanically. An NPC therefore shows anywhere from **0 to 5
-personality words**, most landing in between; the rare 0-trait NPC shows
-"Nothing stands out". Never shown as numbers — always a descriptive word
-banded low/mid/high (`get_trait_word()`, thresholds 0.35/0.65; absent
-key → no word):
-`resilience` (Irritable/Even-Tempered/Level-Headed), `sociability`
-(Distant/Reserved/Open), `work_ethic` (Lazy/Steady/Hard Worker),
-`neuroticism` (Easygoing/Composed/Neurotic), `optimism`
-(Pessimistic/Realistic/Optimistic). All five now drive concrete
-mechanics — Resilience, Optimism, Sociability (see below), and as of
-the Aug 2026 trait-wiring pass Work Ethic and Neuroticism:
-- **Work Ethic** (Lazy/Steady/Hard Worker) — a ±30% score multiplier
-  applied symmetrically via `get_work_ethic_job_mult()`/
-  `get_work_ethic_passive_mult()`: `JobActivity.score()` ×1.3 at Hard
-  Worker (×0.7 at Lazy), while every passive/need activity (Wander, Sit,
-  Lie, Eat, Drink) gets the mirror image (×0.7 Hard Worker / ×1.3 Lazy).
-  Steady = ×1.0 both ways. Same continuous-bias pattern as Irritability's
-  job discouragement — not a discrete roll.
-- **Neuroticism** (Easygoing/Composed/Neurotic) — scales mood's random
-  per-tick drift (`MOOD_DRIFT_MAX_PER_GAME_HOUR`) via
-  `neuroticism_trait_mult()`: ×0.5 Easygoing → ×1.5 Neurotic (Composed
-  ×1.0, unchanged). Bigger, more erratic swings for the Neurotic, calmer
-  for the Easygoing, no change to the average. Same multiplier also
-  scales the one-time mood drop when passing out — see Trait Effects
-  Reference below.
-- **Sociability** (Distant/Reserved/Open) scales how fast a relationship
-  value moves in either direction (`_sociability_trait_mult()`, 0.5x–1.5x) —
-  see Relationships below.
-- **Canonical, complete list of every trait's mechanical effect:** the
-  **Trait Effects Reference** section below is the source of truth and
-  is what gets updated whenever a trait gains or changes an effect; the
-  bullets above and the scattered mentions below are summaries only.
-
-**Mood** (real E-panel bar) moves *slowly* by design — a brief dip
-shouldn't register, sustained bad conditions over real time should.
-Ticks every 5s (`_tick_mood_and_irritability`, not per-frame) from three
-additive sources, each independently inspectable via `NPCDebug.log_mood`:
-1. **Needs pull** — target = 100 if the Energy/Hunger/Thirst average is
-   ≥ 70 ("fine"), else the average itself. Recovery rate (only when
-   *rising* toward the target) is scaled by the Optimism trait AND
-   (Part 21) mildly by how far into "fine" territory needs actually are
-   — barely-fine needs recover ~15% slower than comfortably-fine ones.
-2. **Social contagion — exposure-weighted (Aug 2026).** Every tick,
-   each NPC's mood is pulled toward an *exposure-weighted* average of the
-   other NPCs' moods — NOT a flat bunker-wide average anymore. Per-pair
-   exposure scores build up while two NPCs are near each other and decay
-   while apart (`_tick_contagion_exposure()`), using the **same
-   proximity range the Relationships system uses**
-   (`RELATIONSHIP_PROXIMITY_RANGE`) — one consistent "what counts as
-   together" definition across both systems, deliberately not a second
-   threshold. `_compute_weighted_contagion_target()` produces the actual
-   pull target: someone you've spent a lot of recent time near pulls your
-   mood much harder than someone you've barely crossed paths with.
-   **Zero exposure means zero influence** — an NPC with no history
-   against anyone contributes nothing at all, and a freshly-spawned NPC
-   (empty exposure map) is not pulled by anyone until it actually spends
-   time near someone. Rate is `MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR`
-   (3%/game-hour), scaled by the Sociability contagion multiplier (see
-   Trait Effects Reference) and by `h`. Exposure accumulates
-   (`CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR = 0.5`, capped at
-   `CONTAGION_EXPOSURE_MAX = 5.0`) and decays at 0.2/game-hour while
-   apart.
-3. **Random drift** — small symmetric noise, "more than nothing, not
-   drastic."
-
-Mood = 0 is the future Crisis Response trigger (see below) — not built;
-mood just clamps at 0.
-
-**Irritability** (0–100%, `NPC.irritability`) is a *separate*, faster-
-reacting value — deliberately **no UI bar**, backend-only. Ticks on the
-same 5s cadence. Target = `(needs_deficit × 1.2 + mood_deficit × 0.4) ×
-resilience_trait_mult`, moved toward at 20/game-hour (much faster than
-mood). The Resilience trait multiplies generation continuously
-(`lerp(1.5, 0.5, resilience)` — Irritable NPCs react more drastically to
-the same conditions) *and* separately shifts the label breakpoints: NPCs
-with the Irritable trait (resilience < 0.35) cross into each label 5%
-sooner; everyone else's breakpoints are raised 10%. Confirmed effects:
-folds into forgetfulness (mildly), reduces job willingness (a separate,
-continuous, unlogged scoring multiplier in `JobActivity.score()` — half
-willingness at max irritability), and drives the status label + dialogue
-tone.
-
-**Dialogue** (`get_dialogue_line()`) picks a mood/irritability-aware line
-fresh each time Talk is pressed — small hardcoded pools per tier
-(angry/frustrated/grumpy/low-mood/happy/neutral). First-pass groundwork,
-not a real dialogue system.
-
-**`FUTURE WORK` — Crisis Response, explicitly deferred, not built:**
-personality-driven reactions to dire bunker states. Per the original
-design note: some NPCs break down/become unhelpful or unpredictable, some
-buckle down into overdrive, some spiral toward irritable/rage (the rage/
-aggression piece specifically was flagged as a materially bigger system —
-combat, hostility, consequences — than anything built so far, and was
-deliberately scoped out even further than the rest of Crisis Response).
-Trigger point is intended to be Mood reaching 0, likely an end-game-
-adjacent scenario. Everything in this system (needs consequences,
-irritability, personality traits, mood) exists specifically to give that
-future pass real state to react to.
-
-### Trait Effects Reference (living document — update this whenever a trait gains or changes a mechanical effect)
-
-All 5 traits are continuous 0.0-1.0 values; a trait is only ever
-GENERATED for an NPC when it lands outside the neutral middle band
-(below `TRAIT_BAND_LOW`=0.35 or above `TRAIT_BAND_HIGH`=0.65) — see
-Personality section above. Every multiplier below reads
-`personality.get(key, 0.5)`, so an absent trait always behaves as if the
-NPC scored a perfectly neutral 0.5 — no separate "is this trait present"
-branching needed anywhere the multipliers are used.
-
-**Resilience** (Irritable / — / Level-Headed)
-- `_irritability_trait_mult()`, 1.5x (Irritable) to 0.5x (Level-Headed).
-  Scales how fast irritability rises from need/mood pressure.
-- Same multiplier also scales `get_forgetfulness_chance()` — an
-  Irritable NPC is both quicker to anger AND more likely to "forget"
-  (wander instead of) a job they were about to start.
-
-**Optimism** (Pessimistic / — / Optimistic)
-- `_mood_recovery_trait_mult()`, 0.5x to 1.5x. Scales ONLY how fast mood
-  recovers back toward 100 when needs are fine — does not affect how
-  fast mood falls in the first place.
-
-**Sociability** (Distant / — / Open)
-- `_sociability_trait_mult()`, 0.5x to 1.5x. Scales the magnitude of
-  EVERY relationship change in both directions, via
-  `_adjust_relationship()`'s single mutation point: passive proximity
-  drift, Give's bonus, Takeaway's penalty, and the -3 penalty for
-  pulling an NPC off a relax session to do a job. (Relationship Snatch's
-  outcome is deliberately relationship-NEUTRAL and untouched by this.)
-  A high-Sociability NPC's relationship with you moves faster in BOTH
-  directions — quicker to warm up, quicker to sour.
-- `get_contagion_sociability_mult()`, 0.67x to 1.33x, is a SEPARATE,
-  smaller-range multiplier (same trait value, distinct function) for
-  **mood contagion receptivity** — how much this NPC's own mood gets
-  pulled toward the room's average mood each contagion tick, not how
-  much they influence others. Applied to both the live per-tick
-  contagion (`_tick_mood()`) and the time-skip catch-up blend
-  (`_catch_up_mood()`); `_mood_contagion_delta` (used by the Action
-  Log's threshold logging) automatically reflects the scaled value.
-  Tutorial-friendly phrasing: *"Sociability: 0.5x-1.5x on how fast this
-  NPC's relationships change (both directions); separately, 0.67x-1.33x
-  on how much this NPC's own mood gets pulled by the room's average mood
-  (mood contagion)."*
-
-**Work Ethic** (Lazy / — / Hard Worker)
-- `get_work_ethic_job_mult()`, 0.7x-1.3x, applied directly to
-  `JobActivity.score()`.
-- `get_work_ethic_passive_mult()`, the mirror image (1.3x-0.7x), applied
-  to Wander/Sit/Lie/Eat/Drink/Relax/Talk/Give-to-Friend's scores.
-- Lazy specifically (not Hard Worker) gets DOUBLE the daily Relaxing
-  budget (2hr vs the 1hr baseline) — this is a deliberate asymmetry, not
-  an oversight: Hard Worker does NOT get a reduced relax budget, only
-  the score bias above.
-
-**Neuroticism** (Easygoing / — / Neurotic)
-- `neuroticism_trait_mult()`, 0.5x to 1.5x. Scales mood's random
-  per-tick drift (`MOOD_DRIFT_MAX_PER_GAME_HOUR`) — bigger/smaller
-  swings, not a different average.
-- Same multiplier scales the ONE-TIME mood drop applied the instant an
-  NPC passes out: `randf_range(1.0, 10.0 * neuroticism_trait_mult())`.
-  Baseline range 1-10%, Neurotic 1-15%, Easygoing 1-5%. Lower bound is
-  always 1% regardless of trait. Reachable two ways now (same formula):
-  the live `PassedOutActivity.enter()` path AND the time-skip catch-up
-  path (`_catch_up_energy()`, which fires it when the estimated energy
-  drain would have crossed 0 mid-skip).
-
-### Non-Trait NPC Mechanics Worth Noting Alongside Traits
-
-- **Passing out** (0 Energy): forces `PassedOutActivity`, non-
-  interruptible, energy regenerates at 15/game-hour (slower than a chair
-  at 25 or a bed at 45 — passing out is a bad outcome, not a rest
-  strategy). Wakes at 15 Energy (not full) — deliberately leaves them
-  still needing real rest afterward, and is the intended hook for a
-  future "administer an energy item" player action. Applies the
-  Neuroticism-scaled mood drop above once, at the moment of collapse.
-
-### Relationships (groundwork — Aug 2026)
-
-Directional, from each NPC's own perspective only: `NPC.relationships`
-(`Dictionary`, key → either another NPC's `npc_id` or the literal string
-`"player"`, value → float -100..100, absent key reads as 0/neutral via
-`get_relationship()`). No reciprocal Player→NPC value is stored anywhere —
-out of scope this pass (would require touching `Player.gd`, outside this
-subsystem).
-
-Every NPC now has a stable `npc_id` (`"npc_%d"`, auto-assigned on first
-`_ready()`, persisted, restored ids re-sync the counter via
-`NPC._register_id()` so a same-session freshly-spawned NPC can never
-collide with a loaded one). This didn't exist before — `generation_seed`
-is random-but-not-guaranteed-unique and is for personality/skill RNG only,
-never used as an identity key.
-
-**Baseline driver (the only one live this pass):** passive proximity.
-Ticks on the same 5s cadence as mood/irritability (`_tick_relationships()`,
-called from `_tick_mood_and_irritability()`), nudging affinity up toward
-every other NPC and the player within 4m (XZ-only, `NPCItemUser.flat_distance`)
-by `RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR = 0.15` per game-hour (reduced
-from an initial 2.0, Aug 2026 — see Testing Checklist item 19 and the
-Give/Takeaway paragraph below for the rebalanced ±7.5 event magnitudes),
-scaled by sociability. Deliberately slow — relationships here are meant
-to read as built from consistent habit over a long (100+ day)
-playthrough, not from a handful of interactions.
-
-**Sociability trait** (previously generated/displayed only) is now wired:
-`_sociability_trait_mult()` returns 0.5x (low sociability) to 1.5x (high),
-multiplying every relationship delta in either direction — low-sociability
-NPCs drift toward Hostile or Close more slowly than high-sociability ones,
-symmetric for both bonding and souring.
-
-**Bands** (`get_relationship_label()`, thresholds -60/-20/20/60): Hostile /
-Cold / Neutral / Friendly / Close.
-
-**Single mutation point:** every relationship change, present and future,
-must go through `_adjust_relationship(target_id, delta)` — it's what
-applies the sociability multiplier and the clamp. Never write to
-`relationships` directly.
-
-**Player-facing readout:** see the new Names & "Ask About" Dialogue section
-below — this is what turns the previously debug-only `relationships` data
-into something the player can actually learn in play.
-
-**`FUTURE WORK` — explicitly deferred, not built. Brannon's brainstormed
-list, kept here so future passes wire into `_adjust_relationship()` the
-same way proximity does rather than reinventing the plumbing:**
-- ~~Player handing an NPC food/water directly~~ — done (Give, Aug 2026),
-  see the new Give/Takeaway section below. ~~An NPC noticing it lost out
-  on a scarce item to another NPC~~ — deliberately NOT built this way in
-  the end (see that section for why: no reliable "who wanted it" signal
-  existed without inferring desire, which felt arbitrary). Takeaway
-  shipped instead, a different and more legible mechanic covering
-  overlapping ground.
-- Who helps a passed-out NPC/player vs. who beelines past — doubles as a
-  precursor signal for the still-deferred Crisis Response system.
-- Player commands (`force_command()`) landing well vs. being ignored/
-  delayed shifting player→NPC standing specifically.
-- Pairwise mood-style contagion between relationship values themselves
-  (two NPCs already fond of each other reinforcing faster).
-- Personal-space avoidance radius scaling by relationship (wider berth for
-  low relationship, tighter tolerance for high) — a `NavigationAgent3D`
-  tuning question, not a data-model one.
-- Unprompted "gift" item drop-off between NPCs with surplus/deficit.
-- ~~`get_dialogue_line()` reading relationship value/label to color
-  tone~~ — done, but narrower than originally scoped: a dedicated
-  `get_relationship_dialogue_line(target_id)` Q&A ("What do you think of
-  X?", see the Names & Ask-About section below) reads relationship state.
-  The *ambient* `get_dialogue_line()` Talk line itself is still
-  relationship-blind — still future work if a broader tone-shift is wanted.
-- A stored Player→NPC reciprocal value, if a future UI pass needs to show
-  "how NPCs feel about you" from the player's own side rather than just
-  reading `npc.relationships["player"]` per NPC.
-- `work_ethic`/`neuroticism` wiring — unrelated to relationships, tracked
-  here only because they're the other two still-inert traits.
-
-- `work_ethic`/`neuroticism` wiring — unrelated to relationships, tracked
-  here only because they're the other two still-inert traits.
-
-### Names & "Ask About" Dialogue (Aug 2026)
-
-**Names.** `NPC.NPC_NAMES` — a fixed 10-name pool (Mara, Dez, Colton,
-Priya, Finch, Sable, Nolan, Ruth, Kwame, Vera). Assigned by
-`_assign_random_name()` at `_ready()` whenever `npc_name` is still its
-export default `"Survivor"` (a save-restored or scene-placed NPC with a
-real name already set is left alone). Collision-avoided against every
-other currently-live NPC (`"npc"` group) so two NPCs can never share a
-name at once — this matters because the Ask-About feature below refers to
-NPCs by name, and an ambiguous name would break that. If the pool is fully
-exhausted (an 11th+ NPC), repeats are allowed rather than failing. No
-persistence changes were needed — `npc_name` was already a saved field.
-
-**Ask About.** The E-panel's Talk flow gained a third revealed section
-(alongside the existing dialogue line and command buttons): "ASK ABOUT",
-one button per currently-live NPC other than the one you're talking to
-(`NPC.get_other_npc_topics()`), plus a fixed "What do you think of me?"
-for the player. Pressing one calls
-`NPC.get_relationship_dialogue_line(target_id)` — picks a flavor-text
-line from a pool keyed to `get_relationship_label(target_id)`
-(Hostile/Cold/Neutral/Friendly/Close, from the Relationships pass) and
-shows it in the same dialogue label the ambient Talk line uses. This is
-the player's window into relationship state that previously only existed
-in `NPCDebug` output.
-
-Deliberately minimal: replies are generic per-band flavor text (e.g.
-"I hate them." / "They're alright, I guess." / "They're really cool!"),
-not name-specific — the question already names the target, so pools stay
-reusable for any target. No acquaintance/gating system exists — every
-live NPC is always askable regardless of whether they've actually been
-near each other.
-
-**`FUTURE WORK`:**
-- Acquaintance gating (can't ask about — or get an honest answer about —
-  someone this NPC has never actually been near).
-- Ambient `get_dialogue_line()` Talk-line pools reading relationship
-  toward the player and coloring tone (currently only the explicit
-  Ask-About Q&A does this — see the note in Relationships above).
-- Named replies (e.g. weaving the target's name into the answer itself,
-  not just the question) once a real dialogue system replaces the small
-  hardcoded pools.
-- Visual/portrait identity per name — names are text-only right now.
-
-### Give / Takeaway (Aug 2026)
-
-**Give.** Player holds any giveable item — `DishItem`, `FarmProduceItem`,
-`FoodCan`, or `WaterBottle` (`NPCItemUser.is_giveable()`, reuses the same
-`is_edible()`/`is_drinkable_bottle()` classifiers self-serve
-eating/drinking already use) — and walks up to an NPC: `[E] Give <item>
-to <name>` appears (mirrors the Basket/Cooking Pot held-item prompt
-pattern in `InteractionSystem.gd` exactly). E performs a REAL transfer
-through the single shared
-`InteractionSystem.release_held_item_to_npc()` (wrapped for NPC-side use
-by `Player.release_held_item_to_npc()`): the item physically leaves the
-player's hand, becomes the NPC's `held_item`, and is consumed over the
-NPC's normal eating/drinking duration via
-`GivenEatActivity`/`GivenDrinkActivity` (subclasses of the self-serve
-activities that key off `held_item`, so the NPC visibly "eats"/"drinks"
-it exactly like something it picked up itself — the overhead label shows
-"Eating"/"Drinking"). Nutrition/hydration is NOT applied instantly;
-consumption happens async inside those activities' `tick()`, and a
-can/bottle persists in the NPC's hand across bites/drinks (drops when
-finished, or is dropped if the NPC is interrupted), same as self-serve.
-
-**Give sequencing (the Player side owns the transfer now):**
-`_try_give_to_nearest_npc()` first calls `NPC.can_receive_item(item)`
-(a pure check: hands free + giveable), then
-`release_held_item_to_npc()` (the actual physical transfer, which also
-clears the inventory slot and HUD selection exactly like `_quick_drop()`
-does), then `NPC.on_item_given(item)` (relationship/burnout bookkeeping
-+ wiring the consumption activity). `NPC.receive_item_from_player()`
-no longer exists — replaced by that check + consequence split, because
-only the Player side has the inventory-slot context needed to clear it
-correctly. Sequencing is still safe: `can_receive_item()`'s hands-full
-guard is checked first, and nothing changes `held_item` between it and
-`on_item_given()` since the whole sequence is synchronous.
-
-A successful gift applies a +7.5 relationship bonus (scaled by Sociability
-like everything else, via `_adjust_relationship()`, and by gift
-burnout — see below). **Per-(item, NPC) boost gating:** each item
-instance tracks which NPCs it's already boosted
-(`item.get_meta("npc_gift_recipients")`, an Array of `npc_id`s) — giving
-the same can/bottle to the same NPC again still feeds them but grants NO
-further relationship reward. The same item CAN still boost several
-different NPCs once each — only a repeat to the same NPC is blocked. This
-was unreachable for single-serving items before (destroyed on first use)
-but matters now that cans/bottles persist across gifts.
-
-**Gift burnout (Aug 2026, Part 25).** Repeated gifts in a short window
-give progressively smaller boosts: each NPC tracks `gift_saturation`
-(0..1), +0.25 per successful gift, decaying back to 0 over ~5 game-days
-(`GIFT_SATURATION_DECAY_PER_GAME_HOUR`, same `game_hours()` clock every
-other NPC system uses — day-scale, matching Mood). The actual boost is
-`GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)`
-— never fully zero (floor 0.15x) so a burned-out gift still visibly does
-something rather than feeling broken. Stacks with (multiplies against)
-the Sociability multiplier `_adjust_relationship()` already applies.
-Closes the "stand there feeding them nonstop" exploit.
-
-**Per-item gift marking.** Each item instance can only ever produce a
-boost once (`item.set_meta("npc_gift_used", true)`, checked before
-allowing a repeat). Currently unreachable in practice — a single-serving
-Give item is destroyed on its first successful gift
-(`consume_as_food()` frees the node), so no instance survives to be
-re-offered — but this closes the exploit path in advance for whenever
-Give expands to multi-charge items, where the same bottle/can genuinely
-could otherwise be re-given after a refill or after being taken back.
-
-**Takeaway.** Any item an NPC is holding, for any reason, is now a valid
-`[F] Pick up` target for the player — the earlier need-triggered pickup
-gate (Aug 2026) was removed (Part 25) in favor of relying only on the
-relationship consequence, not access, to keep this fair. Taking it clears
-the NPC's stale `held_item` reference always
-(`NPC.on_item_taken_by_player()`); the -7.5 relationship penalty
-(`TAKEAWAY_RELATIONSHIP_PENALTY`) still only fires when the item was a
-genuinely need-triggered food/water consumption
-(`NPC.is_consuming_from_need()`, hunger/thirst < 55, the same threshold
-Eat/DrinkActivity themselves auto-trigger on) — taking a job material
-(fuel can, purifier filter, harvest fetch) away has no relationship
-consequence. A player-forced "Go eat something" command issued while the
-NPC wasn't actually hungry still doesn't count as need-triggered.
-
-Known accepted quirk: stealing a job material mid-carry doesn't abort the
-job — `JobActivity`'s `held_item` references are all null-checked, so it
-can't crash, but the job silently "completes" without its actual effect
-landing (no fuel added, no filter replaced). Not fixed this pass — see
-Future Work.
-
-Both directions log through `NPCDebug.log_relationship_event()`
-(distinct from `log_relationship_tick`'s continuous proximity logging —
-these are discrete, always-worth-a-line player actions).
-
-**F7 relationship visualizer.** Piggybacks the existing "Toggle NPC Debug
-Logging" row rather than adding a new one — while `NPCDebug.enabled` is
-on, every NPC shows a floating pale-blue text readout above their head
-(`NPC._update_relationship_debug_label()`, above the Part-5 name/activity
-label) listing every relationship they've formed and its band. Debug-only
-stand-in for a real in-fiction relationship UI later, per Brannon.
-
-**`FUTURE WORK`:**
-- ~~Multi-use item Give (FoodCan/WaterBottle)~~ — done (Aug 2026): one
-  bite/drink per gift, item persists across gifts exactly like self-serve
-  consumption, per-(item, NPC) recipient tracking prevents repeat boosts
-  to the same NPC from the same item.
-- JobActivity doesn't detect or react to a stolen job material — the job
-  silently "completes" without its effect (see the Takeaway paragraph
-  above). A real fix means JobActivity checking for the theft and
-  aborting instead of completing.
-- A visible interrupt/flinch reaction when an item is taken mid-bite,
-  instead of the NPC finishing its ~2s consumption animation
-  empty-handed (a cosmetic gap, not a logic bug — see
-  `on_item_taken_by_player()`'s comment).
-- The floating "-7.5"/"+7.5" loss/gain pulse above an NPC's head — real
-  visuals pass, explicitly deferred; the F7 readout is the placeholder.
-- NPC-vs-NPC takeaway — structurally impossible right now (the item claim
-  system already prevents one NPC from ever targeting another's claimed
-  item), so this only ever fires against the player today.
-
-### Relationship Snatch (Aug 2026, generalized to any target)
-
-A badly-relationship'd NPC has a chance to target the PLAYER **or another
-NPC** (instead of a normal world item) when searching for food/water,
-forcibly taking a held item right out of the target's hands. It is the
-one intentional, narrowly-gated exception to the strict no-theft ethos.
-
-The target pool is now unified: `NPC.find_snatch_target()`
-considers the player and every other NPC side-by-side as
-interchangeable candidates — anyone holding a matching item whose
-relationship with the snatcher is ≤ -50 qualifies, with ties broken by
-nearest (`NPCItemUser.flat_distance`). The player is just another member
-of that pool; there is no player-first branching. The old
-`find_player_snatch_target()` is gone; its one remaining backward-compat
-wrapper, `get_snatch_chance()` (kept for the player-only F7 debug flow),
-just delegates to the generalized `get_snatch_chance_toward(id)`.
-
-Runs as its own **dedicated, non-interruptible `SnatchActivity`** — not a
-mode folded inside EatActivity/DrinkActivity. That earlier design (Part
-29) failed almost every time in practice: as far as `NPCBrain` was
-concerned it was still an ordinary interruptible `EatActivity`/
-`DrinkActivity` (whose `interruptible()` only returns `false` once the
-drink/eat timer is actively counting down, which never happens during
-the walk-over), so the normal 1-second think-cycle could and did cancel
-the pursuit mid-approach — the "walks toward the player, then midway just
-wanders off" behavior. Now: `SnatchActivity.interruptible()` returns
-`false` always, so once the NPC commits it cannot be preempted.
-
-The flow: EatActivity/DrinkActivity call
-`NPC.find_snatch_target()` in `enter()`/`_reacquire_or_finish()`.
-On a hit, the activity stores the target in `_pending_snatch` and hands
-off to `SnatchActivity` on the next tick via the new
-`NPCActivity.take_handoff()` mechanism (checked by `NPCBrain.tick()`
-right after `tick()` runs — deliberately NOT `force_command()` from
-inside an activity's own `tick()`, which would be reentrantly unsafe
-against the brain's `_current = null` line). `SnatchActivity` walks to
-the target (SNATCH_RANGE), and on a successful
-`NPCItemUser.snatch_from()` immediately hands off to
-`GivenEatActivity`/`GivenDrinkActivity` to consume what was grabbed —
-again via `take_handoff()`, so the item is eaten/drunk over the normal
-duration, never instantly.
-
-Both `EatActivity.score()` and `DrinkActivity.score()` also consult
-`NPC.is_npc_snatch_eligible()` (a deterministic, roll-free check) so
-they return nonzero — and get selected by `_think()` — even when the only
-matching item in the bunker is currently in another character's hands.
-Without this, score() returned 0 whenever no normal world target existed,
-the activity never got chosen, `enter()` never ran, and the NPC just
-wandered despite hunger/thirst and a hostile relationship. The actual
-probability roll still only happens inside `find_snatch_target()` once the
-activity is entered.
-
-Snatch uses a slightly larger `SNATCH_RANGE` (1.6) than the loose-item
-`PICKUP_RANGE` (1.2) — the player has real collision geometry, so the
-tight pickup distance walked the NPC into physical contact before its
-range check ever satisfied.
-
-`SnatchActivity` **continuously re-aims at the target every tick** while
-the item is still in their hands (not just once at `enter()`), so a
-moving character is chased live. If the target drops the tracked item
-(the same item, now loose on the ground) instead of stowing/using/giving
-it away, it switches to chasing the dropped item and grabs it there. A
-`MAX_CHASE_TIME` (20s) safety valve makes it give up cleanly (logged)
-rather than pursuing forever — since `interruptible()` is false, nothing
-else could ever interrupt an indefinite chase. The decision path is
-fully logged via `find_snatch_target()` (not-considered reasons,
-roll attempts, roll success/failure) plus `SnatchActivity`'s own staged
-lines. The victim's side of the log mirrors the player version at NPC
-scale: `NPC.on_item_snatched_by_npc()`, invoked by `snatch_from()` for an
-NPC target, clears the victim's `held_item`, releases the claim, and logs
-"%s snatched an item from %s" (relationship-neutral).
-
-**Snatch uses the exact same transfer path as Give.**
-`snatch_from()` no longer does its own pickup/inventory logic — for a
-player target it calls `Player.release_held_item_to_npc()`, the same
-shared function Give's `_try_give_to_nearest_npc()` uses (which wraps
-`InteractionSystem.release_held_item_to_npc()`, the `_quick_drop()`-
-mirroring transfer that clears the inventory slot and HUD selection too).
-The player-side `get_held_item()`/`release_held_item_to_npc()` are
-reachable via the `"player"` group node. For an NPC target there's no
-inventory system to reconcile — `snatch_from()` directly reassigns the
-item to the thief's `hold_point` and clears the victim's `held_item`.
-`Player.on_item_snatched()`/`InteractionSystem.clear_held_item_external()`
-from the earlier contract are now un-called by Snatch (the shared
-transfer handles everything) — left in place as dead code.
-
-- **Gated on hostility.** Only ever considered when the relationship
-  with the target is ≤ -50 (`SNATCH_RELATIONSHIP_THRESHOLD`), whether
-  the target is the player or another NPC.
-- **Chance scales with hostility.** At exactly -50: 5% per attempt
-  (`SNATCH_CHANCE_AT_THRESHOLD`). At -100 (fully hostile): 50%
-  (`SNATCH_CHANCE_AT_MIN`). Linear between, via
-  `get_snatch_chance_toward(target_id)`.
-- **Evaluated on target search only** — once per Eat/DrinkActivity entry
-  and after finishing a previous item (via `find_snatch_target()`),
-  matching the cadence of every other target search, never continuously.
-- **Relationship-neutral.** A successful snatch does not further ding the
-  relationship — it is already a consequence of an existing bad one, not
-  a new event worth logging as its own relationship change.
-- **Held item only.** It only ever targets a currently target-HELD item
-  (via `target.get_held_item()`); it never reaches into inventory or
-  stored items. The item must be a matching food/water item (edible for
-  Eat, drinkable bottle for Drink).
-- **Deliberately separate from `grab_loose()`.** The guarded `grab_loose()`
-  (for legitimate item-finding, with its `is_held` guard added to stop
-  accidental theft) stays strict. `snatch_from()` is the one
-  intentional exception, reached only through `SnatchActivity`.
-- **Staged debug logging** via `NPCDebug.log_snatch()` — `started`/
-  `success`/`aborted`/`failed` each get their own console line (only when
-  NPC debug logging is on), so a silent failure is never silent again.
-- **F7 debug buttons.** "Force Nearest NPC to Snatch Player Item" targets
-  the nearest NPC to the player, bypasses both the relationship gate and
-  the probability roll, but still requires the player to be actually
-  holding a matching food/water item. "Force Nearest NPC to Snatch NPC
-  Item" tries the same for an NPC target (bypasses gates, requires a
-  disliked NPC holding a matching item). "Relationship -25 / +25 (All
-  NPCs ↔ Player)" set every spawned NPC's relationship with the player
-  by an exact ±25, bypassing the Sociability multiplier
-  (`debug_adjust_player_relationship()` writes `relationships["player"]`
-  directly), so the ±25 is predictable for testing.
-
-#### Snatch → Gift Cooldown (Aug 2026)
-
-Per **attacker ↔ specific victim** pair, blocks the NPC or player who was
-just snatched FROM from gifting back to that SAME attacker for
-`SNATCH_GIFT_COOLDOWN_SEC` **60 seconds** — NOT a general "this NPC is
-scary" flag. An uninvolved third party's ability to gift the attacker is
-completely unaffected (they were never in that attacker's cooldown list).
-
-- `NPC.start_snatch_cooldown_against(victim_id)` is called by
-  `SnatchActivity.tick()` every active tick, so the 60s always counts
-  from the LAST moment of active pursuit against that victim (attempts
-  that fail or get abandoned still count as "just tried to snatch").
-- `NPC.is_gift_blocked_from(giver_id)` is consulted inside
-  `can_receive_item()` (its new `giver_id` param defaults to
-  `"player"`, so `InteractionSystem.gd`'s existing Give call site needs
-  zero changes). When blocked, `can_receive_item()` returns false and
-  any Give toward the victim fails.
-
-#### NPC↔NPC Snatch Pair Cooldown (Aug 2026)
-
-A second, distinct cooldown for NPC-vs-NPC snatches specifically:
-`NPC_SNATCH_PAIR_COOLDOWN_SEC` **10 seconds**, per pair, tracked
-**bidirectionally** — both NPCs in the pair get the cooldown stamped the
-moment a successful NPC→NPC snatch happens between them
-(`start_npc_snatch_pair_cooldown(other_id)` called on both sides by
-`SnatchActivity.tick()`), so the two hostile NPCs can't immediately
-ping-pong the same item back and forth. `find_snatch_target()` skips any
-pair currently on this cooldown (unless the F7 force-NPC-snatch debug
-flag bypasses it). This is deliberately separate from the Snatch→Gift
-60s cooldown above — that one blocks *gifting back* after a snatch;
-this one blocks *another snatch from the same pair* for a short window,
-regardless of which direction.
-
-### NPC↔NPC Talking (Aug 2026)
-
-Opportunistic, scored like Relaxing — but the score is multiplied by a
-relationship curve based on the **mutual** relationship (both directions
-averaged, `get_talk_score_mult(partner)`: reads this NPC's feeling toward
-the partner AND the partner's feeling toward this NPC, then averages —
-"mutually high" means both like each other, not just one side). Flat 1.0x
-between mutual relationship −15 and +15 (the "neutral" band), scaling
-continuously up to 2.5x by +100 (`TALK_SCORE_MULT_MAX`) and down to 0.2x
-by −100 (`TALK_SCORE_MULT_MIN`). Only ever considered between NPCs
-already within `TALK_RANGE` (3.0) — deliberately **no travel phase**, so
-both parties lock in place immediately rather than walking to meet. This
-sidesteps the "cancelled mid-approach" failure mode Snatch originally
-had. Non-interruptible once both parties are locked in — except low
-needs always override: if either participant's hunger or thirst drops
-below 55 mid-conversation, `interruptible()` returns true so they can
-break off and eat/drink (same 55 threshold Eat/DrinkActivity auto-trigger
-on).
-
-Mechanics (`TalkActivity`, registered in `_candidates`):
-- `score()` is zero unless a free partner exists (`find_talk_partner()`),
-  then `TALK_BASE_SCORE (5.5) × work-ethic passive mult` (see Trait
-  Effects Reference). A partner is eligible via `is_available_to_talk()`
-  (not relaxing, not already talking, not on the talk cooldown, and
-  interruptible).
-- On `enter()`, the initiator picks the nearest eligible partner and
-  calls `partner.start_talk_session(initiator)`, which `force_command()`s
-  a **separate, one-shot partner-side `TalkActivity`**
-  (`is_initiator = false`) onto the partner. Both `lock_movement()` and
-  face each other (`look_at`), so both stand locked for the whole
-  session.
-- Session duration `SESSION_MIN..MAX` (8–20 real seconds). When the
-  initiator's timer ends, it calls `partner.end_talk_session()`, which
-  logs **"Talked to X"** from the partner's own perspective, applies the
-  per-conversation relationship swing (see below), and clears its
-  `_partner` so its forced activity finishes. The initiator logs its own
-  "Talked to X" and applies the same swing.
-- **Per-conversation relationship swing** (`apply_talk_relationship_swing()`)
-  — applied independently to EACH participant at NATURAL conversation end
-  only (`end_talk_session(natural=true)`); an interrupted conversation
-  (`natural=false`) skips it. Uniform magnitude 1–3, random sign
-  (`_random_sign()`, see Established Conventions below), routed through
-  `_adjust_relationship()` like every other relationship-affecting event
-  (so it's Sociability-scaled). Logged per NPC as "Relationship with
-  {partner} +{applied} (Good/Bad/Neutral Conversation)" — the applied
-  (post-Sociability) delta with a conversation label.
-- **30–90s session-end cooldown** (`TALK_COOLDOWN_MIN_SEC`/
-  `TALK_COOLDOWN_MAX_SEC`, randomized via `start_talk_cooldown()`), started
-  after ANY session ends (natural or interrupted) and gating both
-  `is_available_to_talk()` and `TalkActivity.score()` — without it,
-  nothing stopped the same two NPCs immediately re-initiating the instant
-  one conversation ended (which was the actual source of the "randomly
-  interrupted with brief Idles, several instances back to back" symptom,
-  not the non-interruptibility logic itself).
-- Interaction (F7 force someone else mid-conversation) triggers
-  `exit()` → `partner.end_talk_session()` on the partner side too, so
-  neither party is stranded waiting.
-- **FUTURE WORK (deliberately not built):** relationship-based random
-  conversation OUTCOMES. This pass is groundwork only — both NPCs
-  occupied, facing each other, logged.
-
-**F7 debug button:** "Force Nearest NPC to Talk to NPC" calls
-`nearest.debug_force_talk()`, which finds a free partner and forces the
-initiator's `TalkActivity` (partners still must be eligible).
-
-### Give-to-Friend (Aug 2026)
-
-A well-fed, friendly NPC (relationship ≥ +25 with a friend whose matching
-need is low) fetches a loose food/water item and delivers it to that
-friend. Chance-to-attempt scales with relationship strength above +25,
-mirroring Snatch's curve shape in the opposite direction: 5% at exactly
-+25 (`GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD`), 50% at +100
-(`GIVE_TO_FRIEND_CHANCE_AT_MAX`), linear between via
-`get_give_to_friend_chance(rel)`.
-
-Mechanics (`GiveToFriendActivity`, registered in `_candidates`):
-- `score()` uses `has_needy_friend()` (cheap, deterministic — no search
-  or roll) so the full search only runs on `enter()`:
-  `GIVE_TO_FRIEND_BASE_SCORE × work-ethic passive mult`.
-- `find_friend_to_help()` picks the **nearest** eligible needy friend
-  (relationship ≥ +25, matching need < 55), picks the matching item type
-  (lowest need: `edible` if hunger is lower, `drinkable_bottle` if
-  thirst is lower),
-  finds a matching loose item, then gates on one probability roll scaled
-  to that friend's relationship.
-- Fetch phase mirrors `JobActivity` exactly (find/claim/`grab_loose`).
-  Travel phase mirrors `SnatchActivity`'s continuous re-aim at a moving
-  target. Interruptible throughout (`interruptible() → true`) — this is
-  an altruistic errand, fine to abandon if something more urgent comes
-  up.
-- On arrival (`SNATCH_RANGE`), `can_receive_item()` gates the hand-off:
-  the item is `pickup`'d onto the friend's `hold_point`, the friend's
-  `held_item` set, and `friend.on_item_given(item, npc.npc_id,
-  npc.npc_name)` — so the **relationship boost lands on the donor**, not
-  always the player. The donor's own log: "Gave {item} to {friend}". The
-  recipient's existing Give log now reads "{donor} gave {item} to
-  {npc_name}", generalized from the player-only wording.
-- `exit()` releases any unconsumed claimed item; if interrupted while
-  actually carrying the item, the NPC keeps it (they'll finish
-  delivering or use it next re-entry — reusable fetch).
-
-**F7 debug button:** "Force Nearest NPC to Give to Friend" calls
-`nearest.debug_force_give_to_friend()` — bypasses the chance roll but
-still needs an eligible needy friend and matching loose item.
-
-### Cleaning (Aug 2026)
-
-Trash disposal + shelf organizing under one job, run by
-`CleaningActivity` (registered in `_candidates`). Not routed through
-`JobBoard`'s claim system the way Harvest/Filter/Refuel are — those are
-single-location jobs; Cleaning is three-location (go to the item → go
-to a *different* destination → drop it there), the same fetch→travel→
-deliver shape `GiveToFriendActivity` already uses. `JobBoard` instead
-gains a periodic world-state discovery role (`_scan_cleaning()`, same 2s
-cadence as the other scans) maintaining two cached lists that `NPC.gd`
-reads from:
-- **Trash items:** `EmptyBagItem`, an empty `FoodCan` (no bites left),
-  or an empty `WaterBottle` (fill ≤ 0). Fuel cans deliberately NOT
-  included yet — easy future addition once its public empty-check API is
-  confirmed. Gated behind `_has_trash_receptacle()`: returns false today
-  because nothing occupies the `"trash_receptacle"` group yet, so trash
-  never actually enters the cache — the mechanism self-activates the
-  instant a receptacle exists, with zero code changes then.
-- **Organizable items:** anything loose that has sat untouched/unclaimed
-  for **90s** (`CLEANING_IDLE_MIN_SEC`, tunable). The idle clock restarts
-  if the item moves more than 0.3 m (`CLEANING_IDLE_MOVE_TOLERANCE`)
-  while being tracked — so an NPC won't sweep away something the player
-  just set down. Trash skips the idle gate entirely (it's unambiguous).
-
-Work Ethic treats this as a **job** (`get_work_ethic_job_mult()`), so
-Lazy NPCs clean less and Hard Workers more, same as every other job.
-
-**Stuck-recovery integration:** when an NPC stalls
-(`_recover_from_stuck()`), `_find_stuck_obstruction()` checks the slide
-collisions for a loose (unheld, unshelved) `RigidBody3D`; if one is
-found, the NPC is forced into `CleaningActivity` carrying that specific
-item — bypassing both eligibility checks entirely by design (it caused
-the stall, so it's fair game regardless of what it technically is).
-The `is_trash_item()` classification is only for which log line fires
-("Threw away" vs "Put away"), not a gate.
-
-**Future hook:** the eventual trash receptacle scene just needs to
-occupy the `"trash_receptacle"` group and implement
-`npc_deposit_trash(npc, item)`; the delivery call is already
-`has_method()`-guarded so it's a safe no-op today.
-
-**Confirmed bug fixes (Aug 2026):**
-- **Stale cached references crash** — `get_trash_items()`/
-  `get_organizable_items()` returned the raw cache with no validity
-  check; an item destroyed between `SCAN_INTERVAL` scans made
-  `find_cleaning_target()` iterate a freed reference (same class of bug
-  previously fixed in `get_open_jobs()`). Both now `filter()` on
-  `is_instance_valid()` before returning.
-- **Heavy items couldn't be approached** — a Crate (`mass 7.0` ≥
-  `HEAVY_OBSTACLE_MASS`) gets a `NavigationObstacle3D` with
-  `avoidance_enabled` so NPCs route *around* it, which actively prevents
-  closing the final distance when the NPC *wants* to grab it. Added
-  `PickupableItem.set_nav_obstacle_enabled(bool)` (flagged: World-Items
-  file); `CleaningActivity.enter()` disables avoidance on the target
-  while approaching, and `exit()` restores it if the item is abandoned
-  still on the ground (`pickup()`/`drop()` already manage the held/
-  dropped states correctly).
-- **Nearest-shelf-picked-without-capacity-check → "just drops"** —
-  `find_cleaning_destination()` picked the nearest `"shelving"` member
-  by distance alone, so a full shelf was chosen, the placement attempt
-  failed, and the NPC dropped the item. Added `Shelving.has_room_for()`
-  and made `find_cleaning_destination(is_trash, item)` skip shelves
-  without room.
-- **Only ever did one item per shift** — `done()` returned
-  `_item == null`, which became true the instant after every single
-  delivery, so the activity stopped after one item by design. Redesigned
-  (Aug 2026) as a **sustained session**: `CleaningActivity` now loops
-  `_pick_next_target()` after each delivery (success or failure) and keeps
-  cleaning until either **20–40 real seconds** elapse
-  (`SESSION_MIN_SEC`/`SESSION_MAX_SEC`, uniform random via `randf_range()`
-  — same convention as Talk/Relax session lengths; real time, not
-  game-hours, matching Talk not Relaxing) **or nothing's left to clean**
-  bunker-wide. Session time is only checked between items
-  (`_item == null`) so it always finishes delivering whatever it's
-  currently carrying before ending. Interruptible only between items
-  (`interruptible()` returns `_item == null` — mid-carry, committed).
-  The `CommandCleaningActivity` "Clean the bunker" button delegates to a
-  normal organic-mode `CleaningActivity` unchanged, deliberately inheriting
-  the sustained session rather than stopping after one item. The
-  stuck-recovery path (`forced_item`) is exempt by design — always exactly
-  **one grab**, an emergency unstick, never a full session. If a session
-  finds nothing to clean at start (or the timer runs out between items),
-  it ends immediately/gracefully rather than idling forever — `done()` is
-  `_finished and _item == null`, not `_item == null`.
-
-**Diagnostics (Aug 2026):** `NPCDebug.log_cleaning(npc, stage, detail)`
-mirrors `log_snatch()`'s staged pattern — "session ended" /
-"nothing left to clean" / "time's up (Ns)" entries under
-`%s CLEANING [%s]: %s`. `JobBoard._scan_cleaning()` prints a summary
-line per scan when debug is on: `N trash, N organizable,
-N tracked-but-not-yet-idle`.
-
-**Known open issues (NOT resolved — do not mark done):** both original
-Cleaning complaints were re-investigated in the Aug 2026 sustained-session
-pass (root causes identified above), and several item-management bugs were
-fixed, but the field symptoms were **still reported after the fix attempt**:
-- **Shelf pop-out** — a placed item occasionally popping back out of /
-  unfreezing from a shelf (or a carried-then-shelved item unfreezing).
-  Not reproducibly traced to a single remaining code path; suspected
-  interaction between `_find_stuck_obstruction()` forcing
-  `CleaningActivity` onto a shelved `RigidBody3D` and stale cached
-  references, but unconfirmed. **Investigation was interrupted by a tool
-  outage mid-session** — a fresh live-repo check is the stated next step.
-- **"Nothing to clean" regression** — an NPC saying nothing's left while
-  items are visibly on the floor. Partly explained as a timing
-  false-alarm (the 90s idle gate on organize-ables + trash never posting
-  because `_has_trash_receptacle()` is still false), but the exact
-  pre-placed-item path is still open.
-- **Sporadic timing** — the original "randomly interrupted with brief
-  Idles, several instances back to back" symptom was traced to Talk's
-  missing session cooldown (fixed), but the equivalent Cleaning/other
-  activity timing remains unexplained.
-Before declaring Cleaning fully fixed, re-verify against the test
-checklist (tests 80–84) in `NPC_CLEANING_SHELF_POPOUT_AND_SESSION_PLAN.md`
-after a fresh repo pull.
-
-### Skills & Jobs
-Four skills (`farming`/`plumbing`/`electrical`/`construction`), floats
-0.6–2.0 (displayed ×10, rounded, in the E-panel — e.g. `0.73` → `7`),
-randomized at spawn, +0.01 on relevant job completion. `JobBoard`
-(autoload) polls every 2s for HARVEST (any tray with a ready plant),
-REPLACE_FILTER (purifier < 30% AND a spare unused filter exists anywhere),
-REFUEL (generator < 40% AND a non-empty fuel can exists anywhere) — jobs
-only post when actually completable. As of the Aug 2026 per-plant pass,
-**HARVEST posts ONE job per READY PLANT** (not one per tray) — a 2x1
-tray with both cells ready produces two independent, separately-claimable
-jobs (even by two NPCs at once); the job `target` is the plant itself.
-`JobActivity` runs fetch → travel → work phases; travel targets a
-standoff point near the object (not its exact center, which sits inside
-its own collision and off the navmesh) computed from whichever direction
-the NPC is approaching from.
-
-### Job Priority (Aug 2026)
-A universal per-job-type weighting, a separate axis from Work Ethic:
-Work Ethic is whether *this NPC* feels like working at all right now;
-Job Priority is how important *this kind of task* is, in general. Both
-multiply together into the final score (`get_work_ethic_job_mult()` ×
-`get_job_priority_weight(job_type)`). Current weights
-(`JOB_PRIORITY_WEIGHTS`, tuned as a starting point): HARVEST **1.3**,
-REPLACE_FILTER **1.0**, REFUEL **1.0**, CLEANING **0.5**, default **1.0**
-for unknown types. Deliberately an `NPC.gd` instance method even though
-it doesn't read `personality` yet — **extension point:** a planned
-Gardening trait can boost HARVEST and a Mechanic trait can boost
-REPLACE_FILTER/REFUEL by reading `personality` right here, one central
-place rather than a parallel system.
-
-### Items & Consumption
-NPCs eat/drink using the exact same world APIs the player does —
-`take_bite()`/`take_drink()`/`consume_as_food()` are the single shared
-mutation point between player and NPC paths, so values can never drift
-apart. A lightweight claim system (`NPCItemUser.claim_item`/
-`release_item`) prevents two NPCs converging on the same loose/shelved
-item. `DrinkActivity`/`EatActivity` continue automatically across multiple
-items within one activity run (grab → consume → immediately look for the
-next one if the need isn't yet satisfied) rather than fully exiting and
-restarting between each item. All proximity/range checks use
-`NPCItemUser.flat_distance()` (XZ-only) — raw 3D distance between the
-NPC's capsule-center origin and a floor-level item silently fails range
-checks otherwise (this exact bug recurred across chairs, job-site
-approach, and item pickup before being centralized here).
-
-### Resting
-Two options, competing naturally via the brain's normal scoring:
-`SitActivity` (chairs, Energy → 90, regen 25/game-hour) and `LieActivity`
-(beds, Energy → 100, regen 45/game-hour, capsule rotated horizontal via
-`Bed.get_lie_transform()`). Both use `NPC.lock_movement()` at the seat/
-lie-down transition instant (a one-time hard stop, distinct from the
-per-frame `halt_movement()` every other stationary phase uses).
-
-### Relaxing (Aug 2026)
-A scheduled break, distinct from Wander/Idle: `RelaxActivity` delegates
-entirely to the Relax-prefixed subclasses `RelaxSitActivity`/
-`RelaxLieActivity` (which extend `SitActivity`/`LieActivity`) for the
-actual arrival/seating mechanics — or just stands in place if neither a
-chair nor a bed is free. The Relax-prefixed pair exist specifically to
-fix a get-in/get-out energy loop: the base `SitActivity`/`LieActivity`
-only compete for selection below their Energy thresholds, but a scheduled
-relax session must be able to *start* even at full Energy — and once it
-had, the base classes' `done()` logic (which also keys off Energy) would
-immediately end it, so a full-Energy NPC could repeatedly sit down and
-get straight back up. The Relax subclasses gate on chair/bed-availability
-only, not Energy, so a session runs its full duration regardless of how
-full the NPC's Energy is. Self-limiting via a
-**daily time budget** rather than precise scheduling — it scores a flat
-baseline (6.0, just above Wander's 5.0, × Work Ethic passive mult)
-whenever budget remains, burns budget down in ~20–40 min sessions
-(`SESSION_MIN`/`SESSION_MAX` game-hours), and naturally yields a handful
-of sessions per day. Budget = **1 game-hour/day baseline, 2 for Lazy**
-(`RELAX_BUDGET_BASELINE`/`RELAX_BUDGET_LAZY`, via
-`NPC.get_relax_time_remaining_today()`), reset once per in-game day by
-`_tick_relax_day()` on the same 5s tick as mood. Fully interruptible —
-a genuine need (hunger/thirst/energy/forgetfulness) still preempts it
-normally. Asking an NPC to do a job while relaxing ("Harvest the plants")
-is refused the first time that relax session (`get_relaxing_refusal_line()`
-shown in the E-panel dialogue); the second ask in the same session
-complies at a **-3 relationship cost** (`request_job_while_relaxing()`).
-
-**Inter-session cooldown + spawn stagger (Aug 2026):** sessions are now
-separated by a randomized `RELAX_MIN_GAP_HOURS`–`RELAX_MAX_GAP_HOURS`
-(3–6 game-hours) cooldown (`start_relax_cooldown()`, checked by
-`RelaxActivity.score()` via `NPC.is_relax_on_cooldown()`; decremented in
-`_tick_relax_day()`). The cooldown only starts if a session actually
-happened — an `enter()` that immediately found no chair/bed doesn't
-trigger it. Fresh NPCs also get a randomized 1–3h head-start cooldown in
-`_ready()`. Why: without these, a fresh NPC (full needs, nothing else
-competing) wins the very first think-cycle and can chain sessions
-back-to-back until the whole daily budget is gone in one sitting —
-front-loading the entire day's relaxation at spawn.
-
-### Player Commands
-Via the E-panel: press Talk, a **Requests** button appears (replaced the
-four direct action buttons). Clicking it reveals four rephrased buttons
-— "Can you go eat something?", "Can you go drink something?", "Take a
-load off", "Can you complete this job?" — plus a **Jobs** submenu
-revealed by the last one. Job buttons are built from the centralized
-`NPC_JOB_MENU_ENTRIES` registry (`NPCTalkMenuUI.gd`) — one entry per
-type (HARVEST, REPLACE_FILTER, REFUEL, and the literal "CLEANING").
-Each force-starts an existing activity class via
-`NPCBrain.force_command()`, bypassing normal need-based scoring:
-`EatActivity`/`DrinkActivity` directly, `CommandRestActivity` (tries
-`LieActivity` then falls back to `SitActivity`), `CommandJobActivity`
-(generic — finds the nearest open `JobBoard` job of the requested type,
-parameterized so a new job type needs no new class), and
-`CommandCleaningActivity` (wraps an organic `CleaningActivity` for the
-CLEANING entry, since Cleaning isn't JobBoard-claimed). Identical real-
-world behavior to the automatic versions. The relaxing-refusal guard
-("asking during a conversation doesn't count" → refusal line, then -3
-relationship on the second ask) now applies uniformly to **every** job
-button, not just Harvest. Panel height grows to fit via the shared
-`_refresh_panel_height()` (stacks Log + Requests/Jobs contributions).
-`CommandHarvestActivity` is retained but unused from the UI going
-forward. Pass-out's force-check still preempts a command every frame —
-commanding a passed-out NPC does nothing until it recovers.
-
-### Persistence
-Phase-4 `SaveManager` field (`MainWorld._get_npcs_for_save`/
-`_restore_npcs`) — position, name, needs, skills, generation seed
-persist; held items and in-progress job claims do not (NPCs reload
-empty-handed and re-decide; `JobBoard` auto-releases claims from freed
-NPCs, so this is always safe).
-
-### Time-Skip Catch-Up (Aug 2026)
-`NPC.catch_up_all(hours)` is the single entry point simulating how NPCs
-spend a time-skip (F7 Fast-Forward, sleep). It is called explicitly by
-each skip source right next to its existing
-`player_stats.skip_time_with_drain()` call — **any future skip source
-must call it too; nothing hooks into the game clock automatically**.
-Clamped to a hard `MAX_CATCHUP_HOURS` (72) so no single call can simulate
-unbounded consumption. Per NPC, in order:
-- **Needs (hunger/thirst):** full drain for the duration, then an
-  ESTIMATE of how many real meals/drinks would have offset it
-  (`CATCHUP_MEAL_RESTORE_ESTIMATE` ≈ 45 hunger, `CATCHUP_DRINK_RESTORE_ESTIMATE`
-  ≈ 21.5 thirst, averaging the giveable item types), actually consumed
-  from real available world items via their own
-  `consume_as_food()`/`take_bite()`/`take_drink()` calls — capped by
-  what's actually there. An empty bunker means the NPC just goes hungry,
-  same as reality. When to eat isn't simulated, only roughly how many
-  real items would have been used.
-- **Energy:** full drain; if it would have crossed 0 mid-skip, the same
-  neuroticism-scaled mood drop `PassedOutActivity` uses fires once, and
-  the remainder regenerates at `PassedOutActivity`'s rate
-  (`CATCHUP_PASSED_OUT_REGEN_PER_GAME_HOUR` = 15/game-hour, kept in sync
-  with `NPCBrain`'s constant).
-- **Relaxing:** today's budget is deducted proportionally to the skip's
-  fraction of a day (`_catch_up_relax_budget()`), after a day-boundary
-  reset via `_tick_relax_day()` — a 6h skip removes 25% of the daily
-  budget (baseline 60min → 45min remaining), a 12h skip 50% (→ 30min).
-  Stops an NPC "banking" a full untouched hour across a skip and dumping
-  it all in one greedy session right after waking.
-- **Mood:** the needs-driven pull and random drift are `_tick_mood()`'s
-  own formulas evaluated once with a large `h`. The needs target uses a
-  blend of pre-/post-catch-up needs (a rough stand-in for how needs
-  behaved across the whole window, not just the endpoint). Contagion is
-  a single blended pull toward the bunker's PRE-skip average mood
-  (`avg_mood_before`, snapshotted once in `catch_up_all()`), scaled by
-  elapsed time and clamped so it can't overshoot — deliberately
-  approximate, not a real per-NPC-pair simulation. It stays a FLAT
-  pre-skip average rather than the live system's exposure-weighting on
-  purpose: weighting it correctly would require snapshotting every NPC's
-  exposure map too (in addition to every mood), adding real complexity
-  to something already explicitly treated as an approximation.
-- **Harvest:** every plant that `is_ready()` at the moment the skip is
-  triggered is snapshotted once into a shared pool; each NPC harvests up
-  to `floor(hours)` of them from that pool (one harvested plant = one
-  "job", not one JobBoard tray-job — a tray can hold several ready
-  plants). Plants that were NOT ready before the skip do NOT get
-  auto-harvested (farming growth isn't tied to skips at all).
-
-### Action Log (Aug 2026)
-Per-NPC, player-facing, **curated** log of MEANINGFUL things this NPC has
-done — deliberately NOT a record of routine activity switching
-(Wander→Eat→Wander etc.). `NPC.log_action()` is the single append point
-(`get_action_log()` returns newest-first), scoped to one NPC (each NPC's
-own E-panel shows only their own log, unlike the global
-`NotificationManager` feed it mirrors in structure). Both timestamp
-flavors are captured at append time: `fired_at_msec` for the live "Xs
-ago" display, `game_time` (a snapshot of the HUD clock string) for the
-hover tooltip. Capped at `ACTION_LOG_MAX_LEN` (100).
-
-**Every current log-triggering event:**
-- Give (`on_item_given()`) — new gift: "Player gave X to {name} (+N
-  relationship)", with the actual post-Sociability applied delta (returned
-  by `_adjust_relationship()`, which now reports what it did); repeat-gift:
-  "Player gave X to {name} (fed only, no relationship change)". NPC-to-NPC
-  gifts (Give-to-Friend) read "{donor} gave X to {name}".
-- Takeaway (`on_item_taken_by_player()`) — need-triggered only; taking a
-  job material is deliberately not logged.
-- Snatch success (`SnatchActivity.tick()`) — "Snatched an item from the
-  player's hands" (or "{thief} snatched an item from {victim}" for an NPC
-  target). Aborted/failed attempts and the dropped-item-chase variant are
-  deliberately not logged.
-- Hostile episodes (`SnatchActivity` pursuing a target) — one LIVE entry
-  "X HOSTILE for Ns", created once per episode (`start_hostile_log()`),
-  mutated in place every tick (`update_hostile_log()` — the text counts up
-  "1s", "2s", ... without creating new rows), frozen to a static "X was
-  HOSTILE for Ns" the instant the pursuit ends (`end_hostile_log()`). The
-  UI refreshes this one row's text directly each frame rather than
-  rebuilding the whole log.
-- Relax session completed (`RelaxActivity.exit()`) — "Relaxed for N min"
-  (skipped if the session never actually started).
-- Job/Harvest completion — "Job (Harvest)" (Part A's per-plant change
-  touches this same anchor).
-- Pass-out / wake (`PassedOutActivity`) — "Passed out (0 energy)" on
-  collapse, "Woke up" on recovery.
-- Mood contagion (`_check_contagion_log()`) — "Mood rose/fell N% (Mood
-  Contagion)", only once cumulative drift since the last entry crosses
-  ±`CONTAGION_LOG_THRESHOLD` (2%).
-- Irritability / relationship band crossings (`_check_label_crossings()`)
-  — "Became \"X\" (irritability)", "Calmed down (irritability)",
-  "Relationship with the player became \"X\"", logged only at the actual
-  crossing, not every tick the band is held.
-- Talk session ended (`end_talk_session()`) — "Talked to {other NPC}",
-  from each participant's own perspective.
-
-**Wording convention (mandatory):** the log is a third-person, objective
-record for a specific named NPC — entries always use the NPC's own name
-(or "the player" for the player), **never "you/your"**. This was a real
-bug once (fixed Aug 2026: six lines across `NPC.gd`/`NPCBrain.gd` used
-"you"/"your"); keep every future entry consistent with it.
-`log_action()` is the single append point; new log-triggering events
-must route through it.
-
-**UI:** the E-panel has a "Show Activity Log" toggle that expands the
-panel by `LOG_SECTION_H` (and re-centers it via `_apply_panel_height()`)
-revealing a fixed-height scroll area (`LOG_AREA_H`) rebuilt live off the
-`action_logged` signal; timestamps tick over as "Xs/m/h ago" every frame
-while expanded. Collapsed by default on every open, not remembered.
-
-### Debug Tooling
-`NPCDebug.enabled` (F7 toggle) gates continuous logging: activity
-switches, job lifecycle, stuck-recovery firing, forgetfulness roll
-outcomes (every roll, not just successful diversions), and mood/
-irritability breakdowns every 5s tick — each printed with its individual
-contributing sources so no change is ever ambiguous about why it
-happened. `NPCDebug.dump_all()` (F7 "Print NPC Debug State") gives a full
-multi-line snapshot per NPC on demand: position, activity, held item,
-movement-lock state, stuck-recovery count, all needs + health, speed
-multiplier, pass-out state, forgetfulness chance, full status label text,
-skills, personality words, seed, mood, and irritability + label.
-
----
-
-## Non-responsibilities (still genuinely out of scope)
-
-- **Crisis Response** (breakdown/overdrive/rage-as-aggression) — see the
-  `FUTURE WORK` note above. Nothing built.
-- **NPC-to-NPC dialogue with real content** — NPCs occupy each other,
-  face each other, and log "Talked to X", but there is no dialogue text
-  or content; the conversation is strictly a timed, scored social
-  activity. See NPC↔NPC Talking's `FUTURE WORK` note.
-- **Conversation outcomes** — the per-conversation relationship swing
-  exists (see Talking), but "what was actually said" is not simulated.
-- **Death / end states below 0 health or mood** — both stats clamp at 0
-  and currently do nothing further.
-- **NPC variety** — single "Survivor" capsule/name; multiple visual/
-  named NPC types are not implemented.
-- **A real dialogue system** — `get_dialogue_line()` is small hardcoded
-  pools, not branching dialogue or NPC-specific writing.
-- **Planting, cooking, water-collection, or repair jobs** — `JobBoard`
-  is built so each is one new `_scan_*()` function + one `JobActivity`
-  type-branch; none of the four exist yet beyond Harvest/Filter/Refuel
-  (Cleaning is deliberately NOT a JobBoard-claim job — see Cleaning).
-
----
-
-## Known Tradeoffs / Tech Debt
-
-- `JobActivity`'s standoff distance (`APPROACH_DISTANCE = 1.0`) is one
-  shared constant across all job types, not tuned per-object-footprint —
-  a visually large future device might need its own bump.
-- `PassedOutActivity`'s "collapsed" pose is a simple in-place rotation,
-  not a real animation or floor-level position — first-pass only.
-- `Bed.gd`'s `LIE_SURFACE_Y`/lie-rotation values were estimated from the
-  scene's known placement convention, not measured directly against the
-  rendered mesh — may need visual retuning.
-- Dialogue pools are small and hardcoded per tier; expect to replace
-  wholesale when a real dialogue system is built.
-- `NPCTalkMenuUI.PANEL_H` has been bumped several times as content was
-  added (currently 760) via estimation rather than exact measurement —
-  worth a real pass once the panel's final content is settled.
-
----
-
-## Established Conventions (Aug 2026)
-
-These patterns are now convention — new NPC code should follow them
-without being asked.
-
-- **Character shadow, model-based (Aug 2026, superseding the earlier
-  capsule-stand-in convention below):** every NPC gets a second,
-  scaled-down `CharacterModelShadow` instance of the same
-  `PlayerModel.tscn` it already renders with, flagged
-  `is_shadow_only = true` (see `docs/systems/graphics/README.md`
-  "Player model-based shadow"). The capsule-based
-  `CharacterShadowStandIn` approach that preceded it — itself preceded
-  by the `CharacterShadowProxy` light-based system, the
-  `CharacterShadowDecal` fake-shadow system, and the
-  `GraphicsSettings.CHARACTER_SHADOW_LAYER_BIT` mesh-layers override,
-  all removed/reverted — is no longer called by any NPC; see that doc's
-  postmortem before touching character lighting again.
-- **Defensive `has_method()` guards on every cross-file NPC↔NPCBrain
-  call.** NPC.gd and NPCBrain.gd are tightly coupled but always built
-  separately; every cross-file call
-  (`if _partner.has_method("end_talk_session"):`, `has_cleaning_target_available()`,
-  `is_trash_item()`, etc.) goes through a `has_method()` guard so either
-  file can be temporarily broken/stubbed during a build without crashing
-  the other. If you add a call from one into the other, add the guard.
-- **Shared randomness helpers, never ad-hoc reimplementation.** Two
-  formulas that used to be reimplemented slightly differently in several
-  places are now centralized in `NPC.gd` and should be used everywhere:
-  `_random_sign()` (→ `1.0` or `-1.0`) and
-  `_threshold_scaled_chance(value, threshold, extreme, chance_at_threshold,
-  chance_at_extreme, direction)` (one formula for both "chance rises as
-  value rises above threshold" [Give-to-Friend] and "chance rises as
-  value falls below threshold" [Snatch]; returns 0 outside the span).
-  Per-mechanic constants (`SNATCH_CHANCE_AT_THRESHOLD`, etc.) are
-  unchanged — only the formula is shared. Random *ranges* (session
-  lengths, cooldown windows) all use `randf_range(MIN, MAX)`.
-- **Cache accessors self-prune stale references.** Every cache that can
-  hold freed objects (JobBoard's `get_open_jobs()`, `get_trash_items()`,
-  `get_organizable_items()`) `filter()`s on `is_instance_valid()` before
-  returning rather than making callers guard against freed instances.
-- **Target-walking activities early-abort on every tick.** An activity
-  walking toward a target re-checks that target's validity each tick and
-  bails the moment it's gone (stale `is_held`/shelved reference, item
-  removed, claim lost) instead of walking the full distance for nothing.
-  See `SnatchActivity`, `EatActivity`/`DrinkActivity`, and
-  `CleaningActivity`'s fetch phase.
-- **Staged debug logging.** `NPCDebug.log_*()` helpers
-  (`log_snatch()`, `log_cleaning()`) follow a `(npc, stage, detail)`
-  pattern and gate on `NPCDebug.enabled` (F7).
-
----
-
-## Testing Checklist (for in-editor verification)
-
-1. Open project in Godot — zero script errors/warnings.
-2. F7 → NPC section → Spawn a couple of NPCs.
-3. Watch normal behavior: wandering, routing around furniture and heavy
-   loose items without touching them, occasionally sitting/lying down.
-4. Drain needs via F7 rows — confirm speed changes, forgetfulness diverts
-   from jobs occasionally (check console with debug logging on), and at
-   Energy = 0 the NPC collapses immediately and only recovers at full 100.
-5. Open an NPC's E-panel (E to interact) — confirm all five bars, the
-   Status line (single collapsed Forgetful/Slowed lines with reasons in
-   parens, plus irritability word if applicable), Skills, and Personality
-   (5 words) all populate and update live.
-6. Press Talk — dialogue line + four command buttons appear; try each
-   command and confirm real-world effects (consumption, resting, harvest).
-7. Force a HARVEST/REPLACE_FILTER/REFUEL job — confirm fetch→travel→work
-   completes with a real world effect and no wall/object-collision fighting.
-8. F7 "Print NPC Debug State" — confirm the full multi-line dump per NPC
-   matches what the E-panel shows for the same NPC.
-9. Save and reload — NPCs reappear with correct position/needs/skills.
-10. Two+ NPCs over several real minutes with one deliberately starved via
-    F7 — confirm the other's mood is measurably pulled down by contagion
-    (visible in `log_mood`'s contagion delta).
-11. Spawn 2-3 NPCs — confirm each gets a different name from the 10-name
-    pool (no duplicates) shown in the E-panel title and debug dump.
-12. Open one NPC's E-panel, press Talk — confirm "ASK ABOUT" shows "What
-    do you think of me?" plus one button per other live NPC by name.
-    Press a few — confirm the dialogue line updates to relationship-
-    appropriate flavor text matching that NPC's current
-    Hostile/Cold/Neutral/Friendly/Close band (cross-check against F7
-    "Print NPC Debug State").
-11. Spawn 2+ NPCs close together (or walk the player next to one) and wait
-    several real minutes with debug logging on (F7 "Toggle NPC Debug
-    Logging") — confirm `[NPC:<name>] relationships: {...}` prints every ~5s
-    with rising values for whoever's in range, and F7 "Print NPC Debug
-    State" shows the same values with correct Hostile/Cold/Neutral/Friendly/
-    Close labels.
-12. Save and reload — confirm relationship values and each NPC's `npc_id`
-    survive; spawn a brand-new NPC after reload and confirm its
-    auto-assigned id doesn't collide with a restored one (distinct ids in
-    the debug dump).
-13. Get an NPC's hunger or thirst below 55 (F7 "Drain NPC Needs -40"),
-    let them start eating/drinking, then walk up mid-consumption and
-    press F — confirm the normal "[F] Pick up" prompt appears and taking
-    it works, the NPC doesn't error or double-consume, and F7 "Print NPC
-    Debug State" / the relationship dump shows -7.5 toward "player".
-    Separately, confirm an NPC holding an item for a non-need reason
-    (full hunger/thirst, forced via "Go eat something" while not hungry,
-    or a job material) is NOT takeable.
-14. Hold a cooked dish or piece of produce, walk up to an NPC — confirm
-    "[E] Give <item> to <name>" appears and works, hunger rises, and
-    relationship goes up +7.5. Confirm a FoodCan or water bottle does NOT
-    show a Give prompt (out of scope this pass).
-15. Toggle F7 "Toggle NPC Debug Logging" on — confirm every NPC shows a
-    floating relationship readout above their head; toggle off — confirm
-    it disappears.
-16. Confirm an NPC holding a non-need item (job material, or food/water
-    while hunger/thirst are both above 55) is now ALSO takeable via F —
-    and confirm F7's relationship dump shows NO relationship change for
-    that specific takeaway (only need-triggered takeaways should ding).
-17. Give the same NPC 4-5 dishes/produce in quick succession — confirm
-    each successive relationship gain is visibly smaller than the last in
-    the F7 debug dump/visualizer, bottoming out around 15% of the base
-    +7.5. Stop giving and watch (or fast-forward via F7's admin tools) —
-    confirm "Gift burnout: NN%" in the visualizer decays back toward 0
-    over multiple in-game days, not minutes.
-18. Give an NPC a full FoodCan or WaterBottle — confirm the relationship
-    boost lands, the item stays in your hand afterward (not destroyed),
-    and it now shows fewer bites/less fill remaining. Give the SAME
-    item to the SAME NPC again — confirm hunger/thirst still rises but
-    NO additional relationship boost (check F7 debug dump — delta should
-    log as 0.0/"no bonus"). Give that same partially-used item to a
-    DIFFERENT NPC — confirm THAT NPC gets a normal +7.5-scaled boost (once).
-19. Confirm relationship pacing feels appropriately slow: stand an NPC
-    and the player together continuously and use F7 admin fast-forward —
-    relationship should NOT reach "Close" within the first several
-    in-game days from proximity alone. A single Give/Takeaway should move
-    the number by 7.5 (pre-Sociability-scaling), not 15.
-20. Use F7 admin tools to push an NPC's relationship with the player to
-    -60 or lower (or wait for enough negative interactions). Drain that
-    NPC's hunger or thirst below 55, hold a matching item, stay nearby —
-    over several attempts, confirm the NPC sometimes paths to the player
-    and snatches instead of finding a normal item; confirm relationship
-    does NOT change from a successful snatch.
-21. Press F7 "Force Nearest NPC to Snatch Player Item" while holding a
-    matching item near an NPC with a perfectly fine relationship —
-    confirm it snatches anyway. Press it while NOT holding anything (or
-    holding a non-food/water item) — confirm it fails gracefully (console
-    message, no crash, nothing happens).
-22. Give any item type to an NPC — confirm it visibly leaves your hand,
-    appears in the NPC's, and gets "eaten"/"drunk" over the normal
-    duration (overhead label shows "Eating"/"Drinking"), not instantly.
-23. With debug logging on, use F7 "Force Nearest NPC to Snatch Player
-    Item" repeatedly while holding a matching item near an NPC — confirm
-    it succeeds reliably now (not ~1-in-many), and confirm the console
-    shows staged SNATCH log lines (started/success, or a specific
-    aborted/failed reason) every time, never silent.
-24. Confirm F7 relationship ±25 buttons move every spawned NPC's
-    relationship with the player by exactly 25 (check via the F7
-    relationship visualizer), regardless of Sociability.
-25. Give an item to an NPC, then immediately check the HUD — no lingering
-    eat/drop prompt should remain, and scrolling the inventory should not
-    re-populate the now-empty slot.
-26. Repeat the "NPC pathing to an item, player grabs it first" test —
-    confirm the NPC now visibly gives up (or grabs something else) well
-    before reaching the item's last position, not after (the `is_held`
-    early-abort guard + `grab_loose()`'s own guard).
-27. With debug logging on, drain an NPC's need and hold a matching item
-    at a fine relationship — confirm the console explicitly shows
-    "not considered" every search with the actual reason, instead of
-    nothing.
-28. Push relationship to -60 or below (F7), drain the matching need, hold
-    the item, stay still — confirm roll attempts are logged, and
-    eventually a "roll succeeded" leading to a real chase.
-29. Once a snatch attempt starts, walk away — confirm the NPC keeps
-    adjusting course toward your CURRENT position, not a fixed point.
-30. Drop the tracked item mid-chase instead of stowing it — confirm the
-    NPC switches to walking to the dropped item and picks it up rather
-    than giving up.
-31. Keep running from a chasing NPC for over 20 seconds — confirm it
-    eventually gives up cleanly (logged) rather than following forever.
-32. Repeat the exact root-cause scenario for the scoring blind spot:
-    player holds the ONLY water bottle in the bunker, an NPC at -100
-    relationship with 0 thirst, standing still — confirm the NPC now
-    actually enters "Getting water"/pursues within a few seconds rather
-    than wandering, and the debug log shows roll attempts, not silence
-    (this is the `is_player_snatch_eligible()` fix in both
-    `EatActivity.score()`/`DrinkActivity.score()`).
-33. Trigger a successful snatch — confirm the item now visibly transfers
-    to and STAYS in the NPC's hand (followed by the normal ~2s
-    "Drinking"/"Eating" hold) instead of falling to the floor (this is
-    `release_held_item_to_npc()` switching to `clear_slot()`, which runs
-    AFTER `pickup()` instead of `remove_item()`'s pre-pickup `drop()`).
-34. Trigger a snatch chase — confirm the NPC stops at a small but clearly
-    visible gap before grabbing rather than making physical contact with
-    the player (this is `SNATCH_RANGE` 1.6 vs the loose-item `PICKUP_RANGE`
-    1.2, used both in `SnatchActivity.tick()` and
-    `NPCItemUser.snatch_from_player()`).
-35. Start a snatch pursuit (F7 force or organic), then SWAP to a
-    different inventory slot mid-chase instead of dropping the item —
-    confirm the NPC aborts (console shows the "aborted" log) instead of
-    walking to your old position and pulling the item out of storage
-    (this is the `collision_layer == 1` extra condition — swapped-away
-    items sit at layer 0, only a genuine drop sets layer 1).
-36. Start a pursuit, then actually DROP the item (not swap) — confirm the
-    NPC still correctly diverts to the dropped item on the ground and
-    picks it up (genuine drops pass the same check).
-37. Spawn two NPCs, force one to Lazy and one to Hard Worker (F7 or
-    respawn until you get the words you want in the E-panel). With an
-    open job and normal needs on both, confirm the Hard Worker picks the
-    job noticeably more often/faster, and the Lazy one prefers wandering/
-    sitting/eating over it.
-38. Watch mood drift over several in-game hours on a Neurotic vs an
-    Easygoing NPC with stable needs — confirm the Neurotic one's mood
-    visibly swings more per tick (F7 debug mood log) than the Easygoing
-    one, without either trending toward a different average.
-39. Spawn several NPCs — confirm the E-panel shows anywhere from 0 to 5
-    personality words per NPC (not always exactly 5), and "Nothing
-    stands out" for the rare 0-trait case.
-40. Watch an NPC over a full in-game day (F7 fast-forward) — confirm it
-    enters "Relaxing" roughly once or twice, ~20-40 min each, sitting/
-    lying if a chair/bed is free. Confirm a Lazy NPC's relax budget is
-    roughly double a non-Lazy NPC's over the same period.
-41. While an NPC is Relaxing, press "Harvest the plants" — confirm the
-    first press gets a refusal line and does NOT start the job. Press
-    again in the same relax session — confirm the job now starts AND
-    relationship drops by 3. Confirm a fresh relax session later resets
-    back to a first-press refusal.
-42. Max an NPC's energy to 100 (F7), force/wait for a relax session with a
-    free chair or bed nearby — confirm they sit/lie down and STAY there
-    for the session duration, no in-and-out loop.
-43. Confirm energy still very slowly climbs (if not already at 100) while
-    relaxing in a chair/bed, at a visibly slower rate than normal
-    resting/sleeping.
-44. Confirm normal (non-relax) Sit/Lie behavior is completely unchanged —
-    this only touches the new Relax-prefixed classes.
-45. Drop an NPC's energy to 0 (F7) and let them pass out — confirm they
-    wake up once energy reaches 15, not 100, and remain passed out (still
-    lying there, energy climbing) below that.
-46. Compare a Neurotic NPC's collapse to an Easygoing one's (same F7
-    energy-drain test) — confirm the Neurotic one's mood drop is
-    noticeably larger on average (up to 15%) than the Easygoing one's (up
-    to 5%), with F7 debug logging showing the exact roll each time.
-47. Set an NPC's hunger/thirst low, ensure real food/water exists nearby,
-    fast-forward 24h — confirm hunger/thirst end up in a reasonable range
-    (not maxed, not zeroed) and that real items in the world were
-    actually consumed/depleted (check counts before/after).
-48. Empty the bunker of food/water entirely, fast-forward — confirm the
-    NPC's hunger/thirst just drain fully with no error, nothing crashes
-    trying to consume items that don't exist.
-49. Drain an NPC's energy most of the way down, fast-forward 24h — confirm
-    if it crosses 0 during the estimate, mood drops once (F7 log shows
-    it) and energy ends up partially recovered, not stuck at 0 or jumped
-    to full.
-50. Note an NPC's remaining relax budget, sleep 6 hours — confirm the
-    remaining budget drops by ~25% of the daily total, not to zero and
-    not unchanged.
-51. Have 2+ ready-to-harvest plants across trays before a fast-forward —
-    confirm they get harvested during the skip (real produce appears),
-    and that plants which were NOT ready before the skip do NOT get
-    auto-harvested even if the skip's growth would have made them ready
-    (since growth isn't currently tied to skips at all, this should
-    already hold true, but worth confirming directly).
-52. Harvest a 2x1 (or larger) tray with multiple ready plants — confirm
-    it now posts as multiple independent jobs (check F7 job debug dump
-    if available) and can be split across two NPCs working simultaneously.
-53. Open an NPC's E-panel, press "Show Activity Log" — confirm the panel
-    visibly grows taller and the log area appears with correct rows;
-    press again — confirm it shrinks back to the original size.
-54. Trigger a Give, a Takeaway, a successful Snatch, a completed Relax
-    session, and a Harvest job on one NPC — confirm each produces exactly
-    one clear, correctly-worded log entry, newest at the top.
-55. Leave two NPCs near each other with meaningfully different moods for
-    several minutes — confirm a "Mood rose/fell X% (Mood Contagion)"
-    entry appears only occasionally (once cumulative drift crosses ±2%),
-    not every few seconds.
-56. Push a relationship down past a band boundary (F7) — confirm a
-    "Relationship with you became "X"" entry appears exactly once at the
-    crossing, not repeated every tick while it stays in that band.
-57. Scroll through a log with 20+ entries — confirm the scrollbar
-    appears and behaves normally, and hovering a row's timestamp shows
-    the in-game clock time in a tooltip.
-58. Push two NPCs' relationship well above +15 and place them near each
-    other — confirm they talk noticeably more often than a neutral pair;
-    push another pair below -15 — confirm noticeably less often.
-59. Confirm a talking session locks BOTH NPCs in place, facing each
-    other, for the session, and both get a "Talked to X" log entry.
-60. Interrupt one NPC mid-conversation (F7 force-command something else)
-    — confirm the partner doesn't get stuck waiting forever.
-61. Set two NPCs' relationship to +40+, drain one's hunger, ensure a
-    matching item exists — confirm the well-fed one occasionally fetches
-    and delivers it; confirm the recipient's relationship toward the
-    DONOR (not the player) goes up, and the donor's own log shows "Gave
-    X to Y".
-62. Set two NPCs' relationship to -60, drain the hostile one's hunger,
-    give the disliked one a matching held item — confirm the hostile one
-    snatches from the OTHER NPC (not the player) when eligible, and both
-    sides' logs show it correctly.
-63. With the player ALSO eligible (bad relationship, holding a matching
-    item) alongside an eligible NPC target, confirm the nearest of the
-    two gets picked, regardless of which type it is.
-64. Harvest multiple ready plants back-to-back with 2+ NPCs farming
-    actively — confirm no "freed instance" errors in the console, even
-    under repeated rapid harvesting.
-65. Press F7 "NPC↔NPC Relationship +25 (All Pairs)" a few times — confirm
-    every NPC's relationship toward every OTHER NPC rises (check via each
-    NPC's F7 relationship visualizer), not just toward the player.
-66. Have an NPC deliver an item to a shelf via Cleaning — confirm it
-    stays frozen and in place for at least 10-15 seconds afterward
-    (previously it would pop back out and unfreeze ~1s after placement
-    due to a stale is_held/_hold_point state — see
-    CLEANING_SHELF_POPOUT_FIX_AND_INVESTIGATION.md).
-67. With NPCDebug.enabled (5s debug idle-gate), confirm cleaning becomes
-    available quickly instead of requiring a ~90s real-time wait; with
-    it off, confirm the real 90s gate still applies unchanged.
-68. Force a shelf-full race between two NPCs both cleaning toward the
-    same shelf — confirm a failed placement doesn't leave the item
-    permanently unavailable to the other NPC (claim leak fix).
-69. Put a spare Fuel Can or Purifier Filter on a real shelf (not the
-    floor) — confirm Eat/Drink/Replace-Filter/Refuel can now find it
-    (previously find_shelved_item()/_spare_exists() searched a group
-    ("shelf") nothing ever joined — see NPC_LIGHT_STORAGE_AND_REFUEL_
-    REDESIGN.md).
-70. Ask an NPC to clean with a loose Fuel Can/Water Bottle and an empty
-    End Table or Dresser nearby — confirm it gets carried in and stored
-    (End Table/Dresser previously had no npc_try_place_item(), so this
-    always silently failed/dropped the item).
-71. Set a generator to a mid-range fuel level (e.g. 70%) — confirm
-    "Refuel the generator" now offers it (previously gated at <40%).
-72. Issue "Refuel the generator" with 2+ generators below 100% and one
-    fuel can — confirm the NPC sweeps every eligible generator in one
-    trip, never re-fetches mid-session, never revisits a generator
-    already topped off, and stops cleanly when the can runs dry or
-    everything's full.
-73. Enable NPC Debug Logging, drop a loose item, ask an NPC to clean —
-    confirm the console shows target picked / picked up / destination
-    chosen / delivered lines naming the actual item and destination, not
-    just session start/end.
-74. Press F7 → "Print NPC Cleaning Debug State" — confirm it lists every
-    shelf/End Table/Dresser's occupancy, every pending (not-yet-idle)
-    item with an accurate remaining-time countdown, and any NPC
-    currently mid-clean with its exact phase/item/destination.
-75. Fill all storage in a test area, request Cleaning — confirm the
-    toast says "storage is full" specifically. Empty the area of storage
-    entirely, request again — confirm a distinct "nothing to put things
-    away in" message instead of the same generic failure.
-76. Clean a Test Crate, Can Case, and Water Case individually with debug
-    logging on — confirm real names appear in the console, not generic
-    "Item" (all three were missing get_display_name() entirely).
-77. In a scene with only light-capable storage, ask an NPC to clean a
-    heavy item (e.g. Test Crate) — confirm it's skipped once with a "no
-    storage for category" log line, never picked up, and the toast (if
-    requested) says "there's nothing to put heavy items away in"
-    specifically, not a generic message.
-78. Watch a full multi-item cleaning session end-to-end — confirm no
-    repeating "target picked / target lost: became shelved" bursts
-    between successful deliveries (stale-cache bug, fixed at
-    JobBoard.get_trash_items()/get_organizable_items()).
-79. Test each specific Refuel unavailable reason (all full, no can
-    anywhere, can claimed by another NPC) — confirm distinct toast text
-    for each.
-80. Press F7 → "Spawn Neutral NPC (Testing)" — confirm the spawned NPC
-    has zero personality trait words and all skills at exactly 1.0.
-81. With both an End Table/Dresser and a closer real shelf available,
-    ask an NPC to clean a light item (e.g. fuel can) — confirm it
-    prefers the End Table/Dresser over the closer shelf. Fill all
-    light storage, repeat — confirm it falls back to the shelf.
-82. Wedge an NPC tightly inside a pile of items so it can't move at
-    all — confirm it tries the forced cleanup at most twice before a
-    STUCK ESCALATION log line appears and the NPC visibly relocates,
-    rather than looping the same forced grab forever.
-83. Drop a dense pile of items (e.g. by deleting a loaded shelf) and ask
-    an NPC to clean — confirm it prefers an outer, reachable item over
-    one buried in the center when both are similar distances away.
-84. Press F7 → "Make All NPCs Clean" with several NPCs mid-activity —
-    confirm every one immediately force-switches into Cleaning.
-85. Spawn ~11 loose clutter items with an average-Work-Ethic NPC nearby
-    with nothing else demanding attention — confirm Cleaning now wins
-    over Wander in a fair (no-incumbent) comparison at roughly that
-    count, not comfortably before or after it.
-86. Force an NPC to hold an item with no active job (e.g. interrupt a
-    stuck-recovery cleanup mid-carry) — confirm it immediately switches
-    to "Putting away X" rather than wandering/relaxing while still
-    holding it. Confirm a genuinely mid-Drink/mid-Eat/mid-GiveToFriend
-    NPC is never affected.
-87. Force several NPCs to converge on the same tight clutter pile —
-    confirm STUCK ESCALATION lines now name the blocking NPC instead of
-    "?", and confirm the group actually disperses instead of shuffling
-    in place indefinitely.
-88. Teleport a loose item to an extreme Y position — confirm JobBoard's
-    scan excludes it by name and no NPC ever targets it, while normal
-    items are completely unaffected.
-89. Wedge an item so an NPC can never reach it — confirm it force-cleans
-    exactly twice, then gives up permanently for that NPC only (console:
-    "gave up permanently"), while claim contention with other NPCs never
-    triggers a give-up no matter how often it happens.
-90. Check the real (non-debug) idle-gate timing at a few clutter counts
-    — confirm it stays close to 90s at low counts and drops sharply
-    toward 0s as clutter approaches 20.
-91. Autonomous gardening: confirm an idle NPC fills soil and plants
-    seeds on its own, preferring the last-planted type per cell and
-    falling back to any available type when that's out of stock.
-92. "Add soil to all trays" only fills soil, never plants. "Plant seeds"
-    opens a new popup listing only in-stock species; picking one plants
-    ONLY that type, no substitution. "Fertilize the trays" never
-    triggers on its own, only via the command.
-93. Ask an NPC to clean with harvested produce and a Basket both
-    present — confirm it fetches the basket first and stashes produce
-    into it (not hand-carried), then delivers the basket to real
-    shelving once done. Non-produce cleaning is unaffected.
-94. Two NPCs gardening the same double tray at once — confirm each
-    works its own cell (soil in one, planting in the other) without
-    conflict, and confirm a cell claim releases correctly if an NPC gets
-    interrupted mid-travel to it.
-95. Lock a cell to a specific seed type — confirm autonomous planting
-    never substitutes a different type there (skips if unavailable
-    rather than looping), and confirm an explicit "Plant seeds" request
-    for a different type skips that locked cell rather than overriding
-    the lock.
-96. On a level with clutter but zero shelving/light storage anywhere,
-    watch NPC movement while Cleaning sessions repeatedly start and
-    immediately end — confirm no frame stall/snapping, and confirm the
-    console shows at most one "no storage for category" line per
-    category per session, not one per item.
-97. Watch an NPC carry a Bag of Soil (or seed packet, or fuel can) the
-    entire way to its destination — confirm it's never interrupted
-    mid-carry by the "put away held item" safety net, which previously
-    could win the very next think-cycle (~1s later) and cause a
-    drop/idle/straight-line-drift.
-98. On a level with heavy clutter (so Cleaning's score is escalated),
-    request Farming with a distant tray needing soil — confirm the NPC
-    walks the entire distance without being pulled away.
-99. Request "Tend the farm" with harvest, planting, and soil all needed
-    at once — confirm strict priority order (harvest -> plant -> soil)
-    in one session, with seed type always read from each cell, no
-    popup.
-100. Force an interrupt and a stuck event — confirm the console now
-     shows an INTERRUPTED: line with both scores, and a STUCK while ...
-     line naming the actual activity. Press F7 -> "Print NPC Job Debug
-     State" — confirm it shows every NPC's current activity/debug info
-     regardless of type.
-101. Force two NPCs to briefly contend for the same farming cell —
-     confirm a "gardening claim failed" log line explains the retry
-     instead of an unexplained duplicate "target picked" line.
-102. Empty a level of all Bags of Soil and Seeds, leave a tray needing
-     soil, and request Farming — confirm the session ends cleanly with
-     a specific log message instead of crashing with a stack overflow.
-103. After the consolidation pass: issue all three job commands (Clean,
-     Refuel, Tend the farm), and press F7 -> "Print NPC Job Debug
-     State" for each — confirm real detail shows for all three (this
-     was silently broken for command-driven sessions before this
-     pass — CommandCleaningActivity/CommandRefuelActivity/
-     CommandGardeningActivity never delegated debug_info()).
-104. Reproduce the empty-level-of-soil-and-seeds stack overflow repro
-     from the Gardening fix plan — confirm it still terminates cleanly
-     via the shared NPCSessionActivity._skipped mechanism.
-105. Needs-activity relocation (Aug 2026) — Wander/Relax/Sit/RelaxSit/Lie/RelaxLie/Drink/
-     GivenDrink/Eat/GivenEat/Talk/Snatch/GiveToFriend/Job/PassedOut/ForgetfulWander/CommandRest/
-     CommandHarvest/CommandJob moved out of `NPCBrain.gd` into their own files under
-     `scripts/npc/activities/`, mirroring the Cleaning/Refuel/Gardening pattern. `NPCBrain.gd`
-     now holds only the state machine (score/interrupt/tick/force_command/stop_current). Pure
-     mechanical move — no behavior change. All `NPCBrain.XActivity` external references updated
-     to bare `XActivity` (global class table resolves them, same as Cleaning/Refuel/Gardening).
-106. Command-wrapper consolidation (Aug 2026) — `CommandRestActivity`, `CommandHarvestActivity`,
-     and `CommandJobActivity` migrated onto `NPCCommandWrapperActivity` (the shared base
-     `CommandCleaningActivity`/`CommandRefuelActivity`/`CommandGardeningActivity` already used).
-     Closes the same `debug_info()` delegation gap that was already found and fixed once for those
-     three — it had recurred here because these three predated that fix. `CommandRestActivity`
-     overrides `enter()` directly (documented exception: its bed-then-chair fallback needs to
-     inspect `done()` mid-selection, which `_make_inner()` can't express) — this is now the
-     second documented exception to a shared base in this system, alongside
-     `CleaningActivity.interruptible()`. No functional change to any of the three.
-107. Stuck-recovery fix (Aug 2026) — two compounding bugs. (1)
-     `has_cleaning_target_available()` only checked that clutter existed, never that a destination
-     existed for it — with zero shelving anywhere, this caused instant re-select/instant-fail
-     Cleaning loops that never touched `_movement_locked`, which `_tick_stuck_recovery()` (gated
-     only on `_movement_locked`) misread as a genuine stalled travel attempt. Fixed by checking
-     `has_viable_destination_for_category()` per organizable category before returning true. (2)
-     `_recover_from_stuck()`'s no-obstruction fallback (`stuck_item == null` and `stuck_npc ==
-     null`) had a dead streak-counter (always reset to 1, could never escalate — the id-equality
-     check requires a real id, which null never has) and fired an uncapped, collision-unaware
-     random-direction position teleport every ~1s forever — the actual mechanism behind NPCs
-     clipping through walls and disappearing, not an engine collision failure. Fixed with a
-     dedicated `_stuck_unknown_streak` capped at `STUCK_UNKNOWN_GIVEUP_AFTER` (3) attempts before
-     standing fast instead of continuing to teleport blind. Both fixes are independent — (1)
-     removes this specific trigger, (2) closes the landmine for any other future cause of a
-     genuinely undetectable stall (navmesh gap, wedged against static geometry, a similar bug in a
-     different activity).
-108. Cooking job — "Cook a meal" (Aug 2026) — new command-only job mirroring Farming's
-     resumable, stateless design: place a Cooking Pot on an open stove if needed, fetch up to 3
-     ingredients one at a time (`is_cookable_ingredient` — FarmProduceItem or a FoodCan with
-     bites left; narrower than `"cookpot_storable"`, which also includes a non-contributing
-     WaterBottle), turn the stove on, then leave — never waits through the cook timer. On a later
-     invocation, serves any ready dish first (eats it directly if the NPC's own Hunger < 55,
-     otherwise stores via the existing `find_cleaning_destination()` light/heavy router, unmodified).
-     All progress lives on the `Stove`/`CookingPot` objects, not per-NPC state, so any NPC can
-     pick up any other NPC's in-progress stove. New files: `CookingActivity.gd` (a proper
-     `NPCSessionActivity` — ready for autonomous scoring in a future pass, see its own `score()`
-     comment for the exact shape to add) and `CommandCookingActivity.gd` (the Talk-menu wrapper).
-     New: `NPCItemUser.is_cookable_ingredient()`/`is_cooking_pot()`,
-     `NPCJobQueries.find_cooking_serve_target()`/`find_cooking_ingredient_target()`/
-     `find_cooking_pot_target()`/`has_cooking_target_available()`/`get_cooking_unavailable_reason()`.
-     Zero changes to `Stove.gd`/`CookingPot.gd` — both were already generic `Node`-based APIs.
-     No new NPC skill added (deliberate — see plan's own note on this).
-109. Stuck-recovery relocate fix (Aug 2026) — a forced (stuck-recovery) grab with no real
-     destination anywhere used to pick the obstruction up and set it back down in the same spot
-     (no travel between pickup and drop), which didn't actually clear the obstruction it was
-     grabbed to resolve. Now carries it a short (`RELOCATE_DISTANCE` = 2.5m), random-direction,
-     **navmesh-pathed** walk away before dropping — deliberately real navigation, not a position
-     teleport, so it can't reproduce the earlier wall-clipping failure mode. Normal (non-forced)
-     Cleaning sessions are unaffected — they already skip whole no-storage categories and move on,
-     and per the earlier fix won't be autonomously selected at all when nothing has anywhere to go.
-110. Stuck-recovery held-item fix (Aug 2026) — `_recover_from_stuck()` now drops any
-     currently-held item, unconditionally, before making any recovery decision. Root cause: every
-     activity's `exit()` only releases claims, never physically-held items (by design —
-     `PutAwayHeldItemActivity` is the intended cleanup path), but `force_command()` (used by every
-     stuck-recovery branch) bypasses the normal scoring that safety net relies on. This let a
-     forced `CleaningActivity`'s own `held_item == null` fetch-phase gate stay permanently false
-     (so it silently did nothing — the "still not picking up obstructions" report) and, on other
-     paths that don't gate the same way, let a second item get grabbed while the first was still
-     attached to `hold_point` with nothing ever detaching it (the "holding several items stacked"
-     report). Deliberately scoped to `_recover_from_stuck()` only — not a blanket
-     `force_command()` change, since Give/Snatch handoffs legitimately rely on setting `held_item`
-     as part of their own forced entry.
-111. CleaningActivity indentation fix (Aug 2026) — the previous relocate-fix plan introduced a
-     transcription error: the pickup-attempt block (`npc.nav_steer(delta)` through its closing
-     `return`) lost one level of indentation, making it a sibling of `if npc.held_item == null:`
-     instead of nested inside it. This made it run unconditionally every tick (repeatedly
-     "failing" to re-grab an already-held item, then grabbing a fresh one without ever detaching
-     the first — the stacking bug) and made the Relocate/Travel phase code below it permanently
-     unreachable (why the relocate fix appeared to do nothing, and why no item could ever actually
-     reach a shelf). Fixed by restoring the correct nesting — no logic changes, indentation only.
-112. Stuck-recovery grace period + Cooking stove-power awareness (Aug 2026). (1) Added
-     `STUCK_GRACE_PERIOD` (4.0s) — the no-progress condition must now persist for the full window
-     before `_recover_from_stuck()` gets called at all, applying to every job uniformly (one
-     shared constant). Does NOT fix `_recover_from_stuck()` itself (still tracked as broken
-     separately) — calls into it unmodified, so its eventual fix cascades automatically. (2)
-     `CookingActivity` now checks whether `on_interact()` actually turned the stove on rather than
-     assuming success — shows `"<npc> cannot cook meal (Stove unpowered)"` and leaves (no waiting)
-     on failure. New `NPCJobQueries.find_cooking_needs_power_target()` tier (ranked between serve
-     and ingredient-fetch) recognizes a fully-loaded-but-unlit pot on a future command invocation
-     — previously invisible to every existing tier once a pot reached 3/3 ingredients.
-113. Stuck-detection core fixes + live item re-targeting + cooking-pot cleaning immunity (Aug
-     2026). Diagnosed from a real session log: (1) `_find_stuck_obstruction()` only ever checked
-     `RigidBody3D`, completely blind to `StaticBody3D` (walls/corners) — the actual majority
-     real-world stuck cause (456/456 stuck events in the log fell through to "unexplained"). Added
-     `_find_stuck_obstruction_static()` with a directed nudge using the real collision normal,
-     mirroring the existing NPC-vs-NPC directed-nudge pattern. (2) `_stuck_unknown_streak` never
-     reset on real progress (bug from the prior grace-period pass) — climbed monotonically for an
-     entire session in the log (2 → 456), permanently exhausting the nudge-fallback's give-up cap
-     after the first few stuck episodes ever. All streak counters now reset uniformly on real
-     progress. (3) New `NPCItemUser.track_fetch_target()`, called every tick from every job's
-     loose-item fetch phase (Cleaning incl. its basket sub-flow, Refuel, Gardening, Cooking,
-     JobBoard-driven Harvest/Filter) — keeps the nav target in sync with a rolling/bumped item's
-     real position instead of walking to wherever it was when the approach began. (4) New
-     `NPCItemUser.is_actively_cooking()` — a Cooking Pot on a stove that's actively cooking is now
-     excluded from Cleaning at both the JobBoard scan level and in `grab_loose()` itself
-     (defense-in-depth, covers stuck-recovery's forced-grab path too); normal before/after the
-     active-cooking window.
-114. Cooking pot cleaning immunity widened (Aug 2026) — was "immune only while actively cooking"
-     (`Stove.is_cooking()` true); now immune the entire time it's resting on any stove at all,
-     regardless of cook state or who placed it. `NPCItemUser.is_actively_cooking()` renamed/
-     redefined to `is_on_stove()`, dropping the `Stove.is_cooking()` check entirely — just checks
-     `_host_stove != null`. Same two call sites as before (`grab_loose()`, JobBoard's
-     organizable-item scan).
-
-115. Trash collection wired up + made scalable (Aug 2026) — `TrashCan` was never in the
-     `"trash_receptacle"` group `JobBoard._has_trash_receptacle()` gates on, so the entire
-     trash-collection system (already built: clutter counting, destination routing, skip-tracking)
-     was silently inert since it was first written. Wired up, plus two latent bugs fixed now that
-     trash actually flows: the destination-room-check was previously skipped for trash entirely (a
-     full can would still get picked, walked to, and fail — now matches full-shelf handling
-     exactly), and `has_cleaning_target_available()` returned true purely on trash *existing*, not
-     on a receptacle having room (same class of bug as the original organizable-item fix, now
-closed for trash too). `_is_trash_item()`'s hardcoded per-type list replaced with the generic
-      convention below — no future item should ever require editing NPC-owned files again.
-116. Trash can excluded from general light-storage routing (Aug 2026) — `TrashCan` inherits
-      `"shelving"` group membership from `LightStorage` (can't be removed — player-facing systems
-      depend on it), which made it a valid ordinary organizable-item destination independent of
-      trash routing, causing full/half-charge bottles etc. to get tidied into it as regular
-      clutter. Fixed at the query layer: `_nearest_cleaning_destination()` and
-      `has_viable_destination_for_category()` both now skip any `"trash_receptacle"`-group
-      candidate when routing a non-trash item. Trash routing itself unaffected. No changes to
-      `TrashCan.gd` or any group membership.
-117. Trash delivery loop fix (Aug 2026) — root cause of the "NPC walks back and forth
-      dropping/carrying the same empty item, flickering between Idle/Wandering/Cleaning" report.
-      `npc_deposit_trash()` was called from both `CleaningActivity.gd` and
-      `PutAwayHeldItemActivity.gd` behind a `has_method()` guard, but the method was never defined
-      anywhere in the codebase — confirmed via a full-repo grep and a systematic sweep of every
-      `has_method()` target called from NPC code (60 checked, this was the only phantom one). Every
-      "trash delivered" log was false — the item never left the NPC's hand, which made
-      `CleaningActivity` falsely report itself interruptible (`_item` went null while still
-      physically holding something), letting `PutAwayHeldItemActivity`'s flat score-20 win a normal
-      interrupt every time, which then hit the identical bug and just dropped the item on the floor
-instead of storing it — restarting the cycle. Fixed by reusing `npc_try_place_item()`
-       (already correctly implemented, inherited from `LightStorage`, confirmed to be the same
-       mechanism the player's own "throw away" interaction already uses) for trash delivery in both
-       files — no separate trash-specific delivery method was ever needed.
-
-118. Diagnostic logging improvements from the trash-loop investigation (Aug 2026). (1) New
-       `NPCDebug.log_missing_method()` — a `has_method()`-gated action call that comes back false now
-       always surfaces a `push_warning()`, not just when NPC Debug Logging is on; applied to
-       `NPCItemUser.drop_held()`'s own `drop()` call, the one other bare (no-fallback) action-call
-       site found by re-running the trash bug's `has_method()` sweep against every action-style call
-       in NPC code. (2) Delivery-outcome logs (`CleaningActivity`, `PutAwayHeldItemActivity`) now
-       append `held_item_after=` — a "delivered" line that didn't actually clear the physical hold is
-       now a one-line read. `PutAwayHeldItemActivity` previously logged its intended destination but
-       never its actual outcome at all — added. (3) New `NPCDebug.log_suspicious_interrupt()`, fired
-       from `NPCBrain._think()` whenever a normal scoring interrupt fires while the NPC still
-       physically holds an item — the general shape of bug the trash loop was, not specific to
-       Cleaning/trash. (4) `_pick_next_target()` now tracks repeat picks of the same candidate and
-       logs `"target picked (STALLED)"` distinctly once a stall is detected, instead of a wall of
-       visually-identical lines.
-
-119. Farming double-harvest race + a stale-basket-reference crash (Aug 2026). Two issues raised
-       together by Brannon, one confirmed real and fixed, one confirmed already-fixed:
-       (1) **Real bug, fixed** — `FarmPlant.harvest()` gated only on `is_instance_valid(target) and
-       target.is_ready()`. `is_instance_valid()` stays true for the rest of the frame a node calls
-       `queue_free()` on itself, and `is_ready()` never changes either — so a plant harvested once
-       this frame (e.g. by time-skip catch-up) could still pass a SECOND caller's identical gate
-       later the same frame (e.g. a live NPC's `JobActivity._complete()` finishing its HARVEST work
-       timer on the same plant), doubling the spawned produce and double-running
-       `_clear_cell_and_free()`. Fixed with a `_harvested` reentrancy guard set synchronously as the
-       first line of `harvest()`, before any side effect — a second same-frame call is now a
-       guaranteed no-op regardless of `is_instance_valid`/`is_ready()` timing. No call-site changes
-       needed; this closes the race at its true single source. (2) **Already fixed, not re-touched**
-       — a report described `CleaningActivity._tick_stash_into_basket()` as never removing a
-       basket-stashed fruit from the `"pickup"` group or marking it `"shelved"`, leaving it grabbable
-       by another NPC straight out of the basket. Verified against the live file: it already calls
-       both `remove_from_group("pickup")` and `add_to_group("shelved")` (plus the same `interactable`
-       cost-avoidance step `Basket.try_add_item()` uses), matching `Basket.try_add_item()`'s own
-       pattern exactly. No change made — re-verify against the actual file before re-attempting this
-       one if it resurfaces, the report may have been checked against a stale copy. (3) **Real gap,
-       fixed** — `_tick_stash_into_basket()` used `_basket.slots` with only a caller-side
-       `_basket != null` check, no `is_instance_valid(_basket)` inside the function itself. If the
-       basket is freed mid-session (e.g. the player's Takeaway path steals and frees the held
-       basket), `_basket` stays non-null but freed, and every access below throws "previously freed
-       instance". Added an `is_instance_valid(_basket)` guard as the first line of the function,
-       clearing both `_basket` and `_item` and returning — same bail shape the existing invalid-`_item`
-       check already uses one line below it.
-
-120. Storage-aware fetching for every non-Cleaning job, + case-dispenser support (Aug 2026,
-       Brannon-requested). Cleaning is a one-way street — it only ever PUTS loose items INTO
-       storage. Every OTHER fetch-based job (Eat, Drink, filter-replace, Refuel, Gardening) now
-       reads storage the same way a player would, in a strict priority order: **loose item →
-       shelved item → loose case → shelved case**.
-       - **New shared primitive** — `NPCItemUser.find_fetch_target(npc, filter) -> Dictionary`
-         (`{}` / `{"loose": item}` / `{"shelf": {...}}`) replaces four independent hand-rolled
-         copies of the same loose-then-shelved fallback (`JobActivity.enter()`,
-         `RefuelActivity._start_fetch()`, `GardeningActivity._try_fetch_with_filter()`, and — new —
-         `EatActivity`/`DrinkActivity`). One place to fix if this fallback chain ever needs to
-         change again. Filter-replace, Refuel, and Gardening were already storage-aware before this
-         pass (all three already called `find_loose_item`+`find_shelved_item` independently) — this
-         consolidated them, it didn't newly enable them.
-       - **Real gap closed** — `DrinkActivity` previously had NO shelved-bottle search at all (its
-         own header literally said `FUTURE WORK: pulling a fresh bottle out of a WaterCase`). Now
-         has full parity with `EatActivity`'s existing loose→shelf tier via a new `"shelf_bottle"`
-         mode/`_tick_shelf_bottle()` phase that hands off to the existing `_tick_bottle()` machinery
-         the instant the grab lands — holding/drinking/finish logic is identical regardless of
-         whether the bottle started loose or shelved.
-       - **New: case dispensers** (`CanCase`/`WaterCase`) — new shared state machine
-         `NPCCaseFetch.gd` (`RefCounted`), used by both `EatActivity` and `DrinkActivity` since the
-         mechanic is identical for both (a case is a case). Duck-typed filters
-         `NPCItemUser.is_stocked_can_case()`/`is_stocked_water_case()` (neither `CanCase.gd` nor
-         `WaterCase.gd` declares a `class_name`, same reasoning as `is_spare_fuel_can()`'s own
-         comment). Flow: locate (loose → shelved, via `find_fetch_target`) → travel → **loose case**:
-         interact in place, never picked up (confirmed neither `CanCase.on_interact()` nor
-         `WaterCase.on_interact()` checks `is_held` — both work identically placed or held) →
-         **shelved case**: `grab_from_shelf()` first, THEN `on_interact()` while held, THEN
-         `Shelving.npc_try_place_item()` back onto the origin shelf (per Brannon: "take case from
-         shelf → eject needed item → store case again → consume item") → the freshly-ejected item is
-         located (nearest loose match to the case's own position, claimed immediately) and handed
-         back to the calling activity, which treats it exactly like any other freshly-found loose
-         item through its OWN existing grab/consume logic — `NPCCaseFetch` never carries or consumes
-         anything itself, its job ends the moment the item exists in the world.
-       - `EatActivity`/`DrinkActivity` `score()` now correctly stays non-zero when only a stocked
-         case exists anywhere (previously would have scored 0 and never triggered the activity at
-         all in that situation).
-       - No case-equivalent exists for farming supplies (no "Soil Case"/"Seed Case" dispenser class
-         in the codebase) — `GardeningActivity` was already fully storage-aware for loose+shelved
-         Bags of Soil/Seed Packets/Fertilizer before this pass; nothing further needed there beyond
-         the `find_fetch_target()` consolidation above.
-
-121. Case-fetch pacing + wider furniture/job-target ranges (Aug 2026, Brannon-requested follow-up
-       to #120). Two independent tweaks after playtesting #120:
-       - **Case pacing** — `NPCCaseFetch` felt instantaneous ("just spawns the can"). Unified the
-         loose-case and shelved-case paths into the SAME sequence: pick the case up (a loose case is
-         now actually grabbed via `grab_loose()`, no longer interacted with in place) → wait
-         `PRE_EJECT_WAIT` (1.0s) → eject → wait `POST_EJECT_WAIT` (1.0s, was 0.75s) → `RESHELVE` if it
-         came from a shelf, or `DROP` it back down where the NPC is standing if it was already loose
-         (nowhere to "return" it to). New `_from_shelf: bool` flag drives that final branch, since
-         both paths now hold the case at eject time (`npc.held_item == _case` no longer
-         distinguishes them the way it used to).
-       - **Wider large-object ranges** — NPCs were visibly walking into/pushing against shelves,
-         generators, farming trays, and cases for a second or two before the "close enough to act"
-         check passed. Per Brannon: scale each existing range up individually rather than one shared
-         value (keeps furniture reaching further than small items), small loose-item grabs
-         (`PICKUP_RANGE`, `EatActivity`/`DrinkActivity`'s `USE_RANGE`) untouched, and this is purely
-         about the distance check — not pathfinding/stand-off targeting (`JobActivity`'s
-         `APPROACH_DISTANCE` stand-off-point math was already separate and untouched).
-         `NPCItemUser.SHELF_RANGE` 1.6→2.0 (shared by every shelf interaction — Eat/Drink/Job/Refuel/
-         Gardening/Cleaning/NPCCaseFetch all inherit this automatically), `JobActivity.WORK_RANGE`
-         1.6→2.0, `RefuelActivity.WORK_RANGE` 1.6→2.0, `GardeningActivity.WORK_RANGE` 2.0→2.4, and a
-         new dedicated `NPCCaseFetch.CASE_RANGE` (1.8) replacing its old reuse of the small-item
-         `PICKUP_RANGE` for a loose case — a case is one of Brannon's own examples of a "larger
-         object," so it needed its own range rather than inheriting the tiny one.
-
-122. Endless pickup/drop loop on case fetches (Aug 2026, Brannon-reported — root-caused live in
-       `NPCBrain.gd`'s own scoring loop rather than guessed at). NPCs were grabbing a Can/Water
-       Case, then immediately dropping it and re-grabbing it in an endless loop, never reaching
-       eject. Root cause: `NPCBrain._think()`'s interrupt check is
-       `if _current.interruptible() and best_score > _current.score(_npc) + SWITCH_MARGIN:` —
-       `interruptible()` short-circuits the whole check when false, so `score()` is never even
-       consulted in that case. `EatActivity`/`DrinkActivity`'s `interruptible()` only ever gated on
-       `_eating`/`_drinking` (the final bite/sip countdown) — it had no idea a `_case_fetch` could be
-       in progress, so it stayed `true` through the ENTIRE pick-up/wait/eject/wait/reshelve
-       sequence. Simultaneously, `score()` legitimately drops to 0 the instant the case is held
-       (`find_loose_item()`/`find_fetch_target()` correctly exclude held items, so nothing looks
-       "available" mid-fetch). Combined: brain sees a freely-interruptible activity scoring 0 →
-       interrupts for literally anything else → `exit()` drops the case (correctly, per #121's
-       design) → NPC's still hungry/thirsty → `EatActivity`/`DrinkActivity` immediately wins again →
-       walks back to the same case → picks it up → interrupted again. Never survives long enough to
-       reach `EJECT`. This is the exact same failure shape `NPCDebug.log_suspicious_interrupt()` was
-       already written to flag elsewhere ("interruptible while still physically holding something") —
-       just a new cause, not a new class of bug. **Fix**: both activities' `interruptible()` now also
-       requires `_case_fetch == null`. Since `interruptible()` gates the check before `score()` is
-       ever read, this alone fully closes the loop — no change to `score()` was needed or made.
-
-123. NPC shelf-retrieved cases dropping to the floor instead of reaching the hold point (Aug 2026,
-       Brannon-reported, immediately after #122's fix made the case-fetch flow survive long enough
-       to reveal it). Root cause was in `Shelving.gd`, not `NPCCaseFetch` — and it's the exact same
-       bug class the PLAYER's own retrieval path already hit and was fixed for, that the NPC path
-       never received. `retrieve_to_carry()` (player path) sets
-       `item.global_position = Shelving.carry_spawn_position(isys)` immediately before calling
-       `pickup()`, with an explicit comment: "was left at the shelf slot, could tunnel through a wall
-       on the way to the player." `npc_retrieve()` (the NPC path every shelf grab — filters, food,
-       fuel cans, soil, seeds, and now cases — goes through) never had the equivalent line: the item
-       unfroze and got handed to `pickup()` while still sitting exactly at its shelf-slot position,
-       inside the shelf's own `StaticBody3D` collision (posts, platforms). Smaller items apparently
-       got away with it often enough not to be noticed; a Can/Water Case — the biggest collision
-       footprint of anything shelved — hit it reliably, tunneling/falling out onto the floor instead
-       of chasing to the NPC's hold point. **Fix**: `npc_retrieve()` now teleports the item to
-       `npc_hold_point.global_position` (the exact target already available as a parameter — simpler
-       than deriving `carry_spawn_position()`'s chest-height offset, which is only needed because the
-       player path only has `isys`, not the hold point itself) before calling `pickup()`. Benefits
-       every NPC shelf-retrieval path, not just cases. While in the function: also added the
-       `_was_interactable` group restoration `retrieve_to_carry()`/`retrieve_to_inventory()` already
-       do but `npc_retrieve()` was missing — unrelated to this bug, but a case an NPC retrieves and
-       later sets down rather than reshelves would otherwise permanently lose its player E-prompt.
-
-## How to mark an item as trash (for any thread adding new items)
-
-An item is picked up by Cleaning and brought to a trash receptacle if **either**:
-
-1. **It's in the Godot group `"trash"`** — for an item that's *always* trash, by its very
-   existence (a dedicated "Empty X" class that only ever represents junk). Add one line to
-   the item's own `_ready()`:
-   ```gdscript
-   add_to_group("trash")
-   ```
-2. **It has a method `is_trash() -> bool` that returns `true`** — for an item that's
-   *conditionally* trash, based on its own internal state (a bottle/can/tank that empties but
-   stays the same node rather than spawning a separate "empty" object). Add one small method:
-   ```gdscript
-   func is_trash() -> bool:
-       return <your own empty/depleted condition>
-   ```
-   This is read live, every time — an item that stops being empty (e.g. a bottle gets
-   refilled) automatically stops being trash-eligible too, no extra bookkeeping needed.
-
-Either one is entirely sufficient — no NPC-owned file needs to change, no registration list to
-update, nothing else to wire up. Current examples of each: `EmptyBagItem`/
-`EmptyFertilizerBottleItem` use the group tag; `FoodCan`/`WaterBottle`/`FuelCan` use the method.
-
-Trash items count toward the same clutter-urgency threshold as regular clutter automatically
-(`JobBoard.get_total_clutter_count()` already sums both pools) — nothing extra needed there
-either. If you add a trash *receptacle* (an alternative to `TrashCan`), the only requirement is
-joining the `"trash_receptacle"` group and implementing `has_room_for(item)`/
-`npc_try_place_item(npc, item)` — see `TrashCan.gd`'s own `_ready()` and its inherited
-`LightStorage` methods for the reference shape.
-
-## Recurring "previously freed instance" error around harvesting — root cause + fix (Aug 2026)
-
-Brannon reported this firing constantly around NPC farming/harvesting, despite multiple earlier
-fix attempts (see `get_open_jobs()`'s own prior comment, which correctly diagnosed the SYMPTOM —
-a stale job outliving its harvested target — but not why the fix still logged an error every time).
-
-**Root cause**: Godot's "Trying to assign invalid previously freed instance" warning fires the
-INSTANT a freed Object reference is coerced into a statically-typed variable via a bare assignment
-(`var target: Node = some_dict.get("target")`) — before any `is_instance_valid()` check on the next
-line ever runs. The safe idiom is `as Node` (`var target: Node = some_dict.get("target") as Node`) —
-Godot's actual safe-cast operator, which performs the identical validity check but returns `null`
-quietly instead of printing. `JobActivity.gd` already used `as Node3D` correctly for its own reads;
-`JobBoard.gd`'s `get_open_jobs()` and `still_valid()` did not, and those two are the only places that
-read `JobBoard._jobs`'s cached `target` field — the ONE reference in the whole harvest pipeline with
-no synchronous invalidation hook of its own (confirmed directly: `FarmPlant._clear_cell_and_free()`
-calls `tray.clear_cell()` — which nulls `plant_refs[i]` — synchronously BEFORE `queue_free()`, so
-`plant_refs` itself was never actually unsafe to iterate).
-
-The practical effect: **every single harvest**, regardless of source (`JobActivity`'s own HARVEST-job
-completion, `GardeningActivity`'s "farming"-mode harvest, or `catch_up_all()`'s bulk time-skip
-harvest), leaves a stale `_jobs` entry that guarantees exactly one error the next time ANY NPC's
-`NPCBrain.tick()` calls `get_open_jobs()` — the erase-on-detection logic already there was correct
-and does self-heal in one call, but the error had already fired by the time that logic ran. Not a
-rare edge case — a guaranteed one-shot log per harvest, however frequently harvesting happens.
-
-**Fixed**: `JobBoard.get_open_jobs()` (`target` AND `claimed_by` reads) and `JobBoard.still_valid()`
-now use `as Node`. Also hardened two adjacent, currently-safe-but-fragile reads of the same bare
-pattern in farming-adjacent code, for consistency rather than leaving one bare exception behind:
-`GardeningActivity.gd`'s harvest-apply read of `plant_refs[cell]` (now `as FarmPlant`), and
-`NPC.catch_up_all()`'s `ready_plants` pool consumption (now `as Node`).
-
-**For any future thread**: this pattern — a bare `var x: SomeType = dict_or_array_read` where the
-source could plausibly hold a freed reference — is the thing to grep for whenever "previously freed
-instance" recurs anywhere else in the NPC codebase. `as Type` (or an untyped/`Variant` read) is the
-fix; adding more `is_instance_valid()` checks downstream, however correct, does not stop the error
-from firing at the assignment itself.
-
-## Ghost-walking, navigation avoidance, and Wander/Relax balance (Aug 2026, Brannon-requested)
-
-Full investigation-then-fix pass across four files, each confirmed directly in code before touching
-anything (see the conversation history for the confirmation pass) rather than assumed.
-
-1. **Animation driven by requested velocity, not achieved velocity — the actual mechanical cause of
-   "ghost walking."** `AdventurerModelController.gd` (the live model driver, shared by player and
-   NPCs) picked walk/idle/run off `_player.velocity` — the pre-collision, avoidance-lerped REQUESTED
-   velocity, not what `move_and_slide()` actually achieved that frame. A blocked/wedged character
-   could hold this above the walk threshold indefinitely while real displacement was ~zero. Fixed by
-   switching to `get_real_velocity()` — the exact same distinction `NPC.gd`'s own
-   `_handle_physics_pushes()` already used for this class of problem (`velocity - get_real_velocity()`),
-   just never applied to animation before. This one change makes the animation itself stop lying
-   about progress, independent of anything else in this section.
-2. **Every loose item now gets a `NavigationObstacle3D`, light and heavy alike** —
-   `PickupableItem._maybe_create_nav_obstacle()` previously gated on `mass >= HEAVY_OBSTACLE_MASS
-   (3.0)`; light items (cans, bottles, produce) had zero avoidance presence, so NPCs pathed straight
-   through/into piles of them and only reacted after physically colliding. The mass gate is removed
-   entirely — deliberate design call (Brannon): light clutter piling up enough to force constant
-   detours is exactly the pressure that should make Cleaning look more attractive, not something to
-   paper over. `NPC.gd`'s existing light-item shove-through logic in `_handle_physics_pushes()` is
-   unchanged and still applies at close range — the two systems complement each other.
-3. **The player is now a registered avoidance obstacle.** Confirmed directly: `Player.gd` had no
-   `NavigationAgent3D`/`NavigationObstacle3D` anywhere — NPC avoidance (agent-vs-agent already worked
-   between NPCs, and now agent-vs-item per #2) had nothing to steer around when it came to the player
-   specifically. Fixed with a plain `NavigationObstacle3D` (not a full agent — the player isn't
-   nav-driven) added once in `Player._ready()`, sized to the real collision capsule radius, left on
-   permanently.
-4. **Stuck-recovery timing drastically tightened** — `STUCK_CHECK_INTERVAL` 1.0s→0.25s,
-   `STUCK_GRACE_PERIOD` 4.0s→0.5s (was up to ~5s of visible ghost-walking before ANY recovery action;
-   now ~0.5-0.75s). Safe to cut this aggressively specifically because of #1 (the animation no longer
-   lies about progress) and #2/#3 (real stuck EVENTS should now be much rarer, since proactive
-   avoidance prevents most of what used to require this reactive fallback at all) — per Brannon, this
-   is meant to be a rare, fast-resolving safety net now, not something doing constant load-bearing
-   work. The existing item/NPC/wall obstruction-classification logic and escalating-backoff behavior
-   in `_recover_from_stuck()` is completely unchanged — only the timing before it's invoked changed.
-5. **Walls/corners — confirmed as a real, separate, NOT-yet-fixed gap.** `BunkerNavMesh.gd` bakes
-   `agent_radius = 0.4` — the NPC capsule's EXACT physical radius, zero safety margin. This is a
-   known general navmesh pitfall (a baked path can legally route at the theoretical minimum
-   clearance) and nothing here addresses it. Flagging explicitly so it doesn't quietly get assumed-
-   fixed by the avoidance work above, which targets dynamic obstacles, not static geometry precision.
-   Next step if wall-clipping is still observed after the above: try a small positive margin between
-   `agent_radius`/`nav_agent.radius` and the real capsule radius.
-
-### Wander vs. Relax/Sit balance
-
-Initial hypothesis (that Wander's flat baseline could outscore Relax for a Hard Worker NPC) was
-**verified false** once `WanderActivity.gd` was actually re-read: both Wander (5.0 base) and Relax
-(6.0 base) already multiply by the identical `npc.get_work_ethic_passive_mult()`, so Relax reliably
-beats Wander by a fixed ~20% for every NPC regardless of trait — there was no scoring-ratio bug.
-Similarly, `RelaxSitActivity` was confirmed to correctly inherit `SitActivity`'s unrestricted,
-unlimited-range chair search (chair always tried before bed, no distance cutoff) — no bug there
-either.
-
-The REAL mechanism: `RELAX_BUDGET_BASELINE` was only 1.0 game-hour/day (Lazy: 2.0), with a 3-6 hour
-cooldown between sessions. One ~20-40min session (`RelaxActivity.SESSION_MIN/MAX`) burns most/all of
-that budget, so `RelaxActivity.score()` returned a flat 0 (ineligible, not merely losing) for nearly
-the entire day — Wander won by DEFAULT during that gap, not by out-competing Relax. Fixed at the
-actual source: `RELAX_BUDGET_BASELINE` 1.0→3.0 (Lazy 2.0→6.0, same 2x ratio), `RELAX_MIN_GAP_HOURS`/
-`RELAX_MAX_GAP_HOURS` 3.0-6.0→1.5-3.0, so the larger daily budget can actually spread across several
-shorter sessions through the day instead of sitting unused behind a cooldown longer than the budget
-itself.
-
-**Verification note**: this whole pass was implemented while Godot MCP was intermittently
-unavailable (dropped out of tool access entirely partway through) — every edit was reviewed via its
-diff and re-read after applying, but engine-side parse confirmation should still be the first thing
-done before playtesting this pass.
-
-## Bunker Ceiling + NPC abyss failsafe (Aug 2026, Brannon-requested)
-
-Two-layer safety net so a physics glitch over a long playthrough can never permanently lose an NPC
-(or a valuable physics object) out of the bunker — "could RUIN a player's run/immersion," per spec.
-
-**Layer 1 — a real, solid ceiling.** `MainWorld._setup_bunker_ceiling()`, called once from `_ready()`
-alongside the ambient-dust setup it's modeled after. A `StaticBody3D` with a `BoxShape3D`
-(500x1x500m, deliberately oversized rather than precisely fitted to `bunker_depth`/`bunker_width`/
-`dig_margin`, so it never needs updating if those change), positioned at `CEILING_Y = 15.0` —
-confirmed well above `RockSurround`'s own `BLOCK_Y (2.5) + BLOCK_HEIGHT/2 (1.125) = 3.625`, the real
-top surface of the rock ring and this project's own stated highest point in the game.
-`collision_layer = 5 / collision_mask = 0` — the exact same convention already used for every wall/
-floor/pillar/furniture StaticBody in the project, so it's guaranteed compatible with NPCs, the
-player, and every loose `RigidBody3D` already colliding with that same geometry, no new layer
-bookkeeping needed. Catches anything, not just NPCs — a launched crate or valuable item bounces off
-it for free.
-
-**Layer 2 — fallback teleport if the ceiling somehow fails.** `MainWorld._check_abyss_npcs()`, called
-every frame right alongside the existing `_check_abyss_items()` (which already did this for loose
-items, at `ABYSS_Y = -8.0` / `ABYSS_RESCUE_Y = 1.5`). An NPC whose Y drops below that same threshold
-is teleported to the exact center of the ORIGINAL starting bunker footprint — same
-`OFFSET_X/OFFSET_Z + half-depth/half-width` centering formula already used elsewhere in this file
-(ambient dust, the initial research station) — with velocity zeroed and `brain.stop_current()`
-called (the same clean-abandon method the existing stuck-recovery system already uses) so whatever
-activity it was mid-way through is cleanly dropped and the brain picks something fresh next tick.
-Deliberately minimal: needs/mood/relationships/held item are all left completely untouched — "no
-adverse effects," per spec. Only ever expected to fire if Layer 1 is somehow bypassed.
+# NPC System
+
+Last reconciled with the implementation: September 20, 2026.
+
+This is the canonical overview of the resident NPC system. Historical “pass”
+and “part” comments in source files explain why code was introduced; they are
+not a reliable statement of current scope. When this document and source ever
+disagree, update this document in the same change that updates the source.
+
+## Runtime architecture
+
+Each resident is an instance of `res://scenes/npc/NPC.tscn`:
+
+- `NPC.gd` owns identity, needs, relationships, personality, movement,
+  navigation helpers, stuck recovery, player interaction, and time skipping.
+- `NPCBrain.gd` runs the utility decision loop and owns the current activity.
+- `NPCActivity.gd` defines the activity lifecycle. Concrete activities live in
+  `scripts/npc/activities/`.
+- `NPCMedical.gd` owns that resident's medical conditions and derived caps.
+- `NPCJobState.gd` owns per-resident job exclusions and cleaning blacklists.
+- `NPCItemUser.gd`, `NPCCaseFetch.gd`, and `NPCJobQueries.gd` provide shared
+  item, container, and world-query operations.
+- `JobBoard.gd` is the global source of claimable harvest and purifier-filter
+  jobs.
+- `BunkerNavMesh.gd` owns the runtime navigation region and asynchronous
+  rebakes.
+- `NPCDebug.gd` centralizes optional NPC diagnostics.
+
+The scene uses `AdventurerModel.tscn` for both the visible model and its
+shadow-only counterpart. The physical capsule is explicitly 0.4m radius and
+1.8m height. The navigation bake uses a 0.5m agent radius to retain a 0.1m
+wall/corner clearance; dynamic avoidance uses the physical 0.4m radius.
+
+## Decision model
+
+`NPCBrain` thinks once per second. Initial think times are staggered so the
+population does not evaluate on the same frame.
+
+The persistent autonomous candidates are:
+
+- Wander
+- Sit and lie down for low energy
+- Drink and eat
+- Relax
+- Talk
+- Give an item to a friend
+- Clean and organize
+- Refuel generators
+- Put away an item already being held
+- Garden
+- Cook and serve food
+
+The brain also creates a temporary `JobActivity` for every open `JobBoard`
+job. Currently those jobs are one job per harvestable plant and purifier
+filter replacement.
+
+The highest positive score wins when there is no current activity. A running
+activity can switch only when it is interruptible and the challenger exceeds
+its score by its `switch_margin()`:
+
+- Wander uses 0.25 so nearby social opportunities and ordinary useful work
+  can readily replace aimless movement.
+- Relax uses 0.75 so actual work can replace a break without near-tied passive
+  activities constantly swapping.
+- Other activities default to 2.0. Sustained sessions are non-interruptible by
+  default, with explicit safe-window exceptions such as Cleaning between
+  items.
+
+Player commands bypass utility scoring. Passing out also bypasses scoring and
+preempts the current activity immediately.
+
+Forgetfulness is only rolled when a `JobActivity` is about to start. A
+successful roll substitutes a 20-second non-interruptible wander. It does not
+apply to needs, social activity, or the sustained cleaning/refuel/garden/cook
+sessions.
+
+## Activity lifecycle
+
+Every activity implements some subset of:
+
+- `score(npc)` — current utility; zero means unavailable.
+- `enter(npc)` — acquire claims and establish the initial target.
+- `tick(npc, delta)` — advance navigation or work.
+- `done(npc)` — report natural completion.
+- `interruptible()` — whether utility selection may preempt it now.
+- `switch_margin()` — score advantage required to preempt it.
+- `exit(npc)` — release claims, seats, and temporary state.
+- `take_handoff()` — request an exact successor without a fresh utility pick.
+- `debug_info()` — structured state for diagnostics.
+
+`NPCSessionActivity` is the base for sustained fetch/travel/apply loops. Its
+default is non-interruptible because interrupting a claimed or carried task is
+rarely safe. Command wrapper activities are also non-interruptible.
+
+## Navigation and locomotion
+
+`BunkerNavMesh` builds a `NavigationMesh` from static colliders on physics bit
+1 and supplements the source geometry with cleared bunker floor cells. It
+rebakes after excavation/restoration signals and after its placed-object
+fingerprint changes. Rebakes are debounced and asynchronous.
+
+Every NPC creates a `NavigationAgent3D` at runtime. `set_nav_target()` first
+projects the requested position to the closest point on the current navigation
+map. This is important because many interactable transforms are at the center
+of a collider rather than on walkable floor.
+
+`nav_steer()` submits preferred horizontal velocity. Godot avoidance returns a
+safe velocity through `velocity_computed`; that safe velocity is accelerated
+into the `CharacterBody3D` velocity. Animation is driven by achieved physical
+velocity, not requested velocity. The agent's `max_speed` and the callback's
+final horizontal clamp both use the resident's status-adjusted requested speed.
+Avoidance may redirect a resident but cannot accelerate one during congestion
+or a task retarget.
+
+Stationary activity transitions clamp their deceleration interpolation to the
+physical `0..1` range. A one-shot hard stop may reach zero immediately, but it
+can never extrapolate through zero, reverse direction, or create a speed spike.
+
+Returned path points receive a `-0.9m` `path_height_offset` so they align with
+the NPC root. Godot subtracts this property from path-point Y, so the negative
+sign raises floor-level points; a positive value puts them below the floor and
+prevents the agent from ever satisfying its 3D waypoint tolerance. Waypoint
+tolerance is therefore a tight 0.35m instead of a large value that permits
+corner cutting. The final target tolerance remains 1.1m, and activities
+additionally use flat/XZ interaction ranges. Furniture activities temporarily
+request a precise 0.2m final tolerance and navigate to the animation's actual
+approach anchor.
+
+Stationary interactions use runtime slot leases. Chairs and beds provide
+authored approach transforms; other work and observation targets currently
+receive four orientation-stable generated candidates that are projected onto
+the navigation map. Candidates are ranked by complete navigation-path length,
+not straight-line distance, so a point on the far side of a wall cannot win
+merely because it is geometrically close. A full NPC-capsule physics query
+also rejects standing space currently occupied by moved furniture or loose
+objects that are not part of the latest navmesh bake. A lease records
+position, facing, action, target, and capacity group, prevents two residents
+from committing to the same final space, uses weak ownership, and is released
+on retarget, interruption, despawn, or target removal. Leases and live Node
+references are never saved.
+
+Open bunker doors expose a narrow-passage portal. Within the immediate
+approach, at most two residents may enter in one direction during a short
+batch; opposing residents wait outside the opening, and the oldest waiter
+selects the next direction after the passage clears. This arbitration sits
+above `NavigationAgent3D` avoidance and reserves only the doorway—not paths or
+rooms. Closed-door route planning and NPC door operation remain separate
+future decisions.
+
+Loose pickup items register dynamic navigation obstacles while they are in the
+world and disable them while held or stored. Light-item collisions can also
+receive a small physical shove. NPCs and the player participate in dynamic
+avoidance.
+
+NPC activities and stuck recovery never assign the resident root's
+`global_position`. Normal displacement comes from `move_and_slide()`.
+Chair and bed use navigate precisely to their authored approach point, then
+the shared sit/lie/stand animation moves to the furniture and returns to that
+same captured point. Save/load restoration, developer spawning, and the
+below-world abyss rescue are the only intentional out-of-band placement paths.
+
+### Wandering
+
+Free time is shaped by a deterministic behavior profile derived from the
+resident's saved generation seed and personality. The profile supplies a stable
+sitting preference, patience, restlessness, novelty tendency, social distance,
+and favored landmark category. These values alter leisure timing and selection;
+they do not bypass needs, job priority, or navigation safety.
+
+Wandering alternates between an observation pause and a bounded ambient agenda
+of two to four coherent intentions.
+A resident may visit another currently available resident (weighted by
+Sociability), walk to a built kitchen/garden/storage/power/common-area
+landmark, or deliberately cross the cleared bunker. Landmark categories reuse
+existing scene groups instead of maintaining a separate room graph. Each
+resident has a deterministic preferred landmark category, avoids its three most
+recent targets, and reserves a destination while
+travelling or observing so several residents do not converge on one object.
+
+The intention retains its target through travel, follows a moving social
+target, times out cleanly, and exposes its purpose, phase, target, destination,
+and remaining time through `debug_info()`. It remains the low-score Wander
+candidate in utility terms, so needs and work readily preempt it. These are
+semantic free-time destinations, not a daily schedule or a room simulation.
+
+If free travel is interrupted at a safe travel checkpoint, the brain may retain
+one semantic intention for up to two game-hours. It stores only destination,
+purpose, and an optional target path—not a Node reference, navigation path,
+claim, item-transfer state, or animation phase. Resumption happens only after
+the interrupting activity finishes, revalidates/reclaims the target, and still
+competes normally against real needs and work.
+
+### Sitting around
+
+When little else needs doing, leisure planning can select a free chair for a
+prolonged 45–120 game-minute sitting session. Session length and selection
+frequency are stable per-resident tendencies, so some residents visibly sit
+more while others roam. This is distinct from low-energy `SitActivity`: it uses
+the same authored sit/stand animation and exclusive chair claim but regenerates
+energy slowly and consumes the existing daily leisure budget. Leisure sitting
+is passive and utility-interruptible; a higher-priority need or job requests the
+normal stand-up transition and takes over without teleporting the resident.
+
+### Stuck recovery
+
+Stuck checks run only while an unfinished navigation request is actively being
+steered. Expected progress scales with the NPC's requested speed, avoiding
+false positives for elderly, exhausted, or injured residents.
+
+Recovery escalates:
+
+1. Re-project and request a fresh path without cancelling the intention.
+2. If another grace window also fails, stop the activity cleanly and identify
+   a loose item, another NPC, or static collision when possible.
+3. Congestion with another resident or an unidentified stall yields the
+   current intention and re-scores without changing the resident's position.
+4. A blocking loose item may be handled by a forced one-item cleaning session.
+5. Repeated item jams blacklist that item for the resident; static-geometry
+   jams yield and re-score. No recovery branch directly relocates a resident.
+
+The debug event includes the current activity label and its structured state.
+
+## Needs, health, age, and medical state
+
+Residents have Energy, Hunger, Thirst, Health, and Mood in the range 0–100,
+plus Irritability. Energy, Hunger, and Thirst drain on the compressed game
+clock. Health drains when Hunger or Thirst reaches zero; both sources stack.
+Health reaching zero currently has no death or crisis behavior.
+
+Low Energy, Hunger, Thirst, Mood, age 65+, and medical conditions multiply
+movement speed. Elder residents also perform timed work at 0.75 speed where
+the activity applies `get_age_work_mult()`.
+
+Energy at zero causes `PassedOutActivity`. It is non-interruptible and restores
+energy until the 15-point wake threshold. This is currently a functional
+pose rather than a complete bespoke collapse/wake animation.
+
+`NPCMedical` supports the same six acute conditions currently implemented for
+the player: open wound, bleeding, infection, fracture, broken bone, and burn.
+It applies healing, treatment, speed, and needs-cap effects. Most normal-world
+NPC injury triggers are not implemented yet. The medical work-speed aggregate
+is also not consistently consumed by every NPC activity.
+
+## Personality and social behavior
+
+Personality contains optional values for resilience, sociability, work ethic,
+neuroticism, and optimism. Missing traits behave as neutral values.
+
+- Resilience affects irritability and forgetfulness resistance.
+- Sociability affects relationship movement and talk scoring.
+- Work ethic biases job scores against passive/need scores.
+- Neuroticism affects mood volatility.
+- Optimism affects mood recovery.
+
+Relationships use stable `npc_id` keys and include the player under `player`.
+Talking is available when a compatible NPC is already nearby. A talk session
+faces the pair toward one another, runs for a bounded duration, then applies a
+small relationship outcome and cooldown. Dialogue content is selected for the
+player UI; autonomous conversations do not yet simulate topics or memories.
+
+Friendly NPCs can fetch and give food or water to a resident in need. Hostile
+relationships can cause snatching. Gifts from the player affect relationships
+and use a decaying saturation value so repeated gifts have diminishing impact.
+
+Personality and the deterministic behavior profile now create recognizable
+leisure timing and preferred landmark habits. They do not yet create authored
+daily schedules, semantic room ownership, or durable multi-day goals.
+
+## Work and item behavior
+
+### JobBoard jobs
+
+- `HARVEST`: per-ready-plant job, Farming skill, no supply fetch.
+- `REPLACE_FILTER`: purifier job, Plumbing skill, fetches a filter.
+
+The board polls the world, validates jobs, arbitrates claims, and releases
+claims when an NPC or target disappears.
+
+### Sustained autonomous sessions
+
+- Cleaning handles trash disposal, storage organization, produce baskets, and
+  emergency obstruction clearing. `TrashCan.gd` provides the current
+  `trash_receptacle` implementation. Pickup and delivery navigate to a
+  reachable interaction side rather than an object's collider-center origin.
+  Moving targets refresh that approach, each fetch/delivery leg has an
+  18-second hard timeout, and failed/invalid routes release their item and slot
+  claims before the session continues. The pickup-side inset includes the
+  precise navigation arrival tolerance, so a completed path is still inside
+  the actual item pickup range.
+- Refueling fetches a fuel can and visits eligible generators.
+- Gardening fills soil and plants cells autonomously. Harvesting remains a
+  higher-priority JobBoard job. Player farming commands may also harvest and
+  fertilize.
+- Cooking handles pots, ingredients, powered stoves, cooking, plating,
+  serving, and storage. It is available to autonomous utility selection as
+  well as player commands.
+
+Items and work cells use claims to reduce duplicate work. Activities must
+release every claim in `exit()`. A held item left after an interruption is
+handled by `PutAwayHeldItemActivity` when normal selection resumes.
+
+## Rest and relaxation
+
+Low-energy Sit and Lie activities use free chairs and beds, including occupancy
+claims and the shared adventurer sit animation sequence.
+
+Relaxing is separate from low-energy rest. It consumes a daily budget of three
+game-hours for ordinary residents and six for Lazy residents, in sessions of
+roughly 20–40 game-minutes. Sessions receive a randomized 1.5–3 game-hour
+cooldown. The first player work request during a relaxation session can be
+refused; repeating it succeeds with a relationship cost.
+
+## Dynamic navigation and doors
+
+`BunkerNavMesh.gd` rebuilds navigation from live static collision and publishes
+revisioned, detached bakes atomically. Door collision changes are announced at
+the end of their physical panel animation, so an opening can no longer be
+baked from a half-open frame and remain disconnected. The placed-object
+fingerprint includes transforms and rotation as a defensive fallback.
+
+Every movement request keeps its raw intention separate from its projected
+navmesh point and validates that a complete path reaches that projection.
+Partial paths are failures, never arrivals. Sit and Lie additionally require
+physical approach proximity before starting their root-motion sequences.
+
+Each `BunkerDoor` owns a bidirectional navigation portal. A route may therefore
+choose a closed door; an approaching resident requests it open, waits for the
+panel animation/topology revision, then enters through the shared fair queue.
+NPC door-open requests are idempotent and a closing door can queue one reopen.
+
+Loose and moving physics items use shape-derived avoidance radii and publish
+their velocity. Floor-placed frozen rigid bodies retain their obstacle instead
+of disappearing from both static baking and avoidance.
+
+## Companionship overlay
+
+`NPCCompanionship.gd` represents "spending time" as a mutual, expiring pair
+session above the utility activity layer. Both residents expose the shared
+state in their overhead activity label. Gardening, Cleaning, Sitting, Lying,
+and ordinary idle behavior continue to run; their autonomous target selection
+prefers work and furniture within the partner's vicinity. This lets one
+resident keep tending a garden while the other helps, tidies nearby clutter,
+or rests nearby instead of locking both into a stare animation.
+
+Sessions end for both participants on expiry, removal, incapacity, or prolonged
+separation. Urgent needs and work may temporarily own movement without leaving
+a stale one-sided social label.
+
+## Player interaction
+
+The resident profile UI is implemented by `NPCTalkMenuUI.gd` and documented in
+`docs/ui/NPC_MENU_REDESIGN.md`. It exposes Overview, Talk, Requests, Health,
+and Activity Log tabs. Quick requests cover food, water, and rest. Work orders
+cover cleaning, refueling, unified farm tending, fertilizing, cooking, and
+purifier filters according to the menu's current entries.
+
+Commands force a wrapper activity after checking availability. Pass-out is the
+only normal brain state that may supersede a command.
+
+## Persistence
+
+`MainWorld.gd` registers NPC data in save phase 4. The persisted baseline is:
+
+- Position, name, and stable `npc_id`
+- Energy, Hunger, Thirst, Health, and Mood
+- Skills and personality
+- Age, birthday, and resolved model gender
+- Irritability, relationships, and gift saturation
+- Relaxation budget/cooldown state
+- Generation seed
+
+Active activity, path, job claims, held items, short real-time social
+cooldowns, and medical conditions are not persisted. On load, residents start
+empty-handed and choose a fresh activity. Those omissions are deliberate
+current limitations and must not be described as persisted behavior.
+
+## Debugging
+
+`NPCDebug.enabled` gates console diagnostics. The admin NPC tools can toggle
+logging, dump resident state, spawn/despawn residents, adjust needs, randomize
+skills, and request a navmesh rebake.
+
+Available diagnostics include activity transitions and interrupt score
+comparisons, forgetfulness rolls, jobs, cleaning/session state, mood,
+irritability, relationships, and contextual stuck recovery.
+
+Debugging is not yet a complete decision trace. It does not continuously emit
+every candidate score, path waypoint, preferred/safe/achieved velocity,
+avoidance neighbor, or collision normal. Avoid adding gameplay gates that
+depend on `NPCDebug.enabled`; observation must not change NPC behavior.
+
+## Current limitations and next architectural work
+
+The implemented system is a utility-driven collection of capable activities,
+not yet a full life simulation. Known missing layers include:
+
+- Authored semantic rooms and object-specific slots beyond the current
+  chair/bed anchors and generated workstation fallback
+- Richer room-level traffic semantics beyond door portals and narrow-door arbitration
+- Authored daily schedules and resumable work intentions
+- Suspension/resumption for item-carrying or mid-application work phases
+- Persistent semantic room ownership and multi-day habits
+- Rich autonomous conversation content and memory
+- Normal gameplay injury/crisis response
+- Automated long-duration behavior and navigation metrics
+
+These are future improvements, not claims about current behavior.
+
+## Change checklist
+
+When changing NPC behavior:
+
+1. Update this document if the candidate list, score contract, persistence,
+   navigation contract, commands, or limitations changed.
+2. Confirm claims and held items are released on every completion,
+   interruption, target invalidation, and command path.
+3. Test at least two NPCs approaching the same target and one target removed
+   during travel.
+4. Test an elderly/injured slow NPC so stuck recovery does not false-trigger.
+5. Test a save/load cycle for any new identity-defining state.
+6. Keep debug-only code observational; it must not alter scoring or timing.

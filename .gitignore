@@ -10,9 +10,7 @@ bunker-game/
 .env
 *.tmp
 task.md
-# Godot 4.4+ auto-generated script UID sidecars — regenerated on demand,
-# never need to be in VCS (this repo uses inline uid= headers instead).
-*.uid
+# Script .uid sidecars must travel with their scripts on fresh checkouts.
 
 # Dev/agent scratch — not project content
 # 280 MB Quaternius source-pack zip (import sidecars live next to it, the
@@ -21,3 +19,19 @@ assets/models/WIP/FINAL/Modular Character Outfits - Fantasy\[Standard\].zip
 _dup_diag.log
 godot_sandbox/
 .claude/
+.agents/
+.codex/
+
+# Machine-local tooling and export output
+.dotnet/
+bin/
+obj/
+builds/
+override.cfg
+.stfolder/
+/.local-tools/
+__pycache__/
+
+# Secrets — never commit (private keys / VPN configs)
+ssh-key-*.key
+server.conf

@@ -49,9 +49,8 @@ func _try_duplicate() -> void:
 		return
 	for entry: Dictionary in _owner._placed_objects:
 		if entry["node"] == body:
-			# Guard: level-placed objects cannot be duplicated
-			if not entry.get("player_placed", true):
-				_owner._show_hud_warning("Cannot modify level structure")
+			if not _owner._entry_supports_tool(entry, 2):
+				_owner._show_hud_warning("This object cannot be duplicated")
 				return
 			_owner._dupe_source_tile  = entry["tile_id"]
 			_owner._dupe_source_angle = entry["angle_deg"]
@@ -89,9 +88,11 @@ func _move_select() -> void:
 	# Find its registry entry
 	for entry: Dictionary in _owner._placed_objects:
 		if entry["node"] == body:
-			# Guard: level-placed objects cannot be moved
-			if not entry.get("player_placed", true):
-				_owner._show_hud_warning("Cannot modify level structure")
+			if not _owner._entry_supports_tool(entry, 3):
+				var warning := "Water purifier must be deconstructed and rebuilt" \
+					if int(entry.get("tile_id", -1)) == _owner.TILE_WATER_PURIFIER \
+					else "This object cannot be moved"
+				_owner._show_hud_warning(warning)
 				return
 			_owner._move_source_body  = body
 			_owner._move_source_entry = entry
@@ -112,17 +113,16 @@ func _move_select() -> void:
 			if not found_orient:
 				_owner._orient_index = -1
 
+			## Restore the hover override before hiding the source. Only the root
+			## visibility is changed: forcing every direct mesh child visible on
+			## restore broke objects that intentionally keep state meshes hidden.
+			_owner._clear_hover_glow()
 			# Hide original object while placing — it stays alive for physics
 			body.visible = false
-			# Also hide any child mesh instances so ghost doesn't double-render
-			for child in body.get_children():
-				if child is MeshInstance3D:
-					child.visible = false
 
 			# Spawn move ghost (clone of source mesh with green material)
 			_spawn_move_ghost(entry["tile_id"])
 			_owner._move_phase = 1
-			_owner._clear_hover_glow()
 			return
 
 func _spawn_move_ghost(tile_id: int) -> void:
@@ -170,8 +170,17 @@ func _update_move_ghost() -> void:
 	## like initial placement. Wall-snapped tile types below override it with
 	## their snap-result angle.
 	var ghost_angle_deg: float = _owner._current_angle_deg
+	_owner._move_door_candidate = {}
 
-	if mv_tile == _owner.TILE_LIGHT:
+	if mv_tile == _owner.TILE_BUNKER_DOOR:
+		var door_candidate: Dictionary = _owner._resolve_door_placement(result["position"], _owner._move_source_body)
+		_owner._move_door_candidate = door_candidate
+		if not door_candidate.has("pos"):
+			_owner._move_ghost.visible = false
+			return
+		snap_pos = door_candidate["pos"]
+		ghost_angle_deg = float(door_candidate.get("angle_deg", 0.0))
+	elif mv_tile == _owner.TILE_LIGHT:
 		snap_pos.y = _owner.LIGHT_PLACEMENT_Y
 		## July 2026 fix: moving a light previously never re-ran wall-snap —
 		## it just re-snapped to the flat grid, inconsistent with how it was
@@ -207,6 +216,13 @@ func _update_move_ghost() -> void:
 		else:
 			_owner._move_ghost.visible = false
 			return
+	elif mv_tile == _owner.TILE_POSTER:
+		var poster_snap: Dictionary = _owner._snap_to_nearest_wall(snap_pos, 0.0, 0.015, 1.5)
+		if poster_snap.is_empty():
+			_owner._move_ghost.visible = false
+			return
+		snap_pos = poster_snap["pos"]
+		ghost_angle_deg = poster_snap["angle_deg"]
 	elif mv_tile == _owner.TILE_WATER_HOOKUP:
 		snap_pos.y = _owner.WATER_HOOKUP_PLACEMENT_Y   ## near-ceiling, see BuildModeController's own comment
 		## Water hookup move (July 2026 groundwork pass) — the plan requires
@@ -226,10 +242,9 @@ func _update_move_ghost() -> void:
 	_owner._move_ghost.global_position = snap_pos
 	_owner._move_ghost.rotation_degrees = Vector3(0.0, ghost_angle_deg, 0.0)
 	_owner._move_ghost.visible = true
-	## Keep the ghost green — matches the placement ghost's per-frame tint
-	## (real-model previews keep their own materials, so the tint is what makes
-	## the move preview read as a ghost).
-	GhostModelBuilder.apply_ghost_tint(_owner._move_ghost, true)
+	## Move has its own stable blue language. Reuse the controller's cached
+	## material rather than allocating a fresh ghost material every frame.
+	GhostModelBuilder.apply_tint_material(_owner._move_ghost, _owner._mat_hover)
 
 func _move_confirm() -> void:
 	if _owner._move_ghost == null or _owner._move_source_body == null:
@@ -245,31 +260,45 @@ func _move_confirm() -> void:
 	## additive for the 3 wall-snapped types only, zero behavior change for
 	## every other tile (their angle_deg simply round-trips unchanged).
 	var new_angle_deg: float = _owner._move_ghost.rotation_degrees.y
+	if tile_id == _owner.TILE_BUNKER_DOOR:
+		if not bool(_owner._move_door_candidate.get("valid", false)):
+			_owner._show_hud_warning(String(_owner._move_door_candidate.get("reason", "Door requires a player-built wall")))
+			return
+		_owner._push_undo_move(_owner._move_source_body, _owner._move_source_entry, _owner._move_source_pos)
+		_owner._move_source_body.call("install_on_wall", _owner._move_door_candidate.get("wall"), new_pos, new_angle_deg)
+		_owner._move_source_entry["world_pos"] = new_pos
+		_owner._move_source_entry["angle_deg"] = new_angle_deg
+		_owner._move_source_body.visible = true
+		_destroy_move_ghost()
+		_owner._move_phase = 0
+		_owner._move_source_body = null
+		_owner._move_source_entry = {}
+		_owner._move_door_candidate = {}
+		return
 
 	# Don't allow placing on top of another object (other than self)
 	_owner._move_source_body.visible = true  ## Temporarily make visible for overlap check
-	for child in _owner._move_source_body.get_children():
-		if child is MeshInstance3D:
-			child.visible = true
 	## Exclude self from overlap check by temporarily disabling collision
 	## (Only CollisionObject3D subclasses have collision_layer; Node3D e.g. WallLight does not)
+	var source_collision_layer: int = 0
 	if _owner._move_source_body is CollisionObject3D:
-		(_owner._move_source_body as CollisionObject3D).collision_layer = 0
+		var collision_body := _owner._move_source_body as CollisionObject3D
+		source_collision_layer = collision_body.collision_layer
+		collision_body.collision_layer = 0
 
 	## Use the moved object's STORED footprint (walls store their full run
 	## rectangle) + its current angle, so a long wall keeps its full-length
 	## clearance when moved — the precise OBB test keeps it to the wall's real
 	## rectangle, not a bounding square.
 	var src_he: Vector2 = _owner._move_source_entry.get("footprint", _owner._tile_half_extents(tile_id))
-	var occupied: bool = _owner._is_position_occupied_for_tile(new_pos, tile_id, _owner._move_source_body, src_he, _owner._current_angle_deg)
+	var occupied: bool = _owner._is_position_occupied_for_tile(
+		new_pos, tile_id, _owner._move_source_body, src_he, new_angle_deg)
 
-	## Restore full layer (1=player collide, 4=build hover raycast) — NOT just 4
+	## Restore the exact source layer; not every future build object is
+	## guaranteed to use today's conventional layer value of 5.
 	if _owner._move_source_body is CollisionObject3D:
-		(_owner._move_source_body as CollisionObject3D).collision_layer = 5
+		(_owner._move_source_body as CollisionObject3D).collision_layer = source_collision_layer
 	_owner._move_source_body.visible = false
-	for child in _owner._move_source_body.get_children():
-		if child is MeshInstance3D:
-			child.visible = false
 
 	if occupied:
 		_owner._show_hud_warning("Space is already occupied")
@@ -301,17 +330,8 @@ func _move_confirm() -> void:
 		_owner._move_source_body.call_deferred("refresh_power_attachment")
 
 	_owner._move_source_body.visible = true
-	for child in _owner._move_source_body.get_children():
-		if child is MeshInstance3D:
-			child.visible = true
 
-	# Move stored shelf items with the shelf
-	if _owner._move_source_body.has_method("get") and "slots" in _owner._move_source_body:
-		var shelf_slots: Array = _owner._move_source_body.slots
-		for slot_stack: Array in shelf_slots:
-			for item: RigidBody3D in slot_stack:
-				if item != null and is_instance_valid(item):
-					item.global_position += delta
+	_owner._translate_external_storage_items(_owner._move_source_body, delta)
 
 	_destroy_move_ghost()
 	_owner._move_phase       = 0
@@ -322,9 +342,6 @@ func _cancel_move_confirm() -> void:
 	## Cancel while in phase 1 — restore original visibility, back to phase 0
 	if _owner._move_source_body != null and is_instance_valid(_owner._move_source_body):
 		_owner._move_source_body.visible = true
-		for child in _owner._move_source_body.get_children():
-			if child is MeshInstance3D:
-				child.visible = true
 	_destroy_move_ghost()
 	_owner._move_phase        = 0
 	_owner._move_source_body  = null

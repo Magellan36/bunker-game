@@ -44,7 +44,17 @@ func _run() -> void:
 	root.add_child(history_ui)
 	await process_frame
 	_check(history_ui.get("_filter_buttons").size() == 6,
-		"Bunker Log exposes all approved filters")
+		"Log exposes all approved filters")
+	_check(_tree_contains_text(history_ui, "Log")
+		and not _tree_contains_text(history_ui, "Bunker Log")
+		and not _tree_contains_text(history_ui, "Recent shelter activity"),
+		"pause history uses the compact Log heading without a subtitle")
+	var filter_buttons: Dictionary = history_ui.get("_filter_buttons") as Dictionary
+	_check(filter_buttons.values().all(func(button: Button) -> bool:
+		return button.custom_minimum_size.y <= 30.0 and _button_is_borderless(button)),
+		"pause Log filters are compact and borderless")
+	_check(history_ui.theme != null and history_ui.theme.default_font == UIKit.font(),
+		"pause Log uses the shared bunker font")
 	history_ui.call("_set_filter", "Inventory")
 	_check(history_ui.get("_row_entries").size() == 1,
 		"inventory filter retains matching events")
@@ -65,3 +75,17 @@ func _check(ok: bool, label: String) -> void:
 	else:
 		failures += 1
 		push_error("FAIL: %s" % label)
+
+func _button_is_borderless(button: Button) -> bool:
+	var style: StyleBoxFlat = button.get_theme_stylebox("normal") as StyleBoxFlat
+	return style != null and style.border_width_left == 0 \
+		and style.border_width_top == 0 and style.border_width_right == 0 \
+		and style.border_width_bottom == 0
+
+func _tree_contains_text(root_node: Node, expected: String) -> bool:
+	if root_node is Label and (root_node as Label).text == expected:
+		return true
+	for child: Node in root_node.get_children():
+		if _tree_contains_text(child, expected):
+			return true
+	return false
