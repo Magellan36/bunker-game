@@ -67,15 +67,27 @@ func enter(npc: NPC) -> void:
 		## Two residents can momentarily share an origin after a spawn/load.
 		## Godot rejects look_at(origin), so wait until separation exists.
 		if target_pos.distance_squared_to(npc.global_position) > 0.0001:
-			npc.look_at(target_pos, Vector3.UP)
+			npc.request_attention(_partner, target_pos, &"conversation_partner", 1.8,
+				_duration + 1.0, true)
+
+func attention_target(_npc: NPC) -> Node3D:
+	return _partner as Node3D if _partner != null and is_instance_valid(_partner) else null
 
 func tick(npc: NPC, delta: float) -> void:
 	if _partner == null or not is_instance_valid(_partner):
 		_partner = null
 		return
 	npc.halt_movement(delta)
+	npc.face_world_position((_partner as Node3D).global_position)
 	if not _is_initiator:
 		return   ## partner just waits — end_talk_if_talking() (called via the initiator's own end-of-session) clears _partner externally
+	# Opening either resident's profile pauses the shared conversation clock too.
+	# Otherwise the initiator could finish and mutate the paused partner's live
+	# TalkActivity while the player was only checking that partner's UI.
+	var partner_brain: Object = _partner.get("brain") as Object
+	if partner_brain != null and partner_brain.has_method("is_player_interacting") \
+			and bool(partner_brain.call("is_player_interacting")):
+		return
 	_elapsed += delta
 	if _elapsed >= _duration:
 		if _partner.has_method("end_talk_session"):

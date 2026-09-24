@@ -14,12 +14,15 @@ const TARGET_APPROACH_DISTANCE: float = 1.6
 ## The nav agent may declare its target finished 1.1m early. Aim only 1.2m
 ## from a social target so even the early edge lands inside TALK_RANGE (3m).
 const SOCIAL_STOP_OFFSET: float = 1.2
-const SOCIAL_ARRIVAL_DISTANCE: float = 2.9
+const SOCIAL_ARRIVAL_DISTANCE: float = 2.6
+const SOCIAL_FOLLOW_RESUME_DISTANCE: float = 3.6
+const SOCIAL_SETTLE_TIME: float = 0.6
+const SOCIAL_MOVING_SPEED: float = 0.12
 const SOCIAL_CHANCE_MIN: float = 0.10
 const SOCIAL_CHANCE_MAX: float = 0.55
 const LANDMARK_CHANCE: float = 0.75
 const TRAVEL_TIMEOUT: float = 24.0
-const FOLLOW_REPATH_DISTANCE: float = 0.75
+const FOLLOW_REPATH_DISTANCE: float = 0.3
 const RECENT_TARGET_LIMIT: int = 3
 const RESERVATION_META: StringName = &"_npc_free_time_visitor"
 
@@ -41,6 +44,7 @@ var _last_destination: Vector3 = Vector3.INF
 var _target: Node3D = null
 var _target_id: int = 0
 var _follow_target: bool = false
+var _follow_target_stationary_for: float = 0.0
 var _purpose: String = "Looking around"
 var _arrival_purpose: String = "Looking around"
 var _recent_target_ids: Array[int] = []
@@ -76,7 +80,7 @@ func enter(npc: NPC) -> void:
 	if npc.behavior_profile != null:
 		_preferred_landmark_group = npc.behavior_profile.preferred_landmark_group
 	var companion: NPC = npc.get_companion()
-	if companion != null:
+	if companion != null and NPC_COMPANIONSHIP.should_follow(npc):
 		_target = companion
 		_target_id = companion.get_instance_id()
 		_follow_target = true
@@ -93,13 +97,14 @@ func tick(npc: NPC, delta: float) -> void:
 		return
 
 	var companion: NPC = npc.get_companion()
-	if companion != null:
+	if companion != null and NPC_COMPANIONSHIP.should_follow(npc):
 		_target = companion
 		_target_id = companion.get_instance_id()
 		_follow_target = true
 		_purpose = "Spending time with %s" % companion.npc_name
 		_arrival_purpose = _purpose
-		if NPCItemUser.flat_distance(npc.global_position, companion.global_position) > SOCIAL_ARRIVAL_DISTANCE:
+		if NPCItemUser.flat_distance(npc.global_position, companion.global_position) \
+				> SOCIAL_FOLLOW_RESUME_DISTANCE:
 			_destination = _social_destination(npc, companion)
 			_phase = Phase.TRAVELLING
 			_time_left = TRAVEL_TIMEOUT
@@ -126,13 +131,29 @@ func _tick_travel(npc: NPC, delta: float) -> void:
 				or not _target.is_available_for_companionship():
 			_abandon_intention(npc)
 			return
+		var target_speed: float = _target_horizontal_speed(_target)
+		if target_speed <= SOCIAL_MOVING_SPEED:
+			_follow_target_stationary_for += delta
+		else:
+			_follow_target_stationary_for = 0.0
 		var updated_destination: Vector3 = _social_destination(npc, _target)
 		if NPCItemUser.flat_distance(updated_destination, _destination) >= FOLLOW_REPATH_DISTANCE:
 			_destination = updated_destination
 			npc.set_nav_target(_destination, NPC.NAV_PRECISE_TARGET_DISTANCE)
-		if NPCItemUser.flat_distance(npc.global_position, _target.global_position) <= SOCIAL_ARRIVAL_DISTANCE:
+			_time_left = TRAVEL_TIMEOUT
+		var target_distance: float = NPCItemUser.flat_distance(
+			npc.global_position, _target.global_position)
+		if _follow_target_stationary_for >= SOCIAL_SETTLE_TIME \
+				and target_distance <= SOCIAL_ARRIVAL_DISTANCE:
 			_arrive(npc)
 			return
+		# Stay in one continuous travel phase while the companion is moving.
+		# Matching their pace avoids the old arrive/restart braking cycle.
+		npc.nav_steer(delta, _follow_speed_scale(npc, target_distance, target_speed))
+		_time_left -= delta
+		if npc.nav_failed() or _time_left <= 0.0:
+			_abandon_intention(npc)
+		return
 
 	npc.nav_steer(delta)
 	_time_left -= delta
@@ -265,6 +286,7 @@ func _commit_target(npc: NPC, target: Node3D, destination: Vector3,
 	_target = target
 	_target_id = target.get_instance_id()
 	_follow_target = follow
+	_follow_target_stationary_for = 0.0
 	_remember_target(_target_id)
 	_commit_destination(npc, destination, travel_purpose, observe_purpose,
 		NPC.NAV_PRECISE_TARGET_DISTANCE if follow else NPC.NAV_DEFAULT_TARGET_DISTANCE)
@@ -296,7 +318,8 @@ func _arrive(npc: NPC) -> void:
 		var look_point: Vector3 = _target.global_position
 		look_point.y = npc.global_position.y
 		if npc.global_position.distance_squared_to(look_point) > 0.01:
-			npc.look_at(look_point, Vector3.UP)
+			npc.request_attention(_target, look_point, &"task_target", 0.78,
+				_time_left + 0.5, true)
 
 
 func _abandon_intention(npc: NPC) -> void:
@@ -306,6 +329,7 @@ func _abandon_intention(npc: NPC) -> void:
 	_arrival_purpose = _purpose
 	_destination = Vector3.INF
 	_follow_target = false
+	_follow_target_stationary_for = 0.0
 	_time_left = randf_range(0.5, 1.5)
 	npc.cancel_navigation()
 	npc.halt_movement(1.0)
@@ -319,13 +343,38 @@ func _wait_after_failed_pick(npc: NPC) -> void:
 
 
 func _social_destination(npc: NPC, partner: Node3D) -> Vector3:
-	var away: Vector3 = npc.global_position - partner.global_position
-	away.y = 0.0
+	var away: Vector3
+	if partner is CharacterBody3D:
+		var partner_velocity: Vector3 = (partner as CharacterBody3D).velocity
+		partner_velocity.y = 0.0
+		if partner_velocity.length() > SOCIAL_MOVING_SPEED:
+			away = -partner_velocity.normalized()
+	if away.length_squared() < 0.01:
+		away = npc.global_position - partner.global_position
+		away.y = 0.0
 	if away.length_squared() < 0.01:
 		away = Vector3.FORWARD
 	var spacing: float = npc.behavior_profile.preferred_social_distance \
 		if npc.behavior_profile != null else SOCIAL_STOP_OFFSET
 	return partner.global_position + away.normalized() * spacing
+
+
+func _follow_speed_scale(npc: NPC, distance: float, partner_speed: float) -> float:
+	var spacing: float = npc.behavior_profile.preferred_social_distance \
+		if npc.behavior_profile != null else SOCIAL_STOP_OFFSET
+	var own_speed: float = maxf(0.1, npc.move_speed * npc.get_status_speed_multiplier())
+	if partner_speed > SOCIAL_MOVING_SPEED:
+		var pace_match: float = partner_speed / own_speed
+		var catch_up: float = maxf(0.0, distance - spacing) * 0.2
+		return clampf(pace_match + catch_up, 0.35, 1.15)
+	return clampf((distance - spacing) / 1.2, 0.2, 1.0)
+
+
+static func _target_horizontal_speed(target: Node3D) -> float:
+	if target is CharacterBody3D:
+		var target_velocity: Vector3 = (target as CharacterBody3D).velocity
+		return Vector2(target_velocity.x, target_velocity.z).length()
+	return 0.0
 
 
 func _target_is_available(target: Node3D, npc: NPC) -> bool:
@@ -346,6 +395,7 @@ func _release_target(npc: NPC) -> void:
 	_target = null
 	_target_id = 0
 	_follow_target = false
+	_follow_target_stationary_for = 0.0
 	npc.release_interaction_slot()
 
 
@@ -387,6 +437,10 @@ func debug_info() -> Dictionary:
 		"agenda_beats_remaining": _agenda_beats_remaining,
 		"preferred_landmark_group": String(_preferred_landmark_group),
 	}
+
+
+func attention_target(_npc: NPC) -> Node3D:
+	return _target if _target != null and is_instance_valid(_target) else null
 
 
 func make_resume_intent(_npc: NPC) -> Dictionary:

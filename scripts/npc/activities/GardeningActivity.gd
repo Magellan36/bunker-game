@@ -48,6 +48,15 @@ func label() -> String:
 		"apply": return "Tending the garden"
 		_: return "Gardening"
 
+func attention_target(_npc: NPC) -> Node3D:
+	if _phase == "fetch":
+		if _fetch_loose != null and is_instance_valid(_fetch_loose):
+			return _fetch_loose
+		var shelf: Node3D = _fetch_shelf.get("shelf") as Node3D
+		if shelf != null and is_instance_valid(shelf):
+			return shelf
+	return _current_tray if _current_tray != null and is_instance_valid(_current_tray) else null
+
 func score(npc: NPC) -> float:
 	if mode != "auto":
 		return 0.0   ## command-only modes never compete for autonomous pick

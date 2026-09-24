@@ -1,29 +1,21 @@
 [gd_scene format=3 uid="uid://water_bottle_001"]
 
 [ext_resource type="Script" uid="uid://tifv6y2e3o1d" path="res://scripts/world/items/WaterBottle.gd" id="1_wbottle"]
-[ext_resource type="Texture2D" path="res://assets/textures/items/water_case/water_bottle_label.png" id="2_water_bottle_label"]
-
-[sub_resource type="StandardMaterial3D" id="mat_water_bottle"]
-albedo_texture = ExtResource("2_water_bottle_label")
-albedo_color = Color(0.9, 0.95, 1, 0.92)
-roughness = 0.2
-metallic = 0.04
-transparency = 1
-
-[sub_resource type="CapsuleMesh" id="mesh_001"]
-material = SubResource("mat_water_bottle")
-radius = 0.06
-height = 0.22
+[ext_resource type="PackedScene" uid="uid://btdyh568rx8y3" path="res://assets/models/water_bottle_model.glb" id="2_bottle"]
 
 [sub_resource type="CapsuleShape3D" id="shape_001"]
-radius = 0.06
-height = 0.22
+radius = 0.041
+height = 0.254
 
 [node name="WaterBottle" type="RigidBody3D"]
 script = ExtResource("1_wbottle")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-mesh = SubResource("mesh_001")
+[node name="MeshInstance3D" type="Node3D" parent="."]
+
+[node name="Bottle" parent="MeshInstance3D" instance=ExtResource("2_bottle")]
+rotation_degrees = Vector3(-90, 0, 0)
+scale = Vector3(0.0164, 0.0164, 0.0164)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.127, 0)
 shape = SubResource("shape_001")

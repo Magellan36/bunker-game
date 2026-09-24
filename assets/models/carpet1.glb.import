@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dxbqlde75srn7"
-path="res://.godot/imported/can-empty.glb-d225c46d704e039afd4efbec121aa04d.scn"
+uid="uid://dvhtr5xbl8irp"
+path="res://.godot/imported/carpet1.glb-398ed64f565620823b52d67bf089fea3.scn"
 
 [deps]
 
-source_file="res://assets/models/can-empty.glb"
-dest_files=["res://.godot/imported/can-empty.glb-d225c46d704e039afd4efbec121aa04d.scn"]
+source_file="res://assets/models/carpet1.glb"
+dest_files=["res://.godot/imported/carpet1.glb-398ed64f565620823b52d67bf089fea3.scn"]
 
 [params]
 

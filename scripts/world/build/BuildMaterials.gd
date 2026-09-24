@@ -85,11 +85,23 @@ func _build_ghost_materials() -> void:
 ## per-tile UV). The .tres that ships with the set claims channel 4 (alpha)
 ## for roughness/AO, but the PNGs' alpha is 255 everywhere — the gray values
 ## live in the red channel, so use TEXTURE_CHANNEL_RED.
-const FLOOR_TEX_UV_SCALE: float = 0.0625  ## 1/16 → 1 texture per 16m
+##
+## Sep 2026 plain-concrete pass: normal_scale 0.3 (dampens the relief so the
+## floor reads smooth rather than heavily bumped) + uv1_scale 0.05 (stretches
+## the texels larger than the old 1/16, blurring fine grain/dirt into a
+## smoother wash while keeping one texture across the whole bunker).
+const FLOOR_TEX_UV_SCALE: float = 0.05   ## 1/20 → 1 texture per ~20m (was 1/16; larger texels = smoother floor)
+const FLOOR_NORMAL_SCALE: float = 0.3    ## dampens normal-map relief so the floor reads plainer
 ## Half-strength AO copy for the floor (baked from
 ## Concrete032_2K-PNG_AmbientOcclusion.png — dials the occlusion influence
 ## down without touching the source asset).
 const FLOOR_AO_SOFT := "res://assets/textures/Concrete032/Concrete032_2K-PNG_AmbientOcclusion_soft.png"
+## Shadow-lift copy of the color map (Sep 2026) — dark stains/pixels pulled up
+## toward a brighter floor (darkest ~27 → ~64) while everything above ~85
+## luminance is left essentially untouched, so the floor's darks lighten
+## without washing out the rest. Baked from Concrete032_2K-PNG_Color.png
+## (never mutates it). Slightly amplified after review (floor 82 → 90).
+const FLOOR_COLOR_LIFT := "res://assets/textures/Concrete032/Concrete032_2K-PNG_Color_shadowlift.png"
 static func build_floor_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 0.90
@@ -99,7 +111,7 @@ static func build_floor_material() -> StandardMaterial3D:
 	mat.uv1_world_triplanar     = true   ## world-space projection — CRITICAL on the GridMap
 	mat.uv1_triplanar_sharpness = 3.0
 	mat.uv1_scale               = Vector3(FLOOR_TEX_UV_SCALE, FLOOR_TEX_UV_SCALE, FLOOR_TEX_UV_SCALE)
-	var color_tex: Texture2D = load("res://assets/textures/Concrete032/Concrete032_2K-PNG_Color.png") as Texture2D
+	var color_tex: Texture2D = load(FLOOR_COLOR_LIFT) as Texture2D
 	var normal_tex: Texture2D = load("res://assets/textures/Concrete032/Concrete032_2K-PNG_NormalGL.png") as Texture2D
 	var rough_tex:  Texture2D = load("res://assets/textures/Concrete032/Concrete032_2K-PNG_Roughness.png") as Texture2D
 	var ao_tex:     Texture2D = load(FLOOR_AO_SOFT) as Texture2D
@@ -109,6 +121,7 @@ static func build_floor_material() -> StandardMaterial3D:
 	if normal_tex != null:
 		mat.normal_enabled = true
 		mat.normal_texture = normal_tex
+		mat.normal_scale   = FLOOR_NORMAL_SCALE   ## dampen relief (Sep 2026)
 	if rough_tex != null:
 		mat.roughness_texture           = rough_tex
 		mat.roughness_texture_channel   = BaseMaterial3D.TEXTURE_CHANNEL_RED
@@ -127,6 +140,13 @@ static func build_floor_material() -> StandardMaterial3D:
 ## gray values live in the red channel (the shipping .tres's alpha channel is
 ## a trap — the PNGs' alpha is 255 everywhere).
 const WALL_TEX_UV_SCALE: float = 0.20   ## 1/5 → 1 texture per ~5m (slightly stretched so the fine-grained set reads larger; 16m wall = ~3 instances)
+## Shadow-lift copy of the wall color map (Sep 2026) — same technique as the
+## floor's: dark stains/pixels pulled up (darkest ~47 → ~74, p01 80 → 84)
+## while everything above ~110 luminance is left untouched, so the wall's
+## darks lighten without washing out the surface. The wall set reads brighter
+## overall than the floor (mean 100 vs 75), so the lift is intentionally
+## gentler. Baked from Concrete028_2K-PNG_Color.png (never mutates it).
+const WALL_COLOR_LIFT := "res://assets/textures/Concrete028/Concrete028_2K-PNG_Color_shadowlift.png"
 static func build_wall_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 0.92
@@ -136,7 +156,7 @@ static func build_wall_material() -> StandardMaterial3D:
 	mat.uv1_world_triplanar     = true
 	mat.uv1_triplanar_sharpness = 3.0
 	mat.uv1_scale               = Vector3(WALL_TEX_UV_SCALE, WALL_TEX_UV_SCALE, WALL_TEX_UV_SCALE)
-	var color_tex: Texture2D = load("res://assets/textures/Concrete028/Concrete028_2K-PNG_Color.png") as Texture2D
+	var color_tex: Texture2D = load(WALL_COLOR_LIFT) as Texture2D
 	var normal_tex: Texture2D = load("res://assets/textures/Concrete028/Concrete028_2K-PNG_NormalGL.png") as Texture2D
 	var rough_tex:  Texture2D = load("res://assets/textures/Concrete028/Concrete028_2K-PNG_Roughness.png") as Texture2D
 	var ao_tex:     Texture2D = load("res://assets/textures/Concrete028/Concrete028_2K-PNG_AmbientOcclusion.png") as Texture2D

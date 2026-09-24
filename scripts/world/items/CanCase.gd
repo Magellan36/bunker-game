@@ -67,13 +67,40 @@ func get_interact_prompt() -> String:
 
 # ─── Interact: eject a can — works both placed and while held ─────────────────
 func on_interact() -> void:
-	if can_count <= 0:
+	var can: RigidBody3D = _spawn_one(spawn_point.global_position)
+	if can == null:
 		return
 
+	## Eject toward whoever's holding the case (player/NPC face local -Z); if
+	## placed, use the case's own forward (-Z). Sep 2026 — the holder-facing
+	## eject initially flew AWAY from the holder (used -holder.basis.z); flipped
+	## to +holder.basis.z so it pops out toward the holder, not behind them.
+	var eject_dir: Vector3 = -global_transform.basis.z
+	var holder: CharacterBody3D = _get_holder()
+	if holder != null:
+		eject_dir = holder.global_transform.basis.z
+	can.linear_velocity = eject_dir * 2.5 + Vector3(0, 1.5, 0)
+
+## NPC case access never moves the case itself. Start the can just beyond the
+## authored outlet, on the NPC-facing side, so its normal PickupableItem
+## follow physics visibly carries it the rest of the way into the NPC's hand.
+func npc_take_one(npc: Node3D) -> RigidBody3D:
+	if npc == null or not is_instance_valid(npc):
+		return null
+	var toward_npc: Vector3 = npc.global_position - spawn_point.global_position
+	toward_npc.y = 0.0
+	if toward_npc.length_squared() < 0.001:
+		toward_npc = -global_transform.basis.z
+	toward_npc = toward_npc.normalized()
+	return _spawn_one(spawn_point.global_position + toward_npc * 0.35 + Vector3.UP * 0.1)
+
+func _spawn_one(world_position: Vector3) -> RigidBody3D:
+	if can_count <= 0:
+		return null
 	var can_res: Resource = load(CAN_SCENE)
 	if can_res == null:
 		push_error("CanCase: Could not load FoodCan.tscn at '%s'" % CAN_SCENE)
-		return
+		return null
 
 	var can: RigidBody3D = can_res.instantiate()
 
@@ -84,14 +111,16 @@ func on_interact() -> void:
 	var world: Node = get_tree().get_first_node_in_group("world")
 	if world == null:
 		push_error("CanCase: No node in group 'world' found.")
-		return
+		return null
 
 	world.add_child(can)
-	can.global_position = spawn_point.global_position
-	can.linear_velocity = -global_transform.basis.z * 2.5 + Vector3(0, 1.5, 0)
+	can.global_position = world_position
+	can.linear_velocity = Vector3.ZERO
+	can.angular_velocity = Vector3.ZERO
 
 	can_count -= 1
 	_hide_next_can_visual()
+	return can
 
 ## Hides the next remaining visible can mesh (highest-numbered first) so the
 ## case model visually empties in sync with can_count. Safe no-op once

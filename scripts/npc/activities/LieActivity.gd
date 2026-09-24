@@ -15,6 +15,9 @@ var _lying: bool = false
 var _side: float = 1.0
 var _approach_pos: Vector3 = Vector3.ZERO
 
+func attention_target(_npc: NPC) -> Node3D:
+	return _bed as Node3D if _bed is Node3D and is_instance_valid(_bed) else null
+
 
 func label() -> String:
 	return "Sleeping" if _lying else "Finding a bed"

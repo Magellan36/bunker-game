@@ -207,6 +207,8 @@ func close() -> void:
 				and (previous as Control).is_visible_in_tree():
 			(previous as Control).grab_focus()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	if _npc != null and is_instance_valid(_npc) and _npc.has_method("end_player_interaction"):
+		_npc.call("end_player_interaction")
 	_npc = null
 	UIPanelLifecycle.dismiss(self, _panel, _finish_close_presentation)
 	closed.emit()

@@ -745,6 +745,10 @@ func _update_ghost() -> void:
 			or _owner._selected_tile == _owner.TILE_CHAIR or _owner._selected_tile == _owner.TILE_STOVE \
 			or _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER \
 			or _owner._selected_tile == _owner.TILE_TRASH_CAN \
+			or _owner._selected_tile == _owner.TILE_CARPET_1 or _owner._selected_tile == _owner.TILE_CARPET_2 \
+			or _owner._selected_tile == _owner.TILE_CARPET_3 or _owner._selected_tile == _owner.TILE_DRAWERS_1 \
+			or _owner._selected_tile == _owner.TILE_DRAWERS_2 or _owner._selected_tile == _owner.TILE_DRAWERS_3 \
+			or _owner._selected_tile == _owner.TILE_SINK \
 			or _owner._selected_tile == _owner.TILE_BUILD_STATION \
 			or _owner._selected_tile == _owner.TILE_RESEARCH_STATION:
 		snap_pos.y = 0.5   ## Floor-standing, same hover-offset convention as farming trays

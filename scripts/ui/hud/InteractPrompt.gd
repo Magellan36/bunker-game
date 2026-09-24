@@ -265,8 +265,16 @@ func _process(delta: float) -> void:
 				p.custom_minimum_size.x = 0.0
 
 		p.reset_size()
+		## Sep 2026 — bottom-anchored panels (CookingPot's hover): keep the
+		## panel's BOTTOM edge pinned at the world anchor and let it build
+		## upward as content grows (icon row + multi-line label). Centered
+		## panels grow symmetrically, which would push the pot's panel down
+		## into the stove when ingredients are added.
+		var pos: Vector2 = screen_pos - p.size / 2.0
+		if bool(entry.get("anchor_bottom", false)):
+			pos = Vector2(screen_pos.x - p.size.x * 0.5, screen_pos.y - p.size.y)
 		layouts.append({
-			"pos":      screen_pos - p.size / 2.0,
+			"pos":      pos,
 			"size":     p.size,
 			"alpha":    alpha,
 			"priority": int(entry.get("display_priority",

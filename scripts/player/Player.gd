@@ -29,6 +29,11 @@ extends CharacterBody3D
 @onready var interaction_area: Area3D = $InteractionArea
 @onready var interaction_system: Node = $InteractionSystem
 
+## Per-item shove cooldowns for PickupableItem.shove_small_items_near()
+## (Sep 2026) — one dict per character so the player and each NPC shove
+## independently. See PickupableItem.gd for the one-sided walk-through logic.
+var _shove_cooldown_by_item: Dictionary = {}
+
 ## Resolved lazily via group lookup (same pattern PlayerStats/PowerManager
 ## use elsewhere) rather than a direct $-path, since PlayerMedical is a
 ## sibling node rather than a child of Player — see
@@ -224,6 +229,7 @@ func _physics_process(delta: float) -> void:
 		velocity.x = 0.0
 		velocity.z = 0.0
 		move_and_slide()
+		PickupableItem.shove_small_items_near(self, _shove_cooldown_by_item)
 		return
 	_handle_movement(delta)
 	_handle_interaction_input()
@@ -376,6 +382,7 @@ func _handle_movement(delta: float) -> void:
 	rotation.y = lerp_angle(rotation.y, target_angle, 1.0 - exp(-TURN_SMOOTH_SPEED * delta))
 
 	move_and_slide()
+	PickupableItem.shove_small_items_near(self, _shove_cooldown_by_item)
 
 ## True while Build Mode is active (InteractionSystem.build_mode_active, set
 ## by MainWorld on enter/exit). Build mode reserves the right stick for the

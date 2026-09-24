@@ -1,5 +1,6 @@
 extends RefCounted
 class_name NPCDebug
+const NPC_METRICS: GDScript = preload("res://scripts/npc/NPCMetrics.gd")
 ## NPCDebug.gd  (NPC Pass 2, Part 7)
 ## Centralized, toggleable debug logging for the whole NPC system. Off by
 ## default; flip via the F7 "Toggle NPC Debug Logging" row (or call
@@ -11,6 +12,10 @@ class_name NPCDebug
 ## which is enough for a dev-only toggle and avoids one more autoload entry.
 
 static var enabled: bool = false
+## High-detail locomotion flight recorder. Separate from general logging so
+## ordinary NPC debugging stays readable and the per-frame sample ring remains
+## completely dormant unless a navigation investigation explicitly enables it.
+static var navigation_trace_enabled: bool = false
 
 static func _fmt(npc: Node) -> String:
 	if npc != null and "npc_name" in npc:
@@ -83,7 +88,7 @@ static func log_stuck(npc: Node, context: String = "?", info: Dictionary = {}) -
 		for key: String in info.keys():
 			parts.append("%s=%s" % [key, str(info[key])])
 		detail = " [%s]" % ", ".join(parts)
-	print("%s STUCK while %s%s — aborting current activity and re-scoring" % [_fmt(npc), context, detail])
+	print("%s STUCK while %s%s — recovery evaluating" % [_fmt(npc), context, detail])
 
 ## Aug 2026 — logged when the same obstruction (or none identifiable)
 ## has kept an NPC stuck across multiple consecutive recovery attempts,
@@ -304,6 +309,15 @@ static func dump_job_state(tree: SceneTree) -> void:
 		print("  (no NPCs)")
 	print("═════════════════════════════════════════════════════════")
 
+
+static func dump_metrics() -> void:
+	var data: Dictionary = NPC_METRICS.snapshot()
+	print("═══ NPC Metrics (enabled=%s) ═══════════════════════════" % data.get("enabled", false))
+	print("  counters=%s" % str(data.get("counters", {})))
+	print("  histograms=%s" % str(data.get("histograms", {})))
+	print("  recent_events=%s" % str(data.get("recent_events", [])))
+	print("═════════════════════════════════════════════════════════")
+
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
 ## on-demand request, not continuous logging). Part 19 — expanded from a
@@ -319,6 +333,24 @@ static func dump_all(tree: SceneTree) -> void:
 		if not is_instance_valid(npc):
 			continue
 		_dump_one(npc)
+	print("═════════════════════════════════════════════════════════")
+
+## One-shot navigation dump plus each resident's bounded recent sample ring.
+## Observational only: enabling or printing this never changes movement state.
+static func dump_navigation_state(tree: SceneTree) -> void:
+	var npcs: Array = tree.get_nodes_in_group("npc")
+	print("═══ NPC Navigation Debug Dump (%d NPCs) ════════════════" % npcs.size())
+	for npc: Node in npcs:
+		if not is_instance_valid(npc) or not npc.has_method("get_navigation_debug_info"):
+			continue
+		print("── %s ──────────────────────────────" % (npc.npc_name if "npc_name" in npc else "?"))
+		var info: Dictionary = npc.get_navigation_debug_info()
+		var samples: Array = info.get("recent_samples", [])
+		info.erase("recent_samples")
+		print("  current=%s" % str(info))
+		print("  recent_samples (%d, oldest→newest):" % samples.size())
+		for sample: Dictionary in samples:
+			print("    %s" % str(sample))
 	print("═════════════════════════════════════════════════════════")
 
 static func _dump_one(npc: Node) -> void:
@@ -338,6 +370,8 @@ static func _dump_one(npc: Node) -> void:
 			print("  spatial_commitment=%s" % str(spatial))
 	if npc.has_method("get_behavior_profile_debug_info"):
 		print("  behavior_profile=%s" % str(npc.get_behavior_profile_debug_info()))
+	if npc.has_method("get_attention_debug_info"):
+		print("  attention=%s" % str(npc.get_attention_debug_info()))
 
 	if "health" in npc and "energy" in npc and "hunger" in npc and "thirst" in npc:
 		print("  Health=%.1f  Energy=%.1f  Hunger=%.1f  Thirst=%.1f" % [

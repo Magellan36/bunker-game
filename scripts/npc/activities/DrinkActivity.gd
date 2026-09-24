@@ -3,8 +3,8 @@ class_name DrinkActivity
 ## Thirst-driven. Priority: Dispenser/loose bottle (nearest-wins) →
 ## shelved bottle → loose Water Case → shelved Water Case (Aug 2026 —
 ## the last two tiers via NPCCaseFetch, shared with EatActivity's
-## CanCase handling; see that file for the take-case-out/eject/
-## reshelve mechanics).
+## CanCase handling; the case remains in place while one bottle moves
+## directly into the NPC's hand).
 ##
 ## Bottle handling (Part 12): grabs the bottle FIRST, holds it through
 ## the full CONSUME_TIME wait, then drinks+drops — mirroring
@@ -26,6 +26,14 @@ var _drinking: float = 0.0
 var _pending_snatch: Node = null   ## Part 30
 var _handoff: NPCActivity = null
 var _case_fetch: NPCCaseFetch = null   ## Aug 2026 — last-resort tier once dispenser/loose/shelved bottle all come up empty
+
+func attention_target(_npc: NPC) -> Node3D:
+	if _case_fetch != null:
+		return _case_fetch.get_case_target()
+	if _target is Node3D and is_instance_valid(_target):
+		return _target as Node3D
+	var shelf: Node3D = _shelf_pick.get("shelf") as Node3D
+	return shelf if shelf != null and is_instance_valid(shelf) else null
 
 func label() -> String:
 	return "Drinking" if _drinking > 0.0 else "Getting water"
@@ -88,7 +96,7 @@ func enter(npc: NPC) -> void:
 			_target = null
 			return
 	elif _mode == "case":
-		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"), Callable(NPCItemUser, "is_drinkable_bottle"))
+		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"))
 		return
 	if _target != null:
 		npc.set_nav_target((_target as Node3D).global_position)
@@ -101,7 +109,7 @@ func tick(npc: NPC, delta: float) -> void:
 	if _case_fetch != null:
 		if _case_fetch.is_done():
 			if not _case_fetch.failed():
-				_target = _case_fetch.get_ejected_item()
+				_target = _case_fetch.get_dispensed_item()
 				_mode = "bottle"
 			_case_fetch = null
 			return
@@ -227,7 +235,7 @@ func _reacquire_or_finish(npc: NPC) -> void:
 			_mode = ""
 			return
 	elif _mode == "case":
-		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"), Callable(NPCItemUser, "is_drinkable_bottle"))
+		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"))
 		return
 	if _target != null:
 		npc.set_nav_target((_target as Node3D).global_position)

@@ -4,6 +4,9 @@ const NPC_INTERACTION_SLOTS: GDScript = preload("res://scripts/npc/NPCInteractio
 const NPC_DOOR_COORDINATOR: GDScript = preload("res://scripts/npc/NPCDoorCoordinator.gd")
 const NPC_LEISURE_PLANNER: GDScript = preload("res://scripts/npc/NPCLeisurePlanner.gd")
 const NPC_COMPANIONSHIP: GDScript = preload("res://scripts/npc/NPCCompanionship.gd")
+const NPC_ATTENTION_CONTROLLER: GDScript = preload("res://scripts/npc/NPCAttentionController.gd")
+const NPC_METRICS: GDScript = preload("res://scripts/npc/NPCMetrics.gd")
+const NPC_DYNAMIC_OBSTACLE_MAP: GDScript = preload("res://scripts/npc/NPCDynamicObstacleMap.gd")
 ## NPC.gd  (rewritten in NPC Pass 2, Part 1 — navmesh locomotion)
 ## Wanders the dug-out bunker using real NavigationAgent3D pathfinding over
 ## BunkerNavMesh's runtime-baked navmesh, and can be talked to via [E].
@@ -61,6 +64,18 @@ var nav_agent: NavigationAgent3D = null
 var hold_point: Node3D = null       ## NPC's carry anchor (Part 3)
 var held_item: RigidBody3D = null   ## what's in hand, via PickupableItem.pickup
 
+## Debug-only navigation flight recorder state. The velocity snapshots are
+## cheap scalar assignments; the bounded sample ring is populated only while
+## NPCDebug.navigation_trace_enabled is explicitly on.
+const NAV_TRACE_SAMPLE_INTERVAL: float = 0.25
+const NAV_TRACE_CAPACITY: int = 48
+const NAV_TRACE_NEARBY_RADIUS: float = 4.0
+var _last_preferred_nav_velocity: Vector3 = Vector3.ZERO
+var _last_safe_nav_velocity: Vector3 = Vector3.ZERO
+var _nav_trace_elapsed: float = 0.0
+var _nav_trace_samples: Array[Dictionary] = []
+var _last_stuck_recovery_stage: String = "none"
+
 # ─── State ────────────────────────────────────────────────────────────────
 enum NPCState { IDLE, WANDERING }
 var _state: NPCState = NPCState.IDLE
@@ -113,6 +128,7 @@ var generation_seed: int = 0
 var personality: Dictionary = {}
 var behavior_profile: RefCounted = null
 var leisure_planner: RefCounted = null
+var attention_controller: Node = null
 const PERSONALITY_TRAIT_KEYS: Array[String] = [
 	"resilience", "sociability", "work_ethic", "neuroticism", "optimism",
 ]
@@ -1647,8 +1663,17 @@ var _nav_desired_distance: float = 1.1
 var _interaction_slot_lease: Dictionary = {}
 var _door_passage_lease: Dictionary = {}
 var _last_requested_nav_speed: float = 0.0
+var _metrics_sample_timer: float = 0.0
 const NAV_DEFAULT_TARGET_DISTANCE: float = 1.1
 const NAV_PRECISE_TARGET_DISTANCE: float = 0.2
+var _dynamic_detour_active: bool = false
+var _dynamic_detour_point: Vector3 = Vector3.INF
+var _dynamic_detour_resume_target: Vector3 = Vector3.ZERO
+var _dynamic_detour_resume_distance: float = NAV_DEFAULT_TARGET_DISTANCE
+var _dynamic_detour_side: float = 0.0
+var _navigation_yield_remaining: float = 0.0
+const CLEAR_RETRY_COOLDOWN_MSEC: int = 12000
+var _clear_retry_after_by_item: Dictionary = {}
 
 ## The chair this NPC is currently seated in, or null. Mirrors Player.gd's
 ## seated_chair so the shared AdventurerModelController can drive the sit
@@ -1675,6 +1700,7 @@ func in_sit_sequence() -> bool:
 
 func halt_movement(delta: float) -> void:
 	_movement_locked = true
+	_last_preferred_nav_velocity = Vector3.ZERO
 	# Activity transitions sometimes pass a large delta for an immediate stop.
 	# Clamp the interpolation so it can never extrapolate through zero and
 	# reverse the NPC at many times its requested walking speed.
@@ -1689,8 +1715,37 @@ func halt_movement(delta: float) -> void:
 ## per-frame call.
 func lock_movement() -> void:
 	_movement_locked = true
+	_last_preferred_nav_velocity = Vector3.ZERO
 	velocity.x = 0.0
 	velocity.z = 0.0
+
+
+## Guaranteed facing for committed conversations. Locomotion assigns heading
+## directly from safe velocity, so conversation turns use that same one-frame
+## response instead of a visibly slower presentation-layer rotation.
+func face_world_position(world_position: Vector3) -> bool:
+	var direction: Vector3 = world_position - global_position
+	direction.y = 0.0
+	if direction.length_squared() < 0.0001:
+		return true
+	var desired_yaw: float = atan2(-direction.x, -direction.z)
+	rotation.y = desired_yaw
+	return true
+
+
+## Root-facing has one owner at a time. Attention may borrow it only after an
+## activity has deliberately stopped and there is no unfinished navigation
+## leg; otherwise NavigationAgent velocity owns the character's heading.
+func can_attention_turn_body() -> bool:
+	if not _movement_locked or in_sit_sequence():
+		return false
+	if Vector2(velocity.x, velocity.z).length() > 0.05:
+		return false
+	if brain != null and brain.is_player_interacting():
+		return true
+	if _nav_route_valid and nav_agent != null and not nav_agent.is_navigation_finished():
+		return false
+	return true
 
 func _ready() -> void:
 	add_to_group("npc")
@@ -1774,6 +1829,10 @@ func _ready() -> void:
 	brain = NPCBrain.new()
 	refresh_behavior_profile()
 	brain.setup(self)
+	attention_controller = NPC_ATTENTION_CONTROLLER.new()
+	attention_controller.name = "NPCAttentionController"
+	add_child(attention_controller)
+	attention_controller.setup(self)
 
 	medical = NPCMedical.new()
 	medical.name = "NPCMedical"
@@ -1830,9 +1889,13 @@ func _physics_process(delta: float) -> void:
 
 		_tick_needs(delta)
 		_tick_mood_and_irritability(delta)
-		_tick_stuck_recovery(delta)
+		var player_interaction: bool = brain != null and brain.is_player_interacting()
+		if not player_interaction:
+			_tick_stuck_recovery(delta)
 
-		if current_task != null:
+		if player_interaction:
+			brain.tick(delta)
+		elif current_task != null:
 			perform_task(delta)
 		elif brain != null:
 			brain.tick(delta)
@@ -1841,7 +1904,9 @@ func _physics_process(delta: float) -> void:
 
 		move_and_slide()
 		_handle_physics_pushes(delta)
-		_check_stuck(delta)
+		_capture_navigation_trace(delta)
+		if not (brain != null and brain.is_player_interacting()):
+			_check_stuck(delta)
 	else:
 		## Sit sequence active — the controller owns position. Still let the
 		## activity tick so it can regen energy and trigger the stand-up; just
@@ -1849,16 +1914,75 @@ func _physics_process(delta: float) -> void:
 		_tick_needs(delta)
 		_tick_mood_and_irritability(delta)
 
-		if current_task != null:
+		if brain != null and brain.is_player_interacting():
+			brain.tick(delta)
+		elif current_task != null:
 			perform_task(delta)
 		elif brain != null:
 			brain.tick(delta)
 		else:
 			_process_wander(delta)
+	_tick_metrics(delta)
 
 
 func get_companion() -> NPC:
-	return NPC_COMPANIONSHIP.partner_for(self)
+	return NPC_COMPANIONSHIP.partner_for(self) as NPC
+
+
+func request_attention(source: Object, world_position: Vector3, category: StringName,
+		salience: float, lifetime: float = 1.0, body_turn_allowed: bool = true) -> void:
+	if attention_controller != null and attention_controller.has_method("notice"):
+		attention_controller.notice(source, world_position, category, salience,
+			lifetime, body_turn_allowed)
+
+
+func get_attention_task_stimulus() -> Dictionary:
+	var target: Node3D = null
+	var category: StringName = &"task_target"
+	var salience: float = 0.82
+	if brain != null:
+		target = brain.get_attention_target()
+		if brain.is_player_interacting():
+			category = &"player_conversation"
+			salience = 2.0
+		elif brain.is_talking():
+			category = &"conversation_partner"
+			salience = 1.8
+	if target == null and not _interaction_slot_lease.is_empty():
+		var target_ref: WeakRef = _interaction_slot_lease.get("target_ref") as WeakRef
+		target = target_ref.get_ref() as Node3D if target_ref != null else null
+	if target == null and current_task is Node3D:
+		target = current_task as Node3D
+	if target != null and is_instance_valid(target):
+		return {
+			"source": weakref(target), "world_position": target.global_position,
+			"category": category, "salience": salience,
+			"body_turn_allowed": true,
+		}
+	if _movement_locked and _raw_nav_target != Vector3.ZERO:
+		return {
+			"source": null, "world_position": _raw_nav_target,
+			"category": &"task_target", "salience": 0.68,
+			"body_turn_allowed": true,
+		}
+	return {}
+
+
+func get_attention_debug_info() -> Dictionary:
+	return attention_controller.get_debug_info() \
+		if attention_controller != null and attention_controller.has_method("get_debug_info") else {}
+
+
+func _tick_metrics(delta: float) -> void:
+	if not NPC_METRICS.enabled:
+		return
+	_metrics_sample_timer -= delta
+	if _metrics_sample_timer > 0.0:
+		return
+	_metrics_sample_timer = 1.0
+	var achieved: Vector3 = get_real_velocity()
+	NPC_METRICS.observe(&"locomotion_speed_mps", Vector2(achieved.x, achieved.z).length(),
+		[0.0, 0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
 
 
 func is_position_compatible_with_companionship(position: Vector3, extra_radius: float = 0.0) -> bool:
@@ -1871,6 +1995,11 @@ func set_nav_target(world_pos: Vector3, desired_distance: float = NAV_DEFAULT_TA
 		return false
 	var raw := Vector3(world_pos.x, 0.5, world_pos.z)
 	var requested_distance := maxf(0.05, desired_distance)
+	if _dynamic_detour_active:
+		if raw.distance_squared_to(_dynamic_detour_resume_target) < 0.01 \
+				and is_equal_approx(requested_distance, _dynamic_detour_resume_distance):
+			return _nav_route_valid
+		_cancel_dynamic_detour(false)
 	if raw.distance_squared_to(_raw_nav_target) < 0.01 \
 			and is_equal_approx(requested_distance, _nav_desired_distance) \
 			and (_nav_route_valid or _nav_route_failed):
@@ -1880,9 +2009,42 @@ func set_nav_target(world_pos: Vector3, desired_distance: float = NAV_DEFAULT_TA
 	return _evaluate_nav_route()
 
 
+func _begin_dynamic_detour(point: Vector3, side: float) -> bool:
+	if _dynamic_detour_active or _raw_nav_target == Vector3.ZERO:
+		return false
+	_dynamic_detour_active = true
+	_dynamic_detour_point = point
+	_dynamic_detour_resume_target = _raw_nav_target
+	_dynamic_detour_resume_distance = _nav_desired_distance
+	_dynamic_detour_side = side
+	_raw_nav_target = Vector3(point.x, 0.5, point.z)
+	_nav_desired_distance = NAV_PRECISE_TARGET_DISTANCE
+	if _evaluate_nav_route():
+		return true
+	_cancel_dynamic_detour(true)
+	return false
+
+
+func _cancel_dynamic_detour(restore_route: bool) -> void:
+	if not _dynamic_detour_active:
+		return
+	var resume_target: Vector3 = _dynamic_detour_resume_target
+	var resume_distance: float = _dynamic_detour_resume_distance
+	_dynamic_detour_active = false
+	_dynamic_detour_point = Vector3.INF
+	_dynamic_detour_resume_target = Vector3.ZERO
+	_dynamic_detour_resume_distance = NAV_DEFAULT_TARGET_DISTANCE
+	_dynamic_detour_side = 0.0
+	if restore_route and resume_target != Vector3.ZERO:
+		_raw_nav_target = resume_target
+		_nav_desired_distance = resume_distance
+		_evaluate_nav_route()
+
+
 func _evaluate_nav_route() -> bool:
 	_nav_route_valid = false
 	_nav_route_failed = false
+	_stuck_ref_remaining_distance = INF
 	if nav_agent == null:
 		return false
 	var nav_map: RID = nav_agent.get_navigation_map()
@@ -1902,18 +2064,38 @@ func _evaluate_nav_route() -> bool:
 		_nav_route_failed = true
 		lock_movement()
 		_last_requested_nav_speed = 0.0
+		NPC_METRICS.increment(&"navigation_route_failures")
 		return false
 	_requested_nav_target = target
 	_nav_route_valid = true
 	nav_agent.target_desired_distance = _nav_desired_distance
 	nav_agent.target_position = target
+	NPC_METRICS.increment(&"navigation_route_requests")
+	NPC_METRICS.observe(&"navigation_route_points", float(path.size()),
+		[1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0])
 	return true
 
 
 func _on_navigation_revision_changed(revision: int) -> void:
 	_nav_route_revision = revision
+	_clear_retry_after_by_item.clear()
 	if _raw_nav_target != Vector3.ZERO:
 		_evaluate_nav_route()
+
+
+func can_retry_navigation_clear(item: RigidBody3D) -> bool:
+	if item == null or not is_instance_valid(item):
+		return false
+	return Time.get_ticks_msec() >= int(_clear_retry_after_by_item.get(
+		item.get_instance_id(), 0))
+
+
+func note_navigation_clear_result(item_id: int, succeeded: bool) -> void:
+	if succeeded:
+		_clear_retry_after_by_item.erase(item_id)
+	else:
+		_clear_retry_after_by_item[item_id] = Time.get_ticks_msec() \
+			+ CLEAR_RETRY_COOLDOWN_MSEC
 
 func project_navigation_point(world_pos: Vector3) -> Vector3:
 	var target := Vector3(world_pos.x, 0.5, world_pos.z)
@@ -1971,6 +2153,30 @@ func is_interaction_position_clear(world_pos: Vector3, target: Node3D = null) ->
 	query.exclude = excluded
 	return world.direct_space_state.intersect_shape(query, 8).is_empty()
 
+## Conservative footprint query used before an obstruction-clearing action
+## commits to lifting anything. The short cylinder ignores the supporting
+## floor but rejects walls, furniture, residents, and other loose bodies in
+## the proposed drop footprint.
+func is_object_placement_clear(item: RigidBody3D, world_pos: Vector3,
+		footprint_radius: float) -> bool:
+	if not is_inside_tree():
+		return false
+	var world: World3D = get_world_3d()
+	if world == null:
+		return false
+	var shape := CylinderShape3D.new()
+	shape.radius = maxf(0.05, footprint_radius + 0.08)
+	shape.height = 0.5
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = Transform3D(Basis.IDENTITY,
+		Vector3(world_pos.x, world_pos.y + 0.32, world_pos.z))
+	query.collision_mask = collision_mask
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	query.exclude = [get_rid(), item.get_rid()]
+	return world.direct_space_state.intersect_shape(query, 16).is_empty()
+
 func claim_interaction_slot(target: Node3D, action: StringName,
 		distance: float = 1.0, authored: Array[Dictionary] = []) -> Dictionary:
 	release_interaction_slot()
@@ -1995,8 +2201,13 @@ func get_interaction_slot_position() -> Vector3:
 func face_interaction_slot() -> void:
 	if _interaction_slot_lease.is_empty():
 		return
+	var target_ref: WeakRef = _interaction_slot_lease.get("target_ref") as WeakRef
+	var target: Node3D = target_ref.get_ref() as Node3D if target_ref != null else null
 	var transform: Transform3D = _interaction_slot_lease.get("transform", global_transform)
-	rotation.y = transform.basis.get_euler().y
+	# Preserve the authored slot's forward direction. Using the object's center
+	# here made side-on workstations turn after arrival and look indecisive.
+	var look_position: Vector3 = global_position - transform.basis.z * 2.0
+	request_attention(target, look_position, &"interaction_facing", 1.35, 2.0, true)
 
 func get_spatial_commitment_debug_info() -> Dictionary:
 	var info: Dictionary = {}
@@ -2012,6 +2223,8 @@ func get_spatial_commitment_debug_info() -> Dictionary:
 func nav_finished() -> bool:
 	if nav_agent == null:
 		return true
+	if _dynamic_detour_active:
+		return false
 	if not _nav_route_valid or not nav_agent.is_navigation_finished():
 		return false
 	return NPCItemUser.flat_distance(global_position, _requested_nav_target) \
@@ -2030,6 +2243,7 @@ func force_nav_repath() -> void:
 	_evaluate_nav_route()
 
 func cancel_navigation() -> void:
+	_cancel_dynamic_detour(false)
 	lock_movement()
 	release_interaction_slot()
 	_release_door_passage()
@@ -2037,6 +2251,23 @@ func cancel_navigation() -> void:
 	_soft_repath_attempted = false
 	if nav_agent != null:
 		nav_agent.target_desired_distance = NAV_DEFAULT_TARGET_DISTANCE
+		_requested_nav_target = Vector3(global_position.x, 0.5, global_position.z)
+		nav_agent.target_position = _requested_nav_target
+	_nav_route_valid = false
+	_nav_route_failed = false
+	_raw_nav_target = Vector3.ZERO
+
+
+## Stop only the current route for a short recovery overlay. Unlike a real
+## activity exit, this deliberately preserves the incumbent's interaction-slot
+## claim and every other piece of task state.
+func suspend_navigation_for_overlay() -> void:
+	_cancel_dynamic_detour(false)
+	lock_movement()
+	_release_door_passage()
+	_last_requested_nav_speed = 0.0
+	_soft_repath_attempted = false
+	if nav_agent != null:
 		_requested_nav_target = Vector3(global_position.x, 0.5, global_position.z)
 		nav_agent.target_position = _requested_nav_target
 	_nav_route_valid = false
@@ -2051,9 +2282,17 @@ func cancel_navigation() -> void:
 ## calls back into _on_velocity_computed() with the safe, adjusted velocity
 ## to actually apply. Every activity keeps calling this exact same function,
 ## so no activity code needs to know avoidance exists at all.
-func nav_steer(delta: float) -> void:
+func nav_steer(delta: float, speed_scale: float = 1.0) -> void:
 	_movement_locked = false   ## actively requesting movement again (Part 13)
 	_last_steer_delta = delta
+	if _navigation_yield_remaining > 0.0:
+		_navigation_yield_remaining = maxf(0.0, _navigation_yield_remaining - delta)
+		halt_movement(delta)
+		_last_requested_nav_speed = 0.0
+		return
+	if _dynamic_detour_active and (nav_agent.is_navigation_finished() \
+			or NPCItemUser.flat_distance(global_position, _dynamic_detour_point) <= 0.45):
+		_cancel_dynamic_detour(true)
 	if nav_agent == null or not _nav_route_valid or nav_agent.is_navigation_finished():
 		# Use the same clamped stop path as activity transitions and lock out
 		# any avoidance callback left over from the preceding travel frame.
@@ -2070,9 +2309,13 @@ func nav_steer(delta: float) -> void:
 	if dir.length() < 0.01:
 		return
 	dir = dir.normalized()
-	_last_requested_nav_speed = move_speed * get_status_speed_multiplier()
+	# Dynamic-follow activities may gently match another resident's pace or use
+	# a small catch-up allowance. All ordinary navigation keeps the default 1.0.
+	_last_requested_nav_speed = move_speed * get_status_speed_multiplier() \
+		* clampf(speed_scale, 0.0, 1.15)
 	nav_agent.max_speed = _last_requested_nav_speed
-	nav_agent.set_velocity(dir * _last_requested_nav_speed)   ## Part 14
+	_last_preferred_nav_velocity = dir * _last_requested_nav_speed
+	nav_agent.set_velocity(_last_preferred_nav_velocity)   ## Part 14
 
 func _door_passage_allows(next_path_point: Vector3) -> bool:
 	if not _door_passage_lease.is_empty():
@@ -2146,6 +2389,7 @@ var _last_steer_delta: float = 0.0
 ## same physics frame under local (non-multithreaded) avoidance, which is
 ## what a single-region setup like this one uses.
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	_last_safe_nav_velocity = safe_velocity
 	if _movement_locked:
 		return   ## a stationary phase (Part 13) started after this request was
 					 ## submitted — the request is stale, ignore it
@@ -2159,11 +2403,126 @@ func _on_velocity_computed(safe_velocity: Vector3) -> void:
 		safe_xz = Vector2.ZERO
 	elif safe_xz.length() > _last_requested_nav_speed:
 		safe_xz = safe_xz.normalized() * _last_requested_nav_speed
-	var blend: float = clampf(acceleration * _last_steer_delta, 0.0, 1.0)
-	velocity.x = lerp(velocity.x, safe_xz.x, blend)
-	velocity.z = lerp(velocity.z, safe_xz.y, blend)
+	## The avoidance result is already the safe velocity for this frame. Mixing
+	## the previous (unsafe) velocity back into it can keep driving into the
+	## very obstacle that made avoidance return zero or redirect sideways.
+	velocity.x = safe_xz.x
+	velocity.z = safe_xz.y
 	if safe_xz.length() > 0.05:
 		rotation.y = atan2(-safe_xz.x, -safe_xz.y)
+
+## Bounded, opt-in locomotion flight recorder. Sampling happens after
+## move_and_slide(), so requested, avoidance-safe, applied, and achieved
+## velocities can be compared against the contacts from that exact frame.
+func _capture_navigation_trace(delta: float) -> void:
+	if not NPCDebug.navigation_trace_enabled:
+		_nav_trace_elapsed = 0.0
+		return
+	_nav_trace_elapsed += delta
+	if _nav_trace_elapsed < NAV_TRACE_SAMPLE_INTERVAL:
+		return
+	_nav_trace_elapsed = 0.0
+	var contacts: Array[Dictionary] = []
+	for i: int in get_slide_collision_count():
+		var collision_info: KinematicCollision3D = get_slide_collision(i)
+		var collider: Object = collision_info.get_collider()
+		contacts.append({
+			"id": collider.get_instance_id() if collider != null else 0,
+			"name": str((collider as Node).name) if collider is Node else str(collider),
+			"class": collider.get_class() if collider != null else "null",
+			"normal": collision_info.get_normal(),
+			"position": collision_info.get_position(),
+		})
+	var next_point: Vector3 = nav_agent.get_next_path_position() \
+		if nav_agent != null and _nav_route_valid and not nav_agent.is_navigation_finished() \
+		else global_position
+	_nav_trace_samples.append({
+		"time_ms": Time.get_ticks_msec(),
+		"activity": brain.current_label() if brain != null else "legacy movement",
+		"position": global_position,
+		"preferred": _last_preferred_nav_velocity,
+		"safe_raw": _last_safe_nav_velocity,
+		"applied": velocity,
+		"achieved": get_real_velocity(),
+		"next_point": next_point,
+		"target": _requested_nav_target,
+		"target_distance": NPCItemUser.flat_distance(global_position, _requested_nav_target),
+		"route_valid": _nav_route_valid,
+		"route_failed": _nav_route_failed,
+		"movement_locked": _movement_locked,
+		"contacts": contacts,
+	})
+	while _nav_trace_samples.size() > NAV_TRACE_CAPACITY:
+		_nav_trace_samples.pop_front()
+
+
+func clear_navigation_trace() -> void:
+	_nav_trace_samples.clear()
+	_nav_trace_elapsed = 0.0
+
+
+func get_navigation_debug_info() -> Dictionary:
+	var path_size: int = 0
+	var path_index: int = -1
+	var next_point: Vector3 = global_position
+	if nav_agent != null:
+		path_size = nav_agent.get_current_navigation_path().size()
+		path_index = nav_agent.get_current_navigation_path_index()
+		if _nav_route_valid and not nav_agent.is_navigation_finished():
+			next_point = nav_agent.get_next_path_position()
+	var nearby: Array[Dictionary] = []
+	for node: Node in get_tree().get_nodes_in_group("pickup"):
+		if not node is RigidBody3D or not is_instance_valid(node):
+			continue
+		var item := node as RigidBody3D
+		var distance: float = NPCItemUser.flat_distance(global_position, item.global_position)
+		if distance > NAV_TRACE_NEARBY_RADIUS:
+			continue
+		var obstacle: Dictionary = item.get_navigation_obstacle_debug_info() \
+			if item.has_method("get_navigation_obstacle_debug_info") else {}
+		nearby.append({
+			"id": item.get_instance_id(),
+			"name": str(item.name),
+			"class": item.get_class(),
+			"position": item.global_position,
+			"distance": distance,
+			"obstacle": obstacle,
+		})
+	nearby.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("distance", INF)) < float(b.get("distance", INF)))
+	return {
+		"position": global_position,
+		"activity": brain.current_label() if brain != null else "legacy movement",
+		"movement_locked": _movement_locked,
+		"route_valid": _nav_route_valid,
+		"route_failed": _nav_route_failed,
+		"raw_target": _raw_nav_target,
+		"projected_target": _requested_nav_target,
+		"target_distance": NPCItemUser.flat_distance(global_position, _requested_nav_target),
+		"next_point": next_point,
+		"path_index": path_index,
+		"path_size": path_size,
+		"preferred_velocity": _last_preferred_nav_velocity,
+		"safe_velocity_raw": _last_safe_nav_velocity,
+		"applied_velocity": velocity,
+		"achieved_velocity": get_real_velocity(),
+		"stuck_recoveries": _stuck_recoveries,
+		"stuck_grace_elapsed": _stuck_grace_elapsed,
+		"soft_repath_attempted": _soft_repath_attempted,
+		"last_recovery_stage": _last_stuck_recovery_stage,
+		"dynamic_detour_active": _dynamic_detour_active,
+		"dynamic_detour_point": _dynamic_detour_point,
+		"dynamic_detour_resume_target": _dynamic_detour_resume_target,
+		"dynamic_detour_side": _dynamic_detour_side,
+		"navigation_yield_remaining": _navigation_yield_remaining,
+		"clear_retry_cooldowns": _clear_retry_after_by_item.duplicate(),
+		"item_streak": _stuck_streak_count,
+		"npc_streak": _stuck_npc_streak,
+		"wall_streak": _stuck_wall_streak,
+		"unknown_streak": _stuck_unknown_streak,
+		"nearby_physics_items": nearby,
+		"recent_samples": _nav_trace_samples.duplicate(true),
+	}
 
 # ─── Wander state machine ─────────────────────────────────────────────────
 func _enter_idle() -> void:
@@ -2231,8 +2590,26 @@ func _open_talk_menu() -> void:
 		_talk_menu.set_script(ui_script)
 		_talk_menu.name = "NPCTalkMenuUI"
 		get_tree().get_root().add_child(_talk_menu)
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if brain != null:
+		brain.begin_player_interaction()
+	if player != null:
+		request_attention(player, player.global_position, &"player_conversation", 2.0, 1.0, true)
 	if _talk_menu.has_method("open"):
 		_talk_menu.open(npc_name, self)
+
+
+func end_player_interaction() -> void:
+	if brain != null:
+		brain.end_player_interaction()
+	_stuck_timer = 0.0
+	_stuck_ref_pos = global_position
+	_stuck_grace_elapsed = 0.0
+
+
+func close_talk_menu_for_critical_state() -> void:
+	if _talk_menu != null and is_instance_valid(_talk_menu) and _talk_menu.has_method("close"):
+		_talk_menu.close()
 
 
 # ─── Overhead work indicator ─────────────────────────────────────────────────
@@ -2352,6 +2729,7 @@ const STUCK_PROGRESS_FRACTION: float = 0.25
 
 var _stuck_timer: float = 0.0
 var _stuck_ref_pos: Vector3 = Vector3.ZERO
+var _stuck_ref_remaining_distance: float = INF
 var _stuck_recoveries: int = 0   ## exposed for the Part 7 debug dump
 var _soft_repath_attempted: bool = false
 
@@ -2398,9 +2776,9 @@ var _stuck_unknown_streak: int = 0
 ## AdventurerModelController now drives walk/idle off get_real_velocity()
 ## (actual achieved movement), not the requested pre-collision velocity,
 ## so a blocked NPC visibly stops moving immediately regardless of this
-## timer; (2) real proactive avoidance (every loose item now gets a
-## NavigationObstacle3D, light and heavy alike, and the player is now a
-## registered obstacle too) should make actual stuck EVENTS much rarer
+## timer; (2) real proactive avoidance for bulky loose items plus the player,
+## while soft clutter is explicitly walk-through and shoveable, should make
+## actual stuck EVENTS much rarer
 ## than before, so this fallback firing fast is low-risk — it's meant to
 ## be the rare, quick-resolving safety net now, not something doing
 ## constant load-bearing work. Deliberately calls into
@@ -2424,23 +2802,30 @@ func _tick_stuck_recovery(delta: float) -> void:
 	## it's a direct read of "an activity wants me still" instead of an
 	## indirect, frequently-wrong guess from the navigation layer.
 	if nav_agent == null or _movement_locked or not _nav_route_valid or nav_agent.is_navigation_finished() \
+			or (brain != null and brain.has_navigation_recovery()) \
 			or (brain != null and not brain.has_current_activity() and current_task == null):
 		_stuck_timer = 0.0
 		_stuck_ref_pos = global_position
+		_stuck_ref_remaining_distance = _navigation_remaining_distance()
 		_stuck_grace_elapsed = 0.0
 		return
 	_stuck_timer += delta
 	if _stuck_timer < STUCK_CHECK_INTERVAL:
 		return
 	var moved: float = global_position.distance_to(_stuck_ref_pos)
+	var remaining: float = _navigation_remaining_distance()
+	var route_progress: float = moved
+	if not is_inf(remaining) and not is_inf(_stuck_ref_remaining_distance):
+		route_progress = maxf(0.0, _stuck_ref_remaining_distance - remaining)
 	_stuck_timer = 0.0
 	_stuck_ref_pos = global_position
+	_stuck_ref_remaining_distance = remaining
 	## Scale the expectation to the NPC's actual requested speed. Fixed 0.15m
 	## checks falsely classified exhausted, elderly, or injured NPCs as stuck.
 	var expected_progress: float = clampf(
 		_last_requested_nav_speed * STUCK_CHECK_INTERVAL * STUCK_PROGRESS_FRACTION,
 		0.03, STUCK_MIN_DISPLACEMENT)
-	if moved < expected_progress:
+	if route_progress < expected_progress:
 		_stuck_grace_elapsed += STUCK_CHECK_INTERVAL
 		if _stuck_grace_elapsed >= STUCK_GRACE_PERIOD:
 			_stuck_grace_elapsed = 0.0
@@ -2465,8 +2850,42 @@ func _tick_stuck_recovery(delta: float) -> void:
 		_stuck_wall_streak = 0
 		_soft_repath_attempted = false
 
+
+func _navigation_remaining_distance() -> float:
+	if nav_agent == null or not _nav_route_valid:
+		return INF
+	var path: PackedVector3Array = nav_agent.get_current_navigation_path()
+	var index: int = nav_agent.get_current_navigation_path_index()
+	if path.is_empty() or index < 0 or index >= path.size():
+		return NPCItemUser.flat_distance(global_position, _requested_nav_target)
+	var total: float = NPCItemUser.flat_distance(global_position, path[index])
+	for point_index: int in range(index + 1, path.size()):
+		total += NPCItemUser.flat_distance(path[point_index - 1], path[point_index])
+	return total
+
+
+func _get_recovery_corridor_finish() -> Vector3:
+	if nav_agent == null:
+		return _requested_nav_target
+	var path: PackedVector3Array = nav_agent.get_current_navigation_path()
+	var index: int = nav_agent.get_current_navigation_path_index()
+	if path.is_empty() or index < 0 or index >= path.size():
+		return _requested_nav_target
+	var finish: Vector3 = path[index]
+	var distance: float = NPCItemUser.flat_distance(global_position, finish)
+	while index + 1 < path.size() and distance < 4.0:
+		index += 1
+		finish = path[index]
+		distance = NPCItemUser.flat_distance(global_position, finish)
+	return finish
+
 func _recover_from_stuck() -> void:
 	_stuck_recoveries += 1
+	NPC_METRICS.increment(&"navigation_stuck_recoveries")
+	NPC_METRICS.record_event(&"navigation_stuck", self, {
+		"activity": brain.current_label() if brain != null else "legacy movement",
+		"position": global_position,
+	})
 	var activity_label: String = brain.current_label() if brain != null else "legacy movement"
 	var activity_info: Dictionary = brain.get_current_activity_debug_info() if brain != null else {}
 	NPCDebug.log_stuck(self, activity_label, activity_info)
@@ -2477,44 +2896,57 @@ func _recover_from_stuck() -> void:
 	## look like indecision. Escalate only if the fresh path also makes no
 	## progress during the next grace window.
 	if not _soft_repath_attempted and nav_agent != null:
+		_last_stuck_recovery_stage = "soft_repath"
 		_soft_repath_attempted = true
 		velocity.x = 0.0
 		velocity.z = 0.0
 		force_nav_repath()
 		return
 	_soft_repath_attempted = false
+
+	## RVO often stops before contact, so slide collisions alone cannot identify
+	## the obstruction. Inspect the next few metres of the actual route against
+	## loose-body footprints first, then choose a bounded detour or one-object
+	## clear action without exiting the live utility activity.
+	var corridor_finish: Vector3 = _get_recovery_corridor_finish()
+	var blockers: Array[Dictionary] = NPC_DYNAMIC_OBSTACLE_MAP.corridor_blockers(
+		self, global_position, corridor_finish)
+	if not blockers.is_empty():
+		var detour: Dictionary = NPC_DYNAMIC_OBSTACLE_MAP.choose_detour(
+			self, global_position, corridor_finish, blockers)
+		if not detour.is_empty() and _begin_dynamic_detour(
+				detour.get("point", global_position), float(detour.get("side", 0.0))):
+			_last_stuck_recovery_stage = "dynamic_detour"
+			_stuck_grace_elapsed = 0.0
+			NPC_METRICS.increment(&"navigation_dynamic_detours")
+			NPC_METRICS.record_event(&"navigation_detour_started", self, {
+				"blocker_count": blockers.size(), "point": _dynamic_detour_point,
+			})
+			return
+		var clearable: RigidBody3D = NPC_DYNAMIC_OBSTACLE_MAP.choose_clearable_blocker(
+			self, blockers)
+		var resume_target: Vector3 = _dynamic_detour_resume_target \
+			if _dynamic_detour_active else _raw_nav_target
+		var resume_distance: float = _dynamic_detour_resume_distance \
+			if _dynamic_detour_active else _nav_desired_distance
+		if clearable != null and can_retry_navigation_clear(clearable) \
+				and held_item == null and brain != null \
+				and brain.begin_navigation_recovery(clearable, resume_target,
+					resume_distance, corridor_finish):
+			_last_stuck_recovery_stage = "clear_path"
+			_stuck_grace_elapsed = 0.0
+			return
+
 	var stuck_item: RigidBody3D = _find_stuck_obstruction()
 	var stuck_npc: CharacterBody3D = null
 	if stuck_item == null:
 		stuck_npc = _find_stuck_obstruction_npc()
-	if brain != null:
-		brain.stop_current()
-	lock_movement()
-
-	## Aug 2026 fix — stop_current() only ever released whatever the
-	## interrupted activity had CLAIMED, never what it was physically
-	## HOLDING (every activity's exit() works this way, by design —
-	## PutAwayHeldItemActivity is the intended safety net for a leftover
-	## held item, but that only ever runs via normal scoring competition).
-	## force_command() — which every path below this point uses — bypasses
-	## normal scoring entirely, so that safety net never gets a turn
-	## before a brand new forced grab is attempted. grab_loose() has no
-	## guard against grabbing a second item while a first is still
-	## attached to hold_point — it just reparents the new one onto the
-	## same point without detaching the old one. That's what "holding
-	## several items stacked inside each other" actually was, and it's
-	## also why a forced CleaningActivity often did nothing at all — its
-	## own fetch phase gates on held_item being null, which this made
-	## false more often than intended. Clearing it first, unconditionally,
-	## before any recovery decision below, fixes both at once.
-	if held_item != null:
-		NPCItemUser.drop_held(self)
 
 	if stuck_npc != null:
-		## Yield the intention and let normal avoidance plus the next utility
-		## choice create separation. Directly changing global_position here
-		## was the visible "teleport on task switch."
+		_last_stuck_recovery_stage = "yield_npc"
+		## Briefly yield without discarding either resident's intention.
 		_stuck_npc_streak += 1
+		_navigation_yield_remaining = minf(1.25, 0.45 + 0.2 * _stuck_npc_streak)
 		_stuck_streak_obstruction_id = -1
 		_stuck_streak_count = 0
 		if NPCDebug.enabled:
@@ -2526,49 +2958,38 @@ func _recover_from_stuck() -> void:
 	if stuck_item == null:
 		stuck_wall = _find_stuck_obstruction_static()
 	if stuck_wall != null:
-		## Stop and re-score. Physics interpolation made even small direct
-		## position corrections read as a rapid smooth teleport, so recovery
-		## never writes the NPC transform, including for known wall contact.
+		_last_stuck_recovery_stage = "yield_static"
 		_stuck_wall_streak += 1
+		_nav_route_valid = false
+		_nav_route_failed = true
+		lock_movement()
 		if NPCDebug.enabled:
 			NPCDebug.log_stuck_yield(self, stuck_wall.get_collider(), _stuck_wall_streak)
 		return
 	_stuck_wall_streak = 0
 
 	if stuck_item == null:
-		## Never guess a relocation direction for an unidentified stall.
-		## Abandon the intention and let the next think choose a fresh target.
+		_last_stuck_recovery_stage = "yield_unknown"
 		_stuck_unknown_streak += 1
+		_nav_route_valid = false
+		_nav_route_failed = true
+		lock_movement()
 		if NPCDebug.enabled:
 			NPCDebug.log_stuck_yield(self, null, _stuck_unknown_streak)
 		return
 	_stuck_unknown_streak = 0
 
-	var obstruction_id: int = stuck_item.get_instance_id()
-	if obstruction_id == _stuck_streak_obstruction_id:
-		_stuck_streak_count += 1
-	else:
-		_stuck_streak_count = 1
-	_stuck_streak_obstruction_id = obstruction_id
-
-	if brain != null and _stuck_streak_count < NPCJobState.CLEANING_GIVEUP_STUCK_LIMIT:
-		## Always fair game when it caused a stuck NPC — bypasses the
-		## normal trash/idle-time eligibility entirely, per design.
-		brain.force_command(CleaningActivity.new(stuck_item))
-		return
-
-	## Aug 2026 — same obstruction kept the NPC stuck CLEANING_GIVEUP_
-	## STUCK_LIMIT times in a row (2). Trying to force-clean it again
-	## just repeats the same failed loop — the NPC can't even close the
-	## distance to something it's already touching. Give up on it
-	## permanently (see job_state.blacklist_cleaning_item()) rather than
-	## retrying forever. The next think-cycle chooses fresh; recovery never
-	## rewrites the NPC position.
-	job_state.blacklist_cleaning_item(self, stuck_item, "stuck-recovery failed %d times in a row" % _stuck_streak_count)
+	## A rigid contact not represented in the forward corridor cannot be moved
+	## safely: keep possessions and activity state intact, fail this route, and
+	## let the owning activity select another authored approach.
+	_last_stuck_recovery_stage = "unresolved_item_contact"
+	_stuck_streak_obstruction_id = stuck_item.get_instance_id()
+	_stuck_streak_count += 1
+	_nav_route_valid = false
+	_nav_route_failed = true
+	lock_movement()
 	if NPCDebug.enabled:
 		NPCDebug.log_stuck_yield(self, stuck_item, _stuck_streak_count)
-	_stuck_streak_obstruction_id = -1
-	_stuck_streak_count = 0
 
 ## Best-effort — mirrors _handle_physics_pushes()'s own collision
 ## detection. Not guaranteed to find the TRUE cause of the stall (could be
@@ -2613,38 +3034,21 @@ func _find_stuck_obstruction_static() -> KinematicCollision3D:
 
 
 # ─── Physics-clutter push-through (Part 10, simplified in Part 11) ─────────
-## Only light items reach this now — heavy items have a real
-## NavigationObstacle3D (PickupableItem.gd, Part 11) and NPCs route around
-## their current position proactively via avoidance, so they rarely collide
-## at all. This still shoves+corrects for light loose items (FoodCan,
-## WaterBottle, produce, ...), which intentionally have no obstacle and are
-## meant to be walked straight through rather than routed around.
-const LIGHT_PUSH_IMPULSE: float = 1.5   ## shove strength on light items
-const HEAVY_PUSH_MASS: float = 3.0      ## mirrors PickupableItem.HEAVY_OBSTACLE_MASS —
-										## anything at/above this got an obstacle and
-										## should rarely reach this code at all; if it
-										## still does (avoidance is a preference, not a
-										## guarantee), give it a small acknowledging
-										## shove but let normal collision resistance stand
+## Small loose items (FoodCan, WaterBottle, produce, ...) rest on
+## ITEM_LAYER_SMALL (bit 3), which the NPC's CharacterBody3D (mask 1) does
+## NOT collide with — the NPC walks straight through them without tripping
+## or being launched. Because there's no collision, there's no natural push,
+## so the one-sided shove lives in PickupableItem.shove_small_items_near():
+## a spatial query finds nearby small loose items and applies a gentle impulse
+## primarily along the NPC's travel direction as the NPC walks
+## through — the item is the only thing affected, the NPC is not. Heavy
+## items have a real NavigationObstacle3D (PickupableItem.gd, Part 11) and
+## NPCs route around them via avoidance, so they rarely need shoving.
+## Per-item shove cooldowns, shared with the player-side helper.
+var _last_push_msec_by_item: Dictionary = {}
 
 func _handle_physics_pushes(_delta: float) -> void:
-	for i: int in get_slide_collision_count():
-		var col: KinematicCollision3D = get_slide_collision(i)
-		var body: Object = col.get_collider()
-		if not (body is RigidBody3D):
-			continue
-		if ("is_held" in body) and body.is_held:
-			continue   ## someone's carrying it — not clutter, ignore
-		var rb: RigidBody3D = body as RigidBody3D
-		var away: Vector3 = -col.get_normal()
-		away.y = 0.0
-		if away.length() <= 0.01:
-			continue
-
-		if rb.mass < HEAVY_PUSH_MASS:
-			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE)
-		else:
-			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE / rb.mass)
+	PickupableItem.shove_small_items_near(self, _last_push_msec_by_item)
 
 
 ## Energy contributes its OWN single progressive tier (25% tier REPLACES the

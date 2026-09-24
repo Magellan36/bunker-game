@@ -71,6 +71,11 @@ func label() -> String:
 		return "Clearing the way"
 	return "Cleaning (carrying)" if _destination != null else "Cleaning (fetching)"
 
+func attention_target(_npc: NPC) -> Node3D:
+	if _destination is Node3D and is_instance_valid(_destination):
+		return _destination as Node3D
+	return _item if _item != null and is_instance_valid(_item) else null
+
 func score(npc: NPC) -> float:
 	if _is_forced_session:
 		return 0.0

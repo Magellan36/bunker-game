@@ -790,8 +790,16 @@ func _process_purity_and_dual_arrows(hookup_key: String, directions: Dictionary)
 			if current_pure and not was_pure:
 				## Flip event — walk backward to the hookup collecting every
 				## purifier crossed on this consumer's resolved path.
+				## Visited-guard (Sep 2026 crash fix): a degenerate self-loop
+				## edge can make reverse_of[walk].up == walk (node whose "up"
+				## is itself), which would otherwise spin forever. register_edge
+				## now refuses self-loops at the source, but keep the walk
+				## non-terminating-proof regardless so any future graph
+				## corruption degrades to a skipped pulse, never a freeze.
+				var visited_reverse: Dictionary = {}
 				var walk: String = node_key
-				while walk != hookup_key and reverse_of.has(walk):
+				while walk != hookup_key and reverse_of.has(walk) and not visited_reverse.has(walk):
+					visited_reverse[walk] = true
 					var up_key: String = reverse_of[walk]["up"]
 					if _graph.get_node(up_key).get("role", "") == "purifier":
 						purifiers_to_pulse[up_key] = true

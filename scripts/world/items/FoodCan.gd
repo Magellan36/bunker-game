@@ -17,9 +17,22 @@ var _bites_left: int    = TOTAL_BITES   ## Counts down 2 → 1 → 0 (empty)
 var _is_empty: bool     = false
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
-const CAN_MODEL_PATH_FULL:  String = "res://assets/models/can.glb"
-const CAN_MODEL_PATH_EMPTY: String = "res://assets/models/can-empty.glb"
-const CAN_MODEL_SCALE: Vector3 = Vector3(0.2667, 0.3750, 0.2667)
+## Sep 2026 — swapped to the hand-made Tinkercad can models (food can / food
+## can empty). Same 0.0228 uniform scale as the CanCase's 12 overlay cans, so
+## an ejected can matches the cans visible in the case exactly (dia 0.114,
+## height 0.172). The GLB's mesh children carry a baked 90° X rotation from
+## the OBJ→GLB export — _update_can_visual() adds a -90° X counter-rotation
+## via CAN_MODEL_BASE_ROT so the can stands upright (height on Y).
+const CAN_MODEL_PATH_FULL:  String = "res://assets/models/food_can_model.glb"
+const CAN_MODEL_PATH_EMPTY: String = "res://assets/models/food_can_empty_model.glb"
+const CAN_MODEL_SCALE: Vector3 = Vector3(0.0228, 0.0228, 0.0228)
+## Counter-rotate the baked 90° X export rotation (see header).
+const CAN_MODEL_BASE_ROT: Vector3 = Vector3(-90.0, 0.0, 0.0)
+## Scaled model heights (measured): the full can is 0.172 tall, the empty can
+## (open lid) is ~0.214. Used by _update_collision_for_model() to keep the
+## collision cylinder matching whichever model is currently shown.
+const CAN_HEIGHT_FULL:  float = 0.172
+const CAN_HEIGHT_EMPTY: float = 0.214
 
 var _model_node: Node3D = null   ## Currently-instanced visual (full or empty variant)
 
@@ -110,15 +123,15 @@ func _become_empty() -> void:
 	_update_can_visual()
 
 # ─── Real model swap (full ↔ empty) ────────────────────────────────────────
-## Swaps the visual model between the full can (assets/models/can.glb)
-## and the empty can (assets/models/can-empty.glb — same geometry, label
-## replaced with a grey variant of the can's own existing palette colors;
-## see PLAN_foodcan_glb_swap.md for exactly how that texture was derived).
-## Called once at _ready() (full) and once from _become_empty() (empty).
-## FoodCan only ever transitions one-way — full to empty, never back — so
-## unlike CookingPot's _update_pot_visual() this doesn't need a
-## last-built-state guard against redundant reloads; it's only ever
-## called twice per can, total, across its whole lifetime.
+## Swaps the visual model between the full hand-made can
+## (assets/models/food_can_model.glb) and the empty variant
+## (assets/models/food_can_empty_model.glb — taller, open lid). Same 0.0228
+## uniform scale as the CanCase's 12 overlay cans, so an ejected can matches
+## the cans in the case exactly. Called once at _ready() (full) and once from
+## _become_empty() (empty). FoodCan only ever transitions one-way — full to
+## empty, never back — so unlike CookingPot's _update_pot_visual() this
+## doesn't need a last-built-state guard against redundant reloads; it's only
+## ever called twice per can, total, across its whole lifetime.
 func _update_can_visual() -> void:
 	if _model_node != null and is_instance_valid(_model_node):
 		_model_node.queue_free()
@@ -134,10 +147,30 @@ func _update_can_visual() -> void:
 		return
 	model.position = Vector3.ZERO
 	model.scale    = CAN_MODEL_SCALE
+	model.rotation_degrees = CAN_MODEL_BASE_ROT
 	_recenter_glb_mesh(model)
 	_strip_model_collision(model)
 	add_child(model)
 	_model_node = model
+	## Sep 2026 — keep the collision shape in sync with the visual model: the
+	## empty can (open lid) is taller than the full can, so the fixed-height
+	## collision from the .tscn would leave the top of an empty can
+	## uncollidable. Re-tune it here to match whichever model is current.
+	_update_collision_for_model()
+
+## Tunes the CollisionShape3D's cylinder to the current visual model's height
+## (full 0.172, empty ~0.214). Position is nudged so the cylinder's base stays
+## at the same point the model's base renders at.
+func _update_collision_for_model() -> void:
+	var col_shape: CollisionShape3D = get_node_or_null("CollisionShape3D") as CollisionShape3D
+	if col_shape == null or not (col_shape.shape is CylinderShape3D):
+		return
+	var cyl: CylinderShape3D = col_shape.shape as CylinderShape3D
+	cyl.height = CAN_HEIGHT_EMPTY if _is_empty else CAN_HEIGHT_FULL
+	## The cylinder is centered on the shape's position; the visual model's
+	## base sits at the same origin, so shift the shape up by half its height
+	## to keep the base aligned (mirrors the .tscn's authored offset for full).
+	col_shape.position = Vector3(0.0, cyl.height * 0.5, 0.0)
 
 ## Recursively disables collision on every CollisionObject3D descendant of
 ## an instanced model. Duplicated per-file, matching the existing
@@ -152,10 +185,11 @@ func _strip_model_collision(node: Node) -> void:
 
 ## Godot's glTF importer always wraps an imported scene in an extra
 ## generated root node — see Table.gd's identical helper for the full
-## explanation. can.glb/can-empty.glb's source nodes have NO baked
-## translation (confirmed via direct inspection), so this is a defensive
-## no-op here, not a required fix — kept for consistency with every other
-## model-load site in this codebase.
+## explanation. The food can GLBs' mesh children carry a baked 90° X
+## rotation from the OBJ→GLB export (cancelled by CAN_MODEL_BASE_ROT's
+## -90° X on the model node), and their translation is zero — so this is a
+## defensive no-op here, not a required fix — kept for consistency with
+## every other model-load site in this codebase.
 func _recenter_glb_mesh(node: Node) -> bool:
 	if node is MeshInstance3D:
 		(node as MeshInstance3D).position = Vector3.ZERO

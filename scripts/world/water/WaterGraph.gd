@@ -141,6 +141,13 @@ func get_nodes() -> Dictionary:
 func register_edge(key_a: String, key_b: String) -> String:
 	if not _water_nodes.has(key_a) or not _water_nodes.has(key_b):
 		return ""
+	## Guard against degenerate zero-length edges (Sep 2026 crash fix): two
+	## path points closer than the snap grid can collapse to the SAME node
+	## key (e.g. 0.125m apart at SNAP_GRID 0.25). A self-loop edge poisons the
+	## flow-direction graph — reverse_of[down].up ends up pointing at itself
+	## and the purity-flip reverse walk in WaterManager never terminates.
+	if key_a == key_b:
+		return ""
 	var edge_id: String = make_edge_id(key_a, key_b)
 	if _water_edges.has(edge_id):
 		return edge_id   ## Already exists — idempotent, same as PowerGraph's convention

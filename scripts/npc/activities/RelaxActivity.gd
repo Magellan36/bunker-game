@@ -81,3 +81,6 @@ func debug_info() -> Dictionary:
 		"planned_game_hours": _session_length,
 		"furniture_activity": _inner.label() if _inner != null else "Standing quietly",
 	}
+
+func attention_target(npc: NPC) -> Node3D:
+	return _inner.attention_target(npc) if _inner != null else null

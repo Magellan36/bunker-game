@@ -220,6 +220,15 @@ func get_interact_prompt() -> String:
 		return "Stove Not Connected"
 	return "[E] Turn Stove %s" % ("Off" if powered_on else "On")
 
+## Lower world anchor for the stove's hover panel (Sep 2026). The stove is a
+## tall StaticBody3D (MODEL_HEIGHT 1.156) and the generic CASE-2 anchor (its
+## origin + InteractPrompt's flat 1.2m offset) parks the "Turn Stove On/Off"
+## panel high against the appliance. Return a point 0.30m below our origin so
+## the panel reads clearly lower, tucked low against the stove body rather
+## than floating above it (dropped further per feedback).
+func get_prompt_world_pos() -> Vector3:
+	return global_position + Vector3(0.0, -0.30, 0.0)
+
 
 # ─── Pot slot management (called by InteractionSystem, Part D) ──────────────
 func has_open_slot() -> bool:

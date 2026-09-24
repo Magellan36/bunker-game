@@ -130,6 +130,25 @@ idle clips); walk/run/carry/sit are the shared clips for both. Adding a
 gender-specific clip = add the library to `AdventurerModel.tscn` + one
 line in the matching dict.
 
+### Playback-rate scaling (Sep 2026)
+
+`AdventurerModelController._apply_locomotion_speed_scale()` scales the
+walk/run clip playback rate to the character's **actual** movement speed,
+per-character normalized: `speed_scale = real_speed / nominal_speed_for_band`
+where the nominal is the character's own `move_speed` (walk) or
+`sprint_speed` (run) — read duck-typed, so it works for both Player and NPC
+(NPCs expose `move_speed`, never reach the run band). Full nominal speed
+plays at 1.0x (authored cadence); a slowed character (elder NPC, low
+energy/hunger/thirst/mood, medical injury) visibly slows its stride to
+match. Idle resets to 1.0. Clamped `0.2..1.5`, lerped toward target at
+`LOCOMOTION_SPEED_SCALE_LERP = 8.0`/s so the walk→run handoff and
+start/stop don't pop. Applied every frame in the locomotion branch, after
+state selection, from the same `get_real_velocity()` that drives
+idle/walk/run — carry clips scale identically (suffix stripped). The sit/
+lying/sleeping phases keep their own fixed speed_scale (1.0, or the
+`LIE_DOWN_2ND_HALF_SPEED` override) because those branches return before
+locomotion runs.
+
 ## Sit animation sequence
 
 When a character sits in a chair, the controller drives

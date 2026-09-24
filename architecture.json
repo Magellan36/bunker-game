@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-09-23T20:20:03.088723+00:00",
+  "generated_at": "2026-09-24T02:44:44.575282+00:00",
   "generator": "tools/gen_architecture.py",
   "note": "Static text-scan, not a real compile \u2014 structural shape only (class/extends/exports/signals/public API/dependencies). Read this instead of opening every script in a system; fall back to real source only for actual behavior/logic.",
-  "script_count": 820,
-  "total_lines": 187105,
+  "script_count": 827,
+  "total_lines": 189455,
   "autoloads_referenced_repo_wide": [
     "DeviceDatabase",
     "GraphicsSettings",
@@ -20921,7 +20921,7 @@
     },
     {
       "path": "res://scripts/npc/NPC.gd",
-      "line_count": 3103,
+      "line_count": 3507,
       "class_name": "NPC",
       "extends": "CharacterBody3D",
       "exports": [
@@ -21324,6 +21324,16 @@
           "returns": "void"
         },
         {
+          "name": "face_world_position",
+          "args": "world_position: Vector3",
+          "returns": "bool"
+        },
+        {
+          "name": "can_attention_turn_body",
+          "args": "",
+          "returns": "bool"
+        },
+        {
           "name": "refresh_behavior_profile",
           "args": "",
           "returns": "void"
@@ -21359,6 +21369,21 @@
           "returns": "NPC"
         },
         {
+          "name": "request_attention",
+          "args": "source: Object, world_position: Vector3, category: StringName,\n\t\tsalience: float, lifetime: float = 1.0, body_turn_allowed: bool = true",
+          "returns": "void"
+        },
+        {
+          "name": "get_attention_task_stimulus",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
+          "name": "get_attention_debug_info",
+          "args": "",
+          "returns": "Dictionary"
+        },
+        {
           "name": "is_position_compatible_with_companionship",
           "args": "position: Vector3, extra_radius: float = 0.0",
           "returns": "bool"
@@ -21367,6 +21392,16 @@
           "name": "set_nav_target",
           "args": "world_pos: Vector3, desired_distance: float = NAV_DEFAULT_TARGET_DISTANCE",
           "returns": "bool"
+        },
+        {
+          "name": "can_retry_navigation_clear",
+          "args": "item: RigidBody3D",
+          "returns": "bool"
+        },
+        {
+          "name": "note_navigation_clear_result",
+          "args": "item_id: int, succeeded: bool",
+          "returns": "void"
         },
         {
           "name": "project_navigation_point",
@@ -21381,6 +21416,11 @@
         {
           "name": "is_interaction_position_clear",
           "args": "world_pos: Vector3, target: Node3D = null",
+          "returns": "bool"
+        },
+        {
+          "name": "is_object_placement_clear",
+          "args": "item: RigidBody3D, world_pos: Vector3,\n\t\tfootprint_radius: float",
           "returns": "bool"
         },
         {
@@ -21434,9 +21474,24 @@
           "returns": "void"
         },
         {
-          "name": "nav_steer",
-          "args": "delta: float",
+          "name": "suspend_navigation_for_overlay",
+          "args": "",
           "returns": "void"
+        },
+        {
+          "name": "nav_steer",
+          "args": "delta: float, speed_scale: float = 1.0",
+          "returns": "void"
+        },
+        {
+          "name": "clear_navigation_trace",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "get_navigation_debug_info",
+          "args": "",
+          "returns": "Dictionary"
         },
         {
           "name": "assign_task",
@@ -21455,6 +21510,16 @@
         },
         {
           "name": "on_interact",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "end_player_interaction",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "close_talk_menu_for_critical_state",
           "args": "",
           "returns": "void"
         },
@@ -21564,12 +21629,15 @@
           "returns": "Array[Dictionary]"
         }
       ],
-      "private_function_count": 54,
+      "private_function_count": 60,
       "preloads": [
+        "res://scripts/npc/NPCAttentionController.gd",
         "res://scripts/npc/NPCCompanionship.gd",
         "res://scripts/npc/NPCDoorCoordinator.gd",
+        "res://scripts/npc/NPCDynamicObstacleMap.gd",
         "res://scripts/npc/NPCInteractionSlots.gd",
         "res://scripts/npc/NPCLeisurePlanner.gd",
+        "res://scripts/npc/NPCMetrics.gd",
         "res://scripts/ui/npc/NPCTalkMenuUI.gd"
       ],
       "group_lookups": [
@@ -21580,11 +21648,11 @@
         "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 3397
+      "complexity_score": 3833
     },
     {
       "path": "res://scripts/npc/NPCActivity.gd",
-      "line_count": 62,
+      "line_count": 67,
       "class_name": "NPCActivity",
       "extends": "RefCounted",
       "exports": [],
@@ -21637,6 +21705,11 @@
           "returns": "NPCActivity"
         },
         {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
+        },
+        {
           "name": "make_resume_intent",
           "args": "_npc: NPC",
           "returns": "Dictionary"
@@ -21666,7 +21739,48 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 90
+      "complexity_score": 97
+    },
+    {
+      "path": "res://scripts/npc/NPCAttentionController.gd",
+      "line_count": 304,
+      "class_name": "NPCAttentionController",
+      "extends": "Node",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "setup",
+          "args": "npc: CharacterBody3D",
+          "returns": "void"
+        },
+        {
+          "name": "submit",
+          "args": "stimulus: Dictionary",
+          "returns": "void"
+        },
+        {
+          "name": "notice",
+          "args": "source: Object, world_position: Vector3, category: StringName,\n\t\tsalience: float, lifetime: float = 1.0, body_turn_allowed: bool = true",
+          "returns": "void"
+        },
+        {
+          "name": "get_debug_info",
+          "args": "",
+          "returns": "Dictionary"
+        }
+      ],
+      "private_function_count": 10,
+      "preloads": [
+        "res://scripts/npc/NPCMetrics.gd"
+      ],
+      "group_lookups": [
+        "Player",
+        "player"
+      ],
+      "autoload_references": [],
+      "complexity_score": 322
     },
     {
       "path": "res://scripts/npc/NPCBehaviorProfile.gd",
@@ -21696,7 +21810,7 @@
     },
     {
       "path": "res://scripts/npc/NPCBrain.gd",
-      "line_count": 273,
+      "line_count": 435,
       "class_name": "NPCBrain",
       "extends": "RefCounted",
       "exports": [],
@@ -21724,6 +21838,26 @@
           "returns": "Dictionary"
         },
         {
+          "name": "get_attention_target",
+          "args": "",
+          "returns": "Node3D"
+        },
+        {
+          "name": "is_player_interacting",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "begin_player_interaction",
+          "args": "",
+          "returns": "void"
+        },
+        {
+          "name": "end_player_interaction",
+          "args": "",
+          "returns": "void"
+        },
+        {
           "name": "is_relaxing",
           "args": "",
           "returns": "bool"
@@ -21735,6 +21869,16 @@
         },
         {
           "name": "is_current_interruptible",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "begin_navigation_recovery",
+          "args": "item: RigidBody3D, resume_target: Vector3,\n\t\tresume_distance: float, corridor_finish: Vector3",
+          "returns": "bool"
+        },
+        {
+          "name": "has_navigation_recovery",
           "args": "",
           "returns": "bool"
         },
@@ -21774,15 +21918,19 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 6,
-      "preloads": [],
-      "group_lookups": [],
+      "private_function_count": 9,
+      "preloads": [
+        "res://scripts/npc/NPCMetrics.gd"
+      ],
+      "group_lookups": [
+        "player"
+      ],
       "autoload_references": [],
-      "complexity_score": 307
+      "complexity_score": 484
     },
     {
       "path": "res://scripts/npc/NPCCaseFetch.gd",
-      "line_count": 230,
+      "line_count": 160,
       "class_name": "NPCCaseFetch",
       "extends": "RefCounted",
       "exports": [],
@@ -21800,9 +21948,14 @@
           "returns": "bool"
         },
         {
-          "name": "get_ejected_item",
+          "name": "get_dispensed_item",
           "args": "",
           "returns": "RigidBody3D"
+        },
+        {
+          "name": "get_case_target",
+          "args": "",
+          "returns": "Node3D"
         },
         {
           "name": "tick",
@@ -21811,19 +21964,19 @@
         },
         {
           "name": "cleanup",
-          "args": "npc: NPC",
+          "args": "_npc: NPC",
           "returns": "void"
         }
       ],
-      "private_function_count": 10,
+      "private_function_count": 6,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 250
+      "complexity_score": 178
     },
     {
       "path": "res://scripts/npc/NPCCompanionship.gd",
-      "line_count": 122,
+      "line_count": 134,
       "class_name": "NPCCompanionship",
       "extends": "RefCounted",
       "exports": [],
@@ -21834,11 +21987,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 122
+      "complexity_score": 134
     },
     {
       "path": "res://scripts/npc/NPCDebug.gd",
-      "line_count": 373,
+      "line_count": 407,
       "class_name": "NPCDebug",
       "extends": "RefCounted",
       "exports": [],
@@ -21846,10 +21999,12 @@
       "connect_call_sites": [],
       "public_functions": [],
       "private_function_count": 0,
-      "preloads": [],
+      "preloads": [
+        "res://scripts/npc/NPCMetrics.gd"
+      ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 373
+      "complexity_score": 407
     },
     {
       "path": "res://scripts/npc/NPCDoorCoordinator.gd",
@@ -21865,6 +22020,21 @@
       "group_lookups": [],
       "autoload_references": [],
       "complexity_score": 145
+    },
+    {
+      "path": "res://scripts/npc/NPCDynamicObstacleMap.gd",
+      "line_count": 178,
+      "class_name": "NPCDynamicObstacleMap",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 178
     },
     {
       "path": "res://scripts/npc/NPCInteractionSlots.gd",
@@ -22148,8 +22318,23 @@
       "complexity_score": 697
     },
     {
+      "path": "res://scripts/npc/NPCMetrics.gd",
+      "line_count": 89,
+      "class_name": "NPCMetrics",
+      "extends": "RefCounted",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 0,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 89
+    },
+    {
       "path": "res://scripts/npc/activities/CleaningActivity.gd",
-      "line_count": 681,
+      "line_count": 686,
       "class_name": "CleaningActivity",
       "extends": "NPCSessionActivity",
       "exports": [],
@@ -22160,6 +22345,11 @@
           "name": "label",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
         },
         {
           "name": "score",
@@ -22201,7 +22391,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 707
+      "complexity_score": 714
     },
     {
       "path": "res://scripts/npc/activities/CommandCleaningActivity.gd",
@@ -22316,7 +22506,7 @@
     },
     {
       "path": "res://scripts/npc/activities/CookingActivity.gd",
-      "line_count": 448,
+      "line_count": 460,
       "class_name": "CookingActivity",
       "extends": "NPCSessionActivity",
       "exports": [],
@@ -22327,6 +22517,11 @@
           "name": "label",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
         },
         {
           "name": "score",
@@ -22365,17 +22560,22 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 474
+      "complexity_score": 488
     },
     {
       "path": "res://scripts/npc/activities/DrinkActivity.gd",
-      "line_count": 262,
+      "line_count": 270,
       "class_name": "DrinkActivity",
       "extends": "NPCActivity",
       "exports": [],
       "signals": [],
       "connect_call_sites": [],
       "public_functions": [
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
+        },
         {
           "name": "label",
           "args": "",
@@ -22421,17 +22621,22 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 285
+      "complexity_score": 295
     },
     {
       "path": "res://scripts/npc/activities/EatActivity.gd",
-      "line_count": 185,
+      "line_count": 182,
       "class_name": "EatActivity",
       "extends": "NPCActivity",
       "exports": [],
       "signals": [],
       "connect_call_sites": [],
       "public_functions": [
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
+        },
         {
           "name": "label",
           "args": "",
@@ -22477,7 +22682,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 204
+      "complexity_score": 203
     },
     {
       "path": "res://scripts/npc/activities/ForgetfulWanderActivity.gd",
@@ -22532,7 +22737,7 @@
     },
     {
       "path": "res://scripts/npc/activities/GardeningActivity.gd",
-      "line_count": 459,
+      "line_count": 468,
       "class_name": "GardeningActivity",
       "extends": "NPCSessionActivity",
       "exports": [],
@@ -22543,6 +22748,11 @@
           "name": "label",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
         },
         {
           "name": "score",
@@ -22579,7 +22789,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 485
+      "complexity_score": 496
     },
     {
       "path": "res://scripts/npc/activities/GiveToFriendActivity.gd",
@@ -22701,7 +22911,7 @@
     },
     {
       "path": "res://scripts/npc/activities/JobActivity.gd",
-      "line_count": 201,
+      "line_count": 211,
       "class_name": "JobActivity",
       "extends": "NPCActivity",
       "exports": [],
@@ -22712,6 +22922,11 @@
           "name": "label",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
         },
         {
           "name": "score",
@@ -22748,17 +22963,22 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 220
+      "complexity_score": 232
     },
     {
       "path": "res://scripts/npc/activities/LieActivity.gd",
-      "line_count": 149,
+      "line_count": 152,
       "class_name": "LieActivity",
       "extends": "NPCActivity",
       "exports": [],
       "signals": [],
       "connect_call_sites": [],
       "public_functions": [
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
+        },
         {
           "name": "label",
           "args": "",
@@ -22799,11 +23019,81 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 169
+      "complexity_score": 174
+    },
+    {
+      "path": "res://scripts/npc/activities/NPCClearPathActivity.gd",
+      "line_count": 200,
+      "class_name": "NPCClearPathActivity",
+      "extends": "NPCActivity",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [
+        {
+          "name": "label",
+          "args": "",
+          "returns": "String"
+        },
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
+        },
+        {
+          "name": "interruptible",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "enter",
+          "args": "npc: NPC",
+          "returns": "void"
+        },
+        {
+          "name": "tick",
+          "args": "npc: NPC, delta: float",
+          "returns": "void"
+        },
+        {
+          "name": "done",
+          "args": "_npc: NPC",
+          "returns": "bool"
+        },
+        {
+          "name": "succeeded",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "obstruction_id",
+          "args": "",
+          "returns": "int"
+        },
+        {
+          "name": "exit",
+          "args": "npc: NPC",
+          "returns": "void"
+        },
+        {
+          "name": "debug_info",
+          "args": "",
+          "returns": "Dictionary"
+        }
+      ],
+      "private_function_count": 4,
+      "preloads": [
+        "res://scripts/npc/NPCDynamicObstacleMap.gd"
+      ],
+      "group_lookups": [
+        "main_world"
+      ],
+      "autoload_references": [],
+      "complexity_score": 224
     },
     {
       "path": "res://scripts/npc/activities/NPCCommandWrapperActivity.gd",
-      "line_count": 48,
+      "line_count": 51,
       "class_name": "NPCCommandWrapperActivity",
       "extends": "NPCActivity",
       "exports": [],
@@ -22831,6 +23121,11 @@
           "returns": "Dictionary"
         },
         {
+          "name": "attention_target",
+          "args": "npc: NPC",
+          "returns": "Node3D"
+        },
+        {
           "name": "enter",
           "args": "npc: NPC",
           "returns": "void"
@@ -22855,7 +23150,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 65
+      "complexity_score": 70
     },
     {
       "path": "res://scripts/npc/activities/NPCSessionActivity.gd",
@@ -22987,7 +23282,7 @@
     },
     {
       "path": "res://scripts/npc/activities/RefuelActivity.gd",
-      "line_count": 182,
+      "line_count": 191,
       "class_name": "RefuelActivity",
       "extends": "NPCSessionActivity",
       "exports": [],
@@ -22998,6 +23293,11 @@
           "name": "label",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
         },
         {
           "name": "score",
@@ -23036,11 +23336,11 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 199
+      "complexity_score": 210
     },
     {
       "path": "res://scripts/npc/activities/RelaxActivity.gd",
-      "line_count": 83,
+      "line_count": 86,
       "class_name": "RelaxActivity",
       "extends": "NPCActivity",
       "exports": [],
@@ -23091,13 +23391,18 @@
           "name": "debug_info",
           "args": "",
           "returns": "Dictionary"
+        },
+        {
+          "name": "attention_target",
+          "args": "npc: NPC",
+          "returns": "Node3D"
         }
       ],
       "private_function_count": 0,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 101
+      "complexity_score": 106
     },
     {
       "path": "res://scripts/npc/activities/RelaxLieActivity.gd",
@@ -23163,13 +23468,18 @@
     },
     {
       "path": "res://scripts/npc/activities/SitActivity.gd",
-      "line_count": 189,
+      "line_count": 192,
       "class_name": "SitActivity",
       "extends": "NPCActivity",
       "exports": [],
       "signals": [],
       "connect_call_sites": [],
       "public_functions": [
+        {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
+        },
         {
           "name": "label",
           "args": "",
@@ -23210,7 +23520,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 210
+      "complexity_score": 215
     },
     {
       "path": "res://scripts/npc/activities/SnatchActivity.gd",
@@ -23270,7 +23580,7 @@
     },
     {
       "path": "res://scripts/npc/activities/TalkActivity.gd",
-      "line_count": 103,
+      "line_count": 115,
       "class_name": "TalkActivity",
       "extends": "NPCActivity",
       "exports": [],
@@ -23298,6 +23608,11 @@
           "returns": "void"
         },
         {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
+        },
+        {
           "name": "tick",
           "args": "npc: NPC, delta: float",
           "returns": "void"
@@ -23317,11 +23632,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 118
+      "complexity_score": 132
     },
     {
       "path": "res://scripts/npc/activities/WanderActivity.gd",
-      "line_count": 442,
+      "line_count": 496,
       "class_name": "WanderActivity",
       "extends": "NPCActivity",
       "exports": [],
@@ -23369,6 +23684,11 @@
           "returns": "Dictionary"
         },
         {
+          "name": "attention_target",
+          "args": "_npc: NPC",
+          "returns": "Node3D"
+        },
+        {
           "name": "make_resume_intent",
           "args": "_npc: NPC",
           "returns": "Dictionary"
@@ -23389,7 +23709,7 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 17,
+      "private_function_count": 18,
       "preloads": [
         "res://scripts/npc/NPCCompanionship.gd"
       ],
@@ -23397,7 +23717,7 @@
         "main_world"
       ],
       "autoload_references": [],
-      "complexity_score": 483
+      "complexity_score": 540
     },
     {
       "path": "res://scripts/npc/queries/NPCJobQueries.gd",
@@ -23418,7 +23738,7 @@
     },
     {
       "path": "res://scripts/player/AdventurerModelController.gd",
-      "line_count": 903,
+      "line_count": 942,
       "class_name": "AdventurerModelController",
       "extends": "Node3D",
       "exports": [
@@ -23473,11 +23793,11 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 13,
+      "private_function_count": 14,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 924
+      "complexity_score": 964
     },
     {
       "path": "res://scripts/player/InteractionFocusGlow.gd",
@@ -23517,7 +23837,7 @@
     },
     {
       "path": "res://scripts/player/InteractionSystem.gd",
-      "line_count": 2191,
+      "line_count": 2199,
       "class_name": "InteractionSystem",
       "extends": "Node3D",
       "exports": [
@@ -23603,11 +23923,11 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 2266
+      "complexity_score": 2274
     },
     {
       "path": "res://scripts/player/Player.gd",
-      "line_count": 520,
+      "line_count": 527,
       "class_name": "Player",
       "extends": "CharacterBody3D",
       "exports": [
@@ -23700,7 +24020,7 @@
       "autoload_references": [
         "GraphicsSettings"
       ],
-      "complexity_score": 542
+      "complexity_score": 549
     },
     {
       "path": "res://scripts/player/PlayerModelController.gd",
@@ -24276,7 +24596,7 @@
     },
     {
       "path": "res://scripts/ui/build/BuildModeHUD.gd",
-      "line_count": 1981,
+      "line_count": 1988,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -24441,7 +24761,7 @@
       "autoload_references": [
         "GraphicsSettings"
       ],
-      "complexity_score": 2063
+      "complexity_score": 2070
     },
     {
       "path": "res://scripts/ui/build/BuildWorkspace.gd",
@@ -25717,7 +26037,7 @@
     },
     {
       "path": "res://scripts/ui/hud/InteractPrompt.gd",
-      "line_count": 840,
+      "line_count": 848,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -25768,7 +26088,7 @@
       "autoload_references": [
         "GraphicsSettings"
       ],
-      "complexity_score": 873
+      "complexity_score": 881
     },
     {
       "path": "res://scripts/ui/hud/InteractionPromptChrome.gd",
@@ -26018,7 +26338,7 @@
     },
     {
       "path": "res://scripts/ui/inventory/InventoryManager.gd",
-      "line_count": 202,
+      "line_count": 203,
       "class_name": null,
       "extends": "Node",
       "exports": [],
@@ -26092,7 +26412,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 226
+      "complexity_score": 227
     },
     {
       "path": "res://scripts/ui/inventory/StorageUI.gd",
@@ -26301,7 +26621,7 @@
     },
     {
       "path": "res://scripts/ui/menus/AdminMenu.gd",
-      "line_count": 1114,
+      "line_count": 1128,
       "class_name": null,
       "extends": "CanvasLayer",
       "exports": [],
@@ -26346,7 +26666,7 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 103,
+      "private_function_count": 105,
       "preloads": [
         "res://assets/fonts/IosevkaCharon-Regular.ttf",
         "res://scenes/npc/NPC.tscn",
@@ -26363,7 +26683,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 1223
+      "complexity_score": 1239
     },
     {
       "path": "res://scripts/ui/menus/GraphicsSettingsPanel.gd",
@@ -26787,7 +27107,7 @@
     },
     {
       "path": "res://scripts/ui/npc/NPCTalkMenuUI.gd",
-      "line_count": 1458,
+      "line_count": 1460,
       "class_name": "NPCTalkMenuUI",
       "extends": "CanvasLayer",
       "exports": [],
@@ -26866,7 +27186,7 @@
         "player"
       ],
       "autoload_references": [],
-      "complexity_score": 1535
+      "complexity_score": 1537
     },
     {
       "path": "res://scripts/ui/power/BatteryInspectUI.gd",
@@ -27579,7 +27899,7 @@
     },
     {
       "path": "res://scripts/world/build/BuildMaterials.gd",
-      "line_count": 466,
+      "line_count": 486,
       "class_name": "BuildMaterials",
       "extends": "RefCounted",
       "exports": [],
@@ -27589,10 +27909,8 @@
       "private_function_count": 5,
       "preloads": [
         "res://assets/textures/Concrete028/Concrete028_2K-PNG_AmbientOcclusion.png",
-        "res://assets/textures/Concrete028/Concrete028_2K-PNG_Color.png",
         "res://assets/textures/Concrete028/Concrete028_2K-PNG_NormalGL.png",
         "res://assets/textures/Concrete028/Concrete028_2K-PNG_Roughness.png",
-        "res://assets/textures/Concrete032/Concrete032_2K-PNG_Color.png",
         "res://assets/textures/Concrete032/Concrete032_2K-PNG_NormalGL.png",
         "res://assets/textures/Concrete032/Concrete032_2K-PNG_Roughness.png",
         "res://assets/textures/Wood006/Wood006_2K-PNG_Color_rot.png",
@@ -27601,11 +27919,11 @@
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 471
+      "complexity_score": 491
     },
     {
       "path": "res://scripts/world/build/BuildModeController.gd",
-      "line_count": 3815,
+      "line_count": 3888,
       "class_name": "BuildModeController",
       "extends": "Node3D",
       "exports": [
@@ -27750,19 +28068,22 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 107,
+      "private_function_count": 108,
       "preloads": [
         "res://scripts/world/build/WallDrawMode.gd",
         "res://scripts/world/cooking/Stove.gd",
         "res://scripts/world/farming/FarmingTray.gd",
         "res://scripts/world/furniture/BuildStation.gd",
+        "res://scripts/world/furniture/Carpet.gd",
         "res://scripts/world/furniture/Chair.gd",
+        "res://scripts/world/furniture/Drawers.gd",
         "res://scripts/world/furniture/Dresser.gd",
         "res://scripts/world/furniture/EndTable.gd",
         "res://scripts/world/furniture/LargeShelf.gd",
         "res://scripts/world/furniture/Poster.gd",
         "res://scripts/world/furniture/ResearchStation.gd",
         "res://scripts/world/furniture/Shelving.gd",
+        "res://scripts/world/furniture/Sink.gd",
         "res://scripts/world/furniture/SmallShelf.gd",
         "res://scripts/world/furniture/Table.gd",
         "res://scripts/world/furniture/TrashCan.gd",
@@ -27789,7 +28110,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 3944
+      "complexity_score": 4018
     },
     {
       "path": "res://scripts/world/build/BuildUndoStack.gd",
@@ -27862,7 +28183,7 @@
     },
     {
       "path": "res://scripts/world/build/GhostModelBuilder.gd",
-      "line_count": 282,
+      "line_count": 289,
       "class_name": "GhostModelBuilder",
       "extends": "RefCounted",
       "exports": [],
@@ -27873,11 +28194,11 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 282
+      "complexity_score": 289
     },
     {
       "path": "res://scripts/world/build/GhostPreview.gd",
-      "line_count": 854,
+      "line_count": 858,
       "class_name": "GhostPreview",
       "extends": "RefCounted",
       "exports": [],
@@ -27911,7 +28232,7 @@
         "water_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 868
+      "complexity_score": 872
     },
     {
       "path": "res://scripts/world/build/MoveDuplicateTool.gd",
@@ -28002,7 +28323,7 @@
     },
     {
       "path": "res://scripts/world/cooking/Stove.gd",
-      "line_count": 512,
+      "line_count": 521,
       "class_name": "Stove",
       "extends": "StaticBody3D",
       "exports": [],
@@ -28033,6 +28354,11 @@
           "name": "get_interact_prompt",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "get_prompt_world_pos",
+          "args": "",
+          "returns": "Vector3"
         },
         {
           "name": "has_open_slot",
@@ -28099,7 +28425,7 @@
         "power_manager"
       ],
       "autoload_references": [],
-      "complexity_score": 556
+      "complexity_score": 567
     },
     {
       "path": "res://scripts/world/core/MainWorld.gd",
@@ -28888,6 +29214,26 @@
       "complexity_score": 155
     },
     {
+      "path": "res://scripts/world/furniture/Carpet.gd",
+      "line_count": 101,
+      "class_name": "Carpet",
+      "extends": "StaticBody3D",
+      "exports": [
+        {
+          "name": "variant",
+          "type": "int"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 3,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 104
+    },
+    {
       "path": "res://scripts/world/furniture/Chair.gd",
       "line_count": 202,
       "class_name": "Chair",
@@ -28956,6 +29302,26 @@
       "group_lookups": [],
       "autoload_references": [],
       "complexity_score": 224
+    },
+    {
+      "path": "res://scripts/world/furniture/Drawers.gd",
+      "line_count": 110,
+      "class_name": "Drawers",
+      "extends": "StaticBody3D",
+      "exports": [
+        {
+          "name": "variant",
+          "type": "int"
+        }
+      ],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 114
     },
     {
       "path": "res://scripts/world/furniture/Dresser.gd",
@@ -29428,6 +29794,21 @@
       "complexity_score": 973
     },
     {
+      "path": "res://scripts/world/furniture/Sink.gd",
+      "line_count": 84,
+      "class_name": "Sink",
+      "extends": "StaticBody3D",
+      "exports": [],
+      "signals": [],
+      "connect_call_sites": [],
+      "public_functions": [],
+      "private_function_count": 4,
+      "preloads": [],
+      "group_lookups": [],
+      "autoload_references": [],
+      "complexity_score": 88
+    },
+    {
       "path": "res://scripts/world/furniture/SmallShelf.gd",
       "line_count": 12,
       "class_name": "SmallShelf",
@@ -29464,7 +29845,7 @@
     },
     {
       "path": "res://scripts/world/furniture/TrashCan.gd",
-      "line_count": 343,
+      "line_count": 338,
       "class_name": "TrashCan",
       "extends": "LightStorage",
       "exports": [],
@@ -29482,7 +29863,7 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 7,
+      "private_function_count": 8,
       "preloads": [
         "res://scripts/world/items/TrashBag.gd"
       ],
@@ -29490,7 +29871,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 354
+      "complexity_score": 350
     },
     {
       "path": "res://scripts/world/items/Antibiotics.gd",
@@ -29765,7 +30146,7 @@
     },
     {
       "path": "res://scripts/world/items/CanCase.gd",
-      "line_count": 103,
+      "line_count": 132,
       "class_name": null,
       "extends": "PickupableItem",
       "exports": [
@@ -29800,20 +30181,25 @@
           "name": "on_interact",
           "args": "",
           "returns": "void"
+        },
+        {
+          "name": "npc_take_one",
+          "args": "npc: Node3D",
+          "returns": "RigidBody3D"
         }
       ],
-      "private_function_count": 3,
+      "private_function_count": 4,
       "preloads": [],
       "group_lookups": [
         "player_stats",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 114
+      "complexity_score": 146
     },
     {
       "path": "res://scripts/world/items/CookingPot.gd",
-      "line_count": 883,
+      "line_count": 904,
       "class_name": "CookingPot",
       "extends": "PickupableItem",
       "exports": [
@@ -29848,6 +30234,11 @@
           "name": "get_trash_material",
           "args": "",
           "returns": "String"
+        },
+        {
+          "name": "get_prompt_world_pos",
+          "args": "",
+          "returns": "Vector3"
         },
         {
           "name": "get_dish_ready_text",
@@ -29936,7 +30327,7 @@
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 931
+      "complexity_score": 954
     },
     {
       "path": "res://scripts/world/items/DishItem.gd",
@@ -30245,7 +30636,7 @@
     },
     {
       "path": "res://scripts/world/items/FoodCan.gd",
-      "line_count": 166,
+      "line_count": 200,
       "class_name": null,
       "extends": "PickupableItem",
       "exports": [],
@@ -30298,13 +30689,13 @@
           "returns": "bool"
         }
       ],
-      "private_function_count": 5,
+      "private_function_count": 6,
       "preloads": [],
       "group_lookups": [
         "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 189
+      "complexity_score": 224
     },
     {
       "path": "res://scripts/world/items/FuelCan.gd",
@@ -30473,7 +30864,7 @@
     },
     {
       "path": "res://scripts/world/items/PickupableItem.gd",
-      "line_count": 462,
+      "line_count": 606,
       "class_name": "PickupableItem",
       "extends": "RigidBody3D",
       "exports": [
@@ -30511,9 +30902,24 @@
       "connect_call_sites": [],
       "public_functions": [
         {
+          "name": "rest_collision_layer",
+          "args": "",
+          "returns": "int"
+        },
+        {
           "name": "set_nav_obstacle_enabled",
           "args": "enabled: bool",
           "returns": "void"
+        },
+        {
+          "name": "is_soft_navigation_clutter",
+          "args": "",
+          "returns": "bool"
+        },
+        {
+          "name": "get_navigation_obstacle_debug_info",
+          "args": "",
+          "returns": "Dictionary"
         },
         {
           "name": "deactivate_dynamic_state",
@@ -30524,6 +30930,11 @@
           "name": "restore_dynamic_state",
           "args": "",
           "returns": "void"
+        },
+        {
+          "name": "get_navigation_footprint_radius",
+          "args": "",
+          "returns": "float"
         },
         {
           "name": "is_heavy_item",
@@ -30566,11 +30977,11 @@
           "returns": "void"
         }
       ],
-      "private_function_count": 12,
+      "private_function_count": 15,
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 496
+      "complexity_score": 651
     },
     {
       "path": "res://scripts/world/items/PurifierFilterItem.gd",
@@ -30856,7 +31267,7 @@
     },
     {
       "path": "res://scripts/world/items/WaterBottle.gd",
-      "line_count": 281,
+      "line_count": 298,
       "class_name": null,
       "extends": "PickupableItem",
       "exports": [],
@@ -30914,17 +31325,17 @@
           "returns": "Dictionary"
         }
       ],
-      "private_function_count": 8,
+      "private_function_count": 9,
       "preloads": [],
       "group_lookups": [
         "player_stats"
       ],
       "autoload_references": [],
-      "complexity_score": 309
+      "complexity_score": 327
     },
     {
       "path": "res://scripts/world/items/WaterCase.gd",
-      "line_count": 125,
+      "line_count": 154,
       "class_name": null,
       "extends": "PickupableItem",
       "exports": [
@@ -30959,16 +31370,21 @@
           "name": "on_interact",
           "args": "",
           "returns": "void"
+        },
+        {
+          "name": "npc_take_one",
+          "args": "npc: Node3D",
+          "returns": "RigidBody3D"
         }
       ],
-      "private_function_count": 3,
+      "private_function_count": 4,
       "preloads": [],
       "group_lookups": [
         "player_stats",
         "world"
       ],
       "autoload_references": [],
-      "complexity_score": 136
+      "complexity_score": 168
     },
     {
       "path": "res://scripts/world/power/BatteryBank.gd",
@@ -32820,7 +33236,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterGraph.gd",
-      "line_count": 592,
+      "line_count": 599,
       "class_name": "WaterGraph",
       "extends": "RefCounted",
       "exports": [],
@@ -32937,7 +33353,7 @@
       "preloads": [],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 637
+      "complexity_score": 644
     },
     {
       "path": "res://scripts/world/water/WaterHookup.gd",
@@ -33009,7 +33425,7 @@
     },
     {
       "path": "res://scripts/world/water/WaterManager.gd",
-      "line_count": 929,
+      "line_count": 937,
       "class_name": "WaterManager",
       "extends": "Node",
       "exports": [],
@@ -33190,7 +33606,7 @@
       "autoload_references": [
         "SaveManager"
       ],
-      "complexity_score": 1005
+      "complexity_score": 1013
     },
     {
       "path": "res://scripts/world/water/WaterPipeDrawMode.gd",
@@ -34096,7 +34512,7 @@
     },
     {
       "path": "res://tools/tests/npc_behavior_foundations_smoke.gd",
-      "line_count": 221,
+      "line_count": 347,
       "class_name": null,
       "extends": "SceneTree",
       "exports": [],
@@ -34107,12 +34523,13 @@
       "preloads": [
         "res://scripts/npc/NPCBehaviorProfile.gd",
         "res://scripts/npc/NPCDoorCoordinator.gd",
+        "res://scripts/npc/NPCDynamicObstacleMap.gd",
         "res://scripts/npc/NPCInteractionSlots.gd",
         "res://scripts/npc/activities/RelaxActivity.gd"
       ],
       "group_lookups": [],
       "autoload_references": [],
-      "complexity_score": 226
+      "complexity_score": 352
     },
     {
       "path": "res://tools/tests/npc_menu_ui_smoke.gd",
@@ -35826,12 +36243,22 @@
     },
     {
       "from": "res://scripts/npc/NPC.gd",
+      "to": "res://scripts/npc/NPCAttentionController.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/npc/NPC.gd",
       "to": "res://scripts/npc/NPCCompanionship.gd",
       "via": "preload"
     },
     {
       "from": "res://scripts/npc/NPC.gd",
       "to": "res://scripts/npc/NPCDoorCoordinator.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/npc/NPC.gd",
+      "to": "res://scripts/npc/NPCDynamicObstacleMap.gd",
       "via": "preload"
     },
     {
@@ -35846,7 +36273,27 @@
     },
     {
       "from": "res://scripts/npc/NPC.gd",
+      "to": "res://scripts/npc/NPCMetrics.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/npc/NPC.gd",
       "to": "res://scripts/ui/npc/NPCTalkMenuUI.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/npc/NPCAttentionController.gd",
+      "to": "res://scripts/npc/NPCMetrics.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/npc/NPCBrain.gd",
+      "to": "res://scripts/npc/NPCMetrics.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/npc/NPCDebug.gd",
+      "to": "res://scripts/npc/NPCMetrics.gd",
       "via": "preload"
     },
     {
@@ -35857,6 +36304,11 @@
     {
       "from": "res://scripts/npc/activities/CookingActivity.gd",
       "to": "res://scripts/world/items/DishItem.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/npc/activities/NPCClearPathActivity.gd",
+      "to": "res://scripts/npc/NPCDynamicObstacleMap.gd",
       "via": "preload"
     },
     {
@@ -36281,7 +36733,17 @@
     },
     {
       "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/furniture/Carpet.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
       "to": "res://scripts/world/furniture/Chair.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/furniture/Drawers.gd",
       "via": "preload"
     },
     {
@@ -36312,6 +36774,11 @@
     {
       "from": "res://scripts/world/build/BuildModeController.gd",
       "to": "res://scripts/world/furniture/Shelving.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://scripts/world/build/BuildModeController.gd",
+      "to": "res://scripts/world/furniture/Sink.gd",
       "via": "preload"
     },
     {
@@ -36742,6 +37209,11 @@
     {
       "from": "res://tools/tests/npc_behavior_foundations_smoke.gd",
       "to": "res://scripts/npc/NPCDoorCoordinator.gd",
+      "via": "preload"
+    },
+    {
+      "from": "res://tools/tests/npc_behavior_foundations_smoke.gd",
+      "to": "res://scripts/npc/NPCDynamicObstacleMap.gd",
       "via": "preload"
     },
     {

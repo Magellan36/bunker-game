@@ -763,8 +763,8 @@ func retrieve_to_inventory(slot_idx: int, inv: Node) -> bool:
 
 	item.freeze          = false
 	item.visible         = true
-	item.collision_layer = 1
-	item.collision_mask  = 1
+	item.collision_layer = item.rest_collision_layer()
+	item.collision_mask  = item._rest_collision_mask()
 	item.linear_velocity  = Vector3.ZERO
 	item.angular_velocity = Vector3.ZERO
 	if item.has_method("restore_dynamic_state"):
@@ -796,8 +796,8 @@ func eject_all_items() -> void:
 			item.freeze          = false
 			item.freeze_mode     = RigidBody3D.FREEZE_MODE_KINEMATIC
 			item.gravity_scale   = 1.0
-			item.collision_layer = 1
-			item.collision_mask  = 1
+			item.collision_layer = item.rest_collision_layer()
+			item.collision_mask  = item._rest_collision_mask()
 			item.linear_velocity  = Vector3.ZERO
 			item.angular_velocity = Vector3.ZERO
 			if item.has_method("restore_dynamic_state"):

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bfmq7w7xlvjdv"
-path="res://.godot/imported/water_cardboard_tray_diffuse.png-47cc3e94d40f605b560436d81d329edb.ctex"
+uid="uid://boruq4soyrs3i"
+path="res://.godot/imported/battery_bank_M_reference_preview.png-307aab3044e92d00cb9edbbbab5f1394.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/items/water_case/water_cardboard_tray_diffuse.png"
-dest_files=["res://.godot/imported/water_cardboard_tray_diffuse.png-47cc3e94d40f605b560436d81d329edb.ctex"]
+source_file="res://assets/models/reference/battery_bank_M_reference_preview.png"
+dest_files=["res://.godot/imported/battery_bank_M_reference_preview.png-307aab3044e92d00cb9edbbbab5f1394.ctex"]
 
 [params]
 

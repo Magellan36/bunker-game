@@ -27,6 +27,16 @@ func label() -> String:
 		"travel": return "Heading to work"
 		_: return "Working"
 
+func attention_target(_npc: NPC) -> Node3D:
+	if _phase == "fetch":
+		if _fetch_loose != null and is_instance_valid(_fetch_loose):
+			return _fetch_loose
+		var shelf: Node3D = _fetch_shelf.get("shelf") as Node3D
+		if shelf != null and is_instance_valid(shelf):
+			return shelf
+	var target: Node3D = _job.get("target") as Node3D
+	return target if target != null and is_instance_valid(target) else null
+
 func score(npc: NPC) -> float:
 	var conf: Dictionary = TYPE_CONF.get(_job.get("type", ""), {})
 	if conf.is_empty():

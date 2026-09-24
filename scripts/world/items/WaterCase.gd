@@ -83,13 +83,40 @@ func get_interact_prompt() -> String:
 
 # ─── Interact: eject a bottle — works both placed and while held ──────────────
 func on_interact() -> void:
-	if bottle_count <= 0:
+	var bottle: RigidBody3D = _spawn_one(spawn_point.global_position)
+	if bottle == null:
 		return
 
+	## Eject toward whoever's holding the case (player/NPC face local -Z); if
+	## placed, use the case's own forward (-Z). Sep 2026 — the holder-facing
+	## eject initially flew AWAY from the holder (used -holder.basis.z); flipped
+	## to +holder.basis.z so it pops out toward the holder, not behind them.
+	var eject_dir: Vector3 = -global_transform.basis.z
+	var holder: CharacterBody3D = _get_holder()
+	if holder != null:
+		eject_dir = holder.global_transform.basis.z
+	bottle.linear_velocity = eject_dir * 2.5 + Vector3(0, 1.5, 0)
+
+## NPC case access never moves the case itself. Start the bottle just beyond
+## the authored outlet, on the NPC-facing side, then let PickupableItem's
+## normal held-item follow motion carry it smoothly into the NPC's hand.
+func npc_take_one(npc: Node3D) -> RigidBody3D:
+	if npc == null or not is_instance_valid(npc):
+		return null
+	var toward_npc: Vector3 = npc.global_position - spawn_point.global_position
+	toward_npc.y = 0.0
+	if toward_npc.length_squared() < 0.001:
+		toward_npc = -global_transform.basis.z
+	toward_npc = toward_npc.normalized()
+	return _spawn_one(spawn_point.global_position + toward_npc * 0.35 + Vector3.UP * 0.1)
+
+func _spawn_one(world_position: Vector3) -> RigidBody3D:
+	if bottle_count <= 0:
+		return null
 	var bottle_res: Resource = load(BOTTLE_SCENE)
 	if bottle_res == null:
 		push_error("WaterCase: Could not load WaterBottle.tscn at '%s'" % BOTTLE_SCENE)
-		return
+		return null
 
 	var bottle: RigidBody3D = bottle_res.instantiate()
 
@@ -103,14 +130,16 @@ func on_interact() -> void:
 	var world: Node = get_tree().get_first_node_in_group("world")
 	if world == null:
 		push_error("WaterCase: No node in group 'world' found.")
-		return
+		return null
 
 	world.add_child(bottle)
-	bottle.global_position = spawn_point.global_position
-	bottle.linear_velocity = -global_transform.basis.z * 2.5 + Vector3(0, 1.5, 0)
+	bottle.global_position = world_position
+	bottle.linear_velocity = Vector3.ZERO
+	bottle.angular_velocity = Vector3.ZERO
 
 	bottle_count -= 1
 	_hide_next_bottle_visual()
+	return bottle
 
 ## Hides the next remaining visible bottle mesh (highest-numbered first) so
 ## the case model visually empties in sync with bottle_count. Also hides the

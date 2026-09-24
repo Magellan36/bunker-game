@@ -2,9 +2,8 @@ extends NPCActivity
 class_name EatActivity
 ## Hunger-driven. Priority: loose edible → shelved edible (via
 ## Shelving.npc_retrieve) → loose Can Case → shelved Can Case (Aug
-## 2026 — the last two tiers via NPCCaseFetch: take the case out if
-## shelved, eject one can, reshelve, then eat it like any other loose
-## find — shared with DrinkActivity's WaterCase handling).
+## 2026 — the last two tiers via NPCCaseFetch: leave the case in place,
+## take one can directly into the NPC's hand, then consume normally).
 const CONSUME_TIME: float = 2.0
 const USE_RANGE:    float = 1.2
 
@@ -14,6 +13,14 @@ var _eating: float = 0.0
 var _pending_snatch: Node = null   ## Part 30 — set in enter()/_reacquire_or_finish(), consumed on first tick()
 var _handoff: NPCActivity = null
 var _case_fetch: NPCCaseFetch = null   ## Aug 2026 — last-resort tier once loose+shelf both come up empty
+
+func attention_target(_npc: NPC) -> Node3D:
+	if _case_fetch != null:
+		return _case_fetch.get_case_target()
+	if _loose != null and is_instance_valid(_loose):
+		return _loose
+	var shelf: Node3D = _shelf_pick.get("shelf") as Node3D
+	return shelf if shelf != null and is_instance_valid(shelf) else null
 
 func label() -> String:
 	return "Eating" if _eating > 0.0 else "Getting food"
@@ -53,7 +60,7 @@ func enter(npc: NPC) -> void:
 	if _loose == null and _shelf_pick.is_empty():
 		## Aug 2026 — last-resort case tier. score() already confirmed one
 		## exists somewhere if we got this far with nothing else found.
-		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"), Callable(NPCItemUser, "is_edible"))
+		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"))
 		return
 	var tgt: Node3D = _loose if _loose != null \
 		else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
@@ -67,8 +74,6 @@ func tick(npc: NPC, delta: float) -> void:
 		return
 	if _case_fetch != null:
 		if _case_fetch.is_done():
-			if not _case_fetch.failed():
-				_loose = _case_fetch.get_ejected_item()   ## hand off to the normal loose branch below, next tick
 			_case_fetch = null
 			return
 		_case_fetch.tick(npc, delta)
@@ -142,7 +147,7 @@ func _reacquire_or_finish(npc: NPC) -> void:
 		if not _shelf_pick.is_empty() and not NPCItemUser.claim_item(_shelf_pick.get("item"), npc):
 			_shelf_pick = {}
 	if _loose == null and _shelf_pick.is_empty():
-		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"), Callable(NPCItemUser, "is_edible"))
+		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"))
 		return
 	var tgt: Node3D = _loose if _loose != null \
 		else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
@@ -150,18 +155,10 @@ func _reacquire_or_finish(npc: NPC) -> void:
 		npc.set_nav_target(tgt.global_position)
 
 func interruptible() -> bool:
-	## Aug 2026 fix — a stocked-case fetch in progress (holding the case,
-	## mid pre-eject/eject/post-eject/reshelve) previously left this true
-	## the whole time (only _eating gates it), while score() simultaneously
-	## drops to 0 the moment the case is held (find_loose_item excludes
-	## held items, so nothing looks "available"). NPCBrain short-circuits
-	## its own score comparison on interruptible() == false, so score()
-	## never even gets consulted here — this is the actual fix, not a
-	## defensive extra. Without it: brain interrupts mid-fetch -> exit()
-	## drops the case -> still hungry -> re-enters -> picks the same
-	## dropped case back up -> interrupted again — an endless pickup/drop
-	## loop that never reaches eject. Same failure shape NPCDebug's own
-	## log_suspicious_interrupt() was written to catch elsewhere.
+	## A stocked-case fetch in progress (approach/extraction) must not be
+	## utility-interrupted before the dispensed can reaches the held state.
+	## Keeping that short sequence atomic also prevents two residents from
+	## repeatedly releasing and reclaiming the same case between utility ticks.
 	return _eating <= 0.0 and _case_fetch == null
 
 func take_handoff() -> NPCActivity:

@@ -14,7 +14,7 @@ static var _member_session: Dictionary = {}
 static var _next_id: int = 1
 
 
-static func begin(a: NPC, b: NPC) -> bool:
+static func begin(a: Node, b: Node) -> bool:
 	_cleanup()
 	if a == null or b == null or a == b or not is_instance_valid(a) or not is_instance_valid(b):
 		return false
@@ -37,7 +37,7 @@ static func begin(a: NPC, b: NPC) -> bool:
 	return true
 
 
-static func tick(npc: NPC) -> void:
+static func tick(npc: Node) -> void:
 	_cleanup()
 	var session := _session_for(npc)
 	if session.is_empty():
@@ -56,18 +56,30 @@ static func tick(npc: NPC) -> void:
 		session["separated_since"] = 0
 
 
-static func partner_for(npc: NPC) -> NPC:
+static func partner_for(npc: Node) -> Node:
 	_cleanup()
 	return _other(_session_for(npc), npc)
 
 
-static func is_position_compatible(npc: NPC, position: Vector3, extra_radius: float = 0.0) -> bool:
+## The resident who initiated the companionship is the follower. The invited
+## resident remains the leader and continues their own compatible activity;
+## this prevents two WanderActivity instances from chasing one another.
+static func should_follow(npc: Node) -> bool:
+	_cleanup()
+	var session := _session_for(npc)
+	if session.is_empty():
+		return false
+	var follower_ref: WeakRef = session.get("a") as WeakRef
+	return follower_ref != null and follower_ref.get_ref() == npc
+
+
+static func is_position_compatible(npc: Node3D, position: Vector3, extra_radius: float = 0.0) -> bool:
 	var partner := partner_for(npc)
 	return partner == null or NPCItemUser.flat_distance(position, partner.global_position) \
 		<= VICINITY_RADIUS + extra_radius
 
 
-static func end_for(npc: NPC) -> void:
+static func end_for(npc: Node) -> void:
 	if npc == null:
 		return
 	var session_id := int(_member_session.get(npc.get_instance_id(), 0))
@@ -76,30 +88,30 @@ static func end_for(npc: NPC) -> void:
 	var session: Dictionary = _sessions.get(session_id, {})
 	for key: String in ["a", "b"]:
 		var ref: WeakRef = session.get(key) as WeakRef
-		var member: NPC = ref.get_ref() as NPC if ref != null else null
+		var member: Node = ref.get_ref() as Node if ref != null else null
 		if member != null:
 			_member_session.erase(member.get_instance_id())
 	_sessions.erase(session_id)
 
 
-static func _can_join(npc: NPC) -> bool:
+static func _can_join(npc: Node) -> bool:
 	if npc.health <= 0.0:
 		return false
 	return not npc.is_passed_out() if npc.has_method("is_passed_out") else true
 
 
-static func _session_for(npc: NPC) -> Dictionary:
+static func _session_for(npc: Node) -> Dictionary:
 	if npc == null:
 		return {}
 	return _sessions.get(int(_member_session.get(npc.get_instance_id(), 0)), {})
 
 
-static func _other(session: Dictionary, npc: NPC) -> NPC:
+static func _other(session: Dictionary, npc: Node) -> Node:
 	if session.is_empty():
 		return null
 	for key: String in ["a", "b"]:
 		var ref: WeakRef = session.get(key) as WeakRef
-		var member: NPC = ref.get_ref() as NPC if ref != null else null
+		var member: Node = ref.get_ref() as Node if ref != null else null
 		if member != null and member != npc:
 			return member
 	return null
@@ -113,8 +125,8 @@ static func _cleanup() -> void:
 		var b_ref: WeakRef = session.get("b") as WeakRef
 		if a_ref == null or b_ref == null or a_ref.get_ref() == null or b_ref.get_ref() == null \
 				or now >= int(session.get("expires", 0)):
-			var a: NPC = a_ref.get_ref() as NPC if a_ref != null else null
-			var b: NPC = b_ref.get_ref() as NPC if b_ref != null else null
+			var a: Node = a_ref.get_ref() as Node if a_ref != null else null
+			var b: Node = b_ref.get_ref() as Node if b_ref != null else null
 			if a != null:
 				_member_session.erase(a.get_instance_id())
 			if b != null:

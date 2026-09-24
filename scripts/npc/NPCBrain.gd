@@ -1,5 +1,6 @@
 extends RefCounted
 class_name NPCBrain
+const NPC_METRICS: GDScript = preload("res://scripts/npc/NPCMetrics.gd")
 ## NPCBrain.gd  (NPC Pass 2, Part 2)
 ## The Utility-AI decision loop. One instance per NPC (created in NPC._ready).
 ## Every THINK_INTERVAL (staggered per-NPC so all NPCs never think the same
@@ -17,12 +18,17 @@ class_name NPCBrain
 ## Needs-driven scores use (100 - need) so "emptier need = higher urgency".
 
 const THINK_INTERVAL: float = 1.0
+const PLAYER_INTERACTION_RESUME_GRACE: float = 5.0
+const CRITICAL_NEED_THRESHOLD: float = 25.0
 var _npc: NPC = null
 var _think_timer: float = 0.0
 var _current: NPCActivity = null
+var _navigation_recovery: NPCClearPathActivity = null
 var _candidates: Array[NPCActivity] = []
 var _deferred_intent: Dictionary = {}
 var _behavior_clock_hours: float = 0.0
+var _player_interaction_active: bool = false
+var _player_interaction_resume_grace: float = 0.0
 const RESUME_INTENT_LIFETIME_HOURS: float = 2.0
 
 func setup(npc: NPC) -> void:
@@ -45,6 +51,10 @@ func setup(npc: NPC) -> void:
 	]
 
 func current_label() -> String:
+	if _player_interaction_active:
+		return "Talking to player"
+	if _navigation_recovery != null:
+		return _navigation_recovery.label()
 	return _current.label() if _current != null else "Idle"
 
 func has_current_activity() -> bool:
@@ -54,10 +64,53 @@ func has_current_activity() -> bool:
 ## doing, for NPCDebug.dump_cleaning_state(). Empty Dictionary if idle or
 ## the current activity doesn't implement debug_info().
 func get_current_activity_debug_info() -> Dictionary:
+	if _navigation_recovery != null:
+		var recovery_info: Dictionary = _navigation_recovery.debug_info()
+		recovery_info["paused_activity"] = _current.label() if _current != null else "Idle"
+		return recovery_info
 	var info: Dictionary = _current.debug_info() if _current != null else {}
 	if not _deferred_intent.is_empty():
 		info["deferred_intent"] = _deferred_intent.duplicate(true)
 	return info
+
+func get_attention_target() -> Node3D:
+	if _player_interaction_active and _npc != null and _npc.is_inside_tree():
+		return _npc.get_tree().get_first_node_in_group("player") as Node3D
+	if _navigation_recovery != null:
+		return _navigation_recovery.attention_target(_npc)
+	return _current.attention_target(_npc) if _current != null else null
+
+
+func is_player_interacting() -> bool:
+	return _player_interaction_active
+
+
+## This is a true pause, not an activity transition. The live activity object,
+## its phase/timers/claims/held-item state, and the NavigationAgent route all
+## remain untouched until end_player_interaction().
+func begin_player_interaction() -> void:
+	if _player_interaction_active:
+		return
+	_player_interaction_active = true
+	_player_interaction_resume_grace = 0.0
+	NPC_METRICS.increment(&"player_npc_interactions")
+	NPC_METRICS.record_event(&"player_interaction_started", _npc, {
+		"paused_activity": _current.label() if _current != null else "Idle",
+	})
+
+
+func end_player_interaction() -> void:
+	if not _player_interaction_active:
+		return
+	_player_interaction_active = false
+	_player_interaction_resume_grace = PLAYER_INTERACTION_RESUME_GRACE
+	# Preserve the incumbent for a few readable seconds after a harmless UI
+	# check. Critical needs may re-score immediately instead.
+	_think_timer = 0.0 if _has_critical_need() else maxf(
+		_think_timer, PLAYER_INTERACTION_RESUME_GRACE)
+	NPC_METRICS.record_event(&"player_interaction_ended", _npc, {
+		"resuming_activity": _current.label() if _current != null else "Idle",
+	})
 
 func is_relaxing() -> bool:
 	return _current is RelaxActivity
@@ -66,7 +119,40 @@ func is_talking() -> bool:
 	return _current is TalkActivity
 
 func is_current_interruptible() -> bool:
-	return _current == null or _current.interruptible()
+	return _navigation_recovery == null and (_current == null or _current.interruptible())
+
+
+func begin_navigation_recovery(item: RigidBody3D, resume_target: Vector3,
+		resume_distance: float, corridor_finish: Vector3) -> bool:
+	if _navigation_recovery != null or item == null or not is_instance_valid(item):
+		return false
+	_navigation_recovery = NPCClearPathActivity.new(
+		item, resume_target, resume_distance, corridor_finish)
+	_navigation_recovery.enter(_npc)
+	if _navigation_recovery.done(_npc):
+		var failed_item_id: int = _navigation_recovery.obstruction_id()
+		_navigation_recovery.exit(_npc)
+		_navigation_recovery = null
+		if failed_item_id >= 0:
+			_npc.note_navigation_clear_result(failed_item_id, false)
+		return false
+	NPC_METRICS.increment(&"navigation_clear_attempts")
+	NPC_METRICS.record_event(&"navigation_clear_started", _npc, {
+		"item_id": item.get_instance_id(),
+		"paused_activity": _current.label() if _current != null else "Idle",
+	})
+	return true
+
+
+func has_navigation_recovery() -> bool:
+	return _navigation_recovery != null
+
+
+func _stop_navigation_recovery() -> void:
+	if _navigation_recovery == null:
+		return
+	_navigation_recovery.exit(_npc)
+	_navigation_recovery = null
 
 ## Companionship is a lightweight overlay, not a conversation command. It may
 ## coexist with nearby leisure and the two jobs that naturally make sense to
@@ -114,6 +200,8 @@ func end_talk_if_talking() -> void:
 ## scoring entirely — only Part 14's pass-out override (checked every frame
 ## ahead of everything else) can still preempt a command.
 func force_command(activity: NPCActivity) -> void:
+	_stop_navigation_recovery()
+	var previous_label: String = _current.label() if _current != null else "Idle"
 	if _current != null:
 		NPCDebug.log_activity(_npc, _current.label(), "Commanded: " + activity.label())
 		_current.exit(_npc)
@@ -121,6 +209,8 @@ func force_command(activity: NPCActivity) -> void:
 	_prepare_companionship_for(activity)
 	_current = activity
 	_current.enter(_npc)
+	NPC_METRICS.increment(&"activity_forced_commands")
+	_record_activity_event(&"activity_forced", previous_label, _current.label())
 	_think_timer = THINK_INTERVAL   ## don't immediately re-think and override the command
 
 ## Called by NPC._physics_process every frame.
@@ -129,7 +219,11 @@ func tick(delta: float) -> void:
 	## Pass-out (Part 14) preempts everything, checked every frame — an
 	## empty energy bar collapses the NPC immediately, not on the next
 	## think-cycle, and can't be interrupted by anything else.
+	if _npc.is_passed_out() and _player_interaction_active:
+		_player_interaction_active = false
+		_npc.call_deferred("close_talk_menu_for_critical_state")
 	if _npc.is_passed_out() and not (_current is PassedOutActivity):
+		_stop_navigation_recovery()
 		if _current != null:
 			NPCDebug.log_activity(_npc, _current.label(), "Passed Out")
 			_current.exit(_npc)
@@ -137,6 +231,35 @@ func tick(delta: float) -> void:
 		_current = PassedOutActivity.new()
 		_prepare_companionship_for(_current)
 		_current.enter(_npc)
+
+	if _player_interaction_active:
+		_npc.lock_movement()
+		var player: Node3D = _npc.get_tree().get_first_node_in_group("player") as Node3D
+		if player != null:
+			_npc.face_world_position(player.global_position)
+		return
+
+	if _navigation_recovery != null:
+		if _has_critical_need():
+			_stop_navigation_recovery()
+			_think_timer = 0.0
+		else:
+			_navigation_recovery.tick(_npc, delta)
+			if _navigation_recovery.done(_npc):
+				var succeeded: bool = _navigation_recovery.succeeded()
+				var item_id: int = _navigation_recovery.obstruction_id()
+				_navigation_recovery.exit(_npc)
+				_navigation_recovery = null
+				if item_id >= 0:
+					_npc.note_navigation_clear_result(item_id, succeeded)
+				var metric_name: StringName = &"navigation_clear_succeeded" if succeeded \
+					else &"navigation_clear_failed"
+				NPC_METRICS.increment(metric_name)
+				NPC_METRICS.record_event(&"navigation_clear_finished", _npc, {
+					"succeeded": succeeded,
+					"resuming_activity": _current.label() if _current != null else "Idle",
+				})
+			return
 
 	if _current != null:
 		_current.tick(_npc, delta)
@@ -148,18 +271,25 @@ func tick(delta: float) -> void:
 		## an exact successor safely, from out here in the outer scope.
 		var handoff: NPCActivity = _current.take_handoff()
 		if handoff != null:
+			var handoff_from: String = _current.label()
 			_current.exit(_npc)
 			_npc.cancel_navigation()
 			_prepare_companionship_for(handoff)
 			_current = handoff
 			_current.enter(_npc)
 			_current.begin_with_item(_npc, _npc.held_item)   ## no-op unless the successor implements it
+			NPC_METRICS.increment(&"activity_handoffs")
+			_record_activity_event(&"activity_handoff", handoff_from, _current.label())
 			_think_timer = THINK_INTERVAL   ## same reasoning as force_command() — don't immediately override this
 		elif _current.done(_npc):
+			var completed_label: String = _current.label()
 			_current.exit(_npc)
 			_npc.cancel_navigation()
 			_current = null
+			NPC_METRICS.increment(&"activity_completed")
+			_record_activity_event(&"activity_completed", completed_label, "Idle")
 
+	_player_interaction_resume_grace = maxf(0.0, _player_interaction_resume_grace - delta)
 	_think_timer -= delta
 	if _think_timer > 0.0:
 		return
@@ -167,6 +297,9 @@ func tick(delta: float) -> void:
 	_think()
 
 func _think() -> void:
+	if _player_interaction_resume_grace > 0.0 and not _has_critical_need():
+		return
+	NPC_METRICS.increment(&"utility_think_cycles")
 	_prune_deferred_intent()
 	var best: NPCActivity = null
 	var best_score: float = 0.0
@@ -191,6 +324,8 @@ func _think() -> void:
 		if s > best_score:
 			best_score = s
 			best = cand
+	NPC_METRICS.observe(&"utility_candidate_count", float(scan.size()), [5.0, 10.0, 15.0, 20.0, 30.0])
+	NPC_METRICS.observe(&"utility_best_score", best_score, [0.0, 5.0, 10.0, 20.0, 40.0, 60.0, 80.0, 100.0])
 
 	if best == null:
 		return
@@ -235,19 +370,38 @@ func _think() -> void:
 			if _npc.held_item != null:
 				NPCDebug.log_suspicious_interrupt(_npc, _current.label(), best.label())
 		NPCDebug.log_activity(_npc, _current.label(), best.label())
+		var interrupted_label: String = _current.label()
 		_capture_resume_intent()
 		_current.exit(_npc)
 		_npc.cancel_navigation()
 		_start(best)
+		NPC_METRICS.increment(&"activity_interruptions")
+		NPC_METRICS.observe(&"utility_interrupt_score_advantage", best_score - current_score,
+			[0.0, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0])
+		_record_activity_event(&"activity_interrupted", interrupted_label, best.label(), {
+			"current_score": current_score, "challenger_score": best_score, "margin": margin,
+		})
+	elif not _current.interruptible():
+		NPC_METRICS.increment(&"utility_rejected_not_interruptible")
+	elif best_score <= current_score + margin:
+		NPC_METRICS.increment(&"utility_rejected_switch_margin")
+
+
+func _has_critical_need() -> bool:
+	return _npc != null and (_npc.hunger < CRITICAL_NEED_THRESHOLD \
+		or _npc.thirst < CRITICAL_NEED_THRESHOLD or _npc.energy <= 0.0)
 
 func _start(activity: NPCActivity) -> void:
 	_prepare_companionship_for(activity)
 	_current = activity
 	_current.enter(_npc)
+	NPC_METRICS.increment(&"activity_started")
+	_record_activity_event(&"activity_started", "Idle", _current.label())
 
 ## Force-stop whatever is running (used by save/load in Part 6 and by
 ## external interrupts later). Safe to call any time.
 func stop_current() -> void:
+	_stop_navigation_recovery()
 	if _current != null:
 		_current.exit(_npc)
 		_npc.cancel_navigation()
@@ -271,3 +425,11 @@ func _prune_deferred_intent() -> void:
 	if _behavior_clock_hours >= float(_deferred_intent.get("expires_game_time", -INF)) \
 			or _npc.held_item != null:
 		_deferred_intent.clear()
+
+
+func _record_activity_event(kind: StringName, from_label: String, to_label: String,
+		extra: Dictionary = {}) -> void:
+	var data: Dictionary = extra.duplicate(true)
+	data["from"] = from_label
+	data["to"] = to_label
+	NPC_METRICS.record_event(kind, _npc, data)

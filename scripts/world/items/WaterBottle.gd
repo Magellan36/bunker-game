@@ -40,7 +40,24 @@ func _ready() -> void:
 	add_to_group("inventory_item")
 	add_to_group("basket_storable")
 	add_to_group("cookpot_storable")
-	_mesh = get_node_or_null("MeshInstance3D")
+	## Sep 2026 — the visual is now an instanced GLB; "MeshInstance3D" is a
+	## Node3D wrapper holding it. Resolve _mesh to the real MeshInstance3D
+	## beneath so the empty-tint material_override still applies.
+	_mesh = null
+	var wrapper: Node3D = get_node_or_null("MeshInstance3D") as Node3D
+	if wrapper != null:
+		_mesh = _find_first_mesh(wrapper)
+
+## Recursively finds the first MeshInstance3D under `n` (the instanced GLB
+## wraps meshes under a generated root node).
+func _find_first_mesh(n: Node) -> MeshInstance3D:
+	if n is MeshInstance3D:
+		return n as MeshInstance3D
+	for child: Node in n.get_children():
+		var found: MeshInstance3D = _find_first_mesh(child)
+		if found != null:
+			return found
+	return null
 
 # ─── Empty check (computed, not a latch) ──────────────────────────────────────
 func _is_empty() -> bool:

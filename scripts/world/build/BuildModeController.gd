@@ -111,6 +111,13 @@ const TILE_TRASH_CAN:    int = 36   ## Trash can, 1×1 footprint, 10-item light 
 const TILE_BUILD_STATION: int = 37   ## Singleton, spawns at world center, never purchasable/deconstructable, movable only
 const TILE_RESEARCH_STATION: int = 38   ## Singleton, spawns at world center, never purchasable/deconstructable, movable only
 const TILE_BUNKER_DOOR: int = 39   ## 1.8m double sliding door cut into a full-height player wall
+const TILE_CARPET_1:     int = 40   ## Carpet #1 — decorative flat floor rug (Carpet_1 GLB), Furniture
+const TILE_CARPET_2:     int = 41   ## Carpet #2 — decorative flat floor rug (Carpet_2 GLB), Furniture
+const TILE_CARPET_3:     int = 42   ## Carpet #3 — decorative round floor rug (Carpet_Round GLB), Furniture
+const TILE_DRAWERS_1:    int = 43   ## Drawers #1 — decorative kitchen drawer unit (Kitchen_1Drawers GLB), Furniture
+const TILE_DRAWERS_2:    int = 44   ## Drawers #2 — decorative kitchen drawer unit (Kitchen_2Drawers GLB), Furniture
+const TILE_DRAWERS_3:    int = 45   ## Drawers #3 — decorative kitchen drawer unit (Kitchen_3Drawers GLB), Furniture
+const TILE_SINK:         int = 46   ## Sink — decorative kitchen sink (Kitchen_Sink GLB), Furniture
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -1732,6 +1739,46 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		poster_node.global_position  = pos
 		poster_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return poster_node
+
+	# ── Carpets: script-based node, flat floor rug, ground-placed ─────────────
+	if tile_id == TILE_CARPET_1 or tile_id == TILE_CARPET_2 or tile_id == TILE_CARPET_3:
+		var carpet_script: GDScript = load("res://scripts/world/furniture/Carpet.gd")
+		var carpet_node: StaticBody3D = StaticBody3D.new()
+		if carpet_script != null:
+			carpet_node.set_script(carpet_script)
+		carpet_node.set("variant", tile_id - TILE_CARPET_1 + 1)
+		carpet_node.set_meta("tile_id", tile_id)
+		var carpet_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		carpet_par.add_child(carpet_node)
+		carpet_node.global_position  = pos
+		carpet_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return carpet_node
+
+	# ── Drawers / Sink: script-based nodes, floor-placed kitchen furniture ────
+	if tile_id == TILE_DRAWERS_1 or tile_id == TILE_DRAWERS_2 or tile_id == TILE_DRAWERS_3:
+		var drawers_script: GDScript = load("res://scripts/world/furniture/Drawers.gd")
+		var drawers_node: StaticBody3D = StaticBody3D.new()
+		if drawers_script != null:
+			drawers_node.set_script(drawers_script)
+		drawers_node.set("variant", tile_id - TILE_DRAWERS_1 + 1)
+		drawers_node.set_meta("tile_id", tile_id)
+		var drawers_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		drawers_par.add_child(drawers_node)
+		drawers_node.global_position  = pos
+		drawers_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return drawers_node
+
+	if tile_id == TILE_SINK:
+		var sink_script: GDScript = load("res://scripts/world/furniture/Sink.gd")
+		var sink_node: StaticBody3D = StaticBody3D.new()
+		if sink_script != null:
+			sink_node.set_script(sink_script)
+		sink_node.set_meta("tile_id", tile_id)
+		var sink_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		sink_par.add_child(sink_node)
+		sink_node.global_position  = pos
+		sink_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return sink_node
 
 	# ── Generators: script-based procedural node ─────────────────────────────
 	if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
@@ -3606,6 +3653,13 @@ static func _tile_half_extents_fallback(tile_id: int) -> Vector2:
 		TILE_RESEARCH_STATION: return Vector2(1.425, 0.48)  ## 3×1 (Aug 2026 chute pass — widened 1.5x from the 2x1 base; was Vector2(0.95, 0.48))
 		TILE_LIGHT:        return Vector2(0.05, 0.05)   ## Thin wall-flush fixture — NOT the 0.40 floor-object default. Same fix/reasoning as TILE_POSTER earlier this session; the wall-snap step already validated a real wall was found, this just needs to not second-guess that with an oversized box.
 		TILE_BUNKER_DOOR:  return Vector2(0.20, 0.90)
+		TILE_CARPET_1:     return Vector2(0.62, 0.90)  ## Carpet #1 scaled footprint 1.24×1.80 (half-extents)
+		TILE_CARPET_2:     return Vector2(0.875, 0.90)  ## Carpet #2 scaled footprint 1.75×1.80 (half-extents)
+		TILE_CARPET_3:     return Vector2(0.90, 0.90)  ## Carpet #3 (round) scaled footprint 1.80×1.80 (half-extents)
+		TILE_DRAWERS_1:    return Vector2(0.375, 0.3885)  ## Drawers #1 scaled footprint 0.75×0.777 (half-extents) — 0.75 is a grid multiple so side-by-side placements sit flush
+		TILE_DRAWERS_2:    return Vector2(0.375, 0.3885)  ## Drawers #2 — same 0.75×0.777 kitchen-unit footprint
+		TILE_DRAWERS_3:    return Vector2(0.375, 0.3885)  ## Drawers #3 — same 0.75×0.777 kitchen-unit footprint
+		TILE_SINK:         return Vector2(0.375, 0.3885)  ## Sink — same 0.75×0.777 kitchen-unit footprint
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback
 
@@ -3703,6 +3757,13 @@ func _resolve_door_placement(cursor_pos: Vector3, exclude_door: Node3D = null) -
 func _is_grow_light_tile(tile_id: int) -> bool:
 	return tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO
 
+## Carpets are flat floor coverings. They never block placement of any other
+## object (furniture, cabinets, etc. sit on top of them), and — except for
+## walls/pillars — nothing blocks their placement (a rug slides beneath
+## furniture). See _is_position_occupied's carpet special-casing.
+func _is_carpet_tile(tile_id: int) -> bool:
+	return tile_id == TILE_CARPET_1 or tile_id == TILE_CARPET_2 or tile_id == TILE_CARPET_3
+
 ## Level walls/pillars block placement, but the 0.25m build grid doesn't align
 ## to their faces — an object's closest snap node either overlaps the wall
 ## (blocked) or leaves a gap. Shrink their blocking footprint by this flush
@@ -3765,6 +3826,18 @@ func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D
 			var other: int = et if is_gl_new else tile_id
 			if not _grow_light_blocks_entry(other):
 				continue
+		## Carpets (Sep 2026): flat floor coverings are always passable.
+		## 1) An existing carpet never blocks ANY other object — furniture,
+		##    cabinets, etc. place right on top of it.
+		## 2) A NEW carpet is only blocked by walls/pillars — everything else
+		##    (furniture, cabinets, etc.) is skipped so the rug slides beneath
+		##    them. This keeps the carpet check on the same "flush against
+		##    structure" footing as the walls below.
+		if _is_carpet_tile(et) or _is_carpet_tile(tile_id):
+			if _is_carpet_tile(tile_id) and not BunkerStructure.is_wall_or_pillar(et):
+				continue   ## new carpet: only walls/pillars can block it
+			if _is_carpet_tile(et):
+				continue   ## existing carpet never blocks anything
 		## Level walls/pillars (pregen / expandable bunker boundary,
 		## player_placed=false) block placement (Aug 2026) — the 2% flush
 		## epsilon still lets objects sit edge-to-edge against them, but they

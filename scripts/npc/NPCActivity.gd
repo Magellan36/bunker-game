@@ -39,6 +39,11 @@ func label() -> String: return "Idle"
 func begin_with_item(_npc: NPC, _item: Node) -> void: pass
 func take_handoff() -> NPCActivity: return null
 
+## Optional presentation hook. The attention controller may look toward this
+## live world target, but utility scoring and lifecycle decisions never depend
+## on whether attention is enabled or where it is looking.
+func attention_target(_npc: NPC) -> Node3D: return null
+
 ## Optional safe-continuity hooks. Activities return semantic data only—never
 ## live Node references, animation phases, claims, or paths. The brain keeps at
 ## most one entry and offers it again only after normal utility selection has

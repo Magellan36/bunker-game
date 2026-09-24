@@ -37,6 +37,18 @@ const LOCOMOTION_STATES: Array[String] = ["idle", "walk", "run"]
 ## Run only kicks in once real velocity is closing in on sprint_speed.
 const RUN_SPEED_FRACTION: float = 0.85
 
+## Playback-rate scaling (Sep 2026) — per-character normalization: the walk/
+## run clips play at speed_scale = actual_speed / the character's OWN nominal
+## speed for that band (move_speed for walk, sprint_speed for run). A slowed
+## character (elder NPC, low energy, medical injury, heavy-carry) reads as
+## actually moving slower, because its stride cadence drops with its real
+## velocity. Full nominal speed = 1.0x (authored cadence).
+const LOCOMOTION_SPEED_SCALE_MIN: float = 0.2    ## floor — a nearly-stopped but mid-blend character
+const LOCOMOTION_SPEED_SCALE_MAX: float = 1.5    ## ceiling — guards walk-over-drive / edge cases
+const LOCOMOTION_SPEED_SCALE_LERP: float = 8.0   ## per-second lerp toward target — smooths the
+	## walk→run handoff (1.0x walk → 0.85x run) and start/stop acceleration
+	## so the cadence doesn't pop.
+
 ## How quickly the model's VISUAL facing catches up to Player's actual
 ## rotation.y. Same convention/reasoning as the old controller.
 @export var turn_speed: float = 12.0
@@ -556,6 +568,33 @@ func _process(delta: float) -> void:
 	if _is_holding_item():
 		next_state += "_carry"
 	_play_state(next_state)
+	_apply_locomotion_speed_scale(speed, next_state, delta)
+
+## Per-character playback-rate scaling (Sep 2026): the walk/run clips play at
+## speed_scale = actual_speed / the character's OWN nominal speed for that band
+## (move_speed for walk, sprint_speed for run), clamped and lerped for smooth
+## transitions. Idle always resets to 1.0. Duck-typed like the rest of the
+## controller so it works for both Player and NPC (NPC exposes move_speed but
+## no sprint_speed — it never reaches the run band, so walk normalization is
+## all that matters there). The "_carry" suffix is stripped before matching,
+## so carry clips scale exactly like their non-carry siblings.
+func _apply_locomotion_speed_scale(speed: float, state: String, delta: float) -> void:
+	if _anim_player == null:
+		return
+	if not state.begins_with("walk") and not state.begins_with("run"):
+		_anim_player.speed_scale = 1.0
+		return
+	var is_run: bool = state.begins_with("run")
+	var nominal: float = 7.5 if is_run else 4.0
+	if is_run and "sprint_speed" in _player:
+		nominal = _player.sprint_speed
+	elif not is_run and "move_speed" in _player:
+		nominal = _player.move_speed
+	var target: float = clampf(
+		speed / nominal if nominal > 0.0 else 1.0,
+		LOCOMOTION_SPEED_SCALE_MIN, LOCOMOTION_SPEED_SCALE_MAX)
+	_anim_player.speed_scale = lerpf(_anim_player.speed_scale, target,
+		clampf(LOCOMOTION_SPEED_SCALE_LERP * delta, 0.0, 1.0))
 
 ## True while the owning character is seated in a chair. Player exposes
 ## `seated_chair`; NPC.gd mirrors it (set by SitActivity/RelaxSitActivity).

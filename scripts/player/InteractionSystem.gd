@@ -882,8 +882,8 @@ func _store_item_to_slot(slot: int) -> void:
 
 	held_item.gravity_scale   = 1.0
 	held_item.freeze_mode     = RigidBody3D.FREEZE_MODE_STATIC
-	held_item.collision_layer = 1
-	held_item.collision_mask  = 1
+	held_item.collision_layer = held_item.rest_collision_layer()
+	held_item.collision_mask  = held_item._rest_collision_mask()
 	held_item.linear_velocity = Vector3.ZERO
 
 	inventory.add_item_to_slot(held_item, slot)
@@ -902,8 +902,8 @@ func _store_item() -> void:
 
 	held_item.gravity_scale   = 1.0
 	held_item.freeze_mode     = RigidBody3D.FREEZE_MODE_STATIC
-	held_item.collision_layer = 1
-	held_item.collision_mask  = 1
+	held_item.collision_layer = held_item.rest_collision_layer()
+	held_item.collision_mask  = held_item._rest_collision_mask()
 	held_item.linear_velocity = Vector3.ZERO
 
 	var stored_slot: int = inventory.add_item(held_item)
@@ -1248,7 +1248,7 @@ func _update_prompt() -> void:
 				})
 			var nearby_stove: Node = _find_nearest_stove()
 			if nearby_stove != null:
-				var stove_pos: Vector3 = (nearby_stove as Node3D).global_position + Vector3(0.0, 0.9, 0.0)
+				var stove_pos: Vector3 = (nearby_stove as Node3D).global_position + Vector3(0.0, 0.6, 0.0)
 				if nearby_stove.has_method("get_interact_prompt"):
 					var stove_txt: String = nearby_stove.get_interact_prompt()
 					if not stove_txt.is_empty():
@@ -1468,11 +1468,19 @@ func _update_prompt() -> void:
 		if body.has_method("get_slot_icon_descriptors"):
 			icons = body.get_slot_icon_descriptors()
 
+		## Cooking pot hover (Sep 2026): the panel grows as ingredients are
+		## added (icon row appears, then the label). Anchor its BOTTOM edge at
+		## the world anchor and let it build upward, so the pot's panel never
+		## drifts down into the stove when it expands. InteractPrompt reads
+		## "anchor_bottom" to bottom-align instead of center-align.
+		var anchor_bottom: bool = body is CookingPot
+
 		entries.append({
 			"text":      "\n".join(lines),
 			"world_pos": prompt_pos,
 			"dist":      cand["dist"],
 			"icons":     icons,
+			"anchor_bottom": anchor_bottom,
 		})
 		entry_bodies.append(body)
 
@@ -1948,8 +1956,8 @@ func _finish_take_dish(pot: Node) -> void:
 	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
 	var dish: RigidBody3D = RigidBody3D.new()
 	dish.set_script(dish_script)
-	dish.collision_layer = 1
-	dish.collision_mask  = 1
+	dish.collision_layer = dish.rest_collision_layer()
+	dish.collision_mask  = dish._rest_collision_mask()
 	dish.continuous_cd   = true
 
 	## Must be set BEFORE add_child() — DishItem._ready() reads
@@ -2016,8 +2024,8 @@ func _finish_take_dish_from_held_pot(pot: Node) -> void:
 	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
 	var dish: RigidBody3D = RigidBody3D.new()
 	dish.set_script(dish_script)
-	dish.collision_layer = 1
-	dish.collision_mask  = 1
+	dish.collision_layer = dish.rest_collision_layer()
+	dish.collision_mask  = dish._rest_collision_mask()
 	dish.continuous_cd   = true
 
 	## See _finish_take_dish()'s identical comment — must be set before

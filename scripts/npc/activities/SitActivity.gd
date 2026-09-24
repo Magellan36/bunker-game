@@ -32,6 +32,9 @@ var _chair: Node = null
 var _state: SState = SState.SEEK
 var _approach_pos: Vector3 = Vector3.ZERO
 
+func attention_target(_npc: NPC) -> Node3D:
+	return _chair as Node3D if _chair is Node3D and is_instance_valid(_chair) else null
+
 func label() -> String:
 	match _state:
 		SState.SEEK: return "Finding a seat"

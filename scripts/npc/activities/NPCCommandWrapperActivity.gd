@@ -23,6 +23,9 @@ func interruptible() -> bool:
 func debug_info() -> Dictionary:
 	return _inner.debug_info() if _inner != null else {}
 
+func attention_target(npc: NPC) -> Node3D:
+	return _inner.attention_target(npc) if _inner != null else null
+
 func enter(npc: NPC) -> void:
 	_inner = _make_inner(npc)
 	_inner.enter(npc)

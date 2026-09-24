@@ -147,8 +147,8 @@ func retrieve_item(slot: int) -> RigidBody3D:
 
 	item.freeze          = false
 	item.visible         = true
-	item.collision_layer = 1
-	item.collision_mask  = 1
+	item.collision_layer = item.rest_collision_layer()
+	item.collision_mask  = item._rest_collision_mask()
 	item.add_to_group("pickup")
 	item.linear_velocity  = Vector3.ZERO
 	item.angular_velocity = Vector3.ZERO
@@ -173,8 +173,8 @@ func remove_item(slot: int, drop_position: Vector3) -> void:
 
 	item.freeze          = false
 	item.visible         = true
-	item.collision_layer = 1
-	item.collision_mask  = 1
+	item.collision_layer = item.rest_collision_layer()
+	item.collision_mask  = item._rest_collision_mask()
 	item.add_to_group("pickup")
 	if item.has_meta("_was_interactable"):
 		item.add_to_group("interactable")
@@ -190,8 +190,9 @@ func remove_item(slot: int, drop_position: Vector3) -> void:
 ## I just need to stop tracking it" case (an NPC's own pickup() call
 ## already reassigned it — Snatch; or it's already been freed elsewhere
 ## — a destroyed single-serving Give). remove_item()/retrieve_item() both
-## force the item into world-pickup state (collision_layer = 1, "pickup"
-## group; remove_item() also repositions via drop()) and are documented
+## force the item into world-pickup state (collision_layer = the item's
+## rest layer — mass-based small/large separation, "pickup" group;
+## remove_item() also repositions via drop()) and are documented
 ## world-drop-only — using either here would fight an NPC's already-
 ## completed pickup() reassignment, or error outright on an already-freed
 ## item. This touches only the slot array itself.

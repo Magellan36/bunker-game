@@ -1,6 +1,6 @@
 # NPC System
 
-Last reconciled with the implementation: September 20, 2026.
+Last reconciled with the implementation: September 23, 2026.
 
 This is the canonical overview of the resident NPC system. Historical “pass”
 and “part” comments in source files explain why code was introduced; they are
@@ -24,6 +24,10 @@ Each resident is an instance of `res://scenes/npc/NPC.tscn`:
   jobs.
 - `BunkerNavMesh.gd` owns the runtime navigation region and asynchronous
   rebakes.
+- `NPCAttentionController.gd` is a presentation-only child that arbitrates
+  short-lived gaze stimuli without participating in utility scoring.
+- `NPCMetrics.gd` provides disabled-by-default aggregate counters,
+  histograms, and a bounded recent-event ring.
 - `NPCDebug.gd` centralizes optional NPC diagnostics.
 
 The scene uses `AdventurerModel.tscn` for both the visible model and its
@@ -147,10 +151,15 @@ above `NavigationAgent3D` avoidance and reserves only the doorway—not paths or
 rooms. Closed-door route planning and NPC door operation remain separate
 future decisions.
 
-Loose pickup items register dynamic navigation obstacles while they are in the
-world and disable them while held or stored. Light-item collisions can also
-receive a small physical shove. NPCs and the player participate in dynamic
-avoidance.
+Bulky loose pickup items register dynamic navigation obstacles while they are
+in the world and disable them while held or stored. Soft clutter below the
+three-kilogram threshold—including food cans, water bottles, purifier filters,
+medicine, and similar inventory-sized objects—does not participate in RVO and
+is ignored by corridor-blocker recovery. Characters can walk straight through
+these objects; a bounded foot-level query applies small repeated impulses in
+the character's travel direction so even a large pile visibly parts without
+slowing or rerouting the resident. NPCs and the player otherwise participate
+in dynamic avoidance.
 
 NPC activities and stuck recovery never assign the resident root's
 `global_position`. Normal displacement comes from `move_and_slide()`.
@@ -357,6 +366,78 @@ purifier filters according to the menu's current entries.
 Commands force a wrapper activity after checking availability. Pass-out is the
 only normal brain state that may supersede a command.
 
+## Presentation attention
+
+Each resident creates an `NPCAttentionController` child at runtime. Activities
+may expose a task target, while the controller independently considers the
+conversation partner, nearby player, moving residents, and low-salience
+ambient glances. Stimuli are short-lived and carry a weak source reference,
+world position, category, salience, expiry time, and whether body turning is
+allowed.
+
+Attention uses profile-shaped reaction and glance timing, conversation glance
+aversion, and bounded angular acceleration. The current Adventurer rig has no
+animation-safe additive head/upper-body hook, so player, resident, and ambient
+glances remain internal presentation state. Whole-body fallback is reserved
+for conversations and explicit stationary task/interaction phases; navigation
+retains sole ownership of facing while a route is active. Authored interaction
+slot orientation wins over generic object-facing. It never snaps via
+`look_at()`.
+
+Companionship travel assigns one resident as the follower while the invited
+resident remains the leader. A moving leader is followed from behind with
+pace matching and a small catch-up allowance; separate settle/resume distances
+prevent rapid arrived/traveling oscillation. The follower enters observation
+only after the leader has actually stopped.
+
+Opening a resident's UI creates a reversible player-conversation pause. The
+resident stops, reports `Talking to player`, and immediately faces the player,
+but the current activity object is not exited or replaced: its phase, claims,
+held item, timers, and route remain live. Closing the UI resumes that exact
+activity with a five-second anti-thrash grace. Needs continue to decay during
+the pause, and critical hunger, thirst, or exhaustion may bypass the grace;
+passing out also closes the interaction and takes normal emergency priority.
+Committed NPC-to-NPC and player conversations use the same immediate heading
+response as ordinary locomotion while movement is locked; they do not depend
+on the lower-priority ambient attention arbitration.
+
+## Physics-clutter navigation
+
+Structural pathfinding remains owned by the baked navigation mesh, while
+`NPCDynamicObstacleMap` supplies a local occupancy layer for loose rigid
+bodies. When route progress stalls, recovery first requests one fresh path,
+then inspects the next few metres of the route against the items' current
+world-space collision footprints. Recovery never moves an NPC transform.
+
+The bounded response order is:
+
+1. Take a verified left/right detour that rejoins the existing route.
+2. If no detour is clear and one reachable loose item is responsible, pause
+   the live activity and run `NPCClearPathActivity` as an overlay.
+3. Move that one item to a navigation-reachable, physics-clear position
+   outside the blocked corridor, restore the original target, then continue
+   the exact same activity object.
+4. Briefly yield to another resident, or report the route failed for static
+   or unidentified blockage so the owning activity can choose another
+   authored approach.
+
+The overlay is separate from household Cleaning: it does not discard utility
+intent, claims, phase timers, held-task state, or interaction-slot ownership,
+and it has a hard duration limit. A critical need or pass-out may still abort
+it. Residents already carrying an activity item may detour but will not stack
+a second object into their hands. When a staging pocket has an open route, the
+resident carries and places the blocker normally. When surrounding clutter
+would deadlock that carrying route, the resident visibly lifts the blocker and
+gives it one controlled, mass-scaled shove toward the verified empty pocket
+before resuming. Ordinary contact pushes remain throttled per item rather than
+firing every physics frame.
+
+Stuck detection measures reduction in remaining route length, not arbitrary
+body displacement, so sideways shuffling around clutter is not mistaken for
+forward progress. The avoidance callback applies Godot's safe velocity
+directly; blending an older unsafe velocity back into it would continue
+pushing into an object after avoidance had asked the NPC to stop.
+
 ## Persistence
 
 `MainWorld.gd` registers NPC data in save phase 4. The persisted baseline is:
@@ -376,18 +457,33 @@ current limitations and must not be described as persisted behavior.
 
 ## Debugging
 
-`NPCDebug.enabled` gates console diagnostics. The admin NPC tools can toggle
-logging, dump resident state, spawn/despawn residents, adjust needs, randomize
-skills, and request a navmesh rebake.
+`NPCDebug.enabled` gates console diagnostics. `NPCMetrics.enabled` separately
+gates aggregate counters, histograms, and a 64-entry recent-event ring; it is
+disabled by default and can be toggled with `NPCMetrics.set_enabled()`. The
+admin NPC tools can toggle logging, dump resident state or metrics,
+spawn/despawn residents, adjust needs, randomize skills, and request a
+navmesh rebake.
 
 Available diagnostics include activity transitions and interrupt score
 comparisons, forgetfulness rolls, jobs, cleaning/session state, mood,
 irritability, relationships, and contextual stuck recovery.
 
+The F7 admin menu also exposes a separate, disabled-by-default navigation
+flight recorder. While enabled it retains a bounded recent sample ring per NPC
+containing preferred, avoidance-safe, applied, and achieved velocity; route
+target/waypoint state; and slide contacts. Its on-demand dump adds the current
+stuck-recovery stage and nearby physics items with their avoidance footprint
+and body state. Enabling or dumping it is observational and does not alter
+movement, scoring, avoidance, or recovery.
+
+Recovery metrics include stuck events, dynamic detours, clear attempts, and
+clear success/failure. The navigation debug dump also reports active detour
+and yield state, the recovery overlay and paused activity, and the verified
+drop/resume targets.
+
 Debugging is not yet a complete decision trace. It does not continuously emit
-every candidate score, path waypoint, preferred/safe/achieved velocity,
-avoidance neighbor, or collision normal. Avoid adding gameplay gates that
-depend on `NPCDebug.enabled`; observation must not change NPC behavior.
+every candidate score or avoidance neighbor. Avoid adding gameplay gates that
+depend on either debug switch; observation must not change NPC behavior.
 
 ## Current limitations and next architectural work
 
@@ -402,7 +498,7 @@ not yet a full life simulation. Known missing layers include:
 - Persistent semantic room ownership and multi-day habits
 - Rich autonomous conversation content and memory
 - Normal gameplay injury/crisis response
-- Automated long-duration behavior and navigation metrics
+- Additive head/upper-body gaze once the character rig supports it safely
 
 These are future improvements, not claims about current behavior.
 

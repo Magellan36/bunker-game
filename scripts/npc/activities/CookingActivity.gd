@@ -47,6 +47,18 @@ func label() -> String:
 			_: return "Cooking"
 	return "Cooking"
 
+func attention_target(_npc: NPC) -> Node3D:
+	if _phase == "fetch":
+		if _fetch_loose != null and is_instance_valid(_fetch_loose):
+			return _fetch_loose
+		var shelf: Node3D = _fetch_shelf.get("shelf") as Node3D
+		if shelf != null and is_instance_valid(shelf):
+			return shelf
+	if _phase == "travel_to_storage" and _storage_dest is Node3D \
+			and is_instance_valid(_storage_dest):
+		return _storage_dest as Node3D
+	return _stove as Node3D if _stove is Node3D and is_instance_valid(_stove) else null
+
 ## Autonomous scoring (Aug 2026, Brannon-requested) — was hard-stubbed at
 ## 0.0 ("command-only for now"), meaning Cooking was NEVER picked
 ## autonomously and could ONLY run via a forced "Cook a meal" command.
@@ -275,8 +287,8 @@ func _take_dish(npc: NPC) -> void:
 	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
 	var dish: RigidBody3D = RigidBody3D.new()
 	dish.set_script(dish_script)
-	dish.collision_layer = 1
-	dish.collision_mask  = 1
+	dish.collision_layer = dish.rest_collision_layer()
+	dish.collision_mask  = dish._rest_collision_mask()
 	dish.continuous_cd   = true
 	## Must be set before add_child() — see InteractionSystem._try_take_dish()'s
 	## identical comment. Mirrors that fix exactly.
