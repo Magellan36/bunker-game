@@ -164,6 +164,7 @@ var _pillar_registry: Node = null
 ## Wall-locked pipe routing (Jul 2026) — see scripts/world/structure/WallPerimeterRegistry.gd
 var _wall_perimeter_registry: Node = null
 var _lighting_director: Node = null   ## LightingDirector.gd, built via Node.new()+set_script() same as _power_manager
+const POST_GRADE := preload("res://scripts/core/PostGrade.gd")
 var _tilt_shift_dof: TiltShiftDOF = null   ## TiltShiftDOF.gd, same dynamic-instantiation pattern
 ## _reconciler removed (Stage 5) — reconciler fully retired.
 
@@ -219,6 +220,7 @@ func _ready() -> void:
 	_setup_lighting()
 	_setup_lighting_director()   ## Needs "power_manager" group populated above
 	_setup_tilt_shift_dof()   ## No ordering dependency — camera already exists via @onready
+	_setup_post_grade()
 	_setup_ambient_dust()
 	_setup_bunker_ceiling()   ## Aug 2026 — NPC/physics failsafe, see that function's own comment
 	_connect_hud()
@@ -864,6 +866,15 @@ func _setup_tilt_shift_dof() -> void:
 	add_child(_tilt_shift_dof)
 	camera.tilt_shift = _tilt_shift_dof
 	camera._apply_dof_setting()
+
+## Procedural colour-grade LUT + lens-dirt glow map (Sep 2026 tier-1 post
+## pass) — see PostGrade.gd. Preloaded by path rather than via its
+## class_name so a stale global class cache can't break MainWorld's parse.
+func _setup_post_grade() -> void:
+	if world_env == null or world_env.environment == null:
+		push_warning("[MainWorld] No WorldEnvironment — post grade skipped")
+		return
+	POST_GRADE.apply(world_env.environment)
 
 ## Ambient dark-room dust drift (graphics plan Section 4 VFX priority #2) —
 ## a single sparse, world-space GPUParticles3D covering the bunker interior.
