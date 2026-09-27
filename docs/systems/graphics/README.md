@@ -52,6 +52,7 @@ shadow quality/render scale/FOV, persisted independently of game saves).
 | `GraphicsSettingsPanel.gd` | ~575 | Settings UI panel — sectioned layout, live preview, full preset + individual control |
 | `TiltShiftDOF.gd` | ~45 | Screen-space tilt-shift DOF — ColorRect + shader material, dumb forwarder driven by GameCamera |
 | `tilt_shift_dof.gdshader` (`assets/shaders/`) | ~40 | Vertical-band screen-space blur — sharp band + soft ramp, no 3D depth read |
+| `PostGrade.gd` | ~160 | Static factory — procedural colour-grade 3D LUT + lens-dirt glow map, applied to MainWorld's Environment at startup |
 | `CharacterShadowStandIn.gd` | ~95 | Capsule shadow stand-in — NPCs only as of Aug 2026, see "Character shadow stand-in" below |
 
 ## Public API
@@ -611,3 +612,15 @@ like `camera_fov`.
   tripped handler does, rather than building a second shake mechanism.
 
 (End of file - total ~220 lines)
+---
+
+## Recent changes (Sep 2026) — Tier-1 post pass (settings + procedural LUT/lens dirt)
+
+Goal: mask the "playdough" look of hand-made models and add subtle realism
+without changing the art direction. No new settings UI — all always-on.
+- **Debanding** — `project.godot` `rendering/anti_aliasing/quality/use_debanding=true` (dark fog banding).
+- **AgX tonemapper** — `MainWorld.tscn` Environment `tonemap_mode = 4` (was ACES/3). Revert = set back to 3. Note `tonemap_white` is ignored under AgX (`tonemap_agx_white`/`tonemap_agx_contrast` are its knobs).
+- **SSAO retune** — `ssao_radius 0.7`, `ssao_power 1.8`, `ssao_detail 0.9`, `ssao_light_affect 0.2` (AO stays visible under direct lamp light → objects read as grounded). `GraphicsSettings` still only toggles `ssao_enabled`.
+- **Lens dirt** — `glow_map_strength 0.45` + `PostGrade`-generated `glow_map`; `glow_intensity 0.55 → 0.65` to compensate for the map's ~0.8 average multiplier.
+- **Colour grade** — `PostGrade`-generated 64³ LUT into `adjustment_color_correction` (split-tone: teal shadows / olive mids / warm highlights, +10% S-curve). Godot samples the LUT with no half-texel remap, so texels store the grade at their own centre coordinate.
+- Wired by `MainWorld._setup_post_grade()` (preloaded by path, not class_name). Drop `res://assets/textures/post/grade_lut.png` (imported as Texture3D) or `lens_dirt.png` to override the generated textures with hand-authored art.
