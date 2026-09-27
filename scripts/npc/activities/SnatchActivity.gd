@@ -81,11 +81,12 @@ func tick(npc: NPC, delta: float) -> void:
 			_tracked_item = held
 			npc.set_nav_target((_target as Node3D).global_position)
 			npc.nav_steer(delta)
-			if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
+			if NPCItemUser.in_reach(npc, (_target as Node3D).global_position, NPCItemUser.SNATCH_RANGE):
 				if NPCItemUser.snatch_from(npc, _target):
 					NPCDebug.log_snatch(npc, "success", "grabbed item, handing off to consume")
 					var target_desc: String = "the player" if _target.is_in_group("player") else _target.npc_name
 					npc.log_action("Snatched an item from %s" % target_desc)
+					npc.bark_event("snatch_win")
 					_handoff = GivenEatActivity.new() if _is_edible else GivenDrinkActivity.new()
 					_outcome_label = "Snatched!"
 					_target = null
@@ -111,7 +112,7 @@ func tick(npc: NPC, delta: float) -> void:
 			and _need_filter.call(_tracked_item):
 		npc.set_nav_target((_tracked_item as Node3D).global_position)
 		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, (_tracked_item as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+		if NPCItemUser.in_reach(npc, (_tracked_item as Node3D).global_position, NPCItemUser.PICKUP_RANGE):
 			if NPCItemUser.grab_loose(npc, _tracked_item):
 				NPCDebug.log_snatch(npc, "success", "picked up the dropped item, handing off to consume")
 				_handoff = GivenEatActivity.new() if _is_edible else GivenDrinkActivity.new()

@@ -150,6 +150,8 @@ func on_interact() -> void:
 func get_prompt_text() -> String:
 	if _player_seated:
 		return "[E] Stand"
+	if _npc_sitter != null and is_instance_valid(_npc_sitter) and "npc_name" in _npc_sitter:
+		return "%s is sitting here" % String(_npc_sitter.npc_name)
 	return "[E] Sit"
 
 func set_player_in_range(in_range: bool) -> void:

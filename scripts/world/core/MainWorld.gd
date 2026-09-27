@@ -443,38 +443,17 @@ func _register_save_fields() -> void:
 func _get_npcs_for_save() -> Array:
 	var out: Array = []
 	for npc: Node in get_tree().get_nodes_in_group("npc"):
-		if not is_instance_valid(npc) or not ("energy" in npc):
-			continue
-		out.append({
-			"pos":           SaveManager.vec3_to_dict(npc.global_position),
-			"name":          npc.npc_name,
-			"energy":        npc.energy,
-			"hunger":        npc.hunger,
-			"thirst":        npc.thirst,
-			"health":        npc.health,
-			"skills":        npc.skills.duplicate(),
-			"seed":          npc.generation_seed,
-			"mood":          npc.mood,
-			"personality":   npc.personality.duplicate(),
-			"age":           npc.age,
-			"birthday_day":  npc._birthday_day_of_year,
-			"birthday_checked_day": npc._birthday_last_checked_day,
-			"gender":        str(npc.get_meta("_adventurer_random_gender", "")),
-			"irritability":  npc.irritability,
-			"gift_saturation": npc.gift_saturation,
-			"relax_cooldown": npc._relax_cooldown_hours,
-			"relax_used":     npc._relax_time_used_today,
-			"relax_day_clock": npc._relax_day_clock,
-			"npc_id":        npc.npc_id,
-			"relationships": npc.relationships.duplicate(),
-		})
+		if is_instance_valid(npc) and npc.has_method("get_save_dict"):
+			out.append(npc.get_save_dict())
 	return out
 
+## Sep 2026 — each NPC serializes itself (NPC.get_save_dict/apply_save_dict):
+## personality, age, health, thoughts, medical conditions, cooldowns and the
+## action log all persist now (previously only needs/skills/mood/
+## relationships did, and personality/age were re-rolled on every load).
 func _restore_npcs(saved: Array) -> void:
-	## Clear current population first (stop activities cleanly so chairs/
-	## items aren't left claimed by freed nodes, and so any job a cleared
-	## NPC was working gets auto-released the next time JobBoard is polled —
-	## see the phase-4 registration comment above for why that's already safe).
+	## Clear the current population first; stop activities cleanly so chairs/
+	## beds/items aren't left occupied or reserved by freed nodes.
 	for npc: Node in get_tree().get_nodes_in_group("npc"):
 		if not is_instance_valid(npc):
 			continue
@@ -482,6 +461,7 @@ func _restore_npcs(saved: Array) -> void:
 			npc.brain.stop_current()
 		if "held_item" in npc and npc.held_item != null:
 			NPCItemUser.drop_held(npc)
+		npc.remove_from_group("npc")
 		npc.queue_free()
 
 	var scene: PackedScene = load("res://scenes/npc/NPC.tscn")
@@ -490,38 +470,8 @@ func _restore_npcs(saved: Array) -> void:
 		return
 	for entry: Dictionary in saved:
 		var npc: Node3D = scene.instantiate()
-		## The model resolves gender during _ready(), so restore its metadata
-		## before adding the NPC to the tree. All other randomized identity
-		## fields can be overwritten immediately after _ready().
-		var saved_gender: String = str(entry.get("gender", ""))
-		if saved_gender == "male" or saved_gender == "female":
-			npc.set_meta("_adventurer_random_gender", saved_gender)
+		npc.apply_save_dict(entry)   ## before add_child — _ready() keeps the restored identity
 		add_child(npc)
-		npc.global_position = SaveManager.dict_to_vec3(entry.get("pos", {}))
-		npc.npc_name        = str(entry.get("name", "Survivor"))
-		npc.energy          = float(entry.get("energy", 100.0))
-		npc.hunger          = float(entry.get("hunger", 100.0))
-		npc.thirst          = float(entry.get("thirst", 100.0))
-		npc.health          = float(entry.get("health", 100.0))
-		npc.mood            = float(entry.get("mood", 100.0))
-		npc.generation_seed = int(entry.get("seed", 0))
-		npc.personality      = (entry.get("personality", npc.personality) as Dictionary).duplicate()
-		npc.refresh_behavior_profile()
-		npc.age              = int(entry.get("age", npc.age))
-		npc._birthday_day_of_year = int(entry.get("birthday_day", npc._birthday_day_of_year))
-		npc._birthday_last_checked_day = int(entry.get("birthday_checked_day", npc._birthday_last_checked_day))
-		npc.irritability     = float(entry.get("irritability", 0.0))
-		npc.gift_saturation  = float(entry.get("gift_saturation", 0.0))
-		npc._relax_cooldown_hours = float(entry.get("relax_cooldown", npc._relax_cooldown_hours))
-		npc._relax_time_used_today = float(entry.get("relax_used", 0.0))
-		npc._relax_day_clock = float(entry.get("relax_day_clock", 0.0))
-		npc.npc_id           = str(entry.get("npc_id", npc.npc_id))
-		NPC._register_id(npc.npc_id)
-		npc.relationships    = (entry.get("relationships", {}) as Dictionary).duplicate()
-		var sk: Dictionary  = entry.get("skills", {})
-		for k: String in npc.skills.keys():
-			if sk.has(k):
-				npc.skills[k] = float(sk[k])
 
 ## ── Loose world-item save/restore (Save/Load overhaul pass 2) ───────────────
 ## Captures every loose item on the floor (the "pickup" group) so dropped
@@ -1019,7 +969,6 @@ const SHARED_PANELS: Array[String] = [
 	"res://scripts/ui/water/WaterDispenserUI.gd",
 	"res://scripts/ui/water/WaterInfoUI.gd",
 	"res://scripts/ui/farming/FarmingTrayUI.gd",
-	"res://scripts/ui/npc/NPCTalkMenuUI.gd",
 ]
 
 func _prewarm_interfaces() -> void:

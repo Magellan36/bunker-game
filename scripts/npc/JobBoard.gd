@@ -27,18 +27,6 @@ const FILTER_BELOW: float = 30.0
 var _jobs: Dictionary = {}   ## id -> job dict
 var _timer: float = 0.0
 
-## Sep 2026 — called by WorldManager.leave_world() before the current world is
-## freed (game over → reload, and any future return-to-menu). Jobs and caches
-## hold node references into the old world; a fresh world must start clean.
-func reset_world_state() -> void:
-	_jobs.clear()
-	_timer = 0.0
-	_cleaning_clock_sec = 0.0
-	_cleaning_idle_tracker.clear()
-	_trash_items_cache.clear()
-	_organizable_items_cache.clear()
-	_trash_blocked_by_no_receptacle = 0
-
 # ─── Cleaning discovery (Aug 2026) ──────────────────────────────────────────
 ## Idle-time gating for organizing — an item must sit untouched/unclaimed
 ## for this long before it's eligible, so NPCs don't sweep away something
@@ -59,29 +47,33 @@ func reset_world_state() -> void:
 const CLEANING_SANITY_Y_MIN: float = -20.0
 const CLEANING_SANITY_Y_MAX: float = 30.0
 
-## Loose objects now have two deliberately separate concepts: one simulated
-## second confirming that physics has actually stopped, then a short courtesy
-## grace before NPCs tidy them. Player-dropped objects receive a longer,
-## explicit protection window; spawned/ejected/NPC-dropped clutter does not.
-## Every duration uses _cleaning_clock_sec, so 5x dev speed presents the same
-## sequence five times faster instead of leaving cleanable objects untouched
-## for real-time minutes.
-const CLEANING_STABILIZE_SEC: float = 1.0
-const CLEANING_GRACE_MAX_SEC: float = 6.0
-const CLEANING_GRACE_MIN_SEC: float = 2.0
-const CLEANING_PLAYER_GRACE_SEC: float = 20.0
+const CLEANING_IDLE_MIN_SEC: float = 90.0
+## Debug-only override (F7 → NPCDebug.enabled) so idle-gate timing can be
+## tested in seconds instead of minutes. Never changes real gameplay —
+## only takes effect while NPCDebug.enabled is true.
+const CLEANING_IDLE_MIN_SEC_DEBUG: float = 5.0
+
+## Aug 2026 — exponential clutter scaling. 90s at zero clutter, dropping
+## to exactly 0s once total clutter reaches CLUTTER_IDLE_ZERO_AT (20).
+## The exponent (4.0) is what gives it the "stays close to 90s, then
+## drops sharply near the cap" shape you asked for — try tuning this one
+## constant first if the curve ever feels off, before touching the
+## formula itself. Debug override still always wins over this — it's for
+## fast iteration, not meant to reflect real clutter-scaled timing.
 const CLUTTER_IDLE_ZERO_AT: int = 20
+const CLUTTER_IDLE_CURVE_POWER: float = 4.0
 
-func _effective_cleaning_grace_sec() -> float:
+func _effective_cleaning_idle_min_sec() -> float:
+	if NPCDebug.enabled:
+		return CLEANING_IDLE_MIN_SEC_DEBUG
 	var clutter: int = get_total_clutter_count()
-	var fraction: float = clampf(float(clutter) / float(CLUTTER_IDLE_ZERO_AT), 0.0, 1.0)
-	return lerpf(CLEANING_GRACE_MAX_SEC, CLEANING_GRACE_MIN_SEC, fraction)
+	if clutter >= CLUTTER_IDLE_ZERO_AT:
+		return 0.0
+	var fraction: float = float(clutter) / float(CLUTTER_IDLE_ZERO_AT)
+	return CLEANING_IDLE_MIN_SEC * (1.0 - pow(fraction, CLUTTER_IDLE_CURVE_POWER))
 
-const CLEANING_MOVE_TOLERANCE: float = 0.15
-const CLEANING_STILL_LINEAR: float = 0.08
-const CLEANING_STILL_ANGULAR: float = 0.15
-var _cleaning_clock_sec: float = 0.0
-var _cleaning_idle_tracker: Dictionary = {}   ## item instance_id -> motion/provenance state
+const CLEANING_IDLE_MOVE_TOLERANCE: float = 0.3   ## meters — moved more than this since tracking began = someone touched it, restart the clock
+var _cleaning_idle_tracker: Dictionary = {}   ## item instance_id -> {"pos": Vector3, "since_msec": int}
 var _trash_items_cache: Array = []
 var _organizable_items_cache: Array = []
 
@@ -119,68 +111,19 @@ func get_organizable_items() -> Array:
 	return _organizable_items_cache
 
 ## Aug 2026 — cheap count for NPC.get_cleaning_unavailable_reason()'s
-## Pending means physically moving, stabilizing, or inside explicit player
-## placement protection. Ready items are subtracted from the same tracker.
+## "STILL_SETTLING" check. Same subtraction the periodic debug print
+## already does, exposed as a real getter instead of duplicated inline.
 func get_pending_cleaning_count() -> int:
 	return maxi(0, _cleaning_idle_tracker.size() - _organizable_items_cache.size())
-
-func get_pending_cleaning_reason() -> String:
-	var moving: int = 0
-	var player_protected: int = 0
-	for rec: Dictionary in _cleaning_idle_tracker.values():
-		if float(rec.get("stable_since_sec", -1.0)) < 0.0:
-			moving += 1
-		elif StringName(rec.get("release_source", &"world")) == &"player":
-			player_protected += 1
-	if player_protected > 0:
-		return "RECENTLY_PLACED_BY_PLAYER"
-	if moving > 0:
-		return "PHYSICALLY_MOVING"
-	return "STABILIZING"
 
 ## Aug 2026 — total loose clutter in the level right now, for
 ## CleaningActivity's escalating urgency score: ready trash + ready
 ## organizable + still-settling (not yet past the idle gate). Includes
 ## the settling ones deliberately — urgency should build from the
-## moment something hits the floor, not only after its individual short
-## grace has elapsed.
+## moment something hits the floor, not only once it's individually
+## eligible to be picked up 90s later.
 func get_total_clutter_count() -> int:
 	return _trash_items_cache.size() + _organizable_items_cache.size() + get_pending_cleaning_count()
-
-func promote_settled_cleaning_near(origin: Vector3, radius: float) -> int:
-	## A resident deliberately looking over storage has visually inspected the
-	## surrounding floor. Physically sleeping/still items no longer need the
-	## full courtesy delay: make them eligible now, then rebuild the cache so
-	## the same utility pass can act on what the resident just noticed.
-	var promoted: int = 0
-	var grace_needed: float = _effective_cleaning_grace_sec()
-	for id in _cleaning_idle_tracker.keys():
-		var raw: Object = instance_from_id(id)
-		if raw == null or not is_instance_valid(raw) or not raw is RigidBody3D:
-			continue
-		var item: RigidBody3D = raw as RigidBody3D
-		if _organizable_items_cache.has(item) or _trash_items_cache.has(item):
-			continue
-		if item.freeze or item.is_in_group("shelved") \
-				or (("is_held" in item) and item.is_held):
-			continue
-		if NPCItemUser.flat_distance(origin, item.global_position) > radius:
-			continue
-		var physically_settled: bool = item.sleeping \
-			or (item.linear_velocity.length() < CLEANING_STILL_LINEAR \
-				and item.angular_velocity.length() < CLEANING_STILL_ANGULAR)
-		if not physically_settled:
-			continue
-		var rec: Dictionary = _cleaning_idle_tracker[id]
-		if StringName(rec.get("release_source", &"world")) == &"player":
-			continue   ## deliberate player placement keeps its authored protection
-		rec["stable_since_sec"] = _cleaning_clock_sec \
-			- CLEANING_STABILIZE_SEC - grace_needed
-		_cleaning_idle_tracker[id] = rec
-		promoted += 1
-	if promoted > 0:
-		_scan_cleaning({})
-	return promoted
 
 ## Aug 2026 — for NPC.get_cleaning_unavailable_reason()'s "NO_TRASH_
 ## RECEPTACLE" check.
@@ -192,41 +135,31 @@ func get_trash_blocked_by_no_receptacle_count() -> int:
 ## single dump answers "why isn't X organizable yet" directly instead of
 ## needing to watch the periodic scan print over time.
 func get_cleaning_debug_snapshot() -> Dictionary:
-	var ordinary_grace: float = _effective_cleaning_grace_sec()
+	var idle_needed: float = _effective_cleaning_idle_min_sec()
+	var now: int = Time.get_ticks_msec()
 	var pending: Array = []
 	for id in _cleaning_idle_tracker.keys():
 		var item: Object = instance_from_id(id)
 		if item == null or not is_instance_valid(item) or _organizable_items_cache.has(item):
 			continue   ## already ready, or freed since — not "pending"
 		var rec: Dictionary = _cleaning_idle_tracker[id]
-		var stable_since: float = float(rec.get("stable_since_sec", -1.0))
-		var source: StringName = StringName(rec.get("release_source", &"world"))
-		var grace: float = CLEANING_PLAYER_GRACE_SEC if source == &"player" else ordinary_grace
-		var elapsed: float = 0.0 if stable_since < 0.0 else _cleaning_clock_sec - stable_since
-		var required: float = CLEANING_STABILIZE_SEC + grace
+		var elapsed: float = float(now - int(rec["since_msec"])) / 1000.0
 		var name: String = item.get_display_name() if item.has_method("get_display_name") else str(item.name)
-		pending.append({
-			"name": name,
-			"state": "PHYSICALLY_MOVING" if stable_since < 0.0 \
-				else ("RECENTLY_PLACED_BY_PLAYER" if source == &"player" else "STABILIZING"),
-			"release_source": String(source),
-			"elapsed_sec": elapsed,
-			"required_sec": required,
-			"remaining_sec": required if stable_since < 0.0 else maxf(0.0, required - elapsed),
-		})
+		pending.append({"name": name, "elapsed_sec": elapsed, "remaining_sec": maxf(0.0, idle_needed - elapsed)})
 	return {
 		"trash_count": _trash_items_cache.size(),
 		"organizable_count": _organizable_items_cache.size(),
 		"pending": pending,
 		"trash_blocked_by_no_receptacle": _trash_blocked_by_no_receptacle,
-		"idle_gate_sec": CLEANING_STABILIZE_SEC + ordinary_grace,
-		"ordinary_grace_sec": ordinary_grace,
-		"player_grace_sec": CLEANING_PLAYER_GRACE_SEC,
+		"idle_gate_sec": idle_needed,
+		"idle_gate_is_debug": NPCDebug.enabled,
 	}
 
 func _has_trash_receptacle() -> bool:
-	## Self-gating convention implemented by TrashCan and any future
-	## receptacle with the same group/API contract.
+	## Self-gating mechanism — returns false today since nothing occupies
+	## this group yet, meaning trash items never make it into
+	## _trash_items_cache until a receptacle is actually added later. No
+	## other change needed when that happens.
 	return not get_tree().get_nodes_in_group("trash_receptacle").is_empty()
 
 ## Aug 2026 fix — generic, scalable convention. An item is trash if EITHER:
@@ -248,10 +181,6 @@ func _is_trash_item(item: Node) -> bool:
 	return false
 
 func _process(delta: float) -> void:
-	## This is simulation time, intentionally affected by dev/sleep time scale.
-	## The old wall-clock timestamp made a 90-second courtesy delay remain 90
-	## real seconds at 5x, making stable floor items appear permanently ignored.
-	_cleaning_clock_sec += maxf(0.0, delta)
 	_timer -= delta
 	if _timer > 0.0:
 		return
@@ -262,28 +191,41 @@ func get_open_jobs() -> Array:
 	var out: Array = []
 	for id: String in _jobs.keys().duplicate():
 		var job: Dictionary = _jobs[id]
-		## A freed Object held by a Variant is not null, and casting it raises
-		## before a later validity check can run. Validate raw values first.
-		var target: Node = _get_live_node(job.get("target"))
-		if target == null:
+		## Aug 2026 fix — the root cause of the recurring "Trying to assign
+		## invalid previously freed instance" spam around harvesting. A BARE
+		## typed assignment (`var target: Node = job.get("target")`, no `as`)
+		## triggers that engine warning the INSTANT it reads a freed target —
+		## before the is_instance_valid() check on the next line ever runs,
+		## no matter how correct that check is. `as Node` is Godot's actual
+		## safe-cast idiom (same pattern JobActivity.gd already uses
+		## correctly for its own target reads) — it performs the identical
+		## validity check but returns null quietly instead of printing. This
+		## alone was firing on EVERY single harvest (JobActivity's own
+		## completion, GardeningActivity's "farming"-mode harvest, and
+		## catch_up_all()'s bulk harvest all leave a stale _jobs entry here
+		## for exactly one get_open_jobs() call, however correctly it then
+		## self-heals) — not a rare edge case, a guaranteed one-shot error
+		## per harvest, however frequently that happens.
+		var target: Node = job.get("target") as Node
+		if target == null or not is_instance_valid(target):
+			## Target vanished (harvested/freed, etc.) — drop immediately
+			## rather than waiting for the next _rescan() (up to
+			## SCAN_INTERVAL later). This is what was letting a
+			## just-harvested, already-freed plant get handed to a
+			## DIFFERENT NPC's JobActivity.score() as if it were still
+			## open.
 			_jobs.erase(id)
 			continue
-		var claimant: Node = _get_live_node(job.get("claimed_by"))
-		if claimant == null:
-			job["claimed_by"] = null
+		var claimant: Node = job.get("claimed_by") as Node   ## Aug 2026 — same safe-cast fix; low-risk today (no NPC despawn/death system exists yet) but closes the gap before one does
+		if claimant == null or not is_instance_valid(claimant):
+			job["claimed_by"] = null   ## claimant vanished — auto-release
+		if job.get("claimed_by") == null:
 			out.append(job)
 	return out
 
 func claim(job: Dictionary, npc: Node) -> bool:
-	var id: String = String(job.get("id", ""))
-	var live: Dictionary = _jobs.get(id, {})
-	if live.is_empty() or _get_live_node(live.get("target")) == null \
-			or _get_live_node(npc) == null:
-		if not live.is_empty() and _get_live_node(live.get("target")) == null:
-			_jobs.erase(id)
-		return false
-	var claimant: Node = _get_live_node(live.get("claimed_by"))
-	if claimant != null:
+	var live: Dictionary = _jobs.get(job.get("id", ""), {})
+	if live.is_empty() or live.get("claimed_by") != null:
 		return false
 	live["claimed_by"] = npc
 	NPCDebug.log_job("claimed", live, npc)
@@ -291,40 +233,20 @@ func claim(job: Dictionary, npc: Node) -> bool:
 
 func release(job: Dictionary, npc: Node) -> void:
 	var live: Dictionary = _jobs.get(job.get("id", ""), {})
-	if live.is_empty():
-		return
-	var claimant: Node = _get_live_node(live.get("claimed_by"))
-	if claimant == null or claimant == npc:
+	if not live.is_empty() and live.get("claimed_by") == npc:
 		live["claimed_by"] = null
 
 ## True while the job's world condition still holds (activities poll this so
 ## a job finished by the player mid-walk cancels cleanly).
 func still_valid(job: Dictionary) -> bool:
-	var id: String = String(job.get("id", ""))
-	if not _jobs.has(id):
+	if not _jobs.has(job.get("id", "")):
 		return false
-	var live: Dictionary = _jobs[id]
-	var target: Node = _get_live_node(job.get("target"))
-	var live_target: Node = _get_live_node(live.get("target"))
-	if target == null or live_target == null or target != live_target:
-		_jobs.erase(id)
-		return false
-	if String(job.get("type", "")) == "HARVEST" \
-			and (not target.has_method("is_ready") or not target.is_ready()):
-		_jobs.erase(id)
-		return false
-	return true
-
-
-func _get_live_node(raw: Variant) -> Node:
-	## Do not move a typed assignment or `as Node` above this check.
-	if not is_instance_valid(raw):
-		return null
-	var object: Object = raw
-	if not object is Node:
-		return null
-	var node: Node = object as Node
-	return null if node.is_queued_for_deletion() else node
+	## Aug 2026 fix — same `as Node` safe-cast fix as get_open_jobs() above;
+	## called every tick during a job's fetch/travel phase, so the bare
+	## unsafe version here was a second guaranteed error source on top of
+	## that one.
+	var target: Node = job.get("target") as Node
+	return target != null and is_instance_valid(target)
 
 func _rescan() -> void:
 	var seen: Dictionary = {}
@@ -346,28 +268,7 @@ func _mark(seen: Dictionary, id: String, type: String, target: Node,
 		"id": id, "type": type, "target": target,
 		"fetch_filter": fetch_filter, "claimed_by": null,
 	}
-	## Lifecycle invalidation closes the scan-cache window. The read-time raw
-	## Variant guard remains necessary for same-frame queued deletions.
-	var target_id: int = target.get_instance_id()
-	var exiting_callback: Callable = _on_job_target_finished.bind(id, target_id)
-	if not target.tree_exiting.is_connected(exiting_callback):
-		target.tree_exiting.connect(exiting_callback, CONNECT_ONE_SHOT)
-	for signal_name: StringName in [&"harvested", &"died"]:
-		if not target.has_signal(signal_name):
-			continue
-		var finish_callback: Callable = _on_job_target_finished.bind(id, target_id)
-		if not target.is_connected(signal_name, finish_callback):
-			target.connect(signal_name, finish_callback, CONNECT_ONE_SHOT)
 	NPCDebug.log_job("posted", _jobs[id])
-
-
-func _on_job_target_finished(id: String, target_id: int) -> void:
-	var live: Dictionary = _jobs.get(id, {})
-	if live.is_empty():
-		return
-	var target: Node = _get_live_node(live.get("target"))
-	if target == null or target.get_instance_id() == target_id:
-		_jobs.erase(id)
 
 func _scan_harvest(seen: Dictionary) -> void:
 	for tray: Node in get_tree().get_nodes_in_group("farming_tray"):
@@ -410,8 +311,7 @@ func _scan_cleaning(seen: Dictionary) -> void:
 	var trash_blocked_this_scan: int = 0
 
 	for item: Node in get_tree().get_nodes_in_group("pickup"):
-		if not is_instance_valid(item) or not item is RigidBody3D \
-				or not ("is_held" in item):
+		if not is_instance_valid(item) or not ("is_held" in item):
 			continue
 		## Frozen bodies (stored/shelved/placed) are never cleaning candidates —
 		## defensive catch on top of the group/held/shelved exclusions (Aug 2026).
@@ -444,42 +344,16 @@ func _scan_cleaning(seen: Dictionary) -> void:
 				trash_blocked_this_scan += 1
 			continue   ## trash never also counts as organizable
 
-		var body: RigidBody3D = item as RigidBody3D
-		var pos: Vector3 = body.global_position
-		var release_source: StringName = StringName(item.get("cleanup_release_source")) \
-			if "cleanup_release_source" in item else &"world"
-		var release_serial: int = int(item.get("cleanup_release_serial")) \
-			if "cleanup_release_serial" in item else 0
-		var physically_still: bool = body.sleeping \
-			or (body.linear_velocity.length() < CLEANING_STILL_LINEAR \
-				and body.angular_velocity.length() < CLEANING_STILL_ANGULAR)
+		var pos: Vector3 = (item as Node3D).global_position
+		var now: int = Time.get_ticks_msec()
 		if not _cleaning_idle_tracker.has(id):
-			_cleaning_idle_tracker[id] = {
-				"sample_pos": pos,
-				"stable_since_sec": _cleaning_clock_sec if physically_still else -1.0,
-				"release_source": release_source,
-				"release_serial": release_serial,
-			}
+			_cleaning_idle_tracker[id] = {"pos": pos, "since_msec": now}
 			continue
 		var rec: Dictionary = _cleaning_idle_tracker[id]
-		var fresh_release: bool = int(rec.get("release_serial", -1)) != release_serial
-		var moved: bool = pos.distance_to(rec.get("sample_pos", pos)) > CLEANING_MOVE_TOLERANCE
-		if fresh_release:
-			rec["release_source"] = release_source
-			rec["release_serial"] = release_serial
-		if fresh_release or moved or not physically_still:
-			rec["stable_since_sec"] = -1.0
-		elif float(rec.get("stable_since_sec", -1.0)) < 0.0:
-			rec["stable_since_sec"] = _cleaning_clock_sec
-		rec["sample_pos"] = pos
-		_cleaning_idle_tracker[id] = rec
-		var stable_since: float = float(rec.get("stable_since_sec", -1.0))
-		if stable_since < 0.0:
+		if pos.distance_to(rec["pos"]) > CLEANING_IDLE_MOVE_TOLERANCE:
+			_cleaning_idle_tracker[id] = {"pos": pos, "since_msec": now}
 			continue
-		var grace: float = CLEANING_PLAYER_GRACE_SEC \
-			if StringName(rec.get("release_source", &"world")) == &"player" \
-			else _effective_cleaning_grace_sec()
-		if (_cleaning_clock_sec - stable_since) >= CLEANING_STABILIZE_SEC + grace:
+		if (now - int(rec["since_msec"])) >= int(_effective_cleaning_idle_min_sec() * 1000.0):
 			new_organizable.append(item)
 
 	for id in _cleaning_idle_tracker.keys().duplicate():

@@ -27,48 +27,89 @@ const SNATCH_RANGE: float = 1.6
 static func flat_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
 
-# ─── Lightweight per-item claim system (Part 12) — prevents two NPCs from
-## targeting/grabbing the same loose or shelved item at once, which caused
-## intermittent lost bites/charges and items visually yanked between NPCs.
-## Mirrors JobBoard's claim()/release() pattern but scoped to items. Keyed
-## by instance_id so it works uniformly for loose items and shelf contents.
+## Extra reach allowed once navigation has taken the NPC as close as it can.
+const REACH_LENIENCY: float = 0.9
+
+## "Close enough to act on `target_pos`". Within `reach`, OR navigation has
+## finished (the navmesh can get no closer — bulky crates, shelves and
+## trays against walls sit partly inside their own nav obstacle) and we're
+## within reach + REACH_LENIENCY. Without the second clause an NPC would
+## stand forever a few centimetres outside a fixed range it could never
+## close (the "frozen, picking up a crate" bug).
+static func in_reach(npc: NPC, target_pos: Vector3, reach: float) -> bool:
+	var d: float = flat_distance(npc.global_position, target_pos)
+	if d <= reach:
+		return true
+	return npc.nav_finished() and d <= reach + REACH_LENIENCY
+
+# ─── Reservations (Part 12, reworked Sep 2026) ─────────────────────────────
+## Prevents two NPCs from targeting/grabbing the same item (or stove, etc.)
+## at once. Keyed by instance_id so it works uniformly for loose items,
+## shelf contents and furniture.
+##
+## Sep 2026 rework — reservations are now SELF-HEALING. They used to be
+## released only if every code path remembered to, and several didn't (a
+## half-eaten can, an item a cleaner shelved, a GiveToFriend hand-off...),
+## which left items permanently invisible to every other NPC — the "there's
+## food on the shelf but nobody eats it" class of bug. Three guarantees now:
+##   1. NPCBrain calls release_all_for(npc) every time an activity ends, by
+##      ANY path (finish, interrupt, command, pass-out, stuck-recovery).
+##      A reservation can never outlive the activity that made it.
+##   2. drop_held()/store_held()/hand_over() release the item they move.
+##   3. A reservation whose owner NPC no longer exists is treated as free.
 static var _claims: Dictionary = {}   ## item instance_id (int) -> npc instance_id (int)
 
-static func _live_node(raw: Variant) -> Node:
-	## A freed Object can survive inside a Dictionary/Variant. Accept raw
-	## values at claim boundaries and validate before any typed cast; otherwise
-	## GDScript raises before cleanup functions get a chance to return safely.
-	if not is_instance_valid(raw):
-		return null
-	var object: Object = raw
-	if not object is Node:
-		return null
-	var node: Node = object as Node
-	return null if node.is_queued_for_deletion() else node
-
-static func claim_item(item: Variant, npc: Node) -> bool:
-	var live_item: Node = _live_node(item)
-	if live_item == null or npc == null or not is_instance_valid(npc):
+static func _owner_alive(owner_iid: int) -> bool:
+	if owner_iid == 0:
 		return false
-	var iid: int = live_item.get_instance_id()
+	var o: Object = instance_from_id(owner_iid)
+	return o != null and is_instance_valid(o)
+
+static func claim_item(item: Node, npc: Node) -> bool:
+	if item == null or npc == null or not is_instance_valid(item):
+		return false
+	var iid: int = item.get_instance_id()
 	var claimant: int = _claims.get(iid, 0)
-	if claimant != 0 and claimant != npc.get_instance_id():
+	if claimant != 0 and claimant != npc.get_instance_id() and _owner_alive(claimant):
 		return false   ## already claimed by someone else
 	_claims[iid] = npc.get_instance_id()
 	return true
 
-static func release_item(item: Variant) -> void:
-	var live_item: Node = _live_node(item)
-	if live_item == null:
+static func release_item(item: Node) -> void:
+	if item == null:
 		return
-	_claims.erase(live_item.get_instance_id())
+	_claims.erase(item.get_instance_id())
 
-static func is_claimed_by_other(item: Variant, npc: Node) -> bool:
-	var live_item: Node = _live_node(item)
-	if live_item == null or npc == null or not is_instance_valid(npc):
+static func is_claimed_by_other(item: Node, npc: Node) -> bool:
+	if item == null:
 		return false
-	var claimant: int = _claims.get(live_item.get_instance_id(), 0)
-	return claimant != 0 and claimant != npc.get_instance_id()
+	var claimant: int = _claims.get(item.get_instance_id(), 0)
+	return claimant != 0 and claimant != npc.get_instance_id() and _owner_alive(claimant)
+
+## Drops EVERY item and cell reservation owned by this NPC. Called by
+## NPCBrain whenever an activity ends — see guarantee 1 above.
+static func release_all_for(npc: Node) -> void:
+	if npc == null:
+		return
+	var owner: int = npc.get_instance_id()
+	for k in _claims.keys():
+		if int(_claims[k]) == owner:
+			_claims.erase(k)
+	for k in _cell_claims.keys():
+		if int(_cell_claims[k]) == owner:
+			_cell_claims.erase(k)
+
+## Number of live reservations held by this NPC (debug dumps / tests).
+static func count_claims_for(npc: Node) -> int:
+	var owner: int = npc.get_instance_id()
+	var n: int = 0
+	for v in _claims.values():
+		if int(v) == owner:
+			n += 1
+	for v in _cell_claims.values():
+		if int(v) == owner:
+			n += 1
+	return n
 
 # ─── Per-cell claim system (Aug 2026) ──────────────────────────────────────
 ## Same shape as the item claims above, but for a specific farming-tray
@@ -83,58 +124,96 @@ static var _cell_claims: Dictionary = {}   ## "tray_instance_id:cell_index" -> n
 static func _cell_key(tray: Node, cell_index: int) -> String:
 	return "%d:%d" % [tray.get_instance_id(), cell_index]
 
-static func claim_cell(tray: Variant, cell_index: int, npc: Node) -> bool:
-	var live_tray: Node = _live_node(tray)
-	if live_tray == null or npc == null or not is_instance_valid(npc):
+static func claim_cell(tray: Node, cell_index: int, npc: Node) -> bool:
+	if tray == null or npc == null:
 		return false
-	var key: String = _cell_key(live_tray, cell_index)
+	var key: String = _cell_key(tray, cell_index)
 	var claimant: int = _cell_claims.get(key, 0)
-	if claimant != 0 and claimant != npc.get_instance_id():
+	if claimant != 0 and claimant != npc.get_instance_id() and _owner_alive(claimant):
 		return false
 	_cell_claims[key] = npc.get_instance_id()
 	return true
 
-static func release_cell(tray: Variant, cell_index: int, npc: Node) -> void:
-	var live_tray: Node = _live_node(tray)
-	if live_tray == null or cell_index < 0 or npc == null or not is_instance_valid(npc):
+static func release_cell(tray: Node, cell_index: int, npc: Node) -> void:
+	if tray == null or cell_index < 0:
 		return
-	var key: String = _cell_key(live_tray, cell_index)
+	var key: String = _cell_key(tray, cell_index)
 	if _cell_claims.get(key, 0) == npc.get_instance_id():
 		_cell_claims.erase(key)
 
-static func is_cell_claimed_by_other(tray: Variant, cell_index: int, npc: Node) -> bool:
-	var live_tray: Node = _live_node(tray)
-	if live_tray == null or cell_index < 0 or npc == null or not is_instance_valid(npc):
+static func is_cell_claimed_by_other(tray: Node, cell_index: int, npc: Node) -> bool:
+	if tray == null or cell_index < 0:
 		return false
-	var claimant: int = _cell_claims.get(_cell_key(live_tray, cell_index), 0)
-	return claimant != 0 and claimant != npc.get_instance_id()
+	var claimant: int = _cell_claims.get(_cell_key(tray, cell_index), 0)
+	return claimant != 0 and claimant != npc.get_instance_id() and _owner_alive(claimant)
 
 # ─── Target search ────────────────────────────────────────────────────────
 ## Nearest loose (world) item matching `filter: Callable(item) -> bool`.
 ## Excludes held, shelved, and frozen items — an NPC can never steal from
 ## the player's hands or bypass the shelf API. Also respects item claims.
 static func find_loose_item(npc: NPC, filter: Callable) -> RigidBody3D:
-	var best: RigidBody3D = null
-	var best_d: float = INF
+	var candidates: Array = []   ## [distance, item]
 	for node: Node in npc.get_tree().get_nodes_in_group("pickup"):
 		if not (node is RigidBody3D) or not is_instance_valid(node):
 			continue
 		var rb: RigidBody3D = node as RigidBody3D
-		if rb.is_in_group("shelved"):
+		if rb.is_in_group("shelved") or (("is_held" in rb) and rb.is_held) or rb.freeze:
 			continue
-		if ("is_held" in rb) and rb.is_held:
-			continue
-		if rb.freeze:
-			continue
-		if is_claimed_by_other(rb, npc):
+		if is_claimed_by_other(rb, npc) or npc.job_state.is_unreachable(rb):
 			continue
 		if not filter.call(rb):
 			continue
-		var d: float = flat_distance(rb.global_position, npc.global_position)
-		if d < best_d:
-			best_d = d
-			best = rb
-	return best
+		candidates.append([flat_distance(rb.global_position, npc.global_position), rb])
+	return _nearest_reachable(npc, candidates, PICKUP_RANGE) as RigidBody3D
+
+## Sep 2026 — nearest candidate that a real navmesh path actually gets
+## within reach of. Straight-line "nearest" happily picked a can that had
+## rolled into a gap behind a farming tray; the NPC walked as close as it
+## could, gave up, and picked the very same can again — forever, while
+## starving. Checks the few nearest candidates only (path queries aren't
+## free); an unreachable one is remembered for a while (NPCJobState).
+const REACH_CHECKS: int = 4
+
+static func _nearest_reachable(npc: NPC, candidates: Array, reach: float) -> Node:
+	if candidates.is_empty():
+		return null
+	candidates.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
+	for i: int in mini(candidates.size(), REACH_CHECKS):
+		var n: Node3D = candidates[i][1]
+		if is_reachable(npc, n.global_position, reach):
+			return n
+		npc.job_state.mark_unreachable(n)
+	return null
+
+## Can the NPC walk to within `reach` of `pos`? (navmesh path end check;
+## cached per NPC per physics frame.) True when no navmesh is available so
+## worlds without one still behave as before.
+static var _reach_cache: Dictionary = {}   ## "npc:x:z:reach" -> [physics_frame, bool]
+const REACH_CACHE_FRAMES: int = 90
+
+static func is_reachable(npc: NPC, pos: Vector3, reach: float) -> bool:
+	var frame: int = Engine.get_physics_frames()
+	var key: String = "%d:%d:%d:%d" % [npc.get_instance_id(), int(pos.x * 4.0), int(pos.z * 4.0), int(reach * 10.0)]
+	var hit: Array = _reach_cache.get(key, [])
+	if not hit.is_empty() and frame - int(hit[0]) < REACH_CACHE_FRAMES \
+			and flat_distance(npc.global_position, pos) > 0.0:
+		return bool(hit[1])
+	var result: bool = _compute_reachable(npc, pos, reach)
+	if _reach_cache.size() > 2000:
+		_reach_cache.clear()
+	_reach_cache[key] = [frame, result]
+	return result
+
+static func _compute_reachable(npc: NPC, pos: Vector3, reach: float) -> bool:
+	var map: RID = npc.get_world_3d().navigation_map
+	if not map.is_valid() or NavigationServer3D.map_get_iteration_id(map) == 0:
+		return true
+	var from: Vector3 = NavigationServer3D.map_get_closest_point(map, Vector3(npc.global_position.x, 0.5, npc.global_position.z))
+	var to: Vector3 = Vector3(pos.x, 0.5, pos.z)
+	var path: PackedVector3Array = NavigationServer3D.map_get_path(map, from, to, true)
+	if path.is_empty():
+		return flat_distance(npc.global_position, pos) <= reach + REACH_LENIENCY
+	return flat_distance(path[path.size() - 1], pos) <= reach + REACH_LENIENCY - 0.1
 
 ## Nearest shelf slot whose TOP item matches filter.
 ## Returns {} or {shelf: Shelving, slot: int, item: RigidBody3D}.
@@ -150,7 +229,10 @@ static func find_shelved_item(npc: NPC, filter: Callable) -> Dictionary:
 		if not is_instance_valid(node) or not ("slots" in node):
 			continue
 		var d: float = flat_distance((node as Node3D).global_position, npc.global_position)
-		if d >= best_d:
+		if d >= best_d or npc.job_state.is_unreachable(node):
+			continue
+		if not is_reachable(npc, (node as Node3D).global_position, SHELF_RANGE):
+			npc.job_state.mark_unreachable(node)
 			continue
 		for slot_idx: int in range(node.slots.size()):
 			var stack: Array = node.slots[slot_idx]
@@ -187,8 +269,17 @@ static func find_fetch_target(npc: NPC, filter: Callable) -> Dictionary:
 	return {}
 
 # ─── Carry primitives ─────────────────────────────────────────────────────
+## True while the NPC's hands genuinely hold something. Every grab path
+## refuses when this is true — grabbing while already holding used to
+## reparent a SECOND item onto the same hold point, orphaning the first
+## (it kept floating after the NPC forever with is_held=true).
+static func hands_full(npc: NPC) -> bool:
+	return npc.held_item != null and is_instance_valid(npc.held_item)
+
 static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 	if item == null or not is_instance_valid(item):
+		return false
+	if hands_full(npc):
 		return false
 	if is_claimed_by_other(item, npc):
 		return false   ## defense in depth — shouldn't happen if callers claimed first
@@ -216,7 +307,7 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 	## design.
 	if is_on_stove(item):
 		return false
-	if flat_distance(npc.global_position, item.global_position) > PICKUP_RANGE:
+	if not in_reach(npc, item.global_position, PICKUP_RANGE):
 		return false
 	if item.has_method("pickup"):
 		item.pickup(npc.hold_point)
@@ -227,7 +318,9 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 static func grab_from_shelf(npc: NPC, shelf: Node, slot: int) -> bool:
 	if shelf == null or not is_instance_valid(shelf):
 		return false
-	if flat_distance(npc.global_position, (shelf as Node3D).global_position) > SHELF_RANGE:
+	if hands_full(npc):
+		return false
+	if not in_reach(npc, (shelf as Node3D).global_position, SHELF_RANGE):
 		return false
 	if not shelf.has_method("npc_retrieve"):
 		return false
@@ -247,34 +340,77 @@ static func grab_from_shelf(npc: NPC, shelf: Node, slot: int) -> bool:
 ## no-op for NavigationAgent3D (only repaths on an actual change), so
 ## this costs nothing extra in the common case where the item hasn't
 ## moved.
-static func track_fetch_target(npc: NPC, item: Node, desired_distance: float = -1.0) -> void:
+static func track_fetch_target(npc: NPC, item: Node) -> void:
 	if item != null and is_instance_valid(item):
-		if desired_distance >= 0.0:
-			npc.set_nav_target((item as Node3D).global_position, desired_distance)
-		else:
-			npc.set_nav_target((item as Node3D).global_position)
+		npc.set_nav_target((item as Node3D).global_position)
 
-## Put whatever is held back into the world at the NPC's feet, via the same
-## drop() the player uses.
+## Put whatever is held back into the world just in front of the NPC, via
+## the same drop() the player uses. Always releases the item's reservation
+## (Sep 2026 — a dropped item that stayed reserved was invisible to every
+## other NPC forever). The drop point is pulled back toward the NPC if a
+## wall is in the way, so a set-down item can never be pushed through
+## geometry and lost below the floor.
 static func drop_held(npc: NPC) -> void:
 	var item: RigidBody3D = npc.held_item
 	npc.held_item = null
 	if item == null or not is_instance_valid(item):
 		return
+	release_item(item)
 	var world: Node = npc.get_tree().get_first_node_in_group("main_world")
 	var parent: Node3D = world if world is Node3D else npc.get_parent()
 	if item.has_method("drop"):
-		item.drop(parent, npc.global_position
-			+ npc.global_transform.basis * Vector3(0.0, 0.6, -0.7))
-		if item.has_method("mark_cleanup_release"):
-			item.mark_cleanup_release(&"npc")
+		item.drop(parent, safe_drop_point(npc))
 	else:
-		## Aug 2026 — npc.held_item was already cleared above (by
-		## design, before this check), so a missing drop() here would
-		## otherwise leave the NPC's own bookkeeping saying "holding
-		## nothing" while the item stays physically attached to
-		## hold_point — invisible the same way the trash bug was.
 		NPCDebug.log_missing_method("NPCItemUser.drop_held()", item, "drop")
+
+## World point ~0.6 m in front of the NPC at hand height, shortened if a
+## static obstacle sits in between.
+static func safe_drop_point(npc: NPC) -> Vector3:
+	var origin: Vector3 = npc.global_position + Vector3(0.0, 0.2, 0.0)
+	var fwd: Vector3 = -npc.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
+	var want: Vector3 = origin + fwd * 0.6
+	var space: PhysicsDirectSpaceState3D = npc.get_world_3d().direct_space_state
+	if space == null:
+		return want
+	var q: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, want + fwd * 0.25)
+	q.exclude = [npc.get_rid()]
+	q.collision_mask = 1
+	var hit: Dictionary = space.intersect_ray(q)
+	if hit.is_empty() or not (hit.get("collider") is StaticBody3D):
+		return want
+	var back: float = maxf(0.0, origin.distance_to(hit["position"]) - 0.35)
+	return origin + fwd * back
+
+## Stores the held item into a Shelving/LightStorage/trash receptacle via
+## its npc_try_place_item(). Returns true on success. On success the item
+## is no longer held and its reservation is released (the old per-activity
+## code left stored items reserved by whoever put them away).
+static func store_held(npc: NPC, destination: Node) -> bool:
+	var item: RigidBody3D = npc.held_item
+	if item == null or not is_instance_valid(item) or destination == null or not is_instance_valid(destination):
+		return false
+	if not destination.has_method("npc_try_place_item"):
+		return false
+	if not destination.npc_try_place_item(npc, item):
+		return false
+	if npc.held_item == item:
+		npc.held_item = null
+	release_item(item)
+	return true
+
+## Moves the giver's held item straight into the receiver's hands.
+static func hand_over(giver: NPC, receiver: Node) -> Node:
+	var item: Node = giver.held_item
+	if item == null or not is_instance_valid(item) or not item.has_method("pickup"):
+		return null
+	giver.held_item = null
+	release_item(item)
+	item.pickup(receiver.hold_point)
+	receiver.held_item = item
+	return item
+
 
 # ─── Consumable filters (used by activities) ──────────────────────────────
 static func is_drinkable_bottle(item: Node) -> bool:
@@ -352,15 +488,28 @@ static func eat_held_step(npc: NPC) -> bool:
 	if item == null or not is_instance_valid(item):
 		npc.held_item = null
 		return true
+	## Sep 2026 — holding something inedible (a basket, a soil bag...) used
+	## to fall through to `return true` WITHOUT letting go of it, and
+	## EatActivity would immediately "eat" the same item again next tick —
+	## an infinite Eating loop. Set it down instead.
+	if not is_edible(item):
+		drop_held(npc)
+		return true
 	if item is DishItem or item is FarmProduceItem:
-		npc.hunger = minf(100.0, npc.hunger + item.consume_as_food())
+		release_item(item)
+		npc.add_thought("ate_hot_meal" if item is DishItem else "ate_fresh")
+		npc.hunger = minf(npc.hunger_cap, npc.hunger + item.consume_as_food())
 		npc.held_item = null   ## consume_as_food frees the node
 		return true
 	if item.has_method("take_bite"):   ## FoodCan — multi-bite
-		npc.hunger = minf(100.0, npc.hunger + item.take_bite())
-		if not item.has_bites_left() or npc.hunger >= 95.0:
-			drop_held(npc)   ## empty can (or full NPC) — set it back down
+		npc.hunger = minf(npc.hunger_cap, npc.hunger + item.take_bite())
+		if not item.has_bites_left():
+			npc.add_thought("ate_cold_can")
+			drop_held(npc)   ## empty can — set it down (it's trash now; Cleaning takes it out)
 			return true
+		if npc.hunger >= 95.0:
+			npc.add_thought("ate_cold_can")
+			return true      ## full — keep the rest of the can in hand; PutAway stores it
 		return false   ## more bites coming; EatActivity re-times the next one
 	return true
 
@@ -400,7 +549,7 @@ static func snatch_from(npc: NPC, target: Node) -> bool:
 		return false   ## hands already full
 	if target == null or not is_instance_valid(target):
 		return false
-	if flat_distance(npc.global_position, (target as Node3D).global_position) > SNATCH_RANGE:
+	if not in_reach(npc, (target as Node3D).global_position, SNATCH_RANGE):
 		return false
 
 	if target.is_in_group("player"):

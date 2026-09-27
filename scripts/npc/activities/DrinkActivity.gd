@@ -1,74 +1,53 @@
 extends NPCActivity
 class_name DrinkActivity
-## Thirst-driven. Priority: Dispenser/loose bottle (nearest-wins) →
-## shelved bottle → loose Water Case → shelved Water Case (Aug 2026 —
-## the last two tiers via NPCCaseFetch, shared with EatActivity's
-## CanCase handling; the case remains in place while one bottle moves
-## directly into the NPC's hand).
+## DrinkActivity.gd — find water and drink until sated.
 ##
-## Bottle handling (Part 12): grabs the bottle FIRST, holds it through
-## the full CONSUME_TIME wait, then drinks+drops — mirroring
-## EatActivity's order. The previous version grabbed and dropped inside
-## the same call at the END of the wait, with zero visible holding
-## duration — looked exactly like the bottle teleporting into the hand
-## and immediately falling, because that's functionally what happened.
-## Also claims its bottle target (NPCItemUser, Part 12) so two NPCs
-## can't converge on the same one.
-const DRINK_ML:        float = 375.0   ## == WaterBottle.STANDARD_DRINK_ML
-const HYDRATION:       float = 21.5    ## == WaterBottle.STANDARD_HYDRATION
-const CONSUME_TIME:    float = 2.0
-const USE_RANGE:       float = 1.4
-## Loose bottles need the precise stop radius: a broad navigation arrival
-## radius can finish just outside PICKUP_RANGE and leave the NPC waiting there.
-const LOOSE_APPROACH_DISTANCE: float = 0.2
+## Source tiers: snatch from a disliked person holding a bottle → nearest of
+## (filled dispenser, loose bottle) → shelved bottle → open a Water Case
+## (NPCCaseFetch). Dispenser sips deduct real water; bottle sips use the
+## bottle's own take_drink().
+##
+## Sep 2026: smooth urgency curve; a bottle is sipped repeatedly while held
+## (the old flow grabbed, sipped once, dropped, and re-grabbed the same
+## bottle over and over); a bottle with water left is put away afterwards
+## (hand-off to PutAwayHeldItemActivity) instead of being left on the floor.
+
+const DRINK_ML: float = 375.0        ## == WaterBottle.STANDARD_DRINK_ML
+const HYDRATION: float = 21.5        ## == WaterBottle.STANDARD_HYDRATION
+const CONSUME_TIME: float = 2.0
+const USE_RANGE: float = 1.4
+const DRINK_START: float = 68.0
+const DRINK_FULL: float = 10.0
 
 var _mode: String = ""        ## "dispenser" | "bottle" | "shelf_bottle" | "case"
 var _target: Node = null
-var _shelf_pick: Dictionary = {}   ## Aug 2026 — only populated while _mode == "shelf_bottle", before the grab completes
+var _shelf_pick: Dictionary = {}
 var _drinking: float = 0.0
-var _pending_snatch: Node = null   ## Part 30
+var _pending_snatch: Node = null
 var _handoff: NPCActivity = null
-var _case_fetch: NPCCaseFetch = null   ## Aug 2026 — last-resort tier once dispenser/loose/shelved bottle all come up empty
-var _last_failure_reason: StringName = &""
-
-func attention_target(_npc: NPC) -> Node3D:
-	if _case_fetch != null:
-		return _case_fetch.get_case_target()
-	if _target is Node3D and is_instance_valid(_target):
-		return _target as Node3D
-	var shelf: Node3D = _shelf_pick.get("shelf") as Node3D
-	return shelf if shelf != null and is_instance_valid(shelf) else null
+var _case_fetch: NPCCaseFetch = null
+var _finished: bool = false
+var _retries: int = 0
+const MAX_RETRIES: int = 3
 
 func label() -> String:
 	return "Drinking" if _drinking > 0.0 else "Getting water"
 
+func is_need() -> bool:
+	return true
+
+func accepts_held_item(_npc: NPC, item: Node) -> bool:
+	return NPCItemUser.is_drinkable_bottle(item)
+
 func score(npc: NPC) -> float:
-	if npc.thirst >= 55.0:
+	var u: float = NPC.urgency(npc.thirst, DRINK_START, DRINK_FULL)
+	if u <= 0.0:
 		return 0.0
-	if _pick_target(npc).is_empty() \
+	if not (NPCItemUser.hands_full(npc) and NPCItemUser.is_drinkable_bottle(npc.held_item)) \
+			and _pick_target(npc).is_empty() \
 			and not npc.is_npc_snatch_eligible(Callable(NPCItemUser, "is_drinkable_bottle")):
 		return 0.0
-	return (100.0 - npc.thirst) * 1.2 * npc.get_work_ethic_passive_mult()   ## thirst outranks equal-level energy
-
-func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
-	if computed_score > 0.0: return &"thirst_and_water_available"
-	if npc.thirst >= 55.0: return &"thirst_above_threshold"
-	return &"no_water_source_available"
-
-func debug_info() -> Dictionary:
-	var target: String = ""
-	if _target != null and is_instance_valid(_target):
-		target = String(_target.name)
-	elif not _shelf_pick.is_empty():
-		var shelf: Node = _shelf_pick.get("shelf")
-		target = String(shelf.name) if shelf != null else ""
-	elif _case_fetch != null:
-		var case_target: Node3D = _case_fetch.get_case_target()
-		target = String(case_target.name) if case_target != null else ""
-	return {"activity": "drink", "phase": "consume" if _drinking > 0.0 else "fetch",
-		"source": _mode if not _mode.is_empty() else ("case" if _case_fetch != null else "none"),
-		"target": target, "consume_seconds_left": _drinking,
-		"last_failure_reason": String(_last_failure_reason)}
+	return 104.0 * u   ## thirst edges out equal hunger
 
 func _pick_target(npc: NPC) -> Dictionary:
 	var best_d: float = INF
@@ -80,58 +59,52 @@ func _pick_target(npc: NPC) -> Dictionary:
 		if dist < best_d:
 			best_d = dist
 			out = {"mode": "dispenser", "node": d}
-	var bottle: RigidBody3D = NPCItemUser.find_loose_item(npc,
-		Callable(NPCItemUser, "is_drinkable_bottle"))
-	if bottle != null:
-		var dist_b: float = NPCItemUser.flat_distance(bottle.global_position, npc.global_position)
-		if dist_b < best_d:
-			out = {"mode": "bottle", "node": bottle}
+	var bottle: RigidBody3D = NPCItemUser.find_loose_item(npc, Callable(NPCItemUser, "is_drinkable_bottle"))
+	if bottle != null and NPCItemUser.flat_distance(bottle.global_position, npc.global_position) < best_d:
+		out = {"mode": "bottle", "node": bottle}
 	if not out.is_empty():
 		return out
-	## Aug 2026 — storage-aware fallback tiers, only tried once no dispenser
-	## or loose bottle exists anywhere at all. Strict priority order (not a
-	## distance comparison against the above) — matches EatActivity's own
-	## loose-then-shelf convention and Brannon's specified case ordering.
 	var shelf: Dictionary = NPCItemUser.find_shelved_item(npc, Callable(NPCItemUser, "is_drinkable_bottle"))
 	if not shelf.is_empty():
 		return {"mode": "shelf_bottle", "node": shelf.get("shelf"), "shelf_pick": shelf}
-	var case_pick: Dictionary = NPCItemUser.find_fetch_target(npc, Callable(NPCItemUser, "is_stocked_water_case"))
-	if not case_pick.is_empty():
+	if not NPCItemUser.find_fetch_target(npc, Callable(NPCItemUser, "is_stocked_water_case")).is_empty():
 		return {"mode": "case"}
 	return {}
 
 func enter(npc: NPC) -> void:
 	_drinking = 0.0
-	_last_failure_reason = &""
+	_finished = false
+	if NPCItemUser.hands_full(npc) and NPCItemUser.is_drinkable_bottle(npc.held_item):
+		_mode = "bottle"
+		_target = npc.held_item
+		return
+	_acquire(npc)
+
+func _acquire(npc: NPC) -> void:
+	_mode = ""
+	_target = null
+	_shelf_pick = {}
 	_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
 	if _pending_snatch != null:
-		return   ## handled on first tick() below
+		return
 	var pick: Dictionary = _pick_target(npc)
 	_mode = pick.get("mode", "")
 	_target = pick.get("node", null)
 	_shelf_pick = pick.get("shelf_pick", {})
-	if _mode == "bottle" and _target != null:
-		if not NPCItemUser.claim_item(_target, npc):
-			_last_failure_reason = &"loose_item_claim_lost"
-			NPCMetrics.record_event(&"activity_target_claim_failed", npc, {
-				"activity": "drink", "target": String(_target.name),
-			})
-			_target = null   ## lost the race between scoring and entering
+	match _mode:
+		"bottle":
+			if not NPCItemUser.claim_item(_target, npc):
+				_target = null
+		"shelf_bottle":
+			if not NPCItemUser.claim_item(_shelf_pick.get("item"), npc):
+				_target = null
+		"case":
+			_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"), Callable(NPCItemUser, "is_drinkable_bottle"))
 			return
-	elif _mode == "shelf_bottle":
-		var shelf_item: RigidBody3D = _shelf_pick.get("item")
-		if shelf_item == null or not NPCItemUser.claim_item(shelf_item, npc):
-			_mode = ""
-			_target = null
-			return
-	elif _mode == "case":
-		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"))
-		return
 	if _target != null:
-		if _mode == "bottle":
-			npc.set_nav_target((_target as Node3D).global_position, LOOSE_APPROACH_DISTANCE)
-		else:
-			npc.set_nav_target((_target as Node3D).global_position)
+		npc.set_nav_target((_target as Node3D).global_position)
+	else:
+		_finished = true
 
 func tick(npc: NPC, delta: float) -> void:
 	if _pending_snatch != null:
@@ -140,15 +113,23 @@ func tick(npc: NPC, delta: float) -> void:
 		return
 	if _case_fetch != null:
 		if _case_fetch.is_done():
-			if not _case_fetch.failed():
-				_target = _case_fetch.get_dispensed_item()
+			if not _case_fetch.failed() and _case_fetch.get_ejected_item() != null:
+				_target = _case_fetch.get_ejected_item()
 				_mode = "bottle"
+			else:
+				_finished = true
 			_case_fetch = null
 			return
 		_case_fetch.tick(npc, delta)
 		return
 	if _target == null or not is_instance_valid(_target):
-		_target = null
+		## Lost it (someone else took/tidied it) — look for another source
+		## instead of wandering off still thirsty.
+		if _retries < MAX_RETRIES and npc.thirst < NPC.NEED_SATED and not NPCItemUser.hands_full(npc):
+			_retries += 1
+			_acquire(npc)
+		else:
+			_finished = true
 		return
 	match _mode:
 		"bottle":
@@ -163,133 +144,79 @@ func _tick_dispenser(npc: NPC, delta: float) -> void:
 		npc.halt_movement(delta)
 		_drinking -= delta
 		if _drinking <= 0.0:
-			_finish_dispenser(npc)
+			var ml: float = minf(DRINK_ML, _target.current_fill_mL)
+			if ml > 0.0:
+				_target.current_fill_mL -= ml
+				if _target.has_method("_update_fill_visual"):
+					_target._update_fill_visual()
+				npc.thirst = minf(npc.thirst_cap, npc.thirst + HYDRATION * (ml / DRINK_ML))
+			if npc.thirst >= NPC.NEED_SATED or _target.current_fill_mL < DRINK_ML:
+				_after_drinking(npc)
+			else:
+				_drinking = CONSUME_TIME   ## another cup
 		return
 	npc.nav_steer(delta)
-	if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= USE_RANGE:
-		npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO, which Part 13's
-		                     ## movement-lock never protected from a late avoidance callback
+	if NPCItemUser.in_reach(npc, (_target as Node3D).global_position, USE_RANGE):
+		npc.lock_movement()
 		_drinking = CONSUME_TIME
 
-func _finish_dispenser(npc: NPC) -> void:
-	var d: Node = _target
-	var ml: float = minf(DRINK_ML, d.current_fill_mL)
-	if ml > 0.0:
-		d.current_fill_mL -= ml                       ## REAL deduction
-		if d.has_method("_update_fill_visual"):
-			d._update_fill_visual()
-		npc.thirst = minf(100.0, npc.thirst + HYDRATION * (ml / DRINK_ML))
-	_reacquire_or_finish(npc)
-
 func _tick_bottle(npc: NPC, delta: float) -> void:
-	if _drinking > 0.0:
+	if npc.held_item == _target:
+		if _drinking <= 0.0:
+			npc.lock_movement()
+			_drinking = CONSUME_TIME
+			return
 		npc.halt_movement(delta)
 		_drinking -= delta
 		if _drinking <= 0.0:
-			_finish_bottle(npc)
+			npc.thirst = minf(npc.thirst_cap, npc.thirst + _target.take_drink())
+			if npc.thirst >= NPC.NEED_SATED or not NPCItemUser.is_drinkable_bottle(_target):
+				_after_drinking(npc)
+			else:
+				_drinking = CONSUME_TIME   ## another sip
 		return
-	if npc.held_item == _target:
-		## Grabbed — start the visible holding/drinking wait.
-		npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO (see 3b note)
-		_drinking = CONSUME_TIME
+	if (("is_held" in _target) and _target.is_held) or _target.is_in_group("shelved"):
+		_target = null   ## someone else got it
 		return
-	if "is_held" in _target and _target.is_held:
-		_last_failure_reason = &"target_taken_while_approaching"
-		NPCItemUser.release_item(_target)
-		_target = null
-		return
-	NPCItemUser.track_fetch_target(npc, _target, LOOSE_APPROACH_DISTANCE)
-	## Part 16 — this was the exact bug from the water-bottle report: raw 3D
-	## distance against PICKUP_RANGE(1.2), with a loose bottle's ~0.9 vertical
-	## offset from the NPC's capsule-center origin eating most of that budget.
-	if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
-		npc.halt_movement(delta)
+	NPCItemUser.track_fetch_target(npc, _target)
+	npc.nav_steer(delta)
+	if NPCItemUser.in_reach(npc, (_target as Node3D).global_position, NPCItemUser.PICKUP_RANGE):
 		if not NPCItemUser.grab_loose(npc, _target):
-			_last_failure_reason = &"grab_refused"
-			NPCMetrics.record_anomaly(&"activity_pickup_failed", npc, {
-				"activity": "drink", "target": String(_target.name),
-			}, npc.get_navigation_debug_info())
-			NPCItemUser.release_item(_target)
-			_target = null   ## grab failed — give up cleanly, rescore next think
-	else:
-		npc.nav_steer(delta)
+			_target = null
 
-## Aug 2026 — shelved-bottle pre-phase. Once the grab lands, hands off to
-## _tick_bottle() completely (mode flips to "bottle", _target becomes the
-## now-held item) — identical holding/drinking/finish logic from there,
-## regardless of whether the bottle started loose or shelved.
 func _tick_shelf_bottle(npc: NPC, delta: float) -> void:
-	if npc.held_item != null:
-		_mode = "bottle"
-		_target = npc.held_item
-		_tick_bottle(npc, delta)
-		return
 	var shelf: Node3D = _shelf_pick.get("shelf")
 	if shelf == null or not is_instance_valid(shelf):
 		_target = null
 		return
 	npc.nav_steer(delta)
-	if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) <= NPCItemUser.SHELF_RANGE:
-		if not NPCItemUser.grab_from_shelf(npc, shelf, int(_shelf_pick.get("slot", -1))):
+	if NPCItemUser.in_reach(npc, shelf.global_position, NPCItemUser.SHELF_RANGE):
+		if NPCItemUser.grab_from_shelf(npc, shelf, int(_shelf_pick.get("slot", -1))):
+			_mode = "bottle"
+			_target = npc.held_item
+		else:
 			_target = null   ## slot emptied under us
 
-func _finish_bottle(npc: NPC) -> void:
-	var b: Node = _target
-	if b != null and is_instance_valid(b) and npc.held_item == b:
-		npc.thirst = minf(100.0, npc.thirst + b.take_drink())   ## REAL deduction
-		NPCItemUser.release_item(b)
-		NPCItemUser.drop_held(npc)
-	_reacquire_or_finish(npc)
-
-## Part 17 — shared by both finish paths. This is the actual fix: one sip
-## (HYDRATION=21.5) essentially never satisfies thirst on its own, so
-## setting _target=null unconditionally here (the old behavior) made
-## done() end the activity after every single sip, forcing a full
-## restart-from-scratch for the next one. Now, if thirst is still low,
-## immediately look for a new target and keep going within this SAME
-## activity run — only truly finish when satisfied or nothing is left.
-func _reacquire_or_finish(npc: NPC) -> void:
-	_target = null
-	_mode = ""
-	_shelf_pick = {}
-	_pending_snatch = null
-	if npc.thirst >= 90.0:
-		return   ## satisfied — done() ends us next tick
-	_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
-	if _pending_snatch != null:
-		return   ## picked up by tick() next frame
-	var pick: Dictionary = _pick_target(npc)
-	if pick.is_empty():
-		return   ## nothing left to try — done() ends us (target stays null)
-	_mode = pick.get("mode", "")
-	_target = pick.get("node", null)
-	_shelf_pick = pick.get("shelf_pick", {})
-	if _mode == "bottle" and _target != null:
-		if not NPCItemUser.claim_item(_target, npc):
-			_target = null
-			_mode = ""
-			return
-	elif _mode == "shelf_bottle":
-		var shelf_item: RigidBody3D = _shelf_pick.get("item")
-		if shelf_item == null or not NPCItemUser.claim_item(shelf_item, npc):
-			_mode = ""
-			return
-	elif _mode == "case":
-		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"))
+## Sated or the source ran dry. Still thirsty → look for more; otherwise
+## done — and a bottle with water left gets put away, not dropped.
+func _after_drinking(npc: NPC) -> void:
+	_drinking = 0.0
+	if npc.thirst < NPC.NEED_SATED and (not NPCItemUser.hands_full(npc) or not NPCItemUser.is_drinkable_bottle(npc.held_item)):
+		if NPCItemUser.hands_full(npc):
+			NPCItemUser.drop_held(npc)   ## an empty bottle — set it down (Cleaning tidies it)
+		_acquire(npc)
 		return
-	if _target != null:
-		if _mode == "bottle":
-			npc.set_nav_target((_target as Node3D).global_position, LOOSE_APPROACH_DISTANCE)
+	if NPCItemUser.hands_full(npc):
+		if NPCItemUser.is_drinkable_bottle(npc.held_item):
+			_handoff = PutAwayHeldItemActivity.new()
 		else:
-			npc.set_nav_target((_target as Node3D).global_position)
+			NPCItemUser.drop_held(npc)
+	_finished = true
 
-func done(npc: NPC) -> bool:
-	return (_target == null or npc.thirst >= 90.0) and _pending_snatch == null and _case_fetch == null
+func done(_npc: NPC) -> bool:
+	return _finished and _handoff == null and _case_fetch == null and _pending_snatch == null
 
 func interruptible() -> bool:
-	## Aug 2026 fix — see EatActivity's identical fix for the full
-	## explanation. Same bug, same cause (a case-fetch left this
-	## interruptible the whole time it was in progress).
 	return _drinking <= 0.0 and _case_fetch == null
 
 func take_handoff() -> NPCActivity:
@@ -301,13 +228,6 @@ func exit(npc: NPC) -> void:
 	if _case_fetch != null:
 		_case_fetch.cleanup(npc)
 		_case_fetch = null
-	if not _shelf_pick.is_empty():
-		NPCItemUser.release_item(_shelf_pick.get("item"))
-	if _target != null:
-		NPCItemUser.release_item(_target)
-	if npc.held_item != null:
-		NPCItemUser.release_item(npc.held_item)
-		NPCItemUser.drop_held(npc)
 	_target = null
 	_shelf_pick = {}
 	_drinking = 0.0

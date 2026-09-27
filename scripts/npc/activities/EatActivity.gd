@@ -1,72 +1,56 @@
 extends NPCActivity
 class_name EatActivity
-## Hunger-driven. Priority: loose edible → shelved edible (via
-## Shelving.npc_retrieve) → loose Can Case → shelved Can Case (Aug
-## 2026 — the last two tiers via NPCCaseFetch: leave the case in place,
-## take one can directly into the NPC's hand, then consume normally).
+## EatActivity.gd — find food and eat it.
+##
+## Source tiers, in order: snatch from a disliked person holding food (a
+## relationship-gated roll, see NPC.find_snatch_target) → nearest loose
+## food → nearest shelved food → open a Can Case (NPCCaseFetch) as a last
+## resort. Multi-bite cans are eaten bite by bite; single servings (dishes,
+## produce) in one go. Keeps going for another item while still hungry.
+##
+## Sep 2026: smooth urgency curve instead of a hard 55 threshold (see
+## score()); held food is accepted directly (a Give or a snatch hands the
+## item over already in hand); reservations are released by the brain.
+
 const CONSUME_TIME: float = 2.0
-const USE_RANGE:    float = 1.2
-## Use the precise stop radius for floor items. NavigationAgent3D can report a
-## route complete anywhere inside this radius; the previous 0.9m radius plus
-## target projection occasionally left the NPC just beyond the 1.2m hand reach.
-const LOOSE_APPROACH_DISTANCE: float = 0.2
+const USE_RANGE: float = 1.2
+## A little peckish (≈50) only wins when nothing else is going on; hungry
+## (≈30) beats most chores; starving beats everything. Starts at 58 so a
+## typical item (~45 hunger) is rarely wasted by eating when nearly full.
+const EAT_START: float = 58.0
+const EAT_FULL: float = 8.0
+const EAT_AGAIN_BELOW: float = 60.0
 
 var _loose: RigidBody3D = null
 var _shelf_pick: Dictionary = {}
 var _eating: float = 0.0
-var _pending_snatch: Node = null   ## Part 30 — set in enter()/_reacquire_or_finish(), consumed on first tick()
+var _pending_snatch: Node = null
 var _handoff: NPCActivity = null
-var _case_fetch: NPCCaseFetch = null   ## Aug 2026 — last-resort tier once loose+shelf both come up empty
-var _last_failure_reason: StringName = &""
-
-func attention_target(_npc: NPC) -> Node3D:
-	if _case_fetch != null:
-		return _case_fetch.get_case_target()
-	if _loose != null and is_instance_valid(_loose):
-		return _loose
-	var shelf: Node3D = _shelf_pick.get("shelf") as Node3D
-	return shelf if shelf != null and is_instance_valid(shelf) else null
+var _case_fetch: NPCCaseFetch = null
+var _retries: int = 0
 
 func label() -> String:
 	return "Eating" if _eating > 0.0 else "Getting food"
 
+func is_need() -> bool:
+	return true
+
+## Already holding something edible (a Give, a snatch, a can mid-meal).
+func accepts_held_item(_npc: NPC, item: Node) -> bool:
+	return NPCItemUser.is_edible(item)
+
 func score(npc: NPC) -> float:
-	if npc.hunger >= 55.0:
+	var u: float = NPC.urgency(npc.hunger, EAT_START, EAT_FULL)
+	if u <= 0.0 or not _any_food(npc):
 		return 0.0
-	## Aug 2026 — gate now covers all four fetch tiers (loose -> shelved food
-	## already covered by _find()/_find_shelf(); loose/shelved CAN CASE now
-	## covered too) plus snatch-eligibility, so Eating correctly stays
-	## available when only a stocked Can Case exists anywhere.
-	if _find(npc) == null and _find_shelf(npc).is_empty() \
-			and NPCItemUser.find_fetch_target(npc, Callable(NPCItemUser, "is_stocked_can_case")).is_empty() \
-			and not npc.is_npc_snatch_eligible(Callable(NPCItemUser, "is_edible")):
-		return 0.0
-	return (100.0 - npc.hunger) * 1.15 * npc.get_work_ethic_passive_mult()
+	return 100.0 * u
 
-func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
-	if computed_score > 0.0: return &"hunger_and_food_available"
-	if npc.hunger >= 55.0: return &"hunger_above_threshold"
-	return &"no_food_source_available"
-
-func debug_info() -> Dictionary:
-	var source: String = "none"
-	var target: String = ""
-	if _case_fetch != null:
-		source = "case"
-		var case_target: Node3D = _case_fetch.get_case_target()
-		target = String(case_target.name) if case_target != null else ""
-	elif _loose != null and is_instance_valid(_loose):
-		source = "loose"
-		target = String(_loose.name)
-	elif not _shelf_pick.is_empty():
-		source = "shelf"
-		var shelf: Node = _shelf_pick.get("shelf")
-		target = String(shelf.name) if shelf != null else ""
-	elif _eating > 0.0:
-		source = "held"
-	return {"activity": "eat", "phase": "consume" if _eating > 0.0 else "fetch",
-		"source": source, "target": target, "consume_seconds_left": _eating,
-		"last_failure_reason": String(_last_failure_reason)}
+func _any_food(npc: NPC) -> bool:
+	if NPCItemUser.hands_full(npc) and NPCItemUser.is_edible(npc.held_item):
+		return true
+	return _find(npc) != null or not _find_shelf(npc).is_empty() \
+		or not NPCItemUser.find_fetch_target(npc, Callable(NPCItemUser, "is_stocked_can_case")).is_empty() \
+		or npc.is_npc_snatch_eligible(Callable(NPCItemUser, "is_edible"))
 
 func _find(npc: NPC) -> RigidBody3D:
 	return NPCItemUser.find_loose_item(npc, Callable(NPCItemUser, "is_edible"))
@@ -76,33 +60,31 @@ func _find_shelf(npc: NPC) -> Dictionary:
 
 func enter(npc: NPC) -> void:
 	_eating = 0.0
-	_last_failure_reason = &""
+	if NPCItemUser.hands_full(npc):
+		return   ## eat what's in hand first (tick picks it up)
+	_acquire(npc)
+
+## Picks the next food source. Leaves everything empty if there is none —
+## done() then ends the activity.
+func _acquire(npc: NPC) -> void:
+	_loose = null
+	_shelf_pick = {}
 	_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_edible"))
 	if _pending_snatch != null:
-		return   ## handled on first tick() below, via take_handoff()
+		return
 	_loose = _find(npc)
 	if _loose != null and not NPCItemUser.claim_item(_loose, npc):
-		_last_failure_reason = &"loose_item_claim_lost"
-		NPCMetrics.record_event(&"activity_target_claim_failed", npc, {
-			"activity": "eat", "target": String(_loose.name),
-		})
-		_loose = null   ## lost the race between scoring and entering
-	_shelf_pick = {}
+		_loose = null
 	if _loose == null:
 		_shelf_pick = _find_shelf(npc)
 		if not _shelf_pick.is_empty() and not NPCItemUser.claim_item(_shelf_pick.get("item"), npc):
 			_shelf_pick = {}
-	if _loose == null and _shelf_pick.is_empty():
-		## Aug 2026 — last-resort case tier. score() already confirmed one
-		## exists somewhere if we got this far with nothing else found.
-		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"))
-		return
 	if _loose != null:
-		npc.set_nav_target(_loose.global_position, LOOSE_APPROACH_DISTANCE)
+		npc.set_nav_target(_loose.global_position)
 	elif not _shelf_pick.is_empty():
-		var shelf: Node3D = _shelf_pick.get("shelf") as Node3D
-		if shelf != null:
-			npc.set_nav_target(shelf.global_position)
+		npc.set_nav_target((_shelf_pick.get("shelf") as Node3D).global_position)
+	elif not NPCItemUser.find_fetch_target(npc, Callable(NPCItemUser, "is_stocked_can_case")).is_empty():
+		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"), Callable(NPCItemUser, "is_edible"))
 
 func tick(npc: NPC, delta: float) -> void:
 	if _pending_snatch != null:
@@ -111,47 +93,44 @@ func tick(npc: NPC, delta: float) -> void:
 		return
 	if _case_fetch != null:
 		if _case_fetch.is_done():
+			if not _case_fetch.failed():
+				_loose = _case_fetch.get_ejected_item()
 			_case_fetch = null
 			return
 		_case_fetch.tick(npc, delta)
 		return
+
 	if _eating > 0.0:
 		npc.halt_movement(delta)
 		_eating -= delta
 		if _eating <= 0.0:
 			if NPCItemUser.eat_held_step(npc):
-				_reacquire_or_finish(npc)   ## Part 17 — see DrinkActivity for the same fix
+				if NPCItemUser.hands_full(npc):
+					_handoff = PutAwayHeldItemActivity.new()   ## full — store the rest of the can
+				elif npc.hunger < EAT_AGAIN_BELOW:
+					_acquire(npc)
 			else:
 				_eating = CONSUME_TIME   ## next bite of the same can
 		return
 
-	if npc.held_item != null:
-		npc.lock_movement()   ## Part 16 — was a raw velocity=ZERO (see DrinkActivity 3b note)
+	if NPCItemUser.hands_full(npc):
+		npc.lock_movement()
 		_eating = CONSUME_TIME
 		return
 
-	if _loose != null and is_instance_valid(_loose):
-		if "is_held" in _loose and _loose.is_held:
-			_last_failure_reason = &"target_taken_while_approaching"
-			NPCItemUser.release_item(_loose)
-			_loose = null
+	if _loose != null:
+		if not is_instance_valid(_loose) or (("is_held" in _loose) and _loose.is_held) or _loose.is_in_group("shelved"):
+			_loose = null   ## someone else got it — try another source
+			if _retries < 3:
+				_retries += 1
+				_acquire(npc)
 			return
-		NPCItemUser.track_fetch_target(npc, _loose, LOOSE_APPROACH_DISTANCE)
-		if NPCItemUser.flat_distance(npc.global_position, _loose.global_position) <= USE_RANGE:
-			npc.halt_movement(delta)
-			if NPCItemUser.grab_loose(npc, _loose):
-				_loose = null
-			else:
-				_last_failure_reason = &"grab_refused"
-				NPCMetrics.record_anomaly(&"activity_pickup_failed", npc, {
-					"activity": "eat", "target": String(_loose.name),
-				}, npc.get_navigation_debug_info())
-				NPCItemUser.release_item(_loose)
-				_loose = null
-		else:
-			npc.nav_steer(delta)
+		NPCItemUser.track_fetch_target(npc, _loose)
+		npc.nav_steer(delta)
+		if NPCItemUser.in_reach(npc, _loose.global_position, USE_RANGE):
+			NPCItemUser.grab_loose(npc, _loose)
+			_loose = null
 		return
-	_loose = null
 
 	if not _shelf_pick.is_empty():
 		var shelf: Node3D = _shelf_pick.get("shelf")
@@ -159,53 +138,16 @@ func tick(npc: NPC, delta: float) -> void:
 			_shelf_pick = {}
 			return
 		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) <= NPCItemUser.SHELF_RANGE:
-			if NPCItemUser.grab_from_shelf(npc, shelf, int(_shelf_pick.get("slot", -1))):
-				_shelf_pick = {}
-			else:
-				_shelf_pick = {}   ## slot emptied under us — rescore
-		return
+		if NPCItemUser.in_reach(npc, shelf.global_position, NPCItemUser.SHELF_RANGE):
+			NPCItemUser.grab_from_shelf(npc, shelf, int(_shelf_pick.get("slot", -1)))
+			_shelf_pick = {}
 
 func done(npc: NPC) -> bool:
-	return _eating <= 0.0 and npc.held_item == null \
+	return _eating <= 0.0 and not NPCItemUser.hands_full(npc) \
 		and _loose == null and _shelf_pick.is_empty() and _pending_snatch == null \
-		and _case_fetch == null
-
-## Part 17 — mirrors DrinkActivity's. Finishing one item (a full can, or
-## a single-bite item) no longer ends the activity outright if hunger is
-## still low — it looks for another item and continues within the same
-## run, only truly finishing once satisfied or nothing is left to eat.
-func _reacquire_or_finish(npc: NPC) -> void:
-	_loose = null
-	_shelf_pick = {}
-	_pending_snatch = null
-	if npc.hunger >= 55.0:
-		return
-	_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_edible"))
-	if _pending_snatch != null:
-		return   ## picked up by tick() next frame
-	_loose = _find(npc)
-	if _loose != null and not NPCItemUser.claim_item(_loose, npc):
-		_loose = null
-	if _loose == null:
-		_shelf_pick = _find_shelf(npc)
-		if not _shelf_pick.is_empty() and not NPCItemUser.claim_item(_shelf_pick.get("item"), npc):
-			_shelf_pick = {}
-	if _loose == null and _shelf_pick.is_empty():
-		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"))
-		return
-	if _loose != null:
-		npc.set_nav_target(_loose.global_position, LOOSE_APPROACH_DISTANCE)
-	elif not _shelf_pick.is_empty():
-		var shelf: Node3D = _shelf_pick.get("shelf") as Node3D
-		if shelf != null:
-			npc.set_nav_target(shelf.global_position)
+		and _case_fetch == null and _handoff == null
 
 func interruptible() -> bool:
-	## A stocked-case fetch in progress (approach/extraction) must not be
-	## utility-interrupted before the dispensed can reaches the held state.
-	## Keeping that short sequence atomic also prevents two residents from
-	## repeatedly releasing and reclaiming the same case between utility ticks.
 	return _eating <= 0.0 and _case_fetch == null
 
 func take_handoff() -> NPCActivity:
@@ -217,13 +159,8 @@ func exit(npc: NPC) -> void:
 	if _case_fetch != null:
 		_case_fetch.cleanup(npc)
 		_case_fetch = null
-	if _loose != null:
-		NPCItemUser.release_item(_loose)
-	if not _shelf_pick.is_empty():
-		NPCItemUser.release_item(_shelf_pick.get("item"))
-	if npc.held_item != null:
-		NPCItemUser.release_item(npc.held_item)
-		NPCItemUser.drop_held(npc)
+	## Interrupted mid-meal: keep food in hand only if the next activity
+	## wants it (the brain's hands policy sets it down otherwise).
 	_loose = null
 	_shelf_pick = {}
 	_eating = 0.0

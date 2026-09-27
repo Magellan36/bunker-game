@@ -1,49 +1,48 @@
 extends CharacterBody3D
 class_name NPC
-const NPC_INTERACTION_SLOTS: GDScript = preload("res://scripts/npc/NPCInteractionSlots.gd")
-const NPC_DOOR_COORDINATOR: GDScript = preload("res://scripts/npc/NPCDoorCoordinator.gd")
-const NPC_LEISURE_PLANNER: GDScript = preload("res://scripts/npc/NPCLeisurePlanner.gd")
-const NPC_COMPANIONSHIP: GDScript = preload("res://scripts/npc/NPCCompanionship.gd")
-const NPC_ATTENTION_CONTROLLER: GDScript = preload("res://scripts/npc/NPCAttentionController.gd")
-const NPC_METRICS: GDScript = preload("res://scripts/npc/NPCMetrics.gd")
-const NPC_DYNAMIC_OBSTACLE_MAP: GDScript = preload("res://scripts/npc/NPCDynamicObstacleMap.gd")
-## NPC.gd  (rewritten in NPC Pass 2, Part 1 — navmesh locomotion)
-## Wanders the dug-out bunker using real NavigationAgent3D pathfinding over
-## BunkerNavMesh's runtime-baked navmesh, and can be talked to via [E].
+## NPC.gd — a bunker resident.
 ##
-## Collision note (unchanged from Pass 1): deliberately on Godot's DEFAULT
-## collision_layer/collision_mask (1/1), like Player.gd. All placed solids
-## use collision_layer = 5 (includes bit 1), so default collision already
-## hits everything. Never set custom layers here.
+## Composition (Sep 2026 structure):
+##   brain      NPCBrain           utility-AI activity selection (NPCBrain.gd)
+##   medical    NPCMedical         conditions / symptoms (Node child)
+##   thoughts   NPCThoughts        event-driven mood modifiers
+##   stuck      NPCStuckRecovery   travel-stall detection & safe recovery
+##   job_state  NPCJobState        cross-session "this didn't work" memory
+## This file owns the resident's state (needs, personality, mood,
+## relationships...), locomotion, and the small public API activities and
+## UI talk to. Long-form rationale for each system lives in
+## docs/systems/npc/README.md.
 ##
-## Locomotion split: the NavigationAgent3D provides the next XZ waypoint;
-## _physics_process steers toward it and move_and_slide() + gravity own the
-## actual motion and Y. Physics collision stays the hard guarantee — if the
-## navmesh is momentarily stale (mid-rebake after a dig), the NPC bumps and
-## re-targets instead of clipping.
+## Collision: deliberately on Godot's DEFAULT layer/mask (1/1), like
+## Player.gd. All placed solids use collision_layer = 5 (includes bit 1).
 ##
-## FUTURE WORK (unchanged contract from Pass 1):
-##   - current_task / assign_task() / perform_task() — Part 4 fills these.
+## Locomotion: the NavigationAgent3D provides the next XZ waypoint and
+## avoidance; _physics_process steers toward it and move_and_slide() +
+## gravity own the actual motion. Physics collision stays the hard
+## guarantee — if the navmesh is momentarily stale the NPC bumps and
+## NPCStuckRecovery re-paths instead of clipping.
 
 # ─── Tunables ─────────────────────────────────────────────────────────────
 @export var move_speed: float = 2.2
 @export var acceleration: float = 8.0
 @export var npc_name: String = "Survivor"
-@export var arrival_distance: float = 0.5
 @export var idle_time_min: float = 1.5
 @export var idle_time_max: float = 4.0
 
-# ─── Names (Part 23) — fixed 10-name pool, randomly assigned at spawn ─────
-## `npc_name` stays @export'd above with default "Survivor" — that default
-## is also the sentinel _ready() checks to decide whether to randomize (a
-## scene-placed or save-restored NPC that already has a real name is left
-## alone). Collision-avoided against every other currently-live NPC so the
-## Ask-About dialogue below can never be ambiguous about which NPC it
-## means; if the whole pool is somehow already in use (11th+ NPC), repeats
-## are allowed rather than failing.
+## Shared need thresholds — "needs it" means the same thing everywhere.
+const NEED_LOW: float = 55.0      ## below this a need is actively pressing
+const NEED_SATED: float = 90.0    ## drink/eat until at least this when convenient
+const NEED_CRITICAL: float = 15.0 ## wakes a sleeper, interrupts nearly anything
+
+# ─── Names ────────────────────────────────────────────────────────────────
+## `npc_name` defaults to "Survivor" — also the sentinel _ready() uses to
+## decide whether to randomize. Collision-avoided against other live NPCs so
+## "Ask about" is never ambiguous; repeats only once the pool is exhausted.
 const NPC_NAMES: Array[String] = [
 	"Mara", "Dez", "Colton", "Priya", "Finch",
 	"Sable", "Nolan", "Ruth", "Kwame", "Vera",
+	"Ines", "Theo", "Juno", "Abel", "Hana",
+	"Ossian", "Lena", "Marek", "Tova", "Cyrus",
 ]
 
 func _assign_random_name() -> void:
@@ -51,114 +50,144 @@ func _assign_random_name() -> void:
 	for other: Node in get_tree().get_nodes_in_group("npc"):
 		if other != self and is_instance_valid(other) and ("npc_name" in other):
 			used.append(String(other.npc_name))
-	var available: Array[String] = NPC_NAMES.filter(
-		func(n: String) -> bool: return not used.has(n))
+	var available: Array[String] = NPC_NAMES.filter(func(n: String) -> bool: return not used.has(n))
 	if available.is_empty():
 		available = NPC_NAMES
 	npc_name = available[randi() % available.size()]
 
-# ─── Node refs ────────────────────────────────────────────────────────────
+# ─── Node refs / components ───────────────────────────────────────────────
 @onready var collision: CollisionShape3D = $CollisionShape3D
 
 var nav_agent: NavigationAgent3D = null
-var hold_point: Node3D = null       ## NPC's carry anchor (Part 3)
+var hold_point: Node3D = null       ## carry anchor
 var held_item: RigidBody3D = null   ## what's in hand, via PickupableItem.pickup
 
-## Debug-only navigation flight recorder state. The velocity snapshots are
-## cheap scalar assignments; the bounded sample ring is populated only while
-## NPCDebug.navigation_trace_enabled is explicitly on.
-const NAV_TRACE_SAMPLE_INTERVAL: float = 0.25
-const NAV_TRACE_CAPACITY: int = 48
-const NAV_TRACE_NEARBY_RADIUS: float = 4.0
-var _last_preferred_nav_velocity: Vector3 = Vector3.ZERO
-var _last_safe_nav_velocity: Vector3 = Vector3.ZERO
-var _nav_trace_elapsed: float = 0.0
-var _nav_trace_samples: Array[Dictionary] = []
-var _last_stuck_recovery_stage: String = "none"
+var brain: NPCBrain = null
+var medical: NPCMedical = null
+var job_state: NPCJobState = NPCJobState.new()
+var thoughts: NPCThoughts = NPCThoughts.new()
+var stuck: NPCStuckRecovery = NPCStuckRecovery.new()
 
-# ─── State ────────────────────────────────────────────────────────────────
-enum NPCState { IDLE, WANDERING }
-var _state: NPCState = NPCState.IDLE
-var _idle_timer: float = 0.0
-var _stuck_check_timer: float = 0.0
-var _stuck_check_last_pos: Vector3 = Vector3.ZERO
-var _supply_cleanup_priority_boost: bool = false
+## True once apply_save_dict() has populated this NPC — _ready() must not
+## re-randomize identity for a restored resident.
+var _restored: bool = false
 
-## FUTURE WORK: Part 4's task system. Do not wire anything into this yet.
-var current_task: Node = null
-
-# ─── Needs (Part 2) — 0..100, decay on the game clock ─────────────────────
+# ─── Needs — 0..100, decay on the game clock ──────────────────────────────
 var energy: float = 100.0
-var hunger: float = 100.0   ## 100 = full, 0 = starving (matches PlayerStats' food convention)
+var hunger: float = 100.0   ## 100 = full, 0 = starving (PlayerStats' food convention)
 var thirst: float = 100.0   ## 100 = hydrated
 
-## Needs-cap ceilings (Aug 2026, NPC Medical) — mirrors PlayerStats.food_cap/
-## water_cap/sleep_cap exactly, including the same Aug 2026 fix (the
-## current value is actively clamped against the cap every tick in
-## _tick_needs() below, not just blocked from future gains above it —
-## see PlayerStats._tick_needs()'s own comment for the bug this avoids
-## from day one here). Written by NPCMedical's Infection tick, same
-## mechanism as PlayerMedical’s. 100.0 = no reduction.
+## Needs-cap ceilings, written by NPCMedical (Infection). The current value
+## is clamped against the cap every tick, not just blocked from rising.
 var hunger_cap: float = 100.0
 var thirst_cap: float = 100.0
 var energy_cap: float = 100.0
 
 const ENERGY_DRAIN_PER_GAME_HOUR: float = 3.0
-const HUNGER_DRAIN_PER_GAME_HOUR: float = 1.39  ## matches PlayerStats.food_drain_per_game_hour (Part 12 fix — was 3.4, a wrong number, not a deliberate 2.4x-faster choice)
-const THIRST_DRAIN_PER_GAME_HOUR: float = 2.08  ## matches PlayerStats.water_drain_per_game_hour
+const HUNGER_DRAIN_PER_GAME_HOUR: float = 1.39  ## == PlayerStats.food_drain_per_game_hour
+const THIRST_DRAIN_PER_GAME_HOUR: float = 2.08  ## == PlayerStats.water_drain_per_game_hour
 
-# ─── Health (Part 14) ───────────────────────────────────────────────────────
 var health: float = 100.0
-## Only drains while Hunger OR Thirst sits at literal 0 (not 25%/50%) — each
-## zeroed need contributes its own drain, so being out of both food AND
-## water drains faster than being out of just one (Brannon's stacking rule).
-## "Slowly," per spec: ~20 real-game-hours to fully die from one zeroed need.
+## Drains only while hunger or thirst sits at literal 0; each zeroed need
+## stacks its own drain (~20 game hours to die from one).
 const HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR: float = 5.0
 
-## Sep 2026 — permanent death. Set when health reaches 0; the model controller
-## plays the one-shot "dying" clip and freezes on its final frame (the corpse).
-## A dead NPC stops all behavior (no needs/brain/wander), locks movement, and
-## drops its held item — it stays in place permanently.
-var dead: bool = false
-
-func is_dead() -> bool:
-	return dead
-
-## Transition into the permanent death state. Called when health hits 0.
-func die() -> void:
-	if dead:
-		return
-	dead = true
-	lock_movement()
-	## The corpse is visual-only — drop collision so the standing-height capsule
-	## doesn't leave an invisible wall over the collapsed body.
-	collision_layer = 0
-	collision_mask  = 0
-	if held_item != null:
-		NPCItemUser.drop_held(self)
-	if brain != null:
-		brain.stop_current()
-	log_action("Died")
-
-# ─── Personality / mood / irritability (Part 20) ───────────────────────────
+# ─── Identity ───────────────────────────────────────────────────────────
+## Stable unique id (relationship key). Assigned in _ready(); overwritten by
+## apply_save_dict() on load, which also keeps the counter ahead of it.
+static var _next_npc_id: int = 1
+var npc_id: String = ""
 var generation_seed: int = 0
 
-## 5 optional traits, 0.0–1.0, generated at spawn and persisted. Resilience
-## affects irritability/forgetfulness, sociability affects relationship and
-## talk behavior, work ethic biases utility scores, neuroticism scales mood
-## volatility, and optimism scales mood recovery.
+static func _register_id(id: String) -> void:
+	if id.begins_with("npc_"):
+		var n: int = id.substr(4).to_int()
+		if n >= _next_npc_id:
+			_next_npc_id = n + 1
+
+# ─── Age & birthday ───────────────────────────────────────────────────────
+## 20–80, 66% in the 30–50 prime band; the rest split 25/75 between the
+## 20–29 and 51–80 bands (proportional to band width). 65+ moves and works
+## at 0.75x. On their birthday the age silently ticks up — nothing else
+## happens, by design.
+var age: int = 35
+const AGE_ELDER_THRESHOLD: int = 65
+const AGE_ELDER_MULT: float = 0.75
+var _birthday_day_of_year: int = 1
+var _birthday_last_checked_day: int = -1
+
+func randomize_age() -> void:
+	if randf() < 0.66:
+		age = randi_range(30, 50)
+	elif randf() < 0.25:
+		age = randi_range(20, 29)
+	else:
+		age = randi_range(51, 80)
+
+func is_elder() -> bool:
+	return age >= AGE_ELDER_THRESHOLD
+
+func get_age_speed_mult() -> float:
+	return AGE_ELDER_MULT if is_elder() else 1.0
+
+func get_age_work_mult() -> float:
+	return AGE_ELDER_MULT if is_elder() else 1.0
+
+func _check_birthday() -> void:
+	var day: int = NPCClock.day()
+	if day == _birthday_last_checked_day:
+		return
+	_birthday_last_checked_day = day
+	if ((day - 1) % 365) + 1 == _birthday_day_of_year:
+		age += 1
+
+# ─── Daily rhythm ───────────────────────────────────────────────────────
+## Everyone sleeps at night, but not all at the same minute: `chronotype`
+## shifts this resident's bedtime/wake time (early birds ↔ night owls).
+const BEDTIME_HOUR: float = 22.0
+const WAKE_HOUR: float = 6.5
+var chronotype: float = 0.0   ## hours, -1.5 .. +1.5
+
+func get_bedtime() -> float:
+	return BEDTIME_HOUR + chronotype
+
+func get_wake_time() -> float:
+	return WAKE_HOUR + chronotype * 0.7
+
+func is_night_for_me() -> bool:
+	return NPCClock.hour_in(NPCClock.hour_of_day(), get_bedtime(), get_wake_time())
+
+## How strongly this resident wants to sleep right now, 0..1. Night makes
+## sleep attractive even when not exhausted; in the day only real
+## exhaustion does (a nap).
+func get_sleep_drive() -> float:
+	var tired: float = urgency(energy, 70.0, 5.0)
+	var exhausted: float = urgency(energy, 28.0, 3.0)
+	if is_night_for_me():
+		## Nobody turns in for the night an hour before they'd get up anyway.
+		var hours_left: float = fposmod(get_wake_time() - NPCClock.hour_of_day(), 24.0)
+		if hours_left < 1.5:
+			return exhausted
+		if energy >= 92.0:
+			return 0.0
+		var drive: float = clampf(0.45 + 0.55 * tired, 0.0, 1.0)
+		## Grab a bite / a drink before turning in, unless dead on their feet.
+		if (hunger < 50.0 or thirst < 55.0) and exhausted < 0.5:
+			drive *= 0.6
+		return drive
+	return exhausted
+
+# ─── Personality ──────────────────────────────────────────────────────────
+## 5 traits, 0..1, generated once. Each trait is present on ~55% of NPCs;
+## a present trait is always clearly low or high, an absent one reads as
+## the 0.5 baseline everywhere via personality.get(key, 0.5).
 var personality: Dictionary = {}
-var behavior_profile: RefCounted = null
-var leisure_planner: RefCounted = null
-var attention_controller: Node = null
 const PERSONALITY_TRAIT_KEYS: Array[String] = [
 	"resilience", "sociability", "work_ethic", "neuroticism", "optimism",
 ]
-## word band thresholds — shared by trait words AND the Irritable-trait
-## breakpoint-shift classification below, so "has the Irritable trait" means
-## exactly the same thing everywhere it's checked.
 const TRAIT_BAND_LOW: float = 0.35
 const TRAIT_BAND_HIGH: float = 0.65
+const TRAIT_PRESENCE_CHANCE: float = 0.55
 const TRAIT_WORDS: Dictionary = {
 	"resilience":  {"low": "Irritable",   "mid": "Even-Tempered", "high": "Level-Headed"},
 	"sociability": {"low": "Distant",     "mid": "Reserved",      "high": "Open"},
@@ -167,206 +196,19 @@ const TRAIT_WORDS: Dictionary = {
 	"optimism":    {"low": "Pessimistic", "mid": "Realistic",     "high": "Optimistic"},
 }
 
-# ─── Shared Randomness Helpers (Aug 2026 consistency pass) ──────────────────
-## Centralizes two patterns that were being reimplemented slightly
-## differently in multiple places — existing per-mechanic constants
-## (SNATCH_CHANCE_AT_THRESHOLD, etc.) are unchanged, only the FORMULA
-## itself is now shared instead of duplicated.
-
-func _random_sign() -> float:
-	return 1.0 if randf() < 0.5 else -1.0
-
-## direction = +1.0 for "chance increases as value rises above threshold"
-## (Give-to-Friend), -1.0 for "chance increases as value falls below
-## threshold" (Snatch). Handles both with one formula.
-func _threshold_scaled_chance(value: float, threshold: float, extreme: float,
-		chance_at_threshold: float, chance_at_extreme: float, direction: float) -> float:
-	if direction > 0.0 and value < threshold:
-		return 0.0
-	if direction < 0.0 and value > threshold:
-		return 0.0
-	var span: float = extreme - threshold
-	if absf(span) < 0.0001:
-		return chance_at_threshold
-	var t: float = clampf((value - threshold) / span, 0.0, 1.0)
-	return lerp(chance_at_threshold, chance_at_extreme, t)
-
-## ─── Identity (Part 22) — stable unique id, used as the relationship key ──
-## Not the same thing as generation_seed (that's for personality/skill RNG,
-## not identity). Auto-assigned on first _ready(); overwritten by
-## MainWorld._restore_npcs() on load, which also calls _register_id() to
-## keep the counter ahead of every restored id so a freshly-spawned NPC in
-## the same session can never collide with one loaded from a save.
-static var _next_npc_id: int = 1
-var npc_id: String = ""
-
-static func _register_id(id: String) -> void:
-	if id.begins_with("npc_"):
-		var n: int = id.substr(4).to_int()
-		if n >= _next_npc_id:
-			_next_npc_id = n + 1
-
-# ─── Age (Aug 2026) ────────────────────────────────────────────────────────
-## Random at spawn: 20-80, weighted so 66% land in the 30-50 "prime" band
-## (Brannon's spec). The remaining 34% splits proportionally by band
-## WIDTH across the two flanking ranges — 20-29 is 10 years wide, 51-80
-## is 30 years wide, so the wider band gets 3x the share (25%/75% of the
-## 34%) — rather than an even split, which would otherwise make the
-## older band feel artificially sparse (30 years of age compressed into
-## the same probability mass as 10). Fixed for the NPC's life apart from
-## birthdays (below).
-var age: int = 35
-
-const AGE_PRIME_CHANCE: float = 0.66
-const AGE_PRIME_MIN: int = 30
-const AGE_PRIME_MAX: int = 50
-const AGE_YOUNG_MIN: int = 20
-const AGE_YOUNG_MAX: int = 29
-const AGE_OLD_MIN: int = 51
-const AGE_OLD_MAX: int = 80
-## Share of the 34% "outside the prime band" roll that goes to the
-## YOUNG range specifically — 10/(10+30) width ratio against OLD.
-const AGE_YOUNG_SHARE_OF_REMAINDER: float = 0.25
-
-## 65+ gets a flat 0.75x penalty to movement and work speed (Brannon's
-## spec) — see get_age_speed_mult()/get_age_work_mult() below.
-const AGE_ELDER_THRESHOLD: int = 65
-const AGE_ELDER_MULT: float = 0.75
-
-func randomize_age() -> void:
-	if randf() < AGE_PRIME_CHANCE:
-		age = randi_range(AGE_PRIME_MIN, AGE_PRIME_MAX)
-	elif randf() < AGE_YOUNG_SHARE_OF_REMAINDER:
-		age = randi_range(AGE_YOUNG_MIN, AGE_YOUNG_MAX)
-	else:
-		age = randi_range(AGE_OLD_MIN, AGE_OLD_MAX)
-
-func is_elder() -> bool:
-	return age >= AGE_ELDER_THRESHOLD
-
-## Applied inside get_status_speed_multiplier() below — movement is the
-## one central point every activity's travel already routes through
-## (nav_steer()), so this composes automatically with the existing
-## energy/hunger/thirst/mood multipliers there.
-func get_age_speed_mult() -> float:
-	return AGE_ELDER_MULT if is_elder() else 1.0
-
-## No equivalent single "work tick" hook exists (each session activity —
-## JobActivity/RefuelActivity/GardeningActivity — hand-rolls its own work
-## timer countdown) — applied directly at each of those, multiplying the
-## effective delta so an elder's labor takes proportionally longer.
-func get_age_work_mult() -> float:
-	return AGE_ELDER_MULT if is_elder() else 1.0
-
-# ─── Birthdays (Aug 2026) ───────────────────────────────────────────
-## One random day of the year (1-365), rolled once at spawn. On that day,
-## age silently increments by 1 — per Brannon's explicit instruction, the
-## number going up in the identity bar is the ONLY player-facing effect.
-## No notification, no Action Log entry, no dialogue acknowledgment,
-## nothing else fires at all.
-var _birthday_day_of_year: int = 1
-var _birthday_last_checked_day: int = -1
-
-func _roll_birthday() -> void:
-	_birthday_day_of_year = randi_range(1, 365)
-
-## Checked from _tick_mood_and_irritability()'s existing 5-real-second
-## cadence — a once-a-game-day event needs nothing faster.
-## PlayerStats.current_day is the single shared day counter for the whole
-## game (starts at 1, never resets/wraps itself) — day-of-year is derived
-## here via modulo, so a birthday correctly recurs every subsequent
-## in-game year without any extra bookkeeping.
-func _check_birthday() -> void:
-	var stats: Node = get_tree().get_first_node_in_group("player_stats")
-	if stats == null or not ("current_day" in stats):
-		return
-	var day: int = int(stats.current_day)
-	if day == _birthday_last_checked_day:
-		return
-	_birthday_last_checked_day = day
-	var day_of_year: int = ((day - 1) % 365) + 1
-	if day_of_year == _birthday_day_of_year:
-		age += 1
-
-# ─── Time-Skip Catch-Up (Aug 2026) ──────────────────────────────────────────
-## Called once by each skip source (F7 Fast-Forward, sleep) right next to
-## its existing skip_time_with_drain() call — see AdminMenu.gd/
-## SleepOverlay.gd. Any FUTURE skip source needs to call this too; nothing
-## here happens automatically off the game clock.
-const MAX_CATCHUP_HOURS: float = 72.0   ## hard sanity ceiling regardless of what's requested
-
-static func catch_up_all(hours: float) -> void:
-	var h: float = clampf(hours, 0.0, MAX_CATCHUP_HOURS)
-	if h <= 0.0:
-		return
-	var tree: SceneTree = Engine.get_main_loop() as SceneTree
-	if tree == null:
-		return
-	var npcs: Array = tree.get_nodes_in_group("npc")
-
-	## Mood contagion snapshot — average taken BEFORE any catch-up changes
-	## anyone's mood, so every NPC pulls toward the same pre-skip picture
-	## of the bunker rather than a moving target as each one gets processed.
-	var mood_total: float = 0.0
-	var mood_count: int = 0
-	for n: Node in npcs:
-		if is_instance_valid(n) and ("mood" in n):
-			mood_total += float(n.mood)
-			mood_count += 1
-	var avg_mood_before: float = (mood_total / mood_count) if mood_count > 0 else 50.0
-
-	## Harvest — snapshot every plant ready RIGHT NOW, once, before any
-	## NPC starts consuming from the pool. One harvested plant = one
-	## "job," NOT one JobBoard tray-job (a tray can hold several ready
-	## plants at once — see JobBoard._scan_harvest()).
-	var ready_plants: Array = []
-	for tray: Node in tree.get_nodes_in_group("farming_tray"):
-		if not is_instance_valid(tray) or not ("plant_refs" in tray):
-			continue
-		for plant in tray.plant_refs:
-			if plant != null and is_instance_valid(plant) and plant.has_method("is_ready") and plant.is_ready():
-				ready_plants.append(plant)
-
-	var jobs_per_npc: int = int(floor(h))
-	var pool_index: int = 0
-	for n: Node in npcs:
-		if not is_instance_valid(n):
-			continue
-		var completed: int = 0
-		while completed < jobs_per_npc and pool_index < ready_plants.size():
-			var raw_plant: Variant = ready_plants[pool_index]
-			pool_index += 1
-			## Validation must precede the typed assignment: harvested plants
-			## remain as freed Object Variants in this snapshot.
-			if not is_instance_valid(raw_plant) or not (raw_plant is Node):
-				continue
-			var plant: Node = raw_plant
-			if plant.is_queued_for_deletion():
-				continue
-			if plant.has_method("is_ready") and plant.is_ready() and plant.has_method("harvest"):
-				plant.harvest()
-				completed += 1
-		if n.has_method("catch_up_time"):
-			n.catch_up_time(h, avg_mood_before)
-
-## Chance any given trait slot is actually present (a notable quirk) at
-## all, rather than baseline/absent. Not guaranteed per-NPC — an NPC
-## could rarely end up with 0 traits or all 5, most land in between.
-const TRAIT_PRESENCE_CHANCE: float = 0.55
-
 func randomize_personality() -> void:
 	personality = {}
 	for k: String in PERSONALITY_TRAIT_KEYS:
 		if randf() >= TRAIT_PRESENCE_CHANCE:
-			continue   ## absent entirely — every _*_trait_mult()'s .get(key, 0.5) default already means baseline
-		## A PRESENT trait is by definition not neutral — skew into the
-		## low or high band, never the dead middle.
-		personality[k] = randf_range(0.0, TRAIT_BAND_LOW) if _random_sign() > 0.0 \
-			else randf_range(TRAIT_BAND_HIGH, 1.0)
+			continue
+		personality[k] = randf_range(0.0, TRAIT_BAND_LOW) if randf() < 0.5 else randf_range(TRAIT_BAND_HIGH, 1.0)
+
+func _trait(key: String) -> float:
+	return float(personality.get(key, 0.5))
 
 func get_trait_word(key: String) -> String:
 	if not personality.has(key):
-		return ""   ## baseline — no notable trait, nothing to show
+		return ""
 	var v: float = float(personality[key])
 	var bands: Dictionary = TRAIT_WORDS.get(key, {})
 	if bands.is_empty():
@@ -375,10 +217,8 @@ func get_trait_word(key: String) -> String:
 		return bands["low"]
 	elif v > TRAIT_BAND_HIGH:
 		return bands["high"]
-	return bands["mid"]   ## shouldn't be reachable given generation above; kept as a safe fallback
+	return bands["mid"]
 
-## E-panel display order — up to 5 descriptive words (only the traits that
-## are actually present), never raw numbers.
 func get_personality_words() -> Array[String]:
 	var out: Array[String] = []
 	for k: String in PERSONALITY_TRAIT_KEYS:
@@ -388,58 +228,134 @@ func get_personality_words() -> Array[String]:
 	return out
 
 func has_irritable_trait() -> bool:
-	return float(personality.get("resilience", 0.5)) < TRAIT_BAND_LOW
+	return _trait("resilience") < TRAIT_BAND_LOW
 
-## How much the Resilience trait amplifies (Irritable) or dampens
-## (Level-Headed) irritability generation AND forgetfulness from the SAME
-## need/mood conditions. 1.0 at neutral (0.5) resilience.
+func has_lazy_trait() -> bool:
+	return _trait("work_ethic") < TRAIT_BAND_LOW
+
+## Resilience: amplifies (Irritable) / dampens (Level-Headed) irritability
+## and forgetfulness from the same conditions. 1.0 at baseline.
 func _irritability_trait_mult() -> float:
-	return lerp(1.5, 0.5, float(personality.get("resilience", 0.5)))
+	return lerp(1.5, 0.5, _trait("resilience"))
 
-## Optimism scales mood RECOVERY speed only (not decline) — a pessimistic
-## NPC takes longer to bounce back from a bad mood; an optimistic one
-## recovers faster. 1.0 at neutral (0.5) optimism.
+## Optimism scales mood RECOVERY only.
 func _mood_recovery_trait_mult() -> float:
-	return lerp(0.5, 1.5, float(personality.get("optimism", 0.5)))
+	return lerp(0.5, 1.5, _trait("optimism"))
 
-# ─── Mood (Part 20) — 0..100, moves SLOWLY (day-scale, not minute-scale) ───
+## Sociability: relationship-change magnitude (0.5x..1.5x).
+func _sociability_trait_mult() -> float:
+	return lerp(0.5, 1.5, _trait("sociability"))
+
+## Sociability: how much THIS NPC's mood is pulled toward the group's.
+func get_contagion_sociability_mult() -> float:
+	return lerp(0.67, 1.33, _trait("sociability"))
+
+## Work Ethic: ±30% on job scores, mirrored on idle activities.
+func get_work_ethic_job_mult() -> float:
+	return lerp(0.7, 1.3, _trait("work_ethic"))
+
+func get_work_ethic_passive_mult() -> float:
+	return lerp(1.3, 0.7, _trait("work_ethic"))
+
+## Neuroticism: mood noise and the pass-out mood hit (0.5x..1.5x).
+func neuroticism_trait_mult() -> float:
+	return lerp(0.5, 1.5, _trait("neuroticism"))
+
+## How strongly a thought lands: optimists feel good things more,
+## neurotic residents feel bad things more.
+func thought_weight(mood_delta: float) -> float:
+	if mood_delta >= 0.0:
+		return lerp(0.75, 1.25, _trait("optimism"))
+	return lerp(0.75, 1.3, _trait("neuroticism"))
+
+func add_thought(id: String, subject: String = "") -> void:
+	var def: Dictionary = NPCThoughts.DEFS.get(id, {})
+	if def.is_empty():
+		return
+	thoughts.add(id, subject, thought_weight(float(def["mood"])))
+
+# ─── Utility helpers (shared by every activity's score()) ────────────────
+## 0 while `value` ≥ `start`, 1 once `value` ≤ `full`, smoothstepped in
+## between. The standard response curve for "the lower this gets, the more
+## it matters" — replaces the old hard on/off need thresholds that made an
+## NPC ignore hunger at 56 and drop everything for it at 54.
+static func urgency(value: float, start: float, full: float) -> float:
+	if value >= start:
+		return 0.0
+	if value <= full:
+		return 1.0
+	var t: float = (start - value) / (start - full)
+	return t * t * (3.0 - 2.0 * t)
+
+## Score scale (Sep 2026 — one scale for everything):
+##   idle        ~5–15   (wander, relax, chat, give to a friend)
+##   chores      ~15–35  (cleaning grows with clutter, gardening, cooking...)
+##   urgent jobs ~35–60  (a generator about to run dry, a failing filter)
+##   needs        0–100  (eat/drink/sleep follow urgency curves)
+const JOB_BASE_SCORE: float = 20.0
+const JOB_PRIORITY_WEIGHTS: Dictionary = {
+	"HARVEST": 1.3,
+	"REPLACE_FILTER": 1.0,
+	"REFUEL": 1.0,
+	"CLEANING": 1.0,     ## its clutter curve already encodes the low priority
+	"GARDENING": 0.8,
+	"COOKING": 0.95,
+}
+const JOB_PRIORITY_DEFAULT: float = 1.0
+const JOB_SKILL: Dictionary = {
+	"HARVEST": "farming", "GARDENING": "farming", "REPLACE_FILTER": "plumbing",
+	"REFUEL": "electrical", "COOKING": "cooking", "CLEANING": "",
+}
+
+func get_job_priority_weight(job_type: String) -> float:
+	return float(JOB_PRIORITY_WEIGHTS.get(job_type, JOB_PRIORITY_DEFAULT))
+
+## Standard job score: base × priority × urgency × work ethic × a small
+## skill preference × willingness (irritable people drag their feet).
+func work_score(job_type: String, urgency_mult: float = 1.0, base: float = JOB_BASE_SCORE) -> float:
+	var skill_key: String = String(JOB_SKILL.get(job_type, ""))
+	var skill_pref: float = 1.0
+	if skill_key != "" and skills.has(skill_key):
+		skill_pref = lerp(0.9, 1.15, clampf((float(skills[skill_key]) - 0.6) / 1.4, 0.0, 1.0))
+	var willingness: float = 1.0 - (irritability / 100.0) * 0.5
+	return base * get_job_priority_weight(job_type) * urgency_mult * get_work_ethic_job_mult() \
+		* skill_pref * willingness
+
+## How fast this resident gets physical work done (age, injuries, skill).
+## Every job's work timer multiplies its delta by this.
+func get_work_speed_mult(skill_key: String = "") -> float:
+	var m: float = get_age_work_mult()
+	if medical != null:
+		m *= medical.get_medical_job_speed_multiplier()
+	if skill_key != "" and skills.has(skill_key):
+		m *= lerp(0.85, 1.25, clampf((float(skills[skill_key]) - 0.6) / 1.4, 0.0, 1.0))
+	if mood < 25.0:
+		m *= 0.85
+	return m
+
+# ─── Mood (0..100, moves slowly) & irritability (fast, no bar) ────────────
 var mood: float = 100.0
-## Needs at/above this average = "fine" — mood drifts back toward 100.
-## Below it, mood's target tracks the needs average down proportionally.
-const MOOD_FINE_THRESHOLD: float = 70.0
+## Contented baseline mood when every need is comfortable, before thoughts.
+## Thoughts (NPCThoughts) push it up or down from there.
+const MOOD_CONTENT_BASELINE: float = 82.0
 const MOOD_CHANGE_PER_GAME_HOUR: float = 4.0
-## Fraction of the gap to the average of every OTHER NPC's mood closed per
-## game-hour — global range by design (small bunkers; every NPC should be
-## able to pull every other one, compounding into spirals either direction).
 const MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR: float = 0.03
-## Small random wobble — "more than noise, not enough to drastically shift
-## moods" per spec. Symmetric, so it's pure noise on average, not a bias.
 const MOOD_DRIFT_MAX_PER_GAME_HOUR: float = 1.0
-const MOOD_TICK_INTERVAL: float = 5.0   ## periodic, not per-frame — cheap,
-										## and paces debug output sensibly
+const MOOD_TICK_INTERVAL: float = 5.0   ## real seconds — periodic, not per-frame
 var _mood_tick_timer: float = 0.0
-
-## Last tick's per-source contribution — inspectable so mood changes are
-## NEVER ambiguous about why (Brannon's explicit requirement). Printed by
-## NPCDebug every tick when debug logging is enabled.
 var _mood_needs_delta: float = 0.0
 var _mood_contagion_delta: float = 0.0
 var _mood_drift_delta: float = 0.0
 
-# ─── Irritability (Part 20) — 0..100%, reacts FASTER than mood, no UI bar ──
-## Backend-only. Surfaces solely via get_status_labels()' Grumpy/Frustrated/
-## Mad/Rage word (+ a debug-only % suffix) — never its own bar, per spec.
 var irritability: float = 0.0
-const IRRITABILITY_NEED_WEIGHT: float = 1.2    ## bigger weight than mood
-const IRRITABILITY_MOOD_WEIGHT: float = 0.4    ## smaller weight than needs
-const IRRITABILITY_CHANGE_PER_GAME_HOUR: float = 20.0   ## reacts much faster than mood
+const IRRITABILITY_NEED_WEIGHT: float = 1.2
+const IRRITABILITY_MOOD_WEIGHT: float = 0.4
+const IRRITABILITY_CHANGE_PER_GAME_HOUR: float = 20.0
 const IRRITABILITY_BASE_BREAKPOINTS: Array[float] = [20.0, 45.0, 70.0, 90.0]
 const IRRITABILITY_LABELS: Array[String] = ["Grumpy", "Frustrated", "Mad", "Rage"]
-var _irritability_target: float = 0.0   ## debug-inspectable
+var _irritability_target: float = 0.0
 
-## Irritable-trait NPCs cross into each label tier 5% sooner; everyone else's
-## thresholds are raised 10% (per spec — the "raise by 10% except Irritable,
-## which lower by 5%" rule).
+## Irritable-trait NPCs cross each label 5% sooner; everyone else 10% later.
 func _irritability_breakpoints() -> Array[float]:
 	var mult: float = 0.95 if has_irritable_trait() else 1.10
 	var out: Array[float] = []
@@ -455,41 +371,44 @@ func get_irritability_label() -> String:
 			label = IRRITABILITY_LABELS[i]
 	return label
 
-func _tick_mood_and_irritability(delta: float) -> void:
+## Mood target from needs alone: the contented baseline while needs are
+## comfortable, sliding smoothly down as they fall (no cliff at 70).
+func _needs_mood_target() -> float:
+	var needs_avg: float = (energy + hunger + thirst) / 3.0
+	return clampf(MOOD_CONTENT_BASELINE - maxf(0.0, 75.0 - needs_avg) * 1.25, 0.0, 100.0)
+
+func get_mood_target() -> float:
+	return clampf(_needs_mood_target() + thoughts.total(), 0.0, 100.0)
+
+func _tick_social_and_mood(delta: float) -> void:
 	_mood_tick_timer -= delta
 	if _mood_tick_timer > 0.0:
 		return
+	var h: float = NPCClock.game_hours(MOOD_TICK_INTERVAL - _mood_tick_timer)
 	_mood_tick_timer = MOOD_TICK_INTERVAL
-	var h: float = game_hours(MOOD_TICK_INTERVAL)
 	if h <= 0.0:
 		return
+	_update_proximity(h)
+	thoughts.tick(h)
+	_update_condition_thoughts()
 	_tick_mood(h)
 	_tick_irritability(h)
-	_tick_relationships(h)
 	_tick_relax_day(h)
-	_tick_contagion_exposure(h)
+	if gift_saturation > 0.0:
+		gift_saturation = maxf(0.0, gift_saturation - GIFT_SATURATION_DECAY_PER_GAME_HOUR * h)
 	_check_contagion_log()
 	_check_label_crossings()
 	_check_birthday()
+	if NPCDebug.enabled:
+		NPCDebug.log_relationship_tick(self)
 
 func _tick_mood(h: float) -> void:
-	var needs_avg: float = (energy + hunger + thirst) / 3.0
-	var mood_target: float = 100.0 if needs_avg >= MOOD_FINE_THRESHOLD else needs_avg
+	var target: float = get_mood_target()
 	var rate: float = MOOD_CHANGE_PER_GAME_HOUR
-	if mood_target > mood:
+	if target > mood:
 		rate *= _mood_recovery_trait_mult()
-		## Part 21 — needs being only BARELY "fine" (just above
-		## MOOD_FINE_THRESHOLD) mildly slow recovery too, not just a binary
-		## on/off switch at the threshold. Comfortably-fine needs (near 100)
-		## recover at full speed; needs right at the threshold recover ~15%
-		## slower. Deliberately no status label — this is a background
-		## nuance for a future tutorial to explain, not something that
-		## needs surfacing moment-to-moment.
-		var needs_headroom: float = clampf(
-			(needs_avg - MOOD_FINE_THRESHOLD) / (100.0 - MOOD_FINE_THRESHOLD), 0.0, 1.0)
-		rate *= lerp(0.85, 1.0, needs_headroom)
 	var before: float = mood
-	mood = move_toward(mood, mood_target, rate * h)
+	mood = move_toward(mood, target, rate * h)
 	_mood_needs_delta = mood - before
 
 	before = mood
@@ -508,45 +427,43 @@ func _tick_irritability(h: float) -> void:
 	var need_contrib: float = maxf(0.0, 50.0 - energy) + maxf(0.0, 50.0 - hunger) + maxf(0.0, 50.0 - thirst)
 	var mood_contrib: float = maxf(0.0, 50.0 - mood)
 	var trait_mult: float = _irritability_trait_mult()
-	var target: float = clampf(
-		(need_contrib * IRRITABILITY_NEED_WEIGHT + mood_contrib * IRRITABILITY_MOOD_WEIGHT) * trait_mult,
-		0.0, 100.0)
-	_irritability_target = target
-	irritability = move_toward(irritability, target, IRRITABILITY_CHANGE_PER_GAME_HOUR * h)
-
+	_irritability_target = clampf(
+		(need_contrib * IRRITABILITY_NEED_WEIGHT + mood_contrib * IRRITABILITY_MOOD_WEIGHT) * trait_mult, 0.0, 100.0)
+	irritability = move_toward(irritability, _irritability_target, IRRITABILITY_CHANGE_PER_GAME_HOUR * h)
 	if NPCDebug.enabled:
-		NPCDebug.log_irritability(self, need_contrib, mood_contrib, trait_mult, target, irritability)
+		NPCDebug.log_irritability(self, need_contrib, mood_contrib, trait_mult, _irritability_target, irritability)
 
-## FUTURE WORK (Crisis Response pass, explicitly deferred): mood reaching 0
-## is meant to trigger a bunker-wide "Crisis" state, likely an end-game-
-## adjacent scenario per Brannon's framing. Not built — mood just clamps at
-## 0 and sits there for now, same as health's 0 floor.
+## Situational thoughts that hold while a condition lasts.
+const CLUTTER_UPSETS_AT: int = 12
+const LONELY_AFTER_HOURS: float = 30.0
+var _last_social_time: float = -1.0   ## NPCClock hours of the last real conversation
 
-# ─── Relationships (Part 22) — groundwork only, see docs/systems/npc/README ─
-## Directional, from THIS NPC's perspective only. Key is either another
-## NPC's npc_id, or the literal string "player". Value is -100..100, 0 =
-## neutral/unacquainted (absent key reads as 0 via get_relationship() — no
-## need to pre-populate every possible pair). No opposite-direction value is
-## stored anywhere yet (see Future Work in the doc) — this is intentionally
-## one-sided for now, same as mood's contagion is a live read of others'
-## state rather than a stored pairwise value.
+func _update_condition_thoughts() -> void:
+	thoughts.set_condition("cluttered", JobBoard.get_total_clutter_count() >= CLUTTER_UPSETS_AT, thought_weight(-1.0))
+	var hurting: bool = false
+	if medical != null:
+		for c: MedicalCondition in medical.active_conditions:
+			if c.id in ["bleeding", "fractured", "broken", "burn"] or c.is_infected:
+				hurting = true
+				break
+	thoughts.set_condition("in_pain", hurting, thought_weight(-1.0))
+	var now: float = NPCClock.now()
+	if _last_social_time < 0.0:
+		_last_social_time = now
+	var lonely: bool = _trait("sociability") >= 0.35 and now - _last_social_time > LONELY_AFTER_HOURS
+	thoughts.set_condition("lonely", lonely, thought_weight(-1.0))
+
+# ─── Relationships ────────────────────────────────────────────────────────
+## Directional, from THIS NPC's perspective. Key = another NPC's npc_id or
+## "player". -100..100, 0 = neutral (absent key reads as 0).
 var relationships: Dictionary = {}
 const RELATIONSHIP_MIN: float = -100.0
 const RELATIONSHIP_MAX: float = 100.0
-## 5 bands off 4 thresholds, same pattern as irritability's breakpoints.
 const RELATIONSHIP_BAND_THRESHOLDS: Array[float] = [-60.0, -20.0, 20.0, 60.0]
 const RELATIONSHIP_LABELS: Array[String] = ["Hostile", "Cold", "Neutral", "Friendly", "Close"]
-
-## Baseline mechanic for this pass: passive proximity. Anything else
-## (giving items, crisis help, compliance, etc. — see Future Work) plugs
-## into _adjust_relationship() the exact same way once built.
-const RELATIONSHIP_PROXIMITY_RANGE: float = 4.0   ## meters, XZ-only
-## Reduced 2.0 → 0.15 (Aug 2026, Part 27) — the original value maxed a
-## relationship out from ordinary cohabitation alone in ~2 in-game days,
-## making every other relationship driver (Give/Takeaway, Sociability)
-## irrelevant by comparison. At 0.15/hour, ~4 hrs/day of realistic
-## overlap lands around "Friendly" (not maxed) after a full 100-day
-## playthrough — see the plan doc for the full reasoning.
+## "Together" = within this XZ range AND in line of sight (Sep 2026 — a
+## wall between two people no longer counts as spending time together).
+const RELATIONSHIP_PROXIMITY_RANGE: float = 4.0
 const RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR: float = 0.15
 
 func get_relationship(target_id: String) -> float:
@@ -559,160 +476,135 @@ func get_relationship_label(target_id: String) -> String:
 			return RELATIONSHIP_LABELS[i]
 	return RELATIONSHIP_LABELS[RELATIONSHIP_LABELS.size() - 1]
 
-## Sociability trait tie-in (first mechanical use of the trait — previously
-## generated/displayed only). Low sociability = slower to form bonds OR
-## grudges either direction; high = faster both ways. Mirrors
-## _mood_recovery_trait_mult()/_irritability_trait_mult()'s lerp pattern.
-func _sociability_trait_mult() -> float:
-	return lerp(0.5, 1.5, float(personality.get("sociability", 0.5)))
+## Single mutation point for every relationship change. Returns the ACTUAL
+## applied delta (post-sociability, post-clamp).
+func _adjust_relationship(target_id: String, delta: float) -> float:
+	if target_id == "" or target_id == npc_id:
+		return 0.0
+	var current: float = get_relationship(target_id)
+	var new_value: float = clampf(current + delta * _sociability_trait_mult(), RELATIONSHIP_MIN, RELATIONSHIP_MAX)
+	relationships[target_id] = new_value
+	return new_value - current
 
-## Separate from _sociability_trait_mult() (0.5x-1.5x, relationship
-## magnitude) — this is its own smaller-range multiplier specifically for
-## mood contagion receptivity: how much THIS NPC's own mood gets pulled
-## toward the group average, not how much they influence others. 0.67x
-## (Distant) to 1.33x (Open), 1.0x at baseline/absent.
-func get_contagion_sociability_mult() -> float:
-	return lerp(0.67, 1.33, float(personality.get("sociability", 0.5)))
+## F7 debug — exact delta, bypassing sociability.
+func debug_adjust_relationship(target_id: String, delta: float) -> void:
+	relationships[target_id] = clampf(get_relationship(target_id) + delta, RELATIONSHIP_MIN, RELATIONSHIP_MAX)
 
+func debug_adjust_player_relationship(delta: float) -> void:
+	debug_adjust_relationship("player", delta)
 
-## Work Ethic (Aug 2026) — ±30% score multiplier on JobActivity, applied
-## directly. Passive/need activities (Wander, Sit, Lie, Eat, Drink) use
-## get_work_ethic_passive_mult() below, its mirror image — so a Lazy NPC
-## doesn't just work less, it visibly prefers wandering/relaxing/eating
-## over an available job by the same margin, and Hard Worker is the
-## opposite.
-func get_work_ethic_job_mult() -> float:
-	return lerp(0.7, 1.3, float(personality.get("work_ethic", 0.5)))
+func _can_see(other: Node3D) -> bool:
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var from: Vector3 = global_position + Vector3(0.0, 0.5, 0.0)
+	var to: Vector3 = other.global_position + Vector3(0.0, 0.5, 0.0)
+	var q: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
+	q.exclude = [get_rid()]
+	q.collision_mask = 1
+	var hit: Dictionary = space.intersect_ray(q)
+	return hit.is_empty() or hit.get("collider") == other or not (hit.get("collider") is StaticBody3D)
 
-func get_work_ethic_passive_mult() -> float:
-	return lerp(1.3, 0.7, float(personality.get("work_ethic", 0.5)))
+## One pass over everyone nearby: relationship proximity gain and mood-
+## contagion exposure (both use the same definition of "together").
+const CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR: float = 0.5
+const CONTAGION_EXPOSURE_DECAY_PER_GAME_HOUR: float = 0.2
+const CONTAGION_EXPOSURE_MAX: float = 5.0
+var _contagion_exposure: Dictionary = {}   ## other npc_id -> 0..CONTAGION_EXPOSURE_MAX
 
-# ─── Job Priority (Aug 2026) ─────────────────────────────────────────────
-## Separate from Work Ethic's job/passive multiplier — this is about how
-## important the TASK is, universally, not whether this NPC feels like
-## working right now. Both multiply together into the final score.
-## FUTURE WORK: Gardening trait → boost "HARVEST" specifically for NPCs
-## who have it; Mechanic trait → boost "REPLACE_FILTER"/"REFUEL" — read
-## `personality` right here once those traits exist, rather than adding a
-## parallel system elsewhere.
-const JOB_PRIORITY_WEIGHTS: Dictionary = {
-	"HARVEST": 1.3,
-	"REPLACE_FILTER": 1.0,
-	"REFUEL": 1.0,
-	"CLEANING": 0.5,
-	"GARDENING": 0.8,
-}
-const JOB_PRIORITY_DEFAULT: float = 1.0
+func _update_proximity(h: float) -> void:
+	var gain: float = RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR * h
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not is_instance_valid(other) or not (other is NPC):
+			continue
+		var id: String = other.npc_id
+		var together: bool = NPCItemUser.flat_distance(global_position, other.global_position) <= RELATIONSHIP_PROXIMITY_RANGE \
+			and _can_see(other)
+		var exposure: float = float(_contagion_exposure.get(id, 0.0))
+		if together:
+			_adjust_relationship(id, gain)
+			exposure = minf(CONTAGION_EXPOSURE_MAX, exposure + CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR * h)
+		else:
+			exposure = maxf(0.0, exposure - CONTAGION_EXPOSURE_DECAY_PER_GAME_HOUR * h)
+		_contagion_exposure[id] = exposure
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player != null and NPCItemUser.flat_distance(global_position, player.global_position) <= RELATIONSHIP_PROXIMITY_RANGE \
+			and _can_see(player):
+		_adjust_relationship("player", gain)
 
-func get_job_priority_weight(job_type: String) -> float:
-	return float(JOB_PRIORITY_WEIGHTS.get(job_type, JOB_PRIORITY_DEFAULT))
+## Exposure-weighted average of other NPCs' moods (own mood if nobody's
+## been around — a no-op target).
+func _compute_weighted_contagion_target() -> float:
+	var weighted_sum: float = 0.0
+	var weight_total: float = 0.0
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other == self or not (other is NPC):
+			continue
+		var exposure: float = float(_contagion_exposure.get(other.npc_id, 0.0))
+		if exposure <= 0.0:
+			continue
+		weighted_sum += float(other.mood) * exposure
+		weight_total += exposure
+	return weighted_sum / weight_total if weight_total > 0.0 else mood
 
-## Neuroticism — scales mood's random per-tick drift AND the one-time
-## mood drop on passing out. 0.5x (Easygoing) to 1.5x (Neurotic), 1.0x
-## at baseline/absent. Public (no underscore) — called from NPCBrain.gd's
-## PassedOutActivity, not just internally.
-func neuroticism_trait_mult() -> float:
-	return lerp(0.5, 1.5, float(personality.get("neuroticism", 0.5)))
-
-# ─── Action Log (Aug 2026) ──────────────────────────────────────────────────
-## Player-facing, curated log of MEANINGFUL things this NPC has done —
-## deliberately NOT a record of routine activity switching (Wander→Eat→
-## Wander etc.). Mirrors NotificationManager/NotificationHistoryUI's
-## pattern (capped array + change signal + live-rebuilding scroll panel)
-## but scoped to one NPC instead of a global feed.
+# ─── Action log ─────────────────────────────────────────────────────────────
+## Player-facing, curated log of MEANINGFUL things this NPC did — not a
+## record of routine activity switching.
 signal action_logged
 
 const ACTION_LOG_MAX_LEN: int = 100
-const CONTAGION_LOG_THRESHOLD: float = 2.0   ## cumulative %, since the last log entry
-
+const CONTAGION_LOG_THRESHOLD: float = 2.0
 var _action_log: Array[Dictionary] = []
 var _contagion_log_accum: float = 0.0
 var _last_irritability_label: String = ""
 var _last_player_relationship_label: String = "Neutral"
 
-## Single append point for every entry. Both timestamp flavors are
-## captured now, not derived later: `fired_at_msec` for the live "Xs ago"
-## display, `game_time` (a snapshot of the HUD clock string) for the
-## hover tooltip.
-func log_action(text: String) -> void:
-	_action_log.append({
+## Entries carry both a live-age stamp (fired_at_msec, for the UI's
+## "Xs ago") and a game-time stamp (stamp_hours / game_time) that survives
+## saving and loading.
+func log_action(text: String) -> Dictionary:
+	var entry: Dictionary = {
 		"text": text,
 		"fired_at_msec": Time.get_ticks_msec(),
-		"game_time": _current_game_time_string(),
-	})
+		"stamp_hours": NPCClock.now(),
+		"game_time": NPCClock.time_string(),
+	}
+	_action_log.append(entry)
 	if _action_log.size() > ACTION_LOG_MAX_LEN:
 		_action_log.pop_front()
 	action_logged.emit()
+	return entry
 
-## Newest-first, matching NotificationManager.get_history()'s convention.
+## Newest-first.
 func get_action_log() -> Array[Dictionary]:
 	var out: Array[Dictionary] = _action_log.duplicate()
 	out.reverse()
 	return out
 
-func _current_game_time_string() -> String:
-	var stats: Node = get_tree().get_first_node_in_group("player_stats")
-	if stats != null and stats.has_method("get_time_display"):
-		return stats.get_time_display()
-	return "?"
-
-# ─── Live Hostile Log Entry (Aug 2026) ──────────────────────────────────────
-var _hostile_log_entry: Dictionary = {}   ## reference to the live entry dict (shared with _action_log), or {} if none active
+var _hostile_log_entry: Dictionary = {}
 var _hostile_start_msec: int = 0
 
-## Called once, from SnatchActivity.enter(), the moment this NPC commits
-## to a target. Appends ONE entry and keeps mutating it in place for the
-## duration (see update_hostile_log()) — never a new entry per tick.
+## Live "HOSTILE for Ns" entry, mutated in place during a snatch pursuit.
 func start_hostile_log() -> void:
 	_hostile_start_msec = Time.get_ticks_msec()
-	var entry: Dictionary = {
-		"text": "%s HOSTILE for 0s" % npc_name,
-		"fired_at_msec": _hostile_start_msec,
-		"game_time": _current_game_time_string(),
-		"is_live_hostile": true,
-	}
-	_action_log.append(entry)
-	if _action_log.size() > ACTION_LOG_MAX_LEN:
-		_action_log.pop_front()
-	_hostile_log_entry = entry
-	action_logged.emit()   ## structural change (new row) — needs the UI to rebuild once
+	_hostile_log_entry = log_action("%s HOSTILE for 0s" % npc_name)
+	_hostile_log_entry["is_live_hostile"] = true
 
-## Called every tick while SnatchActivity is active. Deliberately does
-## NOT emit action_logged — the UI polls and refreshes this specific
-## row's text directly each frame (same pattern already used for "Xs
-## ago" timestamps), avoiding a full log rebuild 60x/second.
 func update_hostile_log() -> void:
 	if _hostile_log_entry.is_empty():
 		return
-	var elapsed_sec: int = int((Time.get_ticks_msec() - _hostile_start_msec) / 1000.0)
-	_hostile_log_entry["text"] = "%s HOSTILE for %ds" % [npc_name, elapsed_sec]
+	_hostile_log_entry["text"] = "%s HOSTILE for %ds" % [npc_name, int((Time.get_ticks_msec() - _hostile_start_msec) / 1000.0)]
 
-## Called once, from SnatchActivity.exit() — freezes the final text and
-## clears the live marker. From this point it's a normal static entry.
 func end_hostile_log() -> void:
 	if not _hostile_log_entry.is_empty():
-		var elapsed_sec: int = int((Time.get_ticks_msec() - _hostile_start_msec) / 1000.0)
-		_hostile_log_entry["text"] = "%s was HOSTILE for %ds" % [npc_name, elapsed_sec]
+		_hostile_log_entry["text"] = "%s was HOSTILE for %ds" % [npc_name, int((Time.get_ticks_msec() - _hostile_start_msec) / 1000.0)]
 		_hostile_log_entry["is_live_hostile"] = false
 	_hostile_log_entry = {}
 
-## Contagion's own per-tick delta (_mood_contagion_delta, already tracked
-## separately inside _tick_mood()) accumulates here; only logged once the
-## cumulative drift since the last log crosses ±2%, so ambient contagion
-## doesn't spam an entry every 5 seconds.
 func _check_contagion_log() -> void:
 	_contagion_log_accum += _mood_contagion_delta
 	if absf(_contagion_log_accum) >= CONTAGION_LOG_THRESHOLD:
-		var verb: String = "rose" if _contagion_log_accum > 0.0 else "fell"
-		log_action("Mood %s %+.0f%% (Mood Contagion)" % [verb, _contagion_log_accum])
+		log_action("Mood %s %+.0f%% (Mood Contagion)" % ["rose" if _contagion_log_accum > 0.0 else "fell", _contagion_log_accum])
 		_contagion_log_accum = 0.0
 
-## Band-crossing detection — logs only on the actual crossing, not every
-## tick the band is held. Irritability (Grumpy/Frustrated/Mad/Rage, and
-## calming back down) and relationship-with-player
-## (Hostile/Cold/Neutral/Friendly/Close) both already have clean labeled
-## bands to compare against; mood doesn't (no small fixed set of bands),
-## so it's deliberately not included here.
 func _check_label_crossings() -> void:
 	var irr_label: String = get_irritability_label()
 	if irr_label != _last_irritability_label:
@@ -721,360 +613,220 @@ func _check_label_crossings() -> void:
 		elif _last_irritability_label != "":
 			log_action("Calmed down (irritability)")
 		_last_irritability_label = irr_label
-
 	var rel_label: String = get_relationship_label("player")
 	if rel_label != _last_player_relationship_label:
 		log_action("Relationship with the player became \"%s\"" % rel_label)
 		_last_player_relationship_label = rel_label
 
-## Single mutation point for every relationship change, present and future
-## — every new driver in Future Work calls this, never writes `relationships`
-## directly, so the sociability multiplier and clamp are never bypassed.
-## Now returns the ACTUAL applied delta (post-Sociability-multiplier,
-## post-clamp) — callers that want to show the real number in the action
-## log (not the pre-multiplier input) need this; everything that already
-## ignores the return value keeps working unchanged.
-func _adjust_relationship(target_id: String, delta: float) -> float:
-	if target_id == "" or target_id == npc_id:
-		return 0.0
-	var current: float = get_relationship(target_id)
-	var new_value: float = clampf(
-		current + delta * _sociability_trait_mult(), RELATIONSHIP_MIN, RELATIONSHIP_MAX)
-	relationships[target_id] = new_value
-	return new_value - current
-
-func _tick_relationships(h: float) -> void:
-	var gain: float = RELATIONSHIP_PROXIMITY_GAIN_PER_GAME_HOUR * h
-	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
-			continue
-		if NPCItemUser.flat_distance(global_position, other.global_position) <= RELATIONSHIP_PROXIMITY_RANGE:
-			_adjust_relationship(other.npc_id, gain)
-	var player: Node = get_tree().get_first_node_in_group("player")
-	if player != null and is_instance_valid(player):
-		if NPCItemUser.flat_distance(global_position, player.global_position) <= RELATIONSHIP_PROXIMITY_RANGE:
-			_adjust_relationship("player", gain)
-	if gift_saturation > 0.0:   ## Part 25 — same tick cadence as everything else here
-		gift_saturation = maxf(0.0, gift_saturation - GIFT_SATURATION_DECAY_PER_GAME_HOUR * h)
-	if NPCDebug.enabled:
-		NPCDebug.log_relationship_tick(self)
-
-## Resets the daily relax budget once a full in-game day (24 game-hours)
-## has elapsed. Same 5s tick cadence as everything else in this function.
-func _tick_relax_day(h: float) -> void:
-	_relax_day_clock += h
-	if _relax_day_clock >= 24.0:
-		_relax_day_clock = fmod(_relax_day_clock, 24.0)
-		_relax_time_used_today = 0.0
-	_relax_cooldown_hours = maxf(0.0, _relax_cooldown_hours - h)
-
-# ─── Mood Contagion Exposure Weighting (Aug 2026) ───────────────────────────
-const CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR: float = 0.5
-const CONTAGION_EXPOSURE_DECAY_PER_GAME_HOUR: float = 0.2
-const CONTAGION_EXPOSURE_MAX: float = 5.0
-var _contagion_exposure: Dictionary = {}   ## other npc_id -> 0..CONTAGION_EXPOSURE_MAX
-
-## Same 5s tick cadence and the SAME proximity range the Relationships
-## system already uses (RELATIONSHIP_PROXIMITY_RANGE) — one consistent
-## definition of "together" across both systems, not a second threshold.
-func _tick_contagion_exposure(h: float) -> void:
-	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
-			continue
-		var id: String = other.npc_id
-		var current: float = float(_contagion_exposure.get(id, 0.0))
-		if NPCItemUser.flat_distance(global_position, other.global_position) <= RELATIONSHIP_PROXIMITY_RANGE:
-			current = minf(CONTAGION_EXPOSURE_MAX, current + CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR * h)
-		else:
-			current = maxf(0.0, current - CONTAGION_EXPOSURE_DECAY_PER_GAME_HOUR * h)
-		_contagion_exposure[id] = current
-
-## Weighted average of every other NPC's mood, weighted by this NPC's
-## accumulated exposure to them. Someone with zero recent exposure
-## contributes nothing at all, not a diluted "everyone counts a little."
-## Returns this NPC's own current mood (a no-op target) if nobody has any
-## exposure yet — e.g. a freshly-spawned NPC with no history.
-func _compute_weighted_contagion_target() -> float:
-	var weighted_sum: float = 0.0
-	var weight_total: float = 0.0
-	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other) or not ("mood" in other) or not ("npc_id" in other):
-			continue
-		var exposure: float = float(_contagion_exposure.get(other.npc_id, 0.0))
-		if exposure <= 0.0:
-			continue
-		weighted_sum += float(other.mood) * exposure
-		weight_total += exposure
-	if weight_total <= 0.0:
-		return mood
-	return weighted_sum / weight_total
-
-## FUTURE WORK — see docs/systems/npc/README.md's Relationships section for
-## the full list (item giving/taking, crisis-response helping behavior,
-## command-compliance feel, personal-space avoidance scaling by
-## relationship, unprompted gift-dropping, dialogue tone reflecting
-## relationship, a Player→NPC reciprocal value). None of that is built —
-## proximity is the only live driver this pass.
-
-# ─── Give / Takeaway (Part 24) ──────────────────────────────────────────────
-## Halved (Aug 2026, Part 27) — relationships should build from many
-## interactions over a long playthrough (100+ in-game days), not swing on
-## a handful of events. Kept symmetric between Give and Takeaway.
+# ─── Give / Takeaway (player ↔ NPC, NPC → NPC) ────────────────────────────
 const GIVE_RELATIONSHIP_BONUS: float = 7.5
 const TAKEAWAY_RELATIONSHIP_PENALTY: float = 7.5
-## Matches EatActivity/DrinkActivity's own auto-trigger threshold
-## (`npc.hunger >= 55.0`/`npc.thirst >= 55.0` → score 0) intentionally —
-## "needs it" means the same thing everywhere in the NPC system.
-const TAKEAWAY_NEED_THRESHOLD: float = 55.0
-
-## Give (player → player-initiated hand-off). Called by InteractionSystem
-## when the player presses E on this NPC while holding a giveable item.
-## Consumed immediately rather than added to held_item — no queue, no
-## "what if they're already full/mid-task" edge cases; this can fire even
-## while the NPC is separately mid-Eat/DrinkActivity with something else
-## in hand, since it never touches `held_item`.
-##
-## Gift burnout (Part 25): repeated gifts in a short window give
-## progressively smaller boosts (`gift_saturation`, 0..1, decays back to 0
-## over ~5 game-days via _tick_relationships()) — closes the "stand there
-## feeding them nonstop" exploit. Never fully zero (GIFT_BONUS_FLOOR_MULT)
-## so a burned-out gift still visibly does *something*, not a dead click.
-##
-## Give (Part 26 update — multi-charge items). Marking is now per-(item,
-## NPC): `npc_gift_recipients` (Array of npc_id strings this exact item
-## instance has already boosted). Same can/bottle CAN still boost several
-## DIFFERENT NPCs once each — only a repeat boost to the SAME NPC is
-## blocked. Meta is written BEFORE any consumption call that might free
-## the node (DishItem/FarmProduceItem's consume_as_food() does), so this
-## stays safe regardless of item type.
-##
-## Consumption always happens even on a repeat gift — still real feeding,
-## just no relationship reward the second time. Single-serving items
-## (Dish/Produce) are destroyed on first give exactly as before, so a
-## repeat is structurally impossible for them; the recipient check exists
-## mainly for FoodCan/WaterBottle, which persist across multiple gifts.
+const TAKEAWAY_NEED_THRESHOLD: float = NEED_LOW
+## Gift burnout — repeated gifts in a short window give smaller boosts
+## (full recovery over ~5 game days), never fully zero.
 const GIFT_SATURATION_MAX: float = 1.0
-const GIFT_SATURATION_PER_GIFT: float = 0.25          ## ~4 gifts in a row reaches full burnout
-const GIFT_SATURATION_DECAY_PER_GAME_HOUR: float = 1.0 / (5.0 * 24.0)   ## full recovery over ~5 game-days
-const GIFT_BONUS_FLOOR_MULT: float = 0.15             ## fully burned out still does *something*
+const GIFT_SATURATION_PER_GIFT: float = 0.25
+const GIFT_SATURATION_DECAY_PER_GAME_HOUR: float = 1.0 / (5.0 * 24.0)
+const GIFT_BONUS_FLOOR_MULT: float = 0.15
 var gift_saturation: float = 0.0
 
-## Pure check, no side effects — called by InteractionSystem BEFORE it
-## attempts the physical transfer, for Give.
-## giver_id defaults to "player" — InteractionSystem.gd's existing call
-## site (target.can_receive_item(item)) needs zero changes.
+## Pure check — called before the physical transfer. giver_id defaults to
+## the player.
 func can_receive_item(item: Node, giver_id: String = "player") -> bool:
 	if item == null or not is_instance_valid(item):
 		return false
-	if held_item != null:
-		return false   ## hands full
+	if NPCItemUser.hands_full(self):
+		return false
 	if is_gift_blocked_from(giver_id):
+		return false
+	if brain != null and brain.is_sleeping():
 		return false
 	return NPCItemUser.is_giveable(item)
 
-## Called AFTER the item has already been physically transferred into
-## held_item (by InteractionSystem.release_held_item_to_npc(), via
-## Give's _try_give_to_nearest_npc()) — wires up the consumption activity
-## and relationship/burnout bookkeeping. Does NOT touch held_item/pickup
-## itself anymore; that's entirely the Player side's job now, since it's
-## the only side with the inventory-slot context needed to clear it
-## correctly.
-## giver_id/giver_name default to the player — the existing player-Give
-## call site (InteractionSystem.gd) calls this with no extra args and
-## needs zero changes. NPC-to-NPC Give (GiveToFriendActivity below)
-## passes the donor's npc_id/npc_name instead, so the relationship boost
-## lands on the ACTUAL giver, not always "player".
+## Called AFTER the item is already in held_item (the giver's side did the
+## transfer). Starts eating/drinking it and applies relationship/burnout.
+## Per-(item, NPC) marking: the same can can boost several DIFFERENT NPCs
+## once each, never the same NPC twice.
 func on_item_given(item: Node, giver_id: String = "player", giver_name: String = "Player") -> void:
 	var recipients: Array = item.get_meta("npc_gift_recipients", [])
 	var already_boosted: bool = recipients.has(npc_id)
 	if not already_boosted:
 		recipients.append(npc_id)
 		item.set_meta("npc_gift_recipients", recipients)
+	var item_name: String = item.get_display_name() if item.has_method("get_display_name") else "something"
 
-	var activity: NPCActivity
-	if NPCItemUser.is_edible(item):
-		activity = GivenEatActivity.new()
-	else:
-		activity = GivenDrinkActivity.new()
+	var activity: NPCActivity = GivenEatActivity.new() if NPCItemUser.is_edible(item) else GivenDrinkActivity.new()
 	brain.force_command(activity)
 	activity.begin_with_item(self, item)
 
 	if already_boosted:
-		if NPCDebug.enabled:
-			NPCDebug.log_relationship_event(self, giver_id, 0.0,
-				"re-gift, already boosted by this item — fed only, no bonus")
-		log_action("%s gave %s to %s (fed only, no relationship change)" % [giver_name, item.get_display_name(), npc_name])
+		log_action("%s gave %s to %s (fed only, no relationship change)" % [giver_name, item_name, npc_name])
 		return
-
 	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
 	var applied: float = _adjust_relationship(giver_id, effective_bonus)
 	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
-	log_action("%s gave %s to %s (%+.1f relationship)" % [giver_name, item.get_display_name(), npc_name, applied])
+	add_thought("received_gift", giver_name if giver_id != "player" else "You")
+	if giver_id == "player":
+		bark_event("thanks")
+	else:
+		bark_event("thanks_friend", giver_name)
+	log_action("%s gave %s to %s (%+.1f relationship)" % [giver_name, item_name, npc_name, applied])
 	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, giver_id, effective_bonus,
-			"received gift (saturation %.2f)" % gift_saturation)
+		NPCDebug.log_relationship_event(self, giver_id, effective_bonus, "received gift (saturation %.2f)" % gift_saturation)
 
-# ─── Relationship Snatch (Part 29/30) ───────────────────────────────────────
+## Takeaway gate: genuinely hungry/thirsty AND holding food/water now.
+func is_consuming_from_need() -> bool:
+	if not NPCItemUser.hands_full(self):
+		return false
+	if hunger >= TAKEAWAY_NEED_THRESHOLD and thirst >= TAKEAWAY_NEED_THRESHOLD:
+		return false
+	return NPCItemUser.is_edible(held_item) or NPCItemUser.is_drinkable_bottle(held_item)
+
+## The player grabbed whatever this NPC was holding. Only a need-driven
+## meal/drink costs relationship.
+func on_item_taken_by_player() -> void:
+	var was_need_triggered: bool = is_consuming_from_need()
+	var item: Node = held_item
+	held_item = null
+	if item != null:
+		NPCItemUser.release_item(item)
+	if not was_need_triggered:
+		return
+	var applied: float = _adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
+	add_thought("food_taken")
+	bark_event("snatched")
+	log_action("Player took %s from %s (%+.1f relationship)" % [item.get_display_name(), npc_name, applied])
+	if NPCDebug.enabled:
+		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
+
+## Called on the VICTIM of an NPC snatch.
+func on_item_snatched_by_npc(thief: NPC) -> void:
+	var item: Node = held_item
+	held_item = null
+	if item != null:
+		NPCItemUser.release_item(item)
+	add_thought("got_snatched", thief.npc_name)
+	bark_event("snatched")
+	log_action("%s snatched an item from %s" % [thief.npc_name, npc_name])
+
+# ─── Snatch (hostile food/water grabs) ───────────────────────────────────
 const SNATCH_RELATIONSHIP_THRESHOLD: float = -50.0
-const SNATCH_CHANCE_AT_THRESHOLD: float = 0.05   ## at exactly -50
-const SNATCH_CHANCE_AT_MIN: float = 0.5          ## at -100 (fully hostile)
+const SNATCH_CHANCE_AT_THRESHOLD: float = 0.05
+const SNATCH_CHANCE_AT_MIN: float = 0.5
+## Game hours (Sep 2026 — were real-time msec, which ignored pause/fast-forward).
+const SNATCH_GIFT_COOLDOWN_HOURS: float = 1.0
+const NPC_SNATCH_PAIR_COOLDOWN_HOURS: float = 1.0 / 6.0
+var _snatch_cooldown_from: Dictionary = {}       ## victim_id -> NPCClock hours of last pursuit tick
+var _npc_snatch_pair_cooldown: Dictionary = {}   ## other npc_id -> NPCClock hours
+var _debug_force_snatch: bool = false
+var _debug_force_npc_snatch: bool = false
+var _debug_force_give: bool = false
 
-var _debug_force_snatch: bool = false   ## F7 test button only — one-shot
-
-# ─── Snatch → Gift Cooldown (Aug 2026) ──────────────────────────────────────
-const SNATCH_GIFT_COOLDOWN_SEC: float = 60.0
-var _snatch_cooldown_from: Dictionary = {}   ## victim_id (npc_id or "player") -> msec of last snatch attempt against them
-
-## Called by SnatchActivity every tick while actively pursuing a specific
-## target — refreshes so the 60s always counts from the LAST moment of
-## active pursuit against that victim, not just the initial decision.
 func start_snatch_cooldown_against(victim_id: String) -> void:
-	_snatch_cooldown_from[victim_id] = Time.get_ticks_msec()
+	_snatch_cooldown_from[victim_id] = NPCClock.now()
 
 func is_gift_blocked_from(giver_id: String) -> bool:
-	if not _snatch_cooldown_from.has(giver_id):
-		return false
-	var last: int = _snatch_cooldown_from[giver_id]
-	return (Time.get_ticks_msec() - last) < int(SNATCH_GIFT_COOLDOWN_SEC * 1000.0)
+	return _snatch_cooldown_from.has(giver_id) \
+		and NPCClock.now() - float(_snatch_cooldown_from[giver_id]) < SNATCH_GIFT_COOLDOWN_HOURS
 
-# ─── NPC↔NPC Snatch Pair Cooldown (Aug 2026) ────────────────────────────────
-const NPC_SNATCH_PAIR_COOLDOWN_SEC: float = 10.0
-var _npc_snatch_pair_cooldown: Dictionary = {}   ## other npc_id -> msec of last NPC-NPC snatch involving this pair (either direction)
-
-## Set on BOTH NPCs involved whenever an NPC-NPC snatch happens (see
-## SnatchActivity.tick()) — bidirectional, so the victim can't
-## immediately retaliate either.
 func start_npc_snatch_pair_cooldown(other_id: String) -> void:
-	_npc_snatch_pair_cooldown[other_id] = Time.get_ticks_msec()
+	_npc_snatch_pair_cooldown[other_id] = NPCClock.now()
 
 func is_npc_snatch_pair_on_cooldown(other_id: String) -> bool:
-	if not _npc_snatch_pair_cooldown.has(other_id):
-		return false
-	return (Time.get_ticks_msec() - _npc_snatch_pair_cooldown[other_id]) < int(NPC_SNATCH_PAIR_COOLDOWN_SEC * 1000.0)
+	return _npc_snatch_pair_cooldown.has(other_id) \
+		and NPCClock.now() - float(_npc_snatch_pair_cooldown[other_id]) < NPC_SNATCH_PAIR_COOLDOWN_HOURS
 
-## Gives NPC the same get_held_item() interface Player already has, so
-## SnatchActivity/find_snatch_target() can treat both as interchangeable
-## targets without branching on type anywhere.
+## Same interface as Player.get_held_item() so snatch code treats both alike.
 func get_held_item() -> Node:
 	return held_item
 
-## Generalized to any target_id (npc_id or "player") — same curve, just
-## no longer hardcoded to the player specifically.
+func _threshold_scaled_chance(value: float, threshold: float, extreme: float,
+		chance_at_threshold: float, chance_at_extreme: float, direction: float) -> float:
+	if (direction > 0.0 and value < threshold) or (direction < 0.0 and value > threshold):
+		return 0.0
+	var span: float = extreme - threshold
+	if absf(span) < 0.0001:
+		return chance_at_threshold
+	return lerp(chance_at_threshold, chance_at_extreme, clampf((value - threshold) / span, 0.0, 1.0))
+
 func get_snatch_chance_toward(target_id: String) -> float:
 	return _threshold_scaled_chance(get_relationship(target_id), SNATCH_RELATIONSHIP_THRESHOLD,
 		RELATIONSHIP_MIN, SNATCH_CHANCE_AT_THRESHOLD, SNATCH_CHANCE_AT_MIN, -1.0)
 
-## Kept for the F7 debug button, which is still specifically about the player.
-func get_snatch_chance() -> float:
-	return get_snatch_chance_toward("player")
-
-## Deterministic eligibility, no random roll — used by EatActivity/
-## DrinkActivity's score() so they don't return 0 and get skipped
-## entirely just because the player happens to be holding the only
-## matching item in the bunker. The actual random roll only happens once
-## the activity is entered, via find_snatch_target() below.
+## Deterministic eligibility (no roll) — lets Eat/Drink score > 0 when the
+## only matching item is in a disliked person's hands.
 func is_player_snatch_eligible(need_filter: Callable) -> bool:
 	if get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD:
 		return false
 	var player: Node = get_tree().get_first_node_in_group("player")
-	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
+	if player == null or not player.has_method("get_held_item"):
 		return false
 	var held: Node = player.get_held_item()
-	if held == null or not is_instance_valid(held):
-		return false
-	return need_filter.call(held)
+	return held != null and is_instance_valid(held) and need_filter.call(held)
 
-## Deterministic eligibility, no random roll — used alongside is_player_snatch_eligible
-## by EatActivity/DrinkActivity's score() so a hungry/thirsty NPC prefers
-## snatching from a disliked target (player OR another NPC) over a plain
-## search. Mirrors find_snatch_target()'s candidate pool for the trigger path.
 func is_npc_snatch_eligible(need_filter: Callable) -> bool:
 	if is_player_snatch_eligible(need_filter):
 		return true
 	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+		if other == self or not (other is NPC):
 			continue
 		if get_relationship(other.npc_id) > SNATCH_RELATIONSHIP_THRESHOLD:
 			continue
 		var held: Node = other.held_item
-		if held == null or not is_instance_valid(held):
-			continue
-		if need_filter.call(held):
+		if held != null and is_instance_valid(held) and need_filter.call(held):
 			return true
 	return false
 
-## Called from EatActivity/DrinkActivity's enter()/_reacquire_or_finish().
-## Generalized: considers the player AND every other NPC as candidates,
-## uniformly — anyone (player or NPC) counts if their relationship with
-## THIS NPC is <= threshold and they're currently holding a matching
-## item. Ties broken by nearest, per spec. _debug_force_snatch still
-## only ever targets the player specifically (see debug_force_snatch()).
+## Nearest disliked person (player or NPC) holding a matching item, gated
+## by one relationship-scaled roll. Called from Eat/Drink enter().
 func find_snatch_target(need_filter: Callable) -> Node:
 	var forced: bool = _debug_force_snatch
 	_debug_force_snatch = false
 	var force_npc: bool = _debug_force_npc_snatch
 	_debug_force_npc_snatch = false
-
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
 	if forced:
-		var player: Node = get_tree().get_first_node_in_group("player")
-		return player if player != null and is_instance_valid(player) else null
+		return player
 
-	var best: Node = null
+	var best: Node3D = null
 	var best_d: float = INF
-
-	if not force_npc:
-		var player: Node = get_tree().get_first_node_in_group("player")
-		if player != null and is_instance_valid(player) and player.has_method("get_held_item") \
-				and get_relationship("player") <= SNATCH_RELATIONSHIP_THRESHOLD:
-			var held: Node = player.get_held_item()
-			if held != null and is_instance_valid(held) and need_filter.call(held):
-				var d: float = NPCItemUser.flat_distance(global_position, (player as Node3D).global_position)
-				if d < best_d:
-					best_d = d
-					best = player
-
+	if not force_npc and player != null and player.has_method("get_held_item") \
+			and get_relationship("player") <= SNATCH_RELATIONSHIP_THRESHOLD:
+		var held: Node = player.get_held_item()
+		if held != null and is_instance_valid(held) and need_filter.call(held):
+			best_d = NPCItemUser.flat_distance(global_position, player.global_position)
+			best = player
 	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
+		if other == self or not (other is NPC):
 			continue
-		if not force_npc and get_relationship(other.npc_id) > SNATCH_RELATIONSHIP_THRESHOLD:
+		if not force_npc and (get_relationship(other.npc_id) > SNATCH_RELATIONSHIP_THRESHOLD \
+				or is_npc_snatch_pair_on_cooldown(other.npc_id)):
 			continue
-		if not force_npc and is_npc_snatch_pair_on_cooldown(other.npc_id):
-			continue
-		var held: Node = other.held_item
-		if held == null or not is_instance_valid(held) or not need_filter.call(held):
+		var held2: Node = other.held_item
+		if held2 == null or not is_instance_valid(held2) or not need_filter.call(held2):
 			continue
 		var d: float = NPCItemUser.flat_distance(global_position, other.global_position)
 		if d < best_d:
 			best_d = d
 			best = other
-
 	if best == null:
 		if NPCDebug.enabled:
 			NPCDebug.log_snatch(self, "not considered", "no eligible disliked target holding a matching item")
 		return null
-
-	var target_id: String = "player" if best.is_in_group("player") else best.npc_id
+	var target_id: String = "player" if best.is_in_group("player") else String(best.npc_id)
 	if force_npc:
-		if NPCDebug.enabled:
-			NPCDebug.log_snatch(self, "roll succeeded", "forced debug target=%s" % target_id)
 		return best
 	var chance: float = get_snatch_chance_toward(target_id)
 	var roll: float = randf()
-	if roll > chance:
-		if NPCDebug.enabled:
-			NPCDebug.log_snatch(self, "roll failed", "target=%s chance=%.2f roll=%.2f" % [target_id, chance, roll])
-		return null
 	if NPCDebug.enabled:
-		NPCDebug.log_snatch(self, "roll succeeded", "target=%s chance=%.2f roll=%.2f" % [target_id, chance, roll])
-	return best
+		NPCDebug.log_snatch(self, "roll %s" % ("succeeded" if roll <= chance else "failed"),
+			"target=%s chance=%.2f roll=%.2f" % [target_id, chance, roll])
+	return best if roll <= chance else null
 
-## F7 debug trigger — forces THIS NPC to attempt a snatch against the
-## player right now via the normal EatActivity/DrinkActivity entry path
-## (same "Go eat something"-style force_command pattern), bypassing
-## relationship/chance but still requiring a real matching held item.
+## F7 — force a snatch attempt against the player's held item.
 func debug_force_snatch() -> bool:
 	var player: Node = get_tree().get_first_node_in_group("player")
-	if player == null or not is_instance_valid(player) or not player.has_method("get_held_item"):
+	if player == null or not player.has_method("get_held_item"):
 		return false
 	var held: Node = player.get_held_item()
 	if held == null or not is_instance_valid(held):
@@ -1089,275 +841,155 @@ func debug_force_snatch() -> bool:
 		return true
 	return false
 
-## F7 debug — sets relationship-with-player directly, bypassing the
-## Sociability multiplier _adjust_relationship() normally applies, so the
-## F7 buttons produce an exact, predictable ±25 for testing.
-func debug_adjust_relationship(target_id: String, delta: float) -> void:
-	var current: float = get_relationship(target_id)
-	relationships[target_id] = clampf(current + delta, RELATIONSHIP_MIN, RELATIONSHIP_MAX)
-
-func debug_adjust_player_relationship(delta: float) -> void:
-	debug_adjust_relationship("player", delta)
-
-# ─── Debug force buttons (Aug 2026) — one-shot flags mirroring _debug_force_snatch ───
-var _debug_force_give: bool = false
-var _debug_force_npc_snatch: bool = false
-
-## Force this NPC into a talk session right now via its normal TalkActivity
-## entry path (finds the nearest free partner within TALK_RANGE).
-func debug_force_talk() -> bool:
-	var partner: Node = find_talk_partner()
-	if partner == null:
-		return false
-	brain.force_command(TalkActivity.new())
-	return true
-
-## Force this NPC to fetch+deliver to the nearest eligible friend right
-## now via its normal GiveToFriendActivity path, bypassing the chance roll
-## but still requiring a real needy friend and a matching loose item.
-func debug_force_give_to_friend() -> bool:
-	if not has_needy_friend():
-		return false
-	_debug_force_give = true
-	brain.force_command(GiveToFriendActivity.new())
-	return true
-
-## Force this NPC to snatch the nearest eligible DISLIKED NPC's matching
-## item right now (bypassing chance/relation), via the Eat/Drink snatch
-## entry path. Player is deliberately NOT a candidate here — this button
-## exists to test the NPC-target branch.
+## F7 — force a snatch against the nearest NPC holding food/water.
 func debug_force_npc_snatch() -> bool:
 	_debug_force_npc_snatch = true
-	var target: Node = find_snatch_target(Callable(NPCItemUser, "is_edible"))
-	if target != null:
+	if find_snatch_target(Callable(NPCItemUser, "is_edible")) != null:
+		_debug_force_npc_snatch = true
 		brain.force_command(EatActivity.new())
 		return true
 	_debug_force_npc_snatch = true
-	target = find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
-	if target != null:
+	if find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle")) != null:
+		_debug_force_npc_snatch = true
 		brain.force_command(DrinkActivity.new())
 		return true
 	_debug_force_npc_snatch = false
 	return false
 
-## Takeaway gate. True only while genuinely hungry/thirsty AND actually
-## holding a food/drink item right now — recomputed live rather than
-## captured at the moment of pickup. Functionally identical to a captured
-## flag for the few-second holding window (need doesn't recover until the
-## bite/sip actually lands, which is the exact moment this gate exists to
-## intercept), and it correctly excludes a player-forced "Go eat
-## something" command issued while the NPC wasn't actually hungry —
-## `_talk_menu`'s command buttons use this SAME EatActivity/DrinkActivity
-## class, so there's no separate "forced" flag to check; live need level
-## is the only signal that's actually true either way.
-func is_consuming_from_need() -> bool:
-	if held_item == null or not is_instance_valid(held_item):
-		return false
-	if hunger >= TAKEAWAY_NEED_THRESHOLD and thirst >= TAKEAWAY_NEED_THRESHOLD:
-		return false
-	return NPCItemUser.is_edible(held_item) or NPCItemUser.is_drinkable_bottle(held_item)
-
-## Called by InteractionSystem the instant the player successfully grabs
-## ANY item this NPC was holding (Part 25 — takeaway is no longer limited
-## to need-triggered consumption; see InteractionSystem's _try_pickup()).
-## Clears the stale held_item reference and releases its claim regardless
-## of what it was — EatActivity/DrinkActivity's tick()/eat_held_step()/
-## _finish_bottle() and JobActivity's fetch/work/complete paths were all
-## checked and already no-op cleanly on a null/mismatched held_item (see
-## docs/systems/npc/README.md for the one accepted quirk this leaves: a
-## stolen job material lets that job silently "complete" without its
-## actual effect landing).
-##
-## The relationship ding, however, still only applies when the item taken
-## was a genuinely need-triggered food/water consumption — evaluated
-## BEFORE clearing held_item, since is_consuming_from_need() needs it
-## still set. Taking a job material away has no relationship consequence.
-func on_item_taken_by_player() -> void:
-	var was_need_triggered: bool = is_consuming_from_need()
-	var item: Node = held_item
-	held_item = null
-	if item != null:
-		NPCItemUser.release_item(item)
-	if not was_need_triggered:
-		return   ## job material etc. — no relationship consequence, and deliberately not logged either (not meaningful enough)
-	var applied: float = _adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
-	log_action("Player took %s from %s (%+.1f relationship)" % [item.get_display_name(), npc_name, applied])
-	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
-
-## Called on the VICTIM when another NPC successfully snatches from them
-## (NPCItemUser.snatch_from()). Relationship-neutral, same as the player
-## version — this is a consequence of an already-bad relationship, not a
-## new event that further sours it.
-func on_item_snatched_by_npc(thief: NPC) -> void:
-	var item: Node = held_item
-	held_item = null
-	if item != null:
-		NPCItemUser.release_item(item)
-	log_action("%s snatched an item from %s" % [thief.npc_name, npc_name])
-
-# ─── Talking (Aug 2026) ──────────────────────────────────────────────────
+# ─── Conversation ─────────────────────────────────────────────────────────
 const TALK_RANGE: float = 3.0
-const TALK_BASE_SCORE: float = 5.5   ## same tier as Relax/Wander
-const TALK_RELATIONSHIP_NEUTRAL_LOW: float = -15.0
-const TALK_RELATIONSHIP_NEUTRAL_HIGH: float = 15.0
-const TALK_SCORE_MULT_MAX: float = 2.5   ## at relationship +100
-const TALK_SCORE_MULT_MIN: float = 0.2   ## at relationship -100
-
-## Randomized cooldown after ANY talk session ends (natural completion or
-## interrupted) before this NPC can talk OR be talked to again. Without
-## this, nothing stopped the same two NPCs immediately re-initiating the
-## instant one conversation ended — which is what "randomly interrupted
-## with brief Idles, several instances back to back" actually was: not a
-## bug in the non-interruptibility logic itself, just nothing preventing
-## rapid re-triggering. Same pattern already used for Relaxing.
-const TALK_COOLDOWN_MIN_SEC: float = 30.0
-const TALK_COOLDOWN_MAX_SEC: float = 90.0
-var _talk_cooldown_until_msec: int = 0
+## Friends will walk over to chat; everyone else only chats with whoever
+## happens to be close.
+const TALK_SEEK_RANGE: float = 12.0
+const TALK_BASE_SCORE: float = 7.0
+const TALK_COOLDOWN_MIN_HOURS: float = 0.5
+const TALK_COOLDOWN_MAX_HOURS: float = 1.5
+var _talk_cooldown_until: float = 0.0   ## NPCClock hours
 
 func start_talk_cooldown() -> void:
-	var cooldown_sec: float = randf_range(TALK_COOLDOWN_MIN_SEC, TALK_COOLDOWN_MAX_SEC)
-	_talk_cooldown_until_msec = Time.get_ticks_msec() + int(cooldown_sec * 1000.0)
+	_talk_cooldown_until = NPCClock.now() + randf_range(TALK_COOLDOWN_MIN_HOURS, TALK_COOLDOWN_MAX_HOURS)
 
 func is_talk_on_cooldown() -> bool:
-	return Time.get_ticks_msec() < _talk_cooldown_until_msec
+	return NPCClock.now() < _talk_cooldown_until
 
-## Flat 1.0x between -15 and +15 (your framing: "neutral" band); scales
-## continuously beyond that rather than a hard binary jump, same reasoning
-## every other trait/relationship multiplier in this file uses.
-const TALK_RELATIONSHIP_DELTA_MIN: int = 1
-const TALK_RELATIONSHIP_DELTA_MAX: int = 3
+## Mutual relationship (both directions averaged).
+func mutual_relationship(other: Node) -> float:
+	if other == null or not (other is NPC):
+		return 0.0
+	return (get_relationship(other.npc_id) + other.get_relationship(npc_id)) / 2.0
 
-## Called independently on EACH participant at natural conversation end.
-## Uniform magnitude 1-3, random sign — routed through
-## _adjust_relationship() like every other relationship-affecting event,
-## so it's Sociability-scaled the same way Give/Takeaway/etc. already are
-## (meaning the logged number won't always be a clean integer — same
-## %+.1f convention every other relationship log line already uses).
-func apply_talk_relationship_swing(partner_id: String, partner_name: String) -> void:
-	var magnitude: float = float(randi_range(TALK_RELATIONSHIP_DELTA_MIN, TALK_RELATIONSHIP_DELTA_MAX))
-	var base_delta: float = magnitude * _random_sign()
-	var applied: float = _adjust_relationship(partner_id, base_delta)
-	var label: String = "Good Conversation" if applied > 0.0 else ("Bad Conversation" if applied < 0.0 else "Neutral Conversation")
-	log_action("Relationship with %s %+.1f (%s)" % [partner_name, applied, label])
+## How much this NPC wants to chat with `other` right now (idle-tier score).
+func get_social_score(other: Node) -> float:
+	var rel: float = mutual_relationship(other)
+	var rel_mult: float = 1.0
+	if rel > 15.0:
+		rel_mult = lerp(1.0, 2.5, clampf((rel - 15.0) / 85.0, 0.0, 1.0))
+	elif rel < -15.0:
+		rel_mult = lerp(1.0, 0.2, clampf((-15.0 - rel) / 85.0, 0.0, 1.0))
+	var lonely_mult: float = 1.5 if thoughts.has("lonely") else 1.0
+	var social: float = lerp(0.7, 1.3, _trait("sociability"))
+	return TALK_BASE_SCORE * rel_mult * social * lonely_mult * get_work_ethic_passive_mult()
 
-## Takes the partner NODE (not just an id) so it can read BOTH
-## directions — "mutually high" means averaging this NPC's feeling
-## toward them AND their feeling toward this NPC, not just one side.
-## The previous version only ever considered the initiator's own
-## one-directional relationship.
-func get_talk_score_mult(other: Node) -> float:
-	if other == null or not is_instance_valid(other):
-		return 1.0
-	var other_id: String = String(other.npc_id) if ("npc_id" in other) else ""
-	if other_id == "":
-		return 1.0
-	var rel_mine: float = get_relationship(other_id)
-	var rel_theirs: float = other.get_relationship(npc_id) if other.has_method("get_relationship") else rel_mine
-	var mutual_rel: float = (rel_mine + rel_theirs) / 2.0
-	if mutual_rel > TALK_RELATIONSHIP_NEUTRAL_HIGH:
-		var t: float = clampf((mutual_rel - TALK_RELATIONSHIP_NEUTRAL_HIGH) / (RELATIONSHIP_MAX - TALK_RELATIONSHIP_NEUTRAL_HIGH), 0.0, 1.0)
-		return lerp(1.0, TALK_SCORE_MULT_MAX, t)
-	elif mutual_rel < TALK_RELATIONSHIP_NEUTRAL_LOW:
-		var t: float = clampf((TALK_RELATIONSHIP_NEUTRAL_LOW - mutual_rel) / (TALK_RELATIONSHIP_NEUTRAL_LOW - RELATIONSHIP_MIN), 0.0, 1.0)
-		return lerp(1.0, TALK_SCORE_MULT_MIN, t)
-	return 1.0
+## Friends talk longer.
+func get_talk_length_mult(other: Node) -> float:
+	return lerp(0.8, 1.5, clampf((mutual_relationship(other) + 20.0) / 120.0, 0.0, 1.0))
 
-## Nearest NPC within TALK_RANGE who's actually free to talk right now.
+## Nearest free NPC in TALK_RANGE — or, for friends, within TALK_SEEK_RANGE
+## (TalkActivity walks over first).
 func find_talk_partner() -> Node:
 	var best: Node = null
-	var best_d: float = TALK_RANGE
+	var best_value: float = -INF
 	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
-			continue
-		if not other.has_method("is_available_to_talk") or not other.is_available_to_talk():
+		if other == self or not (other is NPC) or not other.is_available_to_talk():
 			continue
 		var d: float = NPCItemUser.flat_distance(global_position, other.global_position)
-		if d < best_d:
-			best_d = d
+		var rel: float = mutual_relationship(other)
+		var reach: float = TALK_SEEK_RANGE if rel >= 20.0 else TALK_RANGE
+		if d > reach:
+			continue
+		var value: float = rel * 0.05 - d   ## prefer close, then liked
+		if value > best_value:
+			best_value = value
 			best = other
 	return best
 
 func is_available_to_talk() -> bool:
-	if brain == null:
+	if brain == null or brain.is_relaxing() or brain.is_talking() or brain.is_sleeping():
 		return false
-	if brain.is_relaxing() or brain.is_talking():
+	if is_talk_on_cooldown() or is_passed_out() or in_sit_sequence():
 		return false
-	if is_talk_on_cooldown():
-		return false
-	return brain.is_current_interruptible()
+	return brain.is_current_interruptible() and not NPCItemUser.hands_full(self)
 
-## Broader than conversation availability: a resident may be pleasant company
-## while gardening, cleaning, or quietly relaxing without abandoning that job.
-func is_available_for_companionship() -> bool:
-	if health <= 0.0 or is_passed_out() or brain == null:
-		return false
-	return brain.is_companionship_compatible()
-
-func end_companionship() -> void:
-	NPC_COMPANIONSHIP.end_for(self)
-
-## Called on the partner by the initiator's TalkActivity. Forces the
-## partner into their own (non-initiator) TalkActivity instance.
+## Called on the partner by the initiator's TalkActivity.
 func start_talk_session(initiator: NPC) -> bool:
 	if not is_available_to_talk():
 		return false
 	brain.force_command(TalkActivity.new(initiator, false))
 	return true
 
-## Called on the partner when the initiator's session timer ends, OR on
-## either side if interrupted some other way — ends the local session
-## and logs it from this NPC's own perspective.
-## natural=true (default) means the conversation actually ran its course
-## — a relationship swing applies. natural=false (interrupted some other
-## way) skips the swing.
-func end_talk_session(natural: bool = true) -> void:
-	if brain == null or not brain.is_talking():
-		return
-	var partner_name: String = brain.get_talk_partner_name()
-	log_action("Talked to %s" % partner_name)
-	if natural and brain.has_method("get_talk_partner_id"):
-		var partner_id: String = brain.get_talk_partner_id()
-		if partner_id != "":
-			apply_talk_relationship_swing(partner_id, partner_name)
-	brain.end_talk_if_talking()
-	start_talk_cooldown()
+## Ends this NPC's side of a conversation (called by the other side).
+func end_talk_session() -> void:
+	if brain != null and brain.is_talking():
+		brain.end_talk_if_talking()
 
-# ─── Give-to-Friend (Aug 2026) ──────────────────────────────────────────────
+## One shared conversation outcome for both participants. Chance of a good
+## chat depends on how they already feel about each other, both moods,
+## both tempers, and how compatible their personalities are.
+func resolve_conversation(partner: NPC) -> void:
+	var p_good: float = 0.55
+	p_good += clampf(mutual_relationship(partner) / 200.0, -0.25, 0.25)
+	p_good += ((mood + partner.mood) / 2.0 - 60.0) / 250.0
+	p_good -= (irritability + partner.irritability) / 400.0
+	p_good += _compatibility(partner) * 0.15
+	p_good = clampf(p_good, 0.1, 0.9)
+	var good: bool = randf() < p_good
+	var magnitude: float = randf_range(1.0, 3.0)
+	for pair: Array in [[self, partner], [partner, self]]:
+		var a: NPC = pair[0]
+		var b: NPC = pair[1]
+		var applied: float = a._adjust_relationship(b.npc_id, magnitude if good else -magnitude)
+		a.add_thought("good_chat" if good else "bad_chat", b.npc_name)
+		a._last_social_time = NPCClock.now()
+		a.log_action("Chatted with %s — %s (%+.1f)" % [b.npc_name, "good talk" if good else "it got tense", applied])
+
+## -1..1 — shared outlook (optimism) and energy (sociability) help; two
+## irritable people grate on each other.
+func _compatibility(other: NPC) -> float:
+	var c: float = 0.0
+	c += 0.5 - absf(_trait("optimism") - other._trait("optimism"))
+	c += ((_trait("sociability") + other._trait("sociability")) / 2.0 - 0.5)
+	if has_irritable_trait() and other.has_irritable_trait():
+		c -= 0.6
+	return clampf(c, -1.0, 1.0)
+
+# ─── Give-to-Friend ───────────────────────────────────────────────────────
 const GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD: float = 25.0
-const GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD: float = 0.05   ## at exactly +25
-const GIVE_TO_FRIEND_CHANCE_AT_MAX: float = 0.5          ## at +100 — same curve shape as Snatch, mirrored direction
-const GIVE_TO_FRIEND_BASE_SCORE: float = 5.5
+const GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD: float = 0.05
+const GIVE_TO_FRIEND_CHANCE_AT_MAX: float = 0.5
+const GIVE_TO_FRIEND_BASE_SCORE: float = 12.0
 
 func get_give_to_friend_chance(rel: float) -> float:
 	return _threshold_scaled_chance(rel, GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD,
 		RELATIONSHIP_MAX, GIVE_TO_FRIEND_CHANCE_AT_THRESHOLD, GIVE_TO_FRIEND_CHANCE_AT_MAX, 1.0)
 
-## Cheap, deterministic (no item search, no roll) — used by
-## GiveToFriendActivity.score() so the full search only runs on enter().
+func _is_needy(other: Node) -> bool:
+	return float(other.hunger) < NEED_LOW or float(other.thirst) < NEED_LOW
+
+## Cheap, deterministic — used by GiveToFriendActivity.score().
 func has_needy_friend() -> bool:
 	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
-			continue
-		if get_relationship(other.npc_id) < GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD:
-			continue
-		if float(other.hunger) < 55.0 or float(other.thirst) < 55.0:
+		if other != self and other is NPC and get_relationship(other.npc_id) >= GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD \
+				and _is_needy(other):
 			return true
 	return false
 
-## Full search: nearest needy friend (relationship-eligible, matching
-## need low) with a matching item actually available in the world, gated
-## by one probability roll scaled to that friend's relationship. Returns
-## {} if nothing qualifies.
+## Nearest needy friend + a matching loose item, gated by one roll.
 func find_friend_to_help() -> Dictionary:
-	var best: Node = null
+	var best: NPC = null
 	var best_d: float = INF
 	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other) or not ("npc_id" in other):
-			continue
-		if get_relationship(other.npc_id) < GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD:
-			continue
-		if not (float(other.hunger) < 55.0 or float(other.thirst) < 55.0):
+		if other == self or not (other is NPC) or get_relationship(other.npc_id) < GIVE_TO_FRIEND_RELATIONSHIP_THRESHOLD \
+				or not _is_needy(other):
 			continue
 		var d: float = NPCItemUser.flat_distance(global_position, other.global_position)
 		if d < best_d:
@@ -1365,263 +997,51 @@ func find_friend_to_help() -> Dictionary:
 			best = other
 	if best == null:
 		return {}
-
-	var need_filter: Callable = Callable(NPCItemUser, "is_edible") if float(best.hunger) < float(best.thirst) \
+	var need_filter: Callable = Callable(NPCItemUser, "is_edible") if best.hunger <= best.thirst \
 		else Callable(NPCItemUser, "is_drinkable_bottle")
-	## if only one need is actually low, make sure the filter matches THAT one
-	if float(best.hunger) < 55.0 and not (float(best.thirst) < 55.0):
-		need_filter = Callable(NPCItemUser, "is_edible")
-	elif float(best.thirst) < 55.0 and not (float(best.hunger) < 55.0):
-		need_filter = Callable(NPCItemUser, "is_drinkable_bottle")
-
 	var item: Node = NPCItemUser.find_loose_item(self, need_filter)
 	if item == null:
 		return {}
-
-	var chance: float = get_give_to_friend_chance(get_relationship(best.npc_id))
 	var forced_give: bool = _debug_force_give
 	_debug_force_give = false
-	if not forced_give and randf() > chance:
+	if not forced_give and randf() > get_give_to_friend_chance(get_relationship(best.npc_id)):
 		return {}
-
 	return {"friend": best, "item": item}
 
+## F7 — force a talk / a give-to-friend through the normal activity paths.
+func debug_force_talk() -> bool:
+	if find_talk_partner() == null:
+		return false
+	brain.force_command(TalkActivity.new())
+	return true
 
-# ─── Cleaning (Aug 2026) ─────────────────────────────────────────────────
-const CLEANING_BASE_SCORE: float = 5.5
+func debug_force_give_to_friend() -> bool:
+	if not has_needy_friend():
+		return false
+	_debug_force_give = true
+	brain.force_command(GiveToFriendActivity.new())
+	return true
 
-## Aug 2026 — per-clutter-item urgency ramp. Derived so the AVERAGE
-## Cleaning score (base 5.5 × job_priority_weight 0.5 = 2.75, at
-## average Work Ethic) crosses the AVERAGE Wander score (5.0, at
-## average Work Ethic) once total clutter reaches 11 items:
-##   1.0 + 11 × CLUTTER_URGENCY_STEP == 5.0 / 2.75  ->  STEP = 9/121
-## Actual per-NPC scores still use that NPC's own Work Ethic multiplier
-## on top of this — this only fixes the BREAKEVEN POINT for the
-## average case, exactly as asked. See CleaningActivity.score().
-## Aug 2026 fix (Brannon-requested) — recalibrated target from Wander's
-## average (5.0) to Relax's (6.0, the tougher of the two idle
-## competitors, especially now that Relax is eligible far more of the
-## day — see RELAX_BUDGET_BASELINE's own comment): 1.0 + 11 × STEP ==
-## 6.0/2.75 == 24/11  ->  STEP = 13/121. Previously Cleaning's ceiling at
-## the same 11-item threshold (2.75×1.818≈5.0) still lost to Relax's
-## higher 6.0 base even at genuinely urgent clutter levels — now it
-## clears both idle competitors at the same threshold, matching the
-## "every job should eventually beat wandering/relaxing" intent while
-## keeping the deliberate low-urgency-at-low-clutter shape unchanged.
-const CLUTTER_URGENCY_STEP: float = 13.0 / 121.0
-
-## Refuel session (Aug 2026). Higher than Cleaning's base — running out
-## of power is more urgent than clutter — tune visually once live-tested.
-const REFUEL_BASE_SCORE: float = 8.0
-
-## Gardening session (Aug 2026, autonomous) — soil-filling + planting.
-## Aug 2026 fix (Brannon-requested) — raised 6.0→10.0. At the old value,
-## an AVERAGE (neutral Work Ethic) NPC scored Gardening at 6.0×0.8×1.0=4.8,
-## which lost to BOTH Wander (5.0) and Relax (6.0) — an average NPC would
-## prefer idling over gardening, the opposite of "every job should be
-## preferential to wandering except for lazy NPCs." Retuned to match
-## REFUEL_BASE_SCORE's already-correct calibration (verified against the
-## same Wander/Relax bar): at average mult, 10.0×0.8×1.0=8.0, comfortably
-## beating both; at Lazy's WORST case (job_mult=0.7), 10.0×0.8×0.7=5.6 <
-## Relax's best case (6.0×1.3=7.8) — a genuinely Lazy NPC still usually
-## prefers relaxing; at Lazy's band EDGE (job_mult≈0.91), 10.0×0.8×0.91
-## ≈7.28 > Relax's edge-case (6.0×1.09≈6.54) — so even Lazy NPCs closer
-## to neutral still work "occasionally," per spec. Priority weight (0.8)
-## deliberately left unchanged — preserves Gardening ranking below
-## Harvest (1.3)/Refuel/Filter (1.0) in relative importance, only the
-## absolute floor moved.
-const GARDENING_BASE_SCORE: float = 10.0
-
-## Cooking session (Aug 2026, Brannon-requested) — same calibration
-## reasoning as GARDENING_BASE_SCORE's own comment, targeting parity with
-## REFUEL_BASE_SCORE at the default JOB_PRIORITY_DEFAULT (1.0) weight
-## ("COOKING" has no dedicated entry in JOB_PRIORITY_WEIGHTS below, so it
-## already falls through to that default) — average-NPC score
-## 8.0×1.0×1.0=8.0, clearing both Wander/Relax the same margin Refuel does.
-const COOKING_BASE_SCORE: float = 8.0
-
-## Autonomous-trigger gate ONLY (carried over from JobBoard's old
-## REFUEL_BELOW). has_refuel_target_available()'s score() use of this
-## just decides whether an NPC will interrupt other work over fuel level;
-## once a refuel session actually starts (autonomous OR commanded), it
-## tops off every generator below 100%, not just the urgent one.
+# ─── Jobs (facade for the talk-menu UI) ───────────────────────────────────
+## Refuel gate for autonomous work (sessions top off everything < 100%).
 const REFUEL_URGENT_BELOW: float = 40.0
 
-func has_cleaning_target_available() -> bool:
-	return NPCJobQueries.has_cleaning_target_available(self)
-
-func set_supply_cleanup_priority_boost(active: bool) -> void:
-	_supply_cleanup_priority_boost = active
-
-func has_supply_cleanup_priority_boost() -> bool:
-	return _supply_cleanup_priority_boost
-
-## Eligible item across BOTH lists — trash and organizable are mutually
-## exclusive per JobBoard's own scan, so no double-counting risk.
-## `exclude_ids` (Aug 2026) lets CleaningActivity skip items it's already
-## tried and confirmed have nowhere to go THIS session, and skip
-## momentary claim-clash items, without waiting on JobBoard's own 2s
-## cache refresh — see CleaningActivity._pick_next_target().
-##
-## Aug 2026 — no longer purely nearest-by-distance. Candidates are
-## checked in distance order, but the first one with a roughly clear
-## approach (see _has_clear_approach()) wins over a nominally-nearer one
-## that's actually buried behind other clutter — this is the mechanical
-## meaning of "go to the item on the outside of a pile, not the one
-## wedged in the center." Falls back to the plain nearest item if every
-## candidate looks equally blocked (better to try SOMETHING than return
-## nothing).
-## Aug 2026 — new `exclude_categories` param (light/heavy): skips
-## organizable candidates in an already-confirmed-hopeless category
-## BEFORE they're ever added to the candidate list, so they never get
-## raycasted (_has_clear_approach()) or re-selected at all. Without this,
-## CleaningActivity's retry loop was re-evaluating every remaining item
-## from scratch on every failed attempt — on a level with zero storage
-## anywhere, that meant up to N full raycast-driven candidate scans
-## synchronously in one frame (N = organizable item count), which is a
-## real, measurable frame stall, not a false alarm — root-caused from a
-## live debug capture, not a guess.
-func find_cleaning_target(exclude_ids: Dictionary = {}, exclude_categories: Dictionary = {}) -> Dictionary:
-	return NPCJobQueries.find_cleaning_target(self, exclude_ids, exclude_categories)
-
-## Cleaning destination routing (Aug 2026) — maps an organizable item's
-## CLASSIFICATION to the destination group(s) to search, in priority
-## order. Every classification today resolves to "shelving", which both
-## Shelving.gd (real shelves) AND LightStorage.gd (End Table/Dresser)
-## join — LightStorage's own has_room_for() already enforces the
-## inventory_item type gate, so this stays correct with zero extra logic
-## here. To add a new dedicated container later (e.g. a Fridge that
-## should only receive food, joining a new "food_storage" group instead
-## of "shelving"): add one classification check to
-## _classify_organizable_item() below and one new entry to
-## ORGANIZE_DESTINATION_GROUPS. No other cleaning code needs to change.
-## (Both now live in NPCJobQueries.gd — see its ORGANIZE_DESTINATION_GROUPS.)
-
-## Aug 2026 — "light" vs "heavy" is now the real, named classification
-## (previously everything was lumped as "general"). "light" = the exact
-## same is_in_group("inventory_item") gate LightStorage.has_room_for()
-## already enforces, so this can never drift out of sync with actual
-## eligibility — it's just naming the same rule for routing/reporting
-## purposes. "heavy" = everything else (Test Crate, Can Case, Water
-## Case, etc.) — these can ONLY ever fit real Shelving, never an End
-## Table/Dresser, regardless of how much room the latter has.
-func _classify_organizable_item(item: RigidBody3D) -> String:
-	return NPCJobQueries.classify_organizable_item(item)
-
-## Aug 2026 — is there ANY viable destination for this classification
-## ANYWHERE in the level right now, independent of a specific item?
-## Used by CleaningActivity to decide "skip this whole category for the
-## rest of the session" vs "try a different candidate, one shelf being
-## full doesn't mean they all are." A LightStorage node never counts
-## for "heavy" no matter how empty it is — it structurally can't accept
-## a non-inventory_item object (see LightStorage.has_room_for()).
-func has_viable_destination_for_category(category: String) -> bool:
-	return NPCJobQueries.has_viable_destination_for_category(self, category)
-
-## Nearest member of the matching destination group(s). For trash,
-## returning null here (no receptacle exists) is expected and handled
-## gracefully by CleaningActivity — it just abandons and sets the item
-## back down.
-##
-## Aug 2026 — light items now prefer a LightStorage (End Table/Dresser)
-## over a general Shelving object, even when a nearer shelf has room.
-## Two-pass search: try LightStorage-only first; only fall back to
-## considering every candidate (Shelving included) once no LightStorage
-## has room. Heavy items and trash are unaffected — LightStorage can
-## never take a heavy item anyway (has_room_for()'s own inventory_item
-## gate already blocks it), so a LightStorage-only pass would just be a
-## wasted search for them, never chosen for either.
-func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node:
-	return NPCJobQueries.find_cleaning_destination(self, is_trash, item)
-
-## Specific, human-readable-key reason Cleaning currently isn't available
-## for THIS NPC (Aug 2026) — replaces a blanket "nothing to clean" with an
-## exact cause. Checked in priority order (each check assumes the ones
-## before it didn't already explain the situation):
-##   ""                     — available right now
-##   "NOTHING_TO_CLEAN"     — genuinely nothing tracked at all
-##   "NO_TRASH_RECEPTACLE"  — trash-eligible items exist but there's no
-##                            receptacle anywhere in the level (permanent
-##                            gap until one's built — see JobBoard.gd)
-##   "PHYSICALLY_MOVING"    — loose items are still falling/rolling
-##   "STABILIZING"          — items stopped and are in the short cleanup grace
-##   "RECENTLY_PLACED_BY_PLAYER" — deliberate player drops retain a longer
-##                            courtesy window before residents put them away
-##   "ALL_CLAIMED"          — ready items exist but every one is already
-##                            claimed by another NPC
-##   "NO_LIGHT_STORAGE_AVAILABLE" — a ready LIGHT (inventory_item)
-##                            organizable item exists and is claimable,
-##                            but no shelf/End Table/Dresser anywhere can
-##                            currently take it
-##   "NO_HEAVY_STORAGE_AVAILABLE" — same, for a HEAVY (non-inventory_item)
-##                            item — only a real Shelving object can ever
-##                            take these, never an End Table/Dresser
-##   "STORAGE_FULL"         — a viable destination TYPE exists somewhere,
-##                            just not one with room right now
-## NPCTalkMenuUI maps these to player-facing strings — see
-## CLEANING_UNAVAILABLE_REASONS there. Keep both in sync if this list changes.
+## Specific reasons a job can't run, mapped to player text by NPCTalkMenuUI.
 func get_cleaning_unavailable_reason() -> String:
 	return NPCJobQueries.get_cleaning_unavailable_reason(self)
 
-## Nearest generator still below 100% fuel, excluding IDs already
-## refueled THIS SESSION (passed in by RefuelActivity — its own session
-## state stays the single source of truth, same shape as
-## find_cleaning_target() not owning any state itself either). Also used
-## with an empty exclude set for a quick "is there anything to do at
-## all" check.
-func find_next_refuel_target(exclude_ids: Dictionary) -> Node:
-	return NPCJobQueries.find_next_refuel_target(self, exclude_ids)
-
-## Specific, human-readable-key reason Refuel currently isn't available
-## for THIS NPC (Aug 2026) — same pattern as
-## get_cleaning_unavailable_reason(), replacing the old blanket "nothing
-## needs refueling" with an exact cause:
-##   ""                    — available right now
-##   "ALL_GENERATORS_FULL" — genuinely nothing needs fuel
-##   "FUEL_CAN_CLAIMED"    — a generator needs fuel and a spare can
-##                           exists, but another NPC already has it
-##   "NO_FUEL_CAN"         — a generator needs fuel and nothing else
-##                           explains why it can't proceed
-## This is the standard going forward for every job's "can't do it"
-## message — specific and checked in priority order, not a single
-## catch-all string. NPCTalkMenuUI maps these to player-facing text —
-## see REFUEL_UNAVAILABLE_REASONS there. Keep both in sync.
 func get_refuel_unavailable_reason() -> String:
 	return NPCJobQueries.get_refuel_unavailable_reason(self)
 
-## Autonomous-trigger availability check — mirrors
-## has_cleaning_target_available()'s shape. Gates on REFUEL_URGENT_BELOW
-## (not "any generator below 100%") so an NPC doesn't autonomously
-## interrupt other work over a near-full generator; RefuelActivity's own
-## session sweep still tops off everything below 100% once it starts.
-func has_refuel_target_available() -> bool:
-	return NPCJobQueries.has_refuel_target_available(self)
-
-## Cooking (Aug 2026) — same one-distinguished-reason shape as
-## get_refuel_unavailable_reason(). Keep in sync with
-## NPCTalkMenuUI.COOKING_UNAVAILABLE_REASONS if the reason set changes.
 func get_cooking_unavailable_reason() -> String:
 	return NPCJobQueries.get_cooking_unavailable_reason(self)
 
-## Autonomous-trigger availability check for GardeningActivity — mirrors
-## has_cleaning_target_available()'s shape. True if ANY tray needs soil
-## (and a spare Bag of Soil exists somewhere) OR ANY tray has an open
-## plantable cell (and ANY seed of ANY type exists somewhere — the exact
-## type match, including the per-cell seed-lock constraint, is resolved
-## per-cell inside GardeningActivity._pick_next_task(), not here).
-func has_gardening_target_available() -> bool:
-	return NPCJobQueries.has_gardening_target_available(self)
-
-## Used by the stuck-recovery hook to decide whether a forced grab should
-## be logged/treated as "threw away" vs "put away" once delivered — the
-## grab itself always bypasses eligibility per your answer, this is just
-## classification, not a gate.
 func is_trash_item(item: Node) -> bool:
-	return JobBoard._is_trash_item(item) if JobBoard.has_method("_is_trash_item") else false
+	return NPCJobQueries.is_trash_item(self, item)
 
-# ─── Skills (Part 4) — score multipliers for job selection; grow with use ──
+# ─── Skills — 0.6..2.0; bias job choice, speed up work; grow with use ─────
 var skills: Dictionary = {
-	"farming": 1.0, "plumbing": 1.0, "electrical": 1.0, "construction": 1.0,
+	"farming": 1.0, "plumbing": 1.0, "electrical": 1.0, "construction": 1.0, "cooking": 1.0,
 }
 
 func randomize_skills() -> void:
@@ -1632,1849 +1052,25 @@ func gain_skill(key: String, amount: float = 0.01) -> void:
 	if skills.has(key):
 		skills[key] = minf(2.0, float(skills[key]) + amount)
 
-# ─── Brain ────────────────────────────────────────────────────────────────
-var brain: NPCBrain = null
-
-## Individualized per-NPC Medical component (Aug 2026) — see
-## NPCMedical.gd's own header comment. Instantiated fresh for every NPC in
-## _ready() below, never shared/looked-up like PlayerMedical.
-var medical: NPCMedical = null
-
-## Aug 2026 — per-NPC cross-session job state (Cleaning give-up/blacklist
-## system and the natural home for any future "remembers this didn't work"
-## state) — see NPCJobState.gd.
-var job_state: NPCJobState = NPCJobState.new()
-
-var _stats_ref: Node = null
-
-## Real-seconds → game-hours for this frame, via the shared compressed clock.
-func game_hours(delta: float) -> float:
-	if _stats_ref == null or not is_instance_valid(_stats_ref):
-		_stats_ref = get_tree().get_first_node_in_group("player_stats")
-	if _stats_ref == null or _stats_ref._seconds_per_game_hour <= 0.0:
-		return 0.0
-	return delta / _stats_ref._seconds_per_game_hour
-
-func _tick_needs(delta: float) -> void:
-	var h: float = game_hours(delta)
-	if h <= 0.0:
-		return
-	## Aug 2026 fix (NPC Medical) — clamp against the cap on every tick, not
-	## just the floor, mirroring PlayerStats._tick_needs()'s identical fix
-	## and the exact bug it closes: without this, NPCMedical's Infection
-	## reducing hunger_cap/thirst_cap/energy_cap would have zero real effect
-	## on an NPC whose needs were already comfortably above the new, lower
-	## cap — the value would just sit there unaffected until ordinary drain
-	## happened to catch up naturally, hours later.
-	energy = clampf(energy - ENERGY_DRAIN_PER_GAME_HOUR * h, 0.0, energy_cap)
-	hunger = clampf(hunger - HUNGER_DRAIN_PER_GAME_HOUR * h, 0.0, hunger_cap)
-	thirst = clampf(thirst - THIRST_DRAIN_PER_GAME_HOUR * h, 0.0, thirst_cap)
-
-	var health_drain: float = 0.0
-	if hunger <= 0.0:
-		health_drain += HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR
-	if thirst <= 0.0:
-		health_drain += HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR
-	if health_drain > 0.0:
-		health = maxf(0.0, health - health_drain * h)
-	if health <= 0.0 and not dead:
-		die()
-
-## Decelerate to a stop — used by activities when standing still.
-## Part 13 — every stationary phase in the game (job work, eating, drinking,
-## the idle pause between wander legs) already calls this every frame. It
-## now also raises _movement_locked, so a late-arriving avoidance callback
-## (see _on_velocity_computed below) can never overwrite the halt with a
-## stale travel-direction velocity.
-var _movement_locked: bool = false
-var _requested_nav_target: Vector3 = Vector3.ZERO
-var _raw_nav_target: Vector3 = Vector3.ZERO
-var _nav_route_valid: bool = false
-var _nav_route_failed: bool = false
-var _nav_route_revision: int = 0
-var _nav_desired_distance: float = 1.1
-var _interaction_slot_lease: Dictionary = {}
-var _door_passage_lease: Dictionary = {}
-var _last_requested_nav_speed: float = 0.0
-var _metrics_sample_timer: float = 0.0
-const NAV_DEFAULT_TARGET_DISTANCE: float = 1.1
-const NAV_PRECISE_TARGET_DISTANCE: float = 0.2
-## Stationary residents get right-of-way. A traveling resident still avoids
-## peers with the same moving priority, while one standing at a workstation,
-## talking, or idling remains a stable obstacle instead of being shoved.
-const AVOIDANCE_PRIORITY_MOVING: float = 0.5
-const AVOIDANCE_PRIORITY_STATIONARY: float = 1.0
-var _dynamic_detour_active: bool = false
-var _dynamic_detour_point: Vector3 = Vector3.INF
-var _dynamic_detour_resume_target: Vector3 = Vector3.ZERO
-var _dynamic_detour_resume_distance: float = NAV_DEFAULT_TARGET_DISTANCE
-var _dynamic_detour_side: float = 0.0
-var _navigation_yield_remaining: float = 0.0
-const CLEAR_RETRY_COOLDOWN_MSEC: int = 12000
-var _clear_retry_after_by_item: Dictionary = {}
-
-## The chair this NPC is currently seated in, or null. Mirrors Player.gd's
-## seated_chair so the shared AdventurerModelController can drive the sit
-## animations for both. Set/cleared by SitActivity/RelaxSitActivity.
-var seated_chair: Node3D = null
-## Mirrors Player.sleeping_bed so NPC bed use goes through the authored
-## sit/lie/stand animation instead of relocating the CharacterBody root.
-var sleeping_bed: Node3D = null
-
-## True while this NPC is physically mid-sit-sequence: seated in a chair
-## (seated_chair set) OR mid stand-up (seated_chair already cleared but the
-## model's sit_to_stand clip still playing). During this window the shared
-## AdventurerModelController owns the NPC's position via its eased
-## approach→seat / seat→approach lerp, exactly like the player's
-## set_physics_process(false) freeze. Gravity + move_and_slide would fight
-## that eased position, so _physics_process skips them (Aug 2026 NPC sit port).
-func in_sit_sequence() -> bool:
-	if seated_chair != null or sleeping_bed != null:
-		return true
-	var model: Node = get_node_or_null("CharacterModel")
-	if model != null and "is_sit_sequence_active" in model:
-		return model.is_sit_sequence_active()
-	return false
-
-func halt_movement(delta: float) -> void:
-	_movement_locked = true
-	_last_preferred_nav_velocity = Vector3.ZERO
-	# Activity transitions sometimes pass a large delta for an immediate stop.
-	# Clamp the interpolation so it can never extrapolate through zero and
-	# reverse the NPC at many times its requested walking speed.
-	var blend: float = clampf(acceleration * delta, 0.0, 1.0)
-	velocity.x = lerp(velocity.x, 0.0, blend)
-	velocity.z = lerp(velocity.z, 0.0, blend)
-	_publish_stationary_avoidance()
-
-## One-time hard stop for the exact instant an NPC enters a seated/lying
-## animation sequence (SitActivity, LieActivity) — those states return early every
-## frame afterward and never call halt_movement() again, so they need an
-## explicit lock at the moment of transition rather than relying on a
-## per-frame call.
-func lock_movement() -> void:
-	_movement_locked = true
-	_last_preferred_nav_velocity = Vector3.ZERO
-	velocity.x = 0.0
-	velocity.z = 0.0
-	_publish_stationary_avoidance()
-
-
-## Guaranteed facing for committed conversations. Locomotion assigns heading
-## directly from safe velocity, so conversation turns use that same one-frame
-## response instead of a visibly slower presentation-layer rotation.
-func face_world_position(world_position: Vector3) -> bool:
-	var direction: Vector3 = world_position - global_position
-	direction.y = 0.0
-	if direction.length_squared() < 0.0001:
-		return true
-	var desired_yaw: float = atan2(-direction.x, -direction.z)
-	rotation.y = desired_yaw
-	return true
-
-
-## Root-facing has one owner at a time. Attention may borrow it only after an
-## activity has deliberately stopped and there is no unfinished navigation
-## leg; otherwise NavigationAgent velocity owns the character's heading.
-func can_attention_turn_body() -> bool:
-	if not _movement_locked or in_sit_sequence():
-		return false
-	if Vector2(velocity.x, velocity.z).length() > 0.05:
-		return false
-	if brain != null and brain.is_player_interacting():
-		return true
-	if _nav_route_valid and nav_agent != null and not nav_agent.is_navigation_finished():
-		return false
-	return true
-
-func _ready() -> void:
-	add_to_group("npc")
-	add_to_group("interactable")
-	_physics_push_scan_left = randf() * PHYSICS_PUSH_SCAN_INTERVAL
-
-	## Aug 2026 (Player-Model subsystem, flagged) — the visible mesh's
-	## shadow-cast exclusion is now handled generically by
-	## PlayerModelController.gd (attached to the CharacterModel child
-	## scene, res://scenes/player/PlayerModel.tscn — same scene Player
-	## uses) instead of a hardcoded line here, since NPC.tscn no longer
-	## has a bare $MeshInstance3D. See docs/systems/player-model/README.md
-	## "Shared with NPCs".
-	##
-	## Sep 2026 — the visible CharacterModel casts its own full-height shadow
-	## when Dynamic Shadows is enabled. Removing CharacterModelShadow avoids a
-	## second animated/skinned model per resident and gives real proportions.
-
-	if npc_id == "":
-		npc_id = "npc_%d" % _next_npc_id
-		_next_npc_id += 1
-	NPC._register_id(npc_id)
-
-	if npc_name == "Survivor":
-		_assign_random_name()
-
-	## Agent built in code (no scene edit needed; scene stays Pass-1 shape).
-	nav_agent = NavigationAgent3D.new()
-	nav_agent.name = "NavAgent"
-	## Returned path points originate on the floor while the CharacterBody
-	## origin is at the capsule center. Lift path points to body height so a
-	## tight horizontal waypoint tolerance can be used; a 1.1m tolerance used
-	## to hide this vertical mismatch and let NPCs cut 0.63m across corners.
-	## Godot SUBTRACTS path_height_offset from returned path points. The
-	## negative value therefore raises floor-level waypoints to the capsule
-	## center; a positive value pushes them below the floor and makes the tight
-	## 3D waypoint tolerance impossible to satisfy.
-	nav_agent.path_height_offset = -0.9
-	nav_agent.path_desired_distance = 0.35
-	nav_agent.target_desired_distance = NAV_DEFAULT_TARGET_DISTANCE
-	nav_agent.path_max_distance = 3.0
-	nav_agent.radius = 0.4               ## matches BunkerNavMesh.agent_radius (Part 8)
-	nav_agent.max_speed = move_speed
-	## Real dynamic avoidance (Part 11) — routes around heavy items'
-	## NavigationObstacle3D (PickupableItem.gd) AND every other NPC's own
-	## agent continuously, replacing Part 10.1's reactive post-collision
-	## steering hack entirely.
-	nav_agent.avoidance_enabled = true
-	## Defaults are tuned for large outdoor crowds. In this bunker, considering
-	## agents 50m away makes unrelated residents influence every doorway queue.
-	nav_agent.neighbor_distance = 5.0
-	nav_agent.max_neighbors = 12
-	nav_agent.time_horizon_agents = 1.5
-	nav_agent.time_horizon_obstacles = 1.0
-	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_STATIONARY
-	nav_agent.velocity_computed.connect(_on_velocity_computed)
-	add_child(nav_agent)
-	var nav_owner: Node = get_tree().get_first_node_in_group("bunker_navmesh")
-	if nav_owner != null and nav_owner.has_signal("navigation_revision_changed"):
-		nav_owner.connect("navigation_revision_changed", _on_navigation_revision_changed)
-		if nav_owner.has_method("get_navigation_revision"):
-			_nav_route_revision = int(nav_owner.get_navigation_revision())
-
-	## Carry anchor — chest-height, slightly forward; items follow it with
-	## the same PickupableItem physics the player's HoldPoint gets.
-	hold_point = Node3D.new()
-	hold_point.name = "HoldPoint"
-	hold_point.position = Vector3(0.0, 0.9, -0.8)
-	add_child(hold_point)
-
-	_enter_idle()
-
-	generation_seed = randi()
-	randomize_personality()
-	randomize_skills()
-	randomize_age()
-	_roll_birthday()
-	_relax_cooldown_hours = randf_range(1.0, RELAX_MIN_GAP_HOURS)   ## staggered head-start — never eligible to relax the instant they spawn
-	brain = NPCBrain.new()
-	refresh_behavior_profile()
-	brain.setup(self)
-	attention_controller = NPC_ATTENTION_CONTROLLER.new()
-	attention_controller.name = "NPCAttentionController"
-	add_child(attention_controller)
-	attention_controller.setup(self)
-
-	medical = NPCMedical.new()
-	medical.name = "NPCMedical"
-	add_child(medical)
-	medical.setup(self)
-
-func _exit_tree() -> void:
-	NPC_COMPANIONSHIP.end_for(self)
-	release_interaction_slot()
-	_release_door_passage()
-	NPC_DOOR_COORDINATOR.release_owner(self)
-
-
-func refresh_behavior_profile() -> void:
-	leisure_planner = NPC_LEISURE_PLANNER.new()
-	leisure_planner.setup(self)
-	behavior_profile = leisure_planner.profile
-
-
-func get_leisure_score(mode: StringName, base_score: float) -> float:
-	return leisure_planner.score(mode, base_score) if leisure_planner != null else base_score
-
-
-func get_leisure_sitting_hours() -> float:
-	return leisure_planner.sitting_session_hours() if leisure_planner != null else 1.0
-
-
-func get_leisure_agenda_beat_count() -> int:
-	return leisure_planner.agenda_beat_count() if leisure_planner != null else 2
-
-
-func get_leisure_observation_seconds(min_seconds: float, max_seconds: float) -> float:
-	return leisure_planner.observation_seconds(min_seconds, max_seconds) \
-		if leisure_planner != null else randf_range(min_seconds, max_seconds)
-
-
-func get_behavior_profile_debug_info() -> Dictionary:
-	return leisure_planner.debug_info() if leisure_planner != null else {}
-
-func _physics_process(delta: float) -> void:
-	if dead:
-		return   ## corpse — model controller owns the dying pose, nothing ticks
-	NPC_COMPANIONSHIP.tick(self)
-	if leisure_planner != null:
-		leisure_planner.tick(game_hours(delta))
-	## Aug 2026 NPC sit port — while the NPC is physically mid-sit-sequence the
-	## AdventurerModelController owns the position (eased approach→seat /
-	## seat→approach, plus its vertical landing and foot clamp), mirroring the
-	## player's set_physics_process(false). Gravity would drag the elevated
-	## seated root down and move_and_slide() would fight the eased position, so
-	## both are skipped here. Needs/brain still tick below, so the seated NPC
-	## keeps regenerating energy and its activity keeps deciding when to stand.
-	if not in_sit_sequence():
-		if not is_on_floor():
-			velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
-
-		_tick_needs(delta)
-		_tick_mood_and_irritability(delta)
-		var player_interaction: bool = brain != null and brain.is_player_interacting()
-		if not player_interaction:
-			_tick_stuck_recovery(delta)
-
-		if player_interaction:
-			brain.tick(delta)
-		elif current_task != null:
-			perform_task(delta)
-		elif brain != null:
-			brain.tick(delta)
-		else:
-			_process_wander(delta)   ## fallback only — brain owns behavior now
-
-		_sync_stationary_avoidance()
-		move_and_slide()
-		_handle_physics_pushes(delta)
-		_capture_navigation_trace(delta)
-		if not (brain != null and brain.is_player_interacting()):
-			_check_stuck(delta)
-	else:
-		## Sit sequence active — the controller owns position. Still let the
-		## activity tick so it can regen energy and trigger the stand-up; just
-		## don't fight the eased position with gravity or move_and_slide.
-		_tick_needs(delta)
-		_tick_mood_and_irritability(delta)
-
-		if brain != null and brain.is_player_interacting():
-			brain.tick(delta)
-		elif current_task != null:
-			perform_task(delta)
-		elif brain != null:
-			brain.tick(delta)
-		else:
-			_process_wander(delta)
-		_sync_stationary_avoidance()
-	_tick_metrics(delta)
-
-
-func get_companion() -> NPC:
-	return NPC_COMPANIONSHIP.partner_for(self) as NPC
-
-
-func request_attention(source: Object, world_position: Vector3, category: StringName,
-		salience: float, lifetime: float = 1.0, body_turn_allowed: bool = true) -> void:
-	if attention_controller != null and attention_controller.has_method("notice"):
-		attention_controller.notice(source, world_position, category, salience,
-			lifetime, body_turn_allowed)
-
-
-func get_attention_task_stimulus() -> Dictionary:
-	var target: Node3D = null
-	var category: StringName = &"task_target"
-	var salience: float = 0.82
-	if brain != null:
-		target = brain.get_attention_target()
-		if brain.is_player_interacting():
-			category = &"player_conversation"
-			salience = 2.0
-		elif brain.is_talking():
-			category = &"conversation_partner"
-			salience = 1.8
-	if target == null and not _interaction_slot_lease.is_empty():
-		var target_ref: WeakRef = _interaction_slot_lease.get("target_ref") as WeakRef
-		target = target_ref.get_ref() as Node3D if target_ref != null else null
-	if target == null and current_task is Node3D:
-		target = current_task as Node3D
-	if target != null and is_instance_valid(target):
-		return {
-			"source": weakref(target), "world_position": target.global_position,
-			"category": category, "salience": salience,
-			"body_turn_allowed": true,
-		}
-	if _movement_locked and _raw_nav_target != Vector3.ZERO:
-		return {
-			"source": null, "world_position": _raw_nav_target,
-			"category": &"task_target", "salience": 0.68,
-			"body_turn_allowed": true,
-		}
-	return {}
-
-
-func get_attention_debug_info() -> Dictionary:
-	return attention_controller.get_debug_info() \
-		if attention_controller != null and attention_controller.has_method("get_debug_info") else {}
-
-
-func _tick_metrics(delta: float) -> void:
-	if not NPC_METRICS.enabled:
-		return
-	_metrics_sample_timer -= delta
-	if _metrics_sample_timer > 0.0:
-		return
-	_metrics_sample_timer = 1.0
-	var achieved: Vector3 = get_real_velocity()
-	NPC_METRICS.observe(&"locomotion_speed_mps", Vector2(achieved.x, achieved.z).length(),
-		[0.0, 0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
-
-
-func is_position_compatible_with_companionship(position: Vector3, extra_radius: float = 0.0) -> bool:
-	return NPC_COMPANIONSHIP.is_position_compatible(self, position, extra_radius)
-
-# ─── Navigation primitives (used by wander now; by every activity later) ──
-## Point the agent at a world position. Y is flattened — paths are XZ-only.
-func set_nav_target(world_pos: Vector3, desired_distance: float = NAV_DEFAULT_TARGET_DISTANCE) -> bool:
-	if nav_agent == null:
-		return false
-	var raw := Vector3(world_pos.x, 0.5, world_pos.z)
-	var requested_distance := maxf(0.05, desired_distance)
-	if _dynamic_detour_active:
-		if raw.distance_squared_to(_dynamic_detour_resume_target) < 0.01 \
-				and is_equal_approx(requested_distance, _dynamic_detour_resume_distance):
-			return _nav_route_valid
-		_cancel_dynamic_detour(false)
-	if raw.distance_squared_to(_raw_nav_target) < 0.01 \
-			and is_equal_approx(requested_distance, _nav_desired_distance) \
-			and (_nav_route_valid or _nav_route_failed):
-		return _nav_route_valid
-	_raw_nav_target = raw
-	_nav_desired_distance = requested_distance
-	return _evaluate_nav_route()
-
-
-func _begin_dynamic_detour(point: Vector3, side: float) -> bool:
-	if _dynamic_detour_active or _raw_nav_target == Vector3.ZERO:
-		return false
-	_dynamic_detour_active = true
-	_dynamic_detour_point = point
-	_dynamic_detour_resume_target = _raw_nav_target
-	_dynamic_detour_resume_distance = _nav_desired_distance
-	_dynamic_detour_side = side
-	_raw_nav_target = Vector3(point.x, 0.5, point.z)
-	_nav_desired_distance = NAV_PRECISE_TARGET_DISTANCE
-	if _evaluate_nav_route():
-		return true
-	_cancel_dynamic_detour(true)
-	return false
-
-
-func _cancel_dynamic_detour(restore_route: bool) -> void:
-	if not _dynamic_detour_active:
-		return
-	var resume_target: Vector3 = _dynamic_detour_resume_target
-	var resume_distance: float = _dynamic_detour_resume_distance
-	_dynamic_detour_active = false
-	_dynamic_detour_point = Vector3.INF
-	_dynamic_detour_resume_target = Vector3.ZERO
-	_dynamic_detour_resume_distance = NAV_DEFAULT_TARGET_DISTANCE
-	_dynamic_detour_side = 0.0
-	if restore_route and resume_target != Vector3.ZERO:
-		_raw_nav_target = resume_target
-		_nav_desired_distance = resume_distance
-		_evaluate_nav_route()
-
-
-func _evaluate_nav_route() -> bool:
-	_nav_route_valid = false
-	_nav_route_failed = false
-	_stuck_ref_remaining_distance = INF
-	if nav_agent == null:
-		return false
-	var nav_map: RID = nav_agent.get_navigation_map()
-	if not nav_map.is_valid() or NavigationServer3D.map_get_iteration_id(nav_map) <= 0:
-		return false
-	var start: Vector3 = NavigationServer3D.map_get_closest_point(nav_map,
-		Vector3(global_position.x, 0.5, global_position.z))
-	var target: Vector3 = NavigationServer3D.map_get_closest_point(nav_map, _raw_nav_target)
-	var path: PackedVector3Array = NavigationServer3D.map_get_path(nav_map, start, target, true)
-	## Godot may return a useful-looking PARTIAL path for a disconnected goal.
-	## Never turn its wall-side endpoint into a successful movement target.
-	## This validates graph connectivity, not interaction arrival distance. A
-	## wall is often thinner than an activity's 1.1m stop radius, so using that
-	## radius here would misclassify a partial path across the wall as complete.
-	var endpoint_tolerance := 0.2
-	if path.is_empty() or path[path.size() - 1].distance_to(target) > endpoint_tolerance:
-		_nav_route_failed = true
-		lock_movement()
-		_last_requested_nav_speed = 0.0
-		NPC_METRICS.increment(&"navigation_route_failures")
-		NPC_METRICS.record_anomaly(&"navigation_route_failed", self, {
-			"raw_target": _raw_nav_target, "projected_target": target,
-			"path_points": path.size(),
-		})
-		return false
-	_requested_nav_target = target
-	_nav_route_valid = true
-	nav_agent.target_desired_distance = _nav_desired_distance
-	nav_agent.target_position = target
-	NPC_METRICS.increment(&"navigation_route_requests")
-	NPC_METRICS.observe(&"navigation_route_points", float(path.size()),
-		[1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0])
-	return true
-
-
-func _on_navigation_revision_changed(revision: int) -> void:
-	_nav_route_revision = revision
-	_clear_retry_after_by_item.clear()
-	if _raw_nav_target != Vector3.ZERO:
-		_evaluate_nav_route()
-
-
-func can_retry_navigation_clear(item: RigidBody3D) -> bool:
-	if item == null or not is_instance_valid(item):
-		return false
-	return Time.get_ticks_msec() >= int(_clear_retry_after_by_item.get(
-		item.get_instance_id(), 0))
-
-
-func note_navigation_clear_result(item_id: int, succeeded: bool) -> void:
-	if succeeded:
-		_clear_retry_after_by_item.erase(item_id)
-	else:
-		_clear_retry_after_by_item[item_id] = Time.get_ticks_msec() \
-			+ CLEAR_RETRY_COOLDOWN_MSEC
-
-func project_navigation_point(world_pos: Vector3) -> Vector3:
-	var target := Vector3(world_pos.x, 0.5, world_pos.z)
-	if nav_agent == null:
-		return target
-	var nav_map: RID = nav_agent.get_navigation_map()
-	if nav_map.is_valid() and NavigationServer3D.map_get_iteration_id(nav_map) > 0:
-		target = NavigationServer3D.map_get_closest_point(nav_map, target)
-	return target
-
-## Read-only route query used by interaction-slot selection. Euclidean
-## distance can make a point on the far side of a wall look like the closest
-## approach; path length rejects disconnected candidates and correctly prices
-## candidates that require walking through a doorway.
-func get_navigation_route_cost(world_pos: Vector3) -> float:
-	if nav_agent == null:
-		return INF
-	var nav_map: RID = nav_agent.get_navigation_map()
-	if not nav_map.is_valid() or NavigationServer3D.map_get_iteration_id(nav_map) <= 0:
-		return INF
-	var start: Vector3 = NavigationServer3D.map_get_closest_point(nav_map,
-		Vector3(global_position.x, 0.5, global_position.z))
-	var requested := Vector3(world_pos.x, 0.5, world_pos.z)
-	var target: Vector3 = NavigationServer3D.map_get_closest_point(nav_map, requested)
-	var path: PackedVector3Array = NavigationServer3D.map_get_path(nav_map, start, target, true)
-	if path.is_empty() or path[path.size() - 1].distance_to(target) > 0.2:
-		return INF
-	var cost: float = 0.0
-	for index: int in range(1, path.size()):
-		cost += path[index - 1].distance_to(path[index])
-	return cost
-
-## Tests whether the NPC's full collision capsule can actually stand at an
-## interaction slot right now.  Navigation answers structural reachability;
-## this complementary physics query accounts for movable furniture and loose
-## objects that are deliberately not baked into the navigation mesh.
-func is_interaction_position_clear(world_pos: Vector3, target: Node3D = null) -> bool:
-	if collision == null or collision.shape == null or not is_inside_tree():
-		return true
-	var world: World3D = get_world_3d()
-	if world == null:
-		return true
-	var projected_here: Vector3 = project_navigation_point(global_position)
-	var origin_above_nav: float = maxf(global_position.y - projected_here.y, 0.0)
-	var query := PhysicsShapeQueryParameters3D.new()
-	query.shape = collision.shape
-	query.transform = Transform3D(global_transform.basis.orthonormalized(),
-		Vector3(world_pos.x, world_pos.y + origin_above_nav + 0.02, world_pos.z))
-	query.collision_mask = collision_mask
-	query.collide_with_bodies = true
-	query.collide_with_areas = false
-	var excluded: Array[RID] = [get_rid()]
-	if target is CollisionObject3D:
-		excluded.append((target as CollisionObject3D).get_rid())
-	query.exclude = excluded
-	return world.direct_space_state.intersect_shape(query, 8).is_empty()
-
-## Conservative footprint query used before an obstruction-clearing action
-## commits to lifting anything. The short cylinder ignores the supporting
-## floor but rejects walls, furniture, residents, and other loose bodies in
-## the proposed drop footprint.
-func is_object_placement_clear(item: RigidBody3D, world_pos: Vector3,
-		footprint_radius: float) -> bool:
-	if not is_inside_tree():
-		return false
-	var world: World3D = get_world_3d()
-	if world == null:
-		return false
-	var shape := CylinderShape3D.new()
-	shape.radius = maxf(0.05, footprint_radius + 0.08)
-	shape.height = 0.5
-	var query := PhysicsShapeQueryParameters3D.new()
-	query.shape = shape
-	query.transform = Transform3D(Basis.IDENTITY,
-		Vector3(world_pos.x, world_pos.y + 0.32, world_pos.z))
-	query.collision_mask = collision_mask
-	query.collide_with_bodies = true
-	query.collide_with_areas = false
-	query.exclude = [get_rid(), item.get_rid()]
-	return world.direct_space_state.intersect_shape(query, 16).is_empty()
-
-func claim_interaction_slot(target: Node3D, action: StringName,
-		distance: float = 1.0, authored: Array[Dictionary] = []) -> Dictionary:
-	release_interaction_slot()
-	_interaction_slot_lease = NPC_INTERACTION_SLOTS.claim_best(self, target, action, distance, authored)
-	return _interaction_slot_lease
-
-func release_interaction_slot() -> void:
-	if not _interaction_slot_lease.is_empty():
-		NPC_INTERACTION_SLOTS.release(_interaction_slot_lease, self)
-	_interaction_slot_lease = {}
-
-func is_interaction_slot_claimed_by_other(target: Node3D, action: StringName,
-		claim_group: StringName) -> bool:
-	return NPC_INTERACTION_SLOTS.is_claimed_by_other(target, action, claim_group, self)
-
-func get_interaction_slot_position() -> Vector3:
-	if _interaction_slot_lease.is_empty():
-		return global_position
-	var transform: Transform3D = _interaction_slot_lease.get("transform", global_transform)
-	return transform.origin
-
-func face_interaction_slot() -> void:
-	if _interaction_slot_lease.is_empty():
-		return
-	var target_ref: WeakRef = _interaction_slot_lease.get("target_ref") as WeakRef
-	var target: Node3D = target_ref.get_ref() as Node3D if target_ref != null else null
-	var transform: Transform3D = _interaction_slot_lease.get("transform", global_transform)
-	# Preserve the authored slot's forward direction. Using the object's center
-	# here made side-on workstations turn after arrival and look indecisive.
-	var look_position: Vector3 = global_position - transform.basis.z * 2.0
-	request_attention(target, look_position, &"interaction_facing", 1.35, 2.0, true)
-
-func get_spatial_commitment_debug_info() -> Dictionary:
-	var info: Dictionary = {}
-	if not _interaction_slot_lease.is_empty():
-		info["slot"] = String(_interaction_slot_lease.get("slot_id", &""))
-		info["slot_action"] = String(_interaction_slot_lease.get("action", &""))
-		info["slot_target_id"] = int(_interaction_slot_lease.get("target_id", 0))
-	if not _door_passage_lease.is_empty():
-		info["door_id"] = int(_door_passage_lease.get("door_id", 0))
-		info["door_direction"] = int(_door_passage_lease.get("direction", 0))
-	return info
-
-func nav_finished() -> bool:
-	if nav_agent == null:
-		return true
-	if _dynamic_detour_active:
-		return false
-	if not _nav_route_valid or not nav_agent.is_navigation_finished():
-		return false
-	return NPCItemUser.flat_distance(global_position, _requested_nav_target) \
-		<= _nav_desired_distance + 0.25
-
-
-func nav_failed() -> bool:
-	return _nav_route_failed
-
-## Force NavigationAgent3D to invalidate an unchanged target. Assigning the
-## same target is a no-op, so recovery briefly changes it to the current floor
-## point before restoring the requested destination.
-func force_nav_repath() -> void:
-	if nav_agent == null:
-		return
-	_evaluate_nav_route()
-
-func cancel_navigation() -> void:
-	_cancel_dynamic_detour(false)
-	lock_movement()
-	release_interaction_slot()
-	_release_door_passage()
-	_last_requested_nav_speed = 0.0
-	_soft_repath_attempted = false
-	if nav_agent != null:
-		nav_agent.target_desired_distance = NAV_DEFAULT_TARGET_DISTANCE
-		_requested_nav_target = Vector3(global_position.x, 0.5, global_position.z)
-		nav_agent.target_position = _requested_nav_target
-	_nav_route_valid = false
-	_nav_route_failed = false
-	_raw_nav_target = Vector3.ZERO
-
-
-## Small, read-only surface for NPCBrain's last-resort behavior watchdog. This
-## keeps recovery policy out of the activity classes without making the brain
-## reconstruct navigation state from the much larger debug flight recorder.
-func get_navigation_watchdog_state() -> Dictionary:
-	return {
-		"route_valid": _nav_route_valid,
-		"route_failed": _nav_route_failed,
-		"movement_locked": _movement_locked,
-		"requested_speed": _last_requested_nav_speed,
-		"remaining_distance": _navigation_remaining_distance(),
-		"recovery_stage": _last_stuck_recovery_stage,
-	}
-
-
-## A behavior reset is a new attempt, not another continuation of the same
-## stuck streak. Clear every navigation fallback latch while preserving the
-## NPC's world position and held item.
-func reset_navigation_recovery_state() -> void:
-	_stuck_timer = 0.0
-	_stuck_ref_pos = global_position
-	_stuck_ref_remaining_distance = INF
-	_stuck_grace_elapsed = 0.0
-	_soft_repath_attempted = false
-	_stuck_streak_obstruction_id = -1
-	_stuck_streak_count = 0
-	_stuck_npc_streak = 0
-	_stuck_wall_streak = 0
-	_stuck_unknown_streak = 0
-	_navigation_yield_remaining = 0.0
-	_last_stuck_recovery_stage = "watchdog_reset"
-
-
-## Stop only the current route for a short recovery overlay. Unlike a real
-## activity exit, this deliberately preserves the incumbent's interaction-slot
-## claim and every other piece of task state.
-func suspend_navigation_for_overlay() -> void:
-	_cancel_dynamic_detour(false)
-	lock_movement()
-	_release_door_passage()
-	_last_requested_nav_speed = 0.0
-	_soft_repath_attempted = false
-	if nav_agent != null:
-		_requested_nav_target = Vector3(global_position.x, 0.5, global_position.z)
-		nav_agent.target_position = _requested_nav_target
-	_nav_route_valid = false
-	_nav_route_failed = false
-	_raw_nav_target = Vector3.ZERO
-
-## Steer toward the agent's next waypoint. Call once per physics frame while
-## traveling; pairs with move_and_slide() in _physics_process. With real
-## avoidance (Part 11) this no longer sets velocity directly — it submits
-## the PREFERRED velocity to the NavigationAgent3D, which factors in every
-## nearby NavigationObstacle3D (heavy items) and other NPC agents, then
-## calls back into _on_velocity_computed() with the safe, adjusted velocity
-## to actually apply. Every activity keeps calling this exact same function,
-## so no activity code needs to know avoidance exists at all.
-func nav_steer(delta: float, speed_scale: float = 1.0) -> void:
-	_movement_locked = false   ## actively requesting movement again (Part 13)
-	if nav_agent != null:
-		nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_MOVING
-	_last_steer_delta = delta
-	if _navigation_yield_remaining > 0.0:
-		_navigation_yield_remaining = maxf(0.0, _navigation_yield_remaining - delta)
-		halt_movement(delta)
-		_last_requested_nav_speed = 0.0
-		return
-	if _dynamic_detour_active and (nav_agent.is_navigation_finished() \
-			or NPCItemUser.flat_distance(global_position, _dynamic_detour_point) <= 0.45):
-		_cancel_dynamic_detour(true)
-	if nav_agent == null or not _nav_route_valid or nav_agent.is_navigation_finished():
-		# Use the same clamped stop path as activity transitions and lock out
-		# any avoidance callback left over from the preceding travel frame.
-		halt_movement(delta)
-		_last_requested_nav_speed = 0.0
-		return
-	var next: Vector3 = nav_agent.get_next_path_position()
-	if not _door_passage_allows(next):
-		halt_movement(delta)
-		_last_requested_nav_speed = 0.0
-		return
-	var dir: Vector3 = next - global_position
-	dir.y = 0.0
-	if dir.length() < 0.01:
-		return
-	dir = dir.normalized()
-	# Dynamic-follow activities may gently match another resident's pace or use
-	# a small catch-up allowance. All ordinary navigation keeps the default 1.0.
-	_last_requested_nav_speed = move_speed * get_status_speed_multiplier() \
-		* clampf(speed_scale, 0.0, 1.15)
-	nav_agent.max_speed = _last_requested_nav_speed
-	_last_preferred_nav_velocity = dir * _last_requested_nav_speed
-	nav_agent.set_velocity(_last_preferred_nav_velocity)   ## Part 14
-
-## NavigationAgent3D avoidance state is not derived from CharacterBody3D.
-## Activities that stop moving must explicitly submit a zero wanted velocity;
-## otherwise nearby agents can keep predicting this resident's last walking
-## velocity and choose a line that runs through their current position.
-func _publish_stationary_avoidance() -> void:
-	if nav_agent == null or not nav_agent.avoidance_enabled:
-		return
-	## A zero desired velocity may still produce a non-zero avoidance suggestion
-	## when another body approaches. Stationary residents have right-of-way, so
-	## prevent that suggestion from physically displacing an idle resident.
-	_last_requested_nav_speed = 0.0
-	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_STATIONARY
-	nav_agent.set_velocity(Vector3.ZERO)
-
-## Covers passive idle and animation-owned stationary frames in addition to
-## the explicit halt/lock calls above. Called once every physics frame.
-func _sync_stationary_avoidance() -> void:
-	if nav_agent == null:
-		return
-	if _movement_locked or in_sit_sequence() or not _nav_route_valid \
-			or nav_agent.is_navigation_finished():
-		_publish_stationary_avoidance()
-
-func _door_passage_allows(next_path_point: Vector3) -> bool:
-	if not _door_passage_lease.is_empty():
-		if Time.get_ticks_msec() >= int(_door_passage_lease.get("expires", 0)):
-			_release_door_passage()
-		var door_ref: WeakRef = _door_passage_lease.get("door_ref") as WeakRef
-		var door: Node3D = door_ref.get_ref() as Node3D if door_ref != null else null
-		if door == null or not is_instance_valid(door):
-			_release_door_passage()
-		else:
-			var info: Dictionary = door.get_npc_portal_info() if door.has_method("get_npc_portal_info") else {}
-			var local: Vector3 = door.to_local(global_position)
-			var direction: int = int(_door_passage_lease.get("direction", 0))
-			if info.is_empty() or local.x * direction >= float(info.get("exit_distance", 0.9)):
-				_release_door_passage()
-			elif not bool(info.get("open", false)):
-				_release_door_passage()
-				if door.has_method("request_npc_open"):
-					door.request_npc_open(self)
-				return false
-			else:
-				return true
-
-	var best_door: Node3D = null
-	var best_direction: int = 0
-	var best_plane_distance: float = INF
-	for candidate: Node in get_tree().get_nodes_in_group("npc_bottleneck"):
-		if not candidate is Node3D or not candidate.has_method("get_npc_portal_info"):
-			continue
-		var door := candidate as Node3D
-		var info: Dictionary = door.get_npc_portal_info()
-		var here: Vector3 = door.to_local(global_position)
-		var next_local: Vector3 = door.to_local(next_path_point)
-		var target_local: Vector3 = door.to_local(_requested_nav_target)
-		var wait_distance: float = float(info.get("wait_distance", 1.15))
-		var half_width: float = float(info.get("half_width", 0.9))
-		if absf(here.x) > wait_distance or absf(here.z) > half_width + 0.45:
-			continue
-		var travel_x: float = target_local.x - here.x
-		if absf(travel_x) < 0.2:
-			travel_x = next_local.x - here.x
-		var direction: int = 1 if travel_x > 0.0 else -1
-		## Only arbitrate when the route actually crosses the door plane.
-		if here.x * direction >= 0.0 or target_local.x * direction <= 0.0:
-			continue
-		if absf(here.x) < best_plane_distance:
-			best_plane_distance = absf(here.x)
-			best_door = door
-			best_direction = direction
-	if best_door == null:
-		return true
-	var best_info: Dictionary = best_door.get_npc_portal_info()
-	if not bool(best_info.get("open", false)):
-		if best_door.has_method("request_npc_open"):
-			best_door.request_npc_open(self)
-		return false
-	_door_passage_lease = NPC_DOOR_COORDINATOR.request(self, best_door, best_direction)
-	return not _door_passage_lease.is_empty()
-
-func _release_door_passage() -> void:
-	if not _door_passage_lease.is_empty():
-		NPC_DOOR_COORDINATOR.release(_door_passage_lease, self)
-	## Also removes a queued (not-yet-granted) request during retarget/cancel.
-	NPC_DOOR_COORDINATOR.release_owner(self)
-	_door_passage_lease = {}
-
-var _last_steer_delta: float = 0.0
-
-## Godot calls this once avoidance has computed a safe velocity from the
-## preferred one submitted in nav_steer(). Fires synchronously within the
-## same physics frame under local (non-multithreaded) avoidance, which is
-## what a single-region setup like this one uses.
-func _on_velocity_computed(safe_velocity: Vector3) -> void:
-	_last_safe_nav_velocity = safe_velocity
-	if _movement_locked:
-		return   ## a stationary phase (Part 13) started after this request was
-					 ## submitted — the request is stale, ignore it
-	## Navigation avoidance may return a velocity up to agent.max_speed. That
-	## property previously kept Godot's high default, so a retarget amid nearby
-	## agents could produce several frames of 10m/s-looking motion: a continuous
-	## "smooth teleport." Cap twice—on the agent above and at this boundary—so
-	## avoidance can redirect movement but can never accelerate the resident.
-	var safe_xz: Vector2 = Vector2(safe_velocity.x, safe_velocity.z)
-	if _last_requested_nav_speed <= 0.0:
-		safe_xz = Vector2.ZERO
-	elif safe_xz.length() > _last_requested_nav_speed:
-		safe_xz = safe_xz.normalized() * _last_requested_nav_speed
-	## The avoidance result is already the safe velocity for this frame. Mixing
-	## the previous (unsafe) velocity back into it can keep driving into the
-	## very obstacle that made avoidance return zero or redirect sideways.
-	velocity.x = safe_xz.x
-	velocity.z = safe_xz.y
-	if safe_xz.length() > 0.05:
-		rotation.y = atan2(-safe_xz.x, -safe_xz.y)
-
-## Bounded, opt-in locomotion flight recorder. Sampling happens after
-## move_and_slide(), so requested, avoidance-safe, applied, and achieved
-## velocities can be compared against the contacts from that exact frame.
-func _capture_navigation_trace(delta: float) -> void:
-	if not NPCDebug.navigation_trace_enabled and not NPC_METRICS.enabled:
-		_nav_trace_elapsed = 0.0
-		return
-	_nav_trace_elapsed += delta
-	if _nav_trace_elapsed < NAV_TRACE_SAMPLE_INTERVAL:
-		return
-	_nav_trace_elapsed = 0.0
-	var contacts: Array[Dictionary] = []
-	for i: int in get_slide_collision_count():
-		var collision_info: KinematicCollision3D = get_slide_collision(i)
-		var collider: Object = collision_info.get_collider()
-		contacts.append({
-			"id": collider.get_instance_id() if collider != null else 0,
-			"name": str((collider as Node).name) if collider is Node else str(collider),
-			"class": collider.get_class() if collider != null else "null",
-			"normal": collision_info.get_normal(),
-			"position": collision_info.get_position(),
-		})
-	var next_point: Vector3 = nav_agent.get_next_path_position() \
-		if nav_agent != null and _nav_route_valid and not nav_agent.is_navigation_finished() \
-		else global_position
-	_nav_trace_samples.append({
-		"time_ms": Time.get_ticks_msec(),
-		"activity": brain.current_label() if brain != null else "legacy movement",
-		"position": global_position,
-		"preferred": _last_preferred_nav_velocity,
-		"safe_raw": _last_safe_nav_velocity,
-		"applied": velocity,
-		"achieved": get_real_velocity(),
-		"next_point": next_point,
-		"target": _requested_nav_target,
-		"target_distance": NPCItemUser.flat_distance(global_position, _requested_nav_target),
-		"route_valid": _nav_route_valid,
-		"route_failed": _nav_route_failed,
-		"movement_locked": _movement_locked,
-		"contacts": contacts,
-	})
-	while _nav_trace_samples.size() > NAV_TRACE_CAPACITY:
-		_nav_trace_samples.pop_front()
-
-
-func clear_navigation_trace() -> void:
-	_nav_trace_samples.clear()
-	_nav_trace_elapsed = 0.0
-
-
-func get_navigation_debug_info() -> Dictionary:
-	var path_size: int = 0
-	var path_index: int = -1
-	var next_point: Vector3 = global_position
-	if nav_agent != null:
-		path_size = nav_agent.get_current_navigation_path().size()
-		path_index = nav_agent.get_current_navigation_path_index()
-		if _nav_route_valid and not nav_agent.is_navigation_finished():
-			next_point = nav_agent.get_next_path_position()
-	var nearby: Array[Dictionary] = []
-	for node: Node in get_tree().get_nodes_in_group("pickup"):
-		if not node is RigidBody3D or not is_instance_valid(node):
-			continue
-		var item := node as RigidBody3D
-		var distance: float = NPCItemUser.flat_distance(global_position, item.global_position)
-		if distance > NAV_TRACE_NEARBY_RADIUS:
-			continue
-		var obstacle: Dictionary = item.get_navigation_obstacle_debug_info() \
-			if item.has_method("get_navigation_obstacle_debug_info") else {}
-		nearby.append({
-			"id": item.get_instance_id(),
-			"name": str(item.name),
-			"class": item.get_class(),
-			"position": item.global_position,
-			"distance": distance,
-			"obstacle": obstacle,
-		})
-	nearby.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return float(a.get("distance", INF)) < float(b.get("distance", INF)))
-	var nearby_characters: Array[Dictionary] = []
-	var character_nodes: Array = get_tree().get_nodes_in_group("npc")
-	character_nodes.append_array(get_tree().get_nodes_in_group("player"))
-	for other: Node in character_nodes:
-		if other == self or not is_instance_valid(other) or not other is Node3D:
-			continue
-		var character_distance: float = NPCItemUser.flat_distance(
-			global_position, (other as Node3D).global_position)
-		if character_distance > NAV_TRACE_NEARBY_RADIUS:
-			continue
-		nearby_characters.append({
-			"id": other.get_instance_id(),
-			"name": String(other.get("npc_name")) if "npc_name" in other else String(other.name),
-			"kind": "npc" if other.is_in_group("npc") else "player",
-			"position": (other as Node3D).global_position,
-			"distance": character_distance,
-			"velocity": other.get("velocity") if "velocity" in other else Vector3.ZERO,
-		})
-	nearby_characters.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return float(a.get("distance", INF)) < float(b.get("distance", INF)))
-	return {
-		"position": global_position,
-		"activity": brain.current_label() if brain != null else "legacy movement",
-		"movement_locked": _movement_locked,
-		"route_valid": _nav_route_valid,
-		"route_failed": _nav_route_failed,
-		"raw_target": _raw_nav_target,
-		"projected_target": _requested_nav_target,
-		"target_distance": NPCItemUser.flat_distance(global_position, _requested_nav_target),
-		"next_point": next_point,
-		"path_index": path_index,
-		"path_size": path_size,
-		"preferred_velocity": _last_preferred_nav_velocity,
-		"safe_velocity_raw": _last_safe_nav_velocity,
-		"applied_velocity": velocity,
-		"achieved_velocity": get_real_velocity(),
-		"avoidance_priority": nav_agent.avoidance_priority if nav_agent != null else 0.0,
-		"avoidance_wanted_velocity": nav_agent.velocity if nav_agent != null else Vector3.ZERO,
-		"stuck_recoveries": _stuck_recoveries,
-		"stuck_grace_elapsed": _stuck_grace_elapsed,
-		"soft_repath_attempted": _soft_repath_attempted,
-		"last_recovery_stage": _last_stuck_recovery_stage,
-		"dynamic_detour_active": _dynamic_detour_active,
-		"dynamic_detour_point": _dynamic_detour_point,
-		"dynamic_detour_resume_target": _dynamic_detour_resume_target,
-		"dynamic_detour_side": _dynamic_detour_side,
-		"navigation_yield_remaining": _navigation_yield_remaining,
-		"clear_retry_cooldowns": _clear_retry_after_by_item.duplicate(),
-		"item_streak": _stuck_streak_count,
-		"npc_streak": _stuck_npc_streak,
-		"wall_streak": _stuck_wall_streak,
-		"unknown_streak": _stuck_unknown_streak,
-		"nearby_physics_items": nearby,
-		"nearby_characters": nearby_characters,
-		"recent_samples": _nav_trace_samples.duplicate(true),
-	}
-
-# ─── Wander state machine ─────────────────────────────────────────────────
-func _enter_idle() -> void:
-	_state = NPCState.IDLE
-	_idle_timer = randf_range(idle_time_min, idle_time_max)
-	velocity.x = 0.0
-	velocity.z = 0.0
-
-func _enter_wandering() -> void:
-	_state = NPCState.WANDERING
-	var world: Node = get_tree().get_first_node_in_group("main_world")
-	if world != null and world.has_method("get_random_cleared_cell_center"):
-		set_nav_target(world.get_random_cleared_cell_center())
-	_stuck_check_timer = 0.0
-	_stuck_check_last_pos = global_position
-
-func _process_wander(delta: float) -> void:
-	match _state:
-		NPCState.IDLE:
-			_idle_timer -= delta
-			if _idle_timer <= 0.0:
-				_enter_wandering()
-		NPCState.WANDERING:
-			if nav_finished():
-				_enter_idle()
-			else:
-				nav_steer(delta)
-
-## Safety net for stale-navmesh moments (mid-rebake) or physics shoves:
-## if wandering but not actually moving, give up this leg and re-idle.
-func _check_stuck(delta: float) -> void:
-	if _state != NPCState.WANDERING or current_task != null:
-		return
-	_stuck_check_timer += delta
-	if _stuck_check_timer >= 1.5:
-		if global_position.distance_to(_stuck_check_last_pos) < 0.15:
-			_enter_idle()
-		else:
-			_stuck_check_timer = 0.0
-			_stuck_check_last_pos = global_position
-
-# ─── Future task hook (stub — Part 4 fills this) ──────────────────────────
-func assign_task(task: Node) -> void:
-	current_task = task
-
-func perform_task(_delta: float) -> void:
-	pass  ## FUTURE WORK
-
-# ─── Interaction (contract unchanged from Pass 1) ─────────────────────────
-func get_interact_prompt() -> String:
-	return "[E] Talk to %s" % npc_name
-
-func on_interact() -> void:
-	_open_talk_menu()
-
-var _talk_menu: CanvasLayer = null
-
-func _open_talk_menu() -> void:
-	if _talk_menu == null or not is_instance_valid(_talk_menu) or not SharedUI.owns(_talk_menu, self):
-		## SharedUI (Sep 2026): one prebuilt resident profile, lent to this NPC
-		## (no per-NPC build hitch on first conversation).
-		_talk_menu = SharedUI.acquire("res://scripts/ui/npc/NPCTalkMenuUI.gd", self, &"_talk_menu")
-		if _talk_menu == null:
-			return
-	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
-	if brain != null:
-		brain.begin_player_interaction()
-	if player != null:
-		request_attention(player, player.global_position, &"player_conversation", 2.0, 1.0, true)
-	if _talk_menu.has_method("open"):
-		_talk_menu.open(npc_name, self)
-
-
-func end_player_interaction() -> void:
-	if brain != null:
-		brain.end_player_interaction()
-	_stuck_timer = 0.0
-	_stuck_ref_pos = global_position
-	_stuck_grace_elapsed = 0.0
-
-
-func close_talk_menu_for_critical_state() -> void:
-	if _talk_menu != null and is_instance_valid(_talk_menu) and _talk_menu.has_method("close") \
-			and SharedUI.owns(_talk_menu, self):
-		_talk_menu.close()
-
-
-# ─── Overhead work indicator ─────────────────────────────────────────────────
-## Public facade intentionally unchanged: every activity can keep calling
-## show/update/hide_work_banner(). Internally, NPC work now registers with the
-## shared InteractPrompt renderer, making the NPC and player job cards the same
-## real PanelContainer + ProgressBar instead of a Label3D block-character bar.
-var _work_prompt_renderer: Node = null
-var _work_banner_visible: bool = false
-
-func show_work_banner() -> void:
-	_work_banner_visible = true
-
-func update_work_banner(action: String, progress: float) -> void:
-	if not _work_banner_visible:
-		return
-	var renderer := _get_work_prompt_renderer()
-	if renderer == null or not renderer.has_method("set_world_job"):
-		return
-	renderer.call("set_world_job", self, action, progress)
-
-func hide_work_banner() -> void:
-	_work_banner_visible = false
-	var renderer := _get_work_prompt_renderer()
-	if renderer != null and renderer.has_method("clear_world_job"):
-		renderer.call("clear_world_job", self)
-
-
-func _get_work_prompt_renderer() -> Node:
-	if _work_prompt_renderer != null and is_instance_valid(_work_prompt_renderer):
-		return _work_prompt_renderer
-	_work_prompt_renderer = get_tree().get_first_node_in_group("interact_prompt")
-	return _work_prompt_renderer
-
-
-# ─── Overhead name/activity label (Part 5) ─────────────────────────────────
-## Always-on small billboard: "Name — Activity". Sits ABOVE the Part-4 work
-## banner (which shows only during job work phases, below this).
-var _overhead_label: Label3D = null
-var _overhead_timer: float = 0.0
-
-func _process(delta: float) -> void:
-	if dead:
-		return
-	_overhead_timer -= delta
-	if _overhead_timer > 0.0:
-		return
-	_overhead_timer = 0.5
-	if _overhead_label == null:
-		_overhead_label = Label3D.new()
-		_overhead_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_overhead_label.fixed_size = true
-		_overhead_label.pixel_size = 0.0007
-		_overhead_label.font_size = 34
-		_overhead_label.outline_size = 8
-		_overhead_label.position = Vector3(0.0, 1.85, 0.0)
-		_overhead_label.modulate = Color(0.88, 0.90, 0.92, 0.95)
-		add_child(_overhead_label)
-	var activity: String = brain.current_label() if brain != null else "Idle"
-	var companion: NPC = get_companion()
-	if companion != null and not activity.begins_with("Spending time"):
-		activity += " (with %s)" % companion.npc_name
-	_overhead_label.text = "%s — %s" % [npc_name, activity]
-	_update_relationship_debug_label()
-
-# ─── Debug relationship visualizer (Part 24) ────────────────────────────────
-## Piggybacks the existing "Toggle NPC Debug Logging" F7 row (NPCDebug.
-## enabled) rather than adding a 13th row — floating readout above each
-## NPC's head of who they know and how they feel. Deliberately plain text;
-## this is a debug stand-in for the real in-fiction relationship UI that
-## belongs in a later pass once relationships are baked into the game for
-## good, not the final thing.
-var _relationship_debug_label: Label3D = null
-
-func _update_relationship_debug_label() -> void:
-	if not NPCDebug.enabled:
-		if _relationship_debug_label != null:
-			_relationship_debug_label.visible = false
-		return
-	if _relationship_debug_label == null:
-		_relationship_debug_label = Label3D.new()
-		_relationship_debug_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_relationship_debug_label.fixed_size = true
-		_relationship_debug_label.pixel_size = 0.0006
-		_relationship_debug_label.font_size = 28
-		_relationship_debug_label.outline_size = 6
-		_relationship_debug_label.position = Vector3(0.0, 2.15, 0.0)
-		_relationship_debug_label.modulate = Color(0.55, 0.85, 1.0, 0.95)   ## pale blue — visually distinct from the other two overhead labels
-		add_child(_relationship_debug_label)
-	_relationship_debug_label.visible = true
-	var lines: Array[String] = []
-	for target_id: String in relationships.keys():
-		var display: String = "You" if target_id == "player" else _name_for_relationship_id(target_id)
-		lines.append("%s: %+.0f (%s)" % [display, relationships[target_id], get_relationship_label(target_id)])
-	if gift_saturation > 0.0:   ## Part 25
-		lines.append("Gift burnout: %d%%" % int(round(gift_saturation * 100.0)))
-	_relationship_debug_label.text = "\n".join(lines) if not lines.is_empty() else "(no relationships yet)"
-
-func _name_for_relationship_id(target_id: String) -> String:
-	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if is_instance_valid(other) and ("npc_id" in other) and String(other.npc_id) == target_id:
-			return String(other.npc_name)
-	return target_id
-
-
-# ─── Stuck recovery (Part 7) ────────────────────────────────────────────────
-## Fires only while the nav agent has an active, unfinished target — i.e.
-## during an activity's travel phase. Idle/consume/work-in-place moments are
-## correctly stationary and never flagged. Progress expectations scale with
-## requested speed. The first recovery only repaths; a repeated stall then
-## exits the current activity and escalates based on the actual obstruction.
-## Aug 2026 fix (Brannon-requested) — interval tightened from 1.0s to
-## 0.25s, same "stop and re-register almost immediately" reasoning as
-## STUCK_GRACE_PERIOD's own comment — checked 4x more often, so real
-## displacement is confirmed (or not) in a quarter of the time.
-const STUCK_CHECK_INTERVAL: float = 0.25
-const STUCK_MIN_DISPLACEMENT: float = 0.15
-const STUCK_PROGRESS_FRACTION: float = 0.25
-
-var _stuck_timer: float = 0.0
-var _stuck_ref_pos: Vector3 = Vector3.ZERO
-var _stuck_ref_remaining_distance: float = INF
-var _stuck_recoveries: int = 0   ## exposed for the Part 7 debug dump
-var _soft_repath_attempted: bool = false
-
-## Aug 2026 — how many CONSECUTIVE stuck-recoveries have targeted the
-## same obstruction (or found none). This is what was missing: without
-## it, a genuinely wedged NPC (boxed in by clutter on every side, unable
-## to move toward ANYTHING, including the item touching it) would force
-## the exact same doomed CleaningActivity over and over forever, once
-## per second, since the item causing the stall correctly kept getting
-## re-identified as the obstruction every time.
-const STUCK_ESCALATE_AFTER: int = 2
-var _stuck_streak_obstruction_id: int = -1
-var _stuck_streak_count: int = 0
-
-## Consecutive stalls caused by another resident. Ordinary congestion is not
-## permission to teleport either agent: the intention yields and normal
-## avoidance plus the next utility choice create separation naturally.
-var _stuck_npc_streak: int = 0
-
-## Separate diagnostic streak for static level geometry (walls/corners).
-## Static contact is still not permission to rewrite an NPC transform.
-var _stuck_wall_streak: int = 0
-
-## Aug 2026 — separate streak specifically for "recovery fired but NO
-## obstruction (item or NPC) could be identified at all." The item-keyed
-## streak below (_stuck_streak_obstruction_id/_stuck_streak_count) can
-## never track this case — there's no real id to compare, so it silently
-## reset to 1 every single time, forever, meaning a genuinely unexplained
-## stall NEVER escalated or gave up. It used to repeat a blind random
-## relocation roughly once a second, indefinitely — the actual mechanism
-## behind NPCs clipping through walls and disappearing.
-## Unknown stalls now yield and re-score without any direct position change;
-## this streak remains diagnostic context only.
-var _stuck_unknown_streak: int = 0
-
-## Aug 2026 fix (Brannon-requested) — grace period before
-## _recover_from_stuck() gets called AT ALL, dramatically tightened.
-## Previously 4.0s (on top of the 1.0s STUCK_CHECK_INTERVAL below — up to
-## ~5s of visible "ghost walking" before ANY recovery action). Per
-## Brannon: the NPC should stop and re-register almost the instant an
-## intended movement isn't producing real movement, not tolerate several
-## seconds of it first. Safe to cut this aggressively now, for two
-## reasons: (1) the animation itself no longer lies about progress —
-## AdventurerModelController now drives walk/idle off get_real_velocity()
-## (actual achieved movement), not the requested pre-collision velocity,
-## so a blocked NPC visibly stops moving immediately regardless of this
-## timer; (2) real proactive avoidance for bulky loose items plus the player,
-## while soft clutter is explicitly walk-through and shoveable, should make
-## actual stuck EVENTS much rarer
-## than before, so this fallback firing fast is low-risk — it's meant to
-## be the rare, quick-resolving safety net now, not something doing
-## constant load-bearing work. Deliberately calls into
-## _recover_from_stuck() as a black box, unchanged — only the timing
-## before it's invoked changed here.
-const STUCK_GRACE_PERIOD: float = 0.5
-var _stuck_grace_elapsed: float = 0.0
-
-func _tick_stuck_recovery(delta: float) -> void:
-	## Part 18 — gate on _movement_locked, not nav_finished(). Drink/Eat/
-	## Job-work all stop the NPC via their OWN range checks (PICKUP_RANGE,
-	## USE_RANGE, WORK_RANGE), completely decoupled from the nav_agent's own
-	## arrival threshold — an NPC can correctly halt for a totally
-	## legitimate reason while nav_finished() still reports false, because
-	## nothing ever told the nav_agent navigation was "done." That mismatch
-	## was firing false stuck-aborts mid-drink/mid-eat/mid-work, which is
-	## what was actually causing the drop-and-repeat loop (exit() drops
-	## whatever's held). _movement_locked is raised by every halt_movement()/
-	## lock_movement() call — i.e., every legitimate stationary reason — and
-	## cleared only when nav_steer() next runs to resume real travel, so
-	## it's a direct read of "an activity wants me still" instead of an
-	## indirect, frequently-wrong guess from the navigation layer.
-	if nav_agent == null or _movement_locked or not _nav_route_valid or nav_agent.is_navigation_finished() \
-			or (brain != null and brain.has_navigation_recovery()) \
-			or (brain != null and not brain.has_current_activity() and current_task == null):
-		_stuck_timer = 0.0
-		_stuck_ref_pos = global_position
-		_stuck_ref_remaining_distance = _navigation_remaining_distance()
-		_stuck_grace_elapsed = 0.0
-		return
-	_stuck_timer += delta
-	if _stuck_timer < STUCK_CHECK_INTERVAL:
-		return
-	var moved: float = global_position.distance_to(_stuck_ref_pos)
-	var remaining: float = _navigation_remaining_distance()
-	var route_progress: float = moved
-	if not is_inf(remaining) and not is_inf(_stuck_ref_remaining_distance):
-		route_progress = maxf(0.0, _stuck_ref_remaining_distance - remaining)
-	_stuck_timer = 0.0
-	_stuck_ref_pos = global_position
-	_stuck_ref_remaining_distance = remaining
-	## Scale the expectation to the NPC's actual requested speed. Fixed 0.15m
-	## checks falsely classified exhausted, elderly, or injured NPCs as stuck.
-	var expected_progress: float = clampf(
-		_last_requested_nav_speed * STUCK_CHECK_INTERVAL * STUCK_PROGRESS_FRACTION,
-		0.03, STUCK_MIN_DISPLACEMENT)
-	if route_progress < expected_progress:
-		_stuck_grace_elapsed += STUCK_CHECK_INTERVAL
-		if _stuck_grace_elapsed >= STUCK_GRACE_PERIOD:
-			_stuck_grace_elapsed = 0.0
-			_recover_from_stuck()
-	else:
-		## Real progress was made — a fresh, unrelated stuck event later
-		## deserves its own full STUCK_ESCALATE_AFTER tries and its own
-		## full grace period, not whatever was left over from an old,
-		## now-resolved streak. Aug 2026 fix: this used to be missing
-		## _stuck_unknown_streak and _stuck_wall_streak — meaning those two
-		## streaks NEVER reset within a session (confirmed from a real log:
-		## one climbed from 2 to 456, monotonically, the entire time),
-		## permanently exhausting the nudge-fallback's give-up cap after
-		## just the NPC's first few stuck episodes ever, then doing nothing
-		## for the rest of the game. All four streaks now reset together,
-		## uniformly, on any real forward progress.
-		_stuck_streak_obstruction_id = -1
-		_stuck_streak_count = 0
-		_stuck_npc_streak = 0
-		_stuck_grace_elapsed = 0.0
-		_stuck_unknown_streak = 0
-		_stuck_wall_streak = 0
-		_soft_repath_attempted = false
-
-
-func _navigation_remaining_distance() -> float:
-	if nav_agent == null or not _nav_route_valid:
-		return INF
-	var path: PackedVector3Array = nav_agent.get_current_navigation_path()
-	var index: int = nav_agent.get_current_navigation_path_index()
-	if path.is_empty() or index < 0 or index >= path.size():
-		return NPCItemUser.flat_distance(global_position, _requested_nav_target)
-	var total: float = NPCItemUser.flat_distance(global_position, path[index])
-	for point_index: int in range(index + 1, path.size()):
-		total += NPCItemUser.flat_distance(path[point_index - 1], path[point_index])
-	return total
-
-
-func _get_recovery_corridor_finish() -> Vector3:
-	if nav_agent == null:
-		return _requested_nav_target
-	var path: PackedVector3Array = nav_agent.get_current_navigation_path()
-	var index: int = nav_agent.get_current_navigation_path_index()
-	if path.is_empty() or index < 0 or index >= path.size():
-		return _requested_nav_target
-	var finish: Vector3 = path[index]
-	var distance: float = NPCItemUser.flat_distance(global_position, finish)
-	while index + 1 < path.size() and distance < 4.0:
-		index += 1
-		finish = path[index]
-		distance = NPCItemUser.flat_distance(global_position, finish)
-	return finish
-
-func _recover_from_stuck() -> void:
-	_stuck_recoveries += 1
-	NPC_METRICS.increment(&"navigation_stuck_recoveries")
-	NPC_METRICS.record_event(&"navigation_stuck", self, {
-		"activity": brain.current_label() if brain != null else "legacy movement",
-		"position": global_position,
-	})
-	var activity_label: String = brain.current_label() if brain != null else "legacy movement"
-	var activity_info: Dictionary = brain.get_current_activity_debug_info() if brain != null else {}
-	NPCDebug.log_stuck(self, activity_label, activity_info)
-	NPC_METRICS.record_anomaly(&"navigation_stuck", self, {
-		"activity": activity_label, "activity_info": activity_info,
-	}, get_navigation_debug_info())
-
-	## First response is non-destructive: ask the navigation server for a fresh
-	## path to the projected target. Aborting the intention and dropping held
-	## items on the first half-second pause made ordinary avoidance congestion
-	## look like indecision. Escalate only if the fresh path also makes no
-	## progress during the next grace window.
-	if not _soft_repath_attempted and nav_agent != null:
-		_last_stuck_recovery_stage = "soft_repath"
-		_soft_repath_attempted = true
-		velocity.x = 0.0
-		velocity.z = 0.0
-		force_nav_repath()
-		return
-	_soft_repath_attempted = false
-
-	## RVO often stops before contact, so slide collisions alone cannot identify
-	## the obstruction. Inspect the next few metres of the actual route against
-	## loose-body footprints first, then choose a bounded detour or one-object
-	## clear action without exiting the live utility activity.
-	var corridor_finish: Vector3 = _get_recovery_corridor_finish()
-	var blockers: Array[Dictionary] = NPC_DYNAMIC_OBSTACLE_MAP.corridor_blockers(
-		self, global_position, corridor_finish)
-	if not blockers.is_empty():
-		var detour: Dictionary = NPC_DYNAMIC_OBSTACLE_MAP.choose_detour(
-			self, global_position, corridor_finish, blockers)
-		if not detour.is_empty() and _begin_dynamic_detour(
-				detour.get("point", global_position), float(detour.get("side", 0.0))):
-			_last_stuck_recovery_stage = "dynamic_detour"
-			_stuck_grace_elapsed = 0.0
-			NPC_METRICS.increment(&"navigation_dynamic_detours")
-			NPC_METRICS.record_event(&"navigation_detour_started", self, {
-				"blocker_count": blockers.size(), "point": _dynamic_detour_point,
-			})
-			return
-		var clearable: RigidBody3D = NPC_DYNAMIC_OBSTACLE_MAP.choose_clearable_blocker(
-			self, blockers)
-		var resume_target: Vector3 = _dynamic_detour_resume_target \
-			if _dynamic_detour_active else _raw_nav_target
-		var resume_distance: float = _dynamic_detour_resume_distance \
-			if _dynamic_detour_active else _nav_desired_distance
-		if clearable != null and can_retry_navigation_clear(clearable) \
-				and held_item == null and brain != null \
-				and brain.begin_navigation_recovery(clearable, resume_target,
-					resume_distance, corridor_finish):
-			_last_stuck_recovery_stage = "clear_path"
-			_stuck_grace_elapsed = 0.0
-			return
-
-	var stuck_item: RigidBody3D = _find_stuck_obstruction()
-	var stuck_npc: CharacterBody3D = null
-	if stuck_item == null:
-		stuck_npc = _find_stuck_obstruction_npc()
-
-	if stuck_npc != null:
-		_last_stuck_recovery_stage = "yield_npc"
-		## Briefly yield without discarding either resident's intention.
-		_stuck_npc_streak += 1
-		_navigation_yield_remaining = minf(1.25, 0.45 + 0.2 * _stuck_npc_streak)
-		_stuck_streak_obstruction_id = -1
-		_stuck_streak_count = 0
-		if NPCDebug.enabled:
-			NPCDebug.log_stuck_yield(self, stuck_npc, _stuck_npc_streak)
-		return
-	_stuck_npc_streak = 0
-
-	var stuck_wall: KinematicCollision3D = null
-	if stuck_item == null:
-		stuck_wall = _find_stuck_obstruction_static()
-	if stuck_wall != null:
-		_last_stuck_recovery_stage = "yield_static"
-		_stuck_wall_streak += 1
-		_nav_route_valid = false
-		_nav_route_failed = true
-		lock_movement()
-		if NPCDebug.enabled:
-			NPCDebug.log_stuck_yield(self, stuck_wall.get_collider(), _stuck_wall_streak)
-		return
-	_stuck_wall_streak = 0
-
-	if stuck_item == null:
-		_last_stuck_recovery_stage = "yield_unknown"
-		_stuck_unknown_streak += 1
-		_nav_route_valid = false
-		_nav_route_failed = true
-		lock_movement()
-		if NPCDebug.enabled:
-			NPCDebug.log_stuck_yield(self, null, _stuck_unknown_streak)
-		return
-	_stuck_unknown_streak = 0
-
-	## A rigid contact not represented in the forward corridor cannot be moved
-	## safely: keep possessions and activity state intact, fail this route, and
-	## let the owning activity select another authored approach.
-	_last_stuck_recovery_stage = "unresolved_item_contact"
-	_stuck_streak_obstruction_id = stuck_item.get_instance_id()
-	_stuck_streak_count += 1
-	_nav_route_valid = false
-	_nav_route_failed = true
-	lock_movement()
-	if NPCDebug.enabled:
-		NPCDebug.log_stuck_yield(self, stuck_item, _stuck_streak_count)
-
-## Best-effort — mirrors _handle_physics_pushes()'s own collision
-## detection. Not guaranteed to find the TRUE cause of the stall (could be
-## a nav-mesh issue, another NPC, geometry) — if nothing found here,
-## _recover_from_stuck() just falls back to its existing stop-and-clear
-## behavior, unchanged from before.
-func _find_stuck_obstruction() -> RigidBody3D:
-	for i: int in get_slide_collision_count():
-		var col: KinematicCollision3D = get_slide_collision(i)
-		var body: Object = col.get_collider()
-		if body is RigidBody3D and not (("is_held" in body) and body.is_held) and not body.is_in_group("shelved"):
-			return body as RigidBody3D
-	return null
-
-## Aug 2026 — the NPC counterpart to _find_stuck_obstruction() above.
-## Only ever checked when that function finds nothing, so an item
-## obstruction still always takes priority when both happen to be
-## present.
-func _find_stuck_obstruction_npc() -> CharacterBody3D:
-	for i: int in get_slide_collision_count():
-		var col: KinematicCollision3D = get_slide_collision(i)
-		var body: Object = col.get_collider()
-		if body is CharacterBody3D and body != self and body.is_in_group("npc"):
-			return body as CharacterBody3D
-	return null
-
-## Aug 2026 — the actual majority real-world stuck cause, confirmed from a
-## real session log where all 456 stuck events fell through to the
-## "unexplained" branch: _find_stuck_obstruction() only ever checks
-## RigidBody3D, so a wall or corner (StaticBody3D, by far the most common
-## thing to wedge an NPC) was never identifiable, ever. Returns the
-## KinematicCollision3D itself (not just the body) specifically so the
-## caller can use the real collision normal for a directed nudge instead
-## of guessing.
-func _find_stuck_obstruction_static() -> KinematicCollision3D:
-	for i: int in get_slide_collision_count():
-		var col: KinematicCollision3D = get_slide_collision(i)
-		var body: Object = col.get_collider()
-		if body is StaticBody3D:
-			return col
-	return null
-
-
-# ─── Physics-clutter push-through (Part 10, simplified in Part 11) ─────────
-## Small loose items (FoodCan, WaterBottle, produce, ...) rest on
-## ITEM_LAYER_SMALL (bit 3), which the NPC's CharacterBody3D (mask 1) does
-## NOT collide with — the NPC walks straight through them without tripping
-## or being launched. Because there's no collision, there's no natural push,
-## so the one-sided shove lives in PickupableItem.shove_small_items_near():
-## a spatial query finds nearby small loose items and applies a gentle impulse
-## primarily along the NPC's travel direction as the NPC walks
-## through — the item is the only thing affected, the NPC is not. Heavy
-## items have a real NavigationObstacle3D (PickupableItem.gd, Part 11) and
-## NPCs route around them via avoidance, so they rarely need shoving.
-## Per-item shove cooldowns, shared with the player-side helper.
-var _last_push_msec_by_item: Dictionary = {}
-## The shove itself is already limited to once per item per 200 ms. Performing
-## the surrounding physics shape query every frame only repeats negative work.
-const PHYSICS_PUSH_SCAN_INTERVAL: float = 0.1
-var _physics_push_scan_left: float = 0.0
-
-func _handle_physics_pushes(delta: float) -> void:
-	_physics_push_scan_left -= delta
-	if _physics_push_scan_left > 0.0:
-		return
-	_physics_push_scan_left += PHYSICS_PUSH_SCAN_INTERVAL
-	## Bound stale instance IDs accumulated across long cleanup-heavy sessions.
-	if _last_push_msec_by_item.size() > 128:
-		for item_id: int in _last_push_msec_by_item.keys():
-			var item: Object = instance_from_id(item_id)
-			if item == null or not is_instance_valid(item):
-				_last_push_msec_by_item.erase(item_id)
-	var excluded_item: RigidBody3D = null
-	if brain != null:
-		var attention_target: Node3D = brain.get_attention_target()
-		if attention_target is RigidBody3D:
-			excluded_item = attention_target as RigidBody3D
-	PickupableItem.shove_small_items_near(self, _last_push_msec_by_item, excluded_item)
-
-
-## Energy contributes its OWN single progressive tier (25% tier REPLACES the
-## 50% tier's penalty, doesn't stack on top of it). Hunger/Thirst only
-## affect speed at <25% each. Mood adds its own small penalty at ≤25% — all
-## multiply together, so low on several at once compounds. (Unchanged by
-## Part 21 — only the LABEL format below changes, not this math.)
-func get_status_speed_multiplier() -> float:
-	var energy_mult: float = 1.0
-	if energy < 25.0:
-		energy_mult = 0.65   ## "noticeably slower"
-	elif energy < 50.0:
-		energy_mult = 0.85   ## "slightly slower"
-	var hunger_mult: float = 0.90 if hunger < 25.0 else 1.0
-	var thirst_mult: float = 0.90 if thirst < 25.0 else 1.0
-	var mood_mult: float = 0.85 if mood <= 25.0 else 1.0
-	## NPC Medical (Aug 2026) — same no-op-by-default multiplier
-	## PlayerMedical.get_medical_speed_multiplier() contributes on the
-	## player side; 1.0 whenever nothing's active.
-	var medical_mult: float = medical.get_medical_speed_multiplier() if medical != null else 1.0
-	return energy_mult * hunger_mult * thirst_mult * mood_mult * get_age_speed_mult() * medical_mult
-
-## Chance [0..1] to divert from a job into 20s of forgetful wandering.
-## Part 21 rewrite: AVERAGED across Hunger, Thirst, Mood, and (new) Energy
-## instead of probabilistic-OR-combined — OR-combination made three only-
-## moderate sources compound to a much higher chance than any one alone
-## (~49% from three ~20% sources), which was mechanically why forgetfulness
-## felt like it could take over. A straight average is far gentler (the
-## same three sources average to ~20%) and matches the intent: a mild,
-## readable guide on effectiveness, not a system that dominates. Energy's
-## tiers are deliberately small — it stays mostly a speed stat, this is
-## just a mild secondary contribution. Averaged result is then scaled by
-## the Resilience trait, same as before.
-func get_forgetfulness_chance() -> float:
-	var p_hunger: float = _forgetfulness_tier_chance(hunger)
-	var p_thirst: float = _forgetfulness_tier_chance(thirst)
-	var p_mood: float = _mood_forgetfulness_tier_chance(mood)
-	var p_energy: float = _energy_forgetfulness_tier_chance(energy)
-	var avg: float = (p_hunger + p_thirst + p_mood + p_energy) / 4.0
-	return clampf(avg * _irritability_trait_mult(), 0.0, 1.0)
-
-func _forgetfulness_tier_chance(need_value: float) -> float:
-	if need_value <= 0.0:
-		return 0.45   ## "very forgetful"
-	elif need_value < 25.0:
-		return 0.20   ## "more often"
-	elif need_value < 50.0:
-		return 0.08   ## "sometimes"
-	return 0.0
-
-func _mood_forgetfulness_tier_chance(mood_value: float) -> float:
-	if mood_value <= 0.0:
-		return 0.25
-	elif mood_value < 25.0:
-		return 0.12
-	elif mood_value < 50.0:
-		return 0.05
-	return 0.0
-
-## Part 21 — energy's new, deliberately mild forgetfulness contribution.
-## Roughly a third of the needs' scale; energy's primary job stays speed.
-func _energy_forgetfulness_tier_chance(energy_value: float) -> float:
-	if energy_value <= 0.0:
-		return 0.15
-	elif energy_value < 25.0:
-		return 0.08
-	elif energy_value < 50.0:
-		return 0.03
-	return 0.0
-
-func is_passed_out() -> bool:
-	return energy <= 0.0
-
-## Part 21 — the specific phrase(s) currently contributing to forgetfulness,
-## for the single combined label's parenthetical. Independent of the trait
-## multiplier (that only scales the roll chance/tier boundary, not which
-## reasons get listed) and independent of averaging (lists ANY active
-## source, regardless of how much the average dilutes its effective weight).
-func _forgetfulness_reasons() -> Array[String]:
-	var reasons: Array[String] = []
-	if hunger <= 0.0: reasons.append("Starving")
-	elif hunger < 25.0: reasons.append("Very Hungry")
-	elif hunger < 50.0: reasons.append("Hungry")
-	if thirst <= 0.0: reasons.append("Dehydrated")
-	elif thirst < 25.0: reasons.append("Very Thirsty")
-	elif thirst < 50.0: reasons.append("Mildly Dehydrated")
-	if energy <= 0.0: reasons.append("Exhausted")
-	elif energy < 25.0: reasons.append("Very Tired")
-	elif energy < 50.0: reasons.append("Low Energy")
-	if mood <= 0.0: reasons.append("Miserable")
-	elif mood < 25.0: reasons.append("Very Unhappy")
-	elif mood < 50.0: reasons.append("Unhappy")
-	return reasons
-
-## Part 21 — same idea for the Slow label's parenthetical (speed math itself
-## is unchanged; this only decides which reason phrases to list alongside
-## the single combined "Slightly/Noticeably Slowed" word).
-func _slow_reasons() -> Array[String]:
-	var reasons: Array[String] = []
-	if energy < 25.0: reasons.append("Very Tired")
-	elif energy < 50.0: reasons.append("Tired")
-	if hunger < 25.0: reasons.append("Very Hungry")
-	if thirst < 25.0: reasons.append("Very Thirsty")
-	if mood <= 25.0: reasons.append("Very Low Mood")
-	return reasons
-
-## Human-readable summary for the E-panel's Status line — display only,
-## does not drive any behavior itself (that's the functions above). Part 21
-## rewrite: Forgetfulness and Slowing each collapse to ONE label with every
-## contributing cause listed in parentheses (e.g. "Very Forgetful (Starving,
-## Dehydrated, Miserable)"), instead of one separate line per cause.
-func get_status_labels() -> Array[String]:
-	var labels: Array[String] = []
-
-	if is_passed_out():
-		labels.append("Passed out (exhausted)")
-	else:
-		var slow_mult: float = get_status_speed_multiplier()
-		if slow_mult < 1.0:
-			var reasons: Array[String] = _slow_reasons()
-			if not reasons.is_empty():
-				var word: String = "Noticeably Slowed" if slow_mult <= 0.65 else "Slightly Slowed"
-				labels.append("%s (%s)" % [word, ", ".join(reasons)])
-
-	var forget_chance: float = get_forgetfulness_chance()
-	var forget_reasons: Array[String] = _forgetfulness_reasons()
-	if not forget_reasons.is_empty():
-		if forget_chance >= 0.25:
-			labels.append("Very Forgetful (%s)" % ", ".join(forget_reasons))
-		elif forget_chance >= 0.12:
-			labels.append("Forgetful (%s)" % ", ".join(forget_reasons))
-		elif forget_chance > 0.0:
-			labels.append("Occasionally Forgetful (%s)" % ", ".join(forget_reasons))
-
-	if hunger <= 0.0 or thirst <= 0.0:
-		labels.append("Losing health (starving/dehydrated)")
-
-	## Irritability — Grumpy/Frustrated/Mad/Rage. Percentage suffix is
-	## debug-only (gated on NPCDebug.enabled) — dev tool, removed for the
-	## final game per Brannon's instruction; shipped play only ever shows
-	## the word.
-	var irr_label: String = get_irritability_label()
-	if irr_label != "":
-		if NPCDebug.enabled:
-			labels.append("%s (%.0f%%)" % [irr_label, irritability])
-		else:
-			labels.append(irr_label)
-
-	if labels.is_empty():
-		labels.append("Doing fine")
-	return labels
-
-# ─── Dialogue (Part 20) — mood/irritability-aware, first pass only ─────────
-## Deliberately simple: a handful of candidate lines per tier, picked fresh
-## each time Talk is pressed. Lays groundwork for a real dialogue system
-## later rather than building one now.
-const DIALOGUE_ANGRY: Array[String] = [
-	"\"What do you want.\"",
-	"\"Not now.\"",
-	"\"I'm this close to losing it.\"",
-]
-const DIALOGUE_FRUSTRATED: Array[String] = [
-	"\"...Yeah?\"",
-	"\"Can this wait?\"",
-]
-const DIALOGUE_GRUMPY: Array[String] = [
-	"\"Hm. What.\"",
-	"\"Yeah, yeah.\"",
-]
-const DIALOGUE_LOW_MOOD: Array[String] = [
-	"\"...\"",
-	"\"I don't really feel like talking.\"",
-]
-const DIALOGUE_HAPPY: Array[String] = [
-	"\"Hey! Good to see you.\"",
-	"\"What's up?\"",
-]
-const DIALOGUE_NEUTRAL: Array[String] = [
-	"\"...\"",
-	"\"Yeah?\"",
-]
-
-func get_dialogue_line() -> String:
-	var irr_label: String = get_irritability_label()
-	var pool: Array[String] = DIALOGUE_NEUTRAL
-	if irr_label == "Rage" or irr_label == "Mad":
-		pool = DIALOGUE_ANGRY
-	elif irr_label == "Frustrated":
-		pool = DIALOGUE_FRUSTRATED
-	elif irr_label == "Grumpy":
-		pool = DIALOGUE_GRUMPY
-	elif mood < 25.0:
-		pool = DIALOGUE_LOW_MOOD
-	elif mood >= 75.0:
-		pool = DIALOGUE_HAPPY
-	return pool[randi() % pool.size()]
-
-# ─── Relationship Q&A Dialogue (Part 23) ────────────────────────────────────
-## "What do you think of X?" — the player-facing readout for the Relationships
-## pass's data (previously debug-only via NPCDebug). Deliberately separate
-## from get_dialogue_line()'s ambient Talk-line pools above: this is asked
-## explicitly about a specific target and answers from that specific
-## relationship value, not from the asked NPC's own mood/irritability.
-## Replies are intentionally name-agnostic text (the question already named
-## the target) so pools stay reusable for any target, player or NPC alike.
-const RELATIONSHIP_DIALOGUE_HOSTILE: Array[String] = [
-	"\"I hate them.\"",
-	"\"Let's not talk about that.\"",
-	"\"Stay out of it.\"",
-]
-const RELATIONSHIP_DIALOGUE_COLD: Array[String] = [
-	"\"Not a fan, honestly.\"",
-	"\"We don't really get along.\"",
-	"\"Could be better.\"",
-]
-const RELATIONSHIP_DIALOGUE_NEUTRAL: Array[String] = [
-	"\"They're alright, I guess.\"",
-	"\"Can't say much either way.\"",
-	"\"Haven't really thought about it.\"",
-]
-const RELATIONSHIP_DIALOGUE_FRIENDLY: Array[String] = [
-	"\"They're pretty cool.\"",
-	"\"I like them.\"",
-	"\"Good to have around.\"",
-]
-const RELATIONSHIP_DIALOGUE_CLOSE: Array[String] = [
-	"\"They're really cool!\"",
-	"\"Honestly? One of my favorites here.\"",
-	"\"I really like them.\"",
-]
-
-func get_relationship_dialogue_line(target_id: String) -> String:
-	var pool: Array[String] = RELATIONSHIP_DIALOGUE_NEUTRAL
-	match get_relationship_label(target_id):
-		"Hostile":  pool = RELATIONSHIP_DIALOGUE_HOSTILE
-		"Cold":     pool = RELATIONSHIP_DIALOGUE_COLD
-		"Friendly": pool = RELATIONSHIP_DIALOGUE_FRIENDLY
-		"Close":    pool = RELATIONSHIP_DIALOGUE_CLOSE
-	return pool[randi() % pool.size()]
-
-# ─── Relaxing (Aug 2026) ─────────────────────────────────────────────────
-## Aug 2026 fix (Brannon-requested) — raised from 1.0/2.0. Wander and
-## Relax already scale by the identical Work Ethic multiplier (both
-## `* npc.get_work_ethic_passive_mult()`), so Relax was ALWAYS outscoring
-## Wander by a fixed ~20% whenever both were live — the imbalance wasn't
-## a scoring-ratio problem. The real cause: at a 1.0-hour daily budget, one
-## a prolonged sitting session burns a meaningful portion of it,
-## so Relax's score() returned a flat 0 (ineligible, not merely losing) for
-## nearly the entire day — Wander won by DEFAULT during that gap, not by
-## out-competing Relax. Raising the budget gives Relax many more real
-## chances across a day to win the contest it already wins whenever it's
-## actually eligible.
-const RELAX_BUDGET_BASELINE: float = 3.0   ## game-hours/day
-const RELAX_BUDGET_LAZY: float = 6.0       ## same 2x ratio as before
-
-## Minimum game-hours between the end of one relax session and the next
-## becoming eligible — without this, a fresh NPC (full needs, nothing else
-## competing) wins the very first think-cycle and can chain sessions
-## back-to-back until the whole daily budget is gone in one sitting.
-## Randomized per-cooldown (not a fixed value) so sessions don't fall
-## into a predictable rhythm across NPCs or across a single NPC's day.
-## Aug 2026 fix (Brannon-requested) — reduced from 3.0-6.0. At the old
-## gap, a 3.0-hour budget (see RELAX_BUDGET_BASELINE's own comment) could
-## still only fit in one, maybe two sessions a day even with budget to
-## spare. Shorter gaps let the now-larger daily budget actually get used
-## across several shorter breaks spread through the day, closer to how a
-## real routine looks, instead of sitting unused behind a cooldown that
-## outlasted the budget's own reset.
+## Called by jobs when a unit of work lands — grows the skill and, for
+## residents who take pride in work, lifts the mood a little.
+func on_work_done(skill_key: String = "") -> void:
+	if skill_key != "":
+		gain_skill(skill_key)
+	if _trait("work_ethic") >= 0.5:
+		add_thought("productive")
+
+# ─── Relaxing ─────────────────────────────────────────────────────────────
+## Daily relax budget (game hours), with randomized gaps between sessions
+## so breaks spread through the day instead of chaining.
+const RELAX_BUDGET_BASELINE: float = 3.0
+const RELAX_BUDGET_LAZY: float = 6.0
 const RELAX_MIN_GAP_HOURS: float = 1.5
 const RELAX_MAX_GAP_HOURS: float = 3.0
 var _relax_cooldown_hours: float = 0.0
-
 var _relax_time_used_today: float = 0.0
-var _relax_day_clock: float = 0.0   ## game-hours since the last daily reset; wraps at 24
+var _relax_day_clock: float = 0.0
 var _relax_job_request_count: int = 0
-
-func has_lazy_trait() -> bool:
-	return float(personality.get("work_ethic", 0.5)) < TRAIT_BAND_LOW
 
 func get_relax_daily_budget() -> float:
 	return RELAX_BUDGET_LAZY if has_lazy_trait() else RELAX_BUDGET_BASELINE
@@ -3497,159 +1093,814 @@ func is_relaxing() -> bool:
 func reset_relax_job_requests() -> void:
 	_relax_job_request_count = 0
 
-## Called by NPCTalkMenuUI before forcing a job-type command on an NPC
-## that's currently relaxing. First call this relax session refuses
-## (returns false — caller shows the refusal line, job does NOT happen).
-## Second+ call complies, but costs the player -3 relationship.
+func _tick_relax_day(h: float) -> void:
+	_relax_day_clock += h
+	if _relax_day_clock >= 24.0:
+		_relax_day_clock = fmod(_relax_day_clock, 24.0)
+		_relax_time_used_today = 0.0
+	_relax_cooldown_hours = maxf(0.0, _relax_cooldown_hours - h)
+
+## First job request during a break is refused; the second complies at a
+## small relationship cost.
 func request_job_while_relaxing() -> bool:
 	_relax_job_request_count += 1
 	if _relax_job_request_count <= 1:
 		return false
 	var applied: float = _adjust_relationship("player", -3.0)
-	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, "player", -3.0, "pulled from relaxing to do a job")
+	add_thought("break_interrupted")
 	log_action("Player interrupted %s's relaxation (%+.1f relationship)" % [npc_name, applied])
 	return true
 
-const RELAXING_REFUSAL_LINES: Array[String] = [
-	"\"I'm relaxing right now.\"",
-	"\"Can it wait? I'm on a break.\"",
-	"\"Give me a minute, I'm resting.\"",
-]
 func get_relaxing_refusal_line() -> String:
-	return RELAXING_REFUSAL_LINES[randi() % RELAXING_REFUSAL_LINES.size()]
+	return NPCDialogue.relaxing_refusal()
 
-## Per-item restore estimates used ONLY to compute how many real items to
-## consume during catch-up — the actual restore applied always comes from
-## the real item's own consume_as_food()/take_bite()/take_drink() call,
-## never this constant directly. Rough averages across the giveable item
-## types (dish/produce/can-bite ≈ 45 hunger; STANDARD_HYDRATION = 21.5).
-const CATCHUP_MEAL_RESTORE_ESTIMATE: float = 45.0
-const CATCHUP_DRINK_RESTORE_ESTIMATE: float = 21.5
-## Matches PassedOutActivity.REGEN_PER_GAME_HOUR (NPCBrain.gd) — duplicated
-## here since that constant lives on a different class; keep these in sync
-## if that value ever changes.
-const CATCHUP_PASSED_OUT_REGEN_PER_GAME_HOUR: float = 15.0
+# ─── Dialogue (see NPCDialogue.gd) ────────────────────────────────────────
+func get_dialogue_line() -> String:
+	return NPCDialogue.greeting(self)
 
-## Entry point called by NPC.catch_up_all() for each NPC. Order matters:
-## needs/energy run first so mood's needs-driven target reflects the
-## post-catch-up state, not stale pre-skip numbers.
-func catch_up_time(h: float, avg_mood_before: float) -> void:
-	if h <= 0.0:
-		return
-	var needs_avg_before: float = (energy + hunger + thirst) / 3.0
-	_catch_up_hunger_and_thirst(h)
-	_catch_up_energy(h)
-	_catch_up_relax_budget(h)
-	if medical != null:
-		medical.catch_up(h)
-	var needs_avg_after: float = (energy + hunger + thirst) / 3.0
-	_catch_up_mood(h, avg_mood_before, (needs_avg_before + needs_avg_after) / 2.0)
-	if NPCDebug.enabled:
-		NPCDebug.log_catchup(self, h)
+func get_relationship_dialogue_line(target_id: String) -> String:
+	return NPCDialogue.about(self, target_id)
 
-## Full drain for the duration, then an ESTIMATE of how many real meals/
-## drinks would've been needed to offset that — actually consumed from
-## real available world items (capped by whatever's actually there; an
-## empty bunker just means the NPC goes hungry, same as it should). This
-## is deliberately an approximation of WHEN — we don't simulate which
-## specific hour they'd have eaten, only roughly how many real items
-## would have been used.
-func _catch_up_hunger_and_thirst(h: float) -> void:
-	hunger = maxf(0.0, hunger - HUNGER_DRAIN_PER_GAME_HOUR * h)
-	var meals_needed: int = int(floor((HUNGER_DRAIN_PER_GAME_HOUR * h) / CATCHUP_MEAL_RESTORE_ESTIMATE))
-	for i in range(meals_needed):
-		if hunger >= 90.0:
-			break   ## already comfortably fed from what's been eaten so far
-		var item: Node = NPCItemUser.find_loose_item(self, Callable(NPCItemUser, "is_edible"))
-		if item == null:
-			break   ## nothing available — stays hungry, same as reality
-		if item is DishItem or item is FarmProduceItem:
-			hunger = minf(100.0, hunger + item.consume_as_food())
-		elif item.has_method("take_bite"):
-			hunger = minf(100.0, hunger + item.take_bite())
-
-	thirst = maxf(0.0, thirst - THIRST_DRAIN_PER_GAME_HOUR * h)
-	var drinks_needed: int = int(floor((THIRST_DRAIN_PER_GAME_HOUR * h) / CATCHUP_DRINK_RESTORE_ESTIMATE))
-	for i in range(drinks_needed):
-		if thirst >= 90.0:
-			break
-		var item: Node = NPCItemUser.find_loose_item(self, Callable(NPCItemUser, "is_drinkable_bottle"))
-		if item == null:
-			break
-		if item.has_method("take_drink"):
-			thirst = minf(100.0, thirst + item.take_drink())
-
-## Straight drain; if it would have crossed 0 partway through, applies
-## the SAME neuroticism-scaled mood drop PassedOutActivity.enter() uses
-## (once, not per-hour) and regenerates the remaining time at its rate —
-## ties directly into the pass-out mechanic instead of inventing a
-## separate energy-recovery model for catch-up specifically.
-func _catch_up_energy(h: float) -> void:
-	var drain: float = ENERGY_DRAIN_PER_GAME_HOUR * h
-	if drain <= energy:
-		energy -= drain
-		return
-	var hours_until_zero: float = energy / ENERGY_DRAIN_PER_GAME_HOUR
-	var remaining_hours: float = h - hours_until_zero
-	var mood_drop: float = randf_range(1.0, 10.0 * neuroticism_trait_mult())
-	mood = clampf(mood - mood_drop, 0.0, 100.0)
-	if NPCDebug.enabled:
-		NPCDebug.log_mood_event(self, -mood_drop, "passed out (time-skip catch-up)")
-	energy = minf(100.0, 0.0 + CATCHUP_PASSED_OUT_REGEN_PER_GAME_HOUR * remaining_hours)
-
-## Deducts today's relax budget proportionally to how much of a day the
-## skip covered — a 6h skip removes 25% of the daily budget (baseline:
-## 60min → 45min remaining), 12h removes 50% (→ 30min). This is what
-## stops an NPC "banking" a full untouched hour across a skip and
-## dumping it all in one greedy session right after waking. Runs
-## _tick_relax_day() FIRST so a skip crossing a full day boundary resets
-## to a fresh budget as it should, then applies the proportional
-## deduction only to whatever fractional day remains after that.
-func _catch_up_relax_budget(h: float) -> void:
-	_tick_relax_day(h)
-	var effective_hours: float = fmod(h, 24.0) if h >= 24.0 else h
-	var budget: float = get_relax_daily_budget()
-	var fraction: float = clampf(effective_hours / 24.0, 0.0, 1.0)
-	_relax_time_used_today = clampf(_relax_time_used_today + budget * fraction, 0.0, budget)
-
-## Needs-driven pull and random drift are _tick_mood()'s own formulas,
-## evaluated once with a large h instead of accumulating over many small
-## ticks — both are simple enough (move_toward, flat random range) that
-## batching doesn't lose meaningful accuracy. `needs_avg_blend` is the
-## average of pre- and post-catch-up needs, a rough stand-in for "how
-## needs behaved across the whole window" rather than just the endpoint
-## (needs dipped low mid-skip then got restored — using only the end
-## value would understate how much that dip should have dragged mood).
-## Contagion is a single blended pull toward the PRE-skip bunker average
-## (avg_mood_before, snapshotted once in catch_up_all()), scaled by
-## elapsed time and clamped so it can't overshoot past that average —
-## deliberately approximate, not a real per-NPC-pair simulation.
-func _catch_up_mood(h: float, avg_mood_before: float, needs_avg_blend: float) -> void:
-	var mood_target: float = 100.0 if needs_avg_blend >= MOOD_FINE_THRESHOLD else needs_avg_blend
-	var rate: float = MOOD_CHANGE_PER_GAME_HOUR
-	if mood_target > mood:
-		rate *= _mood_recovery_trait_mult()
-	mood = move_toward(mood, mood_target, rate * h)
-
-	var blend: float = clampf(MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * get_contagion_sociability_mult() * h, 0.0, 1.0)
-	mood = clampf(mood + (avg_mood_before - mood) * blend, 0.0, 100.0)
-
-	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR)
-		* neuroticism_trait_mult() * h, 0.0, 100.0)
-
-## List of every OTHER currently-live NPC, for building one Ask-About button
-## per NPC in NPCTalkMenuUI. The player is handled separately in the UI
-## (fixed "What do you think of me?" button, target_id "player") since
-## there's always exactly one and it isn't in the "npc" group.
-## FUTURE WORK: currently lists every live NPC regardless of whether the
-## player/NPC has ever "met" them — no acquaintance gating exists yet.
+## Other live NPCs, for the talk menu's "Ask about" buttons.
 func get_other_npc_topics() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for other: Node in get_tree().get_nodes_in_group("npc"):
-		if other == self or not is_instance_valid(other):
-			continue
-		if not ("npc_id" in other) or not ("npc_name" in other):
-			continue
-		out.append({"id": String(other.npc_id), "name": String(other.npc_name)})
+		if other != self and other is NPC:
+			out.append({"id": String(other.npc_id), "name": String(other.npc_name)})
 	return out
+
+## Current thoughts for the resident panel: [{"text", "mood"}], strongest first.
+func get_thought_summaries() -> Array[Dictionary]:
+	return thoughts.describe()
+
+# ─── Lifecycle ────────────────────────────────────────────────────────────
+func _ready() -> void:
+	add_to_group("npc")
+	add_to_group("interactable")
+
+	if npc_id == "":
+		npc_id = "npc_%d" % _next_npc_id
+		_next_npc_id += 1
+	NPC._register_id(npc_id)
+	if npc_name == "Survivor":
+		_assign_random_name()
+
+	nav_agent = NavigationAgent3D.new()
+	nav_agent.name = "NavAgent"
+	## Path points sit on the floor (y≈0.5) while this node's origin is the
+	## capsule CENTER — desired distances must exceed that vertical offset
+	## or no waypoint can ever register as reached.
+	nav_agent.path_desired_distance = 1.1
+	nav_agent.target_desired_distance = 1.1
+	nav_agent.path_max_distance = 3.0
+	nav_agent.radius = 0.4               ## matches BunkerNavMesh.agent_radius
+	nav_agent.avoidance_enabled = true   ## routes around heavy items' obstacles and other NPCs
+	nav_agent.velocity_computed.connect(_on_velocity_computed)
+	add_child(nav_agent)
+
+	hold_point = Node3D.new()
+	hold_point.name = "HoldPoint"
+	hold_point.position = Vector3(0.0, 0.9, -0.8)
+	add_child(hold_point)
+
+	if not _restored:
+		generation_seed = randi()
+		randomize_personality()
+		randomize_skills()
+		randomize_age()
+		_birthday_day_of_year = randi_range(1, 365)
+		_birthday_last_checked_day = NPCClock.day()
+		chronotype = randf_range(-1.5, 1.5)
+		_relax_cooldown_hours = randf_range(1.0, RELAX_MIN_GAP_HOURS)
+
+	brain = NPCBrain.new()
+	brain.setup(self)
+	stuck.setup(self)
+	_mood_tick_timer = randf() * MOOD_TICK_INTERVAL   ## stagger across NPCs
+
+	medical = NPCMedical.new()
+	medical.name = "NPCMedical"
+	add_child(medical)
+	medical.setup(self)
+	if not _pending_medical_save.is_empty():
+		medical.from_save(_pending_medical_save)
+		_pending_medical_save = []
+
+var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+
+func _physics_process(delta: float) -> void:
+	## An activity released a chair/bed but asked us to finish the stand-up
+	## animation before moving: snap to the stand spot the moment the model
+	## reports the sit sequence finished.
+	if _stand_pos_pending and not in_sit_sequence():
+		_stand_pos_pending = false
+		place_standing_at(_pending_stand_pos)
+
+	_validate_held_item()
+	_tick_needs(delta)
+	_tick_social_and_mood(delta)
+	if brain != null:
+		brain.tick(delta)
+
+	## While mid sit/lie sequence the model controller owns the position
+	## (eased approach → seat); gravity and move_and_slide would fight it.
+	if in_sit_sequence():
+		return
+	if not is_on_floor():
+		velocity.y -= _gravity * delta
+	move_and_slide()
+	_handle_physics_pushes(delta)
+	stuck.tick(delta)
+
+## The item in hand must actually be in THIS NPC's hand. An item knocked
+## out of the carry (a bump, a wall), consumed, freed, or grabbed by someone
+## else used to leave a stale held_item behind — the NPC then "carried"
+## nothing forever and every activity that checks hands misbehaved.
+func _validate_held_item() -> void:
+	if held_item == null:
+		return
+	if not is_instance_valid(held_item) or held_item.is_queued_for_deletion():
+		held_item = null
+		return
+	var in_hand: bool = true
+	if "is_held" in held_item and not held_item.is_held:
+		in_hand = false
+	elif "_hold_point" in held_item and held_item._hold_point != hold_point:
+		in_hand = false
+	if not in_hand:
+		if NPCDebug.enabled:
+			NPCDebug.log_cleaning(self, "lost held item", "%s is no longer in hand — clearing reference" % NPCSessionActivity.display_name(held_item))
+		NPCItemUser.release_item(held_item)
+		held_item = null
+
+## Real-seconds → game-hours via the shared compressed clock.
+func game_hours(delta: float) -> float:
+	return NPCClock.game_hours(delta)
+
+func _tick_needs(delta: float) -> void:
+	var h: float = game_hours(delta)
+	if h <= 0.0:
+		return
+	var energy_drain: float = ENERGY_DRAIN_PER_GAME_HOUR
+	energy = clampf(energy - energy_drain * h, 0.0, energy_cap)
+	hunger = clampf(hunger - HUNGER_DRAIN_PER_GAME_HOUR * h, 0.0, hunger_cap)
+	thirst = clampf(thirst - THIRST_DRAIN_PER_GAME_HOUR * h, 0.0, thirst_cap)
+	var health_drain: float = 0.0
+	if hunger <= 0.0:
+		health_drain += HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR
+	if thirst <= 0.0:
+		health_drain += HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR
+	if health_drain > 0.0:
+		health = maxf(0.0, health - health_drain * h)
+
+func is_passed_out() -> bool:
+	return energy <= 0.0
+
+# ─── Locomotion ───────────────────────────────────────────────────────────
+var _movement_locked: bool = false
+var _last_steer_delta: float = 0.0
+var _requested_speed: float = 0.0
+
+# ─── Doors ──────────────────────────────────────────────────────────────────
+## BunkerDoor exposes a NavigationLink through the doorway, so routes may
+## cross a closed door. Approaching one, a resident asks it to open and waits;
+## NPCDoorCoordinator keeps opposite-direction residents from meeting inside
+## the doorway. A door that won't open (the player keeps shutting it, a
+## preview door) gives up after DOOR_GIVE_UP_SEC and the activity is dropped.
+const NPC_DOOR_COORDINATOR: GDScript = preload("res://scripts/npc/NPCDoorCoordinator.gd")
+const DOOR_GIVE_UP_SEC: float = 8.0
+var _door_lease: Dictionary = {}
+var _door_wait: float = 0.0
+var door_blocked: bool = false
+
+func is_waiting_at_door() -> bool:
+	return _door_wait > 0.0
+
+func _door_passage_allows(next_path_point: Vector3, delta: float) -> bool:
+	var allowed: bool = _door_passage_check(next_path_point)
+	if allowed:
+		_door_wait = 0.0
+		return true
+	_door_wait += delta
+	if _door_wait >= DOOR_GIVE_UP_SEC:
+		_door_wait = 0.0
+		_release_door_passage()
+		door_blocked = true   ## NPCBrain abandons the activity at its next tick
+		return false
+	return false
+
+func _door_passage_check(next_path_point: Vector3) -> bool:
+	if not _door_lease.is_empty():
+		var door_ref: WeakRef = _door_lease.get("door_ref") as WeakRef
+		var door: Node3D = door_ref.get_ref() as Node3D if door_ref != null else null
+		if Time.get_ticks_msec() >= int(_door_lease.get("expires", 0)) or door == null or not is_instance_valid(door):
+			_release_door_passage()
+		else:
+			var info: Dictionary = door.get_npc_portal_info()
+			var local: Vector3 = door.to_local(global_position)
+			var direction: int = int(_door_lease.get("direction", 0))
+			if local.x * direction >= float(info.get("exit_distance", 0.9)):
+				_release_door_passage()   ## through
+			elif not bool(info.get("open", false)):
+				_release_door_passage()
+				door.request_npc_open(self)
+				return false
+			else:
+				return true
+	var best_door: Node3D = null
+	var best_direction: int = 0
+	var best_plane: float = INF
+	var target: Vector3 = nav_agent.target_position
+	for candidate: Node in get_tree().get_nodes_in_group("npc_bottleneck"):
+		if not (candidate is Node3D) or not candidate.has_method("get_npc_portal_info"):
+			continue
+		var door: Node3D = candidate as Node3D
+		var info: Dictionary = door.get_npc_portal_info()
+		var here: Vector3 = door.to_local(global_position)
+		if absf(here.x) > float(info.get("wait_distance", 1.15)) or absf(here.z) > float(info.get("half_width", 0.9)) + 0.45:
+			continue
+		var target_local: Vector3 = door.to_local(target)
+		var travel_x: float = target_local.x - here.x
+		if absf(travel_x) < 0.2:
+			travel_x = door.to_local(next_path_point).x - here.x
+		var direction: int = 1 if travel_x > 0.0 else -1
+		if here.x * direction >= 0.0 or target_local.x * direction <= 0.0:
+			continue   ## route doesn't cross this door's plane
+		if absf(here.x) < best_plane:
+			best_plane = absf(here.x)
+			best_door = door
+			best_direction = direction
+	if best_door == null:
+		return true
+	if not bool(best_door.get_npc_portal_info().get("open", false)):
+		if best_door.has_method("request_npc_open"):
+			best_door.request_npc_open(self)
+		return false
+	_door_lease = NPC_DOOR_COORDINATOR.request(self, best_door, best_direction)
+	return not _door_lease.is_empty()
+
+func _exit_tree() -> void:
+	_release_door_passage()
+
+func _release_door_passage() -> void:
+	if not _door_lease.is_empty():
+		NPC_DOOR_COORDINATOR.release(_door_lease, self)
+	NPC_DOOR_COORDINATOR.release_owner(self)   ## also drops a queued request
+	_door_lease = {}
+
+## The chair/bed this NPC occupies, mirroring Player.gd so the shared
+## AdventurerModelController drives the same sit / lie-down animations.
+var seated_chair: Node3D = null
+var sleeping_bed: Node3D = null
+
+## The bed this resident thinks of as theirs (LieActivity goes back to it).
+## Persisted by position; resolved lazily after a load.
+var home_bed: Node = null:
+	get:
+		if home_bed == null and _home_bed_pos != Vector3.INF and is_inside_tree():
+			for b: Node in get_tree().get_nodes_in_group("bed"):
+				if b is Node3D and (b as Node3D).global_position.distance_to(_home_bed_pos) < 0.75:
+					home_bed = b
+					break
+			_home_bed_pos = Vector3.INF
+		return home_bed
+var _home_bed_pos: Vector3 = Vector3.INF
+
+## Where to stand once the stand-up animation finishes (see _physics_process).
+var _pending_stand_pos: Vector3 = Vector3.ZERO
+var _stand_pos_pending: bool = false
+
+## Stand up at `pos` once the stand-up animation finishes (or right away
+## if no sit sequence is playing).
+func request_stand_at(pos: Vector3) -> void:
+	_pending_stand_pos = pos
+	_stand_pos_pending = true
+
+## Puts the NPC on its feet at the nearest walkable spot to `pos`, at real
+## standing height. Furniture stand points are FLOOR-level positions; the
+## old code assigned them straight to this node's origin (the capsule
+## centre), burying half the body in the floor — physics then pushed the
+## NPC down through it. That was how residents "fell out of the world"
+## after sitting or sleeping.
+func place_standing_at(pos: Vector3) -> void:
+	var snapped: Vector3 = stuck.snap_to_navmesh(pos)
+	if snapped == Vector3.INF:
+		snapped = Vector3(pos.x, standing_height(), pos.z)
+	global_position = snapped
+	velocity = Vector3.ZERO
+	stuck.reset()
+
+## True while seated / in bed, or while the model is still playing the
+## stand-up clip after leaving.
+func in_sit_sequence() -> bool:
+	if seated_chair != null or sleeping_bed != null:
+		return true
+	var model: Node = get_node_or_null("CharacterModel")
+	if model != null and model.has_method("is_sit_sequence_active"):
+		return model.is_sit_sequence_active()
+	return false
+
+func is_movement_locked() -> bool:
+	return _movement_locked
+
+## Point the agent at a world position (XZ; Y snapped to the floor plane).
+func set_nav_target(world_pos: Vector3) -> void:
+	if nav_agent != null:
+		nav_agent.target_position = Vector3(world_pos.x, 0.5, world_pos.z)
+
+func nav_finished() -> bool:
+	return nav_agent == null or nav_agent.is_navigation_finished()
+
+## Forces a fresh path to the current target (stale path after a rebake).
+func repath() -> void:
+	if nav_agent != null:
+		var t: Vector3 = nav_agent.target_position
+		nav_agent.target_position = global_position
+		nav_agent.target_position = t
+
+## Steer toward the next waypoint. Submits a PREFERRED velocity; avoidance
+## answers in _on_velocity_computed() with the safe one to apply.
+func nav_steer(delta: float) -> void:
+	_movement_locked = false
+	_last_steer_delta = delta
+	if nav_agent == null or nav_agent.is_navigation_finished():
+		if not _door_lease.is_empty():
+			_release_door_passage()
+		_door_wait = 0.0
+		_decelerate(delta)
+		return
+	var next: Vector3 = nav_agent.get_next_path_position()
+	if not _door_passage_allows(next, delta):
+		halt_movement(delta)   ## movement lock also pauses stuck detection while queued
+		return
+	var dir: Vector3 = next - global_position
+	dir.y = 0.0
+	if dir.length() < 0.01:
+		return
+	_requested_speed = move_speed * get_status_speed_multiplier()
+	nav_agent.max_speed = _requested_speed   ## avoidance may never return more than we asked for
+	nav_agent.set_velocity(dir.normalized() * _requested_speed)
+
+func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	if _movement_locked:
+		return   ## a stationary phase began after this request — stale
+	## Cap at the requested pace: with the agent's default max_speed (10 m/s),
+	## a retarget amid other agents could otherwise produce a brief surge.
+	var safe_xz: Vector2 = Vector2(safe_velocity.x, safe_velocity.z).limit_length(_requested_speed)
+	safe_velocity.x = safe_xz.x
+	safe_velocity.z = safe_xz.y
+	var w: float = minf(acceleration * _last_steer_delta, 1.0)
+	velocity.x = lerp(velocity.x, safe_velocity.x, w)
+	velocity.z = lerp(velocity.z, safe_velocity.z, w)
+	if Vector2(safe_velocity.x, safe_velocity.z).length() > 0.05:
+		rotation.y = lerp_angle(rotation.y, atan2(-safe_velocity.x, -safe_velocity.z), minf(12.0 * _last_steer_delta, 1.0))
+
+func _decelerate(delta: float) -> void:
+	var w: float = minf(acceleration * delta, 1.0)   ## never extrapolate (a >1 weight reverses velocity)
+	velocity.x = lerp(velocity.x, 0.0, w)
+	velocity.z = lerp(velocity.z, 0.0, w)
+
+## Decelerate to a stop; raises the movement lock so a late avoidance
+## callback can't overwrite the halt with a stale travel velocity.
+func halt_movement(delta: float) -> void:
+	_movement_locked = true
+	_decelerate(delta)
+
+## One-time hard stop (sitting down, lying down, talking).
+func lock_movement() -> void:
+	_movement_locked = true
+	velocity.x = 0.0
+	velocity.z = 0.0
+
+## Smoothly turn to face a world point (weight 1.0 = snap).
+func face_toward(world_pos: Vector3, weight: float) -> void:
+	var d: Vector3 = world_pos - global_position
+	d.y = 0.0
+	if d.length() < 0.05:
+		return
+	rotation.y = lerp_angle(rotation.y, atan2(-d.x, -d.z), clampf(weight, 0.0, 1.0))
+
+## Travel speed the NPC should currently achieve (for stall detection).
+func get_expected_travel_speed() -> float:
+	return move_speed * get_status_speed_multiplier()
+
+## Capsule-centre height when standing on the bunker floor.
+func standing_height() -> float:
+	var shape: Shape3D = collision.shape if collision != null else null
+	var half: float = 1.0
+	if shape is CapsuleShape3D:
+		half = (shape as CapsuleShape3D).height * 0.5
+	return NPCStuckRecovery.FLOOR_Y + half + collision.position.y if collision != null else 1.5
+
+## Stuck recovery: may this NPC clear `item` out of its own way right now?
+func can_clear_obstruction(item: RigidBody3D) -> bool:
+	return not NPCItemUser.hands_full(self) and not job_state.is_cleaning_blacklisted(item.get_instance_id()) \
+		and (brain == null or brain.is_current_interruptible())
+
+## Abandons whatever this NPC is doing and benches that activity for a bit.
+func abandon_current_activity(reason: String, bench_seconds: float) -> void:
+	if brain != null:
+		brain.abandon_current(reason, bench_seconds)
+
+# ─── Physics clutter push-through ─────────────────────────────────────────
+## Light loose items (cans, bottles, produce) have no nav obstacle and are
+## meant to be walked through: shove them aside. Heavy items have obstacles
+## and are routed around; if one is still touched, a token shove only.
+const LIGHT_PUSH_IMPULSE: float = 1.5
+const HEAVY_PUSH_MASS: float = 3.0
+
+func _handle_physics_pushes(delta: float) -> void:
+	for i: int in get_slide_collision_count():
+		var col: KinematicCollision3D = get_slide_collision(i)
+		var body: Object = col.get_collider()
+		if not (body is RigidBody3D) or (("is_held" in body) and body.is_held):
+			continue
+		var rb: RigidBody3D = body as RigidBody3D
+		var away: Vector3 = -col.get_normal()
+		away.y = 0.0
+		if away.length() <= 0.01:
+			continue
+		if rb.mass < HEAVY_PUSH_MASS:
+			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE)
+			var blocked: Vector3 = velocity - get_real_velocity()
+			blocked.y = 0.0
+			if blocked.length() > 0.01:
+				var step: Vector3 = blocked * delta
+				if not test_move(global_transform, step):
+					global_position += step
+		else:
+			rb.apply_central_impulse(away.normalized() * LIGHT_PUSH_IMPULSE / rb.mass)
+
+# ─── Status: speed, forgetfulness, labels ─────────────────────────────────
+## Each factor multiplies; low on several things at once compounds.
+func get_status_speed_multiplier() -> float:
+	var energy_mult: float = 0.65 if energy < 25.0 else (0.85 if energy < 50.0 else 1.0)
+	var hunger_mult: float = 0.90 if hunger < 25.0 else 1.0
+	var thirst_mult: float = 0.90 if thirst < 25.0 else 1.0
+	var mood_mult: float = 0.85 if mood <= 25.0 else 1.0
+	var medical_mult: float = medical.get_medical_speed_multiplier() if medical != null else 1.0
+	return energy_mult * hunger_mult * thirst_mult * mood_mult * get_age_speed_mult() * medical_mult
+
+## Chance to divert from a job into forgetful wandering: averaged across
+## hunger/thirst/mood/energy tiers, scaled by resilience.
+func get_forgetfulness_chance() -> float:
+	var avg: float = (_need_forget_tier(hunger) + _need_forget_tier(thirst)
+		+ _tier(mood, [0.25, 0.12, 0.05]) + _tier(energy, [0.15, 0.08, 0.03])) / 4.0
+	return clampf(avg * _irritability_trait_mult(), 0.0, 1.0)
+
+func _need_forget_tier(v: float) -> float:
+	return _tier(v, [0.45, 0.20, 0.08])
+
+func _tier(v: float, chances: Array) -> float:
+	if v <= 0.0:
+		return chances[0]
+	elif v < 25.0:
+		return chances[1]
+	elif v < 50.0:
+		return chances[2]
+	return 0.0
+
+func _forgetfulness_reasons() -> Array[String]:
+	var reasons: Array[String] = []
+	_reason(reasons, hunger, ["Starving", "Very Hungry", "Hungry"])
+	_reason(reasons, thirst, ["Dehydrated", "Very Thirsty", "Mildly Dehydrated"])
+	_reason(reasons, energy, ["Exhausted", "Very Tired", "Low Energy"])
+	_reason(reasons, mood, ["Miserable", "Very Unhappy", "Unhappy"])
+	return reasons
+
+func _reason(out: Array[String], v: float, words: Array) -> void:
+	if v <= 0.0:
+		out.append(words[0])
+	elif v < 25.0:
+		out.append(words[1])
+	elif v < 50.0:
+		out.append(words[2])
+
+func _slow_reasons() -> Array[String]:
+	var reasons: Array[String] = []
+	if energy < 25.0: reasons.append("Very Tired")
+	elif energy < 50.0: reasons.append("Tired")
+	if hunger < 25.0: reasons.append("Very Hungry")
+	if thirst < 25.0: reasons.append("Very Thirsty")
+	if mood <= 25.0: reasons.append("Very Low Mood")
+	if is_elder(): reasons.append("Age")
+	if medical != null and medical.get_medical_speed_multiplier() < 1.0: reasons.append("Injured")
+	return reasons
+
+## Human-readable status for the resident panel — display only.
+func get_status_labels() -> Array[String]:
+	var labels: Array[String] = []
+	if is_passed_out():
+		labels.append("Passed out (exhausted)")
+	elif brain != null and brain.is_sleeping():
+		labels.append("Asleep")
+	else:
+		var slow_mult: float = get_status_speed_multiplier()
+		if slow_mult < 1.0:
+			var reasons: Array[String] = _slow_reasons()
+			if not reasons.is_empty():
+				labels.append("%s (%s)" % ["Noticeably Slowed" if slow_mult <= 0.65 else "Slightly Slowed", ", ".join(reasons)])
+	var forget_chance: float = get_forgetfulness_chance()
+	var forget_reasons: Array[String] = _forgetfulness_reasons()
+	if not forget_reasons.is_empty() and forget_chance > 0.0:
+		var word: String = "Very Forgetful" if forget_chance >= 0.25 else ("Forgetful" if forget_chance >= 0.12 else "Occasionally Forgetful")
+		labels.append("%s (%s)" % [word, ", ".join(forget_reasons)])
+	if hunger <= 0.0 or thirst <= 0.0:
+		labels.append("Losing health (starving/dehydrated)")
+	var irr_label: String = get_irritability_label()
+	if irr_label != "":
+		labels.append("%s (%.0f%%)" % [irr_label, irritability] if NPCDebug.enabled else irr_label)
+	if labels.is_empty():
+		labels.append("Doing fine")
+	return labels
+
+# ─── Interaction ──────────────────────────────────────────────────────────
+func get_interact_prompt() -> String:
+	return "[E] Talk to %s" % npc_name
+
+func on_interact() -> void:
+	_open_talk_menu()
+
+var _talk_menu: CanvasLayer = null
+
+func _open_talk_menu() -> void:
+	if _talk_menu == null or not is_instance_valid(_talk_menu):
+		var ui_script: GDScript = load("res://scripts/ui/npc/NPCTalkMenuUI.gd")
+		if ui_script == null:
+			push_warning("[NPC] NPCTalkMenuUI.gd not found")
+			return
+		_talk_menu = CanvasLayer.new()
+		_talk_menu.set_script(ui_script)
+		_talk_menu.name = "NPCTalkMenuUI"
+		get_tree().get_root().add_child(_talk_menu)
+	if _talk_menu.has_method("open"):
+		_talk_menu.open(npc_name, self)
+
+# ─── Overhead: name/activity, speech/sleep indicator, work banner ─────────
+## Work banner facade — registers with the shared InteractPrompt renderer so
+## NPC and player job cards are the same real UI.
+var _work_prompt_renderer: Node = null
+var _work_banner_visible: bool = false
+
+func show_work_banner() -> void:
+	_work_banner_visible = true
+
+func update_work_banner(action: String, progress: float) -> void:
+	if not _work_banner_visible:
+		return
+	var renderer: Node = _get_work_prompt_renderer()
+	if renderer != null and renderer.has_method("set_world_job"):
+		renderer.call("set_world_job", self, action, progress)
+
+func hide_work_banner() -> void:
+	if not _work_banner_visible:
+		return
+	_work_banner_visible = false
+	var renderer: Node = _get_work_prompt_renderer()
+	if renderer != null and renderer.has_method("clear_world_job"):
+		renderer.call("clear_world_job", self)
+
+func _get_work_prompt_renderer() -> Node:
+	if _work_prompt_renderer == null or not is_instance_valid(_work_prompt_renderer):
+		_work_prompt_renderer = get_tree().get_first_node_in_group("interact_prompt")
+	return _work_prompt_renderer
+
+var _overhead_label: Label3D = null
+var _indicator_label: Label3D = null
+var _overhead_timer: float = 0.0
+var _speaking: bool = false
+var _indicator_phase: float = 0.0
+
+## TalkActivity turn-taking: shows a small "…" bubble over whoever speaks.
+func set_speaking(on: bool) -> void:
+	_speaking = on
+
+# ─── Barks — short floating speech lines ──────────────────────────────────
+## Event barks (bark()) are rate-limited per NPC; the ambient greeting when
+## the player walks up has its own longer cooldown (game time) so walking
+## past the same resident doesn't repeat itself.
+const BARK_DURATION: float = 3.2
+const BARK_MIN_GAP_SEC: float = 6.0
+const GREET_RANGE: float = 3.2
+const GREET_COOLDOWN_HOURS: float = 1.0
+var _bark_label: Label3D = null
+var _bark_left: float = 0.0
+var _last_bark_msec: int = -100000
+var _last_greet_hours: float = -100.0
+var _greet_check: float = 0.0
+
+func bark(text: String, force: bool = false) -> void:
+	if text == "" or (brain != null and brain.is_sleeping() and not force):
+		return
+	if not force and Time.get_ticks_msec() - _last_bark_msec < int(BARK_MIN_GAP_SEC * 1000.0):
+		return
+	_last_bark_msec = Time.get_ticks_msec()
+	if _bark_label == null:
+		_bark_label = _make_label3d(30, 9, Vector3(0.0, 2.3, 0.0), Color(1.0, 0.97, 0.88, 1.0), 0.0007)
+		_bark_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_bark_label.width = 520.0
+	_bark_label.text = text
+	_bark_label.visible = true
+	_bark_label.modulate.a = 1.0
+	_bark_left = BARK_DURATION
+
+func bark_event(kind: String, subject: String = "") -> void:
+	bark(NPCDialogue.bark_line(kind, subject))
+
+func _update_bark(delta: float) -> void:
+	if _bark_left > 0.0:
+		_bark_left -= delta
+		if _bark_label != null:
+			_bark_label.modulate.a = clampf(_bark_left / 0.6, 0.0, 1.0)
+			if _bark_left <= 0.0:
+				_bark_label.visible = false
+	## Ambient greeting: the player walks up to an idle-ish resident.
+	_greet_check -= delta
+	if _greet_check > 0.0:
+		return
+	_greet_check = 0.5
+	if brain == null or not brain.is_current_interruptible() or brain.is_talking() or brain.is_sleeping():
+		return
+	if NPCClock.now() - _last_greet_hours < GREET_COOLDOWN_HOURS:
+		return
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player == null or NPCItemUser.flat_distance(global_position, player.global_position) > GREET_RANGE:
+		return
+	_last_greet_hours = NPCClock.now()
+	if randf() < 0.7:
+		bark(NPCDialogue.greeting_bark(self))
+
+func _process(delta: float) -> void:
+	_update_indicator(delta)
+	_update_bark(delta)
+	_overhead_timer -= delta
+	if _overhead_timer > 0.0:
+		return
+	_overhead_timer = 0.5
+	if _overhead_label == null:
+		_overhead_label = _make_label3d(34, 8, Vector3(0.0, 1.85, 0.0), Color(0.88, 0.90, 0.92, 0.95), 0.0007)
+	_overhead_label.text = "%s — %s" % [npc_name, brain.current_label() if brain != null else "Idle"]
+	_update_relationship_debug_label()
+
+func _update_indicator(delta: float) -> void:
+	var text: String = ""
+	if brain != null and (brain.is_sleeping() or is_passed_out()):
+		_indicator_phase += delta
+		text = ["z", "zZ", "zZz"][int(_indicator_phase * 1.2) % 3]
+	elif _speaking:
+		_indicator_phase += delta
+		text = [".", "..", "..."][int(_indicator_phase * 3.0) % 3]
+	if text == "":
+		if _indicator_label != null:
+			_indicator_label.visible = false
+		return
+	if _indicator_label == null:
+		_indicator_label = _make_label3d(40, 10, Vector3(0.0, 2.05, 0.0), Color(1.0, 0.95, 0.8, 0.95), 0.0008)
+	_indicator_label.visible = true
+	_indicator_label.text = text
+
+func _make_label3d(font_size: int, outline: int, pos: Vector3, color: Color, pixel: float) -> Label3D:
+	var l: Label3D = Label3D.new()
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.fixed_size = true
+	l.pixel_size = pixel
+	l.font_size = font_size
+	l.outline_size = outline
+	l.position = pos
+	l.modulate = color
+	add_child(l)
+	return l
+
+## Debug-only floating readout of relationships (NPCDebug.enabled).
+var _relationship_debug_label: Label3D = null
+
+func _update_relationship_debug_label() -> void:
+	if not NPCDebug.enabled:
+		if _relationship_debug_label != null:
+			_relationship_debug_label.visible = false
+		return
+	if _relationship_debug_label == null:
+		_relationship_debug_label = _make_label3d(28, 6, Vector3(0.0, 2.35, 0.0), Color(0.55, 0.85, 1.0, 0.95), 0.0006)
+	_relationship_debug_label.visible = true
+	var lines: Array[String] = []
+	for target_id: String in relationships.keys():
+		var display: String = "You" if target_id == "player" else _name_for_relationship_id(target_id)
+		lines.append("%s: %+.0f (%s)" % [display, relationships[target_id], get_relationship_label(target_id)])
+	if gift_saturation > 0.0:
+		lines.append("Gift burnout: %d%%" % int(round(gift_saturation * 100.0)))
+	lines.append("mood %.0f → %.0f | %s" % [mood, get_mood_target(), brain.last_switch_reason if brain != null else ""])
+	_relationship_debug_label.text = "\n".join(lines)
+
+func _name_for_relationship_id(target_id: String) -> String:
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other is NPC and String(other.npc_id) == target_id:
+			return String(other.npc_name)
+	return target_id
+
+# ─── Persistence ──────────────────────────────────────────────────────────
+## Everything that makes this resident THEM survives a save/load (Sep 2026 —
+## previously personality, age, health, medical conditions, the action log
+## and more were silently re-rolled or reset on every load).
+func get_save_dict() -> Dictionary:
+	var log_out: Array = []
+	for e: Dictionary in _action_log:
+		log_out.append({"text": e.get("text", ""), "stamp_hours": e.get("stamp_hours", NPCClock.now()),
+			"game_time": e.get("game_time", "")})
+	return {
+		"pos": {"x": global_position.x, "y": global_position.y, "z": global_position.z},
+		"rot_y": rotation.y,
+		"name": npc_name, "npc_id": npc_id, "seed": generation_seed,
+		"energy": energy, "hunger": hunger, "thirst": thirst, "health": health,
+		"mood": mood, "irritability": irritability,
+		"personality": personality.duplicate(), "skills": skills.duplicate(),
+		"age": age, "birthday": _birthday_day_of_year, "birthday_checked": _birthday_last_checked_day,
+		"chronotype": chronotype,
+		"relationships": relationships.duplicate(),
+		"contagion_exposure": _contagion_exposure.duplicate(),
+		"gift_saturation": gift_saturation,
+		"relax_used": _relax_time_used_today, "relax_day_clock": _relax_day_clock,
+		"relax_cooldown": _relax_cooldown_hours,
+		"talk_cooldown_until": _talk_cooldown_until,
+		"last_social_time": _last_social_time,
+		"snatch_cooldowns": _snatch_cooldown_from.duplicate(),
+		"snatch_pair_cooldowns": _npc_snatch_pair_cooldown.duplicate(),
+		"thoughts": thoughts.to_save(),
+		"action_log": log_out,
+		"last_irritability_label": _last_irritability_label,
+		"last_player_rel_label": _last_player_relationship_label,
+		"medical": medical.to_save() if medical != null else [],
+		"gender": String(get_meta("_adventurer_random_gender", "")),
+		"home_bed_pos": _vec_dict((home_bed as Node3D).global_position) if home_bed != null and is_instance_valid(home_bed) else {},
+	}
+
+static func _vec_dict(v: Vector3) -> Dictionary:
+	return {"x": v.x, "y": v.y, "z": v.z}
+
+var _pending_medical_save: Array = []
+
+## Call BEFORE add_child() so _ready() keeps the restored identity. Missing
+## keys (older saves) fall back to fresh values.
+func apply_save_dict(d: Dictionary) -> void:
+	_restored = true
+	var p: Dictionary = d.get("pos", {})
+	position = Vector3(float(p.get("x", 0.0)), float(p.get("y", 1.5)), float(p.get("z", 0.0)))
+	rotation.y = float(d.get("rot_y", 0.0))
+	npc_name = String(d.get("name", npc_name))
+	npc_id = String(d.get("npc_id", ""))
+	NPC._register_id(npc_id)
+	generation_seed = int(d.get("seed", randi()))
+	energy = float(d.get("energy", 100.0))
+	hunger = float(d.get("hunger", 100.0))
+	thirst = float(d.get("thirst", 100.0))
+	health = float(d.get("health", 100.0))
+	mood = float(d.get("mood", 100.0))
+	irritability = float(d.get("irritability", 0.0))
+	if d.has("personality"):
+		personality = (d["personality"] as Dictionary).duplicate()
+	else:
+		randomize_personality()   ## pre-Sep-2026 save — nothing to restore
+	for k: String in skills.keys():
+		skills[k] = float((d.get("skills", {}) as Dictionary).get(k, randf_range(0.6, 1.4)))
+	age = int(d.get("age", 0))
+	if age <= 0:
+		randomize_age()
+	_birthday_day_of_year = int(d.get("birthday", randi_range(1, 365)))
+	_birthday_last_checked_day = int(d.get("birthday_checked", -1))
+	chronotype = float(d.get("chronotype", randf_range(-1.5, 1.5)))
+	relationships = (d.get("relationships", {}) as Dictionary).duplicate()
+	_contagion_exposure = (d.get("contagion_exposure", {}) as Dictionary).duplicate()
+	gift_saturation = float(d.get("gift_saturation", 0.0))
+	_relax_time_used_today = float(d.get("relax_used", 0.0))
+	_relax_day_clock = float(d.get("relax_day_clock", 0.0))
+	_relax_cooldown_hours = float(d.get("relax_cooldown", 1.0))
+	_talk_cooldown_until = float(d.get("talk_cooldown_until", 0.0))
+	_last_social_time = float(d.get("last_social_time", -1.0))
+	_snatch_cooldown_from = (d.get("snatch_cooldowns", {}) as Dictionary).duplicate()
+	_npc_snatch_pair_cooldown = (d.get("snatch_pair_cooldowns", {}) as Dictionary).duplicate()
+	thoughts.from_save(d.get("thoughts", []))
+	_last_irritability_label = String(d.get("last_irritability_label", ""))
+	_last_player_relationship_label = String(d.get("last_player_rel_label", get_relationship_label("player")))
+	_action_log.clear()
+	var now_msec: int = Time.get_ticks_msec()
+	var now_h: float = NPCClock.now()
+	for e: Variant in d.get("action_log", []):
+		if e is Dictionary:
+			var stamp: float = float(e.get("stamp_hours", now_h))
+			var age_sec: float = maxf(0.0, (now_h - stamp) * NPCClock.seconds_per_game_hour())
+			_action_log.append({"text": String(e.get("text", "")), "stamp_hours": stamp,
+				"game_time": String(e.get("game_time", "")),
+				"fired_at_msec": now_msec - int(age_sec * 1000.0)})
+	_pending_medical_save = d.get("medical", [])
+	var gender: String = String(d.get("gender", ""))
+	if gender != "":
+		set_meta("_adventurer_random_gender", gender)   ## read by the model controller in its _ready()
+	var hb: Dictionary = d.get("home_bed_pos", {})
+	if not hb.is_empty():
+		_home_bed_pos = Vector3(float(hb.get("x", 0.0)), float(hb.get("y", 0.0)), float(hb.get("z", 0.0)))
+
+# ─── Time-skip catch-up (see NPCCatchUp.gd) ───────────────────────────────
+static func catch_up_all(hours: float) -> void:
+	NPCCatchUp.catch_up_all(hours)
+
+func catch_up_time(h: float, avg_mood_before: float) -> void:
+	NPCCatchUp.catch_up_npc(self, h, avg_mood_before)

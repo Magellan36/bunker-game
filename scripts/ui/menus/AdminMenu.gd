@@ -246,16 +246,8 @@ func _ready() -> void:
 			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed,
 				func() -> bool: return NPCDebug.enabled],
 			["Print NPC Debug State", _on_npc_print_debug_pressed],
-			["Toggle NPC Navigation Trace", _on_npc_toggle_navigation_trace_pressed,
-				func() -> bool: return NPCDebug.navigation_trace_enabled],
-			["Print NPC Navigation Debug State", _on_npc_print_navigation_debug_pressed],
 			["Print NPC Cleaning Debug State", _on_npc_print_cleaning_debug_pressed],
 			["Print NPC Job Debug State", _on_npc_print_job_debug_pressed],
-			["Start/Stop NPC Session Capture", _on_npc_toggle_session_capture_pressed,
-				func() -> bool: return NPCMetrics.enabled],
-			["Print NPC Session Summary", _on_npc_print_session_summary_pressed],
-			["Print NPC Why Now", _on_npc_print_why_now_pressed],
-			["Clear NPC Session Capture", _on_npc_clear_session_capture_pressed],
 			["Force Nearest NPC to Snatch Player Item", _on_npc_force_snatch_pressed],
 			["Force Nearest NPC to Talk to NPC", _on_npc_force_talk_pressed],
 			["Force Nearest NPC to Give to Friend", _on_npc_force_give_friend_pressed],
@@ -1000,51 +992,13 @@ func _on_toggle_all_debug_pressed() -> void:
 func _on_npc_print_debug_pressed() -> void:
 	NPCDebug.dump_all(get_tree())
 
-func _on_npc_toggle_navigation_trace_pressed() -> void:
-	NPCDebug.navigation_trace_enabled = not NPCDebug.navigation_trace_enabled
-	if NPCDebug.navigation_trace_enabled:
-		for npc: Node in get_tree().get_nodes_in_group("npc"):
-			if is_instance_valid(npc) and npc.has_method("clear_navigation_trace"):
-				npc.clear_navigation_trace()
-	print("[AdminMenu] NPC navigation trace: %s" % (
-		"ON" if NPCDebug.navigation_trace_enabled else "OFF"))
-	_refresh_toggle_labels()
 
-func _on_npc_print_navigation_debug_pressed() -> void:
-	NPCDebug.dump_navigation_state(get_tree())
 
 func _on_npc_print_cleaning_debug_pressed() -> void:
 	NPCDebug.dump_cleaning_state(get_tree())
 
 func _on_npc_print_job_debug_pressed() -> void:
 	NPCDebug.dump_job_state(get_tree())
-
-func _on_npc_toggle_session_capture_pressed() -> void:
-	var enabling: bool = not NPCMetrics.enabled
-	NPCMetrics.set_enabled(enabling, enabling)
-	if enabling:
-		for npc: Node in get_tree().get_nodes_in_group("npc"):
-			if not is_instance_valid(npc):
-				continue
-			if npc.has_method("clear_navigation_trace"):
-				npc.clear_navigation_trace()
-			if "brain" in npc and npc.brain != null and npc.brain.has_method("sync_metrics_capture"):
-				npc.brain.sync_metrics_capture()
-	print("[AdminMenu] NPC session capture: %s" % ("ON (new session)" if enabling else "OFF"))
-	_refresh_toggle_labels()
-
-func _on_npc_print_session_summary_pressed() -> void:
-	NPCDebug.dump_session_summary()
-
-func _on_npc_print_why_now_pressed() -> void:
-	NPCDebug.dump_why_now(get_tree())
-
-func _on_npc_clear_session_capture_pressed() -> void:
-	NPCMetrics.reset()
-	for npc: Node in get_tree().get_nodes_in_group("npc"):
-		if is_instance_valid(npc) and npc.has_method("clear_navigation_trace"):
-			npc.clear_navigation_trace()
-	print("[AdminMenu] NPC session capture cleared")
 
 ## Part 29 — forces the NEAREST spawned NPC to attempt a snatch against
 ## the player right now, bypassing relationship/probability (still

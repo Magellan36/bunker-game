@@ -23,9 +23,6 @@ func interruptible() -> bool:
 func debug_info() -> Dictionary:
 	return _inner.debug_info() if _inner != null else {}
 
-func attention_target(npc: NPC) -> Node3D:
-	return _inner.attention_target(npc) if _inner != null else null
-
 func enter(npc: NPC) -> void:
 	_inner = _make_inner(npc)
 	_inner.enter(npc)
@@ -49,3 +46,11 @@ func exit(npc: NPC) -> void:
 func _make_inner(_npc: NPC) -> NPCActivity:
 	push_error("NPCCommandWrapperActivity._make_inner() not overridden")
 	return null
+
+## Delegates the hands policy to the inner activity this command would run.
+func accepts_held_item(npc: NPC, item: Node) -> bool:
+	var probe: NPCActivity = _inner if _inner != null else _make_inner(npc)
+	return probe != null and probe.accepts_held_item(npc, item)
+
+func backoff_on_futile() -> bool:
+	return false

@@ -1,28 +1,29 @@
 extends NPCSessionActivity
 class_name CleaningActivity
-## Cleaning (Aug 2026, sustained session). Trash disposal + shelf
-## organizing under one job, mirroring GiveToFriendActivity's
-## fetch→travel→deliver shape per item — but now loops through
-## multiple items for 20-40 real seconds (or until nothing's left to
-## clean) instead of stopping after one. Counts as a JOB for Work
-## Ethic AND the Job Priority system (get_work_ethic_job_mult() *
-## get_job_priority_weight()).
+## CleaningActivity.gd — a tidying session: pick up loose clutter one item
+## at a time and take it where it belongs (trash → trash can; light items →
+## End Table/Dresser first, then shelves; heavy items → shelves). Loose
+## produce is gathered into a Basket when one is free, and the basket is
+## put away at the end.
 ##
-## forced_item (stuck-recovery path) is always exactly ONE grab, never
-## a full session — an emergency unstick, not a deliberate shift.
+## A session runs 20–40 s (or until nothing's left), then the brain
+## re-scores, so cleaning interleaves naturally with everything else.
+## Interruptible only BETWEEN items (nothing carried) — see interruptible().
+##
+## Forced variant (stuck recovery): CleaningActivity.new(item) clears exactly
+## that one obstruction — carried to storage, or carried clear if there's
+## nowhere for it — and ends.
+##
+## Sep 2026 fixes: the basket flow never actually registered the basket it
+## picked up (it then re-picked a target every frame for the rest of the
+## session and ended still holding the basket); delivered items stayed
+## reserved by the cleaner forever; scoring moved to the shared scale.
+
 const SESSION_MIN_SEC: float = 20.0
 const SESSION_MAX_SEC: float = 40.0
-const LEG_TIMEOUT_SEC: float = 18.0
-const APPROACH_REFRESH_DISTANCE: float = 0.35
-# Leave room for NAV_PRECISE_TARGET_DISTANCE as well as a small steering
-# tolerance.  With only 0.15m of inset, NavigationAgent3D could legally finish
-# 0.20m before the slot and leave the item at 1.22m — just outside the 1.20m
-# pickup contract — even though the route itself was perfect.
-const PICKUP_APPROACH_DISTANCE: float = NPCItemUser.PICKUP_RANGE - 0.35
-const STORAGE_APPROACH_DISTANCE: float = NPCItemUser.SNATCH_RANGE - 0.20
-const SUPPLY_CHECK_PRIORITY_MULT: float = 1.15
-const STORAGE_RETRY_INTERVAL_SEC: float = 0.45
-const NO_STORAGE_CONFIRM_SEC: float = 3.0
+const RELOCATE_DISTANCE: float = 2.5
+const CLUTTER_CALM: int = 3      ## at/below this, cleaning barely registers
+const CLUTTER_URGENT: int = 20   ## at/above this, cleaning is a real chore priority
 
 var _item: RigidBody3D = null
 var _destination: Node = null
@@ -32,390 +33,120 @@ var _is_forced_session: bool = false
 var _session_elapsed: float = 0.0
 var _session_duration: float = 0.0
 var _finished: bool = false
-var _skipped_ids: Dictionary = {}         ## item instance_id -> true, this session — confirmed no destination, never retry
-var _no_storage_categories: Dictionary = {}   ## "light"/"heavy" -> true, this session — every viable destination for the category is gone/full/nonexistent
-
-## Aug 2026 — tracks whether _pick_next_target() keeps landing on the
-## SAME candidate without ever advancing past the pick (a genuine fetch
-## in progress never re-enters this function at all — only a stalled
-## one does). Distinct log wording once this climbs makes a stall
-## immediately greppable instead of a wall of visually-identical
-## "target picked" lines with only a slowly drifting distance to
-## suggest anything's wrong.
-var _last_picked_id: int = -1
-var _last_picked_repeat_count: int = 0
-var _basket: Basket = null                ## Aug 2026 — set once fetched, for produce collection (see _pick_next_target/_tick_produce_via_basket)
-var _pending_basket: Basket = null
-
-## Aug 2026 — last-resort relocation for a forced (stuck-recovery) grab
-## with no real destination anywhere. Previously this case picked the
-## item up and set it right back down in the same spot (no travel
-## happened between pickup and drop), which didn't actually clear the
-## obstruction. Deliberately a genuine navmesh-pathed walk, NOT a raw
-## position teleport — the whole point is to move the item somewhere
-## real, respecting collision, unlike the nudge fallback this
-## complements for the "obstruction successfully identified" case.
-const RELOCATE_DISTANCE: float = 2.5
+var _skipped_ids: Dictionary = {}           ## item instance_id -> true (nowhere to put it this session)
+var _no_storage_categories: Dictionary = {} ## "light"/"heavy"/"trash" -> true
+var _basket: Basket = null                  ## held while gathering produce
 var _relocating: bool = false
 var _relocate_point: Vector3 = Vector3.ZERO
-var _approach_target_id: int = 0
-var _approach_target_origin: Vector3 = Vector3.INF
-var _approach_position: Vector3 = Vector3.INF
-var _leg_elapsed: float = 0.0
-var _waiting_for_storage: bool = false
-var _storage_retry_left: float = 0.0
-var _no_storage_elapsed: float = 0.0
-var _storage_retry_count: int = 0
-var _storage_attempt_excludes: Dictionary = {}
+var _delivered: int = 0
 
 func _init(forced_item: RigidBody3D = null) -> void:
 	_forced_item = forced_item
 	_is_forced_session = forced_item != null
 
 func label() -> String:
+	if _basket != null and _item != _basket:
+		return "Gathering produce"
 	if _item == null:
-		return "Cleaning"
+		return "Tidying up"
 	if _relocating:
 		return "Clearing the way"
-	if _waiting_for_storage:
-		return "Cleaning (finding storage)"
-	return "Cleaning (carrying)" if _destination != null else "Cleaning (fetching)"
+	return "Putting away %s" % display_name(_item) if _destination != null else "Picking up %s" % display_name(_item)
 
-func attention_target(_npc: NPC) -> Node3D:
-	if _destination is Node3D and is_instance_valid(_destination):
-		return _destination as Node3D
-	return _item if _item != null and is_instance_valid(_item) else null
-
+## 4 at a tidy bunker → ~30 at a real mess (× work ethic etc.).
 func score(npc: NPC) -> float:
-	if _is_forced_session:
+	if _is_forced_session or not NPCJobQueries.has_cleaning_target_available(npc):
 		return 0.0
-	if not NPCJobQueries.has_cleaning_target_available(npc):
-		return 0.0
-	## Aug 2026 — escalating urgency: the more clutter sits around,
-	## the more Cleaning outcompetes Wander/Relax/etc. See
-	## NPC.CLUTTER_URGENCY_STEP's own comment for the derivation.
-	var urgency_mult: float = 1.0 + float(JobBoard.get_total_clutter_count()) * NPC.CLUTTER_URGENCY_STEP
-	var priority_weight: float = npc.get_job_priority_weight("CLEANING")
-	var utility: float = NPC.CLEANING_BASE_SCORE * npc.get_work_ethic_job_mult() \
-		* priority_weight * urgency_mult
-	## Once an item is genuinely eligible and has storage, cleaning is work,
-	## not another idle option. It must clear either passive activity's switch
-	## margin; job-vs-job ordering still uses the authored utility above.
-	var passive_mult: float = npc.get_work_ethic_passive_mult()
-	var wander_utility: float = npc.get_leisure_score(&"wander", 5.0) * passive_mult
-	var relax_utility: float = npc.get_leisure_score(&"sit", RelaxActivity.BASE_SCORE) * passive_mult
-	var passive_floor: float = maxf(wander_utility + 0.26,
-		maxf(relax_utility, RelaxActivity.ACTIVE_SCORE_FLOOR) + 0.76)
-	utility = maxf(utility, passive_floor)
-	if npc.has_supply_cleanup_priority_boost():
-		utility *= SUPPLY_CHECK_PRIORITY_MULT
-	return utility
+	var clutter: float = float(JobBoard.get_total_clutter_count())
+	var t: float = clampf((clutter - CLUTTER_CALM) / float(CLUTTER_URGENT - CLUTTER_CALM), 0.0, 1.0)
+	return npc.work_score("CLEANING", 1.0, 4.0 + 26.0 * t * t * (3.0 - 2.0 * t))
 
-func debug_score_reason(_npc: NPC, computed_score: float) -> StringName:
-	if _is_forced_session: return &"forced_session_not_utility_candidate"
-	if computed_score > 0.0 and _npc.has_supply_cleanup_priority_boost():
-		return &"nearby_clutter_found_while_checking_supplies"
-	return &"cleaning_target_available" if computed_score > 0.0 else &"no_cleaning_target"
-
+## Safe window: between items, hands empty.
 func interruptible() -> bool:
-	return _item == null and _basket == null   ## a held collection basket is also an in-progress cleaning commitment
+	return _item == null and _basket == null
 
 func enter(npc: NPC) -> void:
-	_item = null
-	_destination = null
-	_is_trash = false
-	_basket = npc.held_item as Basket if npc.held_item is Basket else null
-	_pending_basket = null
-	_relocating = false
-	_relocate_point = Vector3.ZERO
-	_approach_target_id = 0
-	_approach_target_origin = Vector3.INF
-	_approach_position = Vector3.INF
-	_leg_elapsed = 0.0
-	_waiting_for_storage = false
-	_storage_retry_left = 0.0
-	_no_storage_elapsed = 0.0
-	_storage_retry_count = 0
-	_storage_attempt_excludes = {}
-	_last_picked_id = -1
-	_last_picked_repeat_count = 0
 	_session_duration = randf_range(SESSION_MIN_SEC, SESSION_MAX_SEC)
 	_session_elapsed = 0.0
 	_finished = false
 	_skipped_ids = {}
 	_no_storage_categories = {}
+	_delivered = 0
 	if NPCDebug.enabled and not _is_forced_session:
 		NPCDebug.log_cleaning(npc, "session started", "target duration=%.0fs" % _session_duration)
 	_pick_next_target(npc)
 
-
-## Cleaning interacts with the reachable SIDE of an object, never its raw
-## origin. This matters for items against walls and for storage whose center is
-## inside its own collision. The shared slot system projects candidates onto
-## navigation and now ranks them by real path cost.
-func _set_interaction_approach(npc: NPC, target: Node3D, action: StringName,
-		distance: float) -> bool:
-	if target == null or not is_instance_valid(target):
-		return false
-	var target_id: int = target.get_instance_id()
-	if target_id == _approach_target_id \
-			and NPCItemUser.flat_distance(target.global_position, _approach_target_origin) \
-				< APPROACH_REFRESH_DISTANCE \
-			and _approach_position != Vector3.INF:
-		return npc.set_nav_target(_approach_position, NPC.NAV_PRECISE_TARGET_DISTANCE)
-	var lease: Dictionary = npc.claim_interaction_slot(target, action, distance)
-	if lease.is_empty():
-		_clear_approach(npc)
-		return false
-	_approach_target_id = target_id
-	_approach_target_origin = target.global_position
-	_approach_position = npc.get_interaction_slot_position()
-	_leg_elapsed = 0.0
-	if npc.set_nav_target(_approach_position, NPC.NAV_PRECISE_TARGET_DISTANCE):
-		return true
-	_clear_approach(npc)
-	return false
-
-
-func _clear_approach(npc: NPC) -> void:
-	npc.release_interaction_slot()
-	_approach_target_id = 0
-	_approach_target_origin = Vector3.INF
-	_approach_position = Vector3.INF
-	_leg_elapsed = 0.0
-
-
-## Once an item is physically in-hand, delivery is a small transaction. A
-## temporarily occupied/invalid shelf side redirects or waits; it does not
-## undo the pickup by dropping the item at the NPC's feet.
-func _begin_storage_retry(npc: NPC, reason: String, reject_current: bool = false) -> void:
-	if reject_current and _destination != null and is_instance_valid(_destination):
-		_storage_attempt_excludes[_destination.get_instance_id()] = true
-	var first_wait: bool = not _waiting_for_storage
-	_waiting_for_storage = true
-	_storage_retry_left = STORAGE_RETRY_INTERVAL_SEC
-	_destination = null
-	_clear_approach(npc)
-	npc.halt_movement(1.0)
-	if first_wait and NPCDebug.enabled:
-		NPCDebug.log_cleaning(npc, "storage retry", "%s — %s; keeping item in hand" % [
-			display_name(_item), reason])
-
-
-func _tick_storage_retry(npc: NPC, delta: float) -> void:
-	npc.halt_movement(delta)
-	_storage_retry_left = maxf(0.0, _storage_retry_left - delta)
-	if _storage_retry_left > 0.0:
-		return
-	_storage_retry_count += 1
-	var destination: Node = NPCJobQueries.find_cleaning_destination(
-		npc, _is_trash, _item, _storage_attempt_excludes)
-	if destination == null and not _storage_attempt_excludes.is_empty():
-		# The alternate shelves were exhausted for this sweep. Reconsider all
-		# of them next; another resident may just have released a side.
-		_storage_attempt_excludes.clear()
-		destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
-	if destination == null:
-		_no_storage_elapsed += STORAGE_RETRY_INTERVAL_SEC
-		_storage_retry_left = STORAGE_RETRY_INTERVAL_SEC
-		if _no_storage_elapsed < NO_STORAGE_CONFIRM_SEC:
-			return
-		if NPCDebug.enabled:
-			NPCDebug.log_cleaning(npc, "no storage confirmed", "%s had no compatible capacity for %.1fs — dropping once" % [
-				display_name(_item), _no_storage_elapsed])
-		NPCItemUser.release_item(_item)
-		NPCItemUser.drop_held(npc)
-		_item = null
-		_waiting_for_storage = false
-		_clear_approach(npc)
-		if _is_forced_session:
-			_finished = true
-		return
-	_no_storage_elapsed = 0.0
-	_destination = destination
-	if not _set_interaction_approach(npc, _destination as Node3D,
-			&"clean_store", STORAGE_APPROACH_DISTANCE):
-		_storage_attempt_excludes[_destination.get_instance_id()] = true
-		_destination = null
-		_storage_retry_left = STORAGE_RETRY_INTERVAL_SEC
-		return
-	_waiting_for_storage = false
-	_storage_attempt_excludes.clear()
-	if NPCDebug.enabled:
-		NPCDebug.log_cleaning(npc, "storage resumed", "%s -> %s after %d retries" % [
-			display_name(_item), _destination.name, _storage_retry_count])
-
-
-func _abandon_current_item(npc: NPC, reason: String, skip_this_session: bool = true) -> void:
-	var abandoned: RigidBody3D = _item
-	if abandoned != null and is_instance_valid(abandoned):
-		if NPCDebug.enabled:
-			NPCDebug.log_cleaning(npc, "target abandoned", "%s — %s" % [display_name(abandoned), reason])
-		if skip_this_session:
-			_skipped_ids[abandoned.get_instance_id()] = true
-		if npc.held_item == abandoned:
-			NPCItemUser.drop_held(npc)
-		elif abandoned.has_method("set_nav_obstacle_enabled") \
-				and not (("is_held" in abandoned) and abandoned.is_held) \
-				and not abandoned.is_in_group("shelved"):
-			abandoned.set_nav_obstacle_enabled(true)
-		NPCItemUser.release_item(abandoned)
-	_item = null
+# ─── Target selection ─────────────────────────────────────────────────────
+func _pick_next_target(npc: NPC) -> void:
 	_destination = null
 	_relocating = false
-	_waiting_for_storage = false
-	_storage_attempt_excludes.clear()
-	if _pending_basket != null and is_instance_valid(_pending_basket):
-		NPCItemUser.release_item(_pending_basket)
-	_pending_basket = null
-	_clear_approach(npc)
-
-## Called at session start and after each delivery (success or
-## failure) — this is what makes the NPC keep working through the
-## bunker's clutter instead of stopping after one item.
-##
-## Aug 2026 — destination-first. Previously this only set _item and
-## walked toward it; find_cleaning_destination() was checked AFTER
-## grab_loose() succeeded, in tick()'s fetch phase. That meant an
-## item with genuinely nowhere to go (e.g. a Test Crate with only an
-## End Table/Dresser in range, neither able to take it) got walked
-## to, picked up, and dropped again — then immediately re-selected as
-## "nearest" and repeated, every tick, for the entire session. Now:
-## for organizable (non-trash) items, confirm a destination exists
-## BEFORE claiming or moving toward it at all. If none exists for
-## this SPECIFIC item but the category (light/heavy) still has
-## SOME viable destination elsewhere, just try the next candidate. If
-## the category has NO viable destination anywhere, remember that
-## (_no_storage_categories) so every future item of that category is
-## skipped on sight for the rest of the session instead of being
-## retried. Trash is unchanged — it's a single flat group with its
-## own pre-existing "no receptacle" handling, worth revisiting
-## together once trash_receptacle actually exists.
-func _pick_next_target(npc: NPC) -> void:
-	_clear_approach(npc)
-	_destination = null
 	if _is_forced_session:
 		_item = _forced_item
 		_forced_item = null
-		if _item == null or not is_instance_valid(_item):
+		if _item == null or not is_instance_valid(_item) or _item.is_in_group("shelved") \
+				or (("is_held" in _item) and _item.is_held):
 			_item = null
 			_finished = true
 			return
 		_is_trash = NPCJobQueries.is_trash_item(npc, _item)
-		if NPCDebug.enabled:
-			NPCDebug.log_cleaning(npc, "forced grab", "%s (stuck-recovery, is_trash=%s)" % [
-				display_name(_item), _is_trash])
-	else:
-		while true:
-			var result: Dictionary = NPCJobQueries.find_cleaning_target(npc, _skipped_ids, _no_storage_categories)
-			if result.is_empty():
-				if _basket != null and is_instance_valid(_basket) and npc.held_item == _basket:
-					_begin_basket_delivery(npc)
-					return
-				_finished = true
-				_item = null
-				if NPCDebug.enabled:
-					var reason: String = "nothing left to clean"
-					if not _no_storage_categories.is_empty():
-						reason = "nothing left to clean — no storage for: %s" % ", ".join(_no_storage_categories.keys())
-					NPCDebug.log_cleaning(npc, "session ended", reason)
-				return
-			_item = result.get("item")
-			_is_trash = result.get("is_trash", false)
-			var _picked_id: int = _item.get_instance_id() if _item != null else -1
-			if _picked_id == _last_picked_id:
-				_last_picked_repeat_count += 1
-			else:
-				_last_picked_id = _picked_id
-				_last_picked_repeat_count = 0
+		_claim_and_go(npc)
+		return
+
+	while true:
+		var result: Dictionary = NPCJobQueries.find_cleaning_target(npc, _skipped_ids, _no_storage_categories)
+		## Gathering produce into a basket: only produce is fair game until
+		## the basket is put away.
+		if _basket != null and (result.is_empty() or not (result.get("item") is FarmProduceItem) or _basket.slots.count(null) <= 0):
+			_start_delivering_basket(npc)
+			return
+		if result.is_empty():
+			_item = null
+			_finished = true
 			if NPCDebug.enabled:
-				if _last_picked_repeat_count > 0:
-					NPCDebug.log_cleaning(npc, "target picked (STALLED)", "%s (%s) dist=%.1f — same target %d times in a row without advancing" % [
-						display_name(_item), "trash" if _is_trash else "organizable",
-						NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position), _last_picked_repeat_count])
-				else:
-					NPCDebug.log_cleaning(npc, "target picked", "%s (%s) dist=%.1f" % [
-						display_name(_item), "trash" if _is_trash else "organizable",
-						NPCItemUser.flat_distance(npc.global_position, (_item as Node3D).global_position)])
-			if _is_trash:
-				## Aug 2026 fix — now that trash_receptacle actually exists
-				## and can fill up, trash gets the exact same
-				## destination-first treatment organizable items already
-				## have, reusing the SAME _no_storage_categories dict with
-				## "trash" as its own category key — one full trash can
-				## stops the NPC from repeatedly walking a trash item to
-				## it and dropping it right back down, for the rest of
-				## this session, exactly like a full shelf already does
-				## for light/heavy.
-				if _no_storage_categories.has("trash"):
-					_skipped_ids[_item.get_instance_id()] = true
-					continue
-				if NPCJobQueries.find_cleaning_destination(npc, true, _item) != null:
-					break   ## viable trash destination confirmed — commit and go
-				_skipped_ids[_item.get_instance_id()] = true
-				_no_storage_categories["trash"] = true
-				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "no storage for category", "%s (trash) — no viable destination exists anywhere; skipping all trash items this session" \
-						% display_name(_item))
-				continue
-			var category: String = NPCJobQueries.classify_organizable_item(_item)
-			if _item is FarmProduceItem and _basket != null and is_instance_valid(_basket) \
-					and npc.held_item == _basket and _basket.slots.find(null) != -1:
+				NPCDebug.log_cleaning(npc, "session ended", "nothing left to clean%s" % (
+					" — no storage for: %s" % ", ".join(_no_storage_categories.keys()) if not _no_storage_categories.is_empty() else ""))
+			return
+		_item = result.get("item")
+		_is_trash = result.get("is_trash", false)
+		if _is_trash:
+			if NPCJobQueries.find_cleaning_destination(npc, true, _item) != null:
 				break
-			if _item is FarmProduceItem and _basket == null:
-				var basket: Basket = _find_available_basket(npc)
-				if basket != null:
-					## Aug 2026 — produce specifically prefers basket collection
-					## over normal carry-and-deliver, mirroring how the player
-					## actually gathers produce. _phase handling for this is
-					## entirely in tick()'s fetch branch below — no destination
-					## lookup needed for the produce item itself, the BASKET is
-					## what eventually gets delivered.
-					break
-			if NPCJobQueries.find_cleaning_destination(npc, false, _item) != null:
-				break   ## viable destination confirmed for THIS item — commit and go fetch it
 			_skipped_ids[_item.get_instance_id()] = true
-			if not NPCJobQueries.has_viable_destination_for_category(npc, category):
-				_no_storage_categories[category] = true
-				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "no storage for category", "%s (%s) — no viable destination exists anywhere; skipping all %s items this session" \
-						% [display_name(_item), category, category])
-			elif NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "no destination (retrying)", "%s (%s) has nowhere to go right now — trying next item" \
-					% [display_name(_item), category])
-			## loop again — try the next nearest candidate, never having walked to this one at all
+			_no_storage_categories["trash"] = true
+			continue
+		if _item is FarmProduceItem and (_basket != null or _find_available_basket(npc) != null):
+			break   ## goes into a basket — no shelf needed yet
+		if NPCJobQueries.find_cleaning_destination(npc, false, _item) != null:
+			break
+		_skipped_ids[_item.get_instance_id()] = true
+		var category: String = NPCJobQueries.classify_organizable_item(_item)
+		if not NPCJobQueries.has_viable_destination_for_category(npc, category):
+			_no_storage_categories[category] = true
+	_claim_and_go(npc)
+
+func _claim_and_go(npc: NPC) -> void:
 	if not NPCItemUser.claim_item(_item, npc):
-		if NPCDebug.enabled:
-			NPCDebug.log_cleaning(npc, "claim failed", "%s already claimed by another NPC — retrying next tick" % display_name(_item))
-		_item = null   ## momentary claim clash — try again next tick, don't end the session over it
+		_skipped_ids[_item.get_instance_id()] = true   ## someone else has it — pick another next tick
+		_item = null
 		return
 	if _item.has_method("set_nav_obstacle_enabled"):
 		_item.set_nav_obstacle_enabled(false)
-	if not _set_interaction_approach(npc, _item, &"clean_pickup", PICKUP_APPROACH_DISTANCE):
-		_abandon_current_item(npc, "no reachable pickup side")
+	npc.set_nav_target(_item.global_position)
+	if NPCDebug.enabled:
+		NPCDebug.log_cleaning(npc, "target picked", "%s (%s)" % [display_name(_item), "trash" if _is_trash else "organizable"])
 
+# ─── Tick ─────────────────────────────────────────────────────────────────
 func tick(npc: NPC, delta: float) -> void:
 	if not _is_forced_session:
 		_session_elapsed += delta
-		if _session_elapsed >= _session_duration and _item == null:
-			if _basket != null and is_instance_valid(_basket) and npc.held_item == _basket:
-				_begin_basket_delivery(npc)
-				return
-			_finished = true
-			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "session ended", "time's up (%.0fs)" % _session_duration)
+		if _session_elapsed >= _session_duration and _item == null and _basket == null:
+			_finish(npc, "time's up")
 			return
-	if _item != null and not _waiting_for_storage:
-		_leg_elapsed += delta
-		if _leg_elapsed >= LEG_TIMEOUT_SEC:
-			if npc.held_item == _item and not _relocating:
-				_begin_storage_retry(npc,
-					"storage leg timed out after %.0fs" % LEG_TIMEOUT_SEC, true)
-			else:
-				_abandon_current_item(npc, "interaction leg timed out after %.0fs" % LEG_TIMEOUT_SEC)
-			if _is_forced_session or _session_elapsed >= _session_duration:
-				_finished = npc.held_item != _item
-			return
+
+	## Holding something that isn't ours to carry (shouldn't happen — the
+	## brain's hands policy guards entry): set it down, carry on.
+	if NPCItemUser.hands_full(npc) and npc.held_item != _item and npc.held_item != _basket:
+		NPCItemUser.drop_held(npc)
 
 	if _item == null or not is_instance_valid(_item):
 		_item = null
@@ -423,371 +154,198 @@ func tick(npc: NPC, delta: float) -> void:
 			_pick_next_target(npc)
 		return
 
-	## Basket collection uses the hand slot for the basket, not for the
-	## produce. Handle it before the generic `held_item == null` fetch branch.
-	if _basket != null and is_instance_valid(_basket) and npc.held_item == _basket \
-			and _item is FarmProduceItem:
+	if _basket != null and npc.held_item == _basket and _item != _basket:
 		_tick_stash_into_basket(npc, delta)
 		return
 
-	if _waiting_for_storage and npc.held_item == _item:
-		_tick_storage_retry(npc, delta)
+	if npc.held_item == _item:
+		_tick_carry(npc, delta)
 		return
 
-	if npc.held_item == null:
-		## Fetch phase
-		## Aug 2026 — produce collection: fetch a Basket FIRST if one's
-		## needed and not already held, before ever approaching the
-		## produce item itself. Once holding a basket, produce items get
-		## stashed into it (see the branch further below) instead of the
-		## normal carry-in-hand pickup.
-		if _item is FarmProduceItem and _basket == null:
-			var basket: Basket = _find_available_basket(npc)
-			if basket == null:
-				## No basket after all (taken/gone since selection) —
-				## fall through to a normal hand-carry pickup instead.
-				pass
-			elif not _tick_fetch_basket(npc, delta, basket):
-				return
-		if _basket != null and _item is FarmProduceItem:
-			_tick_stash_into_basket(npc, delta)
-			return
-		if "is_held" in _item and _item.is_held:
-			_abandon_current_item(npc, "became held by someone else", false)
-			return
-		if _item.is_in_group("shelved"):
-			## Became unavailable (someone shelved it, or a stale
-			## reference pointed at something already stored) — give
-			## up on THIS item immediately rather than walking the
-			## full distance for nothing (grab_loose() would refuse
-			## it anyway, per Part A above).
-			_abandon_current_item(npc, "became shelved before pickup", false)
-			return
-		if not _set_interaction_approach(npc, _item, &"clean_pickup", PICKUP_APPROACH_DISTANCE):
-			_abandon_current_item(npc, "pickup side became unreachable")
-			return
-		npc.nav_steer(delta)
-		var pickup_distance: float = NPCItemUser.flat_distance(npc.global_position, _item.global_position)
-		if npc.nav_failed() or (npc.nav_finished() and pickup_distance > NPCItemUser.PICKUP_RANGE):
-			_abandon_current_item(npc, "reached pickup slot but item remained %.2fm away" % pickup_distance)
-			return
-		if pickup_distance <= NPCItemUser.PICKUP_RANGE:
-			if NPCItemUser.grab_loose(npc, _item):
-				_clear_approach(npc)
-				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "picked up", display_name(_item))
-				_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
-				if _destination == null:
-					if _is_forced_session:
-						## Aug 2026 — last resort: this item is genuinely
-						## storable nowhere, but it's still the obstruction
-						## that got the NPC stuck. Setting it back down in
-						## the same spot (the old behavior) doesn't clear
-						## anything — carry it a short, real, pathed distance
-						## away first instead.
-						_relocating = true
-						_relocate_point = _pick_relocate_point(npc)
-						if NPCDebug.enabled:
-							NPCDebug.log_cleaning(npc, "relocating (no destination)", "%s has nowhere to go — carrying it clear instead of dropping in place" % display_name(_item))
-						npc.set_nav_target(_relocate_point)
-					else:
-						_begin_storage_retry(npc,
-							"no compatible destination immediately after pickup")
-				else:
-					if not _set_interaction_approach(npc, _destination as Node3D,
-							&"clean_store", STORAGE_APPROACH_DISTANCE):
-						_begin_storage_retry(npc, "no reachable storage side", true)
-						return
-					if NPCDebug.enabled:
-						NPCDebug.log_cleaning(npc, "destination chosen", "%s -> %s" % [display_name(_item), _destination.name])
-			else:
-				if NPCDebug.enabled:
-					NPCDebug.log_cleaning(npc, "pickup failed", "grab_loose() refused %s" % display_name(_item))
-				npc.job_state.record_cleaning_pickup_failure(npc, _item)   ## Aug 2026 — counts toward the give-up limit; claim/held/shelved misses elsewhere never call this
-				_abandon_current_item(npc, "pickup API refused item")
+	## Fetch phase — hands must be empty here.
+	if (("is_held" in _item) and _item.is_held) or _item.is_in_group("shelved"):
+		_item = null   ## someone else got it
 		return
+	if _item is FarmProduceItem and _basket == null and not _is_forced_session:
+		var basket: Basket = _find_available_basket(npc)
+		if basket != null:
+			_tick_fetch_basket(npc, delta, basket)
+			return
+	NPCItemUser.track_fetch_target(npc, _item)
+	npc.nav_steer(delta)
+	if NPCItemUser.in_reach(npc, _item.global_position, NPCItemUser.PICKUP_RANGE):
+		if NPCItemUser.grab_loose(npc, _item):
+			_on_picked_up(npc)
+		else:
+			npc.job_state.record_cleaning_pickup_failure(npc, _item)
+			_skipped_ids[_item.get_instance_id()] = true
+			_item = null
 
-	## Relocate phase (forced-session, no-destination last resort)
+func _on_picked_up(npc: NPC) -> void:
+	_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
+	if _destination != null:
+		npc.set_nav_target((_destination as Node3D).global_position)
+		return
+	if _is_forced_session:
+		_relocating = true
+		_relocate_point = _pick_relocate_point(npc)
+		npc.set_nav_target(_relocate_point)
+		return
+	## Nowhere for it after all (storage filled since selection) — put it
+	## back down and skip it for this session.
+	_skipped_ids[_item.get_instance_id()] = true
+	NPCItemUser.drop_held(npc)
+	_item = null
+
+func _tick_carry(npc: NPC, delta: float) -> void:
 	if _relocating:
 		npc.nav_steer(delta)
-		if npc.nav_failed():
-			_abandon_current_item(npc, "relocation route failed")
-			_finished = true
-			return
-		if NPCItemUser.flat_distance(npc.global_position, _relocate_point) <= NPCItemUser.SNATCH_RANGE \
-				or npc.nav_finished():
-			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "relocated", "%s dropped clear of the original spot" % display_name(_item))
+		if npc.nav_finished() or NPCItemUser.in_reach(npc, _relocate_point, NPCItemUser.SNATCH_RANGE):
 			NPCItemUser.drop_held(npc)
 			_item = null
 			_relocating = false
-			_finished = true   ## stuck-recovery grab is always exactly one item
+			_finished = true   ## forced grab is exactly one item
 		return
-
-	## Travel phase
 	if _destination == null or not is_instance_valid(_destination):
-		_begin_storage_retry(npc, "storage destination disappeared")
-		return
-	if not _set_interaction_approach(npc, _destination as Node3D,
-			&"clean_store", STORAGE_APPROACH_DISTANCE):
-		_begin_storage_retry(npc, "storage side became unreachable", true)
-		return
-	npc.nav_steer(delta)
-	if npc.nav_failed():
-		_begin_storage_retry(npc, "storage route failed", true)
-		return
-	if npc.nav_finished():
-		npc.face_interaction_slot()
-		var item_name: String = _item.get_display_name() if _item.has_method("get_display_name") else "an item"
-		## Aug 2026 fix — this used to branch on _is_trash and call a
-		## npc_deposit_trash() that was never defined anywhere in the
-		## codebase (confirmed via a full-repo grep before writing this
-		## fix). has_method() silently returned false every time, so
-		## trash delivery never actually happened — the item never left
-		## the NPC's hand, but the "delivered" log fired unconditionally
-		## right after anyway, and _item still went to null, which made
-		## Cleaning look falsely interruptible (interruptible() == _item
-		## == null) despite still physically holding something. That's
-		## what let PutAwayHeldItemActivity's flat score-20 win a normal
-		## interrupt over Cleaning immediately after every "fake"
-		## delivery — see PutAwayHeldItemActivity.gd's matching fix for
-		## the other half of the loop this produced.
-		## TrashCan already implements npc_try_place_item() (inherited
-		## from LightStorage) — confirmed it's the SAME mechanism the
-		## player's own "throw away" interaction uses (TrashCan.gd's
-		## on_f_interact() calls the same inherited store path — trash in
-		## this game is stored, not destroyed, until manually emptied
-		## into a bag). No reason this needed a separate method at all.
-		if _destination.has_method("npc_try_place_item") and _destination.npc_try_place_item(npc, _item):
-			npc.log_action("Threw away %s" % item_name if _is_trash else "Put away %s" % item_name)
-			if NPCDebug.enabled:
-				## Aug 2026 — held_item_after appended so a "delivered"
-				## line that DIDN'T actually clear the physical hold
-				## (the exact trash-bug symptom) is a one-line read
-				## instead of needing to cross-reference interruptible()
-				## and the scoring system by hand.
-				NPCDebug.log_cleaning(npc, "delivered", "%s %s at %s (held_item_after=%s)" % [
-					"threw away" if _is_trash else "stored", item_name, _destination.name,
-					(npc.held_item.get_display_name() if npc.held_item != null and npc.held_item.has_method("get_display_name") else "none")])
-		else:
-			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "delivery redirected", "%s no longer had room for %s — retaining it" % [_destination.name, item_name])
-			_begin_storage_retry(npc, "destination filled before placement", true)
+		_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
+		if _destination == null:
+			NPCItemUser.drop_held(npc)
+			_item = null
 			return
+	npc.set_nav_target((_destination as Node3D).global_position)
+	npc.nav_steer(delta)
+	if NPCItemUser.in_reach(npc, (_destination as Node3D).global_position, NPCItemUser.SNATCH_RANGE):
+		npc.lock_movement()
+		var item_name: String = display_name(_item)
+		var was_basket: bool = _item == _basket
+		if NPCItemUser.store_held(npc, _destination):
+			_delivered += 1
+			if not was_basket:
+				npc.log_action("Threw away %s" % item_name if _is_trash else "Put away %s" % item_name)
+		else:
+			NPCItemUser.drop_held(npc)
+			_skipped_ids[_item.get_instance_id()] = true
+		if was_basket:
+			_basket = null
 		_item = null
-		_clear_approach(npc)
 		if _is_forced_session:
-			_finished = true   ## stuck-recovery grab is always exactly one item
+			_finished = true
 
-## Short, random-direction, navmesh-pathed relocation point for a forced-grab
-## item with nowhere real to go. The NPC travels there through ordinary
-## collision-respecting navigation; its transform is never rewritten.
+# ─── Basket (produce) ─────────────────────────────────────────────────────
+func _find_available_basket(npc: NPC) -> Basket:
+	var best: Basket = null
+	var best_d: float = INF
+	for n: Node in npc.get_tree().get_nodes_in_group("pickup"):
+		if not (n is Basket) or not is_instance_valid(n):
+			continue
+		if (("is_held" in n) and n.is_held) or n.is_in_group("shelved") or n.slots.count(null) <= 0 \
+				or NPCItemUser.is_claimed_by_other(n, npc):
+			continue
+		var d: float = NPCItemUser.flat_distance(npc.global_position, (n as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best = n as Basket
+	return best
+
+func _tick_fetch_basket(npc: NPC, delta: float, basket: Basket) -> void:
+	NPCItemUser.claim_item(basket, npc)
+	NPCItemUser.track_fetch_target(npc, basket)
+	npc.nav_steer(delta)
+	if NPCItemUser.in_reach(npc, basket.global_position, NPCItemUser.PICKUP_RANGE):
+		if NPCItemUser.grab_loose(npc, basket):
+			_basket = basket
+			npc.set_nav_target(_item.global_position)
+
+func _tick_stash_into_basket(npc: NPC, delta: float) -> void:
+	if not is_instance_valid(_basket):
+		_basket = null
+		_item = null
+		return
+	if not (_item is FarmProduceItem) or (("is_held" in _item) and _item.is_held) or _item.is_in_group("shelved"):
+		_item = null
+		return
+	NPCItemUser.track_fetch_target(npc, _item)
+	npc.nav_steer(delta)
+	if not NPCItemUser.in_reach(npc, _item.global_position, NPCItemUser.PICKUP_RANGE):
+		return
+	var slot_index: int = _basket.slots.find(null)
+	if slot_index == -1:
+		_item = null
+		return
+	var produce: RigidBody3D = _item
+	NPCItemUser.release_item(produce)
+	produce.get_parent().remove_child(produce)
+	_basket.add_child(produce)
+	produce.global_position = _basket.global_position
+	produce.freeze = true
+	produce.visible = false
+	if produce.has_method("deactivate_dynamic_state"):
+		produce.deactivate_dynamic_state()
+	produce.remove_from_group("pickup")
+	produce.add_to_group("shelved")
+	if produce.is_in_group("interactable"):
+		produce.set_meta("_was_interactable", true)
+		produce.remove_from_group("interactable")
+	if "is_held" in produce:
+		produce.is_held = false
+	_basket.slots[slot_index] = produce
+	_basket.item_added.emit(slot_index, produce)
+	npc.log_action("Gathered %s into a basket" % display_name(produce))
+	_item = null
+
+## Done gathering: the basket itself becomes the item to put away.
+func _start_delivering_basket(npc: NPC) -> void:
+	_item = _basket
+	_is_trash = false
+	_destination = NPCJobQueries.find_cleaning_destination(npc, false, _basket)
+	if _destination == null:
+		NPCItemUser.drop_held(npc)   ## nowhere to store it — set it down
+		_basket = null
+		_item = null
+	else:
+		npc.set_nav_target((_destination as Node3D).global_position)
+
+# ─── End ──────────────────────────────────────────────────────────────────
+func _finish(npc: NPC, reason: String) -> void:
+	_finished = true
+	if NPCDebug.enabled:
+		NPCDebug.log_cleaning(npc, "session ended", reason)
+
 func _pick_relocate_point(npc: NPC) -> Vector3:
 	var dir: Vector3 = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
 	if dir.length() < 0.01:
 		dir = Vector3(1.0, 0.0, 0.0)
-	return npc.global_position + dir.normalized() * RELOCATE_DISTANCE
+	var p: Vector3 = npc.stuck.snap_to_navmesh(npc.global_position + dir.normalized() * RELOCATE_DISTANCE)
+	return p if p != Vector3.INF else npc.global_position
 
-func done(npc: NPC) -> bool:
-	return _finished and _item == null
+func done(_npc: NPC) -> bool:
+	return _finished and _item == null and _basket == null
 
 func exit(npc: NPC) -> void:
-	var detail: String = "item=%s destination=%s is_trash=%s" \
-		% [display_name(_item), (_destination.name if _destination != null and is_instance_valid(_destination) else "none"), _is_trash]
-	if _item != null:
-		if _item.has_method("set_nav_obstacle_enabled") and "is_held" in _item and not _item.is_held:
-			_item.set_nav_obstacle_enabled(true)
-		NPCItemUser.release_item(_item)
-	if _basket != null and is_instance_valid(_basket):
-		NPCItemUser.release_item(_basket)
-	if _pending_basket != null and is_instance_valid(_pending_basket):
-		NPCItemUser.release_item(_pending_basket)
+	var detail: String = "item=%s destination=%s" % [display_name(_item),
+		(_destination.name if _destination != null and is_instance_valid(_destination) else "none")]
+	if _item != null and is_instance_valid(_item) and _item.has_method("set_nav_obstacle_enabled") \
+			and not (("is_held" in _item) and _item.is_held):
+		_item.set_nav_obstacle_enabled(true)
+	if _delivered > 0:
+		npc.on_work_done()
 	_item = null
-	_destination = null
 	_basket = null
-	_pending_basket = null
-	_relocating = false
-	_waiting_for_storage = false
-	_storage_attempt_excludes.clear()
-	_clear_approach(npc)
 	on_session_exit(npc, "cleaning", done(npc), detail)
 
-func _begin_basket_delivery(npc: NPC) -> void:
-	if _basket == null or not is_instance_valid(_basket) or npc.held_item != _basket:
-		_basket = null
-		return
-	if _item != null and is_instance_valid(_item) and _item != _basket:
-		if _item.has_method("set_nav_obstacle_enabled"):
-			_item.set_nav_obstacle_enabled(true)
-		NPCItemUser.release_item(_item)
-	_item = _basket
-	_basket = null
-	_is_trash = false
-	_destination = NPCJobQueries.find_cleaning_destination(npc, false, _item)
-	if _destination == null:
-		_begin_storage_retry(npc, "no compatible destination for full basket")
-		return
-	if not _set_interaction_approach(npc, _destination as Node3D,
-			&"clean_store", STORAGE_APPROACH_DISTANCE):
-		_begin_storage_retry(npc, "no reachable storage side for basket", true)
-
-## Aug 2026 — nearest Basket with at least one open slot, loose or
-## shelved. Mirrors the general fetch-candidate search shape used
-## elsewhere in this file, scoped to Basket specifically.
-func _find_available_basket(npc: NPC) -> Basket:
-	var best: Basket = null
-	var best_d: float = INF
-	for node: Node in npc.get_tree().get_nodes_in_group("pickup"):
-		if not (node is Basket) or not is_instance_valid(node):
-			continue
-		if ("is_held" in node and node.is_held) or node.is_in_group("shelved"):
-			continue
-		if NPCItemUser.is_claimed_by_other(node, npc):
-			continue
-		if node.slots.count(null) <= 0:
-			continue   ## full
-		var d: float = NPCItemUser.flat_distance(npc.global_position, (node as Node3D).global_position)
-		if d < best_d:
-			best_d = d
-			best = node as Basket
-	return best
-
-## Walks to and picks up the basket itself (a normal hand-carry pickup
-## — Basket isn't a "basket_storable" item, it's the container).
-## Returns false while still in progress (caller should return this
-## tick), true once holding it and ready to proceed.
-func _tick_fetch_basket(npc: NPC, delta: float, basket: Basket) -> bool:
-	if npc.held_item == basket:
-		_basket = basket
-		_pending_basket = null
-		_clear_approach(npc)
-		return true
-	if _pending_basket != null and _pending_basket != basket and is_instance_valid(_pending_basket):
-		NPCItemUser.release_item(_pending_basket)
-	_pending_basket = basket
-	if NPCItemUser.is_claimed_by_other(basket, npc) or not NPCItemUser.claim_item(basket, npc):
-		_pending_basket = null
-		return false
-	if not _set_interaction_approach(npc, basket, &"clean_pickup", PICKUP_APPROACH_DISTANCE):
-		NPCItemUser.release_item(basket)
-		_pending_basket = null
-		return true   ## fall back to carrying this produce item by hand
-	npc.nav_steer(delta)
-	var basket_distance: float = NPCItemUser.flat_distance(npc.global_position, basket.global_position)
-	if npc.nav_failed() or (npc.nav_finished() and basket_distance > NPCItemUser.PICKUP_RANGE):
-		NPCItemUser.release_item(basket)
-		_pending_basket = null
-		_clear_approach(npc)
-		return true   ## unreachable basket must not stall the whole cleaning shift
-	if basket_distance <= NPCItemUser.PICKUP_RANGE:
-		if NPCItemUser.grab_loose(npc, basket):
-			_basket = basket
-			_pending_basket = null
-			_clear_approach(npc)
-			return true
-	return false
-
-## Walks to the produce item and stashes it into the held basket —
-## mirrors Basket.gd's own player-facing "E while holding basket"
-## mechanic exactly (first open slot, item re-parented/hidden/frozen
-## under the basket), not a normal carry pickup. Once the basket has
-## no open slots left, or this produce item vanished, moves on.
-func _tick_stash_into_basket(npc: NPC, delta: float) -> void:
-	## Aug 2026 fix — the caller only checked `_basket != null`, not
-	## is_instance_valid(_basket). If the basket gets freed mid-session
-	## (e.g. the player's Takeaway path steals and frees it), `_basket`
-	## stays non-null but every access below (`_basket.slots`, etc.) hits
-	## a freed instance. Bail the same way an invalid `_item` already
-	## does — hand control back to _pick_next_target() next cycle.
-	if not is_instance_valid(_basket):
-		_basket = null
-		_abandon_current_item(npc, "collection basket disappeared")
-		return
-	if _item == null or not is_instance_valid(_item):
-		_item = null
-		_clear_approach(npc)
-		return
-	if (("is_held" in _item) and _item.is_held) or _item.is_in_group("shelved"):
-		_abandon_current_item(npc, "produce became unavailable", false)
-		return
-	if not _set_interaction_approach(npc, _item, &"clean_pickup", PICKUP_APPROACH_DISTANCE):
-		_abandon_current_item(npc, "produce pickup side became unreachable")
-		return
-	npc.nav_steer(delta)
-	var item_distance: float = NPCItemUser.flat_distance(npc.global_position, _item.global_position)
-	if npc.nav_failed() or (npc.nav_finished() and item_distance > NPCItemUser.PICKUP_RANGE):
-		_abandon_current_item(npc, "reached produce slot but item remained %.2fm away" % item_distance)
-		return
-	if item_distance > NPCItemUser.PICKUP_RANGE:
-		return
-	var slot_index: int = _basket.slots.find(null)
-	if slot_index == -1:
-		_begin_basket_delivery(npc)
-		return
-	_item.get_parent().remove_child(_item)
-	_basket.add_child(_item)
-	_item.global_position = _basket.global_position
-	_item.freeze = true
-	_item.visible = false
-	if _item.has_method("deactivate_dynamic_state"):
-		_item.deactivate_dynamic_state()   ## stashed = physics/contacts/obstacle off (Aug 2026)
-	## Leave the world-item scans + mark ecosystem-stored, same as
-	## Basket.try_add_item (Aug 2026).
-	_item.remove_from_group("pickup")
-	_item.add_to_group("shelved")
-	## Same "interactable" fix as Basket.try_add_item (Aug 2026) — without
-	## it, an item NPC-stashed here bypasses that method and keeps paying
-	## InteractionSystem's per-frame prompt-scan cost forever.
-	if _item.is_in_group("interactable"):
-		_item.set_meta("_was_interactable", true)
-		_item.remove_from_group("interactable")
-	if "is_held" in _item:
-		_item.is_held = false
-	_basket.slots[slot_index] = _item
-	_basket.item_added.emit(slot_index, _item)
-	NPCItemUser.release_item(_item)
-	if NPCDebug.enabled:
-		NPCDebug.log_cleaning(npc, "stashed in basket", "%s -> basket (%d/%d slots used)" \
-			% [display_name(_item), _basket.slots.size() - _basket.slots.count(null), _basket.slots.size()])
-	_item = null
-	_clear_approach(npc)
-	if _basket.slots.find(null) == -1:
-		_begin_basket_delivery(npc)
-
-## Aug 2026 — structured snapshot for NPCDebug.dump_cleaning_state().
-## "activity" key lets the dump filter to cleaning-only, since
-## RefuelActivity doesn't implement this and would otherwise show up
-## under the same generic getter.
 func debug_info() -> Dictionary:
 	var phase: String = "idle"
 	if _item != null:
-		if _relocating:
-			phase = "relocating"
-		elif _waiting_for_storage:
-			phase = "waiting_for_storage"
-		else:
-			phase = "carrying" if _destination != null else "fetching"
+		phase = "relocating" if _relocating else ("carrying" if _destination != null else "fetching")
 	return {
 		"activity": "cleaning",
 		"item": display_name(_item) if _item != null else "",
 		"is_trash": _is_trash,
 		"phase": phase,
+		"basket": _basket != null,
 		"destination": (_destination.name if _destination != null and is_instance_valid(_destination) else ""),
 		"session_elapsed": _session_elapsed,
 		"session_duration": _session_duration,
-		"leg_elapsed": _leg_elapsed,
-		"leg_timeout": LEG_TIMEOUT_SEC,
-		"storage_retry_count": _storage_retry_count,
-		"no_storage_elapsed": _no_storage_elapsed,
-		"approach_position": _approach_position,
 		"forced": _is_forced_session,
 		"no_storage_categories": _no_storage_categories.keys(),
 	}
-
-
-func watchdog_expects_movement(_npc: NPC) -> bool:
-	return _item != null and not _waiting_for_storage
-
-
-func watchdog_allows_long_stationary(_npc: NPC) -> bool:
-	return _waiting_for_storage

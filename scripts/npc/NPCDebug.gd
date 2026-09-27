@@ -1,6 +1,5 @@
 extends RefCounted
 class_name NPCDebug
-const NPC_METRICS: GDScript = preload("res://scripts/npc/NPCMetrics.gd")
 ## NPCDebug.gd  (NPC Pass 2, Part 7)
 ## Centralized, toggleable debug logging for the whole NPC system. Off by
 ## default; flip via the F7 "Toggle NPC Debug Logging" row (or call
@@ -12,10 +11,6 @@ const NPC_METRICS: GDScript = preload("res://scripts/npc/NPCMetrics.gd")
 ## which is enough for a dev-only toggle and avoids one more autoload entry.
 
 static var enabled: bool = false
-## High-detail locomotion flight recorder. Separate from general logging so
-## ordinary NPC debugging stays readable and the per-frame sample ring remains
-## completely dormant unless a navigation investigation explicitly enables it.
-static var navigation_trace_enabled: bool = false
 
 static func _fmt(npc: Node) -> String:
 	if npc != null and "npc_name" in npc:
@@ -39,7 +34,7 @@ static func log_missing_method(caller_context: String, target: Object, method_na
 
 ## Activity switches — call from NPCBrain._start()/_think() interrupt path.
 static func log_activity(npc: Node, from_label: String, to_label: String) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s activity: %s -> %s" % [_fmt(npc), from_label, to_label])
 
@@ -49,7 +44,7 @@ static func log_activity(npc: Node, from_label: String, to_label: String) -> voi
 ## my NPC's job get dropped" directly, instead of needing to infer it
 ## from a bare label transition.
 static func log_interrupt(npc: Node, from_label: String, from_score: float, to_label: String, to_score: float, margin: float) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s INTERRUPTED: %s (score=%.2f) -> %s (score=%.2f, needed >%.2f)" \
 		% [_fmt(npc), from_label, from_score, to_label, to_score, from_score + margin])
@@ -63,7 +58,7 @@ static func log_interrupt(npc: Node, from_label: String, from_score: float, to_l
 ## greppable, instead of requiring a manual trace through scoring and
 ## interrupt logic to even notice — which is what this one took.
 static func log_suspicious_interrupt(npc: Node, from_label: String, to_label: String) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s ⚠ SUSPICIOUS INTERRUPT: %s reported interruptible() while still holding an item -> %s" \
 		% [_fmt(npc), from_label, to_label])
@@ -71,7 +66,7 @@ static func log_suspicious_interrupt(npc: Node, from_label: String, to_label: St
 ## Need crossing an interest threshold (e.g. dropping below 55/60) — call
 ## from _tick_needs() or an activity's score() the first time it goes live.
 static func log_need_threshold(npc: Node, need_name: String, value: float) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s %s dropped to %.1f" % [_fmt(npc), need_name, value])
 
@@ -80,7 +75,7 @@ static func log_need_threshold(npc: Node, need_name: String, value: float) -> vo
 ## current activity's debug_info() returned (empty for activities that
 ## don't implement it, e.g. Wander/Relax).
 static func log_stuck(npc: Node, context: String = "?", info: Dictionary = {}) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	var detail: String = ""
 	if not info.is_empty():
@@ -88,13 +83,13 @@ static func log_stuck(npc: Node, context: String = "?", info: Dictionary = {}) -
 		for key: String in info.keys():
 			parts.append("%s=%s" % [key, str(info[key])])
 		detail = " [%s]" % ", ".join(parts)
-	print("%s STUCK while %s%s — recovery evaluating" % [_fmt(npc), context, detail])
+	print("%s STUCK recovery %s%s" % [_fmt(npc), context, detail])
 
 ## Aug 2026 — logged when the same obstruction (or none identifiable)
 ## has kept an NPC stuck across multiple consecutive recovery attempts,
 ## and it's about to give up forcing a cleanup and nudge free instead.
 static func log_stuck_escalation(npc: Node, obstruction: Node, streak: int) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	var name: String = "?"
 	if obstruction != null and obstruction.has_method("get_display_name"):
@@ -106,34 +101,9 @@ static func log_stuck_escalation(npc: Node, obstruction: Node, streak: int) -> v
 	print("%s STUCK ESCALATION — %s failed to clear the stall %d times in a row, nudging free instead of retrying" \
 		% [_fmt(npc), name, streak])
 
-static func log_stuck_yield(npc: Node, obstruction: Node, streak: int) -> void:
-	if not enabled or not DebugOutput.enabled:
-		return
-	var name: String = "unknown obstruction"
-	if obstruction != null and "npc_name" in obstruction:
-		name = "NPC:%s" % obstruction.npc_name
-	elif obstruction != null:
-		name = str(obstruction.name)
-	print("%s STUCK YIELD — %s blocked progress %d times; re-scoring without relocation" \
-		% [_fmt(npc), name, streak])
-
-static func log_watchdog_reset(npc: Node, activity: String, reason: String,
-		elapsed: float) -> void:
-	if not enabled or not DebugOutput.enabled:
-		return
-	print("%s WATCHDOG RESET — %s made no valid progress for %.1fs (%s); rebuilding intention" \
-		% [_fmt(npc), activity, elapsed, reason])
-
-static func log_free_time_intention(npc: Node, purpose: String, target: Node, destination: Vector3) -> void:
-	if not enabled or not DebugOutput.enabled:
-		return
-	var target_name: String = str(target.name) if target != null and is_instance_valid(target) else "open floor"
-	print("%s free-time intention — %s; target=%s destination=(%.1f, %.1f)" \
-		% [_fmt(npc), purpose, target_name, destination.x, destination.z])
-
 ## Job lifecycle — call from JobBoard (_mark/claim/release) and JobActivity.
 static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	var who: String = _fmt(npc) if npc != null else "[JobBoard]"
 	print("%s job %s: %s (id=%s)" % [who, event, job.get("type", "?"), job.get("id", "?")])
@@ -144,7 +114,7 @@ static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
 ## ambiguous about why — this was an explicit requirement, not a nice-to-have.
 static func log_mood(npc: Node, needs_delta: float, contagion_delta: float,
 		drift_delta: float, mood_after: float) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s mood: needs=%+.2f contagion=%+.2f drift=%+.2f -> %.1f" % [
 		_fmt(npc), needs_delta, contagion_delta, drift_delta, mood_after])
@@ -152,7 +122,7 @@ static func log_mood(npc: Node, needs_delta: float, contagion_delta: float,
 ## Irritability tick breakdown (Part 20) — same cadence/reasoning as log_mood.
 static func log_irritability(npc: Node, need_contrib: float, mood_contrib: float,
 		trait_mult: float, target: float, value_after: float) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s irritability: needs_contrib=%.1f mood_contrib=%.1f trait_mult=%.2f target=%.1f -> %.1f" % [
 		_fmt(npc), need_contrib, mood_contrib, trait_mult, target, value_after])
@@ -161,7 +131,7 @@ static func log_irritability(npc: Node, need_contrib: float, mood_contrib: float
 ## successful diversions, so the chance itself (already folding in hunger/
 ## thirst/mood/trait) is visible even when nothing was triggered.
 static func log_forgetfulness_roll(npc: Node, chance: float, triggered: bool) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	var outcome: String = "DIVERTED to wandering" if triggered else "stayed on task"
 	print("%s forgetfulness roll: chance=%.0f%% -> %s" % [_fmt(npc), chance * 100.0, outcome])
@@ -169,7 +139,7 @@ static func log_forgetfulness_roll(npc: Node, chance: float, triggered: bool) ->
 ## Relationship tick (Part 22) — logs the full current relationships dict
 ## every ~5s tick when enabled, same cadence as log_mood/log_irritability.
 static func log_relationship_tick(npc: Node) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s relationships: %s" % [_fmt(npc), str(npc.relationships)])
 
@@ -177,7 +147,7 @@ static func log_relationship_tick(npc: Node) -> void:
 ## log_relationship_tick's continuous background drift. Always worth a
 ## line since these are deliberate player actions, not ambient ticking.
 static func log_relationship_event(npc: Node, target_id: String, delta: float, reason: String) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	var after: float = npc.get_relationship(target_id) if npc.has_method("get_relationship") else 0.0
 	print("%s relationship event (%s): %s %+.1f -> %.1f" % [_fmt(npc), reason, target_id, delta, after])
@@ -186,14 +156,14 @@ static func log_relationship_event(npc: Node, target_id: String, delta: float, r
 ## specific cause (currently just passing out), as opposed to
 ## log_mood()'s continuous per-tick needs/contagion/drift breakdown.
 static func log_mood_event(npc: Node, delta: float, reason: String) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s mood event (%s): %+.1f -> %.1f" % [_fmt(npc), reason, delta, npc.mood])
 
 ## Time-skip catch-up (Aug 2026) — one summary line per NPC per skip, so
 ## it's visible what the estimate produced without stepping through it.
 static func log_catchup(npc: Node, hours: float) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s catch-up (%.1fh skip): hunger=%.1f thirst=%.1f energy=%.1f mood=%.1f" \
 		% [_fmt(npc), hours, npc.hunger, npc.thirst, npc.energy, npc.mood])
@@ -202,13 +172,13 @@ static func log_catchup(npc: Node, hours: float) -> void:
 ## the earlier version was hard to debug when it silently failed. Always
 ## logs when enabled, distinct from the continuous relationship tick log.
 static func log_snatch(npc: Node, stage: String, detail: String) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s SNATCH [%s]: %s" % [_fmt(npc), stage, detail])
 
 ## Cleaning (Aug 2026) — mirrors log_snatch()'s staged pattern.
 static func log_cleaning(npc: Node, stage: String, detail: String) -> void:
-	if not enabled or not DebugOutput.enabled:
+	if not enabled:
 		return
 	print("%s CLEANING [%s]: %s" % [_fmt(npc), stage, detail])
 
@@ -222,9 +192,9 @@ static func log_cleaning(npc: Node, stage: String, detail: String) -> void:
 static func dump_cleaning_state(tree: SceneTree) -> void:
 	print("═══ NPC Cleaning Debug Dump ═══════════════════════════")
 	var snap: Dictionary = JobBoard.get_cleaning_debug_snapshot()
-	print("Ordinary cleanup gate: %.1fs total (%.1fs stabilize + %.1fs grace); player placement: %.1fs grace" \
-		% [float(snap["idle_gate_sec"]), JobBoard.CLEANING_STABILIZE_SEC,
-			float(snap["ordinary_grace_sec"]), float(snap["player_grace_sec"])])
+	print("Idle gate: %.1fs%s" % [
+		float(snap["idle_gate_sec"]),
+		" (DEBUG override active — real gameplay uses 90s)" if bool(snap["idle_gate_is_debug"]) else ""])
 	print("Ready now — trash: %d   organizable: %d" % [int(snap["trash_count"]), int(snap["organizable_count"])])
 	if int(snap["trash_blocked_by_no_receptacle"]) > 0:
 		print("  ⚠ %d trash item(s) exist but no trash_receptacle in the level — permanently blocked until one's added" \
@@ -234,11 +204,9 @@ static func dump_cleaning_state(tree: SceneTree) -> void:
 	if pending.is_empty():
 		print("Pending (tracked, not yet idle-eligible): none")
 	else:
-		print("Pending (tracked, not yet cleanup-eligible): %d" % pending.size())
+		print("Pending (tracked, not yet idle-eligible): %d" % pending.size())
 		for p: Dictionary in pending:
-			print("  - %s: %s source=%s, %.1fs elapsed / %.1fs remaining" \
-				% [p["name"], p["state"], p["release_source"],
-					p["elapsed_sec"], p["remaining_sec"]])
+			print("  - %s: %.1fs elapsed / %.1fs remaining" % [p["name"], p["elapsed_sec"], p["remaining_sec"]])
 
 	print("── Destinations (\"shelving\" group) ──")
 	var dest_count: int = 0
@@ -320,101 +288,6 @@ static func dump_job_state(tree: SceneTree) -> void:
 		print("  (no NPCs)")
 	print("═════════════════════════════════════════════════════════")
 
-
-static func dump_metrics() -> void:
-	var data: Dictionary = NPC_METRICS.snapshot()
-	print("═══ NPC Metrics (enabled=%s) ═══════════════════════════" % data.get("enabled", false))
-	print("  counters=%s" % str(data.get("counters", {})))
-	print("  histograms=%s" % str(data.get("histograms", {})))
-	print("  recent_events=%s" % str(data.get("recent_events", [])))
-	print("═════════════════════════════════════════════════════════")
-
-
-## Compact session-level view: where each resident spent time, how often
-## activities started/ended, and what anomalies occurred. Raw event payloads
-## stay available in snapshot(); this renderer is deliberately human-first.
-static func dump_session_summary() -> void:
-	var data: Dictionary = NPC_METRICS.session_snapshot()
-	print("═══ NPC Session Summary (enabled=%s, %.1fs) ═════════════" % [
-		data.get("enabled", false), float(data.get("duration_sec", 0.0))])
-	var residents: Dictionary = data.get("residents", {}) as Dictionary
-	if residents.is_empty():
-		print("  (no captured resident activity — start capture and let the session run)")
-	for key: String in residents.keys():
-		var state: Dictionary = residents[key]
-		var durations: Dictionary = state.get("activity_seconds", {}) as Dictionary
-		var total: float = 0.0
-		for seconds: Variant in durations.values():
-			total += float(seconds)
-		var time_parts: Array[String] = []
-		var duration_rows: Array[Dictionary] = []
-		for activity_type: String in durations.keys():
-			duration_rows.append({"type": activity_type, "seconds": float(durations[activity_type])})
-		duration_rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-			return float(a["seconds"]) > float(b["seconds"]))
-		for row: Dictionary in duration_rows:
-			var pct: float = float(row["seconds"]) / total * 100.0 if total > 0.0 else 0.0
-			time_parts.append("%s %.1fs/%.0f%%" % [row["type"], row["seconds"], pct])
-		print("── %s (%s) ──" % [state.get("npc_name", "?"), key])
-		print("  time: %s" % (", ".join(time_parts) if not time_parts.is_empty() else "none"))
-		print("  starts: %s" % str(state.get("activity_starts", {})))
-		print("  endings: %s" % str(state.get("activity_end_reasons", {})))
-		var anomalies: Array = state.get("anomalies", []) as Array
-		var anomaly_counts: Dictionary = {}
-		for anomaly: Dictionary in anomalies:
-			var kind: String = String(anomaly.get("kind", "unknown"))
-			anomaly_counts[kind] = int(anomaly_counts.get(kind, 0)) + 1
-		print("  anomalies: %s" % (str(anomaly_counts) if not anomaly_counts.is_empty() else "none"))
-		var events: Array = state.get("events", []) as Array
-		print("  recent timeline:")
-		for index: int in range(maxi(0, events.size() - 6), events.size()):
-			print("    %s" % _session_event_line(events[index] as Dictionary))
-	print("  global counters: %s" % str(data.get("counters", {})))
-	print("═════════════════════════════════════════════════════════")
-
-
-static func _session_event_line(event: Dictionary) -> String:
-	var kind: String = String(event.get("kind", "event"))
-	var payload: Dictionary = event.get("data", {}) as Dictionary
-	if kind == "decision":
-		return "decision %s: %s -> %s (%.1f vs %.1f, %s)" % [
-			payload.get("outcome", ""), payload.get("current_label", "Idle"),
-			payload.get("winner_label", "none"), float(payload.get("winner_score", 0.0)),
-			float(payload.get("current_score", 0.0)), payload.get("reason", "")]
-	if kind == "activity_span_ended":
-		return "%s ended: %s after %.1fs" % [payload.get("activity_type", "activity"),
-			payload.get("reason", ""), float(payload.get("duration_sec", 0.0))]
-	if kind == "activity_span_started":
-		return "%s started: %s" % [payload.get("activity_type", "activity"), payload.get("reason", "")]
-	return "%s %s" % [kind, str(payload)]
-
-
-## Answers the immediate debugging question without requiring raw score logs:
-## why the current activity held or changed, and why each candidate lost.
-static func dump_why_now(tree: SceneTree) -> void:
-	print("═══ NPC Why Now? ═══════════════════════════════════════")
-	for npc: Node in tree.get_nodes_in_group("npc"):
-		if not is_instance_valid(npc):
-			continue
-		var receipt: Dictionary = NPC_METRICS.get_last_decision(npc)
-		var npc_name: String = String(npc.get("npc_name")) if "npc_name" in npc else "?"
-		if receipt.is_empty():
-			print("── %s: no captured decision yet" % npc_name)
-			continue
-		print("── %s: %s / %s" % [npc_name, receipt.get("outcome", "?"), receipt.get("reason", "?")])
-		print("  current=%s score=%.2f interruptible=%s margin=%.2f" % [
-			receipt.get("current_label", "Idle"), float(receipt.get("current_score", 0.0)),
-			receipt.get("current_interruptible", true), float(receipt.get("switch_margin", 0.0))])
-		print("  winner=%s score=%.2f  needs=%s" % [receipt.get("winner_label", "none"),
-			float(receipt.get("winner_score", 0.0)), str(receipt.get("needs", {}))])
-		for candidate: Dictionary in (receipt.get("candidates", []) as Array):
-			print("    %-28s %7.2f  %s" % [candidate.get("label", candidate.get("activity_type", "?")),
-				float(candidate.get("score", 0.0)), candidate.get("reason", "")])
-		var activity_info: Dictionary = receipt.get("activity_info", {}) as Dictionary
-		if not activity_info.is_empty():
-			print("  activity state: %s" % str(activity_info))
-	print("═════════════════════════════════════════════════════════")
-
 ## One-shot full snapshot of every NPC — call from the F7 "Print NPC Debug
 ## State" row. Always prints regardless of `enabled` (it's an explicit,
 ## on-demand request, not continuous logging). Part 19 — expanded from a
@@ -432,43 +305,24 @@ static func dump_all(tree: SceneTree) -> void:
 		_dump_one(npc)
 	print("═════════════════════════════════════════════════════════")
 
-## One-shot navigation dump plus each resident's bounded recent sample ring.
-## Observational only: enabling or printing this never changes movement state.
-static func dump_navigation_state(tree: SceneTree) -> void:
-	var npcs: Array = tree.get_nodes_in_group("npc")
-	print("═══ NPC Navigation Debug Dump (%d NPCs) ════════════════" % npcs.size())
-	for npc: Node in npcs:
-		if not is_instance_valid(npc) or not npc.has_method("get_navigation_debug_info"):
-			continue
-		print("── %s ──────────────────────────────" % (npc.npc_name if "npc_name" in npc else "?"))
-		var info: Dictionary = npc.get_navigation_debug_info()
-		var samples: Array = info.get("recent_samples", [])
-		info.erase("recent_samples")
-		print("  current=%s" % str(info))
-		print("  recent_samples (%d, oldest→newest):" % samples.size())
-		for sample: Dictionary in samples:
-			print("    %s" % str(sample))
-	print("═════════════════════════════════════════════════════════")
-
 static func _dump_one(npc: Node) -> void:
 	var npc_name: String = npc.npc_name if "npc_name" in npc else "?"
 	var pos: Vector3 = npc.global_position if "global_position" in npc else Vector3.ZERO
 	var activity: String = npc.brain.current_label() if ("brain" in npc and npc.brain != null) else "?"
 	var held: String = npc.held_item.name if ("held_item" in npc and npc.held_item != null) else "none"
 	var locked: bool = npc._movement_locked if "_movement_locked" in npc else false
-	var stuck: int = npc._stuck_recoveries if "_stuck_recoveries" in npc else -1
+	var stuck: int = npc.stuck.recoveries if "stuck" in npc and npc.stuck != null else -1
 
 	print("── %s ──────────────────────────────" % npc_name)
 	print("  pos=%s  activity=%s  held=%s" % [pos, activity, held])
-	print("  movement_locked=%s  stuck_recoveries=%d" % [locked, stuck])
-	if npc.has_method("get_spatial_commitment_debug_info"):
-		var spatial: Dictionary = npc.get_spatial_commitment_debug_info()
-		if not spatial.is_empty():
-			print("  spatial_commitment=%s" % str(spatial))
-	if npc.has_method("get_behavior_profile_debug_info"):
-		print("  behavior_profile=%s" % str(npc.get_behavior_profile_debug_info()))
-	if npc.has_method("get_attention_debug_info"):
-		print("  attention=%s" % str(npc.get_attention_debug_info()))
+	print("  movement_locked=%s  stuck_recoveries=%d  claims=%d" % [locked, stuck, NPCItemUser.count_claims_for(npc)])
+	if "brain" in npc and npc.brain != null:
+		print("  last decision: %s" % npc.brain.last_switch_reason)
+	if "thoughts" in npc and npc.thoughts != null:
+		var th: Array[String] = []
+		for t: Dictionary in npc.thoughts.describe():
+			th.append("%s (%+.1f)" % [t["text"], t["mood"]])
+		print("  thoughts: %s  (mood target %.0f)" % [", ".join(th) if not th.is_empty() else "none", npc.get_mood_target()])
 
 	if "health" in npc and "energy" in npc and "hunger" in npc and "thirst" in npc:
 		print("  Health=%.1f  Energy=%.1f  Hunger=%.1f  Thirst=%.1f" % [

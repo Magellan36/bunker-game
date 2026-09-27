@@ -1,102 +1,79 @@
 extends NPCSessionActivity
 class_name RefuelActivity
-## Refuel (Aug 2026, sustained session) — fetch ONE fuel can, then visit
-## every generator below 100% in turn, refueling each until full (or the
-## can runs dry) before moving to the next. Ends when the can empties or
-## no generator remains below 100%. Never revisits a generator already
-## topped off THIS session (_refueled_ids) — the loop-prevention this
-## was built for. Consolidation pass (Aug 2026): rebuilt on
-## NPCSessionActivity — interruptible()/approach-point math/exit
-## velocity-zero now come from the shared base instead of being
-## hand-copied.
-const WORK_RANGE: float = 2.0   ## Aug 2026 — was 1.6; widened along with JobActivity/NPCItemUser so NPCs stop pushing into the generator before refueling starts
+## RefuelActivity.gd — fetch ONE fuel can, then visit every generator below
+## 100% in turn, pouring until each is full (or the can runs dry). Never
+## revisits a generator already topped off this session.
+##
+## Scoring (Sep 2026): starts when any generator drops under
+## NPC.REFUEL_URGENT_BELOW and grows as the lowest one approaches empty —
+## a generator about to cut out outranks most chores and a mild appetite.
+##
+## Sep 2026 fixes: the fetch phase adopted ANY held item as "the can" (a
+## food can, a basket...) and then called refuel_tick() on it; pouring now
+## respects the resident's work speed (age, injuries, skill); the can is put
+## away (not dropped) when the session ends with fuel left in it.
+
+const WORK_RANGE: float = 2.0
 
 var _can: RigidBody3D = null
 var _fetch_loose: RigidBody3D = null
 var _fetch_shelf: Dictionary = {}
 var _current_gen: Node = null
-var _refueled_ids: Dictionary = {}   ## generator instance_id -> true, this session only
+var _refueled_ids: Dictionary = {}
 var _phase: String = "fetch"         ## fetch -> travel -> refuel
 var _finished: bool = false
+var _handoff: NPCActivity = null
 
 func label() -> String:
 	match _phase:
-		"fetch": return "Fetching fuel can"
-		"travel": return "Heading to generator"
+		"fetch": return "Fetching a fuel can"
+		"travel": return "Heading to the generator"
 		_: return "Refueling"
-
-func attention_target(_npc: NPC) -> Node3D:
-	if _phase == "fetch":
-		if _fetch_loose != null and is_instance_valid(_fetch_loose):
-			return _fetch_loose
-		var shelf: Node3D = _fetch_shelf.get("shelf") as Node3D
-		if shelf != null and is_instance_valid(shelf):
-			return shelf
-	return _current_gen as Node3D if _current_gen is Node3D and is_instance_valid(_current_gen) else null
 
 func score(npc: NPC) -> float:
 	if not NPCJobQueries.has_refuel_target_available(npc):
 		return 0.0
-	return NPC.REFUEL_BASE_SCORE * npc.get_work_ethic_job_mult() \
-		* npc.get_job_priority_weight("REFUEL")
+	var lowest: float = NPCJobQueries.lowest_generator_fuel(npc)
+	var u: float = NPC.urgency(lowest, NPC.REFUEL_URGENT_BELOW, 3.0)
+	return npc.work_score("REFUEL", 1.0 + 2.0 * u)
 
-func debug_score_reason(_npc: NPC, computed_score: float) -> StringName:
-	return &"generator_and_fuel_available" if computed_score > 0.0 else &"no_refuel_target_or_fuel"
+func accepts_held_item(_npc: NPC, item: Node) -> bool:
+	return NPCItemUser.is_spare_fuel_can(item)
 
 func enter(npc: NPC) -> void:
-	## This candidate instance is reused for the NPC's lifetime. Clear every
-	## per-session reference before deciding whether an already-held can can
-	## be resumed; otherwise a vanished fetch target/generator leaks into the
-	## next autonomous refuel session.
-	_can = null
-	_fetch_loose = null
-	_fetch_shelf = {}
-	_current_gen = null
-	_phase = "fetch"
 	_refueled_ids = {}
 	_finished = false
-	if npc.held_item != null and npc.held_item.has_method("refuel_tick"):
+	if NPCItemUser.hands_full(npc) and NPCItemUser.is_spare_fuel_can(npc.held_item):
 		_can = npc.held_item
 		_pick_next_generator(npc)
 		return
 	_phase = "fetch"
-	_start_fetch(npc)
-
-func _start_fetch(npc: NPC) -> void:
-	var filt: Callable = Callable(NPCItemUser, "is_spare_fuel_can")
-	var pick: Dictionary = NPCItemUser.find_fetch_target(npc, filt)
-	var loose: RigidBody3D = pick.get("loose")
-	var shelf_pick: Dictionary = pick.get("shelf", {})
-	var tgt: Node3D = loose if loose != null \
-		else (shelf_pick.get("shelf") as Node3D if not shelf_pick.is_empty() else null)
-	if tgt == null:
-		_finished = true   ## no spare can anywhere — nothing to do
+	var pick: Dictionary = NPCItemUser.find_fetch_target(npc, Callable(NPCItemUser, "is_spare_fuel_can"))
+	_fetch_loose = pick.get("loose")
+	_fetch_shelf = pick.get("shelf", {})
+	var tgt: Node3D = _fetch_loose if _fetch_loose != null \
+		else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
+	var claim_target: Node = _fetch_loose if _fetch_loose != null else _fetch_shelf.get("item")
+	if tgt == null or not NPCItemUser.claim_item(claim_target, npc):
+		_finished = true
 		return
-	if loose != null:
-		if not NPCItemUser.claim_item(loose, npc):
-			_finished = true   ## momentary claim clash — try again next think-cycle
-			return
-		_fetch_loose = loose
-	else:
-		if not NPCItemUser.claim_item(shelf_pick.get("item"), npc):
-			_finished = true
-			return
-		_fetch_shelf = shelf_pick
 	npc.set_nav_target(tgt.global_position)
 
 func _tick_fetch(npc: NPC, delta: float) -> void:
-	if npc.held_item != null:
-		_can = npc.held_item
-		_pick_next_generator(npc)
+	if NPCItemUser.hands_full(npc):
+		if NPCItemUser.is_spare_fuel_can(npc.held_item):
+			_can = npc.held_item
+			_pick_next_generator(npc)
+		else:
+			NPCItemUser.drop_held(npc)   ## not a fuel can — never pour from the wrong thing
 		return
-	if _fetch_loose != null and is_instance_valid(_fetch_loose):
-		if "is_held" in _fetch_loose and _fetch_loose.is_held:
-			_fetch_loose = null
+	if _fetch_loose != null:
+		if not is_instance_valid(_fetch_loose) or (("is_held" in _fetch_loose) and _fetch_loose.is_held):
 			_finished = true
 			return
 		NPCItemUser.track_fetch_target(npc, _fetch_loose)
 		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, _fetch_loose.global_position) <= NPCItemUser.PICKUP_RANGE:
+		if NPCItemUser.in_reach(npc, _fetch_loose.global_position, NPCItemUser.PICKUP_RANGE):
 			if not NPCItemUser.grab_loose(npc, _fetch_loose):
 				_finished = true
 		return
@@ -106,21 +83,23 @@ func _tick_fetch(npc: NPC, delta: float) -> void:
 			_finished = true
 			return
 		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) <= NPCItemUser.SHELF_RANGE:
+		if NPCItemUser.in_reach(npc, shelf.global_position, NPCItemUser.SHELF_RANGE):
 			if not NPCItemUser.grab_from_shelf(npc, shelf, int(_fetch_shelf.get("slot", -1))):
 				_finished = true
 		return
-	_finished = true   ## nothing left to fetch — spare can vanished between scan and now
+	_finished = true
 
 func _pick_next_generator(npc: NPC) -> void:
 	_current_gen = NPCJobQueries.find_next_refuel_target(npc, _refueled_ids)
 	if _current_gen == null:
-		_finished = true   ## every generator full — session complete
+		_end_session(npc)
 		return
-	npc.set_nav_target(approach_point(npc, _current_gen), NPC.NAV_PRECISE_TARGET_DISTANCE)
+	npc.set_nav_target(approach_point(npc, _current_gen))
 	_phase = "travel"
 
 func tick(npc: NPC, delta: float) -> void:
+	if _finished:
+		return
 	match _phase:
 		"fetch":
 			_tick_fetch(npc, delta)
@@ -128,20 +107,21 @@ func tick(npc: NPC, delta: float) -> void:
 			if _current_gen == null or not is_instance_valid(_current_gen):
 				_pick_next_generator(npc)
 				return
+			if npc.held_item != _can:
+				_finished = true   ## lost the can (taken away, knocked out of hand)
+				return
 			npc.nav_steer(delta)
-			var t_pos: Vector3 = (_current_gen as Node3D).global_position
-			var flat_dist: float = Vector2(npc.global_position.x, npc.global_position.z) \
-				.distance_to(Vector2(t_pos.x, t_pos.z))
-			if flat_dist <= WORK_RANGE:
-				npc.velocity = Vector3.ZERO
+			if NPCItemUser.in_reach(npc, (_current_gen as Node3D).global_position, WORK_RANGE):
+				npc.lock_movement()
+				npc.face_toward((_current_gen as Node3D).global_position, 1.0)
 				_phase = "refuel"
 				npc.show_work_banner()
 		"refuel":
 			npc.halt_movement(delta)
-			if _can == null or not is_instance_valid(_can) \
+			if _can == null or not is_instance_valid(_can) or npc.held_item != _can \
 					or _current_gen == null or not is_instance_valid(_current_gen):
 				npc.hide_work_banner()
-				_pick_next_generator(npc)
+				_finished = true
 				return
 			var pm: Node = npc.get_tree().get_first_node_in_group("power_manager")
 			if pm == null:
@@ -149,23 +129,34 @@ func tick(npc: NPC, delta: float) -> void:
 				return
 			var gid: String = str(_current_gen.get_instance_id())
 			npc.update_work_banner("REFUELING", pm.get_generator_fuel(gid) / 100.0)
-			_can.refuel_tick(delta * npc.get_age_work_mult())   ## Aug 2026 — elders (65+) work at 0.75x; real continuous pour, same mechanic as before
-			var fuel_after: float = pm.get_generator_fuel(gid)
-			var can_empty: bool = ("_fuel_remaining" in _can) and float(_can._fuel_remaining) <= 0.0
-			if fuel_after >= 100.0 or can_empty:
+			_can.refuel_tick(delta * npc.get_work_speed_mult("electrical"))
+			var can_empty: bool = float(_can._fuel_remaining) <= 0.0
+			if pm.get_generator_fuel(gid) >= 100.0 or can_empty:
 				npc.hide_work_banner()
 				_refueled_ids[_current_gen.get_instance_id()] = true
 				NotificationManager.notify(UIKit.Domain.POWER, NotificationManager.Severity.INFO,
 					"%s refueled the generator" % npc.npc_name)
 				npc.log_action("Refueled a generator")
-				npc.gain_skill("electrical")
+				npc.on_work_done("electrical")
 				if can_empty:
-					_finished = true   ## can is dry — session ends even if generators remain
+					NPCItemUser.drop_held(npc)   ## an empty can is trash — Cleaning takes it out
+					_finished = true
 				else:
 					_pick_next_generator(npc)
 
+## Every generator is full. A can with fuel left goes back into storage.
+func _end_session(npc: NPC) -> void:
+	if NPCItemUser.hands_full(npc) and npc.held_item == _can:
+		_handoff = PutAwayHeldItemActivity.new()
+	_finished = true
+
+func take_handoff() -> NPCActivity:
+	var h: NPCActivity = _handoff
+	_handoff = null
+	return h
+
 func done(_npc: NPC) -> bool:
-	return _finished
+	return _finished and _handoff == null
 
 func debug_info() -> Dictionary:
 	return {
@@ -177,18 +168,5 @@ func debug_info() -> Dictionary:
 	}
 
 func exit(npc: NPC) -> void:
-	npc.hide_work_banner()
-	var detail: String = "phase=%s can_held=%s generator=%s" \
-		% [_phase, _can != null and is_instance_valid(_can),
-			(_current_gen.name if _current_gen != null and is_instance_valid(_current_gen) else "none")]
-	if _fetch_loose != null:
-		NPCItemUser.release_item(_fetch_loose)
-	if not _fetch_shelf.is_empty():
-		NPCItemUser.release_item(_fetch_shelf.get("item"))
-	if _finished and npc.held_item != null and npc.held_item == _can:
-		NPCItemUser.drop_held(npc)   ## session truly over — set the (empty or spare) can down
+	var detail: String = "phase=%s can_held=%s" % [_phase, _can != null and is_instance_valid(_can)]
 	on_session_exit(npc, "refuel", _finished, detail)
-	_can = null
-	_fetch_loose = null
-	_fetch_shelf = {}
-	_current_gen = null

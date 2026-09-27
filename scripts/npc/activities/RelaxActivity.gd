@@ -1,59 +1,53 @@
 extends NPCActivity
 class_name RelaxActivity
-## Sitting around — unstructured leisure, distinct from low-energy rest.
-## Delegates to RelaxSitActivity for the actual arrival/seating mechanics.
-## It is eligible only when a chair is free and is self-limiting via a daily time budget
-## (NPC.get_relax_time_remaining_today()) rather than precise
-## scheduling — see NPC.gd's Relaxing section for the budget/reset
-## logic and Work Ethic's effect on it.
-const BASE_SCORE: float = 5.2
-const ACTIVE_SCORE_FLOOR: float = 7.0
+## RelaxActivity.gd — a proper break: sit in a chair, else lie on a bed,
+## else take a slow stroll. Budgeted per day (NPC.get_relax_daily_budget(),
+## Lazy residents get more) with randomized gaps between sessions so breaks
+## spread through the day instead of chaining.
+
+const BASE_SCORE: float = 9.0
+const SESSION_MIN: float = 0.33   ## game-hours (~20 min)
+const SESSION_MAX: float = 0.67   ## game-hours (~40 min)
 
 var _inner: NPCActivity = null
 var _session_length: float = 0.0
 var _session_elapsed: float = 0.0
 
 func label() -> String:
-	return "Sitting around" if _inner == null else _inner.label()
+	if _inner is WanderActivity:
+		return "Taking a stroll"
+	return "Relaxing" if _inner == null else "Relaxing (%s)" % _inner.label()
 
 func score(npc: NPC) -> float:
-	if npc.get_relax_time_remaining_today() <= 0.0:
+	if npc.get_relax_time_remaining_today() <= 0.0 or npc.is_relax_on_cooldown() or npc.is_night_for_me():
 		return 0.0
-	if npc.is_relax_on_cooldown():
-		return 0.0
-	if _inner == null and SitActivity.find_free_chair(npc) == null:
-		return 0.0
-	var utility: float = npc.get_leisure_score(&"sit", BASE_SCORE) \
-		* npc.get_work_ethic_passive_mult()
-	## The occupied chair is no longer "free," and the leisure plan may roll
-	## from sit to wander during a long session. Neither should make wandering
-	## eject a seated resident. Real needs/jobs still clear this modest floor.
-	return maxf(utility, ACTIVE_SCORE_FLOOR) if _inner != null else utility
-
-func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
-	if computed_score > 0.0: return &"leisure_available"
-	if npc.get_relax_time_remaining_today() <= 0.0: return &"daily_leisure_budget_spent"
-	if npc.is_relax_on_cooldown(): return &"leisure_cooldown"
-	return &"no_free_chair"
+	return BASE_SCORE * npc.get_work_ethic_passive_mult()
 
 func interruptible() -> bool:
-	## Sitting around is a passive commitment. Utility-selected needs and work
-	## may interrupt it; exit() requests the authored stand-up transition before
-	## normal locomotion resumes. Commands and pass-out retain their overrides.
+	return _inner == null or _inner.interruptible() or _inner is WanderActivity
+
+func can_yield_to_need(_npc: NPC) -> bool:
 	return true
 
-func switch_margin() -> float:
-	return 0.75
+## A break is a break: ordinary chores don't pull someone off it; urgent
+## work (a generator about to die) or a real need does.
+func min_challenger_score() -> float:
+	return 35.0
 
 func enter(npc: NPC) -> void:
 	npc.reset_relax_job_requests()
-	_session_length = minf(npc.get_leisure_sitting_hours(), npc.get_relax_time_remaining_today())
+	_session_length = randf_range(SESSION_MIN, SESSION_MAX)
 	_session_elapsed = 0.0
-	_inner = RelaxSitActivity.new()
+	for option: NPCActivity in [RelaxSitActivity.new(), RelaxLieActivity.new()]:
+		option.enter(npc)
+		if not option.done(npc):
+			_inner = option
+			return
+		option.exit(npc)
+	var stroll: WanderActivity = WanderActivity.new()
+	stroll.leisurely = true
+	_inner = stroll
 	_inner.enter(npc)
-	if _inner.done(npc):   ## chair was claimed in the score/enter race
-		_inner.exit(npc)
-		_inner = null
 
 func tick(npc: NPC, delta: float) -> void:
 	var h: float = npc.game_hours(delta)
@@ -61,32 +55,19 @@ func tick(npc: NPC, delta: float) -> void:
 	npc.spend_relax_time(h)
 	if _inner != null:
 		_inner.tick(npc, delta)
-	else:
-		npc.halt_movement(delta)
 
 func done(npc: NPC) -> bool:
-	if _inner == null:
-		return true
 	if _session_elapsed >= _session_length:
 		return true
-	return _inner.done(npc)
+	return _inner != null and not (_inner is WanderActivity) and _inner.done(npc)
 
 func exit(npc: NPC) -> void:
-	if _session_elapsed > 0.01:   ## skip logging a session that never actually started
-		npc.log_action("Sat around for %d min" % int(round(_session_elapsed * 60.0)))
-		npc.start_relax_cooldown()   ## spaces sessions apart — see NPC.gd's Relaxing section
+	if _session_elapsed > 0.1:
+		npc.log_action("Relaxed for %d min" % int(round(_session_elapsed * 60.0)))
+		if _session_elapsed >= _session_length * 0.8:
+			npc.add_thought("relaxed")
+	if _session_elapsed > 0.01:
+		npc.start_relax_cooldown()
 	if _inner != null:
 		_inner.exit(npc)
 		_inner = null
-
-
-func debug_info() -> Dictionary:
-	return {
-		"activity": "leisure_sitting",
-		"elapsed_game_hours": _session_elapsed,
-		"planned_game_hours": _session_length,
-		"furniture_activity": _inner.label() if _inner != null else "Standing quietly",
-	}
-
-func attention_target(npc: NPC) -> Node3D:
-	return _inner.attention_target(npc) if _inner != null else null

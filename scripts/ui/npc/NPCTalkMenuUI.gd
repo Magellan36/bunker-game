@@ -594,8 +594,9 @@ func _build_skills_card(parent: Container) -> void:
 		"plumbing": "water",
 		"electrical": "power",
 		"construction": "build",
+		"cooking": "cooking",
 	}
-	for skill: String in ["farming", "plumbing", "electrical", "construction"]:
+	for skill: String in ["farming", "cooking", "plumbing", "electrical", "construction"]:
 		var row: HBoxContainer = HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		box.add_child(row)
@@ -625,7 +626,7 @@ func _build_at_a_glance(parent: Container) -> void:
 	C.section_header(box, "AT A GLANCE")
 	_overview_medical_value = _build_fact_row(box, "medical", "Medical status", "No active conditions")
 	box.add_child(HSeparator.new())
-	_overview_irritability_value = _build_fact_row(box, "mood", "Irritability", "Calm")
+	_overview_irritability_value = _build_fact_row(box, "mood", "Feeling", "Calm")
 	box.add_child(HSeparator.new())
 	_overview_last_action_value = _build_fact_row(box, "clock", "Last notable action", "Nothing notable yet")
 
@@ -916,9 +917,20 @@ func _update_overview_facts() -> void:
 	var irritation: String = ""
 	if _npc.has_method("get_irritability_label"):
 		irritation = String(_npc.call("get_irritability_label"))
-	_overview_irritability_value.text = "Calm" if irritation == "" else irritation
+	## Temper word + the strongest things on their mind (NPC thoughts), so
+	## the player can see WHY a resident feels the way they do.
+	var feeling: String = "Calm" if irritation == "" else irritation
+	var mind: Array[String] = []
+	if _npc.has_method("get_thought_summaries"):
+		for t: Variant in _npc.call("get_thought_summaries"):
+			if t is Dictionary and mind.size() < 2:
+				mind.append("%s (%+.0f)" % [String(t.get("text", "")), float(t.get("mood", 0.0))])
+	if not mind.is_empty():
+		feeling += "  •  " + ", ".join(mind)
+	_overview_irritability_value.text = feeling
+	var mood_now: float = float(_npc.get("mood")) if _npc.get("mood") != null else 50.0
 	_overview_irritability_value.add_theme_color_override(
-		"font_color", S.GREEN if irritation == "" else ENERGY_COLOR
+		"font_color", S.GREEN if irritation == "" and mood_now >= 55.0 else (S.RED if mood_now < 30.0 else ENERGY_COLOR)
 	)
 	var entries: Array[Dictionary] = _get_action_log()
 	if entries.is_empty():
@@ -1288,53 +1300,72 @@ func _current_activity() -> String:
 	return "Idle"
 
 
+## Keyword → category for the live activity label (NPC activity labels are
+## descriptive, e.g. "Chatting with Dez", "Putting away Food Can").
+const _ACT_REST: Array[String] = ["sleep", "rest", "relax", "sit", "bed", "dozing", "lying", "getting up", "stroll"]
+const _ACT_PLANT: Array[String] = ["farm", "plant", "harvest", "tray", "garden", "soil", "seed", "fertiliz", "produce"]
+const _ACT_WATER: Array[String] = ["water", "drink", "filter", "purifier"]
+const _ACT_POWER: Array[String] = ["fuel", "generator"]
+const _ACT_FOOD: Array[String] = ["eat", "food", "bringing", "snatch", "hostile"]
+const _ACT_COOK: Array[String] = ["cook", "stove", "meal", "plating", "ingredient", "pot"]
+const _ACT_TALK: Array[String] = ["talk", "chat"]
+const _ACT_UPKEEP: Array[String] = ["clean", "put away", "putting away", "tidying", "picking up", "gathering", "clearing"]
+
+static func _has_any(lower: String, words: Array[String]) -> bool:
+	for w: String in words:
+		if w in lower:
+			return true
+	return false
+
 func _activity_state(activity: String) -> String:
 	var lower: String = activity.to_lower()
 	if "passed out" in lower or "injured" in lower:
 		return "UNWELL"
-	if "sleep" in lower or "rest" in lower or "relax" in lower or "sit" in lower:
+	if _has_any(lower, _ACT_REST):
 		return "RESTING"
-	if lower == "idle" or lower == "wandering":
+	if lower == "idle" or lower.begins_with("wandering") or _has_any(lower, _ACT_TALK):
 		return "IDLE"
 	return "ON DUTY"
 
 
 func _activity_icon_kind(activity: String) -> String:
 	var lower: String = activity.to_lower()
-	if "farm" in lower or "plant" in lower or "harvest" in lower or "tray" in lower:
-		return "plant"
-	if "water" in lower or "drink" in lower or "filter" in lower:
-		return "water"
-	if "fuel" in lower or "generator" in lower:
-		return "power"
-	if "eat" in lower or "food" in lower:
-		return "food"
-	if "cook" in lower:
+	if _has_any(lower, _ACT_COOK):
 		return "cooking"
-	if "talk" in lower:
+	if _has_any(lower, _ACT_PLANT):
+		return "plant"
+	if _has_any(lower, _ACT_WATER):
+		return "water"
+	if _has_any(lower, _ACT_POWER):
+		return "power"
+	if _has_any(lower, _ACT_FOOD):
+		return "food"
+	if _has_any(lower, _ACT_TALK):
 		return "talk"
-	if "sleep" in lower or "rest" in lower or "relax" in lower:
+	if _has_any(lower, _ACT_REST):
 		return "sleep"
-	if "clean" in lower or "put away" in lower:
+	if _has_any(lower, _ACT_UPKEEP):
 		return "storage"
 	return "clock"
 
 
 func _activity_detail_text(activity: String) -> String:
 	var lower: String = activity.to_lower()
-	if "farm" in lower or "plant" in lower or "harvest" in lower or "tray" in lower:
-		return "Bunker agriculture • Current assignment"
-	if "filter" in lower or "water" in lower:
-		return "Water system • Current assignment"
-	if "fuel" in lower or "generator" in lower:
-		return "Power system • Current assignment"
-	if "clean" in lower or "put away" in lower:
-		return "Bunker upkeep • Current assignment"
-	if "cook" in lower:
+	if _has_any(lower, _ACT_COOK):
 		return "Meal preparation • Current assignment"
-	if "sleep" in lower or "rest" in lower or "relax" in lower:
+	if _has_any(lower, _ACT_PLANT):
+		return "Bunker agriculture • Current assignment"
+	if _has_any(lower, _ACT_WATER) and not ("drink" in lower):
+		return "Water system • Current assignment"
+	if _has_any(lower, _ACT_POWER):
+		return "Power system • Current assignment"
+	if _has_any(lower, _ACT_UPKEEP):
+		return "Bunker upkeep • Current assignment"
+	if _has_any(lower, _ACT_TALK):
+		return "Socializing • Personal time"
+	if _has_any(lower, _ACT_REST):
 		return "Personal time • Recovering"
-	if lower == "idle" or lower == "wandering":
+	if lower == "idle" or lower.begins_with("wandering"):
 		return "No assigned work • Available"
 	return "Live behavior • Updates automatically"
 
