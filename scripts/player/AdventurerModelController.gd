@@ -428,6 +428,11 @@ func _update_procedural_pose(speed: float, delta: float) -> void:
 	var pitch: float = clampf(_accel * LEAN_PITCH_GAIN, -LEAN_PITCH_MAX, LEAN_PITCH_MAX) * _move_w if free else 0.0
 	_pose_mod.lean_roll = lerpf(_pose_mod.lean_roll, roll, k)
 	_pose_mod.lean_pitch = lerpf(_pose_mod.lean_pitch, pitch, k)
+	## Feet stay planted wherever they can touch the floor; never on the bed
+	## or while the dying clip throws the body around.
+	_pose_mod.foot_lock_enabled = not _stage in [Stage.DEAD, Stage.LIE_DOWN, Stage.SLEEP, Stage.GET_UP]
+	_pose_mod.floor_y = _floor_y()
+	_pose_mod.body_speed = speed
 	var support: float = 1.0 if _stage == Stage.SLEEP else 0.0
 	_pose_mod.head_support = move_toward(_pose_mod.head_support, support,
 		delta * (HEAD_SUPPORT_RATE if support > 0.0 else HEAD_SUPPORT_RATE * 2.0))
