@@ -1,6 +1,8 @@
 class_name BunkerUIComponents
 extends RefCounted
 
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
+
 ## Reusable presentation vocabulary distilled from the approved generator,
 ## water, farming, and character-creation screens.  This layer owns visual
 ## hierarchy only; feature UIs keep their own data and gameplay contracts.
@@ -22,9 +24,9 @@ static func apply_theme(root: Control) -> void:
 		BunkerPanelStyle.apply(root)
 
 
+## Quiet shell (Sep 2026): SURFACE, brass 30% edge, soft shadow.
 static func shell(panel: PanelContainer, radius: int = 12) -> void:
-	panel.add_theme_stylebox_override("panel", panel_box(
-		BunkerDesign.SHELL, BunkerPanelStyle.BRASS.darkened(0.08), radius, 1))
+	panel.add_theme_stylebox_override("panel", Q.shell_box(radius))
 
 
 static func panel_box(bg: Color, border: Color, radius: int = 8,
@@ -58,16 +60,19 @@ static func scroll_content(scroll: ScrollContainer, child: Control,
 	return gutter
 
 
+## Quiet pass: header/section icon wells are retired (text-first language).
+## The node is still returned — hidden, zero-size — so callers keep working.
 static func icon_well(symbol: String, side: float = 48.0,
 		tint: Color = BunkerPanelStyle.BLUE) -> PanelContainer:
 	var well := PanelContainer.new()
+	well.visible = false
 	well.custom_minimum_size = Vector2(side, side)
 	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	well.add_theme_stylebox_override("panel", panel_box(
 		BunkerDesign.SURFACE, BunkerPanelStyle.BRASS.darkened(0.35), 8, 1, 8))
 	var texture := TextureRect.new()
 	texture.name = "Icon"
-	texture.texture = BunkerPanelStyle.icon(symbol)
+	texture.set_meta(&"symbol", symbol)   ## no texture: the well is retired
 	texture.self_modulate = tint
 	texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -88,25 +93,22 @@ static func header(parent: Container, eyebrow_text: String, title_text: String,
 	titles.alignment = BoxContainer.ALIGNMENT_CENTER
 	titles.add_theme_constant_override("separation", 1)
 	row.add_child(titles)
-	var eyebrow := Label.new()
+	var eyebrow: Label = Q.eyebrow(eyebrow_text, 12)
 	eyebrow.name = "Eyebrow"
-	eyebrow.text = eyebrow_text
-	eyebrow.add_theme_font_size_override("font_size", 12)
-	eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
 	titles.add_child(eyebrow)
 	var title := Label.new()
 	title.name = "Title"
 	title.text = title_text
 	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	BunkerPanelStyle.title(title, 24)
+	BunkerPanelStyle.title(title, 26)
 	titles.add_child(title)
 	var close := Button.new()
 	close.name = "Close"
-	close.custom_minimum_size = Vector2(44, 44)
-	close.tooltip_text = "Close"
-	BunkerPanelStyle.icon_button(close, "close")
-	close.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	close.text = ""
+	close.text = "Close"
+	close.tooltip_text = ""
+	Q.nav_button(close, 14, 30.0)
+	close.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	close.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	if close_callback.is_valid():
 		close.pressed.connect(close_callback)
 	row.add_child(close)
@@ -119,56 +121,33 @@ static func section_header(parent: Container, title_text: String,
 	row.name = title_text.replace(" ", "") + "Header"
 	row.add_theme_constant_override("separation", 8)
 	parent.add_child(row)
-	var title := Label.new()
-	title.text = title_text.to_upper()
+	var title: Label = Q.eyebrow(title_text, 12)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.add_theme_font_size_override("font_size", 12)
-	title.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
 	row.add_child(title)
 	var meta := Label.new()
 	meta.text = meta_text
 	meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	meta.add_theme_font_size_override("font_size", 12)
-	meta.add_theme_color_override("font_color", BunkerPanelStyle.BRASS.lightened(0.28))
+	meta.add_theme_font_size_override("font_size", 13)
+	meta.add_theme_color_override("font_color", Q.MUTED)
 	row.add_child(meta)
 	return {"row": row, "title": title, "meta": meta}
 
 
 static func divider(parent: Container) -> HSeparator:
 	var separator := HSeparator.new()
+	separator.add_theme_stylebox_override("separator", Q.hairline())
 	parent.add_child(separator)
 	return separator
 
 
+## Quiet pass: segments/tabs are text with an ACCENT underline when pressed
+## (Q.tab_button). Icons set by callers are tinted MUTED → TEXT.
 static func style_segment(button: Button, compact: bool = false,
-		borderless: bool = false) -> void:
+		_borderless: bool = false) -> void:
 	UIButtonMotion.attach(button)
-	button.focus_mode = Control.FOCUS_ALL
-	button.toggle_mode = true
-	button.custom_minimum_size.y = (BunkerDesign.COMPACT_CONTROL_HEIGHT if compact
-		else BunkerDesign.CONTROL_HEIGHT)
-	button.add_theme_font_size_override("font_size", 12 if compact else 14)
-	button.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
-	button.add_theme_color_override("font_hover_color", BunkerPanelStyle.IVORY)
-	button.add_theme_color_override("font_pressed_color", BunkerPanelStyle.IVORY)
-	button.add_theme_color_override("icon_normal_color", BunkerPanelStyle.MUTED)
-	button.add_theme_color_override("icon_hover_color", BunkerPanelStyle.BLUE)
-	button.add_theme_color_override("icon_pressed_color", BunkerPanelStyle.BLUE)
-	button.add_theme_constant_override("icon_max_width", 20 if compact else 24)
-	var border_width: int = 0 if borderless else 1
-	button.add_theme_stylebox_override("normal", BunkerPanelStyle.button_box(
-		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.42), 7, border_width))
-	button.add_theme_stylebox_override("hover", BunkerPanelStyle.button_box(
-		Color("202b2e"), BunkerPanelStyle.BLUE.darkened(0.2), 7, border_width))
-	button.add_theme_stylebox_override("pressed", BunkerPanelStyle.button_box(
-		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7,
-		0 if borderless else 2, 9, 3))
-	button.add_theme_stylebox_override("hover_pressed", BunkerPanelStyle.button_box(
-		BunkerPanelStyle.BLUE_DARK.lightened(0.07), BunkerPanelStyle.BLUE, 7,
-		0 if borderless else 2, 9, 3))
-	button.add_theme_stylebox_override("focus", panel_box(
-		BunkerPanelStyle.BLUE_DARK if borderless else Color.TRANSPARENT,
-		BunkerPanelStyle.IVORY, 9, 0 if borderless else 2))
+	Q.tab_button(button, 13 if compact else 15,
+		BunkerDesign.COMPACT_CONTROL_HEIGHT if compact else BunkerDesign.CONTROL_HEIGHT)
+	button.add_theme_constant_override("icon_max_width", 16 if compact else 18)
 
 
 static func style_tool(button: Button) -> void:
@@ -177,9 +156,7 @@ static func style_tool(button: Button) -> void:
 
 
 static func status_style(active: bool) -> StyleBoxFlat:
-	if active:
-		return panel_box(Color("172820"), BunkerPanelStyle.GREEN.darkened(0.28), 8, 1, 10)
-	return panel_box(Color("1b2221"), BunkerPanelStyle.BRASS.darkened(0.34), 8, 1, 10)
+	return Q.flat(Color(Q.TEXT, 0.05 if active else 0.025), 10.0, 10.0, 6)
 
 
 static func key_hint(parent: Container, key_text: String, action_text: String,
@@ -195,15 +172,16 @@ static func key_hint(parent: Container, key_text: String, action_text: String,
 	keycap.custom_minimum_size = Vector2(
 		maxf(34.0, float(key_text.length()) * 8.0 + 14.0), 20 if compact else 24)
 	keycap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Quiet keycap (Sep 2026, QUIET_DESIGN_SYSTEM §3): faint fill, hairline edge.
 	keycap.add_theme_stylebox_override("panel", panel_box(
-		BunkerDesign.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.1), 5, 1,
+		Color(BunkerDesign.IVORY, 0.04), Color(BunkerDesign.IVORY, 0.2), 5, 1,
 		1 if compact else 3))
 	group.add_child(keycap)
 	var key := Label.new()
 	key.text = key_text
 	key.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	key.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	key.add_theme_font_size_override("font_size", 10 if compact else 11)
+	key.add_theme_font_size_override("font_size", 11)
 	key.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
 	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	keycap.add_child(key)

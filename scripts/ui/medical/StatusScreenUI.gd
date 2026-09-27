@@ -6,10 +6,11 @@ class_name StatusScreenUI
 
 signal closed
 
-const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
-const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const C: GDScript = preload("res://scripts/ui/common/QuietLegacyComponents.gd")  ## quiet pass (Pass 4)
+const S: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")  ## quiet pass (Pass 4)
 const NAV_SCRIPT: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
-const PREVIEW: GDScript = preload("res://scripts/ui/common/ItemPreviewKit.gd")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
+const NEEDS: GDScript = preload("res://scripts/ui/hud/NeedsGauge.gd")
 const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
 const ITEM_CARD: GDScript = preload("res://scripts/ui/common/BunkerItemCard.gd")
 const PRESENT: GDScript = preload("res://scripts/ui/common/ItemPresentation.gd")
@@ -19,10 +20,12 @@ const PANEL_MAX: Vector2 = Vector2(1420.0, 820.0)
 const SCREEN_MARGIN: Vector2 = Vector2(42.0, 34.0)
 const REFRESH_INTERVAL: float = 0.25
 const INFECTION_COLOR: Color = Color("e4a24a")
-const FOOD_COLOR: Color = Color("dbad64")
-const WATER_COLOR: Color = Color("62bfff")
-const STAMINA_COLOR: Color = Color("76d6b0")
-const SLEEP_COLOR: Color = Color("a493df")
+## Quiet pass: the same calm need identities as the HUD gauge (D1).
+const FOOD_COLOR: Color = Color("c49a62")
+const WATER_COLOR: Color = Color("7c9db5")
+const STAMINA_COLOR: Color = Color("93a97f")
+const SLEEP_COLOR: Color = Color("9a8db3")
+const HEALTH_COLOR: Color = Color("b8746a")
 
 enum StatusTab { OVERVIEW, HEALTH, NPCS, INVENTORY }
 
@@ -111,10 +114,9 @@ var _npc_cards: Dictionary = {}
 var _npc_portraits: Dictionary = {}
 var _npc_portrait_host: Control = null
 var _expanded_npc_id: int = -1
-var _npc_signature: String = ""
+var _npc_signature: String = "<unbuilt>"   ## never equals a real (even empty) roster
 
 var _inventory_cards: Array[Button] = []
-var _inventory_viewports: Array[SubViewport] = []
 var _inventory_signatures: Array[String] = ["", "", "", ""]
 var _inventory_detail_title: Label = null
 var _inventory_detail_copy: Label = null
@@ -232,6 +234,7 @@ func _build_interface() -> void:
 	add_child(_root)
 
 	_panel = PanelContainer.new()
+	preload("res://scripts/ui/common/QuietControls.gd").avoid_toasts(_panel, true)  # never covered by toasts
 	_panel.name = "StatusWorkspace"
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	C.shell(_panel, 12)
@@ -259,25 +262,26 @@ func _build_header() -> void:
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.add_theme_constant_override("separation", 1)
 	row.add_child(titles)
-	var eyebrow: Label = _label("PLAYER  •  CURRENT STATUS", 12, S.BLUE)
+	var eyebrow: Label = Q.eyebrow("Player  ·  Current status", 12)
 	titles.add_child(eyebrow)
 	var title: Label = _label("Status", 26, S.IVORY)
 	titles.add_child(title)
 
+	## Status line (dot + word), not a pill.
 	_header_status_panel = PanelContainer.new()
 	_header_status_panel.custom_minimum_size = Vector2(150.0, 38.0)
+	_header_status_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	row.add_child(_header_status_panel)
-	_header_status_label = _label("STABLE", 12, S.GREEN)
-	_header_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_header_status_label = _label("● STABLE", 13, S.GREEN)
+	_header_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_header_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_header_status_panel.add_child(_header_status_label)
 
 	var close_button: Button = Button.new()
-	close_button.custom_minimum_size = Vector2(44.0, 44.0)
-	close_button.tooltip_text = "Close status"
-	S.icon_button(close_button, "close")
-	close_button.text = ""
-	close_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	close_button.text = "Close"
+	Q.nav_button(close_button, 14, 30.0)
+	close_button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	close_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	close_button.pressed.connect(close)
 	row.add_child(close_button)
 
@@ -297,9 +301,7 @@ func _make_tab(parent: HBoxContainer, tab_id: int, title: String, symbol: String
 	var button: Button = Button.new()
 	button.name = title.capitalize() + "Tab"
 	button.text = title
-	button.icon = S.icon(symbol)
-	button.expand_icon = true
-	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.set_meta(&"symbol", symbol)   ## text-only tabs (quiet pass)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	C.style_segment(button)
 	button.pressed.connect(_set_tab.bind(tab_id))
@@ -317,7 +319,7 @@ func _build_summary_strip() -> void:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	strip.add_child(row)
-	_summary_metrics["health"] = _summary_metric(row, "health", "HEALTH", S.RED)
+	_summary_metrics["health"] = _summary_metric(row, "health", "HEALTH", HEALTH_COLOR)
 	_summary_metrics["food"] = _summary_metric(row, "food", "FOOD", FOOD_COLOR)
 	_summary_metrics["water"] = _summary_metric(row, "water", "WATER", WATER_COLOR)
 	_summary_metrics["stamina"] = _summary_metric(row, "stamina", "STAMINA", STAMINA_COLOR)
@@ -341,14 +343,14 @@ func _summary_metric(parent: HBoxContainer, symbol: String, title: String, color
 	row.add_child(stack)
 	var top: HBoxContainer = HBoxContainer.new()
 	stack.add_child(top)
-	var title_label: Label = _label(title, 10, S.MUTED)
+	var title_label: Label = Q.eyebrow(title, 12)
 	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(title_label)
-	var value_label: Label = _label("100", 13, S.IVORY)
+	var value_label: Label = _label("100", 14, S.IVORY)
 	top.add_child(value_label)
-	var bar: ProgressBar = _progress(color, 6.0)
+	var bar: ProgressBar = _progress(color, 4.0)
 	stack.add_child(bar)
-	var cap_label: Label = _label("", 9, INFECTION_COLOR)
+	var cap_label: Label = _label("", 12, INFECTION_COLOR)
 	cap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	stack.add_child(cap_label)
 	return {"value": value_label, "bar": bar, "cap": cap_label, "color": color}
@@ -469,7 +471,7 @@ func _build_health_page() -> Control:
 	for part: int in BODY_PARTS:
 		var select: Button = Button.new()
 		select.text = MedicalCondition.body_part_label(part)
-		select.icon = S.icon("medical")
+		select.icon = null  ## quiet: text-first (was S.icon("medical"))
 		select.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		C.style_segment(select, true)
 		select.custom_minimum_size = Vector2(126.0, 28.0)
@@ -618,7 +620,7 @@ func _build_health_detail(parent: VBoxContainer) -> void:
 	treatment_stack.add_child(_treatment_copy)
 	_treatment_button = Button.new()
 	_treatment_button.text = "APPLY TREATMENT"
-	_treatment_button.icon = S.icon("medical")
+	_treatment_button.icon = null  ## quiet: text-first (was S.icon("medical"))
 	_treatment_button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	S.button(_treatment_button, true)
 	_treatment_button.pressed.connect(_apply_selected_treatment)
@@ -821,8 +823,6 @@ func _build_inventory_page() -> Control:
 		card.custom_minimum_size = Vector2(285.0, 198.0)
 		card.pressed.connect(_select_inventory_slot.bind(slot))
 		_inventory_cards.append(card)
-		var viewport: SubViewport = PREVIEW.build_viewport(card, 152, 1.35)
-		_inventory_viewports.append(viewport)
 
 	var detail_panel: PanelContainer = _section_panel()
 	detail_panel.custom_minimum_size.x = 430.0
@@ -850,12 +850,19 @@ func _build_inventory_page() -> Control:
 	return page
 
 
+## Quiet footer: input-aware key hints (right). The sentence label remains
+## as a hidden compatibility handle.
 func _build_footer() -> void:
 	var row: HBoxContainer = HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.alignment = BoxContainer.ALIGNMENT_END
+	row.add_theme_constant_override("separation", 18)
 	_content.add_child(row)
-	_footer_hint = _label("Q / R: tabs   •   Enter / Space: select   •   Tab / Esc / E: close", 12, S.MUTED)
+	_footer_hint = _label("", 12, S.MUTED)
+	_footer_hint.visible = false
 	row.add_child(_footer_hint)
+	BunkerUIComponents.key_hint(row, "Q / R", "Tabs", "Q / R", "LB / RB")
+	BunkerUIComponents.key_hint(row, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(row, "ESC", "Close", "ESC", "B")
 
 
 func _layout() -> void:
@@ -981,10 +988,8 @@ func _refresh_summary() -> void:
 	elif not conditions.is_empty():
 		state_text = "RECOVERING"
 		state_color = S.BLUE
-	_header_status_label.text = state_text
-	_header_status_label.add_theme_color_override("font_color", state_color)
-	_header_status_panel.add_theme_stylebox_override("panel", C.panel_box(
-		Color("17211f"), state_color.darkened(0.2), 18, 1, 6))
+	_header_status_label.text = "●  " + state_text
+	_header_status_label.add_theme_color_override("font_color", state_color if state_color != S.GREEN else Q.MUTED)
 
 
 func _update_summary_metric(key: String, value: float, cap: float) -> void:
@@ -1130,7 +1135,7 @@ func _refresh_condition_detail(condition: MedicalCondition) -> void:
 		_detail_warning_label.text = "INFECTION ACTIVE  •  %d%% SEVERITY" % roundi(condition.infection_severity)
 	_detail_severity_value.text = "%d%%" % roundi(_condition_primary_value(condition))
 	SMOOTH_BAR.apply(_detail_severity_bar, _condition_primary_value(condition))
-	_detail_severity_bar.add_theme_stylebox_override("fill", C.panel_box(color, color, 4, 0))
+	_detail_severity_bar.add_theme_stylebox_override("fill", Q.flat(Color(color, 0.85), 0.0, 0.0, 2))
 	_detail_recovery_value.text = "%d%%" % roundi(condition.heal_progress) if condition.has_heal_ring else _condition_state(condition).to_upper()
 	var recovery_value: float = condition.heal_progress if condition.has_heal_ring else (100.0 if condition.is_treated else 0.0)
 	SMOOTH_BAR.apply(_detail_recovery_bar, recovery_value)
@@ -1155,13 +1160,13 @@ func _refresh_treatment(condition: MedicalCondition) -> void:
 	_treatment_button.disabled = available == null or already_treated
 	if already_treated:
 		_treatment_button.text = "TREATMENT APPLIED"
-		_treatment_button.icon = S.icon("check")
+		_treatment_button.icon = null  ## quiet: text-first (was S.icon("check"))
 	elif available == null:
 		_treatment_button.text = "NO %s CARRIED" % _supply_short_name(kind).to_upper()
-		_treatment_button.icon = S.icon(_treatment_icon_name(kind))
+		_treatment_button.icon = null  ## quiet: text-first (was S.icon(_treatment_icon_name(kind)))
 	else:
 		_treatment_button.text = "APPLY %s" % _supply_short_name(kind).to_upper()
-		_treatment_button.icon = S.icon(_treatment_icon_name(kind))
+		_treatment_button.icon = null  ## quiet: text-first (was S.icon(_treatment_icon_name(kind)))
 
 
 func _apply_selected_treatment() -> void:
@@ -1306,8 +1311,10 @@ func _refresh_inventory() -> void:
 		var card: BunkerItemCard = _inventory_cards[slot] as BunkerItemCard
 		if signature != _inventory_signatures[slot]:
 			_inventory_signatures[slot] = signature
-			PREVIEW.set_item(_inventory_viewports[slot], item)
-			card.display(PRESENT.title(item), _inventory_viewports[slot].get_texture() if item != null else null, 1)
+			## PreviewStudio: cached render, shared spinner on hover/focus.
+			var occupied: bool = item != null and is_instance_valid(item)
+			card.display(PRESENT.title(item), null, 1, 1 if occupied else 0)
+			PreviewStudio.bind_card(card, PreviewStudio.request_item(item) if occupied else "", card.set_preview)
 		card.button_pressed = slot == _selected_inventory_slot
 	_refresh_inventory_detail()
 
@@ -1754,14 +1761,18 @@ func _pill(parent: Container, text_value: String, color: Color, minimum_width: f
 func _label(text_value: String, font_size: int, color: Color) -> Label:
 	var label: Label = Label.new()
 	label.text = text_value
-	label.add_theme_font_size_override("font_size", font_size)
+	## Quiet type floor: 12 px for anything the player reads (design §2).
+	label.add_theme_font_size_override("font_size", maxi(font_size, 12))
 	label.add_theme_color_override("font_color", color)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
 
 
+## Quiet pass: decorative symbols are retired (text-first). The node stays so
+## layouts and callers are unchanged, but it is hidden.
 func _icon(symbol: String, side: float, color: Color) -> TextureRect:
 	var icon: TextureRect = TextureRect.new()
+	icon.visible = false
 	icon.custom_minimum_size = Vector2(side, side)
 	icon.texture = S.icon(symbol)
 	icon.self_modulate = color
@@ -1779,8 +1790,8 @@ func _progress(color: Color, height: float) -> ProgressBar:
 	bar.show_percentage = false
 	bar.custom_minimum_size.y = height
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_theme_stylebox_override("background", C.panel_box(Color("111615"), S.BRASS.darkened(0.48), 4, 1))
-	bar.add_theme_stylebox_override("fill", C.panel_box(color, color, 4, 0))
+	bar.add_theme_stylebox_override("background", Q.flat(Color(Q.TEXT, 0.09), 0.0, 0.0, 2))
+	bar.add_theme_stylebox_override("fill", Q.flat(Color(color, 0.85), 0.0, 0.0, 2))
 	return bar
 
 

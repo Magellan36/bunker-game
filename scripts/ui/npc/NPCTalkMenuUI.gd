@@ -7,12 +7,13 @@ class_name NPCTalkMenuUI
 
 signal closed
 
-const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
-const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const C: GDScript = preload("res://scripts/ui/common/QuietLegacyComponents.gd")  ## quiet pass (Pass 4)
+const S: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")  ## quiet pass (Pass 4)
 const NAV: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
 const PROXIMITY: GDScript = preload("res://scripts/ui/common/UIProximityClose.gd")
 const PORTRAIT: GDScript = preload("res://scripts/ui/npc/NPCPortraitViewport.gd")
 const RELATIONSHIP_METER: GDScript = preload("res://scripts/ui/npc/NPCRelationshipMeter.gd")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
 
 const PANEL_MAX: Vector2 = Vector2(1420.0, 820.0)
@@ -20,11 +21,12 @@ const SCREEN_MARGIN: Vector2 = Vector2(42.0, 34.0)
 const LEFT_COLUMN_WIDTH: float = 356.0
 const REFRESH_INTERVAL: float = 0.25
 
-const HEALTH_COLOR: Color = Color("ef5f64")
-const ENERGY_COLOR: Color = Color("e5a24a")
-const FOOD_COLOR: Color = Color("d9aa63")
-const WATER_COLOR: Color = Color("62bfff")
-const MOOD_COLOR: Color = Color("75d48a")
+## Quiet pass: calm need identities shared with the HUD gauge (D1).
+const HEALTH_COLOR: Color = Color("b8746a")
+const ENERGY_COLOR: Color = Color("c9a26a")
+const FOOD_COLOR: Color = Color("c49a62")
+const WATER_COLOR: Color = Color("7c9db5")
+const MOOD_COLOR: Color = Color("93a97f")
 
 enum ResidentTab { OVERVIEW, TALK, REQUESTS, HEALTH, ACTIVITY_LOG }
 
@@ -273,6 +275,7 @@ func _build_interface() -> void:
 	_root.add_child(backdrop)
 
 	_panel = PanelContainer.new()
+	preload("res://scripts/ui/common/QuietControls.gd").avoid_toasts(_panel, true)  # never covered by toasts
 	_panel.name = "ResidentProfilePanel"
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_panel.clip_contents = true
@@ -287,10 +290,17 @@ func _build_interface() -> void:
 	_build_tabs(content)
 	_build_body(content)
 	C.divider(content)
+	## Quiet footer: key hints (right); the sentence label stays hidden.
+	var footer_row: HBoxContainer = HBoxContainer.new()
+	footer_row.alignment = BoxContainer.ALIGNMENT_END
+	footer_row.add_theme_constant_override("separation", 18)
+	content.add_child(footer_row)
 	_footer_hint = _label("", 12, S.MUTED)
-	_footer_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_footer_hint.custom_minimum_size.y = 22.0
-	content.add_child(_footer_hint)
+	_footer_hint.visible = false
+	footer_row.add_child(_footer_hint)
+	BunkerUIComponents.key_hint(footer_row, "Q / R", "Tabs", "Q / R", "LB / RB")
+	BunkerUIComponents.key_hint(footer_row, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer_row, "ESC", "Close", "ESC", "B")
 
 
 func _build_header(parent: Container) -> void:
@@ -303,7 +313,7 @@ func _build_header(parent: Container) -> void:
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.add_theme_constant_override("separation", 0)
 	row.add_child(titles)
-	titles.add_child(_label("BUNKER  •  RESIDENT PROFILE", 11, S.BLUE))
+	titles.add_child(Q.eyebrow("Bunker  ·  Resident profile", 12))
 	_name_label = _label("Resident", 29, S.IVORY)
 	_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	titles.add_child(_name_label)
@@ -311,6 +321,7 @@ func _build_header(parent: Container) -> void:
 	_identity_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	titles.add_child(_identity_line)
 
+	## Quiet: header states read as status lines (no pills, no symbols).
 	_header_state_panel = PanelContainer.new()
 	_header_state_panel.custom_minimum_size = Vector2(136.0, 40.0)
 	row.add_child(_header_state_panel)
@@ -335,11 +346,10 @@ func _build_header(parent: Container) -> void:
 	relationship_row.add_child(_header_relationship_label)
 
 	var close_button: Button = Button.new()
-	close_button.custom_minimum_size = Vector2(48.0, 48.0)
-	close_button.tooltip_text = "Close resident profile"
-	S.icon_button(close_button, "close")
-	close_button.text = ""
-	close_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	close_button.text = "Close"
+	Q.nav_button(close_button, 14, 30.0)
+	close_button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	close_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	close_button.pressed.connect(close)
 	row.add_child(close_button)
 
@@ -354,9 +364,7 @@ func _build_tabs(parent: Container) -> void:
 	for index: int in range(labels.size()):
 		var button: Button = Button.new()
 		button.text = labels[index]
-		button.icon = S.icon(icons[index])
-		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		button.expand_icon = true
+		button.set_meta(&"symbol", icons[index])   ## text-only tabs (quiet pass)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		C.style_segment(button)
 		button.pressed.connect(_set_tab.bind(index, true))
@@ -842,8 +850,8 @@ func _update_activity(activity: String) -> void:
 		color = S.MUTED
 	elif state == "UNWELL":
 		color = S.RED
-	_header_state_label.text = state
-	_header_state_label.add_theme_color_override("font_color", color)
+	_header_state_label.text = "●  " + state
+	_header_state_label.add_theme_color_override("font_color", Q.MUTED if color == S.GREEN else color)
 	_header_state_icon.texture = S.icon("running" if state == "ON DUTY" else "clock")
 	_header_state_icon.self_modulate = color
 	_set_state_panel(_header_state_panel, color)
@@ -881,7 +889,7 @@ func _update_relationship() -> void:
 	_relationship_value.text = "%+.0f" % value
 	_relationship_meter.set_target_value(value)
 	_header_relationship_label.text = "%s  %+.0f" % [label_text.to_upper(), value]
-	_header_relationship_label.add_theme_color_override("font_color", color)
+	_header_relationship_label.add_theme_color_override("font_color", Q.MUTED if color == S.GREEN else color)
 	_set_state_panel(_header_relationship_panel, color)
 
 
@@ -1119,7 +1127,7 @@ func _rebuild_health(force: bool) -> void:
 		var conditions: Array[MedicalCondition] = medical.get_conditions_for_body_part(part)
 		var button: Button = Button.new()
 		button.text = "%s    %d" % [MedicalCondition.body_part_label(part).to_upper(), conditions.size()]
-		button.icon = S.icon("medical")
+		button.icon = null  ## quiet: text-first (was S.icon("medical"))
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.expand_icon = true
@@ -1398,10 +1406,9 @@ func _reset_scroll(scroll: ScrollContainer) -> void:
 	scroll.set_deferred("scroll_vertical", 0)
 
 
-func _set_state_panel(panel: PanelContainer, color: Color) -> void:
-	panel.add_theme_stylebox_override("panel", C.panel_box(
-		Color(color.darkened(0.72), 0.78), color.darkened(0.27), 7, 1
-	))
+## Quiet: state holders carry no pill; the label colour says it all.
+func _set_state_panel(panel: PanelContainer, _color: Color) -> void:
+	panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 
 
 func _card(bg: Color, border: Color, radius: int = 8) -> PanelContainer:
@@ -1413,13 +1420,15 @@ func _card(bg: Color, border: Color, radius: int = 8) -> PanelContainer:
 func _label(text_value: String, font_size: int, color: Color) -> Label:
 	var label: Label = Label.new()
 	label.text = text_value
-	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_font_size_override("font_size", maxi(font_size, 12))   ## quiet type floor
 	label.add_theme_color_override("font_color", color)
 	return label
 
 
+## Quiet pass: decorative symbols retired; node kept (hidden) for callers.
 func _icon(symbol: String, side: float, color: Color) -> TextureRect:
 	var texture: TextureRect = TextureRect.new()
+	texture.visible = false
 	texture.texture = S.icon(symbol)
 	texture.self_modulate = color
 	texture.custom_minimum_size = Vector2(side, side)
@@ -1437,12 +1446,9 @@ func _progress(color: Color, height: float) -> ProgressBar:
 	bar.custom_minimum_size.y = height
 	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_theme_stylebox_override("background", C.panel_box(
-		Color("0c1111"), S.BRASS.darkened(0.48), int(height * 0.5), 1
-	))
-	bar.add_theme_stylebox_override("fill", C.panel_box(
-		color, color, int(height * 0.5), 0
-	))
+	bar.custom_minimum_size.y = minf(height, 4.0)
+	bar.add_theme_stylebox_override("background", Q.flat(Color(Q.TEXT, 0.09), 0.0, 0.0, 2))
+	bar.add_theme_stylebox_override("fill", Q.flat(Color(color, 0.85), 0.0, 0.0, 2))
 	return bar
 
 

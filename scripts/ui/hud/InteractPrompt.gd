@@ -35,9 +35,6 @@ const WORLD_OFFSET: Vector3 = Vector3(0.0, 1.2, 0.0)
 const FADE_START: float = 2.2
 const FADE_END:   float = 3.2
 
-## Icon SubViewport render size (px) / orthogonal camera framing.
-const ICON_VP_SIZE: int = 48
-const ICON_CAM_SIZE: float = 0.6
 
 ## Compact shared player/NPC job-card treatment. The player keeps the normal
 ## target anchor; NPC entries provide their own slightly higher head anchor.
@@ -45,9 +42,9 @@ const JOB_CARD_MIN_WIDTH: float = 190.0
 const JOB_BAR_HEIGHT: float = 4.0
 const NPC_JOB_OFFSET: Vector3 = Vector3(0.0, 1.48, 0.0)
 const NPC_JOB_STALE_MSEC: int = 1000
-const JOB_GREEN: Color = Color(0.43, 0.78, 0.43, 1.0)
+const JOB_GREEN: Color = Color("86a9bf")   ## quiet: nominal progress uses the steel accent
 const JOB_TRACK: Color = Color(0.025, 0.032, 0.032, 0.92)
-const BUNKER_BLUE: Color = Color(0.34, 0.70, 0.93, 1.0)
+const BUNKER_BLUE: Color = Color("86a9bf")
 const DIM_IVORY: Color = Color(0.67, 0.64, 0.57, 0.94)
 const APPEAR_DURATION: float = 0.12
 const APPEAR_OFFSET_Y: float = 2.0
@@ -112,7 +109,11 @@ var _suppressed_for_build: bool = false
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	add_to_group("interact_prompt")
+	PreviewStudio.preview_ready.connect(_on_preview_ready)
 	_template_panel.visible = false
+	## Smooth tracking: pool panels are duplicated from the template, so they
+	## inherit this (see QuietControls.allow_subpixel).
+	preload("res://scripts/ui/common/QuietControls.gd").allow_subpixel(_template_panel)
 	## Inline key/button icons are rendered as BBCode images.
 	_template_label.bbcode_enabled = true
 	# Compiled once; used only to tint the live generator fuel metadata. The
@@ -391,7 +392,7 @@ func _make_circle_texture() -> Texture2D:
 				# ingredient view to the wider UI system, never a neon ring.
 				if d >= 25.2:
 					var blue_edge: float = clampf((d - 25.2) / 1.3, 0.0, 1.0)
-					col = col.lerp(Color(0.25, 0.58, 0.76, 0.72), blue_edge * 0.7)
+					col = col.lerp(Color(0.525, 0.663, 0.749, 0.6), blue_edge * 0.5)
 			elif d <= R_OUT:
 				## Soft worn-brass outline — peaks at RING_CENTER and fades
 				## both inward (into the fill) and outward (soft outer edge).
@@ -415,34 +416,21 @@ func _build_icon_slots(clone: PanelContainer) -> Array:
 		var sb: StyleBoxTexture = StyleBoxTexture.new()
 		sb.texture = _make_circle_texture()
 		slot.add_theme_stylebox_override("panel", sb)
-		var vpc: SubViewportContainer = SubViewportContainer.new()
-		vpc.stretch = true
-		vpc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		slot.add_child(vpc)
-
-		var vp: SubViewport = SubViewport.new()
-		vp.size = Vector2i(ICON_VP_SIZE, ICON_VP_SIZE)
-		vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
-		vp.transparent_bg = true
-		vp.disable_3d     = false
-		vp.own_world_3d   = true
-		vpc.add_child(vp)
-		GraphicsSettings.register_preview_viewport(vp)
-
-		var cam: Camera3D = Camera3D.new()
-		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-		cam.size = ICON_CAM_SIZE
-		vp.add_child(cam)
-		cam.position = Vector3(1.0, 1.2, 1.0)
-		cam.call_deferred("look_at", Vector3.ZERO, Vector3.UP)
-
-		var light: OmniLight3D = OmniLight3D.new()
-		light.position = Vector3(1.0, 2.0, 1.0)
-		light.light_color = Color(0.95, 0.90, 0.79, 1.0)
-		light.light_energy = 2.8
-		light.omni_range = 8.0
-		vp.add_child(light)
-
+		## Sep 2026: a TextureRect showing a cached PreviewStudio render
+		## (no per-slot live SubViewport).
+		var icon := TextureRect.new()
+		icon.name = "Preview"
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		icon.offset_left = 3.0
+		icon.offset_top = 3.0
+		icon.offset_right = -3.0
+		icon.offset_bottom = -3.0
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.add_child(icon)
+		var vp: TextureRect = icon
 		out[slot_i] = vp
 	return out
 
@@ -548,7 +536,7 @@ func _refresh_icon_slots(pool_index: int, icons: Array) -> void:
 	var labels: Array = _icon_badge_labels[pool_index] \
 		if pool_index < _icon_badge_labels.size() else [null, null, null]
 	for slot_i: int in 3:
-		var vp: SubViewport = vps[slot_i] if slot_i < vps.size() else null
+		var vp: TextureRect = vps[slot_i] if slot_i < vps.size() else null
 		if vp == null:
 			continue
 		var desc: Variant = icons[slot_i] if slot_i < icons.size() else null
@@ -569,49 +557,49 @@ func _refresh_icon_slots(pool_index: int, icons: Array) -> void:
 			continue   ## unchanged since last frame — skip re-instantiation
 		sigs[slot_i] = sig
 
-		for child in vp.get_children():
-			if child is Node3D and child is not Camera3D and child is not OmniLight3D:
-				child.queue_free()
-
 		if desc == null or not (desc is Dictionary) or (desc as Dictionary).is_empty():
-			continue   ## empty slot — circle stays empty, nothing to render
+			vp.texture = null
+			vp.set_meta(&"studio_key", "")
+			continue   ## empty slot — circle stays empty
+		var key: String = "icon:" + sig
+		vp.set_meta(&"studio_key", key)
+		vp.texture = PreviewStudio.request(key, _make_icon_model.bind(desc as Dictionary), true)
 
-		var info: Dictionary = desc as Dictionary
-		var inst: Node3D = null
-		if bool(info.get("is_script", false)):
-			var script: GDScript = load(String(info.get("scene", ""))) as GDScript
-			if script == null:
-				continue
-			inst = script.new()
-			## Per-instance variation (e.g. FarmProduceItem's produce_type)
-			## must be set BEFORE the node enters the tree, so its own
-			## _ready() picks up the correct value when building its mesh.
-			if info.has("produce_type") and "produce_type" in inst:
-				inst.set("produce_type", info["produce_type"])
-		else:
-			var packed: PackedScene = load(String(info.get("scene", ""))) as PackedScene
-			if packed == null:
-				continue
-			inst = packed.instantiate() as Node3D
-		if inst == null:
-			continue
 
-		if inst is RigidBody3D:
-			var rb: RigidBody3D = inst as RigidBody3D
-			rb.freeze = true
-			rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-		inst.set_process(false)
-		inst.set_physics_process(false)
+## Refreshes icon slots whose PreviewStudio render just finished.
+func _on_preview_ready(key: String, tex: Texture2D) -> void:
+	for vps: Variant in _icon_viewports:
+		for icon: Variant in vps:
+			if icon is TextureRect and str((icon as TextureRect).get_meta(&"studio_key", "")) == key:
+				(icon as TextureRect).texture = tex
 
-		var pivot: Node3D = Node3D.new()
-		vp.add_child(pivot)
-		pivot.add_child(inst)
-		## Aug 2026 — matches BuildModeHUD's PREVIEW_ROTATION_DEFAULT exactly
-		## (45° left, 45° down), same convention already applied to
-		## InventoryHUD's previews. These previews had no rotation applied
-		## at all before this — always rendered at each item's raw default
-		## orientation.
-		pivot.rotation_degrees = Vector3(-45.0, -45.0, 0.0)
+
+## PreviewStudio factory for a cooking-pot ingredient descriptor.
+func _make_icon_model(info: Dictionary) -> Node3D:
+	var inst: Node3D = null
+	if bool(info.get("is_script", false)):
+		var script: GDScript = load(String(info.get("scene", ""))) as GDScript
+		if script == null:
+			return null
+		inst = script.new()
+		## Per-instance variation must be set before the node enters a tree.
+		if info.has("produce_type") and "produce_type" in inst:
+			inst.set("produce_type", info["produce_type"])
+	else:
+		var packed: PackedScene = load(String(info.get("scene", ""))) as PackedScene
+		if packed == null:
+			return null
+		inst = packed.instantiate() as Node3D
+	if inst == null:
+		return null
+	if inst is RigidBody3D:
+		(inst as RigidBody3D).freeze = true
+		(inst as RigidBody3D).freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	inst.set_process(false)
+	inst.set_physics_process(false)
+	inst.set("_is_preview_only", true)
+	return inst
+
 
 func _signature_for(desc: Variant) -> String:
 	if desc == null or not (desc is Dictionary) or (desc as Dictionary).is_empty():
@@ -660,27 +648,35 @@ func _style_prompt_semantics(prompt: String) -> String:
 
 	# Known machine/system states. Exact replacements keep action wording such
 	# as "Turn Stove On" from being mistaken for a status.
+	## Sep 2026 quiet pass: nominal states read as a steel dot + muted word
+	## (QUIET_DESIGN_SYSTEM status line); only warnings/faults take colour.
+	var ok := func(word: String) -> String:
+		return "[color=#86A9BF]●[/color] [color=#AAA596]%s[/color]" % word
+	var warn := func(word: String) -> String:
+		return "[color=#F0B861]● %s[/color]" % word
+	var bad := func(word: String) -> String:
+		return "[color=#DF7669]● %s[/color]" % word
 	var states: Dictionary = {
-		"[Running]": "[color=#74D48A]● RUNNING[/color]",
-		"[Backup — Active]": "[color=#74D48A]● BACKUP ACTIVE[/color]",
-		"[Backup — Standby]": "[color=#D2AA68]● STANDBY[/color]",
-		"[Stopped]": "[color=#DF7669]● STOPPED[/color]",
-		"[Online]": "[color=#74D48A]● ONLINE[/color]",
-		"[ON]": "[color=#74D48A]● ON[/color]",
-		"[OFF]": "[color=#B5AA96]● OFF[/color]",
-		"COOKING": "[color=#74D48A]● COOKING[/color]",
-		"DONE": "[color=#74D48A]● READY[/color]",
-		"NO POWER": "[color=#DF7669]● NO POWER[/color]",
-		"SHED": "[color=#D2AA68]● SHED[/color]",
+		"[Running]": ok.call("RUNNING"),
+		"[Backup — Active]": ok.call("BACKUP ACTIVE"),
+		"[Backup — Standby]": "[color=#86A9BF]○[/color] [color=#AAA596]STANDBY[/color]",
+		"[Stopped]": bad.call("STOPPED"),
+		"[Online]": ok.call("ONLINE"),
+		"[ON]": ok.call("ON"),
+		"[OFF]": "[color=#8F8A7F]○ OFF[/color]",
+		"COOKING": ok.call("COOKING"),
+		"DONE": ok.call("READY"),
+		"NO POWER": bad.call("NO POWER"),
+		"SHED": warn.call("SHED"),
 		"Stove Not Connected": "[color=#DF7669]STOVE NOT CONNECTED[/color]",
-		"  [color=#8B744C]│[/color]  OFF": "  [color=#8B744C]│[/color]  [color=#B5AA96]● OFF[/color]",
-		"  [color=#8B744C]│[/color]  ON 500W": "  [color=#8B744C]│[/color]  [color=#74D48A]● ON 500W[/color]",
+		"  [color=#8B744C]│[/color]  OFF": "  [color=#8B744C]│[/color]  [color=#8F8A7F]○ OFF[/color]",
+		"  [color=#8B744C]│[/color]  ON 500W": "  [color=#8B744C]│[/color]  " + ok.call("ON 500W"),
 		"(Dead)": "[color=#DF7669](DEAD)[/color]",
 		"(Empty)": "[color=#8F8A7F](EMPTY)[/color]",
-		"Inventory full": "[color=#D2AA68]INVENTORY FULL[/color]",
-		"Shelf full": "[color=#D2AA68]SHELF FULL[/color]",
-		"  →  ": "  [color=#62BAF2]→[/color]  ",
-		"(+": "[color=#74D48A](+",
+		"Inventory full": "[color=#F0B861]INVENTORY FULL[/color]",
+		"Shelf full": "[color=#F0B861]SHELF FULL[/color]",
+		"  →  ": "  [color=#86A9BF]→[/color]  ",
+		"(+": "[color=#75D48A](+",
 		" Diversity)": " DIVERSITY)[/color]",
 	}
 	for source: String in states:
@@ -691,7 +687,7 @@ func _style_prompt_semantics(prompt: String) -> String:
 	out = out.replace(" — ", " [color=#8B744C]│[/color] ")
 
 	if _fuel_percent_regex.is_valid():
-		out = _fuel_percent_regex.sub(out, "[color=#C6A86B]$1% FUEL[/color]", true)
+		out = _fuel_percent_regex.sub(out, "[color=#AAA596]$1% FUEL[/color]", true)
 	return out
 
 ## Returns the FULL bracketed key token at prompt[i] — either "[X]" or a

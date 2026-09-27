@@ -27,6 +27,18 @@ const FILTER_BELOW: float = 30.0
 var _jobs: Dictionary = {}   ## id -> job dict
 var _timer: float = 0.0
 
+## Sep 2026 — called by WorldManager.leave_world() before the current world is
+## freed (game over → reload, and any future return-to-menu). Jobs and caches
+## hold node references into the old world; a fresh world must start clean.
+func reset_world_state() -> void:
+	_jobs.clear()
+	_timer = 0.0
+	_cleaning_clock_sec = 0.0
+	_cleaning_idle_tracker.clear()
+	_trash_items_cache.clear()
+	_organizable_items_cache.clear()
+	_trash_blocked_by_no_receptacle = 0
+
 # ─── Cleaning discovery (Aug 2026) ──────────────────────────────────────────
 ## Idle-time gating for organizing — an item must sit untouched/unclaimed
 ## for this long before it's eligible, so NPCs don't sweep away something

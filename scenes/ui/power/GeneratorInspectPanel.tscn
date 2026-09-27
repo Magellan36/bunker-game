@@ -158,14 +158,14 @@ metadata/ui_gap = 10
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Rated output"
-theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
-metadata/ui_font_size = 18
+theme_override_colors/font_color = Color(0.667, 0.647, 0.588, 1)
+metadata/ui_font_size = 15
 
 [node name="Watts" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Output"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "0 W"
-metadata/ui_font_size = 28
+metadata/ui_font_size = 15
 
 [node name="Fuel" type="VBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 layout_mode = 2
@@ -187,13 +187,13 @@ metadata/ui_icon_size = 20
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Fuel"
-metadata/ui_font_size = 18
+metadata/ui_font_size = 15
 
 [node name="FuelValue" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel/Heading"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "100%"
-metadata/ui_font_size = 18
+metadata/ui_font_size = 15
 
 [node name="FuelBar" type="ProgressBar" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel"]
 unique_name_in_owner = true
@@ -202,7 +202,7 @@ theme_type_variation = &"BunkerMeter"
 show_percentage = false
 value = 100.0
 mouse_filter = 2
-metadata/ui_min_height = 12
+metadata/ui_min_height = 3
 script = ExtResource("smooth_bar")
 
 [node name="FuelHint" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Fuel"]
@@ -234,13 +234,13 @@ metadata/ui_icon_size = 20
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Condition"
-metadata/ui_font_size = 18
+metadata/ui_font_size = 15
 
 [node name="ConditionValue" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition/Heading"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "100%"
-metadata/ui_font_size = 18
+metadata/ui_font_size = 15
 
 [node name="ConditionBar" type="ProgressBar" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition"]
 unique_name_in_owner = true
@@ -249,7 +249,7 @@ theme_type_variation = &"BunkerMeter"
 show_percentage = false
 value = 100.0
 mouse_filter = 2
-metadata/ui_min_height = 12
+metadata/ui_min_height = 3
 script = ExtResource("smooth_bar")
 
 [node name="ConditionHint" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/Condition"]
@@ -264,15 +264,22 @@ metadata/ui_font_size = 14
 [node name="Divider" type="HSeparator" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 layout_mode = 2
 
-[node name="Backup" type="Button" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
+[node name="BackupRow" type="HBoxContainer" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
+layout_mode = 2
+metadata/ui_gap = 12
+
+[node name="BackupCaption" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/BackupRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Backup mode"
+metadata/ui_font_size = 15
+
+[node name="Backup" type="CheckButton" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/BackupRow"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Backup mode: Off"
-expand_icon = true
-alignment = 0
-toggle_mode = true
-metadata/ui_font_size = 18
-metadata/ui_min_height = 44
+text = "Off"
+metadata/ui_font_size = 15
+metadata/ui_min_height = 34
 
 [node name="BackupHint" type="Label" parent="Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details"]
 unique_name_in_owner = true
@@ -291,17 +298,14 @@ layout_mode = 2
 autowrap_mode = 2
 text = "Starts this generator and supplies power to connected devices."
 theme_override_colors/font_color = Color(0.765, 0.737, 0.675, 1)
-metadata/ui_font_size = 14
-metadata/ui_min_height = 40
+metadata/ui_font_size = 13
 
 [node name="Power" type="Button" parent="Panel/Margin/Content"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "POWER ON"
-theme_type_variation = &"BunkerPrimaryButton"
-expand_icon = true
-metadata/ui_font_size = 18
-metadata/ui_min_height = 48
+text = "Power on"
+metadata/ui_font_size = 16
+metadata/ui_min_height = 40
 
 [node name="NavigationHint" type="Label" parent="Panel/Margin/Content"]
 unique_name_in_owner = true

@@ -2,6 +2,7 @@ extends Node
 ## Tests real panels and real generator/battery/breaker owner callbacks against
 ## explicit data doubles. Source fixtures avoid starting the complete game.
 const W: GDScript = preload("res://scripts/ui/common/BunkerInspectorWidgets.gd")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 const RESOLUTIONS: Array[Vector2i] = [Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3440, 1440), Vector2i(3840, 2160)]
 
 class PlayerProbe extends Node3D:
@@ -142,8 +143,9 @@ func _layout(ui: CanvasLayer) -> void:
 			and absf(details_bounds.end.x - status_bounds.end.x) < 1.1,
 			"shared content edges: %s %s details=%s status=%s" % [ui.name, resolution, details_bounds, status_bounds])
 		var thumb := scroll.get_v_scroll_bar().get_theme_stylebox("grabber") as StyleBoxFlat
-		check(thumb.bg_color.is_equal_approx(BunkerDesign.IVORY.darkened(0.18)),
-			"shared ivory scrollbar: " + ui.name)
+		check(scroll.get_v_scroll_bar().has_meta(&"shared_scrollbar_skin") \
+			and thumb.bg_color.is_equal_approx(Color(BunkerDesign.IVORY, 0.13)),
+			"quiet scrollbar: " + ui.name)
 		if scroll.get_v_scroll_bar().visible:
 			var details: Control = focus_inset.get_node("Details") as Control
 			check(details.get_global_rect().end.x <= scroll.get_v_scroll_bar().get_global_rect().position.x,
@@ -151,7 +153,9 @@ func _layout(ui: CanvasLayer) -> void:
 		for item: Node in view.find_children("*", "Label", true, false):
 			var label: Label = item as Label
 			if label.is_visible_in_tree():
-				check(label.get_theme_font_size("font_size") >= 13, "type floor: " + label.name)
+				## Quiet floors: 12 px readable text, 11 px keycaps (design §2).
+				var in_keycap: bool = label.get_parent() is PanelContainer and label.get_parent().get_parent() is BunkerInputHint
+				check(label.get_theme_font_size("font_size") >= (11 if in_keycap else 12), "type floor: " + label.name)
 				check(label.size.x <= frame.size.x, "label contained: " + label.name)
 	get_window().size = Vector2i(1920, 1080)
 	await settle()
@@ -162,20 +166,21 @@ func _water() -> void:
 	var ui: CanvasLayer = panel("res://scripts/ui/water/WaterDispenserUI.gd")
 	ui.open(dispenser)
 	await _layout(ui)
-	check((ui._requested.get_node("Caption") as Label).get_theme_font_size("font_size") \
-		> (ui._requested.get_node("Value") as Label).get_theme_font_size("font_size"),
-		"water flow heading is larger than its value")
+	check((ui._requested.get_node("Line/Value") as Label).horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT \
+		and (ui._requested.get_node("Line/Caption") as Label).text == "Requested flow",
+		"water flow reads as one caption/value row")
 	check(ui._storage.get_parent() is MarginContainer \
-		and ui._storage.get_parent().get_parent() is PanelContainer,
-		"stored water readout reuses the boxed inspector-card treatment")
+		and ui._storage.get_parent().get_parent() is PanelContainer \
+		and ui._storage.get_parent().get_parent().get_theme_stylebox("panel") is StyleBoxEmpty,
+		"stored water group keeps its holder without a bordered card")
 	check(not (ui._view.get_node("%NavigationHint") as Label).text.contains("Walk away") \
 		and not (ui._view.get_node("%NavigationHint") as Label).text.contains("WASD"),
 		"device footer keeps one concise navigation line")
 	check(not (ui._quality.get_node("Hint") as Label).visible,
 		"water quality removes redundant helper copy")
-	check(ui._toggle_btn.text == "POWER OFF" \
-		and ui._toggle_btn.theme_type_variation == &"BunkerPrimaryButton",
-		"powered dispenser uses blue POWER OFF action")
+	check(ui._toggle_btn.text == "Power off" \
+		and ui._toggle_btn.has_theme_stylebox_override("normal"),
+		"powered dispenser offers Power off as the primary action")
 	check(ui._priority_control.get_node_or_null("Title") == null \
 		and (ui._priority_control.get_node("PriorityCard/Inset/Controls/Value") as Label).text.ends_with("STANDARD"),
 		"water allocation is one uppercase tier row")
@@ -192,9 +197,8 @@ func _water() -> void:
 	ui._toggle_btn.grab_focus()
 	key(KEY_ENTER)
 	check(not dispenser.is_on, "keyboard toggle")
-	check(ui._toggle_btn.text == "POWER ON" \
-		and ui._toggle_btn.theme_type_variation == &"",
-		"powered-off dispenser uses subdued POWER ON action")
+	check(ui._toggle_btn.text == "Power on",
+		"powered-off dispenser offers Power on")
 	ui._on_priority_requested(0)
 	check(dispenser.priority == 1, "priority minimum")
 	ui._on_priority_requested(8)
@@ -203,7 +207,7 @@ func _water() -> void:
 	var info: CanvasLayer = panel("res://scripts/ui/water/WaterInfoUI.gd")
 	info.open("Water hookup", "hookup", wm.source)
 	await _layout(info)
-	check(info._source_demand.get_node("Value").text.contains("5000 / 3000"), "source aggregate demand")
+	check(info._source_demand.get_node("Line/Value").text.contains("5000 / 3000"), "source aggregate demand")
 	info.close()
 	var sink := WaterTestSink.new()
 	add_child(sink)
@@ -228,7 +232,8 @@ func _water() -> void:
 		purifier.current_flow_mL_per_day = flow
 		info._refresh_data()
 		var token: String = "success" if flow < 2500.0 else ("warning" if flow < 4000.0 else "critical")
-		check(info._flow.get_node("Value").get_theme_color("font_color") == W.color(info._view, token), "flow bands distinct from wear formula")
+		var expected: Color = Q.TEXT if token == "success" else W.color(info._view, token)
+		check(info._flow.get_node("Line/Value").get_theme_color("font_color") == expected, "flow bands distinct from wear formula")
 	info.close()
 	wm.maximum = 3000.0
 
@@ -321,9 +326,11 @@ func _power_owners() -> void:
 	await _layout(gen_ui)
 	check(not player.interaction_system.build_mode_active, "generator does not pretend to enter build mode")
 	var watts := gen_ui._view.get_node("%Watts") as Label
-	check(watts.get_theme_color("font_color") == BunkerPanelStyle.BRASS.lightened(0.28) \
-		and watts.has_theme_stylebox_override("normal"),
-		"generator rated output uses boxed amber value treatment")
+	check(watts.get_theme_color("font_color") == Q.TEXT \
+		and not watts.has_theme_stylebox_override("normal"),
+		"generator rated output reads as a quiet caption/value row")
+	check(gen_ui._toggle_btn is CheckButton and gen_ui._power_btn.text.begins_with("Power"),
+		"generator backup is a switch row; power is the primary action")
 	gen_ui.refresh(100.0, 100.0, false, true, false, "ONLINE")
 	check(not (gen_ui._view.get_node("%ActionHint") as Label).visible,
 		"running generator omits redundant shutdown warning")

@@ -70,6 +70,7 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	SharedUI.release(_prio_ui, self)   ## shared priority panel: close if lent to us
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
@@ -129,18 +130,12 @@ func on_interact() -> void:
 		is_node.build_mode_active = true
 
 	if _prio_ui == null or not is_instance_valid(_prio_ui):
-		var ui_script: GDScript = load("res://scripts/ui/power/PowerPriorityUI.gd")
-		if ui_script == null:
-			push_warning("HeavyConsumerTest: PowerPriorityUI.gd not found")
+		## SharedUI (Sep 2026): one prebuilt panel per type, lent to this
+		## device while its view is open (no per-device build hitch).
+		_prio_ui = SharedUI.acquire("res://scripts/ui/power/PowerPriorityUI.gd", self, &"_prio_ui",
+			{"closed": _on_prio_closed, "load_toggled": _on_prio_load_toggled})
+		if _prio_ui == null:
 			return
-		_prio_ui = CanvasLayer.new()
-		_prio_ui.set_script(ui_script)
-		_prio_ui.name = "PowerPriorityUI"
-		get_tree().get_root().add_child(_prio_ui)
-		if _prio_ui.has_signal("closed"):
-			_prio_ui.closed.connect(_on_prio_closed)
-		if _prio_ui.has_signal("load_toggled"):
-			_prio_ui.load_toggled.connect(_on_prio_load_toggled)
 
 	if _prio_ui.has_method("open"):
 		## show_load_toggle = true → panel includes the on/off load switch.

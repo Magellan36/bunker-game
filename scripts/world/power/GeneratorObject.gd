@@ -631,8 +631,7 @@ func on_grid_tripped() -> void:
 func _exit_tree() -> void:
 	# Inspector is root-owned; don't leave an orphan after deconstruction.
 	if is_instance_valid(_inspect_ui):
-		_inspect_ui.close()
-		_inspect_ui.queue_free()
+		_inspect_ui.close()   ## shared panel: close, never free
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null or _pm_id.is_empty():
 		return
@@ -676,20 +675,12 @@ func on_interact() -> void:
 	# ControllerUINavigation gates world interaction. Do not impersonate build
 	# mode: the player must remain able to walk/turn while inspecting devices.
 	if _inspect_ui == null or not is_instance_valid(_inspect_ui):
-		var ui_script: GDScript = load("res://scripts/ui/power/GeneratorInspectUI.gd")
-		if ui_script == null:
-			push_warning("GeneratorObject: GeneratorInspectUI.gd not found")
+		## SharedUI (Sep 2026): one prebuilt panel per type, lent to this
+		## device while its view is open (no per-device build hitch).
+		_inspect_ui = SharedUI.acquire("res://scripts/ui/power/GeneratorInspectUI.gd", self, &"_inspect_ui",
+			{"closed": _on_inspect_closed, "backup_toggled": _on_backup_toggled, "power_toggled": _on_power_toggled})
+		if _inspect_ui == null:
 			return
-		_inspect_ui = CanvasLayer.new()
-		_inspect_ui.set_script(ui_script)
-		_inspect_ui.name = "GeneratorInspectUI"
-		get_tree().get_root().add_child(_inspect_ui)
-		if _inspect_ui.has_signal("closed"):
-			_inspect_ui.closed.connect(_on_inspect_closed)
-		if _inspect_ui.has_signal("backup_toggled"):
-			_inspect_ui.backup_toggled.connect(_on_backup_toggled)
-		if _inspect_ui.has_signal("power_toggled"):
-			_inspect_ui.power_toggled.connect(_on_power_toggled)
 
 	if _inspect_ui.has_method("open"):
 		var pm:        PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager

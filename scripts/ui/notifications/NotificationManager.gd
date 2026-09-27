@@ -1,6 +1,8 @@
 extends Node
 ## Central alert service. Live toasts are compact, capped and non-interactive;
 ## durable run events are also exposed to the pause-menu Bunker Log.
+## Sep 2026 quiet pass: toasts are native quiet cards stacked top-right under
+## the cash readout, avoiding registered surfaces (QuietControls.avoid_toasts).
 
 signal history_changed
 
@@ -9,11 +11,15 @@ enum Severity { INFO, WARNING, CRITICAL }
 const MAX_QUEUE_LEN := 20
 const MAX_VISIBLE_TOASTS := 3
 const MAX_HISTORY_LEN := 20
-const TOAST_WIDTH := 520.0
-const TOAST_HEIGHT := 48.0
-const TOAST_GAP := 6.0
-const GAP_ABOVE_BAR := 12.0
-const FALLBACK_BOTTOM_MARGIN := 140.0
+## Quiet toasts (Sep 2026, decision D2): top-right, under the cash readout.
+const TOAST_WIDTH := 360.0
+const TOAST_GAP := 8.0
+const TOAST_EDGE := 24.0
+const TOAST_TOP_FALLBACK := 72.0
+const TOAST_GAP_BELOW_CASH := 12.0
+## Controls that toasts must never cover (see QuietControls.avoid_toasts()).
+const TOAST_AVOID_GROUP := &"ui_toast_avoid"
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 const FADE_TAIL_RATIO := 0.20
 const DEFAULT_DURATION := 4.0
 const DURATION_SENTINEL := -1.0
@@ -21,22 +27,17 @@ const WARNING_DURATION := 6.0
 const CRITICAL_DURATION := 8.0
 const DEDUPE_WINDOW_MSEC := 2500
 
-const TOAST_FILL_ALPHA := 0.96
-const TOAST_BORDER_COLOR := Color("3e3b33")
-const TOAST_BORDER_WIDTH := 1.0
-const TOAST_TEXT_COLOR := Color("f2e8cf")
-const TOAST_CORNER_RADIUS := 7
-const TOAST_BG := Color("111615f5")
-
-const SEVERITY_COLOR_INFO := Color("5faee3")
-const SEVERITY_COLOR_WARNING := Color("dda42e")
-const SEVERITY_COLOR_CRITICAL := Color("df4e4e")
+const SEVERITY_COLOR_INFO := Color("86a9bf")
+const SEVERITY_COLOR_WARNING := Color("f0b861")
+const SEVERITY_COLOR_CRITICAL := Color("df7669")
 
 ## Live entry: domain, severity, text, detail, duration, age, count.
 var _queue: Array[Dictionary] = []
 ## Journal entry adds fired_at_msec and seen. Newest remains last internally.
 var _history: Array[Dictionary] = []
 var _canvas: Control
+var _views: Dictionary = {}          ## instance_id -> toast PanelContainer
+var _overflow_label: Label
 
 func _ready() -> void:
 	var notification_layer := CanvasLayer.new()
@@ -48,7 +49,12 @@ func _ready() -> void:
 	_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_canvas.name = "NotificationCanvas"
 	notification_layer.add_child(_canvas)
-	_canvas.draw.connect(_on_draw)
+	# Autoload canvases have no theme owner: give toasts the project font.
+	BunkerUIComponents.apply_theme(_canvas)
+	_overflow_label = Q.label("", 12, Q.MUTED)
+	_overflow_label.name = "Overflow"
+	_overflow_label.visible = false
+	_canvas.add_child(_overflow_label)
 
 ## Existing call signature remains source-compatible: duration is still the
 ## fourth argument. `journal=false` is reserved for immediate UI feedback that
@@ -87,8 +93,6 @@ func notify(domain: UIKit.Domain, severity: Severity, text: String,
 		_queue.pop_front()
 	if journal:
 		_append_history(domain, severity, str(parts.title), str(parts.detail), key, now)
-	if _canvas != null:
-		_canvas.queue_redraw()
 
 ## Short-lived interaction acknowledgement. It still appears as a toast, but
 ## never enters Bunker Log. Use this for "bag empty", +material, etc.; real
@@ -158,112 +162,217 @@ func mark_history_seen() -> void:
 
 func clear_transient_queue() -> void:
 	_queue.clear()
-	if _canvas != null:
-		_canvas.queue_redraw()
+	for view: PanelContainer in _views.values():
+		if is_instance_valid(view):
+			view.queue_free()
+	_views.clear()
 
 func _process(delta: float) -> void:
-	if _queue.is_empty():
+	if _queue.is_empty() and _views.is_empty():
 		return
+	## While a modal workspace is open, ordinary alerts wait (they are already
+	## in the Log) and appear when it closes; critical alerts still break through.
+	var held := _modal_open()
 	for entry: Dictionary in _queue:
-		entry.age = float(entry.age) + delta
+		if not held or int(entry.severity) == Severity.CRITICAL:
+			entry.age = float(entry.age) + delta
 	_queue = _queue.filter(func(entry: Dictionary) -> bool:
 		return float(entry.age) < float(entry.duration))
-	_canvas.queue_redraw()
+	_layout_toasts(delta, held)
 
-func _on_draw() -> void:
-	if _queue.is_empty():
-		return
+
+# ── Quiet toast presentation (Sep 2026, QUIET_DESIGN_SYSTEM §3, decision D2) ──
+# Top-right under the cash readout, newest on top, native controls. Surfaces
+# that must never be covered register with QuietControls.avoid_toasts().
+
+func _layout_toasts(delta: float, held: bool) -> void:
 	var viewport := _canvas.get_viewport().get_visible_rect().size
-	var center_x := (viewport.x - TOAST_WIDTH) * 0.5
-	var bar_top := viewport.y - FALLBACK_BOTTOM_MARGIN
-	var hud := _canvas.get_tree().get_first_node_in_group("hud")
-	if hud != null and "inventory_hud" in hud:
-		var inventory_bar := hud.get("inventory_hud") as Control
-		if is_instance_valid(inventory_bar):
-			bar_top = inventory_bar.get_global_rect().position.y
-	var visible_count := mini(MAX_VISIBLE_TOASTS, _queue.size())
-	var first := _queue.size() - visible_count
-	var bottom_y := bar_top - GAP_ABOVE_BAR
-	for i: int in range(_queue.size() - 1, first - 1, -1):
-		var rect := Rect2(center_x, bottom_y - TOAST_HEIGHT, TOAST_WIDTH, TOAST_HEIGHT)
-		_draw_toast(rect, _queue[i])
-		bottom_y -= TOAST_HEIGHT + TOAST_GAP
-	var hidden := _queue.size() - visible_count
+	var shown: Array[Dictionary] = []
+	for i: int in range(_queue.size() - 1, -1, -1):
+		var entry: Dictionary = _queue[i]
+		if held and int(entry.severity) != Severity.CRITICAL:
+			continue
+		shown.append(entry)
+		if shown.size() >= MAX_VISIBLE_TOASTS:
+			break
+	var hidden := 0
+	for entry: Dictionary in _queue:
+		if not (held and int(entry.severity) != Severity.CRITICAL):
+			hidden += 1
+	hidden -= shown.size()
+
+	var keep: Dictionary = {}
+	var heights := 0.0
+	for entry: Dictionary in shown:
+		var view := _view_for(entry)
+		keep[view.get_instance_id()] = true
+		heights += view.get_combined_minimum_size().y + TOAST_GAP
+	var column := _toast_column(viewport, heights, held)
+	var y := column.position.y
+	for entry: Dictionary in shown:
+		var view: PanelContainer = entry.view
+		var target := Vector2(column.position.x, y)
+		if not view.visible:
+			view.visible = true
+			view.position = target + Vector2(18.0, 0.0)
+		view.position = view.position.lerp(target, UIMotion.weight(delta, 14.0))
+		var appear: float = minf(float(view.get_meta(&"appear", 0.0)) + delta / 0.22, 1.0)
+		view.set_meta(&"appear", appear if not UIMotion.reduced() else 1.0)
+		view.modulate.a = float(view.get_meta(&"appear")) * _fade_alpha(float(entry.age), float(entry.duration))
+		_refresh_view(view, entry)
+		y += view.size.y + TOAST_GAP
+	_overflow_label.visible = hidden > 0
 	if hidden > 0:
-		_draw_overflow(Vector2(center_x + 8, bottom_y - 2), hidden)
+		_overflow_label.text = "+%d more" % hidden
+		_overflow_label.position = Vector2(column.end.x - _overflow_label.size.x, y)
+	## Retire views whose entries left the queue (or are held back).
+	for id: int in _views.keys():
+		if not keep.has(id):
+			var view: PanelContainer = _views[id]
+			_views.erase(id)
+			_retire_view(view)
 
-func _draw_toast(rect: Rect2, entry: Dictionary) -> void:
-	var alpha := _fade_alpha(float(entry.age), float(entry.duration))
+
+func _toast_column(viewport: Vector2, height: float, held: bool) -> Rect2:
+	var right := viewport.x - TOAST_EDGE
+	var top := TOAST_TOP_FALLBACK
+	var hud := _canvas.get_tree().get_first_node_in_group("hud")
+	if hud != null and "cash_panel" in hud:
+		var cash := hud.get("cash_panel") as Control
+		if is_instance_valid(cash) and cash.is_visible_in_tree():
+			top = cash.get_global_rect().end.y + TOAST_GAP_BELOW_CASH
+	if held:
+		## Modal workspace open: critical alerts sit top-centre over the dim.
+		return Rect2((viewport.x - TOAST_WIDTH) * 0.5, 12.0, TOAST_WIDTH, height)
+	for pass_index: int in range(3):
+		var column := Rect2(right - TOAST_WIDTH, top, TOAST_WIDTH, height)
+		var moved := false
+		for obstacle: Rect2 in _obstacles(false):
+			if not column.intersects(obstacle):
+				continue
+			if obstacle.position.y <= top + 4.0:
+				top = obstacle.end.y + TOAST_GAP_BELOW_CASH   # a strip at the anchor (SHOP)
+			else:
+				right = obstacle.position.x - 16.0            # a docked panel below
+			moved = true
+		if not moved:
+			break
+	return Rect2(maxf(right - TOAST_WIDTH, TOAST_EDGE), top, TOAST_WIDTH, height)
+
+
+func _obstacles(modal: bool) -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	for node: Node in _canvas.get_tree().get_nodes_in_group(TOAST_AVOID_GROUP):
+		var control := node as Control
+		if control == null or not control.is_visible_in_tree():
+			continue
+		var layer := _canvas_layer_of(control)
+		if layer != null and not layer.visible:
+			continue
+		if bool(control.get_meta(&"toast_modal", false)) == modal:
+			rects.append(control.get_global_rect())
+	return rects
+
+
+func _modal_open() -> bool:
+	return not _obstacles(true).is_empty()
+
+
+func _canvas_layer_of(node: Node) -> CanvasLayer:
+	var current := node.get_parent()
+	while current != null:
+		if current is CanvasLayer:
+			return current as CanvasLayer
+		current = current.get_parent()
+	return null
+
+
+func _view_for(entry: Dictionary) -> PanelContainer:
+	# A card is retired (faded + freed) when its entry leaves the visible set,
+	# e.g. while held behind a modal workspace. The entry may come back later,
+	# so validate before any type check (`is` on a freed object errors) and
+	# never reuse a card that is mid-retirement.
+	var existing: Variant = entry.get("view")
+	if is_instance_valid(existing) and existing is PanelContainer \
+			and not (existing as PanelContainer).has_meta(&"retiring"):
+		return existing
+	entry.erase("view")
+	var view := PanelContainer.new()
+	view.name = "Toast"
+	view.visible = false
+	view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	view.custom_minimum_size.x = TOAST_WIDTH
+	view.add_theme_stylebox_override("panel", Q.toast_box())
+	var body := VBoxContainer.new()
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_theme_constant_override("separation", 2)
+	view.add_child(body)
+	var top := HBoxContainer.new()
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(top)
+	var eyebrow: Label = Q.eyebrow("", 11)
+	eyebrow.name = "Eyebrow"
+	eyebrow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(eyebrow)
+	var count: Label = Q.label("", 12, Q.MUTED)
+	count.name = "Count"
+	top.add_child(count)
+	var title: Label = Q.label("", 15, Q.TEXT)
+	title.name = "Title"
+	title.clip_text = true
+	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	body.add_child(title)
+	var detail: Label = Q.label("", 13, Q.MUTED)
+	detail.name = "Detail"
+	detail.clip_text = true
+	detail.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	detail.visible = false
+	body.add_child(detail)
+	view.set_meta(&"eyebrow", eyebrow)
+	view.set_meta(&"count", count)
+	view.set_meta(&"title", title)
+	view.set_meta(&"detail", detail)
+	_canvas.add_child(view)
+	entry.view = view
+	_views[view.get_instance_id()] = view
+	return view
+
+
+func _refresh_view(view: PanelContainer, entry: Dictionary) -> void:
 	var severity := int(entry.severity) as Severity
-	var accent := severity_color(severity)
-	var background := TOAST_BG
-	background.a *= alpha
-	var border := TOAST_BORDER_COLOR
-	border.a *= alpha
-	var shell := StyleBoxFlat.new()
-	shell.bg_color = background
-	shell.border_color = border
-	shell.set_border_width_all(int(TOAST_BORDER_WIDTH))
-	shell.set_corner_radius_all(TOAST_CORNER_RADIUS)
-	shell.draw(_canvas.get_canvas_item(), rect)
-	var stripe := accent
-	stripe.a *= alpha
-	_canvas.draw_rect(Rect2(rect.position + Vector2(0, 6), Vector2(5, rect.size.y - 12)), stripe, true)
-	var icon_rect := Rect2(rect.position + Vector2(10, 6), Vector2(36, 36))
-	var icon_bg := Color("181d1d")
-	icon_bg.a *= alpha
-	var icon_edge := BunkerPanelStyle.BRASS.darkened(0.32)
-	icon_edge.a *= alpha
-	var icon_shell := StyleBoxFlat.new()
-	icon_shell.bg_color = icon_bg
-	icon_shell.border_color = icon_edge
-	icon_shell.set_border_width_all(1)
-	icon_shell.set_corner_radius_all(5)
-	icon_shell.draw(_canvas.get_canvas_item(), icon_rect)
 	var domain := int(entry.domain) as UIKit.Domain
-	var icon_color := domain_color(domain)
-	icon_color.a *= alpha
-	_canvas.draw_texture_rect(BunkerPanelStyle.icon(domain_symbol(domain)),
-		icon_rect.grow(-7), false, icon_color)
-	var domain_text := "%s  •  %s" % [domain_label(domain), severity_label(severity)]
-	var domain_tint := accent if severity != Severity.INFO else domain_color(domain)
-	domain_tint.a *= alpha
-	UIKit.draw_shadowed_text(_canvas, rect.position + Vector2(56, 15), domain_text, 10, domain_tint)
-	var message := _ellipsize(str(entry.text), rect.size.x - 122, 14)
-	var text_color := TOAST_TEXT_COLOR
-	text_color.a *= alpha
-	UIKit.draw_shadowed_text(_canvas, rect.position + Vector2(56, 36), message, 14, text_color)
-	var detail := str(entry.get("detail", ""))
-	if not detail.is_empty():
-		## Keep compact 48px toast height: detail replaces the right metadata
-		## column rather than creating a third text line.
-		var detail_text := _ellipsize(detail, 120, 10)
-		var detail_color := BunkerPanelStyle.BRASS.lightened(0.30)
-		detail_color.a *= alpha
-		var width := UIKit.font().get_string_size(detail_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
-		UIKit.draw_shadowed_text(_canvas,
-			rect.position + Vector2(rect.size.x - width - 10, 15), detail_text, 10, detail_color)
+	var eyebrow := view.get_meta(&"eyebrow") as Label
+	var text := domain_label(domain)
+	if severity != Severity.INFO:
+		text = "●  %s  ·  %s" % [text, severity_label(severity)]
+	if eyebrow.text != text:
+		eyebrow.text = text
+		eyebrow.add_theme_color_override("font_color",
+			Q.HEADING if severity == Severity.INFO else severity_color(severity))
+	(view.get_meta(&"title") as Label).text = str(entry.text)
+	var detail := view.get_meta(&"detail") as Label
+	detail.text = str(entry.get("detail", ""))
+	detail.visible = not detail.text.is_empty()
 	var count := int(entry.get("count", 1))
-	if count > 1:
-		var badge := "×%d" % count
-		var badge_color := accent
-		badge_color.a *= alpha
-		var badge_width := UIKit.font().get_string_size(badge, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-		UIKit.draw_shadowed_text(_canvas,
-			rect.position + Vector2(rect.size.x - badge_width - 10, 36), badge, 11, badge_color)
+	(view.get_meta(&"count") as Label).text = "×%d" % count if count > 1 else ""
+	# Controls grow but never shrink on their own: fit the card to its content.
+	var fitted := view.get_combined_minimum_size()
+	if not view.size.is_equal_approx(fitted):
+		view.size = fitted
 
-func _draw_overflow(position: Vector2, hidden: int) -> void:
-	var text := "+%d earlier alert%s" % [hidden, "" if hidden == 1 else "s"]
-	UIKit.draw_shadowed_text(_canvas, position, text, 10, BunkerPanelStyle.MUTED)
 
-func _ellipsize(text: String, max_width: float, size: int) -> String:
-	if UIKit.font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x <= max_width:
-		return text
-	var result := text
-	while result.length() > 1 and UIKit.font().get_string_size(
-			result + "…", HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > max_width:
-		result = result.left(result.length() - 1)
-	return result + "…"
+func _retire_view(view: PanelContainer) -> void:
+	if not is_instance_valid(view):
+		return
+	view.set_meta(&"retiring", true)
+	if UIMotion.reduced() or not view.visible:
+		view.queue_free()
+		return
+	var tween := view.create_tween().set_parallel(true)
+	tween.tween_property(view, "modulate:a", 0.0, 0.18)
+	tween.tween_property(view, "position:x", view.position.x + 12.0, 0.18)
+	tween.chain().tween_callback(view.queue_free)
+
 
 func severity_color(severity: Severity) -> Color:
 	match severity:

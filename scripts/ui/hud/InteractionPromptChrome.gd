@@ -7,7 +7,7 @@ class_name InteractionPromptChrome
 ## leaves a persistent rail/partial outline beside the input glyph and never
 ## competes with specialised prompts such as CookingPot previews.
 
-const BLUE: Color = Color(0.36, 0.73, 0.96, 1.0)
+const BLUE: Color = Color("86a9bf")   ## quiet steel accent (Sep 2026)
 const BLOOM_SECONDS: float = 0.18
 
 var _bloom: float = 0.0

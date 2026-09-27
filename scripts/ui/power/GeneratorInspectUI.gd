@@ -9,9 +9,7 @@ signal power_toggled(running: bool)
 
 const PANEL_SCENE: PackedScene = preload("res://scenes/ui/power/GeneratorInspectPanel.tscn")
 const W: GDScript = preload("res://scripts/ui/common/BunkerInspectorWidgets.gd")
-var RUNNING_ICON: Texture2D = W.icon("running")
-var STOPPED_ICON: Texture2D = W.icon("stopped")
-var GRID_ICON: Texture2D = W.icon("grid")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 const FADE_SCRIPT: GDScript = preload("res://scripts/ui/common/UIFade.gd")
 const NAV_SCRIPT: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
 const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
@@ -31,7 +29,8 @@ var _previous_focus: WeakRef
 
 var _view: Control
 var _panel: PanelContainer
-var _toggle_btn: Button
+var _toggle_btn: CheckButton
+var _rail: Control
 var _power_btn: Button
 var _close_btn: Button
 var _controller_nav: Node
@@ -43,29 +42,14 @@ func _ready() -> void:
 	_view = PANEL_SCENE.instantiate() as Control
 	add_child(_view)
 	_panel = _view.get_node("%Panel") as PanelContainer
-	_toggle_btn = _view.get_node("%Backup") as Button
+	Q.avoid_toasts(_panel, false)  # never covered by toasts
+	_toggle_btn = _view.get_node("%Backup") as CheckButton
 	_power_btn = _view.get_node("%Power") as Button
 	_close_btn = _view.get_node("%Close") as Button
-	var watts_label := _view.get_node("%Watts") as Label
-	watts_label.add_theme_color_override("font_color", BunkerPanelStyle.BRASS.lightened(0.28))
-	watts_label.add_theme_stylebox_override("normal", BunkerPanelStyle.button_box(
-		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.12), 7, 1, 10, 3))
-	watts_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	(_view.get_node("Panel/Margin/Content/Header/PowerIcon") as TextureRect).texture = W.icon("power")
-	for prefix: String in ["Fuel", "Condition"]:
-		var meter_icon: TextureRect = _view.get_node("Panel/Margin/Content/DetailsLane/DetailsScroll/FocusInset/Details/" + prefix + "/Heading/Icon") as TextureRect
-		meter_icon.texture = W.icon(prefix.to_lower())
-	_toggle_btn.icon = GRID_ICON
+	_quiet_style()
 	_toggle_btn.pressed.connect(_on_toggle_pressed)
 	_power_btn.pressed.connect(_on_power_pressed)
 	_close_btn.pressed.connect(close)
-	# Per-instance styles prevent state changes leaking into another generator.
-	for card_name: String in ["GeneratorStatus", "GridStatus"]:
-		var card: PanelContainer = _view.get_node("%" + card_name) as PanelContainer
-		card.add_theme_stylebox_override("panel", card.get_theme_stylebox("panel").duplicate() as StyleBox)
-	for bar_name: String in ["FuelBar", "ConditionBar"]:
-		var bar: ProgressBar = _view.get_node("%" + bar_name) as ProgressBar
-		bar.add_theme_stylebox_override("fill", bar.get_theme_stylebox("fill").duplicate() as StyleBox)
 	_configure_focus()
 	_controller_nav = NAV_SCRIPT.new()
 	_controller_nav.ui_root = self
@@ -76,6 +60,46 @@ func _ready() -> void:
 	_proximity.ui = self
 	add_child(_proximity)
 	set_process(false)
+
+## Sep 2026 quiet pass: same scene contract, quiet language (shared with
+## every device inspector through W.quiet_shell). Readings are rows, status
+## is dot + word, meters are 3 px, the power action is the one primary.
+func _quiet_style() -> void:
+	_rail = W.quiet_shell(_view, _close_btn)
+	get_viewport().gui_focus_changed.connect(func(control: Control) -> void:
+		if _is_open and control != null and _view.is_ancestor_of(control):
+			_rail.call("set_target", null if control == _close_btn else control))
+	var watts_label := _view.get_node("%Watts") as Label
+	watts_label.add_theme_color_override("font_color", Q.TEXT)
+	watts_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	for card_name: String in ["GeneratorStatus", "GridStatus"]:
+		var card: PanelContainer = _view.get_node("%" + card_name) as PanelContainer
+		card.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		card.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		var dot: TextureRect = card.get_node("Row/Icon") as TextureRect
+		dot.texture = Q._disc(16, Color.WHITE)
+		dot.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		dot.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		dot.set_meta("ui_icon_size", 8)
+		dot.custom_minimum_size = Vector2(8, 8)
+		var word: Label = card.get_node("Row/State") as Label
+		word.set_meta("ui_font_size", 15)
+		word.autowrap_mode = TextServer.AUTOWRAP_OFF
+		word.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	for prefix: String in ["Fuel", "Condition"]:
+		var bar: ProgressBar = _view.get_node("%" + prefix + "Bar") as ProgressBar
+		bar.theme_type_variation = &""
+		Q.meter(bar, 3.0)
+		(_view.get_node("%" + prefix + "Hint") as Label).set_meta("ui_font_size", 13)
+	Q.switch(_toggle_btn, 15)
+	_toggle_btn.custom_minimum_size.y = 34.0   ## keep the approved 34 px target
+	(_view.get_node("%BackupHint") as Label).set_meta("ui_font_size", 13)
+	(_view.get_node("%BackupHint") as Label).add_theme_color_override("font_color", Q.MUTED)
+	(_view.get_node("%ActionHint") as Label).set_meta("ui_font_size", 13)
+	_power_btn.theme_type_variation = &""
+	_power_btn.icon = null
+	Q.primary_action(_power_btn, 16, 40.0)
 
 func _configure_focus() -> void:
 	var buttons: Array[Button] = [_close_btn, _toggle_btn, _power_btn]
@@ -111,6 +135,8 @@ func open(display_name: String, watts: float, fuel: float,
 	set_process(true)
 	# Safe initial target: opening an inspector must not prime a shutdown.
 	_close_btn.grab_focus()
+	_rail.call("set_target", null)
+	_rail.call("snap")
 	var scroll: ScrollContainer = _view.get_node("%DetailsScroll") as ScrollContainer
 	scroll.set_deferred("scroll_vertical", 0)
 	FADE_SCRIPT.fade_in(_view)
@@ -156,33 +182,31 @@ func _refresh_display() -> void:
 	(_view.get_node("%Title") as Label).text = _display_name
 	(_view.get_node("%Watts") as Label).text = "%.0f W" % _watts
 	var status_text: String = "Stopped"
-	var status_color: Color = _color("inactive")
+	var status_token: String = "inactive"
 	if _is_running:
 		status_text = "Running"
-		status_color = _color("success")
+		status_token = "success"
 	elif _grid_tripped:
 		status_text = "Offline"
-		status_color = _color("warning")
+		status_token = "warning"
 	elif _is_backup:
 		status_text = "Standby"
-		status_color = _color("blue")
-	_set_status("GeneratorStatus", status_text, status_color, RUNNING_ICON if _is_running else STOPPED_ICON)
+		status_token = "blue"
+	_set_status("GeneratorStatus", status_text, status_token)
 
 	var grid_state: String = "TRIPPED" if _grid_tripped else _grid_state_str
 	var grid_text: String = "Grid " + grid_state.to_lower()
 	if grid_state.is_empty():
 		grid_text = "Grid unknown"
-	_set_status("GridStatus", grid_text, _grid_state_color(grid_state), GRID_ICON)
+	_set_status("GridStatus", grid_text, _grid_state_token(grid_state))
 	# The passed grid state is global; this is not a per-generator wire check.
 	(_view.get_node("%GridStatus") as Control).tooltip_text = "Bunker-wide grid state. Does not confirm this generator's wire connection."
 
 	_update_meter("Fuel", _fuel, "fuel", "", "Low fuel", "Very low fuel", "Empty — refuel to run")
 	_update_meter("Condition", _health, "health", "", "Worn — maintenance advised", "Critical condition", "Broken — repair required")
-	_toggle_btn.set_pressed_no_signal(_is_backup)
-	_toggle_btn.text = "Backup mode: On" if _is_backup else "Backup mode: Off"
-	_toggle_btn.add_theme_color_override("icon_normal_color", _color("blue"))
+	W.set_switch(_toggle_btn, _is_backup)
 	(_view.get_node("%BackupHint") as Label).text = "This generator will power on when other power sources fail."
-	_toggle_btn.tooltip_text = "Starts automatically when primary power fails, provided fuel and condition allow."
+	_toggle_btn.tooltip_text = ""
 
 	W.set_power_button(_power_btn, _is_running)
 	var hint: String = "Starts this generator and supplies power to connected devices."
@@ -200,50 +224,41 @@ func _refresh_display() -> void:
 	action_hint.visible = not hint.is_empty()
 	action_hint.add_theme_color_override("font_color", hint_color)
 
-func _set_status(card_name: String, text: String, color: Color, icon: Texture2D) -> void:
-	var card: PanelContainer = _view.get_node("%" + card_name) as PanelContainer
-	var style: StyleBoxFlat = card.get_theme_stylebox("panel") as StyleBoxFlat
-	style.bg_color = _color("background").lerp(color, 0.08)
-	style.border_color = _color("background").lerp(color, 0.48)
-	var label: Label = card.get_node("Row/State") as Label
-	label.text = text
-	label.add_theme_color_override("font_color", color)
-	var texture: TextureRect = card.get_node("Row/Icon") as TextureRect
-	texture.texture = icon
-	texture.self_modulate = color
+func _set_status(card_name: String, text: String, token: String) -> void:
+	W.set_status(_view.get_node("%" + card_name) as PanelContainer, text, token)
 
 func _update_meter(prefix: String, value: float, threshold_key: String,
 		good: String, low: String, critical: String, empty: String) -> void:
 	var warn: float = _view.theme.get_constant(threshold_key + "_warn_thresh", "GeneratorInspector")
 	var crit: float = _view.theme.get_constant(threshold_key + "_crit_thresh", "GeneratorInspector")
-	var color: Color = _color("blue") if prefix == "Fuel" else _color("success")
+	var meter_state: String = "normal"
 	var hint: String = good
 	if value <= crit:
-		color = _color("critical")
+		meter_state = "critical"
 		hint = empty if value <= 0.0 else critical
 	elif value <= warn:
-		color = _color("warning")
+		meter_state = "warning"
 		hint = low
-	(_view.get_node("%" + prefix + "Value") as Label).text = "%d%%" % int(value)
+	var readout: Label = _view.get_node("%" + prefix + "Value") as Label
+	readout.text = "%d%%" % int(value)
+	readout.add_theme_color_override("font_color", Q.state_color(meter_state, Q.MUTED))
 	var bar: ProgressBar = _view.get_node("%" + prefix + "Bar") as ProgressBar
 	SMOOTH_BAR.apply(bar, value)
-	var fill: StyleBoxFlat = bar.get_theme_stylebox("fill") as StyleBoxFlat
-	fill.bg_color = color
-	fill.border_color = color
+	Q.set_meter_state(bar, meter_state)
 	var label: Label = _view.get_node("%" + prefix + "Hint") as Label
 	label.text = hint
 	label.visible = not hint.is_empty()
-	label.add_theme_color_override("font_color", _color("secondary") if value > warn else color)
+	label.add_theme_color_override("font_color", Q.state_color(meter_state, Q.MUTED))
 
-func _grid_state_color(state: String) -> Color:
+func _grid_state_token(state: String) -> String:
 	match state:
-		"ONLINE": return _color("success")
-		"OVERLOADED", "TRIPPED": return _color("warning")
-		"BROWNOUT": return _color("critical")
-		_: return _color("inactive")
+		"ONLINE": return "success"
+		"OVERLOADED", "TRIPPED": return "warning"
+		"BROWNOUT": return "critical"
+		_: return "inactive"
 
 func _color(token: String) -> Color:
-	return _view.theme.get_color(token, "Bunker")
+	return W.color(_view, token)
 
 func _process(_delta: float) -> void:
 	if _controller_hints != InputMode.is_controller():

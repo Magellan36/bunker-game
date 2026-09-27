@@ -115,6 +115,18 @@ func _load_theme() -> void:
 	SECTION_BG_HOVER = UIKit.theme_color("AdminUI", "section_bg_hover", Color(0.22, 0.23, 0.18, 0.75))
 	ROW_BG = UIKit.theme_color("AdminUI", "row_bg", Color(0.14, 0.15, 0.13, 0.90))
 	ROW_BG_HOVER = UIKit.theme_color("AdminUI", "row_bg_hover", Color(0.22, 0.23, 0.18, 0.95))
+	## Quiet dev-tool skin (plan Pass 5B): the shared quiet palette, no
+	## polish investment. Never player-facing.
+	BG_COLOR = Color(0.051, 0.067, 0.063, 0.97)
+	BORDER_COLOR = Color(0.533, 0.451, 0.306, 0.3)
+	HEADER_COLOR = Color("a8946c")
+	TEXT_COLOR = Color("f2e8cf")
+	DIM_COLOR = Color("aaa596")
+	CRIT_COLOR = Color("df7669")
+	SECTION_BG = Color(0.949, 0.91, 0.812, 0.03)
+	SECTION_BG_HOVER = Color(0.949, 0.91, 0.812, 0.07)
+	ROW_BG = Color(0.949, 0.91, 0.812, 0.025)
+	ROW_BG_HOVER = Color(0.949, 0.91, 0.812, 0.06)
 	PANEL_W = float(UIKit.theme_constant("AdminUI", "panel_w", 320))
 	PANEL_H = float(UIKit.theme_constant("AdminUI", "panel_h", 480))
 	ROW_H = float(UIKit.theme_constant("AdminUI", "row_h", 34))
@@ -283,12 +295,12 @@ func _build_scroll_area() -> void:
 	## theme.
 	var scroll_theme: Theme = Theme.new()
 	var grabber: StyleBoxFlat = StyleBoxFlat.new()
-	grabber.bg_color = BunkerDesign.IVORY.darkened(0.18)
-	grabber.set_corner_radius_all(4)
+	grabber.bg_color = Color(BunkerDesign.IVORY, 0.13)   ## quiet scrollbar (design §2)
+	grabber.set_corner_radius_all(3)
 	var grabber_hi: StyleBoxFlat = grabber.duplicate() as StyleBoxFlat
-	grabber_hi.bg_color = BunkerDesign.IVORY
+	grabber_hi.bg_color = Color(BunkerDesign.IVORY, 0.26)
 	var track: StyleBoxFlat = StyleBoxFlat.new()
-	track.bg_color = Color(0.0, 0.0, 0.0, 0.25)
+	track.bg_color = Color(0.0, 0.0, 0.0, 0.0)
 	track.set_corner_radius_all(4)
 	scroll_theme.set_stylebox("grabber", "VScrollBar", grabber)
 	scroll_theme.set_stylebox("grabber_highlight", "VScrollBar", grabber_hi)
@@ -370,8 +382,8 @@ func _style_row_btn(btn: Button) -> void:
 	btn.add_theme_font_size_override("font_size", 13)
 	var normal: StyleBoxFlat = StyleBoxFlat.new()
 	normal.bg_color     = ROW_BG
-	normal.border_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.55)
-	normal.set_border_width_all(1)
+	normal.border_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.0)
+	normal.set_border_width_all(0)   ## quiet: no persistent borders
 	normal.set_corner_radius_all(4)
 	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
 	hover.bg_color     = ROW_BG_HOVER
@@ -395,8 +407,8 @@ func _reposition_controls() -> void:
 	var px: float   = (vp.x - PANEL_W) * 0.5
 	var py: float   = (vp.y - PANEL_H) * 0.5
 
-	_close_btn.position = Vector2(px + PANEL_W - 40.0, py + 16.0)
-	_close_btn.size     = Vector2(30.0, 30.0)
+	_close_btn.position = Vector2(px + PANEL_W - 64.0, py + 16.0)
+	_close_btn.size     = Vector2(54.0, 30.0)
 
 	## Scroll area sits between the header chrome (title+separator, ends
 	## ~py+72) and the footer hint line (~py+PANEL_H-30) — see _on_draw().
@@ -476,26 +488,23 @@ func _on_draw() -> void:
 	_canvas.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, _backdrop_alpha), true)
 
 	var panel: Rect2 = Rect2(px, py, PANEL_W, PANEL_H)
-	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 2.0)
+	UIKit.draw_rounded_rect(_canvas, panel, BG_COLOR, BORDER_COLOR, 1.0)
 
-	## Close button ×
-	var close_rect: Rect2 = Rect2(px + PANEL_W - 40.0, py + 16.0, 30.0, 30.0)
-	UIKit.draw_rounded_rect(_canvas, close_rect, Color(0.10, 0.06, 0.06, 0.90), CRIT_COLOR, 1.5)
-	var cp: Vector2 = close_rect.position
-	var cs: Vector2 = close_rect.size
-	_canvas.draw_line(cp + Vector2(6, 6), cp + cs - Vector2(6, 6), Color(1.0, 0.7, 0.7, 1.0), 2.0, true)
-	_canvas.draw_line(cp + Vector2(cs.x - 6, 6), cp + Vector2(6, cs.y - 6), Color(1.0, 0.7, 0.7, 1.0), 2.0, true)
+	## Close — quiet text action (same 30 px hit rect as before).
+	var close_rect: Rect2 = Rect2(px + PANEL_W - 64.0, py + 16.0, 54.0, 30.0)
+	var close_hot: bool = close_rect.has_point(get_viewport().get_mouse_position())
+	_draw_str("Close", close_rect.position + Vector2(8.0, 6.0), TEXT_COLOR if close_hot else DIM_COLOR, 14)
 
 	var cx: float = px + 20.0
 	var cy: float = py + 26.0
 
-	_draw_str("[F7]  ADMIN CONTROLS", Vector2(cx, cy), HEADER_COLOR, 16)
+	_draw_str("ADMIN  ·  F7", Vector2(cx, cy), HEADER_COLOR, 13)
 	cy += 28.0
 
 	_canvas.draw_line(Vector2(cx, cy), Vector2(px + PANEL_W - 24.0, cy),
 		Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.45), 1.0, true)
 
-	_draw_str("[ESC / E]  Close", Vector2(cx, py + PANEL_H - 18.0), DIM_COLOR, 9)
+	_draw_str("ESC / E  Close", Vector2(cx, py + PANEL_H - 22.0), DIM_COLOR, 12)
 
 	_reposition_controls()
 

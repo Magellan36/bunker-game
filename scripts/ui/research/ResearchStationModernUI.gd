@@ -6,8 +6,9 @@ class_name ResearchStationModernUI
 
 signal closed
 
-const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
-const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const C: GDScript = preload("res://scripts/ui/common/QuietLegacyComponents.gd")  ## quiet pass (Pass 4)
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
+const S: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")  ## quiet pass (Pass 4)
 const NAV: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
 const PROXIMITY: GDScript = preload("res://scripts/ui/common/UIProximityClose.gd")
 const FADE: GDScript = preload("res://scripts/ui/common/UIFade.gd")
@@ -179,6 +180,7 @@ func _build_interface() -> void:
 	_view.add_child(backdrop)
 
 	_panel = PanelContainer.new()
+	preload("res://scripts/ui/common/QuietControls.gd").avoid_toasts(_panel, true)  # never covered by toasts
 	_panel.name = "ResearchStationPanel"
 	C.shell(_panel, 10)
 	_view.add_child(_panel)
@@ -191,10 +193,17 @@ func _build_interface() -> void:
 	_build_material_reserves(content)
 	_build_pages(content)
 	C.divider(content)
+	## Quiet footer: key hints (right); the sentence label stays hidden.
+	var footer_row: HBoxContainer = HBoxContainer.new()
+	footer_row.alignment = BoxContainer.ALIGNMENT_END
+	footer_row.add_theme_constant_override("separation", 18)
+	content.add_child(footer_row)
 	_footer = _label("", 12, S.MUTED)
-	_footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_footer.custom_minimum_size.y = 22.0
-	content.add_child(_footer)
+	_footer.visible = false
+	footer_row.add_child(_footer)
+	BunkerUIComponents.key_hint(footer_row, "Q / R", "Tabs", "Q / R", "LB / RB")
+	BunkerUIComponents.key_hint(footer_row, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer_row, "ESC", "Close", "ESC", "B")
 
 
 func _build_header(parent: Container) -> void:
@@ -206,17 +215,16 @@ func _build_header(parent: Container) -> void:
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_child(titles)
-	titles.add_child(_label("RESEARCH & DEVELOPMENT", 12, S.BLUE))
-	var title: Label = _label("Research Station", 29, S.IVORY)
+	titles.add_child(Q.eyebrow("Research & development", 12))
+	var title: Label = _label("Research Station", 28, S.IVORY)
 	titles.add_child(title)
 
 
 	_close_button = Button.new()
-	_close_button.custom_minimum_size = Vector2(40.0, 40.0)
-	_close_button.tooltip_text = "Close research station"
-	S.icon_button(_close_button, "close")
-	_close_button.text = ""
-	_close_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_close_button.text = "Close"
+	Q.nav_button(_close_button, 14, 30.0)
+	_close_button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_close_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_close_button.pressed.connect(close)
 	row.add_child(_close_button)
 
@@ -232,9 +240,7 @@ func _build_tabs(parent: Container) -> void:
 	for index: int in range(labels.size()):
 		var button: Button = Button.new()
 		button.text = labels[index]
-		button.icon = S.icon(icons[index])
-		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		button.expand_icon = true
+		button.set_meta(&"symbol", icons[index])   ## text-only tabs (quiet pass)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		C.style_segment(button)
 		button.pressed.connect(_set_tab.bind(index))
@@ -527,10 +533,7 @@ func _research_path_button(rect: Rect2) -> Button:
 	button.position = rect.position
 	button.size = rect.size
 	button.custom_minimum_size = rect.size
-	button.icon = S.icon("water")
-	button.expand_icon = true
-	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT   ## D5: text-only nodes
 	button.add_theme_constant_override("icon_max_width", roundi(34.0 * ZOOM_STEPS[_zoom_index]))
 	button.add_theme_font_size_override(
 		"font_size", maxi(11, roundi(14.0 * ZOOM_STEPS[_zoom_index]))
@@ -550,9 +553,12 @@ func _static_path_node(
 	panel.size = rect.size
 	panel.custom_minimum_size = rect.size
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var edge: Color = S.GREEN.darkened(0.18) if state == "complete" else S.BRASS.darkened(0.34)
-	var background: Color = Color("17231d") if state == "complete" else Color("191e1e")
-	panel.add_theme_stylebox_override("panel", C.panel_box(background, edge, 7, 1, 8))
+	## Quiet node: faint wash; completed nodes carry a sage keyline.
+	var node_style: StyleBoxFlat = Q.flat(Color(Q.TEXT, 0.035), 8.0, 8.0, 6)
+	if state == "complete":
+		node_style.border_color = Color(S.GREEN, 0.55)
+		node_style.set_border_width_all(1)
+	panel.add_theme_stylebox_override("panel", node_style)
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 9)
 	panel.add_child(C.inset(row, 10, 7, 10, 7))
@@ -568,37 +574,31 @@ func _static_path_node(
 
 
 func _style_research_path_button(button: Button) -> void:
+	## Quiet node (D5 text-only): faint wash + a 1 px keyline whose colour is
+	## the only state signal (steel = available/active, sage = complete,
+	## brass = waiting on materials); focus adds the 2 px ACCENT underline.
 	var state: String = _research_state()
-	var background: Color = S.BLUE_DARK if state == "available" else Color("182220")
-	var edge: Color = S.BLUE
-	if state == "active":
-		background = Color("172820")
-		edge = S.GREEN
-	elif state == "paused":
-		background = Color("29241a")
-		edge = S.BRASS.lightened(0.25)
-	elif state == "complete":
-		background = Color("172820")
-		edge = S.GREEN
-	elif state == "materials":
-		background = Color("202321")
-		edge = S.BRASS
-	elif state == "busy":
-		background = Color("202321")
-		edge = S.MUTED.darkened(0.25)
+	var edge: Color = Color(Q.ACCENT, 0.7)
+	match state:
+		"complete": edge = Color(S.GREEN, 0.6)
+		"paused", "materials": edge = Color(Q.HEADING, 0.55)
+		"busy": edge = Color(Q.MUTED, 0.3)
+	var normal: StyleBoxFlat = Q.flat(Color(Q.TEXT, 0.04), 12.0, 10.0, 6)
+	normal.border_color = edge
+	normal.set_border_width_all(1)
+	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(Q.TEXT, 0.07)
+	var focus: StyleBoxFlat = Q.flat(Color(0, 0, 0, 0), 12.0, 10.0, 6)
+	focus.border_color = Q.ACCENT
+	focus.border_width_bottom = 2
 	button.add_theme_color_override("font_color", S.IVORY)
 	button.add_theme_color_override("font_hover_color", S.IVORY)
 	button.add_theme_color_override("font_pressed_color", S.IVORY)
-	button.add_theme_color_override("icon_normal_color", edge)
-	button.add_theme_color_override("icon_hover_color", S.IVORY)
-	button.add_theme_stylebox_override("normal", C.panel_box(background, edge, 8, 2, 10))
-	button.add_theme_stylebox_override(
-		"hover", C.panel_box(background.lightened(0.06), S.BLUE, 8, 2, 10)
-	)
-	button.add_theme_stylebox_override(
-		"pressed", C.panel_box(background.darkened(0.06), S.IVORY, 8, 2, 10)
-	)
-	button.add_theme_stylebox_override("focus", C.panel_box(Color.TRANSPARENT, S.IVORY, 9, 2))
+	button.add_theme_color_override("font_focus_color", S.IVORY)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", hover)
+	button.add_theme_stylebox_override("focus", focus)
 
 
 func _update_water_node_text(button: Button) -> void:
@@ -743,7 +743,7 @@ func _style_research_action() -> void:
 	match state:
 		"active":
 			_action_button.text = "Pause Research"
-			_action_button.icon = S.icon("stopped")
+			_action_button.icon = null  ## quiet: text-first (was S.icon("stopped"))
 			S.button(_action_button)
 			var amber: Color = S.BRASS.lightened(0.28)
 			_action_button.add_theme_stylebox_override(
@@ -751,26 +751,26 @@ func _style_research_action() -> void:
 			)
 		"paused":
 			_action_button.text = "Resume Research"
-			_action_button.icon = S.icon("running")
+			_action_button.icon = null  ## quiet: text-first (was S.icon("running"))
 			S.button(_action_button, true)
 		"complete":
 			_action_button.text = "Research Complete"
-			_action_button.icon = S.icon("check")
+			_action_button.icon = null  ## quiet: text-first (was S.icon("check"))
 			S.button(_action_button)
 			_action_button.disabled = true
 		"materials":
 			_action_button.text = "Materials Required"
-			_action_button.icon = S.icon("warning")
+			_action_button.icon = null  ## quiet: text-first (was S.icon("warning"))
 			S.button(_action_button)
 			_action_button.disabled = true
 		"busy":
 			_action_button.text = "Another Research Is Active"
-			_action_button.icon = S.icon("warning")
+			_action_button.icon = null  ## quiet: text-first (was S.icon("warning"))
 			S.button(_action_button)
 			_action_button.disabled = true
 		_:
 			_action_button.text = "Begin Research"
-			_action_button.icon = S.icon("general")
+			_action_button.icon = null  ## quiet: text-first (was S.icon("general"))
 			S.button(_action_button, true)
 	_action_button.expand_icon = true
 	_action_button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -983,14 +983,17 @@ func _card(background: Color = Color("171d1c")) -> PanelContainer:
 func _label(text_value: String, size_value: int, color: Color) -> Label:
 	var result: Label = Label.new()
 	result.text = text_value
-	result.add_theme_font_size_override("font_size", size_value)
+	## Quiet floor (11 inside fixed-size graph nodes, 12 elsewhere reads fine).
+	result.add_theme_font_size_override("font_size", maxi(size_value, 11))
 	result.add_theme_color_override("font_color", color)
 	result.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return result
 
 
+## Quiet pass (D5): decorative symbols retired; node kept (hidden) for callers.
 func _icon(symbol: String, side: float, color: Color) -> TextureRect:
 	var texture: TextureRect = TextureRect.new()
+	texture.visible = false
 	texture.texture = S.icon(symbol)
 	texture.self_modulate = color
 	texture.custom_minimum_size = Vector2(side, side)
@@ -1007,23 +1010,20 @@ func _progress(fill_color: Color, height: float) -> ProgressBar:
 	bar.show_percentage = false
 	bar.custom_minimum_size.y = height
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_theme_stylebox_override(
-		"background", C.panel_box(S.SURFACE_ALT, S.SURFACE_ALT, roundi(height * 0.5), 0)
-	)
-	bar.add_theme_stylebox_override(
-		"fill", C.panel_box(fill_color, fill_color, roundi(height * 0.5), 0)
-	)
+	bar.custom_minimum_size.y = minf(height, 4.0)
+	bar.add_theme_stylebox_override("background", Q.flat(Color(Q.TEXT, 0.09), 0.0, 0.0, 2))
+	bar.add_theme_stylebox_override("fill", Q.flat(Color(fill_color, 0.8), 0.0, 0.0, 2))
 	return bar
 
 
+## Quiet pass: the graph's zoom controls are text (−, +, Reset).
 func _compact_icon_button(symbol: String, tooltip: String) -> Button:
 	var button: Button = Button.new()
 	button.tooltip_text = tooltip
-	S.icon_button(button, symbol)
+	button.text = {"minus": "−", "plus": "+", "search": "Reset"}.get(symbol, tooltip)
+	Q.secondary_action(button, 15, 30.0)
+	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	button.custom_minimum_size = Vector2(34.0, 30.0)
-	button.text = ""
-	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	button.add_theme_constant_override("icon_max_width", 17)
 	return button
 
 
@@ -1031,9 +1031,11 @@ func _input_badge(text_value: String) -> PanelContainer:
 	var badge: PanelContainer = PanelContainer.new()
 	badge.custom_minimum_size = Vector2(40.0, 40.0)
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.add_theme_stylebox_override(
-		"panel", C.panel_box(S.SURFACE_ALT, S.BRASS.darkened(0.12), 6, 1, 5)
-	)
+	## Quiet keycap (matches BunkerUIComponents.key_hint).
+	var cap: StyleBoxFlat = Q.flat(Color(Q.TEXT, 0.04), 5.0, 3.0, 5)
+	cap.border_color = Color(Q.TEXT, 0.2)
+	cap.set_border_width_all(1)
+	badge.add_theme_stylebox_override("panel", cap)
 	var label: Label = _label(text_value, 11, S.IVORY)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

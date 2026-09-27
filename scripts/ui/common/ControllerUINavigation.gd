@@ -529,7 +529,8 @@ func _prepare_scrollbars(node: Node) -> void:
 				bar.gui_input.connect(UIScrollMotion.on_drag.bind(bar))
 			if useful:
 				bar.custom_minimum_size.x = maxf(bar.custom_minimum_size.x, 16.0)
-				bar.add_theme_stylebox_override("focus", BunkerPanelStyle.box(Color.TRANSPARENT, BunkerPanelStyle.IVORY, 5, 2))
+				# Quiet focus ring for a controller-focused scrollbar (Sep 2026).
+				bar.add_theme_stylebox_override("focus", BunkerPanelStyle.box(Color.TRANSPARENT, Color(BunkerDesign.IVORY, 0.35), 5, 1))
 	for child in node.get_children():
 		_prepare_scrollbars(child)
 

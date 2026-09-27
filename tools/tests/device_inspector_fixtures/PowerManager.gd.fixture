@@ -8,6 +8,9 @@ signal grid_restored
 signal generator_fuel_low(id: String, fuel: float)
 signal zone_name_changed(key: String)
 signal zone_color_changed(key: String)
+signal wire_edge_registered(id: String)
+signal wire_edge_unregistered(id: String)
+const SNAP_GRID: float = 0.25
 var fuel: float = 100.0
 var health: float = 100.0
 var running: bool = true
@@ -24,7 +27,7 @@ var consumer: Dictionary = {"registered": true, "priority": 3, "watts": 500.0, "
 var zones: Array[Dictionary] = [{"zone_index": 0, "zone_key": "a", "zone_name": "Living quarters", "breaker_keys": ["wire"]}, {"zone_index": 1, "zone_key": "b", "zone_name": "Hydroponics", "breaker_keys": ["wire"]}]
 func register_generator(_id: String, _watts: float, node: Node, _backup: bool, _fuel: float, _health: float) -> void:
 	device = node
-func register_wire_node(_position: Vector3, _type: String, _id: String) -> String:
+func register_wire_node(_position: Vector3, _type: String, _id: String = "", _preserve_height: bool = false) -> String:
 	return "wire"
 func unregister_generator(_id: String) -> void:
 	pass
@@ -76,3 +79,22 @@ func reset_breaker(_id: String) -> void:
 	breaker_resets += 1
 	if is_instance_valid(breaker):
 		breaker.set_tripped(false)
+## Wall-feed wiring surface (WallWireAttachment); inert in this double.
+var _wire_nodes: Dictionary = {"wire": {}}
+var _graph: Variant = null
+func begin_bulk() -> void:
+	pass
+func end_bulk() -> void:
+	pass
+func has_wire_edge(_id: String) -> bool:
+	return false
+func register_wire_edge(_a: String, _b: String, _visual: Variant = null, _quiet: bool = false) -> String:
+	return ""
+func unregister_wire_edge(_id: String) -> void:
+	pass
+func set_wire_edge_no_visual(_id: String) -> void:
+	pass
+func get_wire_edges() -> Array:
+	return []
+func get_wire_node_pos(_key: String) -> Vector3:
+	return Vector3.ZERO

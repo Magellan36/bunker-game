@@ -29,7 +29,7 @@ func _run() -> void:
 
 	var generator_text: String = String(prompt.call("_style_prompt_semantics",
 		"[E] Generator L  99% fuel  [Running]"))
-	_check(generator_text.contains("99% FUEL") and generator_text.contains("● RUNNING"),
+	_check(generator_text.contains("99% FUEL") and generator_text.contains("●") and generator_text.contains("RUNNING"),
 		"power prompt keeps its live fuel value and receives semantic status hierarchy")
 	var battery_text: String = String(prompt.call("_style_prompt_semantics",
 		"Battery Bank — 82%  [E] Info"))
@@ -41,7 +41,7 @@ func _run() -> void:
 	_check(cooking_text.contains("Garden Vegetable Soup"), "dish preview name is retained")
 	_check(cooking_text.contains("Filling: 24.0"), "dish filling value is retained")
 	_check(cooking_text.contains("+30% DIVERSITY"), "diversity bonus is retained")
-	_check(cooking_text.contains("● COOKING") and cooking_text.contains("12/80s"),
+	_check(cooking_text.contains("●") and cooking_text.contains("COOKING") and cooking_text.contains("12/80s"),
 		"cooking state and timer are retained")
 
 	var pot: Node3D = cooking_pot_script.new() as Node3D
@@ -60,12 +60,13 @@ func _run() -> void:
 		"produce-specific live preview data survives the shared presentation pass")
 	_check(descriptors[2] == null, "empty cooking slot stays visibly empty")
 
-	var viewports: Array = prompt.call("_build_icon_slots", panel) as Array
-	_check(viewports.size() == 3 and viewports[0] is SubViewport,
-		"specialized prompt retains three pooled live-3D viewports")
-	var prompt_constants: Dictionary = (prompt.get_script() as Script).get_script_constant_map()
-	_check(int(prompt_constants.get("ICON_VP_SIZE", 0)) == 48,
-		"ingredient previews retain the polished 48 x 48 render target")
+	## Sep 2026: ingredient icons are cached PreviewStudio renders, not
+	## per-slot live viewports (no 3D render cost while the prompt is up).
+	var slots: Array = prompt.call("_build_icon_slots", panel) as Array
+	_check(slots.size() == 3 and slots[0] is TextureRect,
+		"specialized prompt keeps three ingredient preview slots")
+	_check(panel.find_children("*", "SubViewport", true, false).is_empty(),
+		"ingredient previews use studio renders, not live viewports")
 
 	## Build Mode suppresses the complete prompt family, including entries
 	## that InteractionSystem may continue publishing during the transition.

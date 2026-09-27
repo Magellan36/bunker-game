@@ -6,8 +6,9 @@ signal closed
 signal name_changed(zone_key: String, new_name: String)
 signal color_changed(zone_key: String, new_color: Color)
 
-const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
-const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const C: GDScript = preload("res://scripts/ui/common/QuietLegacyComponents.gd")  ## quiet pass (Pass 4)
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
+const S: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")  ## quiet pass (Pass 4)
 const NAV: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
 const FADE: GDScript = preload("res://scripts/ui/common/UIFade.gd")
 
@@ -158,6 +159,7 @@ func _build_interface() -> void:
 	_view.add_child(_backdrop)
 	_backdrop.gui_input.connect(_on_backdrop_input)
 	_panel = PanelContainer.new()
+	preload("res://scripts/ui/common/QuietControls.gd").avoid_toasts(_panel, true)  # never covered by toasts
 	_panel.name = "ZoneCustomizePanel"
 	C.shell(_panel, 10)
 	_view.add_child(_panel)
@@ -173,9 +175,16 @@ func _build_interface() -> void:
 	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(grow)
 	C.divider(content)
+	## Quiet footer: key hints (right); the sentence label stays hidden.
+	var footer_row: HBoxContainer = HBoxContainer.new()
+	footer_row.alignment = BoxContainer.ALIGNMENT_END
+	footer_row.add_theme_constant_override("separation", 18)
+	content.add_child(footer_row)
 	_footer_hint = _label("", 12, S.MUTED)
-	_footer_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	content.add_child(_footer_hint)
+	_footer_hint.visible = false
+	footer_row.add_child(_footer_hint)
+	BunkerUIComponents.key_hint(footer_row, "ENTER", "Apply", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer_row, "ESC", "Cancel", "ESC", "B")
 
 
 func _build_header(parent: Container) -> void:
@@ -187,15 +196,14 @@ func _build_header(parent: Container) -> void:
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	copy.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_child(copy)
-	copy.add_child(_label("ZONE SETTINGS", 12, S.BLUE))
-	_title = _label("Rename zone", 25, S.IVORY)
+	copy.add_child(Q.eyebrow("Zone settings", 12))
+	_title = _label("Rename zone", 24, S.IVORY)
 	copy.add_child(_title)
 	_close_button = Button.new()
-	_close_button.custom_minimum_size = Vector2(46.0, 46.0)
-	_close_button.tooltip_text = "Close without making changes"
-	S.icon_button(_close_button, "close")
-	_close_button.text = ""
-	_close_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_close_button.text = "Cancel"
+	Q.nav_button(_close_button, 14, 30.0)
+	_close_button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_close_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_close_button.pressed.connect(close)
 	row.add_child(_close_button)
 	_subtitle = _label("", 13, S.MUTED)
@@ -255,14 +263,14 @@ func _build_rename_content(parent: Container) -> void:
 	_rename_content.add_child(actions)
 	_cancel_button = Button.new()
 	_cancel_button.text = "Cancel"
-	_cancel_button.icon = S.icon("close")
+	_cancel_button.icon = null  ## quiet: text-first (was S.icon("close"))
 	S.button(_cancel_button)
 	_cancel_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_cancel_button.pressed.connect(close)
 	actions.add_child(_cancel_button)
 	_apply_button = Button.new()
 	_apply_button.text = "Apply name"
-	_apply_button.icon = S.icon("check")
+	_apply_button.icon = null  ## quiet: text-first (was S.icon("check"))
 	S.button(_apply_button, true)
 	_apply_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_apply_button.pressed.connect(_submit_name)

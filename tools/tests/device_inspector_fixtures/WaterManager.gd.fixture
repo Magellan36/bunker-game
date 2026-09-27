@@ -20,3 +20,6 @@ func get_upstream_raw_quality(_key: String) -> Dictionary:
 	return {"connected": connected, "quality": source.water_quality}
 func get_hookup_for_node(_key: String) -> WaterHookup:
 	return source if connected else null
+var flow_refreshes: int = 0
+func request_flow_refresh() -> void:
+	flow_refreshes += 1

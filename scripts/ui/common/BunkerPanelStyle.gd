@@ -14,6 +14,7 @@ const BLUE_DARK: Color = BunkerDesign.BLUE_DARK
 const GREEN: Color = BunkerDesign.GREEN
 const RED: Color = BunkerDesign.RED
 const SYMBOL: GDScript = preload("res://scripts/ui/common/BunkerSymbolTexture.gd")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 static var _symbols: Dictionary = {}
 
 static func icon(kind: String) -> Texture2D:
@@ -42,52 +43,51 @@ static func button_box(bg: Color, border: Color, radius: int = 7, width: int = 1
 	style.content_margin_bottom = vertical_padding
 	return style
 
+## Sep 2026 quiet pass (plan Pass 4): the legacy button vocabulary now draws
+## the quiet language, so every consumer (workspaces, build, shop) follows
+## QUIET_DESIGN_SYSTEM §3. accent = the surface's one primary; danger = red
+## text action; everything else = quiet secondary. Signatures unchanged.
 static func button(control: Button, accent: bool = false, danger: bool = false,
-		compact: bool = false, borderless: bool = false) -> void:
+		compact: bool = false, _borderless: bool = false) -> void:
 	UIButtonMotion.attach(control)
-	control.focus_mode = Control.FOCUS_ALL
-	var minimum_height: float = (BunkerDesign.COMPACT_CONTROL_HEIGHT if compact
-		else BunkerDesign.CONTROL_HEIGHT)
-	var border_width: int = 0 if borderless else 1
-	var vertical_padding: float = 2.0 if compact else BunkerDesign.CONTROL_VERTICAL_PADDING
-	control.custom_minimum_size.y = maxf(control.custom_minimum_size.y, minimum_height)
-	control.add_theme_font_size_override("font_size", 15 if compact else 17)
-	control.add_theme_color_override("font_color", IVORY)
-	control.add_theme_color_override("font_hover_color", IVORY)
-	control.add_theme_color_override("font_pressed_color", IVORY)
-	var normal_bg := BLUE_DARK if accent else (Color("512923") if danger else SURFACE)
-	var edge := BLUE if accent else (RED if danger else BRASS.darkened(0.18))
-	control.add_theme_stylebox_override("normal", button_box(normal_bg, edge, 7,
-		border_width, 10.0, vertical_padding))
-	control.add_theme_stylebox_override("hover", button_box(normal_bg.lightened(0.07),
-		BLUE if not danger else RED, 7, border_width, 10.0, vertical_padding))
-	control.add_theme_stylebox_override("pressed", button_box(normal_bg.darkened(0.08), edge,
-		7, border_width, 10.0, vertical_padding))
-	control.add_theme_stylebox_override("focus", box(
-		BLUE_DARK if borderless else Color.TRANSPARENT, IVORY,
-		BunkerDesign.FOCUS_RADIUS, 0 if borderless else BunkerDesign.FOCUS_WIDTH))
-	control.add_theme_stylebox_override("disabled", button_box(SURFACE.darkened(0.1),
-		BRASS.darkened(0.45), 7, border_width, 10.0, vertical_padding))
-	control.add_theme_color_override("font_disabled_color", MUTED.darkened(0.35))
-	control.add_theme_constant_override("icon_max_width", BunkerDesign.ICON_SIZE)
+	var height: float = BunkerDesign.COMPACT_CONTROL_HEIGHT if compact else BunkerDesign.CONTROL_HEIGHT
+	var font_size: int = 14 if compact else 15
+	if accent:
+		Q.primary_action(control, font_size, maxf(height, control.custom_minimum_size.y))
+	else:
+		Q.secondary_action(control, font_size, maxf(height, control.custom_minimum_size.y), danger)
+	control.add_theme_constant_override("icon_max_width", 18)
 
+## Icons are dropped (the quiet language is text-first). An icon-only button
+## (no text) keeps its glyph, tinted MUTED → TEXT, so nothing goes blank.
 static func icon_button(control: Button, kind: String, accent: bool = false,
 		danger: bool = false, compact: bool = false, borderless: bool = false) -> void:
 	button(control, accent, danger, compact, borderless)
 	control.icon = icon(kind)
 	control.expand_icon = true
-	control.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	control.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	## Callers often set the caption after styling; decide once it is final.
+	if not control.tree_entered.is_connected(_strip_icon_if_captioned.bind(control)):
+		control.tree_entered.connect(_strip_icon_if_captioned.bind(control), CONNECT_ONE_SHOT)
+	_strip_icon_if_captioned(control)
+
+static func _strip_icon_if_captioned(control: Button) -> void:
+	if is_instance_valid(control) and not control.text.is_empty():
+		control.icon = null
+		control.alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 static func field(control: LineEdit) -> void:
 	control.add_theme_font_size_override("font_size", 15)
 	control.add_theme_color_override("font_color", IVORY)
-	control.add_theme_color_override("font_placeholder_color", MUTED.darkened(0.2))
-	control.add_theme_color_override("caret_color", BLUE)
-	var normal := box(SURFACE_ALT, BRASS.darkened(0.24), 7, 1)
-	var focus := box(SURFACE_ALT.lightened(0.025), BLUE, 7, 2)
-	for style: StyleBoxFlat in [normal, focus]:
-		style.content_margin_left = 12.0
-		style.content_margin_right = 12.0
+	control.add_theme_color_override("font_placeholder_color", Color(MUTED, 0.55))
+	control.add_theme_color_override("caret_color", Q.ACCENT)
+	control.add_theme_color_override("selection_color", Color(Q.ACCENT, 0.3))
+	var normal: StyleBoxFlat = Q.flat(Color(IVORY, 0.04), 12.0, 6.0, 6)
+	normal.border_color = Q.HAIRLINE
+	normal.border_width_bottom = 1
+	var focus := normal.duplicate() as StyleBoxFlat
+	focus.border_color = Q.ACCENT
+	focus.border_width_bottom = 2
 	control.add_theme_stylebox_override("normal", normal)
 	control.add_theme_stylebox_override("focus", focus)
 

@@ -3,12 +3,14 @@ extends Control
 ## Shared inventory/Storage meter drawing; reads presentation values only.
 
 const SLOT_SIZE: float = 72.0
-const BORDER: Color = Color("66583f")
-const WATER_BLUE: Color = Color("54b9ed")
-const GREEN: Color = Color("75d48a")
-const AMBER: Color = Color("dda42e")
-const RED: Color = Color("df5a52")
-const EMPTY: Color = Color("48504d")
+## Sep 2026 quiet pass: nominal readings are ivory/steel; only low or poor
+## states take WARNING / RED (QUIET_DESIGN_SYSTEM §2).
+const BORDER: Color = Color(0.949, 0.91, 0.812, 0.32)
+const WATER_BLUE: Color = Color("86a9bf")
+const GREEN: Color = Color(0.949, 0.91, 0.812, 0.82)
+const AMBER: Color = Color("f0b861")
+const RED: Color = Color("df7669")
+const EMPTY: Color = Color(0.949, 0.91, 0.812, 0.14)
 var state: Dictionary = {}
 
 func _ready() -> void:
@@ -28,7 +30,7 @@ static func _draw_liquid_gauge(canvas: Control, rect: Rect2, state: Dictionary) 
 	var center: Vector2 = rect.position + Vector2(SLOT_SIZE - 17.0, 17.0)
 	var fraction: float = clampf(float(state.get("fraction", 0.0)), 0.0, 1.0)
 	var quality: float = clampf(float(state.get("quality", 0.0)), 0.0, 100.0)
-	canvas.draw_circle(center, 12.0, Color("101514ed"))
+	canvas.draw_circle(center, 12.0, Color(0.03, 0.04, 0.04, 0.72))
 	canvas.draw_arc(center, 9.0, -PI * 0.5, PI * 1.5, 32, EMPTY, 2.5, true)
 	if fraction > 0.0:
 		canvas.draw_arc(center, 9.0, -PI * 0.5, -PI * 0.5 + TAU * fraction,
@@ -50,7 +52,7 @@ static func _draw_battery_meter(canvas: Control, rect: Rect2, state: Dictionary,
 	var lit_bars: int = ceili(fraction * 4.0) if fraction > 0.0 else 0
 	var origin: Vector2 = rect.position + Vector2(SLOT_SIZE - 33.0, 10.0)
 	var shell: Rect2 = Rect2(origin, Vector2(24.0, 12.0))
-	UIKit.draw_rounded_rect(canvas, shell, Color("101514ed"), BORDER, 1.0, 3.0)
+	UIKit.draw_rounded_rect(canvas, shell, Color(0.03, 0.04, 0.04, 0.72), BORDER, 1.0, 3.0)
 	canvas.draw_rect(Rect2(origin + Vector2(24.0, 3.0), Vector2(2.0, 6.0)), BORDER, true)
 	for i: int in 4:
 		var bar: Rect2 = Rect2(origin + Vector2(3.0 + float(i) * 5.0, 3.0), Vector2(3.0, 6.0))
@@ -74,7 +76,6 @@ static func _draw_charge_pips(canvas: Control, rect: Rect2, state: Dictionary) -
 	for i: int in visible_pips:
 		var center: Vector2 = Vector2(start_x + float(i) * 9.0, rect.position.y + 14.0)
 		canvas.draw_circle(center, 3.2, GREEN if i < current else EMPTY)
-		canvas.draw_arc(center, 3.2, 0.0, TAU, 16, Color("0b100f"), 1.0, true)
 
 
 static func _quality_color(quality: float) -> Color:

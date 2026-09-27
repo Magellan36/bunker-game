@@ -4,6 +4,8 @@ extends CanvasLayer
 ## their existing contract, so physical-slot mappings remain authoritative.
 
 
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
+
 const DEFAULTS := {
 	"title": "Storage", "slot_count": 6, "grid_cols": 2, "grid_rows": 3,
 	"display_order": [], "supports_stacking": false,
@@ -35,13 +37,14 @@ var _carry: Button
 var _inventory: Button
 var _close: Button
 var _cards: Array[Button] = []
-var _viewports: Array[SubViewport] = []
 var _signatures: Array[String] = []
 var _shown_ids: Array[int] = []
 var _selected_visual := -1
 var _proximity: Node
 var _controller_nav: ControllerUINavigation
 var _refresh_elapsed := 0.0
+var _key_hints: HBoxContainer
+var _pad_hints: HBoxContainer
 
 func _ready() -> void:
 	layer = 60
@@ -55,48 +58,32 @@ func _ready() -> void:
 	_proximity.ui = self
 	add_child(_proximity)
 
+## Sep 2026 quiet pass (QUIET_DESIGN_SYSTEM archetype B, storage = 440 px):
+## quiet shell, inspector header with a text Close, flat preview tiles, a
+## one-line selection readout, one primary action (Add to inventory) beside a
+## quiet text action (Carry), input-aware key hints.
 func _build() -> void:
 	_root = Control.new()
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 	_panel = PanelContainer.new()
+	Q.avoid_toasts(_panel, false)  # never covered by toasts
 	_panel.custom_minimum_size = Vector2(440, 0)
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_panel.clip_contents = true
 	BunkerUIComponents.apply_theme(_panel)
-	BunkerUIComponents.shell(_panel)
+	_panel.add_theme_stylebox_override("panel", Q.shell_box(12))
 	_root.add_child(_panel)
 	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 9)
-	_panel.add_child(BunkerUIComponents.inset(body, 16, 14, 16, 12))
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 10)
+	body.add_theme_constant_override("separation", 12)
+	_panel.add_child(BunkerUIComponents.inset(body, 24, 22, 24, 16))
+	var header: HBoxContainer = Q.inspector_header("Storage", "", close, 26)
 	body.add_child(header)
-	header.add_child(BunkerUIComponents.icon_well("storage", 44.0))
-	var titles := VBoxContainer.new()
-	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	titles.add_theme_constant_override("separation", 0)
-	header.add_child(titles)
-	var eyebrow := Label.new()
-	eyebrow.text = "STORAGE"
-	eyebrow.add_theme_font_size_override("font_size", 11)
-	eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	titles.add_child(eyebrow)
-	_title = Label.new()
-	BunkerPanelStyle.title(_title, 23)
-	titles.add_child(_title)
-	_close = Button.new()
-	_close.text = ""
-	_close.custom_minimum_size = Vector2(42, 42)
-	BunkerPanelStyle.icon_button(_close, "close")
-	_close.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_close.tooltip_text = "Close storage"
-	_close.pressed.connect(close)
-	header.add_child(_close)
-	BunkerUIComponents.divider(body)
-	var contents_heading: Dictionary = BunkerUIComponents.section_header(body, "Contents")
-	(contents_heading["meta"] as Label).text = "SELECT AN ITEM"
+	_title = header.find_child("Title", true, false) as Label
+	_close = header.get_node("Close") as Button
+	body.add_child(_rule())
+	body.add_child(Q.eyebrow("Contents", 12))
 	_scroll_viewport = Control.new()
 	_scroll_viewport.name = "StorageViewport"
 	_scroll_viewport.custom_minimum_size.y = 144
@@ -110,28 +97,27 @@ func _build() -> void:
 	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_scroll.follow_focus = true
 	_scroll_viewport.add_child(_scroll)
+	Q.scrollbar(_scroll.get_v_scroll_bar())
 	_grid = GridContainer.new()
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_grid.add_theme_constant_override("h_separation", 8)
-	_grid.add_theme_constant_override("v_separation", 8)
+	_grid.add_theme_constant_override("h_separation", 10)
+	_grid.add_theme_constant_override("v_separation", 10)
 	BunkerUIComponents.scroll_content(_scroll, _grid)
-	BunkerUIComponents.divider(body)
+	body.add_child(_rule())
+	## Selection readout: plain text, no card. The PanelContainer stays as the
+	## stable holder other code/tests address.
 	_selection_panel = PanelContainer.new()
-	_selection_panel.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(false))
+	_selection_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	body.add_child(_selection_panel)
 	var selected_body := VBoxContainer.new()
 	selected_body.add_theme_constant_override("separation", 4)
-	_selection_panel.add_child(BunkerPanelStyle.margin(selected_body, 12, 9, 12, 9))
-	_selection_eyebrow = Label.new()
-	_selection_eyebrow.text = "SELECTED ITEM"
-	_selection_eyebrow.add_theme_font_size_override("font_size", 10)
-	_selection_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	_selection_panel.add_child(selected_body)
+	_selection_eyebrow = Q.eyebrow("Selected", 12)
 	selected_body.add_child(_selection_eyebrow)
-	_selection_name = Label.new()
-	BunkerPanelStyle.title(_selection_name, 19)
+	_selection_name = Q.label("", 20, Q.TEXT)
+	_selection_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	selected_body.add_child(_selection_name)
-	_selection_detail = Label.new()
-	BunkerPanelStyle.muted(_selection_detail, 14)
+	_selection_detail = Q.label("", 14, Q.MUTED)
 	_selection_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	selected_body.add_child(_selection_detail)
 	_state_row = HBoxContainer.new()
@@ -141,28 +127,47 @@ func _build() -> void:
 	_state_row.add_child(_state_meter)
 	_state_row.hide()
 	var actions := HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 6)
+	actions.add_theme_constant_override("separation", 10)
 	body.add_child(actions)
 	_carry = Button.new()
 	_carry.text = "Carry item"
-	_carry.custom_minimum_size.y = 36
+	Q.nav_button(_carry, 15, 40.0)
+	_carry.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_carry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	BunkerPanelStyle.icon_button(_carry, "move")
 	_carry.pressed.connect(_take_for_carry)
 	actions.add_child(_carry)
 	_inventory = Button.new()
 	_inventory.text = "Add to inventory"
-	_inventory.custom_minimum_size.y = 36
+	Q.primary_action(_inventory, 15, 40.0)
 	_inventory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	BunkerPanelStyle.icon_button(_inventory, "plus", true)
 	_inventory.pressed.connect(_take_for_inventory)
 	actions.add_child(_inventory)
-	_footer_hint = Label.new()
-	_footer_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	BunkerPanelStyle.muted(_footer_hint, 12)
+	## Footer: input-aware hints. The controller acts on the focused tile
+	## directly (A carry, Y inventory), so its hints differ from keyboard.
+	_footer_hint = Label.new()   ## retained handle; hidden (hints replace it)
+	_footer_hint.visible = false
 	body.add_child(_footer_hint)
+	_key_hints = HBoxContainer.new()
+	_key_hints.alignment = BoxContainer.ALIGNMENT_END
+	_key_hints.add_theme_constant_override("separation", 16)
+	body.add_child(_key_hints)
+	_pad_hints = HBoxContainer.new()
+	_pad_hints.alignment = BoxContainer.ALIGNMENT_END
+	_pad_hints.add_theme_constant_override("separation", 16)
+	body.add_child(_pad_hints)
+	BunkerUIComponents.key_hint(_key_hints, "ENTER", "Select", "ENTER", "ENTER")
+	BunkerUIComponents.key_hint(_key_hints, "ESC", "Close", "ESC", "ESC")
+	BunkerUIComponents.key_hint(_pad_hints, "A", "Carry", "A", "A")
+	BunkerUIComponents.key_hint(_pad_hints, "Y", "Inventory", "Y", "Y")
+	BunkerUIComponents.key_hint(_pad_hints, "B", "Close", "B", "B")
 
 	get_viewport().size_changed.connect(_layout)
+
+func _rule() -> HSeparator:
+	var line := HSeparator.new()
+	line.add_theme_stylebox_override("separator", Q.hairline())
+	line.add_theme_constant_override("separation", 2)
+	return line
 
 func _layout() -> void:
 	if _panel == null:
@@ -179,9 +184,6 @@ func _layout() -> void:
 func _ensure_pool(needed: int) -> void:
 	while _cards.size() < needed:
 		var index := _cards.size()
-		var viewport := ItemPreviewKit.build_viewport(_root, 192, 1.28)
-		PreviewPresentation.configure(viewport)
-		_viewports.append(viewport)
 		_signatures.append("")
 		_shown_ids.append(0)
 		var card := BunkerItemCard.new()
@@ -238,7 +240,10 @@ func close() -> void:
 	UIPanelLifecycle.dismiss(self, _panel)
 
 func _process(delta: float) -> void:
-	_footer_hint.text = "[A] Select · D-pad / R-stick: navigate · [B] Close" if InputMode.is_controller() else "Enter / Space: select · Esc / E: close"
+	var pad: bool = InputMode.is_controller()
+	if _pad_hints.visible != pad:
+		_pad_hints.visible = pad
+		_key_hints.visible = not pad
 
 	_refresh_elapsed += delta
 	if _refresh_elapsed >= 0.1:
@@ -276,12 +281,13 @@ func _refresh(force: bool) -> void:
 			_signatures[i] = sig
 			_shown_ids[i] = new_id
 			if item != null and is_instance_valid(item):
-				PreviewPresentation.set_item(_viewports[i], item)
-				card.display(ItemPresentation.title(item), _viewports[i].get_texture(), count)
+				## PreviewStudio: cached render, shared spinner on hover/focus.
+				card.display(ItemPresentation.title(item), null, count, 1)
+				PreviewStudio.bind_card(card, PreviewStudio.request_item(item), card.set_preview)
 				card.focus_mode = Control.FOCUS_ALL
 			else:
-				ItemPreviewKit.clear(_viewports[i])
-				card.display("Empty", null, 0)
+				card.display("Empty", null, 0, 0)
+				PreviewStudio.bind_card(card, "", card.set_preview)
 				card.focus_mode = Control.FOCUS_NONE
 		if i == _selected_visual:
 			card.button_pressed = true
@@ -307,18 +313,16 @@ func _selection_valid() -> bool:
 
 func _refresh_selection() -> void:
 	if not _selection_valid():
-		_selection_panel.add_theme_stylebox_override(
-			"panel", BunkerUIComponents.status_style(false))
-		_selection_eyebrow.text = "NO ITEM SELECTED"
-		_selection_name.text = "Select an item"
-		_selection_detail.text = "Choose a stored object to see its name and actions."
+		_selection_eyebrow.visible = false
+		_selection_name.text = ""
+		_selection_name.visible = false
+		_selection_detail.text = "Select an item to see its actions." if _has_items() else "Nothing stored here yet."
 		_state_row.hide()
 		_carry.disabled = true
 		_inventory.disabled = true
 		return
-	_selection_panel.add_theme_stylebox_override(
-		"panel", BunkerUIComponents.status_style(true))
-	_selection_eyebrow.text = "SELECTED ITEM"
+	_selection_eyebrow.visible = true
+	_selection_name.visible = true
 	var shown := _slot(_selected_visual)
 	var item: Node = shown[0]
 	_selection_name.text = ItemPresentation.title(item)
@@ -330,6 +334,12 @@ func _refresh_selection() -> void:
 	_carry.disabled = hands_blocked
 	_inventory.disabled = inventory == null \
 		or (inventory.has_method("is_full") and inventory.is_full())
+
+func _has_items() -> bool:
+	for i: int in mini(int(_config.get("slot_count", 0)), _cards.size()):
+		if _cards[i].focus_mode != Control.FOCUS_NONE:
+			return true
+	return false
 
 func _refresh_item_state(item: Node) -> void:
 	_state_meter.state = ItemPresentation.hud_state(item)

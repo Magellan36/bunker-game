@@ -23,21 +23,12 @@ func _build_content() -> void:
 	_rate_slider.name = "RateSlider"
 	_rate_slider.step = 1.0
 	_rate_slider.focus_mode = Control.FOCUS_ALL
-	_rate_slider.custom_minimum_size.y = 36
-	_rate_slider.set_meta("ui_min_height", 36)
-	_rate_slider.tooltip_text = "Requested flow in mL/day. Arrow keys or D-pad left/right adjust it."
 	_details.add_child(_rate_slider)
-	var groove: StyleBoxFlat = _view.theme.get_stylebox("background", "BunkerMeter").duplicate() as StyleBoxFlat
-	groove.content_margin_top = 4.0
-	groove.content_margin_bottom = 4.0
-	var fill: StyleBoxFlat = _view.theme.get_stylebox("fill", "BunkerMeter").duplicate() as StyleBoxFlat
-	fill.bg_color = W.color(_view, "blue")
-	fill.content_margin_top = 4.0
-	fill.content_margin_bottom = 4.0
-	_rate_slider.add_theme_stylebox_override("slider", groove)
-	_rate_slider.add_theme_stylebox_override("grabber_area", fill)
-	_rate_slider.add_theme_stylebox_override("grabber_area_highlight", fill)
-	_rate_slider.add_theme_stylebox_override("focus", _view.theme.get_stylebox("focus", "Button"))
+	Q.slider(_rate_slider)
+	_rate_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rate_slider.custom_minimum_size.y = 30
+	_rate_slider.set_meta("ui_min_height", 30)
+	_rate_slider.tooltip_text = ""
 	_rate_slider.value_changed.connect(_on_rate_changed)
 	_network_hint = W.label(_details, "NetworkHint", "", 14, "secondary")
 	_received = W.stat(_details, "Received", "Receiving flow", 18, 14)

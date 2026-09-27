@@ -28,14 +28,19 @@ func _run() -> void:
 	var cash_panel: PanelContainer = hud.get_node("HUDRoot/TopRight") as PanelContainer
 	var cash_label: Label = hud.get_node("HUDRoot/TopRight/CashLabel") as Label
 
-	_check(time_root.size == Vector2(152.0, 42.0),
-		"time plate keeps the approved smaller 1080p footprint")
-	_check(clock_icon.texture != null and clock_icon.custom_minimum_size == Vector2(22.0, 22.0),
-		"time plate uses the compact native clock symbol")
-	_check(cash_panel.custom_minimum_size == Vector2(154.0, 40.0),
-		"cash balance remains a compact top-right plate")
+	## Quiet HUD (archetype C): shadowed text, no plates, no clock pictogram.
+	_check(not clock_icon.visible, "clock reads as text; no pictogram")
+	_check(day_label.get_index() == 0, "day sits above the time as an eyebrow")
+	_check(clock_label.get_theme_color("font_shadow_color").a > 0.5 \
+		and cash_label.get_theme_color("font_shadow_color").a > 0.5,
+		"HUD readouts carry a soft shadow for legibility over the world")
+	_check((hud.get_node("HUDRoot/TopCenter/ClockPanel") as PanelContainer).get_theme_stylebox("panel") is StyleBoxEmpty \
+		and cash_panel.get_theme_stylebox("panel") is StyleBoxEmpty,
+		"clock and cash sit on no plate")
+	_check(is_equal_approx(cash_panel.offset_right, -24.0),
+		"cash respects the 24 px HUD safe margin")
 	_check(cash_panel.get_child_count() == 1 and cash_panel.get_child(0) == cash_label,
-		"cash plate contains only the bordered balance—no icon or subtitle")
+		"cash holder contains only the balance—no icon or subtitle")
 
 	hud.call("set_clock", "11:45 PM")
 	hud.call("set_day", 18)

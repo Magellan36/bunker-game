@@ -108,6 +108,7 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	SharedUI.release(_inspect_ui, self)
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
@@ -214,9 +215,11 @@ func set_player_in_range(in_range: bool) -> void:
 
 func _open_panel() -> void:
 	if not is_instance_valid(_inspect_ui):
-		_inspect_ui = (load("res://scripts/ui/power/BatteryInspectUI.gd") as GDScript).new()
-		add_child(_inspect_ui)
-		_inspect_ui.enabled_requested.connect(set_enabled)
+		## SharedUI (Sep 2026): one prebuilt panel, lent while our view is open.
+		_inspect_ui = SharedUI.acquire("res://scripts/ui/power/BatteryInspectUI.gd", self,
+			&"_inspect_ui", {"enabled_requested": set_enabled})
+		if _inspect_ui == null:
+			return
 	_inspect_ui.open(self, String(TIER_CONFIG[battery_tier]["label"]), _inspect_snapshot())
 
 func _close_panel() -> void:

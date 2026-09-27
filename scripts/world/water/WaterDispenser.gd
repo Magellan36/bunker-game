@@ -101,7 +101,8 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	if _dispenser_ui != null and is_instance_valid(_dispenser_ui):
-		_dispenser_ui.queue_free()
+		if _dispenser_ui.has_method("close") and bool(_dispenser_ui.call("is_open")):
+			_dispenser_ui.call("close")   ## shared panel: close, never free
 		_dispenser_ui = null
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
@@ -239,16 +240,12 @@ func get_interact_prompt() -> String:
 ## WaterTestSink's "always (re)open" pattern.
 func on_interact() -> void:
 	if _dispenser_ui == null or not is_instance_valid(_dispenser_ui):
-		var ui_script: GDScript = load("res://scripts/ui/water/WaterDispenserUI.gd")
-		if ui_script == null:
-			push_warning("WaterDispenser: WaterDispenserUI.gd not found")
+		## SharedUI (Sep 2026): one prebuilt panel per type, lent to this
+		## device while its view is open (no per-device build hitch).
+		_dispenser_ui = SharedUI.acquire("res://scripts/ui/water/WaterDispenserUI.gd", self, &"_dispenser_ui",
+			{"closed": _on_ui_closed})
+		if _dispenser_ui == null:
 			return
-		_dispenser_ui = CanvasLayer.new()
-		_dispenser_ui.set_script(ui_script)
-		_dispenser_ui.name = "WaterDispenserUI"
-		get_tree().get_root().add_child(_dispenser_ui)
-		if _dispenser_ui.has_signal("closed"):
-			_dispenser_ui.closed.connect(_on_ui_closed)
 
 	if _dispenser_ui.has_method("open"):
 		_dispenser_ui.open(self)

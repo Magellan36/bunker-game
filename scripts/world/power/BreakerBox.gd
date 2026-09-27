@@ -123,6 +123,7 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	SharedUI.release(_inspect_ui, self)
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
@@ -363,13 +364,17 @@ func _open_settings() -> void:
 		_close_settings()
 		return
 	if not is_instance_valid(_inspect_ui):
-		_inspect_ui = (load("res://scripts/ui/power/BreakerInspectUI.gd") as GDScript).new()
-		add_child(_inspect_ui)
-		_inspect_ui.battery_passthrough_requested.connect(_on_battery_passthrough)
-		_inspect_ui.generator_passthrough_requested.connect(_on_generator_passthrough)
-		_inspect_ui.restart_requested.connect(_on_inspect_restart)
+		## SharedUI (Sep 2026): one prebuilt panel, lent while our view is open.
+		_inspect_ui = SharedUI.acquire("res://scripts/ui/power/BreakerInspectUI.gd", self,
+			&"_inspect_ui", {
+				"battery_passthrough_requested": _on_battery_passthrough,
+				"generator_passthrough_requested": _on_generator_passthrough,
+				"restart_requested": _on_inspect_restart,
+			})
+		if _inspect_ui == null:
+			return
 		var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-		if pm != null:
+		if pm != null and not pm.draw_changed.is_connected(_on_inspector_draw_changed):
 			pm.draw_changed.connect(_on_inspector_draw_changed)
 			pm.zone_name_changed.connect(_on_inspector_zone_changed)
 			pm.zone_color_changed.connect(_on_inspector_zone_changed)

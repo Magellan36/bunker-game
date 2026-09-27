@@ -45,6 +45,16 @@ var _pitch: float = -0.05
 var _dragging_orbit: bool = false
 var _dragging_pan: bool = false
 
+## Sep 2026 quiet pass — gentle idle sway: after a few seconds without
+## preview input the camera drifts a few degrees either side of wherever the
+## player left it. Any drag/zoom/pad input stops it immediately. Honours
+## reduced motion. 0 disables.
+@export var idle_sway_degrees: float = 9.0
+@export var idle_sway_delay: float = 2.5
+var _idle_time: float = 0.0
+var _sway_base_yaw: float = PI
+var _sway_phase: float = 0.0
+
 ## Aug 2026 — middle-click-drag pan. Scaled by the current zoom distance
 ## in _gui_input() below (not a flat pixel-to-world ratio) so panning
 ## feels consistent whether zoomed in close or backed out — the same
@@ -61,13 +71,21 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
+	_idle_time += delta
+	if idle_sway_degrees > 0.0 and _idle_time > idle_sway_delay and not UIMotion.reduced():
+		_sway_phase += delta * 0.32
+		var amount: float = clampf((_idle_time - idle_sway_delay) / 2.0, 0.0, 1.0)
+		_yaw = _sway_base_yaw + sin(_sway_phase) * deg_to_rad(idle_sway_degrees) * amount
+		_update_camera()
 	var orbit := float(Input.is_joy_button_pressed(0, JOY_BUTTON_RIGHT_SHOULDER)) \
 		- float(Input.is_joy_button_pressed(0, JOY_BUTTON_LEFT_SHOULDER))
 	if orbit != 0.0:
+		_note_interaction()
 		_yaw -= orbit * stick_orbit_speed * delta
 		_update_camera()
 	var zoom := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) - Input.get_joy_axis(0, JOY_AXIS_TRIGGER_LEFT)
 	if absf(zoom) > STICK_DEADZONE:
+		_note_interaction()
 		distance = clampf(distance + zoom * zoom_speed * delta * 4.0, min_distance, max_distance)
 		_update_camera()
 
@@ -88,7 +106,16 @@ func _apply_graphics_settings() -> void:
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
 	vp.scaling_3d_scale = GraphicsSettings.render_scale
 
+## Stops the idle sway and re-bases it on the player's chosen angle.
+func _note_interaction() -> void:
+	_idle_time = 0.0
+	_sway_phase = 0.0
+	_sway_base_yaw = _yaw
+
 func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton or (event is InputEventMouseMotion \
+			and (_dragging_orbit or _dragging_pan)):
+		_note_interaction()
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		## Aug 2026 — left AND right button both drive the same

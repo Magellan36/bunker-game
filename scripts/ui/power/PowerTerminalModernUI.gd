@@ -4,13 +4,14 @@ extends CanvasLayer
 
 signal closed
 
-const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
-const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const C: GDScript = preload("res://scripts/ui/common/QuietLegacyComponents.gd")  ## quiet pass (Pass 4)
+const S: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")  ## quiet pass (Pass 4)
 const NAV: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
 const PROXIMITY: GDScript = preload("res://scripts/ui/common/UIProximityClose.gd")
 const FADE: GDScript = preload("res://scripts/ui/common/UIFade.gd")
 const GRAPH: GDScript = preload("res://scripts/ui/power/PowerTerminalLoadGraph.gd")
 const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 
 const PANEL_MAX := Vector2(1360.0, 800.0)
 const EDGE := Vector2(44.0, 36.0)
@@ -205,6 +206,7 @@ func _build_interface() -> void:
 	var backdrop: ColorRect = UIKit.build_modal_backdrop(0.44)
 	_view.add_child(backdrop)
 	_panel = PanelContainer.new()
+	preload("res://scripts/ui/common/QuietControls.gd").avoid_toasts(_panel, true)  # never covered by toasts
 	_panel.name = "PowerTerminalPanel"
 	C.shell(_panel, 10)
 	_view.add_child(_panel)
@@ -223,10 +225,17 @@ func _build_interface() -> void:
 	_build_priority(page_stack)
 	_build_network(page_stack)
 	C.divider(content)
+	## Quiet footer: key hints (right); the sentence label stays hidden.
+	var footer_row: HBoxContainer = HBoxContainer.new()
+	footer_row.alignment = BoxContainer.ALIGNMENT_END
+	footer_row.add_theme_constant_override("separation", 18)
+	content.add_child(footer_row)
 	_footer = _label("", 12, S.MUTED)
-	_footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_footer.custom_minimum_size.y = 22.0
-	content.add_child(_footer)
+	_footer.visible = false
+	footer_row.add_child(_footer)
+	BunkerUIComponents.key_hint(footer_row, "Q / R", "Tabs", "Q / R", "LB / RB")
+	BunkerUIComponents.key_hint(footer_row, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer_row, "ESC", "Close", "ESC", "B")
 
 
 func _build_header(parent: Container) -> void:
@@ -238,8 +247,8 @@ func _build_header(parent: Container) -> void:
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_child(titles)
-	titles.add_child(_label("POWER SYSTEM", 12, S.BRASS.lightened(0.35)))
-	_title = _label("Power Terminal", 29, S.IVORY)
+	titles.add_child(Q.eyebrow("Power system", 12))
+	_title = _label("Power Terminal", 28, S.IVORY)
 	_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	titles.add_child(_title)
 	_header_status = PanelContainer.new()
@@ -249,7 +258,9 @@ func _build_header(parent: Container) -> void:
 	status_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	status_row.add_theme_constant_override("separation", 8)
 	_header_status.add_child(C.inset(status_row, 12, 8, 12, 8))
+	_header_status.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	_header_status_icon = TextureRect.new()
+	_header_status_icon.visible = false   ## quiet: status line, no symbol
 	_header_status_icon.texture = S.icon("grid")
 	_header_status_icon.custom_minimum_size = Vector2(18.0, 18.0)
 	_header_status_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -258,11 +269,10 @@ func _build_header(parent: Container) -> void:
 	_header_status_text = _label("GRID ONLINE", 14, S.GREEN)
 	status_row.add_child(_header_status_text)
 	_close = Button.new()
-	_close.custom_minimum_size = Vector2(48.0, 48.0)
-	_close.tooltip_text = "Close power terminal"
-	S.icon_button(_close, "close")
-	_close.text = ""
-	_close.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_close.text = "Close"
+	Q.nav_button(_close, 14, 30.0)
+	_close.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_close.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_close.pressed.connect(close)
 	row.add_child(_close)
 
@@ -276,7 +286,7 @@ func _build_tabs(parent: Container) -> void:
 	for index: int in range(labels.size()):
 		var button: Button = Button.new()
 		button.text = labels[index]
-		button.icon = S.icon(icons[index])
+		button.set_meta(&"symbol", icons[index])   ## text-only tabs (quiet pass)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size.y = 32.0
 		button.toggle_mode = true
@@ -314,7 +324,7 @@ func _build_overview(stack: Control) -> void:
 	_build_zone_card(right)
 	_build_preview_card(right)
 	_overview_reset = Button.new()
-	_overview_reset.icon = S.icon("undo")
+	_overview_reset.icon = null  ## quiet: text-first (was S.icon("undo"))
 	S.button(_overview_reset, false, true)
 	_overview_reset.disabled = true
 	_overview_reset.custom_minimum_size.y = 36.0
@@ -326,22 +336,22 @@ func _build_metrics(parent: Container) -> void:
 	var body: VBoxContainer = _metric(parent, "CURRENT LOAD", "power", 1.35)
 	var line: HBoxContainer = HBoxContainer.new()
 	body.add_child(line)
-	_load_value = _label("0 W", 27, S.BLUE)
+	_load_value = _label("0 W", 26, S.IVORY)
 	_load_value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	line.add_child(_load_value)
-	_load_percent = _label("0%", 24, S.BLUE)
+	_load_percent = _label("0%", 22, S.MUTED)
 	line.add_child(_load_percent)
 	_load_meta = _label("of 0 W capacity", 13, S.MUTED)
 	body.add_child(_load_meta)
 	_load_bar = _progress(S.BLUE)
 	body.add_child(_load_bar)
 	body = _metric(parent, "HEADROOM", "condition", 1.0)
-	_headroom_value = _label("+0 W", 29, S.GREEN)
+	_headroom_value = _label("+0 W", 26, S.IVORY)
 	body.add_child(_headroom_value)
 	_headroom_meta = _label("Stable", 13, S.MUTED)
 	body.add_child(_headroom_meta)
 	body = _metric(parent, "BATTERY RESERVE", "battery", 1.2)
-	_battery_value = _label("0 W", 27, S.BLUE.lightened(0.18))
+	_battery_value = _label("0 W", 26, S.IVORY)
 	body.add_child(_battery_value)
 	_battery_meta = _label("No battery connected", 13, S.MUTED)
 	body.add_child(_battery_meta)
@@ -570,7 +580,7 @@ func _build_network(stack: Control) -> void:
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	summary.add_child(spacer)
 	_network_reset = Button.new()
-	_network_reset.icon = S.icon("undo")
+	_network_reset.icon = null  ## quiet: text-first (was S.icon("undo"))
 	S.button(_network_reset, false, true)
 	_network_reset.disabled = true
 	_network_reset.pressed.connect(_reset_power)
@@ -755,11 +765,8 @@ func _refresh_header(snapshot: Dictionary, zone: Dictionary) -> void:
 	_title.text = "%s Power Terminal" % _zone_name_for(zone) if not zone.is_empty() else "Power Terminal"
 	var state: String = _state(snapshot, zone)
 	var color: Color = _state_color(state)
-	_header_status_text.text = "GRID %s" % state
-	_header_status_text.add_theme_color_override("font_color", color)
-	_header_status_icon.self_modulate = color
-	_header_status.add_theme_stylebox_override("panel", C.panel_box(
-		S.BG.lerp(color, 0.10), S.BG.lerp(color, 0.72), 7, 1, 8))
+	_header_status_text.text = "●  GRID %s" % state
+	_header_status_text.add_theme_color_override("font_color", Q.MUTED if color == S.GREEN else color)
 
 
 func _refresh_metrics(snapshot: Dictionary) -> void:
@@ -775,11 +782,11 @@ func _refresh_metrics(snapshot: Dictionary) -> void:
 		_display_capacity_watts = capacity
 		_metrics_initialized = true
 	SMOOTH_BAR.apply(_load_bar, clampf(percent, 0.0, 100.0))
-	var load_color: Color = S.RED if draw > capacity and capacity > 0.0 else S.BLUE
-	_progress_color(_load_bar, load_color)
-	_load_value.add_theme_color_override("font_color", load_color)
-	_load_percent.add_theme_color_override("font_color", load_color)
-	var headroom_color: Color = S.GREEN if target_headroom >= 0.0 else S.RED
+	var overloaded: bool = draw > capacity and capacity > 0.0
+	_progress_color(_load_bar, S.RED if overloaded else S.BLUE)
+	_load_value.add_theme_color_override("font_color", S.RED if overloaded else S.IVORY)
+	_load_percent.add_theme_color_override("font_color", S.RED if overloaded else S.MUTED)
+	var headroom_color: Color = S.IVORY if target_headroom >= 0.0 else S.RED
 	_headroom_value.add_theme_color_override("font_color", headroom_color)
 	_headroom_meta.text = "Stable" if target_headroom >= 0.0 else "Demand exceeds available supply"
 	_headroom_meta.add_theme_color_override("font_color", S.MUTED if target_headroom >= 0.0 else S.RED)
@@ -1484,7 +1491,7 @@ func _card(background: Color = Color("171d1c")) -> PanelContainer:
 func _label(text_value: String, size: int, color: Color) -> Label:
 	var result: Label = Label.new()
 	result.text = text_value
-	result.add_theme_font_size_override("font_size", size)
+	result.add_theme_font_size_override("font_size", maxi(size, 12))   ## quiet type floor
 	result.add_theme_color_override("font_color", color)
 	result.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return result
@@ -1494,13 +1501,14 @@ func _heading(text_value: String, icon: String) -> HBoxContainer:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	var texture: TextureRect = TextureRect.new()
+	texture.visible = false   ## quiet: headings are text-only
 	texture.texture = S.icon(icon)
 	texture.self_modulate = S.MUTED
 	texture.custom_minimum_size = Vector2(18.0, 18.0)
 	texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	row.add_child(texture)
-	var copy: Label = _label(text_value, 13, S.IVORY)
+	var copy: Label = Q.eyebrow(text_value, 12)
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(copy)
 	return row
@@ -1511,15 +1519,15 @@ func _progress(fill_color: Color) -> ProgressBar:
 	bar.min_value = 0.0
 	bar.max_value = 100.0
 	bar.show_percentage = false
-	bar.custom_minimum_size.y = 9.0
+	bar.custom_minimum_size.y = 4.0
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_theme_stylebox_override("background", C.panel_box(S.SURFACE_ALT, S.SURFACE_ALT, 4, 0))
+	bar.add_theme_stylebox_override("background", Q.flat(Color(Q.TEXT, 0.09), 0.0, 0.0, 2))
 	_progress_color(bar, fill_color)
 	return bar
 
 
 func _progress_color(bar: ProgressBar, color: Color) -> void:
-	bar.add_theme_stylebox_override("fill", C.panel_box(color, color, 4, 0))
+	bar.add_theme_stylebox_override("fill", Q.flat(Color(color, 0.8), 0.0, 0.0, 2))
 
 
 func _scroll() -> ScrollContainer:
@@ -1544,7 +1552,7 @@ func _legend(text_value: String, color: Color) -> HBoxContainer:
 func _action(text_value: String, icon: String) -> Button:
 	var button: Button = Button.new()
 	button.text = text_value
-	button.icon = S.icon(icon)
+	button.icon = null  ## quiet: text-first (was S.icon(icon))
 	S.button(button)
 	button.custom_minimum_size.y = 32.0
 	button.add_theme_font_size_override("font_size", 13)
@@ -1570,8 +1578,8 @@ func _pill(text_value: String, color: Color) -> Button:
 	result.add_theme_color_override("font_color", color)
 	result.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result.custom_minimum_size = Vector2(44.0, 24.0)
-	var style: StyleBoxFlat = C.panel_box(
-		S.BG.lerp(color, 0.10), S.BG.lerp(color, 0.48), 5, 1, 5)
+	## Quiet status tag: coloured text only, no pill.
+	var style: StyleBoxFlat = Q.flat(Color(0, 0, 0, 0), 4.0, 2.0, 0)
 	result.add_theme_stylebox_override("normal", style)
 	result.add_theme_stylebox_override("hover", style)
 	result.add_theme_stylebox_override("pressed", style)
@@ -1583,8 +1591,7 @@ func _status_line(text_value: String, color: Color) -> Label:
 	var result: Label = _label(text_value, 12, color)
 	result.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	result.custom_minimum_size.y = 24.0
-	result.add_theme_stylebox_override("normal", C.panel_box(
-		S.SURFACE.darkened(0.04), S.SURFACE_ALT, 5, 0, 6))
+	result.add_theme_stylebox_override("normal", Q.flat(Color(0, 0, 0, 0), 0.0, 2.0, 0))
 	return result
 
 
@@ -1596,13 +1603,14 @@ func _empty(text_value: String, icon: String) -> PanelContainer:
 	row.add_theme_constant_override("separation", 10)
 	card.add_child(C.inset(row, 12, 6, 12, 6))
 	var texture: TextureRect = TextureRect.new()
+	texture.visible = false   ## quiet empty state: one muted sentence, no symbol
 	texture.texture = S.icon(icon)
 	texture.self_modulate = S.MUTED.darkened(0.25)
 	texture.custom_minimum_size = Vector2(26.0, 26.0)
 	texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	row.add_child(texture)
-	var copy: Label = _label(text_value, 13, S.MUTED.darkened(0.15))
+	var copy: Label = _label(text_value, 14, S.MUTED)
 	copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(copy)

@@ -1,5 +1,12 @@
 # UI System
 
+> **Governing visual language (Sep 2026): `docs/ui/QUIET_DESIGN_SYSTEM.md`.**
+> Every UI change reads it first. Schedule: `plans/ui-quiet-redesign-plan.md`;
+> baseline: `docs/ui/QUIET_UI_AUDIT.md`; enforcement:
+> `tools/tests/quiet_ui_lint.gd`; live captures: `tools/ui_capture/`.
+> Older visual descriptions below are historical; their behaviour contracts
+> still apply.
+
 **Read this before opening any `scripts/ui/*` file.** Covers every UI
 subfolder — power panels, inventory, HUD, menus, build-mode HUD, debug
 overlay, and the shared `common/` helpers. Only open the actual source for

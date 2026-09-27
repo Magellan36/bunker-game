@@ -19,14 +19,15 @@ var _font:          Font    = null
 var _fps_samples: PackedFloat32Array = PackedFloat32Array()
 const FPS_SAMPLE_COUNT: int = 30
 
-const BG:    Color = Color(0.04, 0.06, 0.04, 0.93)
-const BORD:  Color = Color(0.28, 0.85, 0.32, 0.70)
-const H_COL: Color = Color(0.22, 0.90, 0.35, 1.0)
-const T_COL: Color = Color(0.78, 0.95, 0.80, 0.95)
-const D_COL: Color = Color(0.45, 0.55, 0.45, 0.85)
-const W_COL: Color = Color(1.0,  0.72, 0.12, 1.0)
-const C_COL: Color = Color(1.0,  0.25, 0.18, 1.0)
-const G_COL: Color = Color(0.30, 1.0,  0.45, 1.0)
+## Quiet dev-tool skin (plan Pass 5B): shared quiet palette. Never player-facing.
+const BG:    Color = Color(0.051, 0.067, 0.063, 0.94)
+const BORD:  Color = Color(0.533, 0.451, 0.306, 0.3)
+const H_COL: Color = Color("a8946c")
+const T_COL: Color = Color("f2e8cf")
+const D_COL: Color = Color("aaa596")
+const W_COL: Color = Color("f0b861")
+const C_COL: Color = Color("df7669")
+const G_COL: Color = Color("9fb39c")
 
 const FONT_H: int = 12
 const FONT_N: int = 11

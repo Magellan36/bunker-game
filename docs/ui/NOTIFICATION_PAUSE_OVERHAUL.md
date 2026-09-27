@@ -1,3 +1,8 @@
+> **Toast presentation superseded (2026-09-26, Quiet Pass 1, decision D2):**
+> quiet native cards top-right under the cash readout; see
+> `docs/ui/QUIET_DESIGN_SYSTEM.md` (§3 Toast, §5 No overlap). Queue, dedupe,
+> journal/history behaviour and the pause Log contract below still apply.
+
 # Notification and Pause UI Overhaul
 
 ## Presentation contract

@@ -136,6 +136,7 @@ func _ready() -> void:
 	_build_fixture()
 
 func _exit_tree() -> void:
+	SharedUI.release(_prio_ui, self)   ## shared priority panel: close if lent to us
 	## Unregister from the power graph when removed from the scene.
 	## Wire node FIRST — that triggers the network re-solve.
 	## Consumer SECOND — graph no longer references this device.
@@ -206,18 +207,12 @@ func on_priority_interact() -> void:
 		is_node.build_mode_active = true
 
 	if _prio_ui == null or not is_instance_valid(_prio_ui):
-		var ui_script: GDScript = load("res://scripts/ui/power/PowerPriorityUI.gd")
-		if ui_script == null:
-			push_warning("WallLight: PowerPriorityUI.gd not found")
+		## SharedUI (Sep 2026): one prebuilt panel per type, lent to this
+		## device while its view is open (no per-device build hitch).
+		_prio_ui = SharedUI.acquire("res://scripts/ui/power/PowerPriorityUI.gd", self, &"_prio_ui",
+			{"closed": _on_prio_closed, "priority_changed": _on_prio_changed})
+		if _prio_ui == null:
 			return
-		_prio_ui = CanvasLayer.new()
-		_prio_ui.set_script(ui_script)
-		_prio_ui.name = "PowerPriorityUI"
-		get_tree().get_root().add_child(_prio_ui)
-		if _prio_ui.has_signal("closed"):
-			_prio_ui.closed.connect(_on_prio_closed)
-		if _prio_ui.has_signal("priority_changed"):
-			_prio_ui.priority_changed.connect(_on_prio_changed)
 
 	if _prio_ui.has_method("open"):
 		_prio_ui.call("open", str(get_instance_id()), "Wall Light", false, global_position, self)

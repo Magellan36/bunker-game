@@ -18,36 +18,42 @@ func _run() -> void:
 	root.add_child(gridmap)
 	hud.set("gridmap", gridmap)
 
-	var construct_viewports: Array = hud.get("_sub_viewports") as Array
-	var shop_viewports: Array = hud.get("_shop_viewports") as Array
-	_check(not construct_viewports.is_empty() and not shop_viewports.is_empty(),
-		"preview pools are created")
-	_check(_all_viewports_match(construct_viewports + shop_viewports, Vector2i(2, 2),
-		SubViewport.UPDATE_DISABLED), "closed pools start hibernated")
-
+	## Sep 2026: PreviewStudio owns every preview. Build Mode keeps no
+	## per-item render targets, entering/leaving builds nothing, and the
+	## catalog renders once into cached textures, with one shared spinner.
+	var studio: Node = root.get_node("PreviewStudio")
+	_check(hud.find_children("*", "SubViewport", true, false).is_empty(),
+		"build mode owns no per-item preview viewports")
+	hud.call("register_previews")
+	var first_key: String = hud.call("preview_key", 1, false)
+	var shop_key: String = hud.call("preview_key", 20, true)
+	_check(int(studio.call("pending_count")) > 0, "catalog previews queue on registration")
 	hud.call("show_hud")
-	_check(_all_viewports_match(construct_viewports + shop_viewports, Vector2i(192, 192),
-		SubViewport.UPDATE_DISABLED), "opening restores render-target dimensions")
 	hud.call("hide_hud")
-	_check(_all_viewports_match(construct_viewports + shop_viewports, Vector2i(2, 2),
-		SubViewport.UPDATE_DISABLED), "closing releases render targets")
-
-	## Re-enter before the deferred close cleanup runs. This models fast
-	## controller tab switching and must leave the newly-opened pool active.
 	hud.call("show_hud")
-	_check(bool(hud.get("_preview_pool_active")), "immediate reopen survives deferred cleanup")
-	_check(_all_viewports_match(construct_viewports + shop_viewports, Vector2i(192, 192),
-		SubViewport.UPDATE_DISABLED), "immediate reopen keeps active dimensions")
-	await process_frame
-	for _frame: int in 180:
-		if bool(hud.get("_submenu_previews_ready")):
-			break
-		await process_frame
-	_check(bool(hud.get("_submenu_previews_ready")),
-		"staggered preview population completes after cancellation and reopen")
+	_check(hud.find_children("*", "SubViewport", true, false).is_empty(),
+		"opening and closing build mode creates no render targets")
+	await studio.call("wait_idle", 30.0)
+	_check(bool(studio.call("is_idle")), "studio drains the catalog queue")
+	## Render assertions need a GPU; the headless dummy renderer has none.
+	var can_render: bool = DisplayServer.get_name() != "headless"
+	_check(not can_render or studio.call("texture", shop_key) != null, "shop products get a cached static render")
+	var tex: Texture2D = studio.call("texture", shop_key)
+	_check(not can_render or tex != null and tex.get_width() == 256 and tex.get_image().has_mipmaps(),
+		"cached renders are 256 px and mipmapped for downscaled cards")
+	var live: Texture2D = studio.call("start_spin", shop_key) if can_render else null
+	_check(not can_render or live is ViewportTexture and studio.call("spinning_key") == shop_key,
+		"hover spin uses the single shared spinner")
+	studio.call("stop_spin", shop_key)
+	_check(String(studio.call("spinning_key")).is_empty(), "spinner releases on hover end")
+	var spinners: int = 0
+	for node: Node in studio.find_children("*", "SubViewport", true, false):
+		if (node as SubViewport).render_target_update_mode == SubViewport.UPDATE_ALWAYS:
+			spinners += 1
+	_check(spinners == 0, "no preview renders every frame while nothing is hovered")
 	hud.call("hide_hud")
-	_check(not bool(hud.get("_preview_build_in_progress")),
-		"closing leaves no active preview builder")
+	if first_key.is_empty():
+		_check(false, "construct keys resolve")
 
 	## Load after autoload registration; Shelving references NotificationManager
 	## and command-line SceneTree scripts otherwise compile it too early.
@@ -81,15 +87,6 @@ func _run() -> void:
 	if _failures == 0:
 		print("BUILD_PREVIEW_LIFECYCLE_SMOKE_OK")
 	quit(_failures)
-
-
-func _all_viewports_match(viewports: Array, expected_size: Vector2i, expected_mode: int) -> bool:
-	for viewport_value: Variant in viewports:
-		var viewport: SubViewport = viewport_value as SubViewport
-		if not is_instance_valid(viewport) or viewport.size != expected_size \
-				or viewport.render_target_update_mode != expected_mode:
-			return false
-	return true
 
 
 func _check(condition: bool, message: String) -> void:

@@ -1,3 +1,7 @@
+> **Superseded visually (2026-09-26)** by the quiet pass — see
+> `docs/ui/QUIET_DESIGN_SYSTEM.md` and `docs/systems/ui/README.md`
+> ("settings quiet pass"). Behaviour notes below still apply.
+
 # Graphics Settings Redesign
 
 ## Approved design contract

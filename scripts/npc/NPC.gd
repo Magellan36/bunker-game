@@ -2707,15 +2707,12 @@ func on_interact() -> void:
 var _talk_menu: CanvasLayer = null
 
 func _open_talk_menu() -> void:
-	if _talk_menu == null or not is_instance_valid(_talk_menu):
-		var ui_script: GDScript = load("res://scripts/ui/npc/NPCTalkMenuUI.gd")
-		if ui_script == null:
-			push_warning("[NPC] NPCTalkMenuUI.gd not found")
+	if _talk_menu == null or not is_instance_valid(_talk_menu) or not SharedUI.owns(_talk_menu, self):
+		## SharedUI (Sep 2026): one prebuilt resident profile, lent to this NPC
+		## (no per-NPC build hitch on first conversation).
+		_talk_menu = SharedUI.acquire("res://scripts/ui/npc/NPCTalkMenuUI.gd", self, &"_talk_menu")
+		if _talk_menu == null:
 			return
-		_talk_menu = CanvasLayer.new()
-		_talk_menu.set_script(ui_script)
-		_talk_menu.name = "NPCTalkMenuUI"
-		get_tree().get_root().add_child(_talk_menu)
 	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
 	if brain != null:
 		brain.begin_player_interaction()
@@ -2734,7 +2731,8 @@ func end_player_interaction() -> void:
 
 
 func close_talk_menu_for_critical_state() -> void:
-	if _talk_menu != null and is_instance_valid(_talk_menu) and _talk_menu.has_method("close"):
+	if _talk_menu != null and is_instance_valid(_talk_menu) and _talk_menu.has_method("close") \
+			and SharedUI.owns(_talk_menu, self):
 		_talk_menu.close()
 
 

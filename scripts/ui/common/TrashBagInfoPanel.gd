@@ -4,7 +4,7 @@ extends CanvasLayer
 ## own pickup/use input, so this surface can never block movement or actions.
 
 const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
-const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 
 const SCAN_RADIUS: float = 3.0
 const SCAN_INTERVAL_SEC: float = 0.15
@@ -35,56 +35,51 @@ func _ready() -> void:
 	_build_panel()
 
 
+## Sep 2026 quiet pass: small shell, brass eyebrow, plain-text rows with
+## hairlines, count as plain text. No icons, no pills, nothing under 12 px.
 func _build_panel() -> void:
 	_panel = PanelContainer.new()
+	Q.avoid_toasts(_panel, false)  # never covered by toasts
 	_panel.name = "TrashItemContextPanel"
 	_panel.custom_minimum_size.x = PANEL_WIDTH
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	Q.allow_subpixel(_panel)   ## tracks a world object; glide, don't tick
 	C.apply_theme(_panel)
-	C.shell(_panel, 9)
+	_panel.add_theme_stylebox_override("panel", Q.shell_box(10))
 	add_child(_panel)
 
 	var body: VBoxContainer = VBoxContainer.new()
 	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.add_theme_constant_override("separation", 7)
-	_panel.add_child(C.inset(body, 11, 10, 11, 9))
+	body.add_theme_constant_override("separation", 8)
+	_panel.add_child(C.inset(body, 18, 14, 18, 14))
 
 	var header: HBoxContainer = HBoxContainer.new()
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header.add_theme_constant_override("separation", 9)
+	header.add_theme_constant_override("separation", 12)
 	body.add_child(header)
-	header.add_child(C.icon_well("trash", 38.0, S.BLUE))
-
 	var title_stack: VBoxContainer = VBoxContainer.new()
 	title_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title_stack.add_theme_constant_override("separation", 0)
+	title_stack.add_theme_constant_override("separation", 3)
 	header.add_child(title_stack)
-	_context = _label("NEARBY • HEAVY ITEM", 9, S.BLUE)
+	_context = Q.eyebrow("Nearby · Heavy item", 12)
 	title_stack.add_child(_context)
-	_title = _label("Trash bag", 17, S.IVORY)
+	_title = _label("Trash bag", 19, Q.TEXT)
 	_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	title_stack.add_child(_title)
+	_count_label = _label("0 items", 13, Q.MUTED)
+	_count_label.size_flags_vertical = Control.SIZE_SHRINK_END
+	header.add_child(_count_label)
 
-	var count_panel: PanelContainer = PanelContainer.new()
-	count_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	count_panel.custom_minimum_size = Vector2(72.0, 30.0)
-	count_panel.add_theme_stylebox_override("panel", C.panel_box(
-		Color("172a33"), S.BLUE.darkened(0.28), 14, 1, 7))
-	header.add_child(count_panel)
-	_count_label = _label("0 ITEMS", 10, S.BLUE.lightened(0.12))
-	_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	count_panel.add_child(_count_label)
-
-	C.divider(body)
+	var rule: HSeparator = HSeparator.new()
+	rule.add_theme_stylebox_override("separator", Q.hairline())
+	body.add_child(rule)
 	_list_box = VBoxContainer.new()
 	_list_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_list_box.add_theme_constant_override("separation", 5)
+	_list_box.add_theme_constant_override("separation", 0)
 	body.add_child(_list_box)
 
-	_overflow_label = _label("", 10, S.MUTED)
-	_overflow_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_overflow_label = _label("", 12, Q.MUTED)
 	_overflow_label.visible = false
 	body.add_child(_overflow_label)
 
@@ -171,8 +166,8 @@ func _rebuild_contents() -> void:
 		if count_suffix >= 0:
 			display_name = display_name.left(count_suffix)
 	_title.text = display_name
-	_context.text = "HELD • HEAVY ITEM" if _was_held else "NEARBY • HEAVY ITEM"
-	_count_label.text = "%d %s" % [contents.size(), "ITEM" if contents.size() == 1 else "ITEMS"]
+	_context.text = "HELD  ·  HEAVY ITEM" if _was_held else "NEARBY  ·  HEAVY ITEM"
+	_count_label.text = "%d %s" % [contents.size(), "item" if contents.size() == 1 else "items"]
 
 	if contents.is_empty():
 		_list_box.add_child(_empty_row())
@@ -189,88 +184,28 @@ func _rebuild_contents() -> void:
 
 
 func _empty_row() -> Control:
-	var card: PanelContainer = PanelContainer.new()
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.custom_minimum_size.y = 48.0
-	card.add_theme_stylebox_override("panel", C.panel_box(
-		Color("171d1c"), S.BRASS.darkened(0.46), 7, 1, 8))
-	var row: HBoxContainer = HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override("separation", 8)
-	card.add_child(row)
-	var marker: Control = Control.new()
-	marker.custom_minimum_size = Vector2(28.0, 28.0)
-	marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	marker.draw.connect(_draw_empty_marker.bind(marker))
-	row.add_child(marker)
-	var label: Label = _label("Empty — ready to be reused", 12, S.MUTED.darkened(0.08))
+	var label: Label = _label("Empty — ready to be reused.", 14, Q.MUTED)
+	label.custom_minimum_size.y = 34.0
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(label)
-	return card
-
-
-func _draw_empty_marker(marker: Control) -> void:
-	var center: Vector2 = marker.size * 0.5
-	for segment: int in range(10):
-		var start_angle: float = TAU * float(segment) / 10.0
-		var end_angle: float = start_angle + TAU / 20.0
-		marker.draw_arc(center, 9.0, start_angle, end_angle, 4,
-			S.BRASS.lightened(0.08), 1.5, true)
+	return label
 
 
 func _item_row(record: Dictionary) -> Control:
-	var card: PanelContainer = PanelContainer.new()
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.custom_minimum_size.y = 54.0
-	card.add_theme_stylebox_override("panel", C.panel_box(
-		Color("1a211f"), S.BRASS.darkened(0.42), 7, 1, 7))
-	var row: HBoxContainer = HBoxContainer.new()
+	var row: PanelContainer = PanelContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override("separation", 9)
-	card.add_child(C.inset(row, 8, 6, 9, 6))
-
-	var icon: TextureRect = TextureRect.new()
-	icon.texture = S.icon(_record_icon(record))
-	icon.self_modulate = S.BLUE.lightened(0.05)
-	icon.custom_minimum_size = Vector2(27.0, 27.0)
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(icon)
-
+	row.add_theme_stylebox_override("panel", Q.row_box(0.0, 7.0))
 	var copy: VBoxContainer = VBoxContainer.new()
-	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	copy.add_theme_constant_override("separation", 0)
+	copy.add_theme_constant_override("separation", 1)
 	row.add_child(copy)
-	var item_name: Label = _label(ItemPresentation.record_title(record), 13, S.IVORY)
+	var item_name: Label = _label(ItemPresentation.record_title(record), 15, Q.TEXT)
 	item_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	copy.add_child(item_name)
 	var detail_text: String = ItemPresentation.record_detail(record.get("data", {}) as Dictionary)
-	var detail: Label = _label(detail_text if not detail_text.is_empty() else "Discarded item", 10, S.MUTED)
+	var detail: Label = _label(detail_text if not detail_text.is_empty() else "Discarded item", 12, Q.MUTED)
 	detail.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	copy.add_child(detail)
-	return card
-
-
-func _record_icon(record: Dictionary) -> String:
-	var item_type: String = String(record.get("item_type", "")).to_lower()
-	var data: Dictionary = record.get("data", {}) as Dictionary
-	var material: String = String(data.get("material", "")).to_lower()
-	if "water" in item_type:
-		return "water"
-	if "food" in item_type or "dish" in item_type or material == "organic":
-		return "food"
-	if "fuel" in item_type:
-		return "fuel"
-	if "filter" in item_type:
-		return "condition"
-	if "bandage" in item_type:
-		return "bandage"
-	if "battery" in item_type or "flashlight" in item_type:
-		return "battery"
-	return "container"
+	return row
 
 
 func _player_holds(candidate: Node) -> bool:

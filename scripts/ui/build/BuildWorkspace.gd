@@ -1,6 +1,10 @@
 class_name BuildWorkspace
 extends Control
 
+## Quiet pass (Pass 5): cards/pills/colours route through the quiet legacy shims.
+const QC: GDScript = preload("res://scripts/ui/common/QuietLegacyComponents.gd")
+const QS: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")
+
 ## Desktop construction workspace. Gameplay authority remains in BuildModeHUD
 ## and BuildModeController; this file owns only the visual shell, focusable
 ## controls, and their presentation states.
@@ -8,6 +12,10 @@ extends Control
 const TOOL_ORDER := [0, 3, 2, 1, 4, 5, 6]
 const TOOL_NAMES := ["Build", "Move", "Duplicate", "Demolish", "Undo", "Wire", "Pipe"]
 const TOOL_ICONS := ["build", "move", "duplicate", "demolish", "undo", "wire", "pipe"]
+## D4 (Sep 2026): text + a few small symbols — glyphs from the game's own
+## licensed font (Iosevka Charon), so no artwork ships and none needs replacing.
+const TOOL_GLYPHS := ["+", "✥", "⧉", "×", "↶", "⌁", "≈"]
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 
 var hud: Node
 var catalog: BuildCatalogPanel
@@ -27,7 +35,7 @@ var _helper_row: HBoxContainer
 var _grid_label: Label
 var _tool_buttons: Array[Button] = []
 var _tool_icon_wells: Array[PanelContainer] = []
-var _tool_icons: Array[TextureRect] = []
+var _tool_icons: Array[Label] = []
 var _controller_nav: ControllerUINavigation
 var _pointer_focus: Control
 var _last_pointer_position := Vector2(-1000, -1000)
@@ -48,6 +56,7 @@ func _ready() -> void:
 	catalog.hud = hud
 	add_child(catalog)
 	shop = ShopPanel.new()
+	preload("res://scripts/ui/common/QuietControls.gd").avoid_toasts(shop, true)  # never covered by toasts
 	shop.hud = hud
 	add_child(shop)
 	catalog.hide()
@@ -71,123 +80,105 @@ func _ready() -> void:
 	set_process(true)
 
 
+## Quiet pass (Pass 5): no plate — a brass BUILD eyebrow and the current
+## mode as shadowed text under the clock (HUD archetype C).
 func _build_banner() -> void:
 	_banner_panel = PanelContainer.new()
 	_banner_panel.name = "BuildModePlate"
 	_banner_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_banner_panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("111615ef"), BunkerPanelStyle.BRASS.darkened(0.14), 8, 1, 7))
+	_banner_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	add_child(_banner_panel)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 9)
-	_banner_panel.add_child(row)
-	row.add_child(BunkerUIComponents.icon_well("build", 36.0))
 	var copy := VBoxContainer.new()
 	copy.alignment = BoxContainer.ALIGNMENT_CENTER
-	copy.add_theme_constant_override("separation", 0)
-	row.add_child(copy)
-	_banner = Label.new()
-	_banner.text = "BUILD MODE"
-	_banner.add_theme_font_size_override("font_size", 17)
-	_banner.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	copy.add_theme_constant_override("separation", 1)
+	_banner_panel.add_child(copy)
+	_banner = Q.eyebrow("Build mode", 12)
+	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_shadow(_banner)
 	copy.add_child(_banner)
 	_banner_subtitle = Label.new()
-	_banner_subtitle.text = "CONSTRUCTION"
-	_banner_subtitle.add_theme_font_size_override("font_size", 10)
-	_banner_subtitle.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	_banner_subtitle.text = "Construction"
+	_banner_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner_subtitle.add_theme_font_size_override("font_size", 15)
+	_banner_subtitle.add_theme_color_override("font_color", Q.TEXT)
+	_shadow(_banner_subtitle)
 	copy.add_child(_banner_subtitle)
 
 
+func _shadow(label: Label) -> void:
+	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	label.add_theme_constant_override("shadow_outline_size", 6)
+
+
+## Shop: a quiet text toggle under the cash readout (underline while open).
 func _build_shop_button() -> void:
 	shop_button = Button.new()
+	Q.avoid_toasts(shop_button, false)  # SHOP sits under cash: toasts step below it
 	shop_button.name = "SupplyShop"
-	shop_button.toggle_mode = true
-	## Match the normal cash plate's compact 162 x 40 footprint. Keeping this
-	## directly below Cash makes the two top-right actions read as one HUD stack.
-	shop_button.custom_minimum_size = Vector2(162, 40)
-	shop_button.tooltip_text = "Open the supply shop"
-	BunkerUIComponents.style_segment(shop_button)
-	shop_button.add_theme_stylebox_override("normal", BunkerUIComponents.panel_box(
-		Color("17232a"), BunkerPanelStyle.BLUE.darkened(0.22), 8, 1, 8))
-	shop_button.add_theme_stylebox_override("hover", BunkerUIComponents.panel_box(
-		Color("1d303a"), BunkerPanelStyle.BLUE, 8, 1, 8))
-	shop_button.add_theme_stylebox_override("pressed", BunkerUIComponents.panel_box(
-		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 8, 2, 7))
+	shop_button.text = "Shop"
+	shop_button.tooltip_text = ""
+	Q.tab_button(shop_button, 15, 34.0)
+	shop_button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	shop_button.custom_minimum_size = Vector2(110, 34)
 	shop_button.pressed.connect(hud.open_shop_menu)
 	add_child(shop_button)
-	var content := HBoxContainer.new()
-	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.alignment = BoxContainer.ALIGNMENT_CENTER
-	content.add_theme_constant_override("separation", 8)
-	var inset := BunkerUIComponents.inset(content, 9, 4, 9, 4)
-	inset.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shop_button.add_child(inset)
-	content.add_child(BunkerUIComponents.icon_well("shop", 30.0))
-	var title := Label.new()
-	title.text = "SHOP"
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.add_theme_font_size_override("font_size", 15)
-	title.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_child(title)
 
 
+## Tool strip (D4): a soft scrim, text tools with a small font glyph above,
+## selection = ivory + ACCENT underline (Q.tab_button). No icon wells.
 func _build_toolbar() -> void:
 	_toolbar_panel = PanelContainer.new()
 	_toolbar_panel.name = "ToolDock"
 	_toolbar_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_toolbar_panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("111615f5"), BunkerPanelStyle.BRASS.darkened(0.09), 10, 1, 8))
+	_toolbar_panel.add_theme_stylebox_override("panel", Q.flat(Color(0.027, 0.035, 0.035, 0.72), 10.0, 6.0, 10))
 	add_child(_toolbar_panel)
 	toolbar = HBoxContainer.new()
 	toolbar.name = "Tools"
-	toolbar.add_theme_constant_override("separation", 6)
+	toolbar.add_theme_constant_override("separation", 4)
 	_toolbar_panel.add_child(toolbar)
 	for i: int in range(TOOL_ORDER.size()):
-		var button := _make_tool_button(TOOL_NAMES[i], TOOL_ICONS[i])
+		var button := _make_tool_button(TOOL_NAMES[i], TOOL_ICONS[i], TOOL_GLYPHS[i])
 		button.pressed.connect(hud._on_toolbar_click.bind(TOOL_ORDER[i]))
 		toolbar.add_child(button)
 		_tool_buttons.append(button)
 
 
-func _make_tool_button(caption: String, symbol: String) -> Button:
+func _make_tool_button(caption: String, symbol: String, glyph: String = "") -> Button:
 	var button := Button.new()
 	button.name = caption
-	button.tooltip_text = caption
-	BunkerUIComponents.style_tool(button)
+	button.tooltip_text = ""
+	button.set_meta(&"symbol", symbol)
+	UIButtonMotion.attach(button)
+	Q.tab_button(button, 13, 58.0)
+	button.custom_minimum_size = Vector2(84, 58)
 	var stack := VBoxContainer.new()
 	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stack.alignment = BoxContainer.ALIGNMENT_CENTER
-	stack.add_theme_constant_override("separation", 2)
-	var inset := BunkerUIComponents.inset(stack, 7, 5, 7, 4)
-	inset.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	button.add_child(inset)
-	var icon_well := PanelContainer.new()
-	icon_well.custom_minimum_size = Vector2(38, 34)
-	icon_well.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	icon_well.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("29302f"), BunkerPanelStyle.BRASS.darkened(0.44), 5, 1, 5))
-	stack.add_child(icon_well)
-	var icon := TextureRect.new()
-	icon.name = "ToolIcon"
-	icon.texture = BunkerPanelStyle.icon(symbol)
-	icon.self_modulate = BunkerPanelStyle.IVORY
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	icon_well.add_child(icon)
+	stack.add_theme_constant_override("separation", 1)
+	stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	button.add_child(stack)
+	var mark := Label.new()
+	mark.name = "ToolGlyph"
+	mark.text = glyph
+	mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mark.add_theme_font_size_override("font_size", 18)
+	mark.add_theme_color_override("font_color", Q.MUTED)
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stack.add_child(mark)
 	var label := Label.new()
 	label.text = caption
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 12)
-	label.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", Q.MUTED)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stack.add_child(label)
-	_tool_icon_wells.append(icon_well)
-	_tool_icons.append(icon)
+	button.set_meta(&"caption_label", label)
+	var well := PanelContainer.new()   ## retained handle (legacy probes)
+	well.visible = false
+	button.add_child(well)
+	_tool_icon_wells.append(well)
+	_tool_icons.append(mark)
 	return button
 
 
@@ -195,8 +186,7 @@ func _build_helper() -> void:
 	_helper_panel = PanelContainer.new()
 	_helper_panel.name = "PlacementHelper"
 	_helper_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_helper_panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("111615ef"), BunkerPanelStyle.BRASS.darkened(0.2), 8, 1, 3))
+	_helper_panel.add_theme_stylebox_override("panel", Q.flat(Color(0.027, 0.035, 0.035, 0.72), 12.0, 3.0, 8))
 	add_child(_helper_panel)
 	_helper_row = HBoxContainer.new()
 	_helper_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -221,7 +211,7 @@ func _rebuild_helper_hints() -> void:
 	_helper_row.add_child(separator)
 	_grid_label = Label.new()
 	_grid_label.add_theme_font_size_override("font_size", 12)
-	_grid_label.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	_grid_label.add_theme_color_override("font_color", Q.MUTED)
 	_helper_row.add_child(_grid_label)
 
 
@@ -239,12 +229,13 @@ func _layout() -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
 	## The persistent clock occupies y=10..52. Build-specific controls begin
 	## below that normal HUD row instead of covering it.
-	_banner_panel.position = Vector2((viewport_size.x - 286.0) * 0.5, 62)
-	_banner_panel.size = Vector2(286, 52)
-	shop_button.position = Vector2(viewport_size.x - 174, 60)
-	shop_button.size = Vector2(162, 40)
+	## Clock (day eyebrow + time) ends near y = 64; the build line sits under it.
+	_banner_panel.position = Vector2((viewport_size.x - 286.0) * 0.5, 74)
+	_banner_panel.size = Vector2(286, 44)
+	shop_button.position = Vector2(viewport_size.x - 24.0 - 110.0, 60)
+	shop_button.size = Vector2(110, 34)
 
-	var toolbar_size := Vector2(minf(700.0, viewport_size.x - 48.0), 82)
+	var toolbar_size := Vector2(minf(640.0, viewport_size.x - 48.0), 70)
 	_toolbar_panel.position = Vector2(maxf(24.0, (viewport_size.x - toolbar_size.x) * 0.5),
 		viewport_size.y - toolbar_size.y - 18.0)
 	_toolbar_panel.size = toolbar_size
@@ -335,12 +326,10 @@ func refresh(active_tool: int, submenu_open: bool, submenu_source: String,
 		var active: bool = TOOL_ORDER[i] == active_tool \
 			or (TOOL_ORDER[i] == 0 and submenu_open and submenu_source == "construct")
 		_tool_buttons[i].set_pressed_no_signal(active)
-		_tool_icons[i].self_modulate = BunkerPanelStyle.BLUE if active else BunkerPanelStyle.IVORY
-		_tool_icon_wells[i].add_theme_stylebox_override("panel",
-			BunkerUIComponents.panel_box(
-				BunkerPanelStyle.BLUE_DARK if active else Color("29302f"),
-				BunkerPanelStyle.BLUE if active else BunkerPanelStyle.BRASS.darkened(0.44),
-				5, 1, 5))
+		var lit: bool = active or _tool_buttons[i].has_focus() or _tool_buttons[i].is_hovered()
+		_tool_icons[i].add_theme_color_override("font_color", Q.TEXT if lit else Q.MUTED)
+		(_tool_buttons[i].get_meta(&"caption_label") as Label).add_theme_color_override(
+			"font_color", Q.TEXT if lit else Q.MUTED)
 	shop_button.set_pressed_no_signal(submenu_open and submenu_source == "farming")
 	var controller_now := InputMode.is_controller()
 	if controller_now != _controller_hints:
@@ -348,9 +337,7 @@ func refresh(active_tool: int, submenu_open: bool, submenu_source: String,
 		_rebuild_helper_hints()
 	_grid_label.text = "GRID  %.2f M" % grid_size
 	_helper_panel.visible = placement_active
-	_banner_subtitle.text = "OBJECT PLACEMENT" if placement_active else "CONSTRUCTION"
-	_banner_subtitle.add_theme_color_override("font_color",
-		BunkerPanelStyle.GREEN if placement_active else BunkerPanelStyle.BLUE)
+	_banner_subtitle.text = "Object placement" if placement_active else "Construction"
 	if _placement_was_active and not placement_active and catalog != null:
 		catalog.clear_placement_state()
 	_placement_was_active = placement_active

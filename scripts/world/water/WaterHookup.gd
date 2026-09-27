@@ -108,7 +108,8 @@ func _process(delta: float) -> void:
 
 func _exit_tree() -> void:
 	if _info_ui != null and is_instance_valid(_info_ui):
-		_info_ui.queue_free()
+		if _info_ui.has_method("close") and bool(_info_ui.call("is_open")):
+			_info_ui.call("close")   ## shared panel: close, never free
 		_info_ui = null
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
@@ -145,16 +146,12 @@ func get_interact_prompt() -> String:
 
 func on_interact() -> void:
 	if _info_ui == null or not is_instance_valid(_info_ui):
-		var ui_script: GDScript = load("res://scripts/ui/water/WaterInfoUI.gd")
-		if ui_script == null:
-			push_warning("WaterHookup: WaterInfoUI.gd not found")
+		## SharedUI (Sep 2026): one prebuilt panel per type, lent to this
+		## device while its view is open (no per-device build hitch).
+		_info_ui = SharedUI.acquire("res://scripts/ui/water/WaterInfoUI.gd", self, &"_info_ui",
+			{"closed": _on_ui_closed})
+		if _info_ui == null:
 			return
-		_info_ui = CanvasLayer.new()
-		_info_ui.set_script(ui_script)
-		_info_ui.name = "WaterInfoUI"
-		get_tree().get_root().add_child(_info_ui)
-		if _info_ui.has_signal("closed"):
-			_info_ui.closed.connect(_on_ui_closed)
 
 	if _info_ui.has_method("open"):
 		_info_ui.open("Water Hookup", "hookup", self)

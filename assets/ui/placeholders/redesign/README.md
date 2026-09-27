@@ -22,7 +22,8 @@ gone):
 python3 tools/tests/check_ui_placeholders.py --release
 ```
 
-The generator pass adds six tracked masks: running, stopped, grid, fuel,
-condition and power. Their runtime tint communicates the displayed state;
-Running and Grid online are green, while project blue remains the main UI accent.
-**Stored water / water fill** is still a future icon for the water-panel pass.
+**Status (Sep 2026, quiet redesign Pass 2B):** every placeholder that lived
+here has been retired — the quiet design language is text-only (font glyphs
+such as → ✓ ←), so none were replaced with new art. The manifest is empty and
+`--release` passes. If a later pass needs a symbol that no font glyph covers,
+add it here under the same rules and list it in the plan's icon ledger.

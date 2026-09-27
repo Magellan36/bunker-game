@@ -20,6 +20,19 @@ func _init() -> void:
 	gauge.set_food(0.35)
 	_assert_true(is_equal_approx(gauge._food_cap, 0.70), "existing cap API remains functional")
 	_assert_true(is_equal_approx(gauge._food, 0.35), "existing value API remains functional")
+	## D1 quiet palette: calm identity at rest, WARNING/RED only when low,
+	## and no discontinuity across either threshold.
+	_assert_true(NeedsGauge.need_color(NeedsGauge.COLOR_WATER, 0.8) == NeedsGauge.COLOR_WATER, "calm identity at rest")
+	_assert_true(NeedsGauge.need_color(NeedsGauge.COLOR_WATER, 0.2) == BunkerDesign.WARNING, "low need reads as warning")
+	_assert_true(NeedsGauge.need_color(NeedsGauge.COLOR_WATER, 0.05) == BunkerDesign.RED, "critical need reads as red")
+	var previous: Color = NeedsGauge.need_color(NeedsGauge.COLOR_HEALTH, 0.4)
+	for step: int in range(400):
+		var value: float = 0.4 - float(step) * 0.001
+		var next: Color = NeedsGauge.need_color(NeedsGauge.COLOR_HEALTH, value)
+		_assert_true(absf(next.r - previous.r) + absf(next.g - previous.g) + absf(next.b - previous.b) < 0.08,
+			"need colour changes continuously at %.3f" % value)
+		previous = next
+	_assert_true(gauge.material is ShaderMaterial, "worn grime overlay restored (Brannon review)")
 	gauge.queue_free()
 	print("needs_gauge_polish_smoke: PASS")
 	quit(0)

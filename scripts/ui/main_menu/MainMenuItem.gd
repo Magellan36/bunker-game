@@ -16,6 +16,9 @@ const SLIDE_PX: float = 14.0
 ## Accent the selector uses for this item. Danger items switch to red while
 ## they are asking for confirmation.
 var accent: Color = BunkerDesign.BLUE
+## Keep the caption line even when empty, so a caption moving between
+## sibling options (e.g. "Selected") never shifts the layout.
+var reserve_caption: bool = false
 
 var _title: Label
 var _caption: Label
@@ -108,12 +111,24 @@ func get_title() -> String:
 
 func set_caption(caption_text: String) -> void:
 	_caption.text = caption_text
-	_caption.visible = not caption_text.is_empty()
+	_caption.visible = reserve_caption or not caption_text.is_empty()
 	apply_ui_scale(_ui_scale)
 
 
 func set_title_color(color: Color) -> void:
 	_title_color = color
+
+
+## Caption tint — hosts mark a chosen option ("Selected") in their accent.
+func set_caption_color(color: Color) -> void:
+	_caption.add_theme_color_override("font_color", color)
+
+
+## In-game hosts (game over, loading) use the quiet ACCENT instead of the
+## main menu's hero blue for the arrow and rail.
+func set_accent_color(color: Color) -> void:
+	accent = color
+	_arrow.add_theme_color_override("font_color", color)
 
 
 func apply_ui_scale(ui_scale: float) -> void:
@@ -125,7 +140,9 @@ func apply_ui_scale(ui_scale: float) -> void:
 	_row.add_theme_constant_override("separation", roundi(14.0 * ui_scale))
 	_arrow_slot.custom_minimum_size = _arrow.get_combined_minimum_size()
 	_arrow_slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	custom_minimum_size.y = roundf((68.0 if _caption.visible else 52.0) * ui_scale)
+	## 40px floor keeps pointer/controller targets comfortable at 720p.
+	custom_minimum_size.y = maxf(56.0 if _caption.visible else 40.0,
+		roundf((68.0 if _caption.visible else 52.0) * ui_scale))
 	_fit_content()
 
 

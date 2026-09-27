@@ -18,8 +18,8 @@ const X_BUTTON_RADIUS: float = 7.0
 ## rounded square of half-extent 7 and corner radius 3 hugs it.
 const F_HALF:       float = 7.0
 const F_CORNER_R:   float = 3.0
-const RING_TRACK: Color = Color(0.12, 0.16, 0.16, 0.96)
-const RING_FILL: Color = Color(0.36, 0.73, 0.96, 1.0)
+const RING_TRACK: Color = Color(0.949, 0.91, 0.812, 0.14)   ## quiet track (Sep 2026)
+const RING_FILL: Color = Color("86a9bf")   ## quiet steel accent
 
 var progress: float = 0.0   ## 0..1 ring fill
 

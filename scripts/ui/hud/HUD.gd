@@ -19,6 +19,9 @@ extends CanvasLayer
 @onready var inventory_hud: Control  = $HUDRoot/InventoryHUD
 
 const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
+## Quiet HUD (QUIET_DESIGN_SYSTEM archetype C): text on a soft shadow, no plates.
+const SAFE_MARGIN: float = 24.0
 
 # ─── Fade-in ──────────────────────────────────────────────────────────────────
 const FADE_IN_DURATION: float = 0.6
@@ -41,14 +44,53 @@ var _day_accent_tween: Tween = null
 func _ready() -> void:
 	# Fade in via HUDRoot — CanvasLayer itself has no modulate property
 	_root.modulate.a = 0.0
-	# Reuses the project's native, code-rendered icon system. No imported or
-	# generated image asset is introduced for this HUD polish pass.
-	clock_icon.texture = S.icon("clock")
+	_quiet_readouts()
 
 	# Lets NotificationManager (a global autoload, outside this scene's own
 	# node path) find the inventory bar's global rect to anchor toasts above
 	# it, without hardcoding a scene path (Jul 2026 toast-format rework).
 	add_to_group("hud")
+
+## Sep 2026 quiet pass: the clock and cash sit directly over the world as
+## shadowed text — day as a brass eyebrow above the time, cash top-right on
+## the 24 px safe margin. Node paths are unchanged (toasts anchor under
+## cash_panel; tests address the same labels).
+func _quiet_readouts() -> void:
+	var clock_panel: PanelContainer = $HUDRoot/TopCenter/ClockPanel
+	clock_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	clock_icon.visible = false
+	($HUDRoot/TopCenter/ClockPanel/ClockRow/Divider as Control).visible = false
+	time_accent.visible = false
+	var stack: VBoxContainer = day_label.get_parent() as VBoxContainer
+	stack.move_child(day_label, 0)
+	stack.add_theme_constant_override("separation", 0)
+	day_label.add_theme_color_override("font_color", Q.HEADING)
+	day_label.add_theme_font_size_override("font_size", 12)
+	Q.tracked(day_label, 3)
+	clock_label.add_theme_font_size_override("font_size", 20)
+	clock_label.add_theme_color_override("font_color", Q.TEXT)
+	cash_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	cash_label.add_theme_font_size_override("font_size", 21)
+	cash_label.add_theme_color_override("font_color", Q.TEXT)
+	for label: Label in [day_label, clock_label, cash_label]:
+		_shadow(label)
+	## 24 px safe margins (plates used 10–12).
+	var top_center: Control = $HUDRoot/TopCenter
+	top_center.offset_top = SAFE_MARGIN - 6.0
+	top_center.offset_bottom = SAFE_MARGIN + 40.0
+	cash_panel.offset_right = -SAFE_MARGIN
+	cash_panel.offset_left = -SAFE_MARGIN - cash_panel.custom_minimum_size.x
+	cash_panel.offset_top = SAFE_MARGIN - 6.0
+	cash_panel.offset_bottom = SAFE_MARGIN + 34.0
+
+
+## Soft shadow + faint outline so text holds over bright or busy scenes.
+func _shadow(label: Label) -> void:
+	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	label.add_theme_constant_override("shadow_offset_x", 0)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	label.add_theme_constant_override("shadow_outline_size", 6)
+
 
 func _process(delta: float) -> void:
 	# ── Fade in on load ──
@@ -123,25 +165,34 @@ func set_day(day: int) -> void:
 	_day_initialized = true
 
 
-## Rare, state-driven feedback only: the signal-blue notch brightens once
-## when the day rolls over, then settles back. The always-on clock does not
-## pulse, bounce, scan, or otherwise animate continuously.
+## Rare, state-driven feedback only: the day eyebrow brightens once when the
+## day rolls over, then settles back. The always-on clock never animates.
 func _pulse_day_accent() -> void:
 	if _day_accent_tween != null and _day_accent_tween.is_valid():
 		_day_accent_tween.kill()
-	time_accent.modulate.a = 1.0
+	day_label.add_theme_color_override("font_color", Q.TEXT)
 	_day_accent_tween = create_tween()
-	_day_accent_tween.tween_property(time_accent, "modulate:a", 0.74, 0.42) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_day_accent_tween.tween_method(func(t: float) -> void:
+		day_label.add_theme_color_override("font_color", Q.TEXT.lerp(Q.HEADING, t)),
+		0.0, 1.0, UIMotion.duration(1.2)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 # ─── Build mode visibility ────────────────────────────────────────────────────
 var _in_build_mode: bool = false
+var _yield_tween: Tween = null
 
 ## Called by MainWorld when build mode is toggled.
 ## Hides the inventory bar while in build mode and keeps it hidden.
 func set_build_mode(enabled: bool) -> void:
 	_in_build_mode = enabled
 	inventory_hud.visible = not enabled
+	## Quiet layout rule (plan Pass 3A): the HUD yields to the build tool's
+	## catalog instead of sitting under it. Needs stay readable via the
+	## critical vignette, which is unaffected.
+	if _yield_tween != null and _yield_tween.is_valid():
+		_yield_tween.kill()
+	_yield_tween = create_tween().set_parallel(true)
+	for part: CanvasItem in [needs_gauge, status_effects, medical_effects]:
+		_yield_tween.tween_property(part, "modulate:a", 0.0 if enabled else 1.0, UIMotion.duration(0.18))
 	if not enabled and inventory_hud.has_method("refresh_previews"):
 		inventory_hud.refresh_previews()
 
@@ -165,8 +216,8 @@ func spawn_float_label(screen_pos: Vector2, amount: int, positive: bool) -> void
 	var lbl: Label = Label.new()
 	lbl.text = ("+" if positive else "-") + UIFormat.money(absi(amount))
 	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "float_label", 18))
-	var col: Color = Color(0.30, 0.95, 0.35, 1.0) if positive else Color(0.95, 0.28, 0.22, 1.0)
-	lbl.add_theme_color_override("font_color", col)
+	lbl.add_theme_color_override("font_color", BunkerDesign.GREEN if positive else BunkerDesign.RED)
+	_shadow(lbl)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(lbl)
 
@@ -222,9 +273,9 @@ func show_cash_delta(amount: int, positive: bool) -> void:
 
 	var lbl: Label = Label.new()
 	lbl.text = ("+" if positive else "-") + UIFormat.money(absi(amount))
-	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "cash_delta", 12))
-	var col: Color = Color(0.30, 0.95, 0.35, 1.0) if positive else Color(0.95, 0.28, 0.22, 1.0)
-	lbl.add_theme_color_override("font_color", col)
+	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.add_theme_color_override("font_color", BunkerDesign.GREEN if positive else BunkerDesign.RED)
+	_shadow(lbl)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(lbl)
 

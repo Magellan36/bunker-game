@@ -67,7 +67,7 @@ func _run() -> void:
 		"approved compact slot size is preserved")
 	_check(is_equal_approx(float(constants.get("DRAWER_WIDTH", 0.0)),
 		float(constants.get("SLOT_SIZE", -1.0))),
-		"identity drawer never exceeds its object tile")
+		"identity reveal keeps its slot-width anchor (name text is clamped inside the bar)")
 	_check(is_equal_approx(float(constants.get("DRAWER_HEIGHT", 0.0)), 24.0),
 		"identity drawer is a compact name-only row")
 	_check(int(hud.get("_drawer_slot")) == 1,

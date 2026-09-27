@@ -32,7 +32,8 @@ def main() -> int:
                 target = stage / source.relative_to(ROOT)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
-        for name in ("GeneratorObject", "BatteryBank", "BreakerBox", "UpgradedBreakerBox"):
+        for name in ("GeneratorObject", "BatteryBank", "BreakerBox", "UpgradedBreakerBox",
+                "WireSegment", "WallWireAttachment", "WireRoute"):
             source = ROOT / f"scripts/world/power/{name}.gd"
             target = stage / source.relative_to(ROOT)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +41,8 @@ def main() -> int:
         shutil.copytree(ROOT / "assets/fonts", stage / "assets/fonts", dirs_exist_ok=True)
         core = stage / "scripts/core"
         core.mkdir(parents=True)
-        shutil.copy2(ROOT / "scripts/core/InputMode.gd", core / "InputMode.gd")
+        for name in ("InputMode", "DebugOutput"):
+            shutil.copy2(ROOT / f"scripts/core/{name}.gd", core / f"{name}.gd")
         for source in FIXTURES.glob("*.fixture"):
             shutil.copy2(source, stage / source.name.removesuffix(".fixture"))
         for arguments in (("--editor", "--import", "--quit"), ("res://Test.tscn",)):
@@ -66,6 +68,11 @@ SOURCE_NAMES = {
     "BatteryInspectUI.gd", "BreakerInspectUI.gd", "PowerPriorityUI.gd",
     "WaterDispenserUI.gd", "WaterInfoUI.gd", "FarmingTrayUI.gd",
     "DeviceInspectPanel.tscn", "GeneratorInspectPanel.tscn", "BunkerRedesignTheme.tres",
+    # Quiet design kit (docs/ui/QUIET_DESIGN_SYSTEM.md) used by the shell.
+    "QuietControls.gd", "SwitchGlyph.gd", "FocusRail.gd", "SmoothScroll.gd",
+    "BunkerUIComponents.gd", "BunkerInputHint.gd",
+    # Owners borrow their panels through SharedUI (one instance per type).
+    "SharedUI.gd",
 }
 
 if __name__ == "__main__":

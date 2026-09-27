@@ -90,9 +90,9 @@ func _run() -> void:
 	_check(String(ui.call("_treatment_kind", wound)) == "antibiotics",
 		"open wounds retain Antibiotics treatment mapping")
 	var inventory_cards: Array = ui.get("_inventory_cards") as Array
-	var viewports: Array = ui.get("_inventory_viewports") as Array
-	_check(inventory_cards.size() == 4 and viewports.size() == 4,
-		"all quick slots have persistent prebuilt preview viewports")
+	## Sep 2026: previews come from PreviewStudio (no per-card viewports).
+	_check(inventory_cards.size() == 4 and ui.find_children("*", "SubViewport", true, false).size() <= 1,
+		"quick slots use shared PreviewStudio renders, not per-card viewports")
 	ui.close()
 	_check(not ui.is_open() and ui.visible,
 		"close ends interaction immediately while the short exit remains visible")

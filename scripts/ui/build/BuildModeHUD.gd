@@ -197,6 +197,11 @@ const PREVIEW_SOURCES: Dictionary = {
 	21: { "scene": "res://scenes/world/CookingPot.tscn", "is_script": false },
 }
 
+## Tiles previewed as the wall mesh scaled in Y (see BuildModeController
+## spawn: TILE_HALF_WALL = 25 at 0.5, TILE_QUARTER_WALL = 26 at 0.25).
+const SCALED_WALL_SOURCE_TILE: int = 1
+const SCALED_WALL_PREVIEWS: Dictionary = {25: 0.5, 26: 0.25}
+
 ## Flat list used only for legacy compat (3D preview viewports, etc.)
 ## Generated from CATEGORIES at runtime — do NOT edit directly.
 var CONSTRUCT_ITEMS: Array = []
@@ -220,13 +225,21 @@ func checkout_order(lines: Dictionary) -> Dictionary:
 	return {"ok": false, "message": "The supply service is unavailable."}
 
 func preview_texture(item_id: int, shop: bool = false) -> Texture2D:
-	if shop:
-		var shop_index := PREVIEW_SOURCES.keys().find(item_id)
-		return _shop_vp_textures[shop_index] if shop_index >= 0 and shop_index < _shop_vp_textures.size() else null
-	for i in CONSTRUCT_ITEMS.size():
-		if int(CONSTRUCT_ITEMS[i].tile_id) == item_id:
-			return _sub_vp_textures[i] if i < _sub_vp_textures.size() else null
-	return null
+	return PreviewStudio.texture(preview_key(item_id, shop))
+
+## Stable PreviewStudio key for a construct tile or a shop product.
+func preview_key(item_id: int, shop: bool = false) -> String:
+	return ("shop:%d" if shop else "build:%d") % item_id
+
+## Registers every construct and shop model with PreviewStudio. Called by
+## MainWorld while the LoadingScreen still covers the world, so opening
+## Build/Shop never builds a model or a render target.
+func register_previews() -> void:
+	for item: Dictionary in CONSTRUCT_ITEMS:
+		var tile_id: int = int(item["tile_id"])
+		PreviewStudio.request(preview_key(tile_id, false), _make_construct_model.bind(tile_id))
+	for shop_id: int in PREVIEW_SOURCES.keys():
+		PreviewStudio.request(preview_key(shop_id, true), _make_shop_model.bind(shop_id))
 
 func choose_build_item(tile_id: int) -> void:
 	var selected_name := "Build item"
@@ -268,7 +281,7 @@ func _warm_preview_pool() -> void:
 
 # ─── Visual constants ──────────────────────────────────────────────────────────
 ## Project blue identity color for the build-mode screen border.
-const ACCENT:       Color = Color(0.40, 0.75, 1.00, 1.0)
+const ACCENT:       Color = Color("86a9bf")   ## quiet steel (Pass 5)
 const BORDER_W:     float = 4.0
 const BORDER_INSET: float = 6.0
 
@@ -309,7 +322,7 @@ const SUB_GAP:      float = 6.0
 const SUB_PAD:      float = 10.0
 const SUB_BG:       Color = Color(0.08, 0.10, 0.07, 0.94)
 const SUB_BORDER:   Color = Color(0.251, 0.443, 0.435, 0.60)
-const PRICE_COLOR:  Color = Color(0.35, 0.95, 0.30, 1.0)
+const PRICE_COLOR:  Color = Color("aaa596")   ## quiet: price in MUTED
 
 ## Item preview pose/animation (Jul 2026). Default resting pose: rotated
 ## 45° to the left and 45° down from straight-on. While the mouse hovers a
@@ -1191,74 +1204,9 @@ func _build_submenu() -> Control:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.name = "ConstructSubmenu"
 
-	for i in CONSTRUCT_ITEMS.size():
-		var item: Dictionary = CONSTRUCT_ITEMS[i]
-
-		# SubViewport for 3D preview
-		var vp: SubViewport = SubViewport.new()
-		vp.size = Vector2i(SUB_VP_HIBERNATED_SIZE, SUB_VP_HIBERNATED_SIZE)
-		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
-		vp.transparent_bg  = true
-		vp.disable_3d      = false
-		vp.own_world_3d    = true
-		root.add_child(vp)
-		GraphicsSettings.register_preview_viewport(vp)
-
-		var cam: Camera3D = Camera3D.new()
-		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-		cam.size = PREVIEW_CAM_SIZE
-		vp.add_child(cam)
-		cam.position = Vector3(1.0, 1.2, 1.0)
-		# look_at requires the node to be in the tree — defer until next frame
-		cam.call_deferred("look_at", Vector3.ZERO, Vector3.UP)
-
-		var light: OmniLight3D = OmniLight3D.new()
-		light.position = Vector3(1.0, 2.0, 1.0)
-		light.light_energy = 3.0
-		light.omni_range = 8.0
-		vp.add_child(light)
-		PreviewPresentation.configure(vp)
-		## PreviewPresentation requests one frame by default; Build Mode starts
-		## hidden, so suppress that allocation/render until the pool activates.
-		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
-
-		_sub_viewports.append(vp)
-		_sub_vp_textures.append(vp.get_texture())
-		_sub_mesh_instances.append(null)
-
-	# Shop item previews (Jul 2026) — same viewport/camera/light setup as
-	# above, but the model comes from PREVIEW_SOURCES (instantiating the
-	# real item scene/script) instead of the gridmap MeshLibrary, since
-	# these aren't placeable tiles.
-	var shop_ids: Array = PREVIEW_SOURCES.keys()
-	for item_id: int in shop_ids:
-		var vp2: SubViewport = SubViewport.new()
-		vp2.size = Vector2i(SUB_VP_HIBERNATED_SIZE, SUB_VP_HIBERNATED_SIZE)
-		vp2.render_target_update_mode = SubViewport.UPDATE_DISABLED
-		vp2.transparent_bg  = true
-		vp2.disable_3d      = false
-		vp2.own_world_3d    = true
-		root.add_child(vp2)
-		GraphicsSettings.register_preview_viewport(vp2)
-
-		var cam2: Camera3D = Camera3D.new()
-		cam2.projection = Camera3D.PROJECTION_ORTHOGONAL
-		cam2.size = PREVIEW_CAM_SIZE
-		vp2.add_child(cam2)
-		cam2.position = Vector3(1.0, 1.2, 1.0)
-		cam2.call_deferred("look_at", Vector3.ZERO, Vector3.UP)
-
-		var light2: OmniLight3D = OmniLight3D.new()
-		light2.position = Vector3(1.0, 2.0, 1.0)
-		light2.light_energy = 3.0
-		light2.omni_range = 8.0
-		vp2.add_child(light2)
-		PreviewPresentation.configure(vp2)
-		vp2.render_target_update_mode = SubViewport.UPDATE_DISABLED
-
-		_shop_viewports.append(vp2)
-		_shop_vp_textures.append(vp2.get_texture())
-		_shop_mesh_instances.append(null)
+	## Sep 2026: previews come from the PreviewStudio autoload (cached
+	## textures + one shared spinner). The per-item SubViewport pools that
+	## lived here (≈55 render targets, rebuilt on every Build entry) are gone.
 
 	# Draw surface for the submenu panel
 	var draw_ctrl: Control = Control.new()
@@ -1488,238 +1436,73 @@ func _on_submenu_item_selected(item: int) -> void:
 ## former _refresh_submenu_previews — the build-mode entry stutter). Static
 ## previews are set to render-once (UPDATE_ONCE + update_worlds); only the
 ## hovered one spins live (see _update_preview_hover_spin).
+## Retained as no-ops for older callers/probes: PreviewStudio owns rendering.
 func _build_submenu_previews_staggered() -> void:
-	if _submenu_previews_ready or _preview_build_in_progress or not _preview_pool_active:
-		return
-	if gridmap == null or gridmap.mesh_library == null:
-		return
-	_preview_build_in_progress = true
-	var generation: int = _preview_build_generation
-	## Construct previews are cheap MeshLibrary fetches — several per frame.
-	## Shop previews instantiate real item scenes (.glb / scripts) — heavier,
-	## so one per frame.
-	const CONSTRUCT_CHUNK: int = 4
-	for i in CONSTRUCT_ITEMS.size():
-		if not _preview_pool_active or generation != _preview_build_generation:
-			return
-		_build_construct_preview(i)
-		if i % CONSTRUCT_CHUNK == CONSTRUCT_CHUNK - 1:
-			await get_tree().process_frame
-	for i in PREVIEW_SOURCES.size():
-		if not _preview_pool_active or generation != _preview_build_generation:
-			return
-		_build_shop_preview(i)
-		await get_tree().process_frame
-	if not _preview_pool_active or generation != _preview_build_generation:
-		return
-	_submenu_previews_ready = true
-	_preview_build_in_progress = false
+	pass
 
-## Restores real render-target dimensions only while the catalog/shop can use
-## them. Models are populated by the staggered builder; keeping activation
-## separate makes opening deterministic even if the player rapidly exits and
-## re-enters Build Mode.
 func _activate_preview_pool() -> void:
-	if _preview_pool_active:
-		return
-	_preview_pool_active = true
-	_preview_build_generation += 1
-	for viewport_value: Variant in _sub_viewports + _shop_viewports:
-		var vp: SubViewport = viewport_value as SubViewport
-		if is_instance_valid(vp):
-			vp.size = Vector2i(SUB_VP_SIZE, SUB_VP_SIZE)
-			vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	pass
 
-## Releases the expensive part of the preview pool when its panels close:
-## render targets shrink from 192x192 to 2x2 and instantiated model trees are
-## freed. Viewport nodes/textures remain stable so existing TextureRects do not
-## need rewiring. The next open repopulates incrementally.
 func _hibernate_preview_pool() -> void:
-	if not _preview_pool_active and not _submenu_previews_ready and not _preview_build_in_progress:
-		return
-	_preview_pool_active = false
-	_preview_build_generation += 1
-	_preview_build_in_progress = false
-	_submenu_previews_ready = false
-	_hovered_preview_index = -1
-	_hovered_preview_is_shop = false
-	for i: int in _sub_mesh_instances.size():
-		var pivot: Node3D = _sub_mesh_instances[i] as Node3D
-		if is_instance_valid(pivot):
-			pivot.queue_free()
-		_sub_mesh_instances[i] = null
-	for i: int in _shop_mesh_instances.size():
-		var pivot: Node3D = _shop_mesh_instances[i] as Node3D
-		if is_instance_valid(pivot):
-			pivot.queue_free()
-		_shop_mesh_instances[i] = null
-	for viewport_value: Variant in _sub_viewports + _shop_viewports:
-		var vp: SubViewport = viewport_value as SubViewport
-		if is_instance_valid(vp):
-			vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
-			vp.size = Vector2i(SUB_VP_HIBERNATED_SIZE, SUB_VP_HIBERNATED_SIZE)
+	PreviewStudio.stop_spin(PreviewStudio.spinning_key())
 
 func _hibernate_preview_pool_if_unused() -> void:
-	if not visible or not _submenu_open:
-		_hibernate_preview_pool()
+	pass
 
-## Sets a preview viewport's render mode: UPDATE_WHEN_VISIBLE while it's the
-## hovered (spinning) preview, UPDATE_ONCE otherwise so static previews cost
-## one render instead of one per frame. UPDATE_ONCE renders its content a
-## single time on the next frame (even while the submenu is hidden) and keeps
-## that texture, which the submenu draws via ViewportTexture.
-func _set_preview_viewport_live(vp: SubViewport, live: bool) -> void:
-	if vp == null:
-		return
-	vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE if live else SubViewport.UPDATE_ONCE
-
-## Builds one construct-item preview (MeshLibrary mesh, or a full-fidelity
-## procedural scene for non-tile items). Called once by the staggered build.
-func _build_construct_preview(i: int) -> void:
-	if i >= _sub_viewports.size():
-		return
-	if gridmap == null or gridmap.mesh_library == null:
-		return
-	var tile_id: int  = CONSTRUCT_ITEMS[i]["tile_id"]
-	var vp: SubViewport = _sub_viewports[i]
-
-	# Remove any old pivot/mesh
-	for child in vp.get_children():
-		if child is Node3D and child is not Camera3D and child is not OmniLight3D:
-			child.queue_free()
-
-	var lib: MeshLibrary = gridmap.mesh_library
-
-	## MeshLibrary item — existing single-mesh path, unchanged.
-	if lib.get_item_list().has(tile_id):
-		var mesh: Mesh = lib.get_item_mesh(tile_id)
-		if mesh != null:
-			## Pivot fix (Jul 2026) — wrap the mesh in a fixed pivot so it
-			## spins around its true visual center. _sub_mesh_instances stores
-			## the pivot (see _update_preview_hover_spin).
-			var pivot: Node3D = Node3D.new()
-			pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-			vp.add_child(pivot)
-
-			var mi: MeshInstance3D = MeshInstance3D.new()
-			mi.mesh = mesh
-			pivot.add_child(mi)
-			_sub_mesh_instances[i] = pivot
-
-			# Center mesh within the pivot (the pivot itself never moves)
-			if mi.mesh != null:
-				var aabb: AABB = mi.mesh.get_aabb()
-				mi.position = -aabb.get_center()
-				pivot.scale = Vector3.ONE * _preview_normalize_scale(aabb)
-			_set_preview_viewport_live(vp, false)
-			return
-
-	## No MeshLibrary entry — try a full-fidelity procedural preview
-	## instead of leaving this slot blank. See _build_procedural_preview_instance().
+## PreviewStudio factory for a construct tile: a detached, side-effect-free
+## model. MeshLibrary tiles use their mesh (Half/Quarter walls = the wall
+## mesh scaled in Y, exactly as BuildModeController places them); every other
+## tile uses GhostModelBuilder's preview-only real instance.
+func _make_construct_model(tile_id: int) -> Node3D:
+	if gridmap != null and gridmap.mesh_library != null:
+		var lib: MeshLibrary = gridmap.mesh_library
+		var mesh_id: int = SCALED_WALL_SOURCE_TILE if SCALED_WALL_PREVIEWS.has(tile_id) else tile_id
+		if lib.get_item_list().has(mesh_id) and lib.get_item_mesh(mesh_id) != null:
+			var root := Node3D.new()
+			var mi := MeshInstance3D.new()
+			mi.mesh = lib.get_item_mesh(mesh_id)
+			mi.scale = Vector3(1.0, float(SCALED_WALL_PREVIEWS.get(tile_id, 1.0)), 1.0)
+			root.add_child(mi)
+			return root
 	var inst: Node3D = _build_procedural_preview_instance(tile_id)
-	if inst == null:
-		_set_preview_viewport_live(vp, false)
-		return   ## no source registered for this tile — stays text-only
-	inst.set_process(false)
-	inst.set_physics_process(false)
+	if inst != null:
+		inst.set_process(false)
+		inst.set_physics_process(false)
+	return inst
 
-	var pivot2: Node3D = Node3D.new()
-	pivot2.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-	vp.add_child(pivot2)
-	pivot2.add_child(inst)
-	## Safety net: wipe any groups this instance's _ready() still joined
-	## (construct classes lacking the _is_preview_only guard). See
-	## GhostModelBuilder.strip_groups().
-	GhostModelBuilder.strip_groups(inst)
-	_sub_mesh_instances[i] = pivot2
-
-	## Combined AABB, correctly accounting for each mesh's own offset.
-	var aabb_result: Dictionary = _combined_local_aabb(inst)
-	if aabb_result["found_any"]:
-		var combined: AABB = aabb_result["aabb"]
-		inst.position = -combined.get_center()
-		pivot2.scale = Vector3.ONE * _preview_normalize_scale(combined)
-	_set_preview_viewport_live(vp, false)
-
-# ─── Cancel button ────────────────────────────────────────────────────────────
-## the whole node tree renders, so imported models (e.g. FuelCan's .glb)
-## work the same as procedurally-built meshes (e.g. BagOfSoilItem). The
-## instance's own game logic is disabled (set_process/set_physics_process
-## false) since it's a display-only stand-in, never actually held or used.
-## Builds one shop-item preview from its PREVIEW_SOURCES entry (instantiating
-## the item's own scene/script). Preview-only guard + group strip keep these
-## out of the live world. Called once by the staggered build.
-func _build_shop_preview(i: int) -> void:
-	if i >= _shop_viewports.size():
-		return
-	var shop_ids: Array = PREVIEW_SOURCES.keys()
-	if i >= shop_ids.size():
-		return
-	var info: Dictionary = PREVIEW_SOURCES[shop_ids[i]]
-	var vp: SubViewport = _shop_viewports[i]
-	for child in vp.get_children():
-		if child is Node3D and child is not Camera3D and child is not OmniLight3D:
-			child.queue_free()
-
+## PreviewStudio factory for a shop product (PREVIEW_SOURCES): the item's own
+## scene/script with the preview-only guard set before it enters a tree.
+func _make_shop_model(shop_id: int) -> Node3D:
+	var info: Dictionary = PREVIEW_SOURCES.get(shop_id, {})
+	if info.is_empty():
+		return null
 	var inst: Node3D = null
 	if bool(info.get("is_script", false)):
 		var script: GDScript = load(String(info["scene"])) as GDScript
 		if script == null:
-			_set_preview_viewport_live(vp, false)
-			return
+			return null
 		inst = script.new()
-		## Aug 2026 fix — must be set BEFORE the node enters the tree, so
-		## SeedItem.gd's own _ready() builds its placeholder mesh with the
-		## correct species color instead of the "tomato" default.
+		## Species/tier must be set BEFORE _ready builds the mesh.
 		if info.has("seed_type") and "seed_type" in inst:
 			inst.set("seed_type", info["seed_type"])
-		if int(shop_ids[i]) == 15 and "tier" in inst:
+		if shop_id == 15 and "tier" in inst:
 			inst.set("tier", "pro")
 	else:
 		var packed: PackedScene = load(String(info["scene"])) as PackedScene
 		if packed == null:
-			_set_preview_viewport_live(vp, false)
-			return
+			return null
 		inst = packed.instantiate() as Node3D
 	if inst == null:
-		_set_preview_viewport_live(vp, false)
-		return
-
+		return null
 	if inst is RigidBody3D:
-		var rb: RigidBody3D = inst as RigidBody3D
-		rb.freeze = true
-		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		(inst as RigidBody3D).freeze = true
+		(inst as RigidBody3D).freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 	inst.set_process(false)
 	inst.set_physics_process(false)
-
-	## Preview-only guard — MUST be set before add_child() so _ready() sees
-	## it (see PickupableItem._is_preview_only). Without it, every shop
-	## preview's real _ready() joined world groups ("pickup", "interactable",
-	## ...) and tree-wide NPC/interaction group-scans treated them as real
-	## items buried at ~world origin.
 	inst.set("_is_preview_only", true)
+	return inst
 
-	## Pivot fix (Jul 2026) — same reasoning as the construct-item builder:
-	## rotate a fixed pivot wrapping the instance, not the instance itself.
-	var pivot: Node3D = Node3D.new()
-	pivot.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-	vp.add_child(pivot)
-	pivot.add_child(inst)
-	## Safety net: wipe any groups this instance's _ready() still joined
-	## (and any its children joined, e.g. WallLight's priority proxy).
-	## See GhostModelBuilder.strip_groups() — group membership is
-	## tree-wide, even though these instances are world-isolated.
-	GhostModelBuilder.strip_groups(inst)
-	_shop_mesh_instances[i] = pivot
-
-	# Combined AABB, correctly accounting for each mesh's own offset.
-	var aabb_result: Dictionary = _combined_local_aabb(inst)
-	if aabb_result["found_any"]:
-		var combined: AABB = aabb_result["aabb"]
-		inst.position = -combined.get_center()
-		pivot.scale = Vector3.ONE * _preview_normalize_scale(combined)
-	_set_preview_viewport_live(vp, false)
-
+# ─── Cancel button ────────────────────────────────────────────────────────────
 # ─── Cancel button ────────────────────────────────────────────────────────────
 func _build_cancel_button() -> Control:
 	## Red box with X — lives at the same top-left as the banner.
@@ -1750,60 +1533,10 @@ func _reposition_cancel_btn() -> void:
 ## the mouse in mouse/keyboard mode, the d-pad-selected row (Aug 2026) in
 ## controller mode. Every other preview snaps straight back to
 ## PREVIEW_ROTATION_DEFAULT with no easing, per spec.
-func _update_preview_hover_spin(delta: float) -> void:
-	var new_hover: int = -1
-	var new_is_shop: bool = false
-	if _submenu_open and _submenu_level == "items":
-		var row: int = _submenu_cursor if InputMode.is_controller() \
-			else _get_submenu_item_at(_mouse_pos)
-		if row >= 1:   ## row 0 is the Back button, never a preview
-			var cats: Dictionary = _current_categories()
-			var cat_items: Array = cats.get(_active_category, [])
-			var idx_in_cat: int = row - 1
-			if idx_in_cat >= 0 and idx_in_cat < cat_items.size():
-				var tid: int = cat_items[idx_in_cat]["tile_id"]
-				if _submenu_source == "construct":
-					for fi: int in CONSTRUCT_ITEMS.size():
-						if CONSTRUCT_ITEMS[fi]["tile_id"] == tid:
-							new_hover = fi
-							break
-				else:
-					new_hover = PREVIEW_SOURCES.keys().find(tid)
-					new_is_shop = true
-
-	if new_hover != _hovered_preview_index or new_is_shop != _hovered_preview_is_shop:
-		# Snap the PREVIOUSLY hovered preview back to its default pose and drop
-		# it to render-once (it's no longer spinning).
-		var old_vp: SubViewport = _get_hover_viewport(_hovered_preview_is_shop, _hovered_preview_index)
-		if old_vp != null:
-			_set_preview_viewport_live(old_vp, false)
-		var old_mi: Node3D = _get_hover_pivot(_hovered_preview_is_shop, _hovered_preview_index)
-		if old_mi != null and is_instance_valid(old_mi):
-			old_mi.rotation_degrees = PREVIEW_ROTATION_DEFAULT
-		_hovered_preview_index = new_hover
-		_hovered_preview_is_shop = new_is_shop
-		# The newly hovered preview spins live.
-		var new_vp: SubViewport = _get_hover_viewport(new_is_shop, new_hover)
-		if new_vp != null:
-			_set_preview_viewport_live(new_vp, true)
-
-	var mi: Node3D = _get_hover_pivot(_hovered_preview_is_shop, _hovered_preview_index)
-	if mi != null and is_instance_valid(mi):
-		mi.rotation_degrees.y += PREVIEW_HOVER_SPIN_DEG_PER_SEC * delta
-
-func _get_hover_viewport(is_shop: bool, index: int) -> SubViewport:
-	if index < 0:
-		return null
-	if is_shop:
-		return _shop_viewports[index] if index < _shop_viewports.size() else null
-	return _sub_viewports[index] if index < _sub_viewports.size() else null
-
-func _get_hover_pivot(is_shop: bool, index: int) -> Node3D:
-	if index < 0:
-		return null
-	if is_shop:
-		return _shop_mesh_instances[index] if index < _shop_mesh_instances.size() else null
-	return _sub_mesh_instances[index] if index < _sub_mesh_instances.size() else null
+## Legacy drawn-submenu hover spin; hover spin now lives on the native cards
+## (PreviewStudio.bind_hover).
+func _update_preview_hover_spin(_delta: float) -> void:
+	return
 
 func _on_cancel_draw(btn: Control) -> void:
 	var r: Rect2  = Rect2(Vector2.ZERO, btn.size)
@@ -1965,25 +1698,26 @@ func _draw_rock_chunk_overlay() -> void:
 ## open_dig_confirm) — the old hand-rolled _draw_dig_confirm() +
 ## _dig_confirm_yes_rect/_dig_confirm_no_rect hit-testing is gone.
 
-func _draw_border() -> void:
-	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	var pulse: float     = 0.45 + sin(_pulse_t) * 0.45
-	var col: Color       = Color(ACCENT.r, ACCENT.g, ACCENT.b, pulse)
-	var ins: float       = BORDER_INSET
-	var r: Rect2         = Rect2(ins, ins, vp_size.x - ins * 2.0, vp_size.y - ins * 2.0)
-	var cr: float        = 12.0
+## Quiet pass (Pass 5): the pulsing full-screen frame is retired. Build mode
+## is marked by a still, faint steel wash at the screen edges (plus the
+## BUILD eyebrow under the clock) — the world stays the focus.
+const EDGE_WASH: float = 110.0
+const EDGE_ALPHA: float = 0.09
 
-	for pass_i in 3:
-		var w: float = BORDER_W - pass_i * 0.8
-		var c: Color = Color(col.r, col.g, col.b, col.a * (1.0 - pass_i * 0.25))
-		_canvas.draw_line(r.position + Vector2(cr, 0),          r.position + Vector2(r.size.x-cr, 0),         c, w, true)
-		_canvas.draw_line(r.position + Vector2(cr, r.size.y),   r.position + Vector2(r.size.x-cr, r.size.y),  c, w, true)
-		_canvas.draw_line(r.position + Vector2(0, cr),          r.position + Vector2(0, r.size.y-cr),         c, w, true)
-		_canvas.draw_line(r.position + Vector2(r.size.x, cr),   r.position + Vector2(r.size.x, r.size.y-cr),  c, w, true)
-		_canvas.draw_polyline(_arc(r.position + Vector2(cr, cr), cr, PI, PI*1.5), c, w, true)
-		_canvas.draw_polyline(_arc(r.position + Vector2(r.size.x-cr, cr), cr, PI*1.5, TAU), c, w, true)
-		_canvas.draw_polyline(_arc(r.position + Vector2(cr, r.size.y-cr), cr, PI*0.5, PI), c, w, true)
-		_canvas.draw_polyline(_arc(r.position + Vector2(r.size.x-cr, r.size.y-cr), cr, 0.0, PI*0.5), c, w, true)
+func _draw_border() -> void:
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var edge := Color(ACCENT, EDGE_ALPHA)
+	var clear := Color(ACCENT, 0.0)
+	var w: float = EDGE_WASH
+	## top, bottom, left, right bands: solid at the edge, clear inward
+	_canvas.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(vp.x, 0), Vector2(vp.x, w), Vector2(0, w)]),
+		PackedColorArray([edge, edge, clear, clear]))
+	_canvas.draw_polygon(PackedVector2Array([Vector2(0, vp.y - w), Vector2(vp.x, vp.y - w), Vector2(vp.x, vp.y), Vector2(0, vp.y)]),
+		PackedColorArray([clear, clear, edge, edge]))
+	_canvas.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, vp.y), Vector2(0, vp.y)]),
+		PackedColorArray([edge, clear, clear, edge]))
+	_canvas.draw_polygon(PackedVector2Array([Vector2(vp.x - w, 0), Vector2(vp.x, 0), Vector2(vp.x, vp.y), Vector2(vp.x - w, vp.y)]),
+		PackedColorArray([clear, edge, edge, clear]))
 
 func _draw_toolbar() -> void:
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size

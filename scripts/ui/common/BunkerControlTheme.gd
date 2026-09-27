@@ -19,7 +19,8 @@ static func install(theme: Theme) -> void:
 		theme.set_color("font_color", "Bunker" + role,
 			BunkerDesign.IVORY if role in ["Title", "Body"] else BunkerDesign.MUTED)
 	for kind: String in ["HScrollBar", "VScrollBar"]:
-		theme.set_stylebox("scroll", kind, _box(BunkerDesign.BG, Color.TRANSPARENT, 5, 0))
+		# Quiet scrollbars (Sep 2026): no track, slim faint grabber.
+		theme.set_stylebox("scroll", kind, _box(Color.TRANSPARENT, Color.TRANSPARENT, 3, 0))
 		theme.set_stylebox("grabber", kind, scrollbar_style("grabber"))
 		theme.set_stylebox("grabber_highlight", kind, scrollbar_style("grabber_highlight"))
 		theme.set_stylebox("grabber_pressed", kind, scrollbar_style("grabber_pressed"))
@@ -64,7 +65,9 @@ static func install(theme: Theme) -> void:
 		theme.set_stylebox("pressed", kind, hover)
 		theme.set_font_size("font_size", kind, BunkerDesign.SECONDARY_SIZE)
 	# Tooltips use the same compact text treatment, never a permanent banner.
-	var tooltip: StyleBoxFlat = _box(BunkerDesign.SHELL, BunkerDesign.BRASS, 6)
+	# Quiet popup surface (Sep 2026): near-opaque charcoal, faint brass edge.
+	var tooltip: StyleBoxFlat = _box(Color(0.067, 0.086, 0.082, 0.99),
+		Color(BunkerDesign.BRASS, 0.3), 6)
 	tooltip.content_margin_left = 9
 	tooltip.content_margin_right = 9
 	tooltip.content_margin_top = 6
@@ -74,10 +77,16 @@ static func install(theme: Theme) -> void:
 	theme.set_font_size("font_size", "TooltipLabel", BunkerDesign.SECONDARY_SIZE)
 
 
+## Quiet grabber (Sep 2026, same look as QuietControls.scrollbar()): a 6 px
+## faint ivory bar drawn inside a controller-sized 16 px hit area via
+## transparent side borders.
 static func scrollbar_style(state: String) -> StyleBoxFlat:
-	var tint: Color = BunkerDesign.IVORY
-	if state == "grabber":
-		tint = tint.darkened(0.18)
+	var alpha: float = 0.13
+	if state == "grabber_highlight":
+		alpha = 0.26
 	elif state == "grabber_pressed":
-		tint = tint.darkened(0.08)
-	return _box(tint, Color.TRANSPARENT, 5, 0)
+		alpha = 0.34
+	var style: StyleBoxFlat = _box(Color(BunkerDesign.IVORY, alpha), Color(0, 0, 0, 0), 3, 0)
+	style.border_width_left = 5
+	style.border_width_right = 5
+	return style

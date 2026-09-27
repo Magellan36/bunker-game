@@ -16,13 +16,16 @@ func _build_content() -> void:
 	_water = W.meter(_details, "Water", "Water supplied", "water")
 	_warning = W.label(_details, "WaterWarning", "", 14, "warning")
 	for index: int in range(2):
+		## Quiet group: brass heading + rows, no card (QUIET_DESIGN_SYSTEM §3).
 		var card := PanelContainer.new()
 		card.name = "Cell%d" % (index + 1)
-		card.theme_type_variation = &"BunkerInspectorCard"
+		card.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 		_details.add_child(card)
 		var content: VBoxContainer = W.column(card, "Content", 8)
-		W.label(content, "Title", "Cell %d" % (index + 1), 18)
-		W.label(content, "State", "", 14, "secondary")
+		var heading: Label = W.heading(content, "Title", "Cell %d" % (index + 1))
+		heading.text = "Cell %d" % (index + 1)
+		heading.uppercase = true
+		W.label(content, "State", "", 15, "secondary")
 		W.meter(content, "Health", "Health", "condition")
 		W.meter(content, "Growth", "Growth", "plant")
 		W.label(content, "Fertilizer", "", 14, "secondary")

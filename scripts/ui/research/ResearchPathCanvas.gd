@@ -6,7 +6,7 @@ class_name ResearchPathCanvas
 ## this node only draws the restrained blueprint grid and dependency lines
 ## behind them.
 
-const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const S: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")  ## quiet pass (Pass 4)
 
 var connections: Array[Dictionary] = []
 

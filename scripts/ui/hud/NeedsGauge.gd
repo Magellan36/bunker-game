@@ -17,6 +17,11 @@ const GAP_ANGLE_DEG: float = 14.0
 const ARC_SEGMENTS: int = 48
 const VALUE_RESPONSE: float = 10.0
 const CAP_RESPONSE: float = 7.0
+## Sep 2026 (D1, revised after Brannon's review): the five rings keep the
+## original worn look — dark track, dark centre, hand-inked rugged edges,
+## keylined glyph wells, grime overlay — with identity colours set between
+## the original saturated palette and the calm pass (~60 % back toward the
+## originals). Needs still shift to WARNING below 25 % and RED below 12 %.
 const CENTER_CIRCLE_COLOR: Color = Color(0.13, 0.13, 0.13, 0.88)
 const TRACK_COLOR: Color = Color(0.08, 0.08, 0.08, 0.90)
 const CAPPED_TRACK_COLOR: Color = Color(0.35, 0.12, 0.10, 0.55)
@@ -25,13 +30,14 @@ const ICON_KEYLINE_COLOR: Color = Color("6f6045")
 const ICON_COLOR: Color = Color("f2e8cf")
 const RUGGED_BORDER_COLOR: Color = Color(0.02, 0.02, 0.02, 0.55)
 const RUGGED_BORDER_WIDTH: float = 1.4
+const LOW_THRESHOLD: float = 0.25
+const CRITICAL_THRESHOLD: float = 0.12
 
-# Original HUD palette, intentionally preserved around the new geometry.
-const COLOR_HEALTH: Color = Color(0.81, 0.17, 0.17, 1.0)
-const COLOR_FOOD: Color = Color(0.90, 0.52, 0.14, 1.0)
-const COLOR_STAMINA: Color = Color(0.29, 0.81, 0.24, 1.0)
-const COLOR_WATER: Color = Color(0.24, 0.52, 0.90, 1.0)
-const COLOR_SLEEP: Color = Color(0.57, 0.33, 0.81, 1.0)
+const COLOR_HEALTH: Color = Color("c64743")
+const COLOR_FOOD: Color = Color("d98d3b")
+const COLOR_STAMINA: Color = Color("66c056")
+const COLOR_WATER: Color = Color("558ed3")
+const COLOR_SLEEP: Color = Color("956ac4")
 
 var _health: float = 1.0
 var _food: float = 1.0
@@ -163,18 +169,33 @@ func _draw() -> void:
 	var gap: float = deg_to_rad(GAP_ANGLE_DEG)
 	draw_circle(CENTER, CENTER_CIRCLE_RADIUS, CENTER_CIRCLE_COLOR)
 	UIKit.draw_rugged_circle(self, CENTER, CENTER_CIRCLE_RADIUS, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, 500.0)
-	_draw_left_half(RING1_RADIUS, RING1_THICKNESS, gap, _display_health, COLOR_HEALTH)
-	_draw_right_half(RING1_RADIUS, RING1_THICKNESS, gap, _display_food, COLOR_FOOD, _display_food_cap)
-	_draw_left_half(RING2_RADIUS, RING2_THICKNESS, gap, _display_stamina, COLOR_STAMINA)
-	_draw_right_half(RING2_RADIUS, RING2_THICKNESS, gap, _display_water, COLOR_WATER, _display_water_cap)
-	_draw_right_half(RING3_RADIUS, RING3_THICKNESS, gap, _display_sleep, COLOR_SLEEP, _display_sleep_cap)
+	_draw_left_half(RING1_RADIUS, RING1_THICKNESS, gap, _display_health, need_color(COLOR_HEALTH, _display_health))
+	_draw_right_half(RING1_RADIUS, RING1_THICKNESS, gap, _display_food, need_color(COLOR_FOOD, _display_food), _display_food_cap)
+	_draw_left_half(RING2_RADIUS, RING2_THICKNESS, gap, _display_stamina, need_color(COLOR_STAMINA, _display_stamina))
+	_draw_right_half(RING2_RADIUS, RING2_THICKNESS, gap, _display_water, need_color(COLOR_WATER, _display_water), _display_water_cap)
+	_draw_right_half(RING3_RADIUS, RING3_THICKNESS, gap, _display_sleep, need_color(COLOR_SLEEP, _display_sleep), _display_sleep_cap)
 	var left_mid: float = PI + GAUGE_ROTATION
 	var right_mid: float = GAUGE_ROTATION
-	_draw_need_icon(RING1_RADIUS, left_mid, _health_icon, COLOR_HEALTH)
-	_draw_need_icon(RING1_RADIUS, right_mid, _food_icon, COLOR_FOOD)
-	_draw_need_icon(RING2_RADIUS, left_mid, _stamina_icon, COLOR_STAMINA)
-	_draw_need_icon(RING2_RADIUS, right_mid, _water_icon, COLOR_WATER)
-	_draw_need_icon(RING3_RADIUS, right_mid, _sleep_icon, COLOR_SLEEP)
+	_draw_need_icon(RING1_RADIUS, left_mid, _health_icon, _display_health)
+	_draw_need_icon(RING1_RADIUS, right_mid, _food_icon, _display_food)
+	_draw_need_icon(RING2_RADIUS, left_mid, _stamina_icon, _display_stamina)
+	_draw_need_icon(RING2_RADIUS, right_mid, _water_icon, _display_water)
+	_draw_need_icon(RING3_RADIUS, right_mid, _sleep_icon, _display_sleep)
+
+
+## Calm identity tint at rest; WARNING below 25 %, RED below 12 %. Blends
+## over a short band so a need crossing a threshold never snaps.
+static func need_color(identity: Color, value: float) -> Color:
+	const BAND: float = 0.04
+	if value >= LOW_THRESHOLD + BAND:
+		return identity
+	if value >= LOW_THRESHOLD:
+		return identity.lerp(BunkerDesign.WARNING, (LOW_THRESHOLD + BAND - value) / BAND)
+	if value >= CRITICAL_THRESHOLD + BAND:
+		return BunkerDesign.WARNING
+	if value >= CRITICAL_THRESHOLD:
+		return BunkerDesign.WARNING.lerp(BunkerDesign.RED, (CRITICAL_THRESHOLD + BAND - value) / BAND)
+	return BunkerDesign.RED
 
 
 func _draw_left_half(radius: float, thickness: float, gap: float, fill: float, color: Color) -> void:
@@ -229,14 +250,15 @@ func _draw_rugged_edges(radius: float, thickness: float, start_angle: float, end
 	UIKit.draw_rugged_arc(self, CENTER, radius - thickness * 0.5, start_angle, end_angle, RUGGED_BORDER_COLOR, RUGGED_BORDER_WIDTH, seed + 100.0)
 
 
-func _draw_need_icon(radius: float, angle: float, texture: Texture2D, accent: Color) -> void:
+func _draw_need_icon(radius: float, angle: float, texture: Texture2D, value: float) -> void:
 	if texture == null:
 		return
 	var position: Vector2 = CENTER + Vector2.from_angle(angle) * radius
 	draw_circle(position, 7.4, ICON_KEYLINE_COLOR.darkened(0.18))
 	draw_circle(position, 6.3, ICON_WELL_COLOR)
 	var icon_rect: Rect2 = Rect2(position - Vector2(4.5, 4.5), Vector2(9.0, 9.0))
-	draw_texture_rect(texture, icon_rect, false, ICON_COLOR.lerp(accent.lightened(0.28), 0.16))
+	var tint: Color = ICON_COLOR if value >= LOW_THRESHOLD else need_color(ICON_COLOR, value).lightened(0.2)
+	draw_texture_rect(texture, icon_rect, false, Color(tint, 0.92))
 
 
 func _approach_values(weight: float) -> bool:

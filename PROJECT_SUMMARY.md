@@ -10,6 +10,10 @@ per-system detail lives in `docs/systems/*/README.md` instead of here.
 
 ## 0. How to use these docs (read this first, every session)
 
+> **UI work (Sep 2026 onward):** the whole in-game UI is being redesigned in
+> the approved "quiet" language. Read `docs/ui/QUIET_DESIGN_SYSTEM.md` and
+> `plans/ui-quiet-redesign-plan.md` before touching any UI file.
+
 **Standing directive for every agent/contributor working on this repo,
 present and future: minimize token/context usage on every task.**
 

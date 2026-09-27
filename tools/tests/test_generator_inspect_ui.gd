@@ -1,4 +1,5 @@
 extends Node
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 ## Run this scene headlessly for isolated presentation/API regression tests.
 ## Requires InputMode (normal project autoload); does not create a PowerManager.
 
@@ -58,20 +59,23 @@ func _check_resolution(resolution: Vector2i) -> void:
 	_check_dock(panel, Vector2(resolution), str(resolution))
 	_expect(ui._power_btn.size.y >= 38.0, "%s: main action target too small" % resolution)
 	_expect(ui._toggle_btn.size.y >= 34.0, "%s: backup target too small" % resolution)
-	_expect(ui._toggle_btn.get_theme_font_size("font_size") >= 18, "%s: body text shrunk below desktop baseline" % resolution)
+	## Quiet type scale: row/control text is 15 px (QUIET_DESIGN_SYSTEM §2).
+	_expect(ui._toggle_btn.get_theme_font_size("font_size") >= 15, "%s: body text shrunk below desktop baseline" % resolution)
 	_expect(panel.get_global_rect().encloses(ui._power_btn.get_global_rect()), "%s: main action outside panel" % resolution)
 	_expect(panel.get_global_rect().encloses(ui._close_btn.get_global_rect()), "%s: Close outside panel" % resolution)
 	var scroll: ScrollContainer = ui._view.get_node("%DetailsScroll") as ScrollContainer
 	_expect(scroll.size.y > 200.0, "%s: details collapsed" % resolution)
 	_expect(scroll.scroll_vertical == 0, "%s: inspector did not open at top" % resolution)
 	var focus_inset: MarginContainer = scroll.get_node("FocusInset") as MarginContainer
-	_expect(focus_inset.get_theme_constant("margin_right") >= 20,
+	_expect(focus_inset.get_theme_constant("margin_right") >= 16,
 		"%s: inspector does not reserve its scrollbar gutter" % resolution)
 	if resolution == Vector2i(1920, 1080):
 		_expect(panel.size.is_equal_approx(Vector2(500.0, 740.0)), "1080p panel no longer matches compact 500x740 spec")
 		_expect(scroll.get_v_scroll_bar().max_value <= scroll.get_v_scroll_bar().page, "normal 1080p layout needs unnecessary scrolling")
 	var grid: PanelContainer = ui._view.get_node("%GridStatus") as PanelContainer
-	_expect(grid.get_node("Row/State").size.x > 90.0, "%s: grid state cannot fit" % resolution)
+	var grid_state: Label = grid.get_node("Row/State") as Label
+	_expect(grid_state.size.x + 0.5 >= grid_state.get_minimum_size().x and grid_state.size.x > 60.0,
+		"%s: grid state cannot fit" % resolution)
 	for state: String in ["ONLINE", "OVERLOADED", "BROWNOUT", "TRIPPED", "OFFLINE", "UNKNOWN"]:
 		ui.refresh(78.0, 94.0, false, true, false, state)
 		await _settle()
@@ -141,16 +145,16 @@ func _check_state_and_input() -> void:
 	ui.open("Generator L", 5000.0, 90.0, 100.0, false, true)
 	await _settle()
 	_expect(_status(ui, "GeneratorStatus") == "Running", "running status incorrect")
-	_expect(ui._power_btn.text == "POWER OFF" \
-		and ui._power_btn.theme_type_variation == &"BunkerPrimaryButton",
-		"running generator does not use blue POWER OFF action")
+	## Quiet pass: the power action is always the surface's one primary.
+	_expect(ui._power_btn.text == "Power off" and ui._power_btn.has_theme_stylebox_override("normal"),
+		"running generator offers Power off as its primary action")
 	_expect(not (ui._view.get_node("%FuelHint") as Label).visible \
 		and not (ui._view.get_node("%ConditionHint") as Label).visible,
 		"healthy generator omits redundant fuel and condition copy")
 	var watts := ui._view.get_node("%Watts") as Label
-	_expect(watts.get_theme_color("font_color") == PANEL_STYLE.BRASS.lightened(0.28) \
-		and watts.has_theme_stylebox_override("normal"),
-		"rated output value uses the shared boxed amber treatment")
+	_expect(watts.get_theme_color("font_color") == Q.TEXT \
+		and not watts.has_theme_stylebox_override("normal"),
+		"rated output reads as a quiet caption/value row")
 	_expect(not (ui._view.get_node("%ActionHint") as Label).visible,
 		"running generator omits the redundant shutdown warning")
 	_expect(not (ui._view.get_node("%NavigationHint") as Label).text.contains("Walk away") \
@@ -159,7 +163,8 @@ func _check_state_and_input() -> void:
 	_expect(_status(ui, "GridStatus") == "Grid online", "online state incorrect")
 	for card_name: String in ["GeneratorStatus", "GridStatus"]:
 		var icon: TextureRect = ui._view.get_node("%" + card_name).get_node("Row/Icon")
-		_expect(icon.self_modulate == ui._view.theme.get_color("success", "Bunker"), "healthy status is not green: " + card_name)
+		## Nominal status reads quietly: steel dot, muted word (no green pill).
+		_expect(icon.self_modulate == Q.ACCENT, "healthy status is not the quiet nominal dot: " + card_name)
 	_expect(ui._close_btn.has_focus(), "initial focus is not on safe Close action")
 	ui._toggle_btn.grab_focus()
 	await _settle()
@@ -188,9 +193,8 @@ func _check_state_and_input() -> void:
 	_expect(ui._toggle_btn.button_pressed, "backup toggle invented unconfirmed state")
 
 	ui.refresh(20.0, 25.0, false, false, true, "TRIPPED")
-	_expect(ui._power_btn.text == "POWER ON" \
-		and ui._power_btn.theme_type_variation == &"",
-		"stopped generator uses subdued POWER ON action")
+	_expect(ui._power_btn.text == "Power on",
+		"stopped generator offers Power on")
 	ui._power_btn.grab_focus()
 	_accept()
 	await get_tree().process_frame
@@ -200,7 +204,7 @@ func _check_state_and_input() -> void:
 	_expect((ui._view.get_node("%ConditionHint") as Label).text == "Critical condition", "condition threshold changed")
 	for meter_name: String in ["FuelBar", "ConditionBar"]:
 		var meter: ProgressBar = ui._view.get_node("%" + meter_name)
-		_expect((meter.get_theme_stylebox("fill") as StyleBoxFlat).bg_color == ui._view.theme.get_color("critical", "Bunker"), "critical meter colour incorrect: " + meter_name)
+		_expect((meter.get_theme_stylebox("fill") as StyleBoxFlat).bg_color.is_equal_approx(Color(BunkerDesign.RED, 0.75)), "critical meter colour incorrect: " + meter_name)
 	for grid_state: String in ["ONLINE", "OVERLOADED", "BROWNOUT", "TRIPPED", "OFFLINE", "UNKNOWN"]:
 		ui.refresh(100.0, 100.0, false, false, false, grid_state)
 		_expect(_status(ui, "GridStatus") == "Grid " + grid_state.to_lower(), "grid state missing: " + grid_state)

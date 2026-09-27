@@ -13,21 +13,24 @@ const BADGE_SIDE: float = 50.0
 const RADIUS: float = 22.0
 const THICKNESS: float = 4.0
 const ICON_SIZE: float = 21.0
+const ICON_COLOR: Color = Color("f2e8cf")
+const ICON_SHADOW: Color = Color("050706b8")
+
+## Healing still overlays the beginning of the severity arc. The cool blue is
+## the one established HUD meaning retained across every medical condition.
+## Sep 2026 (revised after Brannon's review): the worn badge face and
+## rugged edges are back, matching the needs gauge; healing sits between the
+## steel accent and the original blue.
+const HEAL_COLOR: Color = Color("72b2e0")
+const HEAL_SHEEN: Color = Color("d5f0ffb8")
 const BG_RING_COLOR: Color = Color("111716f2")
 const TRACK_EDGE_COLOR: Color = Color("5c4c35a8")
 const PANEL_SHADOW: Color = Color("050706bd")
 const PANEL_COLOR: Color = Color("181d1df5")
 const PANEL_INNER: Color = Color("202625f0")
 const INNER_KEYLINE: Color = Color("88734e70")
-const ICON_COLOR: Color = Color("f2e8cf")
-const ICON_SHADOW: Color = Color("050706b8")
 const RUGGED_BORDER_COLOR: Color = Color("050706b8")
 const RUGGED_BORDER_WIDTH: float = 1.15
-
-## Healing still overlays the beginning of the severity arc. The cool blue is
-## the one established HUD meaning retained across every medical condition.
-const HEAL_COLOR: Color = Color("66bfff")
-const HEAL_SHEEN: Color = Color("d5f0ffb8")
 
 const OUTER_RING_GAP: float = 0.0
 const OUTER_RING_THICKNESS: float = 3.0
@@ -201,15 +204,10 @@ func _draw() -> void:
 	if _has_outer_ring or _display_outer_frac > 0.001:
 		_draw_outer_ring(center)
 
-	# Layered charcoal face and restrained brass keyline match the approved
-	# panels without turning this tiny HUD element into a miniature card.
 	draw_circle(center + Vector2(0.0, 1.5), RADIUS - 0.5, PANEL_SHADOW)
 	draw_circle(center, RADIUS - THICKNESS * 0.45, PANEL_COLOR)
 	draw_circle(center, RADIUS - THICKNESS - 1.2, PANEL_INNER)
 	draw_arc(center, RADIUS - THICKNESS - 0.7, 0.0, TAU, 48, INNER_KEYLINE, 1.0, true)
-
-	# A dark-brass under-track creates readable edge separation at 50px while
-	# the original fill thickness and arc fractions stay unchanged.
 	draw_arc(center, RADIUS, 0.0, TAU, 48, TRACK_EDGE_COLOR, THICKNESS + 1.4, true)
 	draw_arc(center, RADIUS, 0.0, TAU, 48, BG_RING_COLOR, THICKNESS, true)
 	if _is_medical:
@@ -266,7 +264,7 @@ func _symbol_for_effect() -> String:
 func _draw_state_glow(center: Vector2) -> void:
 	if _arrival_flash > 0.0:
 		var arrival_alpha: float = clampf(_arrival_flash / 0.34, 0.0, 1.0) * 0.16
-		draw_circle(center, RADIUS + 4.0, Color(S.BLUE.r, S.BLUE.g, S.BLUE.b, arrival_alpha))
+		draw_circle(center, RADIUS + 4.0, Color(HEAL_COLOR, arrival_alpha))
 	var critical: float = _critical_strength()
 	if critical <= 0.0:
 		return
@@ -307,20 +305,16 @@ func _draw_timer_ring(center: Vector2) -> void:
 		var pulse: float = 0.5 + 0.5 * sin(_animation_time * TAU * 1.15)
 		display_color = _ring_color.lightened(pulse * 0.16)
 	var end_angle: float = -PI / 2.0 + TAU * fraction
-	draw_arc(center, RADIUS, -PI / 2.0, end_angle, 48, display_color.darkened(0.32), THICKNESS + 1.0, true)
 	draw_arc(center, RADIUS, -PI / 2.0, end_angle, 48, display_color, THICKNESS, true)
 
 
 func _draw_medical_rings(center: Vector2) -> void:
 	if _display_severity_frac > 0.0:
 		var severity_end: float = -PI / 2.0 + TAU * _display_severity_frac
-		draw_arc(center, RADIUS, -PI / 2.0, severity_end, 48,
-			_ring_color.darkened(0.34), THICKNESS + 1.0, true)
 		draw_arc(center, RADIUS, -PI / 2.0, severity_end, 48, _ring_color, THICKNESS, true)
 	if not _has_heal_ring or _display_heal_frac <= 0.0:
 		return
 	var heal_end: float = -PI / 2.0 + TAU * _display_heal_frac
-	draw_arc(center, RADIUS, -PI / 2.0, heal_end, 48, HEAL_COLOR.darkened(0.30), THICKNESS + 1.0, true)
 	draw_arc(center, RADIUS, -PI / 2.0, heal_end, 48, HEAL_COLOR, THICKNESS, true)
 	_draw_healing_sheen(center)
 

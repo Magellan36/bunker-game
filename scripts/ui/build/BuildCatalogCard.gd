@@ -1,6 +1,11 @@
 class_name BuildCatalogCard
 extends Button
 
+## Quiet pass (Pass 5): cards/pills/colours route through the quiet legacy shims.
+const QC: GDScript = preload("res://scripts/ui/common/QuietLegacyComponents.gd")
+const QS: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")
+
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 const PREVIEW_MOTION: GDScript = preload("res://scripts/ui/common/UIPreviewMotion.gd")
 
 ## Presentation-only construction card.  BuildCatalogPanel owns selection and
@@ -22,20 +27,9 @@ func _ready() -> void:
 	toggle_mode = true
 	clip_text = true
 	clip_contents = true
-	BunkerUIComponents.style_segment(self)
-	## style_segment() establishes shared button defaults, including a compact
-	## minimum height. Set the construction-card height afterwards so the
-	## preview and information band are contained by the GridContainer instead
-	## of visually spilling into the next row.
-	custom_minimum_size = Vector2(0, 166)
-	add_theme_stylebox_override("normal", BunkerUIComponents.panel_box(
-		Color("181e1d"), BunkerPanelStyle.BRASS.darkened(0.30), 8, 1, 6))
-	add_theme_stylebox_override("hover", BunkerUIComponents.panel_box(
-		Color("20292a"), BunkerPanelStyle.BLUE.darkened(0.25), 8, 1, 6))
-	add_theme_stylebox_override("pressed", BunkerUIComponents.panel_box(
-		Color("1b2e38"), BunkerPanelStyle.BLUE, 8, 2, 5))
-	add_theme_stylebox_override("hover_pressed", BunkerUIComponents.panel_box(
-		Color("203642"), BunkerPanelStyle.BLUE, 8, 2, 5))
+	## Quiet tile (Q.tile): flat wash, selected = ACCENT underline.
+	Q.tile(self)
+	custom_minimum_size = Vector2(0, 158)
 
 	var stack := VBoxContainer.new()
 	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -50,8 +44,7 @@ func _ready() -> void:
 	preview_well.custom_minimum_size.y = 102
 	preview_well.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	preview_well.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	preview_well.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("2a302f"), BunkerPanelStyle.BRASS.darkened(0.38), 6, 1, 5))
+	preview_well.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	stack.add_child(preview_well)
 	var preview_layer := Control.new()
 	preview_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -60,13 +53,14 @@ func _ready() -> void:
 	_preview.name = "Preview"
 	_preview.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_preview.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview_layer.add_child(_preview)
 	_preview_fallback = TextureRect.new()
 	_preview_fallback.name = "PreviewFallback"
-	_preview_fallback.texture = BunkerPanelStyle.icon("build")
-	_preview_fallback.self_modulate = BunkerPanelStyle.MUTED.darkened(0.25)
+	_preview_fallback.texture = null   ## quiet: an empty well, never a symbol
+	_preview_fallback.self_modulate = QS.MUTED.darkened(0.25)
 	_preview_fallback.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_preview_fallback.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_preview_fallback.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -80,13 +74,12 @@ func _ready() -> void:
 	_selected_badge.position = Vector2(-33, 6)
 	_selected_badge.size = Vector2(27, 27)
 	_selected_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_selected_badge.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("183023"), BunkerPanelStyle.GREEN.darkened(0.12), 13, 1, 5))
-	var check := TextureRect.new()
-	check.texture = BunkerPanelStyle.icon("check")
-	check.self_modulate = BunkerPanelStyle.GREEN
-	check.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	check.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_selected_badge.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	var check := Label.new()   ## font glyph, ACCENT (selection already underlines)
+	check.text = "✓"
+	check.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	check.add_theme_font_size_override("font_size", 15)
+	check.add_theme_color_override("font_color", Q.ACCENT)
 	check.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_selected_badge.add_child(check)
 	preview_layer.add_child(_selected_badge)
@@ -95,8 +88,7 @@ func _ready() -> void:
 	info_band.name = "InformationBand"
 	info_band.custom_minimum_size.y = 45
 	info_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	info_band.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("202625"), BunkerPanelStyle.BRASS.darkened(0.44), 6, 1, 5))
+	info_band.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	stack.add_child(info_band)
 	var copy := HBoxContainer.new()
 	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -108,29 +100,22 @@ func _ready() -> void:
 	name_stack.alignment = BoxContainer.ALIGNMENT_CENTER
 	name_stack.add_theme_constant_override("separation", 0)
 	copy.add_child(name_stack)
-	var action_label := Label.new()
-	action_label.text = "PLACE OBJECT"
-	action_label.add_theme_font_size_override("font_size", 9)
-	action_label.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	action_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	name_stack.add_child(action_label)
 	_name_label = Label.new()
 	_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_name_label.add_theme_font_size_override("font_size", 14)
-	_name_label.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	_name_label.add_theme_color_override("font_color", Q.MUTED)
 	_name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	name_stack.add_child(_name_label)
 	var price_badge := PanelContainer.new()
 	price_badge.custom_minimum_size.x = 50
 	price_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	price_badge.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("17232a"), BunkerPanelStyle.BLUE.darkened(0.28), 5, 1, 5))
+	price_badge.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	copy.add_child(price_badge)
 	_price_label = Label.new()
-	_price_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_price_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_price_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_price_label.add_theme_font_size_override("font_size", 13)
-	_price_label.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	_price_label.add_theme_color_override("font_color", Q.MUTED)
 	_price_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	price_badge.add_child(_price_label)
 	set_selected(false)
@@ -154,3 +139,11 @@ func set_selected(selected: bool) -> void:
 	set_pressed_no_signal(selected)
 	if _selected_badge != null:
 		_selected_badge.visible = selected
+	if _name_label != null:
+		_name_label.add_theme_color_override("font_color", Q.TEXT if selected else Q.MUTED)
+
+
+## Price reads MUTED; RED only when the bunker cannot afford it.
+func set_affordable(affordable: bool) -> void:
+	if _price_label != null:
+		_price_label.add_theme_color_override("font_color", Q.MUTED if affordable else BunkerDesign.RED)

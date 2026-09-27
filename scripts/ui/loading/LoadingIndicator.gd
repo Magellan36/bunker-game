@@ -5,11 +5,12 @@ extends Control
 ## and asynchronous preview warmup do not expose one continuous percentage, so
 ## this communicates activity without claiming false completion progress.
 
-const TRACK: Color = Color("1a2728")
-const TRACK_EDGE: Color = Color("50605a")
-const BLUE: Color = Color("66bfff")
-const BLUE_GLOW: Color = Color("66bfff42")
+## Sep 2026 quiet pass: a hairline track with a soft ACCENT segment that
+## glides across; a muted red line when loading fails.
+const TRACK: Color = Color(0.949, 0.910, 0.812, 0.09)
+const ACCENT: Color = Color("86a9bf")
 const ERROR: Color = Color("df7669")
+const PERIOD: float = 2.4
 
 var _elapsed: float = 0.0
 var _failed: bool = false
@@ -17,12 +18,12 @@ var _failed: bool = false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	custom_minimum_size = Vector2(700.0, 18.0)
+	custom_minimum_size = Vector2(660.0, 6.0)
 	set_process(true)
 
 
 func _process(delta: float) -> void:
-	_elapsed = fmod(_elapsed + delta, 3.0)
+	_elapsed = fmod(_elapsed + delta, PERIOD)
 	queue_redraw()
 
 
@@ -35,20 +36,24 @@ func set_failed(value: bool) -> void:
 func _draw() -> void:
 	if size.x <= 2.0:
 		return
-	var center_y: float = size.y * 0.5
-	var left: Vector2 = Vector2(7.0, center_y)
-	var right: Vector2 = Vector2(size.x - 7.0, center_y)
-	draw_line(left, right, TRACK_EDGE, 8.0, true)
-	draw_line(left, right, TRACK, 5.0, true)
+	var y: float = size.y * 0.5
+	draw_line(Vector2(0.0, y), Vector2(size.x, y), TRACK, 2.0, true)
 	if _failed:
-		draw_line(left, right, ERROR.darkened(0.25), 5.0, true)
+		draw_line(Vector2(0.0, y), Vector2(size.x, y), Color(ERROR, 0.8), 2.0, true)
 		return
-
-	var travel: float = size.x + 180.0
-	var head: float = (_elapsed / 3.0) * travel - 90.0
-	var segment_left: float = clampf(head - 115.0, 7.0, size.x - 7.0)
-	var segment_right: float = clampf(head + 115.0, 7.0, size.x - 7.0)
-	if segment_right <= segment_left:
+	var t: float = _elapsed / PERIOD
+	var eased: float = t * t * (3.0 - 2.0 * t)
+	var width: float = size.x * 0.28
+	var head: float = lerpf(-width, size.x, eased)
+	var left: float = clampf(head, 0.0, size.x)
+	var right: float = clampf(head + width, 0.0, size.x)
+	if right <= left:
 		return
-	draw_line(Vector2(segment_left, center_y), Vector2(segment_right, center_y), BLUE_GLOW, 13.0, true)
-	draw_line(Vector2(segment_left, center_y), Vector2(segment_right, center_y), BLUE, 5.0, true)
+	var clear := Color(ACCENT, 0.0)
+	var mid := (left + right) * 0.5
+	draw_polygon(PackedVector2Array([Vector2(left, y - 1.0), Vector2(mid, y - 1.0),
+		Vector2(mid, y + 1.0), Vector2(left, y + 1.0)]),
+		PackedColorArray([clear, ACCENT, ACCENT, clear]))
+	draw_polygon(PackedVector2Array([Vector2(mid, y - 1.0), Vector2(right, y - 1.0),
+		Vector2(right, y + 1.0), Vector2(mid, y + 1.0)]),
+		PackedColorArray([ACCENT, clear, clear, ACCENT]))

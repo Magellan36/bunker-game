@@ -16,6 +16,24 @@ var player_data: Dictionary = {}  # Expand this as you add inventory, stats, etc
 var pending_load_slot: int = 0
 
 # ─── Scene Transition ─────────────────────────────────────────────────────────
+## Sep 2026 — leave the running MainWorld for another scene (game over →
+## reload via LoadingScreen, future "exit to main menu"). Clears autoload
+## state that references nodes of the world being freed, then swaps scene.
+## Set pending_load_slot / CharacterCreationData first when reloading a save.
+func leave_world(scene_path: String) -> Error:
+	Engine.time_scale = 1.0
+	var job_board: Node = get_node_or_null("/root/JobBoard")
+	if job_board != null and job_board.has_method("reset_world_state"):
+		job_board.call("reset_world_state")
+	var notifications: Node = get_node_or_null("/root/NotificationManager")
+	if notifications != null and notifications.has_method("clear_transient_queue"):
+		notifications.call("clear_transient_queue")
+	current_scene_name = scene_path.get_file().get_basename()
+	var error := get_tree().change_scene_to_file(scene_path)
+	if error == OK:
+		scene_changed.emit(current_scene_name)
+	return error
+
 func change_scene(path: String) -> void:
 	current_scene_name = path.get_file().get_basename()
 	get_tree().change_scene_to_file(path)

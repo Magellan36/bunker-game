@@ -69,7 +69,7 @@ func _run() -> void:
 	trash_panel.call("_rebuild_contents")
 	var rows: VBoxContainer = trash_panel.get("_list_box") as VBoxContainer
 	_check(rows.get_child_count() == 2, "trash records become individual context rows")
-	_check((trash_panel.get("_count_label") as Label).text == "2 ITEMS",
+	_check((trash_panel.get("_count_label") as Label).text == "2 items",
 		"trash context presents item count")
 	var first_copy: Array[String] = _label_text(rows.get_child(0))
 	var second_copy: Array[String] = _label_text(rows.get_child(1))

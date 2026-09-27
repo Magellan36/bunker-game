@@ -16,6 +16,9 @@ extends CanvasLayer
 const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
 const FOCUS_RAIL: GDScript = preload("res://scripts/ui/common/FocusRail.gd")
 const SMOOTH_SCROLL: GDScript = preload("res://scripts/ui/common/SmoothScroll.gd")
+const SEGMENTED: GDScript = preload("res://scripts/ui/common/QuietSegmented.gd")
+const FOOTER: GDScript = preload("res://scripts/ui/common/QuietFooter.gd")
+const FOCUS: GDScript = preload("res://scripts/ui/common/QuietFocusController.gd")
 
 const PANEL_MAX := Vector2(1240, 760)
 const PANEL_MARGIN := Vector2(56, 42)
@@ -81,19 +84,17 @@ var _jump_section: String = ""
 var _first_nav_button: Button = null
 var _render_scale_value: Label = null
 var _fov_value: Label = null
-var _rows: Array[Control] = []
-var _active_row: Control = null
-var _hover_focus: bool = false
+## Shared quiet behaviour (row list, hint line, Saved) — see
+## scripts/ui/common/QuietFocusController.gd and QuietFooter.gd.
+var _focus: Node = null
+var _footer: HBoxContainer = null
 var _help_label: Label = null
 var _cost_label: Label = null
 var _saved_label: Label = null
-var _saved_tween: Tween = null
 var _open_tween: Tween = null
 
+var _preset: Control = null
 var _preset_buttons: Array[Button] = []
-var _preset_underline: ColorRect = null
-var _preset_underline_tween: Tween = null
-var _displayed_preset: int = -1
 var _window_mode_option: OptionButton = null
 var _resolution_option: OptionButton = null
 var _vsync_check: CheckButton = null
@@ -131,7 +132,6 @@ func _ready() -> void:
 	controller_nav.close_on_cancel = true
 	add_child(controller_nav)
 	get_viewport().size_changed.connect(_layout)
-	get_viewport().gui_focus_changed.connect(_on_focus_changed)
 	_layout()
 	_refresh_preset_display()
 
@@ -148,9 +148,7 @@ func open() -> void:
 	_jump_section = ""
 	_update_section_buttons("display")
 	_nav_rail.call("snap")
-	_row_rail.call("set_target", null)
-	_show_hint(null)
-	_saved_label.modulate.a = 0.0
+	_focus.call("reset")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_layout()
 	_play_open()
@@ -201,6 +199,12 @@ func _play_open() -> void:
 # ── Build ────────────────────────────────────────────────────────────────────
 
 func _build_ui() -> void:
+	_focus = FOCUS.new()
+	_focus.name = "QuietFocus"
+	_focus.set("rest_alpha", ROW_REST_ALPHA)
+	_focus.set("row_height", ROW_HEIGHT)
+	_focus.set("is_active", func() -> bool: return _is_open)
+	add_child(_focus)
 	_backdrop = UIKit.build_modal_backdrop()
 	add_child(_backdrop)
 	_backdrop.gui_input.connect(_on_backdrop_input)
@@ -210,6 +214,7 @@ func _build_ui() -> void:
 	BunkerUIComponents.apply_theme(_panel)
 	_panel.add_theme_stylebox_override("panel", Q.shell_box(12))
 	add_child(_panel)
+	Q.avoid_toasts(_panel, true)
 
 	var outer: VBoxContainer = VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -233,6 +238,10 @@ func _build_ui() -> void:
 	footer_line.add_theme_constant_override("separation", 22)
 	outer.add_child(footer_line)
 	outer.add_child(_build_footer())
+	_focus.set("surface", _panel)
+	_focus.set("rail", _row_rail)
+	_focus.set("smooth", _smooth)
+	_focus.set("footer", _footer)
 
 
 func _build_navigation_rail() -> Control:
@@ -360,8 +369,9 @@ func _configure_rail(rail: Control, offset: float, extent: float, wash: float,
 	rail.set("color", Q.ACCENT)
 
 
-## Segmented quality preset. The underline slides to the active preset, and
-## to the read-only "Custom" entry as soon as any single setting is changed.
+## Segmented quality preset (QuietSegmented). The underline slides to the
+## active preset, and to the read-only "Custom" entry as soon as any single
+## setting is changed.
 func _build_preset_row() -> Control:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.name = "QualityPresetRow"
@@ -372,81 +382,33 @@ func _build_preset_row() -> Control:
 	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(copy)
 	copy.add_child(Q.eyebrow("Quality preset", 12))
-	var host: Control = Control.new()
-	host.name = "PresetSegments"
-	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(host)
-	var segments: HBoxContainer = HBoxContainer.new()
-	segments.add_theme_constant_override("separation", 2)
-	host.add_child(segments)
-	for index: int in PRESET_NAMES.size():
-		var segment: Button = Button.new()
-		segment.name = PRESET_NAMES[index] + "Preset"
-		segment.text = PRESET_NAMES[index]
-		Q.segment(segment, 15)
-		if index == GraphicsSettings.Preset.CUSTOM:
-			segment.disabled = true
-			segment.focus_mode = Control.FOCUS_NONE
-			segment.mouse_default_cursor_shape = Control.CURSOR_ARROW
-		segment.set_meta(&"help", "A complete quality baseline. Changing any single setting below switches to Custom.")
-		segment.pressed.connect(_on_preset_selected.bind(index))
-		# Re-seat the underline whenever layout moves the active segment.
-		segment.item_rect_changed.connect(func() -> void:
-			if index == _displayed_preset and not is_instance_valid(_preset_underline_tween):
-				_place_preset_underline(false))
-		segments.add_child(segment)
-		_preset_buttons.append(segment)
-	_preset_underline = ColorRect.new()
-	_preset_underline.name = "PresetUnderline"
-	_preset_underline.color = Q.ACCENT
-	_preset_underline.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	host.add_child(_preset_underline)
-	segments.resized.connect(func() -> void:
-		host.custom_minimum_size = segments.get_combined_minimum_size()
-		_place_preset_underline(false))
-	host.custom_minimum_size = segments.get_combined_minimum_size()
+	_preset = SEGMENTED.new()
+	_preset.name = "PresetSegments"
+	var read_only: Array[int] = [GraphicsSettings.Preset.CUSTOM]
+	_preset.call("setup", PRESET_NAMES, read_only, 15)
+	_preset.call("describe", "A complete quality baseline. Changing any single setting below switches to Custom.")
+	_preset.connect("segment_pressed", _on_preset_selected)
+	row.add_child(_preset)
+	_preset_buttons = _preset.call("get_buttons")
 	return row
-
-
-func _place_preset_underline(animated: bool) -> void:
-	if _displayed_preset < 0 or _displayed_preset >= _preset_buttons.size():
-		return
-	var segment: Button = _preset_buttons[_displayed_preset]
-	var font: Font = segment.get_theme_font("font")
-	var font_size: int = segment.get_theme_font_size("font_size")
-	var text_width: float = font.get_string_size(segment.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	var target := Rect2(segment.position.x + (segment.size.x - text_width) * 0.5,
-		segment.position.y + segment.size.y + 2.0, text_width, 2.0)
-	if is_instance_valid(_preset_underline_tween):
-		_preset_underline_tween.kill()
-	if not animated or UIMotion.reduced() or _preset_underline.size.x <= 0.0:
-		_preset_underline.position = target.position
-		_preset_underline.size = target.size
-		return
-	_preset_underline_tween = create_tween().set_parallel(true)
-	_preset_underline_tween.finished.connect(func() -> void: _preset_underline_tween = null)
-	_preset_underline_tween.tween_property(_preset_underline, "position", target.position, 0.3) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_preset_underline_tween.tween_property(_preset_underline, "size", target.size, 0.3) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 func _build_display_section(parent: VBoxContainer) -> void:
 	var section: VBoxContainer = _section(parent, "display")
 	_window_mode_option = _make_option(WINDOW_MODE_LABELS)
 	_window_mode_option.item_selected.connect(_on_window_mode_changed)
-	_row(section, "Window mode", _window_mode_option,
+	_focus.call("make_row", section, "Window mode", _window_mode_option,
 		"How the game occupies your display.")
 	_resolution_option = _make_option(RESOLUTION_LABELS)
 	_resolution_option.item_selected.connect(_on_resolution_changed)
-	_row(section, "Resolution", _resolution_option,
+	_focus.call("make_row", section, "Resolution", _resolution_option,
 		"Window size. Available in windowed mode.")
 	_vsync_check = _make_switch(_on_vsync_toggled)
-	_row(section, "Vertical sync", _vsync_check,
+	_focus.call("make_row", section, "Vertical sync", _vsync_check,
 		"Matches frames to your display to prevent tearing. Can add slight input delay.")
 	_fps_cap_option = _make_option(FPS_CAP_LABELS)
 	_fps_cap_option.item_selected.connect(_on_fps_cap_changed)
-	_row(section, "Frame-rate cap", _fps_cap_option,
+	_focus.call("make_row", section, "Frame-rate cap", _fps_cap_option,
 		"Limits frames per second to reduce heat, noise and power use.")
 
 
@@ -456,19 +418,19 @@ func _build_rendering_section(parent: VBoxContainer) -> void:
 	for index in RENDERING_DRIVER_VALUES.size():
 		_rendering_driver_option.set_item_disabled(index, not GraphicsSettings.is_rendering_driver_supported(RENDERING_DRIVER_VALUES[index]))
 	_rendering_driver_option.item_selected.connect(_on_rendering_driver_changed)
-	_row(section, "Rendering driver", _rendering_driver_option,
+	_focus.call("make_row", section, "Rendering driver", _rendering_driver_option,
 		"The graphics API the game draws with.", "Restart required")
 	_aa_option = _make_option(AA_LABELS)
 	_aa_option.item_selected.connect(_on_aa_changed)
-	_row(section, "Anti-aliasing", _aa_option,
+	_focus.call("make_row", section, "Anti-aliasing", _aa_option,
 		"Smooths jagged edges. TAA is softest; MSAA is sharper and costs more.", "Moderate cost")
 	_aniso_option = _make_option(ANISO_LABELS)
 	_aniso_option.item_selected.connect(_on_aniso_changed)
-	_row(section, "Texture filtering", _aniso_option,
+	_focus.call("make_row", section, "Texture filtering", _aniso_option,
 		"Keeps floors and walls crisp at glancing angles.", "Low cost")
 	_shadow_quality_option = _make_option(SHADOW_QUALITY_LABELS)
 	_shadow_quality_option.item_selected.connect(_on_shadow_quality_changed)
-	_row(section, "Shadow quality", _shadow_quality_option,
+	_focus.call("make_row", section, "Shadow quality", _shadow_quality_option,
 		"Shadow resolution. Higher is sharper and uses more video memory.", "Moderate cost")
 	_render_scale_slider = HSlider.new()
 	_render_scale_slider.min_value = RENDER_SCALE_MIN
@@ -478,7 +440,7 @@ func _build_rendering_section(parent: VBoxContainer) -> void:
 	_render_scale_slider.value_changed.connect(_on_render_scale_changed)
 	_render_scale_slider.drag_ended.connect(_on_render_scale_drag_ended)
 	_render_scale_value = _value_label("100%")
-	_row(section, "Render scale", _slider_control(_render_scale_slider, _render_scale_value),
+	_focus.call("make_row", section, "Render scale", _slider_control(_render_scale_slider, _render_scale_value),
 		"Internal resolution. Lower values raise frame rate at the cost of sharpness.",
 		"High impact", _render_scale_slider)
 
@@ -491,31 +453,31 @@ func _build_effects_section(parent: VBoxContainer) -> void:
 	grid.add_theme_constant_override("v_separation", 0)
 	section.add_child(grid)
 	_sdfgi_check = _make_switch(_on_sdfgi_toggled)
-	_row(grid, "Real-time GI", _sdfgi_check,
+	_focus.call("make_row", grid, "Real-time GI", _sdfgi_check,
 		"Light that bounces between surfaces.", "High cost")
 	_ssao_check = _make_switch(_on_ssao_toggled)
-	_row(grid, "Ambient occlusion", _ssao_check,
+	_focus.call("make_row", grid, "Ambient occlusion", _ssao_check,
 		"Soft contact shadows in corners and crevices.", "Moderate cost")
 	_ssil_check = _make_switch(_on_ssil_toggled)
-	_row(grid, "Indirect lighting", _ssil_check,
+	_focus.call("make_row", grid, "Indirect lighting", _ssil_check,
 		"Screen-space colour bleed from nearby lit surfaces.", "Moderate cost")
 	_vol_fog_check = _make_switch(_on_vol_fog_toggled)
-	_row(grid, "Volumetric fog", _vol_fog_check,
+	_focus.call("make_row", grid, "Volumetric fog", _vol_fog_check,
 		"Haze and light shafts in the air.", "High cost")
 	_glow_check = _make_switch(_on_glow_toggled)
-	_row(grid, "Glow & bloom", _glow_check,
+	_focus.call("make_row", grid, "Glow & bloom", _glow_check,
 		"A soft halo around bright lights.", "Low cost")
 	_dof_check = _make_switch(_on_dof_toggled)
-	_row(grid, "Depth of field", _dof_check,
+	_focus.call("make_row", grid, "Depth of field", _dof_check,
 		"Blurs what the camera is not focused on.", "Moderate cost")
 	_shadow_check = _make_switch(_on_shadow_toggled)
-	_row(grid, "Dynamic shadows", _shadow_check,
+	_focus.call("make_row", grid, "Dynamic shadows", _shadow_check,
 		"Moving objects and characters cast shadows.", "Moderate cost")
 	_dr_check = _make_switch(_on_dr_toggled)
-	_row(grid, "Dynamic resolution", _dr_check,
+	_focus.call("make_row", grid, "Dynamic resolution", _dr_check,
 		"Lowers render resolution when frame rate drops and restores it once performance recovers. Render scale stays the ceiling.")
 	_vol_check = _make_switch(_on_vol_toggled)
-	_row(grid, "Flashlight beams", _vol_check,
+	_focus.call("make_row", grid, "Flashlight beams", _vol_check,
 		"A visible flashlight beam in dusty air.", "Moderate cost")
 
 
@@ -529,10 +491,10 @@ func _build_camera_section(parent: VBoxContainer) -> void:
 	_fov_slider.value_changed.connect(_on_fov_changed)
 	_fov_slider.drag_ended.connect(_on_fov_drag_ended)
 	_fov_value = _value_label("60°")
-	_row(section, "Camera field of view", _slider_control(_fov_slider, _fov_value),
+	_focus.call("make_row", section, "Camera field of view", _slider_control(_fov_slider, _fov_value),
 		"How much of the bunker the camera shows.", "", _fov_slider)
 	_reduced_motion_check = _make_switch(_on_reduced_motion_toggled)
-	_row(section, "Reduced motion", _reduced_motion_check,
+	_focus.call("make_row", section, "Reduced motion", _reduced_motion_check,
 		"Removes interface animation, camera drift and rapid lightning flashes.")
 	section.add_child(_gap(8.0))
 
@@ -552,46 +514,6 @@ func _section(parent: VBoxContainer, section_key: String) -> VBoxContainer:
 	section.add_child(heading)
 	section.add_child(_gap(6.0))
 	return section
-
-
-## One setting: label left, value right, hairline under. `focus_target` is
-## the control that takes focus (the slider inside a slider+value group).
-func _row(parent: Container, title_text: String, control: Control, help: String,
-		cost: String = "", focus_target: Control = null) -> PanelContainer:
-	var target: Control = focus_target if focus_target != null else control
-	var row: PanelContainer = PanelContainer.new()
-	row.name = title_text.to_pascal_case().replace("&", "And") + "Row"
-	row.custom_minimum_size.y = ROW_HEIGHT
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.mouse_filter = Control.MOUSE_FILTER_PASS
-	row.add_theme_stylebox_override("panel", Q.row_box())
-	var line: HBoxContainer = HBoxContainer.new()
-	line.add_theme_constant_override("separation", 16)
-	row.add_child(line)
-	var name_label: Label = Q.label(title_text, 16, Q.TEXT)
-	name_label.name = "Name"
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_label.modulate.a = ROW_REST_ALPHA
-	line.add_child(name_label)
-	control.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	line.add_child(control)
-	parent.add_child(row)
-	row.set_meta(&"control", target)
-	row.set_meta(&"label", name_label)
-	target.set_meta(&"settings_row", row)
-	target.set_meta(&"help", help)
-	target.set_meta(&"cost", cost)
-	row.mouse_entered.connect(_on_row_hovered.bind(row))
-	row.gui_input.connect(_on_row_input.bind(row))
-	if target is OptionButton:
-		(target as OptionButton).item_selected.connect(func(_i: int) -> void: _acknowledge(target))
-	elif target is CheckButton:
-		(target as CheckButton).toggled.connect(func(_on: bool) -> void: _acknowledge(target))
-	elif target is Range:
-		(target as Range).value_changed.connect(func(_v: float) -> void: _acknowledge(target))
-	_rows.append(row)
-	return row
 
 
 func _make_option(labels: Array[String]) -> OptionButton:
@@ -641,35 +563,15 @@ func _gap(height: float) -> Control:
 
 
 func _build_footer() -> Control:
-	var footer: HBoxContainer = HBoxContainer.new()
-	footer.name = "Footer"
-	footer.add_theme_constant_override("separation", 14)
-	footer.custom_minimum_size.y = 28.0
-	_cost_label = Q.label("", 11, Q.HEADING)
-	_cost_label.name = "CostTag"
-	_cost_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	Q.tracked(_cost_label, 2)
-	footer.add_child(_cost_label)
-	_help_label = Q.label(IDLE_HINT, 14, Q.MUTED)
-	_help_label.name = "Hint"
-	_help_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_help_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_help_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_help_label.clip_text = true
-	footer.add_child(_help_label)
-	_saved_label = Q.label("✓  Saved", 13, Q.ACCENT)
-	_saved_label.name = "SavedConfirmation"
-	_saved_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_saved_label.modulate.a = 0.0
-	footer.add_child(_saved_label)
-	footer.add_child(_gap(0.0))
-	var hints: HBoxContainer = HBoxContainer.new()
-	hints.add_theme_constant_override("separation", 22)
-	footer.add_child(hints)
-	BunkerUIComponents.key_hint(hints, "ENTER", "Select", "ENTER", "A")
-	BunkerUIComponents.key_hint(hints, "← →", "Adjust", "← →", "D-PAD")
-	BunkerUIComponents.key_hint(hints, "ESC", "Back", "ESC", "B")
-	return footer
+	_footer = FOOTER.new()
+	_footer.set("idle_hint", IDLE_HINT)
+	_footer.call("add_key_hint", "ENTER", "Select", "ENTER", "A")
+	_footer.call("add_key_hint", "← →", "Adjust", "← →", "D-PAD")
+	_footer.call("add_key_hint", "ESC", "Back", "ESC", "B")
+	_help_label = _footer.get("hint_label")
+	_cost_label = _footer.get("cost_label")
+	_saved_label = _footer.get("saved_label")
+	return _footer
 
 
 func _layout() -> void:
@@ -680,96 +582,6 @@ func _layout() -> void:
 
 
 # ── Focus, hover, feedback ───────────────────────────────────────────────────
-
-func _on_focus_changed(control: Control) -> void:
-	if not _is_open or control == null or not _panel.is_ancestor_of(control):
-		return
-	var row: Variant = control.get_meta(&"settings_row") if control.has_meta(&"settings_row") else null
-	if row is Control:
-		_set_active_row(row as Control)
-		if not _hover_focus:
-			_smooth.call("reveal", row, 56.0)
-	else:
-		_set_active_row(null)
-	_show_hint(control)
-
-
-func _set_active_row(row: Control) -> void:
-	if row == _active_row:
-		return
-	for candidate: Control in [_active_row, row]:
-		if candidate == null or not is_instance_valid(candidate):
-			continue
-		var label: Label = candidate.get_meta(&"label") as Label
-		var target_alpha: float = 1.0 if candidate == row else ROW_REST_ALPHA
-		create_tween().tween_property(label, "modulate:a", target_alpha, UIMotion.duration(0.12))
-	_active_row = row
-	_row_rail.call("set_target", row)
-
-
-func _show_hint(control: Control) -> void:
-	var help: String = str(control.get_meta(&"help", "")) if control != null else ""
-	var cost: String = str(control.get_meta(&"cost", "")) if control != null else ""
-	var next_help: String = help if not help.is_empty() else IDLE_HINT
-	if _help_label.text != next_help:
-		_help_label.text = next_help
-		UIFade.content(_help_label)
-	_cost_label.text = cost.to_upper()
-	_cost_label.visible = not cost.is_empty()
-
-
-## Hover moves focus, so the rail, the hint and keyboard/controller all agree.
-func _on_row_hovered(row: Control) -> void:
-	if not _is_open or not InputMode.is_keyboard() or _smooth.call("is_animating"):
-		return
-	var control: Control = row.get_meta(&"control") as Control
-	if control == null or control.has_focus() or control.focus_mode == Control.FOCUS_NONE:
-		return
-	if control is OptionButton and (control as OptionButton).get_popup().visible:
-		return
-	_hover_focus = true
-	control.grab_focus()
-	_hover_focus = false
-
-
-## Clicking a row's label area acts on its control: a bigger target.
-func _on_row_input(event: InputEvent, row: Control) -> void:
-	var click := event as InputEventMouseButton
-	if click == null or not click.pressed or click.button_index != MOUSE_BUTTON_LEFT:
-		return
-	var control: Control = row.get_meta(&"control") as Control
-	if control == null or control.focus_mode == Control.FOCUS_NONE:
-		return
-	if control is BaseButton and (control as BaseButton).disabled:
-		return
-	control.grab_focus()
-	if control is CheckButton:
-		(control as CheckButton).button_pressed = not (control as CheckButton).button_pressed
-	elif control is OptionButton:
-		(control as OptionButton).show_popup()
-	row.accept_event()
-
-
-## A value changed: pulse the row and confirm the save.
-func _acknowledge(control: Control) -> void:
-	if not _is_open:
-		return
-	if control.has_meta(&"settings_row") and control.get_meta(&"settings_row") == _active_row:
-		_row_rail.call("pulse")
-	if is_instance_valid(_saved_tween):
-		_saved_tween.kill()
-	_saved_tween = create_tween()
-	_saved_tween.tween_property(_saved_label, "modulate:a", 1.0, UIMotion.duration(0.14))
-	_saved_tween.tween_interval(1.4)
-	_saved_tween.tween_property(_saved_label, "modulate:a", 0.0, UIMotion.duration(0.6))
-
-
-func _sync_row_states() -> void:
-	for row: Control in _rows:
-		var control: Control = row.get_meta(&"control") as Control
-		var disabled: bool = control is BaseButton and (control as BaseButton).disabled
-		(row.get_meta(&"label") as Label).self_modulate.a = 0.45 if disabled else 1.0
-
 
 func _jump_to_section(section_key: String) -> void:
 	var anchor: Control = _section_anchors.get(section_key) as Control
@@ -845,28 +657,19 @@ func _refresh_from_settings() -> void:
 	_set_switch(_reduced_motion_check, UIMotion.reduced())
 	_fov_slider.set_value_no_signal(GraphicsSettings.camera_fov)
 	_fov_value.text = "%d°" % roundi(GraphicsSettings.camera_fov)
-	_sync_row_states()
+	_focus.call("sync_row_states")
 
 
 func _refresh_preset_display() -> void:
 	var preset_index: int = GraphicsSettings.current_preset
 	if preset_index < 0 or preset_index >= PRESET_NAMES.size():
 		preset_index = GraphicsSettings.Preset.CUSTOM
-	var animate: bool = _displayed_preset >= 0 and _displayed_preset != preset_index and _is_open
-	_displayed_preset = preset_index
-	for index: int in _preset_buttons.size():
-		var segment: Button = _preset_buttons[index]
-		segment.set_pressed_no_signal(index == preset_index)
-		# Custom is read-only; it still reads as "current" when active.
-		if index == GraphicsSettings.Preset.CUSTOM:
-			segment.add_theme_color_override("font_disabled_color",
-				Q.TEXT if index == preset_index else Color(Q.MUTED, 0.35))
-	_place_preset_underline(animate)
+	_preset.call("set_active", preset_index, _is_open)
 
 
 ## The preset currently shown as active (tests and hosts).
 func get_displayed_preset() -> int:
-	return _displayed_preset
+	return int(_preset.call("get_active"))
 
 
 func _select_if_valid(option: OptionButton, index: int) -> void:
@@ -899,7 +702,7 @@ func _on_preset_selected(index: int) -> void:
 func _on_window_mode_changed(index: int) -> void:
 	GraphicsSettings.set_setting("window_mode", WINDOW_MODE_VALUES[index])
 	_resolution_option.disabled = WINDOW_MODE_VALUES[index] != DisplayServer.WINDOW_MODE_WINDOWED
-	_sync_row_states()
+	_focus.call("sync_row_states")
 	_mark_preset_custom()
 
 
@@ -908,7 +711,7 @@ func _on_resolution_changed(index: int) -> void:
 	DisplayServer.window_set_size(RESOLUTION_VALUES[index])
 	_window_mode_option.select(WINDOW_MODE_VALUES.find(DisplayServer.WINDOW_MODE_WINDOWED))
 	_resolution_option.disabled = false
-	_sync_row_states()
+	_focus.call("sync_row_states")
 	_mark_preset_custom()
 
 

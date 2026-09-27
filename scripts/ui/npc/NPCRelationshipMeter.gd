@@ -3,7 +3,7 @@ class_name NPCRelationshipMeter
 ## Compact -100..100 relationship scale for the resident profile. The meter
 ## is entirely Godot-drawn so it remains crisp, tintable, and asset-free.
 
-const S: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
+const S: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")  ## quiet pass (Pass 4)
 const RESPONSE: float = 9.0
 
 var value: float = 0.0:

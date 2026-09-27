@@ -3,7 +3,7 @@ extends Control
 ## Compact code-drawn work mark for the shared player/NPC job indicator.
 ## Kept procedural so the prompt overhaul adds no generated raster asset.
 
-@export var glyph_color: Color = Color(0.34, 0.70, 0.93, 1.0):
+@export var glyph_color: Color = Color("86a9bf"):
 	set(value):
 		glyph_color = value
 		queue_redraw()

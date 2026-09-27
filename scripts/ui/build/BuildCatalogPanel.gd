@@ -45,7 +45,7 @@ func _ready() -> void:
 	body.name = "Content"
 	body.add_theme_constant_override("separation", 9)
 	add_child(BunkerUIComponents.inset(body, 18, 16, 18, 14))
-	BunkerUIComponents.header(body, "CONSTRUCTION", "Build catalog", "build",
+	BunkerUIComponents.header(body, "Construction", "Build catalog", "build",
 		func() -> void: hud.close_workspace_menu())
 	BunkerUIComponents.divider(body)
 	_build_categories(body)
@@ -110,7 +110,7 @@ func _rebuild_category_buttons() -> void:
 		var button := Button.new()
 		button.name = category
 		button.text = category
-		button.icon = BunkerPanelStyle.icon(String(CATEGORY_ICONS.get(category, "build")))
+		button.set_meta(&"symbol", String(CATEGORY_ICONS.get(category, "build")))   ## text-only tabs (quiet)
 		## Native expand_icon scales against the text's remaining width, which
 		## made long labels such as Structure squeeze their symbol while short
 		## labels such as Power retained a large one. Keep every category on the
@@ -118,7 +118,7 @@ func _rebuild_category_buttons() -> void:
 		button.expand_icon = false
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.tooltip_text = "%s objects" % category
+		button.tooltip_text = ""
 		BunkerUIComponents.style_segment(button, true)
 		button.add_theme_constant_override("icon_max_width", 16)
 		button.add_theme_constant_override("h_separation", 3)
@@ -240,8 +240,9 @@ func _rebuild_items() -> void:
 		var tile_id := int(item["tile_id"])
 		var card := BuildCatalogCard.new()
 		_items.add_child(card)
-		card.configure(tile_id, String(item["name"]), int(item["price"]),
-			hud.preview_texture(tile_id, false))
+		card.configure(tile_id, String(item["name"]), int(item["price"]), null)
+		## Static render at rest, shared spinner on hover / controller focus.
+		PreviewStudio.bind_card(card, hud.preview_key(tile_id, false), card.set_preview)
 		card.set_selected(tile_id == _selected_tile_id)
 		card.pressed.connect(_choose.bind(tile_id))
 		_item_cards[tile_id] = card
@@ -283,7 +284,12 @@ func refresh_live() -> void:
 	var cash := int(hud.available_cash())
 	if cash != _last_cash:
 		_last_cash = cash
-		_cash_label.text = "%s AVAILABLE" % UIFormat.money(cash)
+		_cash_label.text = "%s available" % UIFormat.money(cash)
+		## Unaffordable prices turn red immediately (arithmetic is never eased).
+		for card_value: Variant in _item_cards.values():
+			var card := card_value as BuildCatalogCard
+			if card != null:
+				card.set_affordable(card.item_price <= cash)
 
 
 func _update_selected_cards() -> void:

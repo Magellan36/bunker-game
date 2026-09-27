@@ -93,6 +93,7 @@ func _ready() -> void:
 	if _is_preview_only:
 		return
 	call_deferred("_register_deferred")
+	call_deferred("_prebuild_ui")
 
 func _exit_tree() -> void:
 	## Free the persistent UI node when this terminal is deconstructed.
@@ -141,21 +142,12 @@ func _open_terminal_ui() -> void:
 		_close_terminal_ui()
 		return
 
-	## Lazy-create the UI node once; reuse on subsequent opens so history persists.
+	## Created once per terminal (it samples its zone's history continuously)
+	## — prebuilt when the terminal enters the world, see _prebuild_ui().
 	if _terminal_ui == null or not is_instance_valid(_terminal_ui):
-		var ui_script: GDScript = load("res://scripts/ui/power/PowerTerminalModernUI.gd")
-		if ui_script == null:
-			push_warning("[PowerTerminal] PowerTerminalModernUI.gd not found")
+		_prebuild_ui()
+		if _terminal_ui == null:
 			return
-
-		_terminal_ui = CanvasLayer.new()
-		_terminal_ui.set_script(ui_script)
-		_terminal_ui.name = "PowerTerminalUI"
-		get_tree().get_root().add_child(_terminal_ui)
-
-		## Connect close signal once (not ONE_SHOT — we reuse this node).
-		if _terminal_ui.has_signal("closed"):
-			_terminal_ui.closed.connect(_on_ui_closed)
 
 	## Resolve which wire zone this terminal belongs to and pass the index.
 	## The UI uses this to scope all displayed data to only this zone.
@@ -176,6 +168,24 @@ func _open_terminal_ui() -> void:
 
 	_ui_open = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+## Builds this terminal's panel ahead of first use: terminals present at load
+## build behind the LoadingScreen; a newly placed one builds once on placement
+## instead of stalling its first E-press (Sep 2026).
+func _prebuild_ui() -> void:
+	if _terminal_ui != null and is_instance_valid(_terminal_ui):
+		return
+	var ui_script: GDScript = load("res://scripts/ui/power/PowerTerminalModernUI.gd")
+	if ui_script == null:
+		push_warning("[PowerTerminal] PowerTerminalModernUI.gd not found")
+		return
+	_terminal_ui = CanvasLayer.new()
+	_terminal_ui.set_script(ui_script)
+	_terminal_ui.name = "PowerTerminalUI"
+	get_tree().get_root().add_child(_terminal_ui)
+	## Connect close signal once (not ONE_SHOT — we reuse this node).
+	if _terminal_ui.has_signal("closed"):
+		_terminal_ui.closed.connect(_on_ui_closed)
 
 func _close_terminal_ui() -> void:
 	## Hide the UI — do NOT free it so history arrays survive.

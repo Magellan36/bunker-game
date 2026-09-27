@@ -31,14 +31,40 @@ func _run() -> void:
 	notifications.call("notify", UIKit.Domain.INVENTORY, warning, "Inventory full")
 	_check((notifications.call("get_history") as Array).size() == 2,
 		"inventory warnings are journaled in Bunker Log")
-	_check(float(constants.get("TOAST_WIDTH", 0.0)) == 520.0
-		and float(constants.get("TOAST_HEIGHT", 0.0)) == 48.0,
-		"toast uses approved compact geometry")
+	# Sep 2026 quiet pass (decision D2): compact cards top-right under cash.
+	_check(float(constants.get("TOAST_WIDTH", 0.0)) == 360.0
+		and float(constants.get("TOAST_EDGE", 0.0)) == 24.0,
+		"toast uses the quiet top-right geometry")
+	_check(str(constants.get("TOAST_AVOID_GROUP", "")) == "ui_toast_avoid",
+		"toasts avoid registered surfaces")
 	_check(int(constants.get("MAX_VISIBLE_TOASTS", 0)) == 3,
 		"visible stack remains capped")
+	# Regression (Sep 2026): a toast held behind a modal has its card retired
+	# and freed; when the modal closes the same entry must get a fresh card
+	# instead of touching the freed one ("Left operand of 'is' ... freed").
+	notifications.call("clear_transient_queue")
+	notifications.call("feedback", UIKit.Domain.POWER, info, "Held toast regression")
+	for i: int in range(4):
+		await process_frame
+	var modal_layer := CanvasLayer.new()
+	root.add_child(modal_layer)
+	var modal := Control.new()
+	modal_layer.add_child(modal)
+	modal.size = Vector2(400, 300)
+	preload("res://scripts/ui/common/QuietControls.gd").avoid_toasts(modal, true)
+	await create_timer(0.5).timeout
+	modal_layer.queue_free()
+	for i: int in range(6):
+		await process_frame
+	var held_view: Variant = null
+	for entry: Dictionary in notifications.get("_queue"):
+		if str(entry.get("text", "")) == "Held toast regression":
+			held_view = entry.get("view")
+	_check(is_instance_valid(held_view) and (held_view as Control).visible,
+		"a toast held behind a modal returns with a fresh card")
 	# History is already captured; keep the headless renderer from repeatedly
 	# drawing live toasts while the log view is exercised.
-	notifications.set("_queue", [])
+	notifications.call("clear_transient_queue")
 	var history_script: GDScript = load("res://scripts/ui/notifications/NotificationHistoryUI.gd") as GDScript
 	var history_ui: Control = history_script.new() as Control
 	root.add_child(history_ui)

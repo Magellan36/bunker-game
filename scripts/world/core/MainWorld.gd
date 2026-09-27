@@ -987,20 +987,70 @@ func _toggle_status_screen() -> void:
 		_status_screen.toggle()
 
 func _toggle_pause_menu() -> void:
-	## Lazy-init: create only on first ESC press.
-	if _pause_menu == null:
-		var script: GDScript = load("res://scripts/ui/menus/PauseMenuUI.gd")
-		if script == null:
-			push_warning("[PauseMenu] PauseMenuUI.gd not found")
-			return
-		_pause_menu = CanvasLayer.new()
-		_pause_menu.set_script(script)
-		_pause_menu.name = "PauseMenuUI"
-		add_child(_pause_menu)
-		_pause_menu.set("world_node", self)
-		_pause_menu.set("player",     player)
-	if _pause_menu.has_method("toggle"):
+	_ensure_pause_menu()
+	if _pause_menu != null and _pause_menu.has_method("toggle"):
 		_pause_menu.toggle()
+
+## Built during startup (_prewarm_interfaces) so the first Esc never stalls.
+func _ensure_pause_menu() -> void:
+	if _pause_menu != null:
+		return
+	var script: GDScript = load("res://scripts/ui/menus/PauseMenuUI.gd")
+	if script == null:
+		push_warning("[PauseMenu] PauseMenuUI.gd not found")
+		return
+	_pause_menu = CanvasLayer.new()
+	_pause_menu.set_script(script)
+	_pause_menu.name = "PauseMenuUI"
+	add_child(_pause_menu)
+	_pause_menu.set("world_node", self)
+	_pause_menu.set("player",     player)
+
+
+## Sep 2026: builds and warms every interface behind the LoadingScreen, so no
+## panel stalls the game the first time it opens (see SharedUI). Each warmed
+## layer is shown for one frame beneath the opaque loading layer (1000) so its
+## layout, glyphs and draw pipelines exist before the player ever sees it.
+const SHARED_PANELS: Array[String] = [
+	"res://scripts/ui/power/GeneratorInspectUI.gd",
+	"res://scripts/ui/power/BatteryInspectUI.gd",
+	"res://scripts/ui/power/BreakerInspectUI.gd",
+	"res://scripts/ui/power/PowerPriorityUI.gd",
+	"res://scripts/ui/water/WaterDispenserUI.gd",
+	"res://scripts/ui/water/WaterInfoUI.gd",
+	"res://scripts/ui/farming/FarmingTrayUI.gd",
+	"res://scripts/ui/npc/NPCTalkMenuUI.gd",
+]
+
+func _prewarm_interfaces() -> void:
+	_ensure_pause_menu()
+	if _status_screen == null:
+		_setup_status_screen()
+	await SharedUI.prewarm(SHARED_PANELS)
+	var flashed: Array[CanvasLayer] = []
+	for layer_node: Variant in [_pause_menu, _status_screen, _research_ui, _storage_ui]:
+		var layer := layer_node as CanvasLayer
+		if layer != null and is_instance_valid(layer) and not layer.visible:
+			layer.visible = true
+			flashed.append(layer)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	for layer: CanvasLayer in flashed:
+		if is_instance_valid(layer):
+			layer.visible = false
+	## Build mode: enter and leave once (controller + HUD only — the camera,
+	## HUD needs and player flags are untouched) so its catalog, shop, grid
+	## overlays and ghost materials are built and drawn before play.
+	if _build_controller != null and _build_hud != null:
+		_build_controller.enter_build_mode()
+		for _frame: int in 3:
+			await get_tree().process_frame
+		_build_hud.call("open_shop_menu")
+		for _frame: int in 3:
+			await get_tree().process_frame
+		_build_controller.exit_build_mode()
+		await get_tree().process_frame
+
 
 func _dev_toggle_warp() -> void:
 	_dev_warp_active = not _dev_warp_active
@@ -1514,13 +1564,12 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	# Give BuildModeHUD the camera so it can project 3D→2D for the deconstruct overlay
 	_build_hud.camera = camera
 
-	## Prebuild construct/shop previews before LoadingScreen hands the scene to
-	## the player. The pool is still staggered across frames, but it now runs
-	## behind the loading presentation instead of causing seconds of post-load
-	## stutter. The persistent viewports are reused for the entire session.
+	## Sep 2026: register every construct/shop model with PreviewStudio now;
+	## it renders them into cached textures while pregen runs below, and
+	## startup waits for it before revealing the world (see end of setup).
 	if _build_hud != null and gm != null:
 		_build_hud.gridmap = gm
-		await _build_hud._build_submenu_previews_staggered()
+		_build_hud.register_previews()
 
 	## Connect rock chunk signals → auto-fill handlers
 	if rock_surround != null and rock_surround.has_signal("chunk_deconstructed"):
@@ -1560,6 +1609,11 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	## startup, force-hide every wire segment now so nothing leaks into play mode.
 	## This mirrors exactly what exit_build_mode() does — just run it at init too.
 	get_tree().call_group("wire_segment", "set_visible", false)
+
+	## Finish catalog previews and warm every interface behind the loading
+	## screen (bounded waits) — nothing builds on first use during play.
+	await PreviewStudio.wait_idle(15.0)
+	await _prewarm_interfaces()
 
 	## LoadingScreen waits for this before revealing the bunker. Emit last so
 	## every synchronous setup step and the expensive preview pool are complete.

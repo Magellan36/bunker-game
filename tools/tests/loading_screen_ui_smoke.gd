@@ -13,16 +13,12 @@ func _run() -> void:
 	root.size = Vector2i(1920, 1080)
 	await process_frame
 	var loading_script: GDScript = load("res://scripts/ui/loading/LoadingScreen.gd") as GDScript
-	var backdrop_script: GDScript = load("res://scripts/ui/loading/LoadingBackdropArt.gd") as GDScript
 	var indicator_script: GDScript = load("res://scripts/ui/loading/LoadingIndicator.gd") as GDScript
 	var symbol_script: GDScript = load("res://scripts/ui/common/BunkerSymbolTexture.gd") as GDScript
 	_check(loading_script.can_instantiate(), "loading lifecycle script instantiates")
-	_check(backdrop_script.can_instantiate(), "procedural backdrop script instantiates")
 	_check(indicator_script.can_instantiate(), "indeterminate indicator script instantiates")
 
-	var backdrop: Control = backdrop_script.new() as Control
 	var indicator: Control = indicator_script.new() as Control
-	root.add_child(backdrop)
 	root.add_child(indicator)
 	await process_frame
 	_check(indicator.custom_minimum_size.x >= 650.0,
@@ -35,7 +31,6 @@ func _run() -> void:
 		_check(symbol.get_width() == 32 and symbol.get_height() == 32,
 			"%s symbol is available to the shared UI icon system" % symbol_name)
 
-	backdrop.free()
 	indicator.free()
 	if _failures == 0:
 		print("LOADING_SCREEN_UI_SMOKE_OK")

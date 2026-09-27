@@ -19,6 +19,7 @@ enum View { HOME, LOAD, CREDITS }
 const ITEM_SCRIPT: GDScript = preload("res://scripts/ui/main_menu/MainMenuItem.gd")
 const SELECTOR_SCRIPT: GDScript = preload("res://scripts/ui/common/FocusRail.gd")
 const CREDITS_SCRIPT: GDScript = preload("res://scripts/ui/main_menu/MainMenuCredits.gd")
+const SLOT_FORMAT: GDScript = preload("res://scripts/ui/common/SaveSlotFormat.gd")
 const FEED_SHADER: Shader = preload("res://assets/shaders/surface_feed_grain.gdshader")
 const FONT_BOLD: FontFile = preload("res://assets/fonts/IosevkaCharon-Bold.ttf")
 const FONT_MEDIUM: FontFile = preload("res://assets/fonts/IosevkaCharon-Medium.ttf")
@@ -472,7 +473,7 @@ func _layout() -> void:
 	_version_label.add_theme_font_size_override("font_size", maxi(11, roundi(12.0 * _s)))
 	var margin := 40.0 * _s
 	_feed_title.add_theme_font_size_override("font_size", maxi(11, roundi(12.0 * _s)))
-	_rec_dot.add_theme_font_size_override("font_size", maxi(9, roundi(10.0 * _s)))
+	_rec_dot.add_theme_font_size_override("font_size", maxi(11, roundi(11.0 * _s)))
 	_feed_line.add_theme_font_size_override("font_size", maxi(11, roundi(12.0 * _s)))
 	_feed_box.reset_size()
 	var feed_size := _feed_box.get_combined_minimum_size()
@@ -785,37 +786,4 @@ func _play(stream: AudioStream) -> void:
 
 
 static func _describe_slot(info: Dictionary) -> String:
-	var day: Variant = info.get("day", "?")
-	var parts: PackedStringArray = ["Day %s" % (str(int(day)) if day is float or day is int else str(day))]
-	var time_display := str(info.get("time_display", ""))
-	if not time_display.is_empty() and time_display != "?":
-		parts.append(time_display)
-	var ago := _relative_time(str(info.get("timestamp", "")))
-	if not ago.is_empty():
-		parts.append(ago)
-	return "  ·  ".join(parts)
-
-
-## Save timestamps are local wall-clock strings; compare against local now.
-static func _relative_time(stamp: String) -> String:
-	if stamp.length() < 19:
-		return ""
-	var then := Time.get_unix_time_from_datetime_string(stamp.replace(" ", "T"))
-	var now := Time.get_unix_time_from_datetime_string(
-		Time.get_datetime_string_from_system(false, false))
-	var seconds := int(now - then)
-	if seconds < 0:
-		return ""
-	if seconds < 90:
-		return "just now"
-	if seconds < 3600:
-		return "%d minutes ago" % (seconds / 60)
-	if seconds < 7200:
-		return "1 hour ago"
-	if seconds < 86400:
-		return "%d hours ago" % (seconds / 3600)
-	if seconds < 172800:
-		return "yesterday"
-	if seconds < 86400 * 14:
-		return "%d days ago" % (seconds / 86400)
-	return stamp.substr(0, 10)
+	return SLOT_FORMAT.describe(info)

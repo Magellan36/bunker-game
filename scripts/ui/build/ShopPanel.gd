@@ -1,6 +1,11 @@
 class_name ShopPanel
 extends PanelContainer
 
+## Quiet pass (Pass 5): cards/pills/colours route through the quiet legacy shims.
+const QC: GDScript = preload("res://scripts/ui/common/QuietLegacyComponents.gd")
+const QS: GDScript = preload("res://scripts/ui/common/QuietLegacyStyle.gd")
+const Q: GDScript = preload("res://scripts/ui/common/QuietControls.gd")
+
 ## Purpose-built desktop supply shop. This script owns presentation and
 ## session-local cart state only; BuildModeHUD and FarmingShopHelper remain
 ## authoritative for prices, funds, delivery, and object creation.
@@ -106,8 +111,9 @@ func _build_header() -> Control:
 	header.add_child(titles)
 	var eyebrow := Label.new()
 	eyebrow.text = "BUNKER SUPPLY"
-	eyebrow.add_theme_font_size_override("font_size", 11)
-	eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	eyebrow.add_theme_font_size_override("font_size", 12)
+	eyebrow.add_theme_color_override("font_color", Q.HEADING)
+	Q.tracked(eyebrow, 3)
 	titles.add_child(eyebrow)
 	var heading := Label.new()
 	heading.text = "Supply shop"
@@ -120,11 +126,10 @@ func _build_header() -> Control:
 	header.add_child(_build_balance_card())
 	var close := Button.new()
 	close.name = "Close"
-	close.text = ""
-	close.tooltip_text = "Close shop"
-	close.custom_minimum_size = Vector2(44, 44)
-	BunkerPanelStyle.icon_button(close, "close")
-	close.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	close.text = "Close"
+	Q.nav_button(close, 14, 30.0)
+	close.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	close.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	close.pressed.connect(func() -> void: hud.close_workspace_menu())
 	header.add_child(close)
 	return header
@@ -133,14 +138,13 @@ func _build_header() -> Control:
 func _build_balance_card() -> Control:
 	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(188, 50)
-	card.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("172820"), BunkerPanelStyle.GREEN.darkened(0.30), 8, 1, 9))
+	card.add_theme_stylebox_override("panel", StyleBoxEmpty.new())   ## quiet: a reading, not a pill
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 9)
 	card.add_child(row)
 	var icon := TextureRect.new()
-	icon.texture = BunkerPanelStyle.icon("storage")
-	icon.self_modulate = BunkerPanelStyle.GREEN
+	icon.visible = false   ## quiet: no symbol
+	icon.self_modulate = QS.GREEN
 	icon.custom_minimum_size = Vector2(26, 26)
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -154,13 +158,13 @@ func _build_balance_card() -> Control:
 	var caption := Label.new()
 	caption.text = "AVAILABLE CASH"
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	caption.add_theme_font_size_override("font_size", 10)
-	caption.add_theme_color_override("font_color", BunkerPanelStyle.GREEN)
+	caption.add_theme_font_size_override("font_size", 12)
+	caption.add_theme_color_override("font_color", QS.GREEN)
 	copy.add_child(caption)
 	_balance = Label.new()
 	_balance.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_balance.add_theme_font_size_override("font_size", 19)
-	_balance.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	_balance.add_theme_color_override("font_color", QS.IVORY)
 	copy.add_child(_balance)
 	return card
 
@@ -169,15 +173,15 @@ func _build_category_rail() -> Control:
 	var panel := PanelContainer.new()
 	panel.name = "CategoryRail"
 	panel.custom_minimum_size.x = 216
-	panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("181e1d"), BunkerPanelStyle.BRASS.darkened(0.28), 8, 1, 8))
+	panel.add_theme_stylebox_override("panel", QC.panel_box(
+		Color("181e1d"), QS.BRASS.darkened(0.28), 8, 1, 8))
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
 	panel.add_child(BunkerUIComponents.inset(box, 10, 12, 10, 10))
 	var label := Label.new()
 	label.text = "SHOP BY DEPARTMENT"
-	label.add_theme_font_size_override("font_size", 11)
-	label.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", QS.MUTED)
 	box.add_child(label)
 	for category_value: Variant in CATEGORIES.keys():
 		var category := String(category_value)
@@ -204,8 +208,8 @@ func _build_catalog() -> Control:
 	var panel := PanelContainer.new()
 	panel.name = "ProductCatalog"
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("151a1a"), BunkerPanelStyle.BRASS.darkened(0.38), 8, 1, 8))
+	panel.add_theme_stylebox_override("panel", QC.panel_box(
+		Color("151a1a"), QS.BRASS.darkened(0.38), 8, 1, 8))
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 9)
 	panel.add_child(BunkerUIComponents.inset(box, 12, 12, 12, 10))
@@ -221,13 +225,13 @@ func _build_catalog() -> Control:
 	BunkerPanelStyle.title(_catalog_title, 20)
 	title_stack.add_child(_catalog_title)
 	_catalog_meta = Label.new()
-	_catalog_meta.add_theme_font_size_override("font_size", 10)
-	_catalog_meta.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	_catalog_meta.add_theme_font_size_override("font_size", 12)
+	_catalog_meta.add_theme_color_override("font_color", Q.MUTED)
 	title_stack.add_child(_catalog_meta)
 	_search = LineEdit.new()
 	_search.placeholder_text = "Search this department"
 	_search.custom_minimum_size = Vector2(220, 40)
-	_search.right_icon = BunkerPanelStyle.icon("search")
+	_search.right_icon = null   ## quiet: the placeholder says it
 	_search.expand_to_text_length = false
 	BunkerPanelStyle.field(_search)
 	_search.text_changed.connect(func(_text: String) -> void: _rebuild_products())
@@ -271,8 +275,8 @@ func _build_cart() -> Control:
 	var panel := PanelContainer.new()
 	panel.name = "OrderSummary"
 	panel.custom_minimum_size.x = 332
-	panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("181e1d"), BunkerPanelStyle.BRASS.darkened(0.22), 8, 1, 8))
+	panel.add_theme_stylebox_override("panel", QC.panel_box(
+		Color("181e1d"), QS.BRASS.darkened(0.22), 8, 1, 8))
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 9)
 	panel.add_child(BunkerUIComponents.inset(body, 12, 12, 12, 11))
@@ -284,8 +288,8 @@ func _build_cart() -> Control:
 	cart_head.add_child(cart_copy)
 	var eyebrow := Label.new()
 	eyebrow.text = "ORDER SUMMARY"
-	eyebrow.add_theme_font_size_override("font_size", 10)
-	eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	eyebrow.add_theme_font_size_override("font_size", 12)
+	eyebrow.add_theme_color_override("font_color", QS.BRASS.lightened(0.25))
 	cart_copy.add_child(eyebrow)
 	var cart_title := Label.new()
 	cart_title.text = "Your cart"
@@ -293,8 +297,8 @@ func _build_cart() -> Control:
 	cart_copy.add_child(cart_title)
 	_cart_count = Label.new()
 	_cart_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_cart_count.add_theme_font_size_override("font_size", 11)
-	_cart_count.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	_cart_count.add_theme_font_size_override("font_size", 12)
+	_cart_count.add_theme_color_override("font_color", QS.BRASS.lightened(0.25))
 	cart_head.add_child(_cart_count)
 	BunkerUIComponents.divider(body)
 	_cart_viewport = Control.new()
@@ -321,14 +325,14 @@ func _build_cart() -> Control:
 	BunkerUIComponents.divider(body)
 	var totals := PanelContainer.new()
 	totals.name = "OrderTotals"
-	totals.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("202625"), BunkerPanelStyle.BRASS.darkened(0.28), 7, 1, 9))
+	totals.add_theme_stylebox_override("panel", QC.panel_box(
+		Color("202625"), QS.BRASS.darkened(0.28), 7, 1, 9))
 	var total_box := VBoxContainer.new()
 	total_box.add_theme_constant_override("separation", 8)
 	totals.add_child(total_box)
-	_total_value = _add_value_row(total_box, "TOTAL", 21, BunkerPanelStyle.IVORY)
+	_total_value = _add_value_row(total_box, "TOTAL", 21, QS.IVORY)
 	_remaining_value = _add_value_row(
-		total_box, "CASH AFTER PURCHASE", 14, BunkerPanelStyle.MUTED)
+		total_box, "CASH AFTER PURCHASE", 14, QS.MUTED)
 	body.add_child(totals)
 	_checkout = Button.new()
 	_checkout.text = "Checkout"
@@ -356,7 +360,7 @@ func _build_message(parent: VBoxContainer) -> void:
 	_message = Label.new()
 	_message.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_message.add_theme_font_size_override("font_size", 11)
+	_message.add_theme_font_size_override("font_size", 12)
 	row.add_child(_message)
 
 
@@ -465,8 +469,8 @@ func _rebuild_products() -> void:
 			continue
 		var card := ShopProductCard.new()
 		_products.add_child(card)
-		card.configure(item_id, String(info["name"]), int(info["price"]),
-			hud.preview_texture(item_id, true))
+		card.configure(item_id, String(info["name"]), int(info["price"]), null)
+		PreviewStudio.bind_card(card, hud.preview_key(item_id, true), card.set_preview)
 		card.pressed.connect(_add.bind(item_id))
 		shown += 1
 	_catalog_meta.text = "%d ITEM%s AVAILABLE" % [shown, "" if shown == 1 else "S"]
@@ -540,15 +544,15 @@ func _update_cart_row(record: Dictionary, item_id: int, quantity: int) -> void:
 func _build_empty_cart() -> Control:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size.y = 104
-	panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("1b2221"), BunkerPanelStyle.BRASS.darkened(0.40), 7, 1, 8))
+	panel.add_theme_stylebox_override("panel", QC.panel_box(
+		Color("1b2221"), QS.BRASS.darkened(0.40), 7, 1, 8))
 	var box := VBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 4)
 	panel.add_child(box)
 	var icon := TextureRect.new()
-	icon.texture = BunkerPanelStyle.icon("shop")
-	icon.self_modulate = BunkerPanelStyle.MUTED.darkened(0.18)
+	icon.visible = false   ## quiet empty state: sentence only
+	icon.self_modulate = QS.MUTED.darkened(0.18)
 	icon.custom_minimum_size = Vector2(28, 28)
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -558,7 +562,7 @@ func _build_empty_cart() -> Control:
 	empty.text = "Your cart is empty"
 	empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	empty.add_theme_font_size_override("font_size", 14)
-	empty.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	empty.add_theme_color_override("font_color", QS.IVORY)
 	box.add_child(empty)
 	var instruction := Label.new()
 	instruction.text = "Choose an item from the catalog."
@@ -571,8 +575,8 @@ func _build_empty_cart() -> Control:
 func _make_cart_row(item_id: int, quantity: int) -> Control:
 	var info: Dictionary = FarmingShopHelper.SHOP_ITEM_INFO[item_id]
 	var frame := PanelContainer.new()
-	frame.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("202625"), BunkerPanelStyle.BRASS.darkened(0.34), 7, 1, 7))
+	frame.add_theme_stylebox_override("panel", QC.panel_box(
+		Color("202625"), QS.BRASS.darkened(0.34), 7, 1, 7))
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 6)
 	frame.add_child(body)
@@ -581,11 +585,12 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	body.add_child(top)
 	var preview_well := PanelContainer.new()
 	preview_well.custom_minimum_size = Vector2(58, 52)
-	preview_well.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("2a302f"), BunkerPanelStyle.BRASS.darkened(0.40), 5, 1, 4))
+	preview_well.add_theme_stylebox_override("panel", QC.panel_box(
+		Color("2a302f"), QS.BRASS.darkened(0.40), 5, 1, 4))
 	top.add_child(preview_well)
 	var preview := TextureRect.new()
 	preview.texture = hud.preview_texture(item_id, true)
+	preview.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -599,7 +604,7 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	name.text = String(info["name"])
 	name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name.add_theme_font_size_override("font_size", 14)
-	name.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	name.add_theme_color_override("font_color", QS.IVORY)
 	copy.add_child(name)
 	var each := Label.new()
 	each.text = "%s each" % UIFormat.money(int(info["price"]))
@@ -609,7 +614,7 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	line_total.text = UIFormat.money(int(info["price"]) * quantity)
 	line_total.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	line_total.add_theme_font_size_override("font_size", 14)
-	line_total.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
+	line_total.add_theme_color_override("font_color", QS.BRASS.lightened(0.25))
 	top.add_child(line_total)
 	var controls := HBoxContainer.new()
 	controls.add_theme_constant_override("separation", 5)
@@ -618,8 +623,8 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	quantity_label.text = "QTY"
 	quantity_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	quantity_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	quantity_label.add_theme_font_size_override("font_size", 10)
-	quantity_label.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
+	quantity_label.add_theme_font_size_override("font_size", 12)
+	quantity_label.add_theme_color_override("font_color", QS.MUTED)
 	controls.add_child(quantity_label)
 	var minus := _quantity_button("minus", "Remove one")
 	_register_cart_focus(minus, "%d:minus" % item_id)
@@ -630,7 +635,7 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	amount.custom_minimum_size.x = 30
 	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	amount.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	amount.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	amount.add_theme_color_override("font_color", QS.IVORY)
 	controls.add_child(amount)
 	var plus := _quantity_button("plus", "Add one")
 	_register_cart_focus(plus, "%d:plus" % item_id)
@@ -699,7 +704,7 @@ func _refresh_financials() -> void:
 	_total_value.text = UIFormat.money(total)
 	_remaining_value.text = UIFormat.money(cash - total)
 	_remaining_value.add_theme_color_override("font_color",
-		BunkerPanelStyle.RED if total > cash else BunkerPanelStyle.MUTED)
+		QS.RED if total > cash else QS.MUTED)
 	_checkout.disabled = cart.lines.is_empty() or cash < total
 
 
@@ -719,22 +724,23 @@ func _set_message(text: String, tone: String) -> void:
 		return
 	_message.text = text
 	var background := Color("1b2221")
-	var border := BunkerPanelStyle.BRASS.darkened(0.34)
-	var accent := BunkerPanelStyle.MUTED
+	var border := QS.BRASS.darkened(0.34)
+	var accent := QS.MUTED
 	var symbol := "container"
 	if tone == "positive":
 		background = Color("172820")
-		border = BunkerPanelStyle.GREEN.darkened(0.28)
-		accent = BunkerPanelStyle.GREEN
+		border = QS.GREEN.darkened(0.28)
+		accent = QS.GREEN
 		symbol = "check"
 	elif tone == "warning":
 		background = Color("30211f")
-		border = BunkerPanelStyle.RED.darkened(0.20)
-		accent = BunkerPanelStyle.RED
+		border = QS.RED.darkened(0.20)
+		accent = QS.RED
 		symbol = "warning"
 	_message_panel.add_theme_stylebox_override("panel",
-		BunkerUIComponents.panel_box(background, border, 7, 1, 8))
-	_message_icon.texture = BunkerPanelStyle.icon(symbol)
+		QC.panel_box(background, border, 7, 1, 8))
+	_message_icon.texture = null   ## quiet: coloured sentence, no symbol
+	_message_icon.visible = false
 	_message_icon.self_modulate = accent
 	_message.add_theme_color_override("font_color", accent)
 func _add_category_content(button: Button, caption: String, symbol: String) -> void:
@@ -745,18 +751,18 @@ func _add_category_content(button: Button, caption: String, symbol: String) -> v
 	inset.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(inset)
-	row.add_child(BunkerUIComponents.icon_well(symbol, 36.0))
 	var label := Label.new()
 	label.text = caption
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	label.add_theme_color_override("font_color", QS.IVORY)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(label)
 	var arrow := TextureRect.new()
-	arrow.texture = BunkerPanelStyle.icon("arrow")
-	arrow.self_modulate = BunkerPanelStyle.BRASS.lightened(0.18)
+	arrow.visible = false   ## quiet: selection is the underline
+	arrow.set_meta(&"symbol", "arrow")
+	arrow.self_modulate = QS.BRASS.lightened(0.18)
 	arrow.custom_minimum_size = Vector2(17, 17)
 	arrow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	arrow.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -772,8 +778,8 @@ func _add_value_row(parent: VBoxContainer, caption: String,
 	label.text = caption
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 10 if font_size <= 16 else 11)
-	label.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", QS.MUTED)
 	row.add_child(label)
 	var value := Label.new()
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

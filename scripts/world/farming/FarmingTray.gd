@@ -124,7 +124,8 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	if _tray_ui != null and is_instance_valid(_tray_ui):
-		_tray_ui.queue_free()
+		if _tray_ui.has_method("close") and bool(_tray_ui.call("is_open")):
+			_tray_ui.call("close")   ## shared panel: close, never free
 		_tray_ui = null
 	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if wm == null:
@@ -512,16 +513,12 @@ func on_interact() -> void:
 		return
 
 	if _tray_ui == null or not is_instance_valid(_tray_ui):
-		var ui_script: GDScript = load("res://scripts/ui/farming/FarmingTrayUI.gd")
-		if ui_script == null:
-			push_warning("FarmingTray: FarmingTrayUI.gd not found")
+		## SharedUI (Sep 2026): one prebuilt panel per type, lent to this
+		## device while its view is open (no per-device build hitch).
+		_tray_ui = SharedUI.acquire("res://scripts/ui/farming/FarmingTrayUI.gd", self, &"_tray_ui",
+			{"closed": _on_ui_closed})
+		if _tray_ui == null:
 			return
-		_tray_ui = CanvasLayer.new()
-		_tray_ui.set_script(ui_script)
-		_tray_ui.name = "FarmingTrayUI"
-		get_tree().get_root().add_child(_tray_ui)
-		if _tray_ui.has_signal("closed"):
-			_tray_ui.closed.connect(_on_ui_closed)
 
 	if _tray_ui.has_method("open"):
 		_tray_ui.call("open", self)

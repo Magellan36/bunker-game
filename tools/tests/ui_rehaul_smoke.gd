@@ -181,12 +181,13 @@ func _test_runtime_ui() -> void:
 		and object_gutter.get_theme_constant("margin_right") >= 20,
 		"build cards reserve room for the visible scrollbar")
 	var first_card: Control = workspace.catalog.get("_first_item") as Control
-	_check(first_card != null and first_card.custom_minimum_size.y >= 160.0,
+	_check(first_card != null and first_card.custom_minimum_size.y >= 150.0,
 		"build cards reserve enough height for previews and information bands")
 	var price_label: Label = first_card.get("_price_label") as Label
+	## Quiet pass: price is a MUTED right-aligned reading, not a badge.
 	_check(price_label != null \
-		and price_label.horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER,
-		"build-card prices are centered in their badges")
+		and price_label.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT,
+		"build-card prices read as quiet right-aligned values")
 	var category_grid: GridContainer = workspace.catalog.get("_category_grid") as GridContainer
 	_check(category_grid != null and category_grid.columns == 4,
 		"build categories are immediate labeled controls instead of a dropdown")
@@ -255,10 +256,8 @@ func _test_runtime_ui() -> void:
 	_check(build_plate.position.y >= 60.0,
 		"Build Mode plate clears the persistent clock HUD")
 	_check(workspace.shop_button.position.y >= 56.0 \
-		and workspace.shop_button.size.is_equal_approx(Vector2(162, 40)) \
-		and workspace.shop_button.text.is_empty() \
-		and _contains_label_text(workspace.shop_button, "SHOP"),
-		"SHOP shortcut matches the compact Cash HUD footprint below it")
+		and workspace.shop_button.text == "Shop",
+		"Shop is a quiet text toggle under the cash readout")
 	_check(helper.size.y <= 28.0,
 		"placement helper keeps the notification lane clear")
 	hud.set_ghost_active(false)
