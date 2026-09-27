@@ -25,18 +25,18 @@ const DIRT_OVERRIDE_PATH: String = "res://assets/textures/post/lens_dirt.png"
 ## tonemapping + brightness/contrast/saturation. Kept deliberately small: the
 ## goal is "cohesive", not "filtered". Split-tone: cool teal shadows, faint
 ## olive mids, warm sodium highlights.
-const SHADOW_TINT: Vector3    = Vector3(-0.012, 0.004, 0.018)
-const MID_TINT: Vector3       = Vector3(0.004, 0.008, -0.010)
-const HIGHLIGHT_TINT: Vector3 = Vector3(0.025, 0.010, -0.025)
+const SHADOW_TINT: Vector3    = Vector3(-0.007, 0.002, 0.011)
+const MID_TINT: Vector3       = Vector3(0.002, 0.005, -0.006)
+const HIGHLIGHT_TINT: Vector3 = Vector3(0.015, 0.006, -0.015)
 ## Luminance where shadow tint has fully faded out / highlight tint starts.
 const SHADOW_END: float      = 0.40
 const HIGHLIGHT_START: float = 0.55
 ## Keeps true black neutral — shadow tint ramps in above this luminance so
 ## the darkest bunker corners don't turn visibly blue.
 const BLACK_PROTECT: float = 0.06
-## Gentle S-curve blend (0 = none). AgX is lower-contrast than ACES; this
-## restores a little punch without crushing.
-const CONTRAST: float = 0.10
+## Optional S-curve blend (0 = none). Off: ACES already supplies the
+## contrast, and any curve here deepens the bunker's already-dark shadows.
+const CONTRAST: float = 0.0
 ## 64³ generates in ~0.15s once per session; the half-texel
 ## edge clamp (Godot samples the LUT without a half-texel remap) only lifts
 ## the darkest ~2/255 of black.

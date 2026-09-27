@@ -624,3 +624,13 @@ without changing the art direction. No new settings UI — all always-on.
 - **Lens dirt** — `glow_map_strength 0.45` + `PostGrade`-generated `glow_map`; `glow_intensity 0.55 → 0.65` to compensate for the map's ~0.8 average multiplier.
 - **Colour grade** — `PostGrade`-generated 64³ LUT into `adjustment_color_correction` (split-tone: teal shadows / olive mids / warm highlights, +10% S-curve). Godot samples the LUT with no half-texel remap, so texels store the grade at their own centre coordinate.
 - Wired by `MainWorld._setup_post_grade()` (preloaded by path, not class_name). Drop `res://assets/textures/post/grade_lut.png` (imported as Texture3D) or `lens_dirt.png` to override the generated textures with hand-authored art.
+
+**Sep 2026 follow-up — pass toned down** after in-game review (shadows read
+grainy/too strong, wall-lamp sources lost their glow):
+- Tonemapper reverted to ACES (`tonemap_mode = 3`) — AgX compressed the lamp
+  emissives so the fixtures stopped reading as bright light sources.
+- SSAO radius/power/detail reverted to engine defaults; `ssao_light_affect`
+  0.2 → 0.05 (high light-affect exposed the half-res SSAO noise in lit areas).
+- `glow_map_strength` 0.45 → 0.2, `glow_intensity` 0.65 → 0.58 (≈ the
+  original 0.55 on clean glass, smudges slightly brighter).
+- `PostGrade` split-tone tints cut ~40%, S-curve `CONTRAST` 0.10 → 0.0.
