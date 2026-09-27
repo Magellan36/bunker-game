@@ -1,210 +1,232 @@
-# Player-Model Animations (CURRENT)
+# Adventurer Animation System (CURRENT, rebuilt 2026-09-27)
 
-**Read this before touching anything under `assets/models/player/`, the
-`AdventurerModel` animation libraries, or `AdventurerModelController.gd`'s
-animation logic.**
+**Read this before touching `scripts/player/AdventurerModelController.gd`,
+`scripts/player/AdventurerProceduralPose.gd`, `scenes/player/AdventurerModel.tscn`,
+`assets/models/player/anims/`, or `tools/anim_pipeline/`.**
 
-This is the CURRENT animation pipeline for the V1 Adventurer bodies
-(Player + NPC, both genders). The companion `README.md` in this folder
-documents the overall Player-Model system and the PACKED-AWAY
-`PlayerModelController.gd` customization era; this file is specifically
-about how animation clips get in, retargeted, and played today.
+This covers every animated body in the game: the player and all NPCs, both
+genders (Quaternius "Adventurer" bodies, see `README.md` in this folder for the
+body/model side).
 
-## Runtime body recap (one paragraph)
+## Provenance rule (Steam AI disclosure)
 
-`scenes/player/AdventurerModel.tscn` → `AdventurerModelController.gd`
-loads `Adventurer_Male.fbx` / `Adventurer_Female.fbx` at runtime (gender
-from `CharacterCreationData` for the player, a per-NPC random roll for
-NPCs), renames the root to **`MaleModel`** (both genders — load-bearing),
-applies a static 180° Y rotation, and the skeleton retargets to
-**`GeneralSkeleton`** with Godot **Humanoid** bone names. Every animation
-library's track paths are therefore **`MaleModel/%GeneralSkeleton:<bone>`**.
+The shipped game must contain **no AI-generated animation**. Therefore:
 
-## How a clip gets in (import → bake)
+- Every keyframe that plays comes from a **human-made source clip**
+  (Mixamo / Maximo mocap FBX files under `assets/models/player/`).
+- The bake tool only **re-expresses** those keys (rebase bone paths, change of
+  basis for root motion, remove constant forward travel to make a loop "in
+  place", the same thing Mixamo's own In-Place export does). It never creates,
+  splices, edits or offsets poses.
+- Everything that adapts motion to the game happens at **runtime in code**:
+  playback rate, blending, alignment to furniture (motion warping), foot IK,
+  lean, pillow head support. Code is not an asset.
+- Do not add "hybrid" or hand-tweaked baked clips again. The Aug 2026
+  `sit_hybrid` / `sleep_hybrid` libs (spliced by earlier agents with a baked
+  20° head pitch) were deleted for this reason. If a clip needs adjusting, do it
+  as a runtime modifier.
 
-All source animation FBX files live under `assets/models/player/` (or a
-named subfolder like `male_locomotion/`). The pipeline:
+## Pipeline: source FBX → library
 
-1. **Copy the FBX** into the project.
-2. **Write the `.import` sidecar** with the retarget block (below), OR let
-   Godot generate a default one then add the block. The sidecar is what
-   drives the bone retarget — a plain default import does NOT retarget.
-3. **Delete the stale imported scene, then `--import`:**
-   `Remove-Item ".godot/imported/<name>-<md5>.scn"` then
-   `Godot --headless --import --path <project>`.
-   **Critical gotcha:** plain `--import` runs have been observed to NOT
-   re-read edited `.import` params (cached). Deleting the cached `.scn`
-   forces a fresh import with the current params. This bit the team twice
-   (stale library extraction, retarget silently skipped) — always delete
-   the `.scn` after editing an `.import` file.
-4. **Bake the library** with a GDScript (pattern in `tools/`, and
-   recreated ad-hoc in this session): load the imported `.scn`, grab the
-   `mixamo_com` animation from its `AnimationPlayer`, then:
-   - duplicate the `Animation`, set `loop_mode`
-     (`LOOP_LINEAR` for locomotion/sit-loop, `LOOP_NONE` for the one-shot
-     sit transitions),
-   - **strip the armature-root root-motion tracks** (tracks whose
-     concatenated names are `CharacterArmature` — position/rotation/scale
-     on the root node; unresolvable at runtime and root motion is not
-     consumed anyway),
-   - rewrite every remaining track path to
-     `MaleModel/%GeneralSkeleton:<bone>` (prefix the node path with
-     `MaleModel/`; preserve the `:bone` subname),
-   - save as an `AnimationLibrary` `.res` under
-     `assets/models/player/anims/`.
-
-The imported animation is always named `mixamo_com` regardless of source
-file, so the bake renames it to the clip key used by the controller.
-
-### The retarget `.import` block
-
-```ini
-_subresources={
-"nodes": {
-"PATH:CharacterArmature/Skeleton3D": {
-"retarget/bone_map": Resource("res://assets/models/player/bone_map_maximo.tres"),
-"retarget/bone_renamer/rename_bones": true,
-"retarget/bone_renamer/unique_node/make_unique": true,
-"retarget/bone_renamer/unique_node/skeleton_name": "GeneralSkeleton",
-"retarget/rest_fixer/apply_node_transforms": true,
-"retarget/rest_fixer/keep_global_rest_on_leftovers": true,
-"retarget/rest_fixer/normalize_position_tracks": true,
-"retarget/rest_fixer/original_skeleton_name": "OriginalSkeleton",
-"retarget/rest_fixer/reset_all_bone_poses_after_import": true,
-"retarget/rest_fixer/retarget_method": 1,
-"retarget/rest_fixer/use_global_pose": true
-}
-}
-}
+```
+assets/models/player/<clip>.fbx  (+ .import with the retarget block)
+        │  godot --headless --import   (retarget to Humanoid "GeneralSkeleton")
+        ▼
+tools/anim_pipeline/bake_adventurer_anims.gd
+        ▼
+assets/models/player/anims/adventurer_male_lib.res
+assets/models/player/anims/adventurer_female_lib.res
 ```
 
-- **`PATH:` key must match the skeleton's node path in the source FBX.**
-  Mixamo-style files have the skeleton at the root (`PATH:Skeleton3D`);
-  Quaternius/Adventurer and Maximo files nest it (`PATH:CharacterArmature/Skeleton3D`).
-  A wrong/missing key silently skips the whole retarget (skeleton stays
-  unrenamed, nothing resolves → T-pose).
-- **Imported scene filename hash** = `md5("res://<source path>")`.
+Run the bake after changing any source clip or the manifest:
 
-### Bone maps (`assets/models/player/`)
+```bash
+export XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d)
+godot --headless --path . --script res://tools/anim_pipeline/bake_adventurer_anims.gd
+```
 
-| File | Rig it maps | Used by |
+The tool's `CLIPS` manifest (plus `GENDER_OVERRIDES`) is the single list of
+what each body plays:
+
+| Key | Source (male / female) | Kind |
 |---|---|---|
-| `bone_map_mixamo.tres` | `mixamorig_*` → Humanoid | walk/run/carry/sit (Mixamo-sourced) |
-| `bone_map_adventurer.tres` | Adventurer (`Hips`/`Chest`/`UpperArm.L`) → Humanoid | Adventurer bodies |
-| `bone_map_native.tres` | native Superhero → Humanoid | packed-away PlayerModel path |
-| `bone_map_maximo.tres` | Maximo (`Abdomen`/`Torso`/`Chest`/`Shoulder.L`...) → Humanoid | the Maximo-sourced idle/locomotion clips |
+| `idle` | `male_locomotion/idle.fbx` / `female_locomotion/idle.fbx` | loop |
+| `walk`, `run` | `walk.fbx`, `run.fbx` (Mixamo, shared) | gait |
+| `idle_carry` | `idle_carry.fbx` (arms only, see Carrying) | loop |
+| `stand_to_sit`, `sit_to_stand` | `stand_to_sit_female.fbx`, `sit_to_stand_female.fbx` (Maximo, shared) | action |
+| `sit` | `sitting.fbx` (shared) | loop |
+| `lie_down` | `lying_down_male.fbx` / `lying_down_female.fbx` | action |
+| `sleep` | `sleeping_male.fbx` / `sleeping_female.fbx` | loop |
+| `dying` | `dying_male.fbx` / `dying_female.fbx` | action |
 
-**Maximo ≠ Mixamo.** The Maximo rig (used by `NEW_Idle` and the
-locomotion packs) names bones `Abdomen`, `Torso`, `Chest`,
-`Shoulder.L`, `UpperArm.L`, `Index2.L`... and has no `mixamorig_*`
-prefixes, so `bone_map_mixamo.tres` does NOT match it (the retarget
-silently skips → skeleton stays `Skeleton3D` → tracks unresolvable →
-**T-pose**). `bone_map_maximo.tres` was added for it. Always check a new
-clip's rig (inspect the imported skeleton's bone names) before choosing
-the bone map. "Some animations have different skeletons than others."
+What the bake does per clip:
 
-## Clip registry (current state, Aug 2026)
+1. Copies bone tracks verbatim, path → `MaleModel/%GeneralSkeleton:<bone>`
+   (`MaleModel` is the runtime body root name, load-bearing). Maximo finger
+   knuckles are renamed to Humanoid names; tracks for bones a body lacks are
+   dropped (listed in the tool's output).
+2. **Maximo root motion** lives on the FBX armature node, not the Hips. The
+   importer's rest fixer bakes the armature's rest (`Rx(-90°)·Scale(100)`)
+   into the skeleton but leaves the armature's own tracks relative to it, so
+   the bake re-expresses them as `A(t) · A_rest⁻¹` on
+   `MaleModel/CharacterArmature` (verified: the in-place idle comes out ≈
+   identity). The old pipeline stripped these tracks, which threw away the
+   whole-body motion of sit/lie/die and had to be faked with pivots.
+3. **Gaits** (`walk`, `run`) get their constant horizontal hip travel removed
+   (bob and sway kept).
+4. **Analysis metadata** on each Animation, measured on the real runtime body
+   (`Animation.get_meta(...)`): `hips`, `hips_forward`, `head`, `feet`,
+   `feet_low` (61 samples over the clip, in body space), plus
+   `stride_length` and `phase_offset` for gaits. These are measurements the
+   controller reads, not keys.
 
-Libraries in `assets/models/player/anims/` wired into
-`AdventurerModel.tscn`'s `AnimationPlayer`:
+Measured on the male body (world units = ×1.25 model scale): walk stride
+1.88 m per 1.03 s cycle = 1.83 m/s native; run 3.63 m per 0.70 s = 5.19 m/s.
 
-| Library | Clip | Len | Loop | Used by |
-|---|---|---|---|---|
-| `idle_lib` | `idle` | 6.0s | yes | (unused directly — see gender overrides) |
-| `walk_lib` | `walk` | 1.03s | yes | both genders (shared) |
-| `run_lib` | `run` | 0.73s | yes | both genders (shared) |
-| `idle_carry_lib` / `walk_carry_lib` / `run_carry_lib` | `*_carry` | — | yes | carry states, both genders |
-| `idle_male_lib` | `idle_male` | 8.33s | yes | male idle (Male Locomotion Pack) |
-| `idle_female_lib` | `idle_female` | 6.0s | yes | female idle (Female Basic Locomotion Pack) |
-| `stand_to_sit_lib` | `stand_to_sit` | 2.23s | no | sit-down |
-| `sit_lib` | `sit` | 1.15s | yes | seated anchor |
-| `sit_to_stand_lib` | `sit_to_stand` | 2.25s | no | stand-up |
-| `lying_down_male_lib` / `lying_down_female_lib` | `lying_down` | — | no | bed sleep recline (gender-specific) |
-| `sleep_hybrid_male_lib` / `sleep_hybrid_female_lib` | `sleeping` | — | yes | sleep loop (gender-specific) |
-| `dying_male_lib` / `dying_female_lib` | `dying` | 2.6s / 3.5s | no | **death collapse (Sep 2026)** — one-shot; holds the final frame as the frozen corpse. Wired as `"dying"` in `ANIMATION_NAMES` + both gender overrides; played whenever the parent reports `is_dead()` |
+## Runtime: `AdventurerModelController`
 
-## Death state (Sep 2026)
+Node layout (built in `_ready`; the scene file is just the script):
 
-When a character's HP hits 0, `AdventurerModelController._process` checks
-`_is_dead()` (duck-typed `is_dead()`/`dead` on the parent) at the very top and
-plays the `dying` one-shot clip (LOOP_NONE — freezes on the last frame), then
-returns — preempting locomotion, sit phases, and speed scaling. The non-shadow
-instance also eases the root down onto the floor (found by a downward raycast
-on the first dead frame, `DEATH_DROP_SPEED`), so the corpse settles on the
-ground instead of hovering at standing height. NPC death (`NPC.die()`) stops
-the brain, locks movement, drops the held item, and disables collision; player
-death opens `GameOverUI` (`MainWorld._open_game_over()`) and is permanent.
+```
+AdventurerModel (controller, child of Player/NPC, scale 1.25, y = -capsule/2)
+├── Visual            ← its GLOBAL transform is set every frame
+│   └── MaleModel     (body FBX, rotated π; GeneralSkeleton inside)
+│       └── …/GeneralSkeleton/ProceduralPose  (AdventurerProceduralPose)
+└── AnimationTree     (library "body", deterministic, advanced manually)
+```
 
-### Gender-specific selection (`AdventurerModelController.gd`)
+The tree:
 
-`ANIMATION_NAMES` is the shared/default set (walk/run/carry/sit).
-`MALE_ANIMATION_NAMES` and `FEMALE_ANIMATION_NAMES` override per-gender;
-`_resolve_anim_name()` picks by `_gender` (set in `_ready()`). Current
-state: **male and female each override only `idle`** (the locomotive packs'
-idle clips); walk/run/carry/sit are the shared clips for both. Adding a
-gender-specific clip = add the library to `AdventurerModel.tscn` + one
-line in the matching dict.
+```
+idle ─────────────────────────┐
+walk → walk_seek ─┐           ├─ loco (Blend2: move_w) ─┐
+run  → run_seek  ─┴─ gait (run_w)                        ├─ carry (Blend2, arm-bone filter: carry_w) ─┐
+idle_carry ──────────────────────────────────────────────┘                                          ├─ out (act_w) → output
+act_a → act_a_seek ─┐                                                                                 │
+act_b → act_b_seek ─┴─ act (Blend2: ab_w) ──────────────────────────────────────────────────────────┘
+```
 
-### Playback-rate scaling (Sep 2026)
+`deterministic = true` means a track a clip doesn't key blends toward rest, so
+no pose ever leaks from a previous clip. (The Maximo idle has no Hips track;
+the old AnimationPlayer let it inherit the last clip's hip tilt, which was the
+"leaning after standing up" bug.)
 
-`AdventurerModelController._apply_locomotion_speed_scale()` scales the
-walk/run clip playback rate to the character's **actual** movement speed,
-per-character normalized: `speed_scale = real_speed / nominal_speed_for_band`
-where the nominal is the character's own `move_speed` (walk) or
-`sprint_speed` (run) — read duck-typed, so it works for both Player and NPC
-(NPCs expose `move_speed`, never reach the run band). Full nominal speed
-plays at 1.0x (authored cadence); a slowed character (elder NPC, low
-energy/hunger/thirst/mood, medical injury) visibly slows its stride to
-match. Idle resets to 1.0. Clamped `0.2..1.5`, lerped toward target at
-`LOCOMOTION_SPEED_SCALE_LERP = 8.0`/s so the walk→run handoff and
-start/stop don't pop. Applied every frame in the locomotion branch, after
-state selection, from the same `get_real_velocity()` that drives
-idle/walk/run — carry clips scale identically (suffix stripped). The sit/
-lying/sleeping phases keep their own fixed speed_scale (1.0, or the
-`LIE_DOWN_2ND_HALF_SPEED` override) because those branches return before
-locomotion runs.
+### Locomotion (no foot sliding)
 
-## Sit animation sequence
+- One gait **phase** (0..1) is shared by walk and run. It advances by
+  `leg_speed × dt / stride`, where stride is the walk/run stride blended by
+  `run_w`, and `leg_speed = real ground speed + |yaw rate| × 0.18 m` (turning
+  on the spot takes steps).
+- `run_w` comes from where the real speed sits between the walk and run
+  native speeds. At the player's 4 m/s "walk" that's a ~64 % run blend: a jog.
+  The old controller played the walk clip at 1× at 4 m/s, so the planted foot
+  slid at 54 % of body speed. It now slides ~3 % (with foot locking).
+- Real speed is `get_real_velocity()`, so a blocked character never
+  ghost-walks.
 
-When a character sits in a chair, the controller drives
-`stand_to_sit → sit (looped) → sit_to_stand`, advanced on
-`AnimationPlayer.animation_finished`. Seated state comes from the parent's
-`seated_chair` (Player and NPC both expose it — see
-`docs/systems/furniture-items/README.md` "Chair sitting"). While in the
-sit sequence the model faces 180° from the character (toward the chair
-backrest). Chair positioning (`SEAT_RAISE`/`SEAT_FORWARD`/`STAND_DIST`)
-lives in `scripts/world/furniture/Chair.gd`.
+### Carrying
 
-**Known outstanding issue (Blender task):** the sit clips carry BAKED
-root offsets that don't align to the model origin — the seated pose's
-hip root sits at local z≈−0.25 (sit) to −0.49 (end of stand-to-sit),
-so the model appears off-center / behind the chair. `SEAT_RAISE`(0.40)/
-`SEAT_FORWARD`(0.15) partially mask it. The clean fix is re-exporting
-the three clips in Blender so the skeleton root sits at the character
-origin during the seated pose, identical across all three clips. Once
-that lands, re-tune (likely near-zero) `SEAT_RAISE`/`SEAT_FORWARD`.
+`carry` overlays `idle_carry`'s arm bones only (Blend2 filter built from the
+skeleton's Shoulder/Arm/Hand/finger bones) on top of whatever the legs do.
+`walk_carry`/`run_carry` exist as sources but hold two gait cycles per loop,
+so they can't share the gait phase.
 
-## Crossfade smoothing
+### Actions and furniture (motion warping)
 
-`AdventurerModelController.gd`:
-- `BLEND_TIME = 0.3` — default crossfade (carry + sit transitions).
-- `LOCOMOTION_BLEND_TIME = 0.5` — used for transitions between the base
-  locomotion states (`LOCOMOTION_STATES = ["idle","walk","run"]`), i.e.
-  idle↔walk↔run. The gender-specific poses differ noticeably from the
-  locomotion poses, so the standard blend read as a snap; the 0.5s ease
-  applies to both genders automatically.
+Furniture use starts when the parent sets `seated_chair` or `sleeping_bed`
+and ends when it clears it. The controller reads the chair/bed itself
+(`get_seat_transform()`, bed transform + `SHEETS_SURFACE_Y`) and builds a
+`FurniturePlan`. Callers do not pass anchors any more.
 
-## Replacing a clip (playbook)
+Stages: `APPROACH → PIVOT → SIT_DOWN → SEATED` (chair) or
+`… → SIT_DOWN → LIE_DOWN → SLEEP` (bed); releasing the furniture runs
+`GET_UP` (bed: the lie-down played backwards on the same path) and `STAND_UP`.
 
-1. Copy the new FBX over the old (or a new path + update the
-   `AdventurerModel.tscn` library reference).
-2. Confirm the rig (import once, inspect the skeleton's bone names), pick
-   the right bone map.
-3. Write/update the `.import` retarget block (correct `PATH:` key).
-4. Delete the stale `.scn`, `--import`.
-5. Bake the `.res` (rename clip, loop flag, strip armature root tracks,
-   rewrite paths).
-6. Wire into `AdventurerModel.tscn` + the controller dicts as needed.
-7. Verify headlessly (library loads, tracks resolve, bones move from rest
-   — instantiate `AdventurerModel` and check `get_bone_global_pose`
-   changes over a few frames), then playtest.
+- **Approach/pivot.** The plan computes where `stand_to_sit` must *start* for
+  its own hip travel to land the hips on the seat. The body walks there (feet
+  synced) and turns on the spot, so the sit clip plays almost unwarped.
+- **Warping.** Each action slot holds a start placement `base` plus end
+  corrections `dp` (translation) and `dpsi` (yaw):
+  `W(t) = T(dp·s(t)) · RotateAbout(hips(t), dpsi·y(t)) · base`.
+  `s(t)` is the clip's normalised hip path length (so corrections only happen
+  while the body is really moving). `y(t)` is the same, except for the
+  lie-down where it's the normalised **rise of the feet**.
+- **The lie-down clip lies straight back** (the actor straddles a bench). On a
+  bed the body sits on the side edge facing out, so it needs a ≈90° turn. That
+  turn is applied about the hips only while the legs are lifting, which reads
+  as swinging the legs up onto the bed. Where along the edge to sit is solved
+  so the clip's own backward travel lands the head on the pillow.
+- **Slots and cross-fades.** Two slots (A/B) cross-fade with `ab_w`, and the
+  action layer fades against locomotion with `act_w`. The final `Visual`
+  placement blends the slots' world placements with the same weights as the
+  poses, so a cross-fade never slides the body.
+- **Sleep loop** is aligned to the lie-down's end hips and feet→head axis.
+- **Hand-off.** When the stand-up finishes, the controller moves the capsule
+  (player or NPC) to where the feet ended and sets its yaw, then emits
+  `stand_animation_finished`. `get_stand_end_position()` is valid from the
+  moment the plan exists; `NPC._physics_process` places the NPC there.
+- **Interruptions.** Released mid-approach → stops. Released mid sit-down →
+  finishes sitting, then stands. Released mid lie-down → plays the lie-down
+  backwards from the current frame (e.g. sleep ends because the need is
+  already full).
+
+### Procedural pose (`AdventurerProceduralPose`, a SkeletonModifier3D)
+
+- **Foot locking.** A foot whose ankle is within 7.5 cm of the floor and
+  moving under 2.2 m/s in world space is pinned horizontally where it landed
+  (height and heel-toe roll follow the clip; heading is kept). An analytic
+  two-bone IK holds it, and it releases when the clip lifts the foot. Standing
+  still with a foot pinned more than 12 cm from the idle stance triggers a
+  small lifted **recovery step**. Off on the bed and while dying.
+- **Lean.** Spine banks into turns (`yaw rate × speed`) and tips with
+  acceleration. Subtle: max ~7° / ~5°.
+- **Pillow head support.** Neck + head nod up 9° + 9° while asleep (the sleep
+  clip was performed flat).
+
+## Adding or replacing a clip
+
+1. Put the FBX under `assets/models/player/`, and give its `.import` the
+   retarget block with the right bone map (`bone_map_mixamo.tres` for
+   `mixamorig_*` rigs, `bone_map_maximo.tres` for Maximo `Abdomen`/`Torso`
+   rigs). The `PATH:` key must match the skeleton node path in the FBX
+   (`PATH:Skeleton3D`, `PATH:Armature/Skeleton3D`,
+   `PATH:CharacterArmature/Skeleton3D`); a wrong key silently skips the
+   retarget.
+2. Delete the stale `.godot/imported/<name>-<md5>.scn` and run
+   `godot --headless --import`.
+3. Add a row to `CLIPS` (or `GENDER_OVERRIDES`) with its kind, then run the
+   bake. Check the printed hips/feet summary: a standing clip's `feet_low`
+   should be ≈0.02.
+4. Use it from the controller: loops/one-shots go through `_push_slot()` with
+   a placement; new locomotion-style clips need phase metadata like
+   walk/run.
+5. Verify in the real game (see "Seeing it" below), never just headless.
+
+## Tuning knobs (top of the controller / modifier)
+
+`SEAT_HIPS_CLEARANCE`, `SEAT_HIPS_BACK`, `LIE_HIPS_CLEARANCE`,
+`BED_EDGE_HIPS_Z`, `BED_HEAD_X`, `APPROACH_SPEED`, `PIVOT_RATE`, the `*_RATE`
+playback speeds and `XF_*` cross-fade times; in the modifier the `LOCK_*`,
+`SETTLE_*`, lean and head-support constants.
+
+## Seeing it (visual verification)
+
+Headless numbers aren't enough; look at it. The pattern used for this
+rebuild: a `SceneTree --script` (kept outside the repo) that changes scene to
+`MainWorld.tscn`, waits for `startup_ready`, adds lights (the bunker is unlit
+at game start), spawns a Bed/Chair with `main._wire_bed/_wire_chair`, triggers
+`on_interact()`, drives the `GameCamera` (with `near` clipping walls), and
+saves `root.get_texture()` every N frames with `--fixed-fps 60`. Open floor is
+around x −13…3, z 4…12, floor y ≈ 0.5. Always isolate user data (see
+`docs/AGENT_GIT_WORKFLOW.md`).
+
+## Known limits / next steps
+
+- Only one idle per gender; no idle variations or start/stop clips. Adding
+  human-made "walk start", "walk stop" or turn-in-place clips would slot into
+  the action layer.
+- The lie-down source was performed on a higher bench, so during the first
+  second on a low bed the dangling feet can dip ~5 cm into the floor.
+- `stand_to_sit.fbx` / `sit_to_stand.fbx` (the male Mixamo pair) are no longer
+  used. They were re-exported in Blender by an earlier agent with shifted hip
+  data; consider removing them from the project.

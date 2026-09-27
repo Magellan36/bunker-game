@@ -546,10 +546,11 @@ Chairs drive a full sit/stand flow with imported animations. Flow:
   the chair via `npc_try_sit()`, park the NPC at `get_seat_transform()`,
   set `NPC.seated_chair` (mirrors the player), and clear it on exit.
 - **Animation:** `AdventurerModelController.gd` reads the parent's
-  `seated_chair` and plays the sequence `stand_to_sit → sit (looped) →
-  sit_to_stand` (see `docs/systems/player-model/ANIMATIONS.md` "Sit
-  animation sequence"). The model faces 180° (the chair backrest) for the
-  whole seated duration.
+  `seated_chair`, plans the sit from `get_seat_transform()` (short approach
+  step, turn, `stand_to_sit`, looped `sit`, `sit_to_stand`) and moves the
+  character to where the stand-up ends. Beds work the same way through
+  `sleeping_bed` (sit on the side edge, lie back, sleep). See
+  `docs/systems/player-model/ANIMATIONS.md` "Actions and furniture".
 
 `Chair.gd` constants (all visual-tune knobs):
 - `SEAT_Y` = 0.5625 (seat surface height).

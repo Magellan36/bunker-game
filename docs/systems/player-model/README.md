@@ -83,7 +83,13 @@ customization once dedicated art/scope is available for a later version.
 `disabled = true` / tooltip lines). Everything else in this document
 still describes that system accurately.
 
-## Sit animation root-offset fix (Aug 2026, CURRENT)
+## Sit animation root-offset fix (Aug 2026, SUPERSEDED 2026-09-27)
+
+> **Superseded.** The sit/lie/stand machinery described from here down to
+> "Native-rig rebuild" (hip-offset constants, seat-height lerps, sole clamp,
+> LiePivot recline curves, hybrid clips) was replaced by the rebuilt
+> animation system. Read `ANIMATIONS.md` in this folder instead. Kept for
+> history only.
 
 **Builds on the V1 Adventurer system above — read that section first.**
 Adds a full stand/sit/stand-up sequence (`stand_to_sit`/`sit`/
@@ -953,7 +959,10 @@ shared with NPCs) for the full mechanism — unchanged from the player's
 version, since `PlayerModelController.gd`'s `is_shadow_only` export was
 already generic over any parent `CharacterBody3D`.
 
-## Carry-state animations (Aug 2026)
+## Carry-state animations (Aug 2026, packed-away PlayerModel only)
+
+> For the live Adventurer bodies, carrying is an arm-only overlay of
+> `idle_carry` on the synced gait; see `ANIMATIONS.md`.
 `idle_carry`/`walk_carry`/`run_carry` play instead of the plain
 locomotion states whenever `_is_holding_item()` is true — checks
 `Player.get_held_item()` where that method exists, falls back to a
