@@ -320,6 +320,11 @@ static func is_trash_item(_npc: NPC, item: Node) -> bool:
 ## skip any stove currently claimed by another NPC (NPCItemUser.claim_item
 ## treats a Stove exactly like any other claimable Node — no new claim
 ## mechanism needed).
+## Wired to a live power grid (switched on or not). Residents only put
+## ingredients in, and switch on, a pot on a connected stove.
+static func stove_connected(stove: Node) -> bool:
+	return stove.has_method("npc_can_power_on") and stove.npc_can_power_on()
+
 static func find_cooking_serve_target(npc: NPC) -> Node:
 	var best: Node = null
 	var best_d: float = INF
@@ -345,6 +350,8 @@ static func find_cooking_ingredient_target(npc: NPC) -> Node:
 			continue
 		if NPCItemUser.is_claimed_by_other(stove, npc):
 			continue
+		if not stove_connected(stove):
+			continue   ## never load a pot that can't be cooked
 		var pot: Node = stove.pot_ref
 		if pot == null or not pot.has_method("is_full") or pot.is_full():
 			continue
@@ -372,8 +379,8 @@ static func find_cooking_needs_power_target(npc: NPC) -> Node:
 			continue
 		if NPCItemUser.is_claimed_by_other(stove, npc):
 			continue
-		if stove.powered_on:
-			continue
+		if stove.powered_on or not stove_connected(stove):
+			continue   ## an unplugged stove is never "cooked on" — see stove_connected()
 		if NPCClock.now() < float(stove.get_meta("_npc_unpowered_until", -1.0)):
 			continue   ## tried recently and there's no power — don't retry every few seconds
 		var pot: Node = stove.pot_ref
@@ -397,7 +404,11 @@ static func find_cooking_pot_target(npc: NPC) -> Node:
 			continue
 		if not stove.has_method("has_open_slot") or not stove.has_open_slot():
 			continue
+		## A pot may go on an unplugged stove (it's ready for when it's wired
+		## up), but a connected stove always wins.
 		var d: float = NPCItemUser.flat_distance(npc.global_position, (stove as Node3D).global_position)
+		if not stove_connected(stove):
+			d += 1000.0
 		if d < best_d:
 			best_d = d
 			best = stove
@@ -453,9 +464,14 @@ static func cooking_demand(npc: NPC) -> float:
 					for it in stack:
 						if it is DishItem:
 							dishes_waiting += 1
-	if dishes_waiting >= 2:
-		return 0.0
-	return clampf((80.0 - hungriest) / 40.0, 0.0, 1.0)
+	var residents: int = npc.get_tree().get_nodes_in_group("npc").size()
+	if dishes_waiting >= maxi(1, (residents + 1) / 2):
+		return 0.0   ## enough cooked food waiting
+	## Meal prep: with ingredients in reach and nothing cooked waiting,
+	## someone cooks even when nobody is hungry yet (a hot meal beats a
+	## cold can, and it's ready before anyone needs it). Hunger adds urgency.
+	var prep: float = 0.45 if dishes_waiting == 0 else 0.2
+	return clampf(prep + (80.0 - hungriest) / 40.0, 0.0, 1.0)
 
 static func get_cooking_unavailable_reason(npc: NPC) -> String:
 	if has_cooking_target_available(npc):

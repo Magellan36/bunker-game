@@ -140,7 +140,7 @@ func tick(npc: NPC, delta: float) -> void:
 			## Whoever holds the floor sometimes says something readable.
 			var speaker: NPC = npc if _speaking else _partner
 			if randf() < 0.55:
-				speaker.bark(NPCDialogue.chat_line(speaker, _turns > 0))
+				speaker.say_line(NPCDialogue.chat_line(speaker, _turns > 0))
 			_turns += 1
 	if not _is_initiator:
 		return   ## partner just waits — the initiator's end-of-session clears _partner via end_talk_session()

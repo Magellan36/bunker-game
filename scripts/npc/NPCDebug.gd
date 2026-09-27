@@ -11,6 +11,9 @@ class_name NPCDebug
 ## which is enough for a dev-only toggle and avoids one more autoload entry.
 
 static var enabled: bool = false
+## The floating "Name — Activity" nameplate over each resident. A DEV
+## overlay, not shipping UI — flip to false for release builds/captures.
+static var show_nameplates: bool = true
 
 static func _fmt(npc: Node) -> String:
 	if npc != null and "npc_name" in npc:

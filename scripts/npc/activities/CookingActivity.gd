@@ -11,8 +11,11 @@ class_name CookingActivity
 ## serves the dish. All progress lives on the Stove/CookingPot, so any
 ## resident can pick up where another left off.
 ##
-## Sep 2026: now autonomous — residents cook when someone is getting hungry
-## and no meal is already waiting (NPCJobQueries.cooking_demand()), and
+## Sep 2026: now autonomous — residents cook whenever ingredients are in
+## reach and no cooked meal is waiting (meal prep), sooner when someone is
+## getting hungry (NPCJobQueries.cooking_demand()), and they only load or
+## switch on a pot on a CONNECTED stove (a pot may still be set on an
+## unplugged one, ready for later), and
 ## always serve a finished dish or restart a stove that lost power. A
 ## stove that can't be switched on (no grid) is left alone for a while
 ## instead of being retried (and re-notified) every few seconds. Each step
@@ -93,6 +96,7 @@ func _begin_fetch(npc: NPC) -> void:
 	var tgt: Node3D = _fetch_loose if _fetch_loose != null else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
 	var claim_target: Node = _fetch_loose if _fetch_loose != null else _fetch_shelf.get("item")
 	if tgt == null or not NPCItemUser.claim_item(claim_target, npc):
+		_dbg(npc, "fetch found nothing (mode=%s, target=%s)" % [_mode, tgt])
 		## No more ingredients: cook with what's already in the pot.
 		if _mode == "ingredient":
 			_mode = "power"
@@ -173,6 +177,9 @@ func _do_step(npc: NPC) -> void:
 				NPCItemUser.release_item(npc.held_item)
 				npc.held_item = null
 				npc.log_action("Set a pot on the stove")
+				if not NPCJobQueries.stove_connected(_stove):
+					_finished = true   ## ready for when it's wired up — no cooking on an unplugged stove
+					return
 				_mode = "ingredient"
 				_begin_fetch(npc)
 			else:
@@ -180,6 +187,7 @@ func _do_step(npc: NPC) -> void:
 		"ingredient":
 			var pot: Node = _stove.pot_ref
 			if pot == null or not NPCItemUser.hands_full(npc) or pot.is_full() or (pot.has_method("is_dish_ready") and pot.is_dish_ready()):
+				_dbg(npc, "ingredient step aborted (pot=%s hands=%s)" % [pot, NPCItemUser.hands_full(npc)])
 				_finished = true
 				return
 			var item: RigidBody3D = npc.held_item
@@ -194,6 +202,7 @@ func _do_step(npc: NPC) -> void:
 				else:
 					_turn_on_stove(npc)
 			else:
+				_dbg(npc, "pot refused %s" % item_name)
 				_finished = true
 
 func _take_dish(npc: NPC) -> void:
@@ -273,6 +282,10 @@ func _turn_on_stove(npc: NPC) -> void:
 
 func done(_npc: NPC) -> bool:
 	return _finished
+
+func _dbg(npc: NPC, msg: String) -> void:
+	if NPCDebug.enabled:
+		NPCDebug.log_cleaning(npc, "cooking", msg)
 
 func debug_info() -> Dictionary:
 	return {
