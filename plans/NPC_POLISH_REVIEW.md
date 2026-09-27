@@ -1,5 +1,22 @@
 # NPC Polish / Cleanup Review (Sep 2026)
 
+> **Status (implemented on `claude/gifted-planck-32j7ii`):** every item in
+> sections 1–4 is addressed, plus the extras below; see
+> `docs/systems/npc/README.md` → "Architecture & guarantees (Sep 2026)" for
+> how the system works now. Section 5's NPC.gd split was done as components
+> (`scripts/npc/components/`) rather than moving existing state out of NPC.gd,
+> to keep every external caller (UI, admin menu, save system) unchanged.
+> Additional issues found while testing with the new simulation harness
+> (`tools/tests/run_npc_sim.sh`) and rendered captures, all fixed:
+> NPC capsule wider than the navmesh agent (wedging in corners); furniture
+> stand points assigning a floor-level Y to the capsule centre (NPCs sinking
+> through the floor); arrive-but-out-of-reach freezes at bulky objects;
+> straight-line target picking choosing unreachable items (starvation loop);
+> Cooking/Gardening availability checks that `enter()` couldn't act on;
+> Gardening soil/seed mismatch infinite loop; Cleaning basket flow; the bed
+> lie-down turning the wrong way from one side of the bed; gender not saved.
+
+
 Full read-through of `scripts/npc/**` (NPC.gd, NPCBrain, all activities,
 NPCItemUser, NPCCaseFetch, JobBoard, NPCJobQueries, NPCMedical, NPCDebug,
 BunkerNavMesh) plus the NPC save/restore in `MainWorld.gd`. No code was

@@ -175,6 +175,20 @@ var _chair_seat_pos: Vector3 = Vector3.ZERO
 ## lying along the bed, head at the headboard). 0 = not on a bed.
 var _lie_rot_angle: float = 0.0
 
+## Sep 2026 (NPC bed sleep) — when true, the lie-down turn follows the SIGNED
+## side angle, so a sleeper entering from EITHER long side ends in the same
+## face-up, head-at-headboard pose (final yaw = bed yaw + 3π/2 both ways).
+## With the default absf() turn, entering from the bed's local −Z side ends
+## rotated π the other way and the recline tips the body off the mattress
+## (the per-side body mirror that once compensated no longer exists). NPCs
+## set this (LieActivity); the player's tuned flow is left unchanged — if the
+## player shows the same thing on one side of a bed, setting this flag in
+## MainWorld._wire_bed() is the likely one-line fix.
+var lie_signed_turn: bool = false
+
+func _lie_turn() -> float:
+	return _lie_rot_angle if lie_signed_turn else absf(_lie_rot_angle)
+
 ## Aug 2026 — GAME-DRIVEN bed recline. The clip's own root motion pivots the
 ## body at the FEET (its armature origin), swinging it in a wide arc; instead,
 ## the body is parented under a LiePivot node placed at the HIPS, and during the
@@ -426,7 +440,7 @@ func _process(delta: float) -> void:
 		## face-up + head-at-headboard is only achievable at yaw 3PI/2, so both
 		## sides end in the same (face up, head at headboard) pose. The far side's
 		## left-right mirror is applied via the body X-scale in _wire_bed.
-		_visual_yaw = _player.rotation.y + PI + absf(_lie_rot_angle) * rot_frac
+		_visual_yaw = _player.rotation.y + PI + _lie_turn() * rot_frac
 		## Aug 2026 — GAME-DRIVEN recline + slide around the hips pivot (the clip's
 		## root motion pivots at the feet and swings the body in a wide arc; this
 		## reclines it smoothly back onto the bed AND slides it up toward the
@@ -456,7 +470,7 @@ func _process(delta: float) -> void:
 		## articulates the upper body (legs are frozen in the hybrid).
 		if _anim_player != null:
 			_anim_player.speed_scale = 1.0
-		_visual_yaw = _player.rotation.y + PI + absf(_lie_rot_angle)
+		_visual_yaw = _player.rotation.y + PI + _lie_turn()
 		if _lie_pivot != null:
 			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE)
 			_lie_pivot.position.z = LIE_TRANSLATE

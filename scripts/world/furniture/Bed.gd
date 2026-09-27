@@ -122,6 +122,8 @@ func _build_mesh() -> void:
 func on_interact() -> void:
 	if not _player_in_range:
 		return
+	if not _player_sleeping and _npc_occupant_name() != "":
+		return   ## a resident is sleeping here (Sep 2026)
 	if not _player_sleeping:
 		sleep_requested.emit()
 	else:
@@ -130,7 +132,15 @@ func on_interact() -> void:
 func get_prompt_text() -> String:
 	if _player_sleeping:
 		return "[E] Wake up"
+	var occupant: String = _npc_occupant_name()
+	if occupant != "":
+		return "%s is using this bed" % occupant
 	return "[E] Sleep"
+
+func _npc_occupant_name() -> String:
+	if _npc_sleeper != null and is_instance_valid(_npc_sleeper) and "npc_name" in _npc_sleeper:
+		return String(_npc_sleeper.npc_name)
+	return ""
 
 func set_player_in_range(in_range: bool) -> void:
 	_player_in_range = in_range

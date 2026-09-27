@@ -76,11 +76,24 @@ static func find_cleaning_target(npc: NPC, exclude_ids: Dictionary = {}, exclude
 		return {}
 	candidates.sort_custom(func(a, b): return a["d"] < b["d"])
 
-	var fallback: Dictionary = candidates[0]
+	## Prefer an item on the outside of a pile (clear line from the NPC) over
+	## a nominally nearer buried one, and never one the navmesh can't reach.
+	var reachable: Array = []
 	for c: Dictionary in candidates:
+		if npc.job_state.is_unreachable(c["item"]):
+			continue
+		if reachable.size() >= NPCItemUser.REACH_CHECKS:
+			break
+		if NPCItemUser.is_reachable(npc, (c["item"] as Node3D).global_position, NPCItemUser.PICKUP_RANGE):
+			reachable.append(c)
+		else:
+			npc.job_state.mark_unreachable(c["item"])
+	if reachable.is_empty():
+		return {}
+	for c: Dictionary in reachable:
 		if _has_clear_approach(npc, c["item"]):
 			return {"item": c["item"], "is_trash": c["is_trash"]}
-	return {"item": fallback["item"], "is_trash": fallback["is_trash"]}
+	return {"item": reachable[0]["item"], "is_trash": reachable[0]["is_trash"]}
 
 static func _has_clear_approach(npc: NPC, item: Node) -> bool:
 	var space_state: PhysicsDirectSpaceState3D = npc.get_world_3d().direct_space_state
@@ -140,6 +153,8 @@ static func _nearest_cleaning_destination(npc: NPC, group_names: Array, item: Ri
 			## the exact same room-checked treatment a full shelf already
 			## gets.
 			if item != null and candidate.has_method("has_room_for") and not candidate.has_room_for(item):
+				continue
+			if npc.job_state.is_unreachable(candidate):
 				continue
 			var d: float = NPCItemUser.flat_distance(npc.global_position, (candidate as Node3D).global_position)
 			if d < best_d:

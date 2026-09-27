@@ -80,6 +80,7 @@ func tick(delta: float) -> void:
 				d.y = 0.0
 				_safe_nudge(d.normalized(), d.length() + 0.3)
 			last_cause = "arrived but the target is out of reach"
+			_npc.job_state.mark_unreachable_near(_npc.get_tree(), _npc.nav_agent.target_position, 1.0)
 			NPCDebug.log_stuck(_npc, "unreachable target", {"activity": _npc.brain.current_label()})
 			_npc.abandon_current_activity(last_cause, 30.0)
 			return

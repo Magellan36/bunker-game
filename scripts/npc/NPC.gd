@@ -26,7 +26,6 @@ class_name NPC
 @export var move_speed: float = 2.2
 @export var acceleration: float = 8.0
 @export var npc_name: String = "Survivor"
-@export var arrival_distance: float = 0.5
 @export var idle_time_min: float = 1.5
 @export var idle_time_max: float = 4.0
 
@@ -169,7 +168,13 @@ func get_sleep_drive() -> float:
 		var hours_left: float = fposmod(get_wake_time() - NPCClock.hour_of_day(), 24.0)
 		if hours_left < 1.5:
 			return exhausted
-		return clampf(0.45 + 0.55 * tired, 0.0, 1.0) if energy < 92.0 else 0.0
+		if energy >= 92.0:
+			return 0.0
+		var drive: float = clampf(0.45 + 0.55 * tired, 0.0, 1.0)
+		## Grab a bite / a drink before turning in, unless dead on their feet.
+		if (hunger < 50.0 or thirst < 55.0) and exhausted < 0.5:
+			drive *= 0.6
+		return drive
 	return exhausted
 
 # ─── Personality ──────────────────────────────────────────────────────────
@@ -747,9 +752,6 @@ func _threshold_scaled_chance(value: float, threshold: float, extreme: float,
 func get_snatch_chance_toward(target_id: String) -> float:
 	return _threshold_scaled_chance(get_relationship(target_id), SNATCH_RELATIONSHIP_THRESHOLD,
 		RELATIONSHIP_MIN, SNATCH_CHANCE_AT_THRESHOLD, SNATCH_CHANCE_AT_MIN, -1.0)
-
-func get_snatch_chance() -> float:
-	return get_snatch_chance_toward("player")
 
 ## Deterministic eligibility (no roll) — lets Eat/Drink score > 0 when the
 ## only matching item is in a disliked person's hands.
@@ -1725,6 +1727,7 @@ func get_save_dict() -> Dictionary:
 		"last_irritability_label": _last_irritability_label,
 		"last_player_rel_label": _last_player_relationship_label,
 		"medical": medical.to_save() if medical != null else [],
+		"gender": String(get_meta("_adventurer_random_gender", "")),
 		"home_bed_pos": _vec_dict((home_bed as Node3D).global_position) if home_bed != null and is_instance_valid(home_bed) else {},
 	}
 
@@ -1786,6 +1789,9 @@ func apply_save_dict(d: Dictionary) -> void:
 				"game_time": String(e.get("game_time", "")),
 				"fired_at_msec": now_msec - int(age_sec * 1000.0)})
 	_pending_medical_save = d.get("medical", [])
+	var gender: String = String(d.get("gender", ""))
+	if gender != "":
+		set_meta("_adventurer_random_gender", gender)   ## read by the model controller in its _ready()
 	var hb: Dictionary = d.get("home_bed_pos", {})
 	if not hb.is_empty():
 		_home_bed_pos = Vector3(float(hb.get("x", 0.0)), float(hb.get("y", 0.0)), float(hb.get("z", 0.0)))

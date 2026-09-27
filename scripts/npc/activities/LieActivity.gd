@@ -232,7 +232,12 @@ func _get_into_bed(npc: NPC) -> void:
 		if model != null:
 			model.set("_chair_approach_pos", _approach)
 			model.set("_chair_seat_pos", Vector3(t.origin.x, _approach.y, t.origin.z))
-			model.set("_lie_rot_angle", side * PI * 0.5)
+		## Both the visible model and its shadow stand-in turn the same way.
+		for model_name: String in ["CharacterModel", "CharacterModelShadow"]:
+			var m: Node = npc.get_node_or_null(model_name)
+			if m != null:
+				m.set("_lie_rot_angle", side * PI * 0.5)
+				m.set("lie_signed_turn", true)
 	else:
 		_approach = npc.global_position
 	npc.sleeping_bed = bed3   ## starts the controller's sit → lie-down → sleep sequence

@@ -37,7 +37,9 @@ var _cfg: Dictionary = {
 	"shots": "",          ## "t0:count:dt" — capture `count` frames starting at sim time t0, every dt seconds
 	"hour": -1.0,         ## start the clock at this hour of day
 	"saveload": -1.0,     ## at this sim time: save all NPCs, restore them, verify nothing was lost
+	"player_sleep": 0.0,  ## +1 / -1: at sim t=2 put the PLAYER into the first bed from that side (visual check)
 }
+var _player_slept: bool = false
 var _saveload_done: bool = false
 var _shot_plan: Array = []   ## [[t0, count, dt], ...]
 var _shot_index: int = 0
@@ -58,6 +60,8 @@ var _violations: Dictionary = {}   ## kind -> Array[String]
 var _activity_time: Dictionary = {}   ## activity class -> seconds (all NPCs)
 var _activity_entries: Dictionary = {}   ## activity class -> count
 var _log_lines: Array[String] = []
+var _hour_total: Array[int] = []
+var _hour_asleep: Array[int] = []
 
 func _ready() -> void:
 	for a: String in OS.get_cmdline_user_args():
@@ -79,6 +83,7 @@ func _ready() -> void:
 			"shots": _cfg["shots"] = v
 			"hour": _cfg["hour"] = float(v)
 			"saveload": _cfg["saveload"] = float(v)
+			"player_sleep": _cfg["player_sleep"] = float(v)
 	seed(int(_cfg["seed"]))
 	_world = load("res://scenes/world/MainWorld.tscn").instantiate()
 	get_tree().root.add_child.call_deferred(_world)
@@ -102,6 +107,13 @@ func _process(delta: float) -> void:
 				_dump_scores()
 		if String(_cfg["capture"]) != "":
 			_tick_capture()
+		if not _player_slept and float(_cfg["player_sleep"]) != 0.0 and _t - _setup_at >= 2.0:
+			_player_slept = true
+			var bed: Node3D = get_tree().get_nodes_in_group("bed")[0]
+			var player: Node3D = get_tree().get_first_node_in_group("player")
+			player.global_position = bed.global_transform * Vector3(0.8, 1.0, float(_cfg["player_sleep"]) * 0.9)
+			bed.set_player_in_range(true)
+			bed.sleep_requested.emit()
 		if not _saveload_done and float(_cfg["saveload"]) >= 0.0 and _t - _setup_at >= float(_cfg["saveload"]):
 			_saveload_done = true
 			_check_save_load()
@@ -255,6 +267,12 @@ func _flag(kind: String, npc: Node, msg: String, once_key: String = "") -> void:
 
 func _sample() -> void:
 	var now: float = _t
+	if _hour_total.is_empty():
+		_hour_total.resize(24)
+		_hour_asleep.resize(24)
+		_hour_total.fill(0)
+		_hour_asleep.fill(0)
+	var hr: int = int(NPCClock.hour_of_day()) % 24
 	for id in _track.keys():
 		var tr: Dictionary = _track[id]
 		var npc: Node = tr["npc"]
@@ -262,6 +280,9 @@ func _sample() -> void:
 			continue
 		var act: String = _act_class(npc)
 		_activity_time[act] = float(_activity_time.get(act, 0.0)) + SAMPLE_DT
+		_hour_total[hr] += 1
+		if npc.brain != null and (npc.brain.is_sleeping() or act == "PassedOutActivity"):
+			_hour_asleep[hr] += 1
 		if act != tr["act"]:
 			var lasted: float = now - float(tr["act_since"])
 			if tr["act"] != "":
@@ -408,6 +429,7 @@ func _npc_fingerprint(npc: Node) -> Dictionary:
 	d["relationships"] = _canon(npc.relationships)
 	d["skills"] = _canon(npc.skills)
 	d["thoughts"] = npc.thoughts.describe().size()
+	d["gender"] = String(npc.get_meta("_adventurer_random_gender", ""))
 	d["log"] = npc.get_action_log().size()
 	d["medical"] = npc.medical.active_conditions.size() if npc.medical != null else 0
 	return d
@@ -539,6 +561,12 @@ func _report() -> void:
 	print("Activity share (time / entries):")
 	for a in acts:
 		print("  %-28s %5.1f%%  %4d" % [a if a != "" else "(idle)", 100.0 * float(_activity_time[a]) / maxf(total, 0.001), int(_activity_entries.get(a, 0))])
+	var rhythm: Array[String] = []
+	for h in 24:
+		if _hour_total.size() == 24 and _hour_total[h] > 0:
+			rhythm.append("%02d:%3d%%" % [h, int(100.0 * _hour_asleep[h] / _hour_total[h])])
+	if not rhythm.is_empty():
+		print("Asleep by hour: " + " ".join(rhythm))
 	print("NPC end state:")
 	for id in _track.keys():
 		var npc: Node = _track[id]["npc"]

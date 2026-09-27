@@ -152,27 +152,52 @@ static func is_cell_claimed_by_other(tray: Node, cell_index: int, npc: Node) -> 
 ## Excludes held, shelved, and frozen items — an NPC can never steal from
 ## the player's hands or bypass the shelf API. Also respects item claims.
 static func find_loose_item(npc: NPC, filter: Callable) -> RigidBody3D:
-	var best: RigidBody3D = null
-	var best_d: float = INF
+	var candidates: Array = []   ## [distance, item]
 	for node: Node in npc.get_tree().get_nodes_in_group("pickup"):
 		if not (node is RigidBody3D) or not is_instance_valid(node):
 			continue
 		var rb: RigidBody3D = node as RigidBody3D
-		if rb.is_in_group("shelved"):
+		if rb.is_in_group("shelved") or (("is_held" in rb) and rb.is_held) or rb.freeze:
 			continue
-		if ("is_held" in rb) and rb.is_held:
-			continue
-		if rb.freeze:
-			continue
-		if is_claimed_by_other(rb, npc):
+		if is_claimed_by_other(rb, npc) or npc.job_state.is_unreachable(rb):
 			continue
 		if not filter.call(rb):
 			continue
-		var d: float = flat_distance(rb.global_position, npc.global_position)
-		if d < best_d:
-			best_d = d
-			best = rb
-	return best
+		candidates.append([flat_distance(rb.global_position, npc.global_position), rb])
+	return _nearest_reachable(npc, candidates, PICKUP_RANGE) as RigidBody3D
+
+## Sep 2026 — nearest candidate that a real navmesh path actually gets
+## within reach of. Straight-line "nearest" happily picked a can that had
+## rolled into a gap behind a farming tray; the NPC walked as close as it
+## could, gave up, and picked the very same can again — forever, while
+## starving. Checks the few nearest candidates only (path queries aren't
+## free); an unreachable one is remembered for a while (NPCJobState).
+const REACH_CHECKS: int = 4
+
+static func _nearest_reachable(npc: NPC, candidates: Array, reach: float) -> Node:
+	if candidates.is_empty():
+		return null
+	candidates.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
+	for i: int in mini(candidates.size(), REACH_CHECKS):
+		var n: Node3D = candidates[i][1]
+		if is_reachable(npc, n.global_position, reach):
+			return n
+		npc.job_state.mark_unreachable(n)
+	return null
+
+## Can the NPC walk to within `reach` of `pos`? (navmesh path end check;
+## cached per NPC per physics frame.) True when no navmesh is available so
+## worlds without one still behave as before.
+static func is_reachable(npc: NPC, pos: Vector3, reach: float) -> bool:
+	var map: RID = npc.get_world_3d().navigation_map
+	if not map.is_valid() or NavigationServer3D.map_get_iteration_id(map) == 0:
+		return true
+	var from: Vector3 = NavigationServer3D.map_get_closest_point(map, Vector3(npc.global_position.x, 0.5, npc.global_position.z))
+	var to: Vector3 = Vector3(pos.x, 0.5, pos.z)
+	var path: PackedVector3Array = NavigationServer3D.map_get_path(map, from, to, true)
+	if path.is_empty():
+		return flat_distance(npc.global_position, pos) <= reach + REACH_LENIENCY
+	return flat_distance(path[path.size() - 1], pos) <= reach + REACH_LENIENCY - 0.1
 
 ## Nearest shelf slot whose TOP item matches filter.
 ## Returns {} or {shelf: Shelving, slot: int, item: RigidBody3D}.
@@ -188,7 +213,10 @@ static func find_shelved_item(npc: NPC, filter: Callable) -> Dictionary:
 		if not is_instance_valid(node) or not ("slots" in node):
 			continue
 		var d: float = flat_distance((node as Node3D).global_position, npc.global_position)
-		if d >= best_d:
+		if d >= best_d or npc.job_state.is_unreachable(node):
+			continue
+		if not is_reachable(npc, (node as Node3D).global_position, SHELF_RANGE):
+			npc.job_state.mark_unreachable(node)
 			continue
 		for slot_idx: int in range(node.slots.size()):
 			var stack: Array = node.slots[slot_idx]

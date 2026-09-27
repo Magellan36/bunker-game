@@ -1280,53 +1280,72 @@ func _current_activity() -> String:
 	return "Idle"
 
 
+## Keyword → category for the live activity label (NPC activity labels are
+## descriptive, e.g. "Chatting with Dez", "Putting away Food Can").
+const _ACT_REST: Array[String] = ["sleep", "rest", "relax", "sit", "bed", "dozing", "lying", "getting up", "stroll"]
+const _ACT_PLANT: Array[String] = ["farm", "plant", "harvest", "tray", "garden", "soil", "seed", "fertiliz", "produce"]
+const _ACT_WATER: Array[String] = ["water", "drink", "filter", "purifier"]
+const _ACT_POWER: Array[String] = ["fuel", "generator"]
+const _ACT_FOOD: Array[String] = ["eat", "food", "bringing", "snatch", "hostile"]
+const _ACT_COOK: Array[String] = ["cook", "stove", "meal", "plating", "ingredient", "pot"]
+const _ACT_TALK: Array[String] = ["talk", "chat"]
+const _ACT_UPKEEP: Array[String] = ["clean", "put away", "putting away", "tidying", "picking up", "gathering", "clearing"]
+
+static func _has_any(lower: String, words: Array[String]) -> bool:
+	for w: String in words:
+		if w in lower:
+			return true
+	return false
+
 func _activity_state(activity: String) -> String:
 	var lower: String = activity.to_lower()
 	if "passed out" in lower or "injured" in lower:
 		return "UNWELL"
-	if "sleep" in lower or "rest" in lower or "relax" in lower or "sit" in lower:
+	if _has_any(lower, _ACT_REST):
 		return "RESTING"
-	if lower == "idle" or lower == "wandering":
+	if lower == "idle" or lower.begins_with("wandering") or _has_any(lower, _ACT_TALK):
 		return "IDLE"
 	return "ON DUTY"
 
 
 func _activity_icon_kind(activity: String) -> String:
 	var lower: String = activity.to_lower()
-	if "farm" in lower or "plant" in lower or "harvest" in lower or "tray" in lower:
-		return "plant"
-	if "water" in lower or "drink" in lower or "filter" in lower:
-		return "water"
-	if "fuel" in lower or "generator" in lower:
-		return "power"
-	if "eat" in lower or "food" in lower:
-		return "food"
-	if "cook" in lower:
+	if _has_any(lower, _ACT_COOK):
 		return "cooking"
-	if "talk" in lower:
+	if _has_any(lower, _ACT_PLANT):
+		return "plant"
+	if _has_any(lower, _ACT_WATER):
+		return "water"
+	if _has_any(lower, _ACT_POWER):
+		return "power"
+	if _has_any(lower, _ACT_FOOD):
+		return "food"
+	if _has_any(lower, _ACT_TALK):
 		return "talk"
-	if "sleep" in lower or "rest" in lower or "relax" in lower:
+	if _has_any(lower, _ACT_REST):
 		return "sleep"
-	if "clean" in lower or "put away" in lower:
+	if _has_any(lower, _ACT_UPKEEP):
 		return "storage"
 	return "clock"
 
 
 func _activity_detail_text(activity: String) -> String:
 	var lower: String = activity.to_lower()
-	if "farm" in lower or "plant" in lower or "harvest" in lower or "tray" in lower:
-		return "Bunker agriculture • Current assignment"
-	if "filter" in lower or "water" in lower:
-		return "Water system • Current assignment"
-	if "fuel" in lower or "generator" in lower:
-		return "Power system • Current assignment"
-	if "clean" in lower or "put away" in lower:
-		return "Bunker upkeep • Current assignment"
-	if "cook" in lower:
+	if _has_any(lower, _ACT_COOK):
 		return "Meal preparation • Current assignment"
-	if "sleep" in lower or "rest" in lower or "relax" in lower:
+	if _has_any(lower, _ACT_PLANT):
+		return "Bunker agriculture • Current assignment"
+	if _has_any(lower, _ACT_WATER) and not ("drink" in lower):
+		return "Water system • Current assignment"
+	if _has_any(lower, _ACT_POWER):
+		return "Power system • Current assignment"
+	if _has_any(lower, _ACT_UPKEEP):
+		return "Bunker upkeep • Current assignment"
+	if _has_any(lower, _ACT_TALK):
+		return "Socializing • Personal time"
+	if _has_any(lower, _ACT_REST):
 		return "Personal time • Recovering"
-	if lower == "idle" or lower == "wandering":
+	if lower == "idle" or lower.begins_with("wandering"):
 		return "No assigned work • Available"
 	return "Live behavior • Updates automatically"
 
