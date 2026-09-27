@@ -338,6 +338,67 @@ prop, so the extra precision of a `light_cull_mask` exclusion isn't worth
 it here. The player-body exclusion stays in place alongside this; it
 wasn't wrong, just insufficient alone.
 
+### Lighting review (Sep 2026) — cube omnis, atlas layout, dynamic-shadow budget
+
+Diagnosed with real Forward+ renders (lavapipe/Xvfb, single lamp isolated,
+Low/Medium/High compared) plus the Godot 4.7 source for shadow caching.
+
+**Root causes of the reported symptoms**
+- *Grainy/striped shadows on Low/Medium:* banded shadow acne. The wall
+  lamp's 156° perspective shadow map spreads its texels thinnest exactly
+  across the room centre, Low/Medium only gave each light a 256–512 px atlas
+  slot, and bias had been hand-lowered to 0.025/0.20. Lit floor measured up
+  to 17% darker than an unshadowed render. High (bigger slots) hid it.
+- *"Bubble" light around lamps on player-built walls:* the 156° spot's cone
+  boundary, drawn as a hard curved edge across the adjacent walls/floor; the
+  lamp's own wall was also left pitch black.
+
+**Changes**
+- `WallLight` → `OmniLight3D`, `SHADOW_CUBE`, source 0.18 m off the fixture
+  (soft wash on its own wall, no tight hotspot). The wall behind always
+  casts, so nothing leaks through (verified on the far side of player walls).
+  Dual-paraboloid was tested and rejected: it bends low-poly wall shadows and
+  leaked past pregen walls.
+- Bias back to engine-level (0.03 / normal 1.0) on WallLight, GrowLight and
+  Flashlight. Normal bias scales with texel size; no contact gap at wall bases.
+- Positional atlas: quadrants 0–2 `SUBDIV_16`, quadrant 3 `SUBDIV_64`
+  (`GraphicsSettings.SHADOW_ATLAS_QUADRANTS`). Godot reallocates a light to a
+  different-sized slot whenever its screen coverage changes — a full re-render
+  plus a visible resolution pop while walking. Uniform primary quadrants stop
+  that; the fine quadrant only takes overflow in very large bases so no light
+  ever loses its structural shadow (112 slots; an omni uses two).
+- Preset atlas sizes: Low 2048, Medium 4096, High 4096, Ultra 8192 (slot =
+  atlas/8). Memory: 8/32/32/128 MB (16-bit). Panel labels renamed to match.
+- Soft-shadow filter follows `shadow_quality` (≤2048 Soft Low, 4096 Soft
+  Medium, 8192 Soft High). Very Low was rejected (dithered contact lines).
+
+**Performance model (verified in `renderer_scene_cull.cpp`)** — Godot caches
+every positional shadow map and only re-renders it when a shadow caster in
+the light's range moves, the light changes, or its atlas slot changes. So the
+static structure is a one-off cost; the ongoing cost is (a) the per-pixel
+filter and (b) anything that keeps re-dirtying lights:
+- **Animated-material casters force a re-render every frame.** Water-pipe
+  flow arrows (`pipe_flow.gdshader`, uses `TIME`) cast shadows, so every lamp
+  near a pipe re-rendered permanently → arrows now `cast_shadow = OFF`.
+- Particles (dust motes, breaker sparks, generator exhaust) and the
+  InteractionFocusGlow mask stand-ins no longer cast.
+- **Dynamic-shadow budget** (`GraphicsSettings._update_shadow_budget`, 4 Hz):
+  with Dynamic Shadows on, only the 5 lights nearest the player (8 at 8192)
+  keep character layers in `shadow_caster_mask`; others exclude them and stay
+  cached instead of re-rendering six cube faces every frame around a walking
+  NPC. 1.5 m hysteresis prevents swap churn. Structure/furniture/items still
+  cast in every light. Layers: 12 = player (existing), 13 = NPCs (added by
+  `AdventurerModelController`). Lights opt in via
+  `GraphicsSettings.register_shadow_light()` (WallLight, GrowLight; the
+  flashlight is always beside the player and is not budgeted).
+- Placed furniture deliberately stays in the Dynamic tier (off on Low/Medium):
+  several devices animate in `_process` and would otherwise re-dirty lamps
+  every frame at every quality.
+
+**Tuning knobs:** `WallLight.LIGHT_ENERGY` (omni now also lights the lamp's own
+wall, so the room reads brighter), `LIGHT_WALL_OFFSET`,
+`GraphicsSettings.dynamic_shadow_light_budget()`, `SHADOW_ATLAS_QUADRANTS`.
+
 ### Structural shadow cutoff (Sep 2026) — the "classic" two-layer split
 
 **What changed:** the light-level shadow gate was removed entirely. Lights
@@ -371,11 +432,8 @@ means "dynamic per-character/per-object shadows" only:
   2048, and four-cascade at 4096/8192, so the setting now affects every real
   shadow family. Ultra uses a distinct 8192 atlas instead of duplicating
   High's 4096 value.
-- Wall fixtures are wide, room-facing `SpotLight3D`s (156° cone), not omnis.
-  A wall lamp cannot emit through the concrete behind it; the spot models
-  that hemisphere directly, eliminates rear-wall light bubbles, and renders
-  one shadow map instead of a six-face cubemap. Contact bias is tightened on
-  wall, grow, and flashlight spots so shadows stay attached to thin walls.
+- ~~Wall fixtures are wide, room-facing `SpotLight3D`s (156° cone)~~ —
+  superseded by the Sep 2026 lighting review below (cube-shadow omnis).
 
 **The Aug 2026 distance-based shadow LOD was removed.** It force-disabled a
 far light's `shadow_enabled`, which would have silently removed the wall

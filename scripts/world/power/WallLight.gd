@@ -2,10 +2,16 @@ extends Node3D
 ## WallLight.gd
 ## Wall-mounted industrial lamp using the industrial_wall_lamp GLB model.
 ##
-## Light: a very wide SpotLight3D aimed from the wall into the room. A wall
-## fixture cannot physically emit through the concrete behind it; modelling
-## that hemisphere directly avoids back-wall light halos and needs one shadow
-## map instead of an OmniLight3D cubemap's six.
+## Light: an OmniLight3D with CUBE shadows, held a little off the wall face.
+## Sep 2026 lighting review: the previous 156° SpotLight3D (a) drew a hard
+## curved cone edge across nearby walls/floor — the "bubble" around lamps on
+## player-built walls — (b) left the lamp's own wall black, and (c) spread its
+## perspective shadow map so thinly across the room centre that Low/Medium
+## showed banded shadow acne. The wall behind the fixture always casts
+## (structural shadows are always on), so the omni never leaks through it.
+## Cube shadows are cached by Godot and only re-rendered when a shadow caster
+## inside the light's range moves, so the six faces are a one-off cost for the
+## static structure — see docs/systems/graphics/README.md "Lighting review".
 ##
 ## NO COLLISION — purely visual + light-emitting Node3D.
 ## Called from BuildModeController._spawn_placed_object() for TILE_LIGHT = 5.
@@ -43,14 +49,17 @@ const LIGHT_COLOR:  Color = Color(1.0, 0.82, 0.50, 1.0)
 ## instead of flooding the whole room via raw light energy.
 const LIGHT_ENERGY: float = 2.0
 const LIGHT_RANGE:  float = 10.0
-## Godot's spot_angle is the half-angle. 78° produces a broad 156° room-side
-## hemisphere without spending shadow work behind or parallel to the wall.
-const LIGHT_SPOT_ANGLE: float = 78.0
-## Conservative contact offsets for closed bunker geometry. Godot's much
-## larger defaults visibly detach a thin wall's shadow from the floor/wall,
-## reading as a bright bubble around player-built BoxMesh walls.
-const SHADOW_BIAS: float = 0.025
-const SHADOW_NORMAL_BIAS: float = 0.20
+## Distance the light source sits in front of the fixture origin (which is
+## itself 5 cm off the wall face). Far enough that the wall around the lamp
+## gets a soft, broad wash instead of a tight blown-out hotspot.
+const LIGHT_WALL_OFFSET: float = 0.18
+## Engine-default-level offsets. The Sep 2026 values (0.025 / 0.20) were far
+## below what the atlas texel size needs and produced banded self-shadowing
+## ("acne") across lit floors on Low/Medium — measured as up to 17% darkening
+## of fully lit floor. Normal bias scales with texel size, so 1.0 stays tight
+## at every shadow quality; renders confirm no contact gap at wall bases.
+const SHADOW_BIAS: float = 0.03
+const SHADOW_NORMAL_BIAS: float = 1.0
 ## Emissive bulb energy (Aug 2026) — intentionally LOW: the warm amber bulb
 ## should read as a subtle glow, not a bright blob (the GLB's emissive asset
 ## was authored as a generic white glow; see _apply_matte_override).
@@ -73,7 +82,7 @@ const SHED_ENERGY:  float = 0.15   ## very low — just enough to suggest the fi
 var power_watts: float = 40.0
 
 ## Internal reference to the room-facing light — needed for power state.
-var _light: SpotLight3D = null
+var _light: OmniLight3D = null
 
 ## Emissive bulb (Aug 2026) — the GLB's authored emissive texture is preserved
 ## through the matte override so the bulb itself glows (1:1 with the model's
@@ -289,19 +298,19 @@ func _build_fixture() -> void:
 		mi.set_surface_override_material(0, mat)
 		add_child(mi)
 
-	# ── Wide SpotLight3D — one room-side shadow map, never lights wall rear ─────
-	var light := SpotLight3D.new()
+	# ── OmniLight3D (cube shadows) — the wall behind always occludes it ────────
+	var light := OmniLight3D.new()
 	light.light_color           = LIGHT_COLOR
 	light.light_energy          = LIGHT_ENERGY
-	light.spot_range            = LIGHT_RANGE
-	light.spot_angle            = LIGHT_SPOT_ANGLE
-	light.spot_angle_attenuation = 0.22
-	light.spot_attenuation      = 0.6
+	light.omni_range            = LIGHT_RANGE
+	light.omni_attenuation      = 0.6
 	light.light_indirect_energy = 1.0
 	light.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
-	## WallLight's local -Z is the room-facing normal used by placement. Offset
-	## the source just beyond the shade/wall face so the caster starts cleanly.
-	light.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.65)
+	## Cube, not dual-paraboloid: DP bends the shadows of the large, low-poly
+	## wall boxes and leaked light past pregen walls in testing.
+	light.omni_shadow_mode      = OmniLight3D.SHADOW_CUBE
+	## WallLight's local -Z is the room-facing normal used by placement.
+	light.position              = Vector3(0.0, LAMP_Y_OFFSET, -LIGHT_WALL_OFFSET)
 	## Aug 2026 — this fixture briefly excluded characters from its
 	## light_cull_mask (Aggregated Character Shadows plan), reverted (see
 	## docs/systems/graphics/README.md "Aggregated character shadows" for
@@ -316,7 +325,7 @@ func _build_fixture() -> void:
 	add_child(light)
 	_light = light
 	## Sep 2026 — ALWAYS-ON shadow casting (the "classic" two-layer split):
-	## the room-facing spot always casts, so walls/pillars ALWAYS occlude it and the hard
+	## the fixture light always casts, so walls/pillars ALWAYS occlude it and the hard
 	## shadow cutoff at walls/corners is present at every quality preset. This
 	## is independent of GraphicsSettings.shadow_casting_enabled, which now
 	## only gates the DYNAMIC (character/object) shadow layer — that gating is
@@ -325,6 +334,12 @@ func _build_fixture() -> void:
 	light.shadow_enabled = true
 	light.shadow_bias = SHADOW_BIAS
 	light.shadow_normal_bias = SHADOW_NORMAL_BIAS
+	## Dynamic-shadow budget (Sep 2026): only the lights nearest the player
+	## keep moving casters (characters/loose items) in their shadow maps; the
+	## rest stay structure+furniture only so a walking NPC doesn't force a
+	## full cube re-render of every lamp around it. See GraphicsSettings.
+	if not _is_preview_only:
+		GraphicsSettings.register_shadow_light(light)
 
 	# ── Interaction proxy — lets the player press E to set power priority ──────
 	## WallLight is a plain Node3D (no body), so we attach a small StaticBody3D

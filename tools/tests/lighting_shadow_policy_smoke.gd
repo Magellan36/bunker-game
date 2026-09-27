@@ -48,13 +48,38 @@ func _run() -> void:
 	root.add_child(wall_light)
 	var spots: Array[Node] = wall_light.find_children("*", "SpotLight3D", true, false)
 	var omnis: Array[Node] = wall_light.find_children("*", "OmniLight3D", true, false)
-	_check(spots.size() == 1, "wall fixture must own exactly one room-facing spot")
-	_check(omnis.is_empty(), "wall fixture still creates an omni cubemap light")
-	if not spots.is_empty():
-		var spot := spots[0] as SpotLight3D
-		_check(spot.shadow_enabled, "structural wall-light shadows must always be on")
-		_check(spot.shadow_bias <= 0.03 and spot.shadow_normal_bias <= 0.25,
-			"wall-light contact bias regressed to halo-prone values")
+	## Sep 2026 lighting review: the wide spot drew a hard cone edge ("bubble")
+	## on nearby walls and banded acne on Low/Medium; the fixture is a cube omni.
+	_check(omnis.size() == 1, "wall fixture must own exactly one omni light")
+	_check(spots.is_empty(), "wall fixture regressed to the wide cone spot")
+	if not omnis.is_empty():
+		var omni := omnis[0] as OmniLight3D
+		_check(omni.shadow_enabled, "structural wall-light shadows must always be on")
+		_check(omni.omni_shadow_mode == OmniLight3D.SHADOW_CUBE,
+			"wall light must use cube shadows (dual-paraboloid bends wall shadows)")
+		_check(omni.shadow_normal_bias >= 0.6,
+			"wall-light normal bias regressed to acne-prone values")
+
+	## Uniform atlas quadrants + filter follow shadow quality.
+	settings.shadow_quality = 4096
+	settings._apply_to_display()
+	var vp: Viewport = root.get_viewport()
+	_check(vp.positional_shadow_atlas_quad_0 == vp.positional_shadow_atlas_quad_1
+		and vp.positional_shadow_atlas_quad_1 == vp.positional_shadow_atlas_quad_2,
+		"primary shadow-atlas quadrants must be uniform (prevents slot churn)")
+
+	## Dynamic-shadow budget: characters only in the nearest lights' maps.
+	settings.shadow_casting_enabled = false
+	_check(settings.dynamic_shadow_light_budget() == 0, "budget must be 0 with dynamic shadows off")
+	settings.shadow_casting_enabled = true
+	_check(settings.dynamic_shadow_light_budget() > 0, "budget must be > 0 with dynamic shadows on")
+	var probe := OmniLight3D.new()
+	root.add_child(probe)
+	settings.register_shadow_light(probe)
+	_check(probe.shadow_caster_mask & settings.CHARACTER_SHADOW_LAYERS == 0,
+		"newly registered light must start without character casters")
+	_check(probe.shadow_caster_mask & 1 == 1, "structure layer must always cast")
+	probe.queue_free()
 
 	var player_scene: Node = load("res://scenes/player/Player.tscn").instantiate()
 	var npc_scene: Node = load("res://scenes/npc/NPC.tscn").instantiate()

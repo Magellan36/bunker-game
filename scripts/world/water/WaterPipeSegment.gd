@@ -380,6 +380,10 @@ func _build_arrow_overlay(length: float) -> void:
 	_arrow_mesh_instance = MeshInstance3D.new()
 	_arrow_mesh_instance.mesh = ribbon_mesh
 	_arrow_mesh_instance.set_surface_override_material(0, _arrow_material)
+	## pipe_flow.gdshader scrolls with TIME, and Godot re-renders a light's
+	## shadow map every frame while any animated-material caster is inside it.
+	## A flat decal ribbon has no meaningful shadow, so it never casts.
+	_arrow_mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_arrow_mesh_instance)
 
 	## Sit just above the pipe's top surface — a plain WORLD-space Y offset

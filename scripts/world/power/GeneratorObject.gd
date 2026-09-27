@@ -495,6 +495,9 @@ func _add_door(parent: Node3D, sz: Vector3, x_offset: float, door_w: float, door
 ## on/off with _is_running via set_running() instead.
 func _build_exhaust(sz: Vector3) -> void:
 	_exhaust = GPUParticles3D.new()
+	## Sep 2026 lighting review: particles never cast — tiny sprite shadows add
+	## cost to every shadow re-render for no visible benefit.
+	_exhaust.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_exhaust.amount       = 10
 	_exhaust.lifetime     = 2.0
 	_exhaust.local_coords = true

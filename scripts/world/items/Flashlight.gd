@@ -221,11 +221,12 @@ func _apply_graphics_settings() -> void:
 	## that gating never applied to the player-held beam's own caster meshes).
 	## Shadow resolution still scales via shadow_quality.
 	_spot.shadow_enabled = true
-	## Smaller offsets keep wall contact shadows attached instead of leaving a
-	## bright halo around thin player-built walls. The flashlight's own meshes
-	## are already excluded from casting, so the lower bias is safe here.
-	_spot.shadow_bias = 0.025
-	_spot.shadow_normal_bias = 0.20
+	## Engine-default-level offsets (Sep 2026 lighting review): the earlier
+	## 0.025 / 0.20 produced banded self-shadowing on lit floors at the lower
+	## shadow qualities. Not registered with the shadow budget — the beam is
+	## always next to the player, so it always keeps dynamic casters.
+	_spot.shadow_bias = 0.03
+	_spot.shadow_normal_bias = 1.0
 	## Per-light volumetric-fog contribution (Light3D property, independent
 	## of Environment.volumetric_fog_enabled) — lets the dust-mote beam-shaft
 	## look be toggled off for performance without disabling ambient fog

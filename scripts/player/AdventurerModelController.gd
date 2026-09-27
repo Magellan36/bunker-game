@@ -383,6 +383,11 @@ func _ready() -> void:
 		var mi: MeshInstance3D = node as MeshInstance3D
 		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
 			mi.layers = _player.PLAYER_SELF_LIGHT_LAYER_BIT
+		else:
+			## NPCs: tag with the NPC shadow layer so the dynamic-shadow budget
+			## can keep far lamps from re-rendering around them every frame
+			## (GraphicsSettings.NPC_SHADOW_LAYER_BIT). Visibility is unchanged.
+			mi.layers |= GraphicsSettings.NPC_SHADOW_LAYER_BIT
 		## Aug 2026 — the male Adventurer body ships its own separate
 		## "Backpack" mesh piece (the female body has no equivalent node at
 		## all, confirmed directly — this check naturally no-ops for her).

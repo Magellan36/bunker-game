@@ -113,8 +113,10 @@ const SPOT_VOLUMETRIC_FOG_ENERGY: float = 0.15
 ## _build_spot_light() below.)
 const SPOT_DISTANCE_FADE_BEGIN:  float = 18.0
 const SPOT_DISTANCE_FADE_LENGTH: float = 4.0
-const SHADOW_BIAS: float = 0.025
-const SHADOW_NORMAL_BIAS: float = 0.20
+## Engine-default-level offsets (Sep 2026 lighting review) — the earlier
+## 0.025 / 0.20 caused banded shadow acne on lit surfaces; see WallLight.gd.
+const SHADOW_BIAS: float = 0.03
+const SHADOW_NORMAL_BIAS: float = 1.0
 
 ## Polish Plan Group 0 item 20 — 4 thin corner support wires running from the
 ## cover plate up to the 3.0m ceiling directly above. WALL_HEIGHT_M mirrors
@@ -541,6 +543,8 @@ func _build_spot_light() -> void:
 	spot.shadow_enabled = true
 	spot.shadow_bias = SHADOW_BIAS
 	spot.shadow_normal_bias = SHADOW_NORMAL_BIAS
+	if not _is_preview_only:
+		GraphicsSettings.register_shadow_light(spot)   ## dynamic-shadow budget, see GraphicsSettings
 
 ## Aug 2026 — returns this fixture's current contribution weight for the
 ## removed fake-shadow decal system's aggregate shadow-direction

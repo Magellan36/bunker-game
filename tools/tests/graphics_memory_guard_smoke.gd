@@ -37,8 +37,8 @@ func _run() -> void:
 	_check(rejections.size() == 1 and rejections[0].contains("system memory"),
 		"Rejection must provide a user-visible reason")
 	settings.set_setting("sdfgi_enabled", true)
-	settings.set_setting("shadow_quality", 4096)
-	_check(not settings.sdfgi_enabled and settings.shadow_quality == 2048,
+	settings.set_setting("shadow_quality", 8192)
+	_check(not settings.sdfgi_enabled and settings.shadow_quality == 4096,
 		"Individual expensive settings must also be guarded")
 	_check(settings.apply_count == 0 and settings.save_count == 0,
 		"Rejected individual settings must not allocate or save")

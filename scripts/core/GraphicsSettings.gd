@@ -138,7 +138,7 @@ var use_taa: bool = false
 
 ## Phase 4 — Anisotropic filtering, shadow quality, render scale
 var anisotropic_filtering: int = 4
-var shadow_quality: int = 2048
+var shadow_quality: int = 4096   ## matches Preset.MEDIUM (the first-launch preset)
 var render_scale: float = 1.0
 
 ## Sep 2026 — the distance-based shadow LOD (Aug 2026) was removed. Lights now
@@ -186,6 +186,42 @@ var dynamic_resolution_enabled: bool = false
 const DYNAMIC_SHADOW_META: StringName = &"_dynamic_shadow_authored_cast"
 var _dynamic_shadow_roots: Dictionary = {}   ## instance_id -> WeakRef
 
+## ── Positional shadow atlas layout (Sep 2026 lighting review) ───────────────
+## Godot sizes each light's atlas slot from its on-screen coverage and moves a
+## light to a different-sized slot when that changes — every move is a full
+## shadow re-render (six faces for a cube omni) and a visible resolution pop
+## while walking. Three equal quadrants remove that churn for every light that
+## fits in them; the fourth, finer quadrant only catches overflow in very
+## large bases so no light ever loses its structural shadow. Slot size is
+## atlas/8 (e.g. 4096 -> 512 px); 48 + 64 = 112 slots (an omni uses two).
+const SHADOW_ATLAS_QUADRANTS: Array[int] = [
+	Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_16, Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_16,
+	Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_16, Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_64,
+]
+
+## ── Dynamic-shadow budget (Sep 2026 lighting review) ────────────────────────
+## Godot caches every positional shadow map and re-renders it only when a
+## shadow caster inside the light's range moves. Static structure/furniture
+## is therefore almost free after the first frame, but an animated character
+## inside a lamp's range forces that lamp's full re-render EVERY frame. With
+## Dynamic Shadows on, only the lights nearest the player keep character
+## casters in their shadow_caster_mask; the rest drop just the character
+## layers and stay cached. Structural shadows are never affected.
+## Character render layers: 12 = the player (Player.PLAYER_SELF_LIGHT_LAYER_BIT,
+## kept as a literal to avoid an autoload -> Player class dependency) and
+## 13 = NPCs (set by AdventurerModelController).
+const PLAYER_SHADOW_LAYER_BIT: int = 1 << 11
+const NPC_SHADOW_LAYER_BIT: int = 1 << 12
+const CHARACTER_SHADOW_LAYERS: int = PLAYER_SHADOW_LAYER_BIT | NPC_SHADOW_LAYER_BIT
+const ALL_SHADOW_CASTERS: int = 0xFFFFFFFF
+const SHADOW_BUDGET_INTERVAL: float = 0.25
+## A light already holding a budget slot ranks this many metres closer, so
+## two lamps at similar distance don't swap back and forth (each swap costs a
+## re-render of both).
+const SHADOW_BUDGET_HYSTERESIS_M: float = 1.5
+var _shadow_lights: Dictionary = {}   ## instance_id -> WeakRef(Light3D)
+var _shadow_budget_timer: float = 0.0
+
 ## DR tuning: steps of DR_STEP; needs DR_DOWN_FRAMES consecutive
 ## over-budget frames to lower (ramps down fast on a sustained drop) and
 ## DR_UP_FRAMES consecutive comfortable frames to raise (restores slowly);
@@ -219,7 +255,7 @@ const PRESETS: Dictionary = {
 		"volumetric_fog_enabled": false, "flashlight_volumetrics": false,
 		"glow_enabled": false, "dof_enabled": false, "msaa": Viewport.MSAA_DISABLED,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
-		"anisotropic_filtering": 2, "shadow_quality": 1024, "render_scale": 1.0,
+		"anisotropic_filtering": 2, "shadow_quality": 2048, "render_scale": 1.0,
 		"shadow_casting_enabled": false,
 	},
 	Preset.MEDIUM: {
@@ -227,7 +263,7 @@ const PRESETS: Dictionary = {
 		"volumetric_fog_enabled": false, "flashlight_volumetrics": false,
 		"glow_enabled": true, "dof_enabled": false, "msaa": Viewport.MSAA_2X,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
-		"anisotropic_filtering": 4, "shadow_quality": 2048, "render_scale": 1.0,
+		"anisotropic_filtering": 4, "shadow_quality": 4096, "render_scale": 1.0,
 		"shadow_casting_enabled": false,
 	},
 	Preset.HIGH: {
@@ -368,6 +404,7 @@ func _apply_all() -> void:
 	_apply_to_viewport()
 	_apply_to_display()
 	_reapply_registered_dynamic_shadow_roots()
+	_update_shadow_budget()
 	settings_changed.emit()
 
 
@@ -421,6 +458,10 @@ func _apply_to_viewport() -> void:
 ## without oscillating on a single spike. Preview SubViewports are
 ## unaffected (register_preview_viewport only mirrors MSAA, not scale).
 func _process(delta: float) -> void:
+	_shadow_budget_timer -= delta
+	if _shadow_budget_timer <= 0.0:
+		_shadow_budget_timer = SHADOW_BUDGET_INTERVAL
+		_update_shadow_budget()
 	if not dynamic_resolution_enabled:
 		return
 	_dr_frame_avg = lerpf(_dr_frame_avg, delta, DR_EMA_ALPHA)
@@ -505,6 +546,59 @@ func _apply_dynamic_shadow_to_branch(node: Node, enabled: bool) -> void:
 	for child: Node in node.get_children():
 		_apply_dynamic_shadow_to_branch(child, enabled)
 
+func _soft_shadow_filter_for_quality() -> RenderingServer.ShadowQuality:
+	if shadow_quality >= 8192:
+		return RenderingServer.SHADOW_QUALITY_SOFT_HIGH
+	if shadow_quality >= 4096:
+		return RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM
+	return RenderingServer.SHADOW_QUALITY_SOFT_LOW
+
+## How many lights may keep character casters in their shadow maps.
+func dynamic_shadow_light_budget() -> int:
+	if not shadow_casting_enabled:
+		return 0
+	return 8 if shadow_quality >= 8192 else 5
+
+## Registers a world light (WallLight/GrowLight) with the dynamic-shadow
+## budget. The player-held flashlight is deliberately not registered: it is
+## always beside the player and always keeps character casters.
+func register_shadow_light(light: Light3D) -> void:
+	if light == null or not is_instance_valid(light):
+		return
+	_shadow_lights[light.get_instance_id()] = weakref(light)
+	## Start without characters; the next budget pass (<= 0.25 s) promotes it.
+	_set_shadow_caster_mask(light, ALL_SHADOW_CASTERS & ~CHARACTER_SHADOW_LAYERS)
+
+func _update_shadow_budget() -> void:
+	if _shadow_lights.is_empty():
+		return
+	var budget: int = dynamic_shadow_light_budget()
+	var focus: Node3D = null
+	if budget > 0:
+		focus = get_tree().get_first_node_in_group("Player") as Node3D
+	var ranked: Array = []   ## [score, light]
+	for id: int in _shadow_lights.keys():
+		var light: Light3D = (_shadow_lights[id] as WeakRef).get_ref() as Light3D
+		if light == null or not is_instance_valid(light):
+			_shadow_lights.erase(id)
+			continue
+		if budget == 0 or focus == null or not light.is_visible_in_tree():
+			_set_shadow_caster_mask(light, ALL_SHADOW_CASTERS & ~CHARACTER_SHADOW_LAYERS)
+			continue
+		var score: float = light.global_position.distance_to(focus.global_position)
+		if light.shadow_caster_mask == ALL_SHADOW_CASTERS:
+			score -= SHADOW_BUDGET_HYSTERESIS_M
+		ranked.append([score, light])
+	ranked.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	for i: int in ranked.size():
+		_set_shadow_caster_mask(ranked[i][1] as Light3D,
+			ALL_SHADOW_CASTERS if i < budget else ALL_SHADOW_CASTERS & ~CHARACTER_SHADOW_LAYERS)
+
+## Only writes on change — every write marks the light's shadow map dirty.
+func _set_shadow_caster_mask(light: Light3D, mask: int) -> void:
+	if light.shadow_caster_mask != mask:
+		light.shadow_caster_mask = mask
+
 func _find_build_controller() -> Node:
 	var tree: SceneTree = get_tree()
 	if tree == null:
@@ -543,7 +637,17 @@ func _apply_to_display() -> void:
 	DisplayServer.window_set_mode(window_mode)
 	Engine.max_fps = fps_cap
 	ProjectSettings.set_setting("rendering/textures/default_filters/anisotropic_filtering_level", anisotropic_filtering)
-	get_viewport().positional_shadow_atlas_size = shadow_quality
+	var vp: Viewport = get_viewport()
+	vp.positional_shadow_atlas_size = shadow_quality
+	vp.positional_shadow_atlas_quad_0 = SHADOW_ATLAS_QUADRANTS[0]
+	vp.positional_shadow_atlas_quad_1 = SHADOW_ATLAS_QUADRANTS[1]
+	vp.positional_shadow_atlas_quad_2 = SHADOW_ATLAS_QUADRANTS[2]
+	vp.positional_shadow_atlas_quad_3 = SHADOW_ATLAS_QUADRANTS[3]
+	## Shadow-edge filtering follows the same quality knob, so "Shadow
+	## quality" really changes every shadow. The filter is the only shadow
+	## cost paid every frame (cached maps aside), so the lower tiers keep
+	## Godot's default. Very Low was rejected: visibly dithered contact lines.
+	RenderingServer.positional_soft_shadow_filter_set_quality(_soft_shadow_filter_for_quality())
 	## Directional shadows use a separate atlas. Keeping it in lockstep fixes
 	## the old mismatch where the UI only changed local-light shadow quality.
 	## Directional atlases are owned by RenderingServer rather than Viewport.

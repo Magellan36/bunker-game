@@ -297,6 +297,9 @@ func set_tripped(on: bool) -> void:
 ## the `finished` signal once the (short, one_shot) burst completes.
 func _spawn_trip_sparks() -> void:
 	var p: GPUParticles3D = GPUParticles3D.new()
+	## Sep 2026 lighting review: particles never cast — tiny sprite shadows add
+	## cost to every shadow re-render for no visible benefit.
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.amount        = 14
 	p.lifetime      = 0.5
 	p.one_shot      = true

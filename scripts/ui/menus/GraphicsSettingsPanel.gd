@@ -52,7 +52,10 @@ const RENDERING_DRIVER_LABELS: Array[String] = ["Vulkan", "Direct3D 12"]
 const RENDERING_DRIVER_VALUES: Array[String] = ["vulkan", "d3d12"]
 const ANISO_LABELS: Array[String] = ["Off", "2×", "4×", "8×", "16×"]
 const ANISO_VALUES: Array[int] = [0, 2, 4, 8, 16]
-const SHADOW_QUALITY_LABELS: Array[String] = ["Very Low · 512", "Low · 1024", "Medium · 2048", "High · 4096", "Ultra · 8192"]
+## Sep 2026 lighting review: presets now use Low 2048, Medium/High 4096, Ultra
+## 8192 (see GraphicsSettings.SHADOW_ATLAS_QUADRANTS for why), so the labels
+## name the tier each size belongs to.
+const SHADOW_QUALITY_LABELS: Array[String] = ["Minimum · 512", "Very Low · 1024", "Low · 2048", "Standard · 4096", "Ultra · 8192"]
 const SHADOW_QUALITY_VALUES: Array[int] = [512, 1024, 2048, 4096, 8192]
 const RENDER_SCALE_MIN: float = 0.5
 const RENDER_SCALE_MAX: float = 1.0

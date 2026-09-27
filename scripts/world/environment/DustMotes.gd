@@ -20,6 +20,9 @@ const DUST_TEXTURE_PATH: String = "res://assets/textures/vfx/soft_glow_dot.png"
 
 static func create_beam_dust(spread_deg: float) -> GPUParticles3D:
 	var p: GPUParticles3D = GPUParticles3D.new()
+	## Sep 2026 lighting review: particles never cast — tiny sprite shadows add
+	## cost to every shadow re-render for no visible benefit.
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.amount       = 24
 	p.lifetime     = 3.0
 	p.local_coords = true   ## drifts with the light/beam rather than staying in world space
@@ -43,6 +46,9 @@ static func create_beam_dust(spread_deg: float) -> GPUParticles3D:
 
 static func create_ambient_dust(bounds_size: Vector3) -> GPUParticles3D:
 	var p: GPUParticles3D = GPUParticles3D.new()
+	## Sep 2026 lighting review: particles never cast — tiny sprite shadows add
+	## cost to every shadow re-render for no visible benefit.
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.amount       = 40
 	p.lifetime     = 8.0
 	p.local_coords = false   ## world space — stays put as the player walks through it
