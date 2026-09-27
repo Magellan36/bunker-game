@@ -263,4 +263,3 @@ static func build_modal_backdrop(alpha: float = 0.55) -> ColorRect:
 		mat.shader = blur_shader
 		backdrop.material = mat
 	return backdrop
-
