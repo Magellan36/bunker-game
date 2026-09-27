@@ -390,7 +390,6 @@ func _confirm_wall() -> void:
 	## preview can never disagree if the modifier changed between frames.
 	_refresh_drag_endpoint()
 	var tile_id: int = HEIGHT_TIERS[_tier_index]
-	var height:  float = _current_tier_height(tile_id)
 	var price:   int = build_controller._price_for_tile(tile_id)
 	var total_cost: int = int(round(price * (_run_length / WALL_CELL_SIZE)))
 
@@ -405,27 +404,13 @@ func _confirm_wall() -> void:
 	if world_node != null and not world_node.spend_cash(total_cost):
 		return
 
-	## Build the REAL wall body — StaticBody3D (matches every other placed
-	## object's collision-layer convention) with the same mesh/dimensions
-	## as the ghost, plus a matching BoxShape3D.
-	var body: StaticBody3D = StaticBody3D.new()
-	body.collision_layer = 5
-	body.collision_mask  = 0
-	var mi: MeshInstance3D = _build_wall_mesh(_run_length, height)
-	body.add_child(mi)
-	var cshape: CollisionShape3D = CollisionShape3D.new()
-	var box_shape: BoxShape3D = BoxShape3D.new()
-	box_shape.size = Vector3(WALL_THICKNESS, height, _run_length)
-	cshape.shape = box_shape
-	cshape.position = mi.position   ## Same H/2 centering as the mesh
-	body.add_child(cshape)
-	body.set_meta("tile_id", tile_id)
-
-	var parent: Node = build_controller.gridmap.get_parent() if build_controller.gridmap != null else build_controller.get_tree().get_root()
-	parent.add_child(body)
-	body.global_position  = _midpoint()
-	body.rotation_degrees = Vector3(0.0, _run_angle_deg, 0.0)
-	build_controller._apply_world_material(body, tile_id)   ## Reuses _mat_wall — triplanar tiling comes for free, see Part 0
+	## Build the REAL wall body via the shared stretched-wall constructor —
+	## the SAME one restore_placed_objects() uses on save/load, so a reloaded
+	## wall reconstructs at its exact saved run length (see
+	## BuildModeController._spawn_wall_run()).
+	var body: Node3D = build_controller._spawn_wall_run(tile_id, _midpoint(), _run_angle_deg, _run_length)
+	if body == null:
+		return
 
 	build_controller._placed_objects.append({
 		"node":          body,
@@ -436,6 +421,7 @@ func _confirm_wall() -> void:
 		"player_placed": true,
 		"footprint":     Vector2(WALL_THICKNESS * 0.5, _run_length * 0.5),
 	})
+	build_controller.notify_navigation_topology_changed()
 
 	wall_placed.emit(body, tile_id, total_cost, _midpoint(), _run_angle_deg)
 	build_controller._spawn_float_label_at_pos(_midpoint(), total_cost, false)

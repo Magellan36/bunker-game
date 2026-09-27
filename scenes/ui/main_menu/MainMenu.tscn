@@ -1,0 +1,34 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/main_menu/MainMenu.gd" id="1_menu"]
+[ext_resource type="Script" path="res://scripts/ui/main_menu/MainMenuScreen.gd" id="2_screen"]
+
+[node name="MainMenu" type="Node"]
+script = ExtResource("1_menu")
+
+[node name="BackdropHost" type="Node3D" parent="."]
+
+[node name="Interface" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="Screen" type="Control" parent="Interface"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_screen")
+
+[node name="Curtain" type="CanvasLayer" parent="."]
+layer = 5
+
+[node name="Black" type="ColorRect" parent="Curtain"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)

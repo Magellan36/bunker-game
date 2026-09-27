@@ -98,6 +98,15 @@ func _ready() -> void:
 	if _mesh == null:
 		_build_placeholder_mesh()
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"produce_type": produce_type}
+
+## Set pre-_ready so _build_mesh_from_model()/_build_mesh_from_primitives()
+## build the right produce visual.
+func apply_item_save_state(state: Dictionary) -> void:
+	produce_type = str(state.get("produce_type", produce_type))
+
 func get_display_name() -> String:
 	return PlantDatabase.get_display_name(produce_type)
 

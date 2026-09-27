@@ -79,8 +79,10 @@ slider, see Known tradeoffs), `save_now()` (explicit disk write, pairs with
 `set_setting_live`). Public vars (read directly, e.g.
 `GraphicsSettings.camera_fov`): `current_preset`, `sdfgi_enabled`,
 `ssao_enabled`, `ssil_enabled`, `volumetric_fog_enabled`,
-`flashlight_volumetrics`, `shadow_casting_enabled` (preset-driven Aug 2026:
-LOW/MEDIUM off, HIGH/ULTRA on — see "Unified dynamic shadow casting" below),
+`flashlight_volumetrics`, `shadow_casting_enabled` (preset-driven:
+LOW/MEDIUM off, HIGH/ULTRA on — now gates only the DYNAMIC character/object
+shadow layer; the structural wall/corner cutoff is always on regardless, see
+"Structural shadow cutoff (Sep 2026)" below),
 `glow_enabled`, `dof_enabled`, `msaa: int`, `camera_fov: float` (NOT part of
 any preset — a comfort/motion-sickness setting, defaults to Godot's
 `Camera3D` default of 75.0), `vsync_enabled`, `window_mode`, `fps_cap`,
@@ -244,7 +246,7 @@ MainWorld._setup_tilt_shift_dof() (startup, dynamic instantiation)
   - Off, Fast (FXAA), Balanced (MSAA 2x), Sharp (MSAA 2x+FXAA), Smooth (TAA), Max (MSAA 4x+TAA)
 
 ### Anisotropic Filtering, Shadow Quality, Render Scale (Phase 4)
-- New fields: `anisotropic_filtering` (0/2/4/8/16), `shadow_quality` (atlas size: 1024/2048/4096), `render_scale` (0.5–1.0)
+- New fields: `anisotropic_filtering` (0/2/4/8/16), `shadow_quality` (atlas size: 512/1024/2048/4096/8192), `render_scale` (0.5–1.0)
 - Applied in `_apply_to_display()` and `_apply_to_viewport()`
 
 ### Settings Panel UI Rewrite (Phase 5)
@@ -335,7 +337,56 @@ prop, so the extra precision of a `light_cull_mask` exclusion isn't worth
 it here. The player-body exclusion stays in place alongside this; it
 wasn't wrong, just insufficient alone.
 
-### Unified dynamic shadow casting
+### Structural shadow cutoff (Sep 2026) — the "classic" two-layer split
+
+**What changed:** the light-level shadow gate was removed entirely. Lights
+(Flashlight, WallLight, GrowLight) now **always cast shadows**
+(`shadow_enabled = true`, no distance LOD), so static geometry — pregenerated
+and player-placed walls, pillars, floor, ceiling, GridMap tiles — always
+occludes them. Result: a dramatic, light-accurate hard shadow cutoff at walls
+and corners is present at **every quality preset**, regardless of
+`shadow_casting_enabled`. No more light bleeding through walls at LOW/MEDIUM
+(the old Aug 2026 "Unified dynamic shadow casting" behavior left that bleed in
+at LOW/MEDIUM because it disabled the light's shadow pass entirely).
+
+**The quality knob still exists — it moved.** `shadow_casting_enabled` now
+means "dynamic per-character/per-object shadows" only:
+- OFF (LOW/MEDIUM): the dynamic shadow layers stop casting entirely, so the
+  only shadows in the scene are the structural wall/geometry ones.
+- ON (HIGH/ULTRA): they cast again.
+- Gating lives where the data lives: `AdventurerModelController` gates
+  characters deterministically — the visible animated model casts its own
+  correctly proportioned shadow only while Layer 2 is ON; no duplicate
+  shadow-only character is evaluated.
+  placed furniture/devices and loose items register their root once with
+  `GraphicsSettings.register_dynamic_shadow_root()`. Quality changes revisit
+  only those registered roots, restoring each geometry instance's authored
+  `cast_shadow` from metadata. Deconstructed roots are held by `WeakRef`, so
+  cleanup is automatic and there is no periodic whole-world traversal.
+- Walls/pillars/doors are excluded from the object gate (static, always cast)
+  — Layer 1 only = walls/corners, never the player or objects.
+- `shadow_quality` scales both positional and directional shadow atlases.
+  Directional light mode is one-pass orthogonal at 512/1024, two-cascade at
+  2048, and four-cascade at 4096/8192, so the setting now affects every real
+  shadow family. Ultra uses a distinct 8192 atlas instead of duplicating
+  High's 4096 value.
+- Wall fixtures are wide, room-facing `SpotLight3D`s (156° cone), not omnis.
+  A wall lamp cannot emit through the concrete behind it; the spot models
+  that hemisphere directly, eliminates rear-wall light bubbles, and renders
+  one shadow map instead of a six-face cubemap. Contact bias is tightened on
+  wall, grow, and flashlight spots so shadows stay attached to thin walls.
+
+**The Aug 2026 distance-based shadow LOD was removed.** It force-disabled a
+far light's `shadow_enabled`, which would have silently removed the wall
+cutoff in the isometric view that sees the whole bunker. Always-on casting
+cost is accepted by design; dynamic roots now register at their existing
+spawn paths instead of being found by a timer.
+
+**History (kept for context):** before this, `shadow_casting_enabled` was a
+light-level on/off ("Unified dynamic shadow casting" below) and the wall
+cutoff was a side effect of HIGH/ULTRA shadows.
+
+#### Unified dynamic shadow casting (Aug 2026, superseded by the above)
 **What changed:** `GraphicsSettings.flashlight_shadows` renamed to
 `shadow_casting_enabled` and generalized from flashlight-only opt-in to all
 three dynamic lights — Flashlight, WallLight, GrowLight. Now preset-driven
@@ -345,11 +396,9 @@ section to Advanced Quality in `GraphicsSettingsPanel.gd`, since it's a
 normal preset-tier toggle now, not a flashlight-specific opt-in one).
 **Per-light shape reasoning:**
 - Flashlight (`SpotLight3D`) — no change, already directional.
-- WallLight (`OmniLight3D`) — stays Omni (correct for a wall-mounted
-  fixture with nothing behind it); just gets `shadow_enabled` wired to the
-  setting. Side benefit: this also stops the fixture's light from bleeding
-  through the wall mesh behind it into an adjacent room, since the wall now
-  correctly self-occludes once shadows are on.
+- WallLight was originally left as an `OmniLight3D`; the current structural
+  cutoff pass supersedes that choice with a wide room-facing spot for better
+  physical behaviour and substantially lower shadow cost.
 - GrowLight — **converted from `OmniLight3D` to a downward-facing
   `SpotLight3D`** (`rotation_degrees.x = -90`, `spot_angle = 35.0`),
   because the fixture only ever shines down onto its tray and Spot shadows
@@ -429,7 +478,16 @@ alone doesn't fully address the "too dramatic" complaint, excluding
 WallLight from character shadows specifically is the documented next
 option — not started here.
 
-### Player model-based shadow (Aug 2026)
+### Character model-based shadow (Sep 2026)
+The visible `AdventurerModel` now casts its own full-height shadow when
+Dynamic Shadows is enabled and casts none when it is disabled. Player and NPC
+scenes no longer contain the second `PlayerModelShadow`/`CharacterModelShadow`
+instance. This restores physically correct body proportions and removes one
+complete `AnimationPlayer`, skeleton evaluation, and skinned model from every
+character. The `is_shadow_only` export remains only as compatibility for old
+scenes/mods; such legacy instances are forced hidden.
+
+#### Historical squashed duplicate approach (Aug 2026, superseded)
 Replaces the capsule stand-in for the player only, now that the player
 has a real animated model (`PlayerModel.tscn`/`PlayerModelController.gd`,
 Player-Model subsystem) instead of a capsule placeholder. Rather than

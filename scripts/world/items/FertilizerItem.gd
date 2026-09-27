@@ -40,6 +40,14 @@ func _ready() -> void:
 	if _mesh == null:
 		_build_placeholder_mesh()
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"tier": tier, "charges": _charges}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	tier     = str(state.get("tier", tier))
+	_charges = int(state.get("charges", _charges))
+
 func _physics_process(delta: float) -> void:
 	if not is_held or _hold_point == null:
 		_update_target_highlight(null)

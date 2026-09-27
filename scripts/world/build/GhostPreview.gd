@@ -96,6 +96,12 @@ func measure_visual_aabb(root: Node3D) -> AABB:
 		var rmi := root as MeshInstance3D
 		if rmi.mesh != null:
 			aabb = rmi.mesh.get_aabb()
+	elif root is MultiMeshInstance3D:
+		var rmmi := root as MultiMeshInstance3D
+		if rmmi.multimesh != null:
+			aabb = rmmi.multimesh.custom_aabb
+			if aabb.size == Vector3.ZERO:
+				aabb = rmmi.get_aabb()
 	for child: Node in root.get_children():
 		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
 			aabb = _collect_local_visual_aabb(child as Node3D, Transform3D.IDENTITY, aabb)
@@ -111,6 +117,17 @@ func _collect_local_visual_aabb(node: Node3D, parent_t: Transform3D, aabb: AABB)
 				aabb = ta
 			else:
 				aabb = aabb.merge(ta)
+	elif node is MultiMeshInstance3D:
+		var mmi := node as MultiMeshInstance3D
+		if mmi.multimesh != null:
+			var local_aabb: AABB = mmi.multimesh.custom_aabb
+			if local_aabb.size == Vector3.ZERO:
+				local_aabb = mmi.get_aabb()
+			var multimesh_ta: AABB = lt * local_aabb
+			if aabb.size == Vector3.ZERO:
+				aabb = multimesh_ta
+			else:
+				aabb = aabb.merge(multimesh_ta)
 	for child: Node in node.get_children():
 		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
 			aabb = _collect_local_visual_aabb(child as Node3D, lt, aabb)

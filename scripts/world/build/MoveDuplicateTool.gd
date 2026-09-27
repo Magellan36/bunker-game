@@ -268,6 +268,7 @@ func _move_confirm() -> void:
 		_owner._move_source_body.call("install_on_wall", _owner._move_door_candidate.get("wall"), new_pos, new_angle_deg)
 		_owner._move_source_entry["world_pos"] = new_pos
 		_owner._move_source_entry["angle_deg"] = new_angle_deg
+		_owner.notify_navigation_topology_changed()
 		_owner._move_source_body.visible = true
 		_destroy_move_ghost()
 		_owner._move_phase = 0
@@ -320,6 +321,7 @@ func _move_confirm() -> void:
 	## (synced in _move_select), so it only changes if the player rotated it.
 	_owner._move_source_body.rotation_degrees = Vector3(0.0, new_angle_deg, 0.0)
 	_owner._move_source_entry["angle_deg"] = new_angle_deg
+	_owner.notify_navigation_topology_changed()
 
 	## Water hookup: its WaterGraph node is keyed by position, so a manual
 	## move needs the same re-registration reposition_to_outer_wall() does

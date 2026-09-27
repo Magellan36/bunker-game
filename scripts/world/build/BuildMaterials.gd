@@ -225,6 +225,32 @@ static func apply_material_to_model(model: Node3D, mat: StandardMaterial3D) -> v
 		for s: int in m.mesh.get_surface_count():
 			m.set_surface_override_material(s, mat)
 
+## Recursively disables collision on every CollisionObject3D descendant of an
+## instanced model — shared by Table.gd and FuelCan.gd (real placed objects).
+## Ghost previews use GhostModelBuilder.strip_collision() for the parallel case.
+static func strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		strip_model_collision(child)
+
+## Godot's glTF importer wraps an imported scene in an extra generated root
+## node (the file's "Scene"), with the real node(s) nested one level below.
+## Recursively finds the first MeshInstance3D descendant and zeros ITS local
+## position. Safe ONLY when the model's vertex data is already centered on
+## that node's own origin (e.g. pre-scaled GLBs exported base-at-y0); do NOT
+## reuse blindly on multi-part models where sub-mesh offsets are intentional.
+static func recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if recenter_glb_mesh(child):
+			return true
+	return false
+
 ## Mood override (Aug 2026) — dims, slightly desaturates and mattens a model's
 ## surfaces so they read in-theme with the dark bunker instead of toy-bright.
 ## Per-instance surface overrides (imported mesh materials are shared, never

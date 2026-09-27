@@ -11,6 +11,9 @@ signal scene_changed(scene_name: String)
 # ─── State ────────────────────────────────────────────────────────────────────
 var current_scene_name: String = ""
 var player_data: Dictionary = {}  # Expand this as you add inventory, stats, etc.
+## Save slot the next MainWorld should restore once it reports startup_ready
+## (set by the main menu's Continue/Load, consumed by LoadingScreen). 0 = none.
+var pending_load_slot: int = 0
 
 # ─── Scene Transition ─────────────────────────────────────────────────────────
 func change_scene(path: String) -> void:

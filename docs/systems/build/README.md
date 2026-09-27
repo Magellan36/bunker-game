@@ -545,12 +545,15 @@ selection rather than a separate toolbar tool).
   1m segment.
 - **Cost:** `price_per_meter × length` — no separate `$/meter` constant,
   reuses each tier's existing Construct-menu price.
-- **Save/restore:** `BuildModeController._spawn_stretched_wall()` is the
-  single source of truth for real (non-ghost) wall geometry — both live
-  placement (`WallDrawMode._confirm_wall()`) and `restore_placed_objects()`
-  call it, so a reloaded wall reconstructs at its exact saved length
-  (`wall_length` stored via `node.set_meta()`, read back through
-  `_get_device_extra()`), not a fixed stub.
+- **Save/restore:** `BuildModeController._spawn_wall_run()` is the single
+  source of truth for real (non-ghost) wall geometry — both live placement
+  (`WallDrawMode._confirm_wall()`) and `restore_placed_objects()` call it, so
+  a reloaded wall reconstructs at its exact saved length, not a fixed 1×1
+  stub. The run length lives in the placed-object entry's `footprint`
+  (`Vector2(thickness/2, run_length/2)`) and is persisted as `"run_length"`
+  by `get_placed_objects_for_save()`; restore passes it back to
+  `_spawn_wall_run()`. (Before this fix, a drawn wall collapsed to a single
+  cell on reload.)
 
 ## Ghost Model System (`GhostModelBuilder.gd`)
 **Master file** for every ghost/preview visual in Build Mode — both the

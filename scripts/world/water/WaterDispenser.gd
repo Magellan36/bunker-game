@@ -213,9 +213,13 @@ func get_node_key() -> String:
 ## setting without the player re-dragging anything (plan §2).
 func set_on(value: bool) -> void:
 	is_on = value
+	if _wm != null:
+		_wm.request_flow_refresh()
 
 func set_requested_rate(value: float) -> void:
 	requested_rate_mL_per_day = maxf(0.0, value)
+	if _wm != null:
+		_wm.request_flow_refresh()
 
 ## Save/Load (Jul 2026) — restores stored fill volume directly. No other
 ## caller needs this (normal gameplay only ever grows current_fill_mL via the

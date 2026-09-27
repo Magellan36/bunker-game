@@ -31,6 +31,9 @@ func score(_npc: NPC) -> float:
 func interruptible() -> bool:
 	return false
 
+func watchdog_allows_long_stationary(_npc: NPC) -> bool:
+	return true
+
 func enter(npc: NPC) -> void:
 	_orig_rotation = npc.rotation
 	npc.lock_movement()

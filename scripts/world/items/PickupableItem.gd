@@ -71,8 +71,23 @@ var _out_of_range_time: float = 0.0
 const SETTLE_VELOCITY: float = 0.06    ## m/s
 const SETTLE_ANGULAR: float = 0.12     ## rad/s
 const SETTLE_FRAMES: int = 25          ## ~0.4 s of stillness at 60 Hz
+const SETTLED_FALL_RECOVERY_DISTANCE: float = 0.75
 
 var _settle_frames: int = 0
+var _has_settled_transform: bool = false
+var _last_settled_transform: Transform3D = Transform3D.IDENTITY
+
+## Cleaning provenance is intentionally separate from the physics sleep state.
+## JobBoard uses it to protect something the player deliberately put down for
+## longer than an ordinary spawned/NPC-dropped object. The serial lets a live
+## tracker notice a fresh release even if the item never disappeared from its
+## periodic scan between pickup and drop.
+var cleanup_release_source: StringName = &"world"
+var cleanup_release_serial: int = 0
+
+func mark_cleanup_release(source: StringName) -> void:
+	cleanup_release_source = source
+	cleanup_release_serial += 1
 
 ## Real collision-shape footprint, computed lazily on first pickup() (see
 ## below) rather than in _ready() — Basket/CookingPot build their
@@ -106,6 +121,14 @@ var _is_preview_only: bool = false
 
 func _ready() -> void:
 	if not _is_preview_only:
+		## Sleeping bodies leave the physics solver, but Godot still calls their
+		## script process unless it is explicitly disabled. Wake/contact events
+		## re-enable processing through this signal.
+		sleeping_state_changed.connect(_on_sleeping_state_changed)
+		## High time scales magnify a single-frame displacement. CCD is a cheap
+		## second line of defense for active loose items; sleeping bodies still
+		## leave the physics solver normally.
+		continuous_cd = true
 		add_to_group("pickup")
 		_maybe_create_nav_obstacle()
 		## Procedural subclasses commonly create their collision shapes after
@@ -119,6 +142,26 @@ func _ready() -> void:
 		## and kept them physically colliding with the player/NPC. Items that
 		## are immediately held get re-layered by the pickup path anyway.
 		call_deferred("_apply_rest_collision")
+		## Register after the full subclass _ready() chain: most item subclasses
+		## build their procedural MeshInstance3D children after super._ready().
+		## Event-driven registration replaces GraphicsSettings' old periodic
+		## whole-world mesh walk.
+		call_deferred("_register_dynamic_shadow_root")
+
+func _register_dynamic_shadow_root() -> void:
+	if is_instance_valid(self):
+		GraphicsSettings.register_dynamic_shadow_root(self)
+
+func _on_sleeping_state_changed() -> void:
+	if sleeping and not is_held and not freeze:
+		## Preserve bulky-object avoidance while removing the per-item script
+		## callback entirely for settled floor clutter.
+		_last_settled_transform = global_transform
+		_has_settled_transform = true
+		_settle_frames = 0
+		deactivate_dynamic_state(true)
+	elif not freeze:
+		restore_dynamic_state()
 
 ## Applies the loose-item rest collision layer/mask (mass-based) to this item.
 ## Idempotent — safe to call on an item already in rest state.
@@ -182,7 +225,8 @@ const SHOVE_COOLDOWN_MSEC: int = 200
 ## items identically. `character` is the CharacterBody3D; a shove fires at
 ## most once per item per SHOVE_COOLDOWN_MSEC (tracked per character via the
 ## supplied dict so multiple characters can shove independently).
-static func shove_small_items_near(character: CharacterBody3D, cooldown_by_item: Dictionary) -> void:
+static func shove_small_items_near(character: CharacterBody3D, cooldown_by_item: Dictionary,
+		excluded_item: RigidBody3D = null) -> void:
 	if character == null or not is_instance_valid(character):
 		return
 	var travel := Vector3(character.velocity.x, 0.0, character.velocity.z)
@@ -211,6 +255,11 @@ static func shove_small_items_near(character: CharacterBody3D, cooldown_by_item:
 		if collider == null or not (collider is RigidBody3D):
 			continue
 		var rb: RigidBody3D = collider as RigidBody3D
+		## A resident deliberately approaching a loose item must not kick that
+		## same item ahead of themselves. Other clutter in the pile still parts
+		## normally, so the route stays clear without turning pickup into a chase.
+		if rb == excluded_item:
+			continue
 		if not rb.is_in_group("pickup"):
 			continue
 		if ("is_held" in rb) and bool(rb.get("is_held")):
@@ -340,6 +389,7 @@ func _physics_process(delta: float) -> void:
 		## position alone only produces late, reactive sidestepping.
 		_nav_obstacle.velocity = linear_velocity
 	if not is_held or _hold_point == null:
+		_recover_settled_fall()
 		_apply_settle_sleep()
 		return
 	_settle_frames = 0
@@ -393,7 +443,12 @@ func _physics_process(delta: float) -> void:
 ## moving bodies just reset the counter. Once asleep, a real contact wakes
 ## it and the cycle restarts automatically.
 func _apply_settle_sleep() -> void:
-	if freeze or sleeping:
+	if freeze:
+		return
+	if sleeping:
+		if not _has_settled_transform:
+			_last_settled_transform = global_transform
+			_has_settled_transform = true
 		return
 	if linear_velocity.length() < SETTLE_VELOCITY \
 			and angular_velocity.length() < SETTLE_ANGULAR:
@@ -401,9 +456,29 @@ func _apply_settle_sleep() -> void:
 		if _settle_frames >= SETTLE_FRAMES:
 			_settle_frames = 0
 			_refresh_nav_obstacle_radius()
+			_last_settled_transform = global_transform
+			_has_settled_transform = true
 			sleeping = true
+			## Property assignment does not consistently emit the physics-server
+			## sleeping transition signal in the same frame. Suspend explicitly;
+			## sleeping_state_changed remains responsible for contact wakeup.
+			deactivate_dynamic_state(true)
 	else:
 		_settle_frames = 0
+
+func _recover_settled_fall() -> void:
+	if Engine.time_scale <= 1.0 or not _has_settled_transform or freeze or is_held:
+		return
+	if global_position.y >= _last_settled_transform.origin.y - SETTLED_FALL_RECOVERY_DISTANCE:
+		return
+	## A body which had already reached a legitimate resting place cannot
+	## naturally fall this far without first being picked up/dropped (those
+	## paths clear the anchor). Treat it as tunneling/contact-solver failure.
+	global_transform = _last_settled_transform
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	_settle_frames = 0
+	sleeping = true
 
 ## Continuous (no state machine) head-clearance boost for bulky held items.
 ## Compares the item's ACTUAL current bearing from the player against its
@@ -459,6 +534,26 @@ func _get_holder() -> CharacterBody3D:
 		node = node.get_parent()
 	return null
 
+# ─── Save/Load hooks (Save/Load overhaul) ─────────────────────────────────────
+## Subclasses override these to persist item-specific mutable state via
+## ItemSaveData.capture()/spawn() (used by the "player_inventory" save field
+## and placed-object storage contents). See ItemSaveData.gd's header for the
+## exact contract: get_/apply_ run on the item's own state fields;
+## sync_saved_state_visuals() is called by spawn() AFTER _ready() for items
+## whose visuals can't be fully derived from state inside _ready() (empty-
+## model swap, case depletion count, etc.).
+func get_item_save_state() -> Dictionary:
+	return {}
+
+## Applied on a fresh instance BEFORE it enters the tree, so _ready() builds
+## the correct visual/prompt from the saved state.
+func apply_item_save_state(_state: Dictionary) -> void:
+	pass
+
+## Optional post-_ready visual fix-up; base no-op.
+func sync_saved_state_visuals() -> void:
+	pass
+
 # ─── Prompt interface (override in subclass) ─────────────────────────────────
 func get_display_name() -> String:
 	return "Item"
@@ -471,6 +566,7 @@ func get_use_prompt() -> String:
 
 # ─── Pickup ──────────────────────────────────────────────────────────────────
 func pickup(hold_point: Node3D) -> void:
+	_has_settled_transform = false
 	is_held            = true
 	sleeping           = false   ## wake from settle-to-sleep (Aug 2026)
 	restore_dynamic_state()   ## undo a stored/placed item's deactivation (Aug 2026)
@@ -491,6 +587,15 @@ func pickup(hold_point: Node3D) -> void:
 												  ## "wall" around while carried
 	_set_held_culling(true)
 	_on_pickup_extra()
+	## Dynamic shadow gate (Sep 2026) — a held item must never cast a shadow
+	## unless dynamic shadows (Layer 2) is ON. Gate immediately at pickup so a
+	## freshly spawned/retrieved item doesn't flash a shadow before the world-
+	## walk's 1s throttle catches it. Reuses BuildModeController's gate so the
+	## authored cast_shadow capture stays consistent.
+	var _mw: Node = get_tree().get_first_node_in_group("main_world")
+	var _bc: Node = _mw.get("_build_controller") if _mw != null else null
+	if _bc != null and _bc.has_method("_apply_dynamic_shadow_to_node"):
+		_bc.call("_apply_dynamic_shadow_to_node", self)
 	picked_up.emit()
 
 ## Override for item-specific pickup side effects (e.g. finding player ref).
@@ -499,6 +604,10 @@ func _on_pickup_extra() -> void:
 
 # ─── Drop ────────────────────────────────────────────────────────────────────
 func drop(_world_parent: Node3D, drop_position: Vector3) -> void:
+	_has_settled_transform = false
+	## Default every loose-world release to the short grace. Player/NPC hand
+	## controllers immediately refine this provenance after calling drop().
+	mark_cleanup_release(&"world")
 	is_held         = false
 	_hold_point     = null
 	global_position = drop_position
@@ -522,6 +631,7 @@ func _on_drop_extra() -> void:
 
 # ─── Place (precise) ─────────────────────────────────────────────────────────
 func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO) -> void:
+	_has_settled_transform = false
 	is_held         = false
 	_hold_point     = null
 	global_position = place_position
@@ -541,6 +651,7 @@ func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vecto
 
 # ─── Knocked out ─────────────────────────────────────────────────────────────
 func _do_knocked_out() -> void:
+	_has_settled_transform = false
 	is_held         = false
 	_hold_point     = null
 	gravity_scale   = 1.0
@@ -564,6 +675,7 @@ func _set_held_culling(held: bool) -> void:
 ## after spawning (so it doesn't fall through a floor that physics hasn't
 ## "seen" yet), then call this deferred to unfreeze it.
 func _unfreeze_after_spawn() -> void:
+	_has_settled_transform = false
 	restore_dynamic_state()   ## spawn freeze was transient — back to live (Aug 2026)
 	freeze = false
 

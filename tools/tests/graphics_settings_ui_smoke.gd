@@ -51,13 +51,23 @@ func _run() -> void:
 		_check(settings_content.get_global_rect().end.x \
 			<= scroll.get_v_scroll_bar().get_global_rect().position.x,
 			"graphics controls end before the visible scrollbar")
-	var preset: OptionButton = panel.get("_preset_option") as OptionButton
-	_check(preset != null and preset.item_count == 5 and preset.is_item_disabled(4),
+	# Sep 2026 quiet pass: the preset is a segmented control; Custom stays read-only.
+	var presets: Array = panel.get("_preset_buttons") as Array
+	_check(presets.size() == 5 and (presets[4] as Button).disabled,
 		"preset control represents read-only Custom state")
-	_check(preset.custom_minimum_size.y <= 30.0,
+	_check(int(panel.call("get_displayed_preset")) == root.get_node("GraphicsSettings").get("current_preset"),
+		"preset segments show the active preset")
+	for segment: Button in presets:
+		_check(segment.custom_minimum_size.y <= 30.0, "preset segments keep compact height")
+		_check(_button_is_borderless(segment), "preset segments have no persistent border")
+	var window_mode: OptionButton = panel.get("_window_mode_option") as OptionButton
+	_check(window_mode.custom_minimum_size.y <= 30.0,
 		"graphics options keep compact vertical padding")
-	_check(_button_is_borderless(preset),
+	_check(_button_is_borderless(window_mode),
 		"graphics options have no persistent border")
+	_check(window_mode.has_meta(&"ui_cycle"), "options cycle with left/right")
+	var hint: Label = panel.get("_help_label") as Label
+	_check(hint != null and hint.clip_text, "contextual hint is a single clipped line")
 
 	var switches: Array[CheckButton] = []
 	for property_name: String in [

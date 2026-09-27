@@ -241,18 +241,19 @@ Extension points). Every device (`BreakerBox`, `GeneratorObject`,
 in its own `_ready()`.
 
 ## Persistence
-**Jul 2026 — now saved.** Generators/batteries/breakers/consumers are
-persisted via `BuildModeController.get_placed_objects_for_save()`'s embedded
-per-device `extra` dict (phase 1), and player-placed wires via
+**Jul 2026 — now saved; zone customization added in the Save/Load overhaul
+(Sep 2026).** Generators/batteries/breakers/consumers are persisted via
+`BuildModeController.get_placed_objects_for_save()`'s embedded per-device
+`extra` dict (phase 1), and player-placed wires via
 `MainWorld.get_player_wires_for_save()`/`restore_player_wires()` (phase 2,
 endpoint positions only — auto-perimeter wiring regenerates from restored
-dug chunks, not persisted separately). See
-`docs/systems/world-core/README.md` Persistence for the full phase order and
-per-device `extra` field list. **Known gap:** zone name/color overrides
-(`ZoneCustomization.gd`) are best-effort only — not explicitly re-verified
-across a save/load round trip this pass (they were already designed to
-survive wire topology changes/expansion within a session; save/load is a
-different code path and hasn't been separately confirmed).
+dug chunks, not persisted separately). Zone display-name + color overrides
+(`ZoneCustomization.gd`) now round-trip via the `zone_customization` field
+(`PowerManager.get_zone_customization_for_save()`/
+`restore_zone_customization_from_save()`, phase 4 — keyed by the stable
+zone min-node-key identity, so they restore onto the same zones and wires
+repaint immediately). See `docs/systems/world-core/README.md` Persistence for
+the full phase order and per-device `extra` field list.
 
 ## Call graph (brief)
 ```

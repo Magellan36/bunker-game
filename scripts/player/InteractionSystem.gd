@@ -119,6 +119,13 @@ var _tracked_bodies: Dictionary = {}   ## Node3D → true
 ## because Jolt Area3D body_entered/exited signals never fire for StaticBody3D.
 var _static_in_range: Dictionary = {}  ## Node3D → true
 
+## Prompt discovery performs the StaticBody/group fallbacks that Jolt's
+## Area3D cannot provide reliably. Those content-scaled scans do not need the
+## render frame rate: 20 Hz is responsive for a proximity prompt, while input
+## dispatch still resolves its target immediately on the button press.
+const PROMPT_REFRESH_INTERVAL: float = 0.05
+var _prompt_refresh_accum: float = PROMPT_REFRESH_INTERVAL
+
 # ─── Medical item injury-selection submenu (Aug 2026) ─────────────────────────
 ## Called by a held medical item's own on_use() (e.g. Bandage.gd) instead of
 ## applying treatment directly. Resets highlight to 0 each time it opens.
@@ -284,11 +291,13 @@ func _handle_medical_submenu_input(event: InputEvent) -> void:
 func _on_body_entered(body: Node3D) -> void:
 	if body.is_in_group("interactable") or body.is_in_group("pickup"):
 		_tracked_bodies[body] = true
+		_prompt_refresh_accum = PROMPT_REFRESH_INTERVAL
 	if body.is_in_group("interactable") and body.has_method("set_player_in_range"):
 		body.set_player_in_range(true)
 
 func _on_body_exited(body: Node3D) -> void:
 	_tracked_bodies.erase(body)
+	_prompt_refresh_accum = PROMPT_REFRESH_INTERVAL
 	if body.is_in_group("interactable") and body.has_method("set_player_in_range"):
 		body.set_player_in_range(false)
 
@@ -324,7 +333,10 @@ func _process(delta: float) -> void:
 	if _medical_submenu_open:
 		if held_item != _medical_submenu_item or not is_instance_valid(_medical_submenu_item):
 			_close_medical_submenu()
-	_update_prompt()
+	_prompt_refresh_accum += delta
+	if _prompt_refresh_accum >= PROMPT_REFRESH_INTERVAL:
+		_prompt_refresh_accum = 0.0
+		_update_prompt()
 
 ## True only when the held item + proximity make the Research Station chute
 ## the ACTUAL F target — the chute is the only non-shelf F-capable body with a
@@ -2143,6 +2155,8 @@ func _quick_drop() -> void:
 	else:
 		# World item — just drop it
 		held_item.drop(_world_root, drop_pos)
+	if is_instance_valid(dropped_item) and dropped_item.has_method("mark_cleanup_release"):
+		dropped_item.mark_cleanup_release(&"player")
 
 	held_item = null
 	_held_from_slot = -1
@@ -2189,6 +2203,8 @@ func drop_in_place() -> void:
 		inventory.remove_item(_held_from_slot, drop_pos)
 	else:
 		held_item.drop(_world_root, drop_pos)
+	if is_instance_valid(dropped_item) and dropped_item.has_method("mark_cleanup_release"):
+		dropped_item.mark_cleanup_release(&"player")
 
 	held_item = null
 	_held_from_slot = -1

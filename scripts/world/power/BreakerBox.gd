@@ -20,11 +20,9 @@ class_name BreakerBox
 ##   on_interact()      — opens settings panel
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
-## Set false to silence all [BreakerBox] placement/registration prints.
-## Matches MainWorld.WIRE_DEBUG — flip both together.
-const WIRE_DEBUG: bool = true
+## Gated by DebugOutput.enabled (F7 "Disable All Debug Outputs").
 func _wdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		print(msg)
 
 # ─── Colours ──────────────────────────────────────────────────────────────────

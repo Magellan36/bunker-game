@@ -65,3 +65,34 @@ func switch_margin() -> float: return 2.0
 ## dump can filter to just the activity type it cares about (see
 ## CleaningActivity.debug_info() for the pattern).
 func debug_info() -> Dictionary: return {}
+
+## Recovery-watchdog contract.  The brain samples this semantic snapshot at a
+## low frequency; changing timers/phases count as real activity progress even
+## when the body is correctly standing still.  Activities may override either
+## hook, but the phase convention below covers the shared travel vocabulary.
+func watchdog_progress_token(_npc: NPC) -> String:
+	return str(debug_info())
+
+func watchdog_expects_movement(_npc: NPC) -> bool:
+	var phase: String = String(debug_info().get("phase", "")).to_lower()
+	return phase in [
+		"approach", "carrying", "deliver", "fetch", "fetching", "relocating",
+		"seek", "travel", "travelling", "travel_to_storage", "travel_to_stove",
+	]
+
+## Only genuinely open-ended stationary states opt out of the broad lifecycle
+## timeout. Their travel/approach phases remain watched.
+func watchdog_allows_long_stationary(_npc: NPC) -> bool: return false
+
+## Stable instrumentation identity. Unlike label(), this does not change with
+## an activity's phase ("Getting food" -> "Eating"), so session spans and
+## transition summaries remain groupable.
+func debug_type() -> String:
+	var script: Script = get_script() as Script
+	var path: String = script.resource_path if script != null else ""
+	return path.get_file().get_basename() if not path.is_empty() else get_class()
+
+## Optional explanation for the score already computed by NPCBrain. This hook
+## is called only while session capture is enabled and must remain observational.
+func debug_score_reason(_npc: NPC, computed_score: float) -> StringName:
+	return &"eligible" if computed_score > 0.0 else &"no_current_opportunity"

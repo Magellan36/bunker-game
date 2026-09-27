@@ -248,6 +248,16 @@ func _rebuild_mesh() -> void:
 		_material.set_shader_parameter("emission", Vector3(WireSegment.COLOR_DELETE.r, WireSegment.COLOR_DELETE.g, WireSegment.COLOR_DELETE.b))
 		_material.set_shader_parameter("emission_energy", 1.2)
 
+	## Dynamic shadow gate (Sep 2026) — a freshly built pipe (or a rebuilt one
+	## after a reposition/split) must never flash a shadow when Layer 2 is off.
+	## The new meshes default to cast ON; gate them immediately via
+	## BuildModeController's shared capture-consistent helper (the world-walk
+	## throttle would otherwise take up to a second to turn them off).
+	var _mw: Node = get_tree().get_first_node_in_group("main_world")
+	var _bc: Node = _mw.get("_build_controller") if _mw != null else null
+	if _bc != null and _bc.has_method("_apply_dynamic_shadow_to_node"):
+		_bc.call("_apply_dynamic_shadow_to_node", self)
+
 ## Deconstruct-mode hover highlight — set/cleared by
 ## BuildModeController._process()'s deconstruct-tool hover scan, same
 ## pattern as WireSegment.set_highlight_delete().

@@ -444,12 +444,13 @@ audited this pass:
   shared empty look for both tiers (Normal/Pro).
 
 ## Known gaps (explicitly out of scope for this pass)
-- **Persistence**: trays/grow lights themselves save/restore fine as
-  ordinary `BuildModeController._placed_objects` entries, but per-cell
-  `soil_filled`/`planted_type`/plant `progress`/`health` state is NOT wired
-  into the save `extra` dict — a reload shows trays present but empty/
-  unsoiled. Same category of gap this project already carries for Purifier
-  filter state; add to the future save/load overhaul list.
+- **Persistence (Save/Load overhaul, Sep 2026 — now saved):** trays/grow
+  lights save/restore as ordinary `BuildModeController._placed_objects`
+  entries, and per-cell `soil_filled`/`planted_type`/`last_planted_type`/
+  `cell_prepped_fertilizer`/`cell_seed_lock` + each live `FarmPlant`'s
+  `progress`/`health`/fertilizer now round-trip via the tray's `"tray"` extra
+  (`FarmingTray.get_tray_save_data()`/`restore_tray_save_data()`). Grow light
+  on/off remains grid-derived (no manual state to save).
 - **Group 7 items** (double-stack grow-light guard, save schema pre-shape,
   tray deconstruct/refund rule, `get_trays_needing_attention()`) — the last
   remaining group, not yet started.

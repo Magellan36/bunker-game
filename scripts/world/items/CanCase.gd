@@ -36,6 +36,23 @@ func _ready() -> void:
 	## scale 1.0) briefly grew it toward this size as a side effect.
 	_collect_can_visuals()
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"count": can_count}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	can_count = int(state.get("count", can_count))
+
+## _ready() collects the 12 visual cans but doesn't sync them to can_count —
+## hide the (12 - count) highest-numbered ones so a partially-empty case
+## reads correctly on a shelf.
+func sync_saved_state_visuals() -> void:
+	if _can_visuals.is_empty():
+		_collect_can_visuals()
+	var to_hide: int = _can_visuals.size() - can_count
+	for i: int in range(to_hide):
+		_hide_next_can_visual()
+
 ## Builds _can_visuals in ascending name order (Can_01 .. Can_12) from VisualRoot's
 ## children so _hide_next_can_visual() can pop from the end (Can_12 hidden first).
 func _collect_can_visuals() -> void:

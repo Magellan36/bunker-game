@@ -20,6 +20,9 @@ const APPROACH_REFRESH_DISTANCE: float = 0.35
 # pickup contract — even though the route itself was perfect.
 const PICKUP_APPROACH_DISTANCE: float = NPCItemUser.PICKUP_RANGE - 0.35
 const STORAGE_APPROACH_DISTANCE: float = NPCItemUser.SNATCH_RANGE - 0.20
+const SUPPLY_CHECK_PRIORITY_MULT: float = 1.15
+const STORAGE_RETRY_INTERVAL_SEC: float = 0.45
+const NO_STORAGE_CONFIRM_SEC: float = 3.0
 
 var _item: RigidBody3D = null
 var _destination: Node = null
@@ -59,6 +62,11 @@ var _approach_target_id: int = 0
 var _approach_target_origin: Vector3 = Vector3.INF
 var _approach_position: Vector3 = Vector3.INF
 var _leg_elapsed: float = 0.0
+var _waiting_for_storage: bool = false
+var _storage_retry_left: float = 0.0
+var _no_storage_elapsed: float = 0.0
+var _storage_retry_count: int = 0
+var _storage_attempt_excludes: Dictionary = {}
 
 func _init(forced_item: RigidBody3D = null) -> void:
 	_forced_item = forced_item
@@ -69,6 +77,8 @@ func label() -> String:
 		return "Cleaning"
 	if _relocating:
 		return "Clearing the way"
+	if _waiting_for_storage:
+		return "Cleaning (finding storage)"
 	return "Cleaning (carrying)" if _destination != null else "Cleaning (fetching)"
 
 func attention_target(_npc: NPC) -> Node3D:
@@ -85,8 +95,27 @@ func score(npc: NPC) -> float:
 	## the more Cleaning outcompetes Wander/Relax/etc. See
 	## NPC.CLUTTER_URGENCY_STEP's own comment for the derivation.
 	var urgency_mult: float = 1.0 + float(JobBoard.get_total_clutter_count()) * NPC.CLUTTER_URGENCY_STEP
-	return NPC.CLEANING_BASE_SCORE * npc.get_work_ethic_job_mult() \
-		* npc.get_job_priority_weight("CLEANING") * urgency_mult
+	var priority_weight: float = npc.get_job_priority_weight("CLEANING")
+	var utility: float = NPC.CLEANING_BASE_SCORE * npc.get_work_ethic_job_mult() \
+		* priority_weight * urgency_mult
+	## Once an item is genuinely eligible and has storage, cleaning is work,
+	## not another idle option. It must clear either passive activity's switch
+	## margin; job-vs-job ordering still uses the authored utility above.
+	var passive_mult: float = npc.get_work_ethic_passive_mult()
+	var wander_utility: float = npc.get_leisure_score(&"wander", 5.0) * passive_mult
+	var relax_utility: float = npc.get_leisure_score(&"sit", RelaxActivity.BASE_SCORE) * passive_mult
+	var passive_floor: float = maxf(wander_utility + 0.26,
+		maxf(relax_utility, RelaxActivity.ACTIVE_SCORE_FLOOR) + 0.76)
+	utility = maxf(utility, passive_floor)
+	if npc.has_supply_cleanup_priority_boost():
+		utility *= SUPPLY_CHECK_PRIORITY_MULT
+	return utility
+
+func debug_score_reason(_npc: NPC, computed_score: float) -> StringName:
+	if _is_forced_session: return &"forced_session_not_utility_candidate"
+	if computed_score > 0.0 and _npc.has_supply_cleanup_priority_boost():
+		return &"nearby_clutter_found_while_checking_supplies"
+	return &"cleaning_target_available" if computed_score > 0.0 else &"no_cleaning_target"
 
 func interruptible() -> bool:
 	return _item == null and _basket == null   ## a held collection basket is also an in-progress cleaning commitment
@@ -103,6 +132,11 @@ func enter(npc: NPC) -> void:
 	_approach_target_origin = Vector3.INF
 	_approach_position = Vector3.INF
 	_leg_elapsed = 0.0
+	_waiting_for_storage = false
+	_storage_retry_left = 0.0
+	_no_storage_elapsed = 0.0
+	_storage_retry_count = 0
+	_storage_attempt_excludes = {}
 	_last_picked_id = -1
 	_last_picked_repeat_count = 0
 	_session_duration = randf_range(SESSION_MIN_SEC, SESSION_MAX_SEC)
@@ -151,6 +185,67 @@ func _clear_approach(npc: NPC) -> void:
 	_leg_elapsed = 0.0
 
 
+## Once an item is physically in-hand, delivery is a small transaction. A
+## temporarily occupied/invalid shelf side redirects or waits; it does not
+## undo the pickup by dropping the item at the NPC's feet.
+func _begin_storage_retry(npc: NPC, reason: String, reject_current: bool = false) -> void:
+	if reject_current and _destination != null and is_instance_valid(_destination):
+		_storage_attempt_excludes[_destination.get_instance_id()] = true
+	var first_wait: bool = not _waiting_for_storage
+	_waiting_for_storage = true
+	_storage_retry_left = STORAGE_RETRY_INTERVAL_SEC
+	_destination = null
+	_clear_approach(npc)
+	npc.halt_movement(1.0)
+	if first_wait and NPCDebug.enabled:
+		NPCDebug.log_cleaning(npc, "storage retry", "%s — %s; keeping item in hand" % [
+			display_name(_item), reason])
+
+
+func _tick_storage_retry(npc: NPC, delta: float) -> void:
+	npc.halt_movement(delta)
+	_storage_retry_left = maxf(0.0, _storage_retry_left - delta)
+	if _storage_retry_left > 0.0:
+		return
+	_storage_retry_count += 1
+	var destination: Node = NPCJobQueries.find_cleaning_destination(
+		npc, _is_trash, _item, _storage_attempt_excludes)
+	if destination == null and not _storage_attempt_excludes.is_empty():
+		# The alternate shelves were exhausted for this sweep. Reconsider all
+		# of them next; another resident may just have released a side.
+		_storage_attempt_excludes.clear()
+		destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
+	if destination == null:
+		_no_storage_elapsed += STORAGE_RETRY_INTERVAL_SEC
+		_storage_retry_left = STORAGE_RETRY_INTERVAL_SEC
+		if _no_storage_elapsed < NO_STORAGE_CONFIRM_SEC:
+			return
+		if NPCDebug.enabled:
+			NPCDebug.log_cleaning(npc, "no storage confirmed", "%s had no compatible capacity for %.1fs — dropping once" % [
+				display_name(_item), _no_storage_elapsed])
+		NPCItemUser.release_item(_item)
+		NPCItemUser.drop_held(npc)
+		_item = null
+		_waiting_for_storage = false
+		_clear_approach(npc)
+		if _is_forced_session:
+			_finished = true
+		return
+	_no_storage_elapsed = 0.0
+	_destination = destination
+	if not _set_interaction_approach(npc, _destination as Node3D,
+			&"clean_store", STORAGE_APPROACH_DISTANCE):
+		_storage_attempt_excludes[_destination.get_instance_id()] = true
+		_destination = null
+		_storage_retry_left = STORAGE_RETRY_INTERVAL_SEC
+		return
+	_waiting_for_storage = false
+	_storage_attempt_excludes.clear()
+	if NPCDebug.enabled:
+		NPCDebug.log_cleaning(npc, "storage resumed", "%s -> %s after %d retries" % [
+			display_name(_item), _destination.name, _storage_retry_count])
+
+
 func _abandon_current_item(npc: NPC, reason: String, skip_this_session: bool = true) -> void:
 	var abandoned: RigidBody3D = _item
 	if abandoned != null and is_instance_valid(abandoned):
@@ -168,6 +263,8 @@ func _abandon_current_item(npc: NPC, reason: String, skip_this_session: bool = t
 	_item = null
 	_destination = null
 	_relocating = false
+	_waiting_for_storage = false
+	_storage_attempt_excludes.clear()
 	if _pending_basket != null and is_instance_valid(_pending_basket):
 		NPCItemUser.release_item(_pending_basket)
 	_pending_basket = null
@@ -308,12 +405,16 @@ func tick(npc: NPC, delta: float) -> void:
 			if NPCDebug.enabled:
 				NPCDebug.log_cleaning(npc, "session ended", "time's up (%.0fs)" % _session_duration)
 			return
-	if _item != null:
+	if _item != null and not _waiting_for_storage:
 		_leg_elapsed += delta
 		if _leg_elapsed >= LEG_TIMEOUT_SEC:
-			_abandon_current_item(npc, "interaction leg timed out after %.0fs" % LEG_TIMEOUT_SEC)
+			if npc.held_item == _item and not _relocating:
+				_begin_storage_retry(npc,
+					"storage leg timed out after %.0fs" % LEG_TIMEOUT_SEC, true)
+			else:
+				_abandon_current_item(npc, "interaction leg timed out after %.0fs" % LEG_TIMEOUT_SEC)
 			if _is_forced_session or _session_elapsed >= _session_duration:
-				_finished = true
+				_finished = npc.held_item != _item
 			return
 
 	if _item == null or not is_instance_valid(_item):
@@ -327,6 +428,10 @@ func tick(npc: NPC, delta: float) -> void:
 	if _basket != null and is_instance_valid(_basket) and npc.held_item == _basket \
 			and _item is FarmProduceItem:
 		_tick_stash_into_basket(npc, delta)
+		return
+
+	if _waiting_for_storage and npc.held_item == _item:
+		_tick_storage_retry(npc, delta)
 		return
 
 	if npc.held_item == null:
@@ -386,15 +491,12 @@ func tick(npc: NPC, delta: float) -> void:
 							NPCDebug.log_cleaning(npc, "relocating (no destination)", "%s has nowhere to go — carrying it clear instead of dropping in place" % display_name(_item))
 						npc.set_nav_target(_relocate_point)
 					else:
-						if NPCDebug.enabled:
-							NPCDebug.log_cleaning(npc, "no destination", "%s has nowhere to go (is_trash=%s) — setting back down" % [
-								display_name(_item), _is_trash])
-						NPCItemUser.drop_held(npc)
-						_item = null
+						_begin_storage_retry(npc,
+							"no compatible destination immediately after pickup")
 				else:
 					if not _set_interaction_approach(npc, _destination as Node3D,
 							&"clean_store", STORAGE_APPROACH_DISTANCE):
-						_abandon_current_item(npc, "no reachable storage side")
+						_begin_storage_retry(npc, "no reachable storage side", true)
 						return
 					if NPCDebug.enabled:
 						NPCDebug.log_cleaning(npc, "destination chosen", "%s -> %s" % [display_name(_item), _destination.name])
@@ -424,15 +526,15 @@ func tick(npc: NPC, delta: float) -> void:
 
 	## Travel phase
 	if _destination == null or not is_instance_valid(_destination):
-		_abandon_current_item(npc, "storage destination disappeared")
+		_begin_storage_retry(npc, "storage destination disappeared")
 		return
 	if not _set_interaction_approach(npc, _destination as Node3D,
 			&"clean_store", STORAGE_APPROACH_DISTANCE):
-		_abandon_current_item(npc, "storage side became unreachable")
+		_begin_storage_retry(npc, "storage side became unreachable", true)
 		return
 	npc.nav_steer(delta)
 	if npc.nav_failed():
-		_abandon_current_item(npc, "storage route failed")
+		_begin_storage_retry(npc, "storage route failed", true)
 		return
 	if npc.nav_finished():
 		npc.face_interaction_slot()
@@ -468,15 +570,10 @@ func tick(npc: NPC, delta: float) -> void:
 					"threw away" if _is_trash else "stored", item_name, _destination.name,
 					(npc.held_item.get_display_name() if npc.held_item != null and npc.held_item.has_method("get_display_name") else "none")])
 		else:
-			## Placement failed (shelf/can filled between selection and
-			## arrival) — item goes back on the ground and MUST be
-			## released here, or it stays permanently claimed by
-			## this NPC and invisible to every other NPC's cleaning
-			## scans for the rest of the session.
 			if NPCDebug.enabled:
-				NPCDebug.log_cleaning(npc, "delivery failed", "%s no longer had room for %s — dropping it" % [_destination.name, item_name])
-			NPCItemUser.release_item(_item)
-			NPCItemUser.drop_held(npc)
+				NPCDebug.log_cleaning(npc, "delivery redirected", "%s no longer had room for %s — retaining it" % [_destination.name, item_name])
+			_begin_storage_retry(npc, "destination filled before placement", true)
+			return
 		_item = null
 		_clear_approach(npc)
 		if _is_forced_session:
@@ -510,6 +607,8 @@ func exit(npc: NPC) -> void:
 	_basket = null
 	_pending_basket = null
 	_relocating = false
+	_waiting_for_storage = false
+	_storage_attempt_excludes.clear()
 	_clear_approach(npc)
 	on_session_exit(npc, "cleaning", done(npc), detail)
 
@@ -526,15 +625,11 @@ func _begin_basket_delivery(npc: NPC) -> void:
 	_is_trash = false
 	_destination = NPCJobQueries.find_cleaning_destination(npc, false, _item)
 	if _destination == null:
-		NPCItemUser.release_item(_item)
-		NPCItemUser.drop_held(npc)
-		_item = null
-		_finished = true
+		_begin_storage_retry(npc, "no compatible destination for full basket")
 		return
 	if not _set_interaction_approach(npc, _destination as Node3D,
 			&"clean_store", STORAGE_APPROACH_DISTANCE):
-		_abandon_current_item(npc, "no reachable storage side for basket")
-		_finished = true
+		_begin_storage_retry(npc, "no reachable storage side for basket", true)
 
 ## Aug 2026 — nearest Basket with at least one open slot, loose or
 ## shelved. Mirrors the general fetch-candidate search shape used
@@ -668,6 +763,8 @@ func debug_info() -> Dictionary:
 	if _item != null:
 		if _relocating:
 			phase = "relocating"
+		elif _waiting_for_storage:
+			phase = "waiting_for_storage"
 		else:
 			phase = "carrying" if _destination != null else "fetching"
 	return {
@@ -680,7 +777,17 @@ func debug_info() -> Dictionary:
 		"session_duration": _session_duration,
 		"leg_elapsed": _leg_elapsed,
 		"leg_timeout": LEG_TIMEOUT_SEC,
+		"storage_retry_count": _storage_retry_count,
+		"no_storage_elapsed": _no_storage_elapsed,
 		"approach_position": _approach_position,
 		"forced": _is_forced_session,
 		"no_storage_categories": _no_storage_categories.keys(),
 	}
+
+
+func watchdog_expects_movement(_npc: NPC) -> bool:
+	return _item != null and not _waiting_for_storage
+
+
+func watchdog_allows_long_stationary(_npc: NPC) -> bool:
+	return _waiting_for_storage

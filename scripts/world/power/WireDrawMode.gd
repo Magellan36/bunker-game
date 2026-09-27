@@ -9,6 +9,8 @@ extends Node
 ##   Move    — ghost wire stretches from source to cursor (or snaps to nearby node).
 ##   Click 2 — snap-select a second wire node → finalise: register edge in PM +
 ##              spawn WireSegment + charge $8/metre.
+##             The next wire chains automatically from this endpoint (mirrors
+##             the pipe tool) — subsequent clicks extend the run in place.
 ##   RMB     — cancel at any time.
 ##
 ## Wire nodes are positions registered with PowerManager.register_wire_node().
@@ -29,9 +31,8 @@ const DragMath = preload("res://scripts/world/build/DragPlacementMath.gd")
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
 ## Flip false to silence all [WireDrawMode] click/snap prints.
-const WIRE_DEBUG: bool = false
 func _wdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		print(msg)
 
 # ─── Tuning ───────────────────────────────────────────────────────────────────
@@ -262,7 +263,17 @@ func _try_pick_dest() -> bool:
 		wire_nodes_connected.emit(keys[i - 1], path[i - 1], keys[i], path[i])
 	pm.end_bulk()
 	_spawn_float_label((_source_pos + destination) * 0.5, cost, false)
-	_cancel()
+	## Chain the next wire from this destination — mirrors WaterPipeDrawMode's
+	## auto-continue: keep phase 1 and anchor the new source at the just-placed
+	## endpoint, so the next LMB click extends the run from where this one ended
+	## instead of forcing a fresh source pick.
+	_clear_ghost()
+	_clear_cost_label()
+	_update_hover_label({})
+	_phase           = 1
+	_source_key      = keys[keys.size() - 1]
+	_source_pos      = destination
+	_source_existing = true
 	return true
 
 func _drag_destination(cursor: Vector3, nearest: Dictionary) -> Vector3:

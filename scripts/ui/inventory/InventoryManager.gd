@@ -19,6 +19,42 @@ func _ready() -> void:
 	add_to_group("inventory_manager")   ## lets BunkerPregen find us via get_first_node_in_group
 	_world_root = get_tree().get_first_node_in_group("world")
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## Serializes the 4 slots into JSON-safe item specs (see ItemSaveData.gd).
+## Null slots serialize as null. Backs the SaveManager "player_inventory"
+## field (phase 4).
+func get_inventory_save_data() -> Array:
+	var out: Array = []
+	for slot: Variant in slots:
+		out.append(ItemSaveData.capture(slot) if slot != null else null)
+	return out
+
+## Rebuilds the 4 slots from get_inventory_save_data()'s output. Clears any
+## current-session items first (mid-session Load case — a fresh boot has
+## none), then spawns each saved item hidden/ frozen into its original slot.
+func restore_inventory_save_data(data: Array) -> void:
+	for slot: Variant in slots:
+		if slot != null and is_instance_valid(slot):
+			(slot as Node).queue_free()
+	for i: int in SLOT_COUNT:
+		slots[i] = null
+	var world_root: Node3D = _world_root
+	if world_root == null:
+		world_root = get_tree().get_first_node_in_group("world")
+	if world_root == null:
+		push_warning("InventoryManager: no 'world' group node — inventory restore skipped")
+		return
+	for i: int in range(mini(data.size(), SLOT_COUNT)):
+		var spec: Variant = data[i]
+		if spec == null or not (spec is Dictionary):
+			continue
+		if (spec as Dictionary).is_empty():
+			continue
+		var item: Node = ItemSaveData.spawn(spec as Dictionary, world_root)
+		if item == null:
+			continue
+		add_item_to_slot(item as RigidBody3D, i)
+
 # ─── Public API ───────────────────────────────────────────────────────────────
 func is_full() -> bool:
 	for slot in slots:

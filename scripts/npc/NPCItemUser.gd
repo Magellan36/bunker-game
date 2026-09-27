@@ -34,25 +34,40 @@ static func flat_distance(a: Vector3, b: Vector3) -> float:
 ## by instance_id so it works uniformly for loose items and shelf contents.
 static var _claims: Dictionary = {}   ## item instance_id (int) -> npc instance_id (int)
 
-static func claim_item(item: Node, npc: Node) -> bool:
-	if item == null or npc == null:
+static func _live_node(raw: Variant) -> Node:
+	## A freed Object can survive inside a Dictionary/Variant. Accept raw
+	## values at claim boundaries and validate before any typed cast; otherwise
+	## GDScript raises before cleanup functions get a chance to return safely.
+	if not is_instance_valid(raw):
+		return null
+	var object: Object = raw
+	if not object is Node:
+		return null
+	var node: Node = object as Node
+	return null if node.is_queued_for_deletion() else node
+
+static func claim_item(item: Variant, npc: Node) -> bool:
+	var live_item: Node = _live_node(item)
+	if live_item == null or npc == null or not is_instance_valid(npc):
 		return false
-	var iid: int = item.get_instance_id()
+	var iid: int = live_item.get_instance_id()
 	var claimant: int = _claims.get(iid, 0)
 	if claimant != 0 and claimant != npc.get_instance_id():
 		return false   ## already claimed by someone else
 	_claims[iid] = npc.get_instance_id()
 	return true
 
-static func release_item(item: Node) -> void:
-	if item == null:
+static func release_item(item: Variant) -> void:
+	var live_item: Node = _live_node(item)
+	if live_item == null:
 		return
-	_claims.erase(item.get_instance_id())
+	_claims.erase(live_item.get_instance_id())
 
-static func is_claimed_by_other(item: Node, npc: Node) -> bool:
-	if item == null:
+static func is_claimed_by_other(item: Variant, npc: Node) -> bool:
+	var live_item: Node = _live_node(item)
+	if live_item == null or npc == null or not is_instance_valid(npc):
 		return false
-	var claimant: int = _claims.get(item.get_instance_id(), 0)
+	var claimant: int = _claims.get(live_item.get_instance_id(), 0)
 	return claimant != 0 and claimant != npc.get_instance_id()
 
 # ─── Per-cell claim system (Aug 2026) ──────────────────────────────────────
@@ -68,27 +83,30 @@ static var _cell_claims: Dictionary = {}   ## "tray_instance_id:cell_index" -> n
 static func _cell_key(tray: Node, cell_index: int) -> String:
 	return "%d:%d" % [tray.get_instance_id(), cell_index]
 
-static func claim_cell(tray: Node, cell_index: int, npc: Node) -> bool:
-	if tray == null or npc == null:
+static func claim_cell(tray: Variant, cell_index: int, npc: Node) -> bool:
+	var live_tray: Node = _live_node(tray)
+	if live_tray == null or npc == null or not is_instance_valid(npc):
 		return false
-	var key: String = _cell_key(tray, cell_index)
+	var key: String = _cell_key(live_tray, cell_index)
 	var claimant: int = _cell_claims.get(key, 0)
 	if claimant != 0 and claimant != npc.get_instance_id():
 		return false
 	_cell_claims[key] = npc.get_instance_id()
 	return true
 
-static func release_cell(tray: Node, cell_index: int, npc: Node) -> void:
-	if tray == null or cell_index < 0:
+static func release_cell(tray: Variant, cell_index: int, npc: Node) -> void:
+	var live_tray: Node = _live_node(tray)
+	if live_tray == null or cell_index < 0 or npc == null or not is_instance_valid(npc):
 		return
-	var key: String = _cell_key(tray, cell_index)
+	var key: String = _cell_key(live_tray, cell_index)
 	if _cell_claims.get(key, 0) == npc.get_instance_id():
 		_cell_claims.erase(key)
 
-static func is_cell_claimed_by_other(tray: Node, cell_index: int, npc: Node) -> bool:
-	if tray == null or cell_index < 0:
+static func is_cell_claimed_by_other(tray: Variant, cell_index: int, npc: Node) -> bool:
+	var live_tray: Node = _live_node(tray)
+	if live_tray == null or cell_index < 0 or npc == null or not is_instance_valid(npc):
 		return false
-	var claimant: int = _cell_claims.get(_cell_key(tray, cell_index), 0)
+	var claimant: int = _cell_claims.get(_cell_key(live_tray, cell_index), 0)
 	return claimant != 0 and claimant != npc.get_instance_id()
 
 # ─── Target search ────────────────────────────────────────────────────────
@@ -229,9 +247,12 @@ static func grab_from_shelf(npc: NPC, shelf: Node, slot: int) -> bool:
 ## no-op for NavigationAgent3D (only repaths on an actual change), so
 ## this costs nothing extra in the common case where the item hasn't
 ## moved.
-static func track_fetch_target(npc: NPC, item: Node) -> void:
+static func track_fetch_target(npc: NPC, item: Node, desired_distance: float = -1.0) -> void:
 	if item != null and is_instance_valid(item):
-		npc.set_nav_target((item as Node3D).global_position)
+		if desired_distance >= 0.0:
+			npc.set_nav_target((item as Node3D).global_position, desired_distance)
+		else:
+			npc.set_nav_target((item as Node3D).global_position)
 
 ## Put whatever is held back into the world at the NPC's feet, via the same
 ## drop() the player uses.
@@ -245,6 +266,8 @@ static func drop_held(npc: NPC) -> void:
 	if item.has_method("drop"):
 		item.drop(parent, npc.global_position
 			+ npc.global_transform.basis * Vector3(0.0, 0.6, -0.7))
+		if item.has_method("mark_cleanup_release"):
+			item.mark_cleanup_release(&"npc")
 	else:
 		## Aug 2026 — npc.held_item was already cleared above (by
 		## design, before this check), so a missing drop() here would

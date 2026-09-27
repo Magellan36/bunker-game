@@ -487,6 +487,12 @@ func _adjust_focused_slider(dir: int, step_mult: float = 1.0) -> void:
 
 func _adjust_focused_range(dir: Vector2, multiplier: float) -> bool:
 	var focus: Control = get_viewport().gui_get_focus_owner()
+	## Opt-in value cycling (Sep 2026): a control carrying a `ui_cycle`
+	## Callable(direction: int) owns horizontal d-pad/arrow input, e.g. the
+	## settings dropdowns (QuietControls.option()). Other controls unaffected.
+	if focus != null and dir.y == 0.0 and dir.x != 0.0 and focus.has_meta(&"ui_cycle"):
+		(focus.get_meta(&"ui_cycle") as Callable).call(int(dir.x))
+		return true
 	if focus is VScrollBar:
 		var bar := focus as VScrollBar
 		if dir.y == 0.0:

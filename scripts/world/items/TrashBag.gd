@@ -26,6 +26,15 @@ func _ready() -> void:
 	super._ready()
 	_build_placeholder_mesh()
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## contents is already a JSON-friendly structured snapshot (see the file
+## header / TrashCan.extract_trash_record()) — saved as-is.
+func get_item_save_state() -> Dictionary:
+	return {"contents": contents}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	contents = state.get("contents", [])
+
 func get_display_name() -> String:
 	return "Trash Bag (%d)" % contents.size()
 

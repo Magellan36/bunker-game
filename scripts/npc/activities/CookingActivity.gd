@@ -78,6 +78,9 @@ func score(npc: NPC) -> float:
 	return NPC.COOKING_BASE_SCORE * npc.get_work_ethic_job_mult() \
 		* npc.get_job_priority_weight("COOKING")
 
+func debug_score_reason(_npc: NPC, computed_score: float) -> StringName:
+	return &"cooking_work_and_supplies_available" if computed_score > 0.0 else &"no_actionable_cooking_work"
+
 func enter(npc: NPC) -> void:
 	_skipped = {}
 	_finished = false
@@ -105,7 +108,7 @@ func enter(npc: NPC) -> void:
 		_carrying_kind = "pot"
 		_stove = t
 		_phase = "travel_to_stove"
-		npc.set_nav_target(approach_point(npc, _stove))
+		npc.set_nav_target(approach_point(npc, _stove), NPC.NAV_PRECISE_TARGET_DISTANCE)
 		return
 
 	if npc.held_item != null and NPCItemUser.is_cookable_ingredient(npc.held_item):
@@ -121,28 +124,24 @@ func enter(npc: NPC) -> void:
 		_carrying_kind = "ingredient"
 		_stove = t2
 		_phase = "travel_to_stove"
-		npc.set_nav_target(approach_point(npc, _stove))
+		npc.set_nav_target(approach_point(npc, _stove), NPC.NAV_PRECISE_TARGET_DISTANCE)
 		return
 
-	var serve: Node = NPCJobQueries.find_cooking_serve_target(npc)
-	if serve != null:
-		_start_serve(npc, serve)
-		return
-
-	var power_target: Node = NPCJobQueries.find_cooking_needs_power_target(npc)
-	if power_target != null:
-		_start_power_retry(npc, power_target)
-		return
-
-	var ing_target: Node = NPCJobQueries.find_cooking_ingredient_target(npc)
-	if ing_target != null:
-		_start_setup(npc, ing_target, "ingredient")
-		return
-
-	var pot_target: Node = NPCJobQueries.find_cooking_pot_target(npc)
-	if pot_target != null:
-		_start_setup(npc, pot_target, "pot")
-		return
+	var action: Dictionary = NPCJobQueries.find_cooking_action_target(npc)
+	var action_target: Node = action.get("node")
+	match String(action.get("mode", "")):
+		"serve":
+			_start_serve(npc, action_target)
+			return
+		"power":
+			_start_power_retry(npc, action_target)
+			return
+		"ingredient":
+			_start_setup(npc, action_target, "ingredient")
+			return
+		"pot":
+			_start_setup(npc, action_target, "pot")
+			return
 
 	_finished = true   ## nothing to do anywhere
 
@@ -153,7 +152,7 @@ func _start_serve(npc: NPC, stove: Node) -> void:
 	_mode = "serve"
 	_stove = stove
 	_phase = "travel_to_stove"
-	npc.set_nav_target(approach_point(npc, _stove))
+	npc.set_nav_target(approach_point(npc, _stove), NPC.NAV_PRECISE_TARGET_DISTANCE)
 
 func _start_power_retry(npc: NPC, stove: Node) -> void:
 	if not NPCItemUser.claim_item(stove, npc):
@@ -162,7 +161,7 @@ func _start_power_retry(npc: NPC, stove: Node) -> void:
 	_mode = "power"
 	_stove = stove
 	_phase = "travel_to_stove"
-	npc.set_nav_target(approach_point(npc, _stove))
+	npc.set_nav_target(approach_point(npc, _stove), NPC.NAV_PRECISE_TARGET_DISTANCE)
 
 func _start_setup(npc: NPC, stove: Node, needs: String) -> void:
 	if not NPCItemUser.claim_item(stove, npc):
@@ -338,7 +337,7 @@ func _tick_setup(npc: NPC, delta: float) -> void:
 func _tick_fetch(npc: NPC, delta: float) -> void:
 	if npc.held_item != null:
 		_phase = "travel_to_stove"
-		npc.set_nav_target(approach_point(npc, _stove))
+		npc.set_nav_target(approach_point(npc, _stove), NPC.NAV_PRECISE_TARGET_DISTANCE)
 		return
 	if _fetch_loose != null and is_instance_valid(_fetch_loose):
 		if "is_held" in _fetch_loose and _fetch_loose.is_held:

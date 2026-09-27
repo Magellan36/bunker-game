@@ -23,7 +23,8 @@ class TestTool extends "res://scripts/world/power/WireDrawMode.gd":
 	var cursor := Vector3.ZERO
 	var picked: Dictionary = {}
 	func _get_cursor_world_pos() -> Vector3: return cursor
-	func _get_nearest_wire_node(_pos: Vector3, _excluded: String) -> Dictionary: return picked
+	func _get_nearest_wire_node(_pos: Vector3, _excluded: String,
+			_octant_origin: Vector3 = Vector3.INF) -> Dictionary: return picked
 	func _show_warning(_message: String) -> void: pass
 
 class TestBuild extends BuildModeController:

@@ -88,6 +88,11 @@ var _section_headers:  Array[Button] = []
 var _section_bodies:   Array[VBoxContainer] = []
 var _section_expanded: Array[bool] = []
 
+## Toggle rows (the "Toggle ..." buttons) that show live (ON)/(OFF) state.
+## One entry per such row: { "btn": Button, "label": String, "get": Callable }.
+## Refreshed on open() and after every toggle callback (_refresh_toggle_labels).
+var _toggle_buttons: Array[Dictionary] = []
+
 # ─── Injected by MainWorld._toggle_admin_cheat_menu() ─────────────────────────
 ## MainWorld — used by the ECONOMY row (add_cash()). Injected via set() at
 ## menu-creation time; the injection call already exists in MainWorld.gd, this
@@ -134,6 +139,13 @@ func _ready() -> void:
 		_font = ThemeDB.fallback_font
 
 	_sections = [
+		{ "name": "DEBUG", "rows": [
+			["Toggle All Debug Outputs", _on_toggle_all_debug_pressed,
+				func() -> bool: return DebugOutput.enabled],
+		]},
+		{ "name": "PLAYER", "rows": [
+			["Kill Player (Health → 0)", _on_kill_player_pressed],
+		]},
 		{ "name": "POWER", "rows": [
 			["+ %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_add_power_pressed],
 			["- %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_remove_power_pressed],
@@ -219,12 +231,19 @@ func _ready() -> void:
 			["Randomize NPC Skills", _on_npc_randomize_skills_pressed],
 			["Despawn All NPCs", _on_npc_despawn_all_pressed],
 			["Force Rebake Navmesh", _on_npc_force_rebake_pressed],
-			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
+			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed,
+				func() -> bool: return NPCDebug.enabled],
 			["Print NPC Debug State", _on_npc_print_debug_pressed],
-			["Toggle NPC Navigation Trace", _on_npc_toggle_navigation_trace_pressed],
+			["Toggle NPC Navigation Trace", _on_npc_toggle_navigation_trace_pressed,
+				func() -> bool: return NPCDebug.navigation_trace_enabled],
 			["Print NPC Navigation Debug State", _on_npc_print_navigation_debug_pressed],
 			["Print NPC Cleaning Debug State", _on_npc_print_cleaning_debug_pressed],
 			["Print NPC Job Debug State", _on_npc_print_job_debug_pressed],
+			["Start/Stop NPC Session Capture", _on_npc_toggle_session_capture_pressed,
+				func() -> bool: return NPCMetrics.enabled],
+			["Print NPC Session Summary", _on_npc_print_session_summary_pressed],
+			["Print NPC Why Now", _on_npc_print_why_now_pressed],
+			["Clear NPC Session Capture", _on_npc_clear_session_capture_pressed],
 			["Force Nearest NPC to Snatch Player Item", _on_npc_force_snatch_pressed],
 			["Force Nearest NPC to Talk to NPC", _on_npc_force_talk_pressed],
 			["Force Nearest NPC to Give to Friend", _on_npc_force_give_friend_pressed],
@@ -312,6 +331,15 @@ func _build_scroll_area() -> void:
 			btn.pressed.connect(row[1])
 			_style_row_btn(btn)
 			body.add_child(btn)
+			## Toggle rows carry a third element: a Callable state getter, so
+			## the label can show its live (ON)/(OFF) state (see
+			## _refresh_toggle_labels).
+			if row.size() >= 3 and row[2] is Callable:
+				_toggle_buttons.append({
+					"btn": btn,
+					"label": String(row[0]),
+					"get": row[2] as Callable,
+				})
 
 ## Toggles one section's expanded/collapsed state and swaps its arrow.
 func _on_section_header_pressed(index: int) -> void:
@@ -354,6 +382,14 @@ func _style_row_btn(btn: Button) -> void:
 	btn.add_theme_color_override("font_color", TEXT_COLOR)
 	btn.add_theme_color_override("font_hover_color", HEADER_COLOR)
 
+## Re-stamps every toggle row's label with its live (ON)/(OFF) state — called
+## on open() and after each toggle callback flips the underlying flag.
+func _refresh_toggle_labels() -> void:
+	for entry: Dictionary in _toggle_buttons:
+		var btn: Button = entry["btn"]
+		var on: bool = bool(entry["get"].call())
+		btn.text = "%s  (%s)" % [entry["label"], "ON" if on else "OFF"]
+
 func _reposition_controls() -> void:
 	var vp: Vector2 = get_viewport().get_visible_rect().size
 	var px: float   = (vp.x - PANEL_W) * 0.5
@@ -383,6 +419,7 @@ func open() -> void:
 	_reposition_controls()
 	_close_btn.visible = true
 	_scroll.visible = true
+	_refresh_toggle_labels()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	## Standing convention (July 2026) — see UIFade.gd.
 	UIFade.fade_in(_canvas)
@@ -924,6 +961,32 @@ func _on_npc_force_rebake_pressed() -> void:
 func _on_npc_toggle_debug_pressed() -> void:
 	NPCDebug.enabled = not NPCDebug.enabled
 	print("[AdminMenu] NPC debug logging: %s" % ("ON" if NPCDebug.enabled else "OFF"))
+	_refresh_toggle_labels()
+
+## Sep 2026 — kills the player (health → 0) to test the permanent-death /
+## game-over flow. Emits health_changed so MainWorld's handler fires
+## player.die() + opens GameOverUI (a plain assignment wouldn't signal).
+func _on_kill_player_pressed() -> void:
+	var stats: PlayerStats = _get_player_stats()
+	if stats == null:
+		push_warning("[AdminMenu] PlayerStats not found")
+		return
+	stats.health = 0.0
+	stats.health_changed.emit(stats.health)
+	## Close the F7 menu so the death screen fade-in is unobstructed.
+	close()
+
+## Sep 2026 — global kill-switch for every accumulated dev debug print
+## (wire/pipe/NPC registration, [GEN], [ORACLE PASS], diagnostics, etc.).
+## Flipping this off silences all of them at once so they can't saturate
+## the console/debugger bridge and be mistaken for in-game lag. See
+## DebugOutput.gd — every debug helper (_wdbg/_pdbg/NPCDebug log_*)
+## routes through it. On-demand "Print ... Debug State" dumps stay
+## available (deliberate requests, not automatic floods).
+func _on_toggle_all_debug_pressed() -> void:
+	DebugOutput.enabled = not DebugOutput.enabled
+	print("[AdminMenu] All debug output: %s" % ("ON" if DebugOutput.enabled else "OFF"))
+	_refresh_toggle_labels()
 
 func _on_npc_print_debug_pressed() -> void:
 	NPCDebug.dump_all(get_tree())
@@ -936,6 +999,7 @@ func _on_npc_toggle_navigation_trace_pressed() -> void:
 				npc.clear_navigation_trace()
 	print("[AdminMenu] NPC navigation trace: %s" % (
 		"ON" if NPCDebug.navigation_trace_enabled else "OFF"))
+	_refresh_toggle_labels()
 
 func _on_npc_print_navigation_debug_pressed() -> void:
 	NPCDebug.dump_navigation_state(get_tree())
@@ -945,6 +1009,33 @@ func _on_npc_print_cleaning_debug_pressed() -> void:
 
 func _on_npc_print_job_debug_pressed() -> void:
 	NPCDebug.dump_job_state(get_tree())
+
+func _on_npc_toggle_session_capture_pressed() -> void:
+	var enabling: bool = not NPCMetrics.enabled
+	NPCMetrics.set_enabled(enabling, enabling)
+	if enabling:
+		for npc: Node in get_tree().get_nodes_in_group("npc"):
+			if not is_instance_valid(npc):
+				continue
+			if npc.has_method("clear_navigation_trace"):
+				npc.clear_navigation_trace()
+			if "brain" in npc and npc.brain != null and npc.brain.has_method("sync_metrics_capture"):
+				npc.brain.sync_metrics_capture()
+	print("[AdminMenu] NPC session capture: %s" % ("ON (new session)" if enabling else "OFF"))
+	_refresh_toggle_labels()
+
+func _on_npc_print_session_summary_pressed() -> void:
+	NPCDebug.dump_session_summary()
+
+func _on_npc_print_why_now_pressed() -> void:
+	NPCDebug.dump_why_now(get_tree())
+
+func _on_npc_clear_session_capture_pressed() -> void:
+	NPCMetrics.reset()
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if is_instance_valid(npc) and npc.has_method("clear_navigation_trace"):
+			npc.clear_navigation_trace()
+	print("[AdminMenu] NPC session capture cleared")
 
 ## Part 29 — forces the NEAREST spawned NPC to attempt a snatch against
 ## the player right now, bypassing relationship/probability (still

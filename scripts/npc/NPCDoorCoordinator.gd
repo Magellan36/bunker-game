@@ -9,9 +9,11 @@ class_name NPCDoorCoordinator
 const MAX_SAME_DIRECTION_BATCH: int = 2
 const BATCH_WINDOW_MSEC: int = 1100
 const LEASE_MSEC: int = 8000
+const CLEANUP_INTERVAL_MSEC: int = 250
 
 static var _states: Dictionary = {} ## door instance id -> state Dictionary
 static var _next_serial: int = 1
+static var _last_cleanup_msec: int = -CLEANUP_INTERVAL_MSEC
 
 
 static func request(npc: Node3D, door: Node3D, direction: int) -> Dictionary:
@@ -122,6 +124,10 @@ static func release_owner(npc: Node3D) -> void:
 
 
 static func _cleanup() -> void:
+	var now: int = Time.get_ticks_msec()
+	if now - _last_cleanup_msec < CLEANUP_INTERVAL_MSEC:
+		return
+	_last_cleanup_msec = now
 	for door_id: Variant in _states.keys():
 		var state: Dictionary = _states.get(door_id, {})
 		var door_ref: WeakRef = state.get("door_ref") as WeakRef
@@ -133,7 +139,7 @@ static func _cleanup() -> void:
 			var lease: Dictionary = holders.get(npc_id, {})
 			var npc_ref: WeakRef = lease.get("npc_ref") as WeakRef
 			if npc_ref == null or npc_ref.get_ref() == null \
-					or Time.get_ticks_msec() >= int(lease.get("expires", 0)):
+					or now >= int(lease.get("expires", 0)):
 				holders.erase(npc_id)
 		var queue: Array = state.get("queue", [])
 		for index: int in range(queue.size() - 1, -1, -1):

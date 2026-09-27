@@ -38,6 +38,8 @@ var _fetch_loose: RigidBody3D = null
 var _fetch_shelf: Dictionary = {}
 var _phase: String = "pick_task"     ## "pick_task" -> "fetch" -> "travel" -> "apply"
 var _finished: bool = false
+var _last_failure_reason: String = ""
+var _apply_failures: int = 0
 
 const WORK_RANGE: float = 2.4   ## Aug 2026 — was 2.0; widened along with the other job-target ranges so NPCs stop pushing into the tray before tending starts
 
@@ -65,6 +67,11 @@ func score(npc: NPC) -> float:
 	return NPC.GARDENING_BASE_SCORE * npc.get_work_ethic_job_mult() \
 		* npc.get_job_priority_weight("GARDENING")
 
+func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
+	if mode != "auto": return &"command_only_mode"
+	return &"garden_work_and_supplies_available" if computed_score > 0.0 \
+		else NPCJobQueries.get_gardening_unavailable_reason(npc)
+
 func enter(npc: NPC) -> void:
 	## The autonomous candidate is persistent, so a new session must not inherit
 	## target/fetch state from its previous run.
@@ -76,6 +83,8 @@ func enter(npc: NPC) -> void:
 	_fetch_shelf = {}
 	_phase = "pick_task"
 	_finished = false
+	_last_failure_reason = ""
+	_apply_failures = 0
 	_skipped = {}
 	if npc.held_item != null and (npc.held_item is BagOfSoilItem or npc.held_item is SeedItem or npc.held_item is FertilizerItem):
 		_item = npc.held_item
@@ -148,13 +157,20 @@ func _pick_next_task(npc: NPC) -> void:
 		if _current_task == "harvest":
 			## No item involved — go straight to travel.
 			_phase = "travel"
-			npc.set_nav_target(approach_point(npc, _current_tray))
+			npc.set_nav_target(approach_point(npc, _current_tray), NPC.NAV_PRECISE_TARGET_DISTANCE)
 			return
 
+		## Re-read the real hand at every stage boundary. A resident may still
+		## carry a partially used soil bag after somebody else fills the last
+		## empty cell. That material is now obsolete for a planting task and
+		## must leave the hand before a seed packet can be fetched.
+		_item = npc.held_item if npc.held_item != null and is_instance_valid(npc.held_item) else null
 		if _item != null and _item_matches_task():
 			_phase = "travel"
-			npc.set_nav_target(approach_point(npc, _current_tray))
+			npc.set_nav_target(approach_point(npc, _current_tray), NPC.NAV_PRECISE_TARGET_DISTANCE)
 			return
+		if _item != null:
+			_drop_obsolete_held_item(npc)
 
 		_phase = "fetch"
 		if _start_fetch(npc):
@@ -261,7 +277,7 @@ func _seed_type_available(npc: NPC, seed_type: String) -> bool:
 	return false
 
 func _item_matches_task() -> bool:
-	if _item == null:
+	if _item == null or not is_instance_valid(_item) or _item.is_queued_for_deletion():
 		return false
 	match _current_task:
 		"soil": return _item is BagOfSoilItem
@@ -311,6 +327,29 @@ func _try_fetch_with_filter(npc: NPC, filt: Callable) -> bool:
 	npc.set_nav_target(tgt.global_position)
 	return true
 
+func _drop_obsolete_held_item(npc: NPC) -> void:
+	var obsolete: RigidBody3D = npc.held_item as RigidBody3D
+	if obsolete == null or not is_instance_valid(obsolete):
+		npc.held_item = null
+		_item = null
+		return
+	var item_name: String = display_name(obsolete)
+	NPCItemUser.release_item(obsolete)
+	if _fetch_loose == obsolete:
+		_fetch_loose = null
+	if not _fetch_shelf.is_empty() and _fetch_shelf.get("item") == obsolete:
+		_fetch_shelf = {}
+	NPCItemUser.drop_held(npc)
+	_item = null
+	NPCMetrics.record_event(&"gardening_obsolete_item_dropped", npc, {
+		"item": item_name,
+		"next_task": _current_task,
+		"cell": _current_cell,
+	})
+	if NPCDebug.enabled:
+		NPCDebug.log_cleaning(npc, "gardening changed materials",
+			"dropped %s before task=%s cell=%d" % [item_name, _current_task, _current_cell])
+
 ## Aug 2026 — seed type is ALWAYS read from the tray (lock, then
 ## replant memory, then "any") — no separate player-chosen type exists
 ## anymore.
@@ -353,15 +392,12 @@ func tick(npc: NPC, delta: float) -> void:
 				_pick_next_task(npc)
 				return
 			if _current_task == "harvest":
-				## Aug 2026 — `as FarmPlant` (not a bare typed assignment) for
-				## consistency with the JobBoard.gd fix — plant_refs itself is
-				## already safe (FarmingTray.clear_cell() nulls the slot
-				## synchronously before queue_free(), confirmed directly in
-				## FarmPlant._clear_cell_and_free()), so this was never an
-				## active bug, just the same fragile pattern hardened defensively.
-				var plant: FarmPlant = (_current_tray.plant_refs[_current_cell] as FarmPlant) \
+				var raw_plant: Variant = _current_tray.plant_refs[_current_cell] \
 					if _current_cell >= 0 and _current_cell < _current_tray.plant_refs.size() else null
-				if plant != null and is_instance_valid(plant) and plant.is_ready():
+				var plant: FarmPlant = null
+				if is_instance_valid(raw_plant) and raw_plant is FarmPlant:
+					plant = raw_plant as FarmPlant
+				if plant != null and not plant.is_queued_for_deletion() and plant.is_ready():
 					plant.harvest()
 					if NPCDebug.enabled:
 						NPCDebug.log_cleaning(npc, "gardening applied", "harvest cell=%d success=true" % _current_cell)
@@ -405,15 +441,37 @@ func tick(npc: NPC, delta: float) -> void:
 			if NPCDebug.enabled:
 				NPCDebug.log_cleaning(npc, "gardening applied", "%s cell=%d success=%s" \
 					% [_current_task, _current_cell, applied])
-			if npc.held_item != _item:
-				_item = null   ## item freed itself (out of charges) — nothing left in hand
+			if not applied:
+				_apply_failures += 1
+				_last_failure_reason = "tray state changed before apply"
+				_mark_skipped(_cell_key(_current_tray, _current_cell))
+				NPCMetrics.record_anomaly(&"gardening_apply_failed", npc, {
+					"task": _current_task,
+					"tray": _current_tray.name,
+					"cell": _current_cell,
+					"held_item": display_name(_item),
+					"soil_filled": _current_tray.soil_filled[_current_cell],
+					"planted_type": _current_tray.planted_type[_current_cell],
+				})
+			if _item != null and is_instance_valid(_item) and _item.is_queued_for_deletion():
+				## Soil bags and seed packets consume themselves on the last
+				## charge. queue_free() does not clear external references, so do
+				## that here before the next task/fetch phase reads the hand.
+				NPCItemUser.release_item(_item)
+				npc.held_item = null
+				_item = null
+			elif npc.held_item != _item:
+				_item = null   ## item was taken away during the work step
 			_pick_next_task(npc)
 
 func _tick_fetch(npc: NPC, delta: float) -> void:
 	if npc.held_item != null:
 		_item = npc.held_item
+		if not _item_matches_task():
+			_drop_obsolete_held_item(npc)
+			return
 		_phase = "travel"
-		npc.set_nav_target(approach_point(npc, _current_tray))
+		npc.set_nav_target(approach_point(npc, _current_tray), NPC.NAV_PRECISE_TARGET_DISTANCE)
 		return
 	if _fetch_loose != null and is_instance_valid(_fetch_loose):
 		if "is_held" in _fetch_loose and _fetch_loose.is_held:
@@ -453,13 +511,17 @@ func debug_info() -> Dictionary:
 		"task": _current_task,
 		"tray": (_current_tray.name if _current_tray != null and is_instance_valid(_current_tray) else ""),
 		"cell": _current_cell,
-		"item": (display_name(_item) if _item != null else ""),
+		"item": (display_name(_item) if _item != null and is_instance_valid(_item) else ""),
+		"item_matches_task": _item_matches_task(),
+		"apply_failures": _apply_failures,
+		"last_failure_reason": _last_failure_reason,
+		"skipped_cells": _skipped.size(),
 	}
 
 func exit(npc: NPC) -> void:
 	var detail: String = "phase=%s task=%s tray=%s cell=%d item=%s" \
 		% [_phase, _current_task, (_current_tray.name if _current_tray != null and is_instance_valid(_current_tray) else "?"),
-			_current_cell, (display_name(_item) if _item != null else "none")]
+			_current_cell, (display_name(_item) if _item != null and is_instance_valid(_item) else "none")]
 	_release_current_cell(npc)
 	if _fetch_loose != null:
 		NPCItemUser.release_item(_fetch_loose)

@@ -261,3 +261,39 @@ func set_elapsed(value: float) -> void:
 	_last_minute = -1
 	_last_day    = -1
 	_tick_clock()
+
+# ─── Save/Load — survival needs (Save/Load overhaul) ────────────────────────
+## Captures the player's survival needs + Medical-derived caps for the
+## SaveManager "player_survival" field. Stamina and the transient `sleeping`
+## flag are deliberately NOT saved (stamina is a fast-regen combat/sprint
+## resource; `sleeping` is a SleepOverlay session latch that flips on/off).
+func get_survival_save_data() -> Dictionary:
+	return {
+		"food":      food,
+		"water":     water,
+		"sleep":     sleep,
+		"health":    health,
+		"food_cap":  food_cap,
+		"water_cap": water_cap,
+		"sleep_cap": sleep_cap,
+	}
+
+## Restores survival needs from a save. Emits the same signals the drain/
+## replenish paths use so the HUD redraws immediately. Caps go through
+## set_needs_caps() so *_cap_changed signals fire; Medical's own restore
+## (SaveManager "medical_conditions", also phase 4) re-derives caps from the
+## restored conditions right after, so a saved cap from an old save without
+## conditions is only a temporary value.
+func apply_survival_save_data(d: Dictionary) -> void:
+	food  = clampf(float(d.get("food", 100.0)), 0.0, 100.0)
+	water = clampf(float(d.get("water", 100.0)), 0.0, 100.0)
+	sleep = clampf(float(d.get("sleep", 100.0)), 0.0, 100.0)
+	health = clampf(float(d.get("health", 100.0)), 0.0, 100.0)
+	set_needs_caps(
+		clampf(float(d.get("food_cap", 100.0)), 0.0, 100.0),
+		clampf(float(d.get("water_cap", 100.0)), 0.0, 100.0),
+		clampf(float(d.get("sleep_cap", 100.0)), 0.0, 100.0))
+	food_changed.emit(food)
+	water_changed.emit(water)
+	sleep_changed.emit(sleep)
+	health_changed.emit(health)

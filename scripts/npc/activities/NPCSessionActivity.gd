@@ -56,6 +56,14 @@ func debug_info() -> Dictionary:
 ## already. Cleaning doesn't need it (its targets are loose items
 ## approached directly, not stationary trays/generators approached
 ## from a direction).
+##
+## Sep 2026 — callers MUST pass NAV_PRECISE_TARGET_DISTANCE as the
+## desired_distance to set_nav_target() for this point. The default
+## NAV_DEFAULT_TARGET_DISTANCE (1.1) stops the NPC up to 1.1m SHORT of the
+## approach point, which pushed it past tight WORK_RANGEs measured from the
+## target's center (confirmed broken on Cooking: stove slot ~1.14m out +
+## 1.1m stop tolerance = up to 2.24m vs WORK_RANGE 1.6 — the NPC stood
+## holding the pot/ingredient and timed out instead of applying it).
 static func approach_point(npc: NPC, target: Node, distance: float = 1.0,
 		action: StringName = &"work") -> Vector3:
 	var t3: Node3D = target as Node3D

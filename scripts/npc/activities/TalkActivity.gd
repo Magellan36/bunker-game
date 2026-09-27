@@ -39,6 +39,18 @@ func score(npc: NPC) -> float:
 	var mult: float = npc.get_talk_score_mult(partner) if npc.has_method("get_talk_score_mult") else 1.0
 	return NPC.TALK_BASE_SCORE * npc.get_work_ethic_passive_mult() * mult
 
+func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
+	if computed_score > 0.0: return &"conversation_partner_available"
+	if not _is_initiator: return &"partner_side_command_only"
+	if npc.has_method("is_talk_on_cooldown") and npc.is_talk_on_cooldown():
+		return &"conversation_cooldown"
+	return &"no_nearby_conversation_partner"
+
+func debug_info() -> Dictionary:
+	return {"activity": "talk", "phase": "conversation",
+		"partner": String(_partner.npc_name) if _partner != null and is_instance_valid(_partner) else "",
+		"elapsed_sec": _elapsed, "planned_sec": _duration, "initiator": _is_initiator}
+
 func interruptible() -> bool:
 	if _partner == null:
 		return true   ## brief instant before a partner locks in

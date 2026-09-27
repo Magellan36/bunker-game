@@ -116,6 +116,16 @@ final horizontal clamp both use the resident's status-adjusted requested speed.
 Avoidance may redirect a resident but cannot accelerate one during congestion
 or a task retarget.
 
+Avoidance state is refreshed every physics frame for every character. Moving
+residents publish their desired route velocity; stationary, interacting,
+idling, and seated residents explicitly publish zero rather than leaving a
+stale walking velocity in the RVO simulation. Stationary residents use higher
+avoidance priority, so a traveler yields and goes around instead of attempting
+to push through them. The player's radius obstacle likewise publishes the
+player's current horizontal velocity every frame, including zero while UI or
+job movement is locked. Character transforms continue to provide the live
+positions, while these velocity updates make their motion predictable.
+
 Stationary activity transitions clamp their deceleration interpolation to the
 physical `0..1` range. A one-shot hard stop may reach zero immediately, but it
 can never extrapolate through zero, reverse direction, or create a speed spike.
@@ -159,7 +169,8 @@ is ignored by corridor-blocker recovery. Characters can walk straight through
 these objects; a bounded foot-level query applies small repeated impulses in
 the character's travel direction so even a large pile visibly parts without
 slowing or rerouting the resident. NPCs and the player otherwise participate
-in dynamic avoidance.
+in dynamic avoidance; the currently selected loose pickup is exempted from the
+shove query so an approaching resident does not kick its own target away.
 
 NPC activities and stuck recovery never assign the resident root's
 `global_position`. Normal displacement comes from `move_and_slide()`.
@@ -457,33 +468,40 @@ current limitations and must not be described as persisted behavior.
 
 ## Debugging
 
-`NPCDebug.enabled` gates console diagnostics. `NPCMetrics.enabled` separately
-gates aggregate counters, histograms, and a 64-entry recent-event ring; it is
-disabled by default and can be toggled with `NPCMetrics.set_enabled()`. The
-admin NPC tools can toggle logging, dump resident state or metrics,
-spawn/despawn residents, adjust needs, randomize skills, and request a
-navmesh rebake.
+`NPCDebug.enabled` gates legacy console diagnostics. `NPCMetrics.enabled`
+separately gates the bounded NPC session capture and remains disabled by
+default. F7 provides Start/Stop, Clear, Print Session Summary, and Print NPC
+Why Now actions alongside the existing state/navigation dumps. Starting a
+capture clears old data and seeds any activity already in progress; stopping
+freezes elapsed capture time without changing the live activity.
 
 Available diagnostics include activity transitions and interrupt score
 comparisons, forgetfulness rolls, jobs, cleaning/session state, mood,
 irritability, relationships, and contextual stuck recovery.
 
 The F7 admin menu also exposes a separate, disabled-by-default navigation
-flight recorder. While enabled it retains a bounded recent sample ring per NPC
+flight recorder. While enabled—or while a bounded session capture is active—it
+retains a bounded recent sample ring per NPC
 containing preferred, avoidance-safe, applied, and achieved velocity; route
 target/waypoint state; and slide contacts. Its on-demand dump adds the current
 stuck-recovery stage and nearby physics items with their avoidance footprint
 and body state. Enabling or dumping it is observational and does not alter
 movement, scoring, avoidance, or recovery.
 
-Recovery metrics include stuck events, dynamic detours, clear attempts, and
-clear success/failure. The navigation debug dump also reports active detour
-and yield state, the recovery overlay and paused activity, and the verified
-drop/resume targets.
+The session capture records deduplicated decision receipts from the existing
+utility scan: stable activity type, labels, incumbent/winner scores, switch
+margin, outcome/rejection reason, top alternatives, the complete candidate
+table with eligibility reason codes, needs, and current activity state. It
+also records stable activity spans and end reasons, per-resident time totals,
+starts, recent timelines, and rare anomaly bundles. Stuck, route-failure,
+clear-failure, and loose-consumable pickup anomalies carry activity context,
+nearby characters/physics objects, route state, and the final short slice of
+the navigation trace. Common need/social activities expose phase, source,
+target, progress, and last failure state through `debug_info()`.
 
-Debugging is not yet a complete decision trace. It does not continuously emit
-every candidate score or avoidance neighbor. Avoid adding gameplay gates that
-depend on either debug switch; observation must not change NPC behavior.
+All rings are bounded and no per-frame strings are printed. Candidate reason
+hooks run only during an enabled capture and are observational; gameplay must
+never depend on either debug switch.
 
 ## Current limitations and next architectural work
 

@@ -30,9 +30,9 @@ class_name GrowLight
 ## GrowLight-side code.
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
-const WIRE_DEBUG: bool = true
+## Gated by DebugOutput.enabled (F7 "Disable All Debug Outputs").
 func _wdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		print(msg)
 
 # ─── Tier config ──────────────────────────────────────────────────────────────
@@ -113,6 +113,8 @@ const SPOT_VOLUMETRIC_FOG_ENERGY: float = 0.15
 ## _build_spot_light() below.)
 const SPOT_DISTANCE_FADE_BEGIN:  float = 18.0
 const SPOT_DISTANCE_FADE_LENGTH: float = 4.0
+const SHADOW_BIAS: float = 0.025
+const SHADOW_NORMAL_BIAS: float = 0.20
 
 ## Polish Plan Group 0 item 20 — 4 thin corner support wires running from the
 ## cover plate up to the 3.0m ceiling directly above. WALL_HEIGHT_M mirrors
@@ -132,12 +134,6 @@ var power_priority: int = 3   ## Both tiers default to priority 3 (plan §3.1)
 var _pm_node_key: String = ""
 var _is_powered:  bool   = false
 var _is_shed:     bool   = false
-
-## Shadow LOD (Aug 2026, see GraphicsSettings.SHADOW_LOD_* header comment and
-## WallLight.gd's identical mechanism) — this fixture's own hysteresis
-## state; starts true so a freshly placed/loaded light isn't wrongly
-## shadow-culled before the first scan.
-var _shadow_lod_near: bool = true
 
 ## Full-fidelity preview mode (Jul 2026) — set TRUE by BuildModeHUD's
 ## construct-tab preview code BEFORE add_child(), so this instance builds
@@ -239,7 +235,6 @@ func _ready() -> void:
 		return
 	add_to_group("interactable")
 	add_to_group("grow_light")
-	add_to_group("shadow_lod_lights")   ## Aug 2026 — distance-gated shadows, see GraphicsSettings.gd
 	## A7 safety net — guarantee fixture starts off before any PowerManager
 	## solve can potentially set it powered.
 	set_powered(false)
@@ -537,37 +532,15 @@ func _build_spot_light() -> void:
 	spot.visible                     = false
 	add_child(spot)
 	_spot = spot
-	_apply_graphics_settings()
-	GraphicsSettings.settings_changed.connect(_apply_graphics_settings)
-
-## Applies GraphicsSettings.shadow_casting_enabled to this fixture's
-## SpotLight3D. Called once at build time and again on every
-## GraphicsSettings.settings_changed (preset switch or individual toggle) —
-## same live-update pattern Flashlight.gd/WallLight.gd use.
-func _apply_graphics_settings() -> void:
-	if _spot == null:
-		return
-	## Global switch always wins outright: OFF forces this fixture dark
-	## regardless of distance; ON re-arms distance gating rather than
-	## forcing shadows on for a possibly-far fixture — the next
-	## GraphicsSettings shadow-LOD scan corrects it down again if the
-	## player isn't actually nearby. Mirrors WallLight.gd exactly.
-	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled and _shadow_lod_near
-
-
-## Shadow LOD (Aug 2026) — called by GraphicsSettings' periodic scan.
-## Mirrors WallLight.gd's identical method; see that file's comment for the
-## hysteresis rationale.
-func update_shadow_lod(player_pos: Vector3) -> void:
-	if _spot == null:
-		return
-	var dist: float = global_position.distance_to(player_pos)
-	if _shadow_lod_near and dist > GraphicsSettings.SHADOW_LOD_FAR_RADIUS:
-		_shadow_lod_near = false
-		_spot.shadow_enabled = false
-	elif not _shadow_lod_near and dist < GraphicsSettings.SHADOW_LOD_NEAR_RADIUS:
-		_shadow_lod_near = true
-		_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
+	## Sep 2026 — ALWAYS-ON shadow casting (the "classic" two-layer split):
+	## the spot always casts so walls/pillars always occlude it — the hard
+	## shadow cutoff at walls/corners is present at every quality preset,
+	## independent of GraphicsSettings.shadow_casting_enabled (which now only
+	## gates the dynamic character/object layer per-mesh). Shadow resolution
+	## still scales via shadow_quality.
+	spot.shadow_enabled = true
+	spot.shadow_bias = SHADOW_BIAS
+	spot.shadow_normal_bias = SHADOW_NORMAL_BIAS
 
 ## Aug 2026 — returns this fixture's current contribution weight for the
 ## removed fake-shadow decal system's aggregate shadow-direction

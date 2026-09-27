@@ -44,6 +44,23 @@ func _ready() -> void:
 	## edges here without help. Opts into its opaque-stand-in fix.
 	add_to_group("outline_needs_opaque_stand_in")
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"count": bottle_count}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	bottle_count = int(state.get("count", bottle_count))
+
+## _ready() collects the 24 visual bottles but doesn't sync them to
+## bottle_count — hide the (24 - count) highest-numbered ones so a
+## partially-empty case reads correctly on a shelf.
+func sync_saved_state_visuals() -> void:
+	if _bottle_visuals.is_empty():
+		_collect_bottle_visuals()
+	var to_hide: int = _bottle_visuals.size() - bottle_count
+	for i: int in range(to_hide):
+		_hide_next_bottle_visual()
+
 ## Builds _bottle_visuals in ascending name order (Bottle_01 .. Bottle_24) from
 ## VisualRoot's children so _hide_next_bottle_visual() can pop from the end
 ## (Bottle_24 hidden first). Also collects matching Cap_XX nodes so caps hide

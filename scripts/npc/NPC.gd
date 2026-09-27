@@ -82,6 +82,7 @@ var _state: NPCState = NPCState.IDLE
 var _idle_timer: float = 0.0
 var _stuck_check_timer: float = 0.0
 var _stuck_check_last_pos: Vector3 = Vector3.ZERO
+var _supply_cleanup_priority_boost: bool = false
 
 ## FUTURE WORK: Part 4's task system. Do not wire anything into this yet.
 var current_task: Node = null
@@ -114,9 +115,30 @@ var health: float = 100.0
 ## "Slowly," per spec: ~20 real-game-hours to fully die from one zeroed need.
 const HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR: float = 5.0
 
-## FUTURE WORK (crisis-response pass): what happens at 0 health (death? a
-## collapse state beyond pass-out?) is intentionally out of scope here —
-## health is clamped at 0 and nothing further happens yet.
+## Sep 2026 — permanent death. Set when health reaches 0; the model controller
+## plays the one-shot "dying" clip and freezes on its final frame (the corpse).
+## A dead NPC stops all behavior (no needs/brain/wander), locks movement, and
+## drops its held item — it stays in place permanently.
+var dead: bool = false
+
+func is_dead() -> bool:
+	return dead
+
+## Transition into the permanent death state. Called when health hits 0.
+func die() -> void:
+	if dead:
+		return
+	dead = true
+	lock_movement()
+	## The corpse is visual-only — drop collision so the standing-height capsule
+	## doesn't leave an invisible wall over the collapsed body.
+	collision_layer = 0
+	collision_mask  = 0
+	if held_item != null:
+		NPCItemUser.drop_held(self)
+	if brain != null:
+		brain.stop_current()
+	log_action("Died")
 
 # ─── Personality / mood / irritability (Part 20) ───────────────────────────
 var generation_seed: int = 0
@@ -312,14 +334,16 @@ static func catch_up_all(hours: float) -> void:
 			continue
 		var completed: int = 0
 		while completed < jobs_per_npc and pool_index < ready_plants.size():
-			## Aug 2026 — `as Node`, same fix as JobBoard.gd. This snapshot is
-			## normally safe (each plant is consumed exactly once, in order),
-			## but hardened to match the safe-cast idiom everywhere else a
-			## possibly-stale plant reference gets read, rather than leaving
-			## one bare exception behind.
-			var plant: Node = ready_plants[pool_index] as Node
+			var raw_plant: Variant = ready_plants[pool_index]
 			pool_index += 1
-			if is_instance_valid(plant) and plant.has_method("is_ready") and plant.is_ready() and plant.has_method("harvest"):
+			## Validation must precede the typed assignment: harvested plants
+			## remain as freed Object Variants in this snapshot.
+			if not is_instance_valid(raw_plant) or not (raw_plant is Node):
+				continue
+			var plant: Node = raw_plant
+			if plant.is_queued_for_deletion():
+				continue
+			if plant.has_method("is_ready") and plant.is_ready() and plant.has_method("harvest"):
 				plant.harvest()
 				completed += 1
 		if n.has_method("catch_up_time"):
@@ -1426,6 +1450,12 @@ const REFUEL_URGENT_BELOW: float = 40.0
 func has_cleaning_target_available() -> bool:
 	return NPCJobQueries.has_cleaning_target_available(self)
 
+func set_supply_cleanup_priority_boost(active: bool) -> void:
+	_supply_cleanup_priority_boost = active
+
+func has_supply_cleanup_priority_boost() -> bool:
+	return _supply_cleanup_priority_boost
+
 ## Eligible item across BOTH lists — trash and organizable are mutually
 ## exclusive per JobBoard's own scan, so no double-counting risk.
 ## `exclude_ids` (Aug 2026) lets CleaningActivity skip items it's already
@@ -1513,9 +1543,10 @@ func find_cleaning_destination(is_trash: bool, item: RigidBody3D = null) -> Node
 ##   "NO_TRASH_RECEPTACLE"  — trash-eligible items exist but there's no
 ##                            receptacle anywhere in the level (permanent
 ##                            gap until one's built — see JobBoard.gd)
-##   "STILL_SETTLING"       — items exist and are being tracked, but none
-##                            have sat idle long enough yet (see
-##                            JobBoard.CLEANING_IDLE_MIN_SEC)
+##   "PHYSICALLY_MOVING"    — loose items are still falling/rolling
+##   "STABILIZING"          — items stopped and are in the short cleanup grace
+##   "RECENTLY_PLACED_BY_PLAYER" — deliberate player drops retain a longer
+##                            courtesy window before residents put them away
 ##   "ALL_CLAIMED"          — ready items exist but every one is already
 ##                            claimed by another NPC
 ##   "NO_LIGHT_STORAGE_AVAILABLE" — a ready LIGHT (inventory_item)
@@ -1646,6 +1677,8 @@ func _tick_needs(delta: float) -> void:
 		health_drain += HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR
 	if health_drain > 0.0:
 		health = maxf(0.0, health - health_drain * h)
+	if health <= 0.0 and not dead:
+		die()
 
 ## Decelerate to a stop — used by activities when standing still.
 ## Part 13 — every stationary phase in the game (job work, eating, drinking,
@@ -1666,6 +1699,11 @@ var _last_requested_nav_speed: float = 0.0
 var _metrics_sample_timer: float = 0.0
 const NAV_DEFAULT_TARGET_DISTANCE: float = 1.1
 const NAV_PRECISE_TARGET_DISTANCE: float = 0.2
+## Stationary residents get right-of-way. A traveling resident still avoids
+## peers with the same moving priority, while one standing at a workstation,
+## talking, or idling remains a stable obstacle instead of being shoved.
+const AVOIDANCE_PRIORITY_MOVING: float = 0.5
+const AVOIDANCE_PRIORITY_STATIONARY: float = 1.0
 var _dynamic_detour_active: bool = false
 var _dynamic_detour_point: Vector3 = Vector3.INF
 var _dynamic_detour_resume_target: Vector3 = Vector3.ZERO
@@ -1707,6 +1745,7 @@ func halt_movement(delta: float) -> void:
 	var blend: float = clampf(acceleration * delta, 0.0, 1.0)
 	velocity.x = lerp(velocity.x, 0.0, blend)
 	velocity.z = lerp(velocity.z, 0.0, blend)
+	_publish_stationary_avoidance()
 
 ## One-time hard stop for the exact instant an NPC enters a seated/lying
 ## animation sequence (SitActivity, LieActivity) — those states return early every
@@ -1718,6 +1757,7 @@ func lock_movement() -> void:
 	_last_preferred_nav_velocity = Vector3.ZERO
 	velocity.x = 0.0
 	velocity.z = 0.0
+	_publish_stationary_avoidance()
 
 
 ## Guaranteed facing for committed conversations. Locomotion assigns heading
@@ -1750,6 +1790,7 @@ func can_attention_turn_body() -> bool:
 func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("interactable")
+	_physics_push_scan_left = randf() * PHYSICS_PUSH_SCAN_INTERVAL
 
 	## Aug 2026 (Player-Model subsystem, flagged) — the visible mesh's
 	## shadow-cast exclusion is now handled generically by
@@ -1759,15 +1800,9 @@ func _ready() -> void:
 	## has a bare $MeshInstance3D. See docs/systems/player-model/README.md
 	## "Shared with NPCs".
 	##
-	## Aug 2026 (shadow parity pass) — the capsule-based
-	## CharacterShadowStandIn system has been replaced by a second,
-	## scaled-down CharacterModel instance ("CharacterModelShadow" in
-	## NPC.tscn), same treatment Player.gd already got — see
-	## docs/systems/graphics/README.md "Player model-based shadow"
-	## (now shared with NPCs). Nothing to call here: the shadow instance
-	## is wired declaratively in the scene file and drives its own
-	## animation state by reading this same NPC node, same as the real
-	## model.
+	## Sep 2026 — the visible CharacterModel casts its own full-height shadow
+	## when Dynamic Shadows is enabled. Removing CharacterModelShadow avoids a
+	## second animated/skinned model per resident and gives real proportions.
 
 	if npc_id == "":
 		npc_id = "npc_%d" % _next_npc_id
@@ -1802,7 +1837,10 @@ func _ready() -> void:
 	## Defaults are tuned for large outdoor crowds. In this bunker, considering
 	## agents 50m away makes unrelated residents influence every doorway queue.
 	nav_agent.neighbor_distance = 5.0
+	nav_agent.max_neighbors = 12
+	nav_agent.time_horizon_agents = 1.5
 	nav_agent.time_horizon_obstacles = 1.0
+	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_STATIONARY
 	nav_agent.velocity_computed.connect(_on_velocity_computed)
 	add_child(nav_agent)
 	var nav_owner: Node = get_tree().get_first_node_in_group("bunker_navmesh")
@@ -1873,6 +1911,8 @@ func get_behavior_profile_debug_info() -> Dictionary:
 	return leisure_planner.debug_info() if leisure_planner != null else {}
 
 func _physics_process(delta: float) -> void:
+	if dead:
+		return   ## corpse — model controller owns the dying pose, nothing ticks
 	NPC_COMPANIONSHIP.tick(self)
 	if leisure_planner != null:
 		leisure_planner.tick(game_hours(delta))
@@ -1902,6 +1942,7 @@ func _physics_process(delta: float) -> void:
 		else:
 			_process_wander(delta)   ## fallback only — brain owns behavior now
 
+		_sync_stationary_avoidance()
 		move_and_slide()
 		_handle_physics_pushes(delta)
 		_capture_navigation_trace(delta)
@@ -1922,6 +1963,7 @@ func _physics_process(delta: float) -> void:
 			brain.tick(delta)
 		else:
 			_process_wander(delta)
+		_sync_stationary_avoidance()
 	_tick_metrics(delta)
 
 
@@ -2065,6 +2107,10 @@ func _evaluate_nav_route() -> bool:
 		lock_movement()
 		_last_requested_nav_speed = 0.0
 		NPC_METRICS.increment(&"navigation_route_failures")
+		NPC_METRICS.record_anomaly(&"navigation_route_failed", self, {
+			"raw_target": _raw_nav_target, "projected_target": target,
+			"path_points": path.size(),
+		})
 		return false
 	_requested_nav_target = target
 	_nav_route_valid = true
@@ -2258,6 +2304,38 @@ func cancel_navigation() -> void:
 	_raw_nav_target = Vector3.ZERO
 
 
+## Small, read-only surface for NPCBrain's last-resort behavior watchdog. This
+## keeps recovery policy out of the activity classes without making the brain
+## reconstruct navigation state from the much larger debug flight recorder.
+func get_navigation_watchdog_state() -> Dictionary:
+	return {
+		"route_valid": _nav_route_valid,
+		"route_failed": _nav_route_failed,
+		"movement_locked": _movement_locked,
+		"requested_speed": _last_requested_nav_speed,
+		"remaining_distance": _navigation_remaining_distance(),
+		"recovery_stage": _last_stuck_recovery_stage,
+	}
+
+
+## A behavior reset is a new attempt, not another continuation of the same
+## stuck streak. Clear every navigation fallback latch while preserving the
+## NPC's world position and held item.
+func reset_navigation_recovery_state() -> void:
+	_stuck_timer = 0.0
+	_stuck_ref_pos = global_position
+	_stuck_ref_remaining_distance = INF
+	_stuck_grace_elapsed = 0.0
+	_soft_repath_attempted = false
+	_stuck_streak_obstruction_id = -1
+	_stuck_streak_count = 0
+	_stuck_npc_streak = 0
+	_stuck_wall_streak = 0
+	_stuck_unknown_streak = 0
+	_navigation_yield_remaining = 0.0
+	_last_stuck_recovery_stage = "watchdog_reset"
+
+
 ## Stop only the current route for a short recovery overlay. Unlike a real
 ## activity exit, this deliberately preserves the incumbent's interaction-slot
 ## claim and every other piece of task state.
@@ -2284,6 +2362,8 @@ func suspend_navigation_for_overlay() -> void:
 ## so no activity code needs to know avoidance exists at all.
 func nav_steer(delta: float, speed_scale: float = 1.0) -> void:
 	_movement_locked = false   ## actively requesting movement again (Part 13)
+	if nav_agent != null:
+		nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_MOVING
 	_last_steer_delta = delta
 	if _navigation_yield_remaining > 0.0:
 		_navigation_yield_remaining = maxf(0.0, _navigation_yield_remaining - delta)
@@ -2316,6 +2396,29 @@ func nav_steer(delta: float, speed_scale: float = 1.0) -> void:
 	nav_agent.max_speed = _last_requested_nav_speed
 	_last_preferred_nav_velocity = dir * _last_requested_nav_speed
 	nav_agent.set_velocity(_last_preferred_nav_velocity)   ## Part 14
+
+## NavigationAgent3D avoidance state is not derived from CharacterBody3D.
+## Activities that stop moving must explicitly submit a zero wanted velocity;
+## otherwise nearby agents can keep predicting this resident's last walking
+## velocity and choose a line that runs through their current position.
+func _publish_stationary_avoidance() -> void:
+	if nav_agent == null or not nav_agent.avoidance_enabled:
+		return
+	## A zero desired velocity may still produce a non-zero avoidance suggestion
+	## when another body approaches. Stationary residents have right-of-way, so
+	## prevent that suggestion from physically displacing an idle resident.
+	_last_requested_nav_speed = 0.0
+	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_STATIONARY
+	nav_agent.set_velocity(Vector3.ZERO)
+
+## Covers passive idle and animation-owned stationary frames in addition to
+## the explicit halt/lock calls above. Called once every physics frame.
+func _sync_stationary_avoidance() -> void:
+	if nav_agent == null:
+		return
+	if _movement_locked or in_sit_sequence() or not _nav_route_valid \
+			or nav_agent.is_navigation_finished():
+		_publish_stationary_avoidance()
 
 func _door_passage_allows(next_path_point: Vector3) -> bool:
 	if not _door_passage_lease.is_empty():
@@ -2415,7 +2518,7 @@ func _on_velocity_computed(safe_velocity: Vector3) -> void:
 ## move_and_slide(), so requested, avoidance-safe, applied, and achieved
 ## velocities can be compared against the contacts from that exact frame.
 func _capture_navigation_trace(delta: float) -> void:
-	if not NPCDebug.navigation_trace_enabled:
+	if not NPCDebug.navigation_trace_enabled and not NPC_METRICS.enabled:
 		_nav_trace_elapsed = 0.0
 		return
 	_nav_trace_elapsed += delta
@@ -2490,6 +2593,26 @@ func get_navigation_debug_info() -> Dictionary:
 		})
 	nearby.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return float(a.get("distance", INF)) < float(b.get("distance", INF)))
+	var nearby_characters: Array[Dictionary] = []
+	var character_nodes: Array = get_tree().get_nodes_in_group("npc")
+	character_nodes.append_array(get_tree().get_nodes_in_group("player"))
+	for other: Node in character_nodes:
+		if other == self or not is_instance_valid(other) or not other is Node3D:
+			continue
+		var character_distance: float = NPCItemUser.flat_distance(
+			global_position, (other as Node3D).global_position)
+		if character_distance > NAV_TRACE_NEARBY_RADIUS:
+			continue
+		nearby_characters.append({
+			"id": other.get_instance_id(),
+			"name": String(other.get("npc_name")) if "npc_name" in other else String(other.name),
+			"kind": "npc" if other.is_in_group("npc") else "player",
+			"position": (other as Node3D).global_position,
+			"distance": character_distance,
+			"velocity": other.get("velocity") if "velocity" in other else Vector3.ZERO,
+		})
+	nearby_characters.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("distance", INF)) < float(b.get("distance", INF)))
 	return {
 		"position": global_position,
 		"activity": brain.current_label() if brain != null else "legacy movement",
@@ -2506,6 +2629,8 @@ func get_navigation_debug_info() -> Dictionary:
 		"safe_velocity_raw": _last_safe_nav_velocity,
 		"applied_velocity": velocity,
 		"achieved_velocity": get_real_velocity(),
+		"avoidance_priority": nav_agent.avoidance_priority if nav_agent != null else 0.0,
+		"avoidance_wanted_velocity": nav_agent.velocity if nav_agent != null else Vector3.ZERO,
 		"stuck_recoveries": _stuck_recoveries,
 		"stuck_grace_elapsed": _stuck_grace_elapsed,
 		"soft_repath_attempted": _soft_repath_attempted,
@@ -2521,6 +2646,7 @@ func get_navigation_debug_info() -> Dictionary:
 		"wall_streak": _stuck_wall_streak,
 		"unknown_streak": _stuck_unknown_streak,
 		"nearby_physics_items": nearby,
+		"nearby_characters": nearby_characters,
 		"recent_samples": _nav_trace_samples.duplicate(true),
 	}
 
@@ -2652,6 +2778,8 @@ var _overhead_label: Label3D = null
 var _overhead_timer: float = 0.0
 
 func _process(delta: float) -> void:
+	if dead:
+		return
 	_overhead_timer -= delta
 	if _overhead_timer > 0.0:
 		return
@@ -2889,6 +3017,9 @@ func _recover_from_stuck() -> void:
 	var activity_label: String = brain.current_label() if brain != null else "legacy movement"
 	var activity_info: Dictionary = brain.get_current_activity_debug_info() if brain != null else {}
 	NPCDebug.log_stuck(self, activity_label, activity_info)
+	NPC_METRICS.record_anomaly(&"navigation_stuck", self, {
+		"activity": activity_label, "activity_info": activity_info,
+	}, get_navigation_debug_info())
 
 	## First response is non-destructive: ask the navigation server for a fresh
 	## path to the projected target. Aborting the intention and dropping held
@@ -3046,9 +3177,28 @@ func _find_stuck_obstruction_static() -> KinematicCollision3D:
 ## NPCs route around them via avoidance, so they rarely need shoving.
 ## Per-item shove cooldowns, shared with the player-side helper.
 var _last_push_msec_by_item: Dictionary = {}
+## The shove itself is already limited to once per item per 200 ms. Performing
+## the surrounding physics shape query every frame only repeats negative work.
+const PHYSICS_PUSH_SCAN_INTERVAL: float = 0.1
+var _physics_push_scan_left: float = 0.0
 
-func _handle_physics_pushes(_delta: float) -> void:
-	PickupableItem.shove_small_items_near(self, _last_push_msec_by_item)
+func _handle_physics_pushes(delta: float) -> void:
+	_physics_push_scan_left -= delta
+	if _physics_push_scan_left > 0.0:
+		return
+	_physics_push_scan_left += PHYSICS_PUSH_SCAN_INTERVAL
+	## Bound stale instance IDs accumulated across long cleanup-heavy sessions.
+	if _last_push_msec_by_item.size() > 128:
+		for item_id: int in _last_push_msec_by_item.keys():
+			var item: Object = instance_from_id(item_id)
+			if item == null or not is_instance_valid(item):
+				_last_push_msec_by_item.erase(item_id)
+	var excluded_item: RigidBody3D = null
+	if brain != null:
+		var attention_target: Node3D = brain.get_attention_target()
+		if attention_target is RigidBody3D:
+			excluded_item = attention_target as RigidBody3D
+	PickupableItem.shove_small_items_near(self, _last_push_msec_by_item, excluded_item)
 
 
 ## Energy contributes its OWN single progressive tier (25% tier REPLACES the

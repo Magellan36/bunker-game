@@ -104,6 +104,19 @@ func _update_visual() -> void:
 	if mesh != null:
 		_apply_bottle_mesh(mesh)
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"charges": _charges_left, "empty": _is_empty}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	_charges_left = int(state.get("charges", _charges_left))
+	_is_empty     = bool(state.get("empty", _is_empty))
+
+## _ready() always builds the full bottle (MODEL_PATH); re-apply the empty
+## variant when the saved state was empty.
+func sync_saved_state_visuals() -> void:
+	_update_visual()
+
 # ─── Prompt interface ─────────────────────────────────────────────────────────
 func get_display_name() -> String:
 	return "Empty Bottle" if _is_empty else "Antibiotics"

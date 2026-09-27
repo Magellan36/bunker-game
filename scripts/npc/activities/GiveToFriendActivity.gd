@@ -24,6 +24,15 @@ func score(npc: NPC) -> float:
 		return 0.0
 	return NPC.GIVE_TO_FRIEND_BASE_SCORE * npc.get_work_ethic_passive_mult()
 
+func debug_score_reason(_npc: NPC, computed_score: float) -> StringName:
+	return &"needy_friend_and_item_available" if computed_score > 0.0 else &"no_helpable_friend"
+
+func debug_info() -> Dictionary:
+	return {"activity": "give_to_friend",
+		"phase": "fetch" if _loose != null else "deliver",
+		"friend": String(_friend.npc_name) if _friend != null and is_instance_valid(_friend) else "",
+		"item": String(_loose.name) if _loose != null and is_instance_valid(_loose) else ""}
+
 func interruptible() -> bool:
 	return true
 

@@ -349,12 +349,12 @@ or delay).
   checked and left AS-IS — that's a display-only "mL/day → mL/min" label
   conversion (literal calendar minutes-per-day), never integrated against a
   real timer, so it carries no such bug.
-- **Known gap (save/load):** `WaterManager.get_pipe_network_for_save()` only
-  persists `"corner"`/`"pipe_joint"` roled nodes — a `"purifier"` node (and
-  both edges touching it) is silently dropped on save/load today. Not fixed
-  in this pass — full save/load integration for the water system's
-  player-placed infrastructure is the next major project (see HANDOVER.md);
-  flagged here so it isn't silently rediscovered as a new bug later.
+- **Purifier save/load (Save/Load overhaul, Sep 2026 — now saved):**
+  `WaterManager.get_pipe_network_for_save()` now includes `"purifier"` nodes
+  (and their touching edges), and `restore_pipe_network()` re-registers them
+  and re-attaches the WaterPurifier scene (spawned in phase 1 without graph
+  insertion) to its node key + orients it along its two edges. Purifier
+  `filter_quality` is saved via the device's `placed_objects` extra.
 
 ## Non-responsibilities
 - **Not wired into PowerManager/PowerGraph in any way.** This is a separate,
@@ -566,19 +566,26 @@ device. `WaterPipeDrawMode` is instantiated as a child `Node` of
 `WireDrawMode`.
 
 ## Persistence
-**Jul 2026 — now saved.** `WaterManager.get_pipe_network_for_save()`/
+**Jul 2026 — now saved; purifier integration added in the Save/Load overhaul
+(Sep 2026).** `WaterManager.get_pipe_network_for_save()`/
 `restore_pipe_network()` (SaveManager phase 3) persists every pipe-owned
-graph node (`corner`/`pipe_joint`) and edge (world-space endpoint positions +
-per-segment `placement_cost`, for `WaterHookup._delete_and_refund_edge()`
-refund accuracy after a later reposition). `WaterHookup`/`WaterTestSink`/
-`WaterDispenser` themselves are NOT saved here — they're ordinary
-`BuildModeController` placed objects (phase 1), each with a device-specific
-`extra` dict (sink: priority/fixed_demand; dispenser: priority/requested
-rate/on/current fill). See `docs/systems/world-core/README.md` Persistence
-for the full phase order. Mid-session Load clears existing pipe nodes/
-visuals first via `clear_water_pipes()`. **Not persisted:** `WaterHookup.tier`/
-`water_quality` — no upgrade mechanic exists yet to ever change `tier` away
-from its default 0, so this is low-risk, not scheduled.
+graph node (`corner`/`pipe_joint`/**`purifier`**) and edge (world-space
+endpoint positions + per-segment `placement_cost`, for
+`WaterHookup._delete_and_refund_edge()` refund accuracy after a later
+reposition). `WaterHookup`/`WaterTestSink`/`WaterDispenser` themselves are
+NOT saved here — they're ordinary `BuildModeController` placed objects (phase
+1), each with a device-specific `extra` dict (sink: priority/fixed_demand;
+dispenser: priority/requested rate/on/current fill). The `WaterPurifier` is
+also a phase-1 placed object (spawned without graph insertion during restore;
+phase 3 re-registers its node + edges and re-attaches the scene), with
+`filter_quality` carried in its `extra`. See `docs/systems/world-core/README.md`
+Persistence for the full phase order. Mid-session Load clears existing pipe
+nodes/visuals first via `clear_water_pipes()`. **WaterHookup upgrade state is
+saved (Save/Load overhaul pass 2):** `tier` (raised by the WaterOutput2x
+research upgrade) and `water_quality` round-trip via the `water_hookup` field
+(phase 2), along with the hookup's moved position — its endpoint node is
+re-keyed to the saved position before pipe edges restore, so a relocated
+hookup's pipe run survives a reload.
 
 ## Call graph (brief)
 ```

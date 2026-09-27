@@ -57,6 +57,16 @@ func _ready() -> void:
 	_build_collision()
 	_refresh_state()
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"battery": _battery, "is_dead": _is_dead}
+
+## Set pre-_ready so _refresh_state() in _ready() renders the saved battery.
+## `_on` is deliberately not saved — a reloaded flashlight starts unlit.
+func apply_item_save_state(state: Dictionary) -> void:
+	_battery = float(state.get("battery", _battery))
+	_is_dead = bool(state.get("is_dead", _is_dead))
+
 # ─── Visual Construction ──────────────────────────────────────────────────────
 func _build_mesh() -> void:
 	## Flashlight body: cylinder (handle) + wider cylinder (head) + lens cap.
@@ -204,18 +214,18 @@ func _build_light() -> void:
 func _apply_graphics_settings() -> void:
 	if _spot == null:
 		return
-	## Aug 2026 — generalized to GraphicsSettings.shadow_casting_enabled,
-	## now preset-driven (HIGH/ULTRA on, LOW/MEDIUM off) and shared with
-	## WallLight/GrowLight instead of flashlight-only opt-in (see
-	## docs/systems/graphics/README.md "Unified dynamic shadow casting").
-	## The player-mesh self-shadow dome this used to cause is handled
-	## separately and still applies regardless of this setting — see
-	## Player.PLAYER_SELF_LIGHT_LAYER_BIT / the earlier
-	## FLASHLIGHT_PLAYER_SELF_SHADOW_EXCLUSION_PLAN.md. (Aug 2026 — this
-	## constant briefly lived on GraphicsSettings as
-	## CHARACTER_SHADOW_LAYER_BIT during the now-reverted Aggregated
-	## Character Shadows detour; it's back on Player.gd.)
-	_spot.shadow_enabled = GraphicsSettings.shadow_casting_enabled
+	## Sep 2026 — ALWAYS-ON shadow casting (the "classic" two-layer split):
+	## the flashlight always casts so walls/objects occlude it at every quality
+	## preset, independent of GraphicsSettings.shadow_casting_enabled (which
+	## now only gates the dynamic character/object shadow layer per-mesh —
+	## that gating never applied to the player-held beam's own caster meshes).
+	## Shadow resolution still scales via shadow_quality.
+	_spot.shadow_enabled = true
+	## Smaller offsets keep wall contact shadows attached instead of leaving a
+	## bright halo around thin player-built walls. The flashlight's own meshes
+	## are already excluded from casting, so the lower bias is safe here.
+	_spot.shadow_bias = 0.025
+	_spot.shadow_normal_bias = 0.20
 	## Per-light volumetric-fog contribution (Light3D property, independent
 	## of Environment.volumetric_fog_enabled) — lets the dust-mote beam-shaft
 	## look be toggled off for performance without disabling ambient fog

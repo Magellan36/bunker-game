@@ -63,6 +63,19 @@ func _find_first_mesh(n: Node) -> MeshInstance3D:
 func _is_empty() -> bool:
 	return current_fill_mL <= 0.0
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"fill": current_fill_mL, "quality": stored_water_quality}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	current_fill_mL     = float(state.get("fill", current_fill_mL))
+	stored_water_quality = float(state.get("quality", stored_water_quality))
+
+## _ready() resolves _mesh but doesn't tint it; apply the empty/full tint now
+## that _mesh exists.
+func sync_saved_state_visuals() -> void:
+	_update_empty_tint()
+
 ## Aug 2026 — Cleaning's generic trash convention (see JobBoard._is_trash_item()'s
 ## own comment). Same reasoning as FoodCan.is_trash() — an empty bottle
 ## stays the same node, so this reads the live computed state, not a

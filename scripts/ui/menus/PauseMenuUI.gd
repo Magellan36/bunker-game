@@ -130,7 +130,7 @@ func _build_action_rail() -> Control:
 	bunker_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	brand.add_child(bunker_icon)
 	var bunker := Label.new()
-	bunker.text = "BUNKER"
+	bunker.text = "BUNKER GAME"
 	bunker.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	bunker.add_theme_font_size_override("font_size", 18)
 	bunker.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)

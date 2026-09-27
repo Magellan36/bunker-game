@@ -40,6 +40,9 @@ func score(npc: NPC) -> float:
 	return NPC.REFUEL_BASE_SCORE * npc.get_work_ethic_job_mult() \
 		* npc.get_job_priority_weight("REFUEL")
 
+func debug_score_reason(_npc: NPC, computed_score: float) -> StringName:
+	return &"generator_and_fuel_available" if computed_score > 0.0 else &"no_refuel_target_or_fuel"
+
 func enter(npc: NPC) -> void:
 	## This candidate instance is reused for the NPC's lifetime. Clear every
 	## per-session reference before deciding whether an already-held can can
@@ -114,7 +117,7 @@ func _pick_next_generator(npc: NPC) -> void:
 	if _current_gen == null:
 		_finished = true   ## every generator full — session complete
 		return
-	npc.set_nav_target(approach_point(npc, _current_gen))
+	npc.set_nav_target(approach_point(npc, _current_gen), NPC.NAV_PRECISE_TARGET_DISTANCE)
 	_phase = "travel"
 
 func tick(npc: NPC, delta: float) -> void:

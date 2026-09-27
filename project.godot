@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="BunkerGame"
-run/main_scene="res://scenes/ui/character_creation/CharacterCreation.tscn"
+run/main_scene="res://scenes/ui/main_menu/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 

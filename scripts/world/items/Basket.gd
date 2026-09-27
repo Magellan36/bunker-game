@@ -40,11 +40,56 @@ signal item_removed(slot_index: int, item: RigidBody3D)
 
 func _ready() -> void:
 	super._ready()
-	add_to_group("interactable")   ## So the "E to add nearby item" prompt path can find it if ever needed directly
+	add_to_group("interactable")   ## So the "E to add nearby item" path can find it if ever needed directly
 	slots.resize(CAPACITY)
 	_mesh = get_node_or_null("MeshInstance3D")
 	if _mesh == null:
 		_build_placeholder_mesh()
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## Stashed contents are saved recursively via ItemSaveData.capture(). Slots
+## are only sized in _ready(), which hasn't run when apply_item_save_state()
+## fires (pre-add), so the actual respawn happens in the post-ready
+## sync_saved_state_visuals() hook.
+var _pending_restore_slots: Array = []
+
+func get_item_save_state() -> Dictionary:
+	var contents: Array = []
+	for i: int in slots.size():
+		if slots[i] != null:
+			contents.append({"idx": i, "spec": ItemSaveData.capture(slots[i])})
+	return {"contents": contents}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	_pending_restore_slots = state.get("contents", [])
+
+func sync_saved_state_visuals() -> void:
+	for entry: Dictionary in _pending_restore_slots:
+		var idx: int = int(entry.get("idx", -1))
+		if idx < 0 or idx >= slots.size():
+			continue
+		var item: Node = ItemSaveData.spawn(entry.get("spec", {}), self)
+		if item == null:
+			continue
+		item.position = Vector3.ZERO
+		item.visible  = false
+		item.freeze   = true
+		item.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+		item.collision_layer = 0
+		item.collision_mask  = 0
+		if item.has_method("deactivate_dynamic_state"):
+			item.deactivate_dynamic_state()
+		item.remove_from_group("pickup")
+		item.add_to_group("shelved")
+		if item.is_in_group("interactable"):
+			item.set_meta("_was_interactable", true)
+			item.remove_from_group("interactable")
+		if "is_held" in item:
+			item.is_held = false
+		if "_hold_point" in item:
+			item._hold_point = null
+		slots[idx] = item
+	_pending_restore_slots = []
 
 func get_display_name() -> String:
 	return item_name

@@ -102,6 +102,13 @@ func get_use_prompt() -> String:
 func has_charges_left() -> bool:
 	return _charges_left > 0
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"charges": _charges_left}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	_charges_left = int(state.get("charges", _charges_left))
+
 # ─── Use — mass-applies immediately, no submenu (see this file's header) ────
 func on_use() -> void:
 	var pm: Node = get_tree().get_first_node_in_group("player_medical")

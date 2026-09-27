@@ -139,3 +139,70 @@ func roll_starting_severity() -> void:
 		severity = starting_severity_min
 	else:
 		severity = randf_range(starting_severity_min, starting_severity_max)
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## Serializes the full condition state into a JSON-safe Dictionary (enums are
+## plain ints; heal_rate_modifiers/needs_cap_modifiers are string-keyed
+## numeric dicts). Backs PlayerMedical's "medical_conditions" save field.
+func get_save_dict() -> Dictionary:
+	return {
+		"id":                        id,
+		"category":                  category,
+		"body_part":                 body_part,
+		"severity_mode":             severity_mode,
+		"severity":                  severity,
+		"starting_severity_min":     starting_severity_min,
+		"starting_severity_max":     starting_severity_max,
+		"has_heal_ring":             has_heal_ring,
+		"heal_progress":             heal_progress,
+		"heal_time_target_hours":    heal_time_target_hours,
+		"current_heal_rate_mult":    current_heal_rate_mult,
+		"heal_rate_modifiers":       heal_rate_modifiers.duplicate(),
+		"speed_mult":                speed_mult,
+		"stamina_drain_mult_sprint": stamina_drain_mult_sprint,
+		"stamina_drain_mult_carry":  stamina_drain_mult_carry,
+		"carry_capacity_mult":       carry_capacity_mult,
+		"work_speed_mult":           work_speed_mult,
+		"hp_drain_per_second":       hp_drain_per_second,
+		"needs_cap_modifiers":       needs_cap_modifiers.duplicate(),
+		"needs_cap_reason":          needs_cap_reason,
+		"converts_to_id":            converts_to_id,
+		"is_treated":                is_treated,
+		"cause":                     cause,
+		"is_infected":               is_infected,
+		"infection_severity":        infection_severity,
+		"infection_roll_elapsed_hours": infection_roll_elapsed_hours,
+		"infection_resolved":        infection_resolved,
+	}
+
+## Rebuilds a MedicalCondition from get_save_dict()'s output.
+static func from_save_dict(d: Dictionary) -> MedicalCondition:
+	var c: MedicalCondition = MedicalCondition.new()
+	c.id                      = str(d.get("id", ""))
+	c.category                = int(d.get("category", 0))
+	c.body_part               = int(d.get("body_part", 0))
+	c.severity_mode           = int(d.get("severity_mode", 0))
+	c.severity                = float(d.get("severity", 0.0))
+	c.starting_severity_min   = float(d.get("starting_severity_min", 0.0))
+	c.starting_severity_max   = float(d.get("starting_severity_max", 0.0))
+	c.has_heal_ring           = bool(d.get("has_heal_ring", false))
+	c.heal_progress           = float(d.get("heal_progress", 0.0))
+	c.heal_time_target_hours  = float(d.get("heal_time_target_hours", 0.0))
+	c.current_heal_rate_mult  = float(d.get("current_heal_rate_mult", 1.0))
+	c.heal_rate_modifiers     = (d.get("heal_rate_modifiers", {}) as Dictionary).duplicate()
+	c.speed_mult              = float(d.get("speed_mult", 1.0))
+	c.stamina_drain_mult_sprint = float(d.get("stamina_drain_mult_sprint", 1.0))
+	c.stamina_drain_mult_carry  = float(d.get("stamina_drain_mult_carry", 1.0))
+	c.carry_capacity_mult     = float(d.get("carry_capacity_mult", 1.0))
+	c.work_speed_mult         = float(d.get("work_speed_mult", 1.0))
+	c.hp_drain_per_second     = float(d.get("hp_drain_per_second", 0.0))
+	c.needs_cap_modifiers     = (d.get("needs_cap_modifiers", {}) as Dictionary).duplicate()
+	c.needs_cap_reason        = str(d.get("needs_cap_reason", ""))
+	c.converts_to_id          = str(d.get("converts_to_id", ""))
+	c.is_treated              = bool(d.get("is_treated", false))
+	c.cause                   = str(d.get("cause", ""))
+	c.is_infected             = bool(d.get("is_infected", false))
+	c.infection_severity      = float(d.get("infection_severity", 0.0))
+	c.infection_roll_elapsed_hours = float(d.get("infection_roll_elapsed_hours", 0.0))
+	c.infection_resolved      = bool(d.get("infection_resolved", false))
+	return c

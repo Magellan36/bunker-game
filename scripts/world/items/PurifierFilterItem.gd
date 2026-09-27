@@ -31,6 +31,14 @@ func _ready() -> void:
 	_mesh = get_node_or_null("MeshInstance3D")
 	_update_used_tint()
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"quality": filter_quality, "used": is_used}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	filter_quality = float(state.get("quality", filter_quality))
+	is_used        = bool(state.get("used", is_used))
+
 # ─── Inventory charge badge (Jul 2026, Purifier QoL plan item 5) ─────────────
 ## InventoryHUD._get_charge_info() calls this if present, expecting
 ## [current, max] — a size-2 Array triggers the badge draw

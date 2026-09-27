@@ -57,9 +57,16 @@ func _run() -> void:
 
 	var metrics_text: String = _read("res://scripts/npc/NPCMetrics.gd")
 	_check(metrics_text.contains("static var enabled: bool = false")
-			and metrics_text.contains("RECENT_EVENT_CAPACITY: int = 64")
-			and metrics_text.contains("static func observe"),
-		"NPC metrics are bounded, aggregate, and disabled by default")
+			and metrics_text.contains("PER_NPC_EVENT_CAPACITY: int = 128")
+			and metrics_text.contains("static func record_decision")
+			and metrics_text.contains("static func begin_activity")
+			and metrics_text.contains("static func record_anomaly")
+			and metrics_text.contains("static func session_snapshot"),
+		"NPC session metrics are bounded, causal, and disabled by default")
+	_check(brain_text.contains("debug_score_reason")
+			and brain_text.contains("_make_decision_receipt")
+			and brain_text.contains("switch_margin_not_met"),
+		"utility scoring retains winner, alternatives, and rejection reasons")
 
 	var wander_text: String = _read("res://scripts/npc/activities/WanderActivity.gd")
 	_check(wander_text.contains("return 0.25"),
@@ -179,9 +186,22 @@ func _run() -> void:
 	_check(debug_text.contains("navigation_trace_enabled: bool = false")
 			and debug_text.contains("dump_navigation_state"),
 		"navigation flight recording remains observational and disabled by default")
+	_check(debug_text.contains("dump_session_summary")
+			and debug_text.contains("dump_why_now"),
+		"session capture renders aggregate timelines and immediate decision explanations")
 	_check(npc_text.contains("claim_interaction_slot")
 			and npc_text.contains("_door_passage_allows"),
 		"locomotion uses shared interaction-slot and bottleneck coordination")
+	_check(npc_text.contains("func _publish_stationary_avoidance")
+			and npc_text.contains("func _sync_stationary_avoidance")
+			and npc_text.contains("AVOIDANCE_PRIORITY_STATIONARY")
+			and npc_text.contains("time_horizon_agents = 1.5"),
+		"stationary residents continuously remain predictive avoidance obstacles")
+	var player_text: String = _read("res://scripts/player/Player.gd")
+	_check(player_text.contains("var _navigation_obstacle: NavigationObstacle3D")
+			and player_text.contains("func _sync_navigation_obstacle_velocity")
+			and player_text.contains("_navigation_obstacle.velocity ="),
+		"player position and velocity continuously feed NPC avoidance")
 	_check(npc_text.contains("func get_navigation_route_cost")
 			and npc_text.contains("NavigationServer3D.map_get_path"),
 		"interaction slots are ranked by real navigation route cost")
@@ -209,9 +229,18 @@ func _run() -> void:
 	_check(pickupable_text.contains("func is_soft_navigation_clutter")
 			and pickupable_text.contains("if is_soft_navigation_clutter():")
 			and pickupable_text.contains("shove_small_items_near")
+			and pickupable_text.contains("if rb == excluded_item:")
 			and pickupable_text.contains("travel * 0.82")
 			and pickupable_text.contains("intersect_shape(params, 64)"),
-		"small clutter skips avoidance and parts in the character's travel direction")
+		"small clutter parts around travel without kicking an intentional pickup target")
+	var eat_text: String = _read("res://scripts/npc/activities/EatActivity.gd")
+	var drink_text: String = _read("res://scripts/npc/activities/DrinkActivity.gd")
+	_check(eat_text.contains("LOOSE_APPROACH_DISTANCE: float = 0.2")
+			and eat_text.contains("track_fetch_target(npc, _loose, LOOSE_APPROACH_DISTANCE)"),
+		"eating tracks loose cans and approaches inside hand reach")
+	_check(drink_text.contains("LOOSE_APPROACH_DISTANCE: float = 0.2")
+			and drink_text.contains("track_fetch_target(npc, _target, LOOSE_APPROACH_DISTANCE)"),
+		"drinking tracks loose bottles and approaches inside hand reach")
 	_check(clear_path_text.contains("MAX_DURATION")
 			and clear_path_text.contains("_resume_target")
 			and clear_path_text.contains("choose_drop_position")
@@ -304,6 +333,19 @@ func _run() -> void:
 		"autonomous cooking requires real supplies")
 	_check(query_text.contains("_stove_can_complete_cooking"),
 		"autonomous cooking rejects unpowerable stoves")
+	_check(query_text.contains("NPCItemUser.is_cell_claimed_by_other")
+			and query_text.contains("get_cell_seed_lock")
+			and query_text.contains("_has_fetchable_gardening_item")
+			and query_text.contains("garden_cells_claimed")
+			and query_text.contains("locked_seed_unavailable"),
+		"gardening scores only claimable cells with compatible unclaimed supplies")
+	var gardening_text: String = _read("res://scripts/npc/activities/GardeningActivity.gd")
+	_check(gardening_text.contains("func _drop_obsolete_held_item")
+			and gardening_text.contains("gardening_obsolete_item_dropped"),
+		"gardening releases obsolete carried material before fetching the next stage")
+	_check(gardening_text.contains("gardening_apply_failed")
+			and gardening_text.contains("_mark_skipped(_cell_key(_current_tray, _current_cell))"),
+		"a failed farming mutation is diagnosed and cannot spin on one cell")
 
 	var cleaning_text: String = _read("res://scripts/npc/activities/CleaningActivity.gd")
 	_check(cleaning_text.contains("func _begin_basket_delivery"),

@@ -6,6 +6,10 @@ class_name EatActivity
 ## take one can directly into the NPC's hand, then consume normally).
 const CONSUME_TIME: float = 2.0
 const USE_RANGE:    float = 1.2
+## Use the precise stop radius for floor items. NavigationAgent3D can report a
+## route complete anywhere inside this radius; the previous 0.9m radius plus
+## target projection occasionally left the NPC just beyond the 1.2m hand reach.
+const LOOSE_APPROACH_DISTANCE: float = 0.2
 
 var _loose: RigidBody3D = null
 var _shelf_pick: Dictionary = {}
@@ -13,6 +17,7 @@ var _eating: float = 0.0
 var _pending_snatch: Node = null   ## Part 30 — set in enter()/_reacquire_or_finish(), consumed on first tick()
 var _handoff: NPCActivity = null
 var _case_fetch: NPCCaseFetch = null   ## Aug 2026 — last-resort tier once loose+shelf both come up empty
+var _last_failure_reason: StringName = &""
 
 func attention_target(_npc: NPC) -> Node3D:
 	if _case_fetch != null:
@@ -38,6 +43,31 @@ func score(npc: NPC) -> float:
 		return 0.0
 	return (100.0 - npc.hunger) * 1.15 * npc.get_work_ethic_passive_mult()
 
+func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
+	if computed_score > 0.0: return &"hunger_and_food_available"
+	if npc.hunger >= 55.0: return &"hunger_above_threshold"
+	return &"no_food_source_available"
+
+func debug_info() -> Dictionary:
+	var source: String = "none"
+	var target: String = ""
+	if _case_fetch != null:
+		source = "case"
+		var case_target: Node3D = _case_fetch.get_case_target()
+		target = String(case_target.name) if case_target != null else ""
+	elif _loose != null and is_instance_valid(_loose):
+		source = "loose"
+		target = String(_loose.name)
+	elif not _shelf_pick.is_empty():
+		source = "shelf"
+		var shelf: Node = _shelf_pick.get("shelf")
+		target = String(shelf.name) if shelf != null else ""
+	elif _eating > 0.0:
+		source = "held"
+	return {"activity": "eat", "phase": "consume" if _eating > 0.0 else "fetch",
+		"source": source, "target": target, "consume_seconds_left": _eating,
+		"last_failure_reason": String(_last_failure_reason)}
+
 func _find(npc: NPC) -> RigidBody3D:
 	return NPCItemUser.find_loose_item(npc, Callable(NPCItemUser, "is_edible"))
 
@@ -46,11 +76,16 @@ func _find_shelf(npc: NPC) -> Dictionary:
 
 func enter(npc: NPC) -> void:
 	_eating = 0.0
+	_last_failure_reason = &""
 	_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_edible"))
 	if _pending_snatch != null:
 		return   ## handled on first tick() below, via take_handoff()
 	_loose = _find(npc)
 	if _loose != null and not NPCItemUser.claim_item(_loose, npc):
+		_last_failure_reason = &"loose_item_claim_lost"
+		NPCMetrics.record_event(&"activity_target_claim_failed", npc, {
+			"activity": "eat", "target": String(_loose.name),
+		})
 		_loose = null   ## lost the race between scoring and entering
 	_shelf_pick = {}
 	if _loose == null:
@@ -62,10 +97,12 @@ func enter(npc: NPC) -> void:
 		## exists somewhere if we got this far with nothing else found.
 		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"))
 		return
-	var tgt: Node3D = _loose if _loose != null \
-		else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
-	if tgt != null:
-		npc.set_nav_target(tgt.global_position)
+	if _loose != null:
+		npc.set_nav_target(_loose.global_position, LOOSE_APPROACH_DISTANCE)
+	elif not _shelf_pick.is_empty():
+		var shelf: Node3D = _shelf_pick.get("shelf") as Node3D
+		if shelf != null:
+			npc.set_nav_target(shelf.global_position)
 
 func tick(npc: NPC, delta: float) -> void:
 	if _pending_snatch != null:
@@ -95,16 +132,24 @@ func tick(npc: NPC, delta: float) -> void:
 
 	if _loose != null and is_instance_valid(_loose):
 		if "is_held" in _loose and _loose.is_held:
+			_last_failure_reason = &"target_taken_while_approaching"
 			NPCItemUser.release_item(_loose)
 			_loose = null
 			return
-		npc.nav_steer(delta)
+		NPCItemUser.track_fetch_target(npc, _loose, LOOSE_APPROACH_DISTANCE)
 		if NPCItemUser.flat_distance(npc.global_position, _loose.global_position) <= USE_RANGE:
+			npc.halt_movement(delta)
 			if NPCItemUser.grab_loose(npc, _loose):
 				_loose = null
 			else:
+				_last_failure_reason = &"grab_refused"
+				NPCMetrics.record_anomaly(&"activity_pickup_failed", npc, {
+					"activity": "eat", "target": String(_loose.name),
+				}, npc.get_navigation_debug_info())
 				NPCItemUser.release_item(_loose)
 				_loose = null
+		else:
+			npc.nav_steer(delta)
 		return
 	_loose = null
 
@@ -149,10 +194,12 @@ func _reacquire_or_finish(npc: NPC) -> void:
 	if _loose == null and _shelf_pick.is_empty():
 		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_can_case"))
 		return
-	var tgt: Node3D = _loose if _loose != null \
-		else (_shelf_pick.get("shelf") as Node3D if not _shelf_pick.is_empty() else null)
-	if tgt != null:
-		npc.set_nav_target(tgt.global_position)
+	if _loose != null:
+		npc.set_nav_target(_loose.global_position, LOOSE_APPROACH_DISTANCE)
+	elif not _shelf_pick.is_empty():
+		var shelf: Node3D = _shelf_pick.get("shelf") as Node3D
+		if shelf != null:
+			npc.set_nav_target(shelf.global_position)
 
 func interruptible() -> bool:
 	## A stocked-case fetch in progress (approach/extraction) must not be

@@ -30,6 +30,19 @@ func score(npc: NPC) -> float:
 		return 0.0
 	return (100.0 - npc.energy) * npc.get_work_ethic_passive_mult()
 
+func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
+	if computed_score > 0.0: return &"low_energy_free_bed"
+	if npc.energy >= 60.0: return &"energy_above_sleep_threshold"
+	return &"no_free_bed"
+
+func debug_info() -> Dictionary:
+	return {"activity": "sleep", "phase": "lying" if _lying else "approach",
+		"target": String(_bed.name) if _bed != null and is_instance_valid(_bed) else "",
+		"approach": _approach_pos}
+
+func watchdog_allows_long_stationary(_npc: NPC) -> bool:
+	return _lying
+
 
 func interruptible() -> bool:
 	return not _lying

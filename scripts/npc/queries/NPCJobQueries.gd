@@ -25,6 +25,7 @@ static func has_cleaning_target_available(npc: NPC) -> bool:
 	if not trash.is_empty():
 		for trash_item: Node in trash:
 			if not is_instance_valid(trash_item) or not trash_item is Node3D \
+					or NPCItemUser.is_claimed_by_other(trash_item, npc) \
 					or not npc.is_position_compatible_with_companionship(
 						(trash_item as Node3D).global_position):
 				continue
@@ -50,17 +51,35 @@ static func has_cleaning_target_available(npc: NPC) -> bool:
 	var organizable: Array = JobBoard.get_organizable_items()
 	if organizable.is_empty():
 		return false
-	var checked_categories: Dictionary = {}
 	for item: Node in organizable:
 		if not is_instance_valid(item) or not item is Node3D \
+				or NPCItemUser.is_claimed_by_other(item, npc) \
 				or not npc.is_position_compatible_with_companionship(
 					(item as Node3D).global_position):
 			continue
-		var category: String = classify_organizable_item(item)
-		if checked_categories.has(category):
+		## Check the real item, not just its broad light/heavy category. This
+		## lets light items fall through from a full dresser/end table to a
+		## compatible general shelf without being hidden by the preferred tier.
+		if find_cleaning_destination(npc, false, item as RigidBody3D) != null:
+			return true
+	return false
+
+static func has_cleaning_target_near(npc: NPC, origin: Vector3, radius: float) -> bool:
+	## Supply-look context: only ready, claimable work with a real destination
+	## counts. Pending items keep the normal untouched-item grace period.
+	for item: Node in JobBoard.get_trash_items():
+		if not is_instance_valid(item) or not item is Node3D \
+				or NPCItemUser.is_claimed_by_other(item, npc):
 			continue
-		checked_categories[category] = true
-		if has_viable_destination_for_category(npc, category):
+		if NPCItemUser.flat_distance(origin, (item as Node3D).global_position) <= radius \
+				and find_cleaning_destination(npc, true, item as RigidBody3D) != null:
+			return true
+	for item: Node in JobBoard.get_organizable_items():
+		if not is_instance_valid(item) or not item is Node3D \
+				or NPCItemUser.is_claimed_by_other(item, npc):
+			continue
+		if NPCItemUser.flat_distance(origin, (item as Node3D).global_position) <= radius \
+				and find_cleaning_destination(npc, false, item as RigidBody3D) != null:
 			return true
 	return false
 
@@ -115,29 +134,39 @@ static func classify_organizable_item(item: RigidBody3D) -> String:
 		return "light"
 	return "heavy"
 
-static func find_cleaning_destination(npc: NPC, is_trash: bool, item: RigidBody3D = null) -> Node:
+static func find_cleaning_destination(npc: NPC, is_trash: bool,
+		item: RigidBody3D = null, exclude_ids: Dictionary = {}) -> Node:
 	var group_names: Array = ["trash_receptacle"] if is_trash \
 		else ORGANIZE_DESTINATION_GROUPS.get(classify_organizable_item(item), ["shelving"])
 
 	var prefer_light_storage: bool = not is_trash and item != null \
 		and classify_organizable_item(item) == "light"
 	if prefer_light_storage:
-		var light_pick: Node = _nearest_cleaning_destination(npc, group_names, item, is_trash, true)
+		var light_pick: Node = _nearest_cleaning_destination(
+			npc, group_names, item, is_trash, &"light", exclude_ids)
 		if light_pick != null:
 			return light_pick
-	return _nearest_cleaning_destination(npc, group_names, item, is_trash, false)
+		## Dresser/end-table storage is a preference, not an eligibility wall.
+		## Once that tier is absent/full, explicitly search hybrid shelving.
+		return _nearest_cleaning_destination(
+			npc, group_names, item, is_trash, &"hybrid", exclude_ids)
+	return _nearest_cleaning_destination(npc, group_names, item, is_trash,
+		&"any" if is_trash else &"hybrid", exclude_ids)
 
-static func _nearest_cleaning_destination(npc: NPC, group_names: Array, item: RigidBody3D, is_trash: bool, light_storage_only: bool) -> Node:
+static func _nearest_cleaning_destination(npc: NPC, group_names: Array, item: RigidBody3D,
+		is_trash: bool, storage_tier: StringName, exclude_ids: Dictionary = {}) -> Node:
 	var best: Node = null
 	var best_d: float = INF
 	for group_name: String in group_names:
 		for candidate: Node in npc.get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(candidate) or exclude_ids.has(candidate.get_instance_id()):
+				continue
 			if candidate is Node3D and not npc.is_position_compatible_with_companionship(
 					(candidate as Node3D).global_position, 1.0):
 				continue
-			if not is_instance_valid(candidate):
+			if storage_tier == &"light" and not (candidate is LightStorage):
 				continue
-			if light_storage_only and not (candidate is LightStorage):
+			if storage_tier == &"hybrid" and candidate is LightStorage:
 				continue
 			## Aug 2026 fix — a dedicated trash receptacle (TrashCan, e.g.)
 			## is ALSO "shelving" for player-facing reasons that can't
@@ -192,7 +221,7 @@ static func get_cleaning_unavailable_reason(npc: NPC) -> String:
 		if JobBoard.get_trash_blocked_by_no_receptacle_count() > 0:
 			return "NO_TRASH_RECEPTACLE"
 		if JobBoard.get_pending_cleaning_count() > 0:
-			return "STILL_SETTLING"
+			return JobBoard.get_pending_cleaning_reason()
 		return "NOTHING_TO_CLEAN"
 	var target: Dictionary = find_cleaning_target(npc)
 	if target.is_empty():
@@ -275,45 +304,63 @@ static func has_refuel_target_available(npc: NPC) -> bool:
 		or not NPCItemUser.find_shelved_item(npc, filt).is_empty()
 
 static func has_gardening_target_available(npc: NPC) -> bool:
-	var any_tray: bool = false
-	var needs_soil: bool = false
-	var needs_plant: bool = false
+	return get_gardening_unavailable_reason(npc) == &"available"
+
+static func get_gardening_unavailable_reason(npc: NPC) -> StringName:
+	## Score only work this NPC could actually claim and supply right now.
+	## The old tray-wide test ignored per-cell claims and item claims, so a
+	## second resident repeatedly selected Gardening while the only actionable
+	## cell (and usually its seed packet) belonged to somebody else.
+	var found_tray: bool = false
+	var found_open_step: bool = false
+	var found_unclaimed_step: bool = false
+	var locked_seed_missing: bool = false
 	for tray: Node in npc.get_tree().get_nodes_in_group("farming_tray"):
 		if not is_instance_valid(tray):
 			continue
 		if tray is Node3D and not npc.is_position_compatible_with_companionship(
 				(tray as Node3D).global_position, 1.0):
 			continue
-		any_tray = true
-		if tray.has_open_soil_cell():
-			needs_soil = true
-		if tray.has_open_plantable_cell():
-			needs_plant = true
-		if needs_soil and needs_plant:
-			break
-	if not any_tray:
-		return false
-	if needs_soil:
-		for item: Node in npc.get_tree().get_nodes_in_group("pickup"):
-			if is_instance_valid(item) and item is BagOfSoilItem and not (("is_held" in item) and item.is_held) and not item.is_in_group("shelved"):
-				return true
-		for shelf: Node in npc.get_tree().get_nodes_in_group("shelving"):
-			if not is_instance_valid(shelf) or not ("slots" in shelf):
+		found_tray = true
+		for cell: int in range(tray.cell_count):
+			if not tray.soil_filled[cell]:
+				found_open_step = true
+				if NPCItemUser.is_cell_claimed_by_other(tray, cell, npc):
+					continue
+				found_unclaimed_step = true
+				if _has_fetchable_gardening_item(npc,
+						func(item: Node) -> bool: return item is BagOfSoilItem):
+					return &"available"
 				continue
-			for stack in shelf.slots:
-				if stack is Array and not stack.is_empty() and stack.back() is BagOfSoilItem:
-					return true
-	if needs_plant:
-		for item: Node in npc.get_tree().get_nodes_in_group("pickup"):
-			if is_instance_valid(item) and item is SeedItem and not (("is_held" in item) and item.is_held) and not item.is_in_group("shelved"):
-				return true
-		for shelf: Node in npc.get_tree().get_nodes_in_group("shelving"):
-			if not is_instance_valid(shelf) or not ("slots" in shelf):
+			if tray.planted_type[cell] != "":
 				continue
-			for stack in shelf.slots:
-				if stack is Array and not stack.is_empty() and stack.back() is SeedItem:
-					return true
-	return false
+			found_open_step = true
+			if NPCItemUser.is_cell_claimed_by_other(tray, cell, npc):
+				continue
+			found_unclaimed_step = true
+			var lock: String = tray.get_cell_seed_lock(cell)
+			if _has_fetchable_gardening_item(npc, func(item: Node) -> bool:
+				return item is SeedItem and (lock == "" or item.seed_type == lock)):
+				return &"available"
+			if lock != "":
+				locked_seed_missing = true
+	if not found_tray:
+		return &"no_compatible_farming_tray"
+	if not found_open_step:
+		return &"waiting_for_growth_or_harvest"
+	if not found_unclaimed_step:
+		return &"garden_cells_claimed"
+	if locked_seed_missing:
+		return &"locked_seed_unavailable"
+	return &"gardening_supplies_unavailable"
+
+static func _has_fetchable_gardening_item(npc: NPC, filter: Callable) -> bool:
+	## A matching item already in this resident's hand is valid even though
+	## the generic search correctly excludes every held item from the world.
+	if npc.held_item != null and is_instance_valid(npc.held_item) \
+			and filter.call(npc.held_item):
+		return true
+	return not NPCItemUser.find_fetch_target(npc, filter).is_empty()
 
 static func is_trash_item(_npc: NPC, item: Node) -> bool:
 	return JobBoard._is_trash_item(item) if JobBoard.has_method("_is_trash_item") else false
@@ -431,13 +478,79 @@ static func find_cooking_pot_target(npc: NPC) -> Node:
 			best = stove
 	return best
 
+## Resolves the autonomous cooking priority chain in one stove walk. The old
+## availability check called four independent nearest-target functions, each
+## scanning every stove and sometimes re-scanning all loose/shelved items.
+## Keep those focused helpers for active-session retargeting, but use this
+## combined query for utility scoring and initial activity entry.
+static func find_cooking_action_target(npc: NPC) -> Dictionary:
+	var best_by_mode: Dictionary = {
+		"serve": null, "power": null, "ingredient": null, "pot": null,
+	}
+	var distance_by_mode: Dictionary = {
+		"serve": INF, "power": INF, "ingredient": INF, "pot": INF,
+	}
+	var ingredient_checked: bool = false
+	var ingredient_available: bool = false
+	var pot_checked: bool = false
+	var pot_available: bool = false
+	for stove: Node in npc.get_tree().get_nodes_in_group("stove"):
+		if not is_instance_valid(stove) or NPCItemUser.is_claimed_by_other(stove, npc):
+			continue
+		var d: float = NPCItemUser.flat_distance(
+			npc.global_position, (stove as Node3D).global_position)
+		var hosted_pot: Node = stove.pot_ref
+		var dish_ready: bool = hosted_pot != null \
+			and hosted_pot.has_method("is_dish_ready") and hosted_pot.is_dish_ready()
+		if dish_ready:
+			if d < float(distance_by_mode["serve"]):
+				distance_by_mode["serve"] = d
+				best_by_mode["serve"] = stove
+			continue
+
+		var can_complete: bool = _stove_can_complete_cooking(stove)
+		var filled: int = int(hosted_pot.count_filled()) \
+			if hosted_pot != null and hosted_pot.has_method("count_filled") else 0
+		if hosted_pot != null and not bool(stove.powered_on) and can_complete and filled > 0:
+			if d < float(distance_by_mode["power"]):
+				distance_by_mode["power"] = d
+				best_by_mode["power"] = stove
+
+		if hosted_pot != null and can_complete \
+				and not (stove.has_method("is_cooking") and stove.is_cooking()) \
+				and hosted_pot.has_method("is_full") and not hosted_pot.is_full():
+			if filled > 0:
+				if d < float(distance_by_mode["ingredient"]):
+					distance_by_mode["ingredient"] = d
+					best_by_mode["ingredient"] = stove
+			else:
+				if not ingredient_checked:
+					ingredient_checked = true
+					ingredient_available = _has_fetchable_cooking_item(
+						npc, Callable(NPCItemUser, "is_cookable_ingredient"))
+				if ingredient_available and d < float(distance_by_mode["ingredient"]):
+					distance_by_mode["ingredient"] = d
+					best_by_mode["ingredient"] = stove
+
+		if can_complete and stove.has_method("has_open_slot") and stove.has_open_slot():
+			if not pot_checked:
+				pot_checked = true
+				pot_available = _has_fetchable_cooking_item(
+					npc, Callable(NPCItemUser, "is_cooking_pot"))
+			if pot_available and d < float(distance_by_mode["pot"]):
+				distance_by_mode["pot"] = d
+				best_by_mode["pot"] = stove
+
+	for mode: String in ["serve", "power", "ingredient", "pot"]:
+		var target: Node = best_by_mode[mode]
+		if target != null:
+			return {"mode": mode, "node": target}
+	return {}
+
 ## Resource-aware because this feeds autonomous utility every second. A stove
 ## shape alone is not actionable work.
 static func has_cooking_target_available(npc: NPC) -> bool:
-	return find_cooking_serve_target(npc) != null \
-		or find_cooking_needs_power_target(npc) != null \
-		or find_cooking_ingredient_target(npc) != null \
-		or find_cooking_pot_target(npc) != null
+	return not find_cooking_action_target(npc).is_empty()
 
 ## Deliberately minimal — one distinguished reason (no stove built at all);
 ## everything else (every stove mid-cook and genuinely nothing to do, or a

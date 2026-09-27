@@ -339,6 +339,49 @@ func _complete_research() -> void:
 		"%s Tier %d research completed" % [finished.display_name, next_tier]
 	)
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## Persists research progress (tier_progress + stored materials) and any
+## in-progress research (active upgrade id/path + elapsed + consumed + pause).
+## Backs the SaveManager "research" field (phase 4).
+func get_research_save_data() -> Dictionary:
+	var data: Dictionary = {
+		"tier_progress":   tier_progress.duplicate(),
+		"stored_materials": stored_materials.duplicate(),
+		"is_paused":       is_paused,
+	}
+	if active_upgrade != null:
+		data["active_upgrade"] = {
+			"path":    active_upgrade.resource_path,
+			"id":      active_upgrade.id,
+			"elapsed": _elapsed,
+			"consumed": _consumed.duplicate(),
+		}
+	return data
+
+## Rebuilds research state from get_research_save_data()'s output. The active
+## upgrade is re-resolved from its .tres path; an in-progress research resumes
+## from its saved elapsed/consumed (stored_materials already reflects the
+## drained amount).
+func restore_research_save_data(data: Dictionary) -> void:
+	tier_progress    = (data.get("tier_progress", {}) as Dictionary).duplicate()
+	stored_materials = (data.get("stored_materials", {}) as Dictionary).duplicate()
+	is_paused        = bool(data.get("is_paused", false))
+	active_upgrade   = null
+	_elapsed         = 0.0
+	_consumed        = {}
+	if data.has("active_upgrade"):
+		var au: Dictionary = data["active_upgrade"]
+		var path: String = String(au.get("path", ""))
+		var upgrade: UpgradeDef = null
+		if path != "" and ResourceLoader.exists(path):
+			upgrade = load(path) as UpgradeDef
+		if upgrade != null:
+			active_upgrade = upgrade
+			_elapsed = float(au.get("elapsed", 0.0))
+			var consumed: Dictionary = au.get("consumed", {})
+			for k: Variant in consumed:
+				_consumed[k] = int(consumed[k])
+
 # ─── Basic model — filled rectangle base + beakers/flasks, grey/steel to match Table/Chair ──
 ## Aug 2026 chute pass: total footprint widened 1.5x (1.90 → 2.85 local X)
 ## to make room for a chute on the left. The ORIGINAL 1.90-wide research

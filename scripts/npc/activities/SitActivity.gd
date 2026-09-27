@@ -48,6 +48,19 @@ func score(npc: NPC) -> float:
 		return 0.0
 	return (100.0 - npc.energy) * npc.get_work_ethic_passive_mult()   ## 40..100 as energy falls 60→0
 
+func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
+	if computed_score > 0.0: return &"low_energy_free_chair"
+	if npc.energy >= 60.0: return &"energy_above_rest_threshold"
+	return &"no_free_chair"
+
+func debug_info() -> Dictionary:
+	return {"activity": "rest_sit", "phase": String(SState.keys()[_state]).to_lower(),
+		"target": String(_chair.name) if _chair != null and is_instance_valid(_chair) else "",
+		"approach": _approach_pos}
+
+func watchdog_allows_long_stationary(_npc: NPC) -> bool:
+	return _state != SState.SEEK
+
 func interruptible() -> bool:
 	## Once committed to sitting/standing, finish it — mirrors the player, who
 	## also can't be yanked out mid-sequence (only commands / pass-out can).

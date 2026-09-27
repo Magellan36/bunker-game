@@ -1041,6 +1041,16 @@ this system, not just floated ideas:
   its own storage/inventory implications) rather than something this doc
   should design in full. Revisit scope with Brannon before building.
 
+## Persistence (Save/Load overhaul, Sep 2026)
+Active medical conditions are now saved. `PlayerMedical`'s `active_conditions`
+round-trip via the `medical_conditions` field
+(`get_conditions_save_data()`/`restore_conditions_save_data()`,
+`MedicalCondition.get_save_dict()`/`from_save_dict()`) — id/body-part/
+severity/heal-progress/infection state/treatment flags and the needs-cap
+modifiers all survive a reload, and the needs caps are re-derived from the
+restored conditions. Player survival needs (which the conditions affect) are
+saved separately via `player_survival` (see `docs/systems/player/README.md`).
+
 ## Deferred scope (explicitly not this pass)
 - Real, non-placeholder models/icons for all four Medical items —
   currently procedural-sphere placeholders per Brannon's explicit call;

@@ -21,9 +21,9 @@ signal navigation_revision_changed(revision: int)
 ##      floor tops, so it merges harmlessly when redundant; it guarantees
 ##      walkable coverage even if a floor tile ever lacks collision.
 ##
-## Rebake triggers (unchanged from Part 1): RockSurround dig/restore
-## signals, placed-object fingerprint poll, initial startup bake — all
-## debounced, all baked async off-thread.
+## Rebake triggers: RockSurround dig/restore signals, explicit build topology
+## notifications, and the initial startup bake — all debounced, all baked
+## async off-thread. A slow revision/fingerprint audit remains as a safety net.
 ##
 ## HISTORY (do not "restore" any of these):
 ##   - Part 1 baked hand-built floor quads at FLOOR_Y = 0.0 — half a meter
@@ -42,13 +42,14 @@ signal navigation_revision_changed(revision: int)
 const FLOOR_Y: float = 0.5            ## REAL floor surface (GridMap y=1.0,
                                       ## 0.1 cells, row -6 → tile top 0.5)
 const REBAKE_DEBOUNCE: float = 0.5
-const POLL_INTERVAL: float = 1.0
+const POLL_INTERVAL: float = 10.0
 
 var _region: NavigationRegion3D = null
 var _navmesh: NavigationMesh = null
 var _dirty: bool = true
 var _debounce: float = 0.0
 var _poll_timer: float = 0.0
+var _last_build_revision: int = -1
 var _last_fingerprint: int = -1
 var _baking: bool = false
 var _bake_queued_again: bool = false
@@ -105,6 +106,10 @@ func _connect_topology_sources() -> void:
 			node.connect("navigation_topology_changed", mark_dirty)
 
 func mark_dirty() -> void:
+	## A build notification arrives after the new scene subtree has entered the
+	## tree, so connect any newly-added door/topology source now. This closes
+	## the gap where a just-built door could open before the slow safety audit.
+	_connect_topology_sources()
 	_dirty = true
 	_debounce = REBAKE_DEBOUNCE
 
@@ -124,8 +129,9 @@ func _process(delta: float) -> void:
 			_dirty = false
 			_rebake()
 
-## Placed-object fingerprint — used ONLY as a "something changed, rebake"
-## signal. The snapshot's footprint data is NOT used for geometry anymore.
+## Slow safety audit. Normal build changes arrive immediately through
+## navigation_topology_changed; the revision check catches missed connections
+## without rebuilding/sorting the complete obstacle snapshot every second.
 func _poll_placed_objects() -> void:
 	## Doors and other procedural topology sources can appear at runtime.
 	_connect_topology_sources()
@@ -133,7 +139,17 @@ func _poll_placed_objects() -> void:
 	if world == null or not ("_build_controller" in world):
 		return
 	var bc: Node = world._build_controller
-	if bc == null or not bc.has_method("get_nav_obstacle_snapshot"):
+	if bc == null:
+		return
+	if bc.has_method("get_navigation_topology_revision"):
+		var revision: int = int(bc.call("get_navigation_topology_revision"))
+		if revision != _last_build_revision:
+			_last_build_revision = revision
+			mark_dirty()
+		return
+	## Compatibility fallback for an older or alternate build controller.
+	## Its footprint data is still never used for bake geometry.
+	if not bc.has_method("get_nav_obstacle_snapshot"):
 		return
 	var snap: Dictionary = bc.get_nav_obstacle_snapshot()
 	var fp: int = snap.get("fingerprint", 0)

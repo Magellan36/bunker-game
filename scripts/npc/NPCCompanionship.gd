@@ -8,14 +8,16 @@ const SESSION_MAX_MSEC: int = 240000
 const VICINITY_RADIUS: float = 6.0
 const BREAK_DISTANCE: float = 10.0
 const SEPARATION_GRACE_MSEC: int = 18000
+const CLEANUP_INTERVAL_MSEC: int = 1000
 
 static var _sessions: Dictionary = {}
 static var _member_session: Dictionary = {}
 static var _next_id: int = 1
+static var _last_cleanup_msec: int = -CLEANUP_INTERVAL_MSEC
 
 
 static func begin(a: Node, b: Node) -> bool:
-	_cleanup()
+	_cleanup(true)
 	if a == null or b == null or a == b or not is_instance_valid(a) or not is_instance_valid(b):
 		return false
 	var a_existing := int(_member_session.get(a.get_instance_id(), 0))
@@ -117,8 +119,11 @@ static func _other(session: Dictionary, npc: Node) -> Node:
 	return null
 
 
-static func _cleanup() -> void:
+static func _cleanup(force: bool = false) -> void:
 	var now := Time.get_ticks_msec()
+	if not force and now - _last_cleanup_msec < CLEANUP_INTERVAL_MSEC:
+		return
+	_last_cleanup_msec = now
 	for session_id: Variant in _sessions.keys():
 		var session: Dictionary = _sessions.get(session_id, {})
 		var a_ref: WeakRef = session.get("a") as WeakRef

@@ -9,10 +9,9 @@ class_name GeneratorObject
 ## Interaction (E key): opens GeneratorInspectUI panel with fuel bar, HP, backup toggle, grid state.
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
-## Flip false to silence all [GEN] registration/ready prints.
-const WIRE_DEBUG: bool = true
+## Flip DebugOutput.enabled (F7 "Disable All Debug Outputs") to silence all [GEN] registration/ready prints.
 func _wdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		print(msg)
 
 # ─── Tier config ──────────────────────────────────────────────────────────────

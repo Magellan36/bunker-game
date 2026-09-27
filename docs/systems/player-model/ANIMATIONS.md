@@ -119,6 +119,21 @@ Libraries in `assets/models/player/anims/` wired into
 | `stand_to_sit_lib` | `stand_to_sit` | 2.23s | no | sit-down |
 | `sit_lib` | `sit` | 1.15s | yes | seated anchor |
 | `sit_to_stand_lib` | `sit_to_stand` | 2.25s | no | stand-up |
+| `lying_down_male_lib` / `lying_down_female_lib` | `lying_down` | — | no | bed sleep recline (gender-specific) |
+| `sleep_hybrid_male_lib` / `sleep_hybrid_female_lib` | `sleeping` | — | yes | sleep loop (gender-specific) |
+| `dying_male_lib` / `dying_female_lib` | `dying` | 2.6s / 3.5s | no | **death collapse (Sep 2026)** — one-shot; holds the final frame as the frozen corpse. Wired as `"dying"` in `ANIMATION_NAMES` + both gender overrides; played whenever the parent reports `is_dead()` |
+
+## Death state (Sep 2026)
+
+When a character's HP hits 0, `AdventurerModelController._process` checks
+`_is_dead()` (duck-typed `is_dead()`/`dead` on the parent) at the very top and
+plays the `dying` one-shot clip (LOOP_NONE — freezes on the last frame), then
+returns — preempting locomotion, sit phases, and speed scaling. The non-shadow
+instance also eases the root down onto the floor (found by a downward raycast
+on the first dead frame, `DEATH_DROP_SPEED`), so the corpse settles on the
+ground instead of hovering at standing height. NPC death (`NPC.die()`) stops
+the brain, locks movement, drops the held item, and disables collision; player
+death opens `GameOverUI` (`MainWorld._open_game_over()`) and is permanent.
 
 ### Gender-specific selection (`AdventurerModelController.gd`)
 

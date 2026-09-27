@@ -222,6 +222,8 @@ static func _tint_recursive(node: Node, mat: Material) -> void:
 		if mi.mesh != null:
 			for s: int in mi.mesh.get_surface_count():
 				mi.set_surface_override_material(s, mat)
+	elif node is MultiMeshInstance3D:
+		(node as MultiMeshInstance3D).material_override = mat
 	for child: Node in node.get_children():
 		_tint_recursive(child, mat)
 

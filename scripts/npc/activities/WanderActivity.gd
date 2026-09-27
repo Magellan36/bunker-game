@@ -25,6 +25,8 @@ const TRAVEL_TIMEOUT: float = 24.0
 const FOLLOW_REPATH_DISTANCE: float = 0.3
 const RECENT_TARGET_LIMIT: int = 3
 const RESERVATION_META: StringName = &"_npc_free_time_visitor"
+const SUPPLY_CLEANUP_RADIUS: float = 10.0
+const SUPPLY_CHECK_INTERVAL: float = 0.5
 
 ## Existing gameplay groups are the semantic vocabulary. Adding a new kind of
 ## destination only requires its world object to join a group and one entry
@@ -52,11 +54,15 @@ var _preferred_landmark_group: StringName = &""
 var _agenda_beats_remaining: int = 0
 var _agenda_complete: bool = false
 var _resume_intent: Dictionary = {}
+var _supply_check_elapsed: float = 0.0
 
 
 func score(npc: NPC) -> float:
 	var base: float = npc.get_leisure_score(&"wander", 5.0) * npc.get_work_ethic_passive_mult()
 	return base + 4.0 if is_resume_candidate() and _resume_is_valid(npc) else base
+
+func debug_score_reason(_npc: NPC, _computed_score: float) -> StringName:
+	return &"passive_baseline"
 
 
 func label() -> String:
@@ -77,6 +83,8 @@ func enter(npc: NPC) -> void:
 	_follow_target = false
 	_agenda_beats_remaining = npc.get_leisure_agenda_beat_count()
 	_agenda_complete = false
+	_supply_check_elapsed = 0.0
+	npc.set_supply_cleanup_priority_boost(false)
 	if npc.behavior_profile != null:
 		_preferred_landmark_group = npc.behavior_profile.preferred_landmark_group
 	var companion: NPC = npc.get_companion()
@@ -111,6 +119,7 @@ func tick(npc: NPC, delta: float) -> void:
 			npc.set_nav_target(_destination, NPC.NAV_PRECISE_TARGET_DISTANCE)
 			return
 	npc.halt_movement(delta)
+	_update_supply_cleanup_context(npc, delta)
 	_time_left -= delta
 	if _time_left <= 0.0:
 		if _agenda_beats_remaining <= 0:
@@ -303,6 +312,7 @@ func _commit_destination(npc: NPC, destination: Vector3,
 	_phase = Phase.TRAVELLING
 	_time_left = TRAVEL_TIMEOUT
 	_agenda_beats_remaining = maxi(0, _agenda_beats_remaining - 1)
+	npc.set_supply_cleanup_priority_boost(false)
 	npc.set_nav_target(destination, desired_distance)
 	if NPCDebug.enabled:
 		NPCDebug.log_free_time_intention(npc, _purpose, _target, _destination)
@@ -314,6 +324,8 @@ func _arrive(npc: NPC) -> void:
 	_time_left = npc.get_leisure_observation_seconds(
 		maxf(8.0, npc.idle_time_min), maxf(18.0, npc.idle_time_max * 4.0))
 	npc.halt_movement(1.0)
+	_supply_check_elapsed = SUPPLY_CHECK_INTERVAL
+	_update_supply_cleanup_context(npc, 0.0)
 	if _target != null and is_instance_valid(_target):
 		var look_point: Vector3 = _target.global_position
 		look_point.y = npc.global_position.y
@@ -390,6 +402,7 @@ func _claim_target(target: Node3D, npc: NPC) -> bool:
 
 
 func _release_target(npc: NPC) -> void:
+	npc.set_supply_cleanup_priority_boost(false)
 	if _target != null and is_instance_valid(_target) and _reservation_holder(_target) == npc:
 		_target.remove_meta(RESERVATION_META)
 	_target = null
@@ -397,6 +410,21 @@ func _release_target(npc: NPC) -> void:
 	_follow_target = false
 	_follow_target_stationary_for = 0.0
 	npc.release_interaction_slot()
+
+
+func _update_supply_cleanup_context(npc: NPC, delta: float) -> void:
+	_supply_check_elapsed += delta
+	if _supply_check_elapsed < SUPPLY_CHECK_INTERVAL:
+		return
+	_supply_check_elapsed = 0.0
+	var checking_supplies: bool = _phase == Phase.OBSERVING \
+		and _target != null and is_instance_valid(_target) \
+		and _target.is_in_group("shelving")
+	if checking_supplies:
+		JobBoard.promote_settled_cleaning_near(_target.global_position, SUPPLY_CLEANUP_RADIUS)
+	var nearby_work: bool = checking_supplies and NPCJobQueries.has_cleaning_target_near(
+		npc, _target.global_position, SUPPLY_CLEANUP_RADIUS)
+	npc.set_supply_cleanup_priority_boost(nearby_work)
 
 
 func _reservation_holder(target: Node) -> Node:

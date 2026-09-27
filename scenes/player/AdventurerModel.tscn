@@ -20,6 +20,8 @@
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/lying_down_female_lib.res" id="18_liefem"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sleep_hybrid_male_lib.res" id="19_sleepm"]
 [ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sleep_hybrid_female_lib.res" id="20_sleepf"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/dying_male_lib.res" id="21_dyem"]
+[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/dying_female_lib.res" id="22_dyef"]
 
 [node name="AdventurerModel" type="Node3D"]
 script = ExtResource("1_script")
@@ -44,5 +46,7 @@ libraries = {
 	"lying_down_male_lib": ExtResource("17_liedown"),
 	"lying_down_female_lib": ExtResource("18_liefem"),
 	"sleep_hybrid_male_lib": ExtResource("19_sleepm"),
-	"sleep_hybrid_female_lib": ExtResource("20_sleepf")
+	"sleep_hybrid_female_lib": ExtResource("20_sleepf"),
+	"dying_male_lib": ExtResource("21_dyem"),
+	"dying_female_lib": ExtResource("22_dyef")
 }

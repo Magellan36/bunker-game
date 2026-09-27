@@ -6,6 +6,11 @@ extends PickupableItem
 # ─── Exports ──────────────────────────────────────────────────────────────────
 @export var item_name: String = "Crate"
 
+## Human-made model (plastic_crate_03_1k, uniform-scaled to the old crate's
+## 0.54 width — proportions preserved). Measured GLB bounds, base at y=0.
+const MODEL_PATH: String = "res://assets/models/plastic_crate.glb"
+const MODEL_SIZE: Vector3 = Vector3(0.54, 0.2985, 0.2974)
+
 ## Shelf stacking — 1 crate per slot (too large to stack)
 var shelf_stack_limit: int   = 1
 var shelf_item_type: String  = "test_crate"
@@ -14,9 +19,26 @@ var _mesh: MeshInstance3D = null
 
 func _ready() -> void:
 	super._ready()
-	_mesh = get_node_or_null("Model/MeshInstance3D")
-	if _mesh == null:
+	if not _load_model():
 		_build_placeholder_mesh()
+
+## Loads the human-model crate GLB. Returns false when the model is missing so
+## _ready() falls back to the procedural placeholder. The GLB's origin is at
+## the crate's base center (base at y=0); it's shifted down half its height so
+## the crate stays centered on the item's carry origin like the old procedural
+## crate was.
+func _load_model() -> bool:
+	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
+	if packed == null:
+		return false
+	var model: Node3D = packed.instantiate() as Node3D
+	if model == null:
+		return false
+	model.position = Vector3(0.0, -MODEL_SIZE.y * 0.5, 0.0)
+	BuildMaterials.recenter_glb_mesh(model)
+	BuildMaterials.strip_model_collision(model)
+	add_child(model)
+	return true
 
 func get_prompt_text() -> String:
 	return "[F] Pick up %s" % item_name

@@ -21,6 +21,21 @@ var _claimed: bool = false
 func _init(job: Dictionary) -> void:
 	_job = job
 
+
+func _live_node3d(raw: Variant) -> Node3D:
+	## A freed Object cannot be cast safely. Validate the raw Variant first.
+	if not is_instance_valid(raw):
+		return null
+	var object: Object = raw
+	if not object is Node3D:
+		return null
+	var node: Node3D = object as Node3D
+	return null if node.is_queued_for_deletion() else node
+
+
+func _live_target() -> Node3D:
+	return _live_node3d(_job.get("target"))
+
 func label() -> String:
 	match _phase:
 		"fetch": return "Fetching supplies"
@@ -31,21 +46,20 @@ func attention_target(_npc: NPC) -> Node3D:
 	if _phase == "fetch":
 		if _fetch_loose != null and is_instance_valid(_fetch_loose):
 			return _fetch_loose
-		var shelf: Node3D = _fetch_shelf.get("shelf") as Node3D
-		if shelf != null and is_instance_valid(shelf):
+		var shelf: Node3D = _live_node3d(_fetch_shelf.get("shelf"))
+		if shelf != null:
 			return shelf
-	var target: Node3D = _job.get("target") as Node3D
-	return target if target != null and is_instance_valid(target) else null
+	return _live_target()
 
 func score(npc: NPC) -> float:
 	var conf: Dictionary = TYPE_CONF.get(_job.get("type", ""), {})
 	if conf.is_empty():
 		return 0.0
-	var target: Node = _job.get("target")
-	if target == null or not is_instance_valid(target):
+	var target: Node3D = _live_target()
+	if target == null:
 		return 0.0
 	var skill: float = float(npc.skills.get(conf["skill"], 1.0))
-	var dist: float = NPCItemUser.flat_distance((target as Node3D).global_position, npc.global_position)
+	var dist: float = NPCItemUser.flat_distance(target.global_position, npc.global_position)
 	var base_score: float = float(conf["base"]) * skill / (1.0 + dist * 0.08)
 	## Irritability reduces willingness to work (Part 20) — distinct from
 	## forgetfulness, which diverts AWAY from a job already chosen. This
@@ -56,6 +70,19 @@ func score(npc: NPC) -> float:
 	var willingness: float = 1.0 - (npc.irritability / 100.0) * 0.5
 	return base_score * willingness * npc.get_work_ethic_job_mult() \
 		* npc.get_job_priority_weight(_job.get("type", ""))
+
+func debug_score_reason(_npc: NPC, computed_score: float) -> StringName:
+	if computed_score > 0.0: return &"open_job"
+	if TYPE_CONF.get(_job.get("type", ""), {}).is_empty(): return &"unknown_job_type"
+	return &"job_target_missing"
+
+func debug_info() -> Dictionary:
+	var target: Node3D = _live_target()
+	return {"activity": "job", "phase": _phase, "job_type": String(_job.get("type", "")),
+		"job_id": _job.get("id", ""),
+		"target": String(target.name) if target != null and is_instance_valid(target) else "",
+		"work_seconds_left": _work_left, "work_seconds_total": _work_total,
+		"claimed": _claimed}
 
 func interruptible() -> bool:
 	return _phase != "work"
@@ -75,8 +102,8 @@ func enter(npc: NPC) -> void:
 		var pick: Dictionary = NPCItemUser.find_fetch_target(npc, filt)
 		_fetch_loose = pick.get("loose")
 		_fetch_shelf = pick.get("shelf", {})
-		var tgt: Node3D = _fetch_loose if _fetch_loose != null \
-			else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
+		var tgt: Node3D = _live_node3d(_fetch_loose) if _fetch_loose != null \
+			else (_live_node3d(_fetch_shelf.get("shelf")) if not _fetch_shelf.is_empty() else null)
 		if tgt == null:
 			_claimed = false   ## spare vanished between scan and now
 			JobBoard.release(_job, npc)
@@ -91,8 +118,8 @@ const APPROACH_DISTANCE: float = 1.0   ## stand-off from the object's center —
 
 func _start_travel(npc: NPC) -> void:
 	_phase = "travel"
-	var target: Node3D = _job.get("target") as Node3D
-	if target != null and is_instance_valid(target):
+	var target: Node3D = _live_target()
+	if target != null:
 		npc.set_nav_target(_approach_point(npc, target))
 
 ## A reachable point APPROACH_DISTANCE from the object's center, along the
@@ -111,8 +138,8 @@ func tick(npc: NPC, delta: float) -> void:
 	if not JobBoard.still_valid(_job):   ## player beat us to it
 		_claimed = false
 		return
-	var target: Node3D = _job.get("target") as Node3D
-	if target == null or not is_instance_valid(target):
+	var target: Node3D = _live_target()
+	if target == null:
 		_claimed = false
 		return
 
@@ -160,8 +187,8 @@ func _tick_fetch(npc: NPC, delta: float) -> void:
 				_fetch_loose = null
 		return
 	if not _fetch_shelf.is_empty():
-		var shelf: Node3D = _fetch_shelf.get("shelf")
-		if shelf == null or not is_instance_valid(shelf):
+		var shelf: Node3D = _live_node3d(_fetch_shelf.get("shelf"))
+		if shelf == null:
 			_claimed = false
 			return
 		npc.nav_steer(delta)
@@ -176,7 +203,10 @@ func _tick_fetch(npc: NPC, delta: float) -> void:
 	_claimed = false   ## nothing left to fetch
 
 func _complete(npc: NPC) -> void:
-	var target: Node = _job.get("target")
+	var target: Node3D = _live_target()
+	if target == null:
+		_claimed = false
+		return
 	var conf: Dictionary = TYPE_CONF[_job["type"]]
 	match _job["type"]:
 		"HARVEST":

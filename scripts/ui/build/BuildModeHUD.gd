@@ -300,6 +300,11 @@ const TOOL_BADGE_SIZE: float = 20.0
 const SUB_W:        float = 160.0
 const SUB_ITEM_H:   float = 72.0   ## Height per row in submenu
 const SUB_VP_SIZE:  int   = 192    ## High-res pooled texture, downscaled in cards
+## Closed preview viewports keep their ViewportTexture identity (the native
+## catalog cards hold it) but collapse to a negligible render target. A 2 px
+## floor is intentional: zero-sized SubViewports are invalid and can spam the
+## renderer while the HUD is hidden.
+const SUB_VP_HIBERNATED_SIZE: int = 2
 const SUB_GAP:      float = 6.0
 const SUB_PAD:      float = 10.0
 const SUB_BG:       Color = Color(0.08, 0.10, 0.07, 0.94)
@@ -378,6 +383,18 @@ static func _combined_local_aabb(root: Node3D) -> Dictionary:
 				found_any = true
 			else:
 				combined = combined.merge(mesh_aabb)
+		elif n is MultiMeshInstance3D and (n as MultiMeshInstance3D).multimesh != null:
+			var mmi := n as MultiMeshInstance3D
+			var relative_transform: Transform3D = root_inverse * mmi.global_transform
+			var local_aabb: AABB = mmi.multimesh.custom_aabb
+			if local_aabb.size == Vector3.ZERO:
+				local_aabb = mmi.get_aabb()
+			var multimesh_aabb: AABB = relative_transform * local_aabb
+			if not found_any:
+				combined = multimesh_aabb
+				found_any = true
+			else:
+				combined = combined.merge(multimesh_aabb)
 		for c in n.get_children():
 			stack.append(c)
 	return { "aabb": combined, "found_any": found_any }
@@ -433,10 +450,16 @@ var _sub_mesh_instances: Array  = []   ## MeshInstance3D per construct item (par
 var _shop_viewports:      Array = []
 var _shop_vp_textures:    Array = []
 var _shop_mesh_instances: Array = []
-## True once the construct + shop previews have been built (staggered across
-## frames — see _build_submenu_previews_staggered). The previews persist and
-## are reused across build-mode sessions, so this only ever builds once.
+## True once the construct + shop previews have been built for the current
+## open session (staggered across frames). Closing releases model trees and
+## render-target memory, so a later session rebuilds them incrementally.
 var _submenu_previews_ready: bool = false
+## Preview construction awaits between chunks. This generation token makes a
+## Build Mode exit cancel that coroutine safely instead of letting it continue
+## populating a now-hidden pool for dozens of frames.
+var _preview_build_generation: int = 0
+var _preview_build_in_progress: bool = false
+var _preview_pool_active: bool = false
 ## Which submenu row is currently hovered — used by _process() to know
 ## which preview (construct or shop pool) to spin, and to snap every other
 ## one back to PREVIEW_ROTATION_DEFAULT. -1 = none hovered / not on an item row.
@@ -659,6 +682,7 @@ func hide_hud() -> void:
 	_cancel_btn.visible   = false
 	if _workspace != null:
 		_workspace.close_all()
+	_hibernate_preview_pool()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 func set_active_tool(tool_id: int) -> void:
@@ -1069,6 +1093,7 @@ func _current_categories() -> Dictionary:
 		return CATEGORIES
 
 func _open_submenu(source: String = "construct") -> void:
+	_activate_preview_pool()
 	_submenu_source = source
 	if source == "construct":
 		active_tool = TOOL_CONSTRUCT
@@ -1084,7 +1109,7 @@ func _open_submenu(source: String = "construct") -> void:
 	## Build the previews lazily the FIRST time a submenu opens (not on
 	## build-mode entry) — deferred + staggered so opening the menu never
 	## hitches. Text rows show immediately; previews pop in as they build.
-	if not _submenu_previews_ready:
+	if not _submenu_previews_ready and not _preview_build_in_progress:
 		call_deferred("_build_submenu_previews_staggered")
 	_canvas.queue_redraw()
 
@@ -1095,6 +1120,9 @@ func _close_submenu() -> void:
 	_submenu_root.visible = false
 	if _workspace != null:
 		_workspace.hide_menus()
+	## Several controller/menu paths close one panel and open another in the
+	## same frame. Defer release so those transitions reuse the warm pool.
+	call_deferred("_hibernate_preview_pool_if_unused")
 	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	_canvas.queue_redraw()
 
@@ -1168,8 +1196,8 @@ func _build_submenu() -> Control:
 
 		# SubViewport for 3D preview
 		var vp: SubViewport = SubViewport.new()
-		vp.size = Vector2i(SUB_VP_SIZE, SUB_VP_SIZE)
-		vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+		vp.size = Vector2i(SUB_VP_HIBERNATED_SIZE, SUB_VP_HIBERNATED_SIZE)
+		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		vp.transparent_bg  = true
 		vp.disable_3d      = false
 		vp.own_world_3d    = true
@@ -1190,6 +1218,9 @@ func _build_submenu() -> Control:
 		light.omni_range = 8.0
 		vp.add_child(light)
 		PreviewPresentation.configure(vp)
+		## PreviewPresentation requests one frame by default; Build Mode starts
+		## hidden, so suppress that allocation/render until the pool activates.
+		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 
 		_sub_viewports.append(vp)
 		_sub_vp_textures.append(vp.get_texture())
@@ -1202,8 +1233,8 @@ func _build_submenu() -> Control:
 	var shop_ids: Array = PREVIEW_SOURCES.keys()
 	for item_id: int in shop_ids:
 		var vp2: SubViewport = SubViewport.new()
-		vp2.size = Vector2i(SUB_VP_SIZE, SUB_VP_SIZE)
-		vp2.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+		vp2.size = Vector2i(SUB_VP_HIBERNATED_SIZE, SUB_VP_HIBERNATED_SIZE)
+		vp2.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		vp2.transparent_bg  = true
 		vp2.disable_3d      = false
 		vp2.own_world_3d    = true
@@ -1223,6 +1254,7 @@ func _build_submenu() -> Control:
 		light2.omni_range = 8.0
 		vp2.add_child(light2)
 		PreviewPresentation.configure(vp2)
+		vp2.render_target_update_mode = SubViewport.UPDATE_DISABLED
 
 		_shop_viewports.append(vp2)
 		_shop_vp_textures.append(vp2.get_texture())
@@ -1457,22 +1489,79 @@ func _on_submenu_item_selected(item: int) -> void:
 ## previews are set to render-once (UPDATE_ONCE + update_worlds); only the
 ## hovered one spins live (see _update_preview_hover_spin).
 func _build_submenu_previews_staggered() -> void:
-	if _submenu_previews_ready:
+	if _submenu_previews_ready or _preview_build_in_progress or not _preview_pool_active:
 		return
 	if gridmap == null or gridmap.mesh_library == null:
 		return
-	_submenu_previews_ready = true
+	_preview_build_in_progress = true
+	var generation: int = _preview_build_generation
 	## Construct previews are cheap MeshLibrary fetches — several per frame.
 	## Shop previews instantiate real item scenes (.glb / scripts) — heavier,
 	## so one per frame.
 	const CONSTRUCT_CHUNK: int = 4
 	for i in CONSTRUCT_ITEMS.size():
+		if not _preview_pool_active or generation != _preview_build_generation:
+			return
 		_build_construct_preview(i)
 		if i % CONSTRUCT_CHUNK == CONSTRUCT_CHUNK - 1:
 			await get_tree().process_frame
 	for i in PREVIEW_SOURCES.size():
+		if not _preview_pool_active or generation != _preview_build_generation:
+			return
 		_build_shop_preview(i)
 		await get_tree().process_frame
+	if not _preview_pool_active or generation != _preview_build_generation:
+		return
+	_submenu_previews_ready = true
+	_preview_build_in_progress = false
+
+## Restores real render-target dimensions only while the catalog/shop can use
+## them. Models are populated by the staggered builder; keeping activation
+## separate makes opening deterministic even if the player rapidly exits and
+## re-enters Build Mode.
+func _activate_preview_pool() -> void:
+	if _preview_pool_active:
+		return
+	_preview_pool_active = true
+	_preview_build_generation += 1
+	for viewport_value: Variant in _sub_viewports + _shop_viewports:
+		var vp: SubViewport = viewport_value as SubViewport
+		if is_instance_valid(vp):
+			vp.size = Vector2i(SUB_VP_SIZE, SUB_VP_SIZE)
+			vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+
+## Releases the expensive part of the preview pool when its panels close:
+## render targets shrink from 192x192 to 2x2 and instantiated model trees are
+## freed. Viewport nodes/textures remain stable so existing TextureRects do not
+## need rewiring. The next open repopulates incrementally.
+func _hibernate_preview_pool() -> void:
+	if not _preview_pool_active and not _submenu_previews_ready and not _preview_build_in_progress:
+		return
+	_preview_pool_active = false
+	_preview_build_generation += 1
+	_preview_build_in_progress = false
+	_submenu_previews_ready = false
+	_hovered_preview_index = -1
+	_hovered_preview_is_shop = false
+	for i: int in _sub_mesh_instances.size():
+		var pivot: Node3D = _sub_mesh_instances[i] as Node3D
+		if is_instance_valid(pivot):
+			pivot.queue_free()
+		_sub_mesh_instances[i] = null
+	for i: int in _shop_mesh_instances.size():
+		var pivot: Node3D = _shop_mesh_instances[i] as Node3D
+		if is_instance_valid(pivot):
+			pivot.queue_free()
+		_shop_mesh_instances[i] = null
+	for viewport_value: Variant in _sub_viewports + _shop_viewports:
+		var vp: SubViewport = viewport_value as SubViewport
+		if is_instance_valid(vp):
+			vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+			vp.size = Vector2i(SUB_VP_HIBERNATED_SIZE, SUB_VP_HIBERNATED_SIZE)
+
+func _hibernate_preview_pool_if_unused() -> void:
+	if not visible or not _submenu_open:
+		_hibernate_preview_pool()
 
 ## Sets a preview viewport's render mode: UPDATE_WHEN_VISIBLE while it's the
 ## hovered (spinning) preview, UPDATE_ONCE otherwise so static previews cost

@@ -158,6 +158,16 @@ func _update_can_visual() -> void:
 	## uncollidable. Re-tune it here to match whichever model is current.
 	_update_collision_for_model()
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"bites": _bites_left, "empty": _is_empty}
+
+## Set pre-_ready: _ready() → _update_can_visual() picks the empty model when
+## _is_empty is already set.
+func apply_item_save_state(state: Dictionary) -> void:
+	_bites_left = int(state.get("bites", _bites_left))
+	_is_empty   = bool(state.get("empty", _is_empty))
+
 ## Tunes the CollisionShape3D's cylinder to the current visual model's height
 ## (full 0.172, empty ~0.214). Position is nudged so the cylinder's base stays
 ## at the same point the model's base renders at.

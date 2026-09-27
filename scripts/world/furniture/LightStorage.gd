@@ -197,7 +197,7 @@ func _try_store_held(item: RigidBody3D) -> void:
 ## ecosystem-wide "shelved" group. Writes into the first null slot so indices
 ## stay stable. NO metadata layer-saving — restoration always uses the
 ## codebase's canonical values (see take_for_carry / take_for_inventory).
-func _absorb_item(item: RigidBody3D) -> void:
+func _absorb_item(item: RigidBody3D, slot_idx: int = -1) -> void:
 	item.freeze = true
 	item.collision_layer = 0
 	item.collision_mask  = 0
@@ -210,7 +210,37 @@ func _absorb_item(item: RigidBody3D) -> void:
 		item.get_parent().remove_child(item)
 	add_child(item)
 	item.position = Vector3.ZERO
-	stored[_first_null_slot()] = item
+	var target: int = slot_idx if slot_idx >= 0 and slot_idx < stored.size() else _first_null_slot()
+	stored[target] = item
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## Serializes the fixed-size slot array into item specs (ItemSaveData.gd).
+## Backs the placed-object "storage" extra for End Table / Dresser / Trash Can.
+func get_storage_save_data() -> Dictionary:
+	var contents: Array = []
+	for i: int in stored.size():
+		if stored[i] != null:
+			contents.append({"idx": i, "spec": ItemSaveData.capture(stored[i])})
+	return {"contents": contents}
+
+## Rebuilds stored items from get_storage_save_data()'s output, writing each
+## back into its ORIGINAL slot index (slot indices are load-bearing for the
+## StorageUI — see the file header). A freshly-restored storage node has no
+## existing contents, so no clearing is needed here.
+func restore_storage_save_data(data: Dictionary) -> void:
+	var world_root: Node3D = get_tree().get_first_node_in_group("world") as Node3D
+	if world_root == null:
+		world_root = get_parent() as Node3D
+	if world_root == null:
+		return
+	for entry: Dictionary in data.get("contents", []):
+		var idx: int = int(entry.get("idx", -1))
+		if idx < 0 or idx >= stored.size():
+			continue
+		var item: Node = ItemSaveData.spawn(entry.get("spec", {}), world_root)
+		if item == null:
+			continue
+		_absorb_item(item as RigidBody3D, idx)
 
 ## Reparent an item OUT of this furniture to the world root so it exists at a
 ## sane world transform once un-shelved (items here are hidden children of the

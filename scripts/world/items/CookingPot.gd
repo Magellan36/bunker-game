@@ -495,6 +495,8 @@ func try_add_item(item: Node) -> bool:
 		rb.collision_mask   = 0
 		rb.linear_velocity  = Vector3.ZERO
 		rb.angular_velocity = Vector3.ZERO
+		if item.has_method("deactivate_dynamic_state"):
+			item.deactivate_dynamic_state()
 	if "is_held" in item:
 		item.is_held = false
 	if "_hold_point" in item:
@@ -527,6 +529,8 @@ func _eject_emptied_container(item: Node) -> void:
 		rb.collision_mask   = rb._rest_collision_mask()
 		rb.linear_velocity  = Vector3.ZERO
 		rb.angular_velocity = Vector3.ZERO
+		if item.has_method("restore_dynamic_state"):
+			item.restore_dynamic_state()
 	if "is_held" in item:
 		item.is_held = false
 	if "_hold_point" in item:
@@ -580,6 +584,24 @@ func restore_saved_state(extra: Dictionary) -> void:
 	_dish_name      = String(extra.get("dish_name", "Cooked Dish"))
 	_dish_hydration = float(extra.get("dish_hydration", 0.0))
 	_update_pot_visual()
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## A loose CookingPot (on a shelf, not on a stove) reuses the exact same
+## get_save_extra()/restore_saved_state() contract the Stove uses for its
+## hosted pot. restore_saved_state() calls _update_pot_visual(), so the real
+## restore is deferred to the post-ready sync hook (apply runs pre-_ready).
+var _pending_restore_extra: Dictionary = {}
+
+func get_item_save_state() -> Dictionary:
+	return {"pot": get_save_extra()}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	_pending_restore_extra = state.get("pot", {})
+
+func sync_saved_state_visuals() -> void:
+	if not _pending_restore_extra.is_empty():
+		restore_saved_state(_pending_restore_extra)
+		_pending_restore_extra = {}
 
 
 ## ─── Ingredient icon previews (Part K) ────────────────────────────────────
@@ -663,6 +685,8 @@ func remove_item(slot_idx: int) -> Node:
 		rb.collision_mask   = rb._rest_collision_mask()
 		rb.linear_velocity  = Vector3.ZERO
 		rb.angular_velocity = Vector3.ZERO
+		if item.has_method("restore_dynamic_state"):
+			item.restore_dynamic_state()
 	item.global_position = global_position + Vector3(0.0, 0.3, 0.0)
 
 	item_removed.emit(slot_idx, item)

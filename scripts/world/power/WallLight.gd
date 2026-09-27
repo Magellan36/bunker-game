@@ -2,8 +2,10 @@ extends Node3D
 ## WallLight.gd
 ## Wall-mounted industrial lamp using the industrial_wall_lamp GLB model.
 ##
-## Light: OmniLight3D radiating from the fixture centre.
-## OmniLight fills the room in all directions — no tilt/direction tuning needed.
+## Light: a very wide SpotLight3D aimed from the wall into the room. A wall
+## fixture cannot physically emit through the concrete behind it; modelling
+## that hemisphere directly avoids back-wall light halos and needs one shadow
+## map instead of an OmniLight3D cubemap's six.
 ##
 ## NO COLLISION — purely visual + light-emitting Node3D.
 ## Called from BuildModeController._spawn_placed_object() for TILE_LIGHT = 5.
@@ -15,10 +17,9 @@ extends Node3D
 ##   faint orange glow rather than going fully dark.
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
-## Flip false to silence all [LIGHT] registration prints.
-const WIRE_DEBUG: bool = true
+## Gated by DebugOutput.enabled (F7 "Disable All Debug Outputs").
 func _wdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		print(msg)
 
 # ─── Model path ───────────────────────────────────────────────────────────────
@@ -32,7 +33,7 @@ const LAMP_D: float = 0.1404
 ## Vertical offset from node origin to lamp centre (~3/4 wall height).
 const LAMP_Y_OFFSET: float = 1.5
 
-# ─── OmniLight constants ──────────────────────────────────────────────────────
+# ─── Room-facing light constants ─────────────────────────────────────────────
 ## Warm industrial amber — noticeably warm, not clinical white
 const LIGHT_COLOR:  Color = Color(1.0, 0.82, 0.50, 1.0)
 ## Lowered from 4.5 (July 2026 lighting-blowout fix) — 4.5 was tuned before
@@ -42,6 +43,14 @@ const LIGHT_COLOR:  Color = Color(1.0, 0.82, 0.50, 1.0)
 ## instead of flooding the whole room via raw light energy.
 const LIGHT_ENERGY: float = 2.0
 const LIGHT_RANGE:  float = 10.0
+## Godot's spot_angle is the half-angle. 78° produces a broad 156° room-side
+## hemisphere without spending shadow work behind or parallel to the wall.
+const LIGHT_SPOT_ANGLE: float = 78.0
+## Conservative contact offsets for closed bunker geometry. Godot's much
+## larger defaults visibly detach a thin wall's shadow from the floor/wall,
+## reading as a bright bubble around player-built BoxMesh walls.
+const SHADOW_BIAS: float = 0.025
+const SHADOW_NORMAL_BIAS: float = 0.20
 ## Emissive bulb energy (Aug 2026) — intentionally LOW: the warm amber bulb
 ## should read as a subtle glow, not a bright blob (the GLB's emissive asset
 ## was authored as a generic white glow; see _apply_matte_override).
@@ -63,8 +72,8 @@ const SHED_ENERGY:  float = 0.15   ## very low — just enough to suggest the fi
 ## Rated power draw in watts. Matches DeviceDatabase.WATT_RATINGS["wall_light"].
 var power_watts: float = 40.0
 
-## Internal reference to the OmniLight3D — needed for set_powered() / set_shed()
-var _omni: OmniLight3D = null
+## Internal reference to the room-facing light — needed for power state.
+var _light: SpotLight3D = null
 
 ## Emissive bulb (Aug 2026) — the GLB's authored emissive texture is preserved
 ## through the matte override so the bulb itself glows (1:1 with the model's
@@ -101,15 +110,6 @@ var _is_preview_only: bool = false
 ## Track shed state so set_powered(true) knows to restore full brightness.
 var _is_shed: bool = false
 
-## Shadow LOD (Aug 2026, see GraphicsSettings.SHADOW_LOD_* header comment)
-## — this fixture's own hysteresis state so GraphicsSettings' periodic scan
-## doesn't need to track per-light state itself. Starts true so a freshly
-## placed/loaded light isn't wrongly shadow-culled before the first scan
-## ever runs (a beat where it'd otherwise be near the player with no
-## shadow) — the first real scan corrects it either way within
-## SHADOW_LOD_SCAN_INTERVAL.
-var _shadow_lod_near: bool = true
-
 ## Lazily-created shared priority panel (PowerPriorityUI). Reused across opens.
 var _prio_ui: CanvasLayer = null
 ## Tracks whether the player is currently powered (for the interact prompt).
@@ -120,7 +120,6 @@ func _ready() -> void:
 	set_meta("tile_id", 5)
 	if not _is_preview_only:
 		add_to_group("wall_lights")
-		add_to_group("shadow_lod_lights")   ## Aug 2026 — distance-gated shadows, see GraphicsSettings.gd
 		## Defer power registration so global_position is correct.
 		## add_child() sets position AFTER _ready() runs, so calling
 		## register_wire_node() here would snap to Vector3.ZERO.
@@ -148,14 +147,14 @@ func set_powered(on: bool) -> void:
 	if on:
 		## Restore full brightness — clear shed state.
 		_is_shed = false
-	if _omni != null:
+	if _light != null:
 		if on:
-			_omni.light_color  = LIGHT_COLOR
-			_omni.light_energy = LIGHT_ENERGY
-			_omni.visible      = true
+			_light.light_color  = LIGHT_COLOR
+			_light.light_energy = LIGHT_ENERGY
+			_light.visible      = true
 		else:
 			## Hard power-cut — always go fully dark regardless of shed state.
-			_omni.visible = false
+			_light.visible = false
 	_apply_bulb_state()
 
 
@@ -164,11 +163,11 @@ func set_powered(on: bool) -> void:
 ## The player can see the light is "on" but starved for power.
 func set_shed(shed_on: bool) -> void:
 	_is_shed = shed_on
-	if _omni != null:
+	if _light != null:
 		if shed_on:
-			_omni.light_color  = SHED_COLOR
-			_omni.light_energy = SHED_ENERGY
-			_omni.visible      = true   ## dimly visible — not off
+			_light.light_color  = SHED_COLOR
+			_light.light_energy = SHED_ENERGY
+			_light.visible      = true   ## dimly visible — not off
 	_apply_bulb_state()
 
 
@@ -290,15 +289,19 @@ func _build_fixture() -> void:
 		mi.set_surface_override_material(0, mat)
 		add_child(mi)
 
-	# ── OmniLight3D — sits at lamp centre, radiates in all directions ─────────
-	var omni: OmniLight3D = OmniLight3D.new()
-	omni.light_color           = LIGHT_COLOR
-	omni.light_energy          = LIGHT_ENERGY
-	omni.omni_range            = LIGHT_RANGE
-	omni.omni_attenuation      = 0.6
-	omni.light_indirect_energy = 1.0
-	omni.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
-	omni.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.5)
+	# ── Wide SpotLight3D — one room-side shadow map, never lights wall rear ─────
+	var light := SpotLight3D.new()
+	light.light_color           = LIGHT_COLOR
+	light.light_energy          = LIGHT_ENERGY
+	light.spot_range            = LIGHT_RANGE
+	light.spot_angle            = LIGHT_SPOT_ANGLE
+	light.spot_angle_attenuation = 0.22
+	light.spot_attenuation      = 0.6
+	light.light_indirect_energy = 1.0
+	light.light_volumetric_fog_energy = LIGHT_VOLUMETRIC_FOG_ENERGY
+	## WallLight's local -Z is the room-facing normal used by placement. Offset
+	## the source just beyond the shade/wall face so the caster starts cleanly.
+	light.position              = Vector3(0.0, LAMP_Y_OFFSET, -LAMP_D * 0.65)
 	## Aug 2026 — this fixture briefly excluded characters from its
 	## light_cull_mask (Aggregated Character Shadows plan), reverted (see
 	## docs/systems/graphics/README.md "Aggregated character shadows" for
@@ -309,19 +312,19 @@ func _build_fixture() -> void:
 	## system (see docs/systems/graphics/README.md "Character shadow
 	## stand-in"); kept, not scheduled for removal.
 	## START DARK — light only turns on when PowerManager calls set_powered(true).
-	omni.visible = false
-	add_child(omni)
-	_omni = omni
-	## Aug 2026 — real-time shadow casting, generalized across all dynamic
-	## lights (Flashlight/WallLight/GrowLight) via
-	## GraphicsSettings.shadow_casting_enabled (preset-driven: HIGH/ULTRA
-	## on, LOW/MEDIUM off). Side benefit: this also stops the omni's light
-	## from bleeding straight through the wall mesh behind the fixture into
-	## whatever's on the other side — the wall now correctly occludes it
-	## once shadows are on. See docs/systems/graphics/README.md "Unified
-	## dynamic shadow casting".
-	_apply_graphics_settings()
-	GraphicsSettings.settings_changed.connect(_apply_graphics_settings)
+	light.visible = false
+	add_child(light)
+	_light = light
+	## Sep 2026 — ALWAYS-ON shadow casting (the "classic" two-layer split):
+	## the room-facing spot always casts, so walls/pillars ALWAYS occlude it and the hard
+	## shadow cutoff at walls/corners is present at every quality preset. This
+	## is independent of GraphicsSettings.shadow_casting_enabled, which now
+	## only gates the DYNAMIC (character/object) shadow layer — that gating is
+	## applied per-mesh by GraphicsSettings._apply_dynamic_shadow_casting(),
+	## not here.
+	light.shadow_enabled = true
+	light.shadow_bias = SHADOW_BIAS
+	light.shadow_normal_bias = SHADOW_NORMAL_BIAS
 
 	# ── Interaction proxy — lets the player press E to set power priority ──────
 	## WallLight is a plain Node3D (no body), so we attach a small StaticBody3D
@@ -335,39 +338,6 @@ func _build_fixture() -> void:
 		add_child(proxy)
 		proxy.set("host", self)
 
-
-## Applies GraphicsSettings.shadow_casting_enabled to this fixture's
-## OmniLight3D. Called once at build time and again on every
-## GraphicsSettings.settings_changed (preset switch or individual toggle) —
-## same live-update pattern Flashlight.gd already uses.
-func _apply_graphics_settings() -> void:
-	if _omni == null:
-		return
-	## Global switch always wins outright: OFF forces this fixture dark
-	## regardless of distance; ON re-arms distance gating rather than
-	## forcing shadows on for a possibly-far fixture — the next
-	## GraphicsSettings shadow-LOD scan (within SHADOW_LOD_SCAN_INTERVAL)
-	## corrects it down again if the player isn't actually nearby.
-	_omni.shadow_enabled = GraphicsSettings.shadow_casting_enabled and _shadow_lod_near
-
-
-## Shadow LOD (Aug 2026) — called by GraphicsSettings' periodic scan (see its
-## SHADOW_LOD_* header comment for the hysteresis rationale). NEAR_RADIUS <
-## FAR_RADIUS on purpose: only flips state when the player crosses whichever
-## boundary is relevant to the CURRENT state, so hovering between the two
-## radii can't toggle every scan.
-func update_shadow_lod(player_pos: Vector3) -> void:
-	if _omni == null:
-		return
-	var dist: float = global_position.distance_to(player_pos)
-	if _shadow_lod_near and dist > GraphicsSettings.SHADOW_LOD_FAR_RADIUS:
-		_shadow_lod_near = false
-		_omni.shadow_enabled = false
-	elif not _shadow_lod_near and dist < GraphicsSettings.SHADOW_LOD_NEAR_RADIUS:
-		_shadow_lod_near = true
-		_omni.shadow_enabled = GraphicsSettings.shadow_casting_enabled
-
-
 ## Aug 2026 — returns this fixture's current contribution weight for the
 ## removed fake-shadow decal system's aggregate shadow-direction
 ## calculation, or 0.0 if currently off/out of range. Dead code since that
@@ -377,7 +347,7 @@ func update_shadow_lod(player_pos: Vector3) -> void:
 ## rank/blend multiple lights sensibly relative to each other, not match
 ## the GPU's real attenuation curve exactly.
 func get_shadow_weight(from_pos: Vector3) -> float:
-	if _omni == null or not _omni.visible:
+	if _light == null or not _light.visible:
 		return 0.0
 	var dist: float = global_position.distance_to(from_pos)
 	if dist >= LIGHT_RANGE:

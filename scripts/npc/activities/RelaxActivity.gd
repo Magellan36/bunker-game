@@ -30,6 +30,12 @@ func score(npc: NPC) -> float:
 	## eject a seated resident. Real needs/jobs still clear this modest floor.
 	return maxf(utility, ACTIVE_SCORE_FLOOR) if _inner != null else utility
 
+func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
+	if computed_score > 0.0: return &"leisure_available"
+	if npc.get_relax_time_remaining_today() <= 0.0: return &"daily_leisure_budget_spent"
+	if npc.is_relax_on_cooldown(): return &"leisure_cooldown"
+	return &"no_free_chair"
+
 func interruptible() -> bool:
 	## Sitting around is a passive commitment. Utility-selected needs and work
 	## may interrupt it; exit() requests the authored stand-up transition before

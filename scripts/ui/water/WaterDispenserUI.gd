@@ -97,4 +97,7 @@ func _on_toggle_pressed() -> void:
 func _on_priority_requested(value: int) -> void:
 	if _is_open and is_instance_valid(_dispenser):
 		_dispenser.priority = clampi(value, 1, 5)
+		var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+		if wm != null:
+			wm.request_flow_refresh()
 		_refresh_data()

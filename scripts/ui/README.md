@@ -63,8 +63,10 @@ Panel snapshots are transient presentation data, not a second save-state model.
 
 ## Held for user review
 
-HUD/needs/inventory hotbar, hover/interaction prompts and world banners, pause
-and settings, notifications/history, terminal/zone customization, storage,
+Graphics Settings was ported to the quiet language in Sep 2026 (see
+`docs/systems/ui/README.md`, "settings quiet pass"; skin in
+`common/QuietControls.gd`). Still held: HUD/needs/inventory hotbar,
+hover/interaction prompts and world banners, pause, notifications/history, terminal/zone customization, storage,
 research, NPC/medical, build/shop, loading and other unique workflows are not
 authorized ports in this pass. Approved character creation stays full-screen
 and unchanged. Consult the complete audit before choosing the next scope.

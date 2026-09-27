@@ -18,6 +18,9 @@ const DRINK_ML:        float = 375.0   ## == WaterBottle.STANDARD_DRINK_ML
 const HYDRATION:       float = 21.5    ## == WaterBottle.STANDARD_HYDRATION
 const CONSUME_TIME:    float = 2.0
 const USE_RANGE:       float = 1.4
+## Loose bottles need the precise stop radius: a broad navigation arrival
+## radius can finish just outside PICKUP_RANGE and leave the NPC waiting there.
+const LOOSE_APPROACH_DISTANCE: float = 0.2
 
 var _mode: String = ""        ## "dispenser" | "bottle" | "shelf_bottle" | "case"
 var _target: Node = null
@@ -26,6 +29,7 @@ var _drinking: float = 0.0
 var _pending_snatch: Node = null   ## Part 30
 var _handoff: NPCActivity = null
 var _case_fetch: NPCCaseFetch = null   ## Aug 2026 — last-resort tier once dispenser/loose/shelved bottle all come up empty
+var _last_failure_reason: StringName = &""
 
 func attention_target(_npc: NPC) -> Node3D:
 	if _case_fetch != null:
@@ -45,6 +49,26 @@ func score(npc: NPC) -> float:
 			and not npc.is_npc_snatch_eligible(Callable(NPCItemUser, "is_drinkable_bottle")):
 		return 0.0
 	return (100.0 - npc.thirst) * 1.2 * npc.get_work_ethic_passive_mult()   ## thirst outranks equal-level energy
+
+func debug_score_reason(npc: NPC, computed_score: float) -> StringName:
+	if computed_score > 0.0: return &"thirst_and_water_available"
+	if npc.thirst >= 55.0: return &"thirst_above_threshold"
+	return &"no_water_source_available"
+
+func debug_info() -> Dictionary:
+	var target: String = ""
+	if _target != null and is_instance_valid(_target):
+		target = String(_target.name)
+	elif not _shelf_pick.is_empty():
+		var shelf: Node = _shelf_pick.get("shelf")
+		target = String(shelf.name) if shelf != null else ""
+	elif _case_fetch != null:
+		var case_target: Node3D = _case_fetch.get_case_target()
+		target = String(case_target.name) if case_target != null else ""
+	return {"activity": "drink", "phase": "consume" if _drinking > 0.0 else "fetch",
+		"source": _mode if not _mode.is_empty() else ("case" if _case_fetch != null else "none"),
+		"target": target, "consume_seconds_left": _drinking,
+		"last_failure_reason": String(_last_failure_reason)}
 
 func _pick_target(npc: NPC) -> Dictionary:
 	var best_d: float = INF
@@ -78,6 +102,7 @@ func _pick_target(npc: NPC) -> Dictionary:
 
 func enter(npc: NPC) -> void:
 	_drinking = 0.0
+	_last_failure_reason = &""
 	_pending_snatch = npc.find_snatch_target(Callable(NPCItemUser, "is_drinkable_bottle"))
 	if _pending_snatch != null:
 		return   ## handled on first tick() below
@@ -87,6 +112,10 @@ func enter(npc: NPC) -> void:
 	_shelf_pick = pick.get("shelf_pick", {})
 	if _mode == "bottle" and _target != null:
 		if not NPCItemUser.claim_item(_target, npc):
+			_last_failure_reason = &"loose_item_claim_lost"
+			NPCMetrics.record_event(&"activity_target_claim_failed", npc, {
+				"activity": "drink", "target": String(_target.name),
+			})
 			_target = null   ## lost the race between scoring and entering
 			return
 	elif _mode == "shelf_bottle":
@@ -99,7 +128,10 @@ func enter(npc: NPC) -> void:
 		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"))
 		return
 	if _target != null:
-		npc.set_nav_target((_target as Node3D).global_position)
+		if _mode == "bottle":
+			npc.set_nav_target((_target as Node3D).global_position, LOOSE_APPROACH_DISTANCE)
+		else:
+			npc.set_nav_target((_target as Node3D).global_position)
 
 func tick(npc: NPC, delta: float) -> void:
 	if _pending_snatch != null:
@@ -162,17 +194,25 @@ func _tick_bottle(npc: NPC, delta: float) -> void:
 		_drinking = CONSUME_TIME
 		return
 	if "is_held" in _target and _target.is_held:
+		_last_failure_reason = &"target_taken_while_approaching"
 		NPCItemUser.release_item(_target)
 		_target = null
 		return
-	npc.nav_steer(delta)
+	NPCItemUser.track_fetch_target(npc, _target, LOOSE_APPROACH_DISTANCE)
 	## Part 16 — this was the exact bug from the water-bottle report: raw 3D
 	## distance against PICKUP_RANGE(1.2), with a loose bottle's ~0.9 vertical
 	## offset from the NPC's capsule-center origin eating most of that budget.
 	if NPCItemUser.flat_distance(npc.global_position, (_target as Node3D).global_position) <= NPCItemUser.PICKUP_RANGE:
+		npc.halt_movement(delta)
 		if not NPCItemUser.grab_loose(npc, _target):
+			_last_failure_reason = &"grab_refused"
+			NPCMetrics.record_anomaly(&"activity_pickup_failed", npc, {
+				"activity": "drink", "target": String(_target.name),
+			}, npc.get_navigation_debug_info())
 			NPCItemUser.release_item(_target)
 			_target = null   ## grab failed — give up cleanly, rescore next think
+	else:
+		npc.nav_steer(delta)
 
 ## Aug 2026 — shelved-bottle pre-phase. Once the grab lands, hands off to
 ## _tick_bottle() completely (mode flips to "bottle", _target becomes the
@@ -238,7 +278,10 @@ func _reacquire_or_finish(npc: NPC) -> void:
 		_case_fetch = NPCCaseFetch.new(Callable(NPCItemUser, "is_stocked_water_case"))
 		return
 	if _target != null:
-		npc.set_nav_target((_target as Node3D).global_position)
+		if _mode == "bottle":
+			npc.set_nav_target((_target as Node3D).global_position, LOOSE_APPROACH_DISTANCE)
+		else:
+			npc.set_nav_target((_target as Node3D).global_position)
 
 func done(npc: NPC) -> bool:
 	return (_target == null or npc.thirst >= 90.0) and _pending_snatch == null and _case_fetch == null

@@ -106,14 +106,10 @@ const DETOUR_OFFSET: float = 0.5
 const COLLINEAR_LATERAL_TOLERANCE: float = WaterPipeSegment.PIPE_RADIUS * 2.0
 
 # ─── Debug (July 2026, seventh playtest pass) ────────────────────────────────
-## Flip false to silence all [PipeDebug] prints. Kept ON per Brannon's
-## explicit request to nail down why pipes are still being routed/placed
-## oddly after the last fix — matches the project's standing WIRE_DEBUG
-## convention (see WireDrawMode.gd/BuildModeController.gd), don't strip
-## until he explicitly asks for this stable.
-const PIPE_DEBUG: bool = true
+## All [PipeDebug] prints are gated by DebugOutput.enabled (the F7 "Toggle
+## All Debug Outputs" switch) — see DebugOutput.gd.
 func _pdbg(msg: String) -> void:
-	if PIPE_DEBUG:
+	if DebugOutput.enabled:
 		print(msg)
 
 ## ─── Continuous paint-along-wall mode (Part B, combined refactor pass) ──────

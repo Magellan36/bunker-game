@@ -2,7 +2,7 @@ extends SceneTree
 ## Deterministic pressure tests; no GPU allocations or user settings writes.
 
 class TestSettings extends "res://scripts/core/GraphicsSettings.gd":
-	var memory_for_test: int = 512 * 1024 * 1024
+	var memory_for_test: int = GRAPHICS_MEMORY_HEADROOM - 1
 	var apply_count: int = 0
 	var save_count: int = 0
 
@@ -60,12 +60,14 @@ func _run() -> void:
 	var panel: CanvasLayer = load("res://scripts/ui/menus/GraphicsSettingsPanel.gd").new()
 	root.add_child(panel)
 	await process_frame
-	var preset_option: OptionButton = panel.get("_preset_option")
-	preset_option.select(2)
+	var preset_buttons: Array = panel.get("_preset_buttons")
+	(preset_buttons[2] as Button).set_pressed_no_signal(true)
 	live_settings.graphics_change_rejected.emit("Memory guard UI test")
 	await process_frame
-	_check(preset_option.selected == live_settings.current_preset,
-		"Rejected dropdown selection must return to the actual preset")
+	var actual: int = live_settings.current_preset
+	_check(int(panel.call("get_displayed_preset")) == actual
+		and (preset_buttons[2] as Button).button_pressed == (actual == 2),
+		"Rejected preset selection must return to the actual preset")
 	var history: Array = root.get_node("NotificationManager").get_history()
 	_check(not history.is_empty() and history.back().get("text", "") == "Memory guard UI test",
 		"Rejection must appear in the notification system")

@@ -60,6 +60,8 @@ const PREVIEW_SCENE_PATH: String = "res://scenes/player/AdventurerModel.tscn"
 ## world, so the bunker build-up happens behind a branded screen.
 const NEXT_SCENE_PATH: String = "res://scenes/ui/LoadingScreen.tscn"
 const THUMBNAIL_PIXEL_SIZE: int = 72
+## Sep 2026 — Esc / controller B returns to the main menu.
+const MAIN_MENU_SCENE_PATH: String = "res://scenes/ui/main_menu/MainMenu.tscn"
 
 @export var category_body_button: Button = null
 @export var category_hair_button: Button = null
@@ -309,3 +311,8 @@ func _on_randomise_pressed() -> void:
 
 func _on_complete_pressed() -> void:
 	get_tree().change_scene_to_file(NEXT_SCENE_PATH)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		get_tree().change_scene_to_file(MAIN_MENU_SCENE_PATH)

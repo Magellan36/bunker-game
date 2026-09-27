@@ -19,6 +19,10 @@ const FUEL_RATE: float = 8.0
 var shelf_stack_limit: int    = 2
 var shelf_item_type:   String = "fuel_can"
 
+## Human-built metal jerry can model (Sep 2026), pre-scaled at export to match
+## the FuelCan.tscn collision footprint (0.28 × 0.42 × 0.17, base at y=0).
+const JERRY_CAN_MODEL_PATH: String = "res://assets/models/metal_jerrycan.glb"
+
 var _mesh: MeshInstance3D = null
 
 # ─── State ───────────────────────────────────────────────────────────────────
@@ -48,6 +52,14 @@ func _ready() -> void:
 ## Fuel cans must stay in the world — you carry them by hand only.
 func can_store() -> bool:
 	return false
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"fuel": _fuel_remaining, "empty": _is_empty}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	_fuel_remaining = float(state.get("fuel", _fuel_remaining))
+	_is_empty       = bool(state.get("empty", _is_empty))
 
 # ─── Proximity callback ───────────────────────────────────────────────────────
 ## Called by InteractionSystem when player enters/exits the DetectArea.
@@ -188,9 +200,23 @@ func _become_empty() -> void:
 
 # ─── Mesh ─────────────────────────────────────────────────────────────────────
 
-## Procedural jerry can model — red body, dark grey handle, metallic cap.
-## Built from BoxMesh + CylinderMesh primitives.
+## Loads the human-built metal jerry can GLB (pre-scaled to the collision
+## footprint). Falls back to the procedural primitives below if the model is
+## missing or fails to instantiate.
 func _build_placeholder_mesh() -> void:
+	var packed: PackedScene = load(JERRY_CAN_MODEL_PATH) if ResourceLoader.exists(JERRY_CAN_MODEL_PATH) else null
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			model.position = Vector3.ZERO
+			BuildMaterials.recenter_glb_mesh(model)
+			BuildMaterials.strip_model_collision(model)
+			add_child(model)
+			return
+		push_warning("FuelCan: %s failed to instantiate — falling back to placeholder mesh" % JERRY_CAN_MODEL_PATH)
+	else:
+		push_warning("FuelCan: %s missing — falling back to placeholder mesh" % JERRY_CAN_MODEL_PATH)
+
 	_mesh = MeshInstance3D.new()
 	_mesh.position = Vector3(0.0, 0.17, 0.0)
 

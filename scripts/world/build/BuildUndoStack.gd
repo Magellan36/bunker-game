@@ -58,10 +58,14 @@ func _undo() -> void:
 		if is_instance_valid(body):
 			if body.has_method("eject_all_items"):
 				body.eject_all_items()
+			var removed_from_registry: bool = false
 			for i: int in _owner._placed_objects.size():
 				if _owner._placed_objects[i]["node"] == body:
 					_owner._placed_objects.remove_at(i)
+					removed_from_registry = true
 					break
+			if removed_from_registry:
+				_owner.notify_navigation_topology_changed()
 			## Unregister from power grid before freeing (undo-place path)
 			if undo_tid == _owner.TILE_LIGHT:
 				var pm: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
@@ -150,6 +154,7 @@ func _undo() -> void:
 			"player_placed": true,
 			"footprint":     footprint,
 		})
+		_owner.notify_navigation_topology_changed()
 		if not extra.is_empty():
 			_owner.call_deferred("_apply_device_extra_deferred", body, tile_id, extra)
 		_owner._spawn_float_label_at_pos(pos, price, false)
@@ -187,6 +192,7 @@ func _undo() -> void:
 					reg_entry["world_pos"] = old_pos
 					reg_entry["angle_deg"] = old_angle
 					break
+			_owner.notify_navigation_topology_changed()
 			# Wall-fed power devices key their invisible electrical attachment by
 			# position, so an undone move must restore that attachment as well.
 			if body.has_method("refresh_power_attachment"):
@@ -298,14 +304,18 @@ func _undo() -> void:
 
 	elif type == "wall_run":
 		var seg_nodes: Array = entry.get("seg_nodes", [])
+		var removed_wall: bool = false
 		for n: Variant in seg_nodes:
 			if n != null and is_instance_valid(n):
 				var body: Node3D = n as Node3D
 				for i: int in _owner._placed_objects.size():
 					if _owner._placed_objects[i]["node"] == body:
 						_owner._placed_objects.remove_at(i)
+						removed_wall = true
 						break
 				body.queue_free()
+		if removed_wall:
+			_owner.notify_navigation_topology_changed()
 		var total_refund: int = entry.get("price_per_segment", 0) * seg_nodes.size()
 		if total_refund > 0 and _owner.world_node != null:
 			_owner.world_node.add_cash(total_refund)

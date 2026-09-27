@@ -58,6 +58,11 @@ class_name Shelving
 var slots: Array = []   ## Sized in _ready(): shelf_y.size() * slots_per_tier empty stacks
 var _slot_nodes: Array = []   ## Marker3D for each slot's base world position
 
+## All shelves use the same two immutable finishes. Sharing them avoids two
+## material resources per placed shelf (and per Build preview rebuild).
+static var _shared_metal_material: StandardMaterial3D = null
+static var _shared_shelf_material: StandardMaterial3D = null
+
 # ─── Interaction ──────────────────────────────────────────────────────────────
 var _player_in_range: bool    = false
 var _interaction_system: Node = null   ## Injected by BuildModeController after spawn
@@ -134,15 +139,8 @@ func _ready() -> void:
 # ─── Mesh ─────────────────────────────────────────────────────────────────────
 func _load_mesh() -> void:
 	## Metallic grey — matches Table.gd
-	var metal_mat: StandardMaterial3D = StandardMaterial3D.new()
-	metal_mat.albedo_color = Color(0.60, 0.62, 0.65, 1.0)
-	metal_mat.roughness    = 0.4
-	metal_mat.metallic     = 0.5
-
-	var shelf_mat: StandardMaterial3D = StandardMaterial3D.new()
-	shelf_mat.albedo_color = Color(0.55, 0.57, 0.60, 1.0)
-	shelf_mat.roughness    = 0.4
-	shelf_mat.metallic     = 0.5
+	var metal_mat: StandardMaterial3D = _metal_material()
+	var shelf_mat: StandardMaterial3D = _shelf_material()
 
 	## 4 corner posts — angle-iron style (shortened at top by one shelf spacing)
 	var post_w: float = 0.035
@@ -166,46 +164,75 @@ func _load_mesh() -> void:
 		Vector2(-unit_w * 0.5 + post_w * 0.5,  unit_d * 0.5 - post_d * 0.5),
 		Vector2( unit_w * 0.5 - post_w * 0.5,  unit_d * 0.5 - post_d * 0.5),
 	]
+	var post_positions: Array[Vector3] = []
+	var lip_positions: Array[Vector3] = []
 	for corner: Vector2 in corners:
-		## Vertical bar
-		var post_mi: MeshInstance3D = MeshInstance3D.new()
-		var post: BoxMesh = BoxMesh.new()
-		post.size = Vector3(post_w, post_h, post_d)
-		post_mi.mesh = post
-		post_mi.position = Vector3(corner.x, post_h * 0.5 - post_y_offset, corner.y)
-		post_mi.set_surface_override_material(0, metal_mat)
-		add_child(post_mi)
-
-		## Horizontal lip (front-facing L-bracket detail)
-		var lip_mi: MeshInstance3D = MeshInstance3D.new()
-		var lip: BoxMesh = BoxMesh.new()
-		lip.size = Vector3(post_w, 0.015, 0.008)
-		lip_mi.mesh = lip
-		lip_mi.position = Vector3(corner.x, post_h * 0.5 - post_y_offset, corner.y - post_d * 0.5 - 0.004)
-		lip_mi.set_surface_override_material(0, metal_mat)
-		add_child(lip_mi)
+		post_positions.append(Vector3(corner.x, post_h * 0.5 - post_y_offset, corner.y))
+		lip_positions.append(Vector3(
+			corner.x, post_h * 0.5 - post_y_offset, corner.y - post_d * 0.5 - 0.004))
+	_add_box_multimesh("Posts", Vector3(post_w, post_h, post_d), post_positions, metal_mat)
+	_add_box_multimesh("PostLips", Vector3(post_w, 0.015, 0.008), lip_positions, metal_mat)
 
 	## Slot notches on each post (small horizontal marks for adjustable shelves)
+	var notch_positions: Array[Vector3] = []
 	for corner: Vector2 in corners:
 		for sy: float in shelf_y:
 			for n: int in range(-1, 2):
-				var notch_mi: MeshInstance3D = MeshInstance3D.new()
-				var notch: BoxMesh = BoxMesh.new()
-				notch.size = Vector3(post_w + 0.005, 0.004, 0.003)
-				notch_mi.mesh = notch
-				notch_mi.position = Vector3(corner.x, sy + float(n) * 0.012, corner.y - post_d * 0.5 - 0.002)
-				notch_mi.set_surface_override_material(0, metal_mat)
-				add_child(notch_mi)
+				notch_positions.append(Vector3(
+					corner.x, sy + float(n) * 0.012, corner.y - post_d * 0.5 - 0.002))
+	_add_box_multimesh(
+		"ShelfNotches", Vector3(post_w + 0.005, 0.004, 0.003), notch_positions, metal_mat)
 
 	## Shelf platforms — span full width, posts sit inside
+	var shelf_positions: Array[Vector3] = []
 	for sy: float in shelf_y:
-		var shelf_mi: MeshInstance3D = MeshInstance3D.new()
-		var shelf: BoxMesh = BoxMesh.new()
-		shelf.size = Vector3(unit_w, 0.018, unit_d)
-		shelf_mi.mesh = shelf
-		shelf_mi.position = Vector3(0.0, sy, 0.0)
-		shelf_mi.set_surface_override_material(0, shelf_mat)
-		add_child(shelf_mi)
+		shelf_positions.append(Vector3(0.0, sy, 0.0))
+	_add_box_multimesh("ShelfPlatforms", Vector3(unit_w, 0.018, unit_d), shelf_positions, shelf_mat)
+
+## One renderer node replaces each family of identical box meshes. This keeps
+## every authored transform exactly while collapsing a medium shelf from 73
+## MeshInstance3D children to four MultiMeshInstance3D children.
+func _add_box_multimesh(node_name: String, size: Vector3,
+		positions: Array[Vector3], material: StandardMaterial3D) -> void:
+	if positions.is_empty():
+		return
+	var box := BoxMesh.new()
+	box.size = size
+	var instances := MultiMesh.new()
+	instances.transform_format = MultiMesh.TRANSFORM_3D
+	instances.mesh = box
+	instances.instance_count = positions.size()
+	var combined_aabb := AABB()
+	for i: int in positions.size():
+		var instance_transform := Transform3D(Basis.IDENTITY, positions[i])
+		instances.set_instance_transform(i, instance_transform)
+		var instance_aabb: AABB = instance_transform * box.get_aabb()
+		combined_aabb = instance_aabb if i == 0 else combined_aabb.merge(instance_aabb)
+	## Providing this up front makes culling and same-frame preview sizing
+	## deterministic; otherwise RenderingServer computes the MultiMesh bounds
+	## asynchronously after the catalog has already measured it.
+	instances.custom_aabb = combined_aabb
+	var renderer := MultiMeshInstance3D.new()
+	renderer.name = node_name
+	renderer.multimesh = instances
+	renderer.material_override = material
+	add_child(renderer)
+
+static func _metal_material() -> StandardMaterial3D:
+	if _shared_metal_material == null:
+		_shared_metal_material = StandardMaterial3D.new()
+		_shared_metal_material.albedo_color = Color(0.60, 0.62, 0.65, 1.0)
+		_shared_metal_material.roughness = 0.4
+		_shared_metal_material.metallic = 0.5
+	return _shared_metal_material
+
+static func _shelf_material() -> StandardMaterial3D:
+	if _shared_shelf_material == null:
+		_shared_shelf_material = StandardMaterial3D.new()
+		_shared_shelf_material.albedo_color = Color(0.55, 0.57, 0.60, 1.0)
+		_shared_shelf_material.roughness = 0.4
+		_shared_shelf_material.metallic = 0.5
+	return _shared_shelf_material
 
 # ─── Slot markers ─────────────────────────────────────────────────────────────
 func _build_slot_markers() -> void:
@@ -508,15 +535,14 @@ func _place_item_in_slot(item: RigidBody3D, slot_idx: int, stack_idx: int) -> vo
 		iname = str(item.item_name).to_lower()
 	var extra_lift: float = 0.0
 	if _get_item_type(item) == "test_crate":
-		## Aug 2026 — TestCrate's mesh pivot is centered (bottom plate sits at
-		## -H*0.5+T*0.5 = -0.231 below the item's own origin; see
-		## TestCrate._build_placeholder_mesh()). Without this lift the crate's
-		## origin lands at the marker itself and ~0.23m of the model sinks
-		## through the shelf platform below it — this is the reported bug.
-		## 0.18 = platform_top_offset(0.009) + half_crate_height(0.24) -
-		## slot_lift(0.075), rounded down ~0.006 for a hair of visible
-		## clearance instead of exact flush contact (avoids z-fighting).
-		extra_lift = 0.18
+		## TestCrate's mesh pivot is centered on the item origin (the GLB is
+		## shifted down half its height; bottom plate sits at -0.149 below the
+		## origin). Without this lift the crate's origin lands at the marker
+		## itself and ~0.15m of the model sinks through the shelf platform.
+		## 0.083 = platform_top_offset(0.009) + half_crate_height(0.149) -
+		## slot_lift(0.075), with a hair of clearance instead of exact flush
+		## contact (avoids z-fighting).
+		extra_lift = 0.083
 	elif _get_stack_limit(item) == 4 and iname.contains("case"):
 		extra_lift = 0.06   ## Cases laid flat — lift centre above shelf board
 	elif _get_stack_limit(item) == 6:
@@ -587,6 +613,46 @@ func _place_item_in_slot(item: RigidBody3D, slot_idx: int, stack_idx: int) -> vo
 			item.set_meta("_was_interactable", true)
 			item.remove_from_group("interactable")
 	)
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## Serializes every non-empty slot's item stack into item specs
+## (ItemSaveData.gd). Backs the placed-object "storage" extra for the shelf
+## family. Slot/stack order is preserved so items reload in the same place.
+func get_storage_save_data() -> Dictionary:
+	var contents: Array = []
+	for i: int in slots.size():
+		var stack: Array = slots[i]
+		if stack.is_empty():
+			continue
+		var specs: Array = []
+		for item: Variant in stack:
+			specs.append(ItemSaveData.capture(item))
+		contents.append({"slot": i, "stack": specs})
+	return {"contents": contents}
+
+## Rebuilds shelved items from get_storage_save_data()'s output. Spawns each
+## item into the world root, then reuses _place_item_in_slot() (the same
+## placement path a live store uses) so frozen/shelved/pickup-excluded state
+## all settle identically. A freshly-restored shelf has no existing contents.
+func restore_storage_save_data(data: Dictionary) -> void:
+	var world_root: Node3D = get_tree().get_first_node_in_group("world") as Node3D
+	if world_root == null:
+		world_root = get_parent() as Node3D
+	if world_root == null:
+		return
+	for entry: Dictionary in data.get("contents", []):
+		var slot: int = int(entry.get("slot", -1))
+		if slot < 0 or slot >= slots.size():
+			continue
+		for spec: Variant in entry.get("stack", []):
+			if not (spec is Dictionary):
+				continue
+			var item: Node = ItemSaveData.spawn(spec as Dictionary, world_root)
+			if item == null:
+				continue
+			var stack_idx: int = slots[slot].size()
+			slots[slot].append(item)
+			_place_item_in_slot(item as RigidBody3D, slot, stack_idx)
 
 ## NPC Pass 2, Part 3 — NPC-side retrieval. Mirrors retrieve_to_carry()'s
 ## un-shelving mechanics exactly (group removal, freeze/collision restore),

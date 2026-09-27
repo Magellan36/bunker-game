@@ -35,6 +35,36 @@ explicitly approved migration of the generator inspector; other legacy panels
 remain unchanged. Initial character-creation focus no longer scrolls its heading
 out of view.
 
+**September 2026 — main menu:** the boot scene is now
+`scenes/ui/main_menu/MainMenu.tscn` (text-only left column over a live 3D
+surface backdrop). It has its own system doc:
+`docs/systems/main-menu/README.md`. Character creation follows it (New Game)
+and returns to it on Esc/B.
+
+**September 2026 — settings "quiet" pass (approved direction):** the
+Graphics Settings panel keeps its structure and every GraphicsSettings
+contract but now uses the quieter language introduced by the main menu:
+dark near-opaque shell with soft shadow, text-only navigation, hairline rows
+instead of bordered cards, one muted steel-blue accent (`QuietControls.ACCENT`,
+not the saturated project blue), brass tracked-caps headings, no icons.
+Reusable pieces, all in `scripts/ui/common/` (preload by path, no class_name):
+
+| File | Role |
+|---|---|
+| `QuietControls.gd` | Static skin: shell, rows, hairlines, eyebrow headings, nav/segment buttons, value-style dropdowns + popup, switches, thin sliders, slim scrollbars. |
+| `FocusRail.gd` | Gliding rail + wash focus indicator (main menu items, settings rows, active section). Place it *behind* the controls inside any clipping parent. |
+| `SwitchGlyph.gd` | Animated on/off switch drawn over a CheckButton. |
+| `SmoothScroll.gd` | Eased wheel scrolling, `scroll_to()`, `reveal()` (replaces snapping follow_focus). |
+
+Behaviour now expected of this family: hover moves focus; Left/Right adjust
+the focused value everywhere (sliders natively, dropdowns/switches through
+the opt-in `ui_cycle` meta read by `ControllerUINavigation`); a single
+contextual hint line + cost tag in the footer describes the focused setting
+(replaces static section descriptions, which stay removed); a quiet "Saved"
+confirmation follows each change; the preset is a segmented control whose
+underline slides to read-only "Custom" when any setting diverges.
+Apply this language to other screens only when the user asks for that screen.
+
 ## Redesign rule: in-world inspectors are not full-screen menus
 
 The September 2026 generator review established a standing user preference for
