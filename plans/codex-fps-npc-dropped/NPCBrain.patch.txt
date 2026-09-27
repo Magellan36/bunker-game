@@ -1,0 +1,31 @@
+# Codex FPS session 01a0da76 (Sep 25-26 2026) — apply_patch hunks for scripts/npc/NPCBrain.gd, in order.
+# Reference only: written against the pre-overhaul NPC code (e1de69c), not the current file.
+
+## 2026-09-27T00:55:43.451Z
+*** Update File: /mnt/storage/Default Project/bunker-game/scripts/npc/NPCBrain.gd
+@@
+ func _think() -> void:
+ 	if _player_interaction_resume_grace > 0.0 and not _has_critical_need():
+@@
+ 			("held", "player_interaction_resume_grace", null, 0.0, 0.0, 0.0, []))
+ 		return
++	## A non-interruptible activity cannot act on any challenger score. Avoid
++	## running every world/resource query just to reject the winner afterward;
++	## completion and pass-out handling still run every physics tick above.
++	if _current != null and not _current.interruptible():
++		return
+ 	NPC_METRICS.increment(&"utility_think_cycles")
+
+## 2026-09-27T00:56:30.281Z
+*** Update File: /mnt/storage/Default Project/bunker-game/scripts/npc/NPCBrain.gd
+@@
+ 		NPC_METRICS.record_decision(_npc, _make_decision_receipt(
+ 			"held", "player_interaction_resume_grace", null, 0.0, 0.0, 0.0, []))
+ 		return
++	## A non-interruptible activity cannot act on any challenger score. Avoid
++	## running every world/resource query merely to reject the winner below;
++	## completion and pass-out handling still run every physics tick in tick().
++	if _current != null and not _current.interruptible():
++		return
+ 	NPC_METRICS.increment(&"utility_think_cycles")
+

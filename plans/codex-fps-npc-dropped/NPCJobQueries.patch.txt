@@ -1,0 +1,88 @@
+# Codex FPS session 01a0da76 (Sep 25-26 2026) — apply_patch hunks for scripts/npc/queries/NPCJobQueries.gd, in order.
+# Reference only: written against the pre-overhaul NPC code (e1de69c), not the current file.
+
+## 2026-09-27T00:57:08.685Z
+*** Update File: /mnt/storage/Default Project/bunker-game/scripts/npc/queries/NPCJobQueries.gd
+@@
+ static func find_cooking_pot_target(npc: NPC) -> Node:
+@@
+ 	return best
++
++## Resolves the autonomous cooking priority chain in one stove walk. The old
++## availability check called four independent nearest-target functions, each
++## scanning every stove and sometimes re-scanning all loose/shelved items.
++## Keep those focused helpers for active-session retargeting, but use this
++## combined query for utility scoring and initial activity entry.
++static func find_cooking_action_target(npc: NPC) -> Dictionary:
++	var best_by_mode: Dictionary = {
++		"serve": null, "power": null, "ingredient": null, "pot": null,
++	}
++	var distance_by_mode: Dictionary = {
++		"serve": INF, "power": INF, "ingredient": INF, "pot": INF,
++	}
++	var ingredient_checked: bool = false
++	var ingredient_available: bool = false
++	var pot_checked: bool = false
++	var pot_available: bool = false
++	for stove: Node in npc.get_tree().get_nodes_in_group("stove"):
++		if not is_instance_valid(stove) or NPCItemUser.is_claimed_by_other(stove, npc):
++			continue
++		var d: float = NPCItemUser.flat_distance(
++			npc.global_position, (stove as Node3D).global_position)
++		var hosted_pot: Node = stove.pot_ref
++		var dish_ready: bool = hosted_pot != null \
++			and hosted_pot.has_method("is_dish_ready") and hosted_pot.is_dish_ready()
++		if dish_ready:
++			if d < float(distance_by_mode["serve"]):
++				distance_by_mode["serve"] = d
++				best_by_mode["serve"] = stove
++			continue
++
++		var can_complete: bool = _stove_can_complete_cooking(stove)
++		var filled: int = int(hosted_pot.count_filled()) \
++			if hosted_pot != null and hosted_pot.has_method("count_filled") else 0
++		if hosted_pot != null and not bool(stove.powered_on) and can_complete and filled > 0:
++			if d < float(distance_by_mode["power"]):
++				distance_by_mode["power"] = d
++				best_by_mode["power"] = stove
++
++		if hosted_pot != null and can_complete \
++				and not (stove.has_method("is_cooking") and stove.is_cooking()) \
++				and hosted_pot.has_method("is_full") and not hosted_pot.is_full():
++			if filled > 0:
++				if d < float(distance_by_mode["ingredient"]):
++					distance_by_mode["ingredient"] = d
++					best_by_mode["ingredient"] = stove
++			else:
++				if not ingredient_checked:
++					ingredient_checked = true
++					ingredient_available = _has_fetchable_cooking_item(
++						npc, Callable(NPCItemUser, "is_cookable_ingredient"))
++				if ingredient_available and d < float(distance_by_mode["ingredient"]):
++					distance_by_mode["ingredient"] = d
++					best_by_mode["ingredient"] = stove
++
++		if can_complete and stove.has_method("has_open_slot") and stove.has_open_slot():
++			if not pot_checked:
++				pot_checked = true
++				pot_available = _has_fetchable_cooking_item(
++					npc, Callable(NPCItemUser, "is_cooking_pot"))
++			if pot_available and d < float(distance_by_mode["pot"]):
++				distance_by_mode["pot"] = d
++				best_by_mode["pot"] = stove
++
++	for mode: String in ["serve", "power", "ingredient", "pot"]:
++		var target: Node = best_by_mode[mode]
++		if target != null:
++			return {"mode": mode, "node": target}
++	return {}
+ 
+ ## Resource-aware because this feeds autonomous utility every second. A stove
+ ## shape alone is not actionable work.
+ static func has_cooking_target_available(npc: NPC) -> bool:
+-	return find_cooking_serve_target(npc) != null \
+-		or find_cooking_needs_power_target(npc) != null \
+-		or find_cooking_ingredient_target(npc) != null \
+-		or find_cooking_pot_target(npc) != null
++	return not find_cooking_action_target(npc).is_empty()
+

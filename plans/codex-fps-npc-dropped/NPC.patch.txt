@@ -1,0 +1,35 @@
+# Codex FPS session 01a0da76 (Sep 25-26 2026) — apply_patch hunks for scripts/npc/NPC.gd, in order.
+# Reference only: written against the pre-overhaul NPC code (e1de69c), not the current file.
+
+## 2026-09-27T00:58:49.294Z
+*** Update File: /mnt/storage/Default Project/bunker-game/scripts/npc/NPC.gd
+@@
+ ## Per-item shove cooldowns, shared with the player-side helper.
+ var _last_push_msec_by_item: Dictionary = {}
++## The shove itself is already limited to once per item per 200 ms. Performing
++## the surrounding physics shape query every frame only repeats negative work.
++const PHYSICS_PUSH_SCAN_INTERVAL: float = 0.1
++var _physics_push_scan_left: float = 0.0
+ 
+-func _handle_physics_pushes(_delta: float) -> void:
++func _handle_physics_pushes(delta: float) -> void:
++	_physics_push_scan_left -= delta
++	if _physics_push_scan_left > 0.0:
++		return
++	_physics_push_scan_left += PHYSICS_PUSH_SCAN_INTERVAL
++	## Bound stale instance IDs accumulated across long cleanup-heavy sessions.
++	if _last_push_msec_by_item.size() > 128:
++		for item_id: int in _last_push_msec_by_item.keys():
++			var item: Object = instance_from_id(item_id)
++			if item == null or not is_instance_valid(item):
++				_last_push_msec_by_item.erase(item_id)
+ 	var excluded_item: RigidBody3D = null
+
+## 2026-09-27T00:58:54.687Z
+*** Update File: /mnt/storage/Default Project/bunker-game/scripts/npc/NPC.gd
+@@
+ func _ready() -> void:
+ 	add_to_group("npc")
+ 	add_to_group("interactable")
++	_physics_push_scan_left = randf() * PHYSICS_PUSH_SCAN_INTERVAL
+

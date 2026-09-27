@@ -1,0 +1,45 @@
+# Codex FPS session 01a0da76 (Sep 25-26 2026) — apply_patch hunks for scripts/npc/NPCCompanionship.gd, in order.
+# Reference only: written against the pre-overhaul NPC code (e1de69c), not the current file.
+
+## 2026-09-27T00:55:43.451Z
+*** Update File: /mnt/storage/Default Project/bunker-game/scripts/npc/NPCCompanionship.gd
+@@
+ const SEPARATION_GRACE_MSEC: int = 18000
++const CLEANUP_INTERVAL_MSEC: int = 1000
+@@
+ static var _next_id: int = 1
++static var _last_cleanup_msec: int = -CLEANUP_INTERVAL_MSEC
+@@
+ static func begin(a: Node, b: Node) -> bool:
+-	_cleanup()
++	_cleanup(true)
+@@
+-static func _cleanup() -> void:
++static func _cleanup(force: bool = false) -> void:
+ 	var now := Time.get_ticks_msec()
++	if not force and now - _last_cleanup_msec < CLEANUP_INTERVAL_MSEC:
++		return
++	_last_cleanup_msec = now
+
+## 2026-09-27T00:56:17.106Z
+*** Update File: /mnt/storage/Default Project/bunker-game/scripts/npc/NPCCompanionship.gd
+@@
+ const BREAK_DISTANCE: float = 10.0
+ const SEPARATION_GRACE_MSEC: int = 18000
++const CLEANUP_INTERVAL_MSEC: int = 1000
+@@
+ static var _member_session: Dictionary = {}
+ static var _next_id: int = 1
++static var _last_cleanup_msec: int = -CLEANUP_INTERVAL_MSEC
+@@
+ static func begin(a: Node, b: Node) -> bool:
+-	_cleanup()
++	_cleanup(true)
+@@
+-static func _cleanup() -> void:
++static func _cleanup(force: bool = false) -> void:
+ 	var now := Time.get_ticks_msec()
++	if not force and now - _last_cleanup_msec < CLEANUP_INTERVAL_MSEC:
++		return
++	_last_cleanup_msec = now
+

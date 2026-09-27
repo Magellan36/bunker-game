@@ -1,0 +1,43 @@
+# Codex FPS session 01a0da76 (Sep 25-26 2026) — apply_patch hunks for scripts/npc/activities/CookingActivity.gd, in order.
+# Reference only: written against the pre-overhaul NPC code (e1de69c), not the current file.
+
+## 2026-09-27T00:57:08.685Z
+*** Update File: /mnt/storage/Default Project/bunker-game/scripts/npc/activities/CookingActivity.gd
+@@
+-	var serve: Node = NPCJobQueries.find_cooking_serve_target(npc)
+-	if serve != null:
+-		_start_serve(npc, serve)
+-		return
+-
+-	var power_target: Node = NPCJobQueries.find_cooking_needs_power_target(npc)
+-	if power_target != null:
+-		_start_power_retry(npc, power_target)
+-		return
+-
+-	var ing_target: Node = NPCJobQueries.find_cooking_ingredient_target(npc)
+-	if ing_target != null:
+-		_start_setup(npc, ing_target, "ingredient")
+-		return
+-
+-	var pot_target: Node = NPCJobQueries.find_cooking_pot_target(npc)
+-	if pot_target != null:
+-		_start_setup(npc, pot_target, "pot")
+-		return
++	var action: Dictionary = NPCJobQueries.find_cooking_action_target(npc)
++	var action_target: Node = action.get("node")
++	match String(action.get("mode", "")):
++		"serve":
++			_start_serve(npc, action_target)
++			return
++		"power":
++			_start_power_retry(npc, action_target)
++			return
++		"ingredient":
++			_start_setup(npc, action_target, "ingredient")
++			return
++		"pot":
++			_start_setup(npc, action_target, "pot")
++			return
+ 
+ 	_finished = true   ## nothing to do anywhere
+
