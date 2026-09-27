@@ -63,10 +63,30 @@ func reset() -> void:
 const ARRIVED_IDLE_LIMIT: float = 5.0
 var _arrived_idle: float = 0.0
 
+## Goal progress: sliding back and forth along a wall looks like movement
+## to the short-interval stall check, but the remaining path length never
+## shrinks. Checked every GOAL_WINDOW seconds while travelling.
+const GOAL_WINDOW: float = 5.0
+const GOAL_MIN_PROGRESS: float = 0.5
+var _goal_timer: float = 0.0
+var _goal_best: float = INF
+var _goal_target: Vector3 = Vector3.INF
+
+## Island rescue: repeated failures in a short window mean the NPC is in a
+## pocket the navmesh can't route out of (between furniture and a wall,
+## walled in by heavy clutter). Move it to the nearest clear spot that IS
+## connected to the rest of the bunker.
+const FAILS_FOR_RESCUE: int = 3
+const FAIL_WINDOW_SEC: float = 60.0
+var _fail_times: Array[float] = []
+var _clock: float = 0.0
+
 func tick(delta: float) -> void:
+	_clock += delta
 	_track_safe_position(delta)
 	if _rescue_if_fell_out():
 		return
+	_tick_goal_progress(delta)
 	if _npc.nav_agent != null and not _npc.is_movement_locked() and _npc.nav_agent.is_navigation_finished() \
 			and _npc.brain != null and _npc.brain.current_activity() != null:
 		_arrived_idle += delta
@@ -83,6 +103,7 @@ func tick(delta: float) -> void:
 			_npc.job_state.mark_unreachable_near(_npc.get_tree(), _npc.nav_agent.target_position, 1.0)
 			NPCDebug.log_stuck(_npc, "unreachable target", {"activity": _npc.brain.current_label()})
 			_npc.abandon_current_activity(last_cause, 30.0)
+			_note_failure()
 			return
 	else:
 		_arrived_idle = 0.0
@@ -142,6 +163,7 @@ func _recover() -> void:
 			_safe_nudge(_away_dir(col, blocker), NUDGE_LARGE)
 			_npc.abandon_current_activity("stuck (%s)" % last_cause, ABANDON_BENCH_SEC)
 			_step = 0
+			_note_failure()
 
 ## Direction to back off in: the collision normal if we have one, away from
 ## a blocking body otherwise, else a random horizontal direction.
@@ -250,6 +272,68 @@ func _describe(blocker: Object) -> String:
 	if blocker is Node:
 		return "wedged against %s" % String((blocker as Node).name)
 	return "?"
+
+func _tick_goal_progress(delta: float) -> void:
+	var agent: NavigationAgent3D = _npc.nav_agent
+	if agent == null or _npc.is_movement_locked() or agent.is_navigation_finished():
+		_goal_timer = 0.0
+		_goal_best = INF
+		return
+	if agent.target_position.distance_to(_goal_target) > 0.3:
+		_goal_target = agent.target_position   ## new destination — restart the window
+		_goal_timer = 0.0
+		_goal_best = INF
+	var remaining: float = agent.distance_to_target()
+	if _goal_best == INF:
+		_goal_best = remaining
+	_goal_timer += delta
+	if _goal_timer < GOAL_WINDOW:
+		return
+	if _goal_best - remaining < GOAL_MIN_PROGRESS:
+		last_cause = "no progress toward the destination"
+		NPCDebug.log_stuck(_npc, "no goal progress", {"remaining": remaining})
+		_safe_nudge(-(_npc.velocity if _npc.velocity.length() > 0.05 else Vector3(randf_range(-1, 1), 0, randf_range(-1, 1))).normalized(), NUDGE_SMALL)
+		_npc.abandon_current_activity(last_cause, ABANDON_BENCH_SEC)
+		_note_failure()
+	_goal_timer = 0.0
+	_goal_best = remaining
+
+func _note_failure() -> void:
+	_fail_times.append(_clock)
+	while not _fail_times.is_empty() and _clock - _fail_times[0] > FAIL_WINDOW_SEC:
+		_fail_times.pop_front()
+	if _fail_times.size() >= FAILS_FOR_RESCUE:
+		_fail_times.clear()
+		_island_rescue()
+
+## Nearest clear navmesh spot (rings out to 4 m) from which a path reaches
+## the middle of the bunker. Only ever used after repeated failures.
+func _island_rescue() -> void:
+	var world: Node = _npc.get_tree().get_first_node_in_group("main_world")
+	if world == null or not world.has_method("get_random_cleared_cell_center"):
+		return
+	var map: RID = _npc.get_world_3d().navigation_map
+	var hubs: Array[Vector3] = []
+	for i: int in 3:
+		hubs.append(NavigationServer3D.map_get_closest_point(map, world.get_random_cleared_cell_center() + Vector3(0.0, 0.5, 0.0)))
+	for r: float in [0.6, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0]:
+		for k: int in 12:
+			var a: float = TAU * float(k) / 12.0
+			var cand: Vector3 = snap_to_navmesh(_npc.global_position + Vector3(cos(a), 0.0, sin(a)) * r)
+			if cand == Vector3.INF or not _spot_clear(cand):
+				continue
+			var from: Vector3 = Vector3(cand.x, FLOOR_Y, cand.z)
+			var connected: int = 0
+			for hub: Vector3 in hubs:
+				var path: PackedVector3Array = NavigationServer3D.map_get_path(map, from, hub, true)
+				if not path.is_empty() and path[path.size() - 1].distance_to(hub) < 0.6:
+					connected += 1
+			if connected >= 2:
+				push_warning("[NPC] %s was boxed in at %s — moved to %s" % [_npc.npc_name, _npc.global_position, cand])
+				_npc.global_position = cand
+				_npc.velocity = Vector3.ZERO
+				reset()
+				return
 
 # ─── Safety net ──────────────────────────────────────────────────────────
 func _track_safe_position(delta: float) -> void:

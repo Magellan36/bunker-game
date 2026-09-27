@@ -188,7 +188,23 @@ static func _nearest_reachable(npc: NPC, candidates: Array, reach: float) -> Nod
 ## Can the NPC walk to within `reach` of `pos`? (navmesh path end check;
 ## cached per NPC per physics frame.) True when no navmesh is available so
 ## worlds without one still behave as before.
+static var _reach_cache: Dictionary = {}   ## "npc:x:z:reach" -> [physics_frame, bool]
+const REACH_CACHE_FRAMES: int = 90
+
 static func is_reachable(npc: NPC, pos: Vector3, reach: float) -> bool:
+	var frame: int = Engine.get_physics_frames()
+	var key: String = "%d:%d:%d:%d" % [npc.get_instance_id(), int(pos.x * 4.0), int(pos.z * 4.0), int(reach * 10.0)]
+	var hit: Array = _reach_cache.get(key, [])
+	if not hit.is_empty() and frame - int(hit[0]) < REACH_CACHE_FRAMES \
+			and flat_distance(npc.global_position, pos) > 0.0:
+		return bool(hit[1])
+	var result: bool = _compute_reachable(npc, pos, reach)
+	if _reach_cache.size() > 2000:
+		_reach_cache.clear()
+	_reach_cache[key] = [frame, result]
+	return result
+
+static func _compute_reachable(npc: NPC, pos: Vector3, reach: float) -> bool:
 	var map: RID = npc.get_world_3d().navigation_map
 	if not map.is_valid() or NavigationServer3D.map_get_iteration_id(map) == 0:
 		return true

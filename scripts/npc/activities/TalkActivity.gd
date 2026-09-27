@@ -31,6 +31,7 @@ var _self_npc: NPC = null
 var _turn_left: float = 0.0
 var _speaking: bool = false
 var _ended_naturally: bool = false
+var _turns: int = 0
 var _approaching: bool = false          ## initiator walking over to a friend
 var _approach_time: float = 0.0
 const APPROACH_GIVE_UP: float = 12.0
@@ -136,6 +137,11 @@ func tick(npc: NPC, delta: float) -> void:
 		if _is_initiator:
 			npc.set_speaking(_speaking)
 			_partner.set_speaking(not _speaking)
+			## Whoever holds the floor sometimes says something readable.
+			var speaker: NPC = npc if _speaking else _partner
+			if randf() < 0.55:
+				speaker.bark(NPCDialogue.chat_line(speaker, _turns > 0))
+			_turns += 1
 	if not _is_initiator:
 		return   ## partner just waits — the initiator's end-of-session clears _partner via end_talk_session()
 	_elapsed += delta

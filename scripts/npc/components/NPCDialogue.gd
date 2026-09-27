@@ -126,6 +126,52 @@ const BARKS: Dictionary = {
 	"thirsty":       ["So thirsty...", "Water. I need water."],
 }
 
+## Conversation snippets (TalkActivity turn-taking). About half the time a
+## resident brings up something real (their strongest thought, phrased for
+## a peer); otherwise bunker small talk, tinted by mood.
+const SMALL_TALK: Array[String] = [
+	"How are you holding up?", "Sleep okay?", "Think anyone's still up there?",
+	"I keep hearing the pipes at night.", "How long do you think the food will last?",
+	"We should fix up this place a bit.", "Heard anything on the radio?",
+	"I miss the sun.", "What day is it even?", "You doing alright?",
+	"Remember fresh coffee?", "We're going to make it. Probably.",
+]
+const SMALL_TALK_GLUM: Array[String] = [
+	"I don't know how much longer I can do this.", "Everything's so grey down here.",
+	"Some days I just... ugh.", "Don't you ever get tired of it?",
+]
+const SMALL_TALK_REPLY: Array[String] = [
+	"Yeah.", "Tell me about it.", "Ha, right?", "Mm-hm.", "Same.", "Don't remind me.",
+	"Could be worse.", "True.", "No kidding.",
+]
+const CHAT_ABOUT: Dictionary = {
+	"ate_hot_meal": ["That hot meal earlier was amazing.", "Someone actually cooked today!"],
+	"ate_cold_can": ["If I eat one more cold can...", "Canned again. Of course."],
+	"slept_in_bed": ["Actually slept well last night.", "Beds. Underrated."],
+	"slept_on_floor": ["My back is wrecked. Floor again.", "We need more beds."],
+	"slept_in_chair": ["Fell asleep in a chair. Big mistake."],
+	"collapsed": ["I literally passed out yesterday.", "Pushed myself too hard."],
+	"got_snatched": ["%s took my food. Just took it.", "Watch out for %s."],
+	"received_gift": ["%s brought me food earlier. Sweet of them."],
+	"bad_chat": ["%s and I aren't talking right now."],
+	"good_chat": ["%s is good company, you know?"],
+	"cluttered": ["This place is a mess.", "Somebody should really tidy up."],
+	"in_pain": ["Everything hurts today.", "Can't shake this injury."],
+	"lonely": ["Feels like nobody talks down here.", "Nice to actually talk to someone."],
+	"productive": ["Got a lot done today.", "Keeping busy helps."],
+	"relaxed": ["Took a proper break. Needed it."],
+}
+
+static func chat_line(npc: NPC, replying: bool) -> String:
+	if replying and randf() < 0.45:
+		return _pick(SMALL_TALK_REPLY)
+	if npc.thoughts != null and randf() < 0.5:
+		var t: Dictionary = npc.thoughts.strongest(randf() < 0.5)
+		if not t.is_empty() and CHAT_ABOUT.has(t["id"]):
+			var line: String = _pick(CHAT_ABOUT[t["id"]])
+			return line % String(t["subject"]) if line.contains("%s") else line
+	return _pick(SMALL_TALK_GLUM if npc.mood < 35.0 else SMALL_TALK)
+
 static func bark_line(kind: String, subject: String = "") -> String:
 	var pool: Array = BARKS.get(kind, [])
 	if pool.is_empty():

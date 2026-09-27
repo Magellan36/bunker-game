@@ -38,7 +38,9 @@ var _cfg: Dictionary = {
 	"hour": -1.0,         ## start the clock at this hour of day
 	"saveload": -1.0,     ## at this sim time: save all NPCs, restore them, verify nothing was lost
 	"player_sleep": 0.0,  ## +1 / -1: at sim t=2 put the PLAYER into the first bed from that side (visual check)
+	"open_panel": -1.0,   ## at this sim time open the resident panel (talk menu) on the first NPC
 }
+var _panel_opened: bool = false
 var _player_slept: bool = false
 var _saveload_done: bool = false
 var _shot_plan: Array = []   ## [[t0, count, dt], ...]
@@ -84,6 +86,7 @@ func _ready() -> void:
 			"hour": _cfg["hour"] = float(v)
 			"saveload": _cfg["saveload"] = float(v)
 			"player_sleep": _cfg["player_sleep"] = float(v)
+			"open_panel": _cfg["open_panel"] = float(v)
 	seed(int(_cfg["seed"]))
 	_world = load("res://scenes/world/MainWorld.tscn").instantiate()
 	get_tree().root.add_child.call_deferred(_world)
@@ -114,6 +117,12 @@ func _process(delta: float) -> void:
 			player.global_position = bed.global_transform * Vector3(0.8, 1.0, float(_cfg["player_sleep"]) * 0.9)
 			bed.set_player_in_range(true)
 			bed.sleep_requested.emit()
+		if not _panel_opened and float(_cfg["open_panel"]) >= 0.0 and _t - _setup_at >= float(_cfg["open_panel"]):
+			_panel_opened = true
+			var first: Node3D = get_tree().get_nodes_in_group("npc")[0]
+			var player: Node3D = get_tree().get_first_node_in_group("player")
+			player.global_position = first.global_position + Vector3(0.0, 0.0, 1.2)
+			first.on_interact()
 		if not _saveload_done and float(_cfg["saveload"]) >= 0.0 and _t - _setup_at >= float(_cfg["saveload"]):
 			_saveload_done = true
 			_check_save_load()

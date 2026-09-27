@@ -575,8 +575,9 @@ func _build_skills_card(parent: Container) -> void:
 		"plumbing": "water",
 		"electrical": "power",
 		"construction": "build",
+		"cooking": "cooking",
 	}
-	for skill: String in ["farming", "plumbing", "electrical", "construction"]:
+	for skill: String in ["farming", "cooking", "plumbing", "electrical", "construction"]:
 		var row: HBoxContainer = HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		box.add_child(row)

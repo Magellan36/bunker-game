@@ -27,6 +27,7 @@ var _eating: float = 0.0
 var _pending_snatch: Node = null
 var _handoff: NPCActivity = null
 var _case_fetch: NPCCaseFetch = null
+var _retries: int = 0
 
 func label() -> String:
 	return "Eating" if _eating > 0.0 else "Getting food"
@@ -119,7 +120,10 @@ func tick(npc: NPC, delta: float) -> void:
 
 	if _loose != null:
 		if not is_instance_valid(_loose) or (("is_held" in _loose) and _loose.is_held) or _loose.is_in_group("shelved"):
-			_loose = null   ## someone else got it
+			_loose = null   ## someone else got it — try another source
+			if _retries < 3:
+				_retries += 1
+				_acquire(npc)
 			return
 		NPCItemUser.track_fetch_target(npc, _loose)
 		npc.nav_steer(delta)

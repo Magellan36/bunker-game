@@ -102,9 +102,14 @@ thoughts more, neurotic residents negative ones. Shown on the resident panel
   others only chat when close. One shared outcome per conversation
   (`NPC.resolve_conversation`) from relationship, moods, tempers and trait
   compatibility; both sides get the relationship change + a thought + one
-  log line. Turn-taking "…" indicator over the speaker. Either side leaving
+  log line. Turn-taking "…" indicator over the speaker, who often says a
+  readable line (`NPCDialogue.chat_line`: their strongest thought phrased
+  for a peer, or bunker small talk tinted by mood). Either side leaving
   ends it for both.
 - Proximity bonding & mood contagion now require line of sight.
+- Personal space: wander destinations re-roll if they'd land within 1.3 m
+  of another resident. A break (Relax) is only interrupted by scores ≥ 35
+  (`min_challenger_score`) — urgent work or needs, not routine chores.
 - Barks: short floating lines — greeting when the player walks up (≤ 1/game
   hour/resident), plus event barks (thanks, snatched, food ready, woke up).
 

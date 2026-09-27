@@ -35,6 +35,7 @@ class FakeResident:
 		"plumbing": 0.9,
 		"electrical": 0.7,
 		"construction": 1.1,
+		"cooking": 1.2,
 	}
 	var brain: FakeBrain = null
 	var medical: NPCMedical = null
@@ -114,7 +115,7 @@ func _run() -> void:
 	var needs: Dictionary = ui.get("_need_bars") as Dictionary
 	var skills: Dictionary = ui.get("_skill_bars") as Dictionary
 	_check(needs.size() == 5, "all five resident needs remain persistent")
-	_check(skills.size() == 4, "all four established NPC skills are presented")
+	_check(skills.size() == 5, "all five NPC skills (incl. cooking) are presented")
 	var navigation: ControllerUINavigation = ui.get("_controller_nav") as ControllerUINavigation
 	_check(
 		navigation != null and navigation.right_stick_navigation and not navigation.stick_navigation,

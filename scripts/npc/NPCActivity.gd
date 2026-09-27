@@ -45,6 +45,10 @@ func is_need() -> bool: return false
 func is_work() -> bool: return false
 func can_yield_to_need(_npc: NPC) -> bool: return false
 func backoff_on_futile() -> bool: return true
+## A challenger must score at least this to interrupt (on top of the brain's
+## normal hysteresis). Lets e.g. a break be "interruptible" by something
+## urgent while ignoring ordinary chores.
+func min_challenger_score() -> float: return 0.0
 
 ## Optional — structured debug snapshot for NPCDebug's on-demand dumps.
 ## An override should include an "activity" String key.

@@ -27,6 +27,8 @@ var _pending_snatch: Node = null
 var _handoff: NPCActivity = null
 var _case_fetch: NPCCaseFetch = null
 var _finished: bool = false
+var _retries: int = 0
+const MAX_RETRIES: int = 3
 
 func label() -> String:
 	return "Drinking" if _drinking > 0.0 else "Getting water"
@@ -121,7 +123,13 @@ func tick(npc: NPC, delta: float) -> void:
 		_case_fetch.tick(npc, delta)
 		return
 	if _target == null or not is_instance_valid(_target):
-		_finished = true
+		## Lost it (someone else took/tidied it) — look for another source
+		## instead of wandering off still thirsty.
+		if _retries < MAX_RETRIES and npc.thirst < NPC.NEED_SATED and not NPCItemUser.hands_full(npc):
+			_retries += 1
+			_acquire(npc)
+		else:
+			_finished = true
 		return
 	match _mode:
 		"bottle":

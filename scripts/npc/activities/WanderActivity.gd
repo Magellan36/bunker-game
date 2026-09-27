@@ -84,16 +84,28 @@ func _pick_destination(npc: NPC) -> Vector3:
 	var total: float = 0.0
 	for o: Dictionary in options:
 		total += float(o["w"])
-	var roll: float = randf() * total
-	for o: Dictionary in options:
-		roll -= float(o["w"])
-		if roll <= 0.0:
-			var p: Vector3 = o["pos"]
-			if leisurely:
-				## shorter hop toward it
-				p = npc.global_position.lerp(p, 0.5)
-			return p
+	## Personal space: re-roll a destination that would put this resident
+	## right on top of someone else (a few tries, then accept).
+	for attempt: int in 5:
+		var roll: float = randf() * total
+		for o: Dictionary in options:
+			roll -= float(o["w"])
+			if roll <= 0.0:
+				var p: Vector3 = o["pos"]
+				if leisurely:
+					p = npc.global_position.lerp(p, 0.5)   ## shorter hop toward it
+				if attempt == 4 or not _crowded(npc, p):
+					return p
+				break
 	return fallback
+
+const PERSONAL_SPACE: float = 1.3
+
+static func _crowded(npc: NPC, p: Vector3) -> bool:
+	for other: Node in npc.get_tree().get_nodes_in_group("npc"):
+		if other != npc and other is Node3D and NPCItemUser.flat_distance((other as Node3D).global_position, p) < PERSONAL_SPACE:
+			return true
+	return false
 
 static func _near(p: Vector3, radius: float) -> Vector3:
 	var a: float = randf() * TAU

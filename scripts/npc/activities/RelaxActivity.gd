@@ -29,6 +29,11 @@ func interruptible() -> bool:
 func can_yield_to_need(_npc: NPC) -> bool:
 	return true
 
+## A break is a break: ordinary chores don't pull someone off it; urgent
+## work (a generator about to die) or a real need does.
+func min_challenger_score() -> float:
+	return 35.0
+
 func enter(npc: NPC) -> void:
 	npc.reset_relax_job_requests()
 	_session_length = randf_range(SESSION_MIN, SESSION_MAX)

@@ -213,7 +213,8 @@ func _think() -> void:
 	var defend: float = incumbent
 	if _clock - _current_started < COMMIT_TIME:
 		defend *= 1.0 + COMMIT_BONUS_REL
-	var needed: float = maxf(defend * (1.0 + SWITCH_MARGIN_REL), defend + SWITCH_MARGIN_ABS)
+	var needed: float = maxf(maxf(defend * (1.0 + SWITCH_MARGIN_REL), defend + SWITCH_MARGIN_ABS),
+		_current.min_challenger_score())
 	if best_score <= needed:
 		return
 
