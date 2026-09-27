@@ -4,6 +4,10 @@ This document provides repository-wide context for AI coding agents.
 
 Read this document before modifying any code.
 
+**Git: several agents share this repo and folder. Read
+`docs/AGENT_GIT_WORKFLOW.md` before running any git command.** All work lands
+on `testing`; never switch branches, stash, reset or `git add -A` here.
+
 Then read only the README for the subsystem being modified.
 
 **UI redesign (September 2026):** read `scripts/ui/README.md` for the current
