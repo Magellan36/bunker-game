@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENES = [
     ROOT / "scenes/world/menu_backdrop/MenuBackdrop.tscn",
     ROOT / "scenes/ui/main_menu/MainMenu.tscn",
+    ROOT / "scenes/world/menu_backdrop/MenuTerrain.tscn",
 ]
 BACKDROP = SCENES[0]
 MANIFEST = ROOT / "assets/menu_backdrop/provenance.json"

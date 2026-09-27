@@ -141,6 +141,38 @@ Re-exporting: the models were exported from the source packs in
 Blender (one object per `.glb`, modifiers and transforms applied, origin at
 ground contact bottom-centre, textures capped at 2K hero / 1K others).
 
+## Terrain (Ground slot)
+
+The ground is a baked heightfield, not a flat plane: a sunken gravel street
+that curves gently toward the vanishing point, eroded ditches and low berms
+along both sides, six craters with raised rims, mounds that rise into hills
+away from the street, and a low far ridge (z ≈ −215) that hides the skyline's
+feet. Every other slot gets a level pad, so buildings and props sit flat. The
+foreground stays gentle near the camera.
+
+| File | Role |
+|---|---|
+| `scripts/world/menu_backdrop/MenuTerrainBuilder.gd` | The shape rules (street, ditches, craters, hills, ridge, pads) and per-vertex layer weights. |
+| `tools/menu_terrain/bake_menu_terrain.gd` | Measures every slot's footprint, runs the builder, and saves `assets/menu_backdrop/terrain/menu_terrain.res`. **Re-run after moving, resizing or filling slots.** |
+| `tools/menu_terrain/pack_ground_textures.py` | Repacks the ambientCG zips into `assets/menu_backdrop/ground/<layer>/` (`albedo.jpg`, `normal.png`, `ord.png` = AO/roughness/height). |
+| `assets/shaders/menu_ground.gdshader` | Weaves the four sets. |
+| `scenes/world/menu_backdrop/MenuTerrain.tscn` | Mesh and material; the Ground slot's `asset_scene`. Authored in world space, so the Ground slot stays at the origin. |
+
+How the four ground sets are woven:
+
+| Layer | Set | Where it shows |
+|---|---|---|
+| earth | Ground067 | the base everywhere |
+| gravel | Ground062S | the street bed, fraying at its edges; a little around pads |
+| debris | Ground073 | ditches, crater bowls, hollows, slopes, wandering patches |
+| brick | Ground111 | rings around ruins, crater rims, scattered patches |
+
+Seams use each set's own height map, so stones poke through dirt rather than
+cross-fading. A second, rotated, larger sample hides tiling, a slow value
+drift breaks up the open ground, and settled ash dusts up-facing surfaces.
+Grade knobs (`albedo_gain`, `saturation`, `ash_amount`, tile sizes) are
+shader parameters on the material in `MenuTerrain.tscn`.
+
 ## Asset intake: replacing a greybox
 
 1. Model in Blender at real scale (1 unit = 1 m). **Origin at ground contact,
@@ -192,7 +224,14 @@ textures, audio, voice, narrative/marketing text).
   content survey concerns AI-generated *content* shipped to players, not
   development tools such as code assistants. Confirm against the live
   Steamworks form before submitting; Valve can change it.
-- No images, models, textures or sounds were generated. Everything visible is
+- Ground (Sep 2026): the four ground texture sets are ambientCG materials
+  (CC0 per their bundled metadata; the embedded XMP names Adobe Substance
+  Designer as the authoring tool). They're recorded in `provenance.json`;
+  confirm the creation method on each ambientCG page before release. The
+  terrain *shape* is produced by project code from hand-written rules plus the
+  engine's FastNoiseLite: deterministic procedural generation, not a
+  generative-AI model. The same is true of the weave noise (`NoiseTexture2D`).
+- No images, models, textures or sounds were produced by generative AI. Everything visible is
   rendered at runtime by engine features (lights, fog, particles, gradients,
   text) configured in code. The greybox blocks exist only in the editor and
   debug builds; **release exports never build them**.

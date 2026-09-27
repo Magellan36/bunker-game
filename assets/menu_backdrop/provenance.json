@@ -97,6 +97,130 @@
       "source": "SurvivalWood (Survival.unitypackage), local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/SurvivalWood",
       "license": "CONFIRM: licence of the SurvivalWood package",
       "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/earth/albedo.jpg",
+      "use": "Menu terrain earth layer (base ground everywhere): colour. Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground067 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground067_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/earth/normal.png",
+      "use": "Menu terrain earth layer (base ground everywhere): normal (OpenGL). Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground067 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground067_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/earth/ord.png",
+      "use": "Menu terrain earth layer (base ground everywhere): AO/roughness/height packed. Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground067 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground067_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/gravel/albedo.jpg",
+      "use": "Menu terrain gravel layer (street bed): colour. Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground062S (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground062S_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/gravel/normal.png",
+      "use": "Menu terrain gravel layer (street bed): normal (OpenGL). Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground062S (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground062S_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/gravel/ord.png",
+      "use": "Menu terrain gravel layer (street bed): AO/roughness/height packed. Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground062S (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground062S_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/debris/albedo.jpg",
+      "use": "Menu terrain debris layer (ditches, crater bowls, hollows, slopes): colour. Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground073 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground073_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/debris/normal.png",
+      "use": "Menu terrain debris layer (ditches, crater bowls, hollows, slopes): normal (OpenGL). Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground073 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground073_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/debris/ord.png",
+      "use": "Menu terrain debris layer (ditches, crater bowls, hollows, slopes): AO/roughness/height packed. Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground073 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground073_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/brick/albedo.jpg",
+      "use": "Menu terrain brick layer (rubble around ruins, crater rims, scattered patches): colour. Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground111 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground111_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/brick/normal.png",
+      "use": "Menu terrain brick layer (rubble around ruins, crater rims, scattered patches): normal (OpenGL). Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground111 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground111_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/ground/brick/ord.png",
+      "use": "Menu terrain brick layer (rubble around ruins, crater rims, scattered patches): AO/roughness/height packed. Repacked from the 2K PNG set by tools/menu_terrain/pack_ground_textures.py",
+      "author": "ambientCG (Lennart Demes), https://ambientcg.com",
+      "source": "https://ambientcg.com/view?id=Ground111 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU GROUND/Ground111_2K-PNG.zip)",
+      "license": "CC0 1.0 (stated in the set's bundled .usdc metadata)",
+      "creation": "Authored in Adobe Substance Designer (embedded XMP CreatorTool); not generative AI",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/menu_backdrop/terrain/menu_terrain.res",
+      "use": "Menu terrain mesh (street, ditches, craters, hills, ridge, level pads)",
+      "author": "Bunker Game project: baked by tools/menu_terrain/bake_menu_terrain.gd from hand-written rules in scripts/world/menu_backdrop/MenuTerrainBuilder.gd",
+      "source": "Generated deterministically by project code (engine noise + authored shapes); no external or AI source",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/MenuTerrain.tscn",
+      "use": "Ground slot content: the baked terrain mesh + menu_ground.gdshader material with the four ambientCG sets and an engine NoiseTexture2D",
+      "author": "Bunker Game project (scene wiring only; every referenced texture/mesh has its own entry)",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
     }
   ]
 }

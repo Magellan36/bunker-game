@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://scripts/world/menu_backdrop/BackdropAssetSlot.gd" id="5_slot"]
 [ext_resource type="Script" path="res://scripts/world/menu_backdrop/FlickerLamp.gd" id="6_lamp"]
 [ext_resource type="PackedScene" path="res://assets/models/industrial_wall_lamp.glb" id="7_lamp_model"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/MenuTerrain.tscn" id="8_terrain"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/ruin_malik_facade.glb" id="b00_ruin_malik_facade"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/shack_low.glb" id="b01_shack_low"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/shack_high.glb" id="b02_shack_high"]
@@ -191,11 +192,11 @@ draw_pass_1 = SubResource("ash_quad")
 [node name="Foreground" type="Node3D" parent="Slots"]
 
 [node name="Ground" type="Node3D" parent="Slots"]
-position = Vector3(0, -0.2, -150)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("8_terrain")
 greybox_size = Vector3(900, 0.2, 900)
 greybox_broken = false
-brief = "Street/ground: cracked asphalt, rubble drifts, ash. Large tiling terrain or road strip with a 4k trim/tiling set. Runs from under the camera to the far skyline."
+brief = "Terrain baked by tools/menu_terrain/bake_menu_terrain.gd (street, ditches, craters, hills, far ridge, level pads under every slot), textured by assets/shaders/menu_ground.gdshader from four ambientCG CC0 ground sets. Authored in world space: keep this slot at the origin, and re-bake after moving slots."
 
 [node name="HeroFacadeRight" type="Node3D" parent="Slots/RightFlank"]
 position = Vector3(19, 0, -12)

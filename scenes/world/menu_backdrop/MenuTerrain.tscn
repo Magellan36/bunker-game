@@ -1,0 +1,49 @@
+[gd_scene format=3]
+
+[ext_resource type="ArrayMesh" path="res://assets/menu_backdrop/terrain/menu_terrain.res" id="mesh"]
+[ext_resource type="Shader" path="res://assets/shaders/menu_ground.gdshader" id="shader"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/earth/albedo.jpg" id="earth_albedo"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/earth/normal.png" id="earth_normal"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/earth/ord.png" id="earth_ord"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/gravel/albedo.jpg" id="gravel_albedo"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/gravel/normal.png" id="gravel_normal"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/gravel/ord.png" id="gravel_ord"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/debris/albedo.jpg" id="debris_albedo"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/debris/normal.png" id="debris_normal"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/debris/ord.png" id="debris_ord"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/brick/albedo.jpg" id="brick_albedo"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/brick/normal.png" id="brick_normal"]
+[ext_resource type="Texture2D" path="res://assets/menu_backdrop/ground/brick/ord.png" id="brick_ord"]
+
+[sub_resource type="FastNoiseLite" id="weave_noise_gen"]
+seed = 4219
+frequency = 0.0035
+fractal_octaves = 4
+
+[sub_resource type="NoiseTexture2D" id="weave_noise"]
+width = 512
+height = 512
+seamless = true
+generate_mipmaps = true
+noise = SubResource("weave_noise_gen")
+
+[sub_resource type="ShaderMaterial" id="ground_material"]
+render_priority = 0
+shader = ExtResource("shader")
+shader_parameter/earth_albedo = ExtResource("earth_albedo")
+shader_parameter/earth_normal = ExtResource("earth_normal")
+shader_parameter/earth_ord = ExtResource("earth_ord")
+shader_parameter/gravel_albedo = ExtResource("gravel_albedo")
+shader_parameter/gravel_normal = ExtResource("gravel_normal")
+shader_parameter/gravel_ord = ExtResource("gravel_ord")
+shader_parameter/debris_albedo = ExtResource("debris_albedo")
+shader_parameter/debris_normal = ExtResource("debris_normal")
+shader_parameter/debris_ord = ExtResource("debris_ord")
+shader_parameter/brick_albedo = ExtResource("brick_albedo")
+shader_parameter/brick_normal = ExtResource("brick_normal")
+shader_parameter/brick_ord = ExtResource("brick_ord")
+shader_parameter/weave_noise = SubResource("weave_noise")
+
+[node name="MenuTerrain" type="MeshInstance3D"]
+mesh = ExtResource("mesh")
+material_override = SubResource("ground_material")
