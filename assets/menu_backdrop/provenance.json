@@ -9,6 +9,94 @@
       "source": "https://polyhaven.com",
       "license": "CC0",
       "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/tower_majadroid_07.glb",
+      "use": "SkylineTower (focal snapped high-rise) — Blender export of the pack's object, modifiers applied, origin at ground",
+      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
+      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/tower_majadroid_04.glb",
+      "use": "RuinCentreFar — Blender export of the pack's object, modifiers applied, origin at ground",
+      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
+      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/tower_majadroid_03.glb",
+      "use": "Skyline1 — Blender export of the pack's object, modifiers applied, origin at ground",
+      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
+      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/tower_majadroid_05.glb",
+      "use": "Skyline2 — Blender export of the pack's object, modifiers applied, origin at ground",
+      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
+      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/tower_majadroid_base.glb",
+      "use": "Skyline3 — Blender export of the pack's object, modifiers applied, origin at ground",
+      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
+      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/tower_majadroid_02.glb",
+      "use": "Skyline4 — Blender export of the pack's object, modifiers applied, origin at ground",
+      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
+      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/tower_majadroid_06.glb",
+      "use": "Skyline5 — Blender export of the pack's object, modifiers applied, origin at ground",
+      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
+      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/tower_majadroid_01.glb",
+      "use": "Skyline6 — Blender export of the pack's object, modifiers applied, origin at ground",
+      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
+      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/ruin_malik_facade.glb",
+      "use": "HeroFacadeRight — nearest ruin (textures downscaled 4K→2K on export)",
+      "author": "Daniyal Malik (https://sketchfab.com/daniyalmalik)",
+      "source": "Sketchfab download (glTF), local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/scene.gltf",
+      "license": "CONFIRM: licence on the Sketchfab model page (Sketchfab downloads are usually CC BY 4.0, which requires credit)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/shack_low.glb",
+      "use": "RuinLeft1 — low shack behind the menu (textures downscaled 2K→1K on export)",
+      "author": "CONFIRM: author of the 'SurvivalWood' Unity package",
+      "source": "SurvivalWood (Survival.unitypackage), local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/SurvivalWood",
+      "license": "CONFIRM: licence of the SurvivalWood package",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/shack_high.glb",
+      "use": "RuinLeft2 — raised shack (textures downscaled 2K→1K on export)",
+      "author": "CONFIRM: author of the 'SurvivalWood' Unity package",
+      "source": "SurvivalWood (Survival.unitypackage), local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/SurvivalWood",
+      "license": "CONFIRM: licence of the SurvivalWood package",
+      "ai_generated": false
     }
   ]
 }

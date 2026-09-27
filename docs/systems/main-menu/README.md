@@ -102,25 +102,44 @@ grain amount, UI sounds.
 
 ## Scene map (top-down, metres; camera at x −1.5, z +9 looking −Z)
 
+Buildings pass (2026-09-27): 11 building slots filled with unique models (no
+model is used twice), 4 building slots removed so the street reads sparser,
+and the large Majadroid blocks pushed deep into the fog. Non-building slots
+(ground, car, pole, rubble, bunker entrance) are still greybox placeholders.
+
 ```
  z      LEFT FLANK (low, dark: behind the menu)     RIGHT FLANK (carries the frame)
--350                 Skyline1..7  (silhouettes, x −230 … +260, 28–88 m tall)
--160          RuinCentreFar (street vanishing point)
--125                                                         SkylineTower ★ (x 48, 64 m)
- -76  RuinLeft3 (13 m)                               RuinRight3 (9 m)
- -42  RuinLeft2 (8 m)                                RuinRight2 (12 m)
+-430      Skyline3 (base, 87 m)
+-420                                                   Skyline5 (06, 92 m, x 175)
+-405   Skyline2 (05, 72 m, x −150)
+-380                                    Skyline4 (02, 86 m, x 40)
+-330                                                          Skyline6 (01, 86 m, x 245)
+-320  Skyline1 (03, 66 m, x −235)                  SkylineTower ★ (07, 129 m, x 120)
+-290            RuinCentreFar (04, 58 m, street vanishing point)
+ -33  RuinLeft2 (raised shack)
  -24                                          LeaningPole (diagonal)
  -17                WreckedCar
- -15  RuinLeft1 (4.5 m)                                      HeroFacadeRight (17 m, cropped)
+ -15  RuinLeft1 (low shack)                                  HeroFacadeRight (Malik ruin, 18 m, cropped)
   -6  RubbleLeft                     BunkerEntrance ☼ (warm lamp)  RubbleRight
   +9                    ▲ camera
 ```
 
+| Slot | Model (`assets/models/menu_backdrop/`) | Source |
+|---|---|---|
+| HeroFacadeRight | `ruin_malik_facade.glb` (6k tris, 2K) | Daniyal Malik, Sketchfab |
+| RuinLeft1 / RuinLeft2 | `shack_low.glb` / `shack_high.glb` (1K) | SurvivalWood package |
+| SkylineTower, RuinCentreFar, Skyline1–6 | `tower_majadroid_07/04/03/05/base/02/06/01.glb` (4–45k tris, 1K) | Majadroid, CC0 |
+
 Composition intent: the street leads the eye from the menu into the fog; the
-snapped tower sits on the right-third line against the brightest sky; the
-entrance lamp is the only warm value, low right. Keep the left flank low and
-low-contrast so the menu text never fights architecture. Lightning comes from
-behind the right-hand skyline (backlit silhouettes).
+snapped tower sits on the right-third line with its broken notch turned to
+camera; the entrance lamp is the only warm value, low right. Keep the left
+flank low and low-contrast so the menu text never fights architecture.
+Lightning comes from behind the right-hand skyline (backlit silhouettes).
+
+Re-exporting: the models were exported from the source packs in
+`/mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/` with
+Blender (one object per `.glb`, modifiers and transforms applied, origin at
+ground contact bottom-centre, textures capped at 2K hero / 1K others).
 
 ## Asset intake: replacing a greybox
 
@@ -137,8 +156,8 @@ Budgets (the menu is one static view; spend where the camera looks):
 | Tier | Slots | Triangles | Textures |
 |---|---|---|---|
 | Hero | HeroFacadeRight, BunkerEntrance, WreckedCar, RubbleLeft/Right | 30–80k | 2K, 2–3 materials |
-| Mid | RuinRight2/3, RuinLeft1–3, LeaningPole, RuinCentreFar | 8–25k | 1K or shared trims |
-| Silhouette | SkylineTower, Skyline1–7 | 1–6k | 512 / flat or vertex colour |
+| Mid | RuinLeft1–2, LeaningPole | 2–25k | 1K or shared trims |
+| Distance | SkylineTower, RuinCentreFar, Skyline1–6 | 4–45k (fogged) | 1K |
 | Ground | Ground | tiling | 2K tiling set + a few decals |
 
 Texturing approach that suits the look: a concrete **trim sheet** for facades

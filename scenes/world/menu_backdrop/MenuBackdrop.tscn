@@ -7,6 +7,17 @@
 [ext_resource type="Script" path="res://scripts/world/menu_backdrop/BackdropAssetSlot.gd" id="5_slot"]
 [ext_resource type="Script" path="res://scripts/world/menu_backdrop/FlickerLamp.gd" id="6_lamp"]
 [ext_resource type="PackedScene" path="res://assets/models/industrial_wall_lamp.glb" id="7_lamp_model"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/ruin_malik_facade.glb" id="b00_ruin_malik_facade"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/shack_low.glb" id="b01_shack_low"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/shack_high.glb" id="b02_shack_high"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_07.glb" id="b03_tower_majadroid_07"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_04.glb" id="b04_tower_majadroid_04"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_03.glb" id="b05_tower_majadroid_03"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_05.glb" id="b06_tower_majadroid_05"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_base.glb" id="b07_tower_majadroid_base"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_02.glb" id="b08_tower_majadroid_02"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_06.glb" id="b09_tower_majadroid_06"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_01.glb" id="b10_tower_majadroid_01"]
 
 [sub_resource type="ProceduralSkyMaterial" id="overcast_sky"]
 sky_top_color = Color(0.17, 0.182, 0.178, 1)
@@ -188,35 +199,21 @@ brief = "Street/ground: cracked asphalt, rubble drifts, ash. Large tiling terrai
 
 [node name="HeroFacadeRight" type="Node3D" parent="Slots/RightFlank"]
 position = Vector3(19, 0, -12)
-rotation = Vector3(0, -0.139626, 0)
+rotation = Vector3(0, -0.698132, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b00_ruin_malik_facade")
 greybox_size = Vector3(10, 17, 12)
 greybox_broken = true
 brief = "Nearest ruin, cropped by the right frame edge. Highest detail: exposed floor slabs, rebar, broken windows with dark interiors. ~40-80k tris, 2-3 materials."
 
-[node name="RuinRight2" type="Node3D" parent="Slots/RightFlank"]
-position = Vector3(21, 0, -40)
-rotation = Vector3(0, 0.0698132, 0)
-script = ExtResource("5_slot")
-greybox_size = Vector3(12, 12, 14)
-greybox_broken = true
-brief = "Mid-ground block, partially collapsed top floors."
-
-[node name="RuinRight3" type="Node3D" parent="Slots/RightFlank"]
-position = Vector3(24, 0, -72)
-rotation = Vector3(0, -0.0523599, 0)
-script = ExtResource("5_slot")
-greybox_size = Vector3(14, 9, 12)
-greybox_broken = true
-brief = "Low collapsed structure, reads mostly as silhouette in fog."
-
 [node name="SkylineTower" type="Node3D" parent="Slots/RightFlank"]
-position = Vector3(48, 0, -125)
-rotation = Vector3(0, 0.20944, 0)
+position = Vector3(120, 0, -320)
+rotation = Vector3(0, 0.872665, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b03_tower_majadroid_07")
 greybox_size = Vector3(18, 64, 18)
 greybox_broken = true
-brief = "FOCAL POINT on the right-third line: a snapped high-rise with a jagged top against the storm. Silhouette matters more than surface detail."
+brief = "FOCAL POINT on the right-third line: the tallest snapped block (129 m), far enough back to sit in the storm."
 
 [node name="LeaningPole" type="Node3D" parent="Slots/RightFlank"]
 position = Vector3(9.5, 0, -24)
@@ -228,83 +225,84 @@ brief = "Utility pole leaning ~12 deg with sagging cable: a strong diagonal line
 
 [node name="RuinLeft1" type="Node3D" parent="Slots/LeftFlank"]
 position = Vector3(-18, 0, -15)
-rotation = Vector3(0, 0.10472, 0)
+rotation = Vector3(0, 0.104720, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b01_shack_low")
 greybox_size = Vector3(10, 4.5, 12)
 greybox_broken = true
-brief = "Behind the menu text: keep it low, dark and low-contrast."
+brief = "Behind the menu text: a survivor's low shack, dark and low-contrast."
 
 [node name="RuinLeft2" type="Node3D" parent="Slots/LeftFlank"]
-position = Vector3(-22, 0, -42)
-rotation = Vector3(0, -0.0872665, 0)
+position = Vector3(-15, 0, -33)
+rotation = Vector3(0, -0.244346, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b02_shack_high")
 greybox_size = Vector3(12, 8, 14)
 greybox_broken = true
-brief = "Behind the menu text: low contrast silhouette."
-
-[node name="RuinLeft3" type="Node3D" parent="Slots/LeftFlank"]
-position = Vector3(-22, 0, -76)
-rotation = Vector3(0, 0.0523599, 0)
-script = ExtResource("5_slot")
-greybox_size = Vector3(14, 13, 14)
-greybox_broken = true
-brief = "Recedes into fog; silhouette only."
+brief = "A lone raised shack further up the street; small, reads in fog."
 
 [node name="RuinCentreFar" type="Node3D" parent="Slots/Distance"]
-position = Vector3(-8, 0, -160)
+position = Vector3(-14, 0, -290)
+rotation = Vector3(0, -0.174533, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b04_tower_majadroid_04")
 greybox_size = Vector3(26, 34, 18)
 greybox_broken = true
 brief = "Terminates the street's vanishing point; heavily fogged."
 
 [node name="Skyline1" type="Node3D" parent="Slots/Distance"]
-position = Vector3(-230, 0, -300)
+position = Vector3(-235, 0, -320)
+rotation = Vector3(0, 0.558505, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b05_tower_majadroid_03")
 greybox_size = Vector3(46, 40, 30)
 greybox_broken = true
-brief = "Distant skyline silhouette."
+brief = "Far skyline, left: kept lower so it never fights the menu."
 
 [node name="Skyline2" type="Node3D" parent="Slots/Distance"]
-position = Vector3(-140, 0, -340)
+position = Vector3(-150, 0, -405)
+rotation = Vector3(0, -0.366519, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b06_tower_majadroid_05")
 greybox_size = Vector3(40, 72, 30)
 greybox_broken = true
-brief = "Distant skyline silhouette."
+brief = "Far skyline, left: deep in the fog."
 
 [node name="Skyline3" type="Node3D" parent="Slots/Distance"]
-position = Vector3(-60, 0, -310)
+position = Vector3(-70, 0, -430)
+rotation = Vector3(0, 0.209440, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b07_tower_majadroid_base")
 greybox_size = Vector3(52, 28, 30)
 greybox_broken = true
-brief = "Distant skyline silhouette."
+brief = "Far skyline: the one intact block, barely visible."
 
 [node name="Skyline4" type="Node3D" parent="Slots/Distance"]
-position = Vector3(30, 0, -360)
+position = Vector3(40, 0, -380)
+rotation = Vector3(0, -0.610865, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b08_tower_majadroid_02")
 greybox_size = Vector3(38, 56, 30)
 greybox_broken = true
-brief = "Distant skyline silhouette."
+brief = "Far skyline, centre-right."
 
 [node name="Skyline5" type="Node3D" parent="Slots/Distance"]
-position = Vector3(110, 0, -330)
+position = Vector3(175, 0, -420)
+rotation = Vector3(0, 0.314159, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b09_tower_majadroid_06")
 greybox_size = Vector3(34, 88, 30)
 greybox_broken = true
-brief = "Distant skyline silhouette."
+brief = "Far skyline, right: the widest block."
 
 [node name="Skyline6" type="Node3D" parent="Slots/Distance"]
-position = Vector3(180, 0, -300)
+position = Vector3(245, 0, -330)
+rotation = Vector3(0, -0.488692, 0)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("b10_tower_majadroid_01")
 greybox_size = Vector3(50, 36, 30)
 greybox_broken = true
-brief = "Distant skyline silhouette."
-
-[node name="Skyline7" type="Node3D" parent="Slots/Distance"]
-position = Vector3(260, 0, -350)
-script = ExtResource("5_slot")
-greybox_size = Vector3(44, 62, 30)
-greybox_broken = true
-brief = "Distant skyline silhouette."
+brief = "Far skyline, right edge."
 
 [node name="WreckedCar" type="Node3D" parent="Slots/Foreground"]
 position = Vector3(-2.5, 0, -17)
