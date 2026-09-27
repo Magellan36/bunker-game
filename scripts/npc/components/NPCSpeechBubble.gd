@@ -27,8 +27,8 @@ const RADIUS: float = 18.0
 const TAIL_W: float = 22.0
 const TAIL_H: float = 14.0
 const SHADOW: float = 6.0
-const PIXEL_SIZE: float = 0.0009       ## world metres per supersampled px (fixed_size screen scale)
-const HEAD_CLEARANCE: float = 0.34     ## bubble tail tip this far above the head bone
+const PIXEL_SIZE: float = 0.0016       ## world metres per supersampled px (fixed_size screen scale)
+const HEAD_CLEARANCE: float = 0.30     ## bubble tail tip this far above the head bone
 const FALLBACK_HEAD_Y: float = 1.35    ## local Y when no skeleton is available
 const HIDE_BEYOND: float = 16.0        ## metres from the camera
 
