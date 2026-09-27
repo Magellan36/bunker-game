@@ -70,7 +70,7 @@ func enter(npc: NPC) -> void:
 
 # ─── Task selection ───────────────────────────────────────────────────────
 func _pick_next_task(npc: NPC) -> void:
-	if _item != null and (not is_instance_valid(_item) or npc.held_item != _item):
+	if not is_instance_valid(_item) or npc.held_item != _item:   ## `freed != null` is false in Godot 4 — test validity directly
 		_item = null   ## used up or lost
 	while true:
 		_release_current_cell(npc)
@@ -242,7 +242,7 @@ func _try_fetch_with_filter(npc: NPC, filt: Callable) -> bool:
 func tick(npc: NPC, delta: float) -> void:
 	if _finished:
 		return
-	if _current_tray != null and not is_instance_valid(_current_tray):
+	if not is_instance_valid(_current_tray):
 		_pick_next_task(npc)
 		return
 	match _phase:
@@ -288,7 +288,7 @@ func _apply(npc: NPC) -> void:
 		_mark_skipped(key)   ## never retry a failed cell this session
 	if NPCDebug.enabled:
 		NPCDebug.log_cleaning(npc, "gardening applied", "%s cell=%d success=%s" % [_current_task, _current_cell, ok])
-	if _item != null and (not is_instance_valid(_item) or npc.held_item != _item):
+	if not is_instance_valid(_item) or npc.held_item != _item:   ## `freed != null` is false in Godot 4 — test validity directly
 		_item = null   ## used up
 	_pick_next_task(npc)
 

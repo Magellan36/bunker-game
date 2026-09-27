@@ -284,9 +284,10 @@ func _sample() -> void:
 	var hr: int = int(NPCClock.hour_of_day()) % 24
 	for id in _track.keys():
 		var tr: Dictionary = _track[id]
-		var npc: Node = tr["npc"]
-		if not is_instance_valid(npc):
+		var raw = tr["npc"]   ## untyped: a save/load cycle frees the old NPC nodes
+		if not is_instance_valid(raw):
 			continue
+		var npc: Node = raw
 		var act: String = _act_class(npc)
 		_activity_time[act] = float(_activity_time.get(act, 0.0)) + SAMPLE_DT
 		_hour_total[hr] += 1

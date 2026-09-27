@@ -217,7 +217,7 @@ func get_open_jobs() -> Array:
 			_jobs.erase(id)
 			continue
 		var claimant: Node = job.get("claimed_by") as Node   ## Aug 2026 — same safe-cast fix; low-risk today (no NPC despawn/death system exists yet) but closes the gap before one does
-		if claimant != null and not is_instance_valid(claimant):
+		if claimant == null or not is_instance_valid(claimant):
 			job["claimed_by"] = null   ## claimant vanished — auto-release
 		if job.get("claimed_by") == null:
 			out.append(job)
