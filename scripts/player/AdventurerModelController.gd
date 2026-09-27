@@ -112,6 +112,9 @@ const XF_TO_SLEEP: float = 1.2
 const XF_WAKE: float = 0.9
 const XF_EXIT: float = 0.45
 const XF_DEATH: float = 0.2
+const XF_DEATH_TURN: float = 0.35
+## Free floor wanted beyond the dying clip's own travel (m).
+const DEATH_CLEARANCE: float = 0.3
 
 enum Stage { NONE, APPROACH, PIVOT, SIT_DOWN, SEATED, LIE_DOWN, SLEEP, GET_UP, STAND_UP, DEAD }
 
@@ -647,10 +650,37 @@ func _enter_death() -> void:
 	var slot: ActionSlot = _push_slot(&"dying", 1.0, false, XF_DEATH)
 	var anim: Animation = _lib.get_animation("dying")
 	var feet: Vector3 = _last_visual_world.origin
-	slot.base = _placement(_visual_yaw - _clip_yaw(anim, 0.0), _meta_at(anim, "feet", 0.0),
-		Vector3(feet.x, _floor_y(), feet.z))
+	var start := Vector3(feet.x, _floor_y(), feet.z)
+	slot.base = _placement(_visual_yaw - _clip_yaw(anim, 0.0), _meta_at(anim, "feet", 0.0), start)
+	## The authored collapse travels ~1 m forward. If a wall is in the way,
+	## turn the fall towards open floor (eased in by a longer cross-fade)
+	## instead of dropping through the wall.
+	var travel: Vector3 = slot.base.basis * (_meta_at(anim, "head", anim.length) - _meta_at(anim, "feet", 0.0))
+	travel.y = 0.0
+	var need: float = travel.length() + DEATH_CLEARANCE
+	var xfade: float = XF_DEATH
+	for turn: float in [0.0, PI * 0.25, -PI * 0.25, PI * 0.5, -PI * 0.5, PI * 0.75, -PI * 0.75, PI]:
+		if _free_distance(start, travel.rotated(Vector3.UP, turn).normalized(), need) >= need:
+			if turn != 0.0:
+				slot.base = _placement(_visual_yaw + turn - _clip_yaw(anim, 0.0), _meta_at(anim, "feet", 0.0), start)
+				xfade = XF_DEATH_TURN
+			break
+	_xfade_ab = xfade
 	_act_target = 1.0
-	_xfade_act = XF_DEATH
+	_xfade_act = xfade
+
+## Clear floor distance (up to max_dist) from `from` along `dir`, probed at
+## knee and chest height against world geometry.
+func _free_distance(from: Vector3, dir: Vector3, max_dist: float) -> float:
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var best: float = max_dist
+	for h: float in [0.35, 0.9]:
+		var q := PhysicsRayQueryParameters3D.create(from + Vector3.UP * h, from + Vector3.UP * h + dir * max_dist)
+		q.exclude = [_player.get_rid()]
+		var hit: Dictionary = space.intersect_ray(q)
+		if not hit.is_empty():
+			best = minf(best, (hit["position"] as Vector3 - q.from).length())
+	return best
 
 # ─── Slots ───────────────────────────────────────────────────────────────────
 func _push_slot(clip: StringName, rate: float, looping: bool, xfade: float) -> ActionSlot:
